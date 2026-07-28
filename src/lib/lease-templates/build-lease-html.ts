@@ -380,10 +380,21 @@ export function buildLeaseHtml(ctx: LeaseGenerationContext, config: LeaseJurisdi
   const customFeeSigningRows = billableOneTimeCustomFees
     .map((f) => `  <tr><th>${escapeHtml(f.label?.trim() || "Custom fee")}</th><td>${escapeHtml(fmtUsd(parseAmount(f.amount) ?? 0))}</td></tr>`)
     .join("\n");
-  const customFeeExhibitRows = billableOneTimeCustomFees
+  // Monthly custom fees now bill (recurring, alongside rent), so they too must appear in the
+  // lease — as Monthly line items in Exhibit A (not in the due-at-signing total).
+  const billableMonthlyCustomFees = (sub?.customFees ?? []).filter((fee) => {
+    const presetId = (fee as { presetId?: string }).presetId;
+    if (presetId && presetId !== "custom") return false;
+    if (fee.frequency === "one-time") return false;
+    const n = parseAmount(fee.amount);
+    return n != null && n > 0;
+  });
+  const customFeeExhibitRows = [...billableOneTimeCustomFees, ...billableMonthlyCustomFees]
     .map(
       (f) =>
-        `  <tr><td>${escapeHtml(f.label?.trim() || "Custom fee")}</td><td>${escapeHtml(fmtUsd(parseAmount(f.amount) ?? 0))}</td><td>One-time</td></tr>`,
+        `  <tr><td>${escapeHtml(f.label?.trim() || "Custom fee")}</td><td>${escapeHtml(fmtUsd(parseAmount(f.amount) ?? 0))}</td><td>${
+          f.frequency === "one-time" ? "One-time" : "Monthly"
+        }</td></tr>`,
     )
     .join("\n");
 
