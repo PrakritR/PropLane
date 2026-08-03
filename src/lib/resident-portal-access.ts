@@ -126,18 +126,34 @@ export async function loadResidentLeaseSignedStatus(email: string): Promise<bool
  * Lease, House details, Services, Payments and Documents, and made
  * `/resident/lease` redirect to the apply wizard, no matter how approved their
  * application was: the role check short-circuits before any application is read.
+ *
+ * Fails CLOSED on a read failure, like `getPortalAccessContext`, but logs it —
+ * a transient error otherwise reproduces the exact padlock symptom above with
+ * nothing anywhere to distinguish it from a genuine "no resident role".
  */
 async function holdsResidentRole(
   db: ReturnType<typeof createSupabaseServiceRoleClient>,
   userId: string,
 ): Promise<boolean> {
-  const { data } = await db
-    .from("profile_roles")
-    .select("role")
-    .eq("user_id", userId)
-    .eq("role", "resident")
-    .maybeSingle();
-  return Boolean(data);
+  try {
+    const { data, error } = await db
+      .from("profile_roles")
+      .select("role")
+      .eq("user_id", userId)
+      .eq("role", "resident")
+      .maybeSingle();
+    if (error) {
+      console.error("holdsResidentRole profile_roles read failed", { userId, message: error.message });
+      return false;
+    }
+    return Boolean(data);
+  } catch (e) {
+    console.error("holdsResidentRole profile_roles read threw", {
+      userId,
+      message: e instanceof Error ? e.message : String(e),
+    });
+    return false;
+  }
 }
 
 const loadResidentPortalAccessStateCached = cache(
@@ -273,14 +289,14 @@ export async function loadResidentPortalAccessState(params: {
   );
 }
 
-export function residentHasFullPortalAccess(params: {
-  applicationApproved: boolean;
-  leaseSigned?: boolean;
-  role: string | null | undefined;
-  email: string | null | undefined;
-  managerSubscriptionTier?: ManagerSubscriptionTier;
-}): boolean {
-  if (params.role && params.role !== "resident") return false;
-  if (params.leaseSigned === true) return true;
-  return false;
+/**
+ * A signed lease is the whole decision. The resident-role check lives in
+ * `loadResidentPortalAccessState`, which is where `leaseSigned` comes from —
+ * an account without the resident role gets `emptyAccessState` (`leaseSigned:
+ * false`), so re-checking a role here added nothing. Re-checking the LEGACY
+ * `profiles.role` actively stranded a manager+resident with a signed lease on
+ * the placeholder workspace, the same class of bug this module fixes above.
+ */
+export function residentHasFullPortalAccess(params: { leaseSigned?: boolean }): boolean {
+  return params.leaseSigned === true;
 }

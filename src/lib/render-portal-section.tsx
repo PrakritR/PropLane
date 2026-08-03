@@ -331,11 +331,7 @@ export async function renderPortalSection(
   const residentWorkspaceUnlocked =
     kind === "resident"
       ? residentHasFullPortalAccess({
-          applicationApproved: residentAccess?.applicationApproved ?? false,
           leaseSigned: residentAccess?.leaseSigned ?? false,
-          role: residentCtx?.profile?.role,
-          email: residentCtx?.profile?.email ?? residentCtx?.user?.email ?? null,
-          managerSubscriptionTier: residentManagerTier,
         })
       : false;
   if (kind === "resident" && section === "applications") {
