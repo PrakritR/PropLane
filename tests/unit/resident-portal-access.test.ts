@@ -255,6 +255,41 @@ describe("resident portal access state", () => {
     expect(isResidentPathAllowedForAccess("/resident/lease", access)).toBe(true);
   });
 
+  /**
+   * The resolver and the resident API routes must answer the same question, or
+   * the portal renders a section whose routes then 403. A null/empty legacy role
+   * used to short-circuit to `roleOk` here while the routes read `profile_roles`.
+   */
+  it("resolves an empty legacy profiles.role from profile_roles, not by admitting it", async () => {
+    vi.mocked(createSupabaseServiceRoleClient).mockReturnValue(
+      makeDbMock({
+        applicationRows: APPROVED_MULTI_ROLE_APPLICATION,
+        profileRoles: [],
+      }) as never,
+    );
+
+    const refused = await loadResidentPortalAccessState({
+      userId: "user-no-roles",
+      role: "",
+      email: "both@example.com",
+    });
+    expect(refused.roleOk).toBe(false);
+
+    vi.mocked(createSupabaseServiceRoleClient).mockReturnValue(
+      makeDbMock({
+        applicationRows: APPROVED_MULTI_ROLE_APPLICATION,
+        profileRoles: ["resident"],
+      }) as never,
+    );
+
+    const allowed = await loadResidentPortalAccessState({
+      userId: "user-role-row-only",
+      role: null,
+      email: "both@example.com",
+    });
+    expect(allowed.roleOk).toBe(true);
+  });
+
   it("still refuses an account that does not hold the resident role at all", async () => {
     vi.mocked(createSupabaseServiceRoleClient).mockReturnValue(
       makeDbMock({

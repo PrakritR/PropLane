@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { track } from "@/lib/analytics/posthog";
 import { isAdminUser } from "@/lib/auth/admin-preview";
+import { authorizeResidentRole } from "@/lib/auth/resident-role-access";
 import { deliverResidentWorkOrderReminder } from "@/lib/resident-work-order-reminder.server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
@@ -17,13 +18,14 @@ async function sessionActor(db: Db) {
   if (!user) return null;
   const admin = await isAdminUser(user.id);
   const { data: profile } = await db.from("profiles").select("email, role, full_name").eq("id", user.id).maybeSingle();
-  const role = String(profile?.role ?? user.user_metadata?.role ?? "").toLowerCase();
+  const legacyRole = String(profile?.role ?? user.user_metadata?.role ?? "").toLowerCase();
+  const resident = await authorizeResidentRole(db, { userId: user.id, legacyRole });
   return {
     userId: user.id,
     email: (profile?.email ?? user.email ?? "").trim().toLowerCase(),
     fullName: profile?.full_name?.trim() || "",
     admin,
-    role,
+    resident,
   };
 }
 
@@ -33,7 +35,7 @@ export async function POST(req: Request) {
     const db = createSupabaseServiceRoleClient();
     const actor = await sessionActor(db);
     if (!actor) return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
-    if (!actor.admin && actor.role !== "resident") {
+    if (!actor.admin && !actor.resident) {
       return NextResponse.json({ error: "Forbidden." }, { status: 403 });
     }
 

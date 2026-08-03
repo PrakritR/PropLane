@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import type { ServiceRequest } from "@/lib/service-requests-storage";
 import { isAdminUser } from "@/lib/auth/admin-preview";
 import { fetchRowsForManagerWithLinked, linkedPropertyIdsForModule } from "@/lib/auth/co-manager-module-scope";
+import { resolveResidentScopedActorRole } from "@/lib/auth/resident-role-access";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { resolveResidentFilingScope } from "@/lib/resident-manager-scope";
@@ -52,7 +53,10 @@ export async function GET() {
     const db = createSupabaseServiceRoleClient();
     const admin = await isAdminUser(user.id);
     const { data: profile } = await db.from("profiles").select("email, role").eq("id", user.id).maybeSingle();
-    const role = String(profile?.role ?? user.user_metadata?.role ?? "").toLowerCase();
+    const role = await resolveResidentScopedActorRole(db, {
+      userId: user.id,
+      legacyRole: profile?.role ?? user.user_metadata?.role,
+    });
     const email = (profile?.email ?? user.email ?? "").trim().toLowerCase();
 
     // Managers/pro see the requests they own plus rows on properties they own
@@ -212,7 +216,10 @@ export async function POST(req: Request) {
     const db = createSupabaseServiceRoleClient();
     const admin = await isAdminUser(user.id);
     const { data: profile } = await db.from("profiles").select("email, role").eq("id", user.id).maybeSingle();
-    const role = String(profile?.role ?? user.user_metadata?.role ?? "").toLowerCase();
+    const role = await resolveResidentScopedActorRole(db, {
+      userId: user.id,
+      legacyRole: profile?.role ?? user.user_metadata?.role,
+    });
     const actor: Actor = {
       userId: user.id,
       email: (profile?.email ?? user.email ?? "").trim().toLowerCase(),

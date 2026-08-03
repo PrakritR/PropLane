@@ -790,6 +790,29 @@ The multi-role account is not an edge case — it is how the team dogfoods, so i
 is the FIRST account to test any portal-gating change against. A single-role
 resident will pass while the same code is broken for everyone who also manages.
 
+**API routes get this from one helper, not a hand-rolled read.**
+`src/lib/auth/resident-role-access.ts` is the only entry point:
+
+- `authorizeResidentRole(db, { userId, legacyRole })` — "is this caller a
+  resident?" for a resident-ONLY route. Accepts a legacy `profiles.role` of
+  `"resident"` so an un-backfilled resident is not locked out, otherwise reads
+  `profile_roles`, and fails closed on a read error.
+- `resolveResidentScopedActorRole(db, …)` — the effective role for a route that
+  serves BOTH portals (`/api/portal-work-orders`,
+  `/api/portal-service-requests`), where the role picks a branch in *both*
+  directions. Fixing only the `!== "resident"` side drops out of the manager
+  branch WITHOUT applying the `resident_email` filter, which returns other
+  people's rows — strictly worse than the bug. Resolve once, use that one value
+  everywhere. The tiebreak for a multi-role account is the active portal
+  (`getPortalAccessContext().effectiveRole`), so the manager portal keeps its
+  portfolio-wide read.
+
+`tests/unit/resident-role-authorization-surface.test.ts` scans `src/app/api` and
+fails a new route that branches on `"resident"` without consulting
+`profile_roles`. Its deferred-route allowlist is a shrinking record of known
+violations (task `axis-dual-portal-role-resolution`), never a place to add a new
+one.
+
 ## Inbox panels: the standalone page shell is a /demo-only path
 
 `ManagerInbox` (and the resident / vendor / admin inbox panels, which share the

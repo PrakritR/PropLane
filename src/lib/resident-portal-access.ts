@@ -126,7 +126,7 @@ const loadResidentPortalAccessStateCached = cache(
     const db = createSupabaseServiceRoleClient();
     // Fast path stays query-free for the single-role resident (the common case);
     // the extra lookup only runs for an account whose legacy role says otherwise.
-    const roleOk = !role || (await authorizeResidentRole(db, { userId, legacyRole: role }));
+    const roleOk = await authorizeResidentRole(db, { userId, legacyRole: role });
     if (!roleOk) return emptyAccessState(managerSubscriptionTier);
 
     const { data: applicationRows } = await db

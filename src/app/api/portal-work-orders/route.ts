@@ -2,6 +2,7 @@ import { NextResponse, after } from "next/server";
 import type { DemoManagerWorkOrderRow } from "@/data/demo-portal";
 import { isAdminUser } from "@/lib/auth/admin-preview";
 import { fetchRowsForManagerWithLinked, linkedPropertyIdsForModule } from "@/lib/auth/co-manager-module-scope";
+import { resolveResidentScopedActorRole } from "@/lib/auth/resident-role-access";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { resolveResidentFilingScope } from "@/lib/resident-manager-scope";
@@ -99,7 +100,10 @@ export async function GET() {
     const db = createSupabaseServiceRoleClient();
     const admin = await isAdminUser(user.id);
     const { data: profile } = await db.from("profiles").select("email, role").eq("id", user.id).maybeSingle();
-    const role = String(profile?.role ?? user.user_metadata?.role ?? "").toLowerCase();
+    const role = await resolveResidentScopedActorRole(db, {
+      userId: user.id,
+      legacyRole: profile?.role ?? user.user_metadata?.role,
+    });
     const email = (profile?.email ?? user.email ?? "").trim().toLowerCase();
 
     if (!admin && role === "vendor") {
@@ -339,7 +343,10 @@ export async function POST(req: Request) {
       userId: user.id,
       email: (profile?.email ?? user.email ?? "").trim().toLowerCase(),
       admin,
-      role: String(profile?.role ?? user.user_metadata?.role ?? "").toLowerCase(),
+      role: await resolveResidentScopedActorRole(db, {
+        userId: user.id,
+        legacyRole: profile?.role ?? user.user_metadata?.role,
+      }),
     };
 
     // Vendors see their offered/assigned work through GET; the record itself is

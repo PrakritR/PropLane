@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { authorizeResidentRole } from "@/lib/auth/resident-role-access";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { reportResidentManualPayment } from "@/lib/resident-manual-payment.server";
@@ -29,8 +30,8 @@ export async function POST(req: Request) {
 
     const db = createSupabaseServiceRoleClient();
     const { data: profile } = await db.from("profiles").select("role, email").eq("id", user.id).maybeSingle();
-    const role = String(profile?.role ?? user.user_metadata?.role ?? "").trim().toLowerCase();
-    if (role !== "resident") {
+    const legacyRole = String(profile?.role ?? user.user_metadata?.role ?? "").trim().toLowerCase();
+    if (!(await authorizeResidentRole(db, { userId: user.id, legacyRole }))) {
       return NextResponse.json({ error: "Residents only." }, { status: 403 });
     }
 
