@@ -54,6 +54,35 @@ function asUuidOrNull(value: unknown): string | null {
   return UUID_RE.test(v) ? v : null;
 }
 
+type StoredLeaseScopeColumns = {
+  manager_user_id?: string | null;
+  resident_user_id?: string | null;
+  resident_email?: string | null;
+  property_id?: string | null;
+};
+
+/**
+ * The scope columns as the SERVER stored them. A resident may edit the body of
+ * a lease they can see, never which account or manager it belongs to: those
+ * four columns are what every scoped query keys on, so accepting the client's
+ * copy lets a visible row be rewritten into someone else's resident query or
+ * into an arbitrary manager's pipeline. The manager branch below already
+ * re-pins `manager_user_id` for the same reason.
+ *
+ * Every key is read from a row the caller's own SELECT must name — see the
+ * SELECT-coverage assertion in `lease-pipeline-resident-upsert-scope.test.ts`,
+ * because a column missing from that list would silently pin `null` here and
+ * orphan the resident from their own lease.
+ */
+function storedScopeColumns(stored: StoredLeaseScopeColumns | undefined): StoredLeaseScopeColumns {
+  return {
+    manager_user_id: stored?.manager_user_id ?? null,
+    resident_user_id: stored?.resident_user_id ?? null,
+    resident_email: stored?.resident_email ?? null,
+    property_id: stored?.property_id ?? null,
+  };
+}
+
 function buildUpsert(row: Record<string, unknown>) {
   return {
     id: row.id,
@@ -131,6 +160,7 @@ export async function POST(req: Request) {
       if (ids.length === 0 || ids.some((id) => !id)) {
         return NextResponse.json({ error: "id required" }, { status: 400 });
       }
+      let refusedForRole = false;
       for (const id of ids) {
         const { data: existing } = await ctx.db
           .from("portal_lease_pipeline_records")
@@ -140,11 +170,17 @@ export async function POST(req: Request) {
         const record = (existing ?? [])[0] as LeaseScopeRecord | undefined;
         if (!record) continue;
         if (ctx.user.role !== "admin") {
-          if (ctx.user.role === "resident") continue;
+          if (ctx.user.role === "resident") {
+            refusedForRole = true;
+            continue;
+          }
           const allowed = await managerCanAccessLeaseRecord(ctx.db, ctx.user.id, record, "delete");
           if (!allowed) continue;
         }
         await ctx.db.from("portal_lease_pipeline_records").delete().eq("id", id);
+      }
+      if (refusedForRole) {
+        return NextResponse.json({ error: "Residents cannot delete lease records." }, { status: 403 });
       }
       return NextResponse.json({ ok: true });
     }
@@ -160,13 +196,15 @@ export async function POST(req: Request) {
 
       const { data: existing, error: existingError } = await ctx.db
         .from("portal_lease_pipeline_records")
-        .select("id, manager_user_id, property_id, row_data")
+        .select("id, manager_user_id, resident_user_id, resident_email, property_id, row_data")
         .eq("id", id)
         .limit(1);
       if (existingError) return NextResponse.json({ error: existingError.message }, { status: 500 });
 
       const recordExists = Array.isArray(existing) && existing.length > 0;
-      const existingRecord = (existing ?? [])[0] as (LeaseScopeRecord & { row_data?: Record<string, unknown> }) | undefined;
+      const existingRecord = (existing ?? [])[0] as
+        | (LeaseScopeRecord & StoredLeaseScopeColumns & { row_data?: Record<string, unknown> })
+        | undefined;
 
       // Evidence integrity, authoritative copy. The client store runs the same
       // predicate, but it runs IN the browser against a store the browser owns,
@@ -195,6 +233,7 @@ export async function POST(req: Request) {
           if (!Array.isArray(visible) || visible.length === 0) {
             return NextResponse.json({ error: "Record not found." }, { status: 404 });
           }
+          record = { ...record, ...storedScopeColumns(existingRecord) };
         } else {
           const allowed = existingRecord
             ? await managerCanAccessLeaseRecord(ctx.db, ctx.user.id, existingRecord, "edit")

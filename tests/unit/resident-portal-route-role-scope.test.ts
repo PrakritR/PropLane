@@ -22,6 +22,7 @@ let PROFILE: { email: string; role: string | null } | null = null;
 let PROFILE_ROLES: string[] = [];
 let PORTAL_ROLES: string[] = [];
 let EFFECTIVE_ROLE: string | null = null;
+let PORTAL_CONTEXT_THROWS = false;
 
 const RESIDENT_ROW = { id: "wo-mine", title: "My leaky sink", residentEmail: RESIDENT_EMAIL };
 const OTHER_RESIDENT_ROW = { id: "wo-theirs", title: "Someone else's sink", residentEmail: "tenant@example.com" };
@@ -47,12 +48,10 @@ vi.mock("@/lib/supabase/service", () => ({ createSupabaseServiceRoleClient: () =
 vi.mock("@/lib/auth/admin-preview", () => ({ isAdminUser: (...a: unknown[]) => isAdminUser(...(a as [])) }));
 vi.mock("@/lib/auth/portal-access", () => ({
   ACTIVE_PORTAL_COOKIE: "axis_active_portal",
-  getPortalAccessContext: async () => ({
-    user: null,
-    profile: null,
-    roles: PORTAL_ROLES,
-    effectiveRole: EFFECTIVE_ROLE,
-  }),
+  getPortalAccessContext: async () => {
+    if (PORTAL_CONTEXT_THROWS) throw new Error("profile_roles read failed");
+    return { user: null, profile: null, roles: PORTAL_ROLES, effectiveRole: EFFECTIVE_ROLE };
+  },
 }));
 vi.mock("@/lib/auth/co-manager-module-scope", () => ({
   fetchRowsForManagerWithLinked: (...a: unknown[]) => fetchRowsForManagerWithLinked(...(a as [])),
@@ -135,6 +134,7 @@ const SURFACES: Array<{ name: string; load: Loader }> = [
 
 beforeEach(() => {
   vi.clearAllMocks();
+  PORTAL_CONTEXT_THROWS = false;
   isAdminUser.mockResolvedValue(false);
   fetchRowsForManagerWithLinked.mockResolvedValue(MANAGER_RECORDS);
   getUser.mockResolvedValue({ data: { user: { id: USER_ID, email: RESIDENT_EMAIL } }, error: null });
@@ -188,6 +188,44 @@ for (const surface of SURFACES) {
     });
 
     it("fails safe to the resident scope rather than granting the manager read", async () => {
+      const res = await surface.load();
+      expect(res.status).toBe(200);
+      const ids = ((await res.json()).rows as Array<{ id: string }>).map((row) => row.id);
+      expect(ids).toEqual([RESIDENT_ROW.id]);
+      expect(fetchRowsForManagerWithLinked).not.toHaveBeenCalled();
+    });
+  });
+
+  describe(`${surface.name} — active portal unresolved`, () => {
+    beforeEach(() => {
+      // getPortalAccessContext returns effectiveRole: null for any multi-role
+      // account whenever axis_active_portal is absent or names a role they do
+      // not hold, and raises no error. This used to fall back to "manager".
+      PROFILE = { email: RESIDENT_EMAIL, role: "manager" };
+      PROFILE_ROLES = ["manager", "resident"];
+      PORTAL_ROLES = ["manager", "resident"];
+      EFFECTIVE_ROLE = null;
+    });
+
+    it("resolves to the narrower resident scope, not the legacy manager value", async () => {
+      const res = await surface.load();
+      expect(res.status).toBe(200);
+      const ids = ((await res.json()).rows as Array<{ id: string }>).map((row) => row.id);
+      expect(ids).toEqual([RESIDENT_ROW.id]);
+      expect(fetchRowsForManagerWithLinked).not.toHaveBeenCalled();
+    });
+  });
+
+  describe(`${surface.name} — portal context read throws`, () => {
+    beforeEach(() => {
+      PROFILE = { email: RESIDENT_EMAIL, role: "manager" };
+      PROFILE_ROLES = ["manager", "resident"];
+      PORTAL_ROLES = ["manager", "resident"];
+      EFFECTIVE_ROLE = "manager";
+      PORTAL_CONTEXT_THROWS = true;
+    });
+
+    it("resolves to the narrower resident scope rather than propagating the error", async () => {
       const res = await surface.load();
       expect(res.status).toBe(200);
       const ids = ((await res.json()).rows as Array<{ id: string }>).map((row) => row.id);
