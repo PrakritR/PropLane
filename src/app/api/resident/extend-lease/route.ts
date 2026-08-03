@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { authorizeResidentRole } from "@/lib/auth/resident-role-access";
 import { amendLeaseMoveOutDate, hasBothLeaseSignatures } from "@/lib/lease-amendment.server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
@@ -20,8 +21,8 @@ export async function POST(req: NextRequest) {
     const db = createSupabaseServiceRoleClient();
     const { data: profile } = await db.from("profiles").select("email, role").eq("id", user.id).maybeSingle();
     const email = (profile?.email ?? user.email ?? "").trim().toLowerCase();
-    const role = String(profile?.role ?? "").toLowerCase();
-    if (role && role !== "resident") return NextResponse.json({ error: "Residents only." }, { status: 403 });
+    const isResident = await authorizeResidentRole(db, { userId: user.id, legacyRole: profile?.role });
+    if (!isResident) return NextResponse.json({ error: "Residents only." }, { status: 403 });
     if (!email) return NextResponse.json({ error: "No email on file." }, { status: 400 });
 
     const body = await req.json() as { newLeaseEnd?: string };

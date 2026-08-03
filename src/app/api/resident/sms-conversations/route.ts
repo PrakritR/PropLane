@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { authorizeResidentRole } from "@/lib/auth/resident-role-access";
 import { fetchResidentSmsConversation } from "@/lib/manager-sms-messages.server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
@@ -14,7 +15,7 @@ export async function GET() {
 
   const db = createSupabaseServiceRoleClient();
   const { data: profile } = await db.from("profiles").select("role").eq("id", user.id).maybeSingle();
-  if (String(profile?.role ?? "").trim().toLowerCase() !== "resident") {
+  if (!(await authorizeResidentRole(db, { userId: user.id, legacyRole: profile?.role }))) {
     return NextResponse.json({ error: "Resident access required." }, { status: 403 });
   }
 

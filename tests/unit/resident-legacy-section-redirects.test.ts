@@ -35,6 +35,7 @@ const residentAccess = {
   applicationApproved: false,
   leaseAccessUnlocked: false,
   leaseSigned: false,
+  fullPortalAccess: false,
   hasSubmittedApplication: false,
   hasCompletedApplicationSubmission: false,
   hasTourLink: false,
@@ -53,7 +54,6 @@ vi.mock("@/lib/resident-portal-access", async () => {
   return {
     loadResidentPortalAccessState: vi.fn(async () => residentAccess),
     loadResidentLeaseSignedStatus: vi.fn(async () => false),
-    residentHasFullPortalAccess: () => false,
     residentPortalHomePath: nav.residentPortalHomePath,
   };
 });

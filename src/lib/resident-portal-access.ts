@@ -1,4 +1,5 @@
 import { cache } from "react";
+import { authorizeResidentRole } from "@/lib/auth/resident-role-access";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import type {
   ManagerSubscriptionTier,
@@ -113,49 +114,6 @@ export async function loadResidentLeaseSignedStatus(email: string): Promise<bool
   });
 }
 
-/**
- * Whether this account HOLDS the resident role, from the multi-role source of
- * truth (`profile_roles`) rather than the legacy single-value `profiles.role`.
- *
- * `profiles.role` records only whichever role the account was CREATED as, so a
- * resident who is also a manager reads back as `"manager"` forever. Every portal
- * guard already knows this and authorizes off `profile_roles` (`hasRole` in
- * `portal-access.ts`), but the resident ACCESS resolver did not — so the layout
- * admitted a manager+resident into /resident and then handed them
- * `emptyAccessState`, which resolves to nav stage `pre_approval`. That locked
- * Lease, House details, Services, Payments and Documents, and made
- * `/resident/lease` redirect to the apply wizard, no matter how approved their
- * application was: the role check short-circuits before any application is read.
- *
- * Fails CLOSED on a read failure, like `getPortalAccessContext`, but logs it —
- * a transient error otherwise reproduces the exact padlock symptom above with
- * nothing anywhere to distinguish it from a genuine "no resident role".
- */
-async function holdsResidentRole(
-  db: ReturnType<typeof createSupabaseServiceRoleClient>,
-  userId: string,
-): Promise<boolean> {
-  try {
-    const { data, error } = await db
-      .from("profile_roles")
-      .select("role")
-      .eq("user_id", userId)
-      .eq("role", "resident")
-      .maybeSingle();
-    if (error) {
-      console.error("holdsResidentRole profile_roles read failed", { userId, message: error.message });
-      return false;
-    }
-    return Boolean(data);
-  } catch (e) {
-    console.error("holdsResidentRole profile_roles read threw", {
-      userId,
-      message: e instanceof Error ? e.message : String(e),
-    });
-    return false;
-  }
-}
-
 const loadResidentPortalAccessStateCached = cache(
   async (
     userId: string | null,
@@ -168,8 +126,7 @@ const loadResidentPortalAccessStateCached = cache(
     const db = createSupabaseServiceRoleClient();
     // Fast path stays query-free for the single-role resident (the common case);
     // the extra lookup only runs for an account whose legacy role says otherwise.
-    const roleOk =
-      !role || role === "resident" || (userId ? await holdsResidentRole(db, userId) : false);
+    const roleOk = !role || (await authorizeResidentRole(db, { userId, legacyRole: role }));
     if (!roleOk) return emptyAccessState(managerSubscriptionTier);
 
     const { data: applicationRows } = await db
@@ -287,16 +244,4 @@ export async function loadResidentPortalAccessState(params: {
     email,
     managerSubscriptionTier,
   );
-}
-
-/**
- * A signed lease is the whole decision. The resident-role check lives in
- * `loadResidentPortalAccessState`, which is where `leaseSigned` comes from —
- * an account without the resident role gets `emptyAccessState` (`leaseSigned:
- * false`), so re-checking a role here added nothing. Re-checking the LEGACY
- * `profiles.role` actively stranded a manager+resident with a signed lease on
- * the placeholder workspace, the same class of bug this module fixes above.
- */
-export function residentHasFullPortalAccess(params: { leaseSigned?: boolean }): boolean {
-  return params.leaseSigned === true;
 }

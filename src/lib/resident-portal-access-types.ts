@@ -22,6 +22,14 @@ export type ResidentPortalAccessState = {
   leaseSigned: boolean;
   /** Full workspace (services, payments, move-in) — requires a signed lease. */
   leaseAccessUnlocked: boolean;
+  /**
+   * A signed lease is the whole decision. The resident-role check lives in
+   * `loadResidentPortalAccessState`, which is where `leaseSigned` comes from —
+   * an account without the resident role gets `emptyAccessState`
+   * (`leaseSigned: false`), so re-checking a role here adds nothing. Re-checking
+   * the LEGACY `profiles.role` actively stranded a manager+resident with a
+   * signed lease on the placeholder workspace.
+   */
   fullPortalAccess: boolean;
   managerSubscriptionTier: ManagerSubscriptionTier;
 };

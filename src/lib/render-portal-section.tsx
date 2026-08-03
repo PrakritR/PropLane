@@ -56,7 +56,7 @@ import { getEffectiveSessionForPortal, getEffectiveUserIdForPortal } from "@/lib
 import { getServerSessionProfile } from "@/lib/auth/server-profile";
 import { managerSectionAllowedForTier, residentSectionAllowedForManagerTier } from "@/lib/manager-access";
 import { getManagerSubscriptionTier, getManagerSubscriptionTierByManagerId } from "@/lib/manager-access-server";
-import { loadResidentLeaseSignedStatus, loadResidentPortalAccessState, residentHasFullPortalAccess, residentPortalHomePath } from "@/lib/resident-portal-access";
+import { loadResidentLeaseSignedStatus, loadResidentPortalAccessState, residentPortalHomePath } from "@/lib/resident-portal-access";
 import { isResidentPathAllowedForAccess } from "@/lib/resident-portal-nav";
 import { findSection, getPortalDefinition } from "@/lib/portals";
 import { MANAGER_PLAN_PORTAL_URL } from "@/lib/portals/manager-plan-path";
@@ -329,11 +329,7 @@ export async function renderPortalSection(
     }
   }
   const residentWorkspaceUnlocked =
-    kind === "resident"
-      ? residentHasFullPortalAccess({
-          leaseSigned: residentAccess?.leaseSigned ?? false,
-        })
-      : false;
+    kind === "resident" ? (residentAccess?.fullPortalAccess ?? false) : false;
   if (kind === "resident" && section === "applications") {
     const RESIDENT_APP_BUCKETS = ["pending", "approved", "rejected"] as const;
     if (!tabParts?.length) {
