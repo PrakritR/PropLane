@@ -113,6 +113,33 @@ export async function loadResidentLeaseSignedStatus(email: string): Promise<bool
   });
 }
 
+/**
+ * Whether this account HOLDS the resident role, from the multi-role source of
+ * truth (`profile_roles`) rather than the legacy single-value `profiles.role`.
+ *
+ * `profiles.role` records only whichever role the account was CREATED as, so a
+ * resident who is also a manager reads back as `"manager"` forever. Every portal
+ * guard already knows this and authorizes off `profile_roles` (`hasRole` in
+ * `portal-access.ts`), but the resident ACCESS resolver did not — so the layout
+ * admitted a manager+resident into /resident and then handed them
+ * `emptyAccessState`, which resolves to nav stage `pre_approval`. That locked
+ * Lease, House details, Services, Payments and Documents, and made
+ * `/resident/lease` redirect to the apply wizard, no matter how approved their
+ * application was: the role check short-circuits before any application is read.
+ */
+async function holdsResidentRole(
+  db: ReturnType<typeof createSupabaseServiceRoleClient>,
+  userId: string,
+): Promise<boolean> {
+  const { data } = await db
+    .from("profile_roles")
+    .select("role")
+    .eq("user_id", userId)
+    .eq("role", "resident")
+    .maybeSingle();
+  return Boolean(data);
+}
+
 const loadResidentPortalAccessStateCached = cache(
   async (
     userId: string | null,
@@ -120,10 +147,15 @@ const loadResidentPortalAccessStateCached = cache(
     email: string,
     managerSubscriptionTier: ManagerSubscriptionTier,
   ): Promise<ResidentPortalAccessState> => {
-    const roleOk = !role || role === "resident";
-    if (!roleOk || !email) return emptyAccessState(managerSubscriptionTier);
+    if (!email) return emptyAccessState(managerSubscriptionTier);
 
     const db = createSupabaseServiceRoleClient();
+    // Fast path stays query-free for the single-role resident (the common case);
+    // the extra lookup only runs for an account whose legacy role says otherwise.
+    const roleOk =
+      !role || role === "resident" || (userId ? await holdsResidentRole(db, userId) : false);
+    if (!roleOk) return emptyAccessState(managerSubscriptionTier);
+
     const { data: applicationRows } = await db
       .from("manager_application_records")
       .select("row_data, updated_at")

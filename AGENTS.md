@@ -769,6 +769,27 @@ A locked row must never be a live link to a path the server then redirects home
 — that reads as a broken tab. Coverage: `tests/unit/portal-nav-locks.test.ts`,
 `tests/unit/portal-nav-lock-surfaces.test.tsx`.
 
+## `profiles.role` is legacy and singular — authorize off `profile_roles`
+
+`profiles.role` records only the role an account was **created as**. An account
+that later gains a second role keeps the old value forever, so a resident who is
+also a manager reads back as `"manager"`. `profile_roles` is the multi-role
+source of truth, and `hasRole` / `getPortalAccessContext`
+(`src/lib/auth/portal-access.ts`) is how every portal *guard* already reads it.
+
+Any code that decides what a user may see must use that same source. Passing
+`profile.role` into a per-portal resolver produces the worst failure shape there
+is: the guard admits the user, then the resolver treats them as a stranger. That
+shipped — `loadResidentPortalAccessState` bailed to `emptyAccessState` for
+manager+resident accounts, which resolves to nav stage `pre_approval` and locked
+Lease / House details / Services / Payments / Documents behind padlocks while
+`/resident/lease` redirected to the apply wizard, no matter how approved the
+application was. Coverage: `tests/unit/resident-portal-access.test.ts`.
+
+The multi-role account is not an edge case — it is how the team dogfoods, so it
+is the FIRST account to test any portal-gating change against. A single-role
+resident will pass while the same code is broken for everyone who also manages.
+
 ## Inbox panels: the standalone page shell is a /demo-only path
 
 `ManagerInbox` (and the resident / vendor / admin inbox panels, which share the

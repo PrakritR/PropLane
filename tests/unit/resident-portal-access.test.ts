@@ -3,6 +3,11 @@ import {
   loadResidentPortalAccessState,
   residentPortalHomePath,
 } from "@/lib/resident-portal-access";
+import {
+  isResidentPathAllowedForAccess,
+  residentSectionLockedForStage,
+  resolveResidentPortalNavStage,
+} from "@/lib/resident-portal-nav";
 
 vi.mock("@/lib/supabase/service", () => ({
   createSupabaseServiceRoleClient: vi.fn(),
@@ -14,8 +19,10 @@ function makeDbMock(options: {
   applicationRows?: Array<{ row_data: unknown; updated_at?: string }>;
   profile?: { application_approved?: boolean; manager_id?: string | null } | null;
   axisRecord?: { row_data: unknown } | null;
+  /** Roles held in `profile_roles` — the multi-role source of truth. */
+  profileRoles?: string[];
 }) {
-  const { applicationRows = [], profile = null, axisRecord = null } = options;
+  const { applicationRows = [], profile = null, axisRecord = null, profileRoles = [] } = options;
 
   return {
     from: vi.fn().mockImplementation((table: string) => {
@@ -53,6 +60,19 @@ function makeDbMock(options: {
             eq: vi.fn().mockReturnValue({
               maybeSingle: vi.fn().mockResolvedValue({ data: profile, error: null }),
             }),
+          }),
+        };
+      }
+      if (table === "profile_roles") {
+        return {
+          select: vi.fn().mockReturnValue({
+            eq: vi.fn().mockImplementation(() => ({
+              eq: vi.fn().mockImplementation((_col: string, value: string) => ({
+                maybeSingle: vi
+                  .fn()
+                  .mockResolvedValue({ data: profileRoles.includes(value) ? { role: value } : null, error: null }),
+              })),
+            })),
           }),
         };
       }
@@ -187,5 +207,70 @@ describe("resident portal access state", () => {
 
     expect(access.hasSubmittedApplication).toBe(true);
     expect(access.hasCompletedApplicationSubmission).toBe(false);
+  });
+
+  /**
+   * Regression: production shipped a resident who is ALSO a manager. Their legacy
+   * `profiles.role` stays "manager" forever, so the resolver bailed to
+   * `emptyAccessState` and the portal locked Lease / House details / Services /
+   * Payments / Documents and bounced `/resident/lease` to the apply wizard —
+   * while the layout guard had already let them in off `profile_roles`.
+   */
+  const APPROVED_MULTI_ROLE_APPLICATION = [
+    {
+      updated_at: "2026-01-01T00:00:00Z",
+      row_data: {
+        id: "PROPLANE-MULTI1",
+        email: "both@example.com",
+        bucket: "approved",
+        stage: "Approved",
+        property: "Test House",
+      },
+    },
+  ];
+
+  it("approves a resident whose legacy profiles.role says manager but who holds the resident role", async () => {
+    vi.mocked(createSupabaseServiceRoleClient).mockReturnValue(
+      makeDbMock({
+        applicationRows: APPROVED_MULTI_ROLE_APPLICATION,
+        profileRoles: ["manager", "resident"],
+      }) as never,
+    );
+
+    const access = await loadResidentPortalAccessState({
+      userId: "user-both",
+      role: "manager",
+      email: "both@example.com",
+    });
+
+    expect(access.roleOk).toBe(true);
+    expect(access.applicationApproved).toBe(true);
+
+    // The captain's symptom, stated in nav terms: the five padlocked sections.
+    const stage = resolveResidentPortalNavStage(access);
+    expect(stage).toBe("post_approval_pre_lease");
+    expect(residentSectionLockedForStage("lease", stage)).toBe(false);
+    expect(residentSectionLockedForStage("payments", stage)).toBe(false);
+    expect(residentSectionLockedForStage("documents", stage)).toBe(false);
+    expect(isResidentPathAllowedForAccess("/resident/lease", access)).toBe(true);
+  });
+
+  it("still refuses an account that does not hold the resident role at all", async () => {
+    vi.mocked(createSupabaseServiceRoleClient).mockReturnValue(
+      makeDbMock({
+        applicationRows: APPROVED_MULTI_ROLE_APPLICATION,
+        profileRoles: ["manager"],
+      }) as never,
+    );
+
+    const access = await loadResidentPortalAccessState({
+      userId: "user-mgr-only",
+      role: "manager",
+      email: "both@example.com",
+    });
+
+    expect(access.roleOk).toBe(false);
+    expect(access.applicationApproved).toBe(false);
+    expect(isResidentPathAllowedForAccess("/resident/lease", access)).toBe(false);
   });
 });
