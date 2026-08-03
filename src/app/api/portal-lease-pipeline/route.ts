@@ -5,6 +5,7 @@ import {
   managerCanAccessLeaseRecord,
   type LeaseScopeRecord,
 } from "@/lib/auth/manager-lease-scope";
+import { resolveResidentScopedActorRole } from "@/lib/auth/resident-role-access";
 import { autoFileLeaseDocument, type AutoFileLeaseRow } from "@/lib/documents/document-auto-file-hooks.server";
 import { replacesSignedLeaseDocument } from "@/lib/lease-execution-evidence";
 import type { LeasePipelineRow } from "@/lib/lease-pipeline-storage";
@@ -24,12 +25,18 @@ async function getUserContext() {
   const db = createSupabaseServiceRoleClient();
   const { data: profile } = await db.from("profiles").select("email, role").eq("id", user.id).maybeSingle();
   const admin = await isAdminUser(user.id);
+  const role = admin
+    ? "admin"
+    : await resolveResidentScopedActorRole(db, {
+        userId: user.id,
+        legacyRole: profile?.role ?? user.user_metadata?.role,
+      });
   return {
     db,
     user: {
       id: user.id,
       email: (profile?.email ?? user.email ?? "").trim().toLowerCase(),
-      role: admin ? "admin" : String(profile?.role ?? user.user_metadata?.role ?? "").toLowerCase(),
+      role,
     } satisfies RecordUser,
   };
 }

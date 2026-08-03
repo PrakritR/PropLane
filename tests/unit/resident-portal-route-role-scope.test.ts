@@ -20,6 +20,7 @@ const fetchRowsForManagerWithLinked = vi.fn(async () => MANAGER_RECORDS);
 
 let PROFILE: { email: string; role: string | null } | null = null;
 let PROFILE_ROLES: string[] = [];
+let PORTAL_ROLES: string[] = [];
 let EFFECTIVE_ROLE: string | null = null;
 
 const RESIDENT_ROW = { id: "wo-mine", title: "My leaky sink", residentEmail: RESIDENT_EMAIL };
@@ -46,7 +47,12 @@ vi.mock("@/lib/supabase/service", () => ({ createSupabaseServiceRoleClient: () =
 vi.mock("@/lib/auth/admin-preview", () => ({ isAdminUser: (...a: unknown[]) => isAdminUser(...(a as [])) }));
 vi.mock("@/lib/auth/portal-access", () => ({
   ACTIVE_PORTAL_COOKIE: "axis_active_portal",
-  getPortalAccessContext: async () => ({ user: null, profile: null, roles: [], effectiveRole: EFFECTIVE_ROLE }),
+  getPortalAccessContext: async () => ({
+    user: null,
+    profile: null,
+    roles: PORTAL_ROLES,
+    effectiveRole: EFFECTIVE_ROLE,
+  }),
 }));
 vi.mock("@/lib/auth/co-manager-module-scope", () => ({
   fetchRowsForManagerWithLinked: (...a: unknown[]) => fetchRowsForManagerWithLinked(...(a as [])),
@@ -139,6 +145,7 @@ for (const surface of SURFACES) {
     beforeEach(() => {
       PROFILE = { email: RESIDENT_EMAIL, role: "manager" };
       PROFILE_ROLES = ["manager", "resident"];
+      PORTAL_ROLES = ["manager", "resident"];
       EFFECTIVE_ROLE = "resident";
     });
 
@@ -157,6 +164,7 @@ for (const surface of SURFACES) {
     beforeEach(() => {
       PROFILE = { email: RESIDENT_EMAIL, role: "manager" };
       PROFILE_ROLES = ["manager", "resident"];
+      PORTAL_ROLES = ["manager", "resident"];
       EFFECTIVE_ROLE = "manager";
     });
 
@@ -169,10 +177,30 @@ for (const surface of SURFACES) {
     });
   });
 
+  describe(`${surface.name} — portal context degraded to the legacy role`, () => {
+    beforeEach(() => {
+      // getPortalAccessContext falls back to `profiles.role` when its own
+      // profile_roles read errors, so it reports manager-only with no throw.
+      PROFILE = { email: RESIDENT_EMAIL, role: "manager" };
+      PROFILE_ROLES = ["manager", "resident"];
+      PORTAL_ROLES = ["manager"];
+      EFFECTIVE_ROLE = "manager";
+    });
+
+    it("fails safe to the resident scope rather than granting the manager read", async () => {
+      const res = await surface.load();
+      expect(res.status).toBe(200);
+      const ids = ((await res.json()).rows as Array<{ id: string }>).map((row) => row.id);
+      expect(ids).toEqual([RESIDENT_ROW.id]);
+      expect(fetchRowsForManagerWithLinked).not.toHaveBeenCalled();
+    });
+  });
+
   describe(`${surface.name} — legacy resident with no profile_roles row`, () => {
     beforeEach(() => {
       PROFILE = { email: RESIDENT_EMAIL, role: "resident" };
       PROFILE_ROLES = [];
+      PORTAL_ROLES = ["resident"];
       EFFECTIVE_ROLE = null;
     });
 
@@ -189,6 +217,7 @@ for (const surface of SURFACES) {
     beforeEach(() => {
       PROFILE = { email: "manager@example.com", role: "manager" };
       PROFILE_ROLES = ["manager"];
+      PORTAL_ROLES = ["manager"];
       EFFECTIVE_ROLE = "manager";
     });
 
@@ -205,6 +234,7 @@ for (const surface of SURFACES) {
     beforeEach(() => {
       PROFILE = null;
       PROFILE_ROLES = [];
+      PORTAL_ROLES = ["resident"];
       EFFECTIVE_ROLE = null;
       getUser.mockResolvedValue({ data: { user: null }, error: null });
     });

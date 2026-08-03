@@ -36,10 +36,6 @@ const DEFERRED_ROUTES: Record<string, string> = {
   // axis-dual-portal-role-resolution: the approve/deny path branches on the
   // requestor role three times and drives resident provisioning.
   "portal/resident-approval/route.ts": "axis-dual-portal-role-resolution",
-  // axis-dual-portal-role-resolution: dual-audience like portal-work-orders —
-  // the resident branch scopes by email, the other branch is the manager's
-  // whole pipeline.
-  "portal-lease-pipeline/route.ts": "axis-dual-portal-role-resolution",
   // axis-dual-portal-role-resolution: resolves an applicant-vs-manager session
   // kind for photo ownership; the manager branch wins for a multi-role account.
   "portal/application-photos/route.ts": "axis-dual-portal-role-resolution",
@@ -52,7 +48,10 @@ const DEFERRED_ROUTES: Record<string, string> = {
 /**
  * Resident-scoped routes already migrated onto the shared predicate. Pinned so
  * dropping the import — which silently restores the legacy read — fails here
- * even when the route no longer spells out a `"resident"` comparison.
+ * even when the route no longer spells out a `"resident"` comparison, and so a
+ * hand-rolled legacy branch ADDED BACK beside the still-present import fails
+ * too. The file-level detector above cannot see that second case: the import
+ * alone satisfies `CONSULTS_PROFILE_ROLES`.
  */
 const MIGRATED_ROUTES = [
   "resident/extend-lease/route.ts",
@@ -63,6 +62,7 @@ const MIGRATED_ROUTES = [
   "portal/work-orders/send-reminder/route.ts",
   "portal-service-requests/route.ts",
   "portal-work-orders/route.ts",
+  "portal-lease-pipeline/route.ts",
 ];
 
 const SHARED_HELPER = "@/lib/auth/resident-role-access";
@@ -105,6 +105,27 @@ function violates(source: string): boolean {
   );
 }
 
+/** A read of the legacy single-value role column, wherever it is spelled. */
+const LEGACY_ROLE_READ = /profile\??\.role|user_metadata\??\.role/;
+/** The one legitimate use inside a migrated route: feeding the shared predicate. */
+const FEEDS_SHARED_PREDICATE = /legacyRole/;
+const LEGACY_ROLE_BRANCH = /legacyRole\s*[!=]==\s*"resident"|"resident"\s*[!=]==\s*legacyRole/;
+
+/**
+ * Lines inside a migrated route that read the legacy column for anything other
+ * than handing it to `authorizeResidentRole` / `resolveResidentScopedActorRole`,
+ * or that branch on the legacy value directly.
+ */
+function legacyReadsOutsideSharedPredicate(source: string): string[] {
+  return source
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(
+      (line) =>
+        (LEGACY_ROLE_READ.test(line) && !FEEDS_SHARED_PREDICATE.test(line)) || LEGACY_ROLE_BRANCH.test(line),
+    );
+}
+
 const ROUTES = routeFiles(API_DIR).map((file) => ({ path: apiPath(file), source: code(file) }));
 
 describe("resident authorization reads profile_roles, never legacy profiles.role", () => {
@@ -133,5 +154,14 @@ describe("resident authorization reads profile_roles, never legacy profiles.role
       return !route || !route.source.includes(SHARED_HELPER);
     });
     expect(dropped).toEqual([]);
+  });
+
+  it("lets no migrated route grow a hand-rolled legacy role branch beside the import", () => {
+    const regressions = MIGRATED_ROUTES.flatMap((path) => {
+      const route = ROUTES.find((r) => r.path === path);
+      if (!route) return [`${path} (missing)`];
+      return legacyReadsOutsideSharedPredicate(route.source).map((line) => `${path}: ${line}`);
+    });
+    expect(regressions).toEqual([]);
   });
 });

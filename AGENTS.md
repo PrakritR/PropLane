@@ -799,13 +799,17 @@ resident will pass while the same code is broken for everyone who also manages.
   `profile_roles`, and fails closed on a read error.
 - `resolveResidentScopedActorRole(db, …)` — the effective role for a route that
   serves BOTH portals (`/api/portal-work-orders`,
-  `/api/portal-service-requests`), where the role picks a branch in *both*
-  directions. Fixing only the `!== "resident"` side drops out of the manager
-  branch WITHOUT applying the `resident_email` filter, which returns other
-  people's rows — strictly worse than the bug. Resolve once, use that one value
-  everywhere. The tiebreak for a multi-role account is the active portal
-  (`getPortalAccessContext().effectiveRole`), so the manager portal keeps its
-  portfolio-wide read.
+  `/api/portal-service-requests`, `/api/portal-lease-pipeline`), where the role
+  picks a branch in *both* directions. Fixing only the `!== "resident"` side
+  drops out of the manager branch WITHOUT applying the resident filter, which
+  returns other people's rows — strictly worse than the bug. Resolve once, use
+  that one value everywhere. The tiebreak for a multi-role account is the active
+  portal (`getPortalAccessContext().effectiveRole`), so the manager portal keeps
+  its portfolio-wide read — but that context degrades SILENTLY (a failed
+  `profile_roles` read falls back to `profiles.role`, reporting
+  `effectiveRole: "manager"` with no error), so a context that contradicts the
+  service-role read resolves to `"resident"`, the narrower scope, never back to
+  the legacy value.
 
 `tests/unit/resident-role-authorization-surface.test.ts` scans `src/app/api` and
 fails a new route that branches on `"resident"` without consulting
