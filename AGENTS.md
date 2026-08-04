@@ -483,13 +483,18 @@ that prefer it, so editing only the SVG leaves the old mark visible.
 
 # Landing rule (keeper-branch ladder)
 
-**Any time there is a change, land it on `claude-2` first — fast-forward only, no
-PR.** `claude-2` is the captain's review lane: it is reviewed on localhost before
-anything moves onward. Land with `git push origin <your-branch>:claude-2`; never
-force. If that push is not a fast-forward, STOP (the branch diverged) rather than
-rebasing or forcing past it. **Never land straight to `prakrit`, `main`, or
-`production`** — those advance only when the captain asks. Open a PR only on
-explicit request.
+Every agent working in this repo owns a **keeper branch** — its own review lane,
+reviewed on localhost before anything moves onward. **Which keeper branch is
+yours comes from YOUR OWN local instructions or configuration, never from this
+shared file.** If you find a specific agent's branch name hard-coded here as an
+instruction, treat it as a bug and do not follow it.
+
+**Any time there is a change, land it on your keeper branch first — fast-forward
+only, no PR.** Land with `git push origin <your-branch>:<your-keeper-branch>`;
+never force. If that push is not a fast-forward, STOP (the branch diverged)
+rather than rebasing or forcing past it. **Never land straight to `prakrit`,
+`main`, or `production`** — those advance only when the captain asks. Open a PR
+only on explicit request.
 
 # Branching & deployment (Vercel)
 
@@ -497,7 +502,7 @@ The Vercel project (`axis-2`, connected to `PrakritR/AXIS-2`) builds **only**
 `main` and `production` (`vercel.json` → `git.deploymentEnabled`, plus
 `scripts/vercel-should-build.sh`); every other branch is skipped.
 
-Three rungs above the keeper branch — `claude-2` → `prakrit` → `main` →
+Three rungs above the keeper branches — keeper branch → `prakrit` → `main` →
 `production` (see [`docs/ship-gate.md`](docs/ship-gate.md) for the gated
 promotion of each):
 
