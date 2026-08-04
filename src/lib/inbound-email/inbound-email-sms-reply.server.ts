@@ -27,7 +27,7 @@ import {
 } from "@/lib/inbound-email/inbound-email.server";
 import {
   assessInboundEmailAuthentication,
-  type InboundEmailAuthAssessment,
+  type InboundEmailAuthOutcome,
 } from "@/lib/inbound-email/email-authentication";
 import { stripEmailReplyQuote } from "@/lib/inbound-email/inbound-email-reply.server";
 import {
@@ -206,12 +206,12 @@ async function resolveReplyPayload(
 function assessAuth(
   parsed: ParsedInboundEmail,
   headers: ResendReceivedEmailHeaders | null,
-): InboundEmailAuthAssessment {
+): InboundEmailAuthOutcome {
   return assessInboundEmailAuthentication(headers?.["authentication-results"], parsed.fromEmail);
 }
 
 const GRANT_BOUNCE_REASON =
-  "This conversation has no open email-reply window (a reply is allowed once per notification, for up to 7 days). Open PropLane to reply.";
+  "PropLane allows one emailed reply per notification email, for up to 7 days, and this conversation has none left. Open PropLane to reply.";
 
 async function bounceToManager(args: {
   managerEmail: string;
@@ -318,13 +318,12 @@ async function deliverClaimedEmailSmsReply(
   }
 
   const auth = assessAuth(parsed, payload.headers);
-  // `reject` is an explicit aligned failure. The second disjunct is the OTHER
-  // half of this branch: a readable verdict that did not authenticate the
-  // sender (`none`, an unaligned pass, or a pass from an authserv-id this
-  // deployment has not pinned). Whether that case should bounce or fall through
-  // to the grant below is an open product question — dropping the second
-  // disjunct is the whole change.
-  if (auth.outcome === "reject" || (auth.outcome === "unauthenticated" && auth.verdictPresent)) {
+  // ONLY an explicit aligned failure refuses outright. Everything else —
+  // including a verdict we cannot attribute to a pinned receiver, which is the
+  // default state — falls through to the grant below, because the grant is the
+  // gate. Bouncing "unauthenticated" instead would take the email-reply leg
+  // offline for every deployment that has not pinned an authserv-id.
+  if (auth === "reject") {
     await recordClaimOutcome(db, parsed.emailId, { smsSent: false, error: "auth_failed" });
     await bounceToManager({
       managerEmail,
@@ -336,8 +335,8 @@ async function deliverClaimedEmailSmsReply(
   }
 
   // The grant is consumed LAST, so a reply refused by any gate above it still
-  // leaves the manager's single-use window intact.
-  if (auth.outcome !== "authenticated") {
+  // leaves the manager's reply allowance intact.
+  if (auth !== "authenticated") {
     const grant = await consumeSmsEmailReplyGrant(db, {
       managerUserId: target.managerUserId,
       counterpartyPhone: target.counterpartyPhone,

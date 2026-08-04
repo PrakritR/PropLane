@@ -27,6 +27,14 @@
  * mitigations (single-use grant), and it requires the pinned identity. A
  * `reject` is safe to honour from any source — an attacker gains nothing by
  * writing a failure about themselves.
+ *
+ * `unauthenticated` is the ORDINARY outcome, not a refusal. With
+ * `RESEND_AUTHSERV_ID` unset — the default — no pass is ever trusted, so every
+ * reply lands here and is gated by the single-use grant instead. Treating it as
+ * a refusal would take the whole email-reply leg offline by default, including
+ * for a manager whose message carries a perfectly good verdict we simply have
+ * no configured receiver to attribute. Setting the env buys the pinned
+ * receiver's replies a pass straight through, nothing more.
  */
 
 export type InboundEmailAuthOutcome =
@@ -36,20 +44,6 @@ export type InboundEmailAuthOutcome =
   | "reject"
   /** Everything else: no header, nothing parseable, transient errors, or an untrusted pass. */
   | "unauthenticated";
-
-export type InboundEmailAuthAssessment =
-  | { outcome: "authenticated" }
-  | { outcome: "reject" }
-  | {
-      outcome: "unauthenticated";
-      /**
-       * A readable, non-transient verdict existed and did not authenticate this
-       * sender (`none`, an unaligned pass, a pass from an unpinned authserv-id).
-       * Distinct from "no verdict at all", which is the ordinary case and must
-       * not be treated as evidence of anything.
-       */
-      verdictPresent: boolean;
-    };
 
 export type AuthenticationMethodResult = {
   method: "spf" | "dkim" | "dmarc";
@@ -138,11 +132,6 @@ const TRANSIENT_RESULTS = new Set(["temperror", "permerror"]);
 /** Results that assert the message did NOT authenticate as the domain it claimed. */
 const FAILING_RESULTS = new Set(["fail", "softfail", "hardfail", "reject"]);
 
-const UNAUTHENTICATED_NO_VERDICT = {
-  outcome: "unauthenticated",
-  verdictPresent: false,
-} as const;
-
 function hasAlignedPass(results: AuthenticationMethodResult[], fromDomain: string): boolean {
   for (const entry of results) {
     if (entry.result !== "pass") continue;
@@ -184,27 +173,27 @@ export function assessInboundEmailAuthentication(
   headers: string[] | string | null | undefined,
   fromEmail: string,
   env: Record<string, string | undefined> = process.env,
-): InboundEmailAuthAssessment {
+): InboundEmailAuthOutcome {
   const values = (Array.isArray(headers) ? headers : [headers ?? ""]).filter(
     (value) => String(value ?? "").trim().length > 0,
   );
   const topmost = values[0];
   const results = parseAuthenticationResults(topmost);
-  if (results.length === 0) return UNAUTHENTICATED_NO_VERDICT;
+  if (results.length === 0) return "unauthenticated";
 
-  if (assertsFailure(results)) return { outcome: "reject" };
+  if (assertsFailure(results)) return "reject";
 
   // A verifier that broke tells us nothing either way — same fail-open posture
   // the rest of the SMS stack takes on an infra error.
-  if (results.every((entry) => TRANSIENT_RESULTS.has(entry.result))) return UNAUTHENTICATED_NO_VERDICT;
+  if (results.every((entry) => TRANSIENT_RESULTS.has(entry.result))) return "unauthenticated";
 
   const fromDomain = emailDomainOf(fromEmail);
-  if (!fromDomain) return { outcome: "unauthenticated", verdictPresent: true };
+  if (!fromDomain) return "unauthenticated";
 
   const trusted = trustedAuthservIds(env);
   const authservId = parseAuthservId(topmost);
   if (trusted.size > 0 && authservId && trusted.has(authservId) && hasAlignedPass(results, fromDomain)) {
-    return { outcome: "authenticated" };
+    return "authenticated";
   }
-  return { outcome: "unauthenticated", verdictPresent: true };
+  return "unauthenticated";
 }

@@ -29,7 +29,7 @@ describe("assessInboundEmailAuthentication — a forged header cannot authorize"
         FROM,
         {},
       ),
-    ).toEqual({ outcome: "unauthenticated", verdictPresent: true });
+    ).toBe("unauthenticated");
   });
 
   it("does NOT authenticate a pass stamped by an unpinned authserv-id", () => {
@@ -39,7 +39,7 @@ describe("assessInboundEmailAuthentication — a forged header cannot authorize"
         FROM,
         TRUSTED,
       ),
-    ).toMatchObject({ outcome: "unauthenticated" });
+    ).toBe("unauthenticated");
   });
 
   it("reads ONLY the topmost header, so a line the sender wrote is unreachable", () => {
@@ -53,7 +53,7 @@ describe("assessInboundEmailAuthentication — a forged header cannot authorize"
         FROM,
         TRUSTED,
       ),
-    ).toEqual({ outcome: "reject" });
+    ).toBe("reject");
   });
 
   it("authenticates an aligned pass from a pinned receiver", () => {
@@ -63,20 +63,20 @@ describe("assessInboundEmailAuthentication — a forged header cannot authorize"
         FROM,
         TRUSTED,
       ),
-    ).toEqual({ outcome: "authenticated" });
+    ).toBe("authenticated");
   });
 
   it("accepts an aligned DKIM or SPF pass, including a subdomain signer", () => {
     expect(
       assessInboundEmailAuthentication("mx.proplane.test; dkim=pass header.d=mail.example.com", FROM, TRUSTED),
-    ).toMatchObject({ outcome: "authenticated" });
+    ).toBe("authenticated");
     expect(
       assessInboundEmailAuthentication(
         "mx.proplane.test; spf=pass smtp.mailfrom=bounces@example.com",
         FROM,
         TRUSTED,
       ),
-    ).toMatchObject({ outcome: "authenticated" });
+    ).toBe("authenticated");
   });
 
   it("does not authenticate an UNALIGNED pass — someone authenticated, just not as this manager", () => {
@@ -86,14 +86,14 @@ describe("assessInboundEmailAuthentication — a forged header cannot authorize"
         FROM,
         TRUSTED,
       ),
-    ).toMatchObject({ outcome: "unauthenticated" });
+    ).toBe("unauthenticated");
   });
 
   it("reads the pinned list from RESEND_AUTHSERV_ID when no env is passed", () => {
     process.env.RESEND_AUTHSERV_ID = "other.test, mx.proplane.test";
     expect(
       assessInboundEmailAuthentication("mx.proplane.test; dmarc=pass header.from=example.com", FROM),
-    ).toMatchObject({ outcome: "authenticated" });
+    ).toBe("authenticated");
   });
 });
 
@@ -101,27 +101,39 @@ describe("assessInboundEmailAuthentication — refusals and non-verdicts", () =>
   it("rejects an explicit aligned failure regardless of who stamped it", () => {
     expect(
       assessInboundEmailAuthentication("mx.whoever.test; dmarc=fail header.from=example.com", FROM, {}),
-    ).toEqual({ outcome: "reject" });
+    ).toBe("reject");
     expect(
       assessInboundEmailAuthentication("mx.whoever.test; spf=fail; dkim=fail", FROM, {}),
-    ).toMatchObject({ outcome: "reject" });
+    ).toBe("reject");
   });
 
   it("does not reject on SPF alone — forwarding breaks SPF for legitimate mail", () => {
     expect(
       assessInboundEmailAuthentication("mx.proplane.test; spf=softfail; dkim=pass header.d=example.com", FROM, {}),
-    ).toMatchObject({ outcome: "unauthenticated" });
+    ).toBe("unauthenticated");
   });
 
   it("reports NO verdict when there is nothing readable to judge", () => {
-    const none = { outcome: "unauthenticated", verdictPresent: false };
-    expect(assessInboundEmailAuthentication(undefined, FROM, TRUSTED)).toEqual(none);
-    expect(assessInboundEmailAuthentication([], FROM, TRUSTED)).toEqual(none);
-    expect(assessInboundEmailAuthentication("mx.proplane.test", FROM, TRUSTED)).toEqual(none);
+    expect(assessInboundEmailAuthentication(undefined, FROM, TRUSTED)).toBe("unauthenticated");
+    expect(assessInboundEmailAuthentication([], FROM, TRUSTED)).toBe("unauthenticated");
+    expect(assessInboundEmailAuthentication("mx.proplane.test", FROM, TRUSTED)).toBe("unauthenticated");
     // A verifier that broke is an infra state, not evidence of forgery.
     expect(
       assessInboundEmailAuthentication("mx.proplane.test; spf=temperror; dkim=permerror", FROM, TRUSTED),
-    ).toEqual(none);
+    ).toBe("unauthenticated");
+  });
+
+  it("only ever REFUSES on an explicit aligned failure — everything else is neutral", () => {
+    // `unauthenticated` is the default state, not an accusation: the caller
+    // gates it on the reply grant, so a domain that publishes no policy (or a
+    // deployment with no pinned receiver) can still reply by email.
+    for (const header of [
+      "mx.proplane.test; spf=none; dkim=none; dmarc=none header.from=example.com",
+      "mx.proplane.test; dmarc=pass header.from=example.com",
+      "mx.proplane.test; spf=neutral",
+    ]) {
+      expect(assessInboundEmailAuthentication(header, FROM, {})).toBe("unauthenticated");
+    }
   });
 });
 

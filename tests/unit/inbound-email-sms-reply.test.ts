@@ -4,7 +4,7 @@
  * outbound-mail row, conversation identity preserved, honest failure
  * (bounce email, never a fake sent state) — and the three authorization
  * layers in front of a channel whose token verifies against a spoofable
- * `From`: sender-authentication verdict, single-use reply grant, rate limit.
+ * `From`: sender-authentication verdict, per-notification reply grant, rate limit.
  *
  * Each case uses its own counterparty phone so the per-conversation rate limit
  * (a real process-wide limiter) only bites in the test that exercises it.
@@ -91,7 +91,7 @@ function grantRow(phone: string, state: GrantState, extra?: Record<string, unkno
       managerUserId: MGR,
       to: phone,
       grantedAt,
-      consumedAt: state === "consumed" ? new Date().toISOString() : null,
+      allowance: state === "consumed" ? 0 : 1,
       ...extra,
     },
   };
@@ -346,11 +346,50 @@ describe("ingestInboundEmailSmsReply — sender authentication", () => {
   it("a pass the SENDER could have written never bypasses the interim mitigations", async () => {
     // No RESEND_AUTHSERV_ID pinned (the default), so this header authorizes
     // nothing even though it claims dmarc=pass — it is the message's own header
-    // set, which an attacker with a leaked reply address controls.
+    // set, which an attacker with a leaked reply address controls. It still
+    // has to spend a grant, exactly like a reply carrying no header at all.
     stubReceivedEmail({
       kind: "empty",
       headers: {
         "authentication-results": ["mx.proplane.test; dmarc=pass header.from=example.com"],
+      },
+    });
+    const forged = nextPhone();
+    const noGrant = seedDb(forged, "none");
+    expect(
+      await ingestInboundEmailSmsReply(
+        parsedEmail(),
+        { managerUserId: MGR, counterpartyPhone: forged },
+        noGrant as never,
+      ),
+    ).toMatchObject({ sent: false, error: "grant_missing" });
+    expect(sendFromManagerMock).not.toHaveBeenCalled();
+
+    const held = nextPhone();
+    const withGrant = seedDb(held, "valid");
+    expect(
+      await ingestInboundEmailSmsReply(
+        parsedEmail(),
+        { managerUserId: MGR, counterpartyPhone: held },
+        withGrant as never,
+      ),
+    ).toMatchObject({ sent: true });
+    const grant = tablesOf(withGrant).portal_outbound_mail_records.find(
+      (r) => r.id === smsReplyGrantRecordId(MGR, held),
+    );
+    expect((grant?.row_data as Record<string, unknown>).allowance).toBe(0);
+  });
+
+  it("an unattributable verdict still reaches the texter — the leg is not off by default", async () => {
+    // `RESEND_AUTHSERV_ID` unset is the documented default. A genuine reply
+    // whose verdict we cannot attribute must degrade to the grant path, not to
+    // an accusatory bounce that takes the whole email leg offline.
+    stubReceivedEmail({
+      kind: "empty",
+      headers: {
+        "authentication-results": [
+          "mx.proplane.test; spf=none; dkim=none; dmarc=none header.from=example.com",
+        ],
       },
     });
     const phone = nextPhone();
@@ -360,8 +399,8 @@ describe("ingestInboundEmailSmsReply — sender authentication", () => {
       { managerUserId: MGR, counterpartyPhone: phone },
       db as never,
     );
-    expect(result.sent).toBe(false);
-    expect(sendFromManagerMock).not.toHaveBeenCalled();
+    expect(result).toMatchObject({ handled: true, sent: true });
+    expect(bounceMock).not.toHaveBeenCalled();
   });
 
   it("ignores an A-R the sender injected below the receiver's own", async () => {
@@ -401,7 +440,7 @@ describe("ingestInboundEmailSmsReply — single-use reply grant", () => {
     const grant = tablesOf(db).portal_outbound_mail_records.find(
       (r) => r.id === smsReplyGrantRecordId(MGR, phone),
     );
-    expect(String((grant?.row_data as Record<string, unknown>).consumedAt ?? "")).not.toBe("");
+    expect((grant?.row_data as Record<string, unknown>).allowance).toBe(0);
   });
 
   it("bounces when no notification ever opened a window for this conversation", async () => {
@@ -429,7 +468,40 @@ describe("ingestInboundEmailSmsReply — single-use reply grant", () => {
     expect(sendFromManagerMock).not.toHaveBeenCalled();
   });
 
-  it("bounces a second reply to the same notification (single use)", async () => {
+  it("lets the manager answer BOTH notifications when two texts arrived", async () => {
+    // Two texts send two notification emails, so two emailed replies are the
+    // promised behaviour — a one-per-conversation flag would silently drop the
+    // second on the leg the product requires to work.
+    const phone = nextPhone();
+    const db = seedDb(phone, "valid");
+    const grant = tablesOf(db).portal_outbound_mail_records.find(
+      (r) => r.id === smsReplyGrantRecordId(MGR, phone),
+    )!;
+    (grant.row_data as Record<string, unknown>).allowance = 2;
+
+    for (const emailId of ["re_two_a", "re_two_b"]) {
+      expect(
+        await ingestInboundEmailSmsReply(
+          parsedEmail({ emailId }),
+          { managerUserId: MGR, counterpartyPhone: phone },
+          db as never,
+        ),
+      ).toMatchObject({ sent: true });
+    }
+    expect(sendFromManagerMock).toHaveBeenCalledTimes(2);
+    expect((grant.row_data as Record<string, unknown>).allowance).toBe(0);
+
+    // …and a third, unbacked by any notification, is refused.
+    expect(
+      await ingestInboundEmailSmsReply(
+        parsedEmail({ emailId: "re_two_c" }),
+        { managerUserId: MGR, counterpartyPhone: phone },
+        db as never,
+      ),
+    ).toMatchObject({ sent: false, error: "grant_consumed" });
+  });
+
+  it("bounces a second reply to the same notification (one reply per notification)", async () => {
     const phone = nextPhone();
     const db = seedDb(phone, "valid");
     const first = await ingestInboundEmailSmsReply(
@@ -475,7 +547,7 @@ describe("ingestInboundEmailSmsReply — per-conversation rate limit", () => {
     const grant = tablesOf(dbs[3]!).portal_outbound_mail_records.find(
       (r) => r.id === smsReplyGrantRecordId(MGR, phone),
     );
-    expect((grant?.row_data as Record<string, unknown>).consumedAt ?? null).toBeNull();
+    expect((grant?.row_data as Record<string, unknown>).allowance).toBe(1);
   });
 
   it("caps BOUNCE emails too, so a spoofed burst cannot flood the manager", async () => {

@@ -53,25 +53,30 @@ reply from any of them reaches the texter:
      default — means no pass is ever trusted**). `authenticated` is the only
      outcome that skips the grant. `reject` (an aligned dmarc fail, or spf and
      dkim both failing) bounces to the manager's real address and sends nothing.
-     Today a readable verdict that merely fails to authenticate (`none`, an
-     unaligned pass, an unpinned authserv-id) bounces the same way; that branch
-     is isolated in `deliverClaimedEmailSmsReply` so it can be flipped to the
-     grant path in one line once the product decides.
-   - **Single-use reply grants** (`sms-reply-grant.server.ts`), required whenever
-     the verdict is not an explicit pass. Every notification email that carries
-     a token upserts `sms_reply_grant_<managerId>_<phone10>` in
-     `portal_outbound_mail_records`; the ingest CONSUMES it (conditional update
-     on `consumedAt is null`) before sending. One emailed reply per
-     notification, ≤7 days old; missing / expired / already-spent bounces with
-     "open PropLane to reply". Fails CLOSED on an unreadable row — unlike the
-     plan and consent gates, this one is authorization.
+     **`unauthenticated` is the ordinary outcome, NOT a refusal** — with the env
+     unset it is what every reply resolves to, so it falls through to the grant
+     below. Bouncing it instead would take the whole leg offline by default,
+     including for a manager whose message carried a good verdict we simply had
+     no configured receiver to attribute.
+   - **Reply grants** (`sms-reply-grant.server.ts`), required on every path
+     except `authenticated`. Every notification email that carries a token banks
+     one reply on `sms_reply_grant_<managerId>_<phone10>` in
+     `portal_outbound_mail_records`; the ingest SPENDS one before sending
+     (compare-and-set on the value just read, so a redelivery cannot spend the
+     same allowance twice). One emailed reply per notification, ≤7 days old,
+     **capped at `SMS_REPLY_GRANT_MAX_ALLOWANCE`** so an unread backlog cannot
+     bank an unbounded licence to text. It is a COUNTER, not a flag: two texts
+     from one person send two notifications and answering both is ordinary, so
+     a boolean would silently drop the second reply. Missing / expired /
+     nothing-left bounces with "open PropLane to reply", and an unreadable row
+     fails CLOSED — unlike the plan and consent gates, this one is
+     authorization.
    - **Per-conversation rate limit**, 3/hour (`smsEmailReplyRateLimitKey`),
      checked FIRST — ahead of every branch that sends a text *or* emails a
      bounce. A bounce is mail PropLane sends on the strength of a spoofable
      `From`, so an unthrottled refusal path is an inbox-flood vector: past the
-     allowance the attempt is recorded and dropped silently. The grant is
-     consumed LAST, so a reply refused by any gate never burns the manager's
-     single-use window.
+     allowance the attempt is recorded and dropped silently. The grant is spent
+     LAST, so a reply refused by any gate never burns the manager's allowance.
 
 **Intent-router seam.** `/api/twilio/inbound` consults
 `routeInboundSms(ctx)` (`src/lib/sms-intent-router.ts`) after self-reply

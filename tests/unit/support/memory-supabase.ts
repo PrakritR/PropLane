@@ -9,6 +9,21 @@
 type Row = Record<string, unknown>;
 type Filter = (row: Row) => boolean;
 
+/**
+ * Column read that also understands PostgREST's `jsonb->>key` form, so a
+ * compare-and-set guarded on a value inside `row_data` is really exercised
+ * rather than silently matching everything. `->>` yields text in Postgres, and
+ * a missing key yields NULL — both reproduced here.
+ */
+function readColumn(row: Row, col: string): unknown {
+  const path = /^(\w+)->>(.+)$/.exec(col);
+  if (!path) return row[col];
+  const container = row[path[1]!];
+  if (!container || typeof container !== "object") return undefined;
+  const value = (container as Row)[path[2]!];
+  return value === null || value === undefined ? value : String(value);
+}
+
 export type MemoryDb = {
   from: (table: string) => Builder;
   __tables: Record<string, Row[]>;
@@ -113,24 +128,35 @@ export function createMemoryDb(seed: Record<string, Row[]> = {}): MemoryDb {
         return builder;
       },
       eq(col: string, val: unknown) {
-        filters.push((r) => String(r[col] ?? "") === String(val));
+        filters.push((r) => {
+          const value = readColumn(r, col);
+          // A NULL column never equals anything, matching Postgres.
+          if (value === null || value === undefined) return false;
+          return String(value) === String(val);
+        });
         return builder;
       },
       neq(col: string, val: unknown) {
-        filters.push((r) => String(r[col] ?? "") !== String(val));
+        filters.push((r) => String(readColumn(r, col) ?? "") !== String(val));
         return builder;
       },
       is(col: string, val: unknown) {
-        filters.push((r) => (val === null ? r[col] === null || r[col] === undefined : r[col] === val));
+        filters.push((r) => {
+          const value = readColumn(r, col);
+          return val === null ? value === null || value === undefined : value === val;
+        });
         return builder;
       },
       not(col: string, _op: string, val: unknown) {
-        filters.push((r) => (val === null ? !(r[col] === null || r[col] === undefined) : r[col] !== val));
+        filters.push((r) => {
+          const value = readColumn(r, col);
+          return val === null ? !(value === null || value === undefined) : value !== val;
+        });
         return builder;
       },
       in(col: string, vals: unknown[]) {
         const set = new Set(vals.map((v) => String(v)));
-        filters.push((r) => set.has(String(r[col] ?? "")));
+        filters.push((r) => set.has(String(readColumn(r, col) ?? "")));
         return builder;
       },
       or() {

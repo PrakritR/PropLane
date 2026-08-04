@@ -87,7 +87,7 @@ describe("notifyManagerOfInboundSms", () => {
       .__tables.portal_outbound_mail_records;
     expect(grants).toHaveLength(1);
     expect(grants[0]!.id).toBe(smsReplyGrantRecordId(MGR, PHONE));
-    expect(grants[0]!.row_data).toMatchObject({ kind: "sms_reply_grant", consumedAt: null });
+    expect(grants[0]!.row_data).toMatchObject({ kind: "sms_reply_grant", allowance: 1 });
   });
 
   it("opens no reply window when the email never went out", async () => {
