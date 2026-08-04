@@ -56,8 +56,14 @@ function daysBetween(fromIso: string, nowMs: number): number {
 
 /**
  * Daily sweep: stamp newly-unpaid active numbers, clear re-entitled ones,
- * warn, then release past the grace. Bounded by `limit` so a bad day cannot
- * mass-release the fleet in one tick.
+ * warn, then release past the grace.
+ *
+ * `limit` is the TOTAL row budget for the whole sweep, not a per-query one — a
+ * bad day must not be able to mass-release the fleet in one tick, and every row
+ * costs at least one sequential entitlement read inside a cron that shares its
+ * 60s with the provisioning backfill. The three queues each get a floor so a
+ * busy one cannot starve the others, and whatever the earlier queues leave
+ * unspent rolls forward to the warn queue.
  */
 export async function sweepSuspendedManagerNumbers(
   db: SupabaseClient,
@@ -79,6 +85,10 @@ export async function sweepSuspendedManagerNumbers(
     "@/lib/sms/manager-number-access.server"
   );
 
+  const warnAfterDays = SMS_NUMBER_SUSPENSION_GRACE_DAYS - SMS_NUMBER_SUSPENSION_WARN_DAYS_BEFORE;
+  let budget = limit;
+  const queueFloor = Math.max(1, Math.floor(limit / 3));
+
   // 1. Active numbers still unpaid and not yet stamped — start the grace clock.
   //
   // Scoped to UNSTAMPED rows (pass 2 owns every stamped one, clears included)
@@ -92,10 +102,12 @@ export async function sweepSuspendedManagerNumbers(
     .not("phone_number", "is", null)
     .is("service_suspended_at", null)
     .order("manager_user_id", { ascending: true })
-    .limit(limit);
+    .limit(Math.min(queueFloor, budget));
   for (const raw of activeRows ?? []) {
+    if (budget <= 0) break;
     const row = mapNumberRow(raw as Record<string, unknown>);
     if (!row?.managerUserId || row.serviceSuspendedAt) continue;
+    budget -= 1;
     result.considered += 1;
     try {
       const access = await resolveManagerNumberAccess(db, row.managerUserId);
@@ -122,39 +134,23 @@ export async function sweepSuspendedManagerNumbers(
 
   // 2. Already-stamped rows: warn, then release past grace.
   //
-  // Split into two independently-bounded queues, because release candidates and
-  // warn candidates are disjoint populations that must not compete:
+  // Split into two queues drawn and processed separately, because release
+  // candidates and warn candidates are disjoint populations that must not
+  // compete:
   //
   //   (a) rows carrying a delivered warning — the ONLY release candidates, so a
   //       number nobody could be warned about can never crowd out a release
   //       that is genuinely due;
-  //   (b) rows still unwarned — the warn queue, ordered by `updated_at` rather
-  //       than by suspension age so it is a round robin. Every attempt touches
-  //       the row, so a permanently-undeliverable warning rotates to the BACK
-  //       after each try instead of pinning the head of the window and starving
-  //       a manager who just got suspended and is owed their first notice.
-  const { data: warnedRows } = await db
-    .from(TABLE)
-    .select("*")
-    .eq("provision_state", "active")
-    .not("service_suspended_at", "is", null)
-    .not("suspension_warned_at", "is", null)
-    .order("suspension_warned_at", { ascending: true })
-    .limit(limit);
-  const { data: unwarnedRows } = await db
-    .from(TABLE)
-    .select("*")
-    .eq("provision_state", "active")
-    .not("service_suspended_at", "is", null)
-    .is("suspension_warned_at", null)
-    .order("updated_at", { ascending: true })
-    .limit(limit);
-  const suspendedRows = [...(warnedRows ?? []), ...(unwarnedRows ?? [])];
-  const warnAfterDays = SMS_NUMBER_SUSPENSION_GRACE_DAYS - SMS_NUMBER_SUSPENSION_WARN_DAYS_BEFORE;
-
-  for (const raw of suspendedRows) {
+  //   (b) rows that are DUE for a warning and still unwarned, ordered by
+  //       `updated_at` so it is a round robin. Every attempt touches the row, so
+  //       a permanently-undeliverable warning rotates to the BACK after each try
+  //       instead of pinning the head of the window. The due-date predicate is
+  //       what keeps that rotation fair: without it a row nowhere near the
+  //       warning date would occupy the window ahead of a manager at day 85 who
+  //       is actually owed their notice.
+  const processSuspendedRow = async (raw: unknown): Promise<void> => {
     const row = mapNumberRow(raw as Record<string, unknown>);
-    if (!row?.managerUserId || !row.serviceSuspendedAt) continue;
+    if (!row?.managerUserId || !row.serviceSuspendedAt) return;
     const ageDays = daysBetween(row.serviceSuspendedAt, nowMs);
 
     try {
@@ -174,7 +170,7 @@ export async function sweepSuspendedManagerNumbers(
           .select("manager_user_id")
           .then((res) => res, () => ({ data: [] as Array<{ manager_user_id: string }> }));
         if ((updated ?? []).length > 0) result.cleared += 1;
-        continue;
+        return;
       }
 
       // Release is gated on a warning that ACTUALLY went out, and on the full
@@ -191,9 +187,19 @@ export async function sweepSuspendedManagerNumbers(
         warnedAgeDays !== null &&
         warnedAgeDays >= SMS_NUMBER_SUSPENSION_WARN_DAYS_BEFORE
       ) {
-        await releaseExpiredSuspendedNumber(db, row.managerUserId);
-        result.released += 1;
-        continue;
+        // Counted from what the row ACTUALLY reads back as, never from having
+        // called the helper: its guards and best-effort writes can leave it a
+        // silent no-op, and reporting a release PropLane is still billed for is
+        // exactly the money leak this sweep exists to catch.
+        const released = await releaseExpiredSuspendedNumber(db, row.managerUserId);
+        if (released) result.released += 1;
+        else {
+          result.errors.push({
+            managerUserId: row.managerUserId,
+            error: "release_not_confirmed",
+          });
+        }
+        return;
       }
 
       if (ageDays >= warnAfterDays && !row.suspensionWarnedAt) {
@@ -239,6 +245,46 @@ export async function sweepSuspendedManagerNumbers(
         error: e instanceof Error ? e.message : "sweep_failed",
       });
     }
+  };
+
+  const releaseCandidates: unknown[] =
+    budget > 0
+      ? ((
+          await db
+            .from(TABLE)
+            .select("*")
+            .eq("provision_state", "active")
+            .not("service_suspended_at", "is", null)
+            .not("suspension_warned_at", "is", null)
+            .order("suspension_warned_at", { ascending: true })
+            .limit(Math.min(queueFloor, budget))
+        ).data ?? [])
+      : [];
+  for (const raw of releaseCandidates) {
+    if (budget <= 0) break;
+    budget -= 1;
+    await processSuspendedRow(raw);
+  }
+
+  const warnDueBeforeIso = new Date(nowMs - warnAfterDays * MS_PER_DAY).toISOString();
+  const warnCandidates: unknown[] =
+    budget > 0
+      ? ((
+          await db
+            .from(TABLE)
+            .select("*")
+            .eq("provision_state", "active")
+            .not("service_suspended_at", "is", null)
+            .is("suspension_warned_at", null)
+            .lte("service_suspended_at", warnDueBeforeIso)
+            .order("updated_at", { ascending: true })
+            .limit(budget)
+        ).data ?? [])
+      : [];
+  for (const raw of warnCandidates) {
+    if (budget <= 0) break;
+    budget -= 1;
+    await processSuspendedRow(raw);
   }
 
   return result;
@@ -286,17 +332,23 @@ async function warnSuspendedNumberRelease(
  * "Never release a number its owner was not warned about" lives HERE, on the
  * destructive operation, not only in the sweep that normally calls it — a
  * future caller taking a different path must inherit the same refusal.
+ *
+ * Returns whether the lifecycle row really reads `released` afterwards. That
+ * answer comes from a FRESH read, never from a write's status code, because
+ * every write on this path is best-effort: a caller that reports "released"
+ * while the row is still active would be claiming PropLane stopped paying for a
+ * number it is still billed for.
  */
 export async function releaseExpiredSuspendedNumber(
   db: SupabaseClient,
   managerUserId: string,
-): Promise<void> {
+): Promise<boolean> {
   const id = managerUserId.trim();
-  if (!id) return;
+  if (!id) return false;
   const record = await getManagerNumberRecord(db, id);
-  if (!record || record.provisionState !== "active") return;
-  if (!record.serviceSuspendedAt) return;
-  if (!record.suspensionWarnedAt) return;
+  if (!record || record.provisionState !== "active") return false;
+  if (!record.serviceSuspendedAt) return false;
+  if (!record.suspensionWarnedAt) return false;
 
   const sid = record.phoneNumberSid;
   if (sid) {
@@ -317,4 +369,7 @@ export async function releaseExpiredSuspendedNumber(
   }
 
   await releaseManagerNumber(db, id);
+
+  const after = await getManagerNumberRecord(db, id).catch(() => null);
+  return after?.provisionState === "released";
 }

@@ -239,6 +239,48 @@ describe("sweepSuspendedManagerNumbers", () => {
     expect(releaseMock).not.toHaveBeenCalled();
   });
 
+  it("does not report a release the lifecycle row never took", async () => {
+    purchaseSkuMock.mockResolvedValue(FREE_SKU);
+    const now = Date.parse("2026-08-04T12:00:00.000Z");
+    const suspendedAt = new Date(
+      now - (SMS_NUMBER_SUSPENSION_GRACE_DAYS + 1) * 86_400_000,
+    ).toISOString();
+    const db = seed({ serviceSuspendedAt: suspendedAt, suspensionWarnedAt: suspendedAt }) as never;
+    const noRowsBuilder: Record<string, unknown> = {};
+    for (const method of ["eq", "is", "not", "lte", "select", "order", "limit"]) {
+      noRowsBuilder[method] = () => noRowsBuilder;
+    }
+    noRowsBuilder.then = (resolve: (v: unknown) => unknown) => Promise.resolve(resolve({ data: [] }));
+    const realFrom = (db as unknown as { from: (t: string) => unknown }).from;
+    (db as unknown as { from: (t: string) => unknown }).from = (t: string) => {
+      const builder = realFrom(t) as Record<string, unknown>;
+      if (t !== "manager_sms_numbers") return builder;
+      const update = builder.update as (patch: Record<string, unknown>) => unknown;
+      builder.update = (patch: Record<string, unknown>) =>
+        patch.provision_state === "released" ? noRowsBuilder : update(patch);
+      return builder;
+    };
+    const result = await sweepSuspendedManagerNumbers(db, { nowMs: now });
+    expect(result.released).toBe(0);
+    expect(result.errors).toEqual([{ managerUserId: MGR, error: "release_not_confirmed" }]);
+    const tables = (db as unknown as { __tables: Record<string, Array<Record<string, unknown>>> })
+      .__tables;
+    expect(tables.manager_sms_numbers[0]!.provision_state).toBe("active");
+  });
+
+  it("does not let a not-yet-due row consume the warn queue's window", async () => {
+    purchaseSkuMock.mockResolvedValue(FREE_SKU);
+    const now = Date.parse("2026-08-04T12:00:00.000Z");
+    const warnAfterDays = SMS_NUMBER_SUSPENSION_GRACE_DAYS - SMS_NUMBER_SUSPENSION_WARN_DAYS_BEFORE;
+    const db = seed({
+      serviceSuspendedAt: new Date(now - (warnAfterDays - 1) * 86_400_000).toISOString(),
+    }) as never;
+    const result = await sweepSuspendedManagerNumbers(db, { nowMs: now });
+    expect(result.warned).toBe(0);
+    expect(result.unwarnable).toBe(0);
+    expect(bounceMock).not.toHaveBeenCalled();
+  });
+
   it("does not release a re-entitled account even if the stamp is past grace", async () => {
     purchaseSkuMock.mockResolvedValue(PAID_SKU);
     const now = Date.parse("2026-08-04T12:00:00.000Z");
@@ -264,7 +306,7 @@ describe("releaseExpiredSuspendedNumber", () => {
 
   it("refuses on its own when no warning was ever delivered, not just via the sweep", async () => {
     const db = seed({ serviceSuspendedAt: "2026-01-01T00:00:00.000Z" }) as never;
-    await releaseExpiredSuspendedNumber(db, MGR);
+    expect(await releaseExpiredSuspendedNumber(db, MGR)).toBe(false);
     expect(releaseMock).not.toHaveBeenCalled();
     const tables = (db as unknown as { __tables: Record<string, Array<Record<string, unknown>>> })
       .__tables;

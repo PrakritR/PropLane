@@ -1,7 +1,7 @@
 /**
  * Minimal in-memory Supabase-PostgREST stub for unit tests. Supports the subset
  * of the query builder the SMS provisioning / relay / reminder code uses:
- * select/eq/neq/is/not/in/order/limit/maybeSingle, update().eq()...select(),
+ * select/eq/neq/lte/is/not/in/order/limit/maybeSingle, update().eq()...select(),
  * insert(), and upsert(rows, { onConflict, ignoreDuplicates }).select(). Filters
  * are applied faithfully so cross-tenant scoping is actually exercised.
  */
@@ -40,6 +40,7 @@ interface Builder extends PromiseLike<{ data: Row[] | Row | null; error: null }>
   select: (..._a: unknown[]) => Builder;
   eq: (col: string, val: unknown) => Builder;
   neq: (col: string, val: unknown) => Builder;
+  lte: (col: string, val: unknown) => Builder;
   is: (col: string, val: unknown) => Builder;
   not: (col: string, op: string, val: unknown) => Builder;
   in: (col: string, vals: unknown[]) => Builder;
@@ -138,6 +139,15 @@ export function createMemoryDb(seed: Record<string, Row[]> = {}): MemoryDb {
       },
       neq(col: string, val: unknown) {
         filters.push((r) => String(readColumn(r, col) ?? "") !== String(val));
+        return builder;
+      },
+      lte(col: string, val: unknown) {
+        filters.push((r) => {
+          const value = readColumn(r, col);
+          // NULL compares as unknown in Postgres, so the row is not returned.
+          if (value === null || value === undefined) return false;
+          return String(value) <= String(val);
+        });
         return builder;
       },
       is(col: string, val: unknown) {

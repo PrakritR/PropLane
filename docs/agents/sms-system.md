@@ -153,15 +153,22 @@ Enforced in three places (`manager-number-access.server.ts`):
   future caller inherits it. An extended grace is never SILENT: each
   undeliverable warning increments `unwarnable` and pushes a per-row `errors`
   entry, which the cron response echoes — otherwise PropLane pays for the number
-  forever with no signal. Pass 1 of the sweep is scoped to UNSTAMPED rows and
-  ordered deterministically; pass 2 runs two disjoint, independently-bounded
-  queues (warned rows ordered by warning age = the release candidates, unwarned
-  rows ordered by `updated_at` = a round robin), so an unwarnable row rotates to
-  the back after each attempt rather than pinning the window and starving a
-  newly-suspended manager owed their first notice. A warning email that sends but
-  whose `suspension_warned_at` stamp does not land is NOT counted as warned —
-  release reads the stamp, and counting it would hide a daily re-send.
-  Re-upgrading
+  forever with no signal. `released` is likewise counted from a FRESH read of the
+  lifecycle row, never from having called the helper, so a guard-tripped no-op or
+  a failed write reports `release_not_confirmed` rather than claiming PropLane
+  stopped paying for a number it is still billed for. `limit` is the sweep's
+  TOTAL row budget, not per query: the three queues (stamp / release / warn) each
+  get a `floor(limit/3)` floor and unspent budget rolls forward to the warn
+  queue, because every row costs a sequential entitlement read in a cron that
+  shares its 60s with the provisioning backfill. Pass 1 is scoped to UNSTAMPED
+  rows and ordered deterministically; pass 2 draws two disjoint queues — warned
+  rows ordered by warning age (the release candidates) and rows actually DUE for
+  a warning (`service_suspended_at <= now - warnAfterDays`) ordered by
+  `updated_at`, a round robin — so an unwarnable row rotates to the back after
+  each attempt and a not-yet-due row never occupies the window ahead of a manager
+  owed their notice. A warning email that sends but whose `suspension_warned_at`
+  stamp does not land is NOT counted as warned — release reads the stamp, and
+  counting it would hide a daily re-send. Re-upgrading
   clears the stamp so a later downgrade starts a fresh grace. The number
   stops sending (`number_suspended`) while suspended; inbound still lands in
   the inbox. The send paths fail OPEN on `plan_unreadable` (an infra blip must
