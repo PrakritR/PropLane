@@ -241,7 +241,7 @@ export function ManagerEntryPlanChooser() {
 
         <p className="auth-plan-price-block mt-4 text-center text-xs text-muted sm:mt-5">
           {selectedTierId === "free"
-            ? "Free · no card required · upgrade anytime in Settings"
+            ? `Free · no card required · ends your ${MANAGER_SUBSCRIPTION_TRIAL_DAYS}-day Pro trial now · upgrade anytime in Settings`
             : `${selected.label} · card required · first charge after your ${MANAGER_SUBSCRIPTION_TRIAL_DAYS}-day free trial · the dedicated phone number & texting start with your paid subscription, not during the trial`}
         </p>
 

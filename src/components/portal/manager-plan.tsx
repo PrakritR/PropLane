@@ -116,16 +116,27 @@ function DowngradeConsequences({ target }: { target: ManagerSkuTier }) {
         Nothing is deleted — every property, resident, lease, payment record, and message you&apos;ve created stays on
         your account.
       </li>
-      <li>
-        {tierLabel(target)} includes {cap === 1 ? "1 property listing" : `up to ${cap} property listings`} and{" "}
-        {links === 1 ? "1 co-manager link" : `up to ${links} co-manager links`}. If you&apos;re over either limit, what
-        you already have keeps working — you just can&apos;t add new ones until you&apos;re under the limit.
-      </li>
+      {target === "free" ? (
+        // Free has no co-manager clause: the Team section itself is paywalled on
+        // Free, so promising "1 co-manager link" would contradict the Free tier
+        // card a few lines below (co-managers not included).
+        <li>
+          Free includes {cap === 1 ? "1 property listing" : `up to ${cap} property listings`}. If you have more,
+          existing listings keep working — you just can&apos;t add new ones until you&apos;re under the limit.
+        </li>
+      ) : (
+        <li>
+          {tierLabel(target)} includes {cap === 1 ? "1 property listing" : `up to ${cap} property listings`} and{" "}
+          {links === 1 ? "1 co-manager link" : `up to ${links} co-manager links`}. If you&apos;re over either limit,
+          what you already have keeps working — you just can&apos;t add new ones until you&apos;re under the limit.
+        </li>
+      )}
       {target === "free" ? (
         <>
           <li>
-            On Free, the Residents, Leases, Services, Documents, and Communication sections are locked behind an
-            upgrade prompt. Everything in them is kept and unlocks again if you re-subscribe.
+            On Free, the Residents, Leases, Services, Communication, Finances, Documents, Team (co-managers), and
+            Promotion sections are locked behind an upgrade prompt. Everything in them is kept and unlocks again if
+            you re-subscribe.
           </li>
           <li>
             Your dedicated phone number &amp; texting are included only with an actively paid Pro or Business

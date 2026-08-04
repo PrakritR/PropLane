@@ -131,6 +131,7 @@ export function ManagerPlanNative({
   const [restoring, setRestoring] = useState(false);
   const [activating, setActivating] = useState(false);
   const [switchingToFree, setSwitchingToFree] = useState(false);
+  const [confirmingFree, setConfirmingFree] = useState(false);
   const offeringsLoadedRef = useRef(false);
 
   const canOffer = isIos && subLoaded && !planUnknown && !stripeManaged && !appleManaged;
@@ -228,6 +229,7 @@ export function ManagerPlanNative({
         return;
       }
       showToast("You're on the Free plan.");
+      setConfirmingFree(false);
       await onReload();
     } catch {
       showToast("Network error.");
@@ -351,6 +353,35 @@ export function ManagerPlanNative({
         <div className="mt-3">
           {isFree ? (
             <CurrentPlanChip />
+          ) : confirmingFree ? (
+            // Two-step confirm: this immediately ends a trial/comped plan and
+            // locks the Pro-only sections, so a single accidental tap must not
+            // be able to do it — same discipline as the web cancel modal.
+            <div className="space-y-2">
+              <p className="text-sm font-medium leading-relaxed text-foreground">
+                Switch to Free now?{trialActive ? " This ends your free trial immediately." : ""}
+              </p>
+              <Button
+                type="button"
+                variant="primary"
+                className="w-full rounded-full"
+                disabled={busy}
+                data-attr="ios-switch-to-free-confirm"
+                onClick={() => onSwitchToFree()}
+              >
+                {switchingToFree ? "Switching…" : "Confirm switch to Free"}
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                className="w-full rounded-full"
+                disabled={busy}
+                data-attr="ios-switch-to-free-keep"
+                onClick={() => setConfirmingFree(false)}
+              >
+                Keep my current plan
+              </Button>
+            </div>
           ) : (
             <Button
               type="button"
@@ -358,9 +389,9 @@ export function ManagerPlanNative({
               className="w-full rounded-full"
               disabled={busy}
               data-attr="ios-switch-to-free"
-              onClick={() => onSwitchToFree()}
+              onClick={() => setConfirmingFree(true)}
             >
-              {switchingToFree ? "Switching…" : "Switch to Free"}
+              Switch to Free
             </Button>
           )}
         </div>
