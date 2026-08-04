@@ -66,8 +66,12 @@ reply from any of them reaches the texter:
      "open PropLane to reply". Fails CLOSED on an unreadable row — unlike the
      plan and consent gates, this one is authorization.
    - **Per-conversation rate limit**, 3/hour (`smsEmailReplyRateLimitKey`),
-     checked BEFORE the grant is consumed — a throttled reply must not also burn
-     the manager's single-use window.
+     checked FIRST — ahead of every branch that sends a text *or* emails a
+     bounce. A bounce is mail PropLane sends on the strength of a spoofable
+     `From`, so an unthrottled refusal path is an inbox-flood vector: past the
+     allowance the attempt is recorded and dropped silently. The grant is
+     consumed LAST, so a reply refused by any gate never burns the manager's
+     single-use window.
 
 **Intent-router seam.** `/api/twilio/inbound` consults
 `routeInboundSms(ctx)` (`src/lib/sms-intent-router.ts`) after self-reply

@@ -292,6 +292,19 @@ async function deliverClaimedEmailSmsReply(
   target: { managerUserId: string; counterpartyPhone: string },
   managerEmail: string,
 ): Promise<EmailSmsReplyResult> {
+  // ONE allowance per conversation per hour, covering every outcome below —
+  // sends AND bounces. A bounce is an email PropLane sends on the strength of a
+  // spoofable `From`, so an unthrottled refusal path is an inbox-flood vector:
+  // an attacker holding a leaked `sms+` address gets a fresh claim per Resend
+  // email id and would otherwise turn each one into an accusatory email. Past
+  // the allowance the attempt is recorded and dropped SILENTLY — the manager is
+  // told the first few times and never becomes the target. It also short-cuts
+  // the Resend fetch below, so a burst costs no round trips.
+  if (!rateLimit(smsEmailReplyRateLimitKey(target.managerUserId, target.counterpartyPhone), 3, 3_600_000).ok) {
+    await recordClaimOutcome(db, parsed.emailId, { smsSent: false, error: "rate_limited" });
+    return { handled: true, sent: false, error: "rate_limited" };
+  }
+
   const payload = await resolveReplyPayload(parsed);
   const text = payload.text.trim().slice(0, MAX_SMS_REPLY_CHARS);
   if (!text) {
@@ -322,19 +335,8 @@ async function deliverClaimedEmailSmsReply(
     return { handled: true, sent: false, error: "auth_failed" };
   }
 
-  // Cheapest gate, and it must run BEFORE the grant: a throttled reply that
-  // burned the single-use window would lock the manager out until the next
-  // inbound text, on top of the hour.
-  if (!rateLimit(smsEmailReplyRateLimitKey(target.managerUserId, target.counterpartyPhone), 3, 3_600_000).ok) {
-    await recordClaimOutcome(db, parsed.emailId, { smsSent: false, error: "rate_limited" });
-    await bounceToManager({
-      managerEmail,
-      counterpartyPhone: target.counterpartyPhone,
-      reason: "Too many emailed replies to this conversation in the last hour.",
-    });
-    return { handled: true, sent: false, error: "rate_limited" };
-  }
-
+  // The grant is consumed LAST, so a reply refused by any gate above it still
+  // leaves the manager's single-use window intact.
   if (auth.outcome !== "authenticated") {
     const grant = await consumeSmsEmailReplyGrant(db, {
       managerUserId: target.managerUserId,
