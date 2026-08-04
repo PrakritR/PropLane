@@ -63,6 +63,8 @@ export function mapNumberRow(row: Record<string, unknown> | null | undefined): M
     releasedAt: (row.released_at as string | null) ?? null,
     registrationUpdatedAt: (row.registration_updated_at as string | null) ?? null,
     updatedAt: (row.updated_at as string | null) ?? null,
+    serviceSuspendedAt: (row.service_suspended_at as string | null) ?? null,
+    suspensionWarnedAt: (row.suspension_warned_at as string | null) ?? null,
   };
 }
 
@@ -384,7 +386,31 @@ export async function resolveManagerSendNumberState(
   );
   const access = await resolveManagerNumberAccess(db, managerUserId);
   if (!sendAllowedByAccess(access)) {
+    // Stamp the start of the 90-day grace the first time we notice — never
+    // overwrite an existing stamp (the grace clock must not reset on every send).
+    if (!record?.serviceSuspendedAt) {
+      await db
+        .from(TABLE)
+        .update({ service_suspended_at: nowIso(), updated_at: nowIso() })
+        .eq("manager_user_id", managerUserId.trim())
+        .eq("provision_state", "active")
+        .is("service_suspended_at", null)
+        .then(() => undefined, () => undefined);
+    }
     return { status: "suspended", phoneNumber: record?.phoneNumber ?? null };
+  }
+  // Re-entitlement clears the grace clock so a later downgrade starts fresh.
+  if (record?.serviceSuspendedAt) {
+    await db
+      .from(TABLE)
+      .update({
+        service_suspended_at: null,
+        suspension_warned_at: null,
+        updated_at: nowIso(),
+      })
+      .eq("manager_user_id", managerUserId.trim())
+      .not("service_suspended_at", "is", null)
+      .then(() => undefined, () => undefined);
   }
   const phoneNumber = String(record?.phoneNumber ?? "").trim();
   return phoneNumber ? { status: "ok", phoneNumber } : { status: "unavailable" };

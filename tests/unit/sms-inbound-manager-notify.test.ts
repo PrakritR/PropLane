@@ -126,4 +126,26 @@ describe("notifyManagerOfInboundSms", () => {
       .__tables.portal_inbox_thread_records;
     expect(notices).toHaveLength(0);
   });
+
+  it("co-manager copies get portal-only Reply-To, plain portal copy, and no grant", async () => {
+    const db = seedDb();
+    const result = await notifyManagerOfInboundSms(db as never, {
+      managerUserId: MGR,
+      fromPhone: PHONE,
+      text: "Can we tour Saturday?",
+      includeSmsReplyToken: false,
+    });
+    expect(result).toEqual({ inboxNoticeWritten: true, emailSent: true });
+    const body = JSON.parse(String((fetchMock.mock.calls[0] as unknown[])[1]!["body" as never])) as {
+      text: string;
+      reply_to?: string;
+    };
+    expect(body.reply_to).toMatch(/^smsp\+/);
+    expect(body.text).toContain("will NOT reach the renter");
+    expect(body.text).toContain("/portal/communication");
+    expect(parseSmsReplyAddress([body.reply_to!], MGR_EMAIL)).toBeNull();
+    const tables = (db as unknown as { __tables: Record<string, Array<Record<string, unknown>>> })
+      .__tables;
+    expect(tables.portal_outbound_mail_records ?? []).toHaveLength(0);
+  });
 });

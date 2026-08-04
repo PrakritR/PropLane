@@ -38,12 +38,16 @@ import {
 import { rateLimit } from "@/lib/rate-limit";
 import { logManagerSmsMessage } from "@/lib/manager-sms-messages.server";
 import { sendFromManagerWorkNumber } from "@/lib/proplane-sms-transport.server";
-import { sendManagerNoticeEmail } from "@/lib/sms-inbox-notice.server";
+import {
+  CO_MANAGER_SMS_EMAIL_PORTAL_ONLY_COPY,
+  sendManagerNoticeEmail,
+} from "@/lib/sms-inbox-notice.server";
 import {
   coerceCounterpartyRole,
   type SmsCounterpartyRole,
 } from "@/lib/sms-conversation-identity";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
+import { PRODUCTION_APP_ORIGIN, resolveEmailLinkBaseUrl } from "@/lib/app-url";
 
 const MAX_SMS_REPLY_CHARS = 1500;
 
@@ -428,4 +432,54 @@ async function deliverClaimedEmailSmsReply(
   await recordClaimOutcome(db, parsed.emailId, { smsSent: true, sid: send.sid ?? null });
 
   return { handled: true, sent: true };
+}
+
+/**
+ * A co-manager (or any viewer) replied to a portal-only `smsp+` notification.
+ * Never send SMS — bounce with the same portal-only explanation so the reply
+ * is never silently discarded into support ingest.
+ */
+export async function ingestInboundEmailSmsPortalOnlyReply(
+  parsed: ParsedInboundEmail,
+  target: { managerUserId: string; counterpartyPhone: string },
+  db: SupabaseClient = createSupabaseServiceRoleClient(),
+): Promise<EmailSmsReplyResult> {
+  const { data: profile } = await db
+    .from("profiles")
+    .select("email")
+    .eq("id", target.managerUserId)
+    .maybeSingle();
+  const managerEmail = String(profile?.email ?? "").trim().toLowerCase();
+  if (!managerEmail || managerEmail !== parsed.fromEmail.trim().toLowerCase()) {
+    return { handled: false, sent: false };
+  }
+
+  const claimed = await claimEmailSmsReply(
+    db,
+    parsed.emailId,
+    managerEmail,
+    target.counterpartyPhone,
+  );
+  if (!claimed) return { handled: true, sent: true, idempotent: true };
+
+  await recordClaimOutcome(db, parsed.emailId, {
+    smsSent: false,
+    error: "portal_only_reply",
+  }).catch(() => undefined);
+
+  const portalLink = `${(resolveEmailLinkBaseUrl() || PRODUCTION_APP_ORIGIN).replace(/\/$/, "")}/portal/communication`;
+  const throttle = rateLimit(
+    smsEmailReplyBounceRateLimitKey(target.managerUserId, target.counterpartyPhone),
+    3,
+    3_600_000,
+  );
+  if (throttle.ok) {
+    await sendManagerNoticeEmail({
+      toEmail: managerEmail,
+      subject: "Reply by email will not reach the renter",
+      text: [CO_MANAGER_SMS_EMAIL_PORTAL_ONLY_COPY, "", portalLink].join("\n"),
+    }).catch(() => ({ sent: false }));
+  }
+
+  return { handled: true, sent: false, error: "portal_only_reply" };
 }

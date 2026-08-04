@@ -252,3 +252,89 @@ export function smsConversationAnchorMessageId(
     .slice(0, 24);
   return `<pl-sms-anchor-${digest}@${fromDomain}>`;
 }
+
+/*
+ * Portal-only SMS notification reply addresses (co-manager copies).
+ *
+ * Co-managers are notified of inbound texts but must NOT get a sendable `sms+`
+ * token — a reply from their address would text the prospect from the
+ * co-manager's own work number (wrong From, wrong thread). Instead their
+ * notification carries a `smsp+` Reply-To that verifies the same triple but
+ * NEVER sends: the inbound webhook bounces with a portal pointer. Distinct
+ * prefix from `sms+` so a forged or leaked send token cannot be confused with
+ * a portal-only bounce address.
+ *
+ * Local-part budget: "smsp+" (5) + 32 uuid hex + 10 digits + "." + 16 mac = 64.
+ */
+const SMS_PORTAL_LOCAL_PREFIX = "smsp+";
+const SMS_PORTAL_MAC_INPUT_PREFIX = "sms-portal-reply:v1";
+
+function smsPortalPairMac(
+  key: Buffer,
+  managerUserId: string,
+  phone10: string,
+  managerEmail: string,
+): string {
+  return createHmac("sha256", key)
+    .update(
+      `${SMS_PORTAL_MAC_INPUT_PREFIX}:${managerUserId.toLowerCase()}:${phone10}:${managerEmail.trim().toLowerCase()}`,
+      "utf8",
+    )
+    .digest("hex")
+    .slice(0, MAC_LENGTH);
+}
+
+/**
+ * Reply-To for a co-manager's inbound-text notification. Verifies, but the
+ * inbound path ONLY bounces — it never sends an SMS.
+ */
+export function buildSmsPortalOnlyReplyAddress(
+  managerUserId: string,
+  managerEmail: string,
+  counterpartyPhone: string,
+): string | null {
+  const domain = replyDomain();
+  const key = secretKey();
+  if (!domain || !key) return null;
+  const encoded = uuidToHex(managerUserId);
+  const phone10 = usNationalDigits(counterpartyPhone);
+  if (!encoded || !phone10 || !managerEmail.includes("@")) return null;
+  const local = `${SMS_PORTAL_LOCAL_PREFIX}${encoded}${phone10}.${smsPortalPairMac(key, managerUserId, phone10, managerEmail)}`;
+  if (local.length > 64) return null;
+  return `${local}@${domain}`;
+}
+
+/**
+ * Find a verified portal-only (`smsp+`) address among the inbound To list.
+ * Callers bounce with a portal pointer — never send SMS.
+ */
+export function parseSmsPortalOnlyReplyAddress(
+  toEmails: string[],
+  fromEmail: string,
+): { managerUserId: string; counterpartyPhone: string } | null {
+  const domain = replyDomain();
+  const key = secretKey();
+  if (!domain || !key) return null;
+  const from = fromEmail.trim().toLowerCase();
+  if (!from.includes("@")) return null;
+
+  for (const raw of toEmails) {
+    const address = raw.trim().toLowerCase();
+    const at = address.lastIndexOf("@");
+    if (at <= 0 || address.slice(at + 1) !== domain) continue;
+    const local = address.slice(0, at);
+    if (!local.startsWith(SMS_PORTAL_LOCAL_PREFIX)) continue;
+    const [payload, mac] = local.slice(SMS_PORTAL_LOCAL_PREFIX.length).split(".");
+    if (!payload || !mac || mac.length !== MAC_LENGTH) continue;
+    if (payload.length !== UUID_HEX_LENGTH + US_NATIONAL_DIGITS) continue;
+    const managerUserId = hexToUuid(payload.slice(0, UUID_HEX_LENGTH));
+    const phone10 = payload.slice(UUID_HEX_LENGTH);
+    if (!managerUserId || !/^\d{10}$/.test(phone10)) continue;
+    const expected = Buffer.from(smsPortalPairMac(key, managerUserId, phone10, from), "utf8");
+    const provided = Buffer.from(mac, "utf8");
+    if (expected.length === provided.length && timingSafeEqual(expected, provided)) {
+      return { managerUserId, counterpartyPhone: `+1${phone10}` };
+    }
+  }
+  return null;
+}

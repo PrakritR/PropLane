@@ -30,6 +30,8 @@ vi.mock("@/lib/sms-inbox-notice.server", () => ({
   sendManagerNoticeEmail: bounceMock,
   upsertManagerInboxNotice: vi.fn(async () => undefined),
   notifyManagerOfInboundSms: vi.fn(async () => ({ inboxNoticeWritten: true, emailSent: false })),
+  CO_MANAGER_SMS_EMAIL_PORTAL_ONLY_COPY:
+    "Replying to this email will NOT reach the renter. Open PropLane → Communication to reply from the portal.",
 }));
 
 vi.mock("@/lib/inbound-email/inbound-email.server", async (importOriginal) => {
@@ -594,5 +596,51 @@ describe("ingestInboundEmailSmsReply — send and bounce budgets are separate", 
     }
     expect(results.every((r) => r.error === "empty_body")).toBe(true);
     expect(bounceMock).toHaveBeenCalledTimes(3);
+  });
+});
+
+describe("ingestInboundEmailSmsPortalOnlyReply", () => {
+  it("bounces with portal-only copy and never sends SMS", async () => {
+    const { ingestInboundEmailSmsPortalOnlyReply } = await import(
+      "@/lib/inbound-email/inbound-email-sms-reply.server"
+    );
+    const phone = nextPhone();
+    const db = createMemoryDb({
+      profiles: [{ id: MGR, email: MGR_EMAIL }],
+      portal_outbound_mail_records: [],
+    });
+    const result = await ingestInboundEmailSmsPortalOnlyReply(
+      parsedEmail({ emailId: "re_portal_only_1", toEmails: [`smsp+x@reply.prop-lane.space`] }),
+      { managerUserId: MGR, counterpartyPhone: phone },
+      db as never,
+    );
+    expect(result).toMatchObject({ handled: true, sent: false, error: "portal_only_reply" });
+    expect(sendFromManagerMock).not.toHaveBeenCalled();
+    expect(bounceMock).toHaveBeenCalledTimes(1);
+    const bounceArg = bounceMock.mock.calls[0]![0] as { subject: string; text: string };
+    expect(bounceArg.subject).toMatch(/will not reach the renter/i);
+    expect(bounceArg.text).toContain("will NOT reach the renter");
+    expect(bounceArg.text).toContain("/portal/communication");
+  });
+
+  it("is idempotent on redelivery (second claim does not bounce again)", async () => {
+    const { ingestInboundEmailSmsPortalOnlyReply } = await import(
+      "@/lib/inbound-email/inbound-email-sms-reply.server"
+    );
+    const phone = nextPhone();
+    const db = createMemoryDb({
+      profiles: [{ id: MGR, email: MGR_EMAIL }],
+      portal_outbound_mail_records: [],
+    });
+    const args = {
+      parsed: parsedEmail({ emailId: "re_portal_idem" }),
+      target: { managerUserId: MGR, counterpartyPhone: phone },
+    };
+    const first = await ingestInboundEmailSmsPortalOnlyReply(args.parsed, args.target, db as never);
+    const second = await ingestInboundEmailSmsPortalOnlyReply(args.parsed, args.target, db as never);
+    expect(first).toMatchObject({ handled: true, sent: false });
+    expect(second).toMatchObject({ handled: true, sent: true, idempotent: true });
+    expect(bounceMock).toHaveBeenCalledTimes(1);
+    expect(sendFromManagerMock).not.toHaveBeenCalled();
   });
 });

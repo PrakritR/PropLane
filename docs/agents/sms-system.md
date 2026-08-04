@@ -20,7 +20,8 @@ reply from any of them reaches the texter:
    it as a new inbound — that check is also what prevents the forward LOOP
    (the forwarded copy answered from the cell can never be re-forwarded).
 3. **Email** — `notifyManagerOfInboundSms` (`sms-inbox-notice.server.ts`)
-   emails a copy whose **Reply-To is a signed SMS-conversation token**
+   emails a copy. The **property owner** (the manager whose work number was
+   texted) gets a signed SMS-conversation **Reply-To**
    (`buildSmsReplyAddress`, `sms+<mgr-hex><10-digit-phone>.<mac>@RESEND_REPLY_DOMAIN`;
    MAC binds manager id + counterparty phone + the manager's email, so it only
    verifies when the reply's From is that exact address). The inbound email
@@ -32,6 +33,12 @@ reply from any of them reaches the texter:
    into the SAME conversation with `source = 'email_reply'` (the thread renders
    "via email", so a reply the manager did not write is visible to them). A
    failed send BOUNCES back to the manager by email — never logged as sent.
+   **Co-managers** get a notification too (`includeSmsReplyToken: false`) but
+   NEVER a sendable token — their Reply-To is a portal-only `smsp+…` address
+   (`buildSmsPortalOnlyReplyAddress`); the body says plainly that replying by
+   email will not reach the renter and points at `/portal/communication`. If
+   they reply anyway, `ingestInboundEmailSmsPortalOnlyReply` bounces with that
+   same explanation (never silently drops into support, never sends SMS).
    Relay-pool mirrors get the email copy WITHOUT a token (an emailed reply
    would leave the relay pair's number).
 
@@ -129,10 +136,17 @@ Enforced in three places (`manager-number-access.server.ts`):
 - `resolveActiveManagerSendNumber` + the `sendSms` choke point
   (`resolveWorkNumberOwnerAccess`) — service. **Downgrade to Free suspends the
   number without releasing it**: nothing calls `releaseManagerNumber` on
-  downgrade (people hand the number out — retention is a human decision), the
-  number stops sending (`number_suspended`), inbound still lands in the inbox.
-  The send paths fail OPEN on `plan_unreadable` (an infra blip must not drop
-  messaging); re-upgrading restores service with no surgery.
+  downgrade immediately (people hand the number out). Instead
+  `service_suspended_at` is stamped the first time send is refused; a daily
+  sweep (`sweepSuspendedManagerNumbers`, wired into
+  `/api/cron/backfill-manager-work-numbers`) warns
+  `SMS_NUMBER_SUSPENSION_WARN_DAYS_BEFORE` (7) days before the end of the
+  `SMS_NUMBER_SUSPENSION_GRACE_DAYS` (90) window, then releases at Twilio +
+  clears `profiles.sms_from_number` + marks the row `released`. Re-upgrading
+  clears the stamp so a later downgrade starts a fresh grace. The number
+  stops sending (`number_suspended`) while suspended; inbound still lands in
+  the inbox. The send paths fail OPEN on `plan_unreadable` (an infra blip must
+  not drop messaging).
 - Signup (`scheduleManagerMessagingReady`, wired into every manager-creation
   path) is the PRIMARY provisioning trigger and is idempotent — a retried
   signup never buys a second number. Coverage:

@@ -10,6 +10,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { PRODUCTION_APP_ORIGIN, resolveEmailLinkBaseUrl } from "@/lib/app-url";
 import {
+  buildSmsPortalOnlyReplyAddress,
   buildSmsReplyAddress,
   smsConversationAnchorMessageId,
 } from "@/lib/inbound-email/reply-address.server";
@@ -18,6 +19,10 @@ import { formatPacificDateTime } from "@/lib/pacific-time";
 import { isPortalSandboxEmail } from "@/lib/portal-sandbox-accounts";
 
 const MANAGER_INBOX_SCOPE = "axis_portal_inbox_manager_v1";
+
+/** Plain copy for co-manager notification emails + portal-only bounce replies. */
+export const CO_MANAGER_SMS_EMAIL_PORTAL_ONLY_COPY =
+  "Replying to this email will NOT reach the renter. Open PropLane → Communication to reply from the portal.";
 
 export async function upsertManagerInboxNotice(
   db: SupabaseClient,
@@ -120,15 +125,23 @@ export type InboundSmsManagerNotification = {
   threadType?: string;
   /** Skip the inbox notice (caller already wrote its own representation). */
   skipInboxNotice?: boolean;
+  /**
+   * Owner of the work number that was texted gets a sendable `sms+` Reply-To.
+   * Co-managers (and any other viewer copy) must pass `false`: they get a
+   * portal-only `smsp+` address that bounces with an explanation, never a
+   * sendable token that would text from the wrong number. Default `true` for
+   * owner-only call sites.
+   */
+  includeSmsReplyToken?: boolean;
 };
 
 /**
  * The ONE inbound-SMS → manager notification fan-out shared by every inbound
- * path: writes the manager inbox notice AND emails the manager a copy whose
- * Reply-To carries the signed SMS-conversation token
- * (`buildSmsReplyAddress`), so replying to the email texts the sender back
- * from the manager's work number. Threading anchors group every text from one
- * counterparty into a single conversation in the manager's mail client.
+ * path: writes the manager inbox notice AND emails a copy. The property OWNER's
+ * copy carries a signed `sms+` Reply-To so answering the email texts the
+ * sender back from the work number; co-manager copies (`includeSmsReplyToken:
+ * false`) get a portal-only `smsp+` Reply-To and explicit "replying by email
+ * will not reach the renter" copy — never a sendable token.
  *
  * The email leg is best-effort and never blocks the inbox write; sandbox
  * addresses are skipped inside `sendManagerNoticeEmail`.
@@ -141,6 +154,7 @@ export async function notifyManagerOfInboundSms(
   const fromPhone = String(args.fromPhone ?? "").trim();
   if (!managerUserId || !fromPhone) return { inboxNoticeWritten: false, emailSent: false };
 
+  const includeSmsReplyToken = args.includeSmsReplyToken !== false;
   const subjectLabel = args.subjectLabel?.trim() || "New text";
   const where = args.propertyLabel?.trim() ? ` — ${args.propertyLabel.trim()}` : "";
   const sender = args.senderLabel?.trim() || fromPhone;
@@ -175,20 +189,38 @@ export async function notifyManagerOfInboundSms(
   const managerEmail = String(profile?.email ?? "").trim().toLowerCase();
   if (!managerEmail.includes("@")) return { inboxNoticeWritten, emailSent: false };
 
-  const replyTo = buildSmsReplyAddress(managerUserId, managerEmail, fromPhone);
-  const anchor = smsConversationAnchorMessageId(managerUserId, fromPhone, noticeFromDomain());
   const portalLink = `${(resolveEmailLinkBaseUrl() || PRODUCTION_APP_ORIGIN).replace(/\/$/, "")}/portal/communication`;
-  const emailText = [
-    `${sender} texted your PropLane number:`,
-    "",
-    args.text || "(empty message)",
-    ...(args.autoReply?.trim() ? ["", "PropLane auto-replied:", args.autoReply.trim()] : []),
-    "",
-    replyTo
-      ? "Reply to this email to text them back from your PropLane number."
-      : "Open PropLane to reply from your PropLane number.",
-    portalLink,
-  ].join("\n");
+  // Owner: sendable sms+ token. Co-manager: smsp+ portal-only (bounce, never send).
+  const replyTo = includeSmsReplyToken
+    ? buildSmsReplyAddress(managerUserId, managerEmail, fromPhone)
+    : buildSmsPortalOnlyReplyAddress(managerUserId, managerEmail, fromPhone);
+  // Threading anchors for the OWNER conversation identity (the number that was
+  // texted), not the co-manager's id — mail clients still group by the work
+  // number's counterparty when the caller passes the owner's id as managerUserId
+  // for owner copies. Co-manager copies intentionally use the co-manager's id
+  // so their mailbox groups their own notification stream separately.
+  const anchor = smsConversationAnchorMessageId(managerUserId, fromPhone, noticeFromDomain());
+  const emailText = includeSmsReplyToken
+    ? [
+        `${sender} texted your PropLane number:`,
+        "",
+        args.text || "(empty message)",
+        ...(args.autoReply?.trim() ? ["", "PropLane auto-replied:", args.autoReply.trim()] : []),
+        "",
+        replyTo
+          ? "Reply to this email to text them back from your PropLane number."
+          : "Open PropLane to reply from your PropLane number.",
+        portalLink,
+      ].join("\n")
+    : [
+        `${sender} texted the property's PropLane number:`,
+        "",
+        args.text || "(empty message)",
+        ...(args.autoReply?.trim() ? ["", "PropLane auto-replied:", args.autoReply.trim()] : []),
+        "",
+        CO_MANAGER_SMS_EMAIL_PORTAL_ONLY_COPY,
+        portalLink,
+      ].join("\n");
 
   const { sent } = await sendManagerNoticeEmail({
     toEmail: managerEmail,
@@ -197,12 +229,9 @@ export async function notifyManagerOfInboundSms(
     replyTo,
     headers: { "In-Reply-To": anchor, References: anchor },
   });
-  // The reply token is only as trustworthy as the From header it verifies
-  // against, so it also needs a single-use window: this notification is what
-  // authorizes ONE emailed reply into this conversation.
-  if (sent && replyTo) {
-    // The manager now holds a working reply token, so a window that failed to
-    // open is a real defect — their reply will bounce. Never silent.
+  // Only a sendable owner token opens a reply grant. Co-manager smsp+ addresses
+  // bounce; they must never bank an allowance that could authorize a send.
+  if (sent && includeSmsReplyToken && replyTo) {
     const banked = await grantSmsEmailReply(db, {
       managerUserId,
       counterpartyPhone: fromPhone,

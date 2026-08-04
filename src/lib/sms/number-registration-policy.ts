@@ -42,7 +42,16 @@ export type ManagerSmsNumberRecord = {
   releasedAt: string | null;
   registrationUpdatedAt: string | null;
   updatedAt: string | null;
+  /** When service was first suspended for a unpaid/downgraded account. */
+  serviceSuspendedAt: string | null;
+  /** When the pre-release warning email was sent (null until warned). */
+  suspensionWarnedAt: string | null;
 };
+
+/** Days a suspended number is kept before Twilio release (captain: 90-day grace). */
+export const SMS_NUMBER_SUSPENSION_GRACE_DAYS = 90;
+/** Warn this many days before release (grace − warn = first warning day). */
+export const SMS_NUMBER_SUSPENSION_WARN_DAYS_BEFORE = 7;
 
 const PROVISION_STATES: ReadonlySet<string> = new Set([
   "pending_registration",

@@ -1,6 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
+  buildSmsPortalOnlyReplyAddress,
   buildSmsReplyAddress,
+  parseSmsPortalOnlyReplyAddress,
   parseSmsReplyAddress,
   smsConversationAnchorMessageId,
 } from "@/lib/inbound-email/reply-address.server";
@@ -75,6 +77,28 @@ describe("buildSmsReplyAddress / parseSmsReplyAddress", () => {
     expect(
       parseSmsReplyAddress([`reply+${"a".repeat(32)}.${"b".repeat(16)}@reply.prop-lane.space`], MGR_EMAIL),
     ).toBeNull();
+  });
+});
+
+describe("buildSmsPortalOnlyReplyAddress / parseSmsPortalOnlyReplyAddress", () => {
+  it("round-trips under the smsp+ prefix and never parses as a sendable sms+ token", () => {
+    const address = buildSmsPortalOnlyReplyAddress(MGR, MGR_EMAIL, PHONE);
+    expect(address).toBeTruthy();
+    expect(address).toMatch(/^smsp\+[0-9a-f]{32}\d{10}\.[0-9a-f]{16}@reply\.prop-lane\.space$/);
+    expect(address!.split("@")[0]!.length).toBeLessThanOrEqual(64);
+    expect(parseSmsPortalOnlyReplyAddress([address!], MGR_EMAIL)).toEqual({
+      managerUserId: MGR,
+      counterpartyPhone: PHONE,
+    });
+    // Distinct prefixes: a portal-only address must not verify as sendable.
+    expect(parseSmsReplyAddress([address!], MGR_EMAIL)).toBeNull();
+    const sendable = buildSmsReplyAddress(MGR, MGR_EMAIL, PHONE)!;
+    expect(parseSmsPortalOnlyReplyAddress([sendable], MGR_EMAIL)).toBeNull();
+  });
+
+  it("rejects a mismatched From (MAC binds the recipient email)", () => {
+    const address = buildSmsPortalOnlyReplyAddress(MGR, MGR_EMAIL, PHONE)!;
+    expect(parseSmsPortalOnlyReplyAddress([address], "other@example.com")).toBeNull();
   });
 });
 

@@ -26,10 +26,15 @@ import {
   ingestInboundEmailReply,
 } from "@/lib/inbound-email/inbound-email-reply.server";
 import {
+  ingestInboundEmailSmsPortalOnlyReply,
   ingestInboundEmailSmsReply,
   type EmailSmsReplyResult,
 } from "@/lib/inbound-email/inbound-email-sms-reply.server";
-import { parseReplyAddress, parseSmsReplyAddress } from "@/lib/inbound-email/reply-address.server";
+import {
+  parseReplyAddress,
+  parseSmsPortalOnlyReplyAddress,
+  parseSmsReplyAddress,
+} from "@/lib/inbound-email/reply-address.server";
 import { isPaymentInboxEmail } from "@/lib/payment-receipt-email/payment-inbox";
 import { processInboundPaymentReceiptEmail } from "@/lib/payment-receipt-email/process-receipt.server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
@@ -117,6 +122,26 @@ export async function POST(req: Request) {
       });
     }
     // Token owner no longer resolves — fall through to the support ingest.
+  }
+
+  // Co-manager / viewer portal-only (`smsp+`) address: bounce with a portal
+  // pointer — never send SMS, never silently drop into support.
+  const smsPortalOnly = parseSmsPortalOnlyReplyAddress(parsed.toEmails, parsed.fromEmail);
+  if (smsPortalOnly) {
+    const result: EmailSmsReplyResult = await ingestInboundEmailSmsPortalOnlyReply(
+      parsed,
+      smsPortalOnly,
+    ).catch((e) => {
+      console.error("inbound-email sms portal-only bounce failed", parsed.emailId, e);
+      return { handled: true, sent: false, error: "ingest_error" };
+    });
+    if (result.handled) {
+      return ok({
+        smsPortalOnly: true,
+        sent: false,
+        ...(result.idempotent ? { idempotent: true } : {}),
+      });
+    }
   }
 
   // A verified reply token routes the mail into its portal conversation

@@ -894,6 +894,9 @@ export async function handleClawLeasingInbound(args: {
                   propertyLabel,
                   idPrefix: "claw_lease",
                   threadType: "claw_leasing_sms",
+                  // Owner of the texted work number only — co-managers get
+                  // portal-only copy (no sendable sms+ token).
+                  includeSmsReplyToken: managerUserId === landlordId,
                 }),
               ),
             ]);
@@ -981,6 +984,7 @@ export async function handleClawLeasingInbound(args: {
           propertyLabel,
           idPrefix: "claw_lease",
           threadType: "claw_leasing_sms",
+          includeSmsReplyToken: managerUserId === landlordId,
         }),
       ),
     ]);
