@@ -391,11 +391,16 @@ export function ShareLeadLinkModal({
           rentalType: kind === "apply" ? applyLinkRentalType(effectiveApplyRentalTypes) : undefined,
         }),
       });
-      const data = (await res.json().catch(() => ({}))) as { ok?: boolean; error?: string; mailtoHref?: string };
+      const data = (await res.json().catch(() => ({}))) as {
+        ok?: boolean;
+        error?: string;
+        mailtoHref?: string;
+        warning?: string;
+      };
       if (data.ok) {
         const channelLabel =
           deliverEmail && deliverSms ? "Email and SMS sent" : deliverSms ? "SMS sent" : kind === "listing" ? "Listing sent" : "Invite sent";
-        showToast(`${channelLabel}.`);
+        showToast(data.warning ? `${channelLabel}. ${data.warning}` : `${channelLabel}.`);
         setSendPreviewOpen(false);
         onClose();
         return;

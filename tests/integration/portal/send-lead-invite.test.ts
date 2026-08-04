@@ -266,8 +266,59 @@ describe("POST /api/portal/send-lead-invite", () => {
         managerUserId: "user-1",
         to: "+15555551234",
         counterpartyRole: "prospect",
+        // A templated share is not a human manning the thread — tagging it
+        // `work_number` makes the intent router read it as a takeover and
+        // silences the prospect's reply to the very link just sent.
+        source: "lead_invite",
       }),
     );
     expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it("reports a share whose audit row did not land instead of swallowing it", async () => {
+    vi.mocked(createSupabaseServerClient).mockResolvedValue({
+      auth: { getUser: vi.fn().mockResolvedValue({ data: { user: { id: "user-1", email: "mgr@example.com" } } }) },
+    } as never);
+    vi.mocked(createSupabaseServiceRoleClient).mockReturnValue({
+      from: vi.fn().mockReturnValue({
+        select: vi.fn().mockReturnValue({
+          eq: vi.fn().mockReturnValue({
+            maybeSingle: vi.fn().mockResolvedValue({ data: { role: "manager" }, error: null }),
+          }),
+        }),
+      }),
+    } as never);
+    vi.mocked(getShareablePropertyForUser).mockResolvedValue({
+      id: "mgr-1",
+      title: "Test House",
+      adminPublishLive: true,
+    } as never);
+    vi.mocked(resolveManagerWorkNumber).mockResolvedValue("+15555550100");
+    // What an unapplied `…_manager_sms_lead_invite_source.sql` looks like: the
+    // text goes out, the CHECK rejects the row.
+    vi.mocked(sendFromManagerWorkNumber).mockResolvedValue({
+      ok: true,
+      sid: "SM123",
+      channel: "sms",
+      logged: false,
+    });
+
+    const req = jsonRequest("http://localhost/api/portal/send-lead-invite", {
+      method: "POST",
+      body: { kind: "listing", phone: "+15555551234", viaEmail: false, viaSms: true, propertyId: "mgr-1" },
+    });
+    const res = await sendLeadInvite(req);
+    const { status, data } = await parseJsonResponse<{
+      ok?: boolean;
+      smsLogged?: boolean;
+      warning?: string;
+    }>(res);
+
+    // The text already went out, so failing the request would only produce a
+    // duplicate send — but it must not read as a clean success either.
+    expect(status).toBe(200);
+    expect(data.ok).toBe(true);
+    expect(data.smsLogged).toBe(false);
+    expect(data.warning).toContain("could not be saved");
   });
 });

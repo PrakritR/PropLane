@@ -230,6 +230,7 @@ export async function POST(req: Request) {
     });
 
     let emailId: string | null = null;
+    let smsLogWarning: string | null = null;
     if (viaEmail) {
       const apiKey = process.env.RESEND_API_KEY?.trim();
       if (!apiKey) {
@@ -293,6 +294,17 @@ export async function POST(req: Request) {
           { status: 502 },
         );
       }
+      if (smsResult.logged === false) {
+        // The text is already gone, so failing the request would only invite a
+        // duplicate send. Say it out loud instead of swallowing it: the most
+        // likely cause is `…_manager_sms_lead_invite_source.sql` not yet
+        // applied, which makes every share vanish from Communication → SMS.
+        console.error("send-lead-invite: SMS sent but manager_sms_messages row did not land", {
+          managerUserId: user.id,
+          source: "lead_invite",
+        });
+        smsLogWarning = "Text sent, but it could not be saved to Communication.";
+      }
     }
 
     track("lead_invite_sent", user.id, {
@@ -302,7 +314,15 @@ export async function POST(req: Request) {
       via_email: viaEmail,
       via_sms: viaSms,
     });
-    return NextResponse.json({ ok: true, id: emailId, linkUrl, viaEmail, viaSms });
+    return NextResponse.json({
+      ok: true,
+      id: emailId,
+      linkUrl,
+      viaEmail,
+      viaSms,
+      smsLogged: viaSms ? !smsLogWarning : undefined,
+      warning: smsLogWarning ?? undefined,
+    });
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : "Failed to send invite." }, { status: 500 });
   }

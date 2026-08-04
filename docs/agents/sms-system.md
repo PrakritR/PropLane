@@ -261,7 +261,20 @@ compliance gates cover the default path too — and on a FIRST message the
 fall-through result carries `firstContactFooter` (the business-identification
 + opt-out footer), which **the transport must append to its default handler's
 reply**: the first automated message a new person receives has to identify the
-business and say how to opt out no matter which layer answers it. Invariants:
+business and say how to opt out no matter which layer answers it.
+
+> **Scope note — this lane deliberately touched the transport path once.** The
+> router lane was scoped "do not edit the transport path", and the `lead_invite`
+> source below is an approved, narrow override of that boundary (firstmate
+> `sms-review-r7`), taken because a Share-listing text was silencing the very
+> Text-to-tour reply this router exists to answer. It covers exactly: the
+> `ManagerSmsSource` / `NON_HUMAN_AUTHORED_SMS_SOURCES` declarations, the
+> `source` signature widenings, the `send-lead-invite` call-site tag, and the
+> CHECK migration. Twilio webhooks, routing, and number provisioning are
+> untouched, and the spine lane has been told. Do not read it as the boundary
+> having moved.
+
+Invariants:
 
 - **A question is usually the leasing agent's, with two grounded carve-outs.**
   A message `classifyLeasingIntent` reads as `question` — including on FIRST
@@ -411,7 +424,16 @@ business and say how to opt out no matter which layer answers it. Invariants:
   of excluded sources, read by the gate; tag a future CTA/blast sender by
   ADDING its source there, never by inferring from `work_number` (the composer
   is a person typing and must still count) and never by counting outbounds.
-  `…_manager_sms_lead_invite_source.sql` widens the `source` CHECK. Scoping on `(manager_user_id, resident_phone)` alone collapses
+  ⚠️ **`…_manager_sms_lead_invite_source.sql` is a HARD DEPLOY PRECONDITION,
+  not a follow-up.** It widens the `source` CHECK, and `npm run db:push` is a
+  separate step from the Vercel deploy — ship the code first and every share
+  insert is rejected by the constraint. There is deliberately no fallback to
+  `work_number` on rejection: that value counts as a takeover and would silence
+  the very prospect this tag exists to keep answered. Instead the failure is now
+  LOUD — `logOutboundIfNeeded` returns whether the row landed,
+  `PropLaneSmsResult.logged` carries it, and `/api/portal/send-lead-invite`
+  logs an error and returns `warning` (the text already went out, so failing the
+  request would only produce a duplicate send). Scoping on `(manager_user_id, resident_phone)` alone collapses
   the role-distinct threads one phone can hold (`owner:role:person_ref`), so a
   manager who once replied in someone's RESIDENT thread would permanently
   silence that person's PROSPECT thread — and since this result also suppresses

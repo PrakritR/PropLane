@@ -29,6 +29,15 @@ export type PropLaneSmsResult = {
   channel?: "twilio" | "claw";
   sid?: string;
   error?: string;
+  /**
+   * Whether the `manager_sms_messages` audit row asked for by `log` actually
+   * landed. `true` when nothing was requested. A send can succeed while its log
+   * does not — the text is already gone, so the transport never fails the send
+   * over it, but the caller MUST be able to tell: an unlogged outbound is
+   * invisible in Communication → SMS AND invisible to the router's human-
+   * takeover gate, and it used to be swallowed as a bare `console.error`.
+   */
+  logged?: boolean;
 };
 
 /**
@@ -76,12 +85,12 @@ async function logOutboundIfNeeded(args: {
   text: string;
   fromPhone: string | null;
   messageSid?: string | null;
-}): Promise<void> {
-  if (!args.log?.managerUserId) return;
+}): Promise<boolean> {
+  if (!args.log?.managerUserId) return true;
   try {
     const db = createSupabaseServiceRoleClient();
     const { logManagerSmsMessage } = await import("@/lib/manager-sms-messages.server");
-    await logManagerSmsMessage(db, {
+    return await logManagerSmsMessage(db, {
       managerUserId: args.log.managerUserId,
       residentUserId: args.log.residentUserId,
       residentPhone: args.log.residentPhone ?? args.to,
@@ -95,6 +104,7 @@ async function logOutboundIfNeeded(args: {
     });
   } catch (e) {
     console.error("logOutboundIfNeeded failed", e instanceof Error ? e.message : e);
+    return false;
   }
 }
 
@@ -145,20 +155,21 @@ export async function sendPropLaneSms(args: {
     const from = clawLeasingAgentPhoneE164();
     await registerClawMessengerRoute(to);
     const claw = await sendClawMessengerText({ to, text });
-    if (claw.ok) {
-      await logOutboundIfNeeded({
-        log: args.log,
-        to,
-        text,
-        fromPhone: from,
-        messageSid: claw.messageId,
-      });
-    }
+    const logged = claw.ok
+      ? await logOutboundIfNeeded({
+          log: args.log,
+          to,
+          text,
+          fromPhone: from,
+          messageSid: claw.messageId,
+        })
+      : true;
     return {
       ok: claw.ok,
       channel: claw.ok ? "claw" : undefined,
       sid: claw.messageId,
       error: claw.ok ? undefined : claw.error,
+      logged,
     };
   }
 
@@ -169,14 +180,14 @@ export async function sendPropLaneSms(args: {
     // would wrongly block control/skipConsentCheck sends the gate cleared).
     const twilio = await sendSms(to, text, from, { skipOptOutCheck: true });
     if (twilio.sent) {
-      await logOutboundIfNeeded({
+      const logged = await logOutboundIfNeeded({
         log: args.log,
         to,
         text,
         fromPhone: from,
         messageSid: twilio.sid,
       });
-      return { ok: true, channel: "twilio", sid: twilio.sid };
+      return { ok: true, channel: "twilio", sid: twilio.sid, logged };
     }
     return { ok: false, channel: "twilio", error: twilio.error || "twilio_send_failed" };
   }

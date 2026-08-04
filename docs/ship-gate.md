@@ -225,6 +225,23 @@ Scripts restart dev servers and open the browser via `bin/fm-proplane-open-local
 
 If no-mistakes parks at a gate, drive `no-mistakes axi respond` then re-run with `--validate-only`.
 
+## Migrations run BEFORE the deploy, not after
+
+`npm run db:push` is a separate step from the Vercel deploy, so code that writes
+a value a not-yet-applied migration permits fails against the live constraint for
+the whole window in between. Apply pending migrations first whenever the change
+adds an enum/CHECK value, a column, or a table it writes to.
+
+Currently outstanding on this branch:
+
+- `20260804120000_manager_sms_lead_invite_source.sql` — adds `lead_invite` to
+  `manager_sms_messages.source`. `/api/portal/send-lead-invite` writes that value;
+  without the migration every Share listing / Invite to apply / Share tour SMS
+  still sends but its audit row is rejected, so the share is missing from
+  Communication → SMS. The route reports it (`warning` in the response, plus a
+  server error log) rather than failing silently — see
+  [`docs/agents/sms-system.md`](agents/sms-system.md).
+
 ## Promote main → production (live)
 
 ```bash

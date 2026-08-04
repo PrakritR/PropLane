@@ -59,7 +59,9 @@
  * handler also fails.
  * - Replies this router produces MUST be logged with `source: "automated"`
  *   (`deliverLeasingSmsReply` already does) — the human-takeover check below
- *   reads any non-`automated` outbound row as "a manager is talking".
+ *   reads any outbound row whose source is NOT in
+ *   `NON_HUMAN_AUTHORED_SMS_SOURCES` (`automated`, `lead_invite`) as "a manager
+ *   is talking".
  *
  * Auto-reply suppression rule (stated once, tested):
  * once ANY outbound message in THIS CONVERSATION was COMPOSED by a human
