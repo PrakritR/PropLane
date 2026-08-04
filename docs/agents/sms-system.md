@@ -251,9 +251,20 @@ inbound STOP still supersedes the recorded opt-in. Coverage:
 inbound message. It returns `{ handled, autoReplyBody? }`: `handled` with a
 body → send exactly that; `handled` with NO body → **deliberate silence, do
 not fall through to any other auto-reply**; `handled: false` → default
-handling (the Claude leasing agent) may take the turn, and only ever happens
-for a non-first message from a non-opted-out, non-human-owned conversation —
-so the router's compliance gates cover the default path too. Invariants:
+handling (the Claude leasing agent) takes the turn. Fall-through only ever
+happens for a non-opted-out, non-human-owned conversation, so the router's
+compliance gates cover the default path too. Invariants:
+
+- **A question is the leasing agent's, not the router's.** A message
+  `classifyLeasingIntent` reads as `question` — including on FIRST contact,
+  which is what the site's own "Text a question" CTA sends — returns
+  `handled: false` so the agent answers it with grounded listing facts instead
+  of a canned menu. Only a `greeting` or a genuinely unrecognized first
+  contact gets the TOUR/APPLY menu. The no-silence chain is: router menu for
+  greeting/unrecognized → leasing agent for questions → the transport falls
+  through on `handled: false` OR on a throw from the router, and can send the
+  exported `firstContactMenuReply(listingLabel)` as its own last resort if the
+  agent fails too.
 
 - **Tour intent creates ONE real pending tour inquiry** — the same
   `axis_admin_partner_inquiries_v1` payload row + standalone
@@ -274,7 +285,17 @@ so the router's compliance gates cover the default path too. Invariants:
   before re-pointing `_0`, or that same index rejects the pick. A failed
   singleton READ aborts the create outright (never "no inquiries", which would
   both duplicate a pending request and overwrite every other manager's rows).
-  Every one of those failures replies with the web booking link.
+  Every write path — the slot pick AND the email / name / scheduling-note
+  fills — checks its result and replies with the web booking link on failure,
+  never claiming a detail was recorded when it was not.
+- **Every writer re-reads the singleton immediately before merging.**
+  `findPendingTourInquiry` is an idempotency CHECK only and deliberately
+  returns no payload: several round trips (slot math, `loadManagerTourBlocks`)
+  sit between it and the write, and merging onto that stale snapshot would
+  silently drop any inquiry created meanwhile — unrecoverable, since its
+  standalone records would outlive their payload row. The update path also
+  refuses a row that has since left the payload rather than resurrecting an
+  accepted or cancelled request.
 - **Apply intent creates NO rows, deliberately.** A draft application needs an
   email and a browser-held resume token, so a server-minted row would be an
   orphan the prospect can never resume and a guaranteed duplicate once they
@@ -299,7 +320,8 @@ so the router's compliance gates cover the default path too. Invariants:
   conversation they initiated. A later STOP still supersedes at the transport
   gate.
 - Coverage: `tests/unit/sms-intent-router.test.ts` (idempotency, suppression,
-  STOP/HELP/opt-out, no-rows-on-apply, live-only tours, first-contact footer).
+  STOP/HELP/opt-out, no-rows-on-apply, live-only tours, first-contact footer,
+  question fall-through, and the write-failure / concurrent-booking paths).
 
 ## Per-manager number: provisioning + registration state machine
 

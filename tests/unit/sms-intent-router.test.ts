@@ -82,6 +82,11 @@ const state = {
   singletonReadError: false,
   /** Ordered log of portal_schedule_records writes, so ordering can be asserted. */
   ops: [] as string[],
+  /** Fires before each singleton read, so a concurrent writer can be simulated. */
+  onSingletonRead: null as ((readIndex: number) => void) | null,
+  singletonReads: 0,
+  /** Makes every portal_schedule_records upsert fail. */
+  writeError: false,
 };
 
 function rowsForTable(table: string): Row[] {
@@ -136,14 +141,17 @@ function makeQuery(table: string) {
       return api;
     },
     maybeSingle: async () => {
-      if (table === "portal_schedule_records" && state.singletonReadError) {
-        return { data: null, error: { message: "read failed" } };
+      if (table === "portal_schedule_records") {
+        if (state.singletonReadError) return { data: null, error: { message: "read failed" } };
+        state.singletonReads += 1;
+        state.onSingletonRead?.(state.singletonReads);
       }
       const rows = run();
       return { data: rows[0] ?? null, error: null };
     },
     upsert: async (records: Row | Row[]) => {
       if (table === "portal_schedule_records") {
+        if (state.writeError) return { error: { message: "write failed" } };
         const list = Array.isArray(records) ? records : [records];
         state.ops.push(`upsert:${list.map((record) => String(record.id)).join(",")}`);
         for (const record of list) state.scheduleRecords.set(String(record.id), record);
@@ -160,7 +168,7 @@ vi.mock("@/lib/supabase/service", () => ({
   createSupabaseServiceRoleClient: () => ({ from: (table: string) => makeQuery(table) }),
 }));
 
-import { routeInboundSms, type InboundSmsContext } from "@/lib/sms-intent-router";
+import { firstContactMenuReply, routeInboundSms, type InboundSmsContext } from "@/lib/sms-intent-router";
 
 const MANAGER_ID = "mgr-user-1";
 const PROSPECT_PHONE = "+12065550123";
@@ -194,12 +202,23 @@ function inquiryPayload(): Row[] {
   return rowData?.payload ?? [];
 }
 
+function setInquiryPayload(payload: Row[]) {
+  state.scheduleRecords.set(INQUIRIES_ID, {
+    id: INQUIRIES_ID,
+    record_type: INQUIRIES_ID,
+    row_data: { id: INQUIRIES_ID, recordType: INQUIRIES_ID, payload },
+  });
+}
+
 beforeEach(() => {
   state.propertyRecords = [];
   state.scheduleRecords = new Map();
   state.smsMessages = [];
   state.singletonReadError = false;
   state.ops = [];
+  state.onSingletonRead = null;
+  state.singletonReads = 0;
+  state.writeError = false;
   isPhoneOptedOutMock.mockClear().mockResolvedValue(false);
   recordOptInMock.mockClear();
   recordOptOutMock.mockClear();
@@ -379,6 +398,40 @@ describe("text to tour", () => {
     expect(state.scheduleRecords.size).toBe(0);
   });
 
+  it("merges onto the payload as of WRITE time, not the earlier idempotency read", async () => {
+    seedListing();
+    // A web booking lands between the idempotency read and the singleton write.
+    state.onSingletonRead = (readIndex) => {
+      if (readIndex !== 2) return;
+      setInquiryPayload([
+        { id: "web-booking-1", kind: "tour", status: "pending", managerUserId: "mgr-other" },
+      ]);
+    };
+
+    const result = await routeInboundSms(ctx("Hi — I'd like to schedule a tour for Maple House."));
+    expect(result.autoReplyBody).toContain("Tour request received");
+
+    const payload = inquiryPayload();
+    expect(payload).toHaveLength(2);
+    expect(payload.map((row) => row.id)).toContain("web-booking-1");
+  });
+
+  it("a follow-up whose write fails is never reported as saved", async () => {
+    seedListing();
+    await routeInboundSms(ctx("Hi — I'd like to schedule a tour for Maple House."));
+    state.writeError = true;
+
+    const result = await routeInboundSms(
+      ctx("jordan@example.com", { isFirstMessageInConversation: false }),
+    );
+
+    expect(result.handled).toBe(true);
+    expect(result.autoReplyBody).not.toContain("we'll send your tour confirmation");
+    expect(result.autoReplyBody).toContain("didn't save");
+    expect(result.autoReplyBody).toContain("rent/tours-contact?propertyId=mgr-maple-house-1");
+    expect(inquiryPayload()[0]!.email).toBe("");
+  });
+
   it("a name follow-up fills the inquiry contact instead of creating anything", async () => {
     seedListing();
     await routeInboundSms(ctx("Hi — I'd like to schedule a tour for Maple House."));
@@ -419,13 +472,20 @@ describe("text to apply", () => {
 });
 
 describe("general responses", () => {
-  it("a first contact that matches nothing gets the identified greeting", async () => {
+  it("an unrecognized first contact gets the identified menu", async () => {
     seedListing();
-    const result = await routeInboundSms(ctx("Hey, curious about the neighborhood vibe over there"));
+    const result = await routeInboundSms(ctx("Hey there"));
     expect(result.handled).toBe(true);
     expect(result.autoReplyBody).toContain("Reply TOUR");
     expect(result.autoReplyBody).toContain("Reply APPLY");
     expect(result.autoReplyBody).toContain("Reply STOP to opt out");
+    expect(result.autoReplyBody).toBe(firstContactMenuReply("Maple House"));
+  });
+
+  it("a FIRST-contact question falls through to the leasing agent, not the menu", async () => {
+    seedListing();
+    const result = await routeInboundSms(ctx("Hey, curious about the neighborhood vibe over there"));
+    expect(result).toEqual({ handled: false });
   });
 
   it("a later unmatched message falls through to default handling", async () => {

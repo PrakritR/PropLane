@@ -20,8 +20,13 @@
  *   application needs an email and a browser-held resume token, so a
  *   server-minted row would be an orphan the prospect can never resume and a
  *   guaranteed duplicate once they really apply.
- * - anything else on a first contact → a greeting that identifies the
- *   business and how to opt out, so a prospect is never met with silence.
+ * - a greeting or otherwise unrecognized first contact → a menu that
+ *   identifies the business and how to opt out, so a prospect is never met
+ *   with silence.
+ * - a QUESTION, first contact or not → `handled: false`, so the transport's
+ *   default handler (the Claude leasing agent) answers it with grounded
+ *   listing facts instead of a canned menu. The site's own "Text a question"
+ *   CTA lands here.
  *
  * Contract with the transport:
  * - `handled: true` with `autoReplyBody` → send exactly that reply.
@@ -29,9 +34,16 @@
  *   manager owns the conversation). The transport must not fall through to
  *   any other auto-reply.
  * - `handled: false` → this router produced nothing; default handling (e.g.
- *   the Claude leasing agent) may run. `handled: false` is only ever returned
- *   for a NON-first message from a non-opted-out, non-human-owned
- *   conversation, so the compliance gates here cover the default path too.
+ *   the Claude leasing agent) runs. It is returned for any non-opted-out,
+ *   non-human-owned conversation whose message this router does not answer —
+ *   including a first-contact question — so the compliance gates here cover
+ *   the default path too.
+ *
+ * No-silence chain: router menu for a greeting/unrecognized first contact →
+ * the leasing agent for questions → the transport falls through on
+ * `handled: false` OR on a throw from this module, and can use the exported
+ * {@link firstContactMenuReply} as its own last-resort body if its default
+ * handler also fails.
  * - Replies this router produces MUST be logged with `source: "automated"`
  *   (`deliverLeasingSmsReply` already does) — the human-takeover check below
  *   reads any non-`automated` outbound row as "a manager is talking".
@@ -235,6 +247,22 @@ export function complianceFooter(businessLabel: string | null): string {
   return `${identity}. Msg&data rates may apply. Reply STOP to opt out, HELP for help.`;
 }
 
+/** The TOUR/APPLY menu a greeting or unrecognized message gets. */
+export function assistantMenuBody(listingLabel: string | null): string {
+  const where = listingLabel ? ` for ${listingLabel}` : "";
+  return `Hi! This is the leasing line${where}. I can help right away:\n• Reply TOUR to schedule a tour\n• Reply APPLY to start an application\nOr ask a question and the property manager will follow up.`;
+}
+
+/**
+ * The full first-contact menu reply, footer included. The router uses this copy
+ * for a greeting/unrecognized first contact; the transport may also send it as
+ * a last-resort body when its own default handler (the leasing agent) throws,
+ * so a first contact is never met with silence.
+ */
+export function firstContactMenuReply(listingLabel: string | null): string {
+  return `${assistantMenuBody(listingLabel)}\n\n${complianceFooter(listingLabel)}`;
+}
+
 /** "Reply 1 or 2" / "Reply 1, 2 or 3" for however many windows are on offer. */
 function replyPickInstruction(count: number): string {
   if (count <= 1) return "Reply 1 to confirm that time";
@@ -383,21 +411,21 @@ function windowsOf(row: InquiryPayloadRow): InquiryWindow[] {
     .filter((w) => w.start && w.end);
 }
 
-type PendingInquiry = { row: InquiryPayloadRow; all: InquiryPayloadRow[] };
-
 /**
- * The one pending tour inquiry for this manager + prospect phone, plus the
- * whole singleton payload so a create can merge without a second read.
+ * The one pending tour inquiry for this manager + prospect phone — an
+ * IDEMPOTENCY check only. The payload it read is deliberately not returned:
+ * every writer re-reads the singleton immediately before merging, so a stale
+ * snapshot can never become a write base.
  *
  * A failed read is reported as `{ ok: false }`, never as "no inquiries": the
- * caller must not create from an unknown payload (that would both duplicate an
- * existing pending inquiry and overwrite every other manager's rows).
+ * caller must not create from an unknown payload (that would duplicate an
+ * existing pending inquiry).
  */
 async function findPendingTourInquiry(
   db: Db,
   managerId: string,
   fromPhone: string,
-): Promise<{ ok: true; pending: PendingInquiry | null; all: InquiryPayloadRow[] } | { ok: false }> {
+): Promise<{ ok: true; pending: InquiryPayloadRow | null } | { ok: false }> {
   const { data, error } = await db
     .from("portal_schedule_records")
     .select("row_data")
@@ -407,17 +435,16 @@ async function findPendingTourInquiry(
     console.error("sms-intent-router inquiries read failed", error.message);
     return { ok: false };
   }
-  const all = inquiryRows(data?.row_data);
   const phoneKey = normalizeConsentPhone(fromPhone);
-  if (!phoneKey) return { ok: true, pending: null, all };
-  const row = all.find(
+  if (!phoneKey) return { ok: true, pending: null };
+  const row = inquiryRows(data?.row_data).find(
     (item) =>
       textField(item, "kind") === "tour" &&
       textField(item, "status").toLowerCase() === "pending" &&
       textField(item, "managerUserId") === managerId &&
       normalizeConsentPhone(textField(item, "phone")) === phoneKey,
   );
-  return { ok: true, pending: row ? { row, all } : null, all };
+  return { ok: true, pending: row ?? null };
 }
 
 /**
@@ -533,8 +560,6 @@ async function createSmsTourInquiry(
     conversationId: string;
     inboundBody: string;
     windows: InquiryWindow[];
-    /** The singleton payload as READ by findPendingTourInquiry — never re-read here. */
-    existing: InquiryPayloadRow[];
   },
 ): Promise<InquiryPayloadRow | null> {
   const now = new Date().toISOString();
@@ -566,8 +591,23 @@ async function createSmsTourInquiry(
     proposedEnd: args.windows[0]?.end,
   };
 
+  // Re-read the singleton IMMEDIATELY before the write, the way the public
+  // booking route does. The idempotency read happened several round trips ago
+  // (slot math, tour blocks); merging onto that stale payload would silently
+  // drop any inquiry created in between, and a dropped inquiry is
+  // unrecoverable — its standalone records would outlive their payload row.
+  const { data, error: readError } = await db
+    .from("portal_schedule_records")
+    .select("row_data")
+    .eq("id", INQUIRIES_RECORD_ID)
+    .maybeSingle();
+  if (readError) {
+    console.error("sms-intent-router inquiries re-read failed", readError.message);
+    return null;
+  }
+
   const stored = await writeInquiryRecords(db, [
-    inquiriesSingletonRecord([row, ...args.existing]),
+    inquiriesSingletonRecord([row, ...inquiryRows(data?.row_data)]),
     ...standaloneRecordsFor(row, args.windows),
   ]);
   if (!stored) return null;
@@ -607,19 +647,36 @@ async function createSmsTourInquiry(
 /**
  * Replace one inquiry row in the singleton and rewrite its standalone records.
  *
+ * The payload is re-read here rather than merged onto the caller's earlier
+ * snapshot, so a concurrent booking is never dropped. A row that has since
+ * left the payload (accepted or cancelled) returns false rather than being
+ * resurrected.
+ *
  * Narrowing to a chosen window RE-POINTS record `_0` at a `starts_at` that
  * records `_1`/`_2` still hold, so the stale records must be deleted BEFORE the
  * upsert or `portal_schedule_tour_manager_slot_unique` rejects the whole write.
- * Any failure returns false — callers must not tell the prospect a pick saved.
+ * Any failure returns false — callers must not tell the prospect it saved.
  */
 async function updateSmsTourInquiry(
   db: Db,
-  current: PendingInquiry,
+  current: InquiryPayloadRow,
   next: InquiryPayloadRow,
 ): Promise<boolean> {
-  const id = textField(current.row, "id");
-  const previousWindows = windowsOf(current.row);
+  const id = textField(current, "id");
+  const previousWindows = windowsOf(current);
   const nextWindows = windowsOf(next);
+
+  const { data, error: readError } = await db
+    .from("portal_schedule_records")
+    .select("row_data")
+    .eq("id", INQUIRIES_RECORD_ID)
+    .maybeSingle();
+  if (readError) {
+    console.error("sms-intent-router inquiries re-read failed", readError.message);
+    return false;
+  }
+  const all = inquiryRows(data?.row_data);
+  if (!all.some((item) => textField(item, "id") === id)) return false;
 
   if (previousWindows.length > nextWindows.length) {
     const staleIds = previousWindows
@@ -632,7 +689,7 @@ async function updateSmsTourInquiry(
     }
   }
 
-  const nextAll = current.all.map((item) => (textField(item, "id") === id ? next : item));
+  const nextAll = all.map((item) => (textField(item, "id") === id ? next : item));
   return writeInquiryRecords(db, [
     inquiriesSingletonRecord(nextAll),
     ...standaloneRecordsFor(next, nextWindows),
@@ -731,25 +788,26 @@ export async function routeInboundSms(ctx: InboundSmsContext): Promise<SmsIntent
   /* --- Follow-ups against the pending tour inquiry --------------------- */
 
   if (pending) {
-    const offered = windowsOf(pending.row);
-    const pendingTitle = textField(pending.row, "propertyTitle") || "the property";
+    const offered = windowsOf(pending);
+    const pendingTitle = textField(pending, "propertyTitle") || "the property";
+    const pendingTourUrl = buildManagerTourUrl(origin, textField(pending, "propertyId"));
+    const saveFailed = (what: string) =>
+      finish(`Sorry — ${what} didn't save. You can update your tour request here: ${pendingTourUrl}`);
 
     const pick = parseSlotPick(body, offered.length);
     if (pick !== null && offered[pick]) {
       const chosen = offered[pick];
       const timeLabel = chosen.slotKey ? tourSlotLabel(chosen.slotKey) : formatPacificDateTime(chosen.start);
       const updated: InquiryPayloadRow = {
-        ...pending.row,
+        ...pending,
         requestedWindows: [chosen],
         proposedStart: chosen.start,
         proposedEnd: chosen.end,
-        notes: `${textField(pending.row, "notes")}\nProspect chose ${timeLabel} by text.`.trim(),
+        notes: `${textField(pending, "notes")}\nProspect chose ${timeLabel} by text.`.trim(),
       };
       const ok = await updateSmsTourInquiry(db, pending, updated);
       if (!ok) {
-        return finish(
-          `Sorry — that didn't save. Please pick your time here: ${buildManagerTourUrl(origin, textField(pending.row, "propertyId"))}`,
-        );
+        return finish(`Sorry — that didn't save. Please pick your time here: ${pendingTourUrl}`);
       }
       return finish(
         `Got it — ${timeLabel} requested for ${pendingTitle}. The manager will confirm shortly.${contactAsk(updated)}`,
@@ -757,17 +815,17 @@ export async function routeInboundSms(ctx: InboundSmsContext): Promise<SmsIntent
     }
 
     const email = extractEmailCandidate(body);
-    if (email && !textField(pending.row, "email")) {
-      const updated = { ...pending.row, email };
-      await updateSmsTourInquiry(db, pending, updated);
+    if (email && !textField(pending, "email")) {
+      const updated = { ...pending, email };
+      if (!(await updateSmsTourInquiry(db, pending, updated))) return saveFailed("your email");
       return finish(`Thanks — we'll send your tour confirmation to ${email}.${contactAsk(updated)}`);
     }
 
-    if (intent !== "tour" && intent !== "apply" && !textField(pending.row, "name")) {
+    if (intent !== "tour" && intent !== "apply" && !textField(pending, "name")) {
       const name = extractNameCandidate(body);
       if (name) {
-        const updated = { ...pending.row, name };
-        await updateSmsTourInquiry(db, pending, updated);
+        const updated = { ...pending, name };
+        if (!(await updateSmsTourInquiry(db, pending, updated))) return saveFailed("your name");
         return finish(`Thanks, ${name}! The manager will confirm your tour time shortly.${contactAsk(updated)}`);
       }
     }
@@ -776,7 +834,7 @@ export async function routeInboundSms(ctx: InboundSmsContext): Promise<SmsIntent
       const lines = numberedSlotLines(offered);
       return finish(
         lines
-          ? `Your tour request for ${pendingTitle} is in. Requested time${offered.length > 1 ? "s" : ""}:\n${lines}\n${offered.length > 1 ? `${replyPickInstruction(offered.length)}, or` : "Reply here to change it, or"} choose another time: ${buildManagerTourUrl(origin, textField(pending.row, "propertyId"))}`
+          ? `Your tour request for ${pendingTitle} is in. Requested time${offered.length > 1 ? "s" : ""}:\n${lines}\n${offered.length > 1 ? `${replyPickInstruction(offered.length)}, or` : "Reply here to change it, or"} choose another time: ${pendingTourUrl}`
           : `Your tour request for ${pendingTitle} is in — the manager will follow up to set a time.`,
       );
     }
@@ -785,10 +843,10 @@ export async function routeInboundSms(ctx: InboundSmsContext): Promise<SmsIntent
     // them on the inquiry so the manager sees them when confirming.
     if (intent === "tour_details") {
       const updated: InquiryPayloadRow = {
-        ...pending.row,
-        notes: `${textField(pending.row, "notes")}\nProspect: ${body.slice(0, 280)}`.trim(),
+        ...pending,
+        notes: `${textField(pending, "notes")}\nProspect: ${body.slice(0, 280)}`.trim(),
       };
-      await updateSmsTourInquiry(db, pending, updated);
+      if (!(await updateSmsTourInquiry(db, pending, updated))) return saveFailed("that");
       return finish(
         `Passed along to the manager — they'll confirm your tour of ${pendingTitle} shortly.${contactAsk(updated)}`,
       );
@@ -800,7 +858,7 @@ export async function routeInboundSms(ctx: InboundSmsContext): Promise<SmsIntent
   const listing = resolveTargetListing({
     body,
     listings,
-    pendingInquiryPropertyId: pending ? textField(pending.row, "propertyId") : null,
+    pendingInquiryPropertyId: pending ? textField(pending, "propertyId") : null,
   });
 
   if (intent === "tour") {
@@ -812,10 +870,10 @@ export async function routeInboundSms(ctx: InboundSmsContext): Promise<SmsIntent
     // Idempotency: one pending tour request per manager + phone. A repeat
     // "tour" text reminds instead of creating a duplicate.
     if (pending) {
-      const offered = windowsOf(pending.row);
+      const offered = windowsOf(pending);
       const lines = numberedSlotLines(offered);
       return finish(
-        `You already have a tour request in for ${textField(pending.row, "propertyTitle") || listing.label} — the manager will confirm soon.${lines ? `\nRequested times:\n${lines}\n${replyPickInstruction(offered.length)}.` : ""}${contactAsk(pending.row)}`,
+        `You already have a tour request in for ${textField(pending, "propertyTitle") || listing.label} — the manager will confirm soon.${lines ? `\nRequested times:\n${lines}\n${replyPickInstruction(offered.length)}.` : ""}${contactAsk(pending)}`,
       );
     }
     if (!pendingLookup.ok) {
@@ -841,7 +899,6 @@ export async function routeInboundSms(ctx: InboundSmsContext): Promise<SmsIntent
       conversationId: ctx.conversationId,
       inboundBody: body,
       windows: offered,
-      existing: pendingLookup.all,
     });
     if (!created) {
       // Never claim a request that didn't save.
@@ -897,15 +954,14 @@ export async function routeInboundSms(ctx: InboundSmsContext): Promise<SmsIntent
     return finish(`No problem — text TOUR or APPLY anytime if that changes. Reply STOP to opt out of messages.`);
   }
 
-  if (intent === "help" || intent === "greeting" || ctx.isFirstMessageInConversation) {
-    // The general automated response: a first contact never meets silence.
-    const where = listing ? ` for ${listing.label}` : "";
-    return finish(
-      `Hi! This is the leasing line${where}. I can help right away:\n• Reply TOUR to schedule a tour\n• Reply APPLY to start an application\nOr ask a question and the property manager will follow up.`,
-    );
+  // A greeting or an unrecognized first contact gets the menu, so it never
+  // meets silence. A QUESTION does not: the canned menu would replace the
+  // grounded answer the leasing agent can give, so it falls through instead.
+  if (intent === "help" || intent === "greeting" || (ctx.isFirstMessageInConversation && intent !== "question")) {
+    return finish(assistantMenuBody(listing?.label ?? null));
   }
 
-  // Not first contact, nothing matched — let the transport's default handling
+  // Nothing here answered it — let the transport's default handling
   // (e.g. the Claude leasing agent) take the turn. Opt-out and human-takeover
   // were already enforced above, so the default path inherits those gates.
   return { handled: false };
