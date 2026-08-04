@@ -12,6 +12,9 @@ test.describe("Manual payment verification UI", () => {
     await expect(page.getByRole("heading").first()).toBeVisible({ timeout: 15_000 });
 
     await page.locator('[data-attr="payments-setup"]').click();
+    await expect(page.getByRole("heading", { name: /choose properties for payment setup/i })).toBeVisible();
+    await expect(page.locator('[data-attr="manager-payment-all-properties"]')).toBeVisible();
+    await page.locator('[data-attr="manager-payment-properties-continue"]').click();
     await expect(page.getByRole("heading", { name: /payment setup/i })).toBeVisible();
     await page.getByRole("button", { name: /link zelle/i }).click();
 

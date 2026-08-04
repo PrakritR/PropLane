@@ -6,6 +6,7 @@ export function buildPaymentReceiptGmailQuery(days = 30): string {
     "(",
     "from:venmo.com OR from:mail.venmo.com OR from:e.venmo.com",
     "OR from:zellepay.com OR from:notify.zellepay.com",
+    "OR from:chase.com OR from:bankofamerica.com OR from:wellsfargo.com",
     'OR (from:venmo subject:"paid you")',
     'OR (from:venmo subject:"paid your")',
     ")",

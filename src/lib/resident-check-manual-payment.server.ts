@@ -15,6 +15,8 @@ import { chargeOwnedByUser } from "@/lib/stripe-household-charge-checkout.server
 
 export const MANUAL_PAYMENT_NOT_PAID_MESSAGE =
   "We haven't received this payment yet. Send the fee, wait a moment, then check again.";
+export const MANUAL_PAYMENT_AMBIGUOUS_MESSAGE =
+  "We found a payment receipt but cannot confidently match it to this application. It remains unconfirmed while your manager reviews it.";
 
 export type CheckManualPaymentResult =
   | { ok: true; paid: true; charges: HouseholdCharge[] }
@@ -119,15 +121,18 @@ async function loadHoldingDepositRow(
   return rows[0] ?? null;
 }
 
-async function syncManagersForCharges(db: SupabaseClient, managerIds: Iterable<string>): Promise<void> {
+async function syncManagersForCharges(db: SupabaseClient, managerIds: Iterable<string>): Promise<boolean> {
+  let ambiguous = false;
   for (const managerUserId of managerIds) {
     if (!managerUserId.trim()) continue;
     try {
-      await syncGmailPaymentReceipts(db, managerUserId, "manager");
+      const result = await syncGmailPaymentReceipts(db, managerUserId, "manager");
+      ambiguous ||= Boolean(result?.ambiguous);
     } catch {
       /* Gmail may be unconfigured; still re-read charge status below. */
     }
   }
+  return ambiguous;
 }
 
 type ListingLookup = {
@@ -406,9 +411,7 @@ export async function checkApplicationFeeManualPayment(
     if (managerUserId) managerIds.add(managerUserId);
   }
 
-  if (managerIds.size > 0) {
-    await syncManagersForCharges(db, managerIds);
-  }
+  const syncHadAmbiguity = managerIds.size > 0 && (await syncManagersForCharges(db, managerIds));
 
   if (feeOwed) {
     const refreshed = await loadApplicationFeeRow(db, email, propertyId, input.residentUserId);
@@ -417,7 +420,7 @@ export async function checkApplicationFeeManualPayment(
       return { ok: false, status: 500, error: "Invalid application fee record." };
     }
     if (!isChargePaid(refreshed, refreshedCharge)) {
-      return { ok: true, paid: false, message: MANUAL_PAYMENT_NOT_PAID_MESSAGE };
+      return { ok: true, paid: false, message: syncHadAmbiguity ? MANUAL_PAYMENT_AMBIGUOUS_MESSAGE : MANUAL_PAYMENT_NOT_PAID_MESSAGE };
     }
     charges.push({ ...refreshedCharge, id: String(refreshedCharge.id ?? refreshed.id) });
   }
@@ -429,7 +432,7 @@ export async function checkApplicationFeeManualPayment(
       return { ok: false, status: 500, error: "Invalid holding deposit record." };
     }
     if (!isChargePaid(refreshed, refreshedCharge)) {
-      return { ok: true, paid: false, message: MANUAL_PAYMENT_NOT_PAID_MESSAGE };
+      return { ok: true, paid: false, message: syncHadAmbiguity ? MANUAL_PAYMENT_AMBIGUOUS_MESSAGE : MANUAL_PAYMENT_NOT_PAID_MESSAGE };
     }
     charges.push({ ...refreshedCharge, id: String(refreshedCharge.id ?? refreshed.id) });
   }

@@ -42,6 +42,16 @@ export const DEFAULT_MANAGER_MANUAL_PAYMENT_SETTINGS: ManagerManualPaymentSettin
 
 export const MANAGER_MANUAL_PAYMENT_SETTINGS_EVENT = "axis:manager-manual-payment-settings";
 
+/** Zelle enrollments are an email address or a phone number; do not accept a
+ * handle-shaped value here because residents would be sent to an unverifiable
+ * destination. Phone is deliberately the first/common path in the UI. */
+export function isValidZelleContact(value: string): boolean {
+  const contact = sanitizePaymentContactInput(value).trim();
+  const email = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(contact);
+  const phoneDigits = contact.replace(/\D/g, "");
+  return email || (phoneDigits.length >= 10 && phoneDigits.length <= 15);
+}
+
 export function normalizeManagerManualPaymentSettings(raw: unknown): ManagerManualPaymentSettings {
   const row = (raw && typeof raw === "object" && !Array.isArray(raw) ? raw : {}) as Record<string, unknown>;
   const zelleContact = sanitizePaymentContactInput(String(row.zelleContact ?? "")).trim();

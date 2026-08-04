@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState, type Dispatch, type SetStateAction } from "react";
-import { Modal } from "@/components/ui/modal";
+import { Modal, ModalFooter } from "@/components/ui/modal";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { useAppUi } from "@/components/providers/app-ui-provider";
@@ -143,7 +143,7 @@ function ChannelPaymentSetupModal({
   const gmailConnectError = gmailConnectErrorReason
     ? formatGmailPaymentsConnectError(gmailConnectErrorReason)
     : null;
-  const placeholder = channel === "zelle" ? "email or phone" : "@username or phone";
+  const placeholder = channel === "zelle" ? "phone number (or email)" : "@username or phone";
   const filterFrom = channel === "zelle" ? "zellepay.com" : "venmo.com";
   const contact = channel === "zelle" ? draft.zelleContact : draft.venmoContact;
   const contactConnected =
@@ -160,7 +160,9 @@ function ChannelPaymentSetupModal({
 
         <div className="space-y-2 rounded-xl border border-border bg-card px-4 py-3">
           <p className="text-sm font-semibold text-foreground">Step 1 — Save your {label} contact</p>
-          <p className="text-xs text-muted">Residents will see this on their payment screen.</p>
+          <p className="text-xs text-muted">
+            {channel === "zelle" ? "Use the phone number enrolled in Zelle (or an email)." : "Residents will see this on their payment screen."}
+          </p>
           <div className="flex flex-col gap-2 sm:flex-row">
             <Input
               value={contact}
@@ -360,12 +362,14 @@ export function ManagerPaymentSetupModal({
   onClose,
   initialChannel = null,
   gmailConnectErrorReason = null,
+  propertyOptions,
 }: {
   open: boolean;
   onClose: () => void;
   portalBase: string;
   initialChannel?: PaymentChannel | null;
   gmailConnectErrorReason?: string | null;
+  propertyOptions: { id: string; label: string }[];
 }) {
   const { showToast } = useAppUi();
   const demo = isDemoModeActive();
@@ -378,6 +382,8 @@ export function ManagerPaymentSetupModal({
   const [activeChannel, setActiveChannel] = useState<PaymentChannel | null>(null);
   const [skuTier, setSkuTier] = useState<ManagerSkuTier | null>(null);
   const [savingFeePayer, setSavingFeePayer] = useState(false);
+  const [selectedPropertyIds, setSelectedPropertyIds] = useState<Set<string>>(() => new Set());
+  const [propertySelectionComplete, setPropertySelectionComplete] = useState(false);
 
   const { gmailStatus, gmailBusy, gmailSyncBusy, linkGmail, syncGmail } = useGmailPaymentTrack({
     role: "manager",
@@ -465,6 +471,8 @@ export function ManagerPaymentSetupModal({
   useEffect(() => {
     if (!open) {
       setActiveChannel(null);
+      setPropertySelectionComplete(false);
+      setSelectedPropertyIds(new Set());
       return;
     }
     void loadStripeStatus();
@@ -472,6 +480,14 @@ export function ManagerPaymentSetupModal({
     void loadTier();
     if (initialChannel) setActiveChannel(initialChannel);
   }, [open, initialChannel, loadStripeStatus, loadSettings, loadTier]);
+
+  useEffect(() => {
+    if (open && !propertySelectionComplete && selectedPropertyIds.size === 0 && propertyOptions.length > 0) {
+      // Existing single-destination managers begin with every owned property
+      // selected, preserving their live destination until they choose otherwise.
+      setSelectedPropertyIds(new Set(propertyOptions.map((property) => property.id)));
+    }
+  }, [open, propertyOptions, propertySelectionComplete, selectedPropertyIds.size]);
 
   useEffect(() => {
     if (!open) return;
@@ -498,7 +514,7 @@ export function ManagerPaymentSetupModal({
         body: JSON.stringify({
           ...draft,
           ...patch,
-          applyToAllListings: true,
+          ...(channel ? { propertyIds: [...selectedPropertyIds] } : {}),
           receiptAutoMarkEnabled: patch.receiptAutoMarkEnabled ?? draft.receiptAutoMarkEnabled !== false,
         }),
       });
@@ -574,9 +590,76 @@ export function ManagerPaymentSetupModal({
     showToast,
   };
 
+  const allPropertiesSelected = propertyOptions.length > 0 && selectedPropertyIds.size === propertyOptions.length;
+  const toggleAllProperties = (checked: boolean) => {
+    setSelectedPropertyIds(checked ? new Set(propertyOptions.map((property) => property.id)) : new Set());
+  };
+  const toggleProperty = (id: string, checked: boolean) => {
+    setSelectedPropertyIds((previous) => {
+      const next = new Set(previous);
+      if (checked) next.add(id);
+      else next.delete(id);
+      return next;
+    });
+  };
+
   return (
     <>
-      <Modal open={open} title="Payment setup" onClose={onClose} assistantStrip={false}>
+      <Modal
+        open={open && !propertySelectionComplete}
+        title="Choose properties for payment setup"
+        description="The Zelle destination you save next is shown only to residents and applicants for these properties."
+        onClose={onClose}
+        dense
+        assistantStrip={false}
+        panelClassName="max-w-md"
+        footer={
+          <ModalFooter>
+            <Button
+              type="button"
+              variant="primary"
+              className="rounded-full"
+              disabled={selectedPropertyIds.size === 0 || propertyOptions.length === 0}
+              data-attr="manager-payment-properties-continue"
+              onClick={() => setPropertySelectionComplete(true)}
+            >
+              Continue
+            </Button>
+          </ModalFooter>
+        }
+      >
+        <div className="space-y-3">
+          <label className="flex cursor-pointer items-center gap-2 rounded-xl border border-border bg-accent/20 px-3 py-2.5">
+            <input
+              type="checkbox"
+              className="h-4 w-4 rounded border-border text-primary"
+              checked={allPropertiesSelected}
+              disabled={propertyOptions.length === 0}
+              data-attr="manager-payment-all-properties"
+              onChange={(event) => toggleAllProperties(event.target.checked)}
+            />
+            <span className="text-sm font-semibold text-foreground">All properties</span>
+          </label>
+          <div className="max-h-[min(40vh,16rem)] space-y-1 overflow-y-auto rounded-xl border border-border p-2">
+            {propertyOptions.length === 0 ? (
+              <p className="px-2 py-3 text-sm text-muted">No properties in portfolio yet.</p>
+            ) : propertyOptions.map((property) => (
+              <label key={property.id} className="flex cursor-pointer items-center gap-2 rounded-lg px-2 py-2 hover:bg-accent/30">
+                <input
+                  type="checkbox"
+                  className="h-4 w-4 shrink-0 rounded border-border text-primary"
+                  checked={selectedPropertyIds.has(property.id)}
+                  data-attr={`manager-payment-property-${property.id}`}
+                  onChange={(event) => toggleProperty(property.id, event.target.checked)}
+                />
+                <span className="min-w-0 text-sm text-foreground">{property.label}</span>
+              </label>
+            ))}
+          </div>
+        </div>
+      </Modal>
+
+      <Modal open={open && propertySelectionComplete} title="Payment setup" onClose={onClose} assistantStrip={false}>
         <div className="space-y-3">
           {loading ? <p className="text-sm text-muted">Loading…</p> : null}
           <p className="text-xs text-muted">

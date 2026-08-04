@@ -12,7 +12,7 @@ architecture reference behind it; keep the two in sync.
 
 | Path | Trigger | Latency |
 | --- | --- | --- |
-| **Linked Gmail** | Manager taps **Sync now** (`POST /api/portal/gmail-payments/sync`); a resident's **Check payment** also runs a sync (`resident-check-manual-payment.server.ts`) | On sync only — no automatic cron |
+| **Linked Gmail** | Manager taps **Check payments** / **Sync now** (`POST /api/portal/gmail-payments/sync`); a resident's **Check payment** also runs a sync (`resident-check-manual-payment.server.ts`) | `GET /api/cron/sync-manual-payments` runs hourly; it checks managers with rent due in 48h each run, within 7d every 6h, and others daily |
 | **Forwarded email** (`payments+<token>@…`) | A Gmail filter forwards receipts; the inbound webhook processes each on arrival | Instant |
 
 Both paths run the SAME parse → match → mark-paid pipeline
@@ -61,7 +61,7 @@ applied to at most one charge.
 ## Setup steps
 
 ### Manager (once per channel)
-1. **Save your Zelle/Venmo contact** — residents see it on their payment screen.
+1. **Choose properties, then save your Zelle/Venmo contact** — Zelle accepts a phone number (usual) or email. The saved destination is applied only to those listings and their pending charges, so the resident screen and application flow use the same current destination.
 2. **Turn on payment-received email notifications** in Zelle/your bank app or
    the Venmo app.
 3. **Link Gmail** (read-only receipt scope) *or* set up a **forwarding filter**

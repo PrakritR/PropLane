@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import {
   loadManagerManualPaymentSettings,
   managerManualPaymentSettingsPublic,
+  isValidZelleContact,
   normalizeManagerManualPaymentSettings,
   saveManagerManualPaymentSettings,
 } from "@/lib/manager-manual-payment-settings";
@@ -48,19 +49,29 @@ export async function PATCH(req: Request) {
     const ctx = await requireManager();
     if (!ctx) return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
     const body = (await req.json()) as Record<string, unknown>;
-    const { applyToAllListings, ...rest } = body;
+    const { propertyIds, ...rest } = body;
+    const normalized = normalizeManagerManualPaymentSettings(rest);
+    if (normalized.zellePaymentsEnabled && !isValidZelleContact(normalized.zelleContact)) {
+      return NextResponse.json({ error: "Enter a valid Zelle phone number or email address." }, { status: 400 });
+    }
     const settings = await saveManagerManualPaymentSettings(
       ctx.db,
       ctx.userId,
-      normalizeManagerManualPaymentSettings(rest),
+      normalized,
     );
-    let listingsUpdated = 0;
-    if (applyToAllListings === true) {
-      listingsUpdated = await applyManagerManualPaymentsToListings(ctx.db, ctx.userId, settings);
+    const requestedPropertyIds = Array.isArray(propertyIds)
+      ? propertyIds.filter((id): id is string => typeof id === "string")
+      : undefined;
+    if (Array.isArray(propertyIds) && requestedPropertyIds.length === 0) {
+      return NextResponse.json({ error: "Select at least one property." }, { status: 400 });
     }
+    const propagation = requestedPropertyIds
+      ? await applyManagerManualPaymentsToListings(ctx.db, ctx.userId, settings, requestedPropertyIds)
+      : { listingsUpdated: 0, chargesUpdated: 0 };
     return NextResponse.json({
       settings: managerManualPaymentSettingsPublic(settings),
-      listingsUpdated,
+      listingsUpdated: propagation.listingsUpdated,
+      chargesUpdated: propagation.chargesUpdated,
     });
   } catch (e) {
     const message = e instanceof Error ? e.message : "Failed";

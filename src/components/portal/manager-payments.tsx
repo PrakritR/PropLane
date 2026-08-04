@@ -38,7 +38,7 @@ import {
   readManagerApplicationRows,
   syncManagerApplicationsFromServer,
 } from "@/lib/manager-applications-storage";
-import { applicationVisibleToPortalUser, collectLinkedPropertyIdsForModule } from "@/lib/manager-portfolio-access";
+import { applicationVisibleToPortalUser, buildManagerPropertyFilterOptions, collectLinkedPropertyIdsForModule } from "@/lib/manager-portfolio-access";
 import { ledgerRoomNumberForApplication } from "@/lib/rental-application/data";
 import { syncPropertyPipelineFromServer, readExtraListingsForUser } from "@/lib/demo-property-pipeline";
 import { scopeChargesToManagerPaymentsLedger } from "@/lib/manager-payments-scope";
@@ -234,6 +234,7 @@ export function ManagerPayments({
   const [propertyTick, setPropertyTick] = useState(0);
   const [reminderSettingsOpen, setReminderSettingsOpen] = useState(false);
   const [paymentSetupOpen, setPaymentSetupOpen] = useState(false);
+  const [checkingManualPayments, setCheckingManualPayments] = useState(false);
   const [listSort, setListSort] = useState<PaymentListSort>(DEFAULT_PAYMENT_LIST_SORT);
   const [searchQuery, setSearchQuery] = useState("");
   // Per-payment reminder lists show the full saved default schedule, so bypass
@@ -535,6 +536,11 @@ export function ManagerPayments({
       .sort((a, b) => a.label.localeCompare(b.label, undefined, { sensitivity: "base" }));
   }, [mergedRows, outgoingRows]);
 
+  const paymentSetupPropertyOptions = useMemo(
+    () => buildManagerPropertyFilterOptions(userId),
+    [userId, mergedRows, outgoingRows],
+  );
+
   const tabs = useMemo(
     () =>
       PAY_LABELS.map(({ id, label }) => ({
@@ -630,6 +636,46 @@ export function ManagerPayments({
     </Button>
   );
 
+  const checkPaymentsButton = direction === "incoming" ? (
+    <Button
+      type="button"
+      variant="outline"
+      className={PORTAL_HEADER_ACTION_BTN_RESPONSIVE}
+      disabled={checkingManualPayments}
+      data-attr="manager-check-manual-payments"
+      onClick={() => {
+        void (async () => {
+          setCheckingManualPayments(true);
+          try {
+            const response = await fetch("/api/portal/gmail-payments/sync", { method: "POST", credentials: "include" });
+            const body = (await response.json().catch(() => ({}))) as {
+              result?: { scanned?: number; markedPaid?: number; ambiguous?: number; unmatched?: number };
+              error?: string;
+            };
+            if (!response.ok) {
+              showToast(body.error ?? "Could not check payments. Link Gmail in Payment setup first.");
+              return;
+            }
+            const result = body.result;
+            showToast(
+              result
+                ? `Checked ${result.scanned ?? 0} receipt${result.scanned === 1 ? "" : "s"}; ${result.markedPaid ?? 0} confirmed.${result.ambiguous ? ` ${result.ambiguous} ambiguous — left pending.` : ""}`
+                : "Payment check complete.",
+            );
+            await syncHouseholdChargesFromServer(true);
+            setHcTick((n) => n + 1);
+          } catch {
+            showToast("Could not check payments.");
+          } finally {
+            setCheckingManualPayments(false);
+          }
+        })();
+      }}
+    >
+      {checkingManualPayments ? "Checking…" : "Check payments"}
+    </Button>
+  ) : null;
+
   const paymentsAddButton = (
     <Button
       type="button"
@@ -645,6 +691,7 @@ export function ManagerPayments({
   const paymentsHeaderActions = (
     <>
       {paymentsRemindersButton}
+      {checkPaymentsButton}
       {paymentsSetupButton}
       {paymentsAddButton}
     </>
@@ -789,6 +836,7 @@ export function ManagerPayments({
         open={paymentSetupOpen}
         onClose={() => setPaymentSetupOpen(false)}
         portalBase={portalBase}
+        propertyOptions={paymentSetupPropertyOptions}
       />
     </>
   );

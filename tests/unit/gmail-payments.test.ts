@@ -6,6 +6,7 @@ import {
 } from "@/lib/gmail-payments/connect-errors";
 import { buildPaymentReceiptGmailQuery } from "@/lib/gmail-payments/gmail-query";
 import { normalizeGmailPaymentsConnection } from "@/lib/gmail-payments/settings";
+import { isValidZelleContact } from "@/lib/manager-manual-payment-settings";
 
 describe("buildPaymentReceiptGmailQuery", () => {
   it("includes venmo and zelle senders with day window", () => {
@@ -13,6 +14,7 @@ describe("buildPaymentReceiptGmailQuery", () => {
     expect(q).toContain("newer_than:14d");
     expect(q).toContain("venmo.com");
     expect(q).toContain("zellepay.com");
+    expect(q).toContain("chase.com");
     expect(q).toContain('subject:"paid you"');
   });
 
@@ -41,5 +43,13 @@ describe("normalizeGmailPaymentsConnection", () => {
       normalizeGmailPaymentsConnection({ connected: true, refreshToken: "rtok" }).connected,
     ).toBe(true);
     expect(normalizeGmailPaymentsConnection({ connected: true }).connected).toBe(false);
+  });
+});
+
+describe("isValidZelleContact", () => {
+  it("accepts a Zelle phone number or email but rejects a handle", () => {
+    expect(isValidZelleContact("+12065550123")).toBe(true);
+    expect(isValidZelleContact("payments@example.com")).toBe(true);
+    expect(isValidZelleContact("@not-a-zelle-contact")).toBe(false);
   });
 });
