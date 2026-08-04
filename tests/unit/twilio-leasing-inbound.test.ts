@@ -29,6 +29,8 @@ vi.mock("@/lib/claw-resident-messaging.server", () => ({
 
 vi.mock("@/lib/sms-inbox-notice.server", () => ({
   upsertManagerInboxNotice: vi.fn(async () => undefined),
+  notifyManagerOfInboundSms: vi.fn(async () => ({ inboxNoticeWritten: true, emailSent: false })),
+  sendManagerNoticeEmail: vi.fn(async () => ({ sent: false })),
 }));
 
 vi.mock("@/lib/agent/leasing-sms-agent.server", () => ({

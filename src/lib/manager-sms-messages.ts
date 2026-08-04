@@ -18,6 +18,14 @@ export type ManagerSmsMessageRow = {
   createdAt: string;
   /** Which table this row lives in — set for manager-thread deletes. */
   storageTable?: ManagerSmsMessageStorageTable;
+  /**
+   * Carrier said this outbound message did NOT reach the handset
+   * (`sms_delivery_log` status failed/undelivered, via the Twilio status
+   * webhook). Absent means no adverse report — NOT proof of delivery.
+   */
+  deliveryFailed?: boolean;
+  /** Twilio error code accompanying the failure, when the carrier sent one. */
+  deliveryErrorCode?: string | null;
 };
 
 export type ManagerSmsResidentConversation = {

@@ -124,3 +124,131 @@ export function conversationAnchorMessageId(
     .slice(0, 24);
   return `<pl-anchor-${digest}@${fromDomain}>`;
 }
+
+/*
+ * SMS-conversation reply addresses.
+ *
+ * An inbound text notification emailed to a manager carries a Reply-To of the
+ * form
+ *
+ *   sms+<manager uuid hex><counterparty 10-digit US phone>.<mac hex>@${RESEND_REPLY_DOMAIN}
+ *
+ * so the manager can answer the text FROM THEIR MAIL CLIENT: the reply comes
+ * back through Resend Inbound, the token resolves the (manager, counterparty
+ * phone) SMS conversation, and the body is sent onward as an SMS from the
+ * manager's work number. The MAC binds the TRIPLE (manager id, counterparty
+ * phone, manager email): it only verifies when the reply's From is the exact
+ * manager email the notification was sent to, so a leaked address lets mail be
+ * injected into that one conversation only by someone who can also send as the
+ * manager's own address. Same zero-storage posture as the portal reply token
+ * above; dark until RESEND_REPLY_DOMAIN is set.
+ *
+ * Local-part budget (RFC 64): "sms+" (4) + 32 uuid hex + 10 digits + "." +
+ * 16 mac = 63. US-national 10-digit phones only — a number that does not
+ * normalize to one gets no token (the notification email still sends, just
+ * without an email-reply path).
+ */
+const SMS_REPLY_LOCAL_PREFIX = "sms+";
+const SMS_MAC_INPUT_PREFIX = "sms-reply:v1";
+const UUID_HEX_LENGTH = 32;
+const US_NATIONAL_DIGITS = 10;
+
+/** 10-digit US national number, or null when the input is not US-shaped. */
+function usNationalDigits(phone: string): string | null {
+  const digits = String(phone ?? "").replace(/\D/g, "");
+  if (digits.length === US_NATIONAL_DIGITS) return digits;
+  if (digits.length === US_NATIONAL_DIGITS + 1 && digits.startsWith("1")) return digits.slice(1);
+  return null;
+}
+
+function smsPairMac(
+  key: Buffer,
+  managerUserId: string,
+  phone10: string,
+  managerEmail: string,
+): string {
+  return createHmac("sha256", key)
+    .update(
+      `${SMS_MAC_INPUT_PREFIX}:${managerUserId.toLowerCase()}:${phone10}:${managerEmail.trim().toLowerCase()}`,
+      "utf8",
+    )
+    .digest("hex")
+    .slice(0, MAC_LENGTH);
+}
+
+/**
+ * Reply address for one (manager, counterparty phone) SMS conversation, bound
+ * to the manager email the notification is addressed to. Null when the feature
+ * is dark, the manager id is not a uuid, or the phone is not a US number.
+ */
+export function buildSmsReplyAddress(
+  managerUserId: string,
+  managerEmail: string,
+  counterpartyPhone: string,
+): string | null {
+  const domain = replyDomain();
+  const key = secretKey();
+  if (!domain || !key) return null;
+  const encoded = uuidToHex(managerUserId);
+  const phone10 = usNationalDigits(counterpartyPhone);
+  if (!encoded || !phone10 || !managerEmail.includes("@")) return null;
+  const local = `${SMS_REPLY_LOCAL_PREFIX}${encoded}${phone10}.${smsPairMac(key, managerUserId, phone10, managerEmail)}`;
+  if (local.length > 64) return null; // RFC local-part bound; unreachable for uuid ids
+  return `${local}@${domain}`;
+}
+
+/**
+ * Find a valid SMS-conversation reply token among an inbound email's To
+ * addresses and verify it against the sender's From. Returns the conversation
+ * identity (manager + counterparty phone as E.164) or null when nothing
+ * verifies — callers fall back to the portal reply token, then the admin
+ * support ingest.
+ */
+export function parseSmsReplyAddress(
+  toEmails: string[],
+  fromEmail: string,
+): { managerUserId: string; counterpartyPhone: string } | null {
+  const domain = replyDomain();
+  const key = secretKey();
+  if (!domain || !key) return null;
+  const from = fromEmail.trim().toLowerCase();
+  if (!from.includes("@")) return null;
+
+  for (const raw of toEmails) {
+    const address = raw.trim().toLowerCase();
+    const at = address.lastIndexOf("@");
+    if (at <= 0 || address.slice(at + 1) !== domain) continue;
+    const local = address.slice(0, at);
+    if (!local.startsWith(SMS_REPLY_LOCAL_PREFIX)) continue;
+    const [payload, mac] = local.slice(SMS_REPLY_LOCAL_PREFIX.length).split(".");
+    if (!payload || !mac || mac.length !== MAC_LENGTH) continue;
+    if (payload.length !== UUID_HEX_LENGTH + US_NATIONAL_DIGITS) continue;
+    const managerUserId = hexToUuid(payload.slice(0, UUID_HEX_LENGTH));
+    const phone10 = payload.slice(UUID_HEX_LENGTH);
+    if (!managerUserId || !/^\d{10}$/.test(phone10)) continue;
+    const expected = Buffer.from(smsPairMac(key, managerUserId, phone10, from), "utf8");
+    const provided = Buffer.from(mac, "utf8");
+    if (expected.length === provided.length && timingSafeEqual(expected, provided)) {
+      return { managerUserId, counterpartyPhone: `+1${phone10}` };
+    }
+  }
+  return null;
+}
+
+/**
+ * Per-(manager, counterparty phone) threading anchor so consecutive text
+ * notifications group into ONE conversation in the manager's mail client —
+ * the SMS twin of {@link conversationAnchorMessageId}.
+ */
+export function smsConversationAnchorMessageId(
+  managerUserId: string,
+  counterpartyPhone: string,
+  fromDomain: string,
+): string {
+  const phone10 = usNationalDigits(counterpartyPhone) ?? counterpartyPhone.replace(/\D/g, "");
+  const digest = createHmac("sha256", "pl-sms-anchor")
+    .update(`${managerUserId.toLowerCase()}:${phone10}`, "utf8")
+    .digest("hex")
+    .slice(0, 24);
+  return `<pl-sms-anchor-${digest}@${fromDomain}>`;
+}

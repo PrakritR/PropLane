@@ -25,7 +25,11 @@ import {
   backfillInboundEmailReplyBody,
   ingestInboundEmailReply,
 } from "@/lib/inbound-email/inbound-email-reply.server";
-import { parseReplyAddress } from "@/lib/inbound-email/reply-address.server";
+import {
+  ingestInboundEmailSmsReply,
+  type EmailSmsReplyResult,
+} from "@/lib/inbound-email/inbound-email-sms-reply.server";
+import { parseReplyAddress, parseSmsReplyAddress } from "@/lib/inbound-email/reply-address.server";
 import { isPaymentInboxEmail } from "@/lib/payment-receipt-email/payment-inbox";
 import { processInboundPaymentReceiptEmail } from "@/lib/payment-receipt-email/process-receipt.server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
@@ -90,6 +94,29 @@ export async function POST(req: Request) {
   if (!rateLimit(`email-inbound:${parsed.fromEmail}`, 120, 60_000).ok) {
     console.warn("inbound-email rate-limited", parsed.fromEmail, parsed.emailId);
     return ok({ rateLimited: true });
+  }
+
+  // A verified SMS-conversation reply token (`sms+…`, distinct prefix from the
+  // portal `reply+…` token) routes the mail onward as a TEXT from the
+  // manager's work number. Failures inside the ingest bounce back to the
+  // manager by email — only an unresolvable token owner falls through to the
+  // support ingest so the mail stays visible.
+  const smsReply = parseSmsReplyAddress(parsed.toEmails, parsed.fromEmail);
+  if (smsReply) {
+    const result: EmailSmsReplyResult = await ingestInboundEmailSmsReply(parsed, smsReply).catch(
+      (e) => {
+        console.error("inbound-email sms reply ingest failed", parsed.emailId, e);
+        return { handled: true, sent: false, error: "ingest_error" };
+      },
+    );
+    if (result.handled) {
+      return ok({
+        smsReply: true,
+        sent: result.sent,
+        ...(result.idempotent ? { idempotent: true } : {}),
+      });
+    }
+    // Token owner no longer resolves — fall through to the support ingest.
   }
 
   // A verified reply token routes the mail into its portal conversation

@@ -1,3 +1,7 @@
+import { normalizeManagerSkuTier } from "@/lib/manager-access";
+import { isManagerPurchasePeriodExpired } from "@/lib/manager-tier-expiry";
+import { MANAGER_SUBSCRIPTION_TRIAL_DAYS } from "@/lib/stripe/subscription-checkout-session";
+
 /**
  * Pure policy for the per-manager SMS number system. No Twilio / Supabase
  * imports so it is cheap to unit-test and safe to import from anywhere.
@@ -199,6 +203,141 @@ export function isWithinQuietHours(
   if (startHour < endHour) return hour >= startHour && hour < endHour;
   // Wraps midnight: quiet if at/after start OR before end.
   return hour >= startHour || hour < endHour;
+}
+
+// ---------------------------------------------------------------------------
+// Paid entitlement + deliberate enablement.
+//
+// A work number is a PAID feature: only an ACTIVELY PAID Pro or Business
+// subscription earns one. The 14-day free trial is not payment — a trialing
+// manager gets no number. On downgrade to Free the number is NEVER
+// auto-released (people hand the number out); service is suspended by the
+// same access decision at send time, and the retention question is a human
+// call.
+//
+// Rollout is DELIBERATE, not blanket: `SMS_PROVISIONING_ALLOWLIST` names the
+// accounts enabled today (emails or user ids, comma-separated). Unset/empty →
+// CLOSED, nobody provisions. `*` → every actively-paid Pro/Business account
+// (the eventual steady state). A listed account is enabled by the captain's
+// own decision and bypasses the billing check — that is the per-account pilot
+// lever (currently exactly one production account).
+// ---------------------------------------------------------------------------
+
+export type ManagerNumberPlanInput = {
+  tier: string | null;
+  billing: string | null;
+  paidAt: string | null;
+  stripeSubscriptionId: string | null;
+  readFailed: boolean;
+};
+
+export type ManagerNumberAccessReason =
+  | "allowlisted"
+  | "paid"
+  | "not_enabled"
+  | "plan_unreadable"
+  | "not_paid_tier"
+  | "trialing"
+  | "expired";
+
+export type ManagerNumberAccessDecision = {
+  allowed: boolean;
+  via: "allowlist" | "paid" | null;
+  reason: ManagerNumberAccessReason;
+};
+
+/**
+ * "Actively paid, not trialing": tier is Pro/Business AND the purchase is past
+ * any trial AND not date-expired. Stripe-backed rows use paid_at + the trial
+ * length (Stripe collects at trial end; a canceled/failed subscription is
+ * downgraded by tier-sync, so a surviving paid tier past the window is an
+ * active payer). A Stripe row with no paid_at cannot prove its trial is over
+ * and fails closed as trialing.
+ */
+export function managerNumberPaidEntitlement(
+  plan: ManagerNumberPlanInput,
+  nowMs = Date.now(),
+): { entitled: boolean; reason: ManagerNumberAccessReason } {
+  if (plan.readFailed) return { entitled: false, reason: "plan_unreadable" };
+  const tier = normalizeManagerSkuTier(plan.tier);
+  if (tier !== "pro" && tier !== "business") return { entitled: false, reason: "not_paid_tier" };
+  const billing = plan.billing?.toLowerCase().trim() ?? "";
+  if (billing === "trial") return { entitled: false, reason: "trialing" };
+  if (plan.stripeSubscriptionId?.trim()) {
+    const paidAtMs = plan.paidAt ? new Date(plan.paidAt).getTime() : Number.NaN;
+    if (!Number.isFinite(paidAtMs)) return { entitled: false, reason: "trialing" };
+    const trialEndMs = paidAtMs + MANAGER_SUBSCRIPTION_TRIAL_DAYS * 24 * 60 * 60 * 1000;
+    if (nowMs < trialEndMs) return { entitled: false, reason: "trialing" };
+    return { entitled: true, reason: "paid" };
+  }
+  if (
+    isManagerPurchasePeriodExpired(
+      {
+        tier: plan.tier,
+        billing: plan.billing,
+        paid_at: plan.paidAt,
+        stripe_subscription_id: plan.stripeSubscriptionId,
+      },
+      nowMs,
+    )
+  ) {
+    return { entitled: false, reason: "expired" };
+  }
+  return { entitled: true, reason: "paid" };
+}
+
+export type SmsProvisioningAllowlist =
+  | { mode: "closed" }
+  | { mode: "all_paid" }
+  | { mode: "list"; entries: ReadonlySet<string> };
+
+/** `SMS_PROVISIONING_ALLOWLIST`: unset → closed; `*` → all paid; else entries. */
+export function smsProvisioningAllowlist(
+  env: Record<string, string | undefined> = process.env,
+): SmsProvisioningAllowlist {
+  const raw = String(env.SMS_PROVISIONING_ALLOWLIST ?? "").trim();
+  if (!raw) return { mode: "closed" };
+  if (raw === "*") return { mode: "all_paid" };
+  return {
+    mode: "list",
+    entries: new Set(
+      raw
+        .split(",")
+        .map((entry) => entry.trim().toLowerCase())
+        .filter(Boolean),
+    ),
+  };
+}
+
+/**
+ * The ONE access decision for a manager's per-number service: may this account
+ * hold/use a work number right now? Read by BOTH the purchase path (buying)
+ * and the send path (a downgraded manager's number suspends service without
+ * being released). Callers on the SEND path should treat `plan_unreadable` as
+ * allowed (an infra blip must not drop messaging); the PURCHASE path fails
+ * closed on it (money).
+ */
+export function managerNumberAccessDecision(args: {
+  plan: ManagerNumberPlanInput;
+  email: string | null;
+  userId: string;
+  env?: Record<string, string | undefined>;
+  nowMs?: number;
+}): ManagerNumberAccessDecision {
+  const allowlist = smsProvisioningAllowlist(args.env);
+  if (allowlist.mode === "closed") return { allowed: false, via: null, reason: "not_enabled" };
+  if (allowlist.mode === "list") {
+    const email = args.email?.trim().toLowerCase() ?? "";
+    const id = args.userId.trim().toLowerCase();
+    if ((email && allowlist.entries.has(email)) || (id && allowlist.entries.has(id))) {
+      return { allowed: true, via: "allowlist", reason: "allowlisted" };
+    }
+    return { allowed: false, via: null, reason: "not_enabled" };
+  }
+  const paid = managerNumberPaidEntitlement(args.plan, args.nowMs);
+  return paid.entitled
+    ? { allowed: true, via: "paid", reason: "paid" }
+    : { allowed: false, via: null, reason: paid.reason };
 }
 
 export type SmsSendClass = "control" | "transactional" | "automated";

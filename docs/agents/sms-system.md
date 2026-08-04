@@ -3,6 +3,108 @@
 
 # SMS / phone system (Twilio)
 
+## Two-way messaging spine (inbound fan-out + reply from anywhere)
+
+An inbound text to a manager number reaches the manager in THREE places, and a
+reply from any of them reaches the texter:
+
+1. **PropLane inbox** — the system of record. Inbound is logged
+   (`inbound_sms_log` / `manager_sms_messages`) and surfaces as the SMS
+   conversation in Communication (plus a notice row for the flag-off fallback).
+   Reply: the SMS panel POSTs `/api/manager/sms-conversations` →
+   `sendFromManagerWorkNumber`.
+2. **Manager's own cell** — `forwardResidentInboundToManagerCell` (labelled,
+   never the raw number). Reply: the manager texts their own work number back;
+   `detectManagerSelfReply` (From = their verified cell, To = their work
+   number) routes it to the active resident conversation instead of treating
+   it as a new inbound — that check is also what prevents the forward LOOP
+   (the forwarded copy answered from the cell can never be re-forwarded).
+3. **Email** — `notifyManagerOfInboundSms` (`sms-inbox-notice.server.ts`)
+   emails a copy whose **Reply-To is a signed SMS-conversation token**
+   (`buildSmsReplyAddress`, `sms+<mgr-hex><10-digit-phone>.<mac>@RESEND_REPLY_DOMAIN`;
+   MAC binds manager id + counterparty phone + the manager's email, so it only
+   verifies when the reply's From is that exact address). The inbound email
+   webhook routes a verified token through `ingestInboundEmailSmsReply`
+   (`inbound-email-sms-reply.server.ts`): quoted history stripped
+   (`stripEmailReplyQuote`), send claimed ONCE per Resend email id
+   (`portal_outbound_mail_records` `sms_email_reply_<id>` — a webhook
+   redelivery never texts twice), sent via `sendFromManagerWorkNumber`, logged
+   into the SAME conversation. A failed send BOUNCES back to the manager by
+   email — never logged as sent. Relay-pool mirrors get the email copy WITHOUT
+   a token (an emailed reply would leave the relay pair's number).
+
+**Intent-router seam.** `/api/twilio/inbound` consults
+`routeInboundSms(ctx)` (`src/lib/sms-intent-router.ts`) after self-reply
+detection and before the leasing-bot default. The router's BODY is owned by
+the `axis-sms-text-to-entry` lane ("Text to tour" keyword handling); the stub
+returns `{ handled: false }`. `handled: true` skips default handling — the
+transport still persists the message, logs the auto-reply, and runs the
+three-destination fan-out. Contract coverage:
+`tests/unit/sms-intent-router.test.ts`.
+
+**Honest delivery.** `/api/twilio/status` writes `sms_delivery_log`;
+`fetchManagerSmsConversations` stamps `deliveryFailed`/`deliveryErrorCode` on
+outbound messages with an adverse carrier status (failed/undelivered) and the
+SMS panel renders "Not delivered (carrier error N)". Absence of a status row
+is NOT delivery proof — only adverse reports flip the flag. While the A2P
+campaign is unregistered, carrier rejections surface here instead of reading
+as sent. Coverage: `tests/unit/sms-delivery-failure-surface.test.ts`.
+
+## A work number is a PAID feature (entitlement + deliberate enablement)
+
+Only an **actively paid Pro or Business** subscription earns a number — the
+14-day trial is NOT payment (`managerNumberPaidEntitlement` in
+`number-registration-policy.ts`: paid tier, `billing != "trial"`, Stripe rows
+must be past `paid_at + 14d`, non-Stripe rows must not be date-expired).
+Rollout is deliberate: **`SMS_PROVISIONING_ALLOWLIST`** unset → CLOSED (nobody
+provisions); `*` → every actively-paid account; a comma-separated list of
+emails/user ids → exactly those accounts, **bypassing the billing check** (the
+captain's per-account pilot lever — currently exactly one production account).
+
+Enforced in three places (`manager-number-access.server.ts`):
+
+- `provisionManagerNumber` — buying. Fails CLOSED on every disallow including
+  an unreadable plan (money path); parks `pending_registration` with
+  `last_error: access:<reason>`, retryable by the signup hook / daily sweep /
+  on-demand tab load — so a trial that converts provisions on the next touch.
+- `resolveActiveManagerSendNumber` + the `sendSms` choke point
+  (`resolveWorkNumberOwnerAccess`) — service. **Downgrade to Free suspends the
+  number without releasing it**: nothing calls `releaseManagerNumber` on
+  downgrade (people hand the number out — retention is a human decision), the
+  number stops sending (`number_suspended`), inbound still lands in the inbox.
+  The send paths fail OPEN on `plan_unreadable` (an infra blip must not drop
+  messaging); re-upgrading restores service with no surgery.
+- Signup (`scheduleManagerMessagingReady`, wired into every manager-creation
+  path) is the PRIMARY provisioning trigger and is idempotent — a retried
+  signup never buys a second number. Coverage:
+  `tests/unit/manager-number-provisioning.test.ts`.
+
+## Instant-on runbook (when the A2P campaign is approved)
+
+Per the `axis-sms-phone-activation` decision — per-manager Twilio numbers,
+Claw stamps blanked per-manager, auto-provision on signup:
+
+1. Register + get the A2P **campaign** approved (brand "Prop Lane" is already
+   approved; numbers cannot carry A2P traffic until the campaign is), attach
+   the Messaging Service (`TWILIO_MESSAGING_SERVICE_SID`).
+2. Flip `CLAW_MESSENGER_ENABLED=0` and `NEXT_PUBLIC_CLAW_MESSENGER_ENABLED=0`
+   (Twilio-native transport; the per-manager regime).
+3. `SMS_PROVISIONING_ENABLED=1` (money guard) +
+   `SMS_PROVISIONING_ALLOWLIST=<pilot manager email>` (deliberate enablement —
+   widen to `*` for all paid accounts later).
+4. `SMS_SHARED_REGISTRATION_STATE=approved` (one flip marks every
+   shared-ref manager's registration approved).
+5. Set `RESEND_REPLY_DOMAIN` (+ Resend inbound MX on that domain) so the
+   email leg carries reply tokens; `TWILIO_STATUS_CALLBACK_URL` for delivery
+   status; `TWILIO_WEBHOOK_URL` for inbound signature validation.
+6. Provisioning then clears legacy Claw stamps per-manager before buying
+   (`provisionManagerNumber` step 3b) — no bulk migration needed; the daily
+   `backfill-manager-work-numbers` cron sweeps stragglers.
+
+`SMS_COMM_UI_ENABLED` now defaults **ON** (set `0` to hide the SMS surfaces);
+the Communication header's "View number" button is how a manager reads the
+number they hand out.
+
 ## Conversation identity is per-counterparty, NOT the phone pair (read this first)
 
 A conversation used to be derived from the phone-number pair on the wire

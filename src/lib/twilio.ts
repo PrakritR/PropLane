@@ -48,6 +48,25 @@ export async function sendSms(
     }
   }
 
+  // Paid-feature gate (same choke-point idea as consent): a per-manager work
+  // number belongs to an actively-paid Pro/Business account (or a deliberately
+  // enabled one). When `from` is such a number and its owner's access is
+  // suspended — downgraded to Free, trial not converted — the number keeps
+  // existing but stops sending. Unowned froms (shared agent line, relay pool,
+  // TWILIO_DEFAULT_FROM) pass through untouched. Fails open on infra error.
+  try {
+    const db = createSupabaseServiceRoleClient();
+    const { resolveWorkNumberOwnerAccess, sendAllowedByAccess } = await import(
+      "@/lib/sms/manager-number-access.server"
+    );
+    const owner = await resolveWorkNumberOwnerAccess(db, fromNorm);
+    if (owner && !sendAllowedByAccess(owner.decision)) {
+      return { sent: false, error: "number_suspended" };
+    }
+  } catch {
+    // ignore — proceed to send
+  }
+
   const messagingServiceSid = process.env.TWILIO_MESSAGING_SERVICE_SID?.trim();
   const statusCallback = process.env.TWILIO_STATUS_CALLBACK_URL?.trim();
 

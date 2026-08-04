@@ -13,7 +13,7 @@ import { residentPortalUrl } from "@/lib/claw-resident-links";
 import { isPortalSandboxEmail } from "@/lib/portal-sandbox-accounts";
 import { sendFromManagerWorkNumber, sendPropLaneSms } from "@/lib/proplane-sms-transport.server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
-import { upsertManagerInboxNotice } from "@/lib/sms-inbox-notice.server";
+import { notifyManagerOfInboundSms, upsertManagerInboxNotice } from "@/lib/sms-inbox-notice.server";
 
 export type ClawThreadTopic =
   | "payment"
@@ -773,4 +773,14 @@ export async function mirrorResidentTextToManagerInbox(args: {
     body,
     unread: true,
   });
+  // Email leg of the inbound fan-out (inbox notice already written above):
+  // reply-tokened so answering the email texts the resident back.
+  await notifyManagerOfInboundSms(db, {
+    managerUserId: args.thread.managerUserId,
+    fromPhone: args.from,
+    text: args.text,
+    subjectLabel: "Resident text",
+    senderLabel: args.thread.residentEmail || null,
+    skipInboxNotice: true,
+  }).catch(() => ({ inboxNoticeWritten: false, emailSent: false }));
 }

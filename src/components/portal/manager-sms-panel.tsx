@@ -905,6 +905,15 @@ function Bubble({
             Sending…
           </span>
         ) : null}
+        {message.deliveryFailed ? (
+          <span
+            className={`mt-1 block px-1 text-[11px] font-medium text-danger ${outbound ? "text-right" : ""}`}
+            data-attr="sms-messages-delivery-failed"
+          >
+            Not delivered
+            {message.deliveryErrorCode ? ` (carrier error ${message.deliveryErrorCode})` : ""}
+          </span>
+        ) : null}
       </div>
     </div>
   );

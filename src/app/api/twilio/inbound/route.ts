@@ -10,7 +10,11 @@ import {
   handleManagerReplyInbound,
 } from "@/lib/sms/manager-relay.server";
 import { twilioMediaUrls } from "@/lib/sms-media.server";
-import { inboundLogIdentityFields } from "@/lib/manager-sms-messages.server";
+import { inboundLogIdentityFields, logManagerSmsMessage } from "@/lib/manager-sms-messages.server";
+import { routeInboundSms, type SmsIntentResult } from "@/lib/sms-intent-router";
+import { buildConversationKey } from "@/lib/sms-conversation-identity";
+import { findResidentProfileByPhone } from "@/lib/claw-resident-messaging.server";
+import { notifyManagerOfInboundSms } from "@/lib/sms-inbox-notice.server";
 import { relayInboundSms } from "@/lib/sms-relay.server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { normalizeE164 } from "@/lib/twilio";
@@ -205,6 +209,103 @@ export async function POST(req: Request) {
             : "Couldn't send that reply. Open PropLane to try again.";
     }
     return twimlOk(notice);
+  }
+
+  // Intent-router seam (owned by axis-sms-text-to-entry): the transport
+  // resolves the sender + conversation and persists the message; the router
+  // decides what the message MEANS. `handled` → the router produced the reply,
+  // so default handling (leasing bot / resident hub) is skipped — the
+  // transport still runs the manager fan-out (inbox + email + cell forward).
+  const senderProfile = await findResidentProfileByPhone(fromPhone).catch(() => null);
+  const counterpartyRole = senderProfile ? ("resident" as const) : ("prospect" as const);
+  const conversationKey = buildConversationKey({
+    ownerManagerUserId: managerId,
+    role: counterpartyRole,
+    counterpartyUserId: senderProfile?.userId ?? null,
+    counterpartyPhone: fromPhone,
+  });
+  let isFirstMessageInConversation = false;
+  try {
+    const { data: prior } = await db
+      .from("inbound_sms_log")
+      .select("id")
+      .eq("conversation_key", conversationKey)
+      .limit(1);
+    isFirstMessageInConversation = (prior ?? []).length === 0;
+  } catch {
+    /* conservative default: not first */
+  }
+
+  let intent: SmsIntentResult = { handled: false };
+  try {
+    intent = await routeInboundSms({
+      fromPhone,
+      toPhone,
+      body,
+      managerId,
+      conversationId: conversationKey,
+      isFirstMessageInConversation,
+    });
+  } catch (e) {
+    console.error("sms intent router failed; falling back to default handling", e);
+  }
+
+  if (intent.handled) {
+    const autoReply = intent.autoReplyBody?.trim() || null;
+    // Persist the inbound with its resolved identity (the default handler that
+    // would normally log it is skipped on this branch).
+    await db
+      .from("inbound_sms_log")
+      .insert({
+        manager_user_id: managerId,
+        from_phone: fromPhone,
+        to_phone: toPhone,
+        matched_sender_user_id: senderProfile?.userId ?? null,
+        body,
+        message_sid: messageSid,
+        ...inboundLogIdentityFields({
+          managerUserId: managerId,
+          counterpartyRole,
+          counterpartyUserId: senderProfile?.userId ?? null,
+          fromPhone,
+        }),
+      })
+      .then(() => undefined, () => undefined);
+    // The auto-reply goes back via TwiML (from the number that was texted);
+    // log it so the conversation shows both directions.
+    if (autoReply) {
+      await logManagerSmsMessage(db, {
+        managerUserId: managerId,
+        residentPhone: fromPhone,
+        residentUserId: senderProfile?.userId ?? null,
+        direction: "outbound",
+        body: autoReply,
+        fromPhone: workNumber,
+        toPhone: fromPhone,
+        source: "work_number",
+        counterpartyRole,
+      }).catch(() => false);
+    }
+    // Manager fan-out: inbox notice + email (reply-tokened) + cell forward.
+    await notifyManagerOfInboundSms(db, {
+      managerUserId: managerId,
+      fromPhone,
+      text: body,
+      autoReply,
+      subjectLabel: counterpartyRole === "resident" ? "Resident text" : "New text",
+      senderLabel: senderProfile?.email ?? null,
+      idPrefix: "sms_intent",
+      threadType: counterpartyRole === "resident" ? "claw_resident_sms" : "claw_leasing_sms",
+    }).catch(() => ({ inboxNoticeWritten: false, emailSent: false }));
+    if (!isClawSharedLineBridgeEnabled()) {
+      await forwardResidentInboundToManagerCell(db, {
+        managerUserId: managerId,
+        workNumber,
+        fromPhone,
+        body,
+      }).catch(() => undefined);
+    }
+    return twimlOk(autoReply ?? undefined);
   }
 
   try {

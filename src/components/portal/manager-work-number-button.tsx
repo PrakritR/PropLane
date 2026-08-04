@@ -75,7 +75,9 @@ export function ManagerWorkNumberButton({ className }: { className?: string }) {
       >
         <div className="space-y-4">
           <p className="text-sm text-muted">
-            This number is auto-assigned for your manager account and cannot be edited here.
+            {workNumber
+              ? "This number is auto-assigned for your manager account and cannot be edited here. Hand it out — texts to it land in your PropLane inbox, your email, and your phone."
+              : "No number is assigned to this account yet. A dedicated PropLane texting number is included with an active Pro or Business subscription."}
           </p>
           <p className="rounded-xl border border-border bg-accent/25 px-3 py-2 text-base font-semibold text-foreground">
             {formatPhoneDisplay(workNumber)}

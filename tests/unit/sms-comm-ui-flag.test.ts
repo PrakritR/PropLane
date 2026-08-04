@@ -9,24 +9,24 @@ afterEach(() => {
 });
 
 describe("isSmsCommUiEnabled", () => {
-  it("defaults OFF when unset (SMS hidden until A2P clears)", () => {
+  it("defaults ON when unset (SMS is a live product surface)", () => {
     delete process.env.SMS_COMM_UI_ENABLED;
-    expect(isSmsCommUiEnabled()).toBe(false);
-  });
-
-  it("is ON only for an explicit 1/true", () => {
-    process.env.SMS_COMM_UI_ENABLED = "1";
-    expect(isSmsCommUiEnabled()).toBe(true);
-    process.env.SMS_COMM_UI_ENABLED = "true";
-    expect(isSmsCommUiEnabled()).toBe(true);
-    process.env.SMS_COMM_UI_ENABLED = "TRUE";
     expect(isSmsCommUiEnabled()).toBe(true);
   });
 
-  it("stays OFF for other values", () => {
-    for (const v of ["0", "false", "", "no", "yes"]) {
+  it("stays ON for explicit enables and unrecognized values", () => {
+    for (const v of ["1", "true", "TRUE", "yes", ""]) {
       process.env.SMS_COMM_UI_ENABLED = v;
-      expect(isSmsCommUiEnabled()).toBe(false);
+      expect(isSmsCommUiEnabled()).toBe(true);
     }
+  });
+
+  it("is OFF only for an explicit 0/false", () => {
+    process.env.SMS_COMM_UI_ENABLED = "0";
+    expect(isSmsCommUiEnabled()).toBe(false);
+    process.env.SMS_COMM_UI_ENABLED = "false";
+    expect(isSmsCommUiEnabled()).toBe(false);
+    process.env.SMS_COMM_UI_ENABLED = "FALSE";
+    expect(isSmsCommUiEnabled()).toBe(false);
   });
 });

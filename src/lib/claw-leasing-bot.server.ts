@@ -41,7 +41,7 @@ import {
 import { buildManagerResidentBrief, runResidentSmsAction } from "@/lib/claw-resident-actions.server";
 import { sendFromManagerWorkNumber, sendPropLaneSms } from "@/lib/proplane-sms-transport.server";
 import type { SmsCounterpartyRole } from "@/lib/sms-conversation-identity";
-import { upsertManagerInboxNotice } from "@/lib/sms-inbox-notice.server";
+import { notifyManagerOfInboundSms } from "@/lib/sms-inbox-notice.server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { normalizeE164 } from "@/lib/twilio";
 
@@ -885,22 +885,15 @@ export async function handleClawLeasingInbound(args: {
                 autoReply: agent.reply,
               }),
               ...recipientIds.map((managerUserId) =>
-                upsertManagerInboxNotice(db, {
+                notifyManagerOfInboundSms(db, {
                   managerUserId,
+                  fromPhone: from,
+                  text,
+                  autoReply: agent.reply,
+                  subjectLabel,
+                  propertyLabel,
                   idPrefix: "claw_lease",
                   threadType: "claw_leasing_sms",
-                  from: from,
-                  subject: `(${subjectLabel}${propertyLabel ? ` — ${propertyLabel}` : ""}) ${from}`,
-                  preview: text.slice(0, 140) || "(empty)",
-                  body: [
-                    `(${subjectLabel}${propertyLabel ? ` — ${propertyLabel}` : ""}) ${from}`,
-                    "",
-                    text || "(empty message)",
-                    "",
-                    `— PropLane leasing assistant replied —`,
-                    agent.reply,
-                  ].join("\n"),
-                  unread: true,
                 }),
               ),
             ]);
@@ -979,22 +972,15 @@ export async function handleClawLeasingInbound(args: {
         autoReply: reply,
       }),
       ...recipientIds.map((managerUserId) =>
-        upsertManagerInboxNotice(db, {
+        notifyManagerOfInboundSms(db, {
           managerUserId,
+          fromPhone: from,
+          text,
+          autoReply: reply,
+          subjectLabel,
+          propertyLabel,
           idPrefix: "claw_lease",
           threadType: "claw_leasing_sms",
-          from: from,
-          subject: `(${subjectLabel}${propertyLabel ? ` — ${propertyLabel}` : ""}) ${from}`,
-          preview: text.slice(0, 140) || "(empty)",
-          body: [
-            `(${subjectLabel}${propertyLabel ? ` — ${propertyLabel}` : ""}) ${from}`,
-            "",
-            text || "(empty message)",
-            "",
-            `— Auto-replied (${intent}) —`,
-            reply,
-          ].join("\n"),
-          unread: true,
         }),
       ),
     ]);

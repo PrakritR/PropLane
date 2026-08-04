@@ -131,7 +131,31 @@ export async function provisionManagerNumber(
     return { ok: true, number: record.phoneNumber, state: "active", alreadyProvisioned: true };
   }
 
-  // 2. Money guard — parked until an operator enables real purchases.
+  // 2a. Paid feature + deliberate enablement: only an allowlisted or
+  //     actively-paid Pro/Business account may hold a number (trial is not
+  //     payment). Fails CLOSED on an unreadable plan — this is the money path,
+  //     and parking is retryable: the signup hook, the daily sweep, and the
+  //     on-demand tab load all re-check, so a trial that converts (or an
+  //     account the captain enables) provisions on the next touch.
+  {
+    const { resolveManagerNumberAccess } = await import("@/lib/sms/manager-number-access.server");
+    const access = await resolveManagerNumberAccess(db, id);
+    if (!access.allowed) {
+      await db
+        .from(TABLE)
+        .update({
+          provision_state: "pending_registration",
+          last_error: `access:${access.reason}`,
+          updated_at: nowIso(),
+        })
+        .eq("manager_user_id", id)
+        .neq("provision_state", "active")
+        .then(() => undefined, () => undefined);
+      return { ok: false, error: `access:${access.reason}`, state: "pending_registration" };
+    }
+  }
+
+  // 2b. Money guard — parked until an operator enables real purchases.
   if (!isProvisioningEnabled()) {
     await db
       .from(TABLE)
@@ -338,8 +362,9 @@ export async function restoreManagerNumber(db: SupabaseClient, managerUserId: st
 
 /**
  * The E.164 number a manager may SEND from right now, or null when they cannot
- * (no active number, or registration not approved). Callers fall back to the
- * shared transport while null.
+ * (no active number, registration not approved, or the account's number access
+ * is suspended — a downgraded-to-Free manager keeps the number but its service
+ * stops). Callers fall back to the shared transport while null.
  */
 export async function resolveActiveManagerSendNumber(
   db: SupabaseClient,
@@ -347,6 +372,11 @@ export async function resolveActiveManagerSendNumber(
 ): Promise<string | null> {
   const record = await getManagerNumberRecord(db, managerUserId);
   if (!managerCanSendFromOwnNumber(record)) return null;
+  const { resolveManagerNumberAccess, sendAllowedByAccess } = await import(
+    "@/lib/sms/manager-number-access.server"
+  );
+  const access = await resolveManagerNumberAccess(db, managerUserId);
+  if (!sendAllowedByAccess(access)) return null;
   return record?.phoneNumber ?? null;
 }
 

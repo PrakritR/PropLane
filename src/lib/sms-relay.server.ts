@@ -12,7 +12,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import twilio from "twilio";
 import { smsMediaAppUrl, storeInboundMedia } from "@/lib/sms-media.server";
-import { upsertManagerInboxNotice } from "@/lib/sms-inbox-notice.server";
+import { sendManagerNoticeEmail, upsertManagerInboxNotice } from "@/lib/sms-inbox-notice.server";
 import { normalizeE164, sendSms } from "@/lib/twilio";
 
 const RELAY_AREA_CODES = [206, 425, 253, 415, 510];
@@ -463,6 +463,30 @@ export async function relayInboundSms(
     body: `${args.body}${mediaNote}`,
     unread: sender.role !== "manager",
   });
+
+  // Email the manager a copy of a resident-sent relay text. Deliberately NO
+  // reply token: relay conversations live on the pooled relay number pair, and
+  // an emailed reply would go out via sendFromManagerWorkNumber — a different
+  // number — breaking the pair binding. The manager replies by texting the
+  // relay number back (the relay's own design), or from the portal.
+  if (sender.role !== "manager") {
+    const { data: mgrProfile } = await db
+      .from("profiles")
+      .select("email")
+      .eq("id", managerUserId)
+      .maybeSingle();
+    await sendManagerNoticeEmail({
+      toEmail: (mgrProfile?.email as string | null) ?? null,
+      subject: `Text relay — ${counterpartyLabel}${threadLabel ? ` (${threadLabel})` : ""}`,
+      text: [
+        `${counterpartyLabel} texted your PropLane relay number:`,
+        "",
+        args.body,
+        "",
+        "Reply by texting the relay thread back from your phone, or open PropLane.",
+      ].join("\n"),
+    }).catch(() => ({ sent: false }));
+  }
 
   return { handled: true, managerUserId, senderUserId };
 }

@@ -495,6 +495,56 @@ async function listResidentsForOwners(
   );
 }
 
+/**
+ * Honest delivery: stamp `deliveryFailed` on outbound messages whose carrier
+ * status came back failed/undelivered via the Twilio status webhook
+ * (`/api/twilio/status` → `sms_delivery_log`). Absence of a row is NOT
+ * delivery proof — only an adverse report flips the flag, so an unregistered
+ * A2P campaign's silent carrier rejections become visible in the thread
+ * instead of reading as sent. Best-effort: a failed read stamps nothing.
+ */
+async function stampDeliveryFailures(
+  db: SupabaseClient,
+  conversations: ManagerSmsResidentConversation[],
+): Promise<void> {
+  const bySid = new Map<string, ManagerSmsMessageRow[]>();
+  for (const conversation of conversations) {
+    for (const message of conversation.messages) {
+      if (message.direction !== "outbound") continue;
+      const sid = message.messageSid?.trim();
+      if (!sid) continue;
+      const list = bySid.get(sid) ?? [];
+      list.push(message);
+      bySid.set(sid, list);
+    }
+  }
+  if (bySid.size === 0) return;
+  try {
+    const sids = [...bySid.keys()];
+    const CHUNK = 200;
+    for (let start = 0; start < sids.length; start += CHUNK) {
+      const { data } = await db
+        .from("sms_delivery_log")
+        .select("message_sid, status, error_code")
+        .in("message_sid", sids.slice(start, start + CHUNK))
+        .in("status", ["failed", "undelivered"]);
+      for (const row of (data ?? []) as Array<{
+        message_sid: string | null;
+        status: string | null;
+        error_code: string | null;
+      }>) {
+        const sid = String(row.message_sid ?? "").trim();
+        for (const message of bySid.get(sid) ?? []) {
+          message.deliveryFailed = true;
+          message.deliveryErrorCode = row.error_code ?? null;
+        }
+      }
+    }
+  } catch {
+    /* stamping is best-effort — the thread still renders */
+  }
+}
+
 export async function fetchManagerSmsConversations(
   db: SupabaseClient,
   managerUserId: string,
@@ -817,6 +867,8 @@ export async function fetchManagerSmsConversations(
     const bLast = b.messages[b.messages.length - 1]?.createdAt ?? "";
     return bLast.localeCompare(aLast);
   });
+
+  await stampDeliveryFailures(db, conversations);
 
   return {
     workNumber,

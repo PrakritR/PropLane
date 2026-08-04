@@ -240,6 +240,7 @@ export async function getManagerPurchaseSku(userId: string): Promise<{
   stripeCustomerId: string | null;
   stripeSubscriptionId: string | null;
   appleOriginalTransactionId: string | null;
+  paidAt: string | null;
   readFailed: boolean;
 }> {
   const row = await getManagerPurchaseRowByUserId(userId);
@@ -249,6 +250,7 @@ export async function getManagerPurchaseSku(userId: string): Promise<{
     stripeCustomerId: row.stripeCustomerId,
     stripeSubscriptionId: row.stripeSubscriptionId,
     appleOriginalTransactionId: row.appleOriginalTransactionId,
+    paidAt: row.paidAt,
     readFailed: row.readFailed,
   };
 }
