@@ -230,6 +230,9 @@ export async function POST(req: Request) {
     const { data: prior } = await db
       .from("inbound_sms_log")
       .select("id")
+      // Leading column of the (manager_user_id, conversation_key, created_at)
+      // index — the probe cannot use it without this.
+      .eq("manager_user_id", managerId)
       .eq("conversation_key", conversationKey)
       .limit(1);
     isFirstMessageInConversation = (prior ?? []).length === 0;

@@ -6,7 +6,9 @@
  * {@link SMS_NUMBER_SUSPENSION_GRACE_DAYS} the daily sweep releases it at
  * Twilio and marks the row `released` so PropLane stops paying ~$1.15/mo.
  * A warning email goes out {@link SMS_NUMBER_SUSPENSION_WARN_DAYS_BEFORE}
- * days before release.
+ * days before release, and release REQUIRES that warning to have been delivered
+ * that long ago — an unwarned number keeps its grace extended indefinitely
+ * rather than disappearing silently from a manager's listings.
  *
  * Money safety: this module NEVER purchases numbers. Provider release is
  * best-effort via `releaseTwilioNumber` (no-ops without Twilio credentials,
@@ -69,20 +71,26 @@ export async function sweepSuspendedManagerNumbers(
   );
 
   // 1. Active numbers still unpaid and not yet stamped — start the grace clock.
+  //
+  // Scoped to UNSTAMPED rows (pass 2 owns every stamped one, clears included)
+  // and ordered deterministically: an unfiltered, unordered window let
+  // already-stamped rows eat the whole budget, so a manager who downgraded
+  // outside that arbitrary window never had their clock started at all.
   const { data: activeRows } = await db
     .from(TABLE)
     .select("*")
     .eq("provision_state", "active")
     .not("phone_number", "is", null)
+    .is("service_suspended_at", null)
+    .order("manager_user_id", { ascending: true })
     .limit(limit);
   for (const raw of activeRows ?? []) {
     const row = mapNumberRow(raw as Record<string, unknown>);
-    if (!row?.managerUserId) continue;
+    if (!row?.managerUserId || row.serviceSuspendedAt) continue;
     result.considered += 1;
     try {
       const access = await resolveManagerNumberAccess(db, row.managerUserId);
-      const allowed = sendAllowedByAccess(access);
-      if (!allowed && !row.serviceSuspendedAt) {
+      if (!sendAllowedByAccess(access)) {
         const { data: updated } = await db
           .from(TABLE)
           .update({
@@ -94,18 +102,6 @@ export async function sweepSuspendedManagerNumbers(
           .is("service_suspended_at", null)
           .select("manager_user_id");
         if ((updated ?? []).length > 0) result.stamped += 1;
-      } else if (allowed && row.serviceSuspendedAt) {
-        const { data: updated } = await db
-          .from(TABLE)
-          .update({
-            service_suspended_at: null,
-            suspension_warned_at: null,
-            updated_at: new Date(nowMs).toISOString(),
-          })
-          .eq("manager_user_id", row.managerUserId)
-          .not("service_suspended_at", "is", null)
-          .select("manager_user_id");
-        if ((updated ?? []).length > 0) result.cleared += 1;
       }
     } catch (e) {
       result.errors.push({
@@ -121,6 +117,7 @@ export async function sweepSuspendedManagerNumbers(
     .select("*")
     .eq("provision_state", "active")
     .not("service_suspended_at", "is", null)
+    .order("service_suspended_at", { ascending: true })
     .limit(limit);
   const warnAfterDays = SMS_NUMBER_SUSPENSION_GRACE_DAYS - SMS_NUMBER_SUSPENSION_WARN_DAYS_BEFORE;
 
@@ -134,7 +131,7 @@ export async function sweepSuspendedManagerNumbers(
       // must not lose the number to a race with the stamp pass above.
       const access = await resolveManagerNumberAccess(db, row.managerUserId);
       if (sendAllowedByAccess(access)) {
-        await db
+        const { data: updated } = await db
           .from(TABLE)
           .update({
             service_suspended_at: null,
@@ -142,12 +139,27 @@ export async function sweepSuspendedManagerNumbers(
             updated_at: new Date(nowMs).toISOString(),
           })
           .eq("manager_user_id", row.managerUserId)
-          .then(() => undefined, () => undefined);
-        result.cleared += 1;
+          .not("service_suspended_at", "is", null)
+          .select("manager_user_id")
+          .then((res) => res, () => ({ data: [] as Array<{ manager_user_id: string }> }));
+        if ((updated ?? []).length > 0) result.cleared += 1;
         continue;
       }
 
-      if (ageDays >= SMS_NUMBER_SUSPENSION_GRACE_DAYS) {
+      // Release is gated on a warning that ACTUALLY went out, and on the full
+      // notice period having run since it did. `warnSuspendedNumberRelease`
+      // returns false whenever the mailer is unconfigured or Resend refuses, so
+      // a number whose owner was never reached keeps its grace extended and the
+      // sweep keeps trying to warn — releasing a number printed on listings with
+      // no notice is the worst outcome this feature can produce.
+      const warnedAgeDays = row.suspensionWarnedAt
+        ? daysBetween(row.suspensionWarnedAt, nowMs)
+        : null;
+      if (
+        ageDays >= SMS_NUMBER_SUSPENSION_GRACE_DAYS &&
+        warnedAgeDays !== null &&
+        warnedAgeDays >= SMS_NUMBER_SUSPENSION_WARN_DAYS_BEFORE
+      ) {
         await releaseExpiredSuspendedNumber(db, row.managerUserId);
         result.released += 1;
         continue;
@@ -191,7 +203,13 @@ async function warnSuspendedNumberRelease(
     .maybeSingle();
   const email = String(profile?.email ?? "").trim().toLowerCase();
   if (!email.includes("@")) return false;
-  const daysLeft = Math.max(0, SMS_NUMBER_SUSPENSION_GRACE_DAYS - ageDays);
+  // Never under-promise: release needs the full notice period AFTER this email
+  // lands, so a warning sent late (mailer outage, address only fixed now) still
+  // buys the whole window rather than announcing "0 days".
+  const daysLeft = Math.max(
+    SMS_NUMBER_SUSPENSION_WARN_DAYS_BEFORE,
+    SMS_NUMBER_SUSPENSION_GRACE_DAYS - ageDays,
+  );
   const portalLink = `${(resolveEmailLinkBaseUrl() || PRODUCTION_APP_ORIGIN).replace(/\/$/, "")}/portal/profile`;
   const { sent } = await sendManagerNoticeEmail({
     toEmail: email,

@@ -103,6 +103,29 @@ async function claimEmailSmsReply(
   return (data ?? []).length > 0;
 }
 
+/**
+ * What the claiming attempt actually did, read back for a redelivery. The claim
+ * proves "someone already handled this email", never "a text went out" — the
+ * first attempt may have bounced on an empty body, an auth refusal, the
+ * throttle, an exhausted grant, or a failed send. `smsSent` is absent while the
+ * first attempt is still in flight, which reads as not-sent: the honest answer
+ * for a caller asking right now.
+ */
+async function readClaimOutcome(
+  db: SupabaseClient,
+  emailId: string,
+): Promise<{ smsSent: boolean; error?: string }> {
+  const { data } = await db
+    .from("portal_outbound_mail_records")
+    .select("row_data")
+    .eq("id", `sms_email_reply_${emailId}`)
+    .maybeSingle()
+    .then((res) => res, () => ({ data: null }));
+  const rowData = (data?.row_data as Record<string, unknown> | null) ?? null;
+  const error = typeof rowData?.smsError === "string" ? rowData.smsError : undefined;
+  return { smsSent: rowData?.smsSent === true, ...(error ? { error } : {}) };
+}
+
 /** Best-effort outcome stamp on the claimed row so a failed leg is diagnosable. */
 async function recordClaimOutcome(
   db: SupabaseClient,
@@ -227,6 +250,14 @@ const GRANT_BOUNCE_REASON =
  * per Resend email id, so an unthrottled refusal path is an inbox-flood vector.
  * Its bucket is deliberately SEPARATE from the send allowance — a forged flood
  * must not be able to spend the manager's own budget for real replies.
+ *
+ * ⚠️ Scope: this throttle and the send throttle both use the in-memory
+ * `rateLimit`, which is PER SERVERLESS INSTANCE and resets on a cold start — so
+ * the real fleet-wide ceiling is this number times the number of live instances.
+ * Best-effort, not a guarantee. Sends stay bounded regardless by the DB-backed
+ * grant counter (`consumeSmsEmailReplyGrant`), which is the actual limit on
+ * texts; only the bounce ceiling is soft. A durable, DB-backed throttle is a
+ * separate follow-up and is deliberately NOT built here.
  */
 async function bounceToManager(args: {
   managerUserId: string;
@@ -283,7 +314,10 @@ export async function ingestInboundEmailSmsReply(
     managerEmail,
     target.counterpartyPhone,
   );
-  if (!claimed) return { handled: true, sent: true, idempotent: true };
+  if (!claimed) {
+    const prior = await readClaimOutcome(db, parsed.emailId);
+    return { handled: true, sent: prior.smsSent, idempotent: true, ...(prior.error ? { error: prior.error } : {}) };
+  }
 
   // Past the claim, a redelivery no-ops — so an unexpected throw here would lose
   // the manager's reply with zero signal. Every exit below reports back.
@@ -460,7 +494,9 @@ export async function ingestInboundEmailSmsPortalOnlyReply(
     managerEmail,
     target.counterpartyPhone,
   );
-  if (!claimed) return { handled: true, sent: true, idempotent: true };
+  if (!claimed) {
+    return { handled: true, sent: false, idempotent: true, error: "portal_only_reply" };
+  }
 
   await recordClaimOutcome(db, parsed.emailId, {
     smsSent: false,

@@ -137,11 +137,26 @@ export type ResendReceivedEmailBodyResult =
  * maps to EVERY value in received order rather than one joined string: a
  * message carries one `Authentication-Results` per hop, and only the topmost
  * (the last receiver to touch it) may be trusted — merging them would hand the
- * sender's own forged line the same weight as the receiver's.
+ * sender's own forged line the same weight as the receiver's. A shape that
+ * cannot express duplicates yields NO value for such a header rather than a
+ * possibly-forged survivor — see {@link ORDER_SENSITIVE_HEADER_NAMES}.
  *
  * Absent/empty is "we know nothing", never a verdict.
  */
 export type ResendReceivedEmailHeaders = Record<string, string[]>;
+
+/**
+ * Headers whose security meaning depends on every instance surviving in
+ * received order. A JSON OBJECT cannot carry duplicates — `JSON.parse` keeps the
+ * LAST value for a repeated key — so a scalar object-form value for one of these
+ * is indistinguishable from "the receiver's topmost line was dropped and the
+ * sender's own forged bottom line survived". Those values are DISCARDED rather
+ * than trusted: the reader then sees no header, answers `unauthenticated`, and
+ * the reply falls through to the single-use grant, which is the safe default.
+ * An ARRAY value (either header shape) preserves order and multiplicity, so it
+ * is kept as-is.
+ */
+const ORDER_SENSITIVE_HEADER_NAMES = new Set(["authentication-results"]);
 
 function parseResendReceivedHeaders(raw: unknown): ResendReceivedEmailHeaders {
   const out: ResendReceivedEmailHeaders = {};
@@ -159,8 +174,12 @@ function parseResendReceivedHeaders(raw: unknown): ResendReceivedEmailHeaders {
     }
   } else if (raw && typeof raw === "object") {
     for (const [name, value] of Object.entries(raw as Record<string, unknown>)) {
-      if (Array.isArray(value)) for (const item of value) add(name, item);
-      else add(name, value);
+      if (Array.isArray(value)) {
+        for (const item of value) add(name, item);
+        continue;
+      }
+      if (ORDER_SENSITIVE_HEADER_NAMES.has(String(name ?? "").trim().toLowerCase())) continue;
+      add(name, value);
     }
   }
   return out;

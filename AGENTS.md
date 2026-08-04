@@ -1007,11 +1007,17 @@ conversations) plus the archive toggle. Invariants:
   the one-thread-per-person `portal-inbox-delivery.ts` foundation) rather than a
   parallel list. Bubbles render the FULL body (pre-wrap, no clamp).
 - **SMS UI is gated by `isSmsCommUiEnabled()`** (`src/lib/sms-comm-ui-flag.server.ts`,
-  env `SMS_COMM_UI_ENABLED`, default OFF, server-resolved). `render-portal-section.tsx`
+  env `SMS_COMM_UI_ENABLED`, **default ON** since the two-way messaging spine
+  shipped — set `SMS_COMM_UI_ENABLED=0` to hide it again; server-resolved).
+  `render-portal-section.tsx`
   threads it as the `smsUiEnabled` prop into all four Communication components
   (manager / resident / vendor / admin), which gate their compose "via SMS"
   channel, SMS rows, and SMS panel on it. It gates ONLY the UI — SMS transport,
-  both SMS agents, and phone provisioning stay live. ⚠️ While hidden, inbound-SMS
+  both SMS agents, and phone provisioning stay live. Because it is on by
+  default, a manager with NO work number reaches these surfaces: they must say
+  plainly that a work number comes with an active Pro or Business plan
+  (`ManagerWorkNumberButton`'s "View number" modal, the SMS list empty state)
+  rather than looking broken or implying a number exists. ⚠️ While hidden, inbound-SMS
   notices must stay visible: `filterEmailInboxThreads(rows, { keepSmsLike:
   !smsUiEnabled })` lets them fall through into the conversation list instead of
   vanishing into the hidden SMS panel. Coverage:

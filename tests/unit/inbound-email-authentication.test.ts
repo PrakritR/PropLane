@@ -5,13 +5,19 @@
  * grant), while an absent/unreadable header stays a neutral `unauthenticated`
  * with no verdict rather than reading as proof or as forgery.
  */
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   assessInboundEmailAuthentication,
   domainsAligned,
   parseAuthenticationResults,
   parseAuthservId,
 } from "@/lib/inbound-email/email-authentication";
+
+vi.mock("@/lib/supabase/service", () => ({
+  createSupabaseServiceRoleClient: () => ({ from: () => ({}) }),
+}));
+
+import { fetchResendReceivedEmailBody } from "@/lib/inbound-email/inbound-email.server";
 
 const FROM = "manager@example.com";
 const TRUSTED = { RESEND_AUTHSERV_ID: "mx.proplane.test" };
@@ -158,5 +164,69 @@ describe("parsing helpers", () => {
     expect(domainsAligned("x@example.com", "mail.example.com")).toBe(true);
     expect(domainsAligned("notexample.com", "example.com")).toBe(false);
     expect(domainsAligned("", "example.com")).toBe(false);
+  });
+});
+
+/**
+ * A JSON OBJECT cannot carry two headers of the same name — `JSON.parse` keeps
+ * the LAST, which for `Authentication-Results` is the SENDER's own bottom line,
+ * not the receiver's topmost one. Trusting that survivor would let a forged
+ * `<pinned-id>; dmarc=pass` reach `authenticated`, the one outcome that skips
+ * the single-use grant.
+ */
+describe("received-email headers — an object shape can never grant a pass", () => {
+  const ORIG_FETCH = globalThis.fetch;
+  function stubFetch(headers: unknown) {
+    globalThis.fetch = (async () => ({
+      ok: true,
+      json: async () => ({ data: { text: "hello", headers } }),
+    })) as unknown as typeof fetch;
+  }
+
+  beforeEach(() => {
+    process.env.RESEND_API_KEY = "re_test";
+  });
+  afterEach(() => {
+    globalThis.fetch = ORIG_FETCH;
+  });
+
+  it("drops a scalar object-form Authentication-Results instead of trusting it", async () => {
+    stubFetch({ "Authentication-Results": "mx.proplane.test; dmarc=pass header.from=example.com" });
+    const result = await fetchResendReceivedEmailBody("em_1");
+    expect(result.kind).toBe("body");
+    const headers = (result as { headers?: Record<string, string[]> }).headers ?? {};
+    expect(headers["authentication-results"]).toBeUndefined();
+    expect(assessInboundEmailAuthentication(headers["authentication-results"], FROM, TRUSTED)).toBe(
+      "unauthenticated",
+    );
+  });
+
+  it("keeps other object-form headers, and keeps an ARRAY of A-R values in order", async () => {
+    stubFetch({
+      Subject: "Re: text",
+      "Authentication-Results": [
+        "mx.proplane.test; spf=fail smtp.mailfrom=attacker@evil.test; dkim=fail",
+        "mx.proplane.test; dmarc=pass header.from=example.com",
+      ],
+    });
+    const result = await fetchResendReceivedEmailBody("em_2");
+    const headers = (result as { headers?: Record<string, string[]> }).headers ?? {};
+    expect(headers.subject).toEqual(["Re: text"]);
+    expect(headers["authentication-results"]).toHaveLength(2);
+    expect(assessInboundEmailAuthentication(headers["authentication-results"], FROM, TRUSTED)).toBe(
+      "reject",
+    );
+  });
+
+  it("still trusts the array-of-entries shape, which preserves received order", async () => {
+    stubFetch([
+      { name: "Authentication-Results", value: "mx.proplane.test; dmarc=pass header.from=example.com" },
+      { name: "Authentication-Results", value: "mx.proplane.test; dmarc=fail header.from=example.com" },
+    ]);
+    const result = await fetchResendReceivedEmailBody("em_3");
+    const headers = (result as { headers?: Record<string, string[]> }).headers ?? {};
+    expect(assessInboundEmailAuthentication(headers["authentication-results"], FROM, TRUSTED)).toBe(
+      "authenticated",
+    );
   });
 });

@@ -675,7 +675,18 @@ export const ManagerSmsPanel = forwardRef<
         ) : null}
         {!loading && !error && visibleRows.length === 0 ? (
           <div className="p-4">
-            <PortalInboxEmptyState title={search.trim() ? `No messages match “${search.trim()}”.` : "No messages yet."} />
+            <PortalInboxEmptyState
+              title={
+                search.trim()
+                  ? `No messages match “${search.trim()}”.`
+                  : // An account with no work number cannot receive a text at
+                    // all, so "No messages yet." would read as a broken inbox.
+                    // Name the entitlement instead.
+                    data && !data.workNumber
+                    ? "No texting number on this account yet. A dedicated PropLane work number is included with an active Pro or Business plan."
+                    : "No messages yet."
+              }
+            />
           </div>
         ) : null}
         <ul>

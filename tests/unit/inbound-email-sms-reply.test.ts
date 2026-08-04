@@ -197,6 +197,25 @@ describe("ingestInboundEmailSmsReply", () => {
     expect(sendFromManagerMock).toHaveBeenCalledTimes(1);
   });
 
+  it("a redelivery reports the FIRST attempt's real outcome, not a blanket sent:true", async () => {
+    const phone = nextPhone();
+    const db = seedDb(phone);
+    sendFromManagerMock.mockResolvedValueOnce({ ok: false, error: "send_failed" });
+    const first = await ingestInboundEmailSmsReply(
+      parsedEmail({ emailId: "re_failed_then_redelivered" }),
+      { managerUserId: MGR, counterpartyPhone: phone },
+      db as never,
+    );
+    expect(first).toMatchObject({ handled: true, sent: false });
+    const second = await ingestInboundEmailSmsReply(
+      parsedEmail({ emailId: "re_failed_then_redelivered" }),
+      { managerUserId: MGR, counterpartyPhone: phone },
+      db as never,
+    );
+    expect(second).toMatchObject({ handled: true, sent: false, idempotent: true });
+    expect(sendFromManagerMock).toHaveBeenCalledTimes(1);
+  });
+
   it("falls through (handled:false) when the From no longer matches the manager's email", async () => {
     const phone = nextPhone();
     const db = seedDb(phone);
@@ -639,7 +658,13 @@ describe("ingestInboundEmailSmsPortalOnlyReply", () => {
     const first = await ingestInboundEmailSmsPortalOnlyReply(args.parsed, args.target, db as never);
     const second = await ingestInboundEmailSmsPortalOnlyReply(args.parsed, args.target, db as never);
     expect(first).toMatchObject({ handled: true, sent: false });
-    expect(second).toMatchObject({ handled: true, sent: true, idempotent: true });
+    // A portal-only reply NEVER texts, so a redelivery must not claim it did.
+    expect(second).toMatchObject({
+      handled: true,
+      sent: false,
+      idempotent: true,
+      error: "portal_only_reply",
+    });
     expect(bounceMock).toHaveBeenCalledTimes(1);
     expect(sendFromManagerMock).not.toHaveBeenCalled();
   });

@@ -11,6 +11,23 @@ import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 export { normalizeE164 };
 
 /**
+ * Is this `from` a per-manager work number whose owner has lost access? Fails
+ * OPEN (false) on any infra error — a blip must not drop all messaging.
+ */
+async function workNumberSendBlocked(fromNorm: string): Promise<boolean> {
+  try {
+    const db = createSupabaseServiceRoleClient();
+    const { resolveWorkNumberOwnerAccess, sendAllowedByAccess } = await import(
+      "@/lib/sms/manager-number-access.server"
+    );
+    const owner = await resolveWorkNumberOwnerAccess(db, fromNorm);
+    return Boolean(owner && !sendAllowedByAccess(owner.decision));
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Send an SMS via Twilio. Silently skips if env vars aren't configured
  * or if either phone number can't be normalized to E.164.
  *
@@ -23,7 +40,19 @@ export async function sendSms(
   to: string,
   body: string,
   fromNumber: string,
-  opts?: { skipOptOutCheck?: boolean; mediaUrls?: string[] },
+  opts?: {
+    skipOptOutCheck?: boolean;
+    mediaUrls?: string[];
+    /**
+     * Account-security messages (the phone-verification OTP) fall back to
+     * TWILIO_DEFAULT_FROM when the paid work-number gate below refuses the
+     * `from`. Proving you own your own cell is not a paid feature, and the OTP
+     * is what unlocks the cell-forward leg of the SMS spine — a suspended or
+     * not-yet-enabled work number must never be able to block it. Ordinary
+     * business traffic never sets this, so the paid gate stays honest.
+     */
+    allowDefaultFromFallback?: boolean;
+  },
 ): Promise<{ sent: boolean; sid?: string; error?: string }> {
   const accountSid = process.env.TWILIO_ACCOUNT_SID?.trim();
   const authToken = process.env.TWILIO_AUTH_TOKEN?.trim();
@@ -54,17 +83,15 @@ export async function sendSms(
   // suspended — downgraded to Free, trial not converted — the number keeps
   // existing but stops sending. Unowned froms (shared agent line, relay pool,
   // TWILIO_DEFAULT_FROM) pass through untouched. Fails open on infra error.
-  try {
-    const db = createSupabaseServiceRoleClient();
-    const { resolveWorkNumberOwnerAccess, sendAllowedByAccess } = await import(
-      "@/lib/sms/manager-number-access.server"
-    );
-    const owner = await resolveWorkNumberOwnerAccess(db, fromNorm);
-    if (owner && !sendAllowedByAccess(owner.decision)) {
+  let sendFrom = fromNorm;
+  if (await workNumberSendBlocked(sendFrom)) {
+    const fallback = opts?.allowDefaultFromFallback
+      ? normalizeE164(process.env.TWILIO_DEFAULT_FROM ?? "")
+      : null;
+    if (!fallback || fallback === sendFrom || (await workNumberSendBlocked(fallback))) {
       return { sent: false, error: "number_suspended" };
     }
-  } catch {
-    // ignore — proceed to send
+    sendFrom = fallback;
   }
 
   const messagingServiceSid = process.env.TWILIO_MESSAGING_SERVICE_SID?.trim();
@@ -74,7 +101,7 @@ export async function sendSms(
     const client = twilio(accountSid, authToken);
     const message = await client.messages.create({
       to: toNorm,
-      from: fromNorm,
+      from: sendFrom,
       body,
       ...(opts?.mediaUrls?.length ? { mediaUrl: opts.mediaUrls.slice(0, 10) } : {}),
       ...(messagingServiceSid ? { messagingServiceSid } : {}),

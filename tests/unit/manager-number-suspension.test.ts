@@ -166,6 +166,39 @@ describe("sweepSuspendedManagerNumbers", () => {
     expect(tables.profiles[0]!.sms_from_number).toBeNull();
   });
 
+  it("never releases a number whose warning email never went out", async () => {
+    purchaseSkuMock.mockResolvedValue(FREE_SKU);
+    bounceMock.mockResolvedValue({ sent: false });
+    const now = Date.parse("2026-08-04T12:00:00.000Z");
+    const suspendedAt = new Date(
+      now - (SMS_NUMBER_SUSPENSION_GRACE_DAYS + 30) * 86_400_000,
+    ).toISOString();
+    const db = seed({ serviceSuspendedAt: suspendedAt }) as never;
+    const result = await sweepSuspendedManagerNumbers(db, { nowMs: now });
+    expect(result.released).toBe(0);
+    expect(result.warned).toBe(0);
+    expect(releaseMock).not.toHaveBeenCalled();
+    const row = (db as unknown as { __tables: Record<string, Array<Record<string, unknown>>> })
+      .__tables.manager_sms_numbers[0]!;
+    expect(row.provision_state).toBe("active");
+    expect(row.suspension_warned_at).toBeNull();
+  });
+
+  it("holds the number for the full notice period after the warning lands", async () => {
+    purchaseSkuMock.mockResolvedValue(FREE_SKU);
+    const now = Date.parse("2026-08-04T12:00:00.000Z");
+    const suspendedAt = new Date(
+      now - (SMS_NUMBER_SUSPENSION_GRACE_DAYS + 10) * 86_400_000,
+    ).toISOString();
+    const warnedAt = new Date(
+      now - (SMS_NUMBER_SUSPENSION_WARN_DAYS_BEFORE - 1) * 86_400_000,
+    ).toISOString();
+    const db = seed({ serviceSuspendedAt: suspendedAt, suspensionWarnedAt: warnedAt }) as never;
+    const result = await sweepSuspendedManagerNumbers(db, { nowMs: now });
+    expect(result.released).toBe(0);
+    expect(releaseMock).not.toHaveBeenCalled();
+  });
+
   it("does not release a re-entitled account even if the stamp is past grace", async () => {
     purchaseSkuMock.mockResolvedValue(PAID_SKU);
     const now = Date.parse("2026-08-04T12:00:00.000Z");

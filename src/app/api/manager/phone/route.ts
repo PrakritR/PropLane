@@ -191,15 +191,25 @@ export async function POST(req: Request) {
     "";
   // Verification OTP is a compliance/re-opt-in message — it must send even if a
   // prior STOP recorded an opt-out (the user is actively opting back in here).
+  // It also falls back to the shared default number when the manager's own work
+  // number is suspended or not yet entitled: proving you own your cell is
+  // account security, never a paid feature.
   const sent = await sendSms(
     phone,
     `Your PropLane verification code is ${code}. It expires in 10 minutes.`,
     String(fromNumber),
-    { skipOptOutCheck: true },
+    { skipOptOutCheck: true, allowDefaultFromFallback: true },
   );
   if (!sent.sent) {
     return NextResponse.json(
-      { error: sent.error ? `Could not send SMS: ${sent.error}` : "SMS is not configured yet — add Twilio credentials." },
+      {
+        error:
+          sent.error === "number_suspended"
+            ? "We couldn't send the code from a texting number right now. Try again shortly."
+            : sent.error
+              ? `Could not send SMS: ${sent.error}`
+              : "SMS is not configured yet — add Twilio credentials.",
+      },
       { status: 502 },
     );
   }

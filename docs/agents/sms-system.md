@@ -142,7 +142,15 @@ Enforced in three places (`manager-number-access.server.ts`):
   `/api/cron/backfill-manager-work-numbers`) warns
   `SMS_NUMBER_SUSPENSION_WARN_DAYS_BEFORE` (7) days before the end of the
   `SMS_NUMBER_SUSPENSION_GRACE_DAYS` (90) window, then releases at Twilio +
-  clears `profiles.sms_from_number` + marks the row `released`. Re-upgrading
+  clears `profiles.sms_from_number` + marks the row `released`. **Release is
+  gated on a warning that actually went out**, and on the full 7 days having
+  passed since `suspension_warned_at` — `warnSuspendedNumberRelease` returns
+  false whenever the mailer is unconfigured or Resend refuses, and a number the
+  owner was never warned about keeps its grace extended while the sweep retries
+  the warning. Releasing a number printed on listings with no notice is the
+  worst outcome this feature can produce. Pass 1 of the sweep is scoped to
+  UNSTAMPED rows and ordered deterministically, so already-stamped rows cannot
+  eat the budget and starve a newly-downgraded manager's clock. Re-upgrading
   clears the stamp so a later downgrade starts a fresh grace. The number
   stops sending (`number_suspended`) while suspended; inbound still lands in
   the inbox. The send paths fail OPEN on `plan_unreadable` (an infra blip must
