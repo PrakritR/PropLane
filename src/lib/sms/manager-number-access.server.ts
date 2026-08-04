@@ -100,6 +100,48 @@ function workNumberVariants(raw: string): string[] {
   ].filter(Boolean);
 }
 
+export type WorkNumberOwnerAccess = {
+  managerUserId: string;
+  decision: ManagerNumberAccessDecision;
+};
+
+/**
+ * The owner+access lookup runs on EVERY outbound send, so a bulk fan-out (rent
+ * reminders, relay broadcast) would otherwise pay two reads per recipient for
+ * an answer that is identical across the whole run. Memoized per from-number
+ * for a minute — long enough to collapse a fan-out, short enough that a
+ * suspension or an enablement bites almost immediately. Per-instance only, like
+ * the Google-busy cache; it is a cost bound, never an authority.
+ */
+const OWNER_ACCESS_TTL_MS = 60_000;
+const OWNER_ACCESS_CACHE_MAX = 500;
+const ownerAccessCache = new Map<
+  string,
+  { expiresAtMs: number; value: WorkNumberOwnerAccess | null }
+>();
+
+function readOwnerAccessCache(
+  key: string,
+): { value: WorkNumberOwnerAccess | null } | null {
+  const hit = ownerAccessCache.get(key);
+  if (!hit) return null;
+  if (hit.expiresAtMs <= Date.now()) {
+    ownerAccessCache.delete(key);
+    return null;
+  }
+  return { value: hit.value };
+}
+
+function writeOwnerAccessCache(key: string, value: WorkNumberOwnerAccess | null): void {
+  if (ownerAccessCache.size >= OWNER_ACCESS_CACHE_MAX) ownerAccessCache.clear();
+  ownerAccessCache.set(key, { expiresAtMs: Date.now() + OWNER_ACCESS_TTL_MS, value });
+}
+
+/** Test seam — drops the memo so a state change is observable immediately. */
+export function clearWorkNumberOwnerAccessCache(): void {
+  ownerAccessCache.clear();
+}
+
 /**
  * When `fromNumber` is a manager's own work number, that manager's id + access
  * decision; null when the number is unowned (shared agent line, relay pool,
@@ -110,11 +152,14 @@ function workNumberVariants(raw: string): string[] {
 export async function resolveWorkNumberOwnerAccess(
   db: SupabaseClient,
   fromNumber: string,
-): Promise<{ managerUserId: string; decision: ManagerNumberAccessDecision } | null> {
+): Promise<WorkNumberOwnerAccess | null> {
   const from = String(fromNumber ?? "").trim();
   if (!from) return null;
   const { isLegacyClawSharedSmsNumber } = await import("@/lib/claw-leasing-links");
   if (isLegacyClawSharedSmsNumber(from)) return null;
+  const cacheKey = workNumberVariants(from)[0] ?? from;
+  const cached = readOwnerAccessCache(cacheKey);
+  if (cached) return cached.value;
   const { data } = await db
     .from("profiles")
     .select("id")
@@ -122,9 +167,17 @@ export async function resolveWorkNumberOwnerAccess(
     .limit(2);
   const rows = (data ?? []) as Array<{ id: string }>;
   // >1 owner means a shared/mis-stamped number — not a per-manager number.
-  if (rows.length !== 1) return null;
+  if (rows.length !== 1) {
+    writeOwnerAccessCache(cacheKey, null);
+    return null;
+  }
   const managerUserId = String(rows[0]?.id ?? "").trim();
-  if (!managerUserId) return null;
+  if (!managerUserId) {
+    writeOwnerAccessCache(cacheKey, null);
+    return null;
+  }
   const decision = await resolveManagerNumberAccess(db, managerUserId);
-  return { managerUserId, decision };
+  const resolved: WorkNumberOwnerAccess = { managerUserId, decision };
+  writeOwnerAccessCache(cacheKey, resolved);
+  return resolved;
 }

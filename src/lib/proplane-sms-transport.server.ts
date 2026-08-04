@@ -217,11 +217,17 @@ export async function sendFromManagerWorkNumber(args: {
         // Prefer the manager's OWN registration-approved number (ISV model): a
         // number can exist but stay unable to send until that manager's own
         // registration clears, in which case this returns null and we fall back.
-        const { resolveActiveManagerSendNumber } = await import(
+        const { resolveManagerSendNumberState } = await import(
           "@/lib/sms/manager-number-provisioning.server"
         );
-        const active = await resolveActiveManagerSendNumber(db, managerUserId);
-        from = managerContactSmsPhoneForPublicCta(active);
+        const state = await resolveManagerSendNumberState(db, managerUserId);
+        // A suspended account owns that number — every fallback below would
+        // resolve to the SAME number, so stop here instead of pretending it is
+        // an unprovisioned manager (which would also try to BUY one).
+        if (state.status === "suspended") return { ok: false, error: "number_suspended" };
+        from = managerContactSmsPhoneForPublicCta(
+          state.status === "ok" ? state.phoneNumber : null,
+        );
         if (!from) {
           const { data } = await db
             .from("profiles")

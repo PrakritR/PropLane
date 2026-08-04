@@ -167,6 +167,53 @@ describe("ingestInboundEmailSmsReply", () => {
     expect(bounceMock).toHaveBeenCalledTimes(1);
   });
 
+  it("an unexpected throw after the claim bounces instead of vanishing", async () => {
+    // The claim is already burned at this point, so a redelivery no-ops — if
+    // the throw escaped, the manager's reply would disappear with no signal.
+    sendFromManagerMock.mockRejectedValue(new Error("transport exploded"));
+    const db = seedDb();
+    const result = await ingestInboundEmailSmsReply(
+      parsedEmail(),
+      { managerUserId: MGR, counterpartyPhone: PHONE },
+      db as never,
+    );
+    expect(result).toMatchObject({ handled: true, sent: false, error: "ingest_error" });
+    expect(bounceMock).toHaveBeenCalledTimes(1);
+    const tables = (db as unknown as { __tables: Record<string, Array<Record<string, unknown>>> })
+      .__tables;
+    expect(tables.manager_sms_messages).toHaveLength(0);
+    expect(tables.portal_outbound_mail_records[0]).toMatchObject({
+      row_data: expect.objectContaining({ smsSent: false, smsError: "ingest_error" }),
+    });
+  });
+
+  it("an unrecognised stored role does not fork the reply into an 'unknown' thread", async () => {
+    const db = createMemoryDb({
+      profiles: [{ id: MGR, email: MGR_EMAIL }],
+      manager_sms_messages: [],
+      inbound_sms_log: [
+        {
+          id: "in-1",
+          manager_user_id: MGR,
+          from_phone: PHONE,
+          to_phone: "+12065550100",
+          body: "Can we tour Saturday?",
+          counterparty_role: null,
+          matched_sender_user_id: null,
+          created_at: new Date().toISOString(),
+        },
+      ],
+      portal_outbound_mail_records: [],
+    });
+    const result = await ingestInboundEmailSmsReply(
+      parsedEmail(),
+      { managerUserId: MGR, counterpartyPhone: PHONE },
+      db as never,
+    );
+    expect(result).toMatchObject({ handled: true, sent: true });
+    expect(sendFromManagerMock.mock.calls[0]![0]).toMatchObject({ counterpartyRole: undefined });
+  });
+
   it("fetches the body from Resend when the webhook carried metadata only", async () => {
     fetchBodyMock.mockResolvedValue({ kind: "body", text: "Fetched reply body." });
     const db = seedDb();

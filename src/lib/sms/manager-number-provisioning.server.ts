@@ -361,23 +361,48 @@ export async function restoreManagerNumber(db: SupabaseClient, managerUserId: st
 }
 
 /**
+ * Why a manager can (or cannot) send from their own number right now. The two
+ * refusals are NOT interchangeable: `unavailable` means "no own number yet"
+ * (the caller may fall back to another from-number), while `suspended` means
+ * the number exists and is approved but the account no longer pays for it — a
+ * downgraded manager keeps the number and it must stop sending, so falling back
+ * to `profiles.sms_from_number` (the very same number) would defeat the gate.
+ */
+export type ManagerSendNumberState =
+  | { status: "ok"; phoneNumber: string }
+  | { status: "suspended"; phoneNumber: string | null }
+  | { status: "unavailable" };
+
+export async function resolveManagerSendNumberState(
+  db: SupabaseClient,
+  managerUserId: string,
+): Promise<ManagerSendNumberState> {
+  const record = await getManagerNumberRecord(db, managerUserId);
+  if (!managerCanSendFromOwnNumber(record)) return { status: "unavailable" };
+  const { resolveManagerNumberAccess, sendAllowedByAccess } = await import(
+    "@/lib/sms/manager-number-access.server"
+  );
+  const access = await resolveManagerNumberAccess(db, managerUserId);
+  if (!sendAllowedByAccess(access)) {
+    return { status: "suspended", phoneNumber: record?.phoneNumber ?? null };
+  }
+  const phoneNumber = String(record?.phoneNumber ?? "").trim();
+  return phoneNumber ? { status: "ok", phoneNumber } : { status: "unavailable" };
+}
+
+/**
  * The E.164 number a manager may SEND from right now, or null when they cannot
  * (no active number, registration not approved, or the account's number access
  * is suspended — a downgraded-to-Free manager keeps the number but its service
- * stops). Callers fall back to the shared transport while null.
+ * stops). Callers that must tell those apart use
+ * {@link resolveManagerSendNumberState}.
  */
 export async function resolveActiveManagerSendNumber(
   db: SupabaseClient,
   managerUserId: string,
 ): Promise<string | null> {
-  const record = await getManagerNumberRecord(db, managerUserId);
-  if (!managerCanSendFromOwnNumber(record)) return null;
-  const { resolveManagerNumberAccess, sendAllowedByAccess } = await import(
-    "@/lib/sms/manager-number-access.server"
-  );
-  const access = await resolveManagerNumberAccess(db, managerUserId);
-  if (!sendAllowedByAccess(access)) return null;
-  return record?.phoneNumber ?? null;
+  const state = await resolveManagerSendNumberState(db, managerUserId);
+  return state.status === "ok" ? state.phoneNumber : null;
 }
 
 export {

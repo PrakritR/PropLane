@@ -35,6 +35,17 @@ import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 
 const MAX_SMS_REPLY_CHARS = 1500;
 
+/**
+ * A stored role of `unknown` (or an unrecognised value, which coerces to it) is
+ * "nobody recorded one", not a role — pinning the reply to `<mgr>:unknown:<phone>`
+ * would fork it off the counterparty's real thread. Undefined instead lets the
+ * writers apply their own `deriveCounterpartyRole` default.
+ */
+function knownCounterpartyRole(value: unknown): SmsCounterpartyRole | undefined {
+  const role = coerceCounterpartyRole(value);
+  return role === "unknown" ? undefined : role;
+}
+
 export type EmailSmsReplyResult = {
   /** False → the token no longer resolves; caller falls back to support ingest. */
   handled: boolean;
@@ -126,7 +137,7 @@ async function resolveConversationIdentity(
     | undefined;
   if (out) {
     return {
-      counterpartyRole: coerceCounterpartyRole(out.counterparty_role) ?? undefined,
+      counterpartyRole: knownCounterpartyRole(out.counterparty_role),
       residentUserId: out.resident_user_id ?? null,
     };
   }
@@ -142,7 +153,7 @@ async function resolveConversationIdentity(
     | undefined;
   if (inbound) {
     return {
-      counterpartyRole: coerceCounterpartyRole(inbound.counterparty_role) ?? undefined,
+      counterpartyRole: knownCounterpartyRole(inbound.counterparty_role),
       residentUserId: inbound.matched_sender_user_id ?? null,
     };
   }
@@ -208,6 +219,35 @@ export async function ingestInboundEmailSmsReply(
   );
   if (!claimed) return { handled: true, sent: true, idempotent: true };
 
+  // Past the claim, a redelivery no-ops — so an unexpected throw here would lose
+  // the manager's reply with zero signal. Every exit below reports back.
+  try {
+    return await deliverClaimedEmailSmsReply(db, parsed, target, managerEmail);
+  } catch (e) {
+    console.error(
+      "inbound email sms reply failed after claim",
+      parsed.emailId,
+      e instanceof Error ? e.message : e,
+    );
+    await recordClaimOutcome(db, parsed.emailId, {
+      smsSent: false,
+      error: "ingest_error",
+    }).catch(() => undefined);
+    await bounceToManager({
+      managerEmail,
+      counterpartyPhone: target.counterpartyPhone,
+      reason: "The text could not be sent from your PropLane number.",
+    }).catch(() => undefined);
+    return { handled: true, sent: false, error: "ingest_error" };
+  }
+}
+
+async function deliverClaimedEmailSmsReply(
+  db: SupabaseClient,
+  parsed: ParsedInboundEmail,
+  target: { managerUserId: string; counterpartyPhone: string },
+  managerEmail: string,
+): Promise<EmailSmsReplyResult> {
   const text = (await resolveReplyText(parsed)).trim().slice(0, MAX_SMS_REPLY_CHARS);
   if (!text) {
     await recordClaimOutcome(db, parsed.emailId, { smsSent: false, error: "empty_body" });

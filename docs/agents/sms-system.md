@@ -38,8 +38,12 @@ reply from any of them reaches the texter:
 detection and before the leasing-bot default. The router's BODY is owned by
 the `axis-sms-text-to-entry` lane ("Text to tour" keyword handling); the stub
 returns `{ handled: false }`. `handled: true` skips default handling — the
-transport still persists the message, logs the auto-reply, and runs the
-three-destination fan-out. Contract coverage:
+transport still persists the message and runs the three-destination fan-out.
+The auto-reply is NOT emitted as TwiML: it goes out through
+`sendFromManagerWorkNumber` from the number that was texted, so it passes the
+one transport gate (opt-out, quiet hours, number suspension) and carries a real
+sid for delivery stamping; the webhook answers with empty TwiML and the manager
+email only reports an auto-reply that actually sent. Contract coverage:
 `tests/unit/sms-intent-router.test.ts`.
 
 **Honest delivery.** `/api/twilio/status` writes `sms_delivery_log`;

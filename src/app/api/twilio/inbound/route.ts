@@ -10,7 +10,8 @@ import {
   handleManagerReplyInbound,
 } from "@/lib/sms/manager-relay.server";
 import { twilioMediaUrls } from "@/lib/sms-media.server";
-import { inboundLogIdentityFields, logManagerSmsMessage } from "@/lib/manager-sms-messages.server";
+import { inboundLogIdentityFields } from "@/lib/manager-sms-messages.server";
+import { sendFromManagerWorkNumber } from "@/lib/proplane-sms-transport.server";
 import { routeInboundSms, type SmsIntentResult } from "@/lib/sms-intent-router";
 import { buildConversationKey } from "@/lib/sms-conversation-identity";
 import { findResidentProfileByPhone } from "@/lib/claw-resident-messaging.server";
@@ -271,27 +272,28 @@ export async function POST(req: Request) {
         }),
       })
       .then(() => undefined, () => undefined);
-    // The auto-reply goes back via TwiML (from the number that was texted);
-    // log it so the conversation shows both directions.
+    // The auto-reply goes out through the ONE transport gate (opt-out, quiet
+    // hours, number suspension) from the number that was texted, so it carries
+    // a real sid for delivery stamping and is logged there as outbound.
+    let deliveredAutoReply: string | null = null;
     if (autoReply) {
-      await logManagerSmsMessage(db, {
+      const sent = await sendFromManagerWorkNumber({
         managerUserId: managerId,
-        residentPhone: fromPhone,
+        to: fromPhone,
+        text: autoReply,
+        fromNumber: workNumber,
         residentUserId: senderProfile?.userId ?? null,
-        direction: "outbound",
-        body: autoReply,
-        fromPhone: workNumber,
-        toPhone: fromPhone,
         source: "work_number",
         counterpartyRole,
-      }).catch(() => false);
+      }).catch(() => ({ ok: false }));
+      if (sent.ok) deliveredAutoReply = autoReply;
     }
     // Manager fan-out: inbox notice + email (reply-tokened) + cell forward.
     await notifyManagerOfInboundSms(db, {
       managerUserId: managerId,
       fromPhone,
       text: body,
-      autoReply,
+      autoReply: deliveredAutoReply,
       subjectLabel: counterpartyRole === "resident" ? "Resident text" : "New text",
       senderLabel: senderProfile?.email ?? null,
       idPrefix: "sms_intent",
@@ -305,7 +307,7 @@ export async function POST(req: Request) {
         body,
       }).catch(() => undefined);
     }
-    return twimlOk(autoReply ?? undefined);
+    return twimlOk();
   }
 
   try {

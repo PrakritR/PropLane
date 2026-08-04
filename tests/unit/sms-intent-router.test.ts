@@ -19,6 +19,7 @@ const {
   selfReplyMock,
   residentProfileMock,
   priorRowsMock,
+  sendWorkNumberMock,
 } = vi.hoisted(() => ({
   routeMock: vi.fn(),
   leasingMock: vi.fn(async () => ({ ok: true, intent: "question", replied: true })),
@@ -29,6 +30,11 @@ const {
   selfReplyMock: vi.fn(async () => null),
   residentProfileMock: vi.fn(async () => null),
   priorRowsMock: vi.fn(() => [] as Array<{ id: string }>),
+  sendWorkNumberMock: vi.fn(async () => ({ ok: true, sid: "SM-reply" })),
+}));
+
+vi.mock("@/lib/proplane-sms-transport.server", () => ({
+  sendFromManagerWorkNumber: sendWorkNumberMock,
 }));
 
 vi.mock("@/lib/sms-intent-router", () => ({
@@ -146,6 +152,8 @@ beforeEach(() => {
   residentProfileMock.mockResolvedValue(null);
   priorRowsMock.mockReset();
   priorRowsMock.mockReturnValue([]);
+  sendWorkNumberMock.mockReset();
+  sendWorkNumberMock.mockResolvedValue({ ok: true, sid: "SM-reply" });
   process.env.TWILIO_AUTH_TOKEN = "test-token";
   delete process.env.VERCEL;
 });
@@ -193,11 +201,20 @@ describe("/api/twilio/inbound intent-router call site", () => {
     expect(ctx.isFirstMessageInConversation).toBe(false);
   });
 
-  it("handled:true sends the auto-reply, fans out, and skips default handling", async () => {
+  it("handled:true sends the auto-reply through the transport gate, not TwiML", async () => {
     routeMock.mockResolvedValue({ handled: true, autoReplyBody: "Tour booked! See you Saturday." });
     const res = await postInbound();
     const xml = await res.text();
-    expect(xml).toContain("Tour booked! See you Saturday.");
+    // The reply is NOT embedded in TwiML — that path skips opt-out / quiet
+    // hours / suspension and produces no sid to stamp delivery against.
+    expect(xml).not.toContain("<Message>");
+    expect(sendWorkNumberMock).toHaveBeenCalledTimes(1);
+    expect(sendWorkNumberMock.mock.calls[0]![0]).toMatchObject({
+      managerUserId: "mgr-1",
+      to: "+14255550123",
+      text: "Tour booked! See you Saturday.",
+      fromNumber: "+12065550100",
+    });
     expect(leasingMock).not.toHaveBeenCalled();
     // The transport still owns the manager fan-out on the handled branch:
     expect(notifyMock).toHaveBeenCalledTimes(1);
@@ -207,12 +224,16 @@ describe("/api/twilio/inbound intent-router call site", () => {
       autoReply: "Tour booked! See you Saturday.",
     });
     expect(forwardCellMock).toHaveBeenCalledTimes(1);
-    // …and logs the auto-reply as outbound in the conversation.
-    expect(logSmsMock).toHaveBeenCalledTimes(1);
-    expect(logSmsMock.mock.calls[0]![1]).toMatchObject({
-      direction: "outbound",
-      body: "Tour booked! See you Saturday.",
-    });
+    // The transport logs the outbound itself — no second conversation row here.
+    expect(logSmsMock).not.toHaveBeenCalled();
+  });
+
+  it("a suppressed auto-reply is never reported to the manager as sent", async () => {
+    routeMock.mockResolvedValue({ handled: true, autoReplyBody: "Tour booked!" });
+    sendWorkNumberMock.mockResolvedValue({ ok: false, error: "recipient_opted_out" });
+    const res = await postInbound();
+    expect(await res.text()).not.toContain("<Message>");
+    expect(notifyMock.mock.calls[0]![1]).toMatchObject({ autoReply: null });
   });
 
   it("handled:true with no reply body acks quietly but still fans out", async () => {
@@ -222,6 +243,7 @@ describe("/api/twilio/inbound intent-router call site", () => {
     expect(xml).not.toContain("<Message>");
     expect(leasingMock).not.toHaveBeenCalled();
     expect(notifyMock).toHaveBeenCalledTimes(1);
+    expect(sendWorkNumberMock).not.toHaveBeenCalled();
     expect(logSmsMock).not.toHaveBeenCalled();
   });
 

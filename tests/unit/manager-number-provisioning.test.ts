@@ -20,6 +20,7 @@ import {
   getManagerNumberRecord,
   provisionManagerNumber,
   resolveActiveManagerSendNumber,
+  resolveManagerSendNumberState,
   setManagerRegistrationState,
 } from "@/lib/sms/manager-number-provisioning.server";
 
@@ -209,6 +210,31 @@ describe("resolveActiveManagerSendNumber — downgrade suspends service", () => 
     // …and re-upgrading restores service with no other surgery.
     purchaseSkuMock.mockResolvedValue(PAID_SKU);
     expect(await resolveActiveManagerSendNumber(db, MGR)).toBe("+12065550888");
+  });
+});
+
+describe("resolveManagerSendNumberState — suspended is not 'no number'", () => {
+  it("names the suspension so callers cannot fall back onto the same number", async () => {
+    process.env.SMS_PROVISIONING_ENABLED = "1";
+    process.env.SMS_SHARED_REGISTRATION_STATE = "approved";
+    purchaseMock.mockResolvedValue({ ok: true, number: "+12065550888", sid: "PN8", messagingServiceSid: null });
+    const db = seed() as never;
+
+    // No record yet → unavailable (a legacy manager may still have a stamped
+    // profile number, so the caller's fallbacks stay live).
+    expect(await resolveManagerSendNumberState(db, MGR)).toEqual({ status: "unavailable" });
+
+    await provisionManagerNumber(db, MGR);
+    expect(await resolveManagerSendNumberState(db, MGR)).toEqual({
+      status: "ok",
+      phoneNumber: "+12065550888",
+    });
+
+    purchaseSkuMock.mockResolvedValue({ ...PAID_SKU, tier: "free", billing: "free" });
+    expect(await resolveManagerSendNumberState(db, MGR)).toEqual({
+      status: "suspended",
+      phoneNumber: "+12065550888",
+    });
   });
 });
 
