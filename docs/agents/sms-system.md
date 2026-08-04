@@ -248,7 +248,10 @@ inbound STOP still supersedes the recorded opt-in. Coverage:
 
 `routeInboundSms(ctx)` is the keyword brain behind the public "Text to tour" /
 "Text to apply" listing CTAs, called by the transport with one normalized
-inbound message. It returns `{ handled, autoReplyBody? }`: `handled` with a
+inbound message. ⚠️ **Nothing in-tree calls it yet** — the Twilio webhook that
+does belongs to the two-way transport lane, so this module is the body and its
+`InboundSmsContext → SmsIntentResult` signature is the fixed contract that lane
+wires up. It returns `{ handled, autoReplyBody? }`: `handled` with a
 body → send exactly that; `handled` with NO body → **deliberate silence, do
 not fall through to any other auto-reply**; `handled: false` → default
 handling (the Claude leasing agent) takes the turn. Fall-through only ever
@@ -275,8 +278,12 @@ compliance gates cover the default path too. Invariants:
   manager's calendar, accept route, and approval-first proposal engine all see
   it with zero new code. Candidate windows come from the same offering formula
   as the public availability route (published future slots, else the 9-5
-  default grid, LIVE listings only, minus `loadManagerTourBlocks`); the
-  prospect narrows to one window by replying "1/2/3", and name/email
+  default grid, LIVE listings only, minus `loadManagerTourBlocks`) with the two
+  deltas `listOpenTourSlots` documents: Google-calendar busy time is NOT
+  subtracted and the published-slot POST guard is not re-run, matching
+  `findFirstOpenTourSlot` — the manager still confirms before anything books,
+  and requiring publication would make SMS tours dead for every calendar-less
+  manager. The prospect narrows to one window by replying "1/2/3", and name/email
   follow-ups fill the inquiry's contact fields. **Idempotent per
   (manager, prospect phone)**: any existing pending tour inquiry — SMS- or
   web-created — means a repeat "tour" text reminds instead of duplicating.
