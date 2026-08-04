@@ -19,14 +19,15 @@
  */
 import type { SupabaseClient } from "@supabase/supabase-js";
 import {
+  fetchResendReceivedEmailBody,
   fetchResendReceivedEmailBodyWithRetry,
-  fetchResendReceivedEmailHeaders,
   htmlToText,
   type ParsedInboundEmail,
+  type ResendReceivedEmailHeaders,
 } from "@/lib/inbound-email/inbound-email.server";
 import {
-  evaluateAuthenticationResults,
-  type InboundEmailAuthVerdict,
+  assessInboundEmailAuthentication,
+  type InboundEmailAuthAssessment,
 } from "@/lib/inbound-email/email-authentication";
 import { stripEmailReplyQuote } from "@/lib/inbound-email/inbound-email-reply.server";
 import {
@@ -170,32 +171,43 @@ async function resolveConversationIdentity(
   return { counterpartyRole: undefined, residentUserId: null };
 }
 
-/** Reply text: inline body first, else the Resend received-email API. */
-async function resolveReplyText(parsed: ParsedInboundEmail): Promise<string> {
-  if (parsed.text?.trim()) return stripEmailReplyQuote(parsed.text);
-  if (parsed.html?.trim()) return stripEmailReplyQuote(htmlToText(parsed.html));
-  const fetched = await fetchResendReceivedEmailBodyWithRetry(parsed.emailId);
-  if (fetched.kind === "body") return stripEmailReplyQuote(fetched.text);
-  return "";
+/**
+ * The reply text AND the message's headers, from ONE Resend round trip.
+ *
+ * Both consumers need the same received-email resource — the body when the
+ * webhook carried metadata only, the headers for the authentication check — so
+ * fetching it twice would double an 8s-timeout call inline in the webhook. The
+ * body path keeps its retry/backoff; when the body was already inlined a single
+ * attempt is made, purely so the auth check still has headers to read.
+ */
+async function resolveReplyPayload(
+  parsed: ParsedInboundEmail,
+): Promise<{ text: string; headers: ResendReceivedEmailHeaders | null }> {
+  const inline = parsed.text?.trim()
+    ? stripEmailReplyQuote(parsed.text)
+    : parsed.html?.trim()
+      ? stripEmailReplyQuote(htmlToText(parsed.html))
+      : "";
+  const fetched = inline
+    ? await fetchResendReceivedEmailBody(parsed.emailId)
+    : await fetchResendReceivedEmailBodyWithRetry(parsed.emailId);
+  const headers = fetched.kind === "body" || fetched.kind === "empty" ? (fetched.headers ?? null) : null;
+  if (inline) return { text: inline, headers };
+  return { text: fetched.kind === "body" ? stripEmailReplyQuote(fetched.text) : "", headers };
 }
 
 /**
  * Did this reply really come from the manager? The `sms+` token verifies
  * against the `From` header, which is spoofable, so the receiving MTA's
- * `Authentication-Results` is consulted when one is available. Best-effort by
- * construction: Resend exposes no verdict on the webhook and only a subset of
- * headers on the receiving API, so "no header" is `unknown` and the caller
- * falls back to the single-use grant rather than trusting the From alone.
+ * `Authentication-Results` is consulted — under the rules in
+ * `email-authentication.ts`, where a forged in-message header can refuse a
+ * send but can never authorize one.
  */
-async function resolveInboundEmailAuthVerdict(
+function assessAuth(
   parsed: ParsedInboundEmail,
-): Promise<InboundEmailAuthVerdict> {
-  try {
-    const headers = await fetchResendReceivedEmailHeaders(parsed.emailId);
-    return evaluateAuthenticationResults(headers["authentication-results"], parsed.fromEmail);
-  } catch {
-    return "unknown";
-  }
+  headers: ResendReceivedEmailHeaders | null,
+): InboundEmailAuthAssessment {
+  return assessInboundEmailAuthentication(headers?.["authentication-results"], parsed.fromEmail);
 }
 
 const GRANT_BOUNCE_REASON =
@@ -280,7 +292,8 @@ async function deliverClaimedEmailSmsReply(
   target: { managerUserId: string; counterpartyPhone: string },
   managerEmail: string,
 ): Promise<EmailSmsReplyResult> {
-  const text = (await resolveReplyText(parsed)).trim().slice(0, MAX_SMS_REPLY_CHARS);
+  const payload = await resolveReplyPayload(parsed);
+  const text = payload.text.trim().slice(0, MAX_SMS_REPLY_CHARS);
   if (!text) {
     await recordClaimOutcome(db, parsed.emailId, { smsSent: false, error: "empty_body" });
     await bounceToManager({
@@ -291,8 +304,14 @@ async function deliverClaimedEmailSmsReply(
     return { handled: true, sent: false, error: "empty_body" };
   }
 
-  const verdict = await resolveInboundEmailAuthVerdict(parsed);
-  if (verdict === "fail") {
+  const auth = assessAuth(parsed, payload.headers);
+  // `reject` is an explicit aligned failure. The second disjunct is the OTHER
+  // half of this branch: a readable verdict that did not authenticate the
+  // sender (`none`, an unaligned pass, or a pass from an authserv-id this
+  // deployment has not pinned). Whether that case should bounce or fall through
+  // to the grant below is an open product question — dropping the second
+  // disjunct is the whole change.
+  if (auth.outcome === "reject" || (auth.outcome === "unauthenticated" && auth.verdictPresent)) {
     await recordClaimOutcome(db, parsed.emailId, { smsSent: false, error: "auth_failed" });
     await bounceToManager({
       managerEmail,
@@ -302,7 +321,21 @@ async function deliverClaimedEmailSmsReply(
     });
     return { handled: true, sent: false, error: "auth_failed" };
   }
-  if (verdict !== "pass") {
+
+  // Cheapest gate, and it must run BEFORE the grant: a throttled reply that
+  // burned the single-use window would lock the manager out until the next
+  // inbound text, on top of the hour.
+  if (!rateLimit(smsEmailReplyRateLimitKey(target.managerUserId, target.counterpartyPhone), 3, 3_600_000).ok) {
+    await recordClaimOutcome(db, parsed.emailId, { smsSent: false, error: "rate_limited" });
+    await bounceToManager({
+      managerEmail,
+      counterpartyPhone: target.counterpartyPhone,
+      reason: "Too many emailed replies to this conversation in the last hour.",
+    });
+    return { handled: true, sent: false, error: "rate_limited" };
+  }
+
+  if (auth.outcome !== "authenticated") {
     const grant = await consumeSmsEmailReplyGrant(db, {
       managerUserId: target.managerUserId,
       counterpartyPhone: target.counterpartyPhone,
@@ -319,16 +352,6 @@ async function deliverClaimedEmailSmsReply(
       });
       return { handled: true, sent: false, error: `grant_${grant.reason}` };
     }
-  }
-
-  if (!rateLimit(smsEmailReplyRateLimitKey(target.managerUserId, target.counterpartyPhone), 3, 3_600_000).ok) {
-    await recordClaimOutcome(db, parsed.emailId, { smsSent: false, error: "rate_limited" });
-    await bounceToManager({
-      managerEmail,
-      counterpartyPhone: target.counterpartyPhone,
-      reason: "Too many emailed replies to this conversation in the last hour.",
-    });
-    return { handled: true, sent: false, error: "rate_limited" };
   }
 
   const identity = await resolveConversationIdentity(

@@ -39,15 +39,24 @@ reply from any of them reaches the texter:
    this leg sends a REAL text from a business number as the manager's own
    words — so the token alone is not the gate. Three layers, in this order,
    inside `ingestInboundEmailSmsReply`:
-   - **Sender authentication (best effort).** The receiving MTA's
-     `Authentication-Results` is read off Resend's received-email API
-     (`fetchResendReceivedEmailHeaders`) and judged by the pure
-     `evaluateAuthenticationResults` (`email-authentication.ts`): `pass` needs
-     an EXPLICIT aligned pass (dmarc=pass, or an spf/dkim pass whose own domain
-     aligns with the From domain). An explicit `fail` bounces to the manager's
-     real address and sends nothing. Resend documents no verdict on the webhook
-     and only a header subset on the API, so **`unknown` is the normal case** —
-     never treated as either proof or forgery.
+   - **Sender authentication (best effort).** `Authentication-Results` comes off
+     Resend's received-email API — the SAME single fetch that supplies the body
+     (`fetchResendReceivedEmailBody` returns `headers` beside `text`; never GET
+     that resource twice inline in a webhook) — and is judged by the pure
+     `assessInboundEmailAuthentication` (`email-authentication.ts`).
+     ⚠️ **That header set is attacker-suppliable** (it is the message's own
+     headers), so the assessment is built so a forged line can REFUSE a send but
+     never authorize one: only the TOPMOST instance is read (a real receiver
+     prepends above whatever the sender wrote — hence headers are kept per-hop,
+     never joined), and `authenticated` additionally requires the authserv-id to
+     match **`RESEND_AUTHSERV_ID`** (optional, comma-separated; **unset — the
+     default — means no pass is ever trusted**). `authenticated` is the only
+     outcome that skips the grant. `reject` (an aligned dmarc fail, or spf and
+     dkim both failing) bounces to the manager's real address and sends nothing.
+     Today a readable verdict that merely fails to authenticate (`none`, an
+     unaligned pass, an unpinned authserv-id) bounces the same way; that branch
+     is isolated in `deliverClaimedEmailSmsReply` so it can be flipped to the
+     grant path in one line once the product decides.
    - **Single-use reply grants** (`sms-reply-grant.server.ts`), required whenever
      the verdict is not an explicit pass. Every notification email that carries
      a token upserts `sms_reply_grant_<managerId>_<phone10>` in
@@ -56,7 +65,9 @@ reply from any of them reaches the texter:
      notification, ≤7 days old; missing / expired / already-spent bounces with
      "open PropLane to reply". Fails CLOSED on an unreadable row — unlike the
      plan and consent gates, this one is authorization.
-   - **Per-conversation rate limit**, 3/hour (`smsEmailReplyRateLimitKey`).
+   - **Per-conversation rate limit**, 3/hour (`smsEmailReplyRateLimitKey`),
+     checked BEFORE the grant is consumed — a throttled reply must not also burn
+     the manager's single-use window.
 
 **Intent-router seam.** `/api/twilio/inbound` consults
 `routeInboundSms(ctx)` (`src/lib/sms-intent-router.ts`) after self-reply

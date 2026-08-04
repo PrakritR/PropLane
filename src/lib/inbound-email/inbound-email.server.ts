@@ -127,15 +127,50 @@ export function clampBody(body: string): string {
  * request is issued at all).
  */
 export type ResendReceivedEmailBodyResult =
-  | { kind: "body"; text: string }
-  | { kind: "empty" }
+  | { kind: "body"; text: string; headers?: ResendReceivedEmailHeaders }
+  | { kind: "empty"; headers?: ResendReceivedEmailHeaders }
   | { kind: "no-key" }
   | { kind: "error" };
 
 /**
- * Fetch the full plain-text body for a received email from Resend. Metadata-only
- * webhooks mean the body lives behind the received-email API, reached with the
- * same RESEND_API_KEY used for outbound.
+ * Headers Resend exposes for a received email, lowercased by name. Each name
+ * maps to EVERY value in received order rather than one joined string: a
+ * message carries one `Authentication-Results` per hop, and only the topmost
+ * (the last receiver to touch it) may be trusted — merging them would hand the
+ * sender's own forged line the same weight as the receiver's.
+ *
+ * Absent/empty is "we know nothing", never a verdict.
+ */
+export type ResendReceivedEmailHeaders = Record<string, string[]>;
+
+function parseResendReceivedHeaders(raw: unknown): ResendReceivedEmailHeaders {
+  const out: ResendReceivedEmailHeaders = {};
+  const add = (name: unknown, value: unknown): void => {
+    const key = String(name ?? "").trim().toLowerCase();
+    const text = typeof value === "string" ? value : value == null ? "" : String(value);
+    if (!key || !text.trim()) return;
+    (out[key] ??= []).push(text);
+  };
+  if (Array.isArray(raw)) {
+    for (const entry of raw) {
+      if (!entry || typeof entry !== "object") continue;
+      const record = entry as Record<string, unknown>;
+      add(record.name ?? record.key, record.value);
+    }
+  } else if (raw && typeof raw === "object") {
+    for (const [name, value] of Object.entries(raw as Record<string, unknown>)) {
+      if (Array.isArray(value)) for (const item of value) add(name, item);
+      else add(name, value);
+    }
+  }
+  return out;
+}
+
+/**
+ * Fetch a received email from Resend — body AND headers in ONE round trip.
+ * Metadata-only webhooks mean both live behind the received-email API, reached
+ * with the same RESEND_API_KEY used for outbound; a caller that needs the
+ * headers must never issue a second GET for them.
  *
  * The path follows Resend's documented `receiving` namespace; override the base
  * with RESEND_INBOUND_API_BASE if Resend's routing differs for your account.
@@ -155,64 +190,15 @@ export async function fetchResendReceivedEmailBody(emailId: string): Promise<Res
     }
     const json = (await res.json()) as Record<string, unknown>;
     const data = (json.data && typeof json.data === "object" ? json.data : json) as Record<string, unknown>;
+    const headers = parseResendReceivedHeaders(data.headers);
     const text = typeof data.text === "string" ? data.text : "";
-    if (text.trim()) return { kind: "body", text };
+    if (text.trim()) return { kind: "body", text, headers };
     const html = typeof data.html === "string" ? data.html : "";
     const converted = html.trim() ? htmlToText(html) : "";
-    return converted.trim() ? { kind: "body", text: converted } : { kind: "empty" };
+    return converted.trim() ? { kind: "body", text: converted, headers } : { kind: "empty", headers };
   } catch (e) {
     console.warn("inbound-email body fetch errored", emailId, e);
     return { kind: "error" };
-  }
-}
-
-/**
- * Headers Resend exposes for a received email, lowercased by name. Empty when
- * the key is unset, the lookup fails, or the account's payload carries none —
- * the caller must treat "no headers" as "unknown", never as a verdict.
- *
- * Resend has documented only a small headers subset, and the shape differs by
- * account (object vs `[{name, value}]`), so both are read and duplicate values
- * for one name are joined rather than overwriting each other (a message can
- * carry several `Authentication-Results` lines, one per hop).
- */
-export async function fetchResendReceivedEmailHeaders(
-  emailId: string,
-): Promise<Record<string, string>> {
-  const apiKey = process.env.RESEND_API_KEY?.trim();
-  if (!apiKey) return {};
-  const base = (process.env.RESEND_INBOUND_API_BASE?.trim() || "https://api.resend.com").replace(/\/$/, "");
-  try {
-    const res = await fetch(`${base}/emails/receiving/${encodeURIComponent(emailId)}`, {
-      headers: { Authorization: `Bearer ${apiKey}` },
-      signal: AbortSignal.timeout(8_000),
-    });
-    if (!res.ok) return {};
-    const json = (await res.json()) as Record<string, unknown>;
-    const data = (json.data && typeof json.data === "object" ? json.data : json) as Record<string, unknown>;
-    const raw = data.headers;
-    const out: Record<string, string> = {};
-    const add = (name: unknown, value: unknown): void => {
-      const key = String(name ?? "").trim().toLowerCase();
-      const text = typeof value === "string" ? value : value == null ? "" : String(value);
-      if (!key || !text.trim()) return;
-      out[key] = out[key] ? `${out[key]}\n${text}` : text;
-    };
-    if (Array.isArray(raw)) {
-      for (const entry of raw) {
-        if (!entry || typeof entry !== "object") continue;
-        const record = entry as Record<string, unknown>;
-        add(record.name ?? record.key, record.value);
-      }
-    } else if (raw && typeof raw === "object") {
-      for (const [name, value] of Object.entries(raw as Record<string, unknown>)) {
-        if (Array.isArray(value)) for (const item of value) add(name, item);
-        else add(name, value);
-      }
-    }
-    return out;
-  } catch {
-    return {};
   }
 }
 

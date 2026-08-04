@@ -9,15 +9,17 @@
  * Each case uses its own counterparty phone so the per-conversation rate limit
  * (a real process-wide limiter) only bites in the test that exercises it.
  */
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createMemoryDb } from "./support/memory-supabase";
 import { smsReplyGrantRecordId } from "@/lib/inbound-email/sms-reply-grant.server";
 
-const { sendFromManagerMock, bounceMock, fetchBodyMock, fetchHeadersMock } = vi.hoisted(() => ({
+type FetchedEmail = { kind: "body" | "empty"; text?: string; headers?: Record<string, string[]> };
+
+const { sendFromManagerMock, bounceMock, fetchBodyMock, fetchBodyRetryMock } = vi.hoisted(() => ({
   sendFromManagerMock: vi.fn(),
   bounceMock: vi.fn(async () => ({ sent: true })),
-  fetchBodyMock: vi.fn(async () => ({ kind: "empty" as const })),
-  fetchHeadersMock: vi.fn(async () => ({}) as Record<string, string>),
+  fetchBodyMock: vi.fn(async () => ({ kind: "empty" }) as { kind: string }),
+  fetchBodyRetryMock: vi.fn(async () => ({ kind: "empty" }) as { kind: string }),
 }));
 
 vi.mock("@/lib/proplane-sms-transport.server", () => ({
@@ -34,8 +36,8 @@ vi.mock("@/lib/inbound-email/inbound-email.server", async (importOriginal) => {
   const original = await importOriginal<typeof import("@/lib/inbound-email/inbound-email.server")>();
   return {
     ...original,
-    fetchResendReceivedEmailBodyWithRetry: fetchBodyMock,
-    fetchResendReceivedEmailHeaders: fetchHeadersMock,
+    fetchResendReceivedEmailBody: fetchBodyMock,
+    fetchResendReceivedEmailBodyWithRetry: fetchBodyRetryMock,
   };
 });
 
@@ -119,15 +121,31 @@ function tablesOf(db: unknown): Record<string, Array<Record<string, unknown>>> {
   return (db as { __tables: Record<string, Array<Record<string, unknown>>> }).__tables;
 }
 
+/** The one received-email fetch an ingest is allowed to make, whichever path. */
+function stubReceivedEmail(email: FetchedEmail): void {
+  fetchBodyMock.mockResolvedValue(email as never);
+  fetchBodyRetryMock.mockResolvedValue(email as never);
+}
+
+function receivedEmailFetchCount(): number {
+  return fetchBodyMock.mock.calls.length + fetchBodyRetryMock.mock.calls.length;
+}
+
+const ORIG_ENV = { ...process.env };
+
 beforeEach(() => {
   sendFromManagerMock.mockReset();
   sendFromManagerMock.mockResolvedValue({ ok: true, channel: "twilio", sid: "SM900" });
   bounceMock.mockClear();
   fetchBodyMock.mockReset();
-  fetchBodyMock.mockResolvedValue({ kind: "empty" });
-  fetchHeadersMock.mockReset();
+  fetchBodyRetryMock.mockReset();
   // The normal case: Resend exposes no verdict, so the grant is the gate.
-  fetchHeadersMock.mockResolvedValue({});
+  stubReceivedEmail({ kind: "empty", headers: {} });
+  delete process.env.RESEND_AUTHSERV_ID;
+});
+
+afterEach(() => {
+  process.env = { ...ORIG_ENV };
 });
 
 describe("ingestInboundEmailSmsReply", () => {
@@ -255,7 +273,7 @@ describe("ingestInboundEmailSmsReply", () => {
   });
 
   it("fetches the body from Resend when the webhook carried metadata only", async () => {
-    fetchBodyMock.mockResolvedValue({ kind: "body", text: "Fetched reply body." });
+    stubReceivedEmail({ kind: "body", text: "Fetched reply body.", headers: {} });
     const phone = nextPhone();
     const db = seedDb(phone);
     const result = await ingestInboundEmailSmsReply(
@@ -265,14 +283,31 @@ describe("ingestInboundEmailSmsReply", () => {
     );
     expect(result).toMatchObject({ handled: true, sent: true });
     expect(sendFromManagerMock.mock.calls[0]![0]).toMatchObject({ text: "Fetched reply body." });
+    // Body and headers come from ONE round trip — this runs inline in a webhook.
+    expect(receivedEmailFetchCount()).toBe(1);
+  });
+
+  it("hits the received-email resource once even when the body was inlined", async () => {
+    const phone = nextPhone();
+    const db = seedDb(phone);
+    await ingestInboundEmailSmsReply(
+      parsedEmail(),
+      { managerUserId: MGR, counterpartyPhone: phone },
+      db as never,
+    );
+    expect(receivedEmailFetchCount()).toBe(1);
   });
 });
 
 describe("ingestInboundEmailSmsReply — sender authentication", () => {
   it("rejects a reply whose authentication-results say it is not that domain", async () => {
-    fetchHeadersMock.mockResolvedValue({
-      "authentication-results":
-        "mx.proplane.test; spf=fail smtp.mailfrom=attacker@evil.test; dkim=none; dmarc=fail header.from=example.com",
+    stubReceivedEmail({
+      kind: "empty",
+      headers: {
+        "authentication-results": [
+          "mx.proplane.test; spf=fail smtp.mailfrom=attacker@evil.test; dkim=none; dmarc=fail header.from=example.com",
+        ],
+      },
     });
     const phone = nextPhone();
     const db = seedDb(phone);
@@ -290,9 +325,13 @@ describe("ingestInboundEmailSmsReply — sender authentication", () => {
     expect(tablesOf(db).manager_sms_messages).toHaveLength(0);
   });
 
-  it("a DMARC-verified reply sends without spending a grant", async () => {
-    fetchHeadersMock.mockResolvedValue({
-      "authentication-results": "mx.proplane.test; dmarc=pass (p=REJECT) header.from=example.com",
+  it("a pass from a PINNED receiver sends without spending a grant", async () => {
+    process.env.RESEND_AUTHSERV_ID = "mx.proplane.test";
+    stubReceivedEmail({
+      kind: "empty",
+      headers: {
+        "authentication-results": ["mx.proplane.test; dmarc=pass (p=REJECT) header.from=example.com"],
+      },
     });
     const phone = nextPhone();
     const db = seedDb(phone, "consumed");
@@ -302,6 +341,49 @@ describe("ingestInboundEmailSmsReply — sender authentication", () => {
       db as never,
     );
     expect(result).toMatchObject({ handled: true, sent: true });
+  });
+
+  it("a pass the SENDER could have written never bypasses the interim mitigations", async () => {
+    // No RESEND_AUTHSERV_ID pinned (the default), so this header authorizes
+    // nothing even though it claims dmarc=pass — it is the message's own header
+    // set, which an attacker with a leaked reply address controls.
+    stubReceivedEmail({
+      kind: "empty",
+      headers: {
+        "authentication-results": ["mx.proplane.test; dmarc=pass header.from=example.com"],
+      },
+    });
+    const phone = nextPhone();
+    const db = seedDb(phone, "valid");
+    const result = await ingestInboundEmailSmsReply(
+      parsedEmail(),
+      { managerUserId: MGR, counterpartyPhone: phone },
+      db as never,
+    );
+    expect(result.sent).toBe(false);
+    expect(sendFromManagerMock).not.toHaveBeenCalled();
+  });
+
+  it("ignores an A-R the sender injected below the receiver's own", async () => {
+    process.env.RESEND_AUTHSERV_ID = "mx.proplane.test";
+    stubReceivedEmail({
+      kind: "empty",
+      headers: {
+        "authentication-results": [
+          "mx.proplane.test; dmarc=fail header.from=example.com",
+          "mx.proplane.test; dmarc=pass header.from=example.com",
+        ],
+      },
+    });
+    const phone = nextPhone();
+    const db = seedDb(phone, "valid");
+    const result = await ingestInboundEmailSmsReply(
+      parsedEmail(),
+      { managerUserId: MGR, counterpartyPhone: phone },
+      db as never,
+    );
+    expect(result).toMatchObject({ handled: true, sent: false, error: "auth_failed" });
+    expect(sendFromManagerMock).not.toHaveBeenCalled();
   });
 });
 
@@ -367,14 +449,13 @@ describe("ingestInboundEmailSmsReply — single-use reply grant", () => {
 });
 
 describe("ingestInboundEmailSmsReply — per-conversation rate limit", () => {
-  it("refuses the fourth emailed reply within the hour", async () => {
-    fetchHeadersMock.mockResolvedValue({
-      "authentication-results": "mx.proplane.test; dmarc=pass header.from=example.com",
-    });
+  it("refuses the fourth emailed reply within the hour, without burning its grant", async () => {
     const phone = nextPhone();
     const results = [];
+    const dbs = [];
     for (let i = 0; i < 4; i += 1) {
       const db = seedDb(phone, "valid");
+      dbs.push(db);
       results.push(
         await ingestInboundEmailSmsReply(
           parsedEmail({ emailId: `re_rate_${i}` }),
@@ -386,5 +467,11 @@ describe("ingestInboundEmailSmsReply — per-conversation rate limit", () => {
     expect(results.slice(0, 3).every((r) => r.sent)).toBe(true);
     expect(results[3]).toMatchObject({ handled: true, sent: false, error: "rate_limited" });
     expect(sendFromManagerMock).toHaveBeenCalledTimes(3);
+    // The throttled reply must leave the single-use window intact — otherwise
+    // the manager waits for the next inbound text on top of the hour.
+    const grant = tablesOf(dbs[3]!).portal_outbound_mail_records.find(
+      (r) => r.id === smsReplyGrantRecordId(MGR, phone),
+    );
+    expect((grant?.row_data as Record<string, unknown>).consumedAt ?? null).toBeNull();
   });
 });
