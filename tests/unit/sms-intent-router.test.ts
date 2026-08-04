@@ -78,6 +78,10 @@ const state = {
   propertyRecords: [] as Row[],
   scheduleRecords: new Map<string, Row>(),
   smsMessages: [] as Row[],
+  /** Makes the inquiries-singleton read fail, the way a transient outage would. */
+  singletonReadError: false,
+  /** Ordered log of portal_schedule_records writes, so ordering can be asserted. */
+  ops: [] as string[],
 };
 
 function rowsForTable(table: string): Row[] {
@@ -103,7 +107,9 @@ function makeQuery(table: string) {
 
   const exec = () => {
     if (mode === "delete" && table === "portal_schedule_records") {
-      for (const row of run()) state.scheduleRecords.delete(String(row.id));
+      const doomed = run();
+      state.ops.push(`delete:${doomed.map((row) => String(row.id)).join(",")}`);
+      for (const row of doomed) state.scheduleRecords.delete(String(row.id));
       return { data: null, error: null };
     }
     return { data: run(), error: null };
@@ -130,14 +136,17 @@ function makeQuery(table: string) {
       return api;
     },
     maybeSingle: async () => {
+      if (table === "portal_schedule_records" && state.singletonReadError) {
+        return { data: null, error: { message: "read failed" } };
+      }
       const rows = run();
       return { data: rows[0] ?? null, error: null };
     },
     upsert: async (records: Row | Row[]) => {
       if (table === "portal_schedule_records") {
-        for (const record of Array.isArray(records) ? records : [records]) {
-          state.scheduleRecords.set(String(record.id), record);
-        }
+        const list = Array.isArray(records) ? records : [records];
+        state.ops.push(`upsert:${list.map((record) => String(record.id)).join(",")}`);
+        for (const record of list) state.scheduleRecords.set(String(record.id), record);
       }
       return { error: null };
     },
@@ -189,6 +198,8 @@ beforeEach(() => {
   state.propertyRecords = [];
   state.scheduleRecords = new Map();
   state.smsMessages = [];
+  state.singletonReadError = false;
+  state.ops = [];
   isPhoneOptedOutMock.mockClear().mockResolvedValue(false);
   recordOptInMock.mockClear();
   recordOptOutMock.mockClear();
@@ -331,6 +342,7 @@ describe("text to tour", () => {
     const offered = before.requestedWindows as { slotKey: string }[];
     expect(offered.length).toBeGreaterThan(1);
 
+    state.ops = [];
     const result = await routeInboundSms(ctx("2", { isFirstMessageInConversation: false }));
     expect(result.autoReplyBody).toContain("requested for Maple House");
 
@@ -342,6 +354,29 @@ describe("text to tour", () => {
       id.startsWith(`partner_inquiry_request_${after.id}_`),
     );
     expect(standalone).toEqual([`partner_inquiry_request_${after.id}_0`]);
+
+    // The stale per-window records must be gone BEFORE `_0` is re-pointed at
+    // the chosen window, or (manager_user_id, starts_at) is transiently
+    // duplicated and the partial unique index rejects the whole write.
+    const staleIds = offered.slice(1).map((_, i) => `partner_inquiry_request_${after.id}_${i + 1}`);
+    expect(state.ops).toEqual([
+      `delete:${staleIds.join(",")}`,
+      `upsert:${INQUIRIES_ID},partner_inquiry_request_${after.id}_0`,
+    ]);
+  });
+
+  it("a failed inquiries read never creates an inquiry — the prospect gets the booking link", async () => {
+    seedListing();
+    state.singletonReadError = true;
+
+    const result = await routeInboundSms(ctx("Hi — I'd like to schedule a tour for Maple House."));
+
+    expect(result.handled).toBe(true);
+    expect(result.autoReplyBody).toContain("rent/tours-contact?propertyId=mgr-maple-house-1");
+    expect(result.autoReplyBody).not.toContain("Tour request received");
+    // Nothing was written, so no other manager's pending inquiries were clobbered.
+    expect(state.ops).toHaveLength(0);
+    expect(state.scheduleRecords.size).toBe(0);
   });
 
   it("a name follow-up fills the inquiry contact instead of creating anything", async () => {
@@ -353,10 +388,13 @@ describe("text to tour", () => {
     expect(inquiryPayload()[0]!.name).toBe("Jordan Rivera");
   });
 
-  it("a non-live listing is never offered a tour", async () => {
-    seedListing({ status: "listed" });
+  it("a non-live listing is never offered a tour — 'live' is the only status the query accepts", async () => {
+    // 'unlisted' is a real ManagerPropertyRecordStatus the DB CHECK allows, so
+    // this manager reads back with NO tourable listings at all.
+    seedListing({ status: "unlisted" });
     const result = await routeInboundSms(ctx("Hi — I'd like to schedule a tour for Maple House."));
-    expect(result.autoReplyBody).toContain("isn't open for tours");
+    expect(result.autoReplyBody).toContain("No homes are open for tours right now");
+    expect(result.autoReplyBody).not.toContain("Maple House via PropLane");
     expect(inquiryPayload()).toHaveLength(0);
   });
 });

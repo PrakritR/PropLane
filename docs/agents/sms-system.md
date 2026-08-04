@@ -266,6 +266,15 @@ so the router's compliance gates cover the default path too. Invariants:
   follow-ups fill the inquiry's contact fields. **Idempotent per
   (manager, prospect phone)**: any existing pending tour inquiry — SMS- or
   web-created — means a repeat "tour" text reminds instead of duplicating.
+- **The router never claims a tour it did not store.** The singleton payload
+  and its per-window records go out as ONE upsert statement, so a slot that
+  collides with `portal_schedule_tour_manager_slot_unique` fails the whole
+  write instead of leaving an inquiry that blocks nothing; narrowing to a
+  chosen window DELETES the stale `partner_inquiry_request_*_1/_2` records
+  before re-pointing `_0`, or that same index rejects the pick. A failed
+  singleton READ aborts the create outright (never "no inquiries", which would
+  both duplicate a pending request and overwrite every other manager's rows).
+  Every one of those failures replies with the web booking link.
 - **Apply intent creates NO rows, deliberately.** A draft application needs an
   email and a browser-held resume token, so a server-minted row would be an
   orphan the prospect can never resume and a guaranteed duplicate once they

@@ -250,7 +250,6 @@ function replyPickInstruction(count: number): string {
 type ListingRow = {
   id: string;
   label: string;
-  status: string;
   rentLabel: string | null;
 };
 
@@ -267,11 +266,11 @@ async function loadManagerListings(db: Db, managerId: string): Promise<ListingRo
     .from("manager_property_records")
     .select("id, status, property_data")
     .eq("manager_user_id", managerId)
-    .in("status", ["live", "listed"])
+    .eq("status", "live")
     .order("updated_at", { ascending: false })
     .limit(50);
   const out: ListingRow[] = [];
-  for (const row of (data ?? []) as { id?: unknown; status?: unknown; property_data?: unknown }[]) {
+  for (const row of (data ?? []) as { id?: unknown; property_data?: unknown }[]) {
     const id = typeof row.id === "string" ? row.id.trim() : "";
     if (!id) continue;
     const pd =
@@ -282,7 +281,6 @@ async function loadManagerListings(db: Db, managerId: string): Promise<ListingRo
     out.push({
       id,
       label: listingLabelFromPropertyData(pd) || id,
-      status: typeof row.status === "string" ? row.status.trim().toLowerCase() : "",
       rentLabel: rentLabel || null,
     });
   }
@@ -290,8 +288,9 @@ async function loadManagerListings(db: Db, managerId: string): Promise<ListingRo
 }
 
 /**
- * The listing this message is about, scoped to THIS manager's live/listed
- * records: explicit id hint, then label hint (exact beats partial), then the
+ * The listing this message is about, scoped to THIS manager's LIVE records
+ * (the only publicly reachable status): explicit id hint, then label hint
+ * (exact beats partial), then the
  * pending inquiry's property, then the manager's only/most recent listing.
  * The last fallback can guess wrong for a multi-listing manager, so every
  * reply NAMES the resolved property — a wrong guess is visible and
@@ -384,20 +383,33 @@ function windowsOf(row: InquiryPayloadRow): InquiryWindow[] {
     .filter((w) => w.start && w.end);
 }
 
-/** The one pending tour inquiry for this manager + prospect phone, if any. */
+type PendingInquiry = { row: InquiryPayloadRow; all: InquiryPayloadRow[] };
+
+/**
+ * The one pending tour inquiry for this manager + prospect phone, plus the
+ * whole singleton payload so a create can merge without a second read.
+ *
+ * A failed read is reported as `{ ok: false }`, never as "no inquiries": the
+ * caller must not create from an unknown payload (that would both duplicate an
+ * existing pending inquiry and overwrite every other manager's rows).
+ */
 async function findPendingTourInquiry(
   db: Db,
   managerId: string,
   fromPhone: string,
-): Promise<{ row: InquiryPayloadRow; all: InquiryPayloadRow[] } | null> {
-  const { data } = await db
+): Promise<{ ok: true; pending: PendingInquiry | null; all: InquiryPayloadRow[] } | { ok: false }> {
+  const { data, error } = await db
     .from("portal_schedule_records")
     .select("row_data")
     .eq("id", INQUIRIES_RECORD_ID)
     .maybeSingle();
+  if (error) {
+    console.error("sms-intent-router inquiries read failed", error.message);
+    return { ok: false };
+  }
   const all = inquiryRows(data?.row_data);
   const phoneKey = normalizeConsentPhone(fromPhone);
-  if (!phoneKey) return null;
+  if (!phoneKey) return { ok: true, pending: null, all };
   const row = all.find(
     (item) =>
       textField(item, "kind") === "tour" &&
@@ -405,7 +417,7 @@ async function findPendingTourInquiry(
       textField(item, "managerUserId") === managerId &&
       normalizeConsentPhone(textField(item, "phone")) === phoneKey,
   );
-  return row ? { row, all } : null;
+  return { ok: true, pending: row ? { row, all } : null, all };
 }
 
 /**
@@ -459,28 +471,34 @@ function windowForSlot(slotKey: string, managerId: string): InquiryWindow | null
   };
 }
 
-/** Read-merge-write the inquiries singleton (the platform-wide pattern). */
-async function writeInquiriesSingleton(db: Db, payload: InquiryPayloadRow[]): Promise<boolean> {
-  const { error } = await db.from("portal_schedule_records").upsert(
-    [
-      {
-        id: INQUIRIES_RECORD_ID,
-        manager_user_id: null,
-        property_id: null,
-        record_type: INQUIRIES_RECORD_ID,
-        row_data: {
-          id: INQUIRIES_RECORD_ID,
-          recordType: INQUIRIES_RECORD_ID,
-          managerUserId: null,
-          propertyId: null,
-          payload,
-        },
-        updated_at: new Date().toISOString(),
-      },
-    ],
-    { onConflict: "id" },
-  );
-  if (error) console.error("sms-intent-router inquiries write failed", error.message);
+/** The merged inquiries singleton row (the platform-wide read-merge-write pattern). */
+function inquiriesSingletonRecord(payload: InquiryPayloadRow[]): Record<string, unknown> {
+  return {
+    id: INQUIRIES_RECORD_ID,
+    manager_user_id: null,
+    property_id: null,
+    record_type: INQUIRIES_RECORD_ID,
+    row_data: {
+      id: INQUIRIES_RECORD_ID,
+      recordType: INQUIRIES_RECORD_ID,
+      managerUserId: null,
+      propertyId: null,
+      payload,
+    },
+    updated_at: new Date().toISOString(),
+  };
+}
+
+/**
+ * One upsert statement for the singleton AND the per-window records, so the
+ * payload row and the calendar/conflict records it claims can never disagree:
+ * either both land or neither does. A slot colliding with
+ * `portal_schedule_tour_manager_slot_unique` therefore fails the whole write
+ * instead of storing an inquiry that blocks nothing.
+ */
+async function writeInquiryRecords(db: Db, records: Record<string, unknown>[]): Promise<boolean> {
+  const { error } = await db.from("portal_schedule_records").upsert(records, { onConflict: "id" });
+  if (error) console.error("sms-intent-router inquiry write failed", error.message);
   return !error;
 }
 
@@ -515,6 +533,8 @@ async function createSmsTourInquiry(
     conversationId: string;
     inboundBody: string;
     windows: InquiryWindow[];
+    /** The singleton payload as READ by findPendingTourInquiry — never re-read here. */
+    existing: InquiryPayloadRow[];
   },
 ): Promise<InquiryPayloadRow | null> {
   const now = new Date().toISOString();
@@ -546,21 +566,11 @@ async function createSmsTourInquiry(
     proposedEnd: args.windows[0]?.end,
   };
 
-  const { data } = await db
-    .from("portal_schedule_records")
-    .select("row_data")
-    .eq("id", INQUIRIES_RECORD_ID)
-    .maybeSingle();
-  const existing = inquiryRows(data?.row_data);
-  const singletonOk = await writeInquiriesSingleton(db, [row, ...existing]);
-  if (!singletonOk) return null;
-
-  const { error: standaloneError } = await db
-    .from("portal_schedule_records")
-    .upsert(standaloneRecordsFor(row, args.windows), { onConflict: "id" });
-  if (standaloneError) {
-    console.error("sms-intent-router standalone inquiry write failed", standaloneError.message);
-  }
+  const stored = await writeInquiryRecords(db, [
+    inquiriesSingletonRecord([row, ...args.existing]),
+    ...standaloneRecordsFor(row, args.windows),
+  ]);
+  if (!stored) return null;
 
   // The inbound text is the prospect's opt-in for tour messages about this
   // conversation (consumer-initiated); a later STOP supersedes it.
@@ -594,31 +604,39 @@ async function createSmsTourInquiry(
   return row;
 }
 
-/** Replace one inquiry row in the singleton and rewrite its standalone records. */
+/**
+ * Replace one inquiry row in the singleton and rewrite its standalone records.
+ *
+ * Narrowing to a chosen window RE-POINTS record `_0` at a `starts_at` that
+ * records `_1`/`_2` still hold, so the stale records must be deleted BEFORE the
+ * upsert or `portal_schedule_tour_manager_slot_unique` rejects the whole write.
+ * Any failure returns false — callers must not tell the prospect a pick saved.
+ */
 async function updateSmsTourInquiry(
   db: Db,
-  current: { row: InquiryPayloadRow; all: InquiryPayloadRow[] },
+  current: PendingInquiry,
   next: InquiryPayloadRow,
 ): Promise<boolean> {
   const id = textField(current.row, "id");
-  const nextAll = current.all.map((item) => (textField(item, "id") === id ? next : item));
-  const ok = await writeInquiriesSingleton(db, nextAll);
-  if (!ok) return false;
-
   const previousWindows = windowsOf(current.row);
   const nextWindows = windowsOf(next);
-  const { error } = await db
-    .from("portal_schedule_records")
-    .upsert(standaloneRecordsFor(next, nextWindows), { onConflict: "id" });
-  if (error) console.error("sms-intent-router standalone update failed", error.message);
+
   if (previousWindows.length > nextWindows.length) {
     const staleIds = previousWindows
       .map((_, index) => `${INQUIRY_EVENT_RECORD_TYPE}_${id}_${index}`)
       .slice(nextWindows.length);
     const { error: deleteError } = await db.from("portal_schedule_records").delete().in("id", staleIds);
-    if (deleteError) console.error("sms-intent-router stale window delete failed", deleteError.message);
+    if (deleteError) {
+      console.error("sms-intent-router stale window delete failed", deleteError.message);
+      return false;
+    }
   }
-  return true;
+
+  const nextAll = current.all.map((item) => (textField(item, "id") === id ? next : item));
+  return writeInquiryRecords(db, [
+    inquiriesSingletonRecord(nextAll),
+    ...standaloneRecordsFor(next, nextWindows),
+  ]);
 }
 
 /* ----------------------------------------------------------------------- */
@@ -652,6 +670,7 @@ export async function routeInboundSms(ctx: InboundSmsContext): Promise<SmsIntent
 
   const db = createSupabaseServiceRoleClient();
   const keyword = body.toUpperCase();
+  const origin = publicAppOrigin();
 
   // 1) Compliance controls come before everything, including suppression.
   if (STOP_KEYWORDS.has(keyword)) {
@@ -665,14 +684,13 @@ export async function routeInboundSms(ctx: InboundSmsContext): Promise<SmsIntent
     return { handled: true, autoReplyBody: OPT_BACK_IN_REPLY };
   }
 
-  const listingsPromise = loadManagerListings(db, managerId).catch(() => [] as ListingRow[]);
   if (HELP_KEYWORDS.has(keyword)) {
-    const listings = await listingsPromise;
-    const label = listings[0]?.label || "the property leasing line";
+    const helpListings = await loadManagerListings(db, managerId).catch(() => [] as ListingRow[]);
+    const label = helpListings[0]?.label || "the property leasing line";
     return {
       handled: true,
       autoReplyBody:
-        `This is ${label} via PropLane (https://prop-lane.space). Reply TOUR to schedule a tour or APPLY to start an application — or just ask a question. ` +
+        `This is ${label} via PropLane (${origin}). Reply TOUR to schedule a tour or APPLY to start an application — or just ask a question. ` +
         `Msg&data rates may apply. Message frequency varies. Reply STOP to opt out.`,
     };
   }
@@ -692,9 +710,13 @@ export async function routeInboundSms(ctx: InboundSmsContext): Promise<SmsIntent
     return { handled: true };
   }
 
-  const listings = await listingsPromise;
-  const pending = await findPendingTourInquiry(db, managerId, fromPhone).catch(() => null);
-  const origin = publicAppOrigin();
+  // Reads start only once every suppression gate has passed, so a silenced
+  // thread costs no queries.
+  const [listings, pendingLookup] = await Promise.all([
+    loadManagerListings(db, managerId).catch(() => [] as ListingRow[]),
+    findPendingTourInquiry(db, managerId, fromPhone).catch(() => ({ ok: false }) as const),
+  ]);
+  const pending = pendingLookup.ok ? pendingLookup.pending : null;
   const footer = ctx.isFirstMessageInConversation
     ? `\n\n${complianceFooter(listings[0]?.label ?? null)}`
     : "";
@@ -796,9 +818,11 @@ export async function routeInboundSms(ctx: InboundSmsContext): Promise<SmsIntent
         `You already have a tour request in for ${textField(pending.row, "propertyTitle") || listing.label} — the manager will confirm soon.${lines ? `\nRequested times:\n${lines}\n${replyPickInstruction(offered.length)}.` : ""}${contactAsk(pending.row)}`,
       );
     }
-    if (listing.status !== "live") {
+    if (!pendingLookup.ok) {
+      // The existing inquiries could not be read, so creating one here could
+      // duplicate a pending request — send the prospect to the booking page.
       return finish(
-        `${listing.label} isn't open for tours right now. You can browse current listings at ${origin}/rent.`,
+        `Happy to set up a tour of ${listing.label}! Pick a time here and the manager will confirm: ${buildManagerTourUrl(origin, listing.id)}`,
       );
     }
     const openSlots = await listOpenTourSlots(db, managerId, listing.id).catch(() => [] as string[]);
@@ -817,6 +841,7 @@ export async function routeInboundSms(ctx: InboundSmsContext): Promise<SmsIntent
       conversationId: ctx.conversationId,
       inboundBody: body,
       windows: offered,
+      existing: pendingLookup.all,
     });
     if (!created) {
       // Never claim a request that didn't save.
@@ -846,7 +871,7 @@ export async function routeInboundSms(ctx: InboundSmsContext): Promise<SmsIntent
   }
 
   if (looksLikeAvailabilityQuestion(body)) {
-    if (!listing || listing.status !== "live") {
+    if (!listing) {
       return finish(`No tour windows are open right now — browse current listings at ${origin}/rent.`);
     }
     const openSlots = await listOpenTourSlots(db, managerId, listing.id).catch(() => [] as string[]);
