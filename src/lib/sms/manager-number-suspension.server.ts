@@ -37,6 +37,14 @@ export type SuspensionSweepResult = {
   cleared: number;
   warned: number;
   released: number;
+  /**
+   * Rows due for their warning whose warning could NOT be delivered this tick
+   * (sandbox address, mailer unconfigured, Resend refusal). Release is gated on
+   * a delivered warning, so each of these is a number PropLane keeps paying for
+   * past the grace — the count plus a per-row `errors` entry is what makes that
+   * extended grace visible in the cron response instead of silent.
+   */
+  unwarnable: number;
   errors: Array<{ managerUserId: string; error: string }>;
 };
 
@@ -63,6 +71,7 @@ export async function sweepSuspendedManagerNumbers(
     cleared: 0,
     warned: 0,
     released: 0,
+    unwarnable: 0,
     errors: [],
   };
 
@@ -112,16 +121,38 @@ export async function sweepSuspendedManagerNumbers(
   }
 
   // 2. Already-stamped rows: warn, then release past grace.
-  const { data: suspendedRows } = await db
+  //
+  // Split into two independently-bounded queues, because release candidates and
+  // warn candidates are disjoint populations that must not compete:
+  //
+  //   (a) rows carrying a delivered warning — the ONLY release candidates, so a
+  //       number nobody could be warned about can never crowd out a release
+  //       that is genuinely due;
+  //   (b) rows still unwarned — the warn queue, ordered by `updated_at` rather
+  //       than by suspension age so it is a round robin. Every attempt touches
+  //       the row, so a permanently-undeliverable warning rotates to the BACK
+  //       after each try instead of pinning the head of the window and starving
+  //       a manager who just got suspended and is owed their first notice.
+  const { data: warnedRows } = await db
     .from(TABLE)
     .select("*")
     .eq("provision_state", "active")
     .not("service_suspended_at", "is", null)
-    .order("service_suspended_at", { ascending: true })
+    .not("suspension_warned_at", "is", null)
+    .order("suspension_warned_at", { ascending: true })
     .limit(limit);
+  const { data: unwarnedRows } = await db
+    .from(TABLE)
+    .select("*")
+    .eq("provision_state", "active")
+    .not("service_suspended_at", "is", null)
+    .is("suspension_warned_at", null)
+    .order("updated_at", { ascending: true })
+    .limit(limit);
+  const suspendedRows = [...(warnedRows ?? []), ...(unwarnedRows ?? [])];
   const warnAfterDays = SMS_NUMBER_SUSPENSION_GRACE_DAYS - SMS_NUMBER_SUSPENSION_WARN_DAYS_BEFORE;
 
-  for (const raw of suspendedRows ?? []) {
+  for (const raw of suspendedRows) {
     const row = mapNumberRow(raw as Record<string, unknown>);
     if (!row?.managerUserId || !row.serviceSuspendedAt) continue;
     const ageDays = daysBetween(row.serviceSuspendedAt, nowMs);
@@ -168,7 +199,7 @@ export async function sweepSuspendedManagerNumbers(
       if (ageDays >= warnAfterDays && !row.suspensionWarnedAt) {
         const warned = await warnSuspendedNumberRelease(db, row.managerUserId, ageDays);
         if (warned) {
-          await db
+          const { data: stamped } = await db
             .from(TABLE)
             .update({
               suspension_warned_at: new Date(nowMs).toISOString(),
@@ -176,8 +207,30 @@ export async function sweepSuspendedManagerNumbers(
             })
             .eq("manager_user_id", row.managerUserId)
             .is("suspension_warned_at", null)
+            .select("manager_user_id")
+            .then((res) => res, () => ({ data: [] as Array<{ manager_user_id: string }> }));
+          // A sent email whose stamp did not land is NOT a warning: release
+          // reads the stamp, and counting it would hide a manager being
+          // re-emailed the same notice every single day.
+          if ((stamped ?? []).length > 0) result.warned += 1;
+          else {
+            result.errors.push({
+              managerUserId: row.managerUserId,
+              error: "warn_sent_but_stamp_failed",
+            });
+          }
+        } else {
+          await db
+            .from(TABLE)
+            .update({ updated_at: new Date(nowMs).toISOString() })
+            .eq("manager_user_id", row.managerUserId)
+            .is("suspension_warned_at", null)
             .then(() => undefined, () => undefined);
-          result.warned += 1;
+          result.unwarnable += 1;
+          result.errors.push({
+            managerUserId: row.managerUserId,
+            error: `warn_undeliverable_suspended_${ageDays}d`,
+          });
         }
       }
     } catch (e) {
@@ -229,6 +282,10 @@ async function warnSuspendedNumberRelease(
 /**
  * Release a past-grace suspended number: Twilio (best-effort, money-saving),
  * clear the profile cache, mark the lifecycle row released. Never purchases.
+ *
+ * "Never release a number its owner was not warned about" lives HERE, on the
+ * destructive operation, not only in the sweep that normally calls it — a
+ * future caller taking a different path must inherit the same refusal.
  */
 export async function releaseExpiredSuspendedNumber(
   db: SupabaseClient,
@@ -239,6 +296,7 @@ export async function releaseExpiredSuspendedNumber(
   const record = await getManagerNumberRecord(db, id);
   if (!record || record.provisionState !== "active") return;
   if (!record.serviceSuspendedAt) return;
+  if (!record.suspensionWarnedAt) return;
 
   const sid = record.phoneNumberSid;
   if (sid) {

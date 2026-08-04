@@ -182,6 +182,46 @@ describe("sweepSuspendedManagerNumbers", () => {
       .__tables.manager_sms_numbers[0]!;
     expect(row.provision_state).toBe("active");
     expect(row.suspension_warned_at).toBeNull();
+    // The extended grace costs real money, so it must never be silent.
+    expect(result.unwarnable).toBe(1);
+    expect(result.errors).toEqual([
+      { managerUserId: MGR, error: expect.stringContaining("warn_undeliverable") },
+    ]);
+    // Touched, so the next sweep puts a newly-suspended manager ahead of it.
+    expect(row.updated_at).toBeTruthy();
+  });
+
+  it("does not count a warning whose stamp write never landed", async () => {
+    purchaseSkuMock.mockResolvedValue(FREE_SKU);
+    const now = Date.parse("2026-08-04T12:00:00.000Z");
+    const ageDays = SMS_NUMBER_SUSPENSION_GRACE_DAYS - SMS_NUMBER_SUSPENSION_WARN_DAYS_BEFORE;
+    const db = seed({
+      serviceSuspendedAt: new Date(now - ageDays * 86_400_000).toISOString(),
+    }) as never;
+    const table = (db as unknown as { __tables: Record<string, Array<Record<string, unknown>>> })
+      .__tables.manager_sms_numbers;
+    // The stamp write matches nothing (lost race / transient failure) while the
+    // email itself reports sent.
+    const noRowsBuilder: Record<string, unknown> = {};
+    for (const method of ["eq", "is", "not", "select", "order", "limit"]) {
+      noRowsBuilder[method] = () => noRowsBuilder;
+    }
+    noRowsBuilder.then = (resolve: (v: unknown) => unknown) => Promise.resolve(resolve({ data: [] }));
+    const realFrom = (db as unknown as { from: (t: string) => unknown }).from;
+    (db as unknown as { from: (t: string) => unknown }).from = (t: string) => {
+      const builder = realFrom(t) as Record<string, unknown>;
+      if (t !== "manager_sms_numbers") return builder;
+      const update = builder.update as (patch: Record<string, unknown>) => unknown;
+      builder.update = (patch: Record<string, unknown>) =>
+        patch.suspension_warned_at ? noRowsBuilder : update(patch);
+      return builder;
+    };
+    const result = await sweepSuspendedManagerNumbers(db, { nowMs: now });
+    expect(result.warned).toBe(0);
+    expect(result.errors).toEqual([
+      { managerUserId: MGR, error: "warn_sent_but_stamp_failed" },
+    ]);
+    expect(table[0]!.suspension_warned_at).toBeNull();
   });
 
   it("holds the number for the full notice period after the warning lands", async () => {
@@ -220,5 +260,15 @@ describe("releaseExpiredSuspendedNumber", () => {
     await releaseExpiredSuspendedNumber(db, MGR);
     expect(releaseMock).not.toHaveBeenCalled();
     expect(purchaseMock).not.toHaveBeenCalled();
+  });
+
+  it("refuses on its own when no warning was ever delivered, not just via the sweep", async () => {
+    const db = seed({ serviceSuspendedAt: "2026-01-01T00:00:00.000Z" }) as never;
+    await releaseExpiredSuspendedNumber(db, MGR);
+    expect(releaseMock).not.toHaveBeenCalled();
+    const tables = (db as unknown as { __tables: Record<string, Array<Record<string, unknown>>> })
+      .__tables;
+    expect(tables.manager_sms_numbers[0]!.provision_state).toBe("active");
+    expect(tables.profiles[0]!.sms_from_number).toBe(PHONE);
   });
 });

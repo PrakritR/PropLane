@@ -148,9 +148,20 @@ Enforced in three places (`manager-number-access.server.ts`):
   false whenever the mailer is unconfigured or Resend refuses, and a number the
   owner was never warned about keeps its grace extended while the sweep retries
   the warning. Releasing a number printed on listings with no notice is the
-  worst outcome this feature can produce. Pass 1 of the sweep is scoped to
-  UNSTAMPED rows and ordered deterministically, so already-stamped rows cannot
-  eat the budget and starve a newly-downgraded manager's clock. Re-upgrading
+  worst outcome this feature can produce. That refusal lives in
+  `releaseExpiredSuspendedNumber` itself, not only in its sweep caller, so a
+  future caller inherits it. An extended grace is never SILENT: each
+  undeliverable warning increments `unwarnable` and pushes a per-row `errors`
+  entry, which the cron response echoes — otherwise PropLane pays for the number
+  forever with no signal. Pass 1 of the sweep is scoped to UNSTAMPED rows and
+  ordered deterministically; pass 2 runs two disjoint, independently-bounded
+  queues (warned rows ordered by warning age = the release candidates, unwarned
+  rows ordered by `updated_at` = a round robin), so an unwarnable row rotates to
+  the back after each attempt rather than pinning the window and starving a
+  newly-suspended manager owed their first notice. A warning email that sends but
+  whose `suspension_warned_at` stamp does not land is NOT counted as warned —
+  release reads the stamp, and counting it would hide a daily re-send.
+  Re-upgrading
   clears the stamp so a later downgrade starts a fresh grace. The number
   stops sending (`number_suspended`) while suspended; inbound still lands in
   the inbox. The send paths fail OPEN on `plan_unreadable` (an infra blip must
