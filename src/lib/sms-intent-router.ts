@@ -254,10 +254,11 @@ export function assistantMenuBody(listingLabel: string | null): string {
 }
 
 /**
- * The full first-contact menu reply, footer included. The router uses this copy
- * for a greeting/unrecognized first contact; the transport may also send it as
- * a last-resort body when its own default handler (the leasing agent) throws,
- * so a first contact is never met with silence.
+ * The full first-contact menu reply, footer included — byte-identical to what
+ * the router sends for a greeting/unrecognized first contact, because both
+ * halves are built from the SAME resolved listing label. The transport may
+ * send it as a last-resort body when its own default handler (the leasing
+ * agent) throws, so a first contact is never met with silence.
  */
 export function firstContactMenuReply(listingLabel: string | null): string {
   return `${assistantMenuBody(listingLabel)}\n\n${complianceFooter(listingLabel)}`;
@@ -412,10 +413,32 @@ function windowsOf(row: InquiryPayloadRow): InquiryWindow[] {
 }
 
 /**
- * The one pending tour inquiry for this manager + prospect phone — an
- * IDEMPOTENCY check only. The payload it read is deliberately not returned:
- * every writer re-reads the singleton immediately before merging, so a stale
- * snapshot can never become a write base.
+ * The idempotency predicate — one pending tour inquiry per (manager, prospect
+ * phone). Shared by the early check and the re-check the create runs against
+ * the payload it is about to merge onto, so the two can never drift apart.
+ */
+function pendingTourRowIn(
+  rows: InquiryPayloadRow[],
+  managerId: string,
+  phoneKey: string,
+): InquiryPayloadRow | null {
+  return (
+    rows.find(
+      (item) =>
+        textField(item, "kind") === "tour" &&
+        textField(item, "status").toLowerCase() === "pending" &&
+        textField(item, "managerUserId") === managerId &&
+        normalizeConsentPhone(textField(item, "phone")) === phoneKey,
+    ) ?? null
+  );
+}
+
+/**
+ * The one pending tour inquiry for this manager + prospect phone — the FAST
+ * PATH of the idempotency check. The payload it read is deliberately not
+ * returned: every writer re-reads the singleton immediately before merging, so
+ * a stale snapshot can never become a write base, and `createSmsTourInquiry`
+ * re-runs {@link pendingTourRowIn} on that fresh payload before inserting.
  *
  * A failed read is reported as `{ ok: false }`, never as "no inquiries": the
  * caller must not create from an unknown payload (that would duplicate an
@@ -437,14 +460,7 @@ async function findPendingTourInquiry(
   }
   const phoneKey = normalizeConsentPhone(fromPhone);
   if (!phoneKey) return { ok: true, pending: null };
-  const row = inquiryRows(data?.row_data).find(
-    (item) =>
-      textField(item, "kind") === "tour" &&
-      textField(item, "status").toLowerCase() === "pending" &&
-      textField(item, "managerUserId") === managerId &&
-      normalizeConsentPhone(textField(item, "phone")) === phoneKey,
-  );
-  return { ok: true, pending: row ?? null };
+  return { ok: true, pending: pendingTourRowIn(inquiryRows(data?.row_data), managerId, phoneKey) };
 }
 
 /**
@@ -551,6 +567,11 @@ function standaloneRecordsFor(row: InquiryPayloadRow, windows: InquiryWindow[]):
   }));
 }
 
+type CreateTourInquiryResult =
+  | { status: "created"; row: InquiryPayloadRow }
+  | { status: "exists"; row: InquiryPayloadRow }
+  | { status: "failed" };
+
 async function createSmsTourInquiry(
   db: Db,
   args: {
@@ -561,7 +582,7 @@ async function createSmsTourInquiry(
     inboundBody: string;
     windows: InquiryWindow[];
   },
-): Promise<InquiryPayloadRow | null> {
+): Promise<CreateTourInquiryResult> {
   const now = new Date().toISOString();
   const row: InquiryPayloadRow = {
     id: crypto.randomUUID(),
@@ -603,14 +624,22 @@ async function createSmsTourInquiry(
     .maybeSingle();
   if (readError) {
     console.error("sms-intent-router inquiries re-read failed", readError.message);
-    return null;
+    return { status: "failed" };
   }
 
+  // Re-run the idempotency predicate on the payload we are about to merge onto.
+  // The early check happened several round trips ago, so a double-tapped CTA or
+  // a webhook retry can otherwise pass it twice and create two inquiries.
+  const existing = inquiryRows(data?.row_data);
+  const phoneKey = normalizeConsentPhone(args.fromPhone);
+  const alreadyPending = phoneKey ? pendingTourRowIn(existing, args.managerId, phoneKey) : null;
+  if (alreadyPending) return { status: "exists", row: alreadyPending };
+
   const stored = await writeInquiryRecords(db, [
-    inquiriesSingletonRecord([row, ...inquiryRows(data?.row_data)]),
+    inquiriesSingletonRecord([row, ...existing]),
     ...standaloneRecordsFor(row, args.windows),
   ]);
-  if (!stored) return null;
+  if (!stored) return { status: "failed" };
 
   // The inbound text is the prospect's opt-in for tour messages about this
   // conversation (consumer-initiated); a later STOP supersedes it.
@@ -641,7 +670,7 @@ async function createSmsTourInquiry(
     });
   })().catch(() => undefined);
 
-  return row;
+  return { status: "created", row };
 }
 
 /**
@@ -704,6 +733,13 @@ function numberedSlotLines(windows: InquiryWindow[]): string {
   return windows
     .map((w, i) => `${i + 1}) ${w.slotKey ? tourSlotLabel(w.slotKey) : formatPacificDateTime(w.start)}`)
     .join("\n");
+}
+
+/** The reminder a repeat tour text gets instead of a second inquiry. */
+function alreadyPendingTourReply(row: InquiryPayloadRow, fallbackLabel: string): string {
+  const offered = windowsOf(row);
+  const lines = numberedSlotLines(offered);
+  return `You already have a tour request in for ${textField(row, "propertyTitle") || fallbackLabel} — the manager will confirm soon.${lines ? `\nRequested times:\n${lines}\n${replyPickInstruction(offered.length)}.` : ""}${contactAsk(row)}`;
 }
 
 function contactAsk(row: InquiryPayloadRow | null): string {
@@ -774,9 +810,17 @@ export async function routeInboundSms(ctx: InboundSmsContext): Promise<SmsIntent
     findPendingTourInquiry(db, managerId, fromPhone).catch(() => ({ ok: false }) as const),
   ]);
   const pending = pendingLookup.ok ? pendingLookup.pending : null;
-  const footer = ctx.isFirstMessageInConversation
-    ? `\n\n${complianceFooter(listings[0]?.label ?? null)}`
-    : "";
+
+  // ONE label choice drives every reply: the menu body, the compliance footer,
+  // and the exported transport fallback all name the RESOLVED listing, so a
+  // multi-listing manager can never see two different houses in one message.
+  const listing = resolveTargetListing({
+    body,
+    listings,
+    pendingInquiryPropertyId: pending ? textField(pending, "propertyId") : null,
+  });
+  const businessLabel = listing?.label ?? null;
+  const footer = ctx.isFirstMessageInConversation ? `\n\n${complianceFooter(businessLabel)}` : "";
 
   const finish = (reply: string): SmsIntentResult => ({
     handled: true,
@@ -855,12 +899,6 @@ export async function routeInboundSms(ctx: InboundSmsContext): Promise<SmsIntent
 
   /* --- Fresh intent routing -------------------------------------------- */
 
-  const listing = resolveTargetListing({
-    body,
-    listings,
-    pendingInquiryPropertyId: pending ? textField(pending, "propertyId") : null,
-  });
-
   if (intent === "tour") {
     if (!listing) {
       return finish(
@@ -870,11 +908,7 @@ export async function routeInboundSms(ctx: InboundSmsContext): Promise<SmsIntent
     // Idempotency: one pending tour request per manager + phone. A repeat
     // "tour" text reminds instead of creating a duplicate.
     if (pending) {
-      const offered = windowsOf(pending);
-      const lines = numberedSlotLines(offered);
-      return finish(
-        `You already have a tour request in for ${textField(pending, "propertyTitle") || listing.label} — the manager will confirm soon.${lines ? `\nRequested times:\n${lines}\n${replyPickInstruction(offered.length)}.` : ""}${contactAsk(pending)}`,
-      );
+      return finish(alreadyPendingTourReply(pending, listing.label));
     }
     if (!pendingLookup.ok) {
       // The existing inquiries could not be read, so creating one here could
@@ -900,11 +934,14 @@ export async function routeInboundSms(ctx: InboundSmsContext): Promise<SmsIntent
       inboundBody: body,
       windows: offered,
     });
-    if (!created) {
+    if (created.status === "failed") {
       // Never claim a request that didn't save.
       return finish(
         `Happy to set up a tour of ${listing.label}! Pick a time here and the manager will confirm: ${buildManagerTourUrl(origin, listing.id)}`,
       );
+    }
+    if (created.status === "exists") {
+      return finish(alreadyPendingTourReply(created.row, listing.label));
     }
     return finish(
       `Tour request received for ${listing.label}! Next open times:\n${numberedSlotLines(offered)}\n${replyPickInstruction(offered.length)} — or pick another here: ${buildManagerTourUrl(origin, listing.id)}\nWhat name should we put on the tour?`,
@@ -958,7 +995,7 @@ export async function routeInboundSms(ctx: InboundSmsContext): Promise<SmsIntent
   // meets silence. A QUESTION does not: the canned menu would replace the
   // grounded answer the leasing agent can give, so it falls through instead.
   if (intent === "help" || intent === "greeting" || (ctx.isFirstMessageInConversation && intent !== "question")) {
-    return finish(assistantMenuBody(listing?.label ?? null));
+    return finish(assistantMenuBody(businessLabel));
   }
 
   // Nothing here answered it — let the transport's default handling

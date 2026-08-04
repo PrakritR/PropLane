@@ -416,6 +416,38 @@ describe("text to tour", () => {
     expect(payload.map((row) => row.id)).toContain("web-booking-1");
   });
 
+  it("a tour inquiry that races in after the early check is never duplicated", async () => {
+    seedListing();
+    // The idempotency check passes, then a second inbound (double-tapped CTA,
+    // webhook retry) creates the inquiry before this one reaches its write.
+    state.onSingletonRead = (readIndex) => {
+      if (readIndex !== 2) return;
+      setInquiryPayload([
+        {
+          id: "raced-1",
+          kind: "tour",
+          status: "pending",
+          managerUserId: MANAGER_ID,
+          phone: PROSPECT_PHONE,
+          propertyTitle: "Maple House",
+          requestedWindows: [],
+        },
+      ]);
+    };
+
+    const result = await routeInboundSms(ctx("Hi — I'd like to schedule a tour for Maple House."));
+
+    expect(result.handled).toBe(true);
+    expect(result.autoReplyBody).toContain("already have a tour request");
+    expect(result.autoReplyBody).not.toContain("Tour request received");
+
+    const payload = inquiryPayload();
+    expect(payload).toHaveLength(1);
+    expect(payload[0]!.id).toBe("raced-1");
+    expect(state.ops.filter((op) => op.startsWith("upsert:"))).toHaveLength(0);
+    expect(notifyManagerTourRequestMock).not.toHaveBeenCalled();
+  });
+
   it("a follow-up whose write fails is never reported as saved", async () => {
     seedListing();
     await routeInboundSms(ctx("Hi — I'd like to schedule a tour for Maple House."));
@@ -480,6 +512,18 @@ describe("general responses", () => {
     expect(result.autoReplyBody).toContain("Reply APPLY");
     expect(result.autoReplyBody).toContain("Reply STOP to opt out");
     expect(result.autoReplyBody).toBe(firstContactMenuReply("Maple House"));
+  });
+
+  it("names ONE listing in both the menu and its footer for a multi-listing manager", async () => {
+    seedListing();
+    seedListing({ id: "mgr-cedar-1", property_data: { buildingName: "Cedar Cottage" } });
+
+    // Resolves the SECOND listing by id hint, so the footer must follow it
+    // rather than defaulting to the manager's most recent listing.
+    const result = await routeInboundSms(ctx("propertyId=mgr-cedar-1"));
+
+    expect(result.autoReplyBody).toBe(firstContactMenuReply("Cedar Cottage"));
+    expect(result.autoReplyBody).not.toContain("Maple House");
   });
 
   it("a FIRST-contact question falls through to the leasing agent, not the menu", async () => {

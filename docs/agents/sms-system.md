@@ -264,7 +264,10 @@ compliance gates cover the default path too. Invariants:
   greeting/unrecognized → leasing agent for questions → the transport falls
   through on `handled: false` OR on a throw from the router, and can send the
   exported `firstContactMenuReply(listingLabel)` as its own last resort if the
-  agent fails too.
+  agent fails too — which is byte-identical to the router's own menu reply
+  because ONE resolved listing label feeds both the menu body and the
+  compliance footer. Never derive the footer from a different listing than the
+  reply names, or a multi-listing manager's first contact reads as two houses.
 
 - **Tour intent creates ONE real pending tour inquiry** — the same
   `axis_admin_partner_inquiries_v1` payload row + standalone
@@ -277,6 +280,11 @@ compliance gates cover the default path too. Invariants:
   follow-ups fill the inquiry's contact fields. **Idempotent per
   (manager, prospect phone)**: any existing pending tour inquiry — SMS- or
   web-created — means a repeat "tour" text reminds instead of duplicating.
+  That predicate (`pendingTourRowIn`) runs TWICE off one definition — the early
+  `findPendingTourInquiry` fast path, then again on the fresh payload the
+  create is about to merge onto — because several round trips separate the two
+  and a double-tapped CTA or a webhook retry would otherwise pass the early
+  check twice. A hit on the re-check sends the reminder instead of inserting.
 - **The router never claims a tour it did not store.** The singleton payload
   and its per-window records go out as ONE upsert statement, so a slot that
   collides with `portal_schedule_tour_manager_slot_unique` fails the whole
