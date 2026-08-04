@@ -8,11 +8,11 @@
  * effect:
  *
  * - tour intent  → creates ONE pending tour inquiry (the same
- *   `axis_admin_partner_inquiries_v1` payload row + standalone
- *   `partner_inquiry_request_*` records the public booking page writes), with
- *   candidate windows drawn from the SAME offering the public availability
- *   grid computes: published future slots, else the 9-5 default grid for a
- *   LIVE listing, minus pending-inquiry and booked-tour blocks
+ *   `axis_admin_partner_inquiries_v1` payload row + a single standalone
+ *   `partner_inquiry_request_<id>_0` record the public booking page writes),
+ *   with candidate windows drawn from the SAME offering the public
+ *   availability grid computes: published future slots, else the 9-5 default
+ *   grid for a LIVE listing, minus pending-inquiry and booked-tour blocks
  *   (`loadManagerTourBlocks`). The manager confirms through the existing
  *   accept/proposal machinery — nothing here books a tour directly.
  * - apply intent → replies with the property's real application wizard link,
@@ -57,6 +57,13 @@
  * manager-cell relay), automated replies stop for that thread permanently.
  * Bot traffic always logs `source: "automated"`, so a single manager reply
  * flips the thread to human-owned and this router goes silent.
+ *
+ * Read-failure rule (stated once, tested): every read this module makes fails
+ * CLOSED, because an unreadable state is not an empty state. An unreadable
+ * takeover history is treated as human-owned (silence); unreadable inquiries,
+ * availability, or listings abort the tour create and answer with the web
+ * booking link or retryable copy, never a fabricated default grid and never
+ * "no homes are open".
  *
  * Idempotency rule (stated once, tested): one pending tour inquiry per
  * (manager, prospect phone). A second "tour" text updates/reminds instead of
@@ -302,14 +309,26 @@ function listingLabelFromPropertyData(pd: Record<string, unknown> | null | undef
   return text("buildingName") || text("title") || text("address");
 }
 
-async function loadManagerListings(db: Db, managerId: string): Promise<ListingRow[]> {
-  const { data } = await db
+type ListingsLookup = { ok: true; listings: ListingRow[] } | { ok: false };
+
+/**
+ * This manager's LIVE listings. A failed read is reported as `{ ok: false }`,
+ * never as an empty portfolio: "we could not look it up" and "this manager has
+ * nothing to tour" lead to opposite replies — one is retryable, the other is a
+ * dead end for the prospect.
+ */
+async function loadManagerListings(db: Db, managerId: string): Promise<ListingsLookup> {
+  const { data, error } = await db
     .from("manager_property_records")
     .select("id, status, property_data")
     .eq("manager_user_id", managerId)
     .eq("status", "live")
     .order("updated_at", { ascending: false })
     .limit(50);
+  if (error) {
+    console.error("sms-intent-router listings read failed", error.message);
+    return { ok: false };
+  }
   const out: ListingRow[] = [];
   for (const row of (data ?? []) as { id?: unknown; property_data?: unknown }[]) {
     const id = typeof row.id === "string" ? row.id.trim() : "";
@@ -325,7 +344,7 @@ async function loadManagerListings(db: Db, managerId: string): Promise<ListingRo
       rentLabel: rentLabel || null,
     });
   }
-  return out;
+  return { ok: true, listings: out };
 }
 
 /**
@@ -371,17 +390,32 @@ export function resolveTargetListing(args: {
   return listings[0] ?? null;
 }
 
-/** True when a human manager has ever replied in this manager↔phone thread. */
+/**
+ * True when a human manager has ever replied in this manager↔phone thread.
+ *
+ * Fails CLOSED: an unreadable takeover history reads as human-owned, so the
+ * router stays silent. A bot that was wrongly quiet for one transient outage
+ * is recoverable; a bot that barges into a live human conversation is not.
+ */
 async function humanOwnsConversation(db: Db, managerId: string, fromPhone: string): Promise<boolean> {
-  const { data } = await db
-    .from("manager_sms_messages")
-    .select("id")
-    .eq("manager_user_id", managerId)
-    .in("resident_phone", profilePhoneVariants(fromPhone))
-    .eq("direction", "outbound")
-    .neq("source", "automated")
-    .limit(1);
-  return (data ?? []).length > 0;
+  try {
+    const { data, error } = await db
+      .from("manager_sms_messages")
+      .select("id")
+      .eq("manager_user_id", managerId)
+      .in("resident_phone", profilePhoneVariants(fromPhone))
+      .eq("direction", "outbound")
+      .neq("source", "automated")
+      .limit(1);
+    if (error) {
+      console.error("sms-intent-router takeover read failed", error.message);
+      return true;
+    }
+    return (data ?? []).length > 0;
+  } catch (err) {
+    console.error("sms-intent-router takeover read threw", err);
+    return true;
+  }
 }
 
 /* ----------------------------------------------------------------------- */
@@ -484,13 +518,27 @@ async function findPendingTourInquiry(
  * still confirms before anything books), and the published-slot POST guard is
  * not re-run for default-grid slots (the public GET offers them; requiring
  * publication here would make SMS tours dead for every calendar-less manager).
+ *
+ * A failed availability read is fatal (`{ ok: false }`), never an empty
+ * published set: empty is what triggers the 9-5 default grid, so swallowing the
+ * error would synthesize windows this manager may never have published and then
+ * book a real inquiry into one — the public availability route treats the same
+ * read as a 500 for the same reason.
  */
-async function listOpenTourSlots(db: Db, managerId: string, propertyId: string): Promise<string[]> {
-  const { data } = await db
+async function listOpenTourSlots(
+  db: Db,
+  managerId: string,
+  propertyId: string,
+): Promise<{ ok: true; slots: string[] } | { ok: false }> {
+  const { data, error } = await db
     .from("portal_schedule_records")
     .select("property_id, record_type, row_data")
     .eq("manager_user_id", managerId)
     .in("record_type", ["manager_property_availability", "manager_availability"]);
+  if (error) {
+    console.error("sms-intent-router availability read failed", error.message);
+    return { ok: false };
+  }
 
   const propertyScoped: string[] = [];
   const global: string[] = [];
@@ -512,7 +560,10 @@ async function listOpenTourSlots(db: Db, managerId: string, propertyId: string):
   const base = shouldOfferDefaultTourGrid(publishedFuture) ? buildDefaultTourSlotKeys() : publishedFuture;
 
   const blocks = await loadManagerTourBlocks(db, managerId);
-  return [...new Set(base)].filter((slot) => slotIsBookable(slot) && !slotBlocked(slot, blocks));
+  return {
+    ok: true,
+    slots: [...new Set(base)].filter((slot) => slotIsBookable(slot) && !slotBlocked(slot, blocks)),
+  };
 }
 
 function windowForSlot(slotKey: string, managerId: string): InquiryWindow | null {
@@ -545,8 +596,8 @@ function inquiriesSingletonRecord(payload: InquiryPayloadRow[]): Record<string, 
 }
 
 /**
- * One upsert statement for the singleton AND the per-window records, so the
- * payload row and the calendar/conflict records it claims can never disagree:
+ * One upsert statement for the singleton AND the standalone record, so the
+ * payload row and the calendar/conflict record it claims can never disagree:
  * either both land or neither does. A slot colliding with
  * `portal_schedule_tour_manager_slot_unique` therefore fails the whole write
  * instead of storing an inquiry that blocks nothing.
@@ -557,26 +608,44 @@ async function writeInquiryRecords(db: Db, records: Record<string, unknown>[]): 
   return !error;
 }
 
+/**
+ * EXACTLY ONE standalone record per inquiry, always index `_0`, carrying the
+ * full payload — every offered window included.
+ *
+ * A multi-window offer does not need a record per window: both readers of these
+ * rows (`loadManagerTourBlocks` and the public availability route) expand
+ * `windowsFromPayload(payload)`, so the single `_0` record already blocks every
+ * requested window. Writing `_1`/`_2` as well would leak them forever, because
+ * the shared accept path (`tour-inquiry-confirm.server.ts`) and the portal
+ * delete route only ever remove `_0` — the web booking page offers one window,
+ * so nothing else has ever written a higher index. Orphaned records keep their
+ * windows blocked on the public grid and permanently occupy
+ * `(manager_user_id, starts_at)` on the partial unique index.
+ */
 function standaloneRecordsFor(row: InquiryPayloadRow, windows: InquiryWindow[]): Record<string, unknown>[] {
-  const id = textField(row, "id");
+  const first = windows[0];
+  if (!first) return [];
+  const recordId = `${INQUIRY_EVENT_RECORD_TYPE}_${textField(row, "id")}_0`;
   const managerUserId = textField(row, "managerUserId") || null;
   const propertyId = textField(row, "propertyId") || null;
-  return windows.map((window, index) => ({
-    id: `${INQUIRY_EVENT_RECORD_TYPE}_${id}_${index}`,
-    manager_user_id: managerUserId,
-    property_id: propertyId,
-    record_type: INQUIRY_EVENT_RECORD_TYPE,
-    starts_at: window.start,
-    ends_at: window.end,
-    row_data: {
-      id: `${INQUIRY_EVENT_RECORD_TYPE}_${id}_${index}`,
-      recordType: INQUIRY_EVENT_RECORD_TYPE,
-      managerUserId,
-      propertyId,
-      payload: row,
+  return [
+    {
+      id: recordId,
+      manager_user_id: managerUserId,
+      property_id: propertyId,
+      record_type: INQUIRY_EVENT_RECORD_TYPE,
+      starts_at: first.start,
+      ends_at: first.end,
+      row_data: {
+        id: recordId,
+        recordType: INQUIRY_EVENT_RECORD_TYPE,
+        managerUserId,
+        propertyId,
+        payload: row,
+      },
+      updated_at: new Date().toISOString(),
     },
-    updated_at: new Date().toISOString(),
-  }));
+  ];
 }
 
 type CreateTourInquiryResult =
@@ -693,10 +762,11 @@ async function createSmsTourInquiry(
  * left the payload (accepted or cancelled) returns false rather than being
  * resurrected.
  *
- * Narrowing to a chosen window RE-POINTS record `_0` at a `starts_at` that
- * records `_1`/`_2` still hold, so the stale records must be deleted BEFORE the
- * upsert or `portal_schedule_tour_manager_slot_unique` rejects the whole write.
- * Any failure returns false — callers must not tell the prospect it saved.
+ * Narrowing to a chosen window is a plain re-point of the single `_0` record at
+ * the chosen `starts_at` — there are no `_1`/`_2` records to strand or to
+ * collide with on `portal_schedule_tour_manager_slot_unique`, which is exactly
+ * why {@link standaloneRecordsFor} writes only one. Any failure returns false —
+ * callers must not tell the prospect it saved.
  */
 async function updateSmsTourInquiry(
   db: Db,
@@ -704,7 +774,6 @@ async function updateSmsTourInquiry(
   next: InquiryPayloadRow,
 ): Promise<boolean> {
   const id = textField(current, "id");
-  const previousWindows = windowsOf(current);
   const nextWindows = windowsOf(next);
 
   const { data, error: readError } = await db
@@ -718,17 +787,6 @@ async function updateSmsTourInquiry(
   }
   const all = inquiryRows(data?.row_data);
   if (!all.some((item) => textField(item, "id") === id)) return false;
-
-  if (previousWindows.length > nextWindows.length) {
-    const staleIds = previousWindows
-      .map((_, index) => `${INQUIRY_EVENT_RECORD_TYPE}_${id}_${index}`)
-      .slice(nextWindows.length);
-    const { error: deleteError } = await db.from("portal_schedule_records").delete().in("id", staleIds);
-    if (deleteError) {
-      console.error("sms-intent-router stale window delete failed", deleteError.message);
-      return false;
-    }
-  }
 
   const nextAll = all.map((item) => (textField(item, "id") === id ? next : item));
   return writeInquiryRecords(db, [
@@ -790,8 +848,8 @@ export async function routeInboundSms(ctx: InboundSmsContext): Promise<SmsIntent
   }
 
   if (HELP_KEYWORDS.has(keyword)) {
-    const helpListings = await loadManagerListings(db, managerId).catch(() => [] as ListingRow[]);
-    const label = helpListings[0]?.label || "the property leasing line";
+    const helpListings = await loadManagerListings(db, managerId).catch(() => ({ ok: false }) as const);
+    const label = (helpListings.ok ? helpListings.listings[0]?.label : "") || "the property leasing line";
     return {
       handled: true,
       autoReplyBody:
@@ -817,10 +875,11 @@ export async function routeInboundSms(ctx: InboundSmsContext): Promise<SmsIntent
 
   // Reads start only once every suppression gate has passed, so a silenced
   // thread costs no queries.
-  const [listings, pendingLookup] = await Promise.all([
-    loadManagerListings(db, managerId).catch(() => [] as ListingRow[]),
+  const [listingsLookup, pendingLookup] = await Promise.all([
+    loadManagerListings(db, managerId).catch(() => ({ ok: false }) as const),
     findPendingTourInquiry(db, managerId, fromPhone).catch(() => ({ ok: false }) as const),
   ]);
+  const listings = listingsLookup.ok ? listingsLookup.listings : [];
   const pending = pendingLookup.ok ? pendingLookup.pending : null;
 
   // ONE label choice drives every reply: the menu body, the compliance footer,
@@ -838,6 +897,16 @@ export async function routeInboundSms(ctx: InboundSmsContext): Promise<SmsIntent
     handled: true,
     autoReplyBody: `${reply}${footer}`,
   });
+
+  // A listings read that FAILED is not a manager with nothing to show: telling
+  // a prospect "no homes are open" is a dead end, while the real state is
+  // retryable. Only the genuine empty case keeps the definitive copy.
+  const lookupTroubleReply = () =>
+    finish(
+      `Thanks for reaching out! We're having trouble looking that up right now — please try again shortly, or browse current homes at ${origin}/rent.`,
+    );
+  const tourLinkReply = (target: ListingRow, lead: string) =>
+    finish(`${lead} ${buildManagerTourUrl(origin, target.id)}`);
 
   const intent = classifyLeasingIntent(body);
 
@@ -913,6 +982,7 @@ export async function routeInboundSms(ctx: InboundSmsContext): Promise<SmsIntent
 
   if (intent === "tour") {
     if (!listing) {
+      if (!listingsLookup.ok) return lookupTroubleReply();
       return finish(
         `Thanks for reaching out! No homes are open for tours right now — browse current listings at ${origin}/rent.`,
       );
@@ -925,17 +995,28 @@ export async function routeInboundSms(ctx: InboundSmsContext): Promise<SmsIntent
     if (!pendingLookup.ok) {
       // The existing inquiries could not be read, so creating one here could
       // duplicate a pending request — send the prospect to the booking page.
-      return finish(
-        `Happy to set up a tour of ${listing.label}! Pick a time here and the manager will confirm: ${buildManagerTourUrl(origin, listing.id)}`,
+      return tourLinkReply(
+        listing,
+        `Happy to set up a tour of ${listing.label}! Pick a time here and the manager will confirm:`,
       );
     }
-    const openSlots = await listOpenTourSlots(db, managerId, listing.id).catch(() => [] as string[]);
-    const offered = pickOfferedSlots(openSlots)
+    const slotLookup = await listOpenTourSlots(db, managerId, listing.id).catch(() => ({ ok: false }) as const);
+    if (!slotLookup.ok) {
+      // Availability is unknown, and unknown must never become the default 9-5
+      // grid — that would book a real inquiry into a window this manager may
+      // never have published.
+      return tourLinkReply(
+        listing,
+        `Happy to set up a tour of ${listing.label}! Pick a time here and the manager will confirm:`,
+      );
+    }
+    const offered = pickOfferedSlots(slotLookup.slots)
       .map((slot) => windowForSlot(slot, managerId))
       .filter((w): w is InquiryWindow => Boolean(w));
     if (offered.length === 0) {
-      return finish(
-        `Happy to set up a tour of ${listing.label}! No open windows right now — pick a time that works here and the manager will confirm: ${buildManagerTourUrl(origin, listing.id)}`,
+      return tourLinkReply(
+        listing,
+        `Happy to set up a tour of ${listing.label}! No open windows right now — pick a time that works here and the manager will confirm:`,
       );
     }
     const created = await createSmsTourInquiry(db, {
@@ -948,8 +1029,9 @@ export async function routeInboundSms(ctx: InboundSmsContext): Promise<SmsIntent
     });
     if (created.status === "failed") {
       // Never claim a request that didn't save.
-      return finish(
-        `Happy to set up a tour of ${listing.label}! Pick a time here and the manager will confirm: ${buildManagerTourUrl(origin, listing.id)}`,
+      return tourLinkReply(
+        listing,
+        `Happy to set up a tour of ${listing.label}! Pick a time here and the manager will confirm:`,
       );
     }
     if (created.status === "exists") {
@@ -962,6 +1044,7 @@ export async function routeInboundSms(ctx: InboundSmsContext): Promise<SmsIntent
 
   if (intent === "apply" || intent === "bundle") {
     if (!listing) {
+      if (!listingsLookup.ok) return lookupTroubleReply();
       return finish(
         `Thanks for your interest! Browse current homes and apply at ${origin}/rent — applications take about 10 minutes.`,
       );
@@ -978,13 +1061,21 @@ export async function routeInboundSms(ctx: InboundSmsContext): Promise<SmsIntent
 
   if (looksLikeAvailabilityQuestion(body)) {
     if (!listing) {
+      if (!listingsLookup.ok) return lookupTroubleReply();
       return finish(`No tour windows are open right now — browse current listings at ${origin}/rent.`);
     }
-    const openSlots = await listOpenTourSlots(db, managerId, listing.id).catch(() => [] as string[]);
-    const offered = pickOfferedSlots(openSlots);
+    const slotLookup = await listOpenTourSlots(db, managerId, listing.id).catch(() => ({ ok: false }) as const);
+    if (!slotLookup.ok) {
+      return tourLinkReply(
+        listing,
+        `Sorry — I couldn't pull up tour times for ${listing.label} just now. You can see what's open and book here:`,
+      );
+    }
+    const offered = pickOfferedSlots(slotLookup.slots);
     if (offered.length === 0) {
-      return finish(
-        `No open tour windows for ${listing.label} right now — check back or pick a time here: ${buildManagerTourUrl(origin, listing.id)}`,
+      return tourLinkReply(
+        listing,
+        `No open tour windows for ${listing.label} right now — check back or pick a time here:`,
       );
     }
     return finish(

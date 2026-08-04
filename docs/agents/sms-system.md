@@ -278,8 +278,8 @@ business and say how to opt out no matter which layer answers it. Invariants:
   reply names, or a multi-listing manager's first contact reads as two houses.
 
 - **Tour intent creates ONE real pending tour inquiry** — the same
-  `axis_admin_partner_inquiries_v1` payload row + standalone
-  `partner_inquiry_request_*` records the web booking page writes, so the
+  `axis_admin_partner_inquiries_v1` payload row + a single standalone
+  `partner_inquiry_request_<id>_0` record the web booking page writes, so the
   manager's calendar, accept route, and approval-first proposal engine all see
   it with zero new code. Candidate windows come from the same offering formula
   as the public availability route (published future slots, else the 9-5
@@ -297,17 +297,41 @@ business and say how to opt out no matter which layer answers it. Invariants:
   create is about to merge onto — because several round trips separate the two
   and a double-tapped CTA or a webhook retry would otherwise pass the early
   check twice. A hit on the re-check sends the reminder instead of inserting.
+- **A multi-window SMS offer still writes exactly ONE standalone record**,
+  index `_0`, whose payload carries every `requestedWindows` entry. That is
+  sufficient — `loadManagerTourBlocks` and the public availability route both
+  expand `windowsFromPayload(payload)`, so the one record blocks all offered
+  windows — and it is also the only safe shape: the shared accept path
+  (`tour-inquiry-confirm.server.ts`) and `/api/portal-tour-inquiries/delete`
+  only ever remove `_0`, because the web booking page offers a single window
+  and nothing had ever written a higher index. `_1`/`_2` records would survive
+  every accept as permanently-pending orphans, blocking their windows on the
+  public grid and holding `(manager_user_id, starts_at)` on
+  `portal_schedule_tour_manager_slot_unique` forever. Never widen this to a
+  record per window without first teaching those two shared cleanup paths to
+  delete by payload id.
 - **The router never claims a tour it did not store.** The singleton payload
-  and its per-window records go out as ONE upsert statement, so a slot that
+  and its standalone record go out as ONE upsert statement, so a slot that
   collides with `portal_schedule_tour_manager_slot_unique` fails the whole
   write instead of leaving an inquiry that blocks nothing; narrowing to a
-  chosen window DELETES the stale `partner_inquiry_request_*_1/_2` records
-  before re-pointing `_0`, or that same index rejects the pick. A failed
+  chosen window is then a plain re-point of `_0`, with no stale sibling to
+  delete first. A failed
   singleton READ aborts the create outright (never "no inquiries", which would
   both duplicate a pending request and overwrite every other manager's rows).
   Every write path — the slot pick AND the email / name / scheduling-note
   fills — checks its result and replies with the web booking link on failure,
   never claiming a detail was recorded when it was not.
+- **Every read fails CLOSED, because unreadable is not empty.** An unreadable
+  human-takeover history reads as human-owned and the router goes silent (a
+  wrongly quiet bot is recoverable; a bot barging into a live human
+  conversation is not). An unreadable `manager_availability` read aborts slot
+  enumeration and the tour branch answers with the web booking link — swallowing
+  it would leave `published` empty, which is precisely what triggers
+  `shouldOfferDefaultTourGrid`, and a real inquiry would then be booked into a
+  9-5 window this manager may never have published. An unreadable listings read
+  answers with retryable copy, never the definitive "No homes are open for tours
+  right now" that a genuinely empty portfolio gets — one is a dead end for the
+  prospect, the other is a retry.
 - **Every writer re-reads the singleton immediately before merging.**
   `findPendingTourInquiry` is an idempotency CHECK only and deliberately
   returns no payload: several round trips (slot math, `loadManagerTourBlocks`)

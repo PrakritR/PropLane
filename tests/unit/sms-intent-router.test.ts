@@ -80,6 +80,12 @@ const state = {
   smsMessages: [] as Row[],
   /** Makes the inquiries-singleton read fail, the way a transient outage would. */
   singletonReadError: false,
+  /** Makes the LIVE-listings read fail. */
+  listingsReadError: false,
+  /** Makes the manager_availability read `listOpenTourSlots` runs fail. */
+  availabilityReadError: false,
+  /** Makes the human-takeover read fail. */
+  takeoverReadError: false,
   /** Ordered log of portal_schedule_records writes, so ordering can be asserted. */
   ops: [] as string[],
   /** Fires before each singleton read, so a concurrent writer can be simulated. */
@@ -110,12 +116,25 @@ function makeQuery(table: string) {
 
   const run = () => rowsForTable(table).filter(matches);
 
-  const exec = () => {
+  const exec = (): { data: Row[] | null; error: { message: string } | null } => {
     if (mode === "delete" && table === "portal_schedule_records") {
       const doomed = run();
       state.ops.push(`delete:${doomed.map((row) => String(row.id)).join(",")}`);
       for (const row of doomed) state.scheduleRecords.delete(String(row.id));
       return { data: null, error: null };
+    }
+    if (table === "manager_property_records" && state.listingsReadError) {
+      return { data: null, error: { message: "listings read failed" } };
+    }
+    if (table === "manager_sms_messages" && state.takeoverReadError) {
+      return { data: null, error: { message: "takeover read failed" } };
+    }
+    if (
+      table === "portal_schedule_records" &&
+      state.availabilityReadError &&
+      filters.some((f) => f.op === "in" && f.col === "record_type")
+    ) {
+      return { data: null, error: { message: "availability read failed" } };
     }
     return { data: run(), error: null };
   };
@@ -158,8 +177,7 @@ function makeQuery(table: string) {
       }
       return { error: null };
     },
-    then: (resolve: (v: { data: Row[]; error: null } | { data: null; error: null }) => unknown) =>
-      resolve(exec() as never),
+    then: (resolve: (v: ReturnType<typeof exec>) => unknown) => resolve(exec()),
   };
   return api;
 }
@@ -215,6 +233,9 @@ beforeEach(() => {
   state.scheduleRecords = new Map();
   state.smsMessages = [];
   state.singletonReadError = false;
+  state.listingsReadError = false;
+  state.availabilityReadError = false;
+  state.takeoverReadError = false;
   state.ops = [];
   state.onSingletonRead = null;
   state.singletonReads = 0;
@@ -300,6 +321,19 @@ describe("human takeover suppression", () => {
     const result = await routeInboundSms(ctx("Hi — I'd like to schedule a tour for Maple House."));
     expect(result.autoReplyBody).toContain("Tour request received");
   });
+
+  it("an unreadable takeover history fails CLOSED — silent, and nothing written", async () => {
+    seedListing();
+    state.takeoverReadError = true;
+
+    const result = await routeInboundSms(ctx("Hi — I'd like to schedule a tour for Maple House."));
+
+    // A wrongly quiet bot is recoverable; a bot barging into a live human
+    // conversation is not.
+    expect(result).toEqual({ handled: true });
+    expect(inquiryPayload()).toHaveLength(0);
+    expect(state.ops).toHaveLength(0);
+  });
 });
 
 describe("text to tour", () => {
@@ -331,11 +365,20 @@ describe("text to tour", () => {
     for (const window of windows) {
       expect(Date.parse(window.end) - Date.parse(window.start)).toBe(30 * 60 * 1000);
     }
-    // Standalone per-window records exist for the calendar/conflict readers.
+    // EXACTLY ONE standalone record, always `_0`, carrying the whole payload.
+    // The shared accept path and the portal delete route only ever remove `_0`,
+    // so a record per window would strand `_1`/`_2` as permanently-pending
+    // orphans; one record already blocks every window because both readers
+    // expand `windowsFromPayload(payload)`.
     const standalone = [...state.scheduleRecords.keys()].filter((id) =>
       id.startsWith(`partner_inquiry_request_${row.id}_`),
     );
-    expect(standalone).toHaveLength(windows.length);
+    expect(standalone).toEqual([`partner_inquiry_request_${row.id}_0`]);
+    const record = state.scheduleRecords.get(`partner_inquiry_request_${row.id}_0`)!;
+    expect(record.starts_at).toBe(windows[0]!.start);
+    expect(record.ends_at).toBe(windows[0]!.end);
+    const recordPayload = (record.row_data as { payload: Row }).payload;
+    expect((recordPayload.requestedWindows as unknown[]).length).toBe(windows.length);
     // Conversational consent recorded in the ledger.
     expect(recordOptInMock).toHaveBeenCalled();
     expect(recordOptInMock.mock.calls.at(-1)?.[3]).toBe("text-to-tour");
@@ -373,15 +416,41 @@ describe("text to tour", () => {
       id.startsWith(`partner_inquiry_request_${after.id}_`),
     );
     expect(standalone).toEqual([`partner_inquiry_request_${after.id}_0`]);
+    expect(state.scheduleRecords.get(standalone[0]!)!.starts_at).toBe(
+      (before.requestedWindows as { start: string }[])[1]!.start,
+    );
 
-    // The stale per-window records must be gone BEFORE `_0` is re-pointed at
-    // the chosen window, or (manager_user_id, starts_at) is transiently
-    // duplicated and the partial unique index rejects the whole write.
-    const staleIds = offered.slice(1).map((_, i) => `partner_inquiry_request_${after.id}_${i + 1}`);
-    expect(state.ops).toEqual([
-      `delete:${staleIds.join(",")}`,
-      `upsert:${INQUIRIES_ID},partner_inquiry_request_${after.id}_0`,
-    ]);
+    // Narrowing is a plain re-point of the ONE standalone record: no stale
+    // sibling exists to delete first, so no delete precedes the upsert.
+    expect(state.ops).toEqual([`upsert:${INQUIRIES_ID},partner_inquiry_request_${after.id}_0`]);
+  });
+
+  it("an unreadable availability calendar never fabricates the default grid", async () => {
+    seedListing();
+    state.availabilityReadError = true;
+
+    const result = await routeInboundSms(ctx("Hi — I'd like to schedule a tour for Maple House."));
+
+    // A swallowed error would leave `published` empty, which is exactly what
+    // triggers the 9-5 default grid — and would book a real inquiry into a
+    // window this manager may never have published.
+    expect(result.handled).toBe(true);
+    expect(result.autoReplyBody).toContain("rent/tours-contact?propertyId=mgr-maple-house-1");
+    expect(result.autoReplyBody).not.toContain("Tour request received");
+    expect(inquiryPayload()).toHaveLength(0);
+    expect(state.ops).toHaveLength(0);
+  });
+
+  it("an unreadable listings read is retryable copy, not 'no homes are open'", async () => {
+    seedListing();
+    state.listingsReadError = true;
+
+    const result = await routeInboundSms(ctx("Hi — I'd like to schedule a tour for Maple House."));
+
+    expect(result.handled).toBe(true);
+    expect(result.autoReplyBody).toContain("trouble looking that up");
+    expect(result.autoReplyBody).not.toContain("No homes are open for tours right now");
+    expect(inquiryPayload()).toHaveLength(0);
   });
 
   it("a failed inquiries read never creates an inquiry — the prospect gets the booking link", async () => {
