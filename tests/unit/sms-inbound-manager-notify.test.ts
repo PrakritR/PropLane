@@ -8,6 +8,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createMemoryDb } from "./support/memory-supabase";
 import { notifyManagerOfInboundSms } from "@/lib/sms-inbox-notice.server";
 import { parseSmsReplyAddress } from "@/lib/inbound-email/reply-address.server";
+import { smsReplyGrantRecordId } from "@/lib/inbound-email/sms-reply-grant.server";
 
 const MGR = "0f8fad5b-d9cb-469f-a165-70867728950e";
 const MGR_EMAIL = "manager@example.com";
@@ -79,6 +80,26 @@ describe("notifyManagerOfInboundSms", () => {
     // Threading anchor groups every text from this counterparty in one thread.
     expect(body.headers?.["In-Reply-To"]).toMatch(/^<pl-sms-anchor-/);
     expect(body.headers?.References).toBe(body.headers?.["In-Reply-To"]);
+
+    // The notification is what authorizes ONE emailed reply back into this
+    // conversation — the token alone verifies only a spoofable From header.
+    const grants = (db as unknown as { __tables: Record<string, Array<Record<string, unknown>>> })
+      .__tables.portal_outbound_mail_records;
+    expect(grants).toHaveLength(1);
+    expect(grants[0]!.id).toBe(smsReplyGrantRecordId(MGR, PHONE));
+    expect(grants[0]!.row_data).toMatchObject({ kind: "sms_reply_grant", consumedAt: null });
+  });
+
+  it("opens no reply window when the email never went out", async () => {
+    const db = seedDb("demo@test.proplane.local");
+    await notifyManagerOfInboundSms(db as never, {
+      managerUserId: MGR,
+      fromPhone: PHONE,
+      text: "hi",
+    });
+    const tables = (db as unknown as { __tables: Record<string, Array<Record<string, unknown>>> })
+      .__tables;
+    expect(tables.portal_outbound_mail_records ?? []).toHaveLength(0);
   });
 
   it("never emails a sandbox account, and still writes the notice", async () => {

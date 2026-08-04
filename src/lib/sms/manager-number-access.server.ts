@@ -45,7 +45,17 @@ export async function resolveManagerNumberAccess(
   }
   if (allowlist.mode === "list") {
     // Deliberate per-account enablement — billing is not consulted.
-    const { data: profile } = await db.from("profiles").select("email").eq("id", id).maybeSingle();
+    const { data: profile, error } = await db
+      .from("profiles")
+      .select("email")
+      .eq("id", id)
+      .maybeSingle();
+    // A failed read is an infra state, not "this account is not enabled": the
+    // allowlist is keyed on that email, so answering `not_enabled` would be a
+    // DEFINITIVE refusal the send path honours — one blip would suspend the
+    // pilot number. `plan_unreadable` keeps the purchase path closed and the
+    // send path open, exactly as the header above promises.
+    if (error) return { allowed: false, via: null, reason: "plan_unreadable" };
     return managerNumberAccessDecision({
       plan: UNREAD_PLAN,
       email: (profile?.email as string | null) ?? null,
@@ -160,11 +170,15 @@ export async function resolveWorkNumberOwnerAccess(
   const cacheKey = workNumberVariants(from)[0] ?? from;
   const cached = readOwnerAccessCache(cacheKey);
   if (cached) return cached.value;
-  const { data } = await db
+  const { data, error } = await db
     .from("profiles")
     .select("id")
     .in("sms_from_number", workNumberVariants(from))
     .limit(2);
+  // A failed read is not an answer. Caching it would turn the documented
+  // per-call fail-open into a minute with the paid-feature gate off for this
+  // number; only a real result is ever memoized.
+  if (error) return null;
   const rows = (data ?? []) as Array<{ id: string }>;
   // >1 owner means a shared/mis-stamped number — not a per-manager number.
   if (rows.length !== 1) {

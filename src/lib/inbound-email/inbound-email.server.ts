@@ -167,6 +167,56 @@ export async function fetchResendReceivedEmailBody(emailId: string): Promise<Res
 }
 
 /**
+ * Headers Resend exposes for a received email, lowercased by name. Empty when
+ * the key is unset, the lookup fails, or the account's payload carries none —
+ * the caller must treat "no headers" as "unknown", never as a verdict.
+ *
+ * Resend has documented only a small headers subset, and the shape differs by
+ * account (object vs `[{name, value}]`), so both are read and duplicate values
+ * for one name are joined rather than overwriting each other (a message can
+ * carry several `Authentication-Results` lines, one per hop).
+ */
+export async function fetchResendReceivedEmailHeaders(
+  emailId: string,
+): Promise<Record<string, string>> {
+  const apiKey = process.env.RESEND_API_KEY?.trim();
+  if (!apiKey) return {};
+  const base = (process.env.RESEND_INBOUND_API_BASE?.trim() || "https://api.resend.com").replace(/\/$/, "");
+  try {
+    const res = await fetch(`${base}/emails/receiving/${encodeURIComponent(emailId)}`, {
+      headers: { Authorization: `Bearer ${apiKey}` },
+      signal: AbortSignal.timeout(8_000),
+    });
+    if (!res.ok) return {};
+    const json = (await res.json()) as Record<string, unknown>;
+    const data = (json.data && typeof json.data === "object" ? json.data : json) as Record<string, unknown>;
+    const raw = data.headers;
+    const out: Record<string, string> = {};
+    const add = (name: unknown, value: unknown): void => {
+      const key = String(name ?? "").trim().toLowerCase();
+      const text = typeof value === "string" ? value : value == null ? "" : String(value);
+      if (!key || !text.trim()) return;
+      out[key] = out[key] ? `${out[key]}\n${text}` : text;
+    };
+    if (Array.isArray(raw)) {
+      for (const entry of raw) {
+        if (!entry || typeof entry !== "object") continue;
+        const record = entry as Record<string, unknown>;
+        add(record.name ?? record.key, record.value);
+      }
+    } else if (raw && typeof raw === "object") {
+      for (const [name, value] of Object.entries(raw as Record<string, unknown>)) {
+        if (Array.isArray(value)) for (const item of value) add(name, item);
+        else add(name, value);
+      }
+    }
+    return out;
+  } catch {
+    return {};
+  }
+}
+
+/**
  * Backoff between body-lookup attempts. Bounded on purpose: the enrichment runs
  * in after(), so a blip should self-heal here rather than wait for a redelivery
  * that — because the webhook already acked 200 — normally never comes. Only a

@@ -905,6 +905,14 @@ function Bubble({
             Sending…
           </span>
         ) : null}
+        {message.source === "email_reply" ? (
+          <span
+            className={`mt-1 block px-1 text-[11px] text-muted ${outbound ? "text-right" : ""}`}
+            data-attr="sms-messages-via-email"
+          >
+            via email
+          </span>
+        ) : null}
         {message.deliveryFailed ? (
           <span
             className={`mt-1 block px-1 text-[11px] font-medium text-danger ${outbound ? "text-right" : ""}`}

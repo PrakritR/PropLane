@@ -29,9 +29,34 @@ reply from any of them reaches the texter:
    (`stripEmailReplyQuote`), send claimed ONCE per Resend email id
    (`portal_outbound_mail_records` `sms_email_reply_<id>` — a webhook
    redelivery never texts twice), sent via `sendFromManagerWorkNumber`, logged
-   into the SAME conversation. A failed send BOUNCES back to the manager by
-   email — never logged as sent. Relay-pool mirrors get the email copy WITHOUT
-   a token (an emailed reply would leave the relay pair's number).
+   into the SAME conversation with `source = 'email_reply'` (the thread renders
+   "via email", so a reply the manager did not write is visible to them). A
+   failed send BOUNCES back to the manager by email — never logged as sent.
+   Relay-pool mirrors get the email copy WITHOUT a token (an emailed reply
+   would leave the relay pair's number).
+
+   ⚠️ **The token verifies against the `From` header, which is spoofable**, and
+   this leg sends a REAL text from a business number as the manager's own
+   words — so the token alone is not the gate. Three layers, in this order,
+   inside `ingestInboundEmailSmsReply`:
+   - **Sender authentication (best effort).** The receiving MTA's
+     `Authentication-Results` is read off Resend's received-email API
+     (`fetchResendReceivedEmailHeaders`) and judged by the pure
+     `evaluateAuthenticationResults` (`email-authentication.ts`): `pass` needs
+     an EXPLICIT aligned pass (dmarc=pass, or an spf/dkim pass whose own domain
+     aligns with the From domain). An explicit `fail` bounces to the manager's
+     real address and sends nothing. Resend documents no verdict on the webhook
+     and only a header subset on the API, so **`unknown` is the normal case** —
+     never treated as either proof or forgery.
+   - **Single-use reply grants** (`sms-reply-grant.server.ts`), required whenever
+     the verdict is not an explicit pass. Every notification email that carries
+     a token upserts `sms_reply_grant_<managerId>_<phone10>` in
+     `portal_outbound_mail_records`; the ingest CONSUMES it (conditional update
+     on `consumedAt is null`) before sending. One emailed reply per
+     notification, ≤7 days old; missing / expired / already-spent bounces with
+     "open PropLane to reply". Fails CLOSED on an unreadable row — unlike the
+     plan and consent gates, this one is authorization.
+   - **Per-conversation rate limit**, 3/hour (`smsEmailReplyRateLimitKey`).
 
 **Intent-router seam.** `/api/twilio/inbound` consults
 `routeInboundSms(ctx)` (`src/lib/sms-intent-router.ts`) after self-reply

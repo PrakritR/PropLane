@@ -50,7 +50,9 @@ vi.mock("@/lib/manager-access-server", () => ({ getManagerPurchaseSku: purchaseS
 import { sendFromManagerWorkNumber } from "@/lib/proplane-sms-transport.server";
 import {
   clearWorkNumberOwnerAccessCache,
+  resolveManagerNumberAccess,
   resolveWorkNumberOwnerAccess,
+  sendAllowedByAccess,
 } from "@/lib/sms/manager-number-access.server";
 
 const MGR = "mgr-1";
@@ -139,5 +141,63 @@ describe("resolveWorkNumberOwnerAccess — bounded per-send cost", () => {
     clearWorkNumberOwnerAccessCache();
     await resolveWorkNumberOwnerAccess(db as never, WORK_NUMBER);
     expect(profileReads()).toBe(2);
+  });
+
+  it("never memoizes a failed read — that is a blip, not 'this number has no owner'", async () => {
+    let reads = 0;
+    const failing = {
+      from: () => {
+        const chain: Record<string, unknown> = {};
+        chain.select = () => chain;
+        chain.in = () => chain;
+        chain.eq = () => chain;
+        chain.limit = async () => {
+          reads += 1;
+          return { data: null, error: { message: "connection reset" } };
+        };
+        chain.maybeSingle = async () => ({ data: null, error: { message: "connection reset" } });
+        return chain;
+      },
+    };
+    expect(await resolveWorkNumberOwnerAccess(failing as never, WORK_NUMBER)).toBeNull();
+    expect(await resolveWorkNumberOwnerAccess(failing as never, WORK_NUMBER)).toBeNull();
+    expect(reads).toBe(2);
+  });
+});
+
+describe("resolveManagerNumberAccess — list mode fails open on an unreadable profile", () => {
+  it("reports plan_unreadable, not a definitive not_enabled, when the email cannot be read", async () => {
+    process.env.SMS_PROVISIONING_ALLOWLIST = "pilot@example.com";
+    const failing = {
+      from: () => {
+        const chain: Record<string, unknown> = {};
+        chain.select = () => chain;
+        chain.eq = () => chain;
+        chain.in = () => chain;
+        chain.limit = async () => ({ data: null, error: { message: "connection reset" } });
+        chain.maybeSingle = async () => ({ data: null, error: { message: "connection reset" } });
+        return chain;
+      },
+    };
+    const decision = await resolveManagerNumberAccess(failing as never, MGR);
+    expect(decision).toMatchObject({ allowed: false, reason: "plan_unreadable" });
+    // The send path keeps flowing on that reason; only the purchase path stops.
+    expect(sendAllowedByAccess(decision)).toBe(true);
+  });
+
+  it("still refuses an account the captain has not enabled", async () => {
+    process.env.SMS_PROVISIONING_ALLOWLIST = "pilot@example.com";
+    const db = {
+      from: () => {
+        const chain: Record<string, unknown> = {};
+        chain.select = () => chain;
+        chain.eq = () => chain;
+        chain.maybeSingle = async () => ({ data: { email: "someone@example.com" }, error: null });
+        return chain;
+      },
+    };
+    const decision = await resolveManagerNumberAccess(db as never, MGR);
+    expect(decision).toMatchObject({ allowed: false, reason: "not_enabled" });
+    expect(sendAllowedByAccess(decision)).toBe(false);
   });
 });

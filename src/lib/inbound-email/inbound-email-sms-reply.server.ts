@@ -20,10 +20,20 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import {
   fetchResendReceivedEmailBodyWithRetry,
+  fetchResendReceivedEmailHeaders,
   htmlToText,
   type ParsedInboundEmail,
 } from "@/lib/inbound-email/inbound-email.server";
+import {
+  evaluateAuthenticationResults,
+  type InboundEmailAuthVerdict,
+} from "@/lib/inbound-email/email-authentication";
 import { stripEmailReplyQuote } from "@/lib/inbound-email/inbound-email-reply.server";
+import {
+  consumeSmsEmailReplyGrant,
+  smsEmailReplyRateLimitKey,
+} from "@/lib/inbound-email/sms-reply-grant.server";
+import { rateLimit } from "@/lib/rate-limit";
 import { logManagerSmsMessage } from "@/lib/manager-sms-messages.server";
 import { sendFromManagerWorkNumber } from "@/lib/proplane-sms-transport.server";
 import { sendManagerNoticeEmail } from "@/lib/sms-inbox-notice.server";
@@ -169,6 +179,28 @@ async function resolveReplyText(parsed: ParsedInboundEmail): Promise<string> {
   return "";
 }
 
+/**
+ * Did this reply really come from the manager? The `sms+` token verifies
+ * against the `From` header, which is spoofable, so the receiving MTA's
+ * `Authentication-Results` is consulted when one is available. Best-effort by
+ * construction: Resend exposes no verdict on the webhook and only a subset of
+ * headers on the receiving API, so "no header" is `unknown` and the caller
+ * falls back to the single-use grant rather than trusting the From alone.
+ */
+async function resolveInboundEmailAuthVerdict(
+  parsed: ParsedInboundEmail,
+): Promise<InboundEmailAuthVerdict> {
+  try {
+    const headers = await fetchResendReceivedEmailHeaders(parsed.emailId);
+    return evaluateAuthenticationResults(headers["authentication-results"], parsed.fromEmail);
+  } catch {
+    return "unknown";
+  }
+}
+
+const GRANT_BOUNCE_REASON =
+  "This conversation has no open email-reply window (a reply is allowed once per notification, for up to 7 days). Open PropLane to reply.";
+
 async function bounceToManager(args: {
   managerEmail: string;
   counterpartyPhone: string;
@@ -259,6 +291,46 @@ async function deliverClaimedEmailSmsReply(
     return { handled: true, sent: false, error: "empty_body" };
   }
 
+  const verdict = await resolveInboundEmailAuthVerdict(parsed);
+  if (verdict === "fail") {
+    await recordClaimOutcome(db, parsed.emailId, { smsSent: false, error: "auth_failed" });
+    await bounceToManager({
+      managerEmail,
+      counterpartyPhone: target.counterpartyPhone,
+      reason:
+        "A reply claiming to be you failed sender authentication, so PropLane did not text it. If you did send it, reply from PropLane instead.",
+    });
+    return { handled: true, sent: false, error: "auth_failed" };
+  }
+  if (verdict !== "pass") {
+    const grant = await consumeSmsEmailReplyGrant(db, {
+      managerUserId: target.managerUserId,
+      counterpartyPhone: target.counterpartyPhone,
+    });
+    if (!grant.ok) {
+      await recordClaimOutcome(db, parsed.emailId, {
+        smsSent: false,
+        error: `grant_${grant.reason}`,
+      });
+      await bounceToManager({
+        managerEmail,
+        counterpartyPhone: target.counterpartyPhone,
+        reason: GRANT_BOUNCE_REASON,
+      });
+      return { handled: true, sent: false, error: `grant_${grant.reason}` };
+    }
+  }
+
+  if (!rateLimit(smsEmailReplyRateLimitKey(target.managerUserId, target.counterpartyPhone), 3, 3_600_000).ok) {
+    await recordClaimOutcome(db, parsed.emailId, { smsSent: false, error: "rate_limited" });
+    await bounceToManager({
+      managerEmail,
+      counterpartyPhone: target.counterpartyPhone,
+      reason: "Too many emailed replies to this conversation in the last hour.",
+    });
+    return { handled: true, sent: false, error: "rate_limited" };
+  }
+
   const identity = await resolveConversationIdentity(
     db,
     target.managerUserId,
@@ -301,7 +373,7 @@ async function deliverClaimedEmailSmsReply(
     body: text,
     toPhone: target.counterpartyPhone,
     messageSid: send.sid ?? `email_${parsed.emailId}`,
-    source: "work_number",
+    source: "email_reply",
     counterpartyRole: identity.counterpartyRole,
   }).catch(() => false);
   await recordClaimOutcome(db, parsed.emailId, { smsSent: true, sid: send.sid ?? null });

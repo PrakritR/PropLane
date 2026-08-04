@@ -14,7 +14,12 @@ export type ManagerSmsMessageRow = {
   fromPhone: string | null;
   toPhone: string;
   messageSid: string | null;
-  source: "work_number" | "relay" | "automated";
+  /**
+   * `email_reply` means the manager sent it by answering a notification email
+   * rather than from the portal — surfaced in the thread so a reply they did
+   * not write is visible to them.
+   */
+  source: "work_number" | "relay" | "automated" | "email_reply";
   createdAt: string;
   /** Which table this row lives in — set for manager-thread deletes. */
   storageTable?: ManagerSmsMessageStorageTable;

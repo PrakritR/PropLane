@@ -309,7 +309,7 @@ export async function logManagerSmsMessage(
     fromPhone?: string | null;
     toPhone: string;
     messageSid?: string | null;
-    source?: "work_number" | "relay" | "automated";
+    source?: ManagerSmsMessageRow["source"];
     /**
      * The counterparty's capacity in this thread. On a shared line the role is
      * what separates a prospect from a resident on the SAME phone, so pass it

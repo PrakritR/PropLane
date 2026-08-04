@@ -13,6 +13,7 @@ import {
   buildSmsReplyAddress,
   smsConversationAnchorMessageId,
 } from "@/lib/inbound-email/reply-address.server";
+import { grantSmsEmailReply } from "@/lib/inbound-email/sms-reply-grant.server";
 import { formatPacificDateTime } from "@/lib/pacific-time";
 import { isPortalSandboxEmail } from "@/lib/portal-sandbox-accounts";
 
@@ -196,5 +197,15 @@ export async function notifyManagerOfInboundSms(
     replyTo,
     headers: { "In-Reply-To": anchor, References: anchor },
   });
+  // The reply token is only as trustworthy as the From header it verifies
+  // against, so it also needs a single-use window: this notification is what
+  // authorizes ONE emailed reply into this conversation.
+  if (sent && replyTo) {
+    await grantSmsEmailReply(db, {
+      managerUserId,
+      counterpartyPhone: fromPhone,
+      managerEmail,
+    }).catch(() => false);
+  }
   return { inboxNoticeWritten, emailSent: sent };
 }
