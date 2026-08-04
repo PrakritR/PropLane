@@ -344,6 +344,9 @@ describe("text to tour", () => {
     expect(result.handled).toBe(true);
     expect(result.autoReplyBody).toContain("Tour request received for Maple House");
     expect(result.autoReplyBody).toMatch(/1\) /);
+    // Slot keys are Pacific wall time; SMS has no page chrome, so every label
+    // carries an explicit " PT" (per firstmate sms-question-carveout).
+    expect(result.autoReplyBody).toMatch(/\d\) .+\d{1,2}:\d{2}\s*[AP]M PT/);
     expect(result.autoReplyBody).toContain("rent/tours-contact?propertyId=mgr-maple-house-1");
     // First contact → business identification + opt-out footer.
     expect(result.autoReplyBody).toContain("Maple House via PropLane");
@@ -621,5 +624,29 @@ describe("general responses", () => {
     expect(result.handled).toBe(true);
     expect(result.autoReplyBody).toContain("$1,050/mo");
     expect(result.autoReplyBody).toContain("/rent/listings/mgr-maple-house-1");
+  });
+
+  it("an availability question answers with real computed open slots (PT-labeled)", async () => {
+    seedListing();
+    const result = await routeInboundSms(ctx("what times are available?", { isFirstMessageInConversation: false }));
+    expect(result.handled).toBe(true);
+    expect(result.autoReplyBody).toContain("Next open tour times for Maple House");
+    expect(result.autoReplyBody).toMatch(/\d\) .+\d{1,2}:\d{2}\s*[AP]M PT/);
+    expect(result.autoReplyBody).toContain("Reply TOUR");
+  });
+
+  it("an availability question falls through when the calendar cannot be read", async () => {
+    seedListing();
+    state.availabilityReadError = true;
+    const result = await routeInboundSms(ctx("what times work?", { isFirstMessageInConversation: false }));
+    // Carve-out only fires when grounded data loaded — never invent times.
+    expect(result).toEqual({ handled: false });
+  });
+
+  it("a rent question falls through when listings cannot be read", async () => {
+    seedListing();
+    state.listingsReadError = true;
+    const result = await routeInboundSms(ctx("how much is rent?", { isFirstMessageInConversation: false }));
+    expect(result).toEqual({ handled: false });
   });
 });

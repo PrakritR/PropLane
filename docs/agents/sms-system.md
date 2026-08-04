@@ -263,19 +263,30 @@ fall-through result carries `firstContactFooter` (the business-identification
 reply**: the first automated message a new person receives has to identify the
 business and say how to opt out no matter which layer answers it. Invariants:
 
-- **A question is the leasing agent's, not the router's.** A message
-  `classifyLeasingIntent` reads as `question` — including on FIRST contact,
-  which is what the site's own "Text a question" CTA sends — returns
+- **A question is usually the leasing agent's, with two grounded carve-outs.**
+  A message `classifyLeasingIntent` reads as `question` — including on FIRST
+  contact, which is what the site's own "Text a question" CTA sends — returns
   `handled: false` so the agent answers it with grounded listing facts instead
-  of a canned menu. Only a `greeting` or a genuinely unrecognized first
-  contact gets the TOUR/APPLY menu. The no-silence chain is: router menu for
-  greeting/unrecognized → leasing agent for questions → the transport falls
-  through on `handled: false` OR on a throw from the router, and can send the
-  exported `firstContactMenuReply(listingLabel)` as its own last resort if the
-  agent fails too — which is byte-identical to the router's own menu reply
-  because ONE resolved listing label feeds both the menu body and the
-  compliance footer. Never derive the footer from a different listing than the
-  reply names, or a multi-listing manager's first contact reads as two houses.
+  of a canned menu. Two carve-outs the router answers itself, because its
+  answer is strictly better (or equal and cheaper) than the agent's: an
+  availability question ("what times?") gets the real computed open slots
+  (the agent has no tour-slot tools), and a rent question ("how much?") gets
+  the listing's stored `rentLabel` + listing link. **Each carve-out fires only
+  when that data actually loaded** — an availability or listings read failure
+  falls through instead of answering from nothing. Only a `greeting` or a
+  genuinely unrecognized first contact gets the TOUR/APPLY menu. The
+  no-silence chain is: router menu for greeting/unrecognized → router
+  carve-outs for slots/rent → leasing agent for other questions → the
+  transport falls through on `handled: false` OR on a throw from the router,
+  and can send the exported `firstContactMenuReply(listingLabel)` as its own
+  last resort if the agent fails too — which is byte-identical to the
+  router's own menu reply because ONE resolved listing label feeds both the
+  menu body and the compliance footer. Never derive the footer from a
+  different listing than the reply names, or a multi-listing manager's first
+  contact reads as two houses. SMS slot labels always carry a trailing
+  ` PT` (`tourSlotLabel`) — slot keys are Pacific wall time by design and
+  SMS has no page chrome to tell an out-of-region prospect which zone they
+  are looking at.
 
 - **Tour intent creates ONE real pending tour inquiry** — the same
   `axis_admin_partner_inquiries_v1` payload row + a single standalone
@@ -365,7 +376,8 @@ business and say how to opt out no matter which layer answers it. Invariants:
   gate.
 - Coverage: `tests/unit/sms-intent-router.test.ts` (idempotency, suppression,
   STOP/HELP/opt-out, no-rows-on-apply, live-only tours, first-contact footer,
-  question fall-through, and the write-failure / concurrent-booking paths).
+  question fall-through, availability/rent carve-outs + fail-through on read
+  error, PT slot labels, and the write-failure / concurrent-booking paths).
 
 ## Per-manager number: provisioning + registration state machine
 

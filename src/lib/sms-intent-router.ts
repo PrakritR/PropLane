@@ -23,10 +23,17 @@
  * - a greeting or otherwise unrecognized first contact → a menu that
  *   identifies the business and how to opt out, so a prospect is never met
  *   with silence.
- * - a QUESTION, first contact or not → `handled: false`, so the transport's
- *   default handler (the Claude leasing agent) answers it with grounded
- *   listing facts instead of a canned menu. The site's own "Text a question"
- *   CTA lands here.
+ * - two QUESTION carve-outs the router answers itself with grounded data
+ *   the leasing agent cannot (or cannot cheaply) produce: availability
+ *   ("what times?") → the real computed open slots; rent ("how much?") →
+ *   the listing's stored rentLabel + listing link. Each carve-out fires
+ *   ONLY when that data actually loaded — an availability or listings
+ *   read failure falls through (`handled: false`) instead of answering
+ *   from nothing.
+ * - every other QUESTION, first contact or not → `handled: false`, so the
+ *   transport's default handler (the Claude leasing agent) answers it with
+ *   grounded listing facts instead of a canned menu. The site's own "Text
+ *   a question" CTA lands here.
  *
  * Contract with the transport:
  * - `handled: true` with `autoReplyBody` → send exactly that reply.
@@ -231,10 +238,20 @@ export function looksLikeNotInterested(body: string): boolean {
   return /^\s*(no|nope|no thanks|not interested|no thank you)\s*[.!]*\s*$/i.test(body);
 }
 
-/** Pacific wall-clock label for a slot key, e.g. "Aug 5, 10:00 AM". */
+/**
+ * Pacific wall-clock label for a slot key, e.g. "Aug 5, 10:00 AM PT".
+ * The trailing " PT" is load-bearing: SMS has no page chrome telling an
+ * out-of-region prospect which zone the calendar uses, and every slotKey
+ * is Pacific wall time by design (`TOUR_CALENDAR_TIME_ZONE`).
+ */
 export function tourSlotLabel(slotKey: string): string {
   const ms = slotStartMs(slotKey);
-  return ms === null ? "that time" : formatPacificDateTime(new Date(ms));
+  return ms === null ? "that time" : `${formatPacificDateTime(new Date(ms))} PT`;
+}
+
+/** Same Pacific+PT shape for a free-form ISO instant (slot picks without a key). */
+function smsInstantLabel(iso: string): string {
+  return `${formatPacificDateTime(iso)} PT`;
 }
 
 /**
@@ -801,7 +818,7 @@ async function updateSmsTourInquiry(
 
 function numberedSlotLines(windows: InquiryWindow[]): string {
   return windows
-    .map((w, i) => `${i + 1}) ${w.slotKey ? tourSlotLabel(w.slotKey) : formatPacificDateTime(w.start)}`)
+    .map((w, i) => `${i + 1}) ${w.slotKey ? tourSlotLabel(w.slotKey) : smsInstantLabel(w.start)}`)
     .join("\n");
 }
 
@@ -898,6 +915,14 @@ export async function routeInboundSms(ctx: InboundSmsContext): Promise<SmsIntent
     autoReplyBody: `${reply}${footer}`,
   });
 
+  // Fall-through to the transport's default handler (leasing agent). On a
+  // FIRST contact the compliance footer travels with it so the first
+  // automated message still identifies the business + how to opt out.
+  const fallThrough = (): SmsIntentResult =>
+    ctx.isFirstMessageInConversation
+      ? { handled: false, firstContactFooter: complianceFooter(businessLabel) }
+      : { handled: false };
+
   // A listings read that FAILED is not a manager with nothing to show: telling
   // a prospect "no homes are open" is a dead end, while the real state is
   // retryable. Only the genuine empty case keeps the definitive copy.
@@ -922,7 +947,7 @@ export async function routeInboundSms(ctx: InboundSmsContext): Promise<SmsIntent
     const pick = parseSlotPick(body, offered.length);
     if (pick !== null && offered[pick]) {
       const chosen = offered[pick];
-      const timeLabel = chosen.slotKey ? tourSlotLabel(chosen.slotKey) : formatPacificDateTime(chosen.start);
+      const timeLabel = chosen.slotKey ? tourSlotLabel(chosen.slotKey) : smsInstantLabel(chosen.start);
       const updated: InquiryPayloadRow = {
         ...pending,
         requestedWindows: [chosen],
@@ -1060,17 +1085,12 @@ export async function routeInboundSms(ctx: InboundSmsContext): Promise<SmsIntent
   }
 
   if (looksLikeAvailabilityQuestion(body)) {
-    if (!listing) {
-      if (!listingsLookup.ok) return lookupTroubleReply();
-      return finish(`No tour windows are open right now — browse current listings at ${origin}/rent.`);
-    }
+    // Carve-out: grounded slot math the leasing agent has no tools for. Only
+    // answers when the data actually loaded — a failed read falls through so
+    // we never invent times from nothing.
+    if (!listing || !listingsLookup.ok) return fallThrough();
     const slotLookup = await listOpenTourSlots(db, managerId, listing.id).catch(() => ({ ok: false }) as const);
-    if (!slotLookup.ok) {
-      return tourLinkReply(
-        listing,
-        `Sorry — I couldn't pull up tour times for ${listing.label} just now. You can see what's open and book here:`,
-      );
-    }
+    if (!slotLookup.ok) return fallThrough();
     const offered = pickOfferedSlots(slotLookup.slots);
     if (offered.length === 0) {
       return tourLinkReply(
@@ -1083,7 +1103,10 @@ export async function routeInboundSms(ctx: InboundSmsContext): Promise<SmsIntent
     );
   }
 
-  if (looksLikeRentQuestion(body) && listing) {
+  if (looksLikeRentQuestion(body)) {
+    // Carve-out: the listing's stored rentLabel. No listing (or a failed
+    // listings read) → fall through; never invent a price.
+    if (!listing || !listingsLookup.ok) return fallThrough();
     const priceLine = listing.rentLabel ? `${listing.label}: ${listing.rentLabel}. ` : "";
     return finish(
       `${priceLine}Full pricing and details: ${buildManagerListingUrl(origin, listing.id)}\nReply TOUR to see it in person or APPLY to start an application.`,
@@ -1103,12 +1126,6 @@ export async function routeInboundSms(ctx: InboundSmsContext): Promise<SmsIntent
 
   // Nothing here answered it — let the transport's default handling
   // (e.g. the Claude leasing agent) take the turn. Opt-out and human-takeover
-  // were already enforced above, so the default path inherits those gates. On
-  // a FIRST contact the fall-through carries the compliance footer for the
-  // transport to append to the default handler's reply — the first automated
-  // message must identify the business and how to opt out no matter which
-  // layer answers it.
-  return ctx.isFirstMessageInConversation
-    ? { handled: false, firstContactFooter: complianceFooter(businessLabel) }
-    : { handled: false };
+  // were already enforced above, so the default path inherits those gates.
+  return fallThrough();
 }
