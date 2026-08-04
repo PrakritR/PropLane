@@ -251,12 +251,17 @@ inbound STOP still supersedes the recorded opt-in. Coverage:
 inbound message. ⚠️ **Nothing in-tree calls it yet** — the Twilio webhook that
 does belongs to the two-way transport lane, so this module is the body and its
 `InboundSmsContext → SmsIntentResult` signature is the fixed contract that lane
-wires up. It returns `{ handled, autoReplyBody? }`: `handled` with a
+wires up. It returns `{ handled, autoReplyBody?, firstContactFooter? }`:
+`handled` with a
 body → send exactly that; `handled` with NO body → **deliberate silence, do
 not fall through to any other auto-reply**; `handled: false` → default
 handling (the Claude leasing agent) takes the turn. Fall-through only ever
 happens for a non-opted-out, non-human-owned conversation, so the router's
-compliance gates cover the default path too. Invariants:
+compliance gates cover the default path too — and on a FIRST message the
+fall-through result carries `firstContactFooter` (the business-identification
++ opt-out footer), which **the transport must append to its default handler's
+reply**: the first automated message a new person receives has to identify the
+business and say how to opt out no matter which layer answers it. Invariants:
 
 - **A question is the leasing agent's, not the router's.** A message
   `classifyLeasingIntent` reads as `question` — including on FIRST contact,

@@ -526,18 +526,24 @@ describe("general responses", () => {
     expect(result.autoReplyBody).not.toContain("Maple House");
   });
 
-  it("a FIRST-contact question falls through to the leasing agent, not the menu", async () => {
+  it("a FIRST-contact question falls through to the leasing agent WITH the compliance footer", async () => {
     seedListing();
     const result = await routeInboundSms(ctx("Hey, curious about the neighborhood vibe over there"));
-    expect(result).toEqual({ handled: false });
+    expect(result.handled).toBe(false);
+    expect(result.autoReplyBody).toBeUndefined();
+    // The transport appends this to the agent's reply so the first automated
+    // message still identifies the business and how to opt out.
+    expect(result.firstContactFooter).toContain("Maple House via PropLane");
+    expect(result.firstContactFooter).toContain("Reply STOP to opt out");
   });
 
-  it("a later unmatched message falls through to default handling", async () => {
+  it("a later unmatched message falls through with NO footer", async () => {
     seedListing();
     const result = await routeInboundSms(
       ctx("Is the neighborhood quiet at night usually?", { isFirstMessageInConversation: false }),
     );
     expect(result).toEqual({ handled: false });
+    expect(result.firstContactFooter).toBeUndefined();
   });
 
   it("a rent question answers with the listing's price line", async () => {

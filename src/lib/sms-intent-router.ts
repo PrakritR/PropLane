@@ -37,7 +37,10 @@
  *   the Claude leasing agent) runs. It is returned for any non-opted-out,
  *   non-human-owned conversation whose message this router does not answer —
  *   including a first-contact question — so the compliance gates here cover
- *   the default path too.
+ *   the default path too. On a FIRST message the result also carries
+ *   `firstContactFooter`, which the transport must append to the default
+ *   handler's reply so the first automated message still identifies the
+ *   business and how to opt out.
  *
  * No-silence chain: router menu for a greeting/unrecognized first contact →
  * the leasing agent for questions → the transport falls through on
@@ -122,6 +125,15 @@ export type InboundSmsContext = {
 export type SmsIntentResult = {
   handled: boolean; // true = this router produced the outcome; default handling is skipped
   autoReplyBody?: string; // the automated response to send back, if any
+  /**
+   * Present ONLY when `handled` is false on the FIRST message of a
+   * conversation: the A2P business-identification + opt-out footer. The
+   * transport must append it to whatever its default handler replies, so the
+   * first automated message a new person receives always identifies the
+   * business and says how to opt out — even when the answer comes from the
+   * leasing agent rather than this router (firstmate decision, sms-footer-gate).
+   */
+  firstContactFooter?: string;
 };
 
 type Db = ReturnType<typeof createSupabaseServiceRoleClient>;
@@ -1000,6 +1012,12 @@ export async function routeInboundSms(ctx: InboundSmsContext): Promise<SmsIntent
 
   // Nothing here answered it — let the transport's default handling
   // (e.g. the Claude leasing agent) take the turn. Opt-out and human-takeover
-  // were already enforced above, so the default path inherits those gates.
-  return { handled: false };
+  // were already enforced above, so the default path inherits those gates. On
+  // a FIRST contact the fall-through carries the compliance footer for the
+  // transport to append to the default handler's reply — the first automated
+  // message must identify the business and how to opt out no matter which
+  // layer answers it.
+  return ctx.isFirstMessageInConversation
+    ? { handled: false, firstContactFooter: complianceFooter(businessLabel) }
+    : { handled: false };
 }
