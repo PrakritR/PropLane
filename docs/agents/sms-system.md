@@ -280,10 +280,13 @@ business and say how to opt out no matter which layer answers it. Invariants:
   I need two bedrooms near the light rail" is a constraint, not a price
   question. Widening either predicate back to `\bavailab(le|ility)\b` /
   `\b(rent|price|cost)\b` silently annexes a slice of the agent's job. The
-  dividing line for availability is what the word attaches to: a POSSESSED or
-  bare availability ("what's your availability?", "Availability?") is the
-  CALENDAR and stays on the carve-out, while an availability PREDICATED on a
-  thing ("is the unit still available?") is the HOME and goes to the agent.
+  dividing line for availability is the NOUN vs the ADJECTIVE: a possessed or
+  bare availabili**ty** ("what's your availability?", "Availability?") is the
+  CALENDAR and stays on the carve-out, while availab**le** describes a thing and
+  belongs to the HOME ("is the unit still available?", "what are the available
+  units?"). The possessive clause therefore spells out `availability` instead of
+  sharing an `availab(le|ility)` stem — "your available" is not English, so the
+  noun costs nothing while the stem re-annexes every "the available units".
   Only a `greeting` or a
   genuinely unrecognized first contact gets the TOUR/APPLY menu. The
   no-silence chain is: router menu for greeting/unrecognized → router
@@ -389,12 +392,26 @@ business and say how to opt out no matter which layer answers it. Invariants:
   really apply. The reply is the real wizard link with the phone prefilled.
 - **Human takeover silences the bot permanently per thread — and "thread"
   means `conversation_key`, not the phone.** Any outbound
-  `manager_sms_messages` row in THIS conversation whose `source` is not
-  `automated` (the portal composer logs `work_number`, the manager-cell relay
-  `relay`) → the router answers `handled: true` with no body. Consequence:
-  every automated reply MUST be sent with `source: "automated"`
-  (`deliverLeasingSmsReply` does), or the first bot reply would silence the
-  bot itself. Scoping on `(manager_user_id, resident_phone)` alone collapses
+  `manager_sms_messages` row in THIS conversation whose `source` is not in
+  `NON_HUMAN_AUTHORED_SMS_SOURCES` (the portal composer logs `work_number`, the
+  manager-cell relay `relay`) → the router answers `handled: true` with no
+  body. Consequence: every automated reply MUST be sent with
+  `source: "automated"` (`deliverLeasingSmsReply` does), or the first bot reply
+  would silence the bot itself.
+  **A takeover is a message a human COMPOSED, which is narrower than "not the
+  bot".** A templated CTA the system sent on the manager's behalf — Share
+  listing / Invite to apply / Share tour, all `/api/portal/send-lead-invite`
+  with `source: "lead_invite"` and a body from `buildLeadInviteSmsText` — is
+  not someone manning the thread; it opens a door the prospect is meant to walk
+  through. It logged `work_number` and landed on the exact
+  `<mgr>:prospect:+1…` key the router resolves for the reply, so a prospect who
+  texted TOUR back was answered with silence — and since that also suppresses
+  the leasing agent, a lead the manager had just reached out to hit a dead end.
+  `NON_HUMAN_AUTHORED_SMS_SOURCES` (`manager-sms-messages.ts`) is the ONE list
+  of excluded sources, read by the gate; tag a future CTA/blast sender by
+  ADDING its source there, never by inferring from `work_number` (the composer
+  is a person typing and must still count) and never by counting outbounds.
+  `…_manager_sms_lead_invite_source.sql` widens the `source` CHECK. Scoping on `(manager_user_id, resident_phone)` alone collapses
   the role-distinct threads one phone can hold (`owner:role:person_ref`), so a
   manager who once replied in someone's RESIDENT thread would permanently
   silence that person's PROSPECT thread — and since this result also suppresses

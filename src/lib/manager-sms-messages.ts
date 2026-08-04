@@ -7,6 +7,25 @@ export type ManagerSmsMessageStorageTable =
   | "inbound_sms_log"
   | "sms_relay_messages";
 
+/**
+ * Who AUTHORED an outbound row. `work_number` (portal composer) and `relay`
+ * (manager cell) are a person typing; `automated` is the bot; `lead_invite` is
+ * a templated CTA the system sent on the manager's behalf (Share listing /
+ * Invite to apply / Share tour — `buildLeadInviteSmsText` composes it, nobody
+ * types it).
+ */
+export type ManagerSmsSource = "work_number" | "relay" | "automated" | "lead_invite";
+
+/**
+ * Sources that are NOT a human composing in the thread, so they must never
+ * count as a human takeover of it (`humanOwnsConversation` in
+ * `sms-intent-router.ts` reads exactly this list). A share opens a door the
+ * prospect is meant to walk through: counting it silences the reply it was
+ * sent to invite. Tag a new CTA/blast sender by ADDING its source here rather
+ * than teaching the gate a second rule.
+ */
+export const NON_HUMAN_AUTHORED_SMS_SOURCES: ManagerSmsSource[] = ["automated", "lead_invite"];
+
 export type ManagerSmsMessageRow = {
   id: string;
   direction: "inbound" | "outbound";
@@ -14,7 +33,7 @@ export type ManagerSmsMessageRow = {
   fromPhone: string | null;
   toPhone: string;
   messageSid: string | null;
-  source: "work_number" | "relay" | "automated";
+  source: ManagerSmsSource;
   createdAt: string;
   /** Which table this row lives in — set for manager-thread deletes. */
   storageTable?: ManagerSmsMessageStorageTable;

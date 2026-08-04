@@ -62,11 +62,12 @@
  *   reads any non-`automated` outbound row as "a manager is talking".
  *
  * Auto-reply suppression rule (stated once, tested):
- * once ANY outbound message in THIS CONVERSATION was authored by a human
+ * once ANY outbound message in THIS CONVERSATION was COMPOSED by a human
  * (source `work_number` or `relay` — the portal composer and the manager-cell
  * relay), automated replies stop for that thread permanently. Bot traffic
- * always logs `source: "automated"`, so a single manager reply flips the
- * thread to human-owned and this router goes silent. The scope is the
+ * always logs `source: "automated"` and templated CTA shares log
+ * `source: "lead_invite"` (neither is a person typing), so a single manager
+ * reply flips the thread to human-owned and this router goes silent. The scope is the
  * `conversation_key`, not the phone: the same phone can hold a resident thread
  * and a prospect thread, and silencing one because of the other is total
  * silence (this result suppresses the leasing agent too).
@@ -108,6 +109,7 @@ import {
 } from "@/lib/claw-leasing-links";
 import { publicAppOrigin } from "@/lib/claw-leasing-bot.server";
 import { normalizePhoneE164 } from "@/lib/communication-other-recipients";
+import { NON_HUMAN_AUTHORED_SMS_SOURCES } from "@/lib/manager-sms-messages";
 import {
   buildManagerApplyUrl,
   buildManagerListingUrl,
@@ -272,10 +274,13 @@ const WINDOW_IS_OPEN = new RegExp(
  * available?" is a question about the HOME, and answering it with a list of
  * tour times never answers what was asked while also preempting the leasing
  * agent, which owns every question this router cannot ground. The dividing
- * line is what the word is attached to — a POSSESSED or bare availability
- * ("your availability", "the availability", "Availability?") is the calendar,
- * while an availability PREDICATED on a thing ("the unit is available") is the
- * home. Neither clause below matches that sentence.
+ * line is the NOUN vs the ADJECTIVE: a possessed or bare availabiliTY ("your
+ * availability", "the availability", "Availability?") is the calendar, while
+ * availabLE describes a thing and belongs to the home ("the unit is
+ * available", "the available units"). The possessive clause below therefore
+ * spells out `availability` rather than sharing the `availab(le|ility)` stem —
+ * "your available" is not English, so the noun costs nothing and the adjective
+ * would re-annex every "what are the available units?".
  */
 export function looksLikeAvailabilityQuestion(body: string): boolean {
   const t = body.trim().toLowerCase();
@@ -284,7 +289,7 @@ export function looksLikeAvailabilityQuestion(body: string): boolean {
     /\bwhen\s+(can|could|is|are|do|does|would)\b/.test(t) ||
     AVAILABLE_WINDOW.test(t) ||
     WINDOW_IS_OPEN.test(t) ||
-    /\b(your|the)\s+availab(?:le|ility)\b/.test(t) ||
+    /\b(your|the)\s+availability\b/.test(t) ||
     /^\s*availability\s*\??\s*$/.test(t) ||
     /^\s*times?\??\s*$/.test(t)
   );
@@ -534,6 +539,18 @@ export function resolveTargetListing(args: {
  * the leasing agent too: total silence for a person who just texted the
  * listing's number.
  *
+ * "Human" means a person COMPOSED this message, which is narrower than "not the
+ * bot". A templated CTA the system sent on the manager's behalf — Share listing
+ * / Invite to apply / Share tour, tagged `lead_invite` — is not someone manning
+ * the thread; it opens a door the prospect is meant to walk through. Counting it
+ * silenced the very reply it invited: a prospect who texted TOUR after a share
+ * got `handled: true` with no body, which suppresses the leasing agent too, so
+ * a lead the manager had just reached out to hit a dead end. The excluded set is
+ * {@link NON_HUMAN_AUTHORED_SMS_SOURCES}, read from one definition so a future
+ * CTA sender opts out by naming its source there rather than by the gate
+ * growing a second rule. Note this is an explicit TAG, never an inference from
+ * `work_number` — the portal composer is a person typing and must still count.
+ *
  * Narrowing to the key is only safe because UNATTRIBUTED history still counts.
  * A role is a guess made by whichever writer stored the row, and the portal
  * composer's "Other" / new-recipient path has nothing to guess from: it passes
@@ -561,14 +578,16 @@ async function humanOwnsConversation(
   fromPhone: string,
   conversationId: string,
 ): Promise<boolean> {
-  const humanOutbound = () =>
-    db
+  const humanOutbound = () => {
+    let query = db
       .from("manager_sms_messages")
       .select("id")
       .eq("manager_user_id", managerId)
       .in("resident_phone", profilePhoneVariants(fromPhone))
-      .eq("direction", "outbound")
-      .neq("source", "automated");
+      .eq("direction", "outbound");
+    for (const source of NON_HUMAN_AUTHORED_SMS_SOURCES) query = query.neq("source", source);
+    return query;
+  };
 
   try {
     const thread = conversationId?.trim();

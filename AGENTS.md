@@ -343,6 +343,12 @@ the modal targets one tour flow. Rules baked into the modal +
   threads like any other prospect SMS — see
   [`docs/agents/sms-system.md`](docs/agents/sms-system.md)). SMS copy is its own
   short builder, `buildLeadInviteSmsText`, not a trimmed email body.
+- **That send is tagged `source: "lead_invite"`, never `work_number`.** Nobody
+  types it, and the inbound intent router treats a human-composed outbound in a
+  prospect thread as a takeover that silences BOTH the router and the leasing
+  agent — so tagging a share as human made the prospect's "TOUR" reply to it go
+  unanswered. Keep the tag on any future CTA/share sender and add its source to
+  `NON_HUMAN_AUTHORED_SMS_SOURCES`.
 
 ## Listing images: never fabricate a photo
 

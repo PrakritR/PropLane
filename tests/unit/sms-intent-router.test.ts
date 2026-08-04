@@ -350,6 +350,27 @@ describe("human takeover suppression", () => {
     expect(result.autoReplyBody).toContain("Tour request received");
   });
 
+  it("a templated listing share does NOT silence the reply it invited", async () => {
+    seedListing();
+    // Share listing / Invite to apply / Share tour go out as `lead_invite` —
+    // nobody typed them, and they land on the very prospect key the router
+    // resolves for the reply. Counting one as a takeover means the prospect
+    // texts TOUR and hears nothing (the agent is suppressed too).
+    state.smsMessages.push({
+      id: "m1",
+      manager_user_id: MANAGER_ID,
+      resident_phone: PROSPECT_PHONE,
+      direction: "outbound",
+      source: "lead_invite",
+      counterparty_role: "prospect",
+      conversation_key: `${MANAGER_ID}:prospect:2065550123`,
+    });
+
+    const result = await routeInboundSms(ctx("Hi — I'd like to schedule a tour for Maple House."));
+
+    expect(result.autoReplyBody).toContain("Tour request received");
+  });
+
   it("a human outbound with an UNATTRIBUTED role silences this thread", async () => {
     seedListing();
     // The portal composer's "Other" / new-recipient path has no thread to read
@@ -830,6 +851,16 @@ describe("general responses", () => {
     // A question about the HOME. Answering it with tour windows never answers
     // what was asked and preempts the agent, which owns ungrounded questions.
     expect(result).toEqual({ handled: false });
+  });
+
+  it("the ADJECTIVE 'available' describes the home, so it is not a tour-window question", async () => {
+    seedListing();
+    // The possessive clause must spell out the noun: "the available units" sits
+    // one word away from "the availability" and means the opposite thing.
+    for (const body of ["What are the available units?", "Are the available rooms furnished?"]) {
+      const result = await routeInboundSms(ctx(body, { isFirstMessageInConversation: false }));
+      expect(result).toEqual({ handled: false });
+    }
   });
 
   it("a rent MENTION is not a rent question", async () => {

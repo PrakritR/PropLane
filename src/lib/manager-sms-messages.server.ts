@@ -7,6 +7,7 @@ import type {
   ManagerSmsMessageRow,
   ManagerSmsMessageStorageTable,
   ManagerSmsResidentConversation,
+  ManagerSmsSource,
 } from "@/lib/manager-sms-messages";
 import {
   buildConversationKey,
@@ -309,7 +310,7 @@ export async function logManagerSmsMessage(
     fromPhone?: string | null;
     toPhone: string;
     messageSid?: string | null;
-    source?: "work_number" | "relay" | "automated";
+    source?: ManagerSmsSource;
     /**
      * The counterparty's capacity in this thread. On a shared line the role is
      * what separates a prospect from a resident on the SAME phone, so pass it

@@ -277,7 +277,7 @@ export async function POST(req: Request) {
         to: phone,
         text: smsText,
         fromNumber: workNumber,
-        source: "work_number",
+        source: "lead_invite",
         counterpartyRole: "prospect",
       });
       if (!smsResult.ok) {

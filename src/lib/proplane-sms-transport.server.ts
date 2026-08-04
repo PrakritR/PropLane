@@ -16,6 +16,7 @@ import {
   isClawSharedLineBridgeEnabled,
   managerContactSmsPhoneForPublicCta,
 } from "@/lib/claw-leasing-links";
+import type { ManagerSmsSource } from "@/lib/manager-sms-messages";
 import { isPhoneOptedOut } from "@/lib/sms-consent";
 import { quietHoursBlocks, type SmsSendClass } from "@/lib/sms/number-registration-policy";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
@@ -68,7 +69,7 @@ async function logOutboundIfNeeded(args: {
     managerUserId: string;
     residentUserId?: string | null;
     residentPhone?: string | null;
-    source?: "work_number" | "relay" | "automated";
+    source?: ManagerSmsSource;
     counterpartyRole?: import("@/lib/sms-conversation-identity").SmsCounterpartyRole;
   } | null;
   to: string;
@@ -122,7 +123,7 @@ export async function sendPropLaneSms(args: {
     managerUserId: string;
     residentUserId?: string | null;
     residentPhone?: string | null;
-    source?: "work_number" | "relay" | "automated";
+    source?: ManagerSmsSource;
     counterpartyRole?: import("@/lib/sms-conversation-identity").SmsCounterpartyRole;
   } | null;
 }): Promise<PropLaneSmsResult> {
@@ -194,7 +195,7 @@ export async function sendFromManagerWorkNumber(args: {
   /** When already known (inbound webhook), skip the profile lookup. */
   fromNumber?: string | null;
   residentUserId?: string | null;
-  source?: "work_number" | "relay" | "automated";
+  source?: ManagerSmsSource;
   /** Traffic class for the consent + quiet-hours gate (default transactional). */
   sendClass?: SmsSendClass;
   /** The recipient's capacity, so outbound threads under the same
