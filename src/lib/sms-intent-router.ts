@@ -13,7 +13,7 @@
  *   with candidate windows drawn from the SAME offering the public
  *   availability grid computes: published future slots, else the 9-5 default
  *   grid for a LIVE listing, minus pending-inquiry and booked-tour blocks
- *   (`loadManagerTourBlocks`). The manager confirms through the existing
+ *   (`loadManagerTourBlocksResult`). The manager confirms through the existing
  *   accept/proposal machinery — nothing here books a tour directly.
  * - apply intent → replies with the property's real application wizard link,
  *   phone prefilled. Deliberately NO application row is created: a draft
@@ -104,6 +104,7 @@ import {
   extractBundleIdHint,
   extractPropertyIdHint,
   extractPropertyLabelHint,
+  type LeasingIntent,
 } from "@/lib/claw-leasing-links";
 import { publicAppOrigin } from "@/lib/claw-leasing-bot.server";
 import { normalizePhoneE164 } from "@/lib/communication-other-recipients";
@@ -138,6 +139,21 @@ export type InboundSmsContext = {
   toPhone: string; // the manager number that was texted
   body: string;
   managerId: string;
+  /**
+   * The thread's durable conversation key, and it MUST be byte-identical to
+   * `buildConversationKey({ ownerManagerUserId, role, counterpartyUserId,
+   * counterpartyPhone })` (`sms-conversation-identity.ts`) — the same value
+   * `logManagerSmsMessage` stores in `manager_sms_messages.conversation_key`.
+   * Note `conversationPhoneRef` normalizes to `+1XXXXXXXXXX`, so a bare
+   * 10-digit person_ref is NOT the same key.
+   *
+   * This is load-bearing for a SAFETY gate, not just a label:
+   * {@link humanOwnsConversation} matches human-authored outbound rows against
+   * it, and a key that does not match what the writers store silently reports
+   * "no human here" — the bot then talks over a manager's live conversation.
+   * The `counterparty_role = 'unknown'` and NULL-key fallbacks there bound the
+   * damage; they are not a licence to send an approximate key.
+   */
   conversationId: string;
   isFirstMessageInConversation: boolean;
 };
@@ -172,6 +188,24 @@ const OFFERED_TOUR_SLOTS = 3;
 const OFFERED_SLOT_MIN_GAP_MS = 3 * 60 * 60 * 1000;
 
 const INQUIRY_EVENT_RECORD_TYPE = "partner_inquiry_request";
+
+/**
+ * Intents whose whole answer is a WIZARD LINK. One list, read by the branch
+ * that sends the link AND by the contact-fill guards that must not swallow the
+ * message before it gets there — the bundle CTA drafts "I'd like to apply for
+ * the bundle "X" at Y", so a guard that names only `apply` loses that lead to
+ * the tour-email fill exactly the way an unguarded one lost `apply`.
+ */
+const WIZARD_LINK_INTENTS: LeasingIntent[] = ["apply", "bundle"];
+
+function wantsWizardLink(intent: LeasingIntent): boolean {
+  return WIZARD_LINK_INTENTS.includes(intent);
+}
+
+/** An intent that is its own request, so a pending inquiry's contact fill must defer to it. */
+function intentOutranksContactFill(intent: LeasingIntent): boolean {
+  return intent === "tour" || wantsWizardLink(intent);
+}
 
 const OPT_BACK_IN_REPLY =
   "You're opted back in. Reply TOUR to schedule a tour, APPLY to start an application, or HELP for help. Reply STOP to opt out.";
@@ -231,12 +265,17 @@ const WINDOW_IS_OPEN = new RegExp(
 );
 
 /**
- * "what times…", "when can I…", "any open slots?" — asking for TOUR WINDOWS.
+ * "what times…", "when can I…", "any open slots?", "what's your availability?"
+ * — asking for TOUR WINDOWS.
  *
  * Deliberately narrower than "the message says available": "is the unit still
  * available?" is a question about the HOME, and answering it with a list of
  * tour times never answers what was asked while also preempting the leasing
- * agent, which owns every question this router cannot ground.
+ * agent, which owns every question this router cannot ground. The dividing
+ * line is what the word is attached to — a POSSESSED or bare availability
+ * ("your availability", "the availability", "Availability?") is the calendar,
+ * while an availability PREDICATED on a thing ("the unit is available") is the
+ * home. Neither clause below matches that sentence.
  */
 export function looksLikeAvailabilityQuestion(body: string): boolean {
   const t = body.trim().toLowerCase();
@@ -245,6 +284,8 @@ export function looksLikeAvailabilityQuestion(body: string): boolean {
     /\bwhen\s+(can|could|is|are|do|does|would)\b/.test(t) ||
     AVAILABLE_WINDOW.test(t) ||
     WINDOW_IS_OPEN.test(t) ||
+    /\b(your|the)\s+availab(?:le|ility)\b/.test(t) ||
+    /^\s*availability\s*\??\s*$/.test(t) ||
     /^\s*times?\??\s*$/.test(t)
   );
 }
@@ -493,10 +534,24 @@ export function resolveTargetListing(args: {
  * the leasing agent too: total silence for a person who just texted the
  * listing's number.
  *
- * Fails CLOSED in both senses: an unreadable takeover history reads as
- * human-owned, and so does a human-authored row whose `conversation_key` is
- * NULL (unattributable legacy history — the same rule
- * `manager-sms-messages.server.ts` applies before sweeping by phone). A bot
+ * Narrowing to the key is only safe because UNATTRIBUTED history still counts.
+ * A role is a guess made by whichever writer stored the row, and the portal
+ * composer's "Other" / new-recipient path has nothing to guess from: it passes
+ * `counterpartyRole: match?.counterpartyRole`, which is `undefined` for a phone
+ * with no existing thread, so `deriveCounterpartyRole` returns `unknown` and
+ * the row lands on `<mgr>:unknown:<phone>`. That is a manager cold-texting a
+ * prospect — precisely the conversation the bot must not barge into — and an
+ * exact-key match misses it in both directions. So this is human-owned when a
+ * human-authored outbound for the same manager + phone:
+ *
+ * - carries THIS `conversation_key`, or
+ * - carries `counterparty_role = 'unknown'` (never attributed to a thread), or
+ * - carries NO `conversation_key` (unattributable legacy history — the same
+ *   rule `manager-sms-messages.server.ts` applies before sweeping by phone).
+ *
+ * A row attributed to a DIFFERENT definite role (a resident thread) is still
+ * excluded: that is the whole point of scoping by key. Every other failure
+ * fails closed too — an unreadable takeover history reads as human-owned. A bot
  * that was wrongly quiet for one transient outage is recoverable; a bot that
  * barges into a live human conversation is not.
  */
@@ -526,18 +581,17 @@ async function humanOwnsConversation(
       }
       return (data ?? []).length > 0;
     }
-    const [scoped, legacy] = await Promise.all([
+    const reads = await Promise.all([
       humanOutbound().eq("conversation_key", thread).limit(1),
+      humanOutbound().eq("counterparty_role", "unknown").limit(1),
       humanOutbound().is("conversation_key", null).limit(1),
     ]);
-    if (scoped.error || legacy.error) {
-      console.error(
-        "sms-intent-router takeover read failed",
-        scoped.error?.message ?? legacy.error?.message,
-      );
+    const failed = reads.find((read) => read.error);
+    if (failed) {
+      console.error("sms-intent-router takeover read failed", failed.error?.message);
       return true;
     }
-    return (scoped.data ?? []).length > 0 || (legacy.data ?? []).length > 0;
+    return reads.some((read) => (read.data ?? []).length > 0);
   } catch (err) {
     console.error("sms-intent-router takeover read threw", err);
     return true;
@@ -766,7 +820,7 @@ async function writeInquiryRecords(db: Db, records: Record<string, unknown>[]): 
  * full payload — every offered window included.
  *
  * A multi-window offer does not need a record per window: both readers of these
- * rows (`loadManagerTourBlocks` and the public availability route) expand
+ * rows (`loadManagerTourBlocksResult` and the public availability route) expand
  * `windowsFromPayload(payload)`, so the single `_0` record already blocks every
  * requested window. Writing `_1`/`_2` as well would leak them forever, because
  * the shared accept path (`tour-inquiry-confirm.server.ts`) and the portal
@@ -1117,14 +1171,14 @@ export async function routeInboundSms(ctx: InboundSmsContext): Promise<SmsIntent
     // jordan@example.com" is an APPLY request that happens to carry an address.
     // Swallowing it as a tour-confirmation email answers a question the
     // prospect did not ask and never sends the wizard link they did.
-    const email = intent === "tour" || intent === "apply" ? null : extractEmailCandidate(body);
+    const email = intentOutranksContactFill(intent) ? null : extractEmailCandidate(body);
     if (email && !textField(pending, "email")) {
       const updated = { ...pending, email };
       if (!(await updateSmsTourInquiry(db, pending, updated))) return saveFailed("your email");
       return finish(`Thanks — we'll send your tour confirmation to ${email}.${contactAsk(updated)}`);
     }
 
-    if (intent !== "tour" && intent !== "apply" && !textField(pending, "name")) {
+    if (!intentOutranksContactFill(intent) && !textField(pending, "name")) {
       const name = extractNameCandidate(body);
       if (name) {
         const updated = { ...pending, name };
@@ -1221,7 +1275,7 @@ export async function routeInboundSms(ctx: InboundSmsContext): Promise<SmsIntent
     );
   }
 
-  if (intent === "apply" || intent === "bundle") {
+  if (wantsWizardLink(intent)) {
     if (!listing) {
       if (!listingsLookup.ok) return lookupTroubleReply();
       if (unresolvedPropertyId) return unknownListingReply();

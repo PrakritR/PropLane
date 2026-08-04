@@ -279,7 +279,11 @@ business and say how to opt out no matter which layer answers it. Invariants:
   neither answers it nor lets the agent answer it; "my rent budget is 2000 and
   I need two bedrooms near the light rail" is a constraint, not a price
   question. Widening either predicate back to `\bavailab(le|ility)\b` /
-  `\b(rent|price|cost)\b` silently annexes a slice of the agent's job.
+  `\b(rent|price|cost)\b` silently annexes a slice of the agent's job. The
+  dividing line for availability is what the word attaches to: a POSSESSED or
+  bare availability ("what's your availability?", "Availability?") is the
+  CALENDAR and stays on the carve-out, while an availability PREDICATED on a
+  thing ("is the unit still available?") is the HOME and goes to the agent.
   Only a `greeting` or a
   genuinely unrecognized first contact gets the TOUR/APPLY menu. The
   no-silence chain is: router menu for greeting/unrecognized → router
@@ -301,7 +305,7 @@ business and say how to opt out no matter which layer answers it. Invariants:
   manager's calendar, accept route, and approval-first proposal engine all see
   it with zero new code. Candidate windows come from the same offering formula
   as the public availability route (published future slots, else the 9-5
-  default grid, LIVE listings only, minus `loadManagerTourBlocks`) with the two
+  default grid, LIVE listings only, minus `loadManagerTourBlocksResult`) with the two
   deltas `listOpenTourSlots` documents: Google-calendar busy time is NOT
   subtracted and the published-slot POST guard is not re-run, matching
   `findFirstOpenTourSlot` — the manager still confirms before anything books,
@@ -317,7 +321,7 @@ business and say how to opt out no matter which layer answers it. Invariants:
   check twice. A hit on the re-check sends the reminder instead of inserting.
 - **A multi-window SMS offer still writes exactly ONE standalone record**,
   index `_0`, whose payload carries every `requestedWindows` entry. That is
-  sufficient — `loadManagerTourBlocks` and the public availability route both
+  sufficient — `loadManagerTourBlocksResult` and the public availability route both
   expand `windowsFromPayload(payload)`, so the one record blocks all offered
   windows — and it is also the only safe shape: the shared accept path
   (`tour-inquiry-confirm.server.ts`) and `/api/portal-tour-inquiries/delete`
@@ -352,9 +356,10 @@ business and say how to opt out no matter which layer answers it. Invariants:
   router offered — and filed an inquiry into — windows a pending inquiry or a
   confirmed tour already held, with only the first window protected by
   `portal_schedule_tour_manager_slot_unique` and only against other inquiry
-  rows. `loadManagerTourBlocksResult` now reports the failure and the router
-  aborts on it; the lenient `loadManagerTourBlocks` wrapper survives for the
-  proposal engine's existing callers. An unreadable listings read
+  rows. `loadManagerTourBlocksResult` reports the failure and **every** caller
+  aborts on it — the router AND `findFirstOpenTourSlot`, whose contract is that
+  a proposal only lands on a slot the grid would still offer. There is
+  deliberately no lenient wrapper left to reach for. An unreadable listings read
   answers with retryable copy, never the definitive "No homes are open for tours
   right now" that a genuinely empty portfolio gets — one is a dead end for the
   prospect, the other is a retry.
@@ -372,7 +377,7 @@ business and say how to opt out no matter which layer answers it. Invariants:
   treated as explicit — it reads "the property manager" as the id `manager`.
 - **Every writer re-reads the singleton immediately before merging.**
   `findPendingTourInquiry` is an idempotency CHECK only and deliberately
-  returns no payload: several round trips (slot math, `loadManagerTourBlocks`)
+  returns no payload: several round trips (slot math, `loadManagerTourBlocksResult`)
   sit between it and the write, and merging onto that stale snapshot would
   silently drop any inquiry created meanwhile — unrecoverable, since its
   standalone records would outlive their payload row. The update path also
@@ -393,9 +398,22 @@ business and say how to opt out no matter which layer answers it. Invariants:
   the role-distinct threads one phone can hold (`owner:role:person_ref`), so a
   manager who once replied in someone's RESIDENT thread would permanently
   silence that person's PROSPECT thread — and since this result also suppresses
-  the leasing agent, the silence is total. Legacy rows whose `conversation_key`
-  is NULL are unattributable and still suppress, the same fail-closed rule
-  `manager-sms-messages.server.ts` applies before sweeping by phone.
+  the leasing agent, the silence is total.
+  **Narrowing to the key is only safe because UNATTRIBUTED history still
+  counts.** A role is a guess made by whoever stored the row, and the portal
+  composer's "Other" / new-recipient path has nothing to guess from: it passes
+  `counterpartyRole: match?.counterpartyRole`, `undefined` for a phone with no
+  existing thread, so the row lands on `<mgr>:unknown:<phone>` — a manager cold-
+  texting a prospect, exactly the conversation the bot must not barge into, and
+  an exact-key match misses it. So a human outbound for this manager + phone
+  suppresses when it carries THIS key, **or `counterparty_role = 'unknown'`,
+  or no `conversation_key`** (unattributable legacy history — the same
+  fail-closed rule `manager-sms-messages.server.ts` applies before sweeping by
+  phone). Only a DIFFERENT definite role is excluded. `InboundSmsContext.conversationId` must
+  therefore be the exact `buildConversationKey(...)` output the writers store
+  (`conversationPhoneRef` yields `+1XXXXXXXXXX`, not bare digits); an
+  approximate key is a silent fail-open that those two fallbacks only partly
+  bound.
 - **A name/email follow-up rewrites the `_0` standalone from the SAME window
   source the shared readers use.** `windowsOf` carries
   `windowsFromPayload`'s `proposedStart`/`proposedEnd` fallback, so a
@@ -404,10 +422,14 @@ business and say how to opt out no matter which layer answers it. Invariants:
   pre-edit payload on the record the manager's calendar and the public
   availability route actually read.
 - **A follow-up is only a contact fill when it is not an INTENT.** The email
-  and name fills both skip `tour` / `apply` messages: "I'd like to apply —
-  jordan@example.com" is an application request that happens to carry an
-  address, and swallowing it as a tour-confirmation email never sends the
-  wizard link the prospect asked for. A bare capitalized single word ("Sarah")
+  and name fills both skip `tour` and every wizard-link intent: "I'd like to
+  apply — jordan@example.com" is an application request that happens to carry
+  an address, and swallowing it as a tour-confirmation email never sends the
+  wizard link the prospect asked for. `WIZARD_LINK_INTENTS` (`apply`,
+  `bundle`) is ONE list read by the guards AND by the branch that sends the
+  link, so they cannot drift — the bundle CTA drafts `I'd like to apply for the
+  bundle "X" at Y`, which classifies as `bundle`, and a guard naming only
+  `apply` lost that lead the same way an unguarded one lost `apply`. A bare capitalized single word ("Sarah")
   DOES count as a name — the inquiry reply ends with "What name should we put
   on the tour?", and the stopword list already blocks the intent, affirmation
   and day words a one-word reply would otherwise be.

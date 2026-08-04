@@ -341,12 +341,36 @@ describe("human takeover suppression", () => {
       resident_phone: PROSPECT_PHONE,
       direction: "outbound",
       source: "work_number",
+      counterparty_role: "resident",
       conversation_key: `${MANAGER_ID}:resident:${PROSPECT_PHONE}`,
     });
 
     const result = await routeInboundSms(ctx("Hi — I'd like to schedule a tour for Maple House."));
 
     expect(result.autoReplyBody).toContain("Tour request received");
+  });
+
+  it("a human outbound with an UNATTRIBUTED role silences this thread", async () => {
+    seedListing();
+    // The portal composer's "Other" / new-recipient path has no thread to read
+    // a role from, so `deriveCounterpartyRole` returns "unknown" and the row
+    // lands on <mgr>:unknown:<phone>. That is a manager cold-texting a
+    // prospect — an exact-key match misses it, and the bot would reply over
+    // the manager's live outreach.
+    state.smsMessages.push({
+      id: "m1",
+      manager_user_id: MANAGER_ID,
+      resident_phone: PROSPECT_PHONE,
+      direction: "outbound",
+      source: "work_number",
+      counterparty_role: "unknown",
+      conversation_key: `${MANAGER_ID}:unknown:${PROSPECT_PHONE}`,
+    });
+
+    const result = await routeInboundSms(ctx("Hi — I'd like to schedule a tour for Maple House."));
+
+    expect(result).toEqual({ handled: true });
+    expect(inquiryPayload()).toHaveLength(0);
   });
 
   it("a human reply in THIS thread silences it", async () => {
@@ -584,6 +608,21 @@ describe("text to tour", () => {
     expect(inquiryPayload()[0]!.email).toBe("");
   });
 
+  it("a bundle text carrying an email gets the wizard link, not a tour confirmation", async () => {
+    seedListing();
+    await routeInboundSms(ctx("Hi — I'd like to schedule a tour for Maple House."));
+
+    const result = await routeInboundSms(
+      ctx('Hi — I\'d like to apply for the bundle "Upstairs" at Maple House. jordan@example.com', {
+        isFirstMessageInConversation: false,
+      }),
+    );
+
+    expect(result.autoReplyBody).toContain("/rent/apply?propertyId=mgr-maple-house-1");
+    expect(result.autoReplyBody).not.toContain("we'll send your tour confirmation");
+    expect(inquiryPayload()[0]!.email).toBe("");
+  });
+
   it("an unreadable listings read is retryable copy, not 'no homes are open'", async () => {
     seedListing();
     state.listingsReadError = true;
@@ -773,6 +812,14 @@ describe("general responses", () => {
     expect(result.autoReplyBody).toContain("Next open tour times for Maple House");
     expect(result.autoReplyBody).toMatch(/\d\) .+\d{1,2}:\d{2}\s*[AP]M PT/);
     expect(result.autoReplyBody).toContain("Reply TOUR");
+  });
+
+  it("possessive and bare availability still reach the slot carve-out", async () => {
+    seedListing();
+    for (const body of ["What's your availability?", "Availability?"]) {
+      const result = await routeInboundSms(ctx(body, { isFirstMessageInConversation: false }));
+      expect(result.autoReplyBody).toContain("Next open tour times for Maple House");
+    }
   });
 
   it("'is the unit still available?' belongs to the leasing agent, not the slot carve-out", async () => {

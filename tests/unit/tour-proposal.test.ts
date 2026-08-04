@@ -16,7 +16,7 @@ vi.mock("@/lib/tour-notification-delivery.server", () => ({
 import { slotStartMs } from "@/lib/tour-slot-math";
 import {
   findFirstOpenTourSlot,
-  loadManagerTourBlocks,
+  loadManagerTourBlocksResult,
   proposeTourConfirmation,
   CONFIRM_TOUR_INQUIRY_TOOL,
 } from "@/lib/tour-proposal.server";
@@ -43,7 +43,11 @@ class FakeQuery {
   private pendingUpdate: Row | null = null;
   private wantSingle = false;
 
-  constructor(private store: Record<string, Row[]>, private table: string) {
+  constructor(
+    private store: Record<string, Row[]>,
+    private table: string,
+    private errorTables?: Set<string>,
+  ) {
     if (!store[table]) store[table] = [];
   }
   private rows(): Row[] {
@@ -112,7 +116,10 @@ class FakeQuery {
     this.mode = "delete";
     return this;
   }
-  private resolve(): { data: unknown; error: null } {
+  private resolve(): { data: unknown; error: { message: string } | null } {
+    if (this.errorTables?.has(this.table)) {
+      return { data: null, error: { message: `${this.table} read failed` } };
+    }
     if (this.mode === "insert") {
       return { data: this.wantSingle ? this.pendingInsert : [this.pendingInsert], error: null };
     }
@@ -128,13 +135,16 @@ class FakeQuery {
     }
     return { data: this.wantSingle ? matched[0] ?? null : matched, error: null };
   }
-  then<T>(onFulfilled: (v: { data: unknown; error: null }) => T) {
+  then<T>(onFulfilled: (v: { data: unknown; error: { message: string } | null }) => T) {
     return Promise.resolve(this.resolve()).then(onFulfilled);
   }
 }
 
-function makeDb(store: Record<string, Row[]>) {
-  return { from: (table: string) => new FakeQuery(store, table) } as unknown as AgentContext["db"];
+function makeDb(store: Record<string, Row[]>, errorTables?: string[]) {
+  const failing = errorTables ? new Set(errorTables) : undefined;
+  return {
+    from: (table: string) => new FakeQuery(store, table, failing),
+  } as unknown as AgentContext["db"];
 }
 
 function managerCtx(db: AgentContext["db"]): AgentContext {
@@ -251,6 +261,19 @@ describe("findFirstOpenTourSlot", () => {
     expect(slot?.slotKey).toBe(w2.slotKey);
   });
 
+  it("returns null when the block set cannot be read, never 'nothing is booked'", async () => {
+    const w1 = futureWindow(2, 20);
+    const store: Record<string, Row[]> = { portal_schedule_records: [publishedAvailabilityRow([w1.slotKey])] };
+    const slot = await findFirstOpenTourSlot(makeDb(store, ["portal_schedule_records"]), {
+      managerUserId: MANAGER,
+      propertyId: PROPERTY,
+      requestedWindows: [w1],
+    });
+    // Proposing nothing costs one manual confirmation; proposing a window a
+    // competing inquiry or a booked tour already holds costs a double-booking.
+    expect(slot).toBeNull();
+  });
+
   it("returns null when nothing matches (manual handling)", async () => {
     const w1 = futureWindow(2, 20);
     const store: Record<string, Row[]> = { portal_schedule_records: [publishedAvailabilityRow([])] };
@@ -274,7 +297,7 @@ describe("findFirstOpenTourSlot", () => {
   });
 });
 
-describe("loadManagerTourBlocks", () => {
+describe("loadManagerTourBlocksResult", () => {
   it("excludes the inquiry's own pending window so it never blocks itself", async () => {
     const w1 = futureWindow(2, 20);
     const store: Record<string, Row[]> = {
@@ -287,10 +310,15 @@ describe("loadManagerTourBlocks", () => {
         },
       ],
     };
-    const withSelf = await loadManagerTourBlocks(makeDb(store), MANAGER);
-    expect(withSelf).toHaveLength(1);
-    const excludingSelf = await loadManagerTourBlocks(makeDb(store), MANAGER, "inq_1");
-    expect(excludingSelf).toHaveLength(0);
+    const withSelf = await loadManagerTourBlocksResult(makeDb(store), MANAGER);
+    expect(withSelf.ok && withSelf.blocks).toHaveLength(1);
+    const excludingSelf = await loadManagerTourBlocksResult(makeDb(store), MANAGER, "inq_1");
+    expect(excludingSelf.ok && excludingSelf.blocks).toHaveLength(0);
+  });
+
+  it("reports a failed read instead of an empty block set", async () => {
+    const result = await loadManagerTourBlocksResult(makeDb({}, ["portal_schedule_records"]), MANAGER);
+    expect(result).toEqual({ ok: false });
   });
 });
 

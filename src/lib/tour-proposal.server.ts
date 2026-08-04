@@ -52,8 +52,9 @@ export type ManagerTourBlocksLookup = { ok: true; blocks: TourBlock[] } | { ok: 
  * Reports a failed read as `{ ok: false }` rather than as an empty block set:
  * "we could not read what is booked" and "nothing is booked" are opposite
  * facts, and a caller that offers a window on the strength of the second while
- * the first is true offers a slot someone already holds. Callers that only
- * need the lenient shape use {@link loadManagerTourBlocks}.
+ * the first is true offers a slot someone already holds. There is deliberately
+ * no lenient wrapper — every caller must decide what an unreadable block set
+ * means for it, and so far the answer is always "offer nothing".
  */
 export async function loadManagerTourBlocksResult(
   db: Db,
@@ -102,21 +103,18 @@ export async function loadManagerTourBlocksResult(
   return { ok: true, blocks };
 }
 
-/** {@link loadManagerTourBlocksResult}, with an unreadable state flattened to "no blocks". */
-export async function loadManagerTourBlocks(
-  db: Db,
-  managerUserId: string,
-  excludeInquiryId?: string,
-): Promise<TourBlock[]> {
-  const result = await loadManagerTourBlocksResult(db, managerUserId, excludeInquiryId);
-  return result.ok ? result.blocks : [];
-}
-
 /**
  * The first requested window that is still a genuinely open slot for this
  * manager: published in their availability, in the future, and not blocked by a
  * competing inquiry or booked tour. Returns null when none matches — the caller
  * then leaves the inquiry for manual handling.
+ *
+ * An unreadable block set is also null, not "nothing is booked". This engine's
+ * contract is that a proposal can only land on a slot the grid would still
+ * offer, and a swallowed read failure would let it propose confirming a window
+ * a competing inquiry or a booked tour already holds. Proposing nothing costs
+ * the manager one manual confirmation; proposing a taken slot costs a
+ * double-booked tour.
  */
 export async function findFirstOpenTourSlot(
   db: Db,
@@ -131,13 +129,14 @@ export async function findFirstOpenTourSlot(
   const windows = args.requestedWindows.filter((w) => w.slotKey && w.start && w.end);
   if (windows.length === 0) return null;
 
-  const blocks = await loadManagerTourBlocks(db, args.managerUserId, args.excludeInquiryId);
+  const blocks = await loadManagerTourBlocksResult(db, args.managerUserId, args.excludeInquiryId);
+  if (!blocks.ok) return null;
   const now = args.now ?? Date.now();
 
   for (const window of windows) {
     const slotKey = window.slotKey!;
     if (!slotIsBookable(slotKey, now)) continue;
-    if (slotBlocked(slotKey, blocks)) continue;
+    if (slotBlocked(slotKey, blocks.blocks)) continue;
     const published = await managerHasPublishedSlot(db, {
       managerUserId: args.managerUserId,
       slotKey,
