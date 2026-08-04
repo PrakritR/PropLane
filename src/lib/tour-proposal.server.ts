@@ -41,24 +41,36 @@ function asObject(value: unknown): Record<string, unknown> | null {
   return value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : null;
 }
 
+export type ManagerTourBlocksLookup = { ok: true; blocks: TourBlock[] } | { ok: false };
+
 /**
  * Every window this manager is currently unavailable for: competing pending
  * tour inquiries (excluding the one being proposed, so it never blocks itself)
  * plus already-booked tours. Mirrors the public availability route's exclusion
  * set so a proposal can only land on a slot the grid would still offer.
+ *
+ * Reports a failed read as `{ ok: false }` rather than as an empty block set:
+ * "we could not read what is booked" and "nothing is booked" are opposite
+ * facts, and a caller that offers a window on the strength of the second while
+ * the first is true offers a slot someone already holds. Callers that only
+ * need the lenient shape use {@link loadManagerTourBlocks}.
  */
-export async function loadManagerTourBlocks(
+export async function loadManagerTourBlocksResult(
   db: Db,
   managerUserId: string,
   excludeInquiryId?: string,
-): Promise<TourBlock[]> {
+): Promise<ManagerTourBlocksLookup> {
   const blocks: TourBlock[] = [];
 
-  const { data: pendingRows } = await db
+  const { data: pendingRows, error: pendingError } = await db
     .from("portal_schedule_records")
     .select("row_data")
     .eq("record_type", INQUIRY_EVENT_RECORD_TYPE)
     .eq("manager_user_id", managerUserId);
+  if (pendingError) {
+    console.error("loadManagerTourBlocks pending inquiries read failed", pendingError.message);
+    return { ok: false };
+  }
   for (const pending of (pendingRows ?? []) as { row_data?: unknown }[]) {
     const payload = rowPayload(pending.row_data);
     if (!payload) continue;
@@ -67,11 +79,15 @@ export async function loadManagerTourBlocks(
     blocks.push(...windowsFromPayload(payload));
   }
 
-  const { data: plannedRow } = await db
+  const { data: plannedRow, error: plannedError } = await db
     .from("portal_schedule_records")
     .select("row_data")
     .eq("id", PLANNED_RECORD_ID)
     .maybeSingle();
+  if (plannedError) {
+    console.error("loadManagerTourBlocks planned tours read failed", plannedError.message);
+    return { ok: false };
+  }
   const plannedPayload = asObject(plannedRow?.row_data)?.payload;
   const plannedEvents = Array.isArray(plannedPayload) ? plannedPayload.map(asObject).filter(Boolean) : [];
   for (const event of plannedEvents as Record<string, unknown>[]) {
@@ -83,7 +99,17 @@ export async function loadManagerTourBlocks(
     blocks.push({ start, end, slotKey: text(event, "slotKey") || undefined });
   }
 
-  return blocks;
+  return { ok: true, blocks };
+}
+
+/** {@link loadManagerTourBlocksResult}, with an unreadable state flattened to "no blocks". */
+export async function loadManagerTourBlocks(
+  db: Db,
+  managerUserId: string,
+  excludeInquiryId?: string,
+): Promise<TourBlock[]> {
+  const result = await loadManagerTourBlocksResult(db, managerUserId, excludeInquiryId);
+  return result.ok ? result.blocks : [];
 }
 
 /**

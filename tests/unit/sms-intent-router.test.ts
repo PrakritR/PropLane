@@ -40,10 +40,11 @@ vi.mock("@/lib/tour-inquiry.server", () => ({
   INQUIRIES_RECORD_ID: "axis_admin_partner_inquiries_v1",
 }));
 
-const loadManagerTourBlocksMock = vi.fn(async () => [] as { start: string; end: string; slotKey?: string }[]);
+type BlocksLookup = { ok: true; blocks: { start: string; end: string; slotKey?: string }[] } | { ok: false };
+const loadManagerTourBlocksResultMock = vi.fn(async (): Promise<BlocksLookup> => ({ ok: true, blocks: [] }));
 const proposeTourConfirmationMock = vi.fn(async () => ({ proposed: false as const }));
 vi.mock("@/lib/tour-proposal.server", () => ({
-  loadManagerTourBlocks: (...args: unknown[]) => loadManagerTourBlocksMock(...(args as [])),
+  loadManagerTourBlocksResult: (...args: unknown[]) => loadManagerTourBlocksResultMock(...(args as [])),
   proposeTourConfirmation: (...args: unknown[]) => proposeTourConfirmationMock(...(args as [])),
 }));
 
@@ -103,7 +104,7 @@ function rowsForTable(table: string): Row[] {
 }
 
 function makeQuery(table: string) {
-  const filters: { op: "eq" | "neq" | "in"; col: string; val: unknown }[] = [];
+  const filters: { op: "eq" | "neq" | "in" | "is"; col: string; val: unknown }[] = [];
   let mode: "select" | "delete" = "select";
 
   const matches = (row: Row): boolean =>
@@ -111,6 +112,7 @@ function makeQuery(table: string) {
       const value = row[f.col];
       if (f.op === "eq") return value === f.val;
       if (f.op === "neq") return value !== f.val;
+      if (f.op === "is") return (value ?? null) === f.val;
       return Array.isArray(f.val) && (f.val as unknown[]).includes(value);
     });
 
@@ -153,6 +155,10 @@ function makeQuery(table: string) {
     },
     in: (col: string, val: unknown) => {
       filters.push({ op: "in", col, val });
+      return api;
+    },
+    is: (col: string, val: unknown) => {
+      filters.push({ op: "is", col, val });
       return api;
     },
     delete: () => {
@@ -243,7 +249,7 @@ beforeEach(() => {
   isPhoneOptedOutMock.mockClear().mockResolvedValue(false);
   recordOptInMock.mockClear();
   recordOptOutMock.mockClear();
-  loadManagerTourBlocksMock.mockClear().mockResolvedValue([]);
+  loadManagerTourBlocksResultMock.mockClear().mockResolvedValue({ ok: true, blocks: [] });
   notifyManagerTourRequestMock.mockClear();
   proposeTourConfirmationMock.mockClear();
   // A fixed instant — 10:00 AM Pacific (PDT, UTC-7) — so the 9-5 default tour
@@ -320,6 +326,44 @@ describe("human takeover suppression", () => {
     });
     const result = await routeInboundSms(ctx("Hi — I'd like to schedule a tour for Maple House."));
     expect(result.autoReplyBody).toContain("Tour request received");
+  });
+
+  it("a human reply in ANOTHER role's thread on the same phone does NOT silence this one", async () => {
+    seedListing();
+    // The same person is a resident of this manager AND texting the leasing
+    // line about a new listing. Conversation identity is owner:role:person, so
+    // these are two threads; scoping the takeover check to the phone would
+    // collapse them into permanent silence — which suppresses the leasing
+    // agent too, since the router answers `handled: true` with no body.
+    state.smsMessages.push({
+      id: "m1",
+      manager_user_id: MANAGER_ID,
+      resident_phone: PROSPECT_PHONE,
+      direction: "outbound",
+      source: "work_number",
+      conversation_key: `${MANAGER_ID}:resident:${PROSPECT_PHONE}`,
+    });
+
+    const result = await routeInboundSms(ctx("Hi — I'd like to schedule a tour for Maple House."));
+
+    expect(result.autoReplyBody).toContain("Tour request received");
+  });
+
+  it("a human reply in THIS thread silences it", async () => {
+    seedListing();
+    state.smsMessages.push({
+      id: "m1",
+      manager_user_id: MANAGER_ID,
+      resident_phone: PROSPECT_PHONE,
+      direction: "outbound",
+      source: "work_number",
+      conversation_key: `${MANAGER_ID}:prospect:2065550123`,
+    });
+
+    const result = await routeInboundSms(ctx("Hi — I'd like to schedule a tour for Maple House."));
+
+    expect(result).toEqual({ handled: true });
+    expect(inquiryPayload()).toHaveLength(0);
   });
 
   it("an unreadable takeover history fails CLOSED — silent, and nothing written", async () => {
@@ -442,6 +486,102 @@ describe("text to tour", () => {
     expect(result.autoReplyBody).not.toContain("Tour request received");
     expect(inquiryPayload()).toHaveLength(0);
     expect(state.ops).toHaveLength(0);
+  });
+
+  it("an unreadable tour-block set never offers an already-held window", async () => {
+    seedListing();
+    loadManagerTourBlocksResultMock.mockResolvedValue({ ok: false });
+
+    const result = await routeInboundSms(ctx("Hi — I'd like to schedule a tour for Maple House."));
+
+    // "We could not read what is booked" is not "nothing is booked": offering
+    // from an empty block set would file a real inquiry into a window a
+    // pending inquiry or a confirmed tour already holds.
+    expect(result.autoReplyBody).toContain("rent/tours-contact?propertyId=mgr-maple-house-1");
+    expect(result.autoReplyBody).not.toContain("Tour request received");
+    expect(inquiryPayload()).toHaveLength(0);
+    expect(state.ops).toHaveLength(0);
+  });
+
+  it("an EXPLICIT propertyId that matches nothing is surfaced, never swapped for another house", async () => {
+    seedListing();
+
+    const result = await routeInboundSms(ctx("Tour please: https://prop-lane.space/rent/listings/mgr-gone-9"));
+
+    expect(result.handled).toBe(true);
+    expect(result.autoReplyBody).toContain("couldn't find that listing");
+    expect(result.autoReplyBody).not.toContain("Maple House");
+    expect(inquiryPayload()).toHaveLength(0);
+  });
+
+  it("a bare first name answers 'What name should we put on the tour?'", async () => {
+    seedListing();
+    await routeInboundSms(ctx("Hi — I'd like to schedule a tour for Maple House."));
+
+    const result = await routeInboundSms(ctx("Sarah", { isFirstMessageInConversation: false }));
+
+    expect(result.autoReplyBody).toContain("Thanks, Sarah");
+    expect(inquiryPayload()[0]!.name).toBe("Sarah");
+  });
+
+  it("a lowercase single word is still not a name", async () => {
+    seedListing();
+    await routeInboundSms(ctx("Hi — I'd like to schedule a tour for Maple House."));
+
+    await routeInboundSms(ctx("whatever", { isFirstMessageInConversation: false }));
+
+    expect(inquiryPayload()[0]!.name).toBe("");
+  });
+
+  it("rewrites the standalone record for a web-shape inquiry with no requestedWindows", async () => {
+    seedListing();
+    // The web booking client writes proposedStart/proposedEnd only. Reading
+    // just `requestedWindows` would leave the pre-edit payload on the `_0`
+    // record the manager's calendar and the availability route actually read.
+    setInquiryPayload([
+      {
+        id: "web-1",
+        kind: "tour",
+        status: "pending",
+        managerUserId: MANAGER_ID,
+        phone: PROSPECT_PHONE,
+        propertyId: "mgr-maple-house-1",
+        propertyTitle: "Maple House",
+        name: "",
+        email: "",
+        proposedStart: "2026-08-06T17:00:00.000Z",
+        proposedEnd: "2026-08-06T17:30:00.000Z",
+      },
+    ]);
+    state.scheduleRecords.set("partner_inquiry_request_web-1_0", {
+      id: "partner_inquiry_request_web-1_0",
+      record_type: "partner_inquiry_request",
+      manager_user_id: MANAGER_ID,
+      property_id: "mgr-maple-house-1",
+      starts_at: "2026-08-06T17:00:00.000Z",
+      ends_at: "2026-08-06T17:30:00.000Z",
+      row_data: { payload: { id: "web-1", name: "" } },
+    });
+
+    const result = await routeInboundSms(ctx("Jordan Rivera", { isFirstMessageInConversation: false }));
+
+    expect(result.autoReplyBody).toContain("Thanks, Jordan Rivera");
+    const record = state.scheduleRecords.get("partner_inquiry_request_web-1_0")!;
+    expect((record.row_data as { payload: Row }).payload.name).toBe("Jordan Rivera");
+    expect(record.starts_at).toBe("2026-08-06T17:00:00.000Z");
+  });
+
+  it("an apply text carrying an email gets the wizard link, not a tour confirmation", async () => {
+    seedListing();
+    await routeInboundSms(ctx("Hi — I'd like to schedule a tour for Maple House."));
+
+    const result = await routeInboundSms(
+      ctx("I'd like to apply — jordan@example.com", { isFirstMessageInConversation: false }),
+    );
+
+    expect(result.autoReplyBody).toContain("/rent/apply?propertyId=mgr-maple-house-1");
+    expect(result.autoReplyBody).not.toContain("we'll send your tour confirmation");
+    expect(inquiryPayload()[0]!.email).toBe("");
   });
 
   it("an unreadable listings read is retryable copy, not 'no homes are open'", async () => {
@@ -633,6 +773,26 @@ describe("general responses", () => {
     expect(result.autoReplyBody).toContain("Next open tour times for Maple House");
     expect(result.autoReplyBody).toMatch(/\d\) .+\d{1,2}:\d{2}\s*[AP]M PT/);
     expect(result.autoReplyBody).toContain("Reply TOUR");
+  });
+
+  it("'is the unit still available?' belongs to the leasing agent, not the slot carve-out", async () => {
+    seedListing();
+    const result = await routeInboundSms(
+      ctx("Is the unit still available?", { isFirstMessageInConversation: false }),
+    );
+    // A question about the HOME. Answering it with tour windows never answers
+    // what was asked and preempts the agent, which owns ungrounded questions.
+    expect(result).toEqual({ handled: false });
+  });
+
+  it("a rent MENTION is not a rent question", async () => {
+    seedListing();
+    const result = await routeInboundSms(
+      ctx("My rent budget is 2000 and I need two bedrooms near the light rail", {
+        isFirstMessageInConversation: false,
+      }),
+    );
+    expect(result).toEqual({ handled: false });
   });
 
   it("an availability question falls through when the calendar cannot be read", async () => {

@@ -24,12 +24,15 @@
  *   identifies the business and how to opt out, so a prospect is never met
  *   with silence.
  * - two QUESTION carve-outs the router answers itself with grounded data
- *   the leasing agent cannot (or cannot cheaply) produce: availability
- *   ("what times?") → the real computed open slots; rent ("how much?") →
- *   the listing's stored rentLabel + listing link. Each carve-out fires
- *   ONLY when that data actually loaded — an availability or listings
- *   read failure falls through (`handled: false`) instead of answering
- *   from nothing.
+ *   the leasing agent cannot (or cannot cheaply) produce: TOUR-WINDOW
+ *   availability ("what times?") → the real computed open slots; rent
+ *   ("how much?") → the listing's stored rentLabel + listing link. Each
+ *   carve-out fires ONLY when that data actually loaded — an availability or
+ *   listings read failure falls through (`handled: false`) instead of
+ *   answering from nothing. Both are matched on INTERROGATIVE phrasing about
+ *   their own subject, never on a bare mention: "is the unit still
+ *   available?" is a question about the home and "my rent budget is 2000" is
+ *   a statement, so both belong to the agent.
  * - every other QUESTION, first contact or not → `handled: false`, so the
  *   transport's default handler (the Claude leasing agent) answers it with
  *   grounded listing facts instead of a canned menu. The site's own "Text
@@ -59,18 +62,21 @@
  *   reads any non-`automated` outbound row as "a manager is talking".
  *
  * Auto-reply suppression rule (stated once, tested):
- * once ANY outbound message in this manager↔phone thread was authored by a
- * human (source `work_number` or `relay` — the portal composer and the
- * manager-cell relay), automated replies stop for that thread permanently.
- * Bot traffic always logs `source: "automated"`, so a single manager reply
- * flips the thread to human-owned and this router goes silent.
+ * once ANY outbound message in THIS CONVERSATION was authored by a human
+ * (source `work_number` or `relay` — the portal composer and the manager-cell
+ * relay), automated replies stop for that thread permanently. Bot traffic
+ * always logs `source: "automated"`, so a single manager reply flips the
+ * thread to human-owned and this router goes silent. The scope is the
+ * `conversation_key`, not the phone: the same phone can hold a resident thread
+ * and a prospect thread, and silencing one because of the other is total
+ * silence (this result suppresses the leasing agent too).
  *
  * Read-failure rule (stated once, tested): every read this module makes fails
  * CLOSED, because an unreadable state is not an empty state. An unreadable
  * takeover history is treated as human-owned (silence); unreadable inquiries,
- * availability, or listings abort the tour create and answer with the web
- * booking link or retryable copy, never a fabricated default grid and never
- * "no homes are open".
+ * availability, tour blocks, or listings abort the tour create and answer with
+ * the web booking link or retryable copy, never a fabricated default grid,
+ * never an already-held window, and never "no homes are open".
  *
  * Idempotency rule (stated once, tested): one pending tour inquiry per
  * (manager, prospect phone). A second "tour" text updates/reminds instead of
@@ -116,7 +122,7 @@ import {
 } from "@/lib/sms-consent";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { INQUIRIES_RECORD_ID } from "@/lib/tour-inquiry.server";
-import { loadManagerTourBlocks, proposeTourConfirmation } from "@/lib/tour-proposal.server";
+import { loadManagerTourBlocksResult, proposeTourConfirmation } from "@/lib/tour-proposal.server";
 import {
   buildDefaultTourSlotKeys,
   payloadSlots,
@@ -187,10 +193,21 @@ export function extractEmailCandidate(body: string): string | null {
   return m ? m[0] : null;
 }
 
+/** Words that are an ANSWER, an intent, or a date — never the name on a tour. */
+const NAME_STOPWORDS =
+  /\b(tour|apply|application|stop|help|start|yes|yeah|no|nope|ok|okay|sure|thanks|thank|rent|price|time|times|when|what|how|info|hi|hello|hey|maybe|tomorrow|today|tonight|anytime|weekend|weekday|noon|morning|afternoon|evening|monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b/;
+
 /**
- * A short human-name-looking message ("Jane Doe", "name: Jane"). Only consulted
- * when a pending SMS tour inquiry is still nameless and nothing else matched,
- * so a false positive costs a name field, never a wrong action.
+ * A short human-name-looking message ("Jane Doe", "Sarah", "name: Jane"). Only
+ * consulted when a pending SMS tour inquiry is still nameless and nothing else
+ * matched, so a false positive costs a name field, never a wrong action.
+ *
+ * A BARE single word counts only when it is capitalized. The reply that creates
+ * an inquiry ends with "What name should we put on the tour?", and a first name
+ * is the likeliest answer to it — rejecting "Sarah" leaves the manager
+ * confirming a tour for "Guest". {@link NAME_STOPWORDS} already blocks the
+ * intent, affirmation, and day words a one-word reply would otherwise be, and
+ * capitalization separates an answered prompt from a stray lowercase remark.
  */
 export function extractNameCandidate(body: string): string | null {
   const explicit = /^\s*(?:my\s+name\s+is|name\s*[:=-])\s*(.{2,60})$/i.exec(body.trim());
@@ -200,33 +217,53 @@ export function extractNameCandidate(body: string): string | null {
   const words = raw.split(/\s+/);
   if (words.length < 1 || words.length > 4) return null;
   if (!words.every((w) => /^[A-Za-z][A-Za-z'’.-]*$/.test(w))) return null;
-  const lowered = raw.toLowerCase();
-  // Never mistake intent/answer words for a name.
-  if (
-    /\b(tour|apply|application|stop|help|start|yes|yeah|no|nope|ok|okay|sure|thanks|thank|rent|price|time|times|when|what|how|info|hi|hello|hey|maybe|tomorrow|today|morning|afternoon|evening)\b/.test(
-      lowered,
-    )
-  ) {
-    return null;
-  }
-  return explicit ? raw : words.length >= 2 ? raw : null;
+  if (NAME_STOPWORDS.test(raw.toLowerCase())) return null;
+  if (explicit || words.length >= 2) return raw;
+  return /^[A-Z]/.test(raw) ? raw : null;
 }
 
-/** "what times…", "when can I…", "availability?" — asking for tour windows. */
+/** Nouns that make a question about the TOUR CALENDAR rather than the home. */
+const TOUR_WINDOW_NOUN = "times?|time slots?|slots?|days?|windows?|showings?|openings?|hours?";
+const ASKS_FOR_WINDOW = new RegExp(`\\b(what|which|any|wat)\\s+(?:${TOUR_WINDOW_NOUN})\\b`);
+const AVAILABLE_WINDOW = new RegExp(`\\bavailab(?:le|ility)\\s+(?:${TOUR_WINDOW_NOUN})\\b`);
+const WINDOW_IS_OPEN = new RegExp(
+  `\\b(?:${TOUR_WINDOW_NOUN})\\s+(?:are|is)\\s+(?:still\\s+)?(?:availab(?:le|ility)|open|free)\\b`,
+);
+
+/**
+ * "what times…", "when can I…", "any open slots?" — asking for TOUR WINDOWS.
+ *
+ * Deliberately narrower than "the message says available": "is the unit still
+ * available?" is a question about the HOME, and answering it with a list of
+ * tour times never answers what was asked while also preempting the leasing
+ * agent, which owns every question this router cannot ground.
+ */
 export function looksLikeAvailabilityQuestion(body: string): boolean {
   const t = body.trim().toLowerCase();
   return (
-    /\b(what|which|wat)\s+(times?|days?|slots?)\b/.test(t) ||
-    /\bwhen\s+(can|could|is|are|do)\b/.test(t) ||
-    /\bavailab(le|ility)\b/.test(t) ||
+    ASKS_FOR_WINDOW.test(t) ||
+    /\bwhen\s+(can|could|is|are|do|does|would)\b/.test(t) ||
+    AVAILABLE_WINDOW.test(t) ||
+    WINDOW_IS_OPEN.test(t) ||
     /^\s*times?\??\s*$/.test(t)
   );
 }
 
-/** "how much is rent", "price?", "monthly cost" — asking what it costs. */
+const RENT_NOUN = /\b(rent|price|pricing|cost)\b/;
+
+/**
+ * "how much is rent", "what's the price?", "rent?" — ASKING what it costs.
+ *
+ * Requires interrogative phrasing, not a bare mention: "my rent budget is 2000
+ * and I need two bedrooms near the light rail" states a constraint, and the
+ * canned price line would replace the grounded answer the leasing agent can
+ * give it.
+ */
 export function looksLikeRentQuestion(body: string): boolean {
   const t = body.trim().toLowerCase();
-  return /\bhow\s+much\b/.test(t) || /\b(rent|price|pricing|cost)\b/.test(t);
+  if (/\bhow\s+much\b/.test(t)) return true;
+  if (!RENT_NOUN.test(t)) return false;
+  return /\bwhat(?:'s|s)?\b/.test(t) || /\?\s*$/.test(t) || /^\s*(rent|price|pricing|cost)s?\s*[?.!]*\s*$/.test(t);
 }
 
 /** "yes" / "ok" / "sure" — an affirmative continuation, not an intent of its own. */
@@ -365,6 +402,31 @@ async function loadManagerListings(db: Db, managerId: string): Promise<ListingsL
 }
 
 /**
+ * An UNAMBIGUOUS property id in the body: a `propertyId=` param, a listing URL,
+ * or a `mgr-…` id. Deliberately excludes `extractPropertyIdHint`'s loose
+ * `listing|property|home <token>` capture, which reads "the property manager"
+ * as the id `manager` — a miss on that is noise, while a miss on one of these
+ * three is the prospect naming a house we do not have.
+ */
+function explicitPropertyIdHint(body: string): string | null {
+  const m =
+    body.match(/propertyId=([a-zA-Z0-9._-]+)/i) ||
+    body.match(/\/rent\/listings\/([a-zA-Z0-9._-]+)/i) ||
+    body.match(/\b(mgr-[a-z0-9-]+)\b/i);
+  return m?.[1]?.trim() || null;
+}
+
+export type TargetListingResolution = {
+  listing: ListingRow | null;
+  /**
+   * Set when the body named an EXPLICIT property id that matches none of this
+   * manager's live listings, so the caller can say so instead of substituting
+   * another house.
+   */
+  unresolvedPropertyId: string | null;
+};
+
+/**
  * The listing this message is about, scoped to THIS manager's LIVE records
  * (the only publicly reachable status): explicit id hint, then label hint
  * (exact beats partial), then the
@@ -372,63 +434,110 @@ async function loadManagerListings(db: Db, managerId: string): Promise<ListingsL
  * The last fallback can guess wrong for a multi-listing manager, so every
  * reply NAMES the resolved property — a wrong guess is visible and
  * correctable, never silent.
+ *
+ * An EXPLICIT id that matches nothing is the one case that does NOT fall back:
+ * the prospect gave an unambiguous target, so "we don't have that one" is the
+ * honest answer. Falling through to `listings[0]` would file a real tour
+ * inquiry against a house they never asked about, and naming it in the reply
+ * is far weaker mitigation than for a message that named no house at all.
  */
 export function resolveTargetListing(args: {
   body: string;
   listings: ListingRow[];
   pendingInquiryPropertyId?: string | null;
-}): ListingRow | null {
+}): TargetListingResolution {
   const { body, listings } = args;
-  if (listings.length === 0) return null;
+  const resolved = (listing: ListingRow | null): TargetListingResolution => ({
+    listing,
+    unresolvedPropertyId: null,
+  });
+  if (listings.length === 0) return resolved(null);
 
-  const idHint = extractPropertyIdHint(body);
+  const explicitId = explicitPropertyIdHint(body);
+  const idHint = explicitId ?? extractPropertyIdHint(body);
   if (idHint) {
     const hit = listings.find((l) => l.id === idHint || safePropertyId(l.id) === safePropertyId(idHint));
-    if (hit) return hit;
+    if (hit) return resolved(hit);
+    if (explicitId) return { listing: null, unresolvedPropertyId: explicitId };
   }
 
   const labelHint = extractPropertyLabelHint(body)?.toLowerCase();
   if (labelHint) {
     const exact = listings.find((l) => l.label.toLowerCase() === labelHint);
-    if (exact) return exact;
+    if (exact) return resolved(exact);
     const partial = listings.find((l) => {
       const label = l.label.toLowerCase();
       return label.includes(labelHint) || labelHint.includes(label);
     });
-    if (partial) return partial;
+    if (partial) return resolved(partial);
   }
 
   const pendingId = args.pendingInquiryPropertyId?.trim();
   if (pendingId) {
     const pending = listings.find((l) => l.id === pendingId);
-    if (pending) return pending;
+    if (pending) return resolved(pending);
   }
 
-  return listings[0] ?? null;
+  return resolved(listings[0] ?? null);
 }
 
 /**
- * True when a human manager has ever replied in this manager↔phone thread.
+ * True when a human manager has ever replied in THIS conversation.
  *
- * Fails CLOSED: an unreadable takeover history reads as human-owned, so the
- * router stays silent. A bot that was wrongly quiet for one transient outage
- * is recoverable; a bot that barges into a live human conversation is not.
+ * Scoped on `conversation_key`, not on the phone: conversation identity here is
+ * `owner:role:person_ref` (`sms-conversation-identity.ts`), so one phone can
+ * legitimately hold a resident thread and a prospect thread with the same
+ * manager. Matching on the phone alone collapses them — a manager who once
+ * replied in the resident thread would permanently silence the leasing thread,
+ * and because this router returns `handled: true` with no body, that suppresses
+ * the leasing agent too: total silence for a person who just texted the
+ * listing's number.
+ *
+ * Fails CLOSED in both senses: an unreadable takeover history reads as
+ * human-owned, and so does a human-authored row whose `conversation_key` is
+ * NULL (unattributable legacy history — the same rule
+ * `manager-sms-messages.server.ts` applies before sweeping by phone). A bot
+ * that was wrongly quiet for one transient outage is recoverable; a bot that
+ * barges into a live human conversation is not.
  */
-async function humanOwnsConversation(db: Db, managerId: string, fromPhone: string): Promise<boolean> {
-  try {
-    const { data, error } = await db
+async function humanOwnsConversation(
+  db: Db,
+  managerId: string,
+  fromPhone: string,
+  conversationId: string,
+): Promise<boolean> {
+  const humanOutbound = () =>
+    db
       .from("manager_sms_messages")
       .select("id")
       .eq("manager_user_id", managerId)
       .in("resident_phone", profilePhoneVariants(fromPhone))
       .eq("direction", "outbound")
-      .neq("source", "automated")
-      .limit(1);
-    if (error) {
-      console.error("sms-intent-router takeover read failed", error.message);
+      .neq("source", "automated");
+
+  try {
+    const thread = conversationId?.trim();
+    if (!thread) {
+      // No thread identity to scope by — the phone is all we have.
+      const { data, error } = await humanOutbound().limit(1);
+      if (error) {
+        console.error("sms-intent-router takeover read failed", error.message);
+        return true;
+      }
+      return (data ?? []).length > 0;
+    }
+    const [scoped, legacy] = await Promise.all([
+      humanOutbound().eq("conversation_key", thread).limit(1),
+      humanOutbound().is("conversation_key", null).limit(1),
+    ]);
+    if (scoped.error || legacy.error) {
+      console.error(
+        "sms-intent-router takeover read failed",
+        scoped.error?.message ?? legacy.error?.message,
+      );
       return true;
     }
-    return (data ?? []).length > 0;
+    return (scoped.data ?? []).length > 0 || (legacy.data ?? []).length > 0;
   } catch (err) {
     console.error("sms-intent-router takeover read threw", err);
     return true;
@@ -461,9 +570,18 @@ function inquiryRows(rowData: unknown): InquiryPayloadRow[] {
 
 type InquiryWindow = { start: string; end: string; slotKey: string; adminUserId: string };
 
+/**
+ * An inquiry's requested windows, with the SAME `proposedStart`/`proposedEnd`
+ * fallback the shared `windowsFromPayload` applies. The web booking client
+ * writes that single-window shape, and both readers of these rows expand it, so
+ * reading only `requestedWindows` here would see a web-created inquiry as
+ * window-less: `standaloneRecordsFor` would then write nothing and an SMS
+ * name/email follow-up would leave the pre-edit payload on the `_0` record the
+ * manager's calendar and the public availability route actually read.
+ */
 function windowsOf(row: InquiryPayloadRow): InquiryWindow[] {
   const requested = Array.isArray(row.requestedWindows) ? row.requestedWindows : [];
-  return requested
+  const windows = requested
     .map(asObject)
     .filter((w): w is Record<string, unknown> => Boolean(w))
     .map((w) => ({
@@ -473,6 +591,18 @@ function windowsOf(row: InquiryPayloadRow): InquiryWindow[] {
       adminUserId: textField(w, "adminUserId"),
     }))
     .filter((w) => w.start && w.end);
+  if (windows.length > 0) return windows;
+  const start = textField(row, "proposedStart") || textField(row, "start");
+  const end = textField(row, "proposedEnd") || textField(row, "end");
+  if (!start || !end) return [];
+  return [
+    {
+      start,
+      end,
+      slotKey: textField(row, "slotKey"),
+      adminUserId: textField(row, "adminUserId") || textField(row, "managerUserId"),
+    },
+  ];
 }
 
 /**
@@ -576,10 +706,16 @@ async function listOpenTourSlots(
   const publishedFuture = published.filter((slot) => slotIsBookable(slot));
   const base = shouldOfferDefaultTourGrid(publishedFuture) ? buildDefaultTourSlotKeys() : publishedFuture;
 
-  const blocks = await loadManagerTourBlocks(db, managerId);
+  // Same rule as the availability read above: an unreadable block set is not an
+  // empty one. Swallowing it would offer — and then file a real inquiry into —
+  // a window a pending inquiry or a confirmed tour already holds, and the
+  // partial unique index only guards the FIRST window against other inquiry
+  // rows, so a collision with a booked tour has nothing beneath it.
+  const blocks = await loadManagerTourBlocksResult(db, managerId);
+  if (!blocks.ok) return { ok: false };
   return {
     ok: true,
-    slots: [...new Set(base)].filter((slot) => slotIsBookable(slot) && !slotBlocked(slot, blocks)),
+    slots: [...new Set(base)].filter((slot) => slotIsBookable(slot) && !slotBlocked(slot, blocks.blocks)),
   };
 }
 
@@ -866,7 +1002,13 @@ export async function routeInboundSms(ctx: InboundSmsContext): Promise<SmsIntent
 
   if (HELP_KEYWORDS.has(keyword)) {
     const helpListings = await loadManagerListings(db, managerId).catch(() => ({ ok: false }) as const);
-    const label = (helpListings.ok ? helpListings.listings[0]?.label : "") || "the property leasing line";
+    // Same ONE-label rule as every other reply: resolve the listing from the
+    // body rather than naming the manager's most recent one, so HELP can never
+    // answer about a different house than the rest of the conversation.
+    const helpTarget = helpListings.ok
+      ? resolveTargetListing({ body, listings: helpListings.listings }).listing
+      : null;
+    const label = helpTarget?.label || "the property leasing line";
     return {
       handled: true,
       autoReplyBody:
@@ -886,7 +1028,7 @@ export async function routeInboundSms(ctx: InboundSmsContext): Promise<SmsIntent
   }
 
   // 3) Once a manager is talking to this person, automated replies stop.
-  if (await humanOwnsConversation(db, managerId, fromPhone)) {
+  if (await humanOwnsConversation(db, managerId, fromPhone, ctx.conversationId)) {
     return { handled: true };
   }
 
@@ -902,7 +1044,7 @@ export async function routeInboundSms(ctx: InboundSmsContext): Promise<SmsIntent
   // ONE label choice drives every reply: the menu body, the compliance footer,
   // and the exported transport fallback all name the RESOLVED listing, so a
   // multi-listing manager can never see two different houses in one message.
-  const listing = resolveTargetListing({
+  const { listing, unresolvedPropertyId } = resolveTargetListing({
     body,
     listings,
     pendingInquiryPropertyId: pending ? textField(pending, "propertyId") : null,
@@ -929,6 +1071,13 @@ export async function routeInboundSms(ctx: InboundSmsContext): Promise<SmsIntent
   const lookupTroubleReply = () =>
     finish(
       `Thanks for reaching out! We're having trouble looking that up right now — please try again shortly, or browse current homes at ${origin}/rent.`,
+    );
+  // The prospect named an id we do not have. Say so — substituting another
+  // house would file a tour or send an application link for a home they never
+  // asked about.
+  const unknownListingReply = () =>
+    finish(
+      `Thanks for reaching out! We couldn't find that listing — it may no longer be available. Browse current homes at ${origin}/rent.`,
     );
   const tourLinkReply = (target: ListingRow, lead: string) =>
     finish(`${lead} ${buildManagerTourUrl(origin, target.id)}`);
@@ -964,7 +1113,11 @@ export async function routeInboundSms(ctx: InboundSmsContext): Promise<SmsIntent
       );
     }
 
-    const email = extractEmailCandidate(body);
+    // Same intent guard the name fill below uses: "I'd like to apply —
+    // jordan@example.com" is an APPLY request that happens to carry an address.
+    // Swallowing it as a tour-confirmation email answers a question the
+    // prospect did not ask and never sends the wizard link they did.
+    const email = intent === "tour" || intent === "apply" ? null : extractEmailCandidate(body);
     if (email && !textField(pending, "email")) {
       const updated = { ...pending, email };
       if (!(await updateSmsTourInquiry(db, pending, updated))) return saveFailed("your email");
@@ -1008,6 +1161,7 @@ export async function routeInboundSms(ctx: InboundSmsContext): Promise<SmsIntent
   if (intent === "tour") {
     if (!listing) {
       if (!listingsLookup.ok) return lookupTroubleReply();
+      if (unresolvedPropertyId) return unknownListingReply();
       return finish(
         `Thanks for reaching out! No homes are open for tours right now — browse current listings at ${origin}/rent.`,
       );
@@ -1070,6 +1224,7 @@ export async function routeInboundSms(ctx: InboundSmsContext): Promise<SmsIntent
   if (intent === "apply" || intent === "bundle") {
     if (!listing) {
       if (!listingsLookup.ok) return lookupTroubleReply();
+      if (unresolvedPropertyId) return unknownListingReply();
       return finish(
         `Thanks for your interest! Browse current homes and apply at ${origin}/rent — applications take about 10 minutes.`,
       );

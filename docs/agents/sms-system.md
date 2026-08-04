@@ -268,12 +268,19 @@ business and say how to opt out no matter which layer answers it. Invariants:
   contact, which is what the site's own "Text a question" CTA sends — returns
   `handled: false` so the agent answers it with grounded listing facts instead
   of a canned menu. Two carve-outs the router answers itself, because its
-  answer is strictly better (or equal and cheaper) than the agent's: an
-  availability question ("what times?") gets the real computed open slots
+  answer is strictly better (or equal and cheaper) than the agent's: a
+  TOUR-WINDOW question ("what times?") gets the real computed open slots
   (the agent has no tour-slot tools), and a rent question ("how much?") gets
   the listing's stored `rentLabel` + listing link. **Each carve-out fires only
   when that data actually loaded** — an availability or listings read failure
-  falls through instead of answering from nothing. Only a `greeting` or a
+  falls through instead of answering from nothing. **Both match interrogative
+  phrasing about their own subject, never a bare mention of the word.**
+  "Is the unit still available?" asks about the HOME, and a list of tour times
+  neither answers it nor lets the agent answer it; "my rent budget is 2000 and
+  I need two bedrooms near the light rail" is a constraint, not a price
+  question. Widening either predicate back to `\bavailab(le|ility)\b` /
+  `\b(rent|price|cost)\b` silently annexes a slice of the agent's job.
+  Only a `greeting` or a
   genuinely unrecognized first contact gets the TOUR/APPLY menu. The
   no-silence chain is: router menu for greeting/unrecognized → router
   carve-outs for slots/rent → leasing agent for other questions → the
@@ -339,10 +346,30 @@ business and say how to opt out no matter which layer answers it. Invariants:
   enumeration and the tour branch answers with the web booking link — swallowing
   it would leave `published` empty, which is precisely what triggers
   `shouldOfferDefaultTourGrid`, and a real inquiry would then be booked into a
-  9-5 window this manager may never have published. An unreadable listings read
+  9-5 window this manager may never have published. The BLOCK set is the same
+  rule and used to be the one exception: `loadManagerTourBlocks` swallowed its
+  two Supabase errors and returned `[]`, i.e. "nothing is booked", so the
+  router offered — and filed an inquiry into — windows a pending inquiry or a
+  confirmed tour already held, with only the first window protected by
+  `portal_schedule_tour_manager_slot_unique` and only against other inquiry
+  rows. `loadManagerTourBlocksResult` now reports the failure and the router
+  aborts on it; the lenient `loadManagerTourBlocks` wrapper survives for the
+  proposal engine's existing callers. An unreadable listings read
   answers with retryable copy, never the definitive "No homes are open for tours
   right now" that a genuinely empty portfolio gets — one is a dead end for the
   prospect, the other is a retry.
+- **One resolved listing per message, and an explicit id that misses is
+  surfaced.** `resolveTargetListing` runs over the inbound body for EVERY
+  reply, HELP included, so a multi-listing manager never sees two houses in one
+  conversation. Its `listings[0]` fallback is deliberate for a message that
+  named no house — every reply prints the resolved label, so a wrong guess is
+  visible and correctable. It does NOT apply when the body carried an
+  unambiguous id (`propertyId=`, a `/rent/listings/` URL, or a `mgr-…` id) that
+  matches no live listing: that returns `unresolvedPropertyId` and the tour and
+  apply branches say "we couldn't find that listing", because filing a real
+  tour inquiry against a house the prospect never named is not correctable by
+  printing its label. The loose `listing|property|home <token>` capture is NOT
+  treated as explicit — it reads "the property manager" as the id `manager`.
 - **Every writer re-reads the singleton immediately before merging.**
   `findPendingTourInquiry` is an idempotency CHECK only and deliberately
   returns no payload: several round trips (slot math, `loadManagerTourBlocks`)
@@ -355,13 +382,35 @@ business and say how to opt out no matter which layer answers it. Invariants:
   email and a browser-held resume token, so a server-minted row would be an
   orphan the prospect can never resume and a guaranteed duplicate once they
   really apply. The reply is the real wizard link with the phone prefilled.
-- **Human takeover silences the bot permanently per thread.** Any outbound
-  `manager_sms_messages` row for the manager + phone whose `source` is not
+- **Human takeover silences the bot permanently per thread — and "thread"
+  means `conversation_key`, not the phone.** Any outbound
+  `manager_sms_messages` row in THIS conversation whose `source` is not
   `automated` (the portal composer logs `work_number`, the manager-cell relay
   `relay`) → the router answers `handled: true` with no body. Consequence:
   every automated reply MUST be sent with `source: "automated"`
   (`deliverLeasingSmsReply` does), or the first bot reply would silence the
-  bot itself.
+  bot itself. Scoping on `(manager_user_id, resident_phone)` alone collapses
+  the role-distinct threads one phone can hold (`owner:role:person_ref`), so a
+  manager who once replied in someone's RESIDENT thread would permanently
+  silence that person's PROSPECT thread — and since this result also suppresses
+  the leasing agent, the silence is total. Legacy rows whose `conversation_key`
+  is NULL are unattributable and still suppress, the same fail-closed rule
+  `manager-sms-messages.server.ts` applies before sweeping by phone.
+- **A name/email follow-up rewrites the `_0` standalone from the SAME window
+  source the shared readers use.** `windowsOf` carries
+  `windowsFromPayload`'s `proposedStart`/`proposedEnd` fallback, so a
+  web-created inquiry (which writes only that single-window shape) still gets
+  its standalone record rewritten; reading `requestedWindows` alone left the
+  pre-edit payload on the record the manager's calendar and the public
+  availability route actually read.
+- **A follow-up is only a contact fill when it is not an INTENT.** The email
+  and name fills both skip `tour` / `apply` messages: "I'd like to apply —
+  jordan@example.com" is an application request that happens to carry an
+  address, and swallowing it as a tour-confirmation email never sends the
+  wizard link the prospect asked for. A bare capitalized single word ("Sarah")
+  DOES count as a name — the inquiry reply ends with "What name should we put
+  on the tour?", and the stopword list already blocks the intent, affirmation
+  and day words a one-word reply would otherwise be.
 - **STOP/HELP are handled router-side as a second line of defense** (the
   webhook already short-circuits them): STOP records the ledger opt-out and
   stays silent (Twilio Advanced Opt-Out sends the carrier confirmation);
