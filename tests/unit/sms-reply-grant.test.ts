@@ -98,6 +98,57 @@ describe("sms email-reply grants", () => {
     expect(await consume(failing)).toEqual({ ok: false, reason: "unreadable" });
   });
 
+  it("still BANKS when the row cannot be read — the token is already in the manager's inbox", async () => {
+    // The caller only banks after the notification email went out, so refusing
+    // to open the window on an infra blip hands the manager an invitation whose
+    // reply bounces. Under-banking to one is the acceptable degradation.
+    const inserted: Array<Record<string, unknown>> = [];
+    const flaky = {
+      from: () => {
+        const chain: Record<string, unknown> = {};
+        chain.select = () => chain;
+        chain.eq = () => chain;
+        chain.is = () => chain;
+        chain.update = () => chain;
+        chain.insert = async (row: Record<string, unknown>) => {
+          inserted.push(row);
+          return { error: null };
+        };
+        chain.maybeSingle = async () => ({ data: null, error: { message: "connection reset" } });
+        return chain;
+      },
+    };
+    expect(await notify(flaky)).toBe(true);
+    expect(inserted).toHaveLength(1);
+    expect(inserted[0]!.row_data).toMatchObject({ allowance: 1 });
+  });
+
+  it("never resurrects an allowance a concurrent reply just spent", async () => {
+    // The bank write compare-and-sets on the allowance it READ, so a spend that
+    // commits in between makes it lose and re-read instead of overwriting.
+    // Without the guard this would write 1 + 1 = 2 and hand back the spent one.
+    const db = seed();
+    await notify(db);
+    const row = grantRowOf(db)!;
+    let spendOnce = true;
+    const racing = {
+      from: (table: string) => {
+        const chain = (db as unknown as { from: (t: string) => Record<string, unknown> }).from(table);
+        const update = chain.update as (patch: Record<string, unknown>) => Record<string, unknown>;
+        chain.update = (patch: Record<string, unknown>) => {
+          if (spendOnce) {
+            spendOnce = false;
+            (row.row_data as Record<string, unknown>).allowance = 0;
+          }
+          return update.call(chain, patch);
+        };
+        return chain;
+      },
+    };
+    await notify(racing);
+    expect((row.row_data as Record<string, unknown>).allowance).toBe(1);
+  });
+
   it("still spends a row written before the counter existed", async () => {
     const id = smsReplyGrantRecordId(MGR, PHONE)!;
     const db = seed([

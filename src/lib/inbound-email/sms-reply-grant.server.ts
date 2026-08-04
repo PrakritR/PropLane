@@ -33,7 +33,7 @@ export const SMS_REPLY_GRANT_TTL_MS = 7 * 24 * 60 * 60 * 1000;
  * Ceiling on banked replies. A conversation the manager has left unread for a
  * week must not hand a forger one emailed text per unanswered notification.
  */
-export const SMS_REPLY_GRANT_MAX_ALLOWANCE = 5;
+export const SMS_REPLY_GRANT_MAX_ALLOWANCE = 3;
 
 /** 10-digit US national number — the same identity the `sms+` token encodes. */
 function usNationalDigits(phone: string): string | null {
@@ -53,13 +53,34 @@ export function smsReplyGrantRecordId(
   return `sms_reply_grant_${manager}_${phone10}`;
 }
 
-/** Per-conversation rate-limit key, shared by every caller so it cannot drift. */
+function conversationRef(managerUserId: string, counterpartyPhone: string): string {
+  const phone10 = usNationalDigits(counterpartyPhone) ?? String(counterpartyPhone ?? "").replace(/\D/g, "");
+  return `${String(managerUserId ?? "").trim().toLowerCase()}:${phone10}`;
+}
+
+/**
+ * Budget for texts the manager actually sends by email. Spent ONLY by a reply
+ * that reaches the send path, so a flood of forged replies — which never gets
+ * that far — cannot exhaust it and silence the real manager.
+ */
 export function smsEmailReplyRateLimitKey(
   managerUserId: string,
   counterpartyPhone: string,
 ): string {
-  const phone10 = usNationalDigits(counterpartyPhone) ?? String(counterpartyPhone ?? "").replace(/\D/g, "");
-  return `sms-email-reply:${String(managerUserId ?? "").trim().toLowerCase()}:${phone10}`;
+  return `sms-email-reply:${conversationRef(managerUserId, counterpartyPhone)}`;
+}
+
+/**
+ * Separate budget for bounce emails. A bounce is mail PropLane sends on the
+ * strength of a spoofable `From`, so the refusal paths need their own ceiling —
+ * on the SAME bucket as each other, so a forger can flood neither the manager's
+ * inbox nor their send budget.
+ */
+export function smsEmailReplyBounceRateLimitKey(
+  managerUserId: string,
+  counterpartyPhone: string,
+): string {
+  return `sms-email-reply-bounce:${conversationRef(managerUserId, counterpartyPhone)}`;
 }
 
 /**
@@ -90,12 +111,72 @@ async function readGrantRow(
 }
 
 /**
+ * One attempt at banking a reply, guarded against a concurrent spend.
+ *
+ * `conflict` means another writer moved the row between the read and the write
+ * (a simultaneous notification, or — the dangerous direction — a consume whose
+ * spend an unguarded write would resurrect).
+ */
+async function bankOneReply(
+  db: SupabaseClient,
+  id: string,
+  args: { managerUserId: string; counterpartyPhone: string; managerEmail: string },
+): Promise<{ ok: boolean; conflict: boolean }> {
+  const existing = await readGrantRow(db, id);
+  // A read failure must NOT skip banking: the caller already sent a
+  // notification carrying a working reply token, so refusing to open the window
+  // hands the manager an invitation that bounces. Carry nothing and bank one —
+  // under-banking on an infra blip is fine, banking nothing is not.
+  const rowData = existing.ok ? existing.rowData : null;
+  const grantedAtMs = Date.parse(String(rowData?.grantedAt ?? ""));
+  // A stale row's banked replies have already expired — start over rather than
+  // reviving them.
+  const carried =
+    Number.isFinite(grantedAtMs) && Date.now() - grantedAtMs <= SMS_REPLY_GRANT_TTL_MS
+      ? remainingAllowance(rowData)
+      : 0;
+  const nextRowData = {
+    ...(rowData ?? {}),
+    id,
+    kind: "sms_reply_grant",
+    managerUserId: args.managerUserId,
+    to: args.counterpartyPhone,
+    grantedAt: new Date().toISOString(),
+    allowance: Math.min(SMS_REPLY_GRANT_MAX_ALLOWANCE, carried + 1),
+  };
+
+  if (!rowData) {
+    const { error } = await db.from(TABLE).insert({
+      id,
+      recipient_email: args.managerEmail,
+      subject: "SMS email-reply grant",
+      channel: "sms",
+      row_data: nextRowData,
+    });
+    if (!error) return { ok: true, conflict: false };
+    // Someone inserted the row first (or our read failed while it existed).
+    return { ok: false, conflict: error.code === "23505" };
+  }
+
+  // Compare-and-set on the allowance exactly as read — the same guard the spend
+  // path uses, so bank and spend cannot overwrite each other.
+  const stored = typeof rowData.allowance === "number" ? String(rowData.allowance) : null;
+  const write = db.from(TABLE).update({ row_data: nextRowData }).eq("id", id);
+  const guarded =
+    stored === null ? write.is("row_data->>allowance", null) : write.eq("row_data->>allowance", stored);
+  const { data, error } = await guarded.select("id");
+  if (error) return { ok: false, conflict: false };
+  return { ok: (data ?? []).length > 0, conflict: (data ?? []).length === 0 };
+}
+
+/**
  * Bank one reply for this conversation. Called after a notification email
  * carrying the reply token actually went out — an allowance with no token in
  * anyone's inbox would only widen the window for a forger.
  *
- * A lost race between two simultaneous notifications banks one instead of two:
- * under-granting is the safe direction, and the next notification restores it.
+ * Retries once on a lost race, then gives up WITHOUT banking: under-granting is
+ * the safe direction, and re-applying a stale read would hand back an allowance
+ * the manager already spent.
  */
 export async function grantSmsEmailReply(
   db: SupabaseClient,
@@ -103,35 +184,12 @@ export async function grantSmsEmailReply(
 ): Promise<boolean> {
   const id = smsReplyGrantRecordId(args.managerUserId, args.counterpartyPhone);
   if (!id) return false;
-  const existing = await readGrantRow(db, id);
-  if (!existing.ok) return false;
-  const grantedAtMs = Date.parse(String(existing.rowData?.grantedAt ?? ""));
-  // A stale row's banked replies have already expired — start over rather than
-  // reviving them.
-  const carried =
-    Number.isFinite(grantedAtMs) && Date.now() - grantedAtMs <= SMS_REPLY_GRANT_TTL_MS
-      ? remainingAllowance(existing.rowData)
-      : 0;
-
-  const { error } = await db.from(TABLE).upsert(
-    {
-      id,
-      recipient_email: args.managerEmail,
-      subject: "SMS email-reply grant",
-      channel: "sms",
-      row_data: {
-        ...(existing.rowData ?? {}),
-        id,
-        kind: "sms_reply_grant",
-        managerUserId: args.managerUserId,
-        to: args.counterpartyPhone,
-        grantedAt: new Date().toISOString(),
-        allowance: Math.min(SMS_REPLY_GRANT_MAX_ALLOWANCE, carried + 1),
-      },
-    },
-    { onConflict: "id" },
-  );
-  return !error;
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    const result = await bankOneReply(db, id, args);
+    if (result.ok) return true;
+    if (!result.conflict) return false;
+  }
+  return false;
 }
 
 export type SmsReplyGrantConsumption =

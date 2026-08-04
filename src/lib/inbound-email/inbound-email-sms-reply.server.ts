@@ -32,6 +32,7 @@ import {
 import { stripEmailReplyQuote } from "@/lib/inbound-email/inbound-email-reply.server";
 import {
   consumeSmsEmailReplyGrant,
+  smsEmailReplyBounceRateLimitKey,
   smsEmailReplyRateLimitKey,
 } from "@/lib/inbound-email/sms-reply-grant.server";
 import { rateLimit } from "@/lib/rate-limit";
@@ -213,11 +214,28 @@ function assessAuth(
 const GRANT_BOUNCE_REASON =
   "PropLane allows one emailed reply per notification email, for up to 7 days, and this conversation has none left. Open PropLane to reply.";
 
+/**
+ * Tell the manager their emailed reply did not go out.
+ *
+ * Throttled HERE, at the one place bounces are sent, so no refusal branch can
+ * forget: a bounce is mail PropLane sends on the strength of a spoofable
+ * `From`, and an attacker holding a leaked `sms+` address gets a fresh claim
+ * per Resend email id, so an unthrottled refusal path is an inbox-flood vector.
+ * Its bucket is deliberately SEPARATE from the send allowance — a forged flood
+ * must not be able to spend the manager's own budget for real replies.
+ */
 async function bounceToManager(args: {
+  managerUserId: string;
   managerEmail: string;
   counterpartyPhone: string;
   reason: string;
 }): Promise<void> {
+  const throttle = rateLimit(
+    smsEmailReplyBounceRateLimitKey(args.managerUserId, args.counterpartyPhone),
+    3,
+    3_600_000,
+  );
+  if (!throttle.ok) return;
   await sendManagerNoticeEmail({
     toEmail: args.managerEmail,
     subject: "Your text reply could not be sent",
@@ -278,6 +296,7 @@ export async function ingestInboundEmailSmsReply(
       error: "ingest_error",
     }).catch(() => undefined);
     await bounceToManager({
+      managerUserId: target.managerUserId,
       managerEmail,
       counterpartyPhone: target.counterpartyPhone,
       reason: "The text could not be sent from your PropLane number.",
@@ -292,24 +311,12 @@ async function deliverClaimedEmailSmsReply(
   target: { managerUserId: string; counterpartyPhone: string },
   managerEmail: string,
 ): Promise<EmailSmsReplyResult> {
-  // ONE allowance per conversation per hour, covering every outcome below —
-  // sends AND bounces. A bounce is an email PropLane sends on the strength of a
-  // spoofable `From`, so an unthrottled refusal path is an inbox-flood vector:
-  // an attacker holding a leaked `sms+` address gets a fresh claim per Resend
-  // email id and would otherwise turn each one into an accusatory email. Past
-  // the allowance the attempt is recorded and dropped SILENTLY — the manager is
-  // told the first few times and never becomes the target. It also short-cuts
-  // the Resend fetch below, so a burst costs no round trips.
-  if (!rateLimit(smsEmailReplyRateLimitKey(target.managerUserId, target.counterpartyPhone), 3, 3_600_000).ok) {
-    await recordClaimOutcome(db, parsed.emailId, { smsSent: false, error: "rate_limited" });
-    return { handled: true, sent: false, error: "rate_limited" };
-  }
-
   const payload = await resolveReplyPayload(parsed);
   const text = payload.text.trim().slice(0, MAX_SMS_REPLY_CHARS);
   if (!text) {
     await recordClaimOutcome(db, parsed.emailId, { smsSent: false, error: "empty_body" });
     await bounceToManager({
+      managerUserId: target.managerUserId,
       managerEmail,
       counterpartyPhone: target.counterpartyPhone,
       reason: "The reply body could not be read from the email.",
@@ -326,12 +333,28 @@ async function deliverClaimedEmailSmsReply(
   if (auth === "reject") {
     await recordClaimOutcome(db, parsed.emailId, { smsSent: false, error: "auth_failed" });
     await bounceToManager({
+      managerUserId: target.managerUserId,
       managerEmail,
       counterpartyPhone: target.counterpartyPhone,
       reason:
         "A reply claiming to be you failed sender authentication, so PropLane did not text it. If you did send it, reply from PropLane instead.",
     });
     return { handled: true, sent: false, error: "auth_failed" };
+  }
+
+  // Only a reply that has cleared authentication reaches the manager's own send
+  // budget, so a forged flood — which stops above — can never exhaust it and
+  // silence them. Still checked BEFORE the grant, so a throttled reply does not
+  // also burn the allowance it never got to use.
+  if (!rateLimit(smsEmailReplyRateLimitKey(target.managerUserId, target.counterpartyPhone), 3, 3_600_000).ok) {
+    await recordClaimOutcome(db, parsed.emailId, { smsSent: false, error: "rate_limited" });
+    await bounceToManager({
+      managerUserId: target.managerUserId,
+      managerEmail,
+      counterpartyPhone: target.counterpartyPhone,
+      reason: "Too many emailed replies to this conversation in the last hour.",
+    });
+    return { handled: true, sent: false, error: "rate_limited" };
   }
 
   // The grant is consumed LAST, so a reply refused by any gate above it still
@@ -347,6 +370,7 @@ async function deliverClaimedEmailSmsReply(
         error: `grant_${grant.reason}`,
       });
       await bounceToManager({
+        managerUserId: target.managerUserId,
         managerEmail,
         counterpartyPhone: target.counterpartyPhone,
         reason: GRANT_BOUNCE_REASON,
@@ -379,6 +403,7 @@ async function deliverClaimedEmailSmsReply(
       error: send.error ?? "send_failed",
     });
     await bounceToManager({
+      managerUserId: target.managerUserId,
       managerEmail,
       counterpartyPhone: target.counterpartyPhone,
       reason:

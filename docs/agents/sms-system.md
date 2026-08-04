@@ -64,19 +64,29 @@ reply from any of them reaches the texter:
      `portal_outbound_mail_records`; the ingest SPENDS one before sending
      (compare-and-set on the value just read, so a redelivery cannot spend the
      same allowance twice). One emailed reply per notification, ≤7 days old,
-     **capped at `SMS_REPLY_GRANT_MAX_ALLOWANCE`** so an unread backlog cannot
-     bank an unbounded licence to text. It is a COUNTER, not a flag: two texts
-     from one person send two notifications and answering both is ordinary, so
-     a boolean would silently drop the second reply. Missing / expired /
-     nothing-left bounces with "open PropLane to reply", and an unreadable row
-     fails CLOSED — unlike the plan and consent gates, this one is
-     authorization.
-   - **Per-conversation rate limit**, 3/hour (`smsEmailReplyRateLimitKey`),
-     checked FIRST — ahead of every branch that sends a text *or* emails a
-     bounce. A bounce is mail PropLane sends on the strength of a spoofable
-     `From`, so an unthrottled refusal path is an inbox-flood vector: past the
-     allowance the attempt is recorded and dropped silently. The grant is spent
-     LAST, so a reply refused by any gate never burns the manager's allowance.
+     **capped at `SMS_REPLY_GRANT_MAX_ALLOWANCE` (3)** so an unread backlog
+     cannot bank an unbounded licence to text. It is a COUNTER, not a flag: two
+     texts from one person send two notifications and answering both is
+     ordinary, so a boolean would silently drop the second reply. Missing /
+     expired / nothing-left bounces with "open PropLane to reply", and an
+     unreadable row fails CLOSED — unlike the plan and consent gates, this one
+     is authorization.
+     **Banking is guarded the same way and never fails closed**: it compare-and-
+     sets on the allowance it read (so a concurrent spend cannot be resurrected)
+     and retries once, but a row it could not READ still banks one — the caller
+     has already mailed a working token, so refusing to open the window would
+     hand the manager an invitation that bounces. A window that fails to open
+     is logged, never silent.
+   - **Two per-conversation rate limits, 3/hour each, on SEPARATE buckets.**
+     `smsEmailReplyRateLimitKey` is the manager's own send budget and is checked
+     only once a reply has cleared authentication, so a forged flood — which
+     never gets that far — cannot exhaust it and silence them.
+     `smsEmailReplyBounceRateLimitKey` caps bounce mail and is enforced inside
+     `bounceToManager` itself, so no refusal branch can forget it; past the cap
+     the outcome is recorded and no email goes out. A bounce is mail PropLane
+     sends on the strength of a spoofable `From`, which is why it needs its own
+     ceiling. The grant is spent LAST, so a reply refused by any gate never
+     burns the manager's allowance.
 
 **Intent-router seam.** `/api/twilio/inbound` consults
 `routeInboundSms(ctx)` (`src/lib/sms-intent-router.ts`) after self-reply

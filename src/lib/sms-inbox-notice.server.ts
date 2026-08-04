@@ -201,11 +201,17 @@ export async function notifyManagerOfInboundSms(
   // against, so it also needs a single-use window: this notification is what
   // authorizes ONE emailed reply into this conversation.
   if (sent && replyTo) {
-    await grantSmsEmailReply(db, {
+    // The manager now holds a working reply token, so a window that failed to
+    // open is a real defect — their reply will bounce. Never silent.
+    const banked = await grantSmsEmailReply(db, {
       managerUserId,
       counterpartyPhone: fromPhone,
       managerEmail,
-    }).catch(() => false);
+    }).catch((e) => {
+      console.error("sms reply grant threw", managerUserId, e instanceof Error ? e.message : e);
+      return false;
+    });
+    if (!banked) console.error("sms reply grant not banked after notification", managerUserId);
   }
   return { inboxNoticeWritten, emailSent: sent };
 }

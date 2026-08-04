@@ -520,40 +520,40 @@ describe("ingestInboundEmailSmsReply — single-use reply grant", () => {
   });
 });
 
-describe("ingestInboundEmailSmsReply — per-conversation rate limit", () => {
+describe("ingestInboundEmailSmsReply — send and bounce budgets are separate", () => {
+  async function ingest(phone: string, emailId: string, grant: GrantState = "valid") {
+    const db = seedDb(phone, grant);
+    const result = await ingestInboundEmailSmsReply(
+      parsedEmail({ emailId }),
+      { managerUserId: MGR, counterpartyPhone: phone },
+      db as never,
+    );
+    return { db, result };
+  }
+
   it("refuses the fourth emailed reply within the hour, without burning its grant", async () => {
     const phone = nextPhone();
-    const results = [];
-    const dbs = [];
-    for (let i = 0; i < 4; i += 1) {
-      const db = seedDb(phone, "valid");
-      dbs.push(db);
-      results.push(
-        await ingestInboundEmailSmsReply(
-          parsedEmail({ emailId: `re_rate_${i}` }),
-          { managerUserId: MGR, counterpartyPhone: phone },
-          db as never,
-        ),
-      );
-    }
-    expect(results.slice(0, 3).every((r) => r.sent)).toBe(true);
-    expect(results[3]).toMatchObject({ handled: true, sent: false, error: "rate_limited" });
+    const runs = [];
+    for (let i = 0; i < 4; i += 1) runs.push(await ingest(phone, `re_rate_${i}`));
+
+    expect(runs.slice(0, 3).every((r) => r.result.sent)).toBe(true);
+    expect(runs[3]!.result).toMatchObject({ handled: true, sent: false, error: "rate_limited" });
     expect(sendFromManagerMock).toHaveBeenCalledTimes(3);
-    // A throttled reply is dropped silently — telling the manager would be the
-    // same email a flood could weaponise.
-    expect(bounceMock).not.toHaveBeenCalled();
-    // …and it must leave the single-use window intact, otherwise the manager
-    // waits for the next inbound text on top of the hour.
-    const grant = tablesOf(dbs[3]!).portal_outbound_mail_records.find(
+    // The manager IS told — their own bounce budget is untouched by this, and
+    // silence would leave a real reply vanishing with no signal at all.
+    expect(bounceMock).toHaveBeenCalledTimes(1);
+    // …and the throttled reply must leave its allowance intact, otherwise the
+    // manager waits for the next inbound text on top of the hour.
+    const grant = tablesOf(runs[3]!.db).portal_outbound_mail_records.find(
       (r) => r.id === smsReplyGrantRecordId(MGR, phone),
     );
     expect((grant?.row_data as Record<string, unknown>).allowance).toBe(1);
   });
 
-  it("caps BOUNCE emails too, so a spoofed burst cannot flood the manager", async () => {
-    // Every refused reply used to email the manager. With a fresh Resend email
-    // id per attempt the claim never dedupes them, so the refusal path was an
-    // unthrottled mailer pointed at the account it was meant to protect.
+  it("caps BOUNCE emails, and a spoof flood never spends the manager's send budget", async () => {
+    // With a fresh Resend email id per attempt the claim never dedupes them, so
+    // the refusal path is an unthrottled mailer pointed at the account it was
+    // meant to protect — unless bounces have their own ceiling.
     stubReceivedEmail({
       kind: "empty",
       headers: {
@@ -561,26 +561,24 @@ describe("ingestInboundEmailSmsReply — per-conversation rate limit", () => {
       },
     });
     const phone = nextPhone();
-    const results = [];
-    for (let i = 0; i < 8; i += 1) {
-      const db = seedDb(phone, "valid");
-      results.push(
-        await ingestInboundEmailSmsReply(
-          parsedEmail({ emailId: `re_spoof_${i}` }),
-          { managerUserId: MGR, counterpartyPhone: phone },
-          db as never,
-        ),
-      );
-    }
-    expect(results.every((r) => r.sent === false)).toBe(true);
+    const spoofed = [];
+    for (let i = 0; i < 8; i += 1) spoofed.push(await ingest(phone, `re_spoof_${i}`));
+
+    expect(spoofed.every((r) => r.result.error === "auth_failed")).toBe(true);
     expect(bounceMock).toHaveBeenCalledTimes(3);
-    expect(results.slice(3).every((r) => r.error === "rate_limited")).toBe(true);
     expect(sendFromManagerMock).not.toHaveBeenCalled();
-    // Throttled attempts never even reach Resend for the body/headers.
-    expect(receivedEmailFetchCount()).toBe(3);
+
+    // The manager's OWN reply still goes out: the forged burst was refused on
+    // the bounce bucket and never reached the send allowance.
+    bounceMock.mockClear();
+    stubReceivedEmail({ kind: "empty", headers: {} });
+    const genuine = await ingest(phone, "re_genuine");
+    expect(genuine.result).toMatchObject({ handled: true, sent: true });
+    expect(sendFromManagerMock).toHaveBeenCalledTimes(1);
+    expect(bounceMock).not.toHaveBeenCalled();
   });
 
-  it("throttles the empty-body bounce on the same allowance", async () => {
+  it("throttles the empty-body bounce on the bounce budget", async () => {
     stubReceivedEmail({ kind: "empty", headers: {} });
     const phone = nextPhone();
     const results = [];
@@ -594,8 +592,7 @@ describe("ingestInboundEmailSmsReply — per-conversation rate limit", () => {
         ),
       );
     }
-    expect(results[0]).toMatchObject({ error: "empty_body" });
-    expect(results[4]).toMatchObject({ error: "rate_limited" });
+    expect(results.every((r) => r.error === "empty_body")).toBe(true);
     expect(bounceMock).toHaveBeenCalledTimes(3);
   });
 });
