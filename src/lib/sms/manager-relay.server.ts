@@ -119,7 +119,19 @@ export async function resolveManagerActiveConversation(
 }
 
 export type ManagerReplyResult =
-  | { ok: true; residentPhone: string }
+  | {
+      ok: true;
+      residentPhone: string;
+      /**
+       * Whether the `manager_sms_messages` row landed. FALSE means the resident
+       * received the text but the thread has no record of it — and because that
+       * row is what `humanOwnsConversation` reads, the inbound router will keep
+       * auto-replying over a conversation this manager has joined. The send is
+       * still reported as `ok` because the text is already gone; a retry would
+       * only text the resident twice.
+       */
+      logged: boolean;
+    }
   | { ok: false; error: "no_active_conversation" | "registration_pending" | "send_failed" };
 
 /**
@@ -151,7 +163,13 @@ export async function handleManagerReplyInbound(
     counterpartyRole: "resident",
   });
   if (!sent.ok) return { ok: false, error: "send_failed" };
-  return { ok: true, residentPhone: active.residentPhone };
+  if (sent.logged === false) {
+    console.error("manager relay reply sent but manager_sms_messages row did not land", {
+      managerUserId: args.managerUserId,
+      source: "work_number",
+    });
+  }
+  return { ok: true, residentPhone: active.residentPhone, logged: sent.logged !== false };
 }
 
 /**

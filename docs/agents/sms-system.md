@@ -263,16 +263,34 @@ fall-through result carries `firstContactFooter` (the business-identification
 reply**: the first automated message a new person receives has to identify the
 business and say how to opt out no matter which layer answers it.
 
-> **Scope note — this lane deliberately touched the transport path once.** The
-> router lane was scoped "do not edit the transport path", and the `lead_invite`
-> source below is an approved, narrow override of that boundary (firstmate
-> `sms-review-r7`), taken because a Share-listing text was silencing the very
-> Text-to-tour reply this router exists to answer. It covers exactly: the
-> `ManagerSmsSource` / `NON_HUMAN_AUTHORED_SMS_SOURCES` declarations, the
-> `source` signature widenings, the `send-lead-invite` call-site tag, and the
-> CHECK migration. Twilio webhooks, routing, and number provisioning are
-> untouched, and the spine lane has been told. Do not read it as the boundary
-> having moved.
+> **Scope note — this lane deliberately touched the transport path.** The router
+> lane was scoped "do not edit the transport path"; the edits below are an
+> approved, narrow override of that boundary (firstmate `sms-review-r7`,
+> extended by `sms-review-r8`), taken because a Share-listing text was silencing
+> the very Text-to-tour reply this router exists to answer. The override covers
+> exactly two things and their plumbing:
+>
+> 1. **The `lead_invite` message-source tag** — the `ManagerSmsSource` /
+>    `NON_HUMAN_AUTHORED_SMS_SOURCES` declarations and `unloggedSmsWarning` in
+>    `manager-sms-messages.ts`, the `source` signature widenings in
+>    `manager-sms-messages.server.ts` and `proplane-sms-transport.server.ts`, the
+>    `send-lead-invite` call-site tag, and
+>    `20260804120000_manager_sms_lead_invite_source.sql`.
+> 2. **The `logged` signal** — `PropLaneSmsResult.logged`,
+>    `logOutboundIfNeeded`'s `void` → `Promise<boolean>` signature and the
+>    Claw/Twilio return paths restructured to carry it, `ManagerReplyResult`'s
+>    `logged` field, and the four senders that now report it
+>    (`send-lead-invite`, `/api/manager/sms-conversations`,
+>    `/api/admin/sms-conversations`, `manager-relay.server.ts`).
+>
+> Twilio webhooks, routing, and number provisioning are untouched, and the spine
+> lane has been told. Keep this list EXACT — it is what the spine lane reads on
+> rebase, so an omission here reads as an unapproved edit. Do not treat the
+> boundary as having moved: anything beyond these two goes back to the user.
+>
+> Known gap left deliberately inside that boundary: `/api/twilio/inbound`
+> consumes `ManagerReplyResult` and could tell a relaying manager their reply
+> went unlogged, but it is a webhook, so the notice was not added.
 
 Invariants:
 
@@ -430,10 +448,21 @@ Invariants:
   insert is rejected by the constraint. There is deliberately no fallback to
   `work_number` on rejection: that value counts as a takeover and would silence
   the very prospect this tag exists to keep answered. Instead the failure is now
-  LOUD — `logOutboundIfNeeded` returns whether the row landed,
-  `PropLaneSmsResult.logged` carries it, and `/api/portal/send-lead-invite`
-  logs an error and returns `warning` (the text already went out, so failing the
-  request would only produce a duplicate send). Scoping on `(manager_user_id, resident_phone)` alone collapses
+  LOUD — `logOutboundIfNeeded` returns whether the row landed and
+  `PropLaneSmsResult.logged` carries it.
+  **Every sender reports that signal, and a HUMAN-composed one matters more than
+  the share does.** A dropped `lead_invite` row costs an audit entry; a dropped
+  `work_number` row costs the TAKEOVER FLIP, because `humanOwnsConversation`
+  reads exactly those rows — the manager types a real reply, the resident gets
+  it, and the router still sees no human and keeps auto-replying over the live
+  conversation. So `/api/manager/sms-conversations`,
+  `/api/admin/sms-conversations` and `manager-relay.server.ts` check `logged`
+  alongside `/api/portal/send-lead-invite`. None of them fails the request (the
+  text already went out; a retry would only send it twice) and none reports a
+  clean success either: the routes answer `smsLogged: false` plus the `warning`
+  from `unloggedSmsWarning(source)` — one helper, keyed on
+  `NON_HUMAN_AUTHORED_SMS_SOURCES`, so the two consequences cannot drift apart —
+  and `ManagerReplyResult` carries `logged` for the relay. Scoping on `(manager_user_id, resident_phone)` alone collapses
   the role-distinct threads one phone can hold (`owner:role:person_ref`), so a
   manager who once replied in someone's RESIDENT thread would permanently
   silence that person's PROSPECT thread — and since this result also suppresses

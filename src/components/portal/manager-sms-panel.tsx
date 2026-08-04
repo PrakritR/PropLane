@@ -542,6 +542,7 @@ export const ManagerSmsPanel = forwardRef<
     try {
       let smsOk = !replyViaSms;
       let emailOk = !replyViaEmail;
+      let smsWarning: string | null = null;
 
       if (replyViaSms) {
         if (!active?.resident.phone) {
@@ -559,12 +560,13 @@ export const ManagerSmsPanel = forwardRef<
             conversationKey: active.resident.conversationKey ?? null,
           }),
         });
-        const body = (await res.json().catch(() => ({}))) as { error?: string };
+        const body = (await res.json().catch(() => ({}))) as { error?: string; warning?: string };
         smsOk = res.ok;
         if (!smsOk && !replyViaEmail) {
           showToast(body.error ?? "Could not send.");
           return;
         }
+        smsWarning = body.warning ?? null;
       }
 
       if (replyViaEmail) {
@@ -603,9 +605,8 @@ export const ManagerSmsPanel = forwardRef<
           return next;
         });
       }
-      if (replyViaEmail && replyViaSms) showToast("Sent via email and SMS.");
-      else if (replyViaEmail) showToast("Email sent.");
-      else showToast("SMS sent.");
+      const sentLabel = replyViaEmail && replyViaSms ? "Sent via email and SMS." : replyViaEmail ? "Email sent." : "SMS sent.";
+      showToast(smsWarning ? `${sentLabel} ${smsWarning}` : sentLabel);
       await load();
     } catch {
       showToast("Could not send.");

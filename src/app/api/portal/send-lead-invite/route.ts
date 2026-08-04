@@ -16,6 +16,7 @@ import {
   buildManagerTourUrl,
 } from "@/lib/manager-property-links";
 import { buildListingShareSummary } from "@/lib/listing-share-summary";
+import { unloggedSmsWarning } from "@/lib/manager-sms-messages";
 import { getShareablePropertyForUser } from "@/lib/manager-property-share-access";
 import { sendFromManagerWorkNumber } from "@/lib/proplane-sms-transport.server";
 import { recordResidentProspectInboxMessage } from "@/lib/tour-notification-delivery.server";
@@ -303,7 +304,7 @@ export async function POST(req: Request) {
           managerUserId: user.id,
           source: "lead_invite",
         });
-        smsLogWarning = "Text sent, but it could not be saved to Communication.";
+        smsLogWarning = unloggedSmsWarning("lead_invite");
       }
     }
 

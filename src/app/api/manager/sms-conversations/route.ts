@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { unloggedSmsWarning } from "@/lib/manager-sms-messages";
 import {
   deleteManagerSmsConversation,
   fetchManagerSmsConversations,
@@ -180,6 +181,24 @@ export async function POST(req: Request) {
       { error: result.error === "recipient_opted_out" ? "That number has opted out of texts." : "Could not send SMS." },
       { status: 502 },
     );
+  }
+
+  if (result.logged === false) {
+    // The text is already gone, so failing the request would only invite a
+    // duplicate send to a resident. Say it out loud instead: this row is what
+    // `humanOwnsConversation` reads, and without it the router keeps
+    // auto-replying over the conversation the manager just joined.
+    console.error("manager sms reply sent but manager_sms_messages row did not land", {
+      managerUserId: ownerManagerUserId,
+      source: "work_number",
+    });
+    return NextResponse.json({
+      ok: true,
+      channel: result.channel,
+      sid: result.sid,
+      smsLogged: false,
+      warning: unloggedSmsWarning("work_number"),
+    });
   }
 
   return NextResponse.json({

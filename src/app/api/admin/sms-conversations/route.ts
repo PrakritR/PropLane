@@ -4,6 +4,7 @@ import {
   resolveAdminForwardPhone,
   resolveManagerUserIdForPhone,
 } from "@/lib/claw-resident-messaging.server";
+import { unloggedSmsWarning } from "@/lib/manager-sms-messages";
 import { fetchAdminSmsConversations } from "@/lib/manager-sms-messages.server";
 import { sendFromManagerWorkNumber } from "@/lib/proplane-sms-transport.server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
@@ -152,6 +153,24 @@ export async function POST(req: Request) {
     }
   } catch (e) {
     console.error("admin sms CC failed", e instanceof Error ? e.message : e);
+  }
+
+  if (result.logged === false) {
+    // Same rule as the manager composer: never report a clean success for a
+    // human-composed text whose row is missing — that row is the takeover
+    // signal, and failing the request would only produce a duplicate send.
+    console.error("admin sms reply sent but manager_sms_messages row did not land", {
+      managerUserId: ownerManagerUserId,
+      source: "work_number",
+    });
+    return NextResponse.json({
+      ok: true,
+      channel: result.channel,
+      sid: result.sid,
+      ccAdmin: true,
+      smsLogged: false,
+      warning: unloggedSmsWarning("work_number"),
+    });
   }
 
   return NextResponse.json({ ok: true, channel: result.channel, sid: result.sid, ccAdmin: true });

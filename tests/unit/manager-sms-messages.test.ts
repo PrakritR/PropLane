@@ -11,8 +11,30 @@ import {
   isPhoneLikeLabel,
   smsConversationDisplayName,
   smsConversationSubtitle,
+  unloggedSmsWarning,
   MANAGER_SMS_TAB_DEFS,
+  NON_HUMAN_AUTHORED_SMS_SOURCES,
 } from "@/lib/manager-sms-messages";
+
+describe("unloggedSmsWarning", () => {
+  it("warns about the takeover flip only for a HUMAN-composed send", () => {
+    // A dropped `work_number` row costs the takeover signal itself — the router
+    // keeps auto-replying over a conversation the manager has joined — so its
+    // copy has to say more than the share's missing audit entry.
+    for (const source of ["work_number", "relay"] as const) {
+      expect(NON_HUMAN_AUTHORED_SMS_SOURCES).not.toContain(source);
+      expect(unloggedSmsWarning(source)).toContain("auto-replying");
+    }
+    for (const source of NON_HUMAN_AUTHORED_SMS_SOURCES) {
+      expect(unloggedSmsWarning(source)).not.toContain("auto-replying");
+    }
+  });
+
+  it("always says the text DID go out, so nobody re-sends it", () => {
+    expect(unloggedSmsWarning("work_number")).toMatch(/^Text sent,/);
+    expect(unloggedSmsWarning("lead_invite")).toMatch(/^Text sent,/);
+  });
+});
 
 describe("manager-sms-messages types", () => {
   it("accepts a conversations payload shape used by ManagerSmsPanel", () => {

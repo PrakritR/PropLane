@@ -26,6 +26,23 @@ export type ManagerSmsSource = "work_number" | "relay" | "automated" | "lead_inv
  */
 export const NON_HUMAN_AUTHORED_SMS_SOURCES: ManagerSmsSource[] = ["automated", "lead_invite"];
 
+/**
+ * What to tell the sender when the text went out but its `manager_sms_messages`
+ * row did NOT land (`PropLaneSmsResult.logged === false`).
+ *
+ * The two consequences differ, and they are derived from the same list that
+ * decides them so they cannot drift: a non-human-authored send loses an audit
+ * entry, while a HUMAN-composed one also loses the takeover flip —
+ * `humanOwnsConversation` reads exactly these rows, so an unlogged manager
+ * reply leaves the router seeing no human and auto-replying over a live
+ * conversation.
+ */
+export function unloggedSmsWarning(source: ManagerSmsSource): string {
+  return NON_HUMAN_AUTHORED_SMS_SOURCES.includes(source)
+    ? "Text sent, but it could not be saved to Communication."
+    : "Text sent, but it could not be saved to the conversation — the assistant may keep auto-replying here until it is.";
+}
+
 export type ManagerSmsMessageRow = {
   id: string;
   direction: "inbound" | "outbound";
