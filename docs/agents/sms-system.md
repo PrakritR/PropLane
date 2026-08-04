@@ -244,6 +244,54 @@ inbound STOP still supersedes the recorded opt-in. Coverage:
 `tests/unit/partner-inquiry-sms-consent.test.ts`,
 `tests/unit/tours-contact-sms-consent-ui.test.tsx`.
 
+## Inbound intent router (`src/lib/sms-intent-router.ts`) — text-to-tour / text-to-apply
+
+`routeInboundSms(ctx)` is the keyword brain behind the public "Text to tour" /
+"Text to apply" listing CTAs, called by the transport with one normalized
+inbound message. It returns `{ handled, autoReplyBody? }`: `handled` with a
+body → send exactly that; `handled` with NO body → **deliberate silence, do
+not fall through to any other auto-reply**; `handled: false` → default
+handling (the Claude leasing agent) may take the turn, and only ever happens
+for a non-first message from a non-opted-out, non-human-owned conversation —
+so the router's compliance gates cover the default path too. Invariants:
+
+- **Tour intent creates ONE real pending tour inquiry** — the same
+  `axis_admin_partner_inquiries_v1` payload row + standalone
+  `partner_inquiry_request_*` records the web booking page writes, so the
+  manager's calendar, accept route, and approval-first proposal engine all see
+  it with zero new code. Candidate windows come from the same offering formula
+  as the public availability route (published future slots, else the 9-5
+  default grid, LIVE listings only, minus `loadManagerTourBlocks`); the
+  prospect narrows to one window by replying "1/2/3", and name/email
+  follow-ups fill the inquiry's contact fields. **Idempotent per
+  (manager, prospect phone)**: any existing pending tour inquiry — SMS- or
+  web-created — means a repeat "tour" text reminds instead of duplicating.
+- **Apply intent creates NO rows, deliberately.** A draft application needs an
+  email and a browser-held resume token, so a server-minted row would be an
+  orphan the prospect can never resume and a guaranteed duplicate once they
+  really apply. The reply is the real wizard link with the phone prefilled.
+- **Human takeover silences the bot permanently per thread.** Any outbound
+  `manager_sms_messages` row for the manager + phone whose `source` is not
+  `automated` (the portal composer logs `work_number`, the manager-cell relay
+  `relay`) → the router answers `handled: true` with no body. Consequence:
+  every automated reply MUST be sent with `source: "automated"`
+  (`deliverLeasingSmsReply` does), or the first bot reply would silence the
+  bot itself.
+- **STOP/HELP are handled router-side as a second line of defense** (the
+  webhook already short-circuits them): STOP records the ledger opt-out and
+  stays silent (Twilio Advanced Opt-Out sends the carrier confirmation);
+  HELP/INFO returns business-identified help text; START/UNSTOP — and a bare
+  "YES" from an opted-out number — record the opt-in. An opted-out number is
+  never auto-replied to, and a first-contact reply always carries the
+  business identification + "Reply STOP to opt out" footer.
+- **An SMS-initiated tour inquiry stamps `smsConsent: true`** and records a
+  `text-to-tour` ledger opt-in: the prospect texted the business first, and
+  the tour-confirmation text (`textTourGuest`) is a reply within the
+  conversation they initiated. A later STOP still supersedes at the transport
+  gate.
+- Coverage: `tests/unit/sms-intent-router.test.ts` (idempotency, suppression,
+  STOP/HELP/opt-out, no-rows-on-apply, live-only tours, first-contact footer).
+
 ## Per-manager number: provisioning + registration state machine
 
 `profiles.sms_from_number` is the denormalized "active number" cache every send /
