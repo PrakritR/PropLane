@@ -15,6 +15,7 @@ import { ManagerPropertyApplicationQuestionsPanel } from "@/components/portal/ma
 import { ManagerPropertyLeasePanel } from "@/components/portal/manager-property-lease-panel";
 import { ManagerPropertyPromotionPanel } from "@/components/portal/manager-property-promotion-panel";
 import { ManagerPropertyTourPanel } from "@/components/portal/manager-property-tour-panel";
+import { ManagerPropertyChannelCalendarPanel } from "@/components/portal/manager-property-channel-calendar-panel";
 import { ConfirmDeleteModal } from "@/components/portal/confirm-delete-modal";
 import { ShareLeadLinkModal } from "@/components/portal/share-lead-link-modal";
 import { PortalPageFooterActions, PortalSectionActionRow } from "@/components/portal/portal-section-action-row";
@@ -608,7 +609,7 @@ function ManagerPropertyInlineDetails({
     bucket === 3 || bucket === 5
       ? ["preview"]
       : bucket === 2 && listingId
-        ? ["preview", "house-details", "move-in", "application", "lease", "calendar", "requests", "promotion"]
+        ? ["preview", "house-details", "move-in", "application", "lease", "tour-calendar", "booking-calendars", "requests", "promotion"]
         : ["preview", "house-details", "move-in", "application", "lease"];
   const activeDetailTab = availableTabs.includes(detailTab) ? detailTab : availableTabs[0]!;
   const detailSectionTabs = useMemo(
@@ -648,7 +649,8 @@ function ManagerPropertyInlineDetails({
         dataAttr: "property-detail-tab-details",
       });
     }
-    pushTopTab("calendar", "calendar");
+    pushTopTab("tourCalendar", "tour-calendar");
+    pushTopTab("bookingCalendars", "booking-calendars");
     pushTopTab("application", "application");
     pushTopTab("lease", "lease");
     pushTopTab("requests", "requests");
@@ -729,7 +731,7 @@ function ManagerPropertyInlineDetails({
         </Button>
       );
     }
-    if (activeDetailTab === "calendar" && bucket === 2 && listingId) {
+    if (activeDetailTab === "tour-calendar" && bucket === 2 && listingId) {
       return (
         <Button
           type="button"
@@ -835,7 +837,7 @@ function ManagerPropertyInlineDetails({
       <PortalPageScrollBody
         className={cn(
           "min-w-0 max-w-full",
-          !isDetailsUnifiedView && activeDetailTab !== "calendar" && activeDetailTab !== "preview" && "pt-3",
+          !isDetailsUnifiedView && activeDetailTab !== "tour-calendar" && activeDetailTab !== "preview" && "pt-3",
         )}
       >
       {isDetailsUnifiedView ? (
@@ -926,13 +928,21 @@ function ManagerPropertyInlineDetails({
         />
       ) : null}
 
-      {activeDetailTab === "calendar" && bucket === 2 && listingId ? (
+      {activeDetailTab === "tour-calendar" && bucket === 2 && listingId ? (
         <ManagerPropertyTourPanel
           listingId={listingId}
           managerUserId={managerUserId}
           propertyLabel={propertyShareLabel}
           showToast={showToast}
           onRegisterSendTour={registerTourSendHandler}
+        />
+      ) : null}
+
+      {activeDetailTab === "booking-calendars" && bucket === 2 && stablePropertyId ? (
+        <ManagerPropertyChannelCalendarPanel
+          propertyId={stablePropertyId}
+          submission={managerSubmission}
+          showToast={showToast}
         />
       ) : null}
 

@@ -24,8 +24,8 @@ test.describe("Tour scheduling", () => {
 
   test("manager calendar page shows calendar controls", async ({ page }) => {
     await signInAsManager(page);
-    await page.goto("/portal/calendar/all");
-    await expect(page).toHaveURL(/\/portal\/calendar\/all/);
+    await page.goto("/portal/calendar/tours");
+    await expect(page).toHaveURL(/\/portal\/calendar\/tours/);
     await expect(page.getByRole("heading").first()).toBeVisible({ timeout: 15_000 });
     await expect(page.getByRole("button", { name: "Previous week" }).first()).toBeVisible({
       timeout: 10_000,
@@ -34,8 +34,8 @@ test.describe("Tour scheduling", () => {
 
   test("manager calendar shows upcoming events section", async ({ page }) => {
     await signInAsManager(page);
-    await page.goto("/portal/calendar/all");
-    await expect(page).toHaveURL(/\/portal\/calendar\/all/);
+    await page.goto("/portal/calendar/tours");
+    await expect(page).toHaveURL(/\/portal\/calendar\/tours/);
     await expect(page.getByRole("heading").first()).toBeVisible({ timeout: 15_000 });
     // Calendar grid or schedule view should be present
     const calEl = page

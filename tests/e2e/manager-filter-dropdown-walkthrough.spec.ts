@@ -21,7 +21,7 @@ const FILTER_SECTIONS: { path: string; label: string; fieldMatchers: RegExp[]; i
   },
   { path: "/portal/financials/income", label: "Finances income", fieldMatchers: [/Property/i] },
   { path: "/portal/documents/library", label: "Documents library", fieldMatchers: [/Category/i, /Scope/i] },
-  { path: "/portal/calendar/all", label: "Calendar", fieldMatchers: [/Property/i] },
+  { path: "/portal/calendar/tours", label: "Calendar", fieldMatchers: [/Property/i] },
 ];
 
 async function openFilterPanel(page: Page) {
