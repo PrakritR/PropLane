@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
+import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
 import { PortalDetailDestinationNav } from "@/components/portal/portal-detail-destination-nav";
 import type { MockProperty } from "@/data/types";
 import { ListingDetailSections } from "@/components/marketing/listing-detail-sections";
@@ -24,6 +25,7 @@ import { PORTAL_DETAIL_BTN } from "@/components/portal/portal-data-table";
 import { PORTAL_PROPERTY_DETAIL_ACTION_BUTTON_CLASS } from "@/components/portal/portal-property-detail-section";
 import { PortalRecordDetailPage } from "@/components/portal/portal-record-detail-page";
 import {
+  PROPERTY_DETAIL_SECTION_TABS,
   PROPERTY_DETAIL_TAB_LABELS,
   PROPERTY_DETAIL_TOP_TAB_LABELS,
   PROPERTY_DETAIL_TOP_TAB_SHORT_LABELS,
@@ -33,6 +35,7 @@ import {
   parsePropertyDetailTab,
   parsePropertyCalendarSubTab,
   type PropertyCalendarSubTabId,
+  type PropertyDetailSectionTabId,
   type PropertyDetailTabId,
 } from "@/lib/portal-detail-routes";
 import { ManagerPropertyRequestsPanel } from "@/components/portal/manager-property-requests-panel";
@@ -614,6 +617,13 @@ function ManagerPropertyInlineDetails({
         ? ["preview", "house-details", "move-in", "application", "lease", "calendar", "requests", "promotion"]
         : ["preview", "house-details", "move-in", "application", "lease"];
   const activeDetailTab = availableTabs.includes(detailTab) ? detailTab : availableTabs[0]!;
+  const detailSectionTabs = useMemo(
+    () =>
+      availableTabs.filter((tab): tab is PropertyDetailSectionTabId =>
+        (PROPERTY_DETAIL_SECTION_TABS as readonly string[]).includes(tab),
+      ),
+    [availableTabs],
+  );
   const topNavItems = useMemo(() => {
     const items: Array<{
       id: string;
@@ -636,17 +646,33 @@ function ManagerPropertyInlineDetails({
       });
     };
 
-    pushTopTab("preview", "preview");
-    pushTopTab("houseDetails", "house-details");
-    pushTopTab("moveIn", "move-in");
+    if (detailSectionTabs.length > 0) {
+      items.push({
+        id: "details",
+        label: PROPERTY_DETAIL_TOP_TAB_LABELS.details,
+        href: propertyDetailHref(propertiesBase, stage, propertyRouteKey, detailSectionTabs[0]!),
+        dataAttr: "property-detail-tab-details",
+      });
+    }
     pushTopTab("calendar", "calendar");
     pushTopTab("application", "application");
     pushTopTab("lease", "lease");
     pushTopTab("requests", "requests");
     pushTopTab("promotion", "promotion");
     return items;
-  }, [availableTabs, propertiesBase, propertyRouteKey, stage]);
+  }, [availableTabs, detailSectionTabs, propertiesBase, propertyRouteKey, stage]);
   const activeTopNavId = propertyDetailTopNavId(activeDetailTab);
+  const isDetailsSection = activeTopNavId === "details";
+  const detailsSubNavItems = useMemo(
+    () =>
+      detailSectionTabs.map((tab) => ({
+        id: tab,
+        label: PROPERTY_DETAIL_TAB_LABELS[tab],
+        href: propertyDetailHref(propertiesBase, stage, propertyRouteKey, tab),
+        dataAttr: `property-details-subtab-${tab}`,
+      })),
+    [detailSectionTabs, propertiesBase, propertyRouteKey, stage],
+  );
 
   const previewHasToolbar = bucket === 2 || bucket === 3 || bucket === 5;
 
@@ -814,7 +840,18 @@ function ManagerPropertyInlineDetails({
             denseEqualRow
           />
 
-          {activeDetailTab === "preview" && hasPreview ? (
+          {isDetailsSection && detailsSubNavItems.length > 1 ? (
+            <PortalListControlStack
+              className="border-t border-border bg-accent/30 py-1"
+              destinations={detailsSubNavItems}
+              activeDestinationId={activeDetailTab}
+              destinationAriaLabel="Details sections"
+              stickyDestinations={false}
+              destinationInset
+            />
+          ) : null}
+
+          {isDetailsSection && activeDetailTab === "preview" && hasPreview ? (
             <ListingStickySubnav
               mode="portal"
               appearance="portal"
@@ -830,7 +867,7 @@ function ManagerPropertyInlineDetails({
           activeDetailTab !== "calendar" && activeDetailTab !== "preview" && "pt-3",
         )}
       >
-      {activeDetailTab === "preview" ? (
+      {isDetailsSection && activeDetailTab === "preview" ? (
         hasPreview ? (
           <ListingDetailSections
             property={previewProperty!}
@@ -849,7 +886,7 @@ function ManagerPropertyInlineDetails({
         ) : null
       ) : null}
 
-      {activeDetailTab === "house-details" && bucket !== 3 && bucket !== 5 ? (
+      {isDetailsSection && activeDetailTab === "house-details" && bucket !== 3 && bucket !== 5 ? (
         <ManagerPropertyHouseDetailsPanel
           noteKey={noteKey}
           sub={managerSubmission}
@@ -860,7 +897,7 @@ function ManagerPropertyInlineDetails({
         />
       ) : null}
 
-      {activeDetailTab === "move-in" && bucket !== 3 && bucket !== 5 ? (
+      {isDetailsSection && activeDetailTab === "move-in" && bucket !== 3 && bucket !== 5 ? (
         <ManagerPropertyRoomMoveInPanel
           sub={managerSubmission}
           saveTarget={houseSaveTarget}
