@@ -323,7 +323,6 @@ export function ShareLeadLinkModal({
   ]);
 
   const previewBody = viaSms && !viaEmail ? inviteSmsBody : invitePreviewBody;
-  const previewRecipient = viaEmail ? prospectEmail.trim() : prospectPhone.trim();
 
   const sendListingRoomParams = useMemo(() => {
     if (kind === "listing" || isMultiListing || isMultiApply) {
@@ -762,8 +761,8 @@ export function ShareLeadLinkModal({
         open={sendPreviewOpen}
         title={kind === "listing" ? "Send listing" : kind === "apply" ? "Send application" : "Send tour link"}
         onClose={() => setSendPreviewOpen(false)}
-        recipient={previewRecipient || "prospect"}
-        recipientPhone={viaEmail && viaSms ? prospectPhone.trim() : undefined}
+        recipient={prospectEmail.trim() || "prospect"}
+        recipientPhone={prospectPhone.trim() || undefined}
         subject={leadInviteSubject(kind, propertyTitle, isMultiProperty ? propertyIds.length : undefined)}
         body={previewBody}
         intro="Review the message before sending."

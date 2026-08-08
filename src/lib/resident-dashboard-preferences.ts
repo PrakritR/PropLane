@@ -4,12 +4,13 @@
  */
 
 export type ResidentDashboardSectionId =
-  | "payments"
-  | "lease"
+  | "tours"
   | "applications"
+  | "lease"
+  | "houseDetails"
   | "services"
-  | "communication"
-  | "houseDetails";
+  | "payments"
+  | "communication";
 
 export type ResidentDashboardSectionDef = {
   id: ResidentDashboardSectionId;
@@ -20,9 +21,15 @@ export type ResidentDashboardSectionDef = {
 
 export const RESIDENT_DASHBOARD_SECTIONS: readonly ResidentDashboardSectionDef[] = [
   {
-    id: "payments",
-    label: "Pending & overdue payments",
-    description: "Outstanding charges on your account.",
+    id: "tours",
+    label: "Tour pending",
+    description: "Property tour requests awaiting confirmation.",
+    defaultVisible: true,
+  },
+  {
+    id: "applications",
+    label: "Application pending",
+    description: "Submitted applications still under review.",
     defaultVisible: true,
   },
   {
@@ -32,9 +39,9 @@ export const RESIDENT_DASHBOARD_SECTIONS: readonly ResidentDashboardSectionDef[]
     defaultVisible: true,
   },
   {
-    id: "applications",
-    label: "Applications",
-    description: "Submitted and in-progress applications.",
+    id: "houseDetails",
+    label: "House details",
+    description: "Move-in placement, keys, and house information.",
     defaultVisible: true,
   },
   {
@@ -44,9 +51,9 @@ export const RESIDENT_DASHBOARD_SECTIONS: readonly ResidentDashboardSectionDef[]
     defaultVisible: true,
   },
   {
-    id: "houseDetails",
-    label: "House details",
-    description: "Move-in placement, keys, and house information.",
+    id: "payments",
+    label: "Payments",
+    description: "Outstanding charges on your account.",
     defaultVisible: true,
   },
   {

@@ -11,12 +11,12 @@ import {
   PORTAL_MESSAGE_COMPOSE_TWO_COL_CLASS,
   PortalMessageBodyField,
   PortalMessageComposeModalBody,
-  PortalMessagePhoneReadonly,
   PortalMessageRecipientReadonly,
   PortalMessageScheduleFields,
   PortalMessageSendViaDropdown,
   PortalMessageSubjectField,
   portalMessageChannelsFromSelection,
+  portalMessageRecipientDisplay,
   PORTAL_MESSAGE_DEFAULT_FOOTER_NOTE,
   PORTAL_MESSAGE_SEND_VIA_OPTIONS,
   portalMessageFieldLabel,
@@ -130,12 +130,23 @@ export function PortalNotificationPreviewModal({
     ? (confirmLabelWithoutMessage ?? confirmLabel)
     : confirmLabel;
 
+  const { viaEmail, viaSms } = portalMessageChannelsFromSelection(sendVia);
+
   const channelsOk =
     !showChannelPicker ||
     skipMessage ||
     sendVia.some((value) => sendViaOptions.some((option) => option.value === value));
 
   const messageReady = skipMessage || (draftSubject.trim().length > 0 && draftBody.trim().length > 0);
+
+  const toRecipientDisplay = portalMessageRecipientDisplay({
+    email: recipient,
+    phone: recipientPhone,
+    viaEmail:
+      showChannelPicker && !skipMessage ? viaEmail : Boolean(recipient.trim()),
+    viaSms:
+      showChannelPicker && !skipMessage ? viaSms : Boolean(recipientPhone?.trim()),
+  });
 
   const footer = (
     <ModalFooter>
@@ -182,8 +193,7 @@ export function PortalNotificationPreviewModal({
         ) : null}
         {intro ? <p className="text-sm leading-snug text-muted">{intro}</p> : null}
 
-        <PortalMessageRecipientReadonly recipient={recipient} />
-        <PortalMessagePhoneReadonly phone={recipientPhone} />
+        <PortalMessageRecipientReadonly recipient={toRecipientDisplay || "—"} />
 
         <div
           className={
