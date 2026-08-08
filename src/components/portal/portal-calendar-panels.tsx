@@ -349,7 +349,7 @@ function buildTourGuestNotifyContext(
   return buildTourNotificationContext({
     origin: typeof window !== "undefined" ? window.location.origin : "",
     guestName: meeting.name || "Guest",
-    guestEmail: meeting.email,
+    guestEmail: meeting.email ?? "",
     guestPhone: meeting.phone || null,
     propertyId: meeting.propertyId || null,
     propertyTitle: meeting.propertyTitle || property?.title || "Property",
