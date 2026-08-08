@@ -123,6 +123,7 @@ export function ChannelCalendarLinkModal({
   const handleSave = async () => {
     if (!canSave) return;
     const { listingRoomId } = parseRoomChoiceValue(roomChoice);
+    if (!listingRoomId) return;
     const roomLabel = roomOptions.find((r) => r.value === roomChoice)?.label ?? "Room";
     setBusy(true);
     try {
