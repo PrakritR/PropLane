@@ -39,7 +39,6 @@ import { ShareLeadLinkModal } from "@/components/portal/share-lead-link-modal";
 import { TourProposalsPanel } from "@/components/portal/tour-proposals-panel";
 import { ManagerPortfolioBookingsCalendar } from "@/components/portal/manager-portfolio-bookings-calendar";
 import { ChannelCalendarLinkModal } from "@/components/portal/channel-calendar-link-modal";
-import { CalendarSectionShell } from "@/components/portal/calendar-section-shell";
 import { GoogleCalendarConnectDialog } from "@/components/portal/google-calendar-connect-dialog";
 import type { DemoMeeting } from "@/components/portal/portal-calendar-panels";
 import {
@@ -538,10 +537,7 @@ export function PortalCalendar({
                 refreshSignal={bookingsRefreshSignal}
               />
             ) : servicesOnlyView ? (
-              <CalendarSectionShell
-                title="Service orders"
-                description="Scheduled vendor visits and work you assigned to yourself."
-              >
+              <div className="flex min-h-0 flex-1 flex-col">
                 {propertiesLoading && managerProperties.length === 0 ? (
                   <p className="text-sm text-muted">Loading houses from the backend…</p>
                 ) : (
@@ -569,7 +565,7 @@ export function PortalCalendar({
                     flowScroll
                   />
                 )}
-              </CalendarSectionShell>
+              </div>
             ) : (
               <div className="flex min-h-0 flex-1 flex-col gap-3">
                 {showCoManagerCoordination ? (
