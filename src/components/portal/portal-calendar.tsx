@@ -34,6 +34,8 @@ import {
   syncPropertyPipelineFromServer,
 } from "@/lib/demo-property-pipeline";
 import { buildManagerPropertyFilterOptions, MANAGER_PORTFOLIO_REFRESH_EVENTS } from "@/lib/manager-portfolio-access";
+import { buildManagerShareablePropertyOptions } from "@/lib/manager-property-links";
+import { ShareLeadLinkModal } from "@/components/portal/share-lead-link-modal";
 import { TourProposalsPanel } from "@/components/portal/tour-proposals-panel";
 import { ManagerPortfolioBookingsCalendar } from "@/components/portal/manager-portfolio-bookings-calendar";
 import { ChannelCalendarLinkModal } from "@/components/portal/channel-calendar-link-modal";
@@ -83,6 +85,7 @@ export function PortalCalendar({
   const demoCalendarDefaultAppliedRef = useRef(false);
   const [propertyTick, setPropertyTick] = useState(0);
   const [propertiesLoading, setPropertiesLoading] = useState(false);
+  const [shareTourModalOpen, setShareTourModalOpen] = useState(false);
   const [coManagerPeers, setCoManagerPeers] = useState<CoManagerCalendarPeerDto[]>([]);
   const [shareAvailability, setShareAvailability] = useState(false);
   const [googleCalendarTick, setGoogleCalendarTick] = useState(0);
@@ -187,6 +190,12 @@ export function PortalCalendar({
     if (portal !== "manager" || !userId || activeCalendarPropertyFilters.length === 0) return [];
     return activeCalendarPropertyFilters.map((id) => managerPropertyAvailabilityStorageKey(userId, id));
   }, [portal, userId, activeCalendarPropertyFilters]);
+
+  const shareableProperties = useMemo(() => {
+    if (portal !== "manager") return [];
+    void propertyTick;
+    return buildManagerShareablePropertyOptions(userId);
+  }, [portal, userId, propertyTick]);
 
   useEffect(() => {
     if (portal !== "manager" || !userId || !soleCalendarPropertyId) {
@@ -438,6 +447,25 @@ export function PortalCalendar({
       />
     ) : null;
 
+  const calendarShareTourButton =
+    portal === "manager" && showTourAvailability ? (
+      <Button
+        type="button"
+        variant="outline"
+        className={`shrink-0 ${PORTAL_HEADER_ACTION_BTN}`}
+        disabled={shareableProperties.length === 0}
+        title={
+          shareableProperties.length === 0
+            ? "List a property as active before sharing tour links"
+            : "Share tour links"
+        }
+        data-attr="calendar-share-tour"
+        onClick={() => setShareTourModalOpen(true)}
+      >
+        Share tour
+      </Button>
+    ) : null;
+
   const calendarLinkAirbnbButton =
     portal === "manager" && bookingsView ? (
       <Button
@@ -456,6 +484,7 @@ export function PortalCalendar({
     portal === "manager" ? (
       <>
         {calendarGoogleCalendarButton}
+        {calendarShareTourButton}
         {calendarLinkAirbnbButton}
       </>
     ) : null;
@@ -658,6 +687,15 @@ export function PortalCalendar({
           />
         )}
       </ManagerPortalPageShell>
+      {portal === "manager" ? (
+        <ShareLeadLinkModal
+          open={shareTourModalOpen}
+          onClose={() => setShareTourModalOpen(false)}
+          kind="tour"
+          properties={shareableProperties}
+          preselectedPropertyId={soleCalendarPropertyId || undefined}
+        />
+      ) : null}
       {portal === "manager" ? (
         <ChannelCalendarLinkModal
           open={linkAirbnbModalOpen}
