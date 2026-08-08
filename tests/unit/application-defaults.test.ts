@@ -74,4 +74,9 @@ describe("long-term application defaults", () => {
       }),
     ).toBe(false);
   });
+
+  it("does not apply the curated default when the listing submission is unknown", () => {
+    const slice = applicationConfigForVariant(null, "standard");
+    expect(slice.disabledStandardApplicationKeys).toEqual([]);
+  });
 });

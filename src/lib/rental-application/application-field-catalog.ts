@@ -309,6 +309,15 @@ export function applicationConfigForVariant(
     };
   }
   if (variant !== "short_term") {
+    // Listing unknown at submit (deleted / unresolved) — do not guess a default;
+    // keep every submitted field the applicant already filled.
+    if (sub == null) {
+      return {
+        disabledStandardApplicationKeys: [],
+        customApplicationFields: [],
+        applicationConfigMode: "standard",
+      };
+    }
     const storedDisabled = asStringArray(sub?.disabledStandardApplicationKeys);
     const storedCustom = asCustomFields(sub?.customApplicationFields);
     if (sub?.applicationConfigMode === "custom" || storedDisabled.length > 0 || storedCustom.length > 0) {

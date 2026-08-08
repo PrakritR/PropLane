@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { createDefaultListingSubmission } from "@/lib/manager-listing-submission";
+import { customApplicationConfigWithAllStandardQuestions } from "@/lib/rental-application/application-field-catalog";
 import { createInitialRentalWizardState } from "@/lib/rental-application/state";
 import {
   findDisabledApplicationFieldViolation,
@@ -8,6 +9,13 @@ import {
   validateResidentApplicationSubmit,
 } from "@/lib/rental-application/validate-application-submit";
 import { STANDARD_APPLICATION_FIELD_CATALOG } from "@/lib/rental-application/application-field-catalog";
+
+function createFullApplicationListingSubmission() {
+  return {
+    ...createDefaultListingSubmission(),
+    ...customApplicationConfigWithAllStandardQuestions(),
+  };
+}
 
 function validSubmittedApplication() {
   return {
@@ -63,7 +71,7 @@ describe("validate-application-submit", () => {
 
   it("allows in-progress drafts without full wizard validation", () => {
     const result = validateResidentApplicationSubmit({
-      application: { propertyId: "prop-1", email: "jordan@example.com" },
+      application: { propertyId: "prop-1" },
       property: { id: "prop-1", listingSubmission: createDefaultListingSubmission() },
       inProgress: true,
     });
@@ -280,7 +288,7 @@ describe("validate-application-submit", () => {
       idPhotoBack: { ...sampleAttachment, storagePath: "application/PROPLANE-ABC123/idBack-1-uuid.jpg" },
       incomeProofPhotos: [{ ...sampleAttachment, storagePath: "application/PROPLANE-ABC123/income-1-uuid.jpg" }],
     };
-    const sanitized = sanitizeApplicationFormForListing(form, createDefaultListingSubmission());
+    const sanitized = sanitizeApplicationFormForListing(form, createFullApplicationListingSubmission());
     expect(sanitized.idPhotoFront).not.toBeNull();
     expect(sanitized.idPhotoBack).not.toBeNull();
     expect(sanitized.incomeProofPhotos).toHaveLength(1);
