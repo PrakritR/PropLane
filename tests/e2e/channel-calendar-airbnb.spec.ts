@@ -4,7 +4,7 @@ import { signIn, establishActivePortal } from "../helpers/auth";
 
 const BROOKLYN_PROPERTY_ID = "mgr-seed-5259-brooklyn-ave-ne";
 
-const BOOKING_CALENDARS_PATH = `/portal/properties/listed/${encodeURIComponent(BROOKLYN_PROPERTY_ID)}/booking-calendars`;
+const BOOKING_CALENDARS_PATH = `/portal/properties/listed/${encodeURIComponent(BROOKLYN_PROPERTY_ID)}/calendar/bookings`;
 
 test.describe("Channel calendars (Airbnb iCal)", () => {
   test("manager sees Channel calendars on property Booking calendars tab", async ({ page }) => {

@@ -38,9 +38,9 @@ describe("portal-detail-routes", () => {
   it("parses property detail tabs with preview fallback", () => {
     expect(parsePropertyDetailTab("lease")).toBe("lease");
     expect(parsePropertyDetailTab("promotion")).toBe("promotion");
-    expect(parsePropertyDetailTab("calendar")).toBe("tour-calendar");
-    expect(parsePropertyDetailTab("tour-calendar")).toBe("tour-calendar");
-    expect(parsePropertyDetailTab("booking-calendars")).toBe("booking-calendars");
+    expect(parsePropertyDetailTab("calendar")).toBe("calendar");
+    expect(parsePropertyDetailTab("tour-calendar")).toBe("calendar");
+    expect(parsePropertyDetailTab("booking-calendars")).toBe("calendar");
     expect(parsePropertyDetailTab("bogus")).toBe("preview");
     expect(parsePropertyDetailTab(undefined)).toBe("preview");
   });
@@ -49,13 +49,8 @@ describe("portal-detail-routes", () => {
     expect(PROPERTY_DETAIL_TABS).toContain("promotion");
     expect(PROPERTY_DETAIL_TABS).toContain("requests");
     expect(PROPERTY_DETAIL_TABS).toContain("move-in");
-    expect(PROPERTY_DETAIL_TABS).toContain("tour-calendar");
-    expect(PROPERTY_DETAIL_TABS).toContain("booking-calendars");
-    expect(PROPERTY_DETAIL_TAB_LABELS.promotion).toBe("Promotion");
-    expect(PROPERTY_DETAIL_TAB_LABELS.requests).toBe("Requests");
-    expect(PROPERTY_DETAIL_TAB_LABELS["move-in"]).toBe("Move-in");
-    expect(PROPERTY_DETAIL_TAB_LABELS["tour-calendar"]).toBe("Tour calendar");
-    expect(PROPERTY_DETAIL_TAB_LABELS["booking-calendars"]).toBe("Booking calendars");
+    expect(PROPERTY_DETAIL_TABS).toContain("calendar");
+    expect(PROPERTY_DETAIL_TAB_LABELS.calendar).toBe("Calendar");
   });
 
   it("parses resident detail tabs with application fallback", () => {

@@ -5,8 +5,7 @@ export const PROPERTY_DETAIL_TABS = [
   "move-in",
   "application",
   "lease",
-  "tour-calendar",
-  "booking-calendars",
+  "calendar",
   "requests",
   "promotion",
 ] as const;
@@ -19,8 +18,7 @@ export const PROPERTY_DETAIL_TAB_LABELS: Record<PropertyDetailTabId, string> = {
   "move-in": "Move-in",
   application: "Application",
   lease: "Lease",
-  "tour-calendar": "Tour calendar",
-  "booking-calendars": "Booking calendars",
+  calendar: "Calendar",
   requests: "Requests",
   promotion: "Promotion",
 };
@@ -36,8 +34,7 @@ export type PropertyDetailSectionTabId = (typeof PROPERTY_DETAIL_SECTION_TABS)[n
 
 export const PROPERTY_DETAIL_TOP_TAB_LABELS = {
   details: "Details",
-  tourCalendar: "Tour calendar",
-  bookingCalendars: "Booking calendars",
+  calendar: "Calendar",
   application: "Application",
   lease: "Lease",
   requests: "Requests",
@@ -49,15 +46,13 @@ export type PropertyDetailTopTabId = keyof typeof PROPERTY_DETAIL_TOP_TAB_LABELS
 export const PROPERTY_DETAIL_TOP_TAB_SHORT_LABELS: Partial<
   Record<PropertyDetailTopTabId, string>
 > = {
-  tourCalendar: "Tours",
-  bookingCalendars: "Bookings",
+  calendar: "Calendar",
   application: "Apply",
   promotion: "Promo",
 };
 
 export function propertyDetailTopNavId(tab: PropertyDetailTabId): PropertyDetailTopTabId {
-  if (tab === "tour-calendar") return "tourCalendar";
-  if (tab === "booking-calendars") return "bookingCalendars";
+  if (tab === "calendar") return "calendar";
   if (tab === "application") return "application";
   if (tab === "lease") return "lease";
   if (tab === "requests") return "requests";
@@ -88,11 +83,34 @@ export const RESIDENT_DETAIL_TAB_SHORT_LABELS: Record<ResidentDetailTabId, strin
 };
 
 export function parsePropertyDetailTab(raw: string | undefined | null): PropertyDetailTabId {
-  if (raw === "calendar") return "tour-calendar";
+  if (raw === "tour-calendar" || raw === "booking-calendars") return "calendar";
   if (raw && (PROPERTY_DETAIL_TABS as readonly string[]).includes(raw)) {
     return raw as PropertyDetailTabId;
   }
   return "preview";
+}
+
+/** Routed sub-views inside a property's Calendar tab. */
+export const PROPERTY_CALENDAR_SUB_TABS = ["tours", "bookings"] as const;
+export type PropertyCalendarSubTabId = (typeof PROPERTY_CALENDAR_SUB_TABS)[number];
+
+export const PROPERTY_CALENDAR_SUB_TAB_LABELS: Record<PropertyCalendarSubTabId, string> = {
+  tours: "Tours",
+  bookings: "Bookings",
+};
+
+export function parsePropertyCalendarSubTab(raw: string | undefined | null): PropertyCalendarSubTabId {
+  if (raw === "bookings") return "bookings";
+  return "tours";
+}
+
+export function propertyCalendarSubHref(
+  basePath: string,
+  stage: string,
+  propertyKey: string,
+  subTab: PropertyCalendarSubTabId,
+): string {
+  return `${propertyDetailHref(basePath, stage, propertyKey, "calendar")}/${subTab}`;
 }
 
 export function parseResidentDetailTab(raw: string | undefined | null): ResidentDetailTabId {

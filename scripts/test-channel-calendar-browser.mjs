@@ -6,7 +6,7 @@ import { chromium } from "playwright";
 
 const BASE = process.env.PLAYWRIGHT_BASE_URL?.trim() || "http://localhost:3010";
 const PROPERTY_ID = "mgr-seed-5259-brooklyn-ave-ne";
-const BOOKING_CALENDARS_PATH = `/portal/properties/listed/${encodeURIComponent(PROPERTY_ID)}/booking-calendars`;
+const BOOKING_CALENDARS_PATH = `/portal/properties/listed/${encodeURIComponent(PROPERTY_ID)}/calendar/bookings`;
 const MANAGER_EMAIL = process.env.E2E_MANAGER_EMAIL?.trim() || "manager@test.proplane.local";
 const MANAGER_PASSWORD = process.env.E2E_MANAGER_PASSWORD?.trim() || "TestManager123!";
 

@@ -822,15 +822,40 @@ export async function renderPortalSection(
       if (stageRaw !== stage) {
         redirect(`${def.basePath}/properties/${stage}`);
       }
-      if (tabParts.length > 3) notFound();
+      if (tabParts.length > 4) notFound();
       const propertyKey = tabParts.length >= 2 ? decodeURIComponent(tabParts[1]!) : undefined;
       const propertyDetailTabRaw = tabParts.length >= 3 ? tabParts[2]! : undefined;
-      if (propertyDetailTabRaw === "calendar" && propertyKey) {
+      const propertyCalendarSubRaw = tabParts.length >= 4 ? tabParts[3]! : undefined;
+      if (propertyDetailTabRaw === "tour-calendar" && propertyKey) {
         redirect(
-          `${def.basePath}/properties/${stage}/${encodeURIComponent(propertyKey)}/tour-calendar`,
+          `${def.basePath}/properties/${stage}/${encodeURIComponent(propertyKey)}/calendar/tours`,
         );
       }
-      const propertyDetailTab = propertyDetailTabRaw;
+      if (propertyDetailTabRaw === "booking-calendars" && propertyKey) {
+        redirect(
+          `${def.basePath}/properties/${stage}/${encodeURIComponent(propertyKey)}/calendar/bookings`,
+        );
+      }
+      if (propertyDetailTabRaw === "calendar" && propertyKey && !propertyCalendarSubRaw) {
+        redirect(
+          `${def.basePath}/properties/${stage}/${encodeURIComponent(propertyKey)}/calendar/tours`,
+        );
+      }
+      const { parsePropertyDetailTab, parsePropertyCalendarSubTab, PROPERTY_CALENDAR_SUB_TABS } =
+        await import("@/lib/portal-detail-routes");
+      const propertyDetailTab = propertyDetailTabRaw
+        ? parsePropertyDetailTab(propertyDetailTabRaw)
+        : undefined;
+      let propertyCalendarSubTab: import("@/lib/portal-detail-routes").PropertyCalendarSubTabId | undefined;
+      if (propertyDetailTab === "calendar") {
+        if (
+          propertyCalendarSubRaw &&
+          !(PROPERTY_CALENDAR_SUB_TABS as readonly string[]).includes(propertyCalendarSubRaw)
+        ) {
+          notFound();
+        }
+        propertyCalendarSubTab = parsePropertyCalendarSubTab(propertyCalendarSubRaw);
+      }
       const ManagerProperties = await loadManagerProperties();
       return subscriptionGated(
         <ManagerProperties
@@ -838,6 +863,7 @@ export async function renderPortalSection(
           basePath={def.basePath}
           propertyKey={propertyKey}
           detailTab={propertyDetailTab as import("@/lib/portal-detail-routes").PropertyDetailTabId | undefined}
+          calendarSubTab={propertyCalendarSubTab}
         />,
         kind,
         "properties",
