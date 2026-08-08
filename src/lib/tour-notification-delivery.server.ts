@@ -509,6 +509,8 @@ async function notifyTenantTourChanged(
     previousWindow?: { start: string; end: string };
     reason?: string | null;
     instructions?: string | null;
+    subject?: string;
+    body?: string;
   },
 ): Promise<{ ok: boolean; skipped?: boolean; error?: string }> {
   const row = inquiry as Record<string, unknown>;
@@ -538,17 +540,19 @@ async function notifyTenantTourChanged(
   });
 
   const canceled = input.kind === "canceled";
-  const subject = canceled ? TOUR_CANCELED_TENANT_SUBJECT : TOUR_RESCHEDULED_TENANT_SUBJECT;
-  const text = canceled
-    ? buildTourCanceledTenantBody(ctx, input.reason)
-    : buildTourRescheduledTenantBody(
+  const subject = input.subject?.trim() || (canceled ? TOUR_CANCELED_TENANT_SUBJECT : TOUR_RESCHEDULED_TENANT_SUBJECT);
+  const text =
+    input.body?.trim() ||
+    (canceled
+      ? buildTourCanceledTenantBody(ctx, input.reason)
+      : buildTourRescheduledTenantBody(
         ctx,
         {
           startIso: input.previousWindow?.start ?? input.window.start,
           endIso: input.previousWindow?.end ?? input.window.end,
         },
         input.reason,
-      );
+      ));
 
   const { data: guestProfile } = await db.from("profiles").select("id").eq("email", guestEmail).maybeSingle();
 
@@ -593,8 +597,9 @@ export async function notifyTenantTourCanceled(
   inquiry: TourInquiryPayload,
   window: { start: string; end: string; adminLabel?: string },
   reason?: string | null,
+  opts?: { subject?: string; body?: string },
 ): Promise<{ ok: boolean; skipped?: boolean; error?: string }> {
-  return notifyTenantTourChanged(db, req, inquiry, { kind: "canceled", window, reason });
+  return notifyTenantTourChanged(db, req, inquiry, { kind: "canceled", window, reason, ...opts });
 }
 
 export async function notifyTenantTourRescheduled(

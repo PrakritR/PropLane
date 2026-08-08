@@ -32,10 +32,14 @@ vi.mock("@/components/providers/app-ui-provider", () => ({
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: vi.fn(), replace: vi.fn(), refresh: vi.fn(), prefetch: vi.fn() }),
 }));
-vi.mock("@/lib/tour-planned-change.client", () => ({
-  cancelPlannedTourFromServer: (...args: unknown[]) => cancelFromServer(...(args as [])),
-  reschedulePlannedTourFromServer: (...args: unknown[]) => rescheduleFromServer(...(args as [])),
-}));
+vi.mock("@/lib/tour-planned-change.client", async (importOriginal) => {
+  const actual = (await importOriginal()) as Record<string, unknown>;
+  return {
+    ...actual,
+    cancelPlannedTourFromServer: (...args: unknown[]) => cancelFromServer(...(args as [])),
+    reschedulePlannedTourFromServer: (...args: unknown[]) => rescheduleFromServer(...(args as [])),
+  };
+});
 vi.mock("@/lib/google-calendar/delete-tour.client", () => ({
   deleteProplaneGoogleTourFromServer: vi.fn(async () => ({ ok: true })),
 }));
@@ -104,6 +108,15 @@ function renderCalendar(props: { onMeetingsChanged?: () => void; meeting?: DemoM
   );
 }
 
+function confirmGuestNotificationModal() {
+  return waitFor(() => {
+    const el = document.querySelector('[data-attr="portal-notification-confirm"]') as HTMLButtonElement | null;
+    if (!el || el.disabled) throw new Error("confirm not ready");
+    fireEvent.click(el);
+    return el;
+  });
+}
+
 /** Open the detail modal by clicking the tour's grid cell. */
 async function openTourModal() {
   const cell = await waitFor(() => {
@@ -133,29 +146,26 @@ beforeEach(() => {
 });
 
 describe("the detail modal for a CONFIRMED tour", () => {
-  it("offers reschedule and cancel, not just delete", async () => {
+  it("offers move tour date and cancel, not just delete", async () => {
     renderCalendar();
     await openTourModal();
 
     const labels = modalButtonLabels();
-    expect(labels.some((label) => /Reschedule/i.test(label))).toBe(true);
+    expect(labels.some((label) => /Move tour date/i.test(label))).toBe(true);
     expect(labels.some((label) => /Cancel tour/i.test(label))).toBe(true);
     // The shape the audit found: delete as the only action.
-    expect(labels.filter((label) => /Delete|Cancel tour|Reschedule/i.test(label)).length).toBeGreaterThan(1);
+    expect(labels.filter((label) => /Delete|Cancel tour|Move tour date/i.test(label)).length).toBeGreaterThan(1);
   });
 
-  it("does not delete on the first click — it asks first", async () => {
+  it("does not delete on the first click — it opens the message popup", async () => {
     renderCalendar();
     await openTourModal();
 
     fireEvent.click(document.querySelector('[data-attr="tour-delete-open"]')!);
 
     expect(deletePlannedEvent).not.toHaveBeenCalled();
-    expect(document.querySelector('[data-attr="tour-delete-confirm"]')).not.toBeNull();
-    // And it says plainly that the guest was already told the tour is on.
-    expect(document.querySelector('[data-attr="tour-delete-confirm"]')!.textContent).toContain(
-      "already told this tour is confirmed",
-    );
+    expect(cancelFromServer).not.toHaveBeenCalled();
+    expect(document.querySelector('[data-attr="portal-notification-confirm"]')).not.toBeNull();
   });
 
   it("lets the manager back out of a delete", async () => {
@@ -163,20 +173,24 @@ describe("the detail modal for a CONFIRMED tour", () => {
     await openTourModal();
 
     fireEvent.click(document.querySelector('[data-attr="tour-delete-open"]')!);
-    fireEvent.click([...document.querySelectorAll("button")].find((el) => el.textContent === "Keep tour")!);
+    const closeButtons = [...document.querySelectorAll('button[aria-label="Close"]')];
+    fireEvent.click(closeButtons[closeButtons.length - 1]!);
 
     expect(deletePlannedEvent).not.toHaveBeenCalled();
-    expect(document.querySelector('[data-attr="tour-delete-confirm"]')).toBeNull();
+    expect(cancelFromServer).not.toHaveBeenCalled();
   });
 
-  it("deletes only after the confirmation step", async () => {
+  it("deletes only after the message popup confirmation", async () => {
     renderCalendar();
     await openTourModal();
 
     fireEvent.click(document.querySelector('[data-attr="tour-delete-open"]')!);
-    fireEvent.click(document.querySelector('[data-attr="tour-delete-submit"]')!);
+    await confirmGuestNotificationModal();
 
-    await waitFor(() => expect(deletePlannedEvent).toHaveBeenCalledWith("planned-1"));
+    await waitFor(() =>
+      expect(cancelFromServer).toHaveBeenCalledWith(expect.objectContaining({ plannedEventId: "planned-1" })),
+    );
+    expect(deletePlannedEvent).not.toHaveBeenCalled();
   });
 
   it("cancels through the notifying server route, not a silent local delete", async () => {
@@ -184,11 +198,8 @@ describe("the detail modal for a CONFIRMED tour", () => {
     await openTourModal();
 
     fireEvent.click(document.querySelector('[data-attr="tour-cancel-open"]')!);
-    // The confirm step names the guest who was already emailed.
-    expect(document.querySelector('[data-attr="tour-cancel-confirm"]')!.textContent).toContain(
-      "prospect@example.com",
-    );
-    fireEvent.click(document.querySelector('[data-attr="tour-cancel-submit"]')!);
+    expect(document.body.textContent).toContain("prospect@example.com");
+    await confirmGuestNotificationModal();
 
     await waitFor(() =>
       expect(cancelFromServer).toHaveBeenCalledWith(expect.objectContaining({ plannedEventId: "planned-1" })),
@@ -203,12 +214,11 @@ describe("the detail modal for a CONFIRMED tour", () => {
     fireEvent.click(document.querySelector('[data-attr="tour-reschedule-open"]')!);
     const dateInput = document.querySelector('[data-attr="tour-reschedule-date"]') as HTMLInputElement;
     const timeInput = document.querySelector('[data-attr="tour-reschedule-time"]') as HTMLInputElement;
-    const endTimeInput = document.querySelector('[data-attr="tour-reschedule-end-time"]') as HTMLInputElement;
     expect(dateInput.value).not.toBe("");
     expect(timeInput.value).toBe("10:00"); // seeded from the tour's current time
+    expect(document.querySelector('[data-attr="tour-reschedule-end-time"]')).toBeNull();
 
     fireEvent.change(timeInput, { target: { value: "14:30" } });
-    fireEvent.change(endTimeInput, { target: { value: "15:00" } });
     fireEvent.click(document.querySelector('[data-attr="tour-reschedule-save"]')!);
 
     await waitFor(() => expect(rescheduleFromServer).toHaveBeenCalledTimes(1));
@@ -275,27 +285,13 @@ describe("the delete confirmation says what is actually being deleted", () => {
     expect(modalButtonLabels()).not.toContain("Keep tour");
   });
 
-  it("keeps the guest-aware wording for a confirmed tour", async () => {
+  it("keeps the guest-aware wording for a confirmed tour delete popup", async () => {
     renderCalendar();
     await openTourModal();
 
     fireEvent.click(document.querySelector('[data-attr="tour-delete-open"]')!);
-    expect(document.querySelector('[data-attr="tour-delete-confirm"]')!.textContent).toContain(
-      "Delete without telling the guest?",
-    );
-    expect(modalButtonLabels()).toContain("Keep tour");
-  });
-
-  it("does not rename the action when it arms", async () => {
-    // The un-armed button says `Delete event` / `Delete request`; flattening the
-    // armed one to "Delete anyway" lost the distinction a manager just read.
-    renderCalendar();
-    await openTourModal();
-
-    fireEvent.click(document.querySelector('[data-attr="tour-delete-open"]')!);
-    expect(document.querySelector('[data-attr="tour-delete-submit"]')!.textContent).toContain(
-      "Delete event",
-    );
+    expect(document.body.textContent).toContain("Delete tour");
+    expect(modalButtonLabels()).not.toContain("Keep tour");
   });
 
   it("keeps `Delete request` for a pending tour request", async () => {
@@ -305,11 +301,8 @@ describe("the delete confirmation says what is actually being deleted", () => {
     await openTourModal();
 
     fireEvent.click(document.querySelector('[data-attr="tour-delete-open"]')!);
-    expect(document.querySelector('[data-attr="tour-delete-submit"]')!.textContent).toContain(
-      "Delete request",
-    );
-    // Still a guest on the other end, so the guest-aware wording stays.
-    expect(modalButtonLabels()).toContain("Keep tour");
+    expect(document.body.textContent).toContain("Delete tour");
+    expect(document.querySelector('[data-attr="portal-notification-confirm"]')).not.toBeNull();
   });
 });
 
@@ -372,7 +365,7 @@ describe("a multi-day Google block does not swallow a confirmed tour", () => {
     await openTourModal();
 
     const labels = modalButtonLabels();
-    expect(labels.some((label) => /Reschedule/i.test(label))).toBe(true);
+    expect(labels.some((label) => /Move tour date/i.test(label))).toBe(true);
     expect(labels.some((label) => /Cancel tour/i.test(label))).toBe(true);
   });
 
@@ -506,22 +499,18 @@ describe("counts stay honest after a tour changes state", () => {
     await openTourModal();
 
     fireEvent.click(document.querySelector('[data-attr="tour-delete-open"]')!);
-    fireEvent.click(document.querySelector('[data-attr="tour-delete-submit"]')!);
+    await confirmGuestNotificationModal();
 
     await waitFor(() => expect(onMeetingsChanged).toHaveBeenCalled());
   });
 
   it("pulls the server's planned events back after a cancel", async () => {
-    // Cancel and reschedule run SERVER-side, so the browser's local schedule
-    // store still holds the old event. Without a forced resync the grid and the
-    // view-tab counts show the cancelled tour until a manual reload — verified
-    // in the browser, where "Tours 1" survived a successful cancel.
     renderCalendar();
     await openTourModal();
 
     syncScheduleRecords.mockClear();
     fireEvent.click(document.querySelector('[data-attr="tour-cancel-open"]')!);
-    fireEvent.click(document.querySelector('[data-attr="tour-cancel-submit"]')!);
+    confirmGuestNotificationModal();
 
     await waitFor(() => expect(cancelFromServer).toHaveBeenCalled());
     await waitFor(() => expect(syncScheduleRecords).toHaveBeenCalledWith({ force: true }));
@@ -535,9 +524,6 @@ describe("counts stay honest after a tour changes state", () => {
     fireEvent.click(document.querySelector('[data-attr="tour-reschedule-open"]')!);
     fireEvent.change(document.querySelector('[data-attr="tour-reschedule-time"]') as HTMLInputElement, {
       target: { value: "14:30" },
-    });
-    fireEvent.change(document.querySelector('[data-attr="tour-reschedule-end-time"]') as HTMLInputElement, {
-      target: { value: "15:00" },
     });
     fireEvent.click(document.querySelector('[data-attr="tour-reschedule-save"]')!);
 

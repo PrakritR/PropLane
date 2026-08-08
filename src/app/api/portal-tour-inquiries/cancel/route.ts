@@ -15,9 +15,22 @@ export async function POST(req: Request) {
     } = await auth.auth.getUser();
     if (!user) return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
 
-    const body = (await req.json()) as { id?: unknown; reason?: unknown; notifyGuest?: unknown };
+    const body = (await req.json()) as {
+      id?: unknown;
+      reason?: unknown;
+      notifyGuest?: unknown;
+      subject?: unknown;
+      messageBody?: unknown;
+      body?: unknown;
+    };
     const id = typeof body.id === "string" ? body.id.trim() : "";
     if (!id) return NextResponse.json({ error: "id required" }, { status: 400 });
+    const customBody =
+      typeof body.messageBody === "string"
+        ? body.messageBody.trim()
+        : typeof body.body === "string"
+          ? body.body.trim()
+          : "";
 
     const db = createSupabaseServiceRoleClient();
     const result = await cancelPlannedTour(db, {
@@ -27,6 +40,8 @@ export async function POST(req: Request) {
       reason: typeof body.reason === "string" ? body.reason.trim() : null,
       // Notifying is the default; only an explicit `false` opts out.
       notifyGuest: body.notifyGuest !== false,
+      notificationSubject: typeof body.subject === "string" ? body.subject.trim() : undefined,
+      notificationBody: customBody || undefined,
       req,
     });
 

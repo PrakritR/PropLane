@@ -220,6 +220,8 @@ export async function cancelPlannedTour(
     isAdmin?: boolean;
     reason?: string | null;
     notifyGuest: boolean;
+    notificationSubject?: string;
+    notificationBody?: string;
     req?: Request;
   },
 ): Promise<PlannedTourChangeResult> {
@@ -248,6 +250,10 @@ export async function cancelPlannedTour(
       inquiryFromPlannedEvent(event),
       { start, end, adminLabel: textField(event, "adminLabel") || undefined },
       opts.reason,
+      {
+        subject: opts.notificationSubject,
+        body: opts.notificationBody,
+      },
     );
   }
 

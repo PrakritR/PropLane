@@ -1,7 +1,6 @@
 "use client";
 
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type MouseEvent } from "react";
-import { useRouter } from "next/navigation";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input, NativeSelect, Select } from "@/components/ui/input";
@@ -15,12 +14,15 @@ import { formatPacificDate } from "@/lib/pacific-time";
 import { formatTourContactPhoneDisplay } from "@/lib/tour-contact-quality";
 import { getPropertyById } from "@/lib/rental-application/data";
 import {
+  TOUR_CANCELED_TENANT_SUBJECT,
   TOUR_CONFIRMED_TENANT_SUBJECT,
   TOUR_REQUEST_REMOVED_TENANT_SUBJECT,
+  buildTourCanceledTenantBody,
   buildTourConfirmedTenantBody,
   buildTourNotificationContext,
   buildTourRequestRemovedTenantBody,
 } from "@/lib/tour-notifications";
+import { deliverPortalInboxMessage } from "@/lib/portal-message-delivery";
 import {
   DEFAULT_EVENT_DURATION_MINUTES,
   EVENT_DURATION_PRESET_MINUTES,
@@ -61,11 +63,6 @@ import {
   reschedulePlannedTourFromServer,
   tourGuestNotificationFailed,
 } from "@/lib/tour-planned-change.client";
-import {
-  findCollapsedInboxThreadIdForEmail,
-  MANAGER_INBOX_STORAGE_KEY,
-} from "@/lib/portal-inbox-storage";
-
 type CalendarMode = "day" | "week" | "month";
 type RecurrenceCadence = "once" | "weekly" | "biweekly" | "monthly";
 type DragSelection = {
@@ -294,7 +291,7 @@ function weekdayLabelList(days: number[]) {
     .join(", ");
 }
 
-type TourGuestNotifyPreviewAction = "confirm" | "delete";
+type TourGuestNotifyPreviewAction = "confirm" | "delete" | "cancel" | "delete-confirmed";
 
 type TourGuestNotifyPreview =
   | {
@@ -309,7 +306,24 @@ type TourGuestNotifyPreview =
       meeting: DemoMeeting;
       subject: string;
       body: string;
+    }
+  | {
+      action: "cancel";
+      meeting: DemoMeeting;
+      subject: string;
+      body: string;
+    }
+  | {
+      action: "delete-confirmed";
+      meeting: DemoMeeting;
+      subject: string;
+      body: string;
     };
+
+type GuestMessagePreview = {
+  email: string;
+  phone?: string;
+};
 
 const TOUR_GUEST_NOTIFY_PREVIEW_COPY: Record<
   TourGuestNotifyPreviewAction,
@@ -323,7 +337,7 @@ const TOUR_GUEST_NOTIFY_PREVIEW_COPY: Record<
   }
 > = {
   confirm: {
-    title: "Confirm tour — guest notification preview",
+    title: "Confirm tour",
     intro: "Confirming schedules the tour and sends this message to the guest.",
     skipMessageLabel: "Don't message guest",
     confirmLabel: "Confirm tour & send notification",
@@ -331,8 +345,24 @@ const TOUR_GUEST_NOTIFY_PREVIEW_COPY: Record<
     confirmBusyLabel: "Confirming…",
   },
   delete: {
-    title: "Delete tour — guest notification preview",
+    title: "Delete tour",
     intro: "Deleting removes this tour request from your calendar and sends this message to the guest.",
+    skipMessageLabel: "Don't message guest",
+    confirmLabel: "Delete tour & send notification",
+    confirmLabelWithoutMessage: "Delete tour only",
+    confirmBusyLabel: "Deleting…",
+  },
+  cancel: {
+    title: "Cancel tour",
+    intro: "Cancelling removes this tour and sends this message to the guest.",
+    skipMessageLabel: "Don't message guest",
+    confirmLabel: "Cancel tour & send notification",
+    confirmLabelWithoutMessage: "Cancel tour only",
+    confirmBusyLabel: "Cancelling…",
+  },
+  "delete-confirmed": {
+    title: "Delete tour",
+    intro: "Deleting removes this tour from your calendar and sends this message to the guest.",
     skipMessageLabel: "Don't message guest",
     confirmLabel: "Delete tour & send notification",
     confirmLabelWithoutMessage: "Delete tour only",
@@ -446,7 +476,6 @@ export function PortalCalendarPanels({
   };
 }) {
   const { showToast } = useAppUi();
-  const router = useRouter();
   const writeStorageKeys = useMemo(() => {
     if (availabilityStorageKeys?.length) return availabilityStorageKeys;
     return storageKey ? [storageKey] : [];
@@ -494,20 +523,17 @@ export function PortalCalendarPanels({
   const [customDurationText, setCustomDurationText] = useState(String(DEFAULT_EVENT_DURATION_MINUTES));
   const [tourGuestNotifyPreview, setTourGuestNotifyPreview] = useState<TourGuestNotifyPreview | null>(null);
   const [tourNotifyPreviewBusy, setTourNotifyPreviewBusy] = useState(false);
+  const [guestMessagePreview, setGuestMessagePreview] = useState<GuestMessagePreview | null>(null);
+  const [guestMessageBusy, setGuestMessageBusy] = useState(false);
   /**
-   * The guest has already been emailed "Your PropLane tour is confirmed", so
-   * every destructive action on a confirmed tour is staged behind an explicit
-   * step rather than firing on the first click. `delete` removes it silently
-   * (the manager's own scheduling mistake); `cancel` removes it AND tells the
-   * guest, which is what a real cancellation is.
+   * Destructive actions on non-confirmed meetings still use an inline confirm
+   * step. Confirmed tours open the shared message compose popup instead.
    */
   const [pendingTourAction, setPendingTourAction] = useState<"delete" | "cancel" | null>(null);
   const [tourActionBusy, setTourActionBusy] = useState(false);
-  const [cancelReason, setCancelReason] = useState("");
   const [rescheduleOpen, setRescheduleOpen] = useState(false);
   const [rescheduleDate, setRescheduleDate] = useState("");
   const [rescheduleTime, setRescheduleTime] = useState("");
-  const [rescheduleEndTime, setRescheduleEndTime] = useState("");
   const [meetingRefresh, setMeetingRefresh] = useState(0);
   const [saveStatus, setSaveStatus] = useState<"idle" | "saving" | "saved" | "error">("idle");
 
@@ -655,7 +681,7 @@ export function PortalCalendarPanels({
       // reopening must always start from the plain, non-armed state.
       setPendingTourAction(null);
       setRescheduleOpen(false);
-      setCancelReason("");
+      setGuestMessagePreview(null);
       if (meeting) {
         if (vendorCalendarActions?.canEditMeeting(meeting)) {
           vendorCalendarActions.onEditMeeting(meeting);
@@ -754,6 +780,96 @@ export function PortalCalendarPanels({
     setPendingTourAction(null);
   }, [scheduleOwnerLabel, selectedBlock, showToast]);
 
+  const openConfirmedTourCancelPreview = useCallback(() => {
+    if (selectedBlock?.kind !== "meeting" || selectedBlock.meeting.source !== "planned") return;
+    const meeting = selectedBlock.meeting;
+    if (!meeting.email?.trim()) {
+      showToast("Guest email is required before cancelling this tour.");
+      return;
+    }
+    const ctx = buildTourGuestNotifyContext(meeting, scheduleOwnerLabel, meeting.endIso);
+    setTourGuestNotifyPreview({
+      action: "cancel",
+      meeting,
+      subject: TOUR_CANCELED_TENANT_SUBJECT,
+      body: buildTourCanceledTenantBody(ctx),
+    });
+    setPendingTourAction(null);
+  }, [scheduleOwnerLabel, selectedBlock, showToast]);
+
+  const openConfirmedTourDeletePreview = useCallback(() => {
+    if (selectedBlock?.kind !== "meeting" || selectedBlock.meeting.source !== "planned") return;
+    const meeting = selectedBlock.meeting;
+    if (!meeting.email?.trim()) {
+      setPendingTourAction("delete");
+      return;
+    }
+    const ctx = buildTourGuestNotifyContext(meeting, scheduleOwnerLabel, meeting.endIso);
+    setTourGuestNotifyPreview({
+      action: "delete-confirmed",
+      meeting,
+      subject: TOUR_CANCELED_TENANT_SUBJECT,
+      body: buildTourCanceledTenantBody(ctx),
+    });
+    setPendingTourAction(null);
+  }, [scheduleOwnerLabel, selectedBlock]);
+
+  const openGuestMessageCompose = useCallback(
+    (email?: string | null, phone?: string | null) => {
+      const trimmed = email?.trim() ?? "";
+      if (!trimmed.includes("@")) {
+        showToast("No guest email on this event.");
+        return;
+      }
+      setGuestMessagePreview({
+        email: trimmed,
+        phone: phone?.trim() || undefined,
+      });
+    },
+    [showToast],
+  );
+
+  const submitGuestMessage = useCallback(
+    async (_skip: boolean, channels?: { viaEmail?: boolean; viaSms?: boolean }, draft?: NotificationConfirmDraft) => {
+      if (!guestMessagePreview || guestMessageBusy) return;
+      const subject = draft?.subject?.trim() ?? "";
+      const body = draft?.body?.trim() ?? "";
+      if (!subject || !body) {
+        showToast("Subject and message are required.");
+        return;
+      }
+      setGuestMessageBusy(true);
+      try {
+        const result = await deliverPortalInboxMessage({
+          eventCategory: "messages",
+          fromName: scheduleOwnerLabel?.trim() || "Property Manager",
+          toEmails: [guestMessagePreview.email],
+          subject,
+          text: body,
+          deliverViaEmail: channels?.viaEmail !== false,
+          deliverViaSms: channels?.viaSms === true,
+        });
+        if (!result.ok) {
+          showToast(result.error ?? "Message could not be sent.");
+          return;
+        }
+        setGuestMessagePreview(null);
+        showToast(
+          result.skipped
+            ? "Message saved to PropLane inbox."
+            : channels?.viaSms && channels?.viaEmail
+              ? "Message sent via email, SMS, and PropLane inbox."
+              : channels?.viaSms
+                ? "Message sent via SMS and PropLane inbox."
+                : "Message sent via inbox and email.",
+        );
+      } finally {
+        setGuestMessageBusy(false);
+      }
+    },
+    [guestMessageBusy, guestMessagePreview, scheduleOwnerLabel, showToast],
+  );
+
   const submitTourGuestNotifyPreview = useCallback(
     async (skipMessage: boolean, _channels?: unknown, draft?: NotificationConfirmDraft) => {
       if (!tourGuestNotifyPreview || tourNotifyPreviewBusy) return;
@@ -792,25 +908,60 @@ export function PortalCalendarPanels({
           return;
         }
 
-        const { meeting } = preview;
-        const ok = await deletePartnerInquiryFromServer(meeting.sourceId, {
-          notifyTenant: !skipMessage,
-          subject: draft?.subject,
-          body: draft?.body,
-        });
-        if (!ok) {
-          showToast("Could not delete this tour.");
+        if (preview.action === "delete") {
+          const { meeting } = preview;
+          const ok = await deletePartnerInquiryFromServer(meeting.sourceId, {
+            notifyTenant: !skipMessage,
+            subject: draft?.subject,
+            body: draft?.body,
+          });
+          if (!ok) {
+            showToast("Could not delete this tour.");
+            return;
+          }
+          setTourGuestNotifyPreview(null);
+          setSelectedBlock(null);
+          setPendingTourAction(null);
+          setMeetingRefresh((n) => n + 1);
+          onMeetingsChanged?.();
+          reloadAvailability();
+          showToast(
+            skipMessage ? "Tour removed (no guest notification sent)." : "Tour removed and guest notified.",
+          );
           return;
         }
-        setTourGuestNotifyPreview(null);
-        setSelectedBlock(null);
-        setPendingTourAction(null);
-        setMeetingRefresh((n) => n + 1);
-        onMeetingsChanged?.();
-        reloadAvailability();
-        showToast(
-          skipMessage ? "Tour removed (no guest notification sent)." : "Tour removed and guest notified.",
-        );
+
+        if (preview.action === "cancel" || preview.action === "delete-confirmed") {
+          const { meeting } = preview;
+          const result = await cancelPlannedTourFromServer({
+            plannedEventId: meeting.sourceId,
+            notifyGuest: !skipMessage,
+            subject: draft?.subject,
+            body: draft?.body,
+          });
+          if (!result.ok) {
+            showToast(result.error ?? "Could not cancel this tour.");
+            return;
+          }
+          setTourGuestNotifyPreview(null);
+          setSelectedBlock(null);
+          setPendingTourAction(null);
+          setRescheduleOpen(false);
+          await syncScheduleRecordsFromServer({ force: true });
+          setMeetingRefresh((n) => n + 1);
+          onMeetingsChanged?.();
+          reloadAvailability();
+          const actionLabel = preview.action === "cancel" ? "cancelled" : "deleted";
+          showToast(
+            tourGuestNotificationFailed(result.guestNotification)
+              ? `Tour ${actionLabel}, but the guest could not be notified.`
+              : result.calendarSync?.ok === false
+                ? `Tour ${actionLabel} and the guest was notified, but your Google Calendar did not update.`
+                : skipMessage
+                  ? `Tour ${actionLabel} (no guest notification sent).`
+                  : `Tour ${actionLabel} and the guest was notified.`,
+          );
+        }
       } finally {
         setTourNotifyPreviewBusy(false);
       }
@@ -1228,7 +1379,7 @@ export function PortalCalendarPanels({
     setSelectedBlock(null);
     setPendingTourAction(null);
     setRescheduleOpen(false);
-    setCancelReason("");
+    setGuestMessagePreview(null);
   }, []);
 
   /**
@@ -1287,81 +1438,43 @@ export function PortalCalendarPanels({
       ? "Keep event"
       : "Keep tour";
 
-  const openGuestMessageThread = useCallback(
-    (email?: string | null) => {
-      const trimmed = email?.trim() ?? "";
-      if (!trimmed.includes("@")) {
-        showToast("No guest email on this event.");
-        return;
-      }
-      const threadId = findCollapsedInboxThreadIdForEmail(MANAGER_INBOX_STORAGE_KEY, trimmed);
-      router.push(
-        threadId
-          ? `/portal/communication/active/${encodeURIComponent(threadId)}`
-          : "/portal/communication/active",
-      );
-    },
-    [router, showToast],
-  );
-
   // Seed the reschedule fields from the tour's current window each time it opens.
   const openReschedule = useCallback(() => {
     if (selectedBlock?.kind !== "meeting") return;
     const start = new Date(selectedBlock.meeting.startIso);
     if (Number.isNaN(start.getTime())) return;
-    const end = new Date(selectedBlock.meeting.endIso);
     const pad = (n: number) => String(n).padStart(2, "0");
     setRescheduleDate(`${start.getFullYear()}-${pad(start.getMonth() + 1)}-${pad(start.getDate())}`);
     setRescheduleTime(`${pad(start.getHours())}:${pad(start.getMinutes())}`);
-    setRescheduleEndTime(
-      Number.isNaN(end.getTime())
-        ? `${pad(start.getHours())}:${pad(start.getMinutes() + DEFAULT_EVENT_DURATION_MINUTES)}`
-        : `${pad(end.getHours())}:${pad(end.getMinutes())}`,
-    );
     setPendingTourAction(null);
     setRescheduleOpen(true);
   }, [selectedBlock]);
 
   const submitReschedule = useCallback(async () => {
-    if (selectedBlock?.kind !== "meeting" || !rescheduleDate || !rescheduleTime || !rescheduleEndTime) return;
+    if (selectedBlock?.kind !== "meeting" || !rescheduleDate || !rescheduleTime) return;
+    const meeting = selectedBlock.meeting;
     const [year, month, day] = rescheduleDate.split("-").map(Number);
     const [hour, minute] = rescheduleTime.split(":").map(Number);
-    const [endHour, endMinute] = rescheduleEndTime.split(":").map(Number);
-    if (
-      !year ||
-      !month ||
-      !day ||
-      !Number.isFinite(hour) ||
-      !Number.isFinite(minute) ||
-      !Number.isFinite(endHour) ||
-      !Number.isFinite(endMinute)
-    ) {
-      showToast("Pick a valid new date and time window.");
+    if (!year || !month || !day || !Number.isFinite(hour) || !Number.isFinite(minute)) {
+      showToast("Pick a valid new date and time.");
       return;
     }
     const start = new Date(year, month - 1, day, hour, minute, 0, 0);
-    const end = new Date(year, month - 1, day, endHour, endMinute, 0, 0);
-    if (end.getTime() <= start.getTime()) {
-      showToast("End time must be after the start time.");
-      return;
-    }
-    const minutes = clampEventDurationMinutes(Math.round((end.getTime() - start.getTime()) / 60_000));
+    const durationMinutes = clampEventDurationMinutes(
+      durationMinutesBetweenIso(meeting.startIso, meeting.endIso) || selectedDurationMinutes,
+    );
     setTourActionBusy(true);
     try {
       const result = await reschedulePlannedTourFromServer({
-        plannedEventId: selectedBlock.meeting.sourceId,
+        plannedEventId: meeting.sourceId,
         start: start.toISOString(),
-        end: endIsoForDuration(start.toISOString(), minutes),
+        end: endIsoForDuration(start.toISOString(), durationMinutes),
       });
       if (!result.ok) {
         showToast(result.error ?? "Could not reschedule this tour.");
         return;
       }
       closeSelectedBlock();
-      // The change was made SERVER-side, so the browser's local schedule store
-      // still holds the old event. Without this pull the grid and the view-tab
-      // counts keep showing the pre-change tour until a manual reload — the
-      // same stale-count bug this sweep is closing.
       await syncScheduleRecordsFromServer({ force: true });
       setMeetingRefresh((n) => n + 1);
       onMeetingsChanged?.();
@@ -1376,38 +1489,16 @@ export function PortalCalendarPanels({
     } finally {
       setTourActionBusy(false);
     }
-  }, [closeSelectedBlock, onMeetingsChanged, reloadAvailability, rescheduleDate, rescheduleEndTime, rescheduleTime, selectedBlock, showToast]);
-
-  const cancelSelectedTour = useCallback(async () => {
-    if (selectedBlock?.kind !== "meeting") return;
-    setTourActionBusy(true);
-    try {
-      const result = await cancelPlannedTourFromServer({
-        plannedEventId: selectedBlock.meeting.sourceId,
-        reason: cancelReason.trim() || undefined,
-      });
-      if (!result.ok) {
-        showToast(result.error ?? "Could not cancel this tour.");
-        return;
-      }
-      closeSelectedBlock();
-      // Same reason as the reschedule path: pull the authoritative planned
-      // events back before anything recomputes off the local store.
-      await syncScheduleRecordsFromServer({ force: true });
-      setMeetingRefresh((n) => n + 1);
-      onMeetingsChanged?.();
-      reloadAvailability();
-      showToast(
-        tourGuestNotificationFailed(result.guestNotification)
-          ? "Tour cancelled, but the guest could not be notified."
-          : result.calendarSync?.ok === false
-            ? "Tour cancelled and the guest was notified, but your Google Calendar did not update."
-            : "Tour cancelled and the guest was notified.",
-      );
-    } finally {
-      setTourActionBusy(false);
-    }
-  }, [cancelReason, closeSelectedBlock, onMeetingsChanged, reloadAvailability, selectedBlock, showToast]);
+  }, [
+    closeSelectedBlock,
+    onMeetingsChanged,
+    reloadAvailability,
+    rescheduleDate,
+    rescheduleTime,
+    selectedBlock,
+    selectedDurationMinutes,
+    showToast,
+  ]);
 
   useEffect(() => {
     if (!selectedBlock) return;
@@ -1590,22 +1681,9 @@ export function PortalCalendarPanels({
 
           {rescheduleOpen ? (
             <div className="rounded-2xl border border-border bg-card px-4 py-3 text-sm" data-attr="tour-reschedule-form">
-              <div className="flex flex-wrap items-start justify-between gap-2">
-                <div>
-                  <p className="text-xs font-bold uppercase tracking-[0.14em] text-muted">Move this tour</p>
-                  <p className="mt-1 text-xs text-muted">The guest is emailed the new time as soon as you save.</p>
-                </div>
-                {selectedBlock.meeting.email?.trim() ? (
-                  <Button
-                    type="button"
-                    variant="outline"
-                    className="h-8 shrink-0 rounded-full px-3 text-xs"
-                    data-attr="tour-open-message-thread"
-                    onClick={() => openGuestMessageThread(selectedBlock.meeting.email)}
-                  >
-                    Message
-                  </Button>
-                ) : null}
+              <div>
+                <p className="text-xs font-bold uppercase tracking-[0.14em] text-muted">Move tour date</p>
+                <p className="mt-1 text-xs text-muted">The guest is emailed the new time as soon as you save.</p>
               </div>
               <div className="mt-3 flex flex-wrap items-end gap-2">
                 <label className="flex flex-col gap-1 text-xs font-semibold text-muted">
@@ -1629,40 +1707,11 @@ export function PortalCalendarPanels({
                     data-attr="tour-reschedule-time"
                   />
                 </label>
-                <label className="flex flex-col gap-1 text-xs font-semibold text-muted">
-                  End time
-                  <Input
-                    type="time"
-                    step={300}
-                    value={rescheduleEndTime}
-                    onChange={(e) => setRescheduleEndTime(e.target.value)}
-                    className="h-9 rounded-xl"
-                    data-attr="tour-reschedule-end-time"
-                  />
-                </label>
               </div>
             </div>
           ) : null}
 
-          {pendingTourAction === "cancel" ? (
-            <div className="rounded-2xl border px-4 py-3 text-sm portal-banner-pending" data-attr="tour-cancel-confirm">
-              <p className="font-semibold text-foreground">Cancel this tour and tell the guest?</p>
-              <p className="mt-1 text-xs text-muted">
-                {selectedBlock.meeting.email
-                  ? `${selectedBlock.meeting.email} was emailed that this tour is confirmed. They will be emailed that it is cancelled.`
-                  : "This tour has no guest email on file, so nobody can be notified."}
-              </p>
-              <Input
-                value={cancelReason}
-                onChange={(e) => setCancelReason(e.target.value)}
-                placeholder="Reason for the guest (optional)"
-                className="mt-3 h-9 rounded-xl"
-                data-attr="tour-cancel-reason"
-              />
-            </div>
-          ) : null}
-
-          {pendingTourAction === "delete" && !selectedIsPendingTourInquiry ? (
+          {pendingTourAction === "delete" && !selectedIsPendingTourInquiry && !selectedIsConfirmedTour ? (
             <div className="rounded-2xl border px-4 py-3 text-sm portal-banner-pending" data-attr="tour-delete-confirm">
               <p className="font-semibold text-foreground">
                 {selectedIsGuestFacingTour ? "Delete without telling the guest?" : "Delete this event?"}
@@ -1710,21 +1759,17 @@ export function PortalCalendarPanels({
                   className="h-9 shrink-0 whitespace-nowrap rounded-full px-3 text-xs sm:h-10 sm:px-5 sm:text-sm"
                   onClick={() => setPendingTourAction(null)}
                 >
-                  {pendingTourAction === "cancel" ? "Keep tour" : selectedKeepLabel}
+                  {selectedKeepLabel}
                 </Button>
                 <Button
                   type="button"
                   variant="outline"
                   loading={tourActionBusy}
                   className="h-9 shrink-0 whitespace-nowrap rounded-full border-rose-200 px-3 text-xs text-rose-800 hover:bg-[var(--status-overdue-bg)] sm:h-10 sm:px-5 sm:text-sm"
-                  data-attr={pendingTourAction === "cancel" ? "tour-cancel-submit" : "tour-delete-submit"}
-                  onClick={() =>
-                    pendingTourAction === "cancel" ? cancelSelectedTour() : deleteSelectedMeeting()
-                  }
+                  data-attr="tour-delete-submit"
+                  onClick={() => deleteSelectedMeeting()}
                 >
-                  {pendingTourAction === "cancel"
-                    ? "Cancel tour & notify"
-                    : selectedDeleteLabel}
+                  {selectedDeleteLabel}
                 </Button>
               </>
             ) : (
@@ -1735,9 +1780,11 @@ export function PortalCalendarPanels({
                 variant="outline"
                 className="h-9 shrink-0 whitespace-nowrap rounded-full px-4 text-xs sm:h-10 sm:px-5 sm:text-sm"
                 data-attr="tour-open-message-thread"
-                onClick={() => openGuestMessageThread(selectedBlock.meeting.email)}
+                onClick={() =>
+                  openGuestMessageCompose(selectedBlock.meeting.email, selectedBlock.meeting.phone)
+                }
               >
-                Message
+                {selectedIsConfirmedTour || selectedIsGuestFacingTour ? "Message resident" : "Message"}
               </Button>
             ) : null}
             {selectedIsConfirmedTour ? (
@@ -1749,14 +1796,14 @@ export function PortalCalendarPanels({
                   data-attr="tour-reschedule-open"
                   onClick={openReschedule}
                 >
-                  Reschedule
+                  Move tour date
                 </Button>
                 <Button
                   type="button"
                   variant="outline"
                   className="h-9 shrink-0 whitespace-nowrap rounded-full border-rose-200 px-3 text-xs text-rose-800 hover:bg-[var(--status-overdue-bg)] sm:h-10 sm:px-5 sm:text-sm"
                   data-attr="tour-cancel-open"
-                  onClick={() => setPendingTourAction("cancel")}
+                  onClick={openConfirmedTourCancelPreview}
                 >
                   Cancel tour
                 </Button>
@@ -1767,9 +1814,11 @@ export function PortalCalendarPanels({
               variant="outline"
               className="h-9 shrink-0 whitespace-nowrap rounded-full border-rose-200 px-4 text-xs text-rose-800 hover:bg-[var(--status-overdue-bg)] sm:h-10 sm:px-5 sm:text-sm"
               data-attr="tour-delete-open"
-              onClick={() =>
-                selectedIsPendingTourInquiry ? openTourDeletePreview() : setPendingTourAction("delete")
-              }
+              onClick={() => {
+                if (selectedIsPendingTourInquiry) openTourDeletePreview();
+                else if (selectedIsConfirmedTour) openConfirmedTourDeletePreview();
+                else setPendingTourAction("delete");
+              }}
             >
               {selectedDeleteLabel}
             </Button>
@@ -1781,7 +1830,7 @@ export function PortalCalendarPanels({
                   className="h-9 min-w-0 shrink-0 whitespace-nowrap rounded-full px-4 text-xs sm:h-10 sm:px-5 sm:text-sm"
                   onClick={openTourConfirmPreview}
                 >
-                  Review & confirm tour
+                  Confirm tour
                 </Button>
               ) : (
                 <Button
@@ -1852,6 +1901,32 @@ export function PortalCalendarPanels({
       confirmBusyLabel={TOUR_GUEST_NOTIFY_PREVIEW_COPY[tourGuestNotifyPreview.action].confirmBusyLabel}
       panelClassName="z-[90] max-w-xl"
       onConfirm={(skipMessage, _channels, draft) => void submitTourGuestNotifyPreview(skipMessage, _channels, draft)}
+    />
+  ) : null;
+
+  const guestMessageModal = guestMessagePreview ? (
+    <PortalNotificationPreviewModal
+      open
+      title="Message resident"
+      onClose={() => {
+        if (guestMessageBusy) return;
+        setGuestMessagePreview(null);
+      }}
+      recipient={guestMessagePreview.email}
+      recipientPhone={guestMessagePreview.phone}
+      subject=""
+      body=""
+      showSkipMessage={false}
+      showChannelPicker
+      emailAvailable
+      smsAvailable={Boolean(guestMessagePreview.phone)}
+      defaultViaSms={false}
+      showSchedule={false}
+      confirmLabel="Send message"
+      confirmBusy={guestMessageBusy}
+      confirmBusyLabel="Sending…"
+      panelClassName="z-[90] max-w-xl"
+      onConfirm={(_skip, channels, draft) => void submitGuestMessage(false, channels, draft)}
     />
   ) : null;
 
@@ -1947,7 +2022,7 @@ export function PortalCalendarPanels({
                 </Button>
               ) : null}
             </div>
-            {!vendorMode ? (
+            {!vendorMode && !readOnly ? (
               <div className="mt-2 flex w-full flex-wrap items-center justify-center gap-1.5 sm:gap-2">
                 <Button
                   type="button"
@@ -2437,6 +2512,7 @@ export function PortalCalendarPanels({
         ) : null}
         {selectedBlockModal}
         {tourGuestNotifyPreviewModal}
+        {guestMessageModal}
       </>
     );
   }
@@ -2831,6 +2907,7 @@ export function PortalCalendarPanels({
       </Modal>
       {selectedBlockModal}
       {tourGuestNotifyPreviewModal}
+      {guestMessageModal}
     </>
   );
 }

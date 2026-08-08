@@ -89,6 +89,16 @@ function confirmedTour(): DemoMeeting {
   };
 }
 
+/** Confirm the open guest-notification compose popup. */
+async function confirmGuestNotificationModal() {
+  const btn = await waitFor(() => {
+    const el = document.querySelector('[data-attr="portal-notification-confirm"]') as HTMLButtonElement | null;
+    if (!el || el.disabled) throw new Error("confirm not ready");
+    return el;
+  });
+  fireEvent.click(btn);
+}
+
 async function openTourModal() {
   render(
     <PortalCalendarPanels
@@ -113,7 +123,7 @@ async function cancelAndReadToast(result: ChangeResult): Promise<string> {
   CANCEL_RESULT = result;
   await openTourModal();
   fireEvent.click(document.querySelector('[data-attr="tour-cancel-open"]')!);
-  fireEvent.click(document.querySelector('[data-attr="tour-cancel-submit"]')!);
+  await confirmGuestNotificationModal();
   return await waitFor(() => {
     const last = toasts.at(-1);
     if (!last) throw new Error("no toast yet");
@@ -128,9 +138,6 @@ async function rescheduleAndReadToast(result: ChangeResult): Promise<string> {
   fireEvent.click(document.querySelector('[data-attr="tour-reschedule-open"]')!);
   fireEvent.change(document.querySelector('[data-attr="tour-reschedule-time"]')!, {
     target: { value: "14:30" },
-  });
-  fireEvent.change(document.querySelector('[data-attr="tour-reschedule-end-time"]')!, {
-    target: { value: "15:00" },
   });
   fireEvent.click(document.querySelector('[data-attr="tour-reschedule-save"]')!);
   return await waitFor(() => {
