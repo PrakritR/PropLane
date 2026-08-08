@@ -23,7 +23,7 @@ export const PROPERTY_DETAIL_TAB_LABELS: Record<PropertyDetailTabId, string> = {
   promotion: "Promotion",
 };
 
-/** Routed sections grouped under the property Details tab in the manager UI. */
+/** Property detail tabs that appear before application/lease in the manager UI. */
 export const PROPERTY_DETAIL_SECTION_TABS = [
   "preview",
   "house-details",
@@ -33,7 +33,9 @@ export const PROPERTY_DETAIL_SECTION_TABS = [
 export type PropertyDetailSectionTabId = (typeof PROPERTY_DETAIL_SECTION_TABS)[number];
 
 export const PROPERTY_DETAIL_TOP_TAB_LABELS = {
-  details: "Details",
+  preview: "Preview",
+  houseDetails: "House details",
+  moveIn: "Move-in",
   calendar: "Calendar",
   application: "Application",
   lease: "Lease",
@@ -46,18 +48,23 @@ export type PropertyDetailTopTabId = keyof typeof PROPERTY_DETAIL_TOP_TAB_LABELS
 export const PROPERTY_DETAIL_TOP_TAB_SHORT_LABELS: Partial<
   Record<PropertyDetailTopTabId, string>
 > = {
+  houseDetails: "House",
+  moveIn: "Move-in",
   calendar: "Calendar",
   application: "Apply",
   promotion: "Promo",
 };
 
 export function propertyDetailTopNavId(tab: PropertyDetailTabId): PropertyDetailTopTabId {
+  if (tab === "preview") return "preview";
+  if (tab === "house-details") return "houseDetails";
+  if (tab === "move-in") return "moveIn";
   if (tab === "calendar") return "calendar";
   if (tab === "application") return "application";
   if (tab === "lease") return "lease";
   if (tab === "requests") return "requests";
   if (tab === "promotion") return "promotion";
-  return "details";
+  return "preview";
 }
 
 /** Routed detail tabs for manager resident profile (Appendix C2). */
