@@ -68,6 +68,21 @@ export function portalMessageChannelsFromSelection(selected: string[]): {
   };
 }
 
+/** Read-only To line: only destinations for the selected delivery channels. */
+export function portalMessageRecipientDisplay(input: {
+  email?: string;
+  phone?: string;
+  viaEmail: boolean;
+  viaSms: boolean;
+}): string {
+  const parts: string[] = [];
+  const email = input.email?.trim();
+  const phone = input.phone?.trim();
+  if (input.viaEmail && email) parts.push(email);
+  if (input.viaSms && phone) parts.push(phone);
+  return parts.join(" · ");
+}
+
 export function defaultPortalMessageChannelSelection(
   emailAvailable: boolean,
   smsAvailable: boolean,
