@@ -10,10 +10,10 @@ describe("resident dashboard preferences", () => {
       "tours",
       "applications",
       "lease",
+      "houseDetails",
       "services",
       "payments",
       "communication",
-      "houseDetails",
     ]);
   });
 

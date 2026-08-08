@@ -679,6 +679,15 @@ export function ResidentDashboard({
               dataAttr="resident-dashboard-kpi-lease"
             />
             ) : null}
+            {leaseSigned ? (
+            <PortalDashboardKpiTile
+              label="House details"
+              value="—"
+              tone="neutral"
+              href={houseDetailsHref}
+              dataAttr="resident-dashboard-kpi-house-details"
+            />
+            ) : null}
             {canUseServices ? (
             <PortalDashboardKpiTile
               label="Services"
@@ -707,15 +716,6 @@ export function ResidentDashboard({
               href={communicationHref}
               dataAttr="resident-dashboard-kpi-inbox"
             />
-            {leaseSigned ? (
-            <PortalDashboardKpiTile
-              label="House details"
-              value="—"
-              tone="neutral"
-              href={houseDetailsHref}
-              dataAttr="resident-dashboard-kpi-house-details"
-            />
-            ) : null}
         </PortalDashboardKpiRow>
 
         {/* Needs attention — dense issue rows grouped under tiny uppercase labels. */}
@@ -821,13 +821,44 @@ export function ResidentDashboard({
           />
           ) : null}
 
+          {visibility.houseDetails ? (
+          <AttentionGroup
+            title="House details"
+            href={`${BASE}/move-in`}
+            sectionId="houseDetails"
+            tone="info"
+            order={3}
+            items={leaseSigned ? [{ id: "house-details" }] : []}
+            emptyMessage={
+              leaseSigned
+                ? "Open house details for move-in placement and keys."
+                : "Available after your lease is signed."
+            }
+            keyForItem={(item) => item.id}
+            renderRow={() => (
+              <IssueRow
+                href={`${BASE}/move-in`}
+                dot={sectionAccentDot("info")}
+                title="House details"
+                subtitle={
+                  appProperty
+                    ? `${appProperty}${appRoom ? ` · ${appRoom}` : ""}`
+                    : "Move-in placement, keys, and house information"
+                }
+                pill={<StatusPill tone={leaseSigned ? "success" : "neutral"}>{leaseSigned ? "Ready" : "Locked"}</StatusPill>}
+                dataAttr="resident-dashboard-attention-house-details"
+              />
+            )}
+          />
+          ) : null}
+
           {canUseServices && visibility.services ? (
           <AttentionGroup
             title="Services"
             href={servicesHref}
             sectionId="services"
             tone="pending"
-            order={3}
+            order={4}
             items={serviceItems}
             emptyMessage="No open services right now."
             keyForItem={(item) => item.id}
@@ -865,7 +896,7 @@ export function ResidentDashboard({
             href={`${BASE}/payments`}
             sectionId="payments"
             tone={overdueChargeCount > 0 ? "danger" : "pending"}
-            order={4}
+            order={5}
             badge={
               overdueChargeCount > 0 ? (
                 <StatusPill tone="danger">{overdueChargeCount} overdue</StatusPill>
@@ -906,7 +937,7 @@ export function ResidentDashboard({
             href={communicationHref}
             sectionId="communication"
             tone="info"
-            order={5}
+            order={6}
             headerCount={inbox}
             items={inboxThreads}
             emptyMessage="No unread messages. Communication is clear."
@@ -919,37 +950,6 @@ export function ResidentDashboard({
                 subtitle={thread.subject || thread.preview || "—"}
                 pill={<StatusPill tone="info">Unread</StatusPill>}
                 dataAttr="resident-dashboard-attention-inbox"
-              />
-            )}
-          />
-          ) : null}
-
-          {visibility.houseDetails ? (
-          <AttentionGroup
-            title="House details"
-            href={`${BASE}/move-in`}
-            sectionId="houseDetails"
-            tone="info"
-            order={6}
-            items={leaseSigned ? [{ id: "house-details" }] : []}
-            emptyMessage={
-              leaseSigned
-                ? "Open house details for move-in placement and keys."
-                : "Available after your lease is signed."
-            }
-            keyForItem={(item) => item.id}
-            renderRow={() => (
-              <IssueRow
-                href={`${BASE}/move-in`}
-                dot={sectionAccentDot("info")}
-                title="House details"
-                subtitle={
-                  appProperty
-                    ? `${appProperty}${appRoom ? ` · ${appRoom}` : ""}`
-                    : "Move-in placement, keys, and house information"
-                }
-                pill={<StatusPill tone={leaseSigned ? "success" : "neutral"}>{leaseSigned ? "Ready" : "Locked"}</StatusPill>}
-                dataAttr="resident-dashboard-attention-house-details"
               />
             )}
           />

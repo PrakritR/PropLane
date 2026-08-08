@@ -39,6 +39,12 @@ export const RESIDENT_DASHBOARD_SECTIONS: readonly ResidentDashboardSectionDef[]
     defaultVisible: true,
   },
   {
+    id: "houseDetails",
+    label: "House details",
+    description: "Move-in placement, keys, and house information.",
+    defaultVisible: true,
+  },
+  {
     id: "services",
     label: "Services",
     description: "Open work orders and pending add-on service requests.",
@@ -54,12 +60,6 @@ export const RESIDENT_DASHBOARD_SECTIONS: readonly ResidentDashboardSectionDef[]
     id: "communication",
     label: "Communication",
     description: "Unread messages from your property manager.",
-    defaultVisible: true,
-  },
-  {
-    id: "houseDetails",
-    label: "House details",
-    description: "Move-in placement, keys, and house information.",
     defaultVisible: true,
   },
 ] as const;
