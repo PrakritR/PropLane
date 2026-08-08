@@ -415,11 +415,19 @@ export function ResidentDashboard({
   const session = usePortalSession({ userId: residentUserId, email: initialEmail || null });
   const email = session.email?.trim().toLowerCase() || initialEmail;
   const canUsePayments = applicationApproved;
-  const canUseServices = leaseSigned;
   const userId = session.userId ?? residentUserId;
   const { residentAxisId, profileManagerId, axisResolved } = useResidentPortalAxisContext();
   const { visibility, setVisible, reset } = useResidentDashboardVisibility(userId);
+  const canUseServices = leaseSigned;
+  const showHouseDetails = leaseSigned && visibility.houseDetails;
   const [customizeOpen, setCustomizeOpen] = useState(false);
+  const customizableSections = useMemo(
+    () =>
+      leaseSigned
+        ? RESIDENT_DASHBOARD_SECTIONS
+        : RESIDENT_DASHBOARD_SECTIONS.filter((section) => section.id !== "houseDetails"),
+    [leaseSigned],
+  );
 
   const [appStatus, setAppStatus] = useState<AppStatus>(applicationApproved ? "approved" : "pending");
   const [appProperty, setAppProperty] = useState<string | null>(null);
@@ -614,7 +622,7 @@ export function ResidentDashboard({
     (visibility.communication ? inbox : 0) +
     (visibility.applications ? pendingApplicationCount : 0) +
     (visibility.lease && lease.cta ? 1 : 0) +
-    (visibility.houseDetails && leaseSigned ? 1 : 0);
+    (showHouseDetails ? 1 : 0);
 
   return (
     <ManagerPortalPageShell
@@ -652,7 +660,7 @@ export function ResidentDashboard({
               href={communicationHref}
               dataAttr="resident-dashboard-kpi-inbox"
             />
-            {leaseSigned ? (
+            {showHouseDetails ? (
             <PortalDashboardKpiTile
               label="House details"
               value="—"
@@ -822,19 +830,15 @@ export function ResidentDashboard({
           />
           ) : null}
 
-          {visibility.houseDetails ? (
+          {showHouseDetails ? (
           <AttentionGroup
             title="House details"
             href={`${BASE}/move-in`}
             sectionId="houseDetails"
             tone="info"
             order={4}
-            items={leaseSigned ? [{ id: "house-details" }] : []}
-            emptyMessage={
-              leaseSigned
-                ? "Open house details for move-in placement and keys."
-                : "Available after your lease is signed."
-            }
+            items={[{ id: "house-details" }]}
+            emptyMessage="Open house details for move-in placement and keys."
             keyForItem={(item) => item.id}
             renderRow={() => (
               <IssueRow
@@ -846,7 +850,7 @@ export function ResidentDashboard({
                     ? `${appProperty}${appRoom ? ` · ${appRoom}` : ""}`
                     : "Move-in placement, keys, and house information"
                 }
-                pill={<StatusPill tone={leaseSigned ? "success" : "neutral"}>{leaseSigned ? "Ready" : "Locked"}</StatusPill>}
+                pill={<StatusPill tone="success">Ready</StatusPill>}
                 dataAttr="resident-dashboard-attention-house-details"
               />
             )}
@@ -882,7 +886,7 @@ export function ResidentDashboard({
       <DashboardCustomizeModal
         open={customizeOpen}
         onClose={() => setCustomizeOpen(false)}
-        sections={RESIDENT_DASHBOARD_SECTIONS}
+        sections={customizableSections}
         visibility={visibility}
         onToggle={(id, visible) => setVisible(id as ResidentDashboardSectionId, visible)}
         onReset={reset}

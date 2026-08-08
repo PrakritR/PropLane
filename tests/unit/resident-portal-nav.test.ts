@@ -3,6 +3,7 @@ import {
   isResidentPathAllowedForAccess,
   resolveResidentPortalNavStage,
   residentBottomNavPrimarySections,
+  residentNavSectionVisibleInNav,
   residentSectionLockedForStage,
   residentSectionUnlockedForStage,
 } from "@/lib/resident-portal-nav";
@@ -120,5 +121,12 @@ describe("resident portal nav stages", () => {
     expect(residentSectionUnlockedForStage("services", "post_lease")).toBe(true);
     expect(residentSectionUnlockedForStage("move-in", "post_lease")).toBe(true);
     expect(isResidentPathAllowedForAccess("/resident/move-in", postLease)).toBe(true);
+  });
+
+  it("hides house details from nav until post-lease unlock", () => {
+    expect(residentNavSectionVisibleInNav("move-in", "pre_approval")).toBe(false);
+    expect(residentNavSectionVisibleInNav("move-in", "post_approval_pre_lease")).toBe(false);
+    expect(residentNavSectionVisibleInNav("move-in", "post_lease")).toBe(true);
+    expect(residentNavSectionVisibleInNav("lease", "pre_approval")).toBe(true);
   });
 });

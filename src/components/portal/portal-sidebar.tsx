@@ -13,7 +13,11 @@ import { useIsSmallPortalViewport, useNativeChrome } from "@/hooks/use-is-native
 import { usePortalNavCounts } from "@/hooks/use-portal-nav-counts";
 import { usePortalSession } from "@/hooks/use-portal-session";
 import { portalNavLockNavigable, portalNavSectionLocked } from "@/lib/portals/nav-locks";
-import { residentNavLockReason, type ResidentPortalNavStage } from "@/lib/resident-portal-nav";
+import {
+  residentNavLockReason,
+  residentNavSectionVisibleInNav,
+  type ResidentPortalNavStage,
+} from "@/lib/resident-portal-nav";
 import { shouldOpenNativeSectionsSheet } from "@/lib/native/open-portal-sections-sheet";
 import {
   nativeBottomBarEnabledForKind,
@@ -140,10 +144,19 @@ export function PortalSidebar({
   const navItems = useMemo(
     () =>
       visibleSections
-        .filter(
-          (section) =>
-            !isAppNavHiddenInNativeShell(definition.kind, section.section, showNativeChrome),
-        )
+        .filter((section) => {
+          if (isAppNavHiddenInNativeShell(definition.kind, section.section, showNativeChrome)) {
+            return false;
+          }
+          if (
+            definition.kind === "resident" &&
+            residentNavStage &&
+            !residentNavSectionVisibleInNav(section.section, residentNavStage)
+          ) {
+            return false;
+          }
+          return true;
+        })
         .map((section) => ({
           section: section.section,
           label: section.label,
@@ -152,7 +165,7 @@ export function PortalSidebar({
             ? section.tabs.map((tab) => `${definition.basePath}/${section.section}/${tab.id}`)
             : [`${definition.basePath}/${section.section}`],
         })),
-    [definition, visibleSections, showNativeChrome],
+    [definition, residentNavStage, visibleSections, showNativeChrome],
   );
 
   const navGroups = useMemo(() => groupNavItems(definition.kind, navItems), [definition.kind, navItems]);

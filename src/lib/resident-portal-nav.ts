@@ -77,6 +77,16 @@ export function residentSectionLockedForStage(section: string, stage: ResidentPo
   return !residentSectionUnlockedForStage(section, stage);
 }
 
+/** Resident sections that stay out of nav until unlocked — no inert padlock row. */
+const RESIDENT_NAV_HIDDEN_UNTIL_UNLOCKED = new Set(["move-in"]);
+
+export function residentNavSectionVisibleInNav(section: string, stage: ResidentPortalNavStage): boolean {
+  if (RESIDENT_NAV_HIDDEN_UNTIL_UNLOCKED.has(section) && residentSectionLockedForStage(section, stage)) {
+    return false;
+  }
+  return true;
+}
+
 function residentPathSection(pathname: string): string {
   const parts = pathname.split("/").filter(Boolean);
   return parts[1] ?? "";

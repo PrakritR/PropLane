@@ -159,7 +159,7 @@ describe("resident portal redesign completeness", () => {
       const src = readPanel("resident-dashboard.tsx");
       expect(src).toMatch(/canUsePayments && visibility\.payments \? pendingCharges\.length : 0/);
       expect(src).toMatch(/visibility\.services && canUseServices/);
-      expect(src).toMatch(/visibility\.houseDetails/);
+      expect(src).toMatch(/showHouseDetails/);
       expect(src).toMatch(/visibility\.communication \? inbox : 0/);
     });
   });
