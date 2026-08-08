@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Button } from "@/components/ui/button";
 import { ApplicationFilterSortFields } from "@/components/portal/application-filter-sort-fields";
 import { PortalFilterSortSheet, portalFilterActiveCount } from "@/components/portal/portal-filter-sort-sheet";
 import { PORTAL_PROPERTY_FILTER_SHEET_CLASS } from "@/components/portal/portal-filter-shell";
@@ -34,6 +35,9 @@ import {
 } from "@/lib/demo-property-pipeline";
 import { buildManagerPropertyFilterOptions, MANAGER_PORTFOLIO_REFRESH_EVENTS } from "@/lib/manager-portfolio-access";
 import { TourProposalsPanel } from "@/components/portal/tour-proposals-panel";
+import { ManagerPortfolioBookingsCalendar } from "@/components/portal/manager-portfolio-bookings-calendar";
+import { ChannelCalendarLinkModal } from "@/components/portal/channel-calendar-link-modal";
+import { CalendarSectionShell } from "@/components/portal/calendar-section-shell";
 import { GoogleCalendarConnectDialog } from "@/components/portal/google-calendar-connect-dialog";
 import type { DemoMeeting } from "@/components/portal/portal-calendar-panels";
 import {
@@ -82,7 +86,7 @@ export function PortalCalendar({
   const [coManagerPeers, setCoManagerPeers] = useState<CoManagerCalendarPeerDto[]>([]);
   const [shareAvailability, setShareAvailability] = useState(false);
   const [googleCalendarTick, setGoogleCalendarTick] = useState(0);
-  const calendarView = portal === "manager" ? parseCalendarViewTab(calendarViewProp) : "all";
+  const calendarView = portal === "manager" ? parseCalendarViewTab(calendarViewProp) : "tours";
   const [workOrderTick, setWorkOrderTick] = useState(0);
   const [calendarAnchorDate, setCalendarAnchorDate] = useState(() => new Date());
 
@@ -168,10 +172,16 @@ export function PortalCalendar({
     [calendarPropertyFilters, managerProperties],
   );
 
-  const calendarEditingPropertyId = activeCalendarPropertyFilters[0] ?? "";
+  /** Empty property filter = entire portfolio (not "none selected"). */
+  const scopedCalendarPropertyIds = useMemo(() => {
+    if (activeCalendarPropertyFilters.length > 0) return activeCalendarPropertyFilters;
+    return managerProperties.map((property) => property.id);
+  }, [activeCalendarPropertyFilters, managerProperties]);
 
-  const soleCalendarPropertyId =
+  const calendarEditingPropertyId =
     activeCalendarPropertyFilters.length === 1 ? activeCalendarPropertyFilters[0]! : "";
+
+  const soleCalendarPropertyId = calendarEditingPropertyId;
 
   const availabilityStorageKeys = useMemo(() => {
     if (portal !== "manager" || !userId || activeCalendarPropertyFilters.length === 0) return [];
@@ -238,12 +248,11 @@ export function PortalCalendar({
         ? {
             viewerUserId: userId,
             propertyId: soleCalendarPropertyId || null,
-            propertyIds:
-              activeCalendarPropertyFilters.length > 0 ? activeCalendarPropertyFilters : undefined,
+            propertyIds: scopedCalendarPropertyIds,
             peers: calendarPeers,
           }
         : null,
-    [portal, userId, soleCalendarPropertyId, activeCalendarPropertyFilters, calendarPeers],
+    [portal, userId, soleCalendarPropertyId, scopedCalendarPropertyIds, calendarPeers],
   );
 
   const coManagerAvailabilityOverlays = useMemo(
@@ -285,13 +294,23 @@ export function PortalCalendar({
 
   const tourScopeLabel = useMemo(() => {
     if (portal !== "manager") return undefined;
-    if (activeCalendarPropertyFilters.length === 0) return undefined;
     if (activeCalendarPropertyFilters.length === 1) {
       const name = managerProperties.find((p) => p.id === soleCalendarPropertyId)?.name;
       return name ? `Calendar · ${name}` : undefined;
     }
-    return `Calendar · ${activeCalendarPropertyFilters.length} houses`;
-  }, [portal, activeCalendarPropertyFilters, soleCalendarPropertyId, managerProperties]);
+    if (scopedCalendarPropertyIds.length > 1) {
+      return activeCalendarPropertyFilters.length > 1
+        ? `Calendar · ${activeCalendarPropertyFilters.length} houses`
+        : `Calendar · All houses (${scopedCalendarPropertyIds.length})`;
+    }
+    return undefined;
+  }, [
+    portal,
+    activeCalendarPropertyFilters,
+    soleCalendarPropertyId,
+    scopedCalendarPropertyIds,
+    managerProperties,
+  ]);
 
 
   const serviceCalendarMeetings = useMemo(() => {
@@ -299,19 +318,24 @@ export function PortalCalendar({
     void workOrderTick;
     return listManagerServiceCalendarMeetings(
       userId,
-      activeCalendarPropertyFilters.length > 0 ? activeCalendarPropertyFilters : null,
+      scopedCalendarPropertyIds.length > 0 ? scopedCalendarPropertyIds : null,
     );
-  }, [portal, userId, activeCalendarPropertyFilters, workOrderTick]);
+  }, [portal, userId, scopedCalendarPropertyIds, workOrderTick]);
+
+  const [bookingsRefreshSignal, setBookingsRefreshSignal] = useState(0);
+  const [linkAirbnbModalOpen, setLinkAirbnbModalOpen] = useState(false);
 
   const calendarTabCounts = useMemo(() => {
     if (portal !== "manager" || !userId) {
-      return { all: 0, tours: 0, services: serviceCalendarMeetings.length };
+      return { tours: 0, bookings: 0, services: serviceCalendarMeetings.length };
     }
     void calendarRefreshSignal;
     void workOrderTick;
+    void bookingsRefreshSignal;
     const tourFilter = calendarScheduledTourFilter ?? {
       viewerUserId: userId,
       propertyId: null,
+      propertyIds: scopedCalendarPropertyIds,
       peers: [],
     };
     const tourMeetings = meetingsInWeek(
@@ -319,9 +343,7 @@ export function PortalCalendar({
       calendarAnchorDate,
     );
     const servicesInWeek = meetingsInWeek(serviceCalendarMeetings, calendarAnchorDate);
-    const tours = tourMeetings.length;
-    const services = servicesInWeek.length;
-    return { all: tours + services, tours, services };
+    return { tours: tourMeetings.length, bookings: 0, services: servicesInWeek.length };
   }, [
     portal,
     userId,
@@ -329,25 +351,27 @@ export function PortalCalendar({
     storageKey,
     calendarRefreshSignal,
     workOrderTick,
+    bookingsRefreshSignal,
     calendarAnchorDate,
     serviceCalendarMeetings,
+    scopedCalendarPropertyIds,
   ]);
 
   const calendarTabs = useMemo(
     () => [
-      {
-        id: "all" as const,
-        label: "All",
-        count: calendarTabCounts.all,
-        href: calendarViewHref(MANAGER_PORTAL_BASE, "all"),
-        dataAttr: "calendar-tab-all",
-      },
       {
         id: "tours" as const,
         label: "Tours",
         count: calendarTabCounts.tours,
         href: calendarViewHref(MANAGER_PORTAL_BASE, "tours"),
         dataAttr: "calendar-tab-tours",
+      },
+      {
+        id: "bookings" as const,
+        label: "Bookings",
+        count: calendarTabCounts.bookings,
+        href: calendarViewHref(MANAGER_PORTAL_BASE, "bookings"),
+        dataAttr: "calendar-tab-bookings",
       },
       {
         id: "services" as const,
@@ -360,10 +384,10 @@ export function PortalCalendar({
     [calendarTabCounts],
   );
 
-  const toursOnlyView = calendarView === "tours";
+  const bookingsView = calendarView === "bookings";
+  const showTourAvailability = calendarView === "tours";
+  const showServiceVisits = calendarView === "services";
   const servicesOnlyView = calendarView === "services";
-  const showTourMeetings = toursOnlyView || calendarView === "all";
-  const showServiceVisits = servicesOnlyView || calendarView === "all";
 
   const mergedExternalMeetings = useMemo(() => {
     const base = portal === "manager" ? [...googleExternalMeetings] : [];
@@ -372,15 +396,17 @@ export function PortalCalendar({
   }, [portal, googleExternalMeetings, serviceCalendarMeetings, showServiceVisits]);
 
   const calendarPanelsReadOnly =
-    !toursOnlyView || servicesOnlyView || activeCalendarPropertyFilters.length === 0;
-  const calendarStorageKey = toursOnlyView ? storageKey : null;
+    servicesOnlyView ||
+    bookingsView ||
+    (showTourAvailability && activeCalendarPropertyFilters.length !== 1);
+  const calendarStorageKey = showTourAvailability ? storageKey : null;
   const calendarUnavailableMessage = servicesOnlyView
     ? "No scheduled service visits yet. Vendor visits and your own assigned work appear here once a visit time is set."
-    : toursOnlyView && activeCalendarPropertyFilters.length === 0
-      ? "Select a house to edit tour availability."
-      : calendarView === "all"
-        ? "No events on this calendar for the selected filters."
-        : "Select a house before creating tour windows.";
+    : bookingsView
+      ? "No houses in your portfolio yet."
+      : activeCalendarPropertyFilters.length !== 1 && showTourAvailability
+        ? "Select one house in the filter to edit tour availability. Tours across your portfolio still appear below."
+        : "Select one house before creating tour windows.";
 
 
   const calendarFilterSheet =
@@ -412,6 +438,28 @@ export function PortalCalendar({
       />
     ) : null;
 
+  const calendarLinkAirbnbButton =
+    portal === "manager" && bookingsView ? (
+      <Button
+        type="button"
+        variant="outline"
+        className={`shrink-0 ${PORTAL_HEADER_ACTION_BTN}`}
+        disabled={managerPropertyFilterOptions.length === 0}
+        data-attr="portfolio-bookings-link-airbnb"
+        onClick={() => setLinkAirbnbModalOpen(true)}
+      >
+        Link Airbnb
+      </Button>
+    ) : null;
+
+  const calendarHeaderActions =
+    portal === "manager" ? (
+      <>
+        {calendarGoogleCalendarButton}
+        {calendarLinkAirbnbButton}
+      </>
+    ) : null;
+
   const pageTitle = portal === "manager" ? "Calendar" : "Schedule meeting";
 
   if (portal === "manager" && !authReady) {
@@ -441,7 +489,7 @@ export function PortalCalendar({
         title={pageTitle}
         hideTitleOnMobileNav
         titleInlineFilter={portal === "manager" ? calendarFilterSheet : undefined}
-        titleAside={calendarGoogleCalendarButton ?? undefined}
+        titleAside={calendarHeaderActions ?? undefined}
         compactFilterRow={portal === "manager"}
       >
         {portal === "manager" ? (
@@ -452,43 +500,77 @@ export function PortalCalendar({
             destinationAriaLabel="Calendar views"
           />
         ) : null}
-        {portal === "manager" && toursOnlyView && showCoManagerCoordination ? (
-          <label className="mb-4 flex cursor-pointer items-start gap-3 rounded-lg border border-border bg-card px-4 py-3 text-sm shadow-sm">
-            <input
-              type="checkbox"
-              className="mt-0.5 accent-primary"
-              checked={shareAvailability}
-              onChange={(e) => setShareAvailabilityPreference(e.target.checked)}
-            />
-            <span>
-              <span className="font-semibold text-foreground">Share availability with co-managers</span>
-              <span className="mt-0.5 block text-xs text-muted">
-                Linked managers on this house can see when you are open for tours. You only see their availability when they opt in too.
-              </span>
-            </span>
-          </label>
-        ) : null}
         {portal === "manager" ? (
-          <div className="portal-calendar-page-body mt-1 flex min-h-0 flex-1 flex-col">
-            {toursOnlyView ? (
-              <div className="mb-4 shrink-0">
-                <TourProposalsPanel />
-              </div>
-            ) : null}
-            {servicesOnlyView ? (
-              <p className="mb-3 shrink-0 text-sm text-muted">
-                Scheduled vendor visits and work you assigned to yourself. Filter by house or leave all properties
-                selected to see your full service schedule.
-              </p>
-            ) : null}
-            {propertiesLoading && managerProperties.length === 0 ? (
-              <p className="text-sm text-muted">Loading houses from the backend…</p>
+          <div className="portal-calendar-page-body mt-1 flex min-h-[min(72vh,52rem)] flex-1 flex-col">
+            {bookingsView ? (
+              <ManagerPortfolioBookingsCalendar
+                propertyIds={scopedCalendarPropertyIds}
+                showToast={showToast}
+                refreshSignal={bookingsRefreshSignal}
+              />
+            ) : servicesOnlyView ? (
+              <CalendarSectionShell
+                title="Service orders"
+                description="Scheduled vendor visits and work you assigned to yourself."
+              >
+                {propertiesLoading && managerProperties.length === 0 ? (
+                  <p className="text-sm text-muted">Loading houses from the backend…</p>
+                ) : (
+                  <PortalCalendarPanels
+                    key={`services-${scopedCalendarPropertyIds.join(",")}`}
+                    storageKey={null}
+                    calendarRefreshSignal={calendarRefreshSignal}
+                    tourScopeLabel={tourScopeLabel}
+                    bareSurface
+                    unavailableMessage={
+                      managerProperties.length === 0
+                        ? "No houses found for this manager account yet."
+                        : calendarUnavailableMessage
+                    }
+                    compactAvailability
+                    availabilityHeading="Your availability"
+                    externalMeetings={mergedExternalMeetings}
+                    onGoogleCalendarRefresh={() => setGoogleCalendarTick((n) => n + 1)}
+                    onMeetingsChanged={() => setCalendarRefreshSignal((n) => n + 1)}
+                    readOnly
+                    eventSummaryLabel="visit"
+                    preferEventCountsInDayHeader
+                    anchorDate={calendarAnchorDate}
+                    onAnchorDateChange={setCalendarAnchorDate}
+                    flowScroll
+                  />
+                )}
+              </CalendarSectionShell>
             ) : (
-              <PortalCalendarPanels
-            key={`${calendarStorageKey ?? "calendar-unavailable"}-${calendarView}-${activeCalendarPropertyFilters.join(",")}`}
+              <div className="flex min-h-0 flex-1 flex-col gap-3">
+                {showCoManagerCoordination ? (
+                  <label className="flex cursor-pointer items-start gap-3 rounded-lg border border-border bg-card px-4 py-3 text-sm shadow-sm">
+                    <input
+                      type="checkbox"
+                      className="mt-0.5 accent-primary"
+                      checked={shareAvailability}
+                      onChange={(e) => setShareAvailabilityPreference(e.target.checked)}
+                    />
+                    <span>
+                      <span className="font-semibold text-foreground">Share availability with co-managers</span>
+                      <span className="mt-0.5 block text-xs text-muted">
+                        Linked managers on this house can see when you are open for tours. You only see their
+                        availability when they opt in too.
+                      </span>
+                    </span>
+                  </label>
+                ) : null}
+                <TourProposalsPanel />
+                {propertiesLoading && managerProperties.length === 0 ? (
+                  <p className="text-sm text-muted">Loading houses from the backend…</p>
+                ) : (
+                  <PortalCalendarPanels
+                    key={`${calendarStorageKey ?? "calendar-unavailable"}-tours-${scopedCalendarPropertyIds.join(",")}`}
             storageKey={calendarStorageKey}
             availabilityStorageKeys={
-              toursOnlyView && availabilityStorageKeys.length > 1 ? availabilityStorageKeys : undefined
+              showTourAvailability && availabilityStorageKeys.length > 1
+                ? availabilityStorageKeys
+                : undefined
             }
             calendarRefreshSignal={calendarRefreshSignal}
             tourScopeLabel={tourScopeLabel}
@@ -501,21 +583,20 @@ export function PortalCalendar({
             compactAvailability
             availabilityHeading={portal === "manager" ? "Your availability" : "Schedule meeting"}
             scheduledTourFilter={
-              calendarScheduledTourFilter && showTourMeetings ? calendarScheduledTourFilter : undefined
+              calendarScheduledTourFilter && showTourAvailability ? calendarScheduledTourFilter : undefined
             }
-            coManagerAvailabilityOverlays={
-              toursOnlyView && showCoManagerCoordination ? coManagerAvailabilityOverlays : undefined
-            }
+            coManagerAvailabilityOverlays={showCoManagerCoordination ? coManagerAvailabilityOverlays : undefined}
             externalMeetings={portal === "manager" ? mergedExternalMeetings : undefined}
             onGoogleCalendarRefresh={() => setGoogleCalendarTick((n) => n + 1)}
             // Recompute the view-tab counts as soon as a tour is confirmed,
             // rescheduled, cancelled or deleted, instead of at the next reload.
             onMeetingsChanged={() => setCalendarRefreshSignal((n) => n + 1)}
             readOnly={portal === "manager" ? calendarPanelsReadOnly : false}
-            eventSummaryLabel={servicesOnlyView ? "visit" : calendarView === "all" ? "event" : "tour"}
+            eventSummaryLabel="tour"
             preferEventCountsInDayHeader
             anchorDate={calendarAnchorDate}
             onAnchorDateChange={setCalendarAnchorDate}
+            flowScroll
             otherProperties={
               portal === "manager" && calendarEditingPropertyId
                 ? managerProperties.filter((p) => {
@@ -528,7 +609,7 @@ export function PortalCalendar({
                 : undefined
             }
             onCopyWeekToHouses={
-              portal === "manager" && toursOnlyView && userId && calendarEditingPropertyId
+              portal === "manager" && userId && calendarEditingPropertyId && showTourAvailability
                 ? (propertyIds, weekDateStrs, scope) => {
                     if (!userId || !calendarEditingPropertyId) return;
                     const srcKey = managerPropertyAvailabilityStorageKey(userId, calendarEditingPropertyId);
@@ -562,7 +643,9 @@ export function PortalCalendar({
                   }
                 : undefined
             }
-              />
+                  />
+                )}
+              </div>
             )}
           </div>
         ) : (
@@ -575,6 +658,19 @@ export function PortalCalendar({
           />
         )}
       </ManagerPortalPageShell>
+      {portal === "manager" ? (
+        <ChannelCalendarLinkModal
+          open={linkAirbnbModalOpen}
+          onClose={() => setLinkAirbnbModalOpen(false)}
+          propertyIds={scopedCalendarPropertyIds}
+          propertyOptions={managerPropertyFilterOptions}
+          initialPropertyId={
+            activeCalendarPropertyFilters.length === 1 ? activeCalendarPropertyFilters[0] : undefined
+          }
+          showToast={showToast}
+          onChanged={() => setBookingsRefreshSignal((n) => n + 1)}
+        />
+      ) : null}
     </>
   );
 }

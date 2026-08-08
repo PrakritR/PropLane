@@ -1,5 +1,5 @@
 import { redirect } from "next/navigation";
 
 export default function CalendarIndexPage() {
-  redirect("/portal/calendar/all");
+  redirect("/portal/calendar/tours");
 }

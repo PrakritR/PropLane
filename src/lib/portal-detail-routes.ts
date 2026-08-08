@@ -5,7 +5,8 @@ export const PROPERTY_DETAIL_TABS = [
   "move-in",
   "application",
   "lease",
-  "calendar",
+  "tour-calendar",
+  "booking-calendars",
   "requests",
   "promotion",
 ] as const;
@@ -18,7 +19,8 @@ export const PROPERTY_DETAIL_TAB_LABELS: Record<PropertyDetailTabId, string> = {
   "move-in": "Move-in",
   application: "Application",
   lease: "Lease",
-  calendar: "Calendar",
+  "tour-calendar": "Tour calendar",
+  "booking-calendars": "Booking calendars",
   requests: "Requests",
   promotion: "Promotion",
 };
@@ -34,7 +36,8 @@ export type PropertyDetailSectionTabId = (typeof PROPERTY_DETAIL_SECTION_TABS)[n
 
 export const PROPERTY_DETAIL_TOP_TAB_LABELS = {
   details: "Details",
-  calendar: "Calendar",
+  tourCalendar: "Tour calendar",
+  bookingCalendars: "Booking calendars",
   application: "Application",
   lease: "Lease",
   requests: "Requests",
@@ -46,12 +49,15 @@ export type PropertyDetailTopTabId = keyof typeof PROPERTY_DETAIL_TOP_TAB_LABELS
 export const PROPERTY_DETAIL_TOP_TAB_SHORT_LABELS: Partial<
   Record<PropertyDetailTopTabId, string>
 > = {
+  tourCalendar: "Tours",
+  bookingCalendars: "Bookings",
   application: "Apply",
   promotion: "Promo",
 };
 
 export function propertyDetailTopNavId(tab: PropertyDetailTabId): PropertyDetailTopTabId {
-  if (tab === "calendar") return "calendar";
+  if (tab === "tour-calendar") return "tourCalendar";
+  if (tab === "booking-calendars") return "bookingCalendars";
   if (tab === "application") return "application";
   if (tab === "lease") return "lease";
   if (tab === "requests") return "requests";
@@ -82,6 +88,7 @@ export const RESIDENT_DETAIL_TAB_SHORT_LABELS: Record<ResidentDetailTabId, strin
 };
 
 export function parsePropertyDetailTab(raw: string | undefined | null): PropertyDetailTabId {
+  if (raw === "calendar") return "tour-calendar";
   if (raw && (PROPERTY_DETAIL_TABS as readonly string[]).includes(raw)) {
     return raw as PropertyDetailTabId;
   }
@@ -138,20 +145,21 @@ export function residentPaymentDetailHref(
 
 
 /** Routed calendar views (manager portal). */
-export const CALENDAR_VIEW_TABS = ["all", "tours", "services"] as const;
+export const CALENDAR_VIEW_TABS = ["tours", "bookings", "services"] as const;
 export type CalendarViewTabId = (typeof CALENDAR_VIEW_TABS)[number];
 
 export const CALENDAR_VIEW_TAB_LABELS: Record<CalendarViewTabId, string> = {
-  all: "All",
   tours: "Tours",
+  bookings: "Bookings",
   services: "Service orders",
 };
 
 export function parseCalendarViewTab(raw: string | undefined | null): CalendarViewTabId {
+  if (raw === "all") return "tours";
   if (raw && (CALENDAR_VIEW_TABS as readonly string[]).includes(raw)) {
     return raw as CalendarViewTabId;
   }
-  return "all";
+  return "tours";
 }
 
 export function calendarViewHref(basePath: string, tab: CalendarViewTabId): string {

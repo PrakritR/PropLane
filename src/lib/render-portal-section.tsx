@@ -824,7 +824,13 @@ export async function renderPortalSection(
       }
       if (tabParts.length > 3) notFound();
       const propertyKey = tabParts.length >= 2 ? decodeURIComponent(tabParts[1]!) : undefined;
-      const propertyDetailTab = tabParts.length >= 3 ? tabParts[2]! : undefined;
+      const propertyDetailTabRaw = tabParts.length >= 3 ? tabParts[2]! : undefined;
+      if (propertyDetailTabRaw === "calendar" && propertyKey) {
+        redirect(
+          `${def.basePath}/properties/${stage}/${encodeURIComponent(propertyKey)}/tour-calendar`,
+        );
+      }
+      const propertyDetailTab = propertyDetailTabRaw;
       const ManagerProperties = await loadManagerProperties();
       return subscriptionGated(
         <ManagerProperties
@@ -863,13 +869,16 @@ export async function renderPortalSection(
     }
 
     if (section === "calendar") {
-      const CALENDAR_VIEWS = ["all", "tours", "services"] as const;
+      const CALENDAR_VIEWS = ["tours", "bookings", "services", "all"] as const;
       if (tabParts?.length) {
         const viewRaw = tabParts[0]!;
+        if (viewRaw === "all") {
+          redirect(`${def.basePath}/calendar/tours`);
+        }
         if (!CALENDAR_VIEWS.includes(viewRaw as (typeof CALENDAR_VIEWS)[number])) notFound();
         if (tabParts.length > 1) notFound();
       } else if (kind === "pro") {
-        redirect(`${def.basePath}/calendar/all`);
+        redirect(`${def.basePath}/calendar/tours`);
       }
       const calendarView = tabParts?.length
         ? (tabParts[0] as (typeof CALENDAR_VIEWS)[number])

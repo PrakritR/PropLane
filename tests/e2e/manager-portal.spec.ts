@@ -7,7 +7,7 @@ const portalTestsEnabled = process.env.E2E_TESTS_ENABLED === "1";
 const PAID_MANAGER_NAV = [
   { label: "Dashboard", path: "/portal/dashboard" },
   { label: "Properties", path: "/portal/properties" },
-  { label: "Calendar", path: "/portal/calendar/all" },
+  { label: "Calendar", path: "/portal/calendar/tours" },
   { label: "Applications", path: "/portal/applications/pending" },
   { label: "Leases", path: "/portal/leases" },
   { label: "Residents", path: "/portal/residents/current" },
@@ -130,8 +130,8 @@ test.describe("Manager portal", () => {
   });
 
   test("calendar tab loads and a house week view exposes navigation", async ({ page }) => {
-    await page.goto("/portal/calendar/all", { waitUntil: "domcontentloaded" });
-    await expect(page).toHaveURL(/\/portal\/calendar\/all/);
+    await page.goto("/portal/calendar/tours", { waitUntil: "domcontentloaded" });
+    await expect(page).toHaveURL(/\/portal\/calendar\/tours/);
     await expect(page.getByRole("heading", { name: "Calendar" })).toBeVisible({ timeout: 20_000 });
     await expect(page.getByRole("button", { name: "Previous week" }).first()).toBeVisible({
       timeout: 15_000,
