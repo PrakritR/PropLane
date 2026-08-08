@@ -20,7 +20,7 @@ import {
 import { useIsNativeApp } from "@/hooks/use-is-native-app";
 import { useResidentDashboardVisibility } from "@/hooks/use-resident-dashboard-visibility";
 import { useResidentPortalAxisContext } from "@/hooks/use-resident-portal-axis";
-import { RESIDENT_DASHBOARD_SECTIONS } from "@/lib/resident-dashboard-preferences";
+import { RESIDENT_DASHBOARD_SECTIONS, type ResidentDashboardSectionId } from "@/lib/resident-dashboard-preferences";
 import { RESIDENT_INBOX_THREAD_FALLBACK } from "@/components/portal/resident-inbox-panel";
 import { usePortalSession } from "@/hooks/use-portal-session";
 import {
@@ -68,6 +68,11 @@ import {
   RESIDENT_INBOX_STORAGE_KEY,
   syncPersistedInboxFromServer,
 } from "@/lib/portal-inbox-storage";
+import { formatRangeLabel } from "@/lib/demo-admin-scheduling";
+import { residentTourDetailHref, residentTourListHref } from "@/lib/portal-detail-routes";
+import { residentTourBucketForView, sortResidentTourViews } from "@/lib/resident-tour-list";
+import { stripPropertyRoomCountSuffix } from "@/lib/portal-mobile-preview";
+import type { ResidentTourView } from "@/lib/tour-resident-link.server";
 
 const BASE = "/resident";
 
@@ -118,13 +123,11 @@ function AttentionCountBadge({
   );
 }
 
-type ResidentDashboardSectionId =
-  | "payments"
-  | "lease"
-  | "applications"
-  | "services"
-  | "communication"
-  | "houseDetails";
+function tourWhenLabel(tour: ResidentTourView): string {
+  const whenStart = tour.confirmedStart ?? tour.proposedStart;
+  const whenEnd = tour.confirmedEnd ?? tour.proposedEnd;
+  return whenStart && whenEnd ? formatRangeLabel(whenStart, whenEnd) : "Time to be confirmed";
+}
 
 /** Small theme-aware status pill (light/dark flip via `.portal-badge-*`). */
 function StatusPill({ tone, children }: { tone: PillTone; children: ReactNode }) {
@@ -428,10 +431,29 @@ export function ResidentDashboard({
   const [tick, setTick] = useState(0);
   const bump = () => setTick((n) => n + 1);
   const [clientReady, setClientReady] = useState(false);
+  const [tours, setTours] = useState<ResidentTourView[]>([]);
 
   useEffect(() => {
     queueMicrotask(() => setClientReady(true));
   }, []);
+
+  useEffect(() => {
+    if (!clientReady || !email) return;
+    let alive = true;
+    void (async () => {
+      try {
+        const res = await fetch("/api/portal-resident-tours", { credentials: "include" });
+        const data = (await res.json().catch(() => ({}))) as { tours?: ResidentTourView[] };
+        if (!res.ok || !alive) return;
+        setTours(sortResidentTourViews(Array.isArray(data.tours) ? data.tours : []));
+      } catch {
+        if (alive) setTours([]);
+      }
+    })();
+    return () => {
+      alive = false;
+    };
+  }, [clientReady, email, tick]);
 
   useEffect(() => {
     void Promise.allSettled([
@@ -580,6 +602,12 @@ export function ResidentDashboard({
   } = data;
   const pendingApplicationRows = applicationRows.filter((r) => r.bucket === "pending");
   const pendingApplicationCount = pendingApplicationRows.length;
+  const pendingTours = useMemo(
+    () =>
+      sortResidentTourViews(tours).filter((tour) => residentTourBucketForView(tour) === "pending"),
+    [tours],
+  );
+  const pendingTourCount = pendingTours.length;
 
   const welcomeName =
     displayName && displayName !== "Resident" ? displayName.split(/\s+/)[0] : null;
@@ -609,12 +637,13 @@ export function ResidentDashboard({
 
   const openServiceCount = canUseServices ? serviceItems.length : 0;
   const openCount =
-    (canUsePayments && visibility.payments ? pendingCharges.length : 0) +
-    (visibility.services && canUseServices ? openServiceCount : 0) +
-    (visibility.communication ? inbox : 0) +
+    (visibility.tours ? pendingTourCount : 0) +
     (visibility.applications ? pendingApplicationCount : 0) +
     (visibility.lease && lease.cta ? 1 : 0) +
-    (visibility.houseDetails && leaseSigned ? 1 : 0);
+    (visibility.houseDetails && leaseSigned ? 1 : 0) +
+    (canUseServices && visibility.services ? openServiceCount : 0) +
+    (canUsePayments && visibility.payments ? pendingCharges.length : 0) +
+    (visibility.communication ? inbox : 0);
 
   return (
     <ManagerPortalPageShell
@@ -624,14 +653,30 @@ export function ResidentDashboard({
     >
       <div className={`min-w-0 ${PORTAL_DASHBOARD_STACK}`}>
         <PortalDashboardKpiRow>
-            {canUsePayments ? (
             <PortalDashboardKpiTile
-              label="Balance due"
-              value={formatUsd(totalBalanceDue)}
-              tone={overdueChargeCount > 0 ? "danger" : totalBalanceDue > 0 ? "warning" : "success"}
-              emphasis={overdueChargeCount > 0 || totalBalanceDue > 0}
-              href={`${BASE}/payments`}
-              dataAttr="resident-dashboard-kpi-balance"
+              label="Tour pending"
+              value={pendingTourCount}
+              tone={pendingTourCount > 0 ? "warning" : "neutral"}
+              emphasis={pendingTourCount > 0}
+              href={residentTourListHref(BASE, "pending")}
+              dataAttr="resident-dashboard-kpi-tour-pending"
+            />
+            <PortalDashboardKpiTile
+              label="Application pending"
+              value={pendingApplicationCount}
+              tone={pendingApplicationCount > 0 ? "warning" : "brand"}
+              emphasis={pendingApplicationCount > 0}
+              href={`${BASE}/applications`}
+              dataAttr="resident-dashboard-kpi-application-pending"
+            />
+            {leaseUnlocked ? (
+            <PortalDashboardKpiTile
+              label="Lease"
+              value={lease.cta ? 1 : 0}
+              tone={lease.cta ? "warning" : "brand"}
+              emphasis={Boolean(lease.cta)}
+              href={`${BASE}/lease`}
+              dataAttr="resident-dashboard-kpi-lease"
             />
             ) : null}
             {canUseServices ? (
@@ -642,6 +687,16 @@ export function ResidentDashboard({
               emphasis={openServiceCount > 0}
               href={servicesHref}
               dataAttr="resident-dashboard-kpi-services"
+            />
+            ) : null}
+            {canUsePayments ? (
+            <PortalDashboardKpiTile
+              label="Balance due"
+              value={formatUsd(totalBalanceDue)}
+              tone={overdueChargeCount > 0 ? "danger" : totalBalanceDue > 0 ? "warning" : "success"}
+              emphasis={overdueChargeCount > 0 || totalBalanceDue > 0}
+              href={`${BASE}/payments`}
+              dataAttr="resident-dashboard-kpi-balance"
             />
             ) : null}
             <PortalDashboardKpiTile
@@ -693,66 +748,24 @@ export function ResidentDashboard({
             </button>
           </div>
 
-          {canUsePayments && visibility.payments ? (
+          {visibility.tours ? (
           <AttentionGroup
-            title="Pending & overdue payments"
-            href={`${BASE}/payments`}
-            sectionId="payments"
-            tone={overdueChargeCount > 0 ? "danger" : "pending"}
+            title="Tour pending"
+            href={residentTourListHref(BASE, "pending")}
+            sectionId="tours"
+            tone="pending"
             order={0}
-            badge={
-              overdueChargeCount > 0 ? (
-                <StatusPill tone="danger">{overdueChargeCount} overdue</StatusPill>
-              ) : null
-            }
-            items={pendingCharges}
-            emptyMessage="No outstanding charges."
-            keyForItem={(charge) => charge.id}
-            renderRow={(charge, sectionTone) => {
-              const overdue = isHouseholdChargeOverdue(charge);
-              return (
-                <IssueRow
-                  href={`${BASE}/payments`}
-                  dot={sectionAccentDot(sectionTone)}
-                  title={charge.title || "Charge"}
-                  subtitle={formatCompactChargeLine(
-                    charge.title || "Charge",
-                    charge.balanceLabel,
-                    chargeDueLabel(charge),
-                    { omitBalance: true },
-                  )}
-                  meta={charge.balanceLabel}
-                  pill={
-                    <StatusPill tone={overdue ? "danger" : "pending"}>
-                      {overdue ? "Overdue" : "Pending"}
-                    </StatusPill>
-                  }
-                  dataAttr="resident-dashboard-attention-payment"
-                />
-              );
-            }}
-          />
-          ) : null}
-
-          {visibility.lease ? (
-          <AttentionGroup
-            title="Lease"
-            href={`${BASE}/lease`}
-            sectionId="lease"
-            tone={lease.cta ? "info" : "pending"}
-            order={1}
-            items={leaseItems}
-            emptyMessage={leaseEmptyMessage}
-            keyForItem={(row) => row.id}
-            renderRow={(_row, sectionTone) => (
+            items={pendingTours}
+            emptyMessage="No pending tour requests."
+            keyForItem={(tour) => tour.inquiryId}
+            renderRow={(tour, sectionTone) => (
               <IssueRow
-                href={`${BASE}/lease`}
+                href={residentTourDetailHref(BASE, "pending", tour.inquiryId)}
                 dot={sectionAccentDot(sectionTone)}
-                title={lease.cta ? "Signature needed" : lease.tone === "emerald" ? "Lease active" : "Lease status"}
-                subtitle={leaseSubtitle}
-                meta={leaseRow?.signedRentLabel}
-                pill={<StatusPill tone={pillToneForBadgeTone(lease.tone)}>{lease.label}</StatusPill>}
-                dataAttr="resident-dashboard-attention-lease"
+                title={stripPropertyRoomCountSuffix(tour.propertyTitle ?? "Property tour")}
+                subtitle={tourWhenLabel(tour)}
+                pill={<StatusPill tone="pending">Pending</StatusPill>}
+                dataAttr="resident-dashboard-attention-tour"
               />
             )}
           />
@@ -760,11 +773,11 @@ export function ResidentDashboard({
 
           {visibility.applications ? (
           <AttentionGroup
-            title="Applications"
+            title="Application pending"
             href={`${BASE}/applications`}
             sectionId="applications"
             tone="pending"
-            order={2}
+            order={1}
             items={pendingApplicationRows}
             emptyMessage="No pending applications."
             keyForItem={(row) => row.id}
@@ -781,6 +794,30 @@ export function ResidentDashboard({
                 />
               );
             }}
+          />
+          ) : null}
+
+          {visibility.lease ? (
+          <AttentionGroup
+            title="Lease"
+            href={`${BASE}/lease`}
+            sectionId="lease"
+            tone={lease.cta ? "info" : "pending"}
+            order={2}
+            items={leaseItems}
+            emptyMessage={leaseEmptyMessage}
+            keyForItem={(row) => row.id}
+            renderRow={(_row, sectionTone) => (
+              <IssueRow
+                href={`${BASE}/lease`}
+                dot={sectionAccentDot(sectionTone)}
+                title={lease.cta ? "Signature needed" : lease.tone === "emerald" ? "Lease active" : "Lease status"}
+                subtitle={leaseSubtitle}
+                meta={leaseRow?.signedRentLabel}
+                pill={<StatusPill tone={pillToneForBadgeTone(lease.tone)}>{lease.label}</StatusPill>}
+                dataAttr="resident-dashboard-attention-lease"
+              />
+            )}
           />
           ) : null}
 
@@ -822,34 +859,44 @@ export function ResidentDashboard({
           />
           ) : null}
 
-          {visibility.houseDetails ? (
+          {canUsePayments && visibility.payments ? (
           <AttentionGroup
-            title="House details"
-            href={`${BASE}/move-in`}
-            sectionId="houseDetails"
-            tone="info"
+            title="Pending & overdue payments"
+            href={`${BASE}/payments`}
+            sectionId="payments"
+            tone={overdueChargeCount > 0 ? "danger" : "pending"}
             order={4}
-            items={leaseSigned ? [{ id: "house-details" }] : []}
-            emptyMessage={
-              leaseSigned
-                ? "Open house details for move-in placement and keys."
-                : "Available after your lease is signed."
+            badge={
+              overdueChargeCount > 0 ? (
+                <StatusPill tone="danger">{overdueChargeCount} overdue</StatusPill>
+              ) : null
             }
-            keyForItem={(item) => item.id}
-            renderRow={() => (
-              <IssueRow
-                href={`${BASE}/move-in`}
-                dot={sectionAccentDot("info")}
-                title="House details"
-                subtitle={
-                  appProperty
-                    ? `${appProperty}${appRoom ? ` · ${appRoom}` : ""}`
-                    : "Move-in placement, keys, and house information"
-                }
-                pill={<StatusPill tone={leaseSigned ? "success" : "neutral"}>{leaseSigned ? "Ready" : "Locked"}</StatusPill>}
-                dataAttr="resident-dashboard-attention-house-details"
-              />
-            )}
+            items={pendingCharges}
+            emptyMessage="No outstanding charges."
+            keyForItem={(charge) => charge.id}
+            renderRow={(charge, sectionTone) => {
+              const overdue = isHouseholdChargeOverdue(charge);
+              return (
+                <IssueRow
+                  href={`${BASE}/payments`}
+                  dot={sectionAccentDot(sectionTone)}
+                  title={charge.title || "Charge"}
+                  subtitle={formatCompactChargeLine(
+                    charge.title || "Charge",
+                    charge.balanceLabel,
+                    chargeDueLabel(charge),
+                    { omitBalance: true },
+                  )}
+                  meta={charge.balanceLabel}
+                  pill={
+                    <StatusPill tone={overdue ? "danger" : "pending"}>
+                      {overdue ? "Overdue" : "Pending"}
+                    </StatusPill>
+                  }
+                  dataAttr="resident-dashboard-attention-payment"
+                />
+              );
+            }}
           />
           ) : null}
 
@@ -872,6 +919,37 @@ export function ResidentDashboard({
                 subtitle={thread.subject || thread.preview || "—"}
                 pill={<StatusPill tone="info">Unread</StatusPill>}
                 dataAttr="resident-dashboard-attention-inbox"
+              />
+            )}
+          />
+          ) : null}
+
+          {visibility.houseDetails ? (
+          <AttentionGroup
+            title="House details"
+            href={`${BASE}/move-in`}
+            sectionId="houseDetails"
+            tone="info"
+            order={6}
+            items={leaseSigned ? [{ id: "house-details" }] : []}
+            emptyMessage={
+              leaseSigned
+                ? "Open house details for move-in placement and keys."
+                : "Available after your lease is signed."
+            }
+            keyForItem={(item) => item.id}
+            renderRow={() => (
+              <IssueRow
+                href={`${BASE}/move-in`}
+                dot={sectionAccentDot("info")}
+                title="House details"
+                subtitle={
+                  appProperty
+                    ? `${appProperty}${appRoom ? ` · ${appRoom}` : ""}`
+                    : "Move-in placement, keys, and house information"
+                }
+                pill={<StatusPill tone={leaseSigned ? "success" : "neutral"}>{leaseSigned ? "Ready" : "Locked"}</StatusPill>}
+                dataAttr="resident-dashboard-attention-house-details"
               />
             )}
           />
