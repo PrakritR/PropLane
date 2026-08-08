@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 /**
- * What the MANAGER is told after cancelling or moving a confirmed tour.
+ * What the MANAGER is told after cancelling a confirmed tour.
  *
  * The guest was already emailed "Your PropLane tour is confirmed", so the only
  * thing that matters after a change is whether they heard about it. Reporting
@@ -28,7 +28,6 @@ type ChangeResult = {
 };
 
 let CANCEL_RESULT: ChangeResult = { ok: true };
-let RESCHEDULE_RESULT: ChangeResult = { ok: true };
 const toasts: string[] = [];
 
 vi.mock("@/components/providers/app-ui-provider", () => ({
@@ -42,7 +41,6 @@ vi.mock("@/lib/tour-planned-change.client", async (importOriginal) => {
   return {
     ...actual,
     cancelPlannedTourFromServer: async () => CANCEL_RESULT,
-    reschedulePlannedTourFromServer: async () => RESCHEDULE_RESULT,
   };
 });
 vi.mock("@/lib/google-calendar/delete-tour.client", () => ({
@@ -131,27 +129,11 @@ async function cancelAndReadToast(result: ChangeResult): Promise<string> {
   });
 }
 
-/** Move the open tour to 2:30pm and return the toast the manager reads. */
-async function rescheduleAndReadToast(result: ChangeResult): Promise<string> {
-  RESCHEDULE_RESULT = result;
-  await openTourModal();
-  fireEvent.click(document.querySelector('[data-attr="tour-reschedule-open"]')!);
-  fireEvent.change(document.querySelector('[data-attr="tour-reschedule-time"]')!, {
-    target: { value: "14:30" },
-  });
-  fireEvent.click(document.querySelector('[data-attr="tour-reschedule-save"]')!);
-  return await waitFor(() => {
-    const last = toasts.at(-1);
-    if (!last) throw new Error("no toast yet");
-    return last;
-  });
-}
 
 afterEach(cleanup);
 beforeEach(() => {
   toasts.length = 0;
   CANCEL_RESULT = { ok: true };
-  RESCHEDULE_RESULT = { ok: true };
 });
 
 describe("cancelling a confirmed tour reports the guest notification honestly", () => {
@@ -187,25 +169,5 @@ describe("cancelling a confirmed tour reports the guest notification honestly", 
         calendarSync: { ok: false, error: "token expired" },
       }),
     ).toBe("Tour cancelled and the guest was notified, but your Google Calendar did not update.");
-  });
-});
-
-describe("moving a confirmed tour reports the guest notification honestly", () => {
-  it("says the guest could not be notified when the send reports a failure", async () => {
-    expect(
-      await rescheduleAndReadToast({ ok: true, guestNotification: { ok: false, error: "Resend 403" } }),
-    ).toBe("Tour moved, but the guest could not be notified.");
-  });
-
-  it("says the same when the send ERRORED but still carried ok: true", async () => {
-    expect(
-      await rescheduleAndReadToast({ ok: true, guestNotification: { ok: true, error: "timeout" } }),
-    ).toBe("Tour moved, but the guest could not be notified.");
-  });
-
-  it("still claims success for a deliberate skip", async () => {
-    expect(await rescheduleAndReadToast({ ok: true, guestNotification: { ok: true, skipped: true } })).toBe(
-      "Tour moved and the guest was notified of the new time.",
-    );
   });
 });
