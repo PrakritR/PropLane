@@ -375,18 +375,18 @@ export function PortalCalendar({
         dataAttr: "calendar-tab-tours",
       },
       {
-        id: "bookings" as const,
-        label: "Bookings",
-        count: calendarTabCounts.bookings,
-        href: calendarViewHref(MANAGER_PORTAL_BASE, "bookings"),
-        dataAttr: "calendar-tab-bookings",
-      },
-      {
         id: "services" as const,
         label: "Service orders",
         count: calendarTabCounts.services,
         href: calendarViewHref(MANAGER_PORTAL_BASE, "services"),
         dataAttr: "calendar-tab-services",
+      },
+      {
+        id: "bookings" as const,
+        label: "Bookings",
+        count: calendarTabCounts.bookings,
+        href: calendarViewHref(MANAGER_PORTAL_BASE, "bookings"),
+        dataAttr: "calendar-tab-bookings",
       },
     ],
     [calendarTabCounts],
@@ -439,7 +439,7 @@ export function PortalCalendar({
     ) : null;
 
   const calendarGoogleCalendarButton =
-    portal === "manager" ? (
+    portal === "manager" && !bookingsView ? (
       <GoogleCalendarConnectDialog
         className={`shrink-0 ${PORTAL_HEADER_ACTION_BTN}`}
         onConnectionChange={() => setGoogleCalendarTick((n) => n + 1)}
