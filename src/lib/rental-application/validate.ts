@@ -3,6 +3,7 @@ import {
   validateDateRequired,
   validateEmail,
   validateFullName,
+  validateGroupSize,
   validatePhone10,
   validateRequired,
   validateSsn,
@@ -149,7 +150,16 @@ export function validateStandardWizardStep(
     if (f.groupLeaderAppId.trim()) {
       const leader = validateGroupLeaderAppIdInput(f.groupLeaderAppId);
       if (!leader.ok) e.groupLeaderAppId = leader.message;
+      // A joining member inherits the organizer's declared size; only the
+      // organizer states it.
+      return e;
     }
+    // Organizing the group: the declared size drives the "Group N/M" roster AND
+    // the even split of move-in costs (`bundle-cost-split`). It was never
+    // collected, so every group read as "size unknown" and nothing could be
+    // split — hence required here rather than optional.
+    const size = validateGroupSize(f.groupSize);
+    if (!size.ok) e.groupSize = size.message;
     return e;
   }
 

@@ -56,6 +56,22 @@ export function validateRequired(value: string, label: string): { ok: true } | {
   return { ok: true };
 }
 
+/**
+ * The organizer's declared group size. Two is the smallest thing that is a
+ * "group"; the upper bound just keeps a typo (30 instead of 3) from generating
+ * an absurd split. Blank is rejected because the value drives both the group
+ * roster and the even split of move-in costs.
+ */
+export function validateGroupSize(value: string): { ok: true } | { ok: false; message: string } {
+  const raw = value.trim();
+  if (!raw) return { ok: false, message: "Tell us how many people are applying together." };
+  if (!/^\d+$/.test(raw)) return { ok: false, message: "Enter a whole number of people." };
+  const n = Number.parseInt(raw, 10);
+  if (n < 2) return { ok: false, message: "A group is 2 or more people. Choose “No” if you are applying alone." };
+  if (n > 12) return { ok: false, message: "That is more people than one application group supports (max 12)." };
+  return { ok: true };
+}
+
 export function validateZip(zip: string): { ok: true } | { ok: false; message: string } {
   const t = zip.trim();
   if (!/^\d{5}(-\d{4})?$/.test(t)) return { ok: false, message: "ZIP must be 5 digits or ZIP+4 (e.g. 98105 or 98105-1234)." };

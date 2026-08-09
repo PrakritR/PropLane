@@ -495,6 +495,43 @@ export function RentalWizardStepBody(p: WizardStepsProps) {
                 </ApplyFieldRow>
               ) : null}
 
+              {organizingGroup ? (
+                <ApplyFieldRow
+                  label="How many people in the group?"
+                  error={errors.groupSize}
+                  fieldKey="groupSize"
+                  inline
+                  labelClassName="text-sm font-semibold text-foreground"
+                  className="px-4 sm:grid-cols-[minmax(0,1fr)_minmax(0,280px)] sm:px-5"
+                >
+                  {/*
+                    The organizer's declared size is load-bearing, not a nicety:
+                    `buildBundleApplicationGroups` derives the group's expected size
+                    from it (driving "Group N/M", missingCount and isComplete), and
+                    `bundle-cost-split` divides the move-in charges by it. It was
+                    never collected anywhere in the UI — only ever read back — so
+                    every group read as "size unknown" and no split could be made.
+                  */}
+                  <Input
+                    id="groupSize"
+                    type="number"
+                    inputMode="numeric"
+                    min={2}
+                    max={12}
+                    step={1}
+                    placeholder="e.g. 3"
+                    value={form.groupSize}
+                    onChange={(e) => patch({ groupSize: e.target.value })}
+                    className={errors.groupSize ? "border-red-400 ring-2 ring-red-100" : ""}
+                    aria-describedby="groupSizeHelp"
+                  />
+                  <p id="groupSizeHelp" className="mt-1.5 text-xs text-muted">
+                    Everyone applying together, including you. Move-in costs are split evenly
+                    across the group.
+                  </p>
+                </ApplyFieldRow>
+              ) : null}
+
               {organizingGroup && inviteAppId ? (
                 <div className="px-4 pb-4 sm:px-5">
                   <GroupInviteCallout
