@@ -50,6 +50,7 @@ class FakeTableQuery {
   private payload: Row | Row[] | null = null;
   private conflictCols: string[] = ["id"];
   private inserted: Row[] = [];
+  private selected = false;
 
   constructor(
     private rows: Row[],
@@ -57,6 +58,12 @@ class FakeTableQuery {
   ) {}
 
   select() {
+    // PostgREST returns the affected rows from a mutation only when `.select()`
+    // is chained onto it. Recording that matters for the compare-and-set guards
+    // (e.g. accept-bid re-asserts `status = 'submitted'` in the WHERE clause and
+    // treats zero returned rows as "someone else already took it"), which a stub
+    // that always returned null data could not express.
+    this.selected = true;
     return this;
   }
   order() {
@@ -118,8 +125,9 @@ class FakeTableQuery {
       return { data: this.inserted, error: null };
     }
     if (this.mode === "update") {
-      for (const row of this.matches()) Object.assign(row, this.payload);
-      return { data: null, error: null };
+      const updated = this.matches();
+      for (const row of updated) Object.assign(row, this.payload);
+      return { data: this.selected ? updated : null, error: null };
     }
     if (this.mode === "upsert") {
       const payload = this.payload as Row;

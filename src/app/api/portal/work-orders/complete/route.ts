@@ -30,11 +30,24 @@ export async function POST(req: Request) {
     if (!workOrder?.id) return NextResponse.json({ error: "workOrder required." }, { status: 400 });
     if (!body.category) return NextResponse.json({ error: "category required." }, { status: 400 });
 
+    // Ownership gate — the SAME shape as `approveAndPayWorkOrder`
+    // (src/lib/work-order-approve-pay.server.ts). Without it this read had no
+    // owner filter while the upsert below wrote `manager_user_id: auth.userId`,
+    // so any manager could overwrite AND re-own another manager's work order by
+    // id: it left the victim's portal and appeared in the attacker's with
+    // attacker-chosen title, costs and resident. Ids are legitimately visible to
+    // residents, vendors and co-managers, so they are not a secret.
     const { data: existing } = await auth.db
       .from("portal_work_order_records")
-      .select("row_data")
+      .select("manager_user_id, row_data")
       .eq("id", workOrder.id)
       .maybeSingle();
+    if (existing && auth.role !== "admin" && existing.manager_user_id !== auth.userId) {
+      return NextResponse.json({ error: "Forbidden." }, { status: 403 });
+    }
+    // Preserve the stored owner rather than stamping the caller; only a genuinely
+    // new row (no existing record) is owned by whoever creates it.
+    const ownerManagerUserId = String(existing?.manager_user_id ?? auth.userId);
     const existingRow = (existing?.row_data ?? {}) as DemoManagerWorkOrderRow;
     const alreadyCompleted = Boolean(existingRow.completedAt);
 
@@ -67,7 +80,7 @@ export async function POST(req: Request) {
     const { error } = await auth.db.from("portal_work_order_records").upsert(
       {
         id: workOrder.id,
-        manager_user_id: auth.userId,
+        manager_user_id: ownerManagerUserId,
         property_id: workOrder.propertyId ?? null,
         resident_email: workOrder.residentEmail ?? null,
         row_data: updated,

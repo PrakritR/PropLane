@@ -24,6 +24,11 @@ export default defineConfig({
   resolve: {
     alias: {
       "@": path.resolve(__dirname, "./src"),
+      // Next resolves these marker packages itself; vitest does not, so a module
+      // importing one is unresolvable under test and takes its whole suite with
+      // it. See tests/stubs/server-only.ts.
+      "server-only": path.resolve(__dirname, "./tests/stubs/server-only.ts"),
+      "client-only": path.resolve(__dirname, "./tests/stubs/server-only.ts"),
     },
   },
 });

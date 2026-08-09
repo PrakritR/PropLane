@@ -352,11 +352,27 @@ export async function acceptWorkOrderBid(
   }
 
   const now = new Date().toISOString();
-  const { error: acceptError } = await db
+  // The `record.status !== "submitted"` check above is an in-memory read of a
+  // row fetched earlier, so on its own it does not stop two near-simultaneous
+  // accepts from both landing. That matters more than a duplicate row: every
+  // payout-anchor read (`payoutVendorForWorkOrder`,
+  // `approveAndPayWorkOrder`) resolves the accepted bid with `.maybeSingle()`,
+  // which ERRORS on two rows and yields null — and the payout then falls back to
+  // `amountCents` from the REQUEST BODY, defeating the immutable-anchor rule.
+  //
+  // Re-asserting `status = 'submitted'` in the WHERE clause makes the transition
+  // atomic: the loser matches zero rows and is refused. `setVendorPriceForWorkOrder`
+  // already guards its own update the same way.
+  const { data: acceptedRows, error: acceptError } = await db
     .from("work_order_bids")
     .update({ status: "accepted", updated_at: now })
-    .eq("id", bidId);
+    .eq("id", bidId)
+    .eq("status", "submitted")
+    .select("id");
   if (acceptError) return { ok: false, status: 500, error: acceptError.message };
+  if (!acceptedRows || acceptedRows.length === 0) {
+    return { ok: false, status: 400, error: "This bid has already been resolved." };
+  }
 
   const { data: otherBids } = await db
     .from("work_order_bids")

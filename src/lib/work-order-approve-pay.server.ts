@@ -70,7 +70,13 @@ export async function approveAndPayWorkOrder(
     .eq("status", "accepted")
     .maybeSingle();
   const bidVendorCostCents = acceptedBid?.amount_cents == null ? NaN : Number(acceptedBid.amount_cents);
-  const bidMaterialsCostCents = acceptedBid?.materials_cents == null ? 0 : Number(acceptedBid.materials_cents);
+  // NaN is the "no accepted bid figure" sentinel, matching the labor line above.
+  // This used to default to 0, and `Number.isFinite(0)` is true — so whenever
+  // there was no accepted bid (a directly-assigned work order), the caller's
+  // `materialsCostCents` was silently discarded: no materials expense row, no GL
+  // posting, and `mergeWorkOrderCompletion` wrote the materials back as 0. The
+  // agent's own preview printed the real figure and then booked nothing.
+  const bidMaterialsCostCents = acceptedBid?.materials_cents == null ? NaN : Number(acceptedBid.materials_cents);
   const acceptedVendorCostCents =
     Number.isFinite(bidVendorCostCents) ? bidVendorCostCents : input.vendorCostCents;
   const acceptedMaterialsCostCents =

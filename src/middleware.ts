@@ -33,12 +33,35 @@ export async function middleware(request: NextRequest) {
     return NextResponse.redirect(url);
   }
 
-  let supabaseResponse = NextResponse.next({ request });
+  // `x-pathname` must travel on the REQUEST, because that is where a server
+  // component's `headers()` reads it (a header set on the response is never
+  // visible to the render). Setting it only on the response had two effects,
+  // and the harmless-looking one hid the other:
+  //
+  //   1. `src/app/resident/layout.tsx` read whatever the CALLER sent, and feeds
+  //      it to `allowSignedInApplyGate` — which `assertPortalLayoutRole` treats
+  //      as a full role-check bypass for any signed-in user.
+  //   2. On a normal request the header was absent, so the resident apply and
+  //      tour gates never opened for legitimate residents either.
+  //
+  // The inbound value is deleted first so a caller can never supply their own.
+  // Rebuilt on every call rather than captured once: the Supabase `setAll`
+  // below mutates `request.cookies` and relies on the forwarded request picking
+  // the refreshed values up, so a stale header snapshot would drop a refreshed
+  // session cookie.
+  const forwarded = () => {
+    const headers = new Headers(request.headers);
+    headers.delete("x-pathname");
+    headers.set("x-pathname", path);
+    return { request: { headers } };
+  };
+
+  let supabaseResponse = NextResponse.next(forwarded());
 
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const anon = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
   if (!url || !anon) {
-    const response = NextResponse.next({ request });
+    const response = NextResponse.next(forwarded());
     response.headers.set("x-pathname", path);
     return response;
   }
@@ -51,7 +74,7 @@ export async function middleware(request: NextRequest) {
       setAll(cookiesToSet) {
         // Write refreshed cookies back to request so subsequent getAll() calls see them.
         cookiesToSet.forEach(({ name, value }) => request.cookies.set(name, value));
-        supabaseResponse = NextResponse.next({ request });
+        supabaseResponse = NextResponse.next(forwarded());
         cookiesToSet.forEach(({ name, value, options }) => supabaseResponse.cookies.set(name, value, options));
       },
     },

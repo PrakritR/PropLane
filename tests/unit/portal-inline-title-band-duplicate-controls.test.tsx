@@ -36,7 +36,13 @@ const PORTAL_DIR = join(process.cwd(), "src/components/portal");
  * would leave the section with zero controls, not one.
  */
 const SPLIT_SHAPE_PANELS = [
-  "resident-lease-panel.tsx",
+  // `resident-lease-panel.tsx` is deliberately NOT here. Its Request edits /
+  // Sign / Renew / Move-out buttons moved into the detail page's footer
+  // (`leaseDetailFooter` → `PortalRecordDetailPage`), so the list renders
+  // `ManagerPortalPageShell` with no `titleAside` and no mobile row — the
+  // band-only shape, with nothing lost on a phone. Listing it here kept this
+  // guard red against a shipped redesign; re-add it only if the panel goes back
+  // to rendering its own `hidden md:flex` titleAside.
   "resident-payments-panel.tsx",
 ];
 

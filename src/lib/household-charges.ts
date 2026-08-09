@@ -206,6 +206,25 @@ export type RecurringRentProfile = {
   /** Monthly custom fees (parking, storage, …) billed each recurring month alongside rent.
    *  Each fee's `id` is stable so its charges dedupe across syncs and can be purged on removal. */
   monthlyFees?: { id: string; label: string; amount: number }[];
+  /**
+   * Bundle-group split, carried so the RECURRING months divide the household
+   * total the same way the move-in charges do.
+   *
+   * `monthlyRent` / `monthlyUtilities` / `monthlyFees` are stored as the FULL
+   * household amounts (`selectedRoomRentAmount` returns the bundle's total),
+   * and only the upfront charges used to pass through `applyBundleGroupSplit`.
+   * The recurring generator applied no split at all, so each member of a group
+   * was billed the whole household rent every month after move-in — a 3-person
+   * group on a $2,400 bundle paid a correct $800 each at move-in and then
+   * $2,400 each, every month, dunned and late-feed like any other balance.
+   *
+   * Absent → no split, which is every non-bundle profile and therefore the
+   * unchanged path.
+   */
+  bundleGroupId?: string;
+  bundleId?: string;
+  splitMemberIndex?: number;
+  splitMemberCount?: number;
   dueDay: number;
   dueDayMode?: RentDueDayMode;
   startMonth: string;
@@ -1467,6 +1486,29 @@ function applyBundleGroupSplit(
   };
 }
 
+/**
+ * Rebuilds the bundle-group split context stored on a recurring profile.
+ *
+ * Deliberately reads only the profile's own persisted fields rather than
+ * re-deriving the group from application rows: the recurring generator runs
+ * long after approval, and a member joining or leaving the group later must not
+ * silently re-divide an existing resident's rent. Returns null unless a real
+ * multi-member split was recorded, so every non-bundle profile takes the
+ * untouched path.
+ */
+function bundleSplitContextFromProfile(profile: RecurringRentProfile): BundleGroupChargeContext | null {
+  const groupId = (profile.bundleGroupId ?? "").trim();
+  const memberCount = profile.splitMemberCount ?? 0;
+  const memberIndex = profile.splitMemberIndex ?? -1;
+  if (!groupId || !(memberCount > 1) || memberIndex < 0 || memberIndex >= memberCount) return null;
+  return {
+    groupId,
+    bundleId: (profile.bundleId ?? "").trim(),
+    memberIndex,
+    memberCount,
+  };
+}
+
 export function findWorkOrderCharge(workOrderId: string): HouseholdCharge | undefined {
   return readAll().find((c) => c.workOrderId === workOrderId && c.kind === "work_order_charge");
 }
@@ -1919,6 +1961,11 @@ function syncAllRecurringRentCharges(): boolean {
       const hasUpfrontLastUtil =
         isPartialLastMonth && hasUpfrontProratedLastCharge(profile.residentEmail, profile.propertyId, "prorated_last_month_utilities");
 
+      // Bundle-group members store the FULL household amounts on the profile, so
+      // every amount below is divided the same way the move-in charges were.
+      // Null for every ordinary profile, which leaves that path byte-identical.
+      const splitCtx = bundleSplitContextFromProfile(profile);
+
       const profileDailyRate =
         typeof profile.dailyRentPrice === "number" && profile.dailyRentPrice > 0 ? profile.dailyRentPrice : 0;
       if ((profile.monthlyRent > 0 || profileDailyRate > 0) && !hasUpfrontLastRent) {
@@ -1930,17 +1977,21 @@ function syncAllRecurringRentCharges(): boolean {
           // Daily-priced rooms bill actual days-in-month × daily rate (partial last month
           // bills leaseEndDay × rate); monthly rooms keep the flat monthlyRent × factor.
           const daysBilled = isPartialLastMonth ? leaseEndDay! : daysInCandidateMonth;
-          const amount =
+          const householdAmount =
             profileDailyRate > 0
               ? Number((daysBilled * profileDailyRate).toFixed(2))
               : Number((profile.monthlyRent * proratedFactor).toFixed(2));
-          const titlePrefix =
+          const rawTitlePrefix =
             profileDailyRate > 0
               ? `${isPartialLastMonth ? "Prorated rent" : "Rent"} (${daysBilled} days × ${formatRoomPriceAmount(profileDailyRate)}/day)`
               : isPartialLastMonth
                 ? "Prorated rent"
                 : "Rent";
+          const rentSplit = applyBundleGroupSplit(householdAmount, rawTitlePrefix, splitCtx);
+          const amount = rentSplit.amount;
+          const titlePrefix = rentSplit.title;
           newCharges.push({
+            ...(rentSplit.split ?? {}),
             id: `hc_rent_${chargeKeyPart(profile.residentEmail)}_${chargeKeyPart(profile.propertyId)}_${rentMonth}`,
             createdAt: new Date().toISOString(),
             residentEmail: profile.residentEmail,
@@ -1975,9 +2026,15 @@ function syncAllRecurringRentCharges(): boolean {
           existing.some((c) => chargeBusinessKey(c) === utilKey) ||
           newCharges.some((c) => chargeBusinessKey(c) === utilKey);
         if (!alreadyUtil) {
-          const amount = Number((utilAmt * proratedFactor).toFixed(2));
-          const titlePrefix = isPartialLastMonth ? "Prorated utilities" : "Utilities";
+          const utilSplit = applyBundleGroupSplit(
+            Number((utilAmt * proratedFactor).toFixed(2)),
+            isPartialLastMonth ? "Prorated utilities" : "Utilities",
+            splitCtx,
+          );
+          const amount = utilSplit.amount;
+          const titlePrefix = utilSplit.title;
           newCharges.push({
+            ...(utilSplit.split ?? {}),
             id: `hc_util_${chargeKeyPart(profile.residentEmail)}_${chargeKeyPart(profile.propertyId)}_${rentMonth}`,
             createdAt: new Date().toISOString(),
             residentEmail: profile.residentEmail,
@@ -2016,7 +2073,9 @@ function syncAllRecurringRentCharges(): boolean {
           existing.some((c) => chargeBusinessKey(c) === feeKey) ||
           newCharges.some((c) => chargeBusinessKey(c) === feeKey);
         if (alreadyFee) continue;
+        const feeSplit = applyBundleGroupSplit(fee.amount, fee.label, splitCtx);
         newCharges.push({
+          ...(feeSplit.split ?? {}),
           id: `hc_cf_${chargeKeyPart(fee.id)}_${chargeKeyPart(profile.residentEmail)}_${chargeKeyPart(profile.propertyId)}_${rentMonth}`,
           createdAt: new Date().toISOString(),
           residentEmail: profile.residentEmail,
@@ -2027,9 +2086,9 @@ function syncAllRecurringRentCharges(): boolean {
           managerUserId: profile.managerUserId,
           kind: "other_cost",
           customFeeId: fee.id,
-          title: `${fee.label} — ${monthLabel}`,
-          amountLabel: moneyAmountLabel(fee.amount),
-          balanceLabel: moneyAmountLabel(fee.amount),
+          title: `${feeSplit.title} — ${monthLabel}`,
+          amountLabel: moneyAmountLabel(feeSplit.amount),
+          balanceLabel: moneyAmountLabel(feeSplit.amount),
           status: "pending",
           recurringRentProfileId: profile.id,
           rentMonth,
@@ -2139,6 +2198,14 @@ export function upsertRecurringRentProfile(input: {
   /** Monthly custom fees to bill each recurring month. An explicit array (even []) is
    *  authoritative — [] clears prior fees; omitting the field inherits the existing set. */
   monthlyFees?: { id: string; label: string; amount: number }[];
+  /** Bundle-group split for the recurring months. See `RecurringRentProfile`.
+   *  Authoritative when `splitMemberCount` is supplied (even as undefined by an
+   *  explicit caller), so a re-approval out of a group clears a stale split
+   *  rather than inheriting it — same contract as `monthlyFees`. */
+  bundleGroupId?: string;
+  bundleId?: string;
+  splitMemberIndex?: number;
+  splitMemberCount?: number;
   dueDay?: number;
   dueDayMode?: RentDueDayMode;
   startMonth?: string;
@@ -2176,6 +2243,13 @@ export function upsertRecurringRentProfile(input: {
         : existing?.dailyRentPrice,
     monthlyUtilities,
     monthlyFees,
+    // `recordApprovedApplicationCharges` always passes all four (undefined when
+    // the applicant is not in a bundle group), so re-approving a resident out of
+    // a group clears the split instead of leaving them on a stale divisor.
+    bundleGroupId: input.bundleGroupId,
+    bundleId: input.bundleId,
+    splitMemberIndex: input.splitMemberIndex,
+    splitMemberCount: input.splitMemberCount,
     dueDay: Math.min(28, Math.max(1, input.dueDay ?? 1)),
     dueDayMode: input.dueDayMode ?? existing?.dueDayMode ?? "first_of_month",
     startMonth: input.startMonth ?? currentRentMonth(),
@@ -3322,6 +3396,17 @@ export function recordApprovedApplicationCharges(row: DemoApplicantRow, managerU
         // Always explicit (even []) so removing every monthly fee clears the stored set on
         // re-approval rather than inheriting stale fees.
         monthlyFees: monthlyFeeSet,
+        // Carry the bundle-group split onto the profile so the RECURRING months
+        // divide the household total exactly as the move-in charges above do.
+        // `monthlyRent`/`monthlyUtilities`/`monthlyFees` are stored full-value
+        // (`selectedRoomRentAmount` returns the bundle total) and the generator
+        // applies the split at bill time. Always explicit — a re-approval that
+        // leaves the group clears a stale split rather than inheriting it,
+        // matching how `dailyRentPrice` and `monthlyFees` behave here.
+        bundleGroupId: bundleGroupCtx?.groupId,
+        bundleId: bundleGroupCtx?.bundleId,
+        splitMemberIndex: bundleGroupCtx?.memberIndex,
+        splitMemberCount: bundleGroupCtx?.memberCount,
         dueDay: resolveRentDueDayForMonth(dueDayMode, computedStartMonth),
         dueDayMode,
         startMonth: computedStartMonth,

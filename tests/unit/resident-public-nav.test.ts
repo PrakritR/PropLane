@@ -50,7 +50,6 @@ describe("residentCreateAccountHref", () => {
       }),
     ).toContain("email=alex%40example.com");
     expect(
-    expect(
       residentCreateAccountHref("/resident/tour", {
         email: "alex@example.com",
         fullName: "Alex Guest",

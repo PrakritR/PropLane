@@ -223,10 +223,16 @@ describe("resident portal redesign completeness", () => {
       expect(services).toContain("servicesHeaderAction");
       expect(tour).toContain("scheduleTourButton");
 
-      // (b) Lease keeps the desktop-gated pairing, which renders exactly one row per breakpoint.
+      // (b) Lease moved to the band-only shape: its actions now live in the
+      // DETAIL page's footer rather than a list-header pairing, so there is no
+      // `titleAside`/mobile-row pair left to balance. The control must still
+      // reach a phone — it does, from the footer — so that is what we assert.
+      // (Was `leaseMobileActionsRow` + `hidden gap-2 md:flex`; both went with
+      // the redesign and left this guard failing against shipped code.)
       const lease = readPanel("resident-lease-panel.tsx");
-      expect(lease).toMatch(/leaseMobileActionsRow/);
-      expect(lease).toMatch(/hidden gap-2 md:flex/);
+      expect(lease).toContain("leaseDetailFooter");
+      expect(lease).toContain("ResidentDocumentsDetailFooter");
+      expect(lease).not.toContain("PortalPageHeaderMobileActionsRow");
     });
 
     it("application phase includes dashboard; limited omits services; approved adds it", () => {

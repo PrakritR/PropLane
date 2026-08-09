@@ -116,6 +116,31 @@ export function buildDocumentStoragePath(managerUserId: string, ext: string, uni
   return `manager/${managerUserId}/${unique}.${safeExt}`;
 }
 
+// A document row's `storage_path` must live under ITS OWN owner's folder.
+//
+// Every writer builds the path with `buildDocumentStoragePath(<owner>, …)`, so
+// this always holds for a legitimately created row — it is a guard against a
+// row whose path and owner disagree, which is what a planted row looks like.
+// That mattered because the signed-url routes authorize the ROW (its owner, or
+// a co-manager link on its property) and then sign `storage_path` with the
+// SERVICE-ROLE client, which bypasses the folder-scoped storage policy. A
+// `FOR ALL` RLS policy whose `WITH CHECK` covered only `manager_user_id` let an
+// attacker insert a row owned by themselves that pointed at someone else's
+// object; closed in 20260809120000_lock_document_and_listing_read_surface.sql.
+//
+// Kept here as defence in depth so a future policy or grant change cannot
+// reopen the read on its own. Compares against the row's owner rather than the
+// caller, because a co-manager legitimately opens another manager's document.
+export function documentStoragePathBelongsToOwner(
+  storagePath: string | null | undefined,
+  ownerUserId: string | null | undefined,
+): boolean {
+  const path = (storagePath ?? "").trim();
+  const owner = (ownerUserId ?? "").trim();
+  if (!path || !owner) return false;
+  return path.startsWith(`manager/${owner}/`);
+}
+
 // Polymorphic scope columns — all optional; none set = manager-level document.
 export type ManagerDocumentScope = {
   propertyId?: string | null;

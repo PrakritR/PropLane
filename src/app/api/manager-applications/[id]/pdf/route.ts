@@ -10,10 +10,27 @@ import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 
 export const runtime = "nodejs";
 
+// Application ids are `AXIS-…` / `PROPLANE-…` slugs — never punctuation beyond
+// these characters. The check is load-bearing, not cosmetic: the id used to be
+// interpolated straight into a PostgREST `.or()` filter on the SERVICE-ROLE
+// client, and `normalizeApplicationAxisId` returns its input UNCHANGED for an
+// `AXIS-`/`PROPLANE-` prefix, so a comma in the path segment injected extra
+// filters over the whole table. The route's 403-vs-404 split then reported
+// whether the injected predicate matched, turning it into a blind oracle for
+// every manager's applicant SSN, income and date of birth.
+//
+// Same guard as `resolvePropertyAddressForTour`
+// (src/lib/tour-notification-delivery.server.ts). The `.in()` below is
+// parameterized and would be safe on its own; this stays as the explicit,
+// greppable statement of what an id may contain.
+const APPLICATION_ID_PATTERN = /^[A-Za-z0-9._-]+$/;
+
 function idVariants(id: string): string[] {
   const trimmed = id.trim();
   const normalized = normalizeApplicationAxisId(trimmed);
-  return [...new Set([trimmed, normalized].filter(Boolean))];
+  return [...new Set([trimmed, normalized].filter(Boolean))].filter((value) =>
+    APPLICATION_ID_PATTERN.test(value),
+  );
 }
 
 export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }) {
@@ -30,10 +47,11 @@ export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }
 
     const db = createSupabaseServiceRoleClient();
     const ids = idVariants(id);
+    if (ids.length === 0) return NextResponse.json({ error: "Application not found." }, { status: 404 });
     const { data: records, error } = await db
       .from("manager_application_records")
       .select("id, row_data, manager_user_id, resident_email, property_id, assigned_property_id")
-      .or(ids.map((value) => `id.eq.${value}`).join(","))
+      .in("id", ids)
       .limit(1);
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
