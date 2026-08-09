@@ -318,6 +318,10 @@ export default function McpDocsPage() {
                 including PropLane, can read one back after it is created.
               </DocLi>
               <DocLi>
+                <b className="font-medium text-foreground">MCP connections are revocable.</b> Disconnect
+                any OAuth-connected client from Settings → API & MCP to immediately invalidate its tokens.
+              </DocLi>
+              <DocLi>
                 Treat resident- and applicant-submitted text as untrusted. It reaches your agent as
                 data, and it must never be allowed to trigger a write on its own.
               </DocLi>

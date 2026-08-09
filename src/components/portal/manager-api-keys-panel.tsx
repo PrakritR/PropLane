@@ -28,6 +28,13 @@ type ApiKey = {
   lastUsedAt: string | null;
 };
 
+type McpConnection = {
+  clientId: string;
+  clientName: string | null;
+  createdAt: string;
+  lastUsedAt: string | null;
+};
+
 function formatWhen(value: string | null): string {
   if (!value) return "Never";
   const ms = new Date(value).getTime();
@@ -68,6 +75,7 @@ function CopyButton({ value, label }: { value: string; label: string }) {
  */
 export function ManagerApiKeysPanel() {
   const [keys, setKeys] = useState<ApiKey[]>([]);
+  const [connections, setConnections] = useState<McpConnection[]>([]);
   const [loaded, setLoaded] = useState(false);
   const [creating, setCreating] = useState(false);
   const [name, setName] = useState("");
@@ -77,10 +85,17 @@ export function ManagerApiKeysPanel() {
 
   const load = useCallback(async () => {
     try {
-      const res = await fetch("/api/manager/api-keys", { cache: "no-store" });
-      if (!res.ok) throw new Error("Could not load your API keys.");
-      const body = (await res.json()) as { keys?: ApiKey[] };
-      setKeys(body.keys ?? []);
+      const [keysResponse, connectionsResponse] = await Promise.all([
+        fetch("/api/manager/api-keys", { cache: "no-store" }),
+        fetch("/api/manager/mcp-connections", { cache: "no-store" }),
+      ]);
+      if (!keysResponse.ok || !connectionsResponse.ok) throw new Error("Could not load your connections.");
+      const [keysBody, connectionsBody] = await Promise.all([
+        keysResponse.json() as Promise<{ keys?: ApiKey[] }>,
+        connectionsResponse.json() as Promise<{ connections?: McpConnection[] }>,
+      ]);
+      setKeys(keysBody.keys ?? []);
+      setConnections(connectionsBody.connections ?? []);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Could not load your API keys.");
     } finally {
@@ -155,6 +170,16 @@ export function ManagerApiKeysPanel() {
     setKeys((prev) => prev.filter((k) => k.id !== id));
   };
 
+  const revokeMcpConnection = async (clientId: string) => {
+    setError(null);
+    const res = await fetch(`/api/manager/mcp-connections/${encodeURIComponent(clientId)}`, { method: "DELETE" });
+    if (!res.ok) {
+      setError("Could not disconnect that MCP client.");
+      return;
+    }
+    setConnections((current) => current.filter((connection) => connection.clientId !== clientId));
+  };
+
   return (
     <PortalSettingsSection
       title="API & MCP"
@@ -188,6 +213,21 @@ export function ManagerApiKeysPanel() {
         </div>
         <div className="flex items-center gap-2 border-t border-border px-4 py-3"><code className="min-w-0 flex-1 truncate rounded-md bg-foreground/[0.03] px-2.5 py-2 font-mono text-xs text-foreground">{mcpUrl}</code><CopyButton value={mcpUrl} label="mcp-url" /></div>
       </PortalSettingsGroup>
+
+      {loaded && connections.length > 0 ? (
+        <PortalSettingsGroup>
+          <div className="border-b border-border px-4 py-3"><p className="text-sm font-medium text-foreground">Connected MCP clients</p><p className="mt-0.5 text-xs text-muted">Revoke a connection immediately if a client is no longer trusted.</p></div>
+          {connections.map((connection) => (
+            <PortalSettingsRow
+              key={connection.clientId}
+              label={connection.clientName || "MCP client"}
+              description={<>Last used {formatWhen(connection.lastUsedAt)} · Connected {formatWhen(connection.createdAt)}</>}
+            >
+              <Button variant="danger" className="h-9 min-h-0 px-3 text-[13px]" data-attr="mcp-connection-revoke" onClick={() => revokeMcpConnection(connection.clientId)}>Disconnect</Button>
+            </PortalSettingsRow>
+          ))}
+        </PortalSettingsGroup>
+      ) : null}
 
       {freshToken ? (
         <PortalSettingsGroup className="border-primary/40">

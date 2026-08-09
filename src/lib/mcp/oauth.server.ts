@@ -128,6 +128,68 @@ export async function refreshMcpAccessToken(db: Db, input: { refreshToken: strin
   return createMcpAccessTokens(db, { userId: String(data.user_id), clientId: input.clientId, scopes: Array.isArray(data.scopes) ? data.scopes.map(String) : [MCP_OAUTH_SCOPE] });
 }
 
+export type McpOAuthConnection = {
+  clientId: string;
+  clientName: string | null;
+  createdAt: string;
+  lastUsedAt: string | null;
+  expiresAt: string;
+};
+
+/** Active grants a signed-in manager can disconnect from Settings. */
+export async function listMcpOAuthConnections(db: Db, userId: string): Promise<McpOAuthConnection[]> {
+  const { data: tokenRows, error } = await db
+    .from("mcp_oauth_tokens")
+    .select("client_id, created_at, last_used_at, expires_at")
+    .eq("user_id", userId)
+    .is("revoked_at", null)
+    .order("created_at", { ascending: false });
+  if (error || !tokenRows?.length) return [];
+
+  const newestByClient = new Map<string, Record<string, unknown>>();
+  for (const row of tokenRows as Record<string, unknown>[]) {
+    const clientId = String(row.client_id ?? "");
+    if (clientId && !newestByClient.has(clientId)) newestByClient.set(clientId, row);
+  }
+  const clientIds = [...newestByClient.keys()];
+  const { data: clients } = await db.from("mcp_oauth_clients").select("client_id, client_name").in("client_id", clientIds);
+  const names = new Map((clients ?? []).map((row) => [String(row.client_id), row.client_name ? String(row.client_name) : null]));
+  return clientIds.map((clientId) => {
+    const row = newestByClient.get(clientId)!;
+    return {
+      clientId,
+      clientName: names.get(clientId) ?? null,
+      createdAt: String(row.created_at ?? ""),
+      lastUsedAt: row.last_used_at ? String(row.last_used_at) : null,
+      expiresAt: String(row.expires_at ?? ""),
+    };
+  });
+}
+
+/** Revokes every active token for one user/client grant; the client remains registered for other managers. */
+export async function revokeMcpOAuthConnection(db: Db, userId: string, clientId: string): Promise<boolean> {
+  const { data, error } = await db
+    .from("mcp_oauth_tokens")
+    .update({ revoked_at: new Date().toISOString() })
+    .eq("user_id", userId)
+    .eq("client_id", clientId)
+    .is("revoked_at", null)
+    .select("id");
+  if (error) return false;
+  return Boolean(data?.length);
+}
+
+/** RFC 7009-style best-effort revocation for public OAuth clients. */
+export async function revokeMcpOAuthToken(db: Db, input: { token: string; clientId: string }): Promise<void> {
+  const hash = sha256(input.token);
+  await db
+    .from("mcp_oauth_tokens")
+    .update({ revoked_at: new Date().toISOString() })
+    .eq("client_id", input.clientId)
+    .or(`access_token_sha256.eq.${hash},refresh_token_sha256.eq.${hash}`)
+    .is("revoked_at", null);
+}
+
 export async function findLiveMcpAccessToken(db: Db, token: string): Promise<{ id: string; userId: string; scopes: string[]; lastUsedAt: string | null } | null> {
   if (!token.startsWith(ACCESS_PREFIX)) return null;
   const hash = sha256(token);

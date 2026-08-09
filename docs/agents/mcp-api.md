@@ -43,6 +43,9 @@ registers, uses PKCE S256, signs the manager into PropLane in a browser, and get
 short-lived access/rotating refresh tokens. `mcp_oauth_*` tables are all
 service-role-only. The resulting MCP connection has the complete manager assistant
 surface; its writes are still previewed and await a manager’s in-product approval.
+Managers can disconnect any active MCP client from Settings → API & MCP; this
+revokes every active token for that manager/client grant immediately. Clients
+may also use the advertised RFC 7009 revocation endpoint.
 
 **REST API** at `/api/v1/tools` uses manually created, bearer API keys. Do not make
 these credentials portable between endpoints; separate credentials make revocation

@@ -9,7 +9,8 @@ export function GET(req: Request) {
     {
       issuer: origin,
       authorization_endpoint: `${origin}/mcp/authorize`,
-      token_endpoint: `${origin}/api/mcp/oauth/token`,
+    token_endpoint: `${origin}/api/mcp/oauth/token`,
+    revocation_endpoint: `${origin}/api/mcp/oauth/revoke`,
       registration_endpoint: `${origin}/api/mcp/oauth/register`,
       response_types_supported: ["code"],
       grant_types_supported: ["authorization_code", "refresh_token"],

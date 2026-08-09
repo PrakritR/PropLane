@@ -17,6 +17,7 @@ describe("MCP OAuth discovery", () => {
     expect(await authorization.json()).toMatchObject({
       authorization_endpoint: "https://prop-lane.test/mcp/authorize",
       token_endpoint: "https://prop-lane.test/api/mcp/oauth/token",
+      revocation_endpoint: "https://prop-lane.test/api/mcp/oauth/revoke",
       registration_endpoint: "https://prop-lane.test/api/mcp/oauth/register",
       code_challenge_methods_supported: ["S256"],
     });
