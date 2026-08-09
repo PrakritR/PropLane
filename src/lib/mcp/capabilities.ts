@@ -34,8 +34,8 @@ export const API_KEY_PRODUCT_AREAS: readonly ApiKeyProductArea[] = [
     id: "leasing",
     label: "Leasing & applications",
     description: "Applications, leases, signatures, and screening.",
-    readTools: ["list_applications", "get_application_details", "list_leases", "list_lease_sections"],
-    writeTools: ["update_application_bucket", "order_background_check", "create_lease_draft", "update_lease_draft", "update_lease_packet", "propose_lease_section_edit", "amend_lease", "void_lease", "send_lease_for_signature"],
+    readTools: ["list_applications", "get_application_details", "list_leases", "list_lease_sections", "list_property_lease_template_sections"],
+    writeTools: ["update_application_bucket", "order_background_check", "create_lease_draft", "update_lease_draft", "update_lease_packet", "propose_lease_section_edit", "propose_property_lease_template_section_edit", "amend_lease", "void_lease", "send_lease_for_signature"],
   },
   {
     id: "payments",
