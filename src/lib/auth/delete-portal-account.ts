@@ -1,4 +1,5 @@
 import { findAuthUserIdByEmail } from "@/lib/auth/find-auth-user-id-by-email";
+import { portalDashboardPath } from "@/lib/auth/portal-roles";
 import { purgeManagerPortalData, purgeResidentPortalData } from "@/lib/auth/purge-portal-account-data";
 import { closeRelayThreadsForUser } from "@/lib/sms-relay.server";
 import { removePortalAccess, type PortalRole } from "@/lib/auth/remove-portal-access";
@@ -7,6 +8,16 @@ import { getStripe } from "@/lib/stripe";
 import type { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 
 type ServiceDb = ReturnType<typeof createSupabaseServiceRoleClient>;
+
+export type SelfDeletePortal = "resident" | "manager" | "pro" | "vendor" | "admin";
+
+export type DeleteOwnPortalAccountResult = {
+  ok: true;
+  mode: string;
+  /** When false the auth session stays valid (user still has another portal role). */
+  signedOut: boolean;
+  redirectTo: string;
+};
 
 const PROTECTED_ROLES = new Set(["admin", "manager", "pro"]);
 
@@ -17,6 +28,37 @@ function normalizeEmail(value: unknown): string {
 async function profileEmail(db: ServiceDb, userId: string): Promise<string> {
   const { data } = await db.from("profiles").select("email").eq("id", userId).maybeSingle();
   return normalizeEmail(data?.email);
+}
+
+async function normalizedRolesForUser(db: ServiceDb, userId: string): Promise<string[]> {
+  const [{ data: profile }, { data: roleRows }] = await Promise.all([
+    db.from("profiles").select("role").eq("id", userId).maybeSingle(),
+    db.from("profile_roles").select("role").eq("user_id", userId),
+  ]);
+  const normalized = (roleRows ?? [])
+    .map((row) => String(row.role ?? "").toLowerCase())
+    .filter(Boolean);
+  const legacyRole = String(profile?.role ?? "").toLowerCase();
+  if (legacyRole && !normalized.includes(legacyRole)) normalized.push(legacyRole);
+  return normalized;
+}
+
+function portalDeleteAllowed(roles: string[], portal: SelfDeletePortal): boolean {
+  if (portal === "resident") return roles.includes("resident");
+  if (portal === "vendor") return roles.includes("vendor");
+  if (portal === "admin") return roles.includes("admin");
+  return roles.some((role) => role === "manager" || role === "pro" || role === "owner");
+}
+
+function redirectForRemainingRoles(roles: string[]): string {
+  const normalized = roles.map((role) => (role === "owner" ? "manager" : role));
+  if (normalized.includes("admin")) return portalDashboardPath("admin");
+  if (normalized.some((role) => role === "manager" || role === "pro")) {
+    return portalDashboardPath("manager");
+  }
+  if (normalized.includes("resident")) return portalDashboardPath("resident");
+  if (normalized.includes("vendor")) return portalDashboardPath("vendor");
+  return "/auth/sign-in?deleted=1";
 }
 
 async function normalizedRolesForEmail(db: ServiceDb, email: string): Promise<string[] | null> {
@@ -227,8 +269,81 @@ export async function deleteOwnAccount(db: ServiceDb, userId: string) {
 export async function deleteManagerAccount(db: ServiceDb, managerUserId: string) {
   await cancelActiveManagerSubscription(db, managerUserId);
   await purgeManagerPortalData(db, managerUserId);
-  const result = await removePortalAccess(db, managerUserId, "manager");
-  return { ok: true as const, mode: result.mode };
+  const managerResult = await removePortalAccess(db, managerUserId, "manager");
+  if (managerResult.mode === "deleted_auth_user") {
+    return { ok: true as const, mode: managerResult.mode };
+  }
+  const proResult = await removePortalAccess(db, managerUserId, "pro");
+  if (proResult.mode === "deleted_auth_user") {
+    return { ok: true as const, mode: proResult.mode };
+  }
+  return {
+    ok: true as const,
+    mode: managerResult.mode === "no_role" ? proResult.mode : managerResult.mode,
+  };
+}
+
+/**
+ * Self-delete from ONE portal only. Purges that portal's data and revokes its
+ * role; other portal roles on the same login are left intact. When the removed
+ * role was the last one, the auth user is deleted and the client should sign out.
+ */
+export async function deleteOwnPortalAccount(
+  db: ServiceDb,
+  userId: string,
+  portal: SelfDeletePortal,
+): Promise<DeleteOwnPortalAccountResult> {
+  const trimmedId = userId.trim();
+  if (!trimmedId) throw new Error("User id is required.");
+
+  const rolesBefore = await normalizedRolesForUser(db, trimmedId);
+  if (!portalDeleteAllowed(rolesBefore, portal)) {
+    throw new Error("This account does not have access to that portal.");
+  }
+
+  let mode = "unknown";
+  switch (portal) {
+    case "resident": {
+      const result = await deleteResidentAccount(db, { userId: trimmedId, purgeData: true });
+      if (!result.ok) throw new Error(result.error);
+      mode = result.loginMode ?? result.mode;
+      break;
+    }
+    case "manager":
+    case "pro": {
+      const result = await deleteManagerAccount(db, trimmedId);
+      mode = result.mode;
+      break;
+    }
+    case "vendor": {
+      const result = await deleteVendorAccount(db, trimmedId);
+      mode = result.mode;
+      break;
+    }
+    case "admin": {
+      const result = await removePortalAccess(db, trimmedId, "admin");
+      mode = result.mode;
+      break;
+    }
+    default:
+      throw new Error("Unsupported portal.");
+  }
+
+  if (mode === "deleted_auth_user") {
+    return { ok: true, mode, signedOut: true, redirectTo: "/auth/sign-in?deleted=1" };
+  }
+
+  const rolesAfter = await normalizedRolesForUser(db, trimmedId);
+  if (rolesAfter.length === 0) {
+    return { ok: true, mode, signedOut: true, redirectTo: "/auth/sign-in?deleted=1" };
+  }
+
+  return {
+    ok: true,
+    mode,
+    signedOut: false,
+    redirectTo: redirectForRemainingRoles(rolesAfter),
+  };
 }
 
 /**

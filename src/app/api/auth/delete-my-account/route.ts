@@ -1,18 +1,29 @@
 import { NextResponse } from "next/server";
 import { track } from "@/lib/analytics/posthog";
-import { deleteOwnAccount } from "@/lib/auth/delete-portal-account";
+import {
+  deleteOwnPortalAccount,
+  type SelfDeletePortal,
+} from "@/lib/auth/delete-portal-account";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 
 export const runtime = "nodejs";
 
+const SELF_DELETE_PORTALS = new Set<SelfDeletePortal>(["resident", "manager", "pro", "vendor", "admin"]);
+
+function parsePortal(value: unknown): SelfDeletePortal | null {
+  if (typeof value !== "string") return null;
+  const portal = value.trim().toLowerCase() as SelfDeletePortal;
+  return SELF_DELETE_PORTALS.has(portal) ? portal : null;
+}
+
 /**
- * Self-service account deletion (App Store Guideline 5.1.1(v)).
+ * Self-service portal account deletion (App Store Guideline 5.1.1(v)).
  *
  * The target is ALWAYS the authenticated caller resolved from their own session
  * cookie/JWT — a user id/email is never accepted from the request body, so no one
- * can delete another account. Requires an explicit { "confirm": "DELETE" } body.
- * The service-role client is used only inside this route.
+ * can delete another account. Requires an explicit { "confirm": "DELETE", "portal": "…" }
+ * body. The service-role client is used only inside this route.
  */
 export async function POST(req: Request) {
   const supabase = await createSupabaseServerClient();
@@ -23,15 +34,23 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
   }
 
-  let body: { confirm?: unknown } = {};
+  let body: { confirm?: unknown; portal?: unknown } = {};
   try {
-    body = (await req.json()) as { confirm?: unknown };
+    body = (await req.json()) as { confirm?: unknown; portal?: unknown };
   } catch {
     /* empty/invalid body → confirmation check below fails */
   }
   if (body.confirm !== "DELETE") {
     return NextResponse.json(
       { error: 'Confirmation required. Send { "confirm": "DELETE" } to permanently delete your account.' },
+      { status: 400 },
+    );
+  }
+
+  const portal = parsePortal(body.portal);
+  if (!portal) {
+    return NextResponse.json(
+      { error: 'Portal is required. Send { "portal": "resident" | "manager" | "vendor" | … }.' },
       { status: 400 },
     );
   }
@@ -44,23 +63,24 @@ export async function POST(req: Request) {
 
   const svc = createSupabaseServiceRoleClient();
   try {
-    await deleteOwnAccount(svc, user.id);
+    const result = await deleteOwnPortalAccount(svc, user.id, portal);
+
+    track("portal_account_deleted", user.id, { portal });
+
+    if (result.signedOut) {
+      await supabase.auth.signOut().catch(() => undefined);
+    }
+
+    return NextResponse.json(result);
   } catch (e) {
-    // Log the real cause server-side, but never surface raw DB/Stripe error text
-    // (which can leak internal schema/details) to the client toast.
     console.error("delete-my-account failed", e);
+    const message = e instanceof Error ? e.message : "";
+    if (message.includes("does not have access")) {
+      return NextResponse.json({ error: message }, { status: 403 });
+    }
     return NextResponse.json(
       { error: "We couldn't delete your account. Please try again, or contact support if it keeps happening." },
       { status: 500 },
     );
   }
-
-  // Server-confirmed churn outcome (id only — never PII per analytics rules).
-  track("account_deleted", user.id, {});
-
-  // The auth user is gone; clear the now-orphaned session cookie so the client
-  // lands signed out.
-  await supabase.auth.signOut().catch(() => undefined);
-
-  return NextResponse.json({ ok: true });
 }
