@@ -193,6 +193,13 @@ export function PublicNavbar() {
     };
   }, [signedIn, primaryRole]);
 
+  // The header CTA is the most prominent button on the page, and it pointed at
+  // MANAGER signup everywhere — including /rent, where the visitor is a renter
+  // looking for a home. Route the renter surfaces to resident signup instead.
+  const signupHref = (pathname ?? "").startsWith("/rent")
+    ? "/auth/create-account?mode=create&role=resident"
+    : "/auth/create-account?mode=create&role=manager";
+
   if (hideOnNative) return null;
 
   return (
@@ -205,7 +212,7 @@ export function PublicNavbar() {
         menu={menu}
         auth={{
           login: { text: "Log in", url: "/auth/sign-in" },
-          signup: { text: "Get started", url: "/auth/create-account?mode=create&role=manager" },
+          signup: { text: "Get started", url: signupHref },
         }}
         portalLink={portalLink}
       />

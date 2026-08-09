@@ -667,6 +667,8 @@ function Step1({
           emptyMessage="No rooms match your search."
           listEmptyMessage="No rooms listed for this property."
           ariaLabel="Search rooms to tour"
+          itemNoun="room"
+          itemNounPlural="rooms"
         />
         {fieldErrors.room ? <p className="mt-2 text-xs font-medium text-red-600">{fieldErrors.room}</p> : null}
       </div>

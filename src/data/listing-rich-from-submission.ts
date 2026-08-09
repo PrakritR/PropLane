@@ -302,7 +302,7 @@ function buildListingFloorCard(
         tourTitle: r.videoDataUrl ? "Uploaded video" : "Video tour",
         tourSubtitle: r.videoDataUrl
           ? "Video submitted with property application."
-          : "Add a video in the manager form to replace this placeholder.",
+          : "No video tour for this room yet.",
         includedTags: baseTags,
         furnishingDetail: furnish,
         roomAmenityLabels: amenityLabels.length ? amenityLabels : undefined,
@@ -776,7 +776,7 @@ function buildBundleCards(sub: ManagerListingSubmissionV1, rooms: ManagerRoomSub
         id: "bundle-fallback",
         label: property.unitLabel?.trim() || "Rooms",
         price: property.rentLabel || "—",
-        roomsLine: "Add rooms with monthly rent in the manager form.",
+        roomsLine: "Room pricing has not been listed for this home yet.",
       },
     ];
   }
@@ -864,7 +864,7 @@ export function listingRichFromManagerSubmission(
             ? "Marked as a whole-house / hall bathroom for all listed bedrooms."
             : usedByRoomNames.length
               ? ""
-              : "Select which rooms use this bathroom in the manager form.",
+              : "The manager has not said which rooms use this bathroom.",
           usedByRoomNames,
           includedTags: mergedTags.length ? mergedTags : ["Restroom"],
           photoCaptions: ["Photo 1", "Photo 2", "Photo 3"],
@@ -879,7 +879,7 @@ export function listingRichFromManagerSubmission(
       {
         id: "b-fallback",
         name: "Bathrooms",
-        detail: "No bathrooms listed yet — add them in the listing editor.",
+        detail: "No bathrooms listed for this home yet.",
         usedByLabel: "",
         shower: true,
         toilet: true,
@@ -887,7 +887,7 @@ export function listingRichFromManagerSubmission(
         availability: "—",
         modal: {
           eyebrow: "Bathroom",
-          setupCard: "Add fixture and room assignments in the listing editor.",
+          setupCard: "Bathroom details have not been listed yet."  ,
           usedByRoomNames: [],
           includedTags: ["Shower", "Toilet"],
           photoCaptions: ["Placeholder"],
@@ -910,8 +910,8 @@ export function listingRichFromManagerSubmission(
           return {
             id: s.id,
             name: s.name.trim(),
-            detail: location || (access ? `Room access: ${access}` : "Select room access in manager form"),
-            useNote: s.detail.trim() || "Details from manager submission.",
+            detail: location || (access ? `Room access: ${access}` : "Room access not listed."),
+            useNote: s.detail.trim() || "No extra details listed.",
             availability: (s.roomAccessIds?.length ?? 0) > 0 ? "Shared" : "—",
             modal: {
               eyebrow: "Shared space",
@@ -929,14 +929,19 @@ export function listingRichFromManagerSubmission(
           {
             id: "shared-placeholder",
             name: "Shared spaces",
-            detail: "Add kitchens, laundry, yard, etc. in the manager form",
-            useNote: "No shared spaces were added yet.",
+            // Prospect-facing copy. This block renders on the PUBLIC listing
+            // page, so it must never read as an instruction to the manager —
+            // "Add kitchens, laundry, yard, etc. in the manager form" and "Add
+            // shared spaces when editing the listing" were both shipping to
+            // renters.
+            detail: "The manager has not listed shared spaces for this home yet.",
+            useNote: "Ask the manager what is shared during your tour.",
             availability: "—",
             modal: {
               eyebrow: "Shared space",
               tourEyebrow: "Space tour",
-              tourTitle: "Tour coming soon",
-              tourSubtitle: "Add shared spaces when editing the listing.",
+              tourTitle: "Not listed yet",
+              tourSubtitle: "The manager has not added shared spaces for this home.",
               includedTags: ["Common areas"],
               photoCaptions: ["Placeholder"],
               videoSrc: null,
@@ -1011,10 +1016,10 @@ export function listingRichFromManagerSubmission(
                   price: property.rentLabel,
                   availability: "See manager",
                   modal: {
-                    setupLine: "Add room details in the listing editor",
+                    setupLine: "Room details not listed yet",
                     tourEyebrow: "Room tour",
                     tourTitle: "Video placeholder",
-                    tourSubtitle: "Upload a room video in the manager form.",
+                    tourSubtitle: "No room video yet.",
                     includedTags: ["See listing"],
                     roomNotes: sub.houseOverview.trim() || undefined,
                   },

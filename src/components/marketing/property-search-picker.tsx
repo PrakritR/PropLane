@@ -59,6 +59,8 @@ export function PropertySearchPicker({
   listEmptyMessage = "No properties available right now.",
   previewLimit = DEFAULT_PREVIEW_LIMIT,
   ariaLabel = "Search properties",
+  itemNoun = "property",
+  itemNounPlural = "properties",
 }: {
   options: PropertySearchOption[];
   value: string | null;
@@ -68,6 +70,13 @@ export function PropertySearchPicker({
   listEmptyMessage?: string;
   previewLimit?: number;
   ariaLabel?: string;
+  /**
+   * What the rows actually are. The tour flow lists the ROOMS of one property,
+   * so the hard-coded "2 properties" above two rooms of a single home was
+   * simply wrong.
+   */
+  itemNoun?: string;
+  itemNounPlural?: string;
 }) {
   const listId = useId();
   const inputRef = useRef<HTMLInputElement>(null);
@@ -153,8 +162,8 @@ export function PropertySearchPicker({
                 {displayQuery.trim()
                   ? `${filtered.total} ${filtered.total === 1 ? "match" : "matches"}`
                   : filtered.truncated
-                    ? `Showing ${filtered.items.length} of ${filtered.total} properties. Search to find yours faster`
-                    : `${filtered.total} ${filtered.total === 1 ? "property" : "properties"}`}
+                    ? `Showing ${filtered.items.length} of ${filtered.total} ${itemNounPlural}. Search to find yours faster`
+                    : `${filtered.total} ${filtered.total === 1 ? itemNoun : itemNounPlural}`}
               </p>
               <ul
                 id={listId}

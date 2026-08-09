@@ -2,6 +2,21 @@
 
 import type { ManagerPlanTierDefinition, PlanTierId } from "@/data/manager-plan-tiers";
 
+/** Excluded feature. A greyed CHECK still reads as "included" at a glance. */
+function ExcludedIcon() {
+  return (
+    <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" aria-hidden>
+      <path
+        d="M6 6l12 12M18 6 6 18"
+        stroke="currentColor"
+        strokeWidth="2.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
 function CheckIcon() {
   return (
     <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" aria-hidden>
@@ -173,9 +188,19 @@ export function ManagerPlanTierCards({
                     className={`mt-0.5 shrink-0 ${feature.included ? "text-primary" : "text-muted/40"}`}
                     aria-hidden
                   >
-                    <CheckIcon />
+                    {feature.included ? <CheckIcon /> : <ExcludedIcon />}
                   </span>
-                  <span className={feature.included ? "text-foreground" : "text-muted/60"}>{feature.text}</span>
+                  {/*
+                    The card is one <button>, so its accessible NAME is this whole
+                    list concatenated. Without a word for the excluded rows a
+                    screen reader heard Free as including residents, leases,
+                    inbox and priority support — the exact opposite of the card.
+                    Visually hidden so sighted users still read the plain label.
+                  */}
+                  <span className={feature.included ? "text-foreground" : "text-muted/60"}>
+                    <span className="sr-only">{feature.included ? "Included: " : "Not included: "}</span>
+                    {feature.text}
+                  </span>
                 </li>
               ))}
             </ul>

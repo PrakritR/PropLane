@@ -395,7 +395,14 @@ export function ResidentTourPanel({
             <div className={PORTAL_LIST_PAGE_BODY} data-attr="resident-tour-list">
               {toursForBucket.map((tour) => {
                 const address = [
-                  tour.roomLabel ? `Room ${tour.roomLabel}` : null,
+                  // The stored label already reads "Room 1" / "Studio B", so a
+                  // "Room " prefix produced "Room Room 1". Only prefix a label
+                  // that is not already self-describing.
+                  tour.roomLabel
+                    ? /^(room|studio|unit|suite|apt|apartment)\b/i.test(tour.roomLabel.trim())
+                      ? tour.roomLabel.trim()
+                      : `Room ${tour.roomLabel.trim()}`
+                    : null,
                   tour.managerLabel ? `Host ${tour.managerLabel}` : null,
                 ]
                   .filter(Boolean)

@@ -66,7 +66,7 @@ export function RentBrowsePageClient() {
         {isNative !== true ? (
           <section className="mx-auto mt-10 max-w-2xl rounded-3xl border border-border/50 bg-card px-6 py-10 text-center shadow-sm sm:mt-14 sm:px-10">
             <h2 className="text-xl font-bold tracking-tight text-foreground sm:text-2xl">
-              Ready to make one of these home?
+              Ready to make one of these your home?
             </h2>
             <p className="mx-auto mt-2 max-w-md text-sm text-muted">
               Create a free account to save the homes you like and apply in minutes.
