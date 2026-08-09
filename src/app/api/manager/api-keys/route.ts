@@ -8,9 +8,9 @@
  */
 import { NextResponse } from "next/server";
 
-import { requireManagerRouteUser } from "@/lib/manager-route-guard.server";
-import { listApiKeys, mintApiKey, normalizeAllowedTools, normalizeScopes, normalizeTransport } from "@/lib/mcp/api-keys.server";
-import { API_KEY_TOOL_NAMES, API_KEY_WRITE_TOOL_NAMES, productAreaSelectionsForTools } from "@/lib/mcp/capabilities";
+import { resolveAgentContext } from "@/lib/tools/context";
+import { listApiKeys, mintApiKey, normalizeAllowedTools, normalizeScopes } from "@/lib/mcp/api-keys.server";
+import { API_KEY_WRITE_TOOL_NAMES, productAreaSelectionsForTools } from "@/lib/mcp/capabilities";
 import { track } from "@/lib/analytics/posthog";
 import { rateLimit } from "@/lib/rate-limit";
 
@@ -20,13 +20,13 @@ export const runtime = "nodejs";
 const MAX_ACTIVE_KEYS = 20;
 
 export async function GET() {
-  const actor = await requireManagerRouteUser();
+  const actor = await resolveAgentContext();
   if (!actor) return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
   return NextResponse.json({ keys: await listApiKeys(actor.db, actor.userId) });
 }
 
 export async function POST(req: Request) {
-  const actor = await requireManagerRouteUser();
+  const actor = await resolveAgentContext();
   if (!actor) return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
   if (!rateLimit(`api-key-create:${actor.userId}`, 10, 60_000).ok) {
     return NextResponse.json({ error: "Too many requests." }, { status: 429 });
@@ -50,21 +50,21 @@ export async function POST(req: Request) {
     );
   }
 
+  // Remote MCP uses OAuth + PKCE only. Never let a direct POST mint a
+  // long-lived static bearer credential for the MCP endpoint.
+  if (body.transport !== undefined && body.transport !== "api") {
+    return NextResponse.json({ error: "MCP connections use browser OAuth. Create a REST API key instead." }, { status: 400 });
+  }
+  const transport = "api" as const;
   const scopes = normalizeScopes(body.scopes);
-  const transport = normalizeTransport(body.transport);
-  // An MCP connection is the manager's complete assistant surface. It is a
-  // deliberately simple, one-command integration; all writes still go through
-  // the same preview/confirmation gate. Fine-grained permissions belong to the
-  // REST API, where a key commonly powers a narrowly scoped integration.
-  const allowedTools =
-    transport === "mcp" ? Array.from(API_KEY_TOOL_NAMES) : normalizeAllowedTools(body.allowedTools);
+  const allowedTools = normalizeAllowedTools(body.allowedTools);
   if (allowedTools.length === 0) {
     return NextResponse.json({ error: "Choose at least one product area or tool." }, { status: 400 });
   }
   const minted = await mintApiKey(actor.db, {
     userId: actor.userId,
     name,
-    scopes: transport === "mcp" ? ["mcp:assistant"] : scopes.length ? scopes : productAreaSelectionsForTools(allowedTools),
+    scopes: scopes.length ? scopes : productAreaSelectionsForTools(allowedTools),
     allowedTools,
     transport,
   });

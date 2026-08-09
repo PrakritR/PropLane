@@ -1,6 +1,5 @@
 import { redirect } from "next/navigation";
-import Link from "next/link";
-import { requireManagerRouteUser } from "@/lib/manager-route-guard.server";
+import { resolveAgentContext } from "@/lib/tools/context";
 import { getMcpOAuthClient, MCP_OAUTH_SCOPE, signMcpApproval } from "@/lib/mcp/oauth.server";
 
 export const metadata = { title: "Authorize MCP connection" };
@@ -17,7 +16,7 @@ export default async function McpAuthorizePage({ searchParams }: { searchParams:
   const responseType = value(search, "response_type");
   const scope = value(search, "scope") || MCP_OAUTH_SCOPE;
   const state = value(search, "state");
-  const actor = await requireManagerRouteUser();
+  const actor = await resolveAgentContext();
   if (!actor) {
     const params = new URLSearchParams();
     for (const [key, raw] of Object.entries(search)) if (typeof raw === "string") params.set(key, raw);
@@ -39,7 +38,7 @@ export default async function McpAuthorizePage({ searchParams }: { searchParams:
         <h1 className="mt-2 text-xl font-semibold tracking-tight text-foreground">Allow {client.clientName || "this client"} to connect?</h1>
         <p className="mt-3 text-sm leading-relaxed text-muted">It will be able to use your manager assistant tools. Actions that change PropLane data still require a preview and confirmation.</p>
         <input type="hidden" name="approval" value={approval} />
-        <div className="mt-6 flex gap-2"><button type="submit" className="min-h-10 rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2">Allow connection</button><Link href="/portal/profile" className="inline-flex min-h-10 items-center rounded-md px-3 text-sm text-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2">Cancel</Link></div>
+        <div className="mt-6 flex gap-2"><button type="submit" className="min-h-10 rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2">Allow connection</button><button type="submit" formAction="/api/mcp/oauth/deny" className="min-h-10 rounded-md px-3 text-sm text-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2">Cancel</button></div>
       </form>
     </main>
   );

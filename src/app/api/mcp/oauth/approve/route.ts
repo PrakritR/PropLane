@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { requireManagerRouteUser } from "@/lib/manager-route-guard.server";
+import { resolveAgentContext } from "@/lib/tools/context";
 import { createMcpAuthorizationCode, getMcpOAuthClient, MCP_OAUTH_SCOPE, verifyMcpApproval } from "@/lib/mcp/oauth.server";
 import { track } from "@/lib/analytics/posthog";
 
@@ -8,7 +8,7 @@ export const runtime = "nodejs";
 function failure(): NextResponse { return NextResponse.json({ error: "invalid_request" }, { status: 400 }); }
 
 export async function POST(req: Request) {
-  const actor = await requireManagerRouteUser();
+  const actor = await resolveAgentContext();
   if (!actor) return NextResponse.redirect(new URL("/auth/sign-in", req.url));
   const form = await req.formData();
   const approval = verifyMcpApproval(String(form.get("approval") ?? ""));
