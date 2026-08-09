@@ -248,7 +248,7 @@ export function ManagerApiKeysPanel() {
             </label>
             <fieldset>
               <legend className="text-sm font-medium text-foreground">Product permissions</legend>
-              <p className="mt-1 text-xs leading-relaxed text-muted">Read looks up data. Write can only propose a change; each proposal still needs confirmation.</p>
+              <p className="mt-1 text-xs leading-relaxed text-muted">Read looks up data. Write can only propose a change; a signed-in manager confirms each proposal in PropLane.</p>
               <div className="mt-2.5 divide-y divide-border rounded-lg border border-border">
                 {API_KEY_PRODUCT_AREAS.map((area) => {
                   const read = selectedAreaScopes.includes(`${area.id}:read`);

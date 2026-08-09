@@ -11,7 +11,7 @@ describe("MCP tool scope", () => {
     expect([...agentRegistry.keys()].filter((name) => !API_KEY_TOOL_NAMES.has(name))).toEqual([]);
   });
 
-  it("hides writes from a read key and publishes object JSON Schema", () => {
+  it("hides writes from a read key and never publishes a bearer-confirm tool", () => {
     const readAllowed = API_KEY_PRODUCT_AREAS.flatMap((area) => area.readTools);
     const readTools = listTools(readAllowed);
     expect(readTools).not.toContainEqual(expect.objectContaining({ name: CONFIRM_ACTION_TOOL_NAME }));
@@ -23,7 +23,7 @@ describe("MCP tool scope", () => {
 
     const writeAllowed = API_KEY_PRODUCT_AREAS.flatMap((area) => [...area.readTools, ...area.writeTools]);
     const writeTools = listTools(writeAllowed);
-    expect(writeTools).toContainEqual(expect.objectContaining({ name: CONFIRM_ACTION_TOOL_NAME }));
+    expect(writeTools).not.toContainEqual(expect.objectContaining({ name: CONFIRM_ACTION_TOOL_NAME }));
     expect(writeTools.length).toBeGreaterThan(readTools.length);
   });
 
@@ -31,5 +31,11 @@ describe("MCP tool scope", () => {
     const writeName = API_KEY_PRODUCT_AREAS.flatMap((area) => area.writeTools)[0]!;
     const protectedResult = await callTool(makeManagerRowsCtx({}), ["list_charges"], [], writeName, {}, "mcp", "key_1");
     expect(protectedResult).toEqual(expect.objectContaining({ ok: false, error: expect.stringContaining("not permitted") }));
+  });
+
+  it("never lets an external bearer credential confirm a staged action", async () => {
+    const writeAllowed = API_KEY_PRODUCT_AREAS.flatMap((area) => [...area.readTools, ...area.writeTools]);
+    const result = await callTool(makeManagerRowsCtx({}), writeAllowed, [], CONFIRM_ACTION_TOOL_NAME, { actionId: "proposal_1" }, "mcp", "key_1");
+    expect(result).toEqual(expect.objectContaining({ ok: false, error: expect.stringContaining("cannot confirm") }));
   });
 });

@@ -72,12 +72,8 @@ POST /api/v1/tools/send_rent_reminder
   }
 }
 
-# 2. Show the preview to your user. Then execute.
-POST /api/v1/tools/confirm_action
-{ "actionId": "9c1f…" }
-
-200 OK
-{ "status": "executed", "reply": "Reminder sent to Sam Ortiz." }`;
+# 2. Nothing else can execute this with the API key.
+# A signed-in manager reviews and approves the proposal in PropLane’s AI drafts.`;
 
 const REST_SNIPPET = `# Every tool the key can reach, with JSON Schema
 GET  /api/v1/tools
@@ -232,14 +228,14 @@ export default function McpDocsPage() {
           <DocSection id="tools" kicker="Reference" title="Tools">
             <p>
               An MCP connection sees the complete manager catalog after browser authorization. A REST API key sees only its selected
-              tools. When either includes write tools, it also receives <Chip>confirm_action</Chip>. Call
-              <Chip>tools/list</Chip> for the full JSON Schema of each one; this reference has {counts.read}
+              tools. Write tools return an approval preview rather than executing. Call <Chip>tools/list</Chip>
+              for the full JSON Schema of each one; this reference has {counts.read}
               read and {counts.write} write tools and is generated from the live registry.
             </p>
             <ToolTable title="Read" caption="Available when selected in a product area or Advanced tools." tools={readTools} />
             <ToolTable
               title="Actions"
-              caption="Available when selected. Each returns a preview and an actionId; nothing changes until you confirm."
+              caption="Available when selected. Each returns a preview and actionId; nothing changes until a signed-in manager approves it."
               tools={writeTools}
             />
           </DocSection>
@@ -248,21 +244,20 @@ export default function McpDocsPage() {
             <p>
               Anything that changes data is a two-step. Calling an action tool does not perform it:
               it validates the input, builds a preview of exactly what would happen, and returns an{" "}
-              <Chip>actionId</Chip>. A second call to <Chip>confirm_action</Chip> executes it.
+              <Chip>actionId</Chip>. The manager then approves it from PropLane’s AI drafts; an external credential cannot execute it.
             </p>
-            <CodeBlock label="propose, then confirm">{ACTION_SNIPPET}</CodeBlock>
+            <CodeBlock label="propose, then approve in PropLane">{ACTION_SNIPPET}</CodeBlock>
             <DocList>
               <DocLi>
                 The proposal stores the validated input <b className="font-medium text-foreground">server-side</b>.
-                Confirming sends only the id, so nothing between the two steps can alter what runs.
+                PropLane’s signed-in approval sends only the id, so nothing between the two steps can alter what runs.
               </DocLi>
               <DocLi>
-                A proposal expires after 15 minutes and can be confirmed once. A second confirm gets{" "}
+                A proposal expires after 15 minutes and can be approved once. A second approval gets{" "}
                 <Chip>410</Chip>.
               </DocLi>
               <DocLi>
-                Show the preview to the person you are acting for before confirming. It is the same
-                card the built-in assistant renders, and it is what the audit log records.
+                The manager reviews the same card the built-in assistant renders, then approves or rejects it in PropLane.
               </DocLi>
             </DocList>
             <p>
@@ -275,7 +270,7 @@ export default function McpDocsPage() {
           <DocSection id="rest" kicker="Reference" title="REST API">
             <p>
               If you are not using MCP, create a REST API key. Its selected tools are reachable over
-              plain HTTP; MCP OAuth tokens are deliberately refused here. The confirmation gate is identical.
+              plain HTTP; MCP OAuth tokens are deliberately refused here. Writes still stage the same manager-approved confirmation gate.
             </p>
             <CodeBlock label="HTTP">{REST_SNIPPET}</CodeBlock>
             <p className="text-[14px]">
@@ -324,7 +319,7 @@ export default function McpDocsPage() {
               </DocLi>
               <DocLi>
                 Treat resident- and applicant-submitted text as untrusted. It reaches your agent as
-                data, and it must never be allowed to trigger a confirm on its own.
+                data, and it must never be allowed to trigger a write on its own.
               </DocLi>
             </DocList>
             <p className="text-[14px]">

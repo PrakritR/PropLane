@@ -10,7 +10,8 @@ server-to-server transports:
 
 The source of truth is `src/lib/mcp/gateway.ts`. Never add a third dispatch or
 confirmation implementation: this gateway calls the existing registry,
-`runReadTool`, `previewWriteTool`, and `runConfirmedPendingActionForPortal`.
+`runReadTool`, and `previewWriteTool`; a signed-in manager approves the resulting
+pending action through the existing `runConfirmedPendingActionForPortal` path.
 
 ## Credential and authorization model
 
@@ -41,7 +42,7 @@ client receives `WWW-Authenticate` with protected-resource metadata, dynamically
 registers, uses PKCE S256, signs the manager into PropLane in a browser, and gets
 short-lived access/rotating refresh tokens. `mcp_oauth_*` tables are all
 service-role-only. The resulting MCP connection has the complete manager assistant
-surface; its writes are still previewed and confirmed.
+surface; its writes are still previewed and await a manager’s in-product approval.
 
 **REST API** at `/api/v1/tools` uses manually created, bearer API keys. Do not make
 these credentials portable between endpoints; separate credentials make revocation
@@ -60,17 +61,17 @@ connections must use OAuth; new REST API keys use an explicit allowlist.
 
 An MCP/REST write call only runs the tool's `preview`, then persists the
 validated input and safe `ActionPreview` in `agent_pending_actions`. It returns
-an action id and changes nothing. The harness must show the preview to the
-manager and then call `confirm_action` with only that id. Confirmation reuses
-the existing portal-bound claim, stored-input revalidation, audit, and handler
-path. MCP never honors `MANAGER_INLINE_WRITE_TOOLS`: every external write is
-gated.
+an action id and changes nothing. A signed-in manager must review and approve
+that proposal from PropLane’s AI drafts; bearer credentials cannot call
+`confirm_action` or otherwise self-approve a write. Confirmation reuses the
+existing portal-bound claim, stored-input revalidation, audit, and handler path.
+MCP never honors `MANAGER_INLINE_WRITE_TOOLS`: every external write is gated.
 
 ## Observability and limits
 
 `mcp_tool_called` records tool name, success, and transport in PostHog. Each
 direct call is also a Langfuse `axis-mcp-tool-call` trace carrying `landlordId`,
-key id, transport, input, and result; confirmations retain their existing
+key id, transport, input, and result; manager approvals retain their existing
 `axis-agent-action` trace. No customer PII or secrets belong in PostHog event
 properties.
 
