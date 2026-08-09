@@ -35,6 +35,7 @@ vi.mock("@/lib/manager-admin-purchase", () => ({ isAdminManagedManagerPurchase }
 import {
   canHardDeleteResident,
   deleteOwnAccount,
+  deleteOwnPortalAccount,
   deletePortalAccountCompletely,
   deleteResidentAccount,
 } from "@/lib/auth/delete-portal-account";
@@ -164,6 +165,107 @@ describe("delete-portal-account", () => {
     });
     expect(deleteUser).toHaveBeenCalledWith("user-1");
     expect(result).toEqual({ ok: true, mode: "deleted_auth_user" });
+  });
+
+  it("self-delete from resident portal revokes only resident access when manager role remains", async () => {
+    findAuthUserIdByEmail.mockResolvedValue("user-dual");
+    let roleReads = 0;
+    const db = {
+      from: (table: string) => {
+        if (table === "profiles") {
+          return {
+            select: () => ({
+              eq: () => ({
+                maybeSingle: async () => ({
+                  data: {
+                    id: "user-dual",
+                    role: roleReads >= 2 ? "resident" : "manager",
+                    email: "dual@test.com",
+                  },
+                }),
+              }),
+            }),
+          };
+        }
+        if (table === "profile_roles") {
+          return {
+            select: () => ({
+              eq: async () => {
+                roleReads += 1;
+                if (roleReads === 1) return { data: [{ role: "resident" }, { role: "manager" }] };
+                return { data: [{ role: "manager" }] };
+              },
+            }),
+          };
+        }
+        return {
+          select: () => ({ eq: () => ({ maybeSingle: async () => ({ data: null }) }) }),
+        };
+      },
+      auth: { admin: { deleteUser: vi.fn() } },
+    };
+    removePortalAccess.mockResolvedValue({ ok: true, mode: "revoked_role", remainingRoles: ["manager"] });
+
+    const result = await deleteOwnPortalAccount(db as never, "user-dual", "resident");
+
+    expect(result.ok).toBe(true);
+    expect(result.signedOut).toBe(false);
+    expect(result.redirectTo).toBe("/portal/dashboard");
+    expect(purgeResidentPortalData).toHaveBeenCalled();
+    expect(removePortalAccess).toHaveBeenCalledWith(db, "user-dual", "resident");
+  });
+
+  it("self-delete from manager portal purges manager data and keeps resident role", async () => {
+    let roleReads = 0;
+    purgeManagerPortalData.mockResolvedValue(undefined);
+    removePortalAccess
+      .mockResolvedValueOnce({ ok: true, mode: "revoked_role", remainingRoles: ["resident"] })
+      .mockResolvedValueOnce({ ok: true, mode: "no_role" });
+
+    const db = {
+      from: (table: string) => {
+        if (table === "profiles") {
+          return {
+            select: () => ({
+              eq: () => ({
+                maybeSingle: async () => ({
+                  data: { id: "user-dual", role: "resident", email: "dual@test.com" },
+                }),
+              }),
+            }),
+          };
+        }
+        if (table === "profile_roles") {
+          return {
+            select: () => ({
+              eq: async () => {
+                roleReads += 1;
+                if (roleReads === 1) return { data: [{ role: "resident" }, { role: "manager" }] };
+                return { data: [{ role: "resident" }] };
+              },
+            }),
+          };
+        }
+        if (table === "manager_purchases") {
+          return {
+            select: () => ({
+              eq: () => ({ maybeSingle: async () => ({ data: null }) }),
+            }),
+          };
+        }
+        return {
+          select: () => ({ eq: () => ({ maybeSingle: async () => ({ data: null }) }) }),
+        };
+      },
+      auth: { admin: { deleteUser: vi.fn() } },
+    };
+
+    const result = await deleteOwnPortalAccount(db as never, "user-dual", "manager");
+
+    expect(result.ok).toBe(true);
+    expect(result.signedOut).toBe(false);
+    expect(result.redirectTo).toBe("/resident");
+    expect(purgeManagerPortalData).toHaveBeenCalledWith(db, "user-dual");
   });
 
   it("self-delete cancels the active Stripe subscription, cleans vendor data, and deletes the auth user", async () => {

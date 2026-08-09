@@ -1,25 +1,74 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import posthog from "posthog-js";
 import { Button } from "@/components/ui/button";
 import { Modal } from "@/components/ui/modal";
 import { useAppUi } from "@/components/providers/app-ui-provider";
 import { createSupabaseBrowserClient } from "@/lib/supabase/browser";
+import type { PortalKind } from "@/lib/portal-types";
+
+type DeleteCopy = {
+  title: string;
+  lead: string;
+  body: string;
+};
+
+function deleteCopyForPortal(portal: PortalKind): DeleteCopy {
+  switch (portal) {
+    case "resident":
+      return {
+        title: "Delete resident account",
+        lead: "This permanently removes your resident portal access. This can't be undone.",
+        body:
+          "Deleting removes your resident profile, applications, lease paperwork, payments, messages, maintenance requests, and documents tied to this resident portal. Your property manager or vendor account on the same login is not affected.",
+      };
+    case "vendor":
+      return {
+        title: "Delete vendor account",
+        lead: "This permanently removes your vendor portal access. This can't be undone.",
+        body:
+          "Deleting removes your vendor profile, bids, invoices, and work-order participation tied to this vendor portal. Your manager or resident account on the same login is not affected.",
+      };
+    case "admin":
+      return {
+        title: "Delete admin access",
+        lead: "This permanently removes your admin portal access. This can't be undone.",
+        body:
+          "Deleting removes your admin role on PropLane. Your manager, resident, or vendor account on the same login is not affected.",
+      };
+    case "pro":
+    case "manager":
+    default:
+      return {
+        title: "Delete property account",
+        lead: "This permanently removes your property manager portal access. This can't be undone.",
+        body:
+          "Deleting removes your properties, listings, applications, leases, payments, messages, documents, and co-manager links tied to this property portal. Your resident or vendor account on the same login is not affected.",
+      };
+  }
+}
 
 /**
- * Self-service account deletion entry (App Store Guideline 5.1.1(v)). Reachable
+ * Self-service portal account deletion (App Store Guideline 5.1.1(v)). Reachable
  * on web AND inside the native iOS/Android shell. A user can only ever delete
- * their OWN account — the route resolves the target from the session, never the
- * client. Two-step: red entry → explicit confirmation modal → permanent delete →
- * signed out.
+ * their OWN account for the portal they are signed into — the route resolves the
+ * target from the session, never the client. Two-step: red entry → explicit
+ * confirmation modal → portal-scoped delete → signed out or redirected.
  */
-export function PortalDeleteAccountButton({ className }: { className?: string }) {
+export function PortalDeleteAccountButton({
+  className,
+  portalKind,
+}: {
+  className?: string;
+  portalKind: PortalKind;
+}) {
   const router = useRouter();
   const { showToast } = useAppUi();
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
+  const copy = useMemo(() => deleteCopyForPortal(portalKind), [portalKind]);
 
   const deleteAccount = async () => {
     if (busy) return;
@@ -29,26 +78,36 @@ export function PortalDeleteAccountButton({ className }: { className?: string })
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
-        body: JSON.stringify({ confirm: "DELETE" }),
+        body: JSON.stringify({ confirm: "DELETE", portal: portalKind }),
       });
+      const body = (await res.json().catch(() => ({}))) as {
+        error?: string;
+        signedOut?: boolean;
+        redirectTo?: string;
+      };
       if (!res.ok) {
-        const body = (await res.json().catch(() => ({}))) as { error?: string };
         showToast(body.error || "Couldn't delete your account. Please try again.");
         setBusy(false);
         return;
       }
+
       try {
         posthog.reset();
       } catch {
         /* analytics reset is best-effort */
       }
-      try {
-        const supabase = createSupabaseBrowserClient();
-        await supabase.auth.signOut({ scope: "local" });
-      } catch {
-        /* server route already cleared the session */
+
+      if (body.signedOut) {
+        try {
+          const supabase = createSupabaseBrowserClient();
+          await supabase.auth.signOut({ scope: "local" });
+        } catch {
+          /* server route already cleared the session when signedOut */
+        }
       }
-      router.push("/auth/sign-in?deleted=1");
+
+      const destination = body.redirectTo?.trim() || "/auth/sign-in?deleted=1";
+      router.push(destination);
       router.refresh();
     } catch {
       showToast("Couldn't delete your account. Please try again.");
@@ -69,7 +128,7 @@ export function PortalDeleteAccountButton({ className }: { className?: string })
 
       <Modal
         open={open}
-        title="Delete account"
+        title={copy.title}
         onClose={() => {
           if (!busy) setOpen(false);
         }}
@@ -91,14 +150,8 @@ export function PortalDeleteAccountButton({ className }: { className?: string })
         }
       >
         <div className="space-y-3 text-sm text-foreground">
-          <p className="font-semibold text-danger">
-            This permanently deletes your account. This can&apos;t be undone.
-          </p>
-          <p>
-            Deleting removes your login, your profile, and the portal data associated with your
-            account: properties, applications, leases, payments, messages, documents, and any
-            co-manager links you own. Afterwards this email is free to register a new account.
-          </p>
+          <p className="font-semibold text-danger">{copy.lead}</p>
+          <p>{copy.body}</p>
           <p className="text-muted">
             Records required for legal or financial compliance (for example, payment history held by
             our payment processor, Stripe) may be retained as required by law.

@@ -48,7 +48,10 @@ export function PortalSettingsExtras({
         </div>
 
         <div className="px-4 py-3.5">
-          <PortalDeleteAccountButton className="text-sm font-medium text-danger underline-offset-2 transition hover:underline" />
+          <PortalDeleteAccountButton
+            portalKind={currentKind}
+            className="text-sm font-medium text-danger underline-offset-2 transition hover:underline"
+          />
         </div>
       </PortalSettingsGroup>
     </PortalSettingsSection>
