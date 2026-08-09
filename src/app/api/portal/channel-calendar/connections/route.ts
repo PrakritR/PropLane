@@ -5,6 +5,7 @@ import {
   listChannelCalendarConnections,
   upsertChannelCalendarConnection,
 } from "@/lib/channel-calendar/sync.server";
+import { isChannelCalendarInputError } from "@/lib/channel-calendar/airbnb-url";
 import { managerHasCalendarAccessForProperty } from "@/lib/auth/manager-lease-scope";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
@@ -88,6 +89,12 @@ export async function POST(req: Request) {
     );
     return NextResponse.json({ connection });
   } catch (e) {
+    // A mistyped import URL is the caller's input, not a server fault. It used
+    // to fall into the generic 500 below, which the Link Airbnb modal showed as
+    // nothing at all — the manager clicked Save and the dialog just sat there.
+    if (isChannelCalendarInputError(e)) {
+      return NextResponse.json({ error: e.message, field: e.field }, { status: 400 });
+    }
     return NextResponse.json({ error: e instanceof Error ? e.message : "Failed." }, { status: 500 });
   }
 }

@@ -1,5 +1,6 @@
 import type Stripe from "stripe";
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 
 /** Controller config for manager recipient accounts (destination charges; platform collects). */
 export const AXIS_CONNECT_CONTROLLER = {
@@ -128,19 +129,51 @@ export async function retrieveManagerConnectAccountOrNull(
   }
 }
 
-export async function clearManagerConnectAccountId(
-  db: SupabaseClient,
-  managerUserId: string,
-): Promise<void> {
+/**
+ * Writes `profiles.stripe_connect_account_id` with the SERVICE-ROLE client, always
+ * pinned to one user id.
+ *
+ * `20260722123000_lock_role_grant_surface.sql` revoked INSERT/UPDATE/DELETE on
+ * `profiles` from `anon` AND `authenticated`. Every caller here hands in the
+ * user-scoped server client, which IS `authenticated` — so these writes were
+ * silently denied, and because the result was never inspected the failure was
+ * invisible. The visible symptom was severe: a manager could complete the whole
+ * Stripe Connect onboarding, and PropLane would still report "has not connected
+ * Stripe payouts yet", because the account id it had just created was never
+ * stored. That made the application fee unpayable for every new manager.
+ *
+ * This is the shape AGENTS.md prescribes for a self-service profile write:
+ * authorize the session in the route, then write service-role pinned to
+ * `user.id`. The `db` argument is deliberately ignored for the write.
+ */
+async function writeConnectAccountId(managerUserId: string, accountId: string | null): Promise<void> {
   const id = managerUserId.trim();
   if (!id) return;
-  await db
+  const service = createSupabaseServiceRoleClient();
+  const { error } = await service
     .from("profiles")
     .update({
-      stripe_connect_account_id: null,
+      stripe_connect_account_id: accountId,
       updated_at: new Date().toISOString(),
     })
     .eq("id", id);
+  // Surfaced rather than swallowed: losing this write strands a manager who has
+  // finished Stripe onboarding in a permanently "not connected" state.
+  if (error) throw new Error(`Failed to persist Stripe Connect account id: ${error.message}`);
+}
+
+export async function persistManagerConnectAccountId(
+  managerUserId: string,
+  accountId: string,
+): Promise<void> {
+  await writeConnectAccountId(managerUserId, accountId);
+}
+
+export async function clearManagerConnectAccountId(
+  _db: SupabaseClient,
+  managerUserId: string,
+): Promise<void> {
+  await writeConnectAccountId(managerUserId, null);
 }
 
 /** Clears a stale Connect account id when the platform key cannot access it, then returns a fresh id or null. */

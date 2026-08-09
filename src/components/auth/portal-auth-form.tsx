@@ -5,6 +5,14 @@ import { AuthCard } from "@/components/auth/auth-card";
 import { AuthBrandHeader, AuthDivider, AuthLegalConsent, AuthPageHeader } from "@/components/auth/auth-mobile-primitives";
 import { OAuthSocialStack } from "@/components/auth/oauth-social-stack";
 import { oauthErrorFromParams } from "@/lib/auth/oauth-error-params";
+import {
+  AUTH_PORTAL_PICKER_OPTIONS,
+  type AuthPortalPickerId,
+} from "@/lib/auth/auth-portal-picker-options";
+import { navigateAfterRoleSignup } from "@/lib/auth/navigate-after-role-signup";
+import { provisionPortalFromGetStarted } from "@/lib/auth/provision-portal-from-get-started";
+import { safeNextPath } from "@/lib/auth/safe-next-path";
+import { markPortalSessionActive } from "@/lib/auth/portal-session-gate";
 import { useAuthWelcomeChrome } from "@/components/auth/use-auth-welcome-chrome";
 import { useAppUi } from "@/components/providers/app-ui-provider";
 import { useIsNativeApp } from "@/hooks/use-is-native-app";
@@ -66,8 +74,22 @@ function readRememberedEmail(): string {
 }
 
 function continueHref(nextPath: string): string {
-  if (!nextPath.startsWith("/")) return "/auth/continue";
-  return `/auth/continue?next=${encodeURIComponent(nextPath)}`;
+  const safe = safeNextPath(nextPath);
+  if (!safe) return "/auth/continue";
+  return `/auth/continue?next=${encodeURIComponent(safe)}`;
+}
+
+/** Carries the destination through the role chooser so a detour does not lose it. */
+function getStartedHref(nextPath: string | null): string {
+  if (!nextPath) return "/auth/get-started";
+  return `/auth/get-started?next=${encodeURIComponent(nextPath)}`;
+}
+
+/** `?role=` is user-supplied — only the three real portal ids are honoured. */
+function pickerRoleFromParam(value: string): AuthPortalPickerId | null {
+  return AUTH_PORTAL_PICKER_OPTIONS.some((opt) => opt.id === value)
+    ? (value as AuthPortalPickerId)
+    : null;
 }
 
 async function tryResidentAutoConfirm(email: string): Promise<boolean> {
@@ -102,6 +124,12 @@ export function PortalAuthForm({
   const { isNative } = useIsNativeApp();
   const searchParams = useSearchParams();
   const nextPath = searchParams.get("next") ?? "";
+  // `?role=` names the portal the user was already heading into (e.g. the apply
+  // flow links to `role=resident&next=/resident/applications/apply?...`).
+  // Honouring it skips the "How do you want to use PropLane?" chooser, which
+  // otherwise discards BOTH the role and the destination and strands a prospect
+  // who was mid-application.
+  const roleFromUrl = searchParams.get("role")?.trim().toLowerCase() ?? "";
   const emailFromUrl = searchParams.get("email")?.trim().toLowerCase() ?? "";
   const nameFromUrl = searchParams.get("name")?.trim() ?? "";
   const phoneFromUrl = searchParams.get("phone")?.trim() ?? "";
@@ -258,6 +286,7 @@ export function PortalAuthForm({
           return;
         }
         posthog.identify(data.user.id);
+      markPortalSessionActive();
         didRedirect = true;
         window.location.replace(
           body.redirectTo?.startsWith("/") ? body.redirectTo : "/resident/tour/pending",
@@ -289,10 +318,39 @@ export function PortalAuthForm({
         return;
       }
       posthog.identify(data.user.id);
+      markPortalSessionActive();
       didRedirect = true;
       // Existing accounts already have a role — resolve it; brand-new accounts have none
       // and land on the role chooser via the single engine.
-      window.location.replace(body.existingAccount ? "/auth/continue" : "/auth/get-started");
+      if (body.existingAccount) {
+        window.location.replace(continueHref(safeNextPath(nextPath) ?? ""));
+        return;
+      }
+      // A brand-new account that arrived WITH a role (the apply / tour funnels)
+      // provisions it here and continues to where it was going. Falling through
+      // to the chooser used to throw away both, dropping a prospect who clicked
+      // "Apply for this property" onto a generic "how do you want to use
+      // PropLane?" screen with their application abandoned.
+      const requestedRole = pickerRoleFromParam(roleFromUrl);
+      if (requestedRole) {
+        const provisioned = await provisionPortalFromGetStarted(requestedRole);
+        if (provisioned.ok) {
+          const destination = safeNextPath(nextPath);
+          if (destination) {
+            window.location.replace(destination);
+            return;
+          }
+          if (provisioned.direct) {
+            window.location.replace(provisioned.redirectTo);
+            return;
+          }
+          await navigateAfterRoleSignup(provisioned.redirectTo);
+          return;
+        }
+        // Provisioning failed — fall through to the chooser rather than
+        // stranding the user, but keep the destination so it survives the detour.
+      }
+      window.location.replace(getStartedHref(safeNextPath(nextPath)));
     } catch (e) {
       const message = friendlyAuthError(e instanceof Error ? e.message : "Sign up failed");
       setErrorText(message);

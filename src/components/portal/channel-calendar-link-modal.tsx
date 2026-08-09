@@ -52,6 +52,9 @@ export function ChannelCalendarLinkModal({
   const [propertyId, setPropertyId] = useState(initialPropertyId ?? "");
   const [roomChoice, setRoomChoice] = useState("");
   const [importUrl, setImportUrl] = useState("");
+  // Inline, field-level failure. A toast alone was too easy to miss for a
+  // validation message about the box directly above it.
+  const [saveError, setSaveError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [linked, setLinked] = useState<ManagerChannelBookingProperty[]>([]);
@@ -126,6 +129,7 @@ export function ChannelCalendarLinkModal({
     if (!listingRoomId) return;
     const roomLabel = roomOptions.find((r) => r.value === roomChoice)?.label ?? "Room";
     setBusy(true);
+    setSaveError(null);
     try {
       const saved = await saveChannelCalendarConnection({
         propertyId,
@@ -143,7 +147,9 @@ export function ChannelCalendarLinkModal({
       await reloadLinked();
       onChanged?.();
     } catch (e) {
-      showToast(e instanceof Error ? e.message : "Could not link calendar.");
+      const message = e instanceof Error ? e.message : "Could not link calendar.";
+      setSaveError(message);
+      showToast(message);
     } finally {
       setBusy(false);
     }
@@ -253,10 +259,25 @@ export function ChannelCalendarLinkModal({
             type="url"
             placeholder="https://www.airbnb.com/calendar/ical/…"
             value={importUrl}
-            onChange={(e) => setImportUrl(e.target.value)}
+            onChange={(e) => {
+              setImportUrl(e.target.value);
+              // Clear a previous rejection as soon as the manager edits, so the
+              // message always refers to what is currently in the box.
+              if (saveError) setSaveError(null);
+            }}
             disabled={busyAny}
+            aria-invalid={saveError ? true : undefined}
             data-attr="channel-calendar-link-import-url"
           />
+          {saveError ? (
+            <p className="mt-1.5 text-xs text-danger" role="alert" data-attr="channel-calendar-link-error">
+              {saveError}
+            </p>
+          ) : (
+            <p className="mt-1.5 text-xs text-muted">
+              Airbnb → Calendar → Availability → Connect calendars → Export calendar.
+            </p>
+          )}
         </label>
 
         {linkedLoading ? (

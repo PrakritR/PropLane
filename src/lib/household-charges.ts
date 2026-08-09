@@ -56,6 +56,7 @@ import {
   splitShareLabel,
   moneyLabel,
 } from "@/lib/bundle-group/bundle-cost-split";
+import { notePortalResponse, portalSessionEnded } from "@/lib/auth/portal-session-gate";
 
 export const HOUSEHOLD_CHARGES_EVENT = "axis:household-charges";
 
@@ -371,6 +372,11 @@ export async function syncHouseholdChargesFromServer(
     hydrateHouseholdStateFromSession();
     return { charges: readAll(), rentProfiles: readRentProfiles() };
   }
+  // Signed out: stop the interval-driven refetch instead of 401ing forever.
+  if (portalSessionEnded()) {
+    hydrateHouseholdStateFromSession();
+    return { charges: readAll(), rentProfiles: readRentProfiles() };
+  }
   if (!force && householdChargesSyncPromise) return householdChargesSyncPromise;
   if (!force && householdChargesLastSyncedAt > 0 && Date.now() - householdChargesLastSyncedAt < HOUSEHOLD_CHARGES_SYNC_TTL_MS) {
     return { charges: readAll(), rentProfiles: readRentProfiles() };
@@ -399,6 +405,7 @@ async function runHouseholdChargesSync({
 }): Promise<HouseholdChargesSyncResult> {
   const syncPromise = fetch("/api/portal-household-charges")
     .then(async (res) => {
+      notePortalResponse(res.status);
       const body = res.ok ? (await res.json() as { charges?: HouseholdCharge[]; rentProfiles?: RecurringRentProfile[] }) : {};
       const serverCharges = Array.isArray(body.charges) ? body.charges : [];
       const serverProfiles = Array.isArray(body.rentProfiles) ? body.rentProfiles : [];

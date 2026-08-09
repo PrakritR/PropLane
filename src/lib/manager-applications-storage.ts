@@ -12,6 +12,7 @@ import {
   type DraftShapedRowFields,
 } from "@/lib/rental-application/draft-shape";
 import { resolveApplicationPersonalFields } from "@/lib/application-personal-fields";
+import { notePortalResponse, portalSessionEnded } from "@/lib/auth/portal-session-gate";
 import {
   defaultBackgroundCheckStatusForRow,
   normalizeBackgroundCheckStatus,
@@ -674,6 +675,9 @@ export async function syncManagerApplicationsFromServer(opts?: {
   ensureApplicationsScope(managerUserId);
   hydrateManagerApplicationsFromSession(managerUserId);
   if (isDemoModeActive()) return readManagerApplicationRows();
+  // Stop polling once the session is gone — this loader runs on an interval and
+  // otherwise keeps 401ing for as long as the signed-out tab stays open.
+  if (portalSessionEnded()) return readManagerApplicationRows();
   const force = opts?.force === true;
   if (!force && managerApplicationsSyncPromise) return managerApplicationsSyncPromise;
   if (!force && managerApplicationsLastSyncedAt > 0 && Date.now() - managerApplicationsLastSyncedAt < MANAGER_APPLICATIONS_SYNC_TTL_MS) {
@@ -683,6 +687,7 @@ export async function syncManagerApplicationsFromServer(opts?: {
     managerApplicationsSyncPromise = (async () => {
       const url = opts?.selfScope ? "/api/manager-applications?scope=self" : "/api/manager-applications";
       const res = await fetch(url, { credentials: "include" });
+      notePortalResponse(res.status);
       if (!res.ok) return readManagerApplicationRows();
       const body = (await res.json()) as { rows?: DemoApplicantRow[] };
       // Union with the CURRENT cache, not `[]` — a locally-created row whose

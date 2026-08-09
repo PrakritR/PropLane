@@ -1,6 +1,7 @@
 import { isDemoModeActive } from "@/lib/demo/demo-session";
 import { emitAdminUi } from "@/lib/demo-admin-ui";
 import { logDemoOutboundEmail } from "@/lib/demo-outbound-mail";
+import { notePortalResponse, portalSessionEnded } from "@/lib/auth/portal-session-gate";
 
 const AVAIL_KEY = "axis_admin_avail_slots_v1";
 /** Per calendar date (local `YYYY-MM-DD`) + half-hour slot — supports future weeks. */
@@ -270,6 +271,8 @@ async function deleteJsonRecordFromServer(id: string): Promise<boolean> {
 export async function syncScheduleRecordsFromServer(opts?: { force?: boolean }): Promise<boolean> {
   if (!isBrowser()) return false;
   if (isDemoModeActive()) return true;
+  // Signed out: stop the interval-driven refetch instead of 401ing forever.
+  if (portalSessionEnded()) return false;
   const force = opts?.force === true;
   const lastSyncedAt = readScheduleSyncedAt();
   if (!force && scheduleSyncPromise) {
@@ -289,6 +292,7 @@ export async function syncScheduleRecordsFromServer(opts?: { force?: boolean }):
           cache: "no-store",
           credentials: "include",
         });
+        notePortalResponse(res.status);
         if (!res.ok) return false;
         const body = (await res.json()) as { rows?: unknown[] };
         if (!Array.isArray(body.rows)) return false;

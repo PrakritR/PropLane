@@ -3,6 +3,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import {
   clearManagerConnectAccountId,
   createAxisConnectAccount,
+  persistManagerConnectAccountId,
   retrieveManagerConnectAccountOrNull,
 } from "@/lib/stripe-connect";
 
@@ -36,13 +37,9 @@ export async function ensureManagerConnectAccountId(
       axisPortal: opts.axisPortal,
     });
     accountId = account.id;
-    await db
-      .from("profiles")
-      .update({
-        stripe_connect_account_id: accountId,
-        updated_at: new Date().toISOString(),
-      })
-      .eq("id", opts.userId);
+    // Service-role write pinned to this user — `profiles` UPDATE is revoked from
+    // `authenticated`, which is what `db` is. See persistManagerConnectAccountId.
+    await persistManagerConnectAccountId(opts.userId, accountId);
   }
 
   return accountId;

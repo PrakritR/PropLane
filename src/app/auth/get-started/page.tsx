@@ -20,6 +20,7 @@ import { isGetStartedAddMode } from "@/lib/auth/get-started-path";
 import { navigateAfterRoleSignup } from "@/lib/auth/navigate-after-role-signup";
 import { provisionPortalFromGetStarted } from "@/lib/auth/provision-portal-from-get-started";
 import { isGetStartedDestination, resolvePostAuthDestination } from "@/lib/auth/resolve-post-auth-destination";
+import { safeNextPath } from "@/lib/auth/safe-next-path";
 import { createSupabaseBrowserClient } from "@/lib/supabase/browser";
 import { useRouter, useSearchParams } from "next/navigation";
 import posthog from "posthog-js";
@@ -117,6 +118,14 @@ function GetStartedContent() {
     if (!result.ok) {
       showToast(result.error);
       setBusy(null);
+      return;
+    }
+    // A `?next=` forwarded from signup is where the user was actually heading
+    // (e.g. an application they had already started). Honour it once the role
+    // exists, rather than dropping them on a portal dashboard.
+    const forwarded = safeNextPath(searchParams.get("next"));
+    if (forwarded) {
+      window.location.replace(forwarded);
       return;
     }
     if (result.direct) {

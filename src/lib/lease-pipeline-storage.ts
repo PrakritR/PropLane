@@ -78,6 +78,7 @@ import {
   type BundleGroupRowInput,
 } from "@/lib/bundle-group/bundle-group-application";
 import { applyLeaseBillingToContext } from "@/lib/lease-billing-snapshot";
+import { notePortalResponse, portalSessionEnded } from "@/lib/auth/portal-session-gate";
 import { buildJointLeaseMembers, buildJointLeasePipelineRow, jointLeaseRowIncludesMember } from "@/lib/bundle-group/joint-lease";
 import type { JointLeaseMember, LeaseKind } from "@/lib/bundle-group/types";
 
@@ -1599,6 +1600,8 @@ export async function syncLeasePipelineFromServer(managerUserId?: string | null,
   ensureLeasePipelineScope(managerUserId);
   hydrateLeasePipelineFromSession(managerUserId);
   if (isDemoModeActive()) return readLeasePipeline(managerUserId);
+  // Signed out: stop the interval-driven refetch instead of 401ing forever.
+  if (portalSessionEnded()) return readLeasePipeline(managerUserId);
   const force = opts?.force === true;
   if (!force && leasePipelineSyncPromise) return leasePipelineSyncPromise;
   if (!force && leasePipelineLastSyncedAt > 0 && Date.now() - leasePipelineLastSyncedAt < LEASE_PIPELINE_SYNC_TTL_MS) {
@@ -1608,6 +1611,7 @@ export async function syncLeasePipelineFromServer(managerUserId?: string | null,
     leasePipelineSyncPromise = (async () => {
       const localSnapshot = readLeasePipeline(managerUserId);
       const res = await fetch("/api/portal-lease-pipeline", { credentials: "include", cache: "no-store" });
+      notePortalResponse(res.status);
       if (!res.ok) return localSnapshot;
       const body = (await res.json()) as { rows?: unknown[] };
       const fetched = filterLeasesForManager((body.rows ?? []).map(normalizeLeasePipelineRow), managerUserId);

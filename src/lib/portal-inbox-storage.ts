@@ -1,5 +1,6 @@
 import { isDemoModeActive } from "@/lib/demo/demo-session";
 import { formatPacificDateTime } from "@/lib/pacific-time";
+import { notePortalResponse, portalSessionEnded } from "@/lib/auth/portal-session-gate";
 /** Persist portal inbox threads (demo localStorage) so actions survive navigation and reloads. */
 
 export type InboxThreadMessage = {
@@ -183,6 +184,8 @@ export async function syncPersistedInboxFromServer(
   if (!canUse()) return [];
   hydrateInboxFromSession(key);
   if (isDemoModeActive()) return memoryByKey.get(key) ?? [];
+  // Signed out: stop the interval-driven refetch instead of 401ing forever.
+  if (portalSessionEnded()) return memoryByKey.get(key) ?? [];
   const force = opts?.force === true;
   const inflight = inboxSyncPromiseByKey.get(key);
   if (!force && inflight) return inflight;
@@ -192,6 +195,7 @@ export async function syncPersistedInboxFromServer(
   }
   const promise = (async () => {
     const res = await fetch(`/api/portal-inbox-threads?scope=${encodeURIComponent(key)}`, { credentials: "include", cache: "no-store" });
+    notePortalResponse(res.status);
     if (!res.ok) return memoryByKey.get(key) ?? [];
     const body = (await res.json()) as { rows?: PersistedInboxThread[] };
     const rows = (Array.isArray(body.rows) ? body.rows : []).filter(looksLikeThread);

@@ -55,6 +55,20 @@ export async function POST(req: Request) {
     const saved = await syncChannelCalendarConnection(ctx.db, connectionId);
     return NextResponse.json({ connection: toPublicConnection(saved, browserOrigin) });
   } catch (e) {
-    return NextResponse.json({ error: e instanceof Error ? e.message : "Sync failed." }, { status: 500 });
+    const message = e instanceof Error ? e.message : "Sync failed.";
+    // Airbnb refusing or not returning a calendar is an UPSTREAM problem (a
+    // revoked/typo'd export link, or Airbnb being down) — not a PropLane fault.
+    // Reporting it as 502 with the remote's own words tells the manager what to
+    // fix; a bare 500 read as "PropLane is broken".
+    if (/Airbnb calendar returned|not a valid calendar file|fetch failed|aborted/i.test(message)) {
+      return NextResponse.json(
+        {
+          error: `Could not read that Airbnb calendar (${message}). Check the export link is still valid in Airbnb, then sync again.`,
+          upstream: true,
+        },
+        { status: 502 },
+      );
+    }
+    return NextResponse.json({ error: message }, { status: 500 });
   }
 }

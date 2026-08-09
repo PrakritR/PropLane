@@ -2,7 +2,11 @@ import "server-only";
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 
-import { isValidAirbnbImportUrl, normalizeAirbnbImportUrl } from "@/lib/channel-calendar/airbnb-url";
+import {
+  ChannelCalendarInputError,
+  isValidAirbnbImportUrl,
+  normalizeAirbnbImportUrl,
+} from "@/lib/channel-calendar/airbnb-url";
 import {
   mergeChannelImportedRanges,
   mintChannelCalendarExportToken,
@@ -124,7 +128,9 @@ export async function upsertChannelCalendarConnection(
   if (importUrlProvided) {
     importUrl = input.importUrl == null ? null : normalizeAirbnbImportUrl(input.importUrl);
     if (importUrl && !isValidAirbnbImportUrl(importUrl)) {
-      throw new Error("Import URL must be an Airbnb calendar link (https://www.airbnb.com/calendar/ical/…).");
+      throw new ChannelCalendarInputError(
+        "That is not an Airbnb calendar link. In Airbnb go to Calendar → Availability → Connect calendars → Export calendar, and paste the https://www.airbnb.com/calendar/ical/… URL.",
+      );
     }
   }
 
