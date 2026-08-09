@@ -326,6 +326,17 @@ export default function DocsPage() {
               Every write action is previewed first. You see exactly what will happen and confirm it
               before anything sends, and each action is written to an audit log.
             </p>
+            <p className="text-[14px]">
+              Building your own agent harness? Connect it through the same tool layer with the{" "}
+              <Link
+                href="/docs/mcp"
+                data-attr="docs-mcp-link"
+                className="text-primary underline-offset-2 hover:underline"
+              >
+                MCP server &amp; API
+              </Link>
+              .
+            </p>
           </DocSection>
 
           <DocSection id="team" kicker="Platform" title="Team & co-managers">

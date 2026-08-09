@@ -17,6 +17,7 @@ function isValidPostAuthDestination(path: string): boolean {
   if (path === "/auth/continue") return false;
   if (VALID_CONTINUE_DESTINATIONS.has(path)) return true;
   if (path.startsWith("/auth/manager-") || path.startsWith("/auth/resident-")) return true;
+  if (path.startsWith("/mcp/authorize")) return true;
   if (path.startsWith("/partner/pricing")) return true;
   return (
     path.startsWith("/portal") ||

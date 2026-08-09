@@ -157,6 +157,13 @@ export function PublicNavbar() {
               dataAttr: "nav-resources-docs",
             },
             {
+              title: "MCP & API",
+              url: "/docs/mcp",
+              description: "Connect your own AI agent to PropLane",
+              active: pathname.startsWith("/docs/mcp"),
+              dataAttr: "nav-resources-mcp",
+            },
+            {
               title: "About us",
               url: "/about",
               description: "Built by managers who use PropLane daily",

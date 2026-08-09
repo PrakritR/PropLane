@@ -49,11 +49,14 @@ vi.mock("@/components/native/notifications-toggle", () => ({
 vi.mock("@/components/portal/assistant-display-setting", () => ({
   AssistantDisplaySetting: () => <div data-testid="pane-assistant-display" />,
 }));
+vi.mock("@/components/portal/manager-api-keys-panel", () => ({
+  ManagerApiKeysPanel: () => <div data-testid="pane-api-keys" />,
+}));
 
 import { PortalProfileClient } from "@/components/portal/portal-profile-client";
 import { PortalSettingsExtras } from "@/components/portal/portal-settings-extras";
 
-const CATEGORIES = ["profile", "billing", "preferences", "security", "feedback", "account"] as const;
+const CATEGORIES = ["profile", "billing", "preferences", "security", "developer", "feedback", "account"] as const;
 
 function goto(search: string) {
   window.history.replaceState(null, "", `/portal/profile${search}`);
@@ -123,6 +126,7 @@ describe("manager settings categories", () => {
     ["billing", () => screen.getByTestId("pane-manager-plan")],
     ["preferences", () => screen.getByText("Theme")],
     ["security", () => screen.getByTestId("pane-change-password")],
+    ["developer", () => screen.getByTestId("pane-api-keys")],
     ["feedback", () => screen.getByTestId("pane-bug-feedback")],
     ["account", () => screen.getByText("Sign out")],
   ])("deep-links ?tab=%s straight to that pane", async (tab, expectPane) => {

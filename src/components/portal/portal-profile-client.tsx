@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ComponentType, 
 import { usePathname, useSearchParams } from "next/navigation";
 import {
   CreditCard,
+  KeyRound,
   Lock,
   MessageSquareText,
   Settings2,
@@ -29,6 +30,7 @@ import {
   PortalSettingsSections,
 } from "@/components/portal/portal-settings-ui";
 import { ManagerPlan } from "@/components/portal/manager-plan";
+import { ManagerApiKeysPanel } from "@/components/portal/manager-api-keys-panel";
 import { MANAGER_PLAN_PORTAL_HASH } from "@/lib/portals/manager-plan-path";
 import { AssistantDisplaySetting } from "@/components/portal/assistant-display-setting";
 import { AssistantCustomInstructionsSetting } from "@/components/portal/assistant-custom-instructions-setting";
@@ -56,7 +58,14 @@ function emptyToDash(v: string) {
  */
 const SETTINGS_TAB_PARAM = "tab";
 
-type SettingsGroupId = "profile" | "billing" | "preferences" | "security" | "feedback" | "account";
+type SettingsGroupId =
+  | "profile"
+  | "billing"
+  | "preferences"
+  | "security"
+  | "developer"
+  | "feedback"
+  | "account";
 
 type SettingsGroup = {
   id: SettingsGroupId;
@@ -242,6 +251,18 @@ export function PortalProfileClient({
         description: "Password and sign-in options.",
         icon: Lock,
       },
+    );
+    // Keys authorize against the manager tool layer, so the pane is manager-only.
+    // /demo must never mint a real credential.
+    if (!demo && variant === "manager") {
+      list.push({
+        id: "developer",
+        label: "API & MCP",
+        description: "Connect your own AI agent to PropLane.",
+        icon: KeyRound,
+      });
+    }
+    list.push(
       {
         id: "feedback",
         label: "Feedback",
@@ -256,7 +277,7 @@ export function PortalProfileClient({
       },
     );
     return list;
-  }, [demo, idLabel]);
+  }, [demo, idLabel, variant]);
 
   // Legacy upgrade CTAs across the product still link to
   // `/portal/profile#portal-plan`, and Stripe returns to
@@ -374,6 +395,8 @@ export function PortalProfileClient({
         );
       case "security":
         return <PortalChangePasswordPanel accountEmail={dashToEmpty(initialEmail) || initialEmail} />;
+      case "developer":
+        return <ManagerApiKeysPanel />;
       case "feedback":
         return <PortalBugFeedbackPanel reporterRole={portalKind === "pro" ? "pro" : "manager"} embedded />;
       case "account":

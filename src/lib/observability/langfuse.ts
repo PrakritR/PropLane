@@ -631,3 +631,48 @@ export async function traceAgentAction<T extends TracedActionResult | { ok: true
     await flushTelemetry(lf);
   }
 }
+
+/**
+ * Trace one externally initiated MCP / REST tool call. There is no PropLane
+ * LLM turn for these calls—the customer owns the harness—but the tool input,
+ * result, key id, and manager scope still need to be replayable when support
+ * investigates an integration. Keep this separate from `traceAgentAction`:
+ * calling a read tool is not a confirmation decision.
+ */
+export async function traceExternalToolCall<T>(
+  actor: TraceActor,
+  info: { toolName: string; input: unknown; transport: "mcp" | "rest"; keyId: string },
+  run: () => Promise<T>,
+): Promise<T> {
+  const lf = getClient();
+  if (!lf) return run();
+
+  let trace: ReturnType<Langfuse["trace"]> | null = null;
+  try {
+    trace = lf.trace({
+      name: "axis-mcp-tool-call",
+      userId: actor.userId,
+      sessionId: actor.sessionId ?? `mcp:${info.keyId}`,
+      metadata: {
+        ...(actor.metadata ?? {}),
+        toolName: info.toolName,
+        transport: info.transport,
+        keyId: info.keyId,
+      },
+      input: info.input,
+    });
+  } catch {
+    trace = null;
+  }
+
+  try {
+    const result = await run();
+    safe(() => trace?.update({ output: result }));
+    return result;
+  } catch (e) {
+    safe(() => trace?.update({ output: e instanceof Error ? e.message : "error" }));
+    throw e;
+  } finally {
+    await flushTelemetry(lf);
+  }
+}

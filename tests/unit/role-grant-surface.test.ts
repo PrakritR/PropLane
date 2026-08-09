@@ -24,6 +24,8 @@ const MIGRATIONS_DIR = join(process.cwd(), "supabase", "migrations");
 
 /** Tables whose contents are read as a trust signal by the auth layer. */
 const TRUST_TABLES = ["profiles", "profile_roles", "vendor_invites"] as const;
+/** Credential rows must be service-role-only: no browser policy, including SELECT. */
+const CREDENTIAL_TABLES = ["manager_api_keys", "mcp_oauth_clients", "mcp_oauth_authorization_codes", "mcp_oauth_tokens"] as const;
 
 const CLIENT_ROLES = ["anon", "authenticated"] as const;
 
@@ -193,4 +195,29 @@ describe("role-grant surface on trust tables", () => {
     );
     expect(setsNotNull).toBe(true);
   });
+});
+
+describe("credential-table grant surface", () => {
+  for (const table of CREDENTIAL_TABLES) {
+    it(`keeps public.${table} inaccessible to anon and authenticated`, () => {
+      const revoked = new Map<string, Set<string>>(CLIENT_ROLES.map((r) => [r, new Set<string>()]));
+      for (const { sql } of STATEMENTS) {
+        const stmt = parseGrantStatement(sql);
+        if (!stmt || !stmt.targetsTable(table)) continue;
+        for (const role of CLIENT_ROLES) {
+          if (!stmt.grantees.includes(role)) continue;
+          for (const privilege of stmt.writes) {
+            if (stmt.verb === "grant") revoked.get(role)!.delete(privilege);
+            else revoked.get(role)!.add(privilege);
+          }
+        }
+      }
+      for (const role of CLIENT_ROLES) {
+        expect([...revoked.get(role)!].sort(), `${table} must revoke client DML from ${role}`).toEqual(
+          [...WRITE_PRIVILEGES].sort(),
+        );
+      }
+      expect(livePoliciesFor(table).size, `${table} must have no client-readable or writable RLS policy`).toBe(0);
+    });
+  }
 });
