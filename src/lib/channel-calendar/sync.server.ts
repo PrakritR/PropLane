@@ -8,8 +8,8 @@ import {
   mintChannelCalendarExportToken,
   parseConnectionRow,
   toPublicConnection,
-  type ChannelCalendarConnectionRow,
 } from "@/lib/channel-calendar/connections.server";
+import type { ChannelCalendarConnectionRow } from "@/lib/channel-calendar/types";
 import type { ChannelCalendarImportedRange } from "@/lib/channel-calendar/types";
 import { parseIcsCalendar } from "@/lib/ical/parse";
 import type { MockProperty } from "@/data/types";

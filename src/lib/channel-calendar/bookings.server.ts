@@ -28,7 +28,6 @@ function propertyLabelFromRecord(
     property?.buildingName?.trim() ||
     String(rowData?.buildingName ?? "").trim();
   const unit =
-    submission?.unitLabel?.trim() ||
     property?.unitLabel?.trim() ||
     String(rowData?.unitLabel ?? "").trim();
   if (building && unit) return `${building} · ${unit}`;
