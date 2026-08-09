@@ -250,6 +250,24 @@ export function resolveTourOfferingSlots(
  * whose manager has not opened the calendar yet offers a prospect nothing at
  * all, which reads as a dead booking page.
  */
+/**
+ * The 9-5 default windows for ONE calendar date.
+ *
+ * The manager calendar needs this to turn an implicit default day into explicit
+ * availability: painting anything on a day switches that day off the default
+ * (see {@link resolveTourOfferingSlots}), so removing a single default window
+ * has to write the rest of that day back explicitly — otherwise dropping one
+ * slot would silently close the whole day to prospects.
+ */
+export function defaultTourSlotKeysForDate(dateStr: string): string[] {
+  const keys: string[] = [];
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) return keys;
+  for (let slot = DEFAULT_TOUR_START_SLOT; slot < DEFAULT_TOUR_END_SLOT_EXCLUSIVE; slot += 1) {
+    keys.push(`${dateStr}:${slot}`);
+  }
+  return keys;
+}
+
 export function buildDefaultTourSlotKeys(
   now: number = Date.now(),
   days: number = DEFAULT_TOUR_HORIZON_DAYS,

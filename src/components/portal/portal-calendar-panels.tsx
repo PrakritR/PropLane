@@ -47,7 +47,11 @@ import {
   writeAvailabilityDateSetForStorageKeyToServer,
 } from "@/lib/demo-admin-scheduling";
 import { mondayBasedDayIndex, resolveBlockBaseDates } from "@/lib/portal/availability-block";
-import { resolveTourOfferingSlots, slotIsBookable } from "@/lib/tour-slot-math";
+import {
+  defaultTourSlotKeysForDate,
+  resolveTourOfferingSlots,
+  slotIsBookable,
+} from "@/lib/tour-slot-math";
 import { cn } from "@/lib/utils";
 import { HORIZONTAL_SCROLL_ATTR, PORTAL_HORIZONTAL_SCROLL_ROW_CLASS } from "@/lib/horizontal-scroll";
 import {
@@ -93,6 +97,14 @@ const CALENDAR_OPEN_SLOT =
   "bg-emerald-100 text-emerald-950 ring-1 ring-inset ring-emerald-300 [html[data-theme=dark]_&]:portal-calendar-open-slot";
 const CALENDAR_OPEN_SLOT_SOFT =
   "border-emerald-300 bg-emerald-100 text-emerald-900 [html[data-theme=dark]_&]:portal-calendar-open-slot";
+/**
+ * Bookable by the 9-5 default, not by anything the manager painted. Deliberately
+ * a dashed, lower-contrast cousin of the painted-open style: it IS live to
+ * prospects (so it must not read as empty), but it is not a deliberate choice
+ * the manager made (so it must not read the same as painted availability).
+ */
+const CALENDAR_DEFAULT_OPEN_SLOT =
+  "bg-emerald-50 text-emerald-800 ring-1 ring-inset ring-dashed ring-emerald-300/70 hover:bg-emerald-100 [html[data-theme=dark]_&]:portal-calendar-open-slot";
 const CALENDAR_BADGE_SUCCESS =
   "rounded-full portal-badge-success";
 const CALENDAR_BADGE_INFO =
@@ -499,6 +511,22 @@ export function PortalCalendarPanels({
     () => new Set(resolveTourOfferingSlots([...activeSlots]).filter((slot) => slotIsBookable(slot))),
     [activeSlots],
   );
+  /**
+   * Windows a prospect can book that the manager never painted — the implicit
+   * 9-5 default. These were invisible here while being live on the public
+   * booking page, so a manager had no idea their calendar was open, let alone
+   * which days. Shown as a distinct "default" state that can be removed.
+   */
+  /** Availability edits need exactly one write target; the portfolio-wide view has none. */
+  const canEditAvailability = !readOnly && writeStorageKeys.length > 0;
+  const defaultOnlySlots = useMemo(() => {
+    const out = new Set<string>();
+    for (const key of offeredSlots) {
+      if (!activeSlots.has(key)) out.add(key);
+    }
+    return out;
+  }, [activeSlots, offeredSlots]);
+
   const [dragSelection, setDragSelection] = useState<DragSelection | null>(null);
   // Mirrors dragSelection synchronously. mousedown and mouseup can land in the
   // same React batch on a fast click, so finishDragSelection would otherwise
@@ -696,6 +724,26 @@ export function PortalCalendarPanels({
       }
     },
     [activeSlots, vendorCalendarActions],
+  );
+
+  /**
+   * Removes one default window. The rest of that day's default is written back
+   * explicitly, because painting anything on a day takes it off the default —
+   * without this, dropping one window would close the whole day.
+   */
+  const removeDefaultSlot = useCallback(
+    (dateStr: string, slotIdx: number) => {
+      const removedKey = dateSlotKey(dateStr, slotIdx);
+      mutateAvailability((current) => {
+        const next = new Set(current);
+        for (const key of defaultTourSlotKeysForDate(dateStr)) {
+          if (key !== removedKey && slotIsBookable(key)) next.add(key);
+        }
+        next.delete(removedKey);
+        return next;
+      });
+    },
+    [mutateAvailability],
   );
 
   const deleteAvailabilitySlot = useCallback(() => {
@@ -1985,6 +2033,12 @@ export function PortalCalendarPanels({
               const coManagerOpen = Boolean(coManagerOverlay && !active && !meetingBySlotKey.get(key));
               const selected = isSlotInDragSelection(ds, slotIdx);
               const meeting = meetingBySlotKey.get(key);
+              // Bookable by the 9-5 default rather than by anything the manager
+              // painted. Shown so the calendar tells the truth about what
+              // prospects can book; clicking removes just this window.
+              const defaultOpen = Boolean(
+                !active && !meeting && !coManagerOpen && defaultOnlySlots.has(key),
+              );
               const isMeetingStart = Boolean(
                 meeting && key === dateSlotKey(meeting.dateStr, meeting.startSlot),
               );
@@ -1993,21 +2047,25 @@ export function PortalCalendarPanels({
                   key={key}
                   type="button"
                   onMouseDown={() => {
-                    if (readOnly || meeting || active || coManagerOpen) return;
+                    if (readOnly || meeting || active || coManagerOpen || defaultOpen) return;
                     // Weekday must come from the column's actual date, not its position in the
                     // window — the compact view can start on any weekday, so the Nth column is
                     // not the Nth weekday.
                     startDragSelection(ds, mondayBasedDayIndex(new Date(`${ds}T12:00:00`)), slotIdx);
                   }}
                   onMouseEnter={() => {
-                    if (readOnly || meeting || active || coManagerOpen) return;
+                    if (readOnly || meeting || active || coManagerOpen || defaultOpen) return;
                     extendDragSelection(ds, slotIdx);
                   }}
                   onMouseUp={() => {
-                    if (readOnly || meeting || active || coManagerOpen) return;
+                    if (readOnly || meeting || active || coManagerOpen || defaultOpen) return;
                     finishDragSelection();
                   }}
                   onClick={(e: MouseEvent<HTMLButtonElement>) => {
+                    if (defaultOpen) {
+                      if (canEditAvailability) removeDefaultSlot(ds, slotIdx);
+                      return;
+                    }
                     // Keyboard activation (Enter / Space) fires click without any
                     // mousedown/mouseup, so the drag-select path never runs. Open the
                     // block modal directly for an empty slot so the grid is usable
@@ -2027,9 +2085,24 @@ export function PortalCalendarPanels({
                         ? CALENDAR_OPEN_SLOT
                         : coManagerOpen
                           ? CALENDAR_CO_MANAGER_SLOT
+                          : defaultOpen
+                            ? CALENDAR_DEFAULT_OPEN_SLOT
                         : CALENDAR_EMPTY_SLOT
                   }`}
-                  aria-label={`${meeting || active || coManagerOpen ? "Open details for" : "Select"} ${formatAvailabilitySlotLabel(slotIdx)} on ${ds}`}
+                  title={
+                    defaultOpen
+                      ? canEditAvailability
+                        ? "Open for tours by default — click to remove this time"
+                        : "Open for tours by default. Select one house to edit availability."
+                      : undefined
+                  }
+                  aria-label={
+                    defaultOpen
+                      ? canEditAvailability
+                        ? `Open for tours by default. Remove ${formatAvailabilitySlotLabel(slotIdx)} on ${ds}`
+                        : `Open for tours by default at ${formatAvailabilitySlotLabel(slotIdx)} on ${ds}. Select one house to edit availability.`
+                      : `${meeting || active || coManagerOpen ? "Open details for" : "Select"} ${formatAvailabilitySlotLabel(slotIdx)} on ${ds}`
+                  }
                 >
                   {meeting ? (
                     isMeetingStart ? (
