@@ -2,16 +2,14 @@
 
 import { Modal } from "@/components/ui/modal";
 import { bookingGuestLabel } from "@/lib/channel-calendar/booking-guest-label";
+import type { PropertyBookingEntry } from "@/lib/channel-calendar/property-bookings";
 
-export type BookingsDayEntry = {
-  propertyId: string;
-  propertyLabel: string;
-  roomId: string;
-  roomLabel: string;
-  summary: string;
-  start: string;
-  end: string;
-};
+/**
+ * The day detail shows PropLane stays and Airbnb reservations side by side, so
+ * every line has to say WHICH — otherwise a resident mid-signature is
+ * indistinguishable from a confirmed Airbnb guest.
+ */
+export type BookingsDayEntry = PropertyBookingEntry;
 
 function formatStayRange(start: string, end: string): string {
   const fmt = (iso: string) => {
@@ -41,27 +39,32 @@ export function BookingsDayDetailModal({
       title={dayLabel}
       description={
         entries.length === 0
-          ? "No Airbnb bookings on this date."
-          : `${entries.length} room${entries.length === 1 ? "" : "s"} booked`
+          ? "Nothing booked on this date."
+          : `${entries.length} booking${entries.length === 1 ? "" : "s"}`
       }
       dataAttr="bookings-day-detail-modal"
     >
       {entries.length === 0 ? (
-        <p className="text-sm text-muted">Nothing booked from synced Airbnb calendars.</p>
+        <p className="text-sm text-muted">
+          No PropLane stays and nothing from synced Airbnb calendars.
+        </p>
       ) : (
         <ul className="space-y-3">
           {entries.map((entry) => (
             <li
-              key={`${entry.propertyId}-${entry.roomId}-${entry.start}-${entry.summary}`}
+              key={`${entry.source}-${entry.propertyId}-${entry.roomId}-${entry.start}-${entry.summary}`}
               className="rounded-lg border border-border bg-accent/20 px-4 py-3"
             >
               <p className="text-sm font-semibold text-foreground">{entry.propertyLabel}</p>
               <p className="mt-0.5 text-xs text-muted">{entry.roomLabel}</p>
               <p className="mt-2 text-sm font-medium text-foreground">
-                {bookingGuestLabel(entry.summary)}
+                {entry.source === "airbnb" ? bookingGuestLabel(entry.summary) : entry.summary}
               </p>
               <p className="mt-1 text-xs text-muted">
-                Stay · {formatStayRange(entry.start, entry.end)} · Airbnb
+                Stay · {formatStayRange(entry.start, entry.end)}
+                {entry.openEnded ? " onward" : ""} ·{" "}
+                {entry.source === "airbnb" ? "Airbnb" : "PropLane"}
+                {entry.statusLabel ? ` · ${entry.statusLabel}` : ""}
               </p>
             </li>
           ))}

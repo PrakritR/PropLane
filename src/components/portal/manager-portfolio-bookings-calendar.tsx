@@ -8,62 +8,45 @@ import {
 } from "@/components/portal/bookings-day-detail-modal";
 import { fetchManagerChannelBookings } from "@/lib/channel-calendar/client";
 import { bookingGuestShortLabel } from "@/lib/channel-calendar/booking-guest-label";
-import type { ManagerChannelBookingProperty } from "@/lib/channel-calendar/types";
+import {
+  airbnbBookingEntries,
+  bookedDayKeyCountInMonth,
+  bookingEntriesForDayKey,
+  filterBookingEntriesByRoom,
+  type PropertyBookingEntry,
+} from "@/lib/channel-calendar/property-bookings";
 import {
   addMonths,
   buildMonthDayCells,
   dateKey,
   startOfLocalDay,
 } from "@/lib/room-availability-calendar";
-import { dateKeyInBookingRange } from "@/lib/channel-calendar/bookings-dates";
 
 const WEEKDAY_LABELS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-
-function bookingsForDay(properties: ManagerChannelBookingProperty[], day: Date): BookingsDayEntry[] {
-  const key = dateKey(day);
-  const out: BookingsDayEntry[] = [];
-  for (const property of properties) {
-    for (const room of property.rooms) {
-      for (const range of room.ranges) {
-        if (!dateKeyInBookingRange(key, range.start, range.end)) continue;
-        out.push({
-          propertyId: property.propertyId,
-          propertyLabel: property.propertyLabel,
-          roomId: room.roomId,
-          roomLabel: room.roomLabel,
-          summary: range.summary,
-          start: range.start,
-          end: range.end,
-        });
-      }
-    }
-  }
-  return out;
-}
-
-function bookedDayCountInMonth(
-  properties: ManagerChannelBookingProperty[],
-  monthStart: Date,
-): number {
-  const monthEnd = new Date(monthStart.getFullYear(), monthStart.getMonth() + 1, 0);
-  let count = 0;
-  for (let d = 1; d <= monthEnd.getDate(); d += 1) {
-    const day = new Date(monthStart.getFullYear(), monthStart.getMonth(), d);
-    if (bookingsForDay(properties, day).length > 0) count += 1;
-  }
-  return count;
-}
 
 export function ManagerPortfolioBookingsCalendar({
   propertyIds,
   showToast,
   refreshSignal = 0,
+  extraEntries,
+  roomFilterId = "",
+  emptyMessage,
 }: {
   propertyIds: string[];
   showToast: (message: string) => void;
   refreshSignal?: number;
+  /**
+   * PropLane's own stays, supplied by the caller (it owns the lease store and
+   * the property/room labels). Merged with the Airbnb ranges this component
+   * fetches so a day cell reflects the house's real occupancy, not just one
+   * channel.
+   */
+  extraEntries?: PropertyBookingEntry[];
+  /** "" / "all" = every room. Only offered for rent-by-room listings. */
+  roomFilterId?: string;
+  emptyMessage?: string;
 }) {
-  const [properties, setProperties] = useState<ManagerChannelBookingProperty[]>([]);
+  const [airbnbEntries, setAirbnbEntries] = useState<PropertyBookingEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [monthOffset, setMonthOffset] = useState(0);
   const [dayModalOpen, setDayModalOpen] = useState(false);
@@ -74,29 +57,34 @@ export function ManagerPortfolioBookingsCalendar({
   const monthStart = useMemo(() => addMonths(startMonth, monthOffset), [startMonth, monthOffset]);
   const monthCells = useMemo(() => buildMonthDayCells(monthStart), [monthStart]);
 
+  const propertyIdsKey = propertyIds.join(",");
+
   const reload = useCallback(async () => {
     setLoading(true);
     try {
-      const rows = await fetchManagerChannelBookings(propertyIds);
-      setProperties(rows);
+      const rows = await fetchManagerChannelBookings(propertyIdsKey.split(",").filter(Boolean));
+      setAirbnbEntries(airbnbBookingEntries(rows));
     } catch (e) {
       showToast(e instanceof Error ? e.message : "Could not load bookings.");
-      setProperties([]);
+      setAirbnbEntries([]);
     } finally {
       setLoading(false);
     }
-  }, [propertyIds, showToast]);
+  }, [propertyIdsKey, showToast]);
 
   useEffect(() => {
     void reload();
   }, [reload, refreshSignal]);
 
-  const selectedDayBookings = useMemo(() => {
-    if (!selectedDayKey) return [];
-    const [y, m, d] = selectedDayKey.split("-").map(Number);
-    if (!y || !m || !d) return [];
-    return bookingsForDay(properties, new Date(y, m - 1, d));
-  }, [properties, selectedDayKey]);
+  const entries = useMemo(
+    () => filterBookingEntriesByRoom([...airbnbEntries, ...(extraEntries ?? [])], roomFilterId),
+    [airbnbEntries, extraEntries, roomFilterId],
+  );
+
+  const selectedDayBookings = useMemo<BookingsDayEntry[]>(
+    () => (selectedDayKey ? bookingEntriesForDayKey(entries, selectedDayKey) : []),
+    [entries, selectedDayKey],
+  );
 
   const selectedDayLabel = useMemo(() => {
     if (!selectedDayKey) return "";
@@ -110,8 +98,8 @@ export function ManagerPortfolioBookingsCalendar({
   }, [selectedDayKey]);
 
   const bookedDaysThisMonth = useMemo(
-    () => bookedDayCountInMonth(properties, monthStart),
-    [properties, monthStart],
+    () => bookedDayKeyCountInMonth(entries, monthStart.getFullYear(), monthStart.getMonth()),
+    [entries, monthStart],
   );
 
   const openDay = (key: string) => {
@@ -122,7 +110,8 @@ export function ManagerPortfolioBookingsCalendar({
   if (propertyIds.length === 0) {
     return (
       <p className="text-sm text-muted">
-        No houses in your portfolio yet. List a property, then link rooms with Link Airbnb.
+        {emptyMessage ??
+          "No houses in your portfolio yet. List a property, then link rooms with Link Airbnb."}
       </p>
     );
   }
@@ -179,7 +168,7 @@ export function ManagerPortfolioBookingsCalendar({
               return <div key={`pad-${index}`} className="min-h-[4.5rem]" aria-hidden />;
             }
             const key = dateKey(cell);
-            const dayBookings = bookingsForDay(properties, cell);
+            const dayBookings = bookingEntriesForDayKey(entries, key);
             const booked = dayBookings.length > 0;
             const isToday = key === dateKey(today);
             const preview = dayBookings[0];
@@ -201,7 +190,9 @@ export function ManagerPortfolioBookingsCalendar({
                 {booked ? (
                   <div className="mt-1 min-h-0 flex-1 space-y-0.5 overflow-hidden">
                     <p className="truncate text-[10px] font-medium leading-tight">
-                      {bookingGuestShortLabel(preview?.summary, 14)}
+                      {preview?.source === "airbnb"
+                        ? bookingGuestShortLabel(preview?.summary, 14)
+                        : preview?.summary}
                     </p>
                     <p className="truncate text-[9px] opacity-80">
                       {preview?.roomLabel}

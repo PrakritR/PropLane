@@ -193,8 +193,10 @@ export function ChannelCalendarLinkModal({
       title="Link Airbnb"
       description="Choose a house and room, paste the Airbnb export URL, then save or sync."
       dataAttr="channel-calendar-link-modal"
+      /* Footer actions are left-justified here: they read as the next step in
+         the form above them, not as a confirm/cancel pair in the corner. */
       footer={
-        <ModalFooter>
+        <ModalFooter className="justify-start">
           <Button
             type="button"
             variant="outline"

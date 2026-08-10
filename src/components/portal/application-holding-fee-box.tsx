@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
+import { Modal } from "@/components/ui/modal";
 import { Input } from "@/components/ui/input";
 import { useAppUi } from "@/components/providers/app-ui-provider";
 import {
@@ -32,6 +33,7 @@ export function ApplicationHoldingFeeBox({
   propertyId,
   managerUserId,
   onChanged,
+  bare = false,
 }: {
   applicationId: string;
   residentEmail: string;
@@ -40,6 +42,8 @@ export function ApplicationHoldingFeeBox({
   propertyId: string;
   managerUserId: string | null;
   onChanged?: () => void;
+  /** Inside the modal the surrounding card and repeated title are noise. */
+  bare?: boolean;
 }) {
   const { showToast } = useAppUi();
   const existing = residentEmail && propertyId
@@ -110,11 +114,11 @@ export function ApplicationHoldingFeeBox({
 
   return (
     <div
-      className="rounded-xl border border-border bg-card/40 px-4 py-3"
+      className={bare ? "" : "rounded-xl border border-border bg-card/40 px-4 py-3"}
       data-attr="application-holding-fee-box"
     >
       <div className="flex flex-wrap items-baseline justify-between gap-2">
-        <p className="text-sm font-semibold text-foreground">Holding fee</p>
+        {bare ? <span /> : <p className="text-sm font-semibold text-foreground">Holding fee</p>}
         {existing ? (
           <span
             className={`text-xs font-semibold ${paid ? "text-emerald-700" : "text-muted"}`}
@@ -124,9 +128,9 @@ export function ApplicationHoldingFeeBox({
           </span>
         ) : null}
       </div>
-      <p className="mt-1 text-xs text-muted">
-        Optional. Asks this applicant to hold the home while you review. It appears on their Payments
-        tab straight away — the deposit and move-in fee are only billed once you approve.
+      <p className={`${bare ? "" : "mt-1 "}text-xs text-muted`}>
+        Optional. It appears on their Payments tab straight away — the deposit and move-in fee are
+        only billed once you approve.
       </p>
 
       {paid ? (
@@ -179,5 +183,53 @@ export function ApplicationHoldingFeeBox({
         </div>
       )}
     </div>
+  );
+}
+
+/**
+ * The holding fee as a top-right header action rather than a body card.
+ *
+ * `key` on the box is deliberate: it seeds its amount field from the charge
+ * that exists at mount, so without a per-application key the modal would show
+ * the previous applicant's amount when reopened on another row.
+ */
+export function ApplicationHoldingFeeModal({
+  row,
+  open,
+  onClose,
+}: {
+  row: {
+    id: string;
+    email?: string | null;
+    name?: string | null;
+    residentUserId?: string | null;
+    managerUserId?: string | null;
+    propertyId?: string | null;
+    application?: { propertyId?: string | null } | null;
+  } | null;
+  open: boolean;
+  onClose: () => void;
+}) {
+  if (!row) return null;
+  const propertyId = row.application?.propertyId?.trim() || row.propertyId?.trim() || "";
+  return (
+    <Modal
+      open={open}
+      onClose={onClose}
+      title="Holding fee"
+      description={`Ask ${row.name?.trim() || "this applicant"} to hold the home while you review.`}
+      dataAttr="application-holding-fee-modal"
+    >
+      <ApplicationHoldingFeeBox
+        bare
+        key={row.id}
+        applicationId={row.id}
+        residentEmail={row.email ?? ""}
+        residentName={row.name ?? ""}
+        residentUserId={row.residentUserId ?? null}
+        propertyId={propertyId}
+        managerUserId={row.managerUserId ?? null}
+      />
+    </Modal>
   );
 }

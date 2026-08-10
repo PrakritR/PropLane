@@ -3,7 +3,7 @@
 import { useMemo } from "react";
 import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
 import { ManagerPropertyTourPanel } from "@/components/portal/manager-property-tour-panel";
-import { ManagerPropertyChannelCalendarPanel } from "@/components/portal/manager-property-channel-calendar-panel";
+import { ManagerPropertyBookingsPanel } from "@/components/portal/manager-property-bookings-panel";
 import {
   PROPERTY_CALENDAR_SUB_TAB_LABELS,
   propertyCalendarSubHref,
@@ -63,9 +63,11 @@ export function ManagerPropertyCalendarPanel({
           onRegisterSendTour={onRegisterSendTour}
         />
       ) : (
-        <ManagerPropertyChannelCalendarPanel
+        <ManagerPropertyBookingsPanel
           propertyId={propertyId}
+          propertyLabel={propertyLabel}
           submission={submission}
+          managerUserId={managerUserId}
           showToast={showToast}
         />
       )}

@@ -44,7 +44,7 @@ import { PortalCollapsibleSection } from "@/components/portal/portal-collapsible
 import { DestinationNav } from "@/components/ui/destination-nav";
 import { ApplicationReviewLauncherRow, type ApplicationReviewView } from "@/components/portal/application-review-launcher-row";
 import { downloadBackgroundCheckForApplication } from "@/components/portal/application-screening-panel";
-import { ApplicationHoldingFeeBox } from "@/components/portal/application-holding-fee-box";
+import { ApplicationHoldingFeeModal } from "@/components/portal/application-holding-fee-box";
 import { ManagerEditApplicationModal } from "@/components/portal/manager-edit-application-modal";
 import { ManagerApplicationOnBehalfModal } from "@/components/portal/manager-application-on-behalf-modal";
 import {
@@ -97,7 +97,7 @@ import {
 } from "@/lib/rental-application/in-progress-application";
 import { isWithdrawnApplicationRow } from "@/lib/rental-application/resident-application-list";
 import { applicantDisplayName, applicantSecondaryEmail } from "@/lib/rental-application/applicant-name";
-import { ApplicationGroupSection, groupIdForRow, groupRowInputForRow } from "@/components/portal/application-group-section";
+import { groupIdForRow, groupRowInputForRow } from "@/components/portal/application-group-section";
 import {
   ApplicationCosignerListRow,
   ApplicationCosignerSection,
@@ -522,6 +522,10 @@ export function ManagerApplications({
   const [screeningModalOpen, setScreeningModalOpen] = useState(false);
   const [applicationSettingsOpen, setApplicationSettingsOpen] = useState(false);
   const [checkrScreeningRowId, setCheckrScreeningRowId] = useState<string | null>(null);
+  // Holding fee lives in the detail's top-right action row, not inline in the
+  // body: it is an occasional manager action, and inline it pushed the
+  // applicant's own answers below the fold.
+  const [holdingFeeRowId, setHoldingFeeRowId] = useState<string | null>(null);
   const [checkrScreeningShowPicker, setCheckrScreeningShowPicker] = useState(false);
   const [applicationReviewView, setApplicationReviewView] = useState<ApplicationReviewView>("application");
   useEffect(() => {
@@ -1167,6 +1171,21 @@ export function ManagerApplications({
       </Button>
     );
 
+    // Asking for a hold on a rejected or withdrawn application makes no sense,
+    // so the button is absent rather than disabled there.
+    const holdingFeeButton =
+      row.bucket === "rejected" || isWithdrawnApplicationRow(row) ? null : (
+        <Button
+          type="button"
+          variant="outline"
+          className={RESIDENT_DETAIL_HEADER_ACTION_BTN}
+          data-attr="application-holding-fee-open"
+          onClick={() => setHoldingFeeRowId(row.id)}
+        >
+          Holding fee
+        </Button>
+      );
+
     const mobileOverflowMenu = (
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
@@ -1199,6 +1218,14 @@ export function ManagerApplications({
               onSelect={() => downloadBackgroundCheckForApplication(row)}
             >
               Download background check
+            </DropdownMenuItem>
+          ) : null}
+          {holdingFeeButton ? (
+            <DropdownMenuItem
+              data-attr="application-holding-fee-open"
+              onSelect={() => setHoldingFeeRowId(row.id)}
+            >
+              Holding fee
             </DropdownMenuItem>
           ) : null}
           {moveToPendingButton ? (
@@ -1235,6 +1262,7 @@ export function ManagerApplications({
             {approveButton}
             {runCheckButton}
             {runAgainButton}
+            {holdingFeeButton}
             {downloadApplicationButton}
             {downloadScreeningButton}
             {moveToPendingButton}
@@ -1246,7 +1274,6 @@ export function ManagerApplications({
   };
 
   const renderApplicationDetail = (row: DemoApplicantRow) => {
-    const group = groupForRow(applicationGroups, { groupId: groupIdForRow(row) });
     const signerKey = normalizeApplicationAxisId(row.id).toUpperCase();
     const cosignerSubmissions = cosignerSubmissionsBySigner.get(signerKey) ?? [];
     // A holding deposit collected AT APPLICATION (a since-removed per-listing
@@ -1272,24 +1299,6 @@ export function ManagerApplications({
           terms.
         </div>
       ) : null}
-      {/* Manager-entered holding fee for this applicant. Hidden once the
-          application is no longer live — asking for a hold on a rejected or
-          withdrawn application makes no sense. */}
-      {!rejectedOrWithdrawn ? (
-        <ApplicationHoldingFeeBox
-          applicationId={row.id}
-          residentEmail={row.email ?? ""}
-          residentName={row.name ?? ""}
-          residentUserId={row.residentUserId ?? null}
-          propertyId={rowPropertyId}
-          managerUserId={row.managerUserId ?? null}
-        />
-      ) : null}
-
-      {group ? (
-        <ApplicationGroupSection group={group} bundleGroup={group} currentRowId={row.id} />
-      ) : null}
-
       {cosignerSubmissions.length > 0 ? (
         <ApplicationCosignerSection
           submissions={cosignerSubmissions}
@@ -1692,6 +1701,11 @@ export function ManagerApplications({
         }
       />
       <div className="mt-2 space-y-4 max-md:mt-3">
+      <ApplicationHoldingFeeModal
+        row={scopedRows.find((r) => r.id === holdingFeeRowId) ?? null}
+        open={holdingFeeRowId !== null}
+        onClose={() => setHoldingFeeRowId(null)}
+      />
       <ManagerScreeningSettingsModal open={screeningModalOpen} onClose={() => setScreeningModalOpen(false)} />
       <ManagerApplicationSettingsModal
         open={applicationSettingsOpen}
