@@ -15,6 +15,7 @@
 import { readFileSync, existsSync } from "node:fs";
 import { resolve } from "node:path";
 import { refuseProductionListingWrites } from "./lib/refuse-production-listing-writes.mjs";
+import { STANDARD_APPLICATION_FIELD_STANDARD_KEYS } from "./lib/standard-application-field-keys.mjs";
 
 function loadEnvFiles() {
   for (const name of [".env.local", ".env"]) {
@@ -43,12 +44,9 @@ function isLegacyFourQuestionDefault(sub) {
   );
   if (disabled.length === 0) return false;
   const disabledSet = new Set(disabled);
-  const enabledCount = disabledSet.size === 0 ? 38 : 38 - disabledSet.size;
-  if (enabledCount !== LEGACY_FOUR_QUESTION_ENABLED_KEYS.size) return false;
-  for (const key of LEGACY_FOUR_QUESTION_ENABLED_KEYS) {
-    if (disabledSet.has(key)) return false;
-  }
-  return true;
+  const enabled = STANDARD_APPLICATION_FIELD_STANDARD_KEYS.filter((key) => !disabledSet.has(key));
+  if (enabled.length !== LEGACY_FOUR_QUESTION_ENABLED_KEYS.size) return false;
+  return enabled.every((key) => LEGACY_FOUR_QUESTION_ENABLED_KEYS.has(key));
 }
 
 function usesPropLaneDefault(sub) {

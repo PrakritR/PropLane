@@ -324,7 +324,11 @@ export function ManagerPropertyApplicationQuestionsPanel({
           setPreviewOpen(false);
           setPreviewTemplate(null);
         }}
-        title={previewTemplate ? `View · ${previewTemplate.label}` : "View"}
+        title={
+          previewTemplate
+            ? `View · ${normalizePropertyApplicationTemplateLabel(previewTemplate.label)}`
+            : "View"
+        }
         presentation="dialog"
         dense
         assistantStrip={false}
