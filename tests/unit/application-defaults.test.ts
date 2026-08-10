@@ -71,4 +71,27 @@ describe("long-term application defaults", () => {
     const slice = applicationConfigForVariant(null, "standard");
     expect(slice.disabledStandardApplicationKeys).toEqual([]);
   });
+
+  it("heals listings that still store the retired four-question default", () => {
+    const legacyDisabled = STANDARD_APPLICATION_FIELD_CATALOG.filter(
+      (def) =>
+        ![
+          "household-group-application",
+          "property-property",
+          "property-lease-term",
+          "property-lease-start-end-dates",
+        ].includes(def.standardKey),
+    ).map((def) => def.standardKey);
+    const sub = {
+      applicationConfigMode: "standard" as const,
+      disabledStandardApplicationKeys: legacyDisabled,
+      customApplicationFields: [],
+    };
+    const slice = applicationConfigForVariant(sub, "standard");
+    expect(slice.disabledStandardApplicationKeys).toEqual([]);
+    expect(
+      resolveListingApplicationFields(slice, normalizeCustomApplicationFields),
+    ).toHaveLength(STANDARD_APPLICATION_FIELD_CATALOG.length);
+    expect(listingApplicationUsesPropLaneDefaultQuestions(sub)).toBe(true);
+  });
 });

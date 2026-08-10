@@ -247,6 +247,34 @@ function asConfigMode(value: unknown): "standard" | "custom" {
   return value === "custom" ? "custom" : "standard";
 }
 
+/** Keys left on by the retired four-question long-term default (commit 663844e7). */
+const LEGACY_FOUR_QUESTION_ENABLED_STANDARD_KEYS = new Set<string>([
+  "household-group-application",
+  "property-property",
+  "property-lease-term",
+  "property-lease-start-end-dates",
+]);
+
+/** Listings that still store the old four-question default as explicit disabled keys. */
+export function isLegacyFourQuestionApplicationDefault(
+  sub:
+    | {
+        disabledStandardApplicationKeys?: unknown;
+        customApplicationFields?: unknown;
+        applicationConfigMode?: unknown;
+      }
+    | null
+    | undefined,
+): boolean {
+  if (!sub || sub.applicationConfigMode === "custom") return false;
+  if (asCustomFields(sub.customApplicationFields).length > 0) return false;
+  const disabled = new Set(asStringArray(sub.disabledStandardApplicationKeys));
+  if (disabled.size === 0) return false;
+  const enabled = STANDARD_APPLICATION_FIELD_CATALOG.filter((def) => !disabled.has(def.standardKey));
+  if (enabled.length !== LEGACY_FOUR_QUESTION_ENABLED_STANDARD_KEYS.size) return false;
+  return enabled.every((def) => LEGACY_FOUR_QUESTION_ENABLED_STANDARD_KEYS.has(def.standardKey));
+}
+
 /**
  * Resolve the application-config slice for ONE form variant. The long-term
  * (standard) form reads the top-level triplet unchanged; the short-term form
@@ -284,9 +312,18 @@ export function applicationConfigForVariant(
         applicationConfigMode: "standard",
       };
     }
+    const storedDisabled = asStringArray(sub?.disabledStandardApplicationKeys);
+    const storedCustom = asCustomFields(sub?.customApplicationFields);
+    if (isLegacyFourQuestionApplicationDefault(sub)) {
+      return {
+        disabledStandardApplicationKeys: [],
+        customApplicationFields: [],
+        applicationConfigMode: "standard",
+      };
+    }
     return {
-      disabledStandardApplicationKeys: asStringArray(sub?.disabledStandardApplicationKeys),
-      customApplicationFields: asCustomFields(sub?.customApplicationFields),
+      disabledStandardApplicationKeys: storedDisabled,
+      customApplicationFields: storedCustom,
       applicationConfigMode: asConfigMode(sub?.applicationConfigMode),
     };
   }
@@ -486,6 +523,7 @@ export function listingApplicationUsesPropLaneDefaultQuestions(
 ): boolean {
   if (!sub || sub.applicationConfigMode === "custom") return false;
   if (Array.isArray(sub.customApplicationFields) && sub.customApplicationFields.length > 0) return false;
+  if (isLegacyFourQuestionApplicationDefault(sub)) return true;
   if (
     Array.isArray(sub.disabledStandardApplicationKeys) &&
     sub.disabledStandardApplicationKeys.some((k) => typeof k === "string" && k.trim().length > 0)

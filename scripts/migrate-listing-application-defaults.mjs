@@ -28,9 +28,33 @@ function loadEnvFiles() {
   }
 }
 
+const LEGACY_FOUR_QUESTION_ENABLED_KEYS = new Set([
+  "household-group-application",
+  "property-property",
+  "property-lease-term",
+  "property-lease-start-end-dates",
+]);
+
+function isLegacyFourQuestionDefault(sub) {
+  if (!sub || sub.applicationConfigMode === "custom") return false;
+  if (Array.isArray(sub.customApplicationFields) && sub.customApplicationFields.length > 0) return false;
+  const disabled = (sub.disabledStandardApplicationKeys ?? []).filter(
+    (k) => typeof k === "string" && k.trim().length > 0,
+  );
+  if (disabled.length === 0) return false;
+  const disabledSet = new Set(disabled);
+  const enabledCount = disabledSet.size === 0 ? 38 : 38 - disabledSet.size;
+  if (enabledCount !== LEGACY_FOUR_QUESTION_ENABLED_KEYS.size) return false;
+  for (const key of LEGACY_FOUR_QUESTION_ENABLED_KEYS) {
+    if (disabledSet.has(key)) return false;
+  }
+  return true;
+}
+
 function usesPropLaneDefault(sub) {
   if (!sub || sub.applicationConfigMode === "custom") return false;
   if (Array.isArray(sub.customApplicationFields) && sub.customApplicationFields.length > 0) return false;
+  if (isLegacyFourQuestionDefault(sub)) return true;
   if (
     Array.isArray(sub.disabledStandardApplicationKeys) &&
     sub.disabledStandardApplicationKeys.some((k) => typeof k === "string" && k.trim().length > 0)
