@@ -39,21 +39,28 @@ export function GroupInviteCallout({
 
   return (
     <div className={`text-left ${className ?? ""}`}>
-      <p className="text-[13px] font-semibold text-foreground">Roommate invite</p>
-      <p className="mt-1 text-[12px] leading-relaxed text-muted sm:text-sm">
-        Share this link so each roommate can apply on their own
-        {organizerName ? ` and join ${organizerName}'s group` : ""}.
-        {others != null
-          ? ` You declared ${size} people — send this to ${others} ${others === 1 ? "roommate" : "roommates"}.`
-          : null}
+      {/* Compact: one header line carries the label, the recipient count and the
+          Group ID that used to occupy three stacked blocks. */}
+      <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
+        <p className="text-[13px] font-semibold text-foreground">Roommate invite</p>
+        {others != null ? (
+          <span className="text-[12px] text-muted">
+            send to {others} {others === 1 ? "roommate" : "roommates"} of {size}
+          </span>
+        ) : null}
+        <span className="ml-auto font-mono text-[11px] text-muted">{leaderAppId}</span>
+      </div>
+      <p className="mt-1 text-[12px] leading-relaxed text-muted">
+        Each roommate opens this link and applies on their own
+        {organizerName ? `, joining ${organizerName}'s group` : ""}.
+        {pendingSubmit ? (
+          <span className="font-medium text-amber-800 [html[data-theme=dark]_&]:text-amber-200">
+            {" "}
+            Works once you submit this application.
+          </span>
+        ) : null}
       </p>
-      {pendingSubmit ? (
-        <p className="mt-2 text-[12px] font-medium text-amber-800 [html[data-theme=dark]_&]:text-amber-200">
-          The link works only after you finish and submit this application.
-        </p>
-      ) : null}
-      <p className="mt-2 font-mono text-xs text-muted">Application ID: {leaderAppId}</p>
-      <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:items-center">
+      <div className="mt-2 flex flex-col gap-2 sm:flex-row sm:items-center">
         <code className="min-w-0 flex-1 truncate rounded-lg border border-border/60 bg-background/40 px-3 py-2 text-[11px] text-foreground">
           {inviteUrl}
         </code>
