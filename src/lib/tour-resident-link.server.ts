@@ -473,7 +473,16 @@ export async function applyProspectMessagingContactToProfile(
     patch.email = contactEmail;
   }
   if (phone && (profile?.phone as string | undefined)?.trim() !== phone) {
+    // Changing the number MUST retire its verification. `phone_verified_at` is a
+    // trust signal, not decoration: `portal-inbox-delivery` treats a verified
+    // number as a deliverable SMS destination, and `claw-manager-actions` treats
+    // it as an authorized inbound-SMS identity for agent commands including
+    // financial ones. Writing a new number while leaving the old stamp in place
+    // meant an UNVERIFIED number inherited the previous number's authority —
+    // and this route accepts `phone` from any authenticated caller, so it could
+    // not be closed client-side.
     patch.phone = phone;
+    patch.phone_verified_at = null;
   }
   if (!Object.keys(patch).length) return;
   await db.from("profiles").update(patch).eq("id", input.userId);

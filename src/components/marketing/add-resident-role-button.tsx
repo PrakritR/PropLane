@@ -42,14 +42,8 @@ export function AddResidentRoleButton({
   // that a local copy of that state would add nothing.
   const run = async () => {
     const target = safeNextPath(returnPath) ?? "/resident/dashboard";
-    // Deliberately NOT forwarding `phone`. It reaches
-    // applyProspectMessagingContactToProfile, which overwrites `profiles.phone`
-    // but never clears `phone_verified_at` — so a manager who OTP-verified P1
-    // and then has P2 autofilled here ends up with an UNVERIFIED number still
-    // stamped verified. portal-inbox-delivery treats that as a verified SMS
-    // destination, and claw-manager-actions treats it as an authorized inbound
-    // SMS identity for agent commands including financial ones. Email is safe
-    // and is all this gate needs.
+    // Email only: this gate has no verified phone to offer, and a phone change
+    // retires verification server-side (see applyProspectMessagingContactToProfile).
     const result = await ensureSignedInResidentPortal(target, { contactEmail });
     if (!result.ok) {
       showToast(result.error ?? "Could not add a resident account. Please try again.");
