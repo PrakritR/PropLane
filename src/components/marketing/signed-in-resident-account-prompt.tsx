@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
+import { AddResidentRoleButton } from "@/components/marketing/add-resident-role-button";
 import { markPublicApplyGuestContinue } from "@/lib/rental-application/public-apply-session";
 import { residentCreateAccountHref } from "@/lib/resident-public-nav";
 import { useProspectContactAutofill } from "@/hooks/use-prospect-contact-autofill";
@@ -40,13 +41,11 @@ export function SignedInResidentAccountPrompt({
         its own resident portal kept separate from your current account.
       </p>
       <div className="mt-4 flex flex-wrap gap-2.5">
-        <Link
-          href={createHref}
-          className="btn-cobalt inline-flex min-h-[44px] min-w-0 flex-1 items-center justify-center rounded-full px-5 text-[15px] font-semibold sm:px-6"
-          data-attr="signed-in-create-resident-account"
-        >
-          Create resident account
-        </Link>
+        <AddResidentRoleButton
+          returnPath={applyReturnPath}
+          className="min-h-[44px] min-w-0 flex-1 rounded-full px-5 text-[15px] font-semibold sm:px-6"
+          dataAttr="signed-in-create-resident-account"
+        />
         <Button
           type="button"
           variant="outline"

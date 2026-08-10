@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
+import { AddResidentRoleButton } from "@/components/marketing/add-resident-role-button";
 import { createSupabaseBrowserClient } from "@/lib/supabase/browser";
 import {
   hasProspectGuestContinue,
@@ -223,13 +224,11 @@ export function ProspectSignedInResidentGate({
         password, and its own resident portal kept separate from your current account.
       </p>
       <div className={`mt-4 ${gateButtonRowClass()}`}>
-        <Link
-          href={createHref}
+        <AddResidentRoleButton
+          returnPath={returnPath}
           className={gatePrimaryBtnClass()}
-          data-attr={`signed-in-prospect-${action}-create-account`}
-        >
-          Create resident account
-        </Link>
+          dataAttr={`signed-in-prospect-${action}-create-account`}
+        />
         <Button
           type="button"
           variant="outline"
