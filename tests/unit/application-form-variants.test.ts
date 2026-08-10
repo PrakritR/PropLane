@@ -60,14 +60,14 @@ describe("application form variants — short-term vs long-term are configured i
     expect(slice.applicationConfigMode).toBe("custom");
   });
 
-  it("unconfigured long-term resolves to the four-question PropLane default", () => {
+  it("unconfigured long-term resolves to the full standard catalog", () => {
     const slice = applicationConfigForVariant({}, "standard");
     expect(slice.applicationConfigMode).toBe("standard");
-    expect(slice.disabledStandardApplicationKeys.length).toBeGreaterThan(0);
+    expect(slice.disabledStandardApplicationKeys).toEqual([]);
     const fields = resolveListingApplicationFields(slice, normalizeCustomApplicationFields);
-    expect(fields).toHaveLength(4);
+    expect(fields).toHaveLength(STANDARD_APPLICATION_FIELD_CATALOG.length);
     expect(fields.some((f) => f.label === "Group application")).toBe(true);
-    expect(fields.some((f) => f.label === "Co-signer planned")).toBe(false);
+    expect(fields.some((f) => f.label === "Co-signer planned")).toBe(true);
   });
 
   it("an unconfigured co-signer form resolves to the curated co-signer question set", () => {
@@ -109,6 +109,8 @@ describe("application form variants — short-term vs long-term are configured i
     // ...but who/where/when + name stay on.
     expect(isWizardFormFieldEnabled(slice, "fullLegalName")).toBe(true);
     expect(isWizardFormFieldEnabled(slice, "leaseStart")).toBe(true);
+    expect(isWizardFormFieldEnabled(slice, "applyingAsGroup")).toBe(true);
+    expect(isWizardFormFieldEnabled(slice, "hasCosigner")).toBe(true);
   });
 
   it("a configured (custom) short-term form reads its own stored slice, not the default", () => {
@@ -174,12 +176,12 @@ describe("manager editor — disabled question visibility", () => {
 });
 
 describe("active wizard steps derive from the variant's enabled questions", () => {
-  it("the long-term default only walks household, property, and structural steps", () => {
+  it("the long-term default walks every wizard step", () => {
     const steps = activeApplicationWizardSteps(
       applicationConfigForVariant({}, "standard"),
       normalizeCustomApplicationFields,
     );
-    expect(steps).toEqual([1, 3, 10, 11]);
+    expect(steps).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]);
   });
 
   it("the short-term default skips the screening sections it turns off", () => {
@@ -213,6 +215,8 @@ describe("active wizard steps derive from the variant's enabled questions", () =
 
   it("re-enabling a question brings its step back for that form only", () => {
     const shortDefault = applicationConfigForVariant({}, "short_term");
+    const shortSteps = activeApplicationWizardSteps(shortDefault, normalizeCustomApplicationFields);
+    expect(shortSteps).not.toContain(6);
     const reenabled = reenableListingApplicationField(shortDefault, employmentKey);
     const steps = activeApplicationWizardSteps(reenabled, normalizeCustomApplicationFields);
     expect(steps).toContain(6);
@@ -220,15 +224,12 @@ describe("active wizard steps derive from the variant's enabled questions", () =
     expect(reenabled.applicationConfigMode).toBe("custom");
     const longDefault = applicationConfigForVariant({}, "standard");
     const longSteps = activeApplicationWizardSteps(longDefault, normalizeCustomApplicationFields);
-    expect(longSteps).not.toContain(6);
-    const longReenabled = reenableListingApplicationField(longDefault, employmentKey);
-    const longStepsAfter = activeApplicationWizardSteps(longReenabled, normalizeCustomApplicationFields);
-    expect(longStepsAfter).toContain(6);
+    expect(longSteps).toContain(6);
   });
 });
 
 describe("resolveListingApplicationFields respects the variant slice", () => {
-  it("lists more questions for the short-term default than the long-term default", () => {
+  it("lists more questions for the long-term default than the short-term default", () => {
     const longFields = resolveListingApplicationFields(
       applicationConfigForVariant({}, "standard"),
       normalizeCustomApplicationFields,
@@ -237,9 +238,10 @@ describe("resolveListingApplicationFields respects the variant slice", () => {
       applicationConfigForVariant({}, "short_term"),
       normalizeCustomApplicationFields,
     );
-    expect(longFields.length).toBe(4);
-    expect(shortFields.length).toBeGreaterThan(longFields.length);
+    expect(longFields.length).toBe(STANDARD_APPLICATION_FIELD_CATALOG.length);
+    expect(shortFields.length).toBeLessThan(longFields.length);
     expect(shortFields.some((f) => f.section === "employment")).toBe(false);
+    expect(longFields.some((f) => f.section === "employment")).toBe(true);
     expect(shortFields.some((f) => f.section === "property")).toBe(true);
   });
 });

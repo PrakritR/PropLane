@@ -165,6 +165,25 @@ describe("property lease template sync", () => {
     expect(templates.find((t) => t.listingSeedKey === "cosigner-short-term")?.formVariant).toBe("cosigner");
   });
 
+  it("strips a legacy (optional) suffix from co-signer application labels on re-sync", () => {
+    const sub = createDefaultListingSubmission();
+    sub.allowedLeaseTerms = ["12-Month"];
+    sub.shortTermRentalsAllowed = true;
+    const seeded = syncPropertyApplicationTemplatesFromListing(sub);
+    const templates = readPropertyApplicationTemplates(seeded);
+    const cosigner = templates.find((t) => t.listingSeedKey === "cosigner")!;
+    const withOptional = templates.map((t) =>
+      t.id === cosigner.id ? { ...t, label: "Long-term co-signer application (optional)" } : t,
+    );
+    const resynced = syncPropertyApplicationTemplatesFromListing({
+      ...seeded,
+      propertyApplicationTemplates: withOptional,
+    });
+    expect(readPropertyApplicationTemplates(resynced).find((t) => t.listingSeedKey === "cosigner")?.label).toBe(
+      "Long-term co-signer application",
+    );
+  });
+
   it("resolves lease template scenario from application bundle and term", () => {
     expect(
       resolveLeaseTemplateScenarioForApplication({ leaseTerm: "12-Month", rentalType: "long_term" }),

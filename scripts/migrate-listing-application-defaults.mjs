@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
- * Reset uncustomized long-term application question sets to PropLane's four-question
- * default (group application + property + lease term + lease dates).
+ * Reset uncustomized long-term application question sets to PropLane's full
+ * standard catalog (all built-in questions enabled).
  *
  * Skips listings the manager customized (`applicationConfigMode: custom`, disabled
  * keys, or custom questions).

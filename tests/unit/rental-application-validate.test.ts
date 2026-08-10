@@ -34,6 +34,17 @@ describe("rental-application validate", () => {
     expect(validateRentalWizardStep(1, state)).toEqual({});
   });
 
+  it("requires group choice on step 1 even when the property offers lease bundles", () => {
+    const state = {
+      ...createInitialRentalWizardState(),
+      propertyId: "mgr-seed-example-bundle",
+      rentalType: "short_term" as const,
+      hasCosigner: "no" as const,
+    };
+    const errors = validateRentalWizardStep(1, state);
+    expect(errors.applyingAsGroup).toContain("group");
+  });
+
   it("requires cosigner choice on step 1 when enabled", () => {
     const state = { ...createInitialRentalWizardState(), applyingAsGroup: "no" as const };
     const errors = validateRentalWizardStep(1, state);

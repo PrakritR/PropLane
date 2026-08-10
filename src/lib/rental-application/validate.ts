@@ -15,7 +15,7 @@ import {
   resolveAllowedLeaseTerms,
 } from "@/lib/manager-listing-submission";
 import { parseMoneyAmount } from "@/lib/parse-money";
-import { propertyAllowsShortTermRental, listingAllowedLeaseTerms, getPropertyById, getBundleOptionsForProperty, isEntireHomeProperty } from "./data";
+import { propertyAllowsShortTermRental, listingAllowedLeaseTerms, getPropertyById, isEntireHomeProperty } from "./data";
 import { LEASE_TERM_OPTIONS } from "./lease-terms";
 import { listingApplicationFeeAmount } from "@/lib/household-charges";
 import {
@@ -138,10 +138,6 @@ export function validateStandardWizardStep(
       e.hasCosigner = "Please choose whether a co-signer will be added.";
     }
     if (!fieldEnabled("applyingAsGroup")) return e;
-    const defersGroupToBundleStep =
-      Boolean(f.propertyId.trim()) &&
-      getBundleOptionsForProperty(f.propertyId, { rentalType: f.rentalType }).length > 0;
-    if (defersGroupToBundleStep) return e;
     if (f.applyingAsGroup === null) {
       e.applyingAsGroup = "Please choose whether you are applying as part of a group.";
       return e;
@@ -253,17 +249,6 @@ export function validateStandardWizardStep(
     }
     if (fieldEnabled("leaseEnd") && !mtm && sd && ed && !e.leaseStart && !e.leaseEnd) {
       if (ed.getTime() <= sd.getTime()) e.leaseEnd = "Lease end date must be after lease start date.";
-    }
-    if (fieldEnabled("applyingAsGroup") && f.bundleId.trim()) {
-      if (f.applyingAsGroup === null) {
-        e.applyingAsGroup = "Please choose whether you are applying as part of a group.";
-        return e;
-      }
-      if (f.applyingAsGroup === "no") return e;
-      if (f.groupLeaderAppId.trim()) {
-        const leader = validateGroupLeaderAppIdInput(f.groupLeaderAppId);
-        if (!leader.ok) e.groupLeaderAppId = leader.message;
-      }
     }
     return e;
   }

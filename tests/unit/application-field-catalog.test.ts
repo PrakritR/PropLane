@@ -59,7 +59,7 @@ describe("application-field-catalog", () => {
       applicationConfigForVariant({ ...sub, ...restored }, "standard"),
       normalizeCustomApplicationFields,
     );
-    expect(fields).toHaveLength(4);
+    expect(fields).toHaveLength(STANDARD_APPLICATION_FIELD_CATALOG.length);
     expect(restored.customApplicationFields).toEqual([]);
   });
 

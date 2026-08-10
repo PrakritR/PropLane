@@ -32,6 +32,7 @@ import {
 } from "@/lib/property-application-templates";
 import { submissionAfterRemovingApplicationTemplate, syncPropertyApplicationTemplatesFromListing } from "@/lib/property-application-template-sync";
 import { formatApplicationLeaseTermsLabel } from "@/lib/property-lease-template-sync";
+import { normalizePropertyApplicationTemplateLabel } from "@/lib/property-application-template-sync";
 
 type QuestionsSaveTarget =
   | { mode: "pending"; saveId: string }
@@ -249,7 +250,9 @@ export function ManagerPropertyApplicationQuestionsPanel({
         {templates.map((template) => (
           <div key={template.id} className={PORTAL_PROPERTY_DETAIL_LIST_ROW_CLASS}>
             <div className="min-w-0 flex-1">
-              <p className="text-sm font-semibold text-foreground">{template.label}</p>
+              <p className="text-sm font-semibold text-foreground">
+                {normalizePropertyApplicationTemplateLabel(template.label)}
+              </p>
               {formatApplicationLeaseTermsLabel(template.applicationLeaseTerms) ? (
                 <p className="mt-0.5 text-xs text-muted">
                   Applicants: {formatApplicationLeaseTermsLabel(template.applicationLeaseTerms)}

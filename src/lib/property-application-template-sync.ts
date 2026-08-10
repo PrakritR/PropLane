@@ -25,6 +25,11 @@ function nowIso(): string {
   return new Date().toISOString();
 }
 
+/** Strip a legacy "(optional)" suffix from manager-facing application names. */
+export function normalizePropertyApplicationTemplateLabel(label: string): string {
+  return label.replace(/\s*\(optional\)\s*$/i, "").trim();
+}
+
 function defaultLabelForSeed(seed: ApplicationTemplateSeed): string {
   if (seed.seedKey === COSIGNER_LONG_TERM_SEED_KEY) return "Long-term co-signer application";
   if (seed.seedKey === COSIGNER_SHORT_TERM_SEED_KEY) return "Short-term co-signer application";
@@ -128,13 +133,15 @@ export function syncPropertyApplicationTemplatesFromListing(
     if (prev) {
       if (legacyAdopted) adoptedLegacyIds.add(legacyAdopted.id);
       const defaultLabel = defaultLabelForSeed(seed);
+      const normalizedPrevLabel = normalizePropertyApplicationTemplateLabel(prev.label);
       nextSeeded.push({
         ...prev,
         kind: seed.kind,
         formVariant: seed.formVariant,
         listingSeedKey: seed.seedKey,
         applicationLeaseTerms: seed.applicationLeaseTerms,
-        label: prev.label.trim() && prev.label !== defaultLabel ? prev.label : defaultLabel,
+        label:
+          normalizedPrevLabel && normalizedPrevLabel !== defaultLabel ? normalizedPrevLabel : defaultLabel,
         updatedAt: nowIso(),
       });
     } else if (autoSeed) {

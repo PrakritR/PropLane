@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
   applicationConfigForVariant,
-  LONG_TERM_DEFAULT_ENABLED_STANDARD_KEYS,
   listingApplicationUsesPropLaneDefaultQuestions,
   resolveListingApplicationFields,
   restoreDefaultApplicationConfig,
+  STANDARD_APPLICATION_FIELD_CATALOG,
 } from "@/lib/rental-application/application-field-catalog";
 import {
   createDefaultListingSubmission,
@@ -13,19 +13,11 @@ import {
 } from "@/lib/manager-listing-submission";
 
 describe("long-term application defaults", () => {
-  it("enables only the four PropLane default questions when unconfigured", () => {
+  it("enables the full standard catalog when unconfigured", () => {
     const slice = applicationConfigForVariant({}, "standard");
     const fields = resolveListingApplicationFields(slice, normalizeCustomApplicationFields);
-    expect(fields).toHaveLength(4);
-    expect(fields.map((f) => f.standardKey).sort()).toEqual(
-      [...LONG_TERM_DEFAULT_ENABLED_STANDARD_KEYS].sort(),
-    );
-    expect(fields.map((f) => `${f.section}:${f.label}`)).toEqual([
-      "household:Group application",
-      "property:Property",
-      "property:Lease term",
-      "property:Lease start & end dates",
-    ]);
+    expect(fields).toHaveLength(STANDARD_APPLICATION_FIELD_CATALOG.length);
+    expect(fields.every((f) => f.isStandard)).toBe(true);
   });
 
   it("new listing wizard submissions start on the PropLane default", () => {
@@ -35,7 +27,7 @@ describe("long-term application defaults", () => {
       applicationConfigForVariant(sub, "standard"),
       normalizeCustomApplicationFields,
     );
-    expect(fields).toHaveLength(4);
+    expect(fields).toHaveLength(STANDARD_APPLICATION_FIELD_CATALOG.length);
   });
 
   it("restore defaults clears manager edits back to the curated baseline", () => {
@@ -52,7 +44,7 @@ describe("long-term application defaults", () => {
       applicationConfigForVariant({ ...sub, ...restored }, "standard"),
       normalizeCustomApplicationFields,
     );
-    expect(fields).toHaveLength(4);
+    expect(fields).toHaveLength(STANDARD_APPLICATION_FIELD_CATALOG.length);
     expect(restored.applicationConfigMode).toBe("standard");
     expect(restored.disabledStandardApplicationKeys).toEqual([]);
   });
