@@ -115,6 +115,10 @@ import {
 } from "@/lib/wizard-step-nav";
 import { residentBrowseFromApplicationHref } from "@/lib/resident-public-nav";
 import { isDemoModeActive, DEMO_GUIDED_USER_ID } from "@/lib/demo/demo-session";
+import {
+  clearPublicApplyGuestContinue,
+  publicApplyGateKey,
+} from "@/lib/rental-application/public-apply-session";
 import { isElementOnScreen } from "@/lib/dom-visibility";
 import { buildDemoApplicationAutofill } from "@/lib/demo/demo-application-autofill";
 import {
@@ -170,10 +174,20 @@ function ensureRentalWizardAxisId(): string {
   return id;
 }
 
-function rentalApplicationExitPath(mode: RentalApplicationWizardMode, exitPath?: string): string {
+function rentalApplicationExitPath(
+  mode: RentalApplicationWizardMode,
+  exitPath?: string,
+  propertyId?: string,
+): string {
   if (exitPath?.startsWith("/")) return exitPath;
   if (mode === "manager") return "/portal/applications/incomplete";
-  return mode === "portal" ? "/resident/applications" : "/auth/sign-in";
+  if (mode === "portal") return "/resident/applications";
+  // Public apply: go back to the account gate the applicant came through
+  // (Create account / Sign in / Continue without an account), NOT to
+  // /auth/sign-in — which asked a prospect who had chosen to apply as a guest
+  // to sign in to an account they do not have.
+  const pid = propertyId?.trim();
+  return pid ? `/rent/apply?propertyId=${encodeURIComponent(pid)}` : "/rent/apply";
 }
 
 function rentalApplicationApplyPath(mode: RentalApplicationWizardMode): string {
@@ -475,7 +489,10 @@ function RentalApplicationWizardInner({
     (from: number) => prevActiveWizardStep(activeSteps, from),
     [activeSteps],
   );
-  const wizardExitPath = rentalApplicationExitPath(mode, exitPath);
+  const exitPropertyId = searchParams.get("propertyId") ?? linkedPropertyIdProp ?? undefined;
+  const wizardExitPath = rentalApplicationExitPath(mode, exitPath, exitPropertyId);
+  // Same key the public gate stores its "continue as guest" choice under.
+  const publicGateKey = publicApplyGateKey({ propertyId: exitPropertyId ?? undefined });
   const wizardApplyPath =
     applyPath?.startsWith("/") ? applyPath : rentalApplicationApplyPath(mode);
   const browseHomesHref = residentBrowseFromApplicationHref(wizardApplyPath);
@@ -545,8 +562,12 @@ function RentalApplicationWizardInner({
       window.dispatchEvent(new Event(DEMO_CLOSE_RESIDENT_APPLY_EVENT));
       return;
     }
+    // Forget the "continue as guest" choice so the gate actually renders again;
+    // otherwise the exit lands on /rent/apply and is immediately forwarded back
+    // into the wizard the applicant just left.
+    if (mode === "public" && publicGateKey) clearPublicApplyGuestContinue(publicGateKey);
     router.push(wizardExitPath);
-  }, [mode, onManagerCancel, router, templatePreview, wizardExitPath]);
+  }, [mode, onManagerCancel, publicGateKey, router, templatePreview, wizardExitPath]);
 
   const listingPrefillKey = useMemo(() => {
     return [
