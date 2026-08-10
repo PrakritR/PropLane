@@ -1806,6 +1806,97 @@ export function ensurePendingHoldingDepositCharge(input: {
   return charge;
 }
 
+/**
+ * Creates (or re-prices) a MANAGER-ENTERED holding fee for one applicant.
+ *
+ * Distinct from the deprecated `ensurePendingHoldingDepositCharge` above: that
+ * one auto-collected at application time from a per-listing amount, which the
+ * captain removed in 2026-07. This is the opposite shape — the manager decides,
+ * per applicant, whether to ask for a hold and how much, from the application
+ * detail. Nothing is created unless they enter an amount.
+ *
+ * Re-running with a new amount updates the existing pending line rather than
+ * stacking a second hold on the same applicant; a hold the applicant has
+ * already PAID is never silently re-priced (the money is in), so that returns
+ * the paid charge unchanged and the caller reports it.
+ */
+export function setApplicantHoldingFee(input: {
+  residentEmail: string;
+  residentName: string;
+  residentUserId: string | null;
+  propertyId: string;
+  applicationId?: string | null;
+  managerUserId?: string | null;
+  amount: number;
+}): { ok: true; charge: HouseholdCharge; alreadyPaid: boolean } | { ok: false; error: string } {
+  const email = input.residentEmail.trim();
+  if (!email.includes("@")) return { ok: false, error: "This applicant has no email address on file." };
+  if (!input.propertyId.trim()) return { ok: false, error: "This application has no property on it yet." };
+  const amt = Number(input.amount);
+  if (!Number.isFinite(amt) || amt <= 0) return { ok: false, error: "Enter a holding fee amount greater than $0." };
+  if (amt > 100_000) return { ok: false, error: "That holding fee looks too large — check the amount." };
+
+  const existing = findHoldingDepositCharge(email, input.propertyId, input.residentUserId, input.applicationId);
+  if (existing?.status === "paid") {
+    return { ok: true, charge: existing, alreadyPaid: true };
+  }
+
+  const prop = getPropertyById(input.propertyId);
+  const sub = prop?.listingSubmission;
+  const zelleSnap = sub?.zellePaymentsEnabled && sub.zelleContact?.trim() ? sub.zelleContact.trim() : undefined;
+  const venmoSnap = sub?.venmoPaymentsEnabled && sub.venmoContact?.trim() ? sub.venmoContact.trim() : undefined;
+  const label = moneyAmountLabel(Number(amt.toFixed(2)));
+
+  const charge: HouseholdCharge = withPaymentReference({
+    id:
+      existing?.id ??
+      (input.applicationId?.trim()
+        ? holdingDepositChargeIdForApplication(input.applicationId.trim())
+        : holdingDepositFallbackChargeId(email, input.propertyId)),
+    createdAt: existing?.createdAt ?? new Date().toISOString(),
+    applicationId: input.applicationId?.trim() || undefined,
+    residentEmail: email,
+    residentName: input.residentName.trim() || "Applicant",
+    residentUserId: input.residentUserId,
+    propertyId: input.propertyId,
+    propertyLabel: prop?.title ?? sub?.buildingName ?? "",
+    managerUserId: input.managerUserId ?? prop?.managerUserId ?? null,
+    kind: "holding_deposit",
+    title: chargeTitle("holding_deposit"),
+    amountLabel: label,
+    balanceLabel: label,
+    status: "pending",
+    zelleContactSnapshot: zelleSnap,
+    venmoContactSnapshot: venmoSnap,
+    blocksLeaseUntilPaid: false,
+  });
+
+  const rest = readAll().filter((c) => c.id !== charge.id);
+  writeAll([...rest, charge]);
+  return { ok: true, charge, alreadyPaid: false };
+}
+
+/** Removes a manager-added holding fee that has NOT been paid. */
+export function removeApplicantHoldingFee(input: {
+  residentEmail: string;
+  propertyId: string;
+  residentUserId: string | null;
+  applicationId?: string | null;
+}): { ok: true } | { ok: false; error: string } {
+  const existing = findHoldingDepositCharge(
+    input.residentEmail,
+    input.propertyId,
+    input.residentUserId,
+    input.applicationId,
+  );
+  if (!existing) return { ok: true };
+  if (existing.status === "paid") {
+    return { ok: false, error: "This holding fee has already been paid — handle a refund with the applicant directly." };
+  }
+  writeAll(readAll().filter((c) => c.id !== existing.id));
+  return { ok: true };
+}
+
 function paidHoldingDepositCreditCents(applicationId: string): number {
   const appId = applicationId.trim();
   if (!appId) return 0;

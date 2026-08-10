@@ -44,6 +44,7 @@ import { PortalCollapsibleSection } from "@/components/portal/portal-collapsible
 import { DestinationNav } from "@/components/ui/destination-nav";
 import { ApplicationReviewLauncherRow, type ApplicationReviewView } from "@/components/portal/application-review-launcher-row";
 import { downloadBackgroundCheckForApplication } from "@/components/portal/application-screening-panel";
+import { ApplicationHoldingFeeBox } from "@/components/portal/application-holding-fee-box";
 import { ManagerEditApplicationModal } from "@/components/portal/manager-edit-application-modal";
 import { ManagerApplicationOnBehalfModal } from "@/components/portal/manager-application-on-behalf-modal";
 import {
@@ -1271,6 +1272,20 @@ export function ManagerApplications({
           terms.
         </div>
       ) : null}
+      {/* Manager-entered holding fee for this applicant. Hidden once the
+          application is no longer live — asking for a hold on a rejected or
+          withdrawn application makes no sense. */}
+      {!rejectedOrWithdrawn ? (
+        <ApplicationHoldingFeeBox
+          applicationId={row.id}
+          residentEmail={row.email ?? ""}
+          residentName={row.name ?? ""}
+          residentUserId={row.residentUserId ?? null}
+          propertyId={rowPropertyId}
+          managerUserId={row.managerUserId ?? null}
+        />
+      ) : null}
+
       {group ? (
         <ApplicationGroupSection group={group} bundleGroup={group} currentRowId={row.id} />
       ) : null}
