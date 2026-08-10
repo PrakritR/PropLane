@@ -17,7 +17,6 @@ import {
   stageResidentListingMessageCompose,
 } from "@/lib/prospect-public-nav";
 import { useProspectContactAutofill } from "@/hooks/use-prospect-contact-autofill";
-import { residentCreateAccountHref } from "@/lib/resident-public-nav";
 
 const COPY: Record<
   ProspectActionKind,
@@ -203,12 +202,6 @@ export function ProspectSignedInResidentGate({
 }) {
   const autofill = useProspectContactAutofill();
   const listing = propertyTitle?.trim() || "this home";
-  const createHref = residentCreateAccountHref(returnPath, {
-    email: autofill.email || undefined,
-    fullName: autofill.name || undefined,
-    phone: autofill.phone || undefined,
-    handoff: action === "message" ? "message" : undefined,
-  });
 
   const actionLabel =
     action === "apply" ? "apply" : action === "tour" ? "schedule your tour" : "send your message";
@@ -226,6 +219,8 @@ export function ProspectSignedInResidentGate({
       <div className={`mt-4 ${gateButtonRowClass()}`}>
         <AddResidentRoleButton
           returnPath={returnPath}
+          contactEmail={autofill.email || undefined}
+          phone={autofill.phone || undefined}
           className={gatePrimaryBtnClass()}
           dataAttr={`signed-in-prospect-${action}-create-account`}
         />

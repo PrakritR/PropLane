@@ -1,10 +1,8 @@
 "use client";
 
-import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { AddResidentRoleButton } from "@/components/marketing/add-resident-role-button";
 import { markPublicApplyGuestContinue } from "@/lib/rental-application/public-apply-session";
-import { residentCreateAccountHref } from "@/lib/resident-public-nav";
 import { useProspectContactAutofill } from "@/hooks/use-prospect-contact-autofill";
 
 /**
@@ -24,11 +22,6 @@ export function SignedInResidentAccountPrompt({
 }) {
   const autofill = useProspectContactAutofill();
   const listing = propertyTitle?.trim() || "this home";
-  const createHref = residentCreateAccountHref(applyReturnPath, {
-    email: autofill.email || undefined,
-    fullName: autofill.name || undefined,
-    phone: autofill.phone || undefined,
-  });
 
   return (
     <div className="mx-auto w-full max-w-3xl py-2 sm:py-4">
@@ -43,6 +36,8 @@ export function SignedInResidentAccountPrompt({
       <div className="mt-4 flex flex-wrap gap-2.5">
         <AddResidentRoleButton
           returnPath={applyReturnPath}
+          contactEmail={autofill.email || undefined}
+          phone={autofill.phone || undefined}
           className="min-h-[44px] min-w-0 flex-1 rounded-full px-5 text-[15px] font-semibold sm:px-6"
           dataAttr="signed-in-create-resident-account"
         />

@@ -1,9 +1,8 @@
 "use client";
 
-import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { useAppUi } from "@/components/providers/app-ui-provider";
-import { provisionPortalFromGetStarted } from "@/lib/auth/provision-portal-from-get-started";
+import { ensureSignedInResidentPortal } from "@/lib/tour-resident-link.client";
 import { safeNextPath } from "@/lib/auth/safe-next-path";
 
 /**
@@ -13,43 +12,48 @@ import { safeNextPath } from "@/lib/auth/safe-next-path";
  * does: "add a separate resident account on your existing login — same email, no
  * new password". They were `<Link>`s to the create-account FORM, which asks a
  * signed-in user to make a second account from scratch — contradicting their own
- * copy and dead-ending anyone who tries (the email is already taken).
+ * copy and dead-ending anyone who tries, since the email is already taken.
  *
- * This adds the resident role to the current login through the same
- * provisioning path the role chooser uses, then continues to wherever the
- * visitor was headed.
+ * Goes through `ensureSignedInResidentPortal`, the existing client helper for
+ * exactly this action, rather than the generic role-chooser provisioning call:
+ * the generic one POSTs an empty body, so `redirectTo`, `contactEmail` and
+ * `phone` never reach `/api/auth/create-resident-account` and the prospect's
+ * phone is never stored on the profile — the value that backs outbound
+ * Communication identity.
  */
 export function AddResidentRoleButton({
   returnPath,
+  contactEmail,
+  phone,
   className,
   dataAttr,
   label = "Create resident account",
 }: {
   returnPath: string;
+  contactEmail?: string;
+  phone?: string;
   className?: string;
   dataAttr?: string;
   label?: string;
 }) {
   const { showToast } = useAppUi();
-  const [busy, setBusy] = useState(false);
 
+  // No local busy state: the shared Button already tracks a promise returned
+  // from onClick (spinner, aria-busy, disabled, and an in-flight ref that blocks
+  // a second click). A local `finally { setBusy(false) }` would also clear the
+  // moment the promise settles — while the navigation below is still in flight —
+  // re-enabling the button and allowing a second account-creation POST.
   const run = async () => {
-    setBusy(true);
-    try {
-      const result = await provisionPortalFromGetStarted("resident");
-      if (!result.ok) {
-        showToast(result.error);
-        return;
-      }
-      const destination = safeNextPath(returnPath) ?? result.redirectTo;
-      // Full navigation, not a client push: the session's roles just changed and
-      // the portal guards read them server-side.
-      window.location.assign(destination);
-    } catch {
-      showToast("Could not add a resident account. Please try again.");
-    } finally {
-      setBusy(false);
+    const target = safeNextPath(returnPath) ?? "/resident/dashboard";
+    const result = await ensureSignedInResidentPortal(target, { contactEmail, phone });
+    if (!result.ok) {
+      showToast(result.error ?? "Could not add a resident account. Please try again.");
+      return;
     }
+    // Full navigation, not a client push: the session's roles just changed and
+    // the portal guards read them server-side. Deliberately no state reset after
+    // this line — the page is going away.
+    window.location.assign(result.redirectTo);
   };
 
   return (
@@ -58,10 +62,9 @@ export function AddResidentRoleButton({
       variant="primary"
       className={className}
       data-attr={dataAttr}
-      disabled={busy}
       onClick={() => run()}
     >
-      {busy ? "Setting up…" : label}
+      {label}
     </Button>
   );
 }
