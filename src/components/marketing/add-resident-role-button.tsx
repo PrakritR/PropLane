@@ -16,36 +16,41 @@ import { safeNextPath } from "@/lib/auth/safe-next-path";
  *
  * Goes through `ensureSignedInResidentPortal`, the existing client helper for
  * exactly this action, rather than the generic role-chooser provisioning call:
- * the generic one POSTs an empty body, so `redirectTo`, `contactEmail` and
- * `phone` never reach `/api/auth/create-resident-account` and the prospect's
- * phone is never stored on the profile — the value that backs outbound
- * Communication identity.
+ * the generic one POSTs an empty body, so `redirectTo` and `contactEmail` never
+ * reach `/api/auth/create-resident-account`.
  */
 export function AddResidentRoleButton({
   returnPath,
   contactEmail,
-  phone,
   className,
   dataAttr,
   label = "Create resident account",
 }: {
   returnPath: string;
   contactEmail?: string;
-  phone?: string;
   className?: string;
   dataAttr?: string;
   label?: string;
 }) {
   const { showToast } = useAppUi();
 
-  // No local busy state: the shared Button already tracks a promise returned
-  // from onClick (spinner, aria-busy, disabled, and an in-flight ref that blocks
-  // a second click). A local `finally { setBusy(false) }` would also clear the
-  // moment the promise settles — while the navigation below is still in flight —
-  // re-enabling the button and allowing a second account-creation POST.
+  // No local busy state: the shared Button already tracks the promise returned
+  // from onClick (spinner, aria-busy, disabled). It does NOT keep the button
+  // locked during navigation — `window.location.assign` returns synchronously,
+  // so the promise settles and the guard lifts immediately either way. The route
+  // is idempotent, so a stray second click is harmless; the point here is simply
+  // that a local copy of that state would add nothing.
   const run = async () => {
     const target = safeNextPath(returnPath) ?? "/resident/dashboard";
-    const result = await ensureSignedInResidentPortal(target, { contactEmail, phone });
+    // Deliberately NOT forwarding `phone`. It reaches
+    // applyProspectMessagingContactToProfile, which overwrites `profiles.phone`
+    // but never clears `phone_verified_at` — so a manager who OTP-verified P1
+    // and then has P2 autofilled here ends up with an UNVERIFIED number still
+    // stamped verified. portal-inbox-delivery treats that as a verified SMS
+    // destination, and claw-manager-actions treats it as an authorized inbound
+    // SMS identity for agent commands including financial ones. Email is safe
+    // and is all this gate needs.
+    const result = await ensureSignedInResidentPortal(target, { contactEmail });
     if (!result.ok) {
       showToast(result.error ?? "Could not add a resident account. Please try again.");
       return;

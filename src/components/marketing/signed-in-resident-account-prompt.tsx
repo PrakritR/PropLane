@@ -37,7 +37,6 @@ export function SignedInResidentAccountPrompt({
         <AddResidentRoleButton
           returnPath={applyReturnPath}
           contactEmail={autofill.email || undefined}
-          phone={autofill.phone || undefined}
           className="min-h-[44px] min-w-0 flex-1 rounded-full px-5 text-[15px] font-semibold sm:px-6"
           dataAttr="signed-in-create-resident-account"
         />

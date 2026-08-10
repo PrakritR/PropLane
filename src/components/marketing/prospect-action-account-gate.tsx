@@ -220,7 +220,6 @@ export function ProspectSignedInResidentGate({
         <AddResidentRoleButton
           returnPath={returnPath}
           contactEmail={autofill.email || undefined}
-          phone={autofill.phone || undefined}
           className={gatePrimaryBtnClass()}
           dataAttr={`signed-in-prospect-${action}-create-account`}
         />
