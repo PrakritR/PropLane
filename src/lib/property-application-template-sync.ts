@@ -133,15 +133,19 @@ export function syncPropertyApplicationTemplatesFromListing(
     if (prev) {
       if (legacyAdopted) adoptedLegacyIds.add(legacyAdopted.id);
       const defaultLabel = defaultLabelForSeed(seed);
-      const normalizedPrevLabel = normalizePropertyApplicationTemplateLabel(prev.label);
+      const trimmedPrevLabel = prev.label.trim();
+      const normalizedForDefaultCheck = normalizePropertyApplicationTemplateLabel(trimmedPrevLabel);
+      const label =
+        normalizedForDefaultCheck && normalizedForDefaultCheck !== defaultLabel
+          ? trimmedPrevLabel
+          : defaultLabel;
       nextSeeded.push({
         ...prev,
         kind: seed.kind,
         formVariant: seed.formVariant,
         listingSeedKey: seed.seedKey,
         applicationLeaseTerms: seed.applicationLeaseTerms,
-        label:
-          normalizedPrevLabel && normalizedPrevLabel !== defaultLabel ? normalizedPrevLabel : defaultLabel,
+        label,
         updatedAt: nowIso(),
       });
     } else if (autoSeed) {

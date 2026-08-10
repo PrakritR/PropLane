@@ -37,11 +37,30 @@ describe("rental-application validate", () => {
   it("requires group choice on step 1 even when the property offers lease bundles", () => {
     const state = {
       ...createInitialRentalWizardState(),
-      propertyId: "mgr-seed-example-bundle",
+      propertyId: "prop-with-bundles",
       rentalType: "short_term" as const,
       hasCosigner: "no" as const,
     };
-    const errors = validateRentalWizardStep(1, state);
+    const property = {
+      id: "prop-with-bundles",
+      listingSubmission: {
+        ...createDefaultListingSubmission(),
+        shortTermRentalsAllowed: true,
+        bundles: [
+          {
+            id: "bundle-a",
+            label: "Two rooms",
+            price: "$1,700/mo",
+            strikethrough: "",
+            promo: "",
+            roomsLine: "Rooms A + B",
+            shortTermEnabled: true,
+            shortTermNightlyRent: "$85",
+          },
+        ],
+      },
+    };
+    const errors = validateRentalWizardStep(1, state, { property });
     expect(errors.applyingAsGroup).toContain("group");
   });
 
