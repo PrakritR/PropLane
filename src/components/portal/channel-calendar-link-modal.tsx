@@ -60,6 +60,9 @@ export function ChannelCalendarLinkModal({
   const [syncing, setSyncing] = useState(false);
   const [linked, setLinked] = useState<ManagerChannelBookingProperty[]>([]);
   const [linkedLoading, setLinkedLoading] = useState(false);
+  // Unlinking drops every imported range for that room, so it asks once rather
+  // than firing from a single tap in a dense list.
+  const [confirmingUnlinkId, setConfirmingUnlinkId] = useState<string | null>(null);
 
   const reloadLinked = useCallback(async () => {
     if (propertyIds.length === 0) {
@@ -82,6 +85,7 @@ export function ChannelCalendarLinkModal({
     setPropertyId(initialPropertyId ?? propertyOptions[0]?.id ?? "");
     setRoomChoice("");
     setImportUrl("");
+    setConfirmingUnlinkId(null);
     void reloadLinked();
   }, [open, initialPropertyId, propertyOptions, reloadLinked]);
 
@@ -194,6 +198,7 @@ export function ChannelCalendarLinkModal({
     setBusy(true);
     try {
       await deleteChannelCalendarConnection(connectionId);
+      setConfirmingUnlinkId(null);
       await reloadLinked();
       onChanged?.();
       showToast("Airbnb calendar unlinked.");
@@ -307,27 +312,57 @@ export function ChannelCalendarLinkModal({
         ) : linkedRows.length > 0 ? (
           <div className="rounded-lg border border-border bg-accent/20 px-3 py-2.5">
             <p className="text-xs font-semibold uppercase tracking-wide text-muted">Linked rooms</p>
-            <ul className="mt-2 space-y-1.5 text-xs text-foreground">
+            <ul className="mt-2 space-y-2.5 text-xs text-foreground">
               {linkedRows.map((row) => (
-                <li key={row.connectionId} className="flex flex-wrap items-center justify-between gap-x-2 gap-y-0.5">
-                  <span>
-                    {row.propertyLabel} · {row.roomLabel}
-                  </span>
-                  <span className="flex items-center gap-2 text-muted">
-                    {formatSyncedAt(row.lastSyncedAt)}
-                    {row.importedRangeCount > 0 ? ` · ${row.importedRangeCount} block${row.importedRangeCount === 1 ? "" : "s"}` : ""}
+                <li key={row.connectionId} className="space-y-1.5">
+                  <div className="flex flex-wrap items-baseline justify-between gap-x-2 gap-y-0.5">
+                    <span>
+                      {row.propertyLabel} · {row.roomLabel}
+                    </span>
+                    <span className="text-muted">
+                      {formatSyncedAt(row.lastSyncedAt)}
+                      {row.importedRangeCount > 0 ? ` · ${row.importedRangeCount} block${row.importedRangeCount === 1 ? "" : "s"}` : ""}
+                    </span>
+                  </div>
+                  {confirmingUnlinkId === row.connectionId ? (
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="text-[11px] text-muted">
+                        Unlink this room? Its imported blocks are removed from the calendar.
+                      </span>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        className="h-8 min-h-0 border-rose-200 px-3 text-[12px] text-rose-800 hover:bg-[var(--status-overdue-bg)] portal-danger-outline"
+                        disabled={busyAny}
+                        data-attr="channel-calendar-unlink-confirm"
+                        onClick={() => unlink(row.connectionId)}
+                      >
+                        Confirm unlink
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        className="h-8 min-h-0 px-3 text-[12px]"
+                        disabled={busyAny}
+                        data-attr="channel-calendar-unlink-cancel"
+                        onClick={() => setConfirmingUnlinkId(null)}
+                      >
+                        Keep
+                      </Button>
+                    </div>
+                  ) : (
                     <Button
                       type="button"
-                      variant="danger"
-                      className="h-7 min-h-0 px-2 text-[12px]"
+                      variant="outline"
+                      className="h-8 min-h-0 px-3 text-[12px]"
                       disabled={busyAny}
                       data-attr="channel-calendar-unlink"
                       aria-label={`Unlink ${row.propertyLabel} · ${row.roomLabel}`}
-                      onClick={() => unlink(row.connectionId)}
+                      onClick={() => setConfirmingUnlinkId(row.connectionId)}
                     >
                       Unlink
                     </Button>
-                  </span>
+                  )}
                 </li>
               ))}
             </ul>

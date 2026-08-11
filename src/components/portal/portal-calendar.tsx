@@ -421,10 +421,7 @@ export function PortalCalendar({
   useEffect(() => {
     if (portal !== "manager" || !bookingsView || !userId) return;
     const refresh = () => setLeasePipelineTick((tick) => tick + 1);
-    void syncLeasePipelineFromServer(
-      userId,
-      bookingsRefreshSignal > 0 ? { force: true } : undefined,
-    )
+    void syncLeasePipelineFromServer(userId)
       .then(refresh)
       .catch(() => {
         // The Airbnb half still renders; a failed refresh keeps the cached stays.
@@ -432,26 +429,34 @@ export function PortalCalendar({
     // The store is already current when this fires, so re-read rather than refetch.
     window.addEventListener(LEASE_PIPELINE_EVENT, refresh);
     return () => window.removeEventListener(LEASE_PIPELINE_EVENT, refresh);
-  }, [portal, bookingsView, userId, bookingsRefreshSignal]);
+  }, [portal, bookingsView, userId]);
+
+  // Listing catalog reads, so this is keyed on the listing tick alone — a lease
+  // write does not change a room's name.
+  const bookingsRoomLabels = useMemo(() => {
+    const labels = new Map<string, string>();
+    if (portal !== "manager" || !bookingsView) return labels;
+    void propertyTick;
+    for (const propertyId of scopedCalendarPropertyIds) {
+      const submission = getPropertyById(propertyId)?.listingSubmission;
+      if (submission?.v !== 1) continue;
+      normalizeManagerListingSubmissionV1(submission).rooms.forEach((room, index) => {
+        labels.set(`${propertyId}:${room.id}`, room.name?.trim() || `Room ${index + 1}`);
+      });
+    }
+    return labels;
+  }, [portal, bookingsView, propertyTick, scopedCalendarPropertyIds]);
 
   const bookingsLeaseEntries = useMemo<PropertyBookingEntry[]>(() => {
     if (portal !== "manager" || !bookingsView || !userId) return [];
     void leasePipelineTick;
-    void propertyTick;
     const scoped = new Set(scopedCalendarPropertyIds);
-    const roomLabels = new Map<string, string>();
-    for (const propertyId of scoped) {
-      const submission = getPropertyById(propertyId)?.listingSubmission;
-      if (submission?.v !== 1) continue;
-      normalizeManagerListingSubmissionV1(submission).rooms.forEach((room, index) => {
-        roomLabels.set(`${propertyId}:${room.id}`, room.name?.trim() || `Room ${index + 1}`);
-      });
-    }
     return leaseBookingEntriesForProperties(readLeasePipeline(userId), {
       properties: managerProperties
         .filter((property) => scoped.has(property.id))
         .map((property) => ({ id: property.id, label: property.name })),
-      roomLabelForId: (propertyId, roomId) => roomLabels.get(`${propertyId}:${roomId}`) ?? "Room",
+      roomLabelForId: (propertyId, roomId) =>
+        bookingsRoomLabels.get(`${propertyId}:${roomId}`) ?? "Room",
       openEndedHorizonKey: openEndedBookingHorizonKey(),
     });
   }, [
@@ -459,9 +464,9 @@ export function PortalCalendar({
     bookingsView,
     userId,
     leasePipelineTick,
-    propertyTick,
     managerProperties,
     scopedCalendarPropertyIds,
+    bookingsRoomLabels,
   ]);
 
   const mergedExternalMeetings = useMemo(() => {

@@ -56,9 +56,7 @@ export function ManagerPropertyBookingsPanel({
 
   useEffect(() => {
     let cancelled = false;
-    // `force` because the caller-driven bump follows a write the shared TTL
-    // would otherwise answer from the pre-write snapshot.
-    void syncLeasePipelineFromServer(managerUserId, refreshSignal > 0 ? { force: true } : undefined)
+    void syncLeasePipelineFromServer(managerUserId)
       .then((rows) => {
         if (!cancelled) setLeaseRows(rows);
       })
@@ -69,7 +67,7 @@ export function ManagerPropertyBookingsPanel({
     return () => {
       cancelled = true;
     };
-  }, [managerUserId, refreshSignal]);
+  }, [managerUserId]);
 
   // Approving an application, voiding a lease, or completing a signature
   // anywhere else in this session rewrites the lease store. Without this the

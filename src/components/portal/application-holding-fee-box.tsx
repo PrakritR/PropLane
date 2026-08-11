@@ -18,10 +18,7 @@ import { isDemoModeActive } from "@/lib/demo/demo-session";
  * A charge is scoped to (applicant, property), so both have to exist before one
  * can be written at all.
  */
-export function applicationHoldingFeeBlockedReason(
-  residentEmail: string,
-  propertyId: string,
-): string {
+function applicationHoldingFeeBlockedReason(residentEmail: string, propertyId: string): string {
   if (!propertyId.trim()) {
     return "This application has no house on it yet, so a holding fee has nothing to be charged against. It becomes available once a home is selected.";
   }
