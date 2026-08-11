@@ -11,13 +11,16 @@ import type { PropertyBookingEntry } from "@/lib/channel-calendar/property-booki
  */
 export type BookingsDayEntry = PropertyBookingEntry;
 
-function formatStayRange(start: string, end: string): string {
+function formatStayRange(start: string, end: string, openEnded?: boolean): string {
   const fmt = (iso: string) => {
     const [y, m, d] = iso.split("-").map(Number);
     if (!y || !m || !d) return iso;
     return new Date(y, m - 1, d).toLocaleDateString("en-US", { month: "short", day: "numeric" });
   };
-  if (start === end) return fmt(start);
+  // An open-ended stay's `end` is the internal horizon key, not a date the
+  // manager entered — printing it reads as a real (and often earlier-looking)
+  // move-out date, so show the start alone and let the "onward" suffix carry it.
+  if (openEnded || start === end) return fmt(start);
   return `${fmt(start)} – ${fmt(end)}`;
 }
 
@@ -61,7 +64,7 @@ export function BookingsDayDetailModal({
                 {entry.source === "airbnb" ? bookingGuestLabel(entry.summary) : entry.summary}
               </p>
               <p className="mt-1 text-xs text-muted">
-                Stay · {formatStayRange(entry.start, entry.end)}
+                Stay · {formatStayRange(entry.start, entry.end, entry.openEnded)}
                 {entry.openEnded ? " onward" : ""} ·{" "}
                 {entry.source === "airbnb" ? "Airbnb" : "PropLane"}
                 {entry.statusLabel ? ` · ${entry.statusLabel}` : ""}
