@@ -28,7 +28,7 @@ import { isNativeOAuthInProgress } from "@/lib/native/open-url";
 import { getNativeInfo } from "@/lib/native/push-client";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 async function tryResidentAutoConfirm(email: string): Promise<boolean> {
   try {
@@ -166,23 +166,55 @@ function NativeAuthHubInner({ defaultMode = "sign-in" }: NativeAuthHubProps) {
     return () => document.removeEventListener("visibilitychange", onVisible);
   }, [checkingSession, signInContinueHref]);
 
+  const formRef = useRef<HTMLFormElement | null>(null);
+
+  /**
+   * iOS/iPadOS Password AutoFill writes straight into the input's DOM value, and
+   * WebKit does not always deliver that to React as a change event — so the box
+   * visibly holds the password while `password` state is still "". Reading state
+   * alone then refused the sign-in with "Enter email and password." over
+   * credentials the user could plainly see, which is how App Review hit an error
+   * message immediately after attempting to log in (Guideline 2.1(a), build 69,
+   * reviewed on iPad).
+   *
+   * The DOM is authoritative here because it is what the person actually sees.
+   */
+  const credentialsFromDom = () => {
+    const form = formRef.current;
+    const domEmail = (form?.elements.namedItem("email") as HTMLInputElement | null)?.value ?? "";
+    const domPassword =
+      (form?.elements.namedItem("password") as HTMLInputElement | null)?.value ?? "";
+    return {
+      email: (email.trim() || domEmail.trim()).trim(),
+      password: password || domPassword,
+    };
+  };
+
   const signIn = async () => {
-    if (!email.trim() || !password) {
+    const credentials = credentialsFromDom();
+    if (!credentials.email || !credentials.password) {
       showToast("Enter email and password.");
       return;
     }
+    // Re-sync state so a later retry, and the remembered-email write below, see
+    // what was autofilled.
+    if (credentials.email !== email.trim()) setEmail(credentials.email);
+    if (credentials.password !== password) setPassword(credentials.password);
     setErrorText(null);
     setBusy(true);
     try {
       const supabase = createSupabaseBrowserClient();
       let { data, error } = await supabase.auth.signInWithPassword({
-        email: email.trim(),
-        password,
+        email: credentials.email,
+        password: credentials.password,
       });
       if (error?.message.toLowerCase().includes("email not confirmed")) {
-        const repaired = await tryResidentAutoConfirm(email);
+        const repaired = await tryResidentAutoConfirm(credentials.email);
         if (repaired) {
-          const retry = await supabase.auth.signInWithPassword({ email: email.trim(), password });
+          const retry = await supabase.auth.signInWithPassword({
+            email: credentials.email,
+            password: credentials.password,
+          });
           data = retry.data;
           error = retry.error;
         }
@@ -196,7 +228,7 @@ function NativeAuthHubInner({ defaultMode = "sign-in" }: NativeAuthHubProps) {
       if (!data.user) throw new Error("No active session.");
       setFailedSignInAttempts(0);
       try {
-        window.localStorage.setItem("axis:remembered-login-email", email.trim());
+        window.localStorage.setItem("axis:remembered-login-email", credentials.email);
       } catch {
         /* ignore */
       }
@@ -251,8 +283,22 @@ function NativeAuthHubInner({ defaultMode = "sign-in" }: NativeAuthHubProps) {
               onError={(message) => setErrorText(message || null)}
             />
             <AuthDivider label="or enter your details" />
-            <div className="space-y-3">
+            {/* A real <form> with NAMED fields, not loose inputs in a div.
+                iOS/iPadOS Password AutoFill and every password manager identify
+                credential fields by form membership and name; without it the
+                keyboard also offers "return" instead of "Go" and nothing submits.
+                See `credentialsFromDom` for the other half of this fix. */}
+            <form
+              ref={formRef}
+              className="space-y-3"
+              onSubmit={(e) => {
+                e.preventDefault();
+                void signIn();
+              }}
+            >
               <Input
+                id="auth-hub-email"
+                name="email"
                 type="email"
                 autoComplete="email"
                 placeholder="Email"
@@ -266,14 +312,13 @@ function NativeAuthHubInner({ defaultMode = "sign-in" }: NativeAuthHubProps) {
               />
               <div>
                 <PasswordInput
+                  id="auth-hub-password"
+                  name="password"
                   autoComplete="current-password"
                   placeholder="Password"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   disabled={locked}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") void signIn();
-                  }}
                 />
                 {showForgotPassword ? (
                   <p className="mt-1.5 text-right text-[12px]">
@@ -285,14 +330,14 @@ function NativeAuthHubInner({ defaultMode = "sign-in" }: NativeAuthHubProps) {
               </div>
               {errorText ? <p className="text-center text-xs text-rose-600">{errorText}</p> : null}
               <Button
-                type="button"
+                type="submit"
                 className="btn-cobalt w-full rounded-full py-2.5 text-[15px] font-semibold"
                 disabled={locked}
-                onClick={() => signIn()}
+                loading={busy}
               >
                 {busy ? "Signing in…" : "Sign in"}
               </Button>
-            </div>
+            </form>
           </div>
         </div>
       </AuthCard>
