@@ -14,6 +14,7 @@ import { useIsNativeApp } from "@/hooks/use-is-native-app";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { PasswordInput } from "@/components/ui/password-input";
+import { resolveFormCredentials } from "@/lib/auth/form-credentials";
 import { oauthErrorFromParams } from "@/lib/auth/oauth-error-params";
 import { oauthContinuePath } from "@/lib/auth/oauth-redirect";
 import { isUnsafeRedirectPath } from "@/lib/auth/normalize-post-auth-path";
@@ -177,17 +178,22 @@ function NativeAuthHubInner({ defaultMode = "sign-in" }: NativeAuthHubProps) {
    * message immediately after attempting to log in (Guideline 2.1(a), build 69,
    * reviewed on iPad).
    *
-   * The DOM is authoritative here because it is what the person actually sees.
+   * The DOM is authoritative here because it is what the person actually sees —
+   * for the email as much as the password, since a remembered email is seeded
+   * into state on mount and AutoFilling another saved account would otherwise
+   * submit that stale email with the new password.
    */
   const credentialsFromDom = () => {
     const form = formRef.current;
     const domEmail = (form?.elements.namedItem("email") as HTMLInputElement | null)?.value ?? "";
     const domPassword =
       (form?.elements.namedItem("password") as HTMLInputElement | null)?.value ?? "";
-    return {
-      email: (email.trim() || domEmail.trim()).trim(),
-      password: password || domPassword,
-    };
+    return resolveFormCredentials({
+      domEmail,
+      domPassword,
+      stateEmail: email,
+      statePassword: password,
+    });
   };
 
   const signIn = async () => {

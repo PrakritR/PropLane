@@ -57,12 +57,18 @@ export function ManagerPortfolioBookingsCalendar({
   const monthStart = useMemo(() => addMonths(startMonth, monthOffset), [startMonth, monthOffset]);
   const monthCells = useMemo(() => buildMonthDayCells(monthStart), [monthStart]);
 
+  // Joined only to give the fetch a stable dependency: a caller re-creating the
+  // same array on every render would otherwise refetch on every render.
   const propertyIdsKey = propertyIds.join(",");
+  const fetchPropertyIds = useMemo(
+    () => propertyIdsKey.split(",").filter(Boolean),
+    [propertyIdsKey],
+  );
 
   const reload = useCallback(async () => {
     setLoading(true);
     try {
-      const rows = await fetchManagerChannelBookings(propertyIdsKey.split(",").filter(Boolean));
+      const rows = await fetchManagerChannelBookings(fetchPropertyIds);
       setAirbnbEntries(airbnbBookingEntries(rows));
     } catch (e) {
       showToast(e instanceof Error ? e.message : "Could not load bookings.");
@@ -70,7 +76,7 @@ export function ManagerPortfolioBookingsCalendar({
     } finally {
       setLoading(false);
     }
-  }, [propertyIdsKey, showToast]);
+  }, [fetchPropertyIds, showToast]);
 
   useEffect(() => {
     void reload();

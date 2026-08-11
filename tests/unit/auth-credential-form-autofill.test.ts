@@ -20,6 +20,7 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
+import { resolveFormCredentials } from "@/lib/auth/form-credentials";
 
 const REPO_ROOT = path.resolve(__dirname, "../..");
 
@@ -61,6 +62,55 @@ describe("sign-in credential fields", () => {
     const signInCall = /signInWithPassword\(\{\s*email: credentials\.email,\s*password: credentials\.password,?\s*\}\)/;
     expect(src).toMatch(signInCall);
     expect(src).not.toMatch(/signInWithPassword\(\{\s*email: email\.trim\(\)/);
+  });
+});
+
+describe("resolveFormCredentials", () => {
+  it("takes both fields from the DOM when AutoFill never reached React state", () => {
+    expect(
+      resolveFormCredentials({
+        domEmail: " reviewer@example.com ",
+        domPassword: "autofilled-secret",
+        stateEmail: "",
+        statePassword: "",
+      }),
+    ).toEqual({ email: "reviewer@example.com", password: "autofilled-secret" });
+  });
+
+  it("keeps the AutoFilled pair together over a remembered email in state", () => {
+    // The returning-user path: `readRememberedLoginEmail` seeds account A into
+    // state, then AutoFill picks account B. Submitting A's email with B's
+    // password is a pair the person was never shown.
+    expect(
+      resolveFormCredentials({
+        domEmail: "accountB@example.com",
+        domPassword: "b-password",
+        stateEmail: "accountA@example.com",
+        statePassword: "",
+      }),
+    ).toEqual({ email: "accountB@example.com", password: "b-password" });
+  });
+
+  it("falls back to state when the DOM is unreadable", () => {
+    expect(
+      resolveFormCredentials({
+        domEmail: "",
+        domPassword: "",
+        stateEmail: " typed@example.com ",
+        statePassword: "typed-password",
+      }),
+    ).toEqual({ email: "typed@example.com", password: "typed-password" });
+  });
+
+  it("does not treat a whitespace-only DOM email as an entry", () => {
+    expect(
+      resolveFormCredentials({
+        domEmail: "   ",
+        domPassword: "",
+        stateEmail: "typed@example.com",
+        statePassword: "typed-password",
+      }),
+    ).toEqual({ email: "typed@example.com", password: "typed-password" });
   });
 });
 

@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Input, Select } from "@/components/ui/input";
 import { Modal, ModalFooter } from "@/components/ui/modal";
 import {
+  deleteChannelCalendarConnection,
   fetchManagerChannelBookings,
   saveChannelCalendarConnection,
   syncChannelCalendarConnection,
@@ -184,6 +185,25 @@ export function ChannelCalendarLinkModal({
     }
   };
 
+  /**
+   * Linking is only half of it: a wrong or revoked iCal URL keeps importing
+   * blocked ranges into the grid until the connection itself is removed, and
+   * this modal is the only surface that lists them.
+   */
+  const unlink = async (connectionId: string) => {
+    setBusy(true);
+    try {
+      await deleteChannelCalendarConnection(connectionId);
+      await reloadLinked();
+      onChanged?.();
+      showToast("Airbnb calendar unlinked.");
+    } catch (e) {
+      showToast(e instanceof Error ? e.message : "Could not remove connection.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const busyAny = busy || syncing;
 
   return (
@@ -289,13 +309,24 @@ export function ChannelCalendarLinkModal({
             <p className="text-xs font-semibold uppercase tracking-wide text-muted">Linked rooms</p>
             <ul className="mt-2 space-y-1.5 text-xs text-foreground">
               {linkedRows.map((row) => (
-                <li key={row.connectionId} className="flex flex-wrap justify-between gap-x-2 gap-y-0.5">
+                <li key={row.connectionId} className="flex flex-wrap items-center justify-between gap-x-2 gap-y-0.5">
                   <span>
                     {row.propertyLabel} · {row.roomLabel}
                   </span>
-                  <span className="text-muted">
+                  <span className="flex items-center gap-2 text-muted">
                     {formatSyncedAt(row.lastSyncedAt)}
                     {row.importedRangeCount > 0 ? ` · ${row.importedRangeCount} block${row.importedRangeCount === 1 ? "" : "s"}` : ""}
+                    <Button
+                      type="button"
+                      variant="danger"
+                      className="h-7 min-h-0 px-2 text-[12px]"
+                      disabled={busyAny}
+                      data-attr="channel-calendar-unlink"
+                      aria-label={`Unlink ${row.propertyLabel} · ${row.roomLabel}`}
+                      onClick={() => unlink(row.connectionId)}
+                    >
+                      Unlink
+                    </Button>
                   </span>
                 </li>
               ))}

@@ -140,8 +140,10 @@ describe("group application — applicant Group ID hand-off", () => {
         <GroupShareCallout leaderAppId={ORGANIZER_ID} groupRole="first" groupSize="3" />
       </div>,
     );
-    expect(screen.getByText("Invite your roommates")).toBeTruthy();
-    expect(screen.getByText(/send it to 2 roommates/)).toBeTruthy();
+    // Copy matches the compacted `GroupInviteCallout` the organizer now sees:
+    // one header line carrying the label, the recipient count and the Group ID.
+    expect(screen.getByText("Roommate invite")).toBeTruthy();
+    expect(screen.getByText(/send to 2 roommates of 3/)).toBeTruthy();
     expect(screen.getByText(/groupLeaderAppId=PROPLANE-7KQ2MW9D/)).toBeTruthy();
     dumpHtml("callout-organizer", container.innerHTML);
   });
