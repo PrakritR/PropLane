@@ -84,6 +84,21 @@ describe("syncPropertyLeaseTemplatesFromListing", () => {
     expect(readPropertyLeaseTemplates(synced)[0]?.label).toBe("My custom lease name");
   });
 
+  it("keeps legacy per-term default labels across sync", () => {
+    const legacy = {
+      ...createPropertyLeaseTemplate({
+        kind: "long-term",
+        label: "12-Month lease",
+        source: "axis_default",
+      }),
+      listingSeedKey: "fixed-12-month" as const,
+    };
+    const synced = syncPropertyLeaseTemplatesFromListing(
+      syncLegacyLeaseFieldsFromTemplates(submission(), [legacy]),
+    );
+    expect(readPropertyLeaseTemplates(synced)[0]?.label).toBe("12-Month lease");
+  });
+
   it("does not adopt bundle short-term as the primary seed row", () => {
     const bundleShort = {
       ...createPropertyLeaseTemplate({

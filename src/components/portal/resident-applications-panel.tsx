@@ -38,7 +38,7 @@ import {
   ApplicationCosignerSection,
   ApplicationHouseholdCluster,
   ApplicationNestedListRow,
-  householdClusterHeader,
+  householdClusterHeaderForRows,
 } from "@/components/portal/application-household-list";
 import {
   ApplicationGroupSection,
@@ -51,7 +51,6 @@ import { buildApplicationGroups, describeGroupBadge, groupForRow } from "@/lib/r
 import {
   applicationListSortBucket,
   buildApplicationListClusters,
-  householdClusterPropertyLabel,
   orderApplicationRowsWithHouseholds,
   signerAppIdsForCosignerLookup,
 } from "@/lib/rental-application/application-list-grouping";
@@ -1299,10 +1298,7 @@ export function ResidentApplicationsPanel({
               return (
                 <ApplicationHouseholdCluster
                   key={cluster.groupId}
-                  header={householdClusterHeader(
-                    cluster.group,
-                    householdClusterPropertyLabel(cluster.rows),
-                  )}
+                  header={householdClusterHeaderForRows(cluster.group, cluster.rows)}
                 >
                   {cluster.rows.map((row) => renderRow(row, true))}
                 </ApplicationHouseholdCluster>

@@ -107,8 +107,7 @@ export function ManagerPropertyLeasePanel({
   const bulkPropertyIds = propertyIds?.filter((id) => id.trim()) ?? [];
 
   const persistSubmission = (nextSub: ManagerListingSubmissionV1, successMessage: string) => {
-    if (!managerUserId) return false;
-    if (!saveTarget) return false;
+    if (!managerUserId || !saveTarget) return false;
     if (!persistManagerListingSubmission(saveTarget, managerUserId, nextSub)) {
       showToast("Could not save lease settings.");
       return false;

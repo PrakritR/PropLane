@@ -33,12 +33,12 @@ function measureAvailableWidth(container: HTMLElement, gapPx: number): number {
   const bandRow = sectionRow?.parentElement;
   if (
     slot &&
+    slot.clientWidth > 0 &&
     sectionRow &&
     bandRow &&
     bandRow !== slot &&
     slot.contains(bandRow) &&
-    bandRow.parentElement === slot &&
-    slot.clientWidth > 0
+    bandRow.parentElement === slot
   ) {
     const siblingWidths: number[] = [];
     for (const child of bandRow.children) {
@@ -46,8 +46,11 @@ function measureAvailableWidth(container: HTMLElement, gapPx: number): number {
         siblingWidths.push(child.offsetWidth);
       }
     }
-    const bandGap = parseFloat(getComputedStyle(bandRow).gap) || gapPx;
-    return computeSharedSlotActionBudget(slot.clientWidth, siblingWidths, bandGap);
+    if (siblingWidths.length > 0) {
+      const bandGap = parseFloat(getComputedStyle(bandRow).gap) || gapPx;
+      const budget = computeSharedSlotActionBudget(slot.clientWidth, siblingWidths, bandGap);
+      if (budget > 0) return budget;
+    }
   }
 
   if (container.clientWidth > 0) return container.clientWidth;
