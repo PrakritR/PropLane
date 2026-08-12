@@ -12,7 +12,8 @@ const PORTAL_FOOTER_INLINE_ACTIONS_ROW = cn(
 );
 
 const PORTAL_FOOTER_HEADER_ACTIONS_ROW = cn(
-  "flex w-full min-w-0 shrink-0 flex-nowrap items-stretch justify-start gap-2 pb-0.5 sm:pb-0",
+  "flex w-full min-w-0 shrink-0 flex-nowrap items-center justify-start gap-2 pb-0.5 sm:pb-0",
+  "[&_button]:w-auto [&_button]:max-w-none [&_button]:shrink-0 [&_label]:w-auto [&_label]:max-w-none [&_label]:shrink-0",
 );
 
 const PORTAL_FOOTER_INLINE_SPACER =
@@ -189,9 +190,7 @@ export function PortalPageFooterActions({
       >
         <div className="mx-auto w-full min-w-0 max-w-5xl">
           {rowVariant === "header" ? (
-            <div className={PORTAL_FOOTER_HEADER_ACTIONS_ROW}>
-              <div className="flex w-full min-w-0 flex-nowrap items-center justify-start gap-2">{children}</div>
-            </div>
+            <div className={PORTAL_FOOTER_HEADER_ACTIONS_ROW}>{children}</div>
           ) : (
             <div {...{ [HORIZONTAL_SCROLL_ATTR]: "" }}>
               <PortalSectionActionRow>{children}</PortalSectionActionRow>

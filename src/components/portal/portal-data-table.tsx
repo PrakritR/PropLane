@@ -322,9 +322,13 @@ export const RESIDENT_DOCUMENTS_DETAIL_FOOTER_BTN = cn(
   "h-9 min-h-0 w-auto max-w-none flex-none shrink-0 px-4",
 );
 
-/** Wrap pinned footer actions on resident Documents / Lease detail pages. */
+/** Wrap pinned footer actions on resident profile detail tabs (lease, application, payments, …). */
 export function ResidentDocumentsDetailFooter({ children }: { children: ReactNode }) {
-  return <div className="flex w-full flex-wrap items-center justify-start gap-2">{children}</div>;
+  return (
+    <div className="flex min-w-0 flex-nowrap items-center justify-start gap-2 [&_button]:w-auto [&_button]:shrink-0">
+      {children}
+    </div>
+  );
 }
 
 /**

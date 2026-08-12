@@ -30,6 +30,7 @@ import {
   PORTAL_DATA_TABLE_WRAP,
   PortalDataTableEmpty,
   PORTAL_DETAIL_BTN,
+  ResidentDocumentsDetailFooter,
   PORTAL_TABLE_TD,
   PORTAL_TABLE_TR_EXPANDABLE,
   PORTAL_TABLE_EXPAND_TH,
@@ -2834,7 +2835,9 @@ export function ManagerResidents({
 
                             {residentDetailBottomBarActions ? (
                               <PortalPageFooterActions pinned rowVariant="header">
-                                {residentDetailBottomBarActions}
+                                <ResidentDocumentsDetailFooter>
+                                  {residentDetailBottomBarActions}
+                                </ResidentDocumentsDetailFooter>
                               </PortalPageFooterActions>
                             ) : null}
                           </div>
