@@ -90,7 +90,11 @@ function longTermApplicationLeaseTerms(
   return allowed.length > 0 ? allowed : ["12-Month"];
 }
 
-/** Every property keeps four auto-seeded templates: individual + bundle, long + short. */
+/**
+ * The default lease formats a property can hold: long-term and short-term.
+ * Nothing creates these on a manager's behalf — a property starts with none and
+ * gains one only through `addLeaseTemplateFromSeed`.
+ */
 export function buildLeaseTemplateSeeds(
   sub: Pick<
     ManagerListingSubmissionV1,
@@ -202,6 +206,7 @@ export function syncPropertyLeaseTemplatesFromListing(
   const seeds = buildLeaseTemplateSeeds(sub);
   const existing = readPropertyLeaseTemplates(sub);
   const adoptedLegacyIds = new Set<string>();
+  const consumedIds = new Set<string>();
   const seededExisting = existing.filter((t) => Boolean(t.listingSeedKey));
 
   const nextSeeded: PropertyLeaseTemplate[] = [];
@@ -216,6 +221,7 @@ export function syncPropertyLeaseTemplatesFromListing(
 
     if (prev) {
       if (legacyAdopted) adoptedLegacyIds.add(legacyAdopted.id);
+      consumedIds.add(prev.id);
       const defaultLabel = defaultLabelForSeed(seed);
       nextSeeded.push({
         ...prev,
@@ -231,11 +237,19 @@ export function syncPropertyLeaseTemplatesFromListing(
     // each property showed the same four rows and why Delete could not work —
     // the next sync simply recreated whatever was removed. A property with no
     // templates is now a real, stable state, and adding one is an explicit act
-    // (`buildLeaseTemplateFromSeed`).
+    // (`addLeaseTemplateFromSeed`).
   }
 
-  const manual = existing.filter((t) => !t.listingSeedKey && !adoptedLegacyIds.has(t.id));
-  const merged = [...nextSeeded, ...manual];
+  const manual = existing.filter((t) => !t.listingSeedKey && !consumedIds.has(t.id));
+  // A seed key that is no longer on offer (the retired bundle formats, a legacy
+  // per-term key the collapse did not adopt) still points at a row the manager
+  // may have written a lease into. Dropping it would take their custom terms,
+  // uploaded document, or HTML override with it, so anything they edited is
+  // carried over. Untouched defaults carry nothing and are left behind.
+  const preservedSeeded = existing.filter(
+    (t) => Boolean(t.listingSeedKey) && !consumedIds.has(t.id) && templateHasManagerEdits(t),
+  );
+  const merged = [...nextSeeded, ...manual, ...preservedSeeded];
   return syncLegacyLeaseFieldsFromTemplates(sub, merged);
 }
 
@@ -309,44 +323,90 @@ export function resolveLeaseTemplateScenarioForApplication(
   return short ? "individual-short" : "individual-long";
 }
 
+/** The scenario a stored template answers — by seed key when it has one, else by kind. */
+export function leaseTemplateScenarioForTemplate(
+  template: PropertyLeaseTemplate,
+): LeaseTemplateScenarioId {
+  if (template.kind === "custom") return "custom";
+  switch (template.listingSeedKey) {
+    case BUNDLE_LONG_TERM_SEED_KEY:
+      return "bundle-long";
+    case BUNDLE_SHORT_TERM_SEED_KEY:
+      return "bundle-short";
+    case SHORT_TERM_SEED_KEY:
+      return "individual-short";
+    default:
+      break;
+  }
+  return template.kind === "short-term" ? "individual-short" : "individual-long";
+}
+
 export function findLeaseTemplateForScenario(
   templates: PropertyLeaseTemplate[],
   scenario: LeaseTemplateScenarioId,
 ): PropertyLeaseTemplate | null {
-  if (scenario === "custom") {
-    return templates.find((t) => t.kind === "custom") ?? null;
-  }
-  const seedKey = listingSeedKeyForLeaseScenario(scenario);
-  if (!seedKey) return null;
-  return templates.find((t) => t.listingSeedKey === seedKey) ?? null;
+  // A manager's own "Add lease" row carries no seed key, so a seed-key-only
+  // match makes every template they created invisible to the generate picker.
+  return templates.find((t) => leaseTemplateScenarioForTemplate(t) === scenario) ?? null;
 }
 
+/** Scenarios a bundle/short default falls back to when the property has no such template. */
+function leaseTemplateScenarioFallbacks(
+  scenario: LeaseTemplateScenarioId,
+): LeaseTemplateScenarioId[] {
+  switch (scenario) {
+    case "bundle-long":
+      return ["individual-long", "individual-short"];
+    case "bundle-short":
+      return ["individual-short", "bundle-long", "individual-long"];
+    case "individual-short":
+      return ["individual-long"];
+    case "individual-long":
+      return ["individual-short"];
+    default:
+      return [];
+  }
+}
+
+export type LeaseTemplateGenerateChoice = {
+  /** Stable selection key for the picker — the template's own id. */
+  id: string;
+  scenario: LeaseTemplateScenarioId;
+  template: PropertyLeaseTemplate;
+  label: string;
+};
+
+/**
+ * One row per lease template the property actually holds, the best match for
+ * this application first. A property with no templates returns [] — generation
+ * then falls back to the property's own lease terms, exactly as approval-time
+ * auto-generation already does.
+ */
 export function listLeaseTemplateGenerateChoices(
   sub: ManagerListingSubmissionV1,
   application: Pick<Partial<RentalWizardFormState>, "leaseTerm" | "rentalType" | "bundleId">,
   leaseKind?: "individual" | "joint_bundle",
-): { scenario: LeaseTemplateScenarioId; template: PropertyLeaseTemplate | null; label: string }[] {
+): LeaseTemplateGenerateChoice[] {
   const templates = readPropertyLeaseTemplates(sub);
-  const scenarios: LeaseTemplateScenarioId[] = [
-    "individual-long",
-    "individual-short",
-    "bundle-long",
-    "bundle-short",
-  ];
-  const custom = templates.find((t) => t.kind === "custom");
-  const rows = scenarios.map((scenario) => ({
-    scenario,
-    template: findLeaseTemplateForScenario(templates, scenario),
-    label: leaseTemplateScenarioLabel(scenario),
-  }));
-  if (custom) {
-    rows.push({ scenario: "custom", template: custom, label: leaseTemplateScenarioLabel("custom") });
-  }
+  const rows: LeaseTemplateGenerateChoice[] = templates.map((template) => {
+    const scenario = leaseTemplateScenarioForTemplate(template);
+    return {
+      id: template.id,
+      scenario,
+      template,
+      label: template.label.trim() || leaseTemplateScenarioLabel(scenario),
+    };
+  });
+
   const defaultScenario = resolveLeaseTemplateScenarioForApplication(application, leaseKind);
-  const defaultIdx = rows.findIndex((r) => r.scenario === defaultScenario);
-  if (defaultIdx > 0) {
-    const [hit] = rows.splice(defaultIdx, 1);
-    rows.unshift(hit!);
+  for (const scenario of [defaultScenario, ...leaseTemplateScenarioFallbacks(defaultScenario)]) {
+    const idx = rows.findIndex((r) => r.scenario === scenario);
+    if (idx < 0) continue;
+    if (idx > 0) {
+      const [hit] = rows.splice(idx, 1);
+      rows.unshift(hit!);
+    }
+    break;
   }
   return rows;
 }

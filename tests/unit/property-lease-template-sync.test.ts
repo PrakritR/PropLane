@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { createDefaultListingSubmission } from "@/lib/manager-listing-submission";
 import {
+  addLeaseTemplateFromSeed,
   buildLeaseTemplateSeeds,
+  listLeaseTemplateGenerateChoices,
   resolveLeaseTemplateScenarioForApplication,
   resolvePropertyLeaseTemplateForApplication,
   syncPropertyLeaseTemplatesFromListing,
@@ -12,37 +14,38 @@ import { syncPropertyApplicationTemplatesFromListing } from "@/lib/property-appl
 import { readPropertyApplicationTemplates } from "@/lib/property-application-templates";
 
 describe("property lease template sync", () => {
-  it("seeds individual and bundle long/short defaults", () => {
+  it("offers the long- and short-term defaults, and no bundle formats", () => {
     const sub = createDefaultListingSubmission();
     sub.allowedLeaseTerms = ["12-Month", "Month-to-Month", "3-Month", "Custom"];
     sub.shortTermRentalsAllowed = true;
     const seeds = buildLeaseTemplateSeeds(sub);
-    expect(seeds).toHaveLength(4);
-    expect(seeds.map((s) => s.seedKey).sort()).toEqual(
-      ["bundle-primary", "bundle-short-term", "primary", "short-term"].sort(),
-    );
+    expect(seeds.map((s) => s.seedKey).sort()).toEqual(["primary", "short-term"]);
     expect(seeds.find((s) => s.seedKey === "primary")?.applicationLeaseTerms?.sort()).toEqual(
       ["12-Month", "Month-to-Month", "3-Month", "Custom"].sort(),
     );
   });
 
-  it("syncs four lease templates from listing offered terms", () => {
+  it("refreshes the templates a manager added, and creates none", () => {
     const sub = createDefaultListingSubmission();
     sub.allowedLeaseTerms = ["12-Month", "Month-to-Month"];
-    const synced = syncPropertyLeaseTemplatesFromListing(sub);
-    const templates = readPropertyLeaseTemplates(synced);
-    expect(templates).toHaveLength(4);
-    expect(templates.map((t) => t.listingSeedKey).sort()).toEqual(
-      ["bundle-primary", "bundle-short-term", "primary", "short-term"].sort(),
-    );
-    expect(templates.find((t) => t.listingSeedKey === "primary")?.label).toBe("Individual room · Long-term");
-    expect(templates.find((t) => t.listingSeedKey === "bundle-primary")?.label).toBe("Lease bundle · Long-term");
+    expect(readPropertyLeaseTemplates(syncPropertyLeaseTemplatesFromListing(sub))).toHaveLength(0);
+
+    const added = addLeaseTemplateFromSeed(addLeaseTemplateFromSeed(sub, "primary"), "short-term");
+    const templates = readPropertyLeaseTemplates(syncPropertyLeaseTemplatesFromListing(added));
+    expect(templates.map((t) => t.listingSeedKey).sort()).toEqual(["primary", "short-term"]);
+    expect(templates.find((t) => t.listingSeedKey === "primary")?.label).toBe("Long-term lease");
+    expect(templates.find((t) => t.listingSeedKey === "primary")?.applicationLeaseTerms).toEqual([
+      "12-Month",
+      "Month-to-Month",
+    ]);
   });
 
   it("resolves the long-term template for month-to-month applicants", () => {
     const sub = createDefaultListingSubmission();
     sub.allowedLeaseTerms = ["12-Month", "Month-to-Month"];
-    const synced = syncPropertyLeaseTemplatesFromListing(sub);
+    const synced = syncPropertyLeaseTemplatesFromListing(
+      addLeaseTemplateFromSeed(addLeaseTemplateFromSeed(sub, "primary"), "short-term"),
+    );
     const picked = resolvePropertyLeaseTemplateForApplication(synced, { leaseTerm: "Month-to-Month" });
     expect(picked?.listingSeedKey).toBe("primary");
   });
@@ -50,7 +53,9 @@ describe("property lease template sync", () => {
   it("resolves the long-term template for fixed-term applicants", () => {
     const sub = createDefaultListingSubmission();
     sub.allowedLeaseTerms = ["12-Month", "Month-to-Month"];
-    const synced = syncPropertyLeaseTemplatesFromListing(sub);
+    const synced = syncPropertyLeaseTemplatesFromListing(
+      addLeaseTemplateFromSeed(addLeaseTemplateFromSeed(sub, "primary"), "short-term"),
+    );
     const picked = resolvePropertyLeaseTemplateForApplication(synced, { leaseTerm: "12-Month" });
     expect(picked?.listingSeedKey).toBe("primary");
     const legacyLabel = resolvePropertyLeaseTemplateForApplication(synced, { leaseTerm: "12 months" });
@@ -61,7 +66,9 @@ describe("property lease template sync", () => {
     const sub = createDefaultListingSubmission();
     sub.allowedLeaseTerms = ["3-Month", "Month-to-Month", "Custom"];
     sub.shortTermRentalsAllowed = true;
-    const synced = syncPropertyLeaseTemplatesFromListing(sub);
+    const synced = syncPropertyLeaseTemplatesFromListing(
+      addLeaseTemplateFromSeed(addLeaseTemplateFromSeed(sub, "primary"), "short-term"),
+    );
     const short = resolvePropertyLeaseTemplateForApplication(synced, {
       leaseTerm: SHORT_TERM_LEASE_TERM,
       rentalType: "short_term",
@@ -109,10 +116,7 @@ describe("property lease template sync", () => {
     ];
     const synced = syncPropertyLeaseTemplatesFromListing(sub);
     const templates = readPropertyLeaseTemplates(synced);
-    expect(templates).toHaveLength(4);
-    expect(templates.map((t) => t.listingSeedKey).sort()).toEqual(
-      ["bundle-primary", "bundle-short-term", "primary", "short-term"].sort(),
-    );
+    expect(templates.map((t) => t.listingSeedKey).sort()).toEqual(["primary", "short-term"]);
     expect(templates.find((t) => t.listingSeedKey === "primary")?.applicationLeaseTerms).toEqual([
       "3-Month",
       "Month-to-Month",
@@ -120,10 +124,118 @@ describe("property lease template sync", () => {
     ]);
   });
 
+  it("keeps a retired bundle template the manager wrote a lease into", () => {
+    const sub = createDefaultListingSubmission();
+    sub.allowedLeaseTerms = ["12-Month"];
+    sub.propertyLeaseTemplates = [
+      {
+        id: "lease-tpl-primary",
+        kind: "long-term",
+        label: "Long-term lease",
+        listingSeedKey: "primary",
+        applicationLeaseTerms: ["12-Month"],
+        leaseConfigMode: "standard",
+        leaseCustomKind: "terms",
+        customLeaseTerms: "",
+        leaseTemplateDocUrl: null,
+        leaseTemplateDocName: "",
+        createdAt: "2026-01-01T00:00:00.000Z",
+        updatedAt: "2026-01-01T00:00:00.000Z",
+      },
+      {
+        id: "lease-tpl-bundle",
+        kind: "long-term",
+        label: "Lease bundle · Long-term",
+        listingSeedKey: "bundle-primary",
+        applicationLeaseTerms: ["12-Month"],
+        leaseConfigMode: "custom",
+        leaseCustomKind: "terms",
+        customLeaseTerms: "Whole-house bundle clauses.",
+        leaseTemplateDocUrl: null,
+        leaseTemplateDocName: "",
+        createdAt: "2026-01-01T00:00:00.000Z",
+        updatedAt: "2026-01-01T00:00:00.000Z",
+      },
+      {
+        id: "lease-tpl-bundle-short",
+        kind: "short-term",
+        label: "Lease bundle · Short-term",
+        listingSeedKey: "bundle-short-term",
+        applicationLeaseTerms: [SHORT_TERM_LEASE_TERM],
+        leaseConfigMode: "standard",
+        leaseCustomKind: "terms",
+        customLeaseTerms: "",
+        leaseTemplateDocUrl: null,
+        leaseTemplateDocName: "",
+        createdAt: "2026-01-01T00:00:00.000Z",
+        updatedAt: "2026-01-01T00:00:00.000Z",
+      },
+    ];
+    const templates = readPropertyLeaseTemplates(syncPropertyLeaseTemplatesFromListing(sub));
+    const bundle = templates.find((t) => t.id === "lease-tpl-bundle");
+    expect(bundle?.customLeaseTerms).toBe("Whole-house bundle clauses.");
+    // The untouched bundle default carries nothing, so it is not resurrected.
+    expect(templates.some((t) => t.id === "lease-tpl-bundle-short")).toBe(false);
+  });
+
+  it("lists every stored template as a generate choice, best match first", () => {
+    const sub = createDefaultListingSubmission();
+    sub.allowedLeaseTerms = ["12-Month"];
+    sub.shortTermRentalsAllowed = true;
+    const withDefaults = addLeaseTemplateFromSeed(
+      addLeaseTemplateFromSeed(sub, "primary"),
+      "short-term",
+    );
+
+    const shortFirst = listLeaseTemplateGenerateChoices(withDefaults, {
+      leaseTerm: SHORT_TERM_LEASE_TERM,
+      rentalType: "short_term",
+    });
+    expect(shortFirst[0]?.scenario).toBe("individual-short");
+    expect(shortFirst.every((c) => c.template)).toBe(true);
+
+    // A bundle application has no bundle format to fall back on — it must still
+    // land on a selectable choice rather than a greyed-out picker.
+    const bundleFirst = listLeaseTemplateGenerateChoices(
+      withDefaults,
+      { leaseTerm: "12-Month", bundleId: "AXISGRP-test123456" },
+      "joint_bundle",
+    );
+    expect(bundleFirst[0]?.scenario).toBe("individual-long");
+  });
+
+  it("offers a manager's own keyless template in the generate picker", () => {
+    const sub = createDefaultListingSubmission();
+    sub.allowedLeaseTerms = ["12-Month"];
+    sub.propertyLeaseTemplates = [
+      {
+        id: "lease-tpl-manual",
+        kind: "long-term",
+        label: "House lease",
+        leaseConfigMode: "custom",
+        leaseCustomKind: "terms",
+        customLeaseTerms: "Manager-authored terms.",
+        leaseTemplateDocUrl: null,
+        leaseTemplateDocName: "",
+        createdAt: "2026-01-01T00:00:00.000Z",
+        updatedAt: "2026-01-01T00:00:00.000Z",
+      },
+    ];
+    const choices = listLeaseTemplateGenerateChoices(sub, { leaseTerm: "12-Month" });
+    expect(choices).toHaveLength(1);
+    expect(choices[0]?.template.id).toBe("lease-tpl-manual");
+    expect(choices[0]?.label).toBe("House lease");
+  });
+
+  it("returns no generate choices for a property with no templates", () => {
+    const sub = createDefaultListingSubmission();
+    expect(listLeaseTemplateGenerateChoices(sub, { leaseTerm: "12-Month" })).toEqual([]);
+  });
+
   it("preserves manager edits on re-sync", () => {
     const sub = createDefaultListingSubmission();
     sub.allowedLeaseTerms = ["12-Month"];
-    let synced = syncPropertyLeaseTemplatesFromListing(sub);
+    let synced = syncPropertyLeaseTemplatesFromListing(addLeaseTemplateFromSeed(sub, "primary"));
     const templates = readPropertyLeaseTemplates(synced);
     templates[0] = {
       ...templates[0]!,
@@ -144,16 +256,8 @@ describe("property lease template sync", () => {
     sub.shortTermRentalsAllowed = true;
     const synced = syncPropertyApplicationTemplatesFromListing(sub);
     const templates = readPropertyApplicationTemplates(synced);
-    expect(templates).toHaveLength(6);
     expect(templates.map((t) => t.listingSeedKey).sort()).toEqual(
-      [
-        "bundle-primary",
-        "bundle-short-term",
-        "cosigner",
-        "cosigner-short-term",
-        "primary",
-        "short-term",
-      ].sort(),
+      ["cosigner", "cosigner-short-term", "primary", "short-term"].sort(),
     );
     expect(templates.find((t) => t.listingSeedKey === "primary")?.label).toBe("Long-term application");
     expect(templates.find((t) => t.listingSeedKey === "short-term")?.label).toBe("Short-term application");

@@ -13,11 +13,7 @@ import {
   type LeasePipelineRow,
 } from "@/lib/lease-pipeline-storage";
 import { normalizeManagerListingSubmissionV1 } from "@/lib/manager-listing-submission";
-import {
-  listLeaseTemplateGenerateChoices,
-  resolveLeaseTemplateScenarioForApplication,
-  type LeaseTemplateScenarioId,
-} from "@/lib/property-lease-template-sync";
+import { listLeaseTemplateGenerateChoices } from "@/lib/property-lease-template-sync";
 import { LEASE_AI_REVIEW_DISCLAIMER } from "@/lib/lease-templates/types";
 import { getPropertyById } from "@/lib/rental-application/data";
 
@@ -66,25 +62,18 @@ export function LeaseGenerateModal({
     );
   }, [actionRow, submission, application]);
 
-  const defaultScenario = useMemo(() => {
-    if (!actionRow) return "individual-long" as LeaseTemplateScenarioId;
-    return resolveLeaseTemplateScenarioForApplication(
-      application,
-      actionRow.leaseKind === "joint_bundle" ? "joint_bundle" : "individual",
-    );
-  }, [actionRow, application]);
-
-  const [scenario, setScenario] = useState<LeaseTemplateScenarioId>(defaultScenario);
+  const defaultChoiceId = choices[0]?.id ?? null;
+  const [selectedChoiceId, setSelectedChoiceId] = useState<string | null>(defaultChoiceId);
 
   useEffect(() => {
     if (!open) return;
-    setScenario(defaultScenario);
-  }, [open, defaultScenario, row?.id]);
+    setSelectedChoiceId(defaultChoiceId);
+  }, [open, defaultChoiceId, row?.id]);
 
-  const selectedTemplateId = useMemo(() => {
-    const hit = choices.find((c) => c.scenario === scenario);
-    return hit?.template?.id ?? null;
-  }, [choices, scenario]);
+  const selectedTemplateId = useMemo(
+    () => choices.find((c) => c.id === selectedChoiceId)?.template.id ?? null,
+    [choices, selectedChoiceId],
+  );
 
   const preview = useMemo(() => {
     if (!actionRow || !open) return null;
@@ -96,7 +85,8 @@ export function LeaseGenerateModal({
   }, [actionRow, open, managerUserId, selectedTemplateId]);
 
   const confirm = () => {
-    if (!actionRow || !selectedTemplateId || busy) return;
+    if (!actionRow || busy) return;
+    if (choices.length > 0 && !selectedTemplateId) return;
     const res = generateLeaseHtmlForRow(actionRow.id, managerUserId, {
       discardManagerEdits: replacesManagerEdits,
       templateId: selectedTemplateId,
@@ -126,7 +116,7 @@ export function LeaseGenerateModal({
             variant="primary"
             className="rounded-full"
             data-attr="lease-generate-confirm"
-            disabled={busy || !selectedTemplateId || Boolean(preview?.error)}
+            disabled={busy || Boolean(preview?.error) || (choices.length > 0 && !selectedTemplateId)}
             onClick={() => confirm()}
           >
             {busy ? "Generating…" : replacesManagerEdits ? "Regenerate lease" : "Generate lease"}
@@ -147,24 +137,31 @@ export function LeaseGenerateModal({
 
         <div className="space-y-2">
           <p className="text-xs font-semibold uppercase tracking-wide text-muted">Lease type</p>
-          <div className="flex flex-wrap gap-2">
-            {choices.map((choice) => (
-              <button
-                key={choice.scenario}
-                type="button"
-                data-attr={`lease-generate-type-${choice.scenario}`}
-                disabled={!choice.template || busy}
-                onClick={() => setScenario(choice.scenario)}
-                className={`rounded-full border px-3 py-1.5 text-sm font-medium transition ${
-                  scenario === choice.scenario
-                    ? "border-primary bg-primary/10 text-primary"
-                    : "border-border bg-card text-foreground hover:bg-accent/40"
-                } ${!choice.template ? "opacity-50" : ""}`}
-              >
-                {choice.label}
-              </button>
-            ))}
-          </div>
+          {choices.length === 0 ? (
+            <p className="text-sm text-muted">
+              This property has no saved lease formats, so the draft is built from the property&apos;s own
+              lease terms. Add a lease format on the property&apos;s Lease tab to pick one here.
+            </p>
+          ) : (
+            <div className="flex flex-wrap gap-2">
+              {choices.map((choice) => (
+                <button
+                  key={choice.id}
+                  type="button"
+                  data-attr={`lease-generate-type-${choice.scenario}`}
+                  disabled={busy}
+                  onClick={() => setSelectedChoiceId(choice.id)}
+                  className={`rounded-full border px-3 py-1.5 text-sm font-medium transition ${
+                    selectedChoiceId === choice.id
+                      ? "border-primary bg-primary/10 text-primary"
+                      : "border-border bg-card text-foreground hover:bg-accent/40"
+                  }`}
+                >
+                  {choice.label}
+                </button>
+              ))}
+            </div>
+          )}
           {actionRow.leaseKind === "joint_bundle" ? (
             <p className="text-xs text-muted">
               Bundle leases list every room in the bundle (or the entire home) and include all co-tenants on one

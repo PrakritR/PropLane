@@ -11,8 +11,13 @@ const PORTAL_FOOTER_INLINE_ACTIONS_ROW = cn(
   "overscroll-x-contain scroll-px-1 sm:justify-end sm:gap-2 sm:pb-0",
 );
 
+// The row lives in a `position: fixed` dock, so buttons that can neither wrap
+// nor shrink would otherwise run off the side of a narrow phone with nothing to
+// scroll. It scrolls horizontally instead — overflow stays reachable.
 const PORTAL_FOOTER_HEADER_ACTIONS_ROW = cn(
   "flex w-full min-w-0 shrink-0 flex-nowrap items-center justify-start gap-2 pb-0.5 sm:pb-0",
+  PORTAL_HORIZONTAL_SCROLL_ROW_CLASS,
+  "overscroll-x-contain",
   "[&_button]:w-auto [&_button]:max-w-none [&_button]:shrink-0 [&_label]:w-auto [&_label]:max-w-none [&_label]:shrink-0",
 );
 
@@ -190,7 +195,9 @@ export function PortalPageFooterActions({
       >
         <div className="mx-auto w-full min-w-0 max-w-5xl">
           {rowVariant === "header" ? (
-            <div className={PORTAL_FOOTER_HEADER_ACTIONS_ROW}>{children}</div>
+            <div className={PORTAL_FOOTER_HEADER_ACTIONS_ROW} {...{ [HORIZONTAL_SCROLL_ATTR]: "" }}>
+              {children}
+            </div>
           ) : (
             <div {...{ [HORIZONTAL_SCROLL_ATTR]: "" }}>
               <PortalSectionActionRow>{children}</PortalSectionActionRow>
