@@ -76,6 +76,22 @@ export function ApplicationCosignerListRow({
   );
 }
 
+export function householdClusterPropertyLabel(
+  rows: ReadonlyArray<{ property: string }>,
+): string | null {
+  if (rows.length === 0) return null;
+  const first = rows[0]?.property;
+  if (!first) return null;
+  return rows.every((row) => row.property === first) ? first : null;
+}
+
+export function householdClusterHeaderForRows(
+  group: ApplicationGroup | null,
+  rows: ReadonlyArray<{ property: string }>,
+) {
+  return householdClusterHeader(group, householdClusterPropertyLabel(rows));
+}
+
 export function householdClusterHeader(group: ApplicationGroup | null, propertyLabel?: string | null) {
   const property =
     propertyLabel?.trim() ? stripPropertyRoomCountSuffix(propertyLabel.trim()) : "";

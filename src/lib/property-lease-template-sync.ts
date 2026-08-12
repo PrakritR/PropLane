@@ -104,6 +104,19 @@ export function buildLeaseTemplateSeeds(
   ];
 }
 
+const LEGACY_SEED_LABEL_ALIASES: Partial<Record<PropertyLeaseListingSeedKey, readonly string[]>> = {
+  primary: ["Long-term lease", "Individual room · Long-term", "Primary lease"],
+  "short-term": ["Short-term lease", "Individual · Short-term"],
+  "fixed-term": ["Fixed-term lease"],
+  "fixed-3-month": ["3-Month lease"],
+  "fixed-9-month": ["9-Month lease"],
+  "fixed-12-month": ["12-Month lease"],
+  "month-to-month": ["Month-to-month lease"],
+  "custom-term": ["Custom lease"],
+  "bundle-primary": ["Lease bundle · Long-term"],
+  "bundle-short-term": ["Lease bundle · Short-term"],
+};
+
 function defaultLabelForLeaseTemplate(template: PropertyLeaseTemplate): string {
   if (template.listingSeedKey === BUNDLE_LONG_TERM_SEED_KEY) return "Lease bundle · Long-term";
   if (template.listingSeedKey === BUNDLE_SHORT_TERM_SEED_KEY) return "Lease bundle · Short-term";
@@ -113,9 +126,17 @@ function defaultLabelForLeaseTemplate(template: PropertyLeaseTemplate): string {
   return "Long-term lease";
 }
 
-function templateHasManagerEdits(template: PropertyLeaseTemplate): boolean {
+function isDefaultLeaseTemplateLabel(template: PropertyLeaseTemplate): boolean {
   const label = template.label.trim();
-  if (label && label !== defaultLabelForLeaseTemplate(template)) return true;
+  if (!label) return true;
+  const key = template.listingSeedKey;
+  const aliases = key ? LEGACY_SEED_LABEL_ALIASES[key] : undefined;
+  if (aliases?.includes(label)) return true;
+  return label === defaultLabelForLeaseTemplate(template);
+}
+
+function templateHasManagerEdits(template: PropertyLeaseTemplate): boolean {
+  if (!isDefaultLeaseTemplateLabel(template)) return true;
   return (
     template.leaseConfigMode === "custom" ||
     Boolean(template.customLeaseTerms?.trim()) ||

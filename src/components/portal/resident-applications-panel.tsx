@@ -38,7 +38,7 @@ import {
   ApplicationCosignerSection,
   ApplicationHouseholdCluster,
   ApplicationNestedListRow,
-  householdClusterHeader,
+  householdClusterHeaderForRows,
 } from "@/components/portal/application-household-list";
 import {
   ApplicationGroupSection,
@@ -1298,12 +1298,7 @@ export function ResidentApplicationsPanel({
               return (
                 <ApplicationHouseholdCluster
                   key={cluster.groupId}
-                  header={householdClusterHeader(
-                    cluster.group,
-                    cluster.rows.every((r) => r.property === cluster.rows[0]?.property)
-                      ? cluster.rows[0]?.property
-                      : null,
-                  )}
+                  header={householdClusterHeaderForRows(cluster.group, cluster.rows)}
                 >
                   {cluster.rows.map((row) => renderRow(row, true))}
                 </ApplicationHouseholdCluster>

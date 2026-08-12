@@ -103,7 +103,7 @@ import {
   ApplicationCosignerSection,
   ApplicationHouseholdCluster,
   ApplicationNestedListRow,
-  householdClusterHeader,
+  householdClusterHeaderForRows,
 } from "@/components/portal/application-household-list";
 import { ManagerCosignerReadonlyReview } from "@/components/portal/manager-cosigner-readonly-review";
 import { useCosignerSubmissionsMap } from "@/hooks/use-cosigner-submissions-map";
@@ -1812,12 +1812,7 @@ export function ManagerApplications({
             return (
               <ApplicationHouseholdCluster
                 key={cluster.groupId}
-                header={householdClusterHeader(
-                  cluster.group,
-                  cluster.rows.every((r) => r.property === cluster.rows[0]?.property)
-                    ? cluster.rows[0]?.property
-                    : null,
-                )}
+                header={householdClusterHeaderForRows(cluster.group, cluster.rows)}
               >
                 {cluster.rows.map((row) => renderApplicationListRow(row, true))}
               </ApplicationHouseholdCluster>
