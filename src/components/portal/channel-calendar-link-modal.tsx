@@ -119,6 +119,7 @@ export function ChannelCalendarLinkModal({
           roomLabel: room.roomLabel,
           connectionId: room.connectionId,
           hasImportUrl: room.hasImportUrl,
+          exportUrl: room.exportUrl,
           lastSyncedAt: room.lastSyncedAt,
           importedRangeCount: room.ranges.length,
         })),
@@ -351,17 +352,33 @@ export function ChannelCalendarLinkModal({
                       </Button>
                     </div>
                   ) : (
-                    <Button
-                      type="button"
-                      variant="outline"
-                      className="h-8 min-h-0 px-3 text-[12px]"
-                      disabled={busyAny}
-                      data-attr="channel-calendar-unlink"
-                      aria-label={`Unlink ${row.propertyLabel} · ${row.roomLabel}`}
-                      onClick={() => setConfirmingUnlinkId(row.connectionId)}
-                    >
-                      Unlink
-                    </Button>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        className="h-8 min-h-0 px-3 text-[12px]"
+                        disabled={busyAny}
+                        data-attr="channel-calendar-copy-export-url"
+                        onClick={() => {
+                          void navigator.clipboard?.writeText(row.exportUrl).then(() => {
+                            showToast("Export URL copied.");
+                          });
+                        }}
+                      >
+                        Copy export URL
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        className="h-8 min-h-0 px-3 text-[12px]"
+                        disabled={busyAny}
+                        data-attr="channel-calendar-unlink"
+                        aria-label={`Unlink ${row.propertyLabel} · ${row.roomLabel}`}
+                        onClick={() => setConfirmingUnlinkId(row.connectionId)}
+                      >
+                        Unlink
+                      </Button>
+                    </div>
                   )}
                 </li>
               ))}

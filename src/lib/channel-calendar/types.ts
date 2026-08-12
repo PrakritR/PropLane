@@ -54,6 +54,7 @@ export type ManagerChannelBookingRoom = {
   lastSyncedAt: string | null;
   lastError: string | null;
   hasImportUrl: boolean;
+  exportUrl: string;
 };
 
 export type ManagerChannelBookingProperty = {

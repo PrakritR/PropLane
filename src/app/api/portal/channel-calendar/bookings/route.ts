@@ -36,7 +36,12 @@ export async function GET(req: Request) {
       ? propertyIdsParam.split(",").map((id) => id.trim()).filter(Boolean)
       : [];
 
-    const properties = await listManagerChannelCalendarBookings(ctx.db, ctx.userId, propertyIds);
+    const properties = await listManagerChannelCalendarBookings(
+      ctx.db,
+      ctx.userId,
+      propertyIds,
+      new URL(req.url).origin,
+    );
     return NextResponse.json({ properties });
   } catch (e) {
     return NextResponse.json({ error: e instanceof Error ? e.message : "Failed." }, { status: 500 });

@@ -407,6 +407,9 @@ export function RentalWizardStepBody(p: WizardStepsProps) {
     const joiningGroup = Boolean(form.groupLeaderAppId.trim());
     const organizingGroup = form.applyingAsGroup === "yes" && !joiningGroup;
     const inviteAppId = savedApplicationId.trim();
+    const propertyOffersBundles =
+      form.propertyId.trim().length > 0 &&
+      getBundleOptionsForProperty(form.propertyId, { rentalType: form.rentalType }).length > 0;
 
     return (
       <div className="rental-wizard-step space-y-4">
@@ -457,8 +460,11 @@ export function RentalWizardStepBody(p: WizardStepsProps) {
                 <>
                   <p className="px-4 pt-3 text-xs leading-relaxed text-muted sm:px-5">
                     One person applies first and gets a Group ID. Everyone else pastes that same
-                    ID below so the manager sees you as one household. Each of you still files
-                    your own application and is billed your own charges.
+                    ID below so the manager sees you as one household. Each of you still files your
+                    own application
+                    {propertyOffersBundles
+                      ? ". If you all choose the same lease bundle, move-in costs split evenly across your group; otherwise each person is billed their own charges."
+                      : " and is billed your own charges."}
                   </p>
 
                   <ApplyFieldRow
@@ -534,8 +540,10 @@ export function RentalWizardStepBody(p: WizardStepsProps) {
                     aria-describedby="groupSizeHelp"
                   />
                   <p id="groupSizeHelp" className="mt-1.5 text-xs text-muted">
-                    Everyone applying together, including you. Each person is billed their own
-                    charges — move-in costs are not split across the group.
+                    Everyone applying together, including you.
+                    {propertyOffersBundles
+                      ? " Move-in costs split evenly when you all choose the same lease bundle; otherwise each person is billed their own charges."
+                      : " Each person is billed their own charges."}
                   </p>
                 </ApplyFieldRow>
               ) : null}

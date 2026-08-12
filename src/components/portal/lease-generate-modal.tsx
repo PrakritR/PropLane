@@ -139,8 +139,8 @@ export function LeaseGenerateModal({
           <p className="text-xs font-semibold uppercase tracking-wide text-muted">Lease type</p>
           {choices.length === 0 ? (
             <p className="text-sm text-muted">
-              This property has no saved lease formats, so the draft is built from the property&apos;s own
-              lease terms. Add a lease format on the property&apos;s Lease tab to pick one here.
+              This property has no saved lease formats, so the draft uses PropLane&apos;s standard lease
+              template. Add a lease format on the property&apos;s Lease tab to pick one here.
             </p>
           ) : (
             <div className="flex flex-wrap gap-2">
