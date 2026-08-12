@@ -107,16 +107,23 @@ Coverage: `tests/unit/manager-application-settings.test.ts` (the money-critical
 override + grandfather + free-fee cases) and
 `tests/unit/application-fee-inline-checkout.test.ts` (embedded-by-default).
 
-**The holding deposit is never collected during the application.** It used to
-be tracked as a pending `holding_deposit` household charge the moment an
-applicant paid (or submitted) the application fee, credited later against the
-security deposit at approval. That pre-approval tracking was removed
+**A holding deposit is never collected AUTOMATICALLY during the application.**
+It used to be tracked as a pending `holding_deposit` household charge the moment
+an applicant paid (or submitted) the application fee, credited later against the
+security deposit at approval. That automatic pre-approval tracking was removed
 (`recordApplicationCharges` / `recordSubmittedApplicationFeeCharge` no longer
-call `ensurePendingHoldingDepositCharge`) — any deposit money is charged under
-Payments, after approval, same as security deposits already were. The
-`holding_deposit` charge kind, `ensurePendingHoldingDepositCharge`, and the
-approval-time holding-deposit credit (`paidHoldingDepositCreditCents`) are kept
-for now as `@deprecated`/back-compat only; do not add new pre-approval call
+call `ensurePendingHoldingDepositCharge`) — deposit money is charged under
+Payments, after approval, same as security deposits already were.
+
+The one pre-approval `holding_deposit` write that remains is **manager-initiated
+and per applicant**: `setApplicantHoldingFee`, reached from the Applications
+detail's top-right **Holding fee** action, which opens
+`ApplicationHoldingFeeModal` (`application-holding-fee-box.tsx`). It is opt-in,
+the manager picks the amount, it needs both an applicant email and a property to
+scope the charge, and a hold the applicant has already PAID is never re-priced
+or deleted from there. `ensurePendingHoldingDepositCharge` and the approval-time
+holding-deposit credit (`paidHoldingDepositCreditCents`) are kept for now as
+`@deprecated`/back-compat only; do not add new AUTOMATIC pre-approval call
 sites.
 
 Coverage (application fee + waiver codes): `tests/unit/application-fee-checkout-fee-payer.test.ts`
