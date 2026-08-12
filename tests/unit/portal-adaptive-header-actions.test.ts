@@ -90,6 +90,10 @@ describe("computeSharedSlotActionBudget", () => {
     expect(computeSharedSlotActionBudget(400, [72], 12)).toBe(316);
   });
 
+  it("subtracts one gap per sibling in the band row", () => {
+    expect(computeSharedSlotActionBudget(400, [72, 80], 12)).toBe(224);
+  });
+
   it("returns zero when siblings consume the slot", () => {
     expect(computeSharedSlotActionBudget(80, [90], 8)).toBe(0);
   });

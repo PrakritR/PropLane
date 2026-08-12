@@ -78,6 +78,13 @@ describe("leaseBookingEntries", () => {
     expect(leaseBookingEntries([{ ...base, status: "Voided" }], leaseOpts())).toHaveLength(0);
   });
 
+  it("a draft lease does not block the calendar", () => {
+    expect(leaseBookingEntries([{ ...base, status: "Draft" }], leaseOpts())).toHaveLength(0);
+    expect(
+      leaseBookingEntries([{ ...base, status: "Manager Review" }], leaseOpts()),
+    ).toHaveLength(0);
+  });
+
   it("a lease with no start date is skipped rather than drawn on Invalid Date", () => {
     expect(
       leaseBookingEntries([{ ...base, application: { leaseStart: "" } }], leaseOpts()),

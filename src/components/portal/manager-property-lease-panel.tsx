@@ -159,6 +159,7 @@ export function ManagerPropertyLeasePanel({
   const addSeedTemplate = useCallback(
     (seedKey: PropertyLeaseListingSeedKey) => {
       if (bulkPropertyIds.length > 0) {
+        if (!managerUserId) return;
         let saved = 0;
         let failed = 0;
         let skipped = 0;
@@ -347,7 +348,7 @@ export function ManagerPropertyLeasePanel({
               <iframe
                 title={`Lease preview · ${previewTemplate.label}`}
                 srcDoc={previewHtml}
-                sandbox="allow-same-origin allow-popups allow-popups-to-escape-sandbox"
+                sandbox="allow-same-origin"
                 className="h-[min(72vh,52rem)] w-full rounded-xl border border-border bg-card"
               />
             ) : (

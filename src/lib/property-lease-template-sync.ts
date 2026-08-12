@@ -249,7 +249,7 @@ export function syncPropertyLeaseTemplatesFromListing(
         kind: seed.kind,
         listingSeedKey: seed.seedKey,
         applicationLeaseTerms: seed.applicationLeaseTerms,
-        label: prev.label.trim() && prev.label !== defaultLabel ? prev.label : defaultLabel,
+        label: isDefaultLeaseTemplateLabel(prev) ? defaultLabel : prev.label.trim() || defaultLabel,
         updatedAt: nowIso(),
       });
     }

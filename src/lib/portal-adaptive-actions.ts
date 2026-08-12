@@ -159,7 +159,7 @@ export function computeSharedSlotActionBudget(
 ): number {
   if (slotWidth <= 0) return 0;
   const occupied = siblingWidths.reduce((sum, width) => sum + width, 0);
-  const gapTotal = siblingWidths.length > 0 ? gapPx : 0;
+  const gapTotal = siblingWidths.length * gapPx;
   return Math.max(0, slotWidth - occupied - gapTotal);
 }
 

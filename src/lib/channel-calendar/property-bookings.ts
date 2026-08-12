@@ -1,6 +1,7 @@
 import { dateKeyInBookingRange } from "@/lib/channel-calendar/bookings-dates";
 import type { ManagerChannelBookingProperty } from "@/lib/channel-calendar/types";
 import { parseRoomChoiceValue } from "@/lib/rental-application/data";
+import { normalizeIsoDateInput } from "@/lib/rental-application/lease-dates";
 
 /**
  * What the Bookings calendar draws.
@@ -61,18 +62,7 @@ export type LeaseBookingRow = {
  * negative-offset zone (PropLane's own).
  */
 export function normalizeBookingDateKey(value: string | null | undefined): string {
-  const raw = String(value ?? "").trim();
-  if (!raw) return "";
-  if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw;
-  const slash = /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/.exec(raw);
-  const parsed = slash
-    ? new Date(Number(slash[3]), Number(slash[1]) - 1, Number(slash[2]))
-    : new Date(raw);
-  if (Number.isNaN(parsed.getTime())) return "";
-  const y = parsed.getFullYear();
-  const m = String(parsed.getMonth() + 1).padStart(2, "0");
-  const d = String(parsed.getDate()).padStart(2, "0");
-  return `${y}-${m}-${d}`;
+  return normalizeIsoDateInput(value);
 }
 
 export function airbnbBookingEntries(
@@ -127,6 +117,10 @@ export function leaseBookingEntries(
   for (const row of rows) {
     if ((row.propertyId ?? "").trim() !== propertyId) continue;
     if (row.status === "Voided") continue;
+    // A lease still in the manager's draft tray never sent for signature does not
+    // hold the room on the availability calendar — an abandoned open-ended draft
+    // would otherwise paint two years of false occupancy.
+    if (row.status === "Draft" || row.status === "Manager Review") continue;
     const start = normalizeBookingDateKey(row.application?.leaseStart);
     if (!start) continue;
     const parsedEnd = normalizeBookingDateKey(row.application?.leaseEnd);

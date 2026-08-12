@@ -121,6 +121,7 @@ export function ChannelCalendarLinkModal({
           hasImportUrl: room.hasImportUrl,
           exportUrl: room.exportUrl,
           lastSyncedAt: room.lastSyncedAt,
+          lastError: room.lastError,
           importedRangeCount: room.ranges.length,
         })),
       ),
@@ -325,6 +326,11 @@ export function ChannelCalendarLinkModal({
                       {row.importedRangeCount > 0 ? ` · ${row.importedRangeCount} block${row.importedRangeCount === 1 ? "" : "s"}` : ""}
                     </span>
                   </div>
+                  {row.lastError ? (
+                    <p className="text-[11px] text-danger" data-attr="channel-calendar-last-error">
+                      {row.lastError}
+                    </p>
+                  ) : null}
                   {confirmingUnlinkId === row.connectionId ? (
                     <div className="flex flex-wrap items-center gap-2">
                       <span className="text-[11px] text-muted">
@@ -360,9 +366,11 @@ export function ChannelCalendarLinkModal({
                         disabled={busyAny}
                         data-attr="channel-calendar-copy-export-url"
                         onClick={() => {
-                          void navigator.clipboard?.writeText(row.exportUrl).then(() => {
-                            showToast("Export URL copied.");
-                          });
+                          const url = row.exportUrl;
+                          if (!url) return;
+                          void navigator.clipboard?.writeText(url)
+                            .then(() => showToast("Export URL copied."))
+                            .catch(() => showToast(url));
                         }}
                       >
                         Copy export URL
