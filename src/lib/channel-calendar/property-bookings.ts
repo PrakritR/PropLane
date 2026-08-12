@@ -48,6 +48,8 @@ export type LeaseBookingRow = {
   residentName?: string;
   stageLabel?: string;
   status?: string;
+  leaseKind?: string;
+  bundleGroupKey?: string | null;
   application?: { leaseStart?: string; leaseEnd?: string };
 };
 
@@ -119,17 +121,15 @@ export function leaseBookingEntries(
   for (const row of rows) {
     if ((row.propertyId ?? "").trim() !== propertyId) continue;
     if (row.status === "Voided") continue;
-    // A lease still in the manager's draft tray never sent for signature does not
-    // hold the room on the availability calendar — an abandoned open-ended draft
-    // would otherwise paint two years of false occupancy.
-    if (row.status === "Draft" || row.status === "Manager Review") continue;
     const start = normalizeBookingDateKey(row.application?.leaseStart);
     if (!start) continue;
     const parsedEnd = normalizeBookingDateKey(row.application?.leaseEnd);
     const openEnded = !parsedEnd;
     const end = parsedEnd || opts.openEndedHorizonKey;
     const roomId = parseRoomChoiceValue(row.roomChoice ?? "").listingRoomId ?? "";
-    if (!roomId && !opts.entireHomeListing) continue;
+    const bundleOccupancy =
+      row.leaseKind === "joint_bundle" || Boolean(row.bundleGroupKey?.trim());
+    if (!roomId && !opts.entireHomeListing && !bundleOccupancy) continue;
     out.push({
       source: "proplane",
       propertyId,

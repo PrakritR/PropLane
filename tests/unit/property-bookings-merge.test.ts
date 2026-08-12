@@ -78,11 +78,18 @@ describe("leaseBookingEntries", () => {
     expect(leaseBookingEntries([{ ...base, status: "Voided" }], leaseOpts())).toHaveLength(0);
   });
 
-  it("a draft lease does not block the calendar", () => {
-    expect(leaseBookingEntries([{ ...base, status: "Draft" }], leaseOpts())).toHaveLength(0);
-    expect(
-      leaseBookingEntries([{ ...base, status: "Manager Review" }], leaseOpts()),
-    ).toHaveLength(0);
+  it("a lease awaiting manager review still blocks the calendar", () => {
+    expect(leaseBookingEntries([{ ...base, status: "Manager Review" }], leaseOpts())).toHaveLength(1);
+    expect(leaseBookingEntries([{ ...base, status: "Draft" }], leaseOpts())).toHaveLength(1);
+  });
+
+  it("a joint bundle lease blocks the whole home on rent-by-room listings", () => {
+    const [entry] = leaseBookingEntries(
+      [{ ...base, roomChoice: "", leaseKind: "joint_bundle" }],
+      leaseOpts(),
+    );
+    expect(entry?.roomId).toBe("");
+    expect(filterBookingEntriesByRoom([entry!], "room-a")).toHaveLength(1);
   });
 
   it("a lease with no start date is skipped rather than drawn on Invalid Date", () => {

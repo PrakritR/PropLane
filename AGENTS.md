@@ -1589,9 +1589,10 @@ portal, and identity while the household reads as one unit.
 - **Reconciliation is pure + testable.** `application-groups.ts` groups rows by
   normalized `groupId`, derives expected size from the first applicant's
   `groupSize`, and computes `submittedCount` / `missingCount` / `isComplete`.
-  `manager-applications.tsx` renders it as a "Group N/M" row badge only — the
-  per-application roster (`ApplicationGroupSection`) was removed from that detail
-  and now surfaces on `manager-residents.tsx` and `resident-applications-panel.tsx`.
+  `manager-applications.tsx` renders a "Group N/M" row badge plus an expanded
+  application detail roster (`ApplicationGroupSection`) with the Group ID and
+  member statuses; the same roster also surfaces on `manager-residents.tsx` and
+  `resident-applications-panel.tsx` after approval.
 - **No silent deadlock.** A group never *blocks* — approvals stay per-member.
   An unfinished member surfaces as "waiting on N", it does not gate the others.
 - **Money-adjacent surfaces for bundle+group households.** When applicants apply as a

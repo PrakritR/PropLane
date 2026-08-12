@@ -28,8 +28,8 @@ import {
  * joining applicant's independent application into one household in the manager
  * view. The manager's whole group affordance on Applications is the LIST ROW
  * BADGE ("Group N/M", or the raw count when the declared size is unknown or
- * exceeded) plus its hover title carrying the Group ID — the roster panel was
- * removed from the application detail and now lives on Residents and the
+ * exceeded) plus the application detail roster (`ApplicationGroupSection`) with
+ * the Group ID, waiting-on copy, and member list — also on Residents and the
  * resident's own Applications panel.
  *
  * Runs against a fee-free listing so the wizard's application-fee gate is not in
@@ -400,14 +400,16 @@ test.describe("Group applications end to end", () => {
     await signIn(page, MANAGER.email, MANAGER.password, "/portal/dashboard", "/portal");
     await openManagerApplications(page);
     await expect(txt(page, "Group 1/2")).toBeVisible({ timeout: 30_000 });
-    // The Group ID reaches the manager through the badge's hover title; there is
-    // no roster on the application detail to read it off.
-    await expect(page.locator(`[title*="${groupId}"]`).filter({ visible: true }).first()).toBeVisible();
-    await shot(page, "manager-01-group-waiting-badge-desktop-1440");
+    await txt(page, ORGANIZER.name).click();
+    await expect(txt(page, "Group application")).toBeVisible({ timeout: 20_000 });
+    await expect(txt(page, groupId)).toBeVisible();
+    await expect(txt(page, /waiting on 1 more applicant/i)).toBeVisible();
+    await expect(txt(page, ORGANIZER.name)).toBeVisible();
+    await shot(page, "manager-01-group-waiting-detail-desktop-1440");
 
     await page.setViewportSize(MOBILE);
     await page.waitForTimeout(800);
-    await expect(txt(page, "Group 1/2")).toBeVisible();
+    await expect(txt(page, groupId)).toBeVisible();
     await shot(page, "manager-03-group-waiting-mobile-390");
   });
 
@@ -440,17 +442,15 @@ test.describe("Group applications end to end", () => {
     await signIn(page, MANAGER.email, MANAGER.password, "/portal/dashboard", "/portal");
     await openManagerApplications(page);
     await expect(page.getByText("Group 2/2").filter({ visible: true })).toHaveCount(2, { timeout: 30_000 });
-    await expect(page.locator(`[title*="${groupId}"]`).filter({ visible: true }).first()).toBeVisible();
-    await shot(page, "manager-04-group-badges-desktop-1440");
-
-    // The joiner's own row carries the same reconciled badge — the manager reads
-    // the household off the list, not off an application detail.
+    await txt(page, ORGANIZER.name).click();
+    await expect(txt(page, groupId)).toBeVisible({ timeout: 20_000 });
+    await expect(txt(page, /All 2 applied/i)).toBeVisible();
     await expect(txt(page, JOINER.name)).toBeVisible();
-    await shot(page, "manager-05-group-reconciled-list-desktop-1440");
+    await shot(page, "manager-04-group-detail-desktop-1440");
 
     await page.setViewportSize(MOBILE);
     await page.waitForTimeout(1000);
-    await expect(txt(page, "Group 2/2")).toBeVisible();
+    await expect(txt(page, groupId)).toBeVisible();
     await shot(page, "manager-06-group-reconciled-mobile-390");
   });
 
@@ -473,13 +473,10 @@ test.describe("Group applications end to end", () => {
     await signIn(page, MANAGER.email, MANAGER.password, "/portal/dashboard", "/portal");
     await openManagerApplications(page);
     await expect(txt(page, "Group 3 · 2 declared")).toBeVisible({ timeout: 30_000 });
-    // The over-subscription warning is the badge's hover title, not a detail panel.
+    await txt(page, GUEST.name).click();
     await expect(
-      page
-        .locator('[title*="more applications carry this code than the 2 the organizer declared"]')
-        .filter({ visible: true })
-        .first(),
-    ).toBeVisible();
+      txt(page, /more applications carry this Group ID than the 2 the organizer declared/i),
+    ).toBeVisible({ timeout: 20_000 });
     await shot(page, "manager-07-group-oversubscribed-desktop-1440");
     writeDbEvidence("final", await readPersistedApplications());
   });
