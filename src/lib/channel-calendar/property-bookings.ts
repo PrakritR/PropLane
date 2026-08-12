@@ -30,6 +30,16 @@ export type PropertyBookingEntry = {
   openEnded?: boolean;
 };
 
+/** How far out an open-ended (month-to-month) stay is drawn. */
+export const OPEN_ENDED_BOOKING_HORIZON_DAYS = 365 * 2;
+
+/** The `openEndedHorizonKey` every Bookings surface uses, so they agree. */
+export function openEndedBookingHorizonKey(from: Date = new Date()): string {
+  const d = new Date(from.getTime());
+  d.setDate(d.getDate() + OPEN_ENDED_BOOKING_HORIZON_DAYS);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
 /** Structural subset of `LeasePipelineRow` this module needs. */
 export type LeaseBookingRow = {
   propertyId?: string;
@@ -137,6 +147,36 @@ export function leaseBookingEntries(
       statusLabel: row.stageLabel?.trim() || row.status?.trim() || undefined,
       ...(openEnded ? { openEnded: true } : {}),
     });
+  }
+  return out;
+}
+
+/**
+ * PropLane's own stays across several houses at once — the portfolio-wide
+ * Bookings view.
+ *
+ * It exists so that view cannot quietly drift back to Airbnb-only: showing one
+ * channel there reports a room let through PropLane as free, which is the exact
+ * question a manager opens the screen to answer.
+ */
+export function leaseBookingEntriesForProperties(
+  rows: readonly LeaseBookingRow[],
+  opts: {
+    properties: readonly { id: string; label: string }[];
+    roomLabelForId?: (propertyId: string, roomId: string) => string;
+    openEndedHorizonKey: string;
+  },
+): PropertyBookingEntry[] {
+  const out: PropertyBookingEntry[] = [];
+  for (const property of opts.properties) {
+    out.push(
+      ...leaseBookingEntries(rows, {
+        propertyId: property.id,
+        propertyLabel: property.label,
+        roomLabelForId: (roomId) => opts.roomLabelForId?.(property.id, roomId) ?? "Room",
+        openEndedHorizonKey: opts.openEndedHorizonKey,
+      }),
+    );
   }
   return out;
 }

@@ -454,53 +454,53 @@ export function RentalWizardStepBody(p: WizardStepsProps) {
               </ApplyFieldRow>
 
               {form.applyingAsGroup === "yes" ? (
-                <p className="px-4 pt-3 text-xs leading-relaxed text-muted sm:px-5">
-                  One person applies first and gets a Group ID. Everyone else pastes that same
-                  ID below so the manager sees you as one household. Each of you still files
-                  your own application and is billed your own charges.
-                </p>
-              ) : null}
+                <>
+                  <p className="px-4 pt-3 text-xs leading-relaxed text-muted sm:px-5">
+                    One person applies first and gets a Group ID. Everyone else pastes that same
+                    ID below so the manager sees you as one household. Each of you still files
+                    your own application and is billed your own charges.
+                  </p>
 
-              {form.applyingAsGroup === "yes" ? (
-                <ApplyFieldRow
-                  label="Organizer application ID"
-                  optional
-                  inline
-                  error={errors.groupLeaderAppId}
-                  fieldKey="groupLeaderAppId"
-                  labelClassName="text-sm font-semibold text-foreground"
-                  className="px-4 sm:grid-cols-[minmax(0,1fr)_minmax(0,280px)] sm:px-5"
-                >
-                  <GroupLeaderAppIdField
-                    value={form.groupLeaderAppId}
-                    onChange={(next) => {
-                      const trimmed = next.trim();
-                      patch({
-                        groupLeaderAppId: next,
-                        groupRole: trimmed ? "joining" : "first",
-                        groupId: trimmed ? form.groupId : makeApplicationGroupId(),
-                        ...(trimmed ? { groupSize: "" } : {}),
-                      });
-                    }}
+                  <ApplyFieldRow
+                    label="Organizer application ID"
+                    optional
+                    inline
                     error={errors.groupLeaderAppId}
-                    onResolved={(preview) => {
-                      if (preview) {
+                    fieldKey="groupLeaderAppId"
+                    labelClassName="text-sm font-semibold text-foreground"
+                    className="px-4 sm:grid-cols-[minmax(0,1fr)_minmax(0,280px)] sm:px-5"
+                  >
+                    <GroupLeaderAppIdField
+                      value={form.groupLeaderAppId}
+                      onChange={(next) => {
+                        const trimmed = next.trim();
                         patch({
-                          groupLeaderAppId: preview.leaderAppId,
-                          groupId: preview.groupId,
-                          groupRole: "joining",
-                          ...(preview.propertyId && !form.propertyId.trim()
-                            ? { propertyId: preview.propertyId }
-                            : {}),
-                          ...(preview.groupSize != null && !form.groupSize.trim()
-                            ? { groupSize: String(preview.groupSize) }
-                            : {}),
+                          groupLeaderAppId: next,
+                          groupRole: trimmed ? "joining" : "first",
+                          groupId: trimmed ? form.groupId : makeApplicationGroupId(),
+                          ...(trimmed ? { groupSize: "" } : {}),
                         });
-                      }
-                    }}
-                    suppressError
-                  />
-                </ApplyFieldRow>
+                      }}
+                      error={errors.groupLeaderAppId}
+                      onResolved={(preview) => {
+                        if (preview) {
+                          patch({
+                            groupLeaderAppId: preview.leaderAppId,
+                            groupId: preview.groupId,
+                            groupRole: "joining",
+                            ...(preview.propertyId && !form.propertyId.trim()
+                              ? { propertyId: preview.propertyId }
+                              : {}),
+                            ...(preview.groupSize != null && !form.groupSize.trim()
+                              ? { groupSize: String(preview.groupSize) }
+                              : {}),
+                          });
+                        }
+                      }}
+                      suppressError
+                    />
+                  </ApplyFieldRow>
+                </>
               ) : null}
 
               {organizingGroup ? (

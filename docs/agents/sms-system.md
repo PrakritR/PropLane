@@ -160,6 +160,15 @@ Carriers do not allow sending SMS *from* a personal number — do not fake it.
   otherwise the fallback is the hashed 6-digit OTP in `phone_verifications`
   (10-min TTL, 5 attempts, 60s resend throttle — the row's throttles apply on
   both paths). UI: `manager-phone-settings-panel.tsx` on manager Settings.
+- **A write that changes `profiles.phone` MUST null `phone_verified_at` in the
+  same patch.** Verification belongs to the NUMBER, not the row: leaving the
+  stamp in place hands a brand-new, unverified number the previous number's
+  authority — a deliverable SMS destination to `portal-inbox-delivery` and an
+  authorized inbound-SMS identity to `claw-manager-actions`, agent commands
+  included. The non-obvious writer is
+  `applyProspectMessagingContactToProfile` (`src/lib/tour-resident-link.server.ts`),
+  which `/api/auth/create-resident-account` reaches with a caller-supplied
+  `phone`, so this cannot be closed at a call site.
 - Env required before anything sends: `TWILIO_ACCOUNT_SID`,
   `TWILIO_AUTH_TOKEN`, optional `TWILIO_DEFAULT_FROM` +
   `TWILIO_WEBHOOK_URL` + `TWILIO_VERIFY_SERVICE_SID`; per-manager numbers go

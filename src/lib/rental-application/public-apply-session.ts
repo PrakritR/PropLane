@@ -74,25 +74,6 @@ export function markPublicApplyGuestContinue(gateKey: string): void {
   }
 }
 
-/**
- * Forgets the guest choice so the account gate is shown again.
- *
- * Exiting the application returns to that gate (Create account / Sign in /
- * Continue without an account). Without clearing the flag the gate would be
- * skipped and the applicant would be dropped straight back into the wizard they
- * just left.
- */
-export function clearPublicApplyGuestContinue(gateKey: string): void {
-  if (typeof window === "undefined") return;
-  const key = gateKey.trim();
-  if (!key) return;
-  try {
-    window.sessionStorage.removeItem(`${GUEST_CONTINUE_PREFIX}${key}`);
-  } catch {
-    /* ignore */
-  }
-}
-
 export function hasPublicApplyGuestContinue(gateKey: string): boolean {
   if (typeof window === "undefined") return false;
   const key = gateKey.trim();

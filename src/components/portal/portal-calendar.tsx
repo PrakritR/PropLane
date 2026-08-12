@@ -38,6 +38,18 @@ import { buildManagerShareablePropertyOptions } from "@/lib/manager-property-lin
 import { ShareLeadLinkModal } from "@/components/portal/share-lead-link-modal";
 import { TourProposalsPanel } from "@/components/portal/tour-proposals-panel";
 import { ManagerPortfolioBookingsCalendar } from "@/components/portal/manager-portfolio-bookings-calendar";
+import {
+  leaseBookingEntriesForProperties,
+  openEndedBookingHorizonKey,
+  type PropertyBookingEntry,
+} from "@/lib/channel-calendar/property-bookings";
+import {
+  LEASE_PIPELINE_EVENT,
+  readLeasePipeline,
+  syncLeasePipelineFromServer,
+} from "@/lib/lease-pipeline-storage";
+import { getPropertyById } from "@/lib/rental-application/data";
+import { normalizeManagerListingSubmissionV1 } from "@/lib/manager-listing-submission";
 import { ChannelCalendarLinkModal } from "@/components/portal/channel-calendar-link-modal";
 import { GoogleCalendarConnectDialog } from "@/components/portal/google-calendar-connect-dialog";
 import type { DemoMeeting } from "@/components/portal/portal-calendar-panels";
@@ -397,6 +409,66 @@ export function PortalCalendar({
   const showServiceVisits = calendarView === "services";
   const servicesOnlyView = calendarView === "services";
 
+  /**
+   * PropLane's own stays for the portfolio-wide Bookings view.
+   *
+   * Without them this grid is Airbnb-only, so a room let through PropLane draws
+   * as free — and the day detail's "No PropLane stays and nothing from synced
+   * Airbnb calendars" would assert an absence that was never checked.
+   */
+  const [leasePipelineTick, setLeasePipelineTick] = useState(0);
+
+  useEffect(() => {
+    if (portal !== "manager" || !bookingsView || !userId) return;
+    const refresh = () => setLeasePipelineTick((tick) => tick + 1);
+    void syncLeasePipelineFromServer(userId)
+      .then(refresh)
+      .catch(() => {
+        // The Airbnb half still renders; a failed refresh keeps the cached stays.
+      });
+    // The store is already current when this fires, so re-read rather than refetch.
+    window.addEventListener(LEASE_PIPELINE_EVENT, refresh);
+    return () => window.removeEventListener(LEASE_PIPELINE_EVENT, refresh);
+  }, [portal, bookingsView, userId]);
+
+  // Listing catalog reads, so this is keyed on the listing tick alone — a lease
+  // write does not change a room's name.
+  const bookingsRoomLabels = useMemo(() => {
+    const labels = new Map<string, string>();
+    if (portal !== "manager" || !bookingsView) return labels;
+    void propertyTick;
+    for (const propertyId of scopedCalendarPropertyIds) {
+      const submission = getPropertyById(propertyId)?.listingSubmission;
+      if (submission?.v !== 1) continue;
+      normalizeManagerListingSubmissionV1(submission).rooms.forEach((room, index) => {
+        labels.set(`${propertyId}:${room.id}`, room.name?.trim() || `Room ${index + 1}`);
+      });
+    }
+    return labels;
+  }, [portal, bookingsView, propertyTick, scopedCalendarPropertyIds]);
+
+  const bookingsLeaseEntries = useMemo<PropertyBookingEntry[]>(() => {
+    if (portal !== "manager" || !bookingsView || !userId) return [];
+    void leasePipelineTick;
+    const scoped = new Set(scopedCalendarPropertyIds);
+    return leaseBookingEntriesForProperties(readLeasePipeline(userId), {
+      properties: managerProperties
+        .filter((property) => scoped.has(property.id))
+        .map((property) => ({ id: property.id, label: property.name })),
+      roomLabelForId: (propertyId, roomId) =>
+        bookingsRoomLabels.get(`${propertyId}:${roomId}`) ?? "Room",
+      openEndedHorizonKey: openEndedBookingHorizonKey(),
+    });
+  }, [
+    portal,
+    bookingsView,
+    userId,
+    leasePipelineTick,
+    managerProperties,
+    scopedCalendarPropertyIds,
+    bookingsRoomLabels,
+  ]);
+
   const mergedExternalMeetings = useMemo(() => {
     const base = portal === "manager" ? [...googleExternalMeetings] : [];
     if (showServiceVisits) base.push(...serviceCalendarMeetings);
@@ -535,6 +607,7 @@ export function PortalCalendar({
                 propertyIds={scopedCalendarPropertyIds}
                 showToast={showToast}
                 refreshSignal={bookingsRefreshSignal}
+                extraEntries={bookingsLeaseEntries}
               />
             ) : servicesOnlyView ? (
               <div className="flex min-h-0 flex-1 flex-col">

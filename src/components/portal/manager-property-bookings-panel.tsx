@@ -11,9 +11,11 @@ import { ManagerPortfolioBookingsCalendar } from "@/components/portal/manager-po
 import { ChannelCalendarLinkModal } from "@/components/portal/channel-calendar-link-modal";
 import {
   leaseBookingEntries,
+  openEndedBookingHorizonKey,
   type PropertyBookingEntry,
 } from "@/lib/channel-calendar/property-bookings";
 import {
+  LEASE_PIPELINE_EVENT,
   readLeasePipeline,
   syncLeasePipelineFromServer,
   type LeasePipelineRow,
@@ -21,15 +23,6 @@ import {
 import { isEntireHomeListing } from "@/lib/manager-listing-submission";
 import { cn } from "@/lib/utils";
 import type { ManagerListingSubmissionV1 } from "@/lib/manager-listing-submission";
-
-/** How far out an open-ended (month-to-month) stay is drawn. */
-const OPEN_ENDED_HORIZON_DAYS = 365 * 2;
-
-function horizonDateKey(): string {
-  const d = new Date();
-  d.setDate(d.getDate() + OPEN_ENDED_HORIZON_DAYS);
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-}
 
 /**
  * One house's Bookings calendar.
@@ -74,7 +67,19 @@ export function ManagerPropertyBookingsPanel({
     return () => {
       cancelled = true;
     };
-  }, [managerUserId, refreshSignal]);
+  }, [managerUserId]);
+
+  // Approving an application, voiding a lease, or completing a signature
+  // anywhere else in this session rewrites the lease store. Without this the
+  // calendar keeps drawing the pre-change occupancy — the one question the
+  // screen exists to answer — until it is remounted. The event means the local
+  // store is already current, so re-read it rather than refetching.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const onLeasePipelineChanged = () => setLeaseRows(readLeasePipeline(managerUserId));
+    window.addEventListener(LEASE_PIPELINE_EVENT, onLeasePipelineChanged);
+    return () => window.removeEventListener(LEASE_PIPELINE_EVENT, onLeasePipelineChanged);
+  }, [managerUserId]);
 
   // Rent-by-room only: an entire-home listing has no room axis to filter on.
   const rooms = useMemo(() => {
@@ -97,7 +102,7 @@ export function ManagerPropertyBookingsPanel({
         propertyId,
         propertyLabel,
         roomLabelForId: (roomId) => rooms.find((r) => r.id === roomId)?.label ?? "Room",
-        openEndedHorizonKey: horizonDateKey(),
+        openEndedHorizonKey: openEndedBookingHorizonKey(),
       }),
     [leaseRows, propertyId, propertyLabel, rooms],
   );

@@ -1568,6 +1568,16 @@ export function ManagerApplications({
           }}
         />
       ) : null}
+      <ApplicationHoldingFeeModal
+        row={
+          holdingFeeRowId
+            ? scopedRows.find((r) => r.id === holdingFeeRowId) ??
+              (detailRow?.id === holdingFeeRowId ? detailRow : null)
+            : null
+        }
+        open={holdingFeeRowId !== null}
+        onClose={() => setHoldingFeeRowId(null)}
+      />
       <CheckrScreeningModal
         key={checkrScreeningRowId ?? "none"}
         row={
@@ -1701,11 +1711,6 @@ export function ManagerApplications({
         }
       />
       <div className="mt-2 space-y-4 max-md:mt-3">
-      <ApplicationHoldingFeeModal
-        row={scopedRows.find((r) => r.id === holdingFeeRowId) ?? null}
-        open={holdingFeeRowId !== null}
-        onClose={() => setHoldingFeeRowId(null)}
-      />
       <ManagerScreeningSettingsModal open={screeningModalOpen} onClose={() => setScreeningModalOpen(false)} />
       <ManagerApplicationSettingsModal
         open={applicationSettingsOpen}

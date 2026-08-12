@@ -13,6 +13,22 @@ import {
 import { isDemoModeActive } from "@/lib/demo/demo-session";
 
 /**
+ * Why a holding fee cannot be asked for on this row yet, or "" when it can.
+ *
+ * A charge is scoped to (applicant, property), so both have to exist before one
+ * can be written at all.
+ */
+function applicationHoldingFeeBlockedReason(residentEmail: string, propertyId: string): string {
+  if (!propertyId.trim()) {
+    return "This application has no house on it yet, so a holding fee has nothing to be charged against. It becomes available once a home is selected.";
+  }
+  if (!residentEmail.includes("@")) {
+    return "This application has no email address on it yet, so there is nobody to bill a holding fee to.";
+  }
+  return "";
+}
+
+/**
  * Manager-entered holding fee for ONE applicant, shown on the application detail.
  *
  * PropLane stopped auto-collecting a holding deposit at application time in
@@ -57,8 +73,18 @@ export function ApplicationHoldingFeeBox({
   const paid = existing?.status === "paid";
   const demo = isDemoModeActive();
 
-  // No property on the row means no charge can be scoped to anything.
-  if (!residentEmail.includes("@") || !propertyId.trim()) return null;
+  // Inline the card is simply absent when no charge can be scoped; inside the
+  // modal it has to SAY so, or the manager gets a title over an empty body with
+  // no explanation and nothing to act on.
+  const blockedReason = applicationHoldingFeeBlockedReason(residentEmail, propertyId);
+  if (blockedReason) {
+    if (!bare) return null;
+    return (
+      <p className="text-sm text-muted" data-attr="application-holding-fee-unavailable">
+        {blockedReason}
+      </p>
+    );
+  }
 
   const save = async () => {
     if (demo) {

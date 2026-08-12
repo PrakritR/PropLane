@@ -10,6 +10,7 @@ import {
   bookingEntriesForDayKey,
   filterBookingEntriesByRoom,
   leaseBookingEntries,
+  leaseBookingEntriesForProperties,
   normalizeBookingDateKey,
   type PropertyBookingEntry,
 } from "@/lib/channel-calendar/property-bookings";
@@ -176,5 +177,72 @@ describe("merged day lookup", () => {
       );
       expect(filterBookingEntriesByRoom(wholeHome, "room-a")).toHaveLength(1);
     });
+  });
+});
+
+/**
+ * The portfolio-wide Bookings view scopes to several houses at once. It shipped
+ * Airbnb-only while the per-property panel merged both channels, which is the
+ * same "a PropLane stay draws as free" defect one level up.
+ */
+describe("leaseBookingEntriesForProperties", () => {
+  const rows = [
+    {
+      propertyId: PROPERTY_ID,
+      residentName: "Ada",
+      roomChoice: `${PROPERTY_ID}::room-a`,
+      application: { leaseStart: "2026-08-01", leaseEnd: "2026-08-04" },
+    },
+    {
+      propertyId: "mgr-house-2",
+      residentName: "Grace",
+      roomChoice: "",
+      application: { leaseStart: "2026-08-02", leaseEnd: "2026-08-03" },
+    },
+    {
+      propertyId: "mgr-house-3",
+      residentName: "Not in scope",
+      roomChoice: "",
+      application: { leaseStart: "2026-08-02", leaseEnd: "2026-08-03" },
+    },
+  ];
+
+  const scoped = [
+    { id: PROPERTY_ID, label: LABEL },
+    { id: "mgr-house-2", label: "Second house" },
+  ];
+
+  it("draws stays from every scoped house and none from outside it", () => {
+    const entries = leaseBookingEntriesForProperties(rows, {
+      properties: scoped,
+      openEndedHorizonKey: "2028-01-01",
+    });
+    expect(entries.map((e) => e.summary).sort()).toEqual(["Ada", "Grace"]);
+    expect(entries.every((e) => e.source === "proplane")).toBe(true);
+  });
+
+  it("labels each house from its own entry, not the first one", () => {
+    const entries = leaseBookingEntriesForProperties(rows, {
+      properties: scoped,
+      openEndedHorizonKey: "2028-01-01",
+    });
+    expect(entries.find((e) => e.summary === "Grace")?.propertyLabel).toBe("Second house");
+  });
+
+  it("resolves a room label per property, falling back to a neutral one", () => {
+    const entries = leaseBookingEntriesForProperties(rows, {
+      properties: scoped,
+      roomLabelForId: (propertyId, roomId) =>
+        propertyId === PROPERTY_ID && roomId === "room-a" ? "Room A" : "Room",
+      openEndedHorizonKey: "2028-01-01",
+    });
+    expect(entries.find((e) => e.summary === "Ada")?.roomLabel).toBe("Room A");
+    expect(entries.find((e) => e.summary === "Grace")?.roomLabel).toBe("Whole home");
+  });
+
+  it("is empty when nothing is in scope rather than falling back to every house", () => {
+    expect(
+      leaseBookingEntriesForProperties(rows, { properties: [], openEndedHorizonKey: "2028-01-01" }),
+    ).toEqual([]);
   });
 });

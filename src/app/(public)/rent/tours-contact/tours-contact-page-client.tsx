@@ -401,9 +401,14 @@ function MessageFlow({
         router.replace(communicationReturn);
         return;
       }
+      // Email only. Forwarding the prospect-form phone reaches
+      // `applyProspectMessagingContactToProfile`, which overwrites
+      // `profiles.phone` and retires `phone_verified_at` with it — so a
+      // signed-in manager typing a secondary number here would silently lose the
+      // verified SMS identity `portal-inbox-delivery` and `claw-manager-actions`
+      // both trust. The gate only needs the email.
       const ensured = await ensureSignedInResidentPortal(communicationReturn, {
         contactEmail: submittedContact.email,
-        phone: submittedContact.phone || undefined,
       });
       if (ensured.ok) {
         router.replace(ensured.redirectTo);
