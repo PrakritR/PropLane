@@ -26,7 +26,11 @@ import {
  * PERSISTED on the stored application snapshot, stays retrievable on that
  * application in the resident portal, survives a re-edit, and reconciles a
  * joining applicant's independent application into one household in the manager
- * view ("Group N/M" badge + roster, "waiting on N" while a member is missing).
+ * view. The manager's whole group affordance on Applications is the LIST ROW
+ * BADGE ("Group N/M", or the raw count when the declared size is unknown or
+ * exceeded) plus its hover title carrying the Group ID — the roster panel was
+ * removed from the application detail and now lives on Residents and the
+ * resident's own Applications panel.
  *
  * Runs against a fee-free listing so the wizard's application-fee gate is not in
  * the way — nothing about the fee path is stubbed or altered.
@@ -315,7 +319,7 @@ test.describe("Group applications end to end", () => {
   test.skip(
     process.env.GROUP_E2E_ENABLED !== "1",
     "SKIPPED — GROUP_E2E_ENABLED is not 1, so the live group-application round trip " +
-      "(mint → persist → resident retrieve → joiner reconcile → manager badge/roster) did NOT run. " +
+      "(mint → persist → resident retrieve → joiner reconcile → manager badge) did NOT run. " +
       "Set GROUP_E2E_ENABLED=1 with a dev/test Supabase .env and the fixture from this file's header. " +
       "The submitted-vs-draft ordering guard is covered deterministically by " +
       "tests/unit/application-draft-downgrade.test.ts, which does run.",
@@ -396,11 +400,10 @@ test.describe("Group applications end to end", () => {
     await signIn(page, MANAGER.email, MANAGER.password, "/portal/dashboard", "/portal");
     await openManagerApplications(page);
     await expect(txt(page, "Group 1/2")).toBeVisible({ timeout: 30_000 });
+    // The Group ID reaches the manager through the badge's hover title; there is
+    // no roster on the application detail to read it off.
+    await expect(page.locator(`[title*="${groupId}"]`).filter({ visible: true }).first()).toBeVisible();
     await shot(page, "manager-01-group-waiting-badge-desktop-1440");
-    await btn(page, new RegExp(ORGANIZER.name, "i")).click();
-    await expect(txt(page, groupId)).toBeVisible();
-    await expect(txt(page, /1 of 2 applied · waiting on 1/)).toBeVisible();
-    await shot(page, "manager-02-group-waiting-roster-desktop-1440");
 
     await page.setViewportSize(MOBILE);
     await page.waitForTimeout(800);
@@ -431,26 +434,24 @@ test.describe("Group applications end to end", () => {
     await shot(page, "joiner-04-resident-group-callout-mobile-390");
   });
 
-  test("manager sees one reconciled household — Group 2/2 badge and roster", async ({ page }) => {
+  test("manager sees one reconciled household — Group 2/2 badge", async ({ page }) => {
     const groupId = fs.readFileSync(GROUP_ID_FILE, "utf8").trim();
     await page.setViewportSize(DESKTOP);
     await signIn(page, MANAGER.email, MANAGER.password, "/portal/dashboard", "/portal");
     await openManagerApplications(page);
     await expect(page.getByText("Group 2/2").filter({ visible: true })).toHaveCount(2, { timeout: 30_000 });
+    await expect(page.locator(`[title*="${groupId}"]`).filter({ visible: true }).first()).toBeVisible();
     await shot(page, "manager-04-group-badges-desktop-1440");
 
-    await btn(page, new RegExp(JOINER.name, "i")).click();
-    await expect(txt(page, "Group application")).toBeVisible();
-    await expect(txt(page, /All 2 applied/)).toBeVisible();
-    await expect(txt(page, groupId)).toBeVisible();
-    await expect(txt(page, ORGANIZER.name)).toBeVisible();
-    await expect(txt(page, /organizer/)).toBeVisible();
-    await shot(page, "manager-05-group-roster-desktop-1440");
+    // The joiner's own row carries the same reconciled badge — the manager reads
+    // the household off the list, not off an application detail.
+    await expect(txt(page, JOINER.name)).toBeVisible();
+    await shot(page, "manager-05-group-reconciled-list-desktop-1440");
 
     await page.setViewportSize(MOBILE);
     await page.waitForTimeout(1000);
     await expect(txt(page, "Group 2/2")).toBeVisible();
-    await shot(page, "manager-06-group-roster-mobile-390");
+    await shot(page, "manager-06-group-reconciled-mobile-390");
   });
 
   test("guest applicant joining the same group sees the shared finish-screen callout", async ({ page }) => {
@@ -472,10 +473,14 @@ test.describe("Group applications end to end", () => {
     await signIn(page, MANAGER.email, MANAGER.password, "/portal/dashboard", "/portal");
     await openManagerApplications(page);
     await expect(txt(page, "Group 3 · 2 declared")).toBeVisible({ timeout: 30_000 });
+    // The over-subscription warning is the badge's hover title, not a detail panel.
+    await expect(
+      page
+        .locator('[title*="more applications carry this code than the 2 the organizer declared"]')
+        .filter({ visible: true })
+        .first(),
+    ).toBeVisible();
     await shot(page, "manager-07-group-oversubscribed-desktop-1440");
-    await btn(page, new RegExp(ORGANIZER.name, "i")).click();
-    await expect(txt(page, /3 applications carry this Group ID/)).toBeVisible();
-    await shot(page, "manager-08-group-oversubscribed-roster-desktop-1440");
     writeDbEvidence("final", await readPersistedApplications());
   });
 });
