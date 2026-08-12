@@ -119,12 +119,22 @@ export function ChannelCalendarLinkModal({
           roomLabel: room.roomLabel,
           connectionId: room.connectionId,
           hasImportUrl: room.hasImportUrl,
+          exportUrl: room.exportUrl,
           lastSyncedAt: room.lastSyncedAt,
           importedRangeCount: room.ranges.length,
         })),
       ),
     [linked],
   );
+
+  const copyExportUrl = async (exportUrl: string) => {
+    try {
+      await navigator.clipboard.writeText(exportUrl);
+      showToast("Export URL copied.");
+    } catch {
+      showToast("Could not copy export URL.");
+    }
+  };
 
   const canSave = Boolean(propertyId && roomChoice && importUrl.trim());
 
@@ -351,17 +361,30 @@ export function ChannelCalendarLinkModal({
                       </Button>
                     </div>
                   ) : (
-                    <Button
-                      type="button"
-                      variant="outline"
-                      className="h-8 min-h-0 px-3 text-[12px]"
-                      disabled={busyAny}
-                      data-attr="channel-calendar-unlink"
-                      aria-label={`Unlink ${row.propertyLabel} · ${row.roomLabel}`}
-                      onClick={() => setConfirmingUnlinkId(row.connectionId)}
-                    >
-                      Unlink
-                    </Button>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        className="h-8 min-h-0 px-3 text-[12px]"
+                        disabled={busyAny}
+                        data-attr="channel-calendar-copy-export-url"
+                        aria-label={`Copy export URL for ${row.propertyLabel} · ${row.roomLabel}`}
+                        onClick={() => void copyExportUrl(row.exportUrl)}
+                      >
+                        Copy export URL
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        className="h-8 min-h-0 px-3 text-[12px]"
+                        disabled={busyAny}
+                        data-attr="channel-calendar-unlink"
+                        aria-label={`Unlink ${row.propertyLabel} · ${row.roomLabel}`}
+                        onClick={() => setConfirmingUnlinkId(row.connectionId)}
+                      >
+                        Unlink
+                      </Button>
+                    </div>
                   )}
                 </li>
               ))}

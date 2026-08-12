@@ -457,8 +457,9 @@ export function RentalWizardStepBody(p: WizardStepsProps) {
                 <>
                   <p className="px-4 pt-3 text-xs leading-relaxed text-muted sm:px-5">
                     One person applies first and gets a Group ID. Everyone else pastes that same
-                    ID below so the manager sees you as one household. Each of you still files
-                    your own application and is billed your own charges.
+                    ID below so the manager sees you as one household. Each person still files
+                    their own application; move-in charges split evenly when everyone selects the
+                    same lease bundle, otherwise each person is billed separately.
                   </p>
 
                   <ApplyFieldRow
@@ -534,8 +535,9 @@ export function RentalWizardStepBody(p: WizardStepsProps) {
                     aria-describedby="groupSizeHelp"
                   />
                   <p id="groupSizeHelp" className="mt-1.5 text-xs text-muted">
-                    Everyone applying together, including you. Each person is billed their own
-                    charges — move-in costs are not split across the group.
+                    Everyone applying together, including you. This count drives household billing
+                    when your group shares a lease bundle — move-in costs split evenly across the
+                    group size you enter here.
                   </p>
                 </ApplyFieldRow>
               ) : null}
@@ -769,6 +771,13 @@ export function RentalWizardStepBody(p: WizardStepsProps) {
               {form.rentalType === "short_term"
                 ? "Short-term bundle pricing for your stay. Choose a bundle or leave as none."
                 : `This listing offers bundle pricing. Choose a bundle to apply for it${isByRoom ? " instead of individual rooms" : ""}, or leave as none.`}
+              {form.applyingAsGroup === "yes" ? (
+                <>
+                  {" "}
+                  When everyone in your group selects this same bundle, move-in charges (deposit,
+                  rent, utilities, move-in fee) split evenly across your declared group size.
+                </>
+              ) : null}
             </p>
             <Select
               id="bundleId"

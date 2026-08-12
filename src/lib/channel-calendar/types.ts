@@ -54,6 +54,8 @@ export type ManagerChannelBookingRoom = {
   lastSyncedAt: string | null;
   lastError: string | null;
   hasImportUrl: boolean;
+  /** iCal feed Airbnb reads for PropLane blocked dates on this room. */
+  exportUrl: string;
 };
 
 export type ManagerChannelBookingProperty = {

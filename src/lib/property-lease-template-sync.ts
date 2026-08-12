@@ -104,23 +104,42 @@ export function buildLeaseTemplateSeeds(
   ];
 }
 
-function templateHasManagerEdits(template: PropertyLeaseTemplate): boolean {
-  return (
+const INDIVIDUAL_LONG_TERM_ADOPT_KEYS = new Set<PropertyLeaseListingSeedKey>([
+  LONG_TERM_SEED_KEY,
+  ...LEGACY_LONG_TERM_SEED_KEYS,
+]);
+
+function templateHasManagerEdits(
+  template: PropertyLeaseTemplate,
+  sub: ManagerListingSubmissionV1,
+): boolean {
+  if (
     template.leaseConfigMode === "custom" ||
     Boolean(template.customLeaseTerms?.trim()) ||
     Boolean(template.leaseTemplateHtmlOverride?.trim()) ||
     Boolean(template.leaseTemplateDocUrl?.trim())
-  );
+  ) {
+    return true;
+  }
+  const label = template.label.trim();
+  const seedKey = template.listingSeedKey;
+  if (!label || !seedKey) return false;
+  const seed = buildLeaseTemplateSeeds(sub).find((s) => s.seedKey === seedKey);
+  if (!seed) return false;
+  return label !== defaultLabelForSeed(seed);
 }
 
-/** When collapsing legacy per-term seeds, keep the richest long-term row. */
-function adoptPreviousLongTermTemplate(existing: PropertyLeaseTemplate[]): PropertyLeaseTemplate | null {
+/** When collapsing legacy per-term seeds, keep the richest individual long-term row. */
+function adoptPreviousLongTermTemplate(
+  existing: PropertyLeaseTemplate[],
+  sub: ManagerListingSubmissionV1,
+): PropertyLeaseTemplate | null {
   const candidates = existing.filter(
-    (t) => t.listingSeedKey && t.listingSeedKey !== SHORT_TERM_SEED_KEY,
+    (t) => t.listingSeedKey && INDIVIDUAL_LONG_TERM_ADOPT_KEYS.has(t.listingSeedKey),
   );
   if (candidates.length === 0) return null;
 
-  const edited = candidates.find(templateHasManagerEdits);
+  const edited = candidates.find((t) => templateHasManagerEdits(t, sub));
   if (edited) return edited;
 
   for (const key of [LONG_TERM_SEED_KEY, ...LEGACY_LONG_TERM_SEED_KEYS]) {
@@ -157,12 +176,13 @@ function adoptPreviousSeededTemplate(
   existing: PropertyLeaseTemplate[],
   seededExisting: PropertyLeaseTemplate[],
   seed: LeaseTemplateSeed,
+  sub: ManagerListingSubmissionV1,
 ): PropertyLeaseTemplate | null {
   const direct = seededExisting.find((t) => t.listingSeedKey === seed.seedKey);
   if (direct) return direct;
 
   if (seed.seedKey === LONG_TERM_SEED_KEY) {
-    return adoptPreviousLongTermTemplate(existing);
+    return adoptPreviousLongTermTemplate(existing, sub);
   }
   if (seed.seedKey === SHORT_TERM_SEED_KEY) {
     return seededExisting.find((t) => t.listingSeedKey === SHORT_TERM_SEED_KEY) ?? null;
@@ -198,7 +218,7 @@ export function syncPropertyLeaseTemplatesFromListing(
         ? adoptLegacyDefaultTemplate(existing, seed)
         : null;
     const prev =
-      adoptPreviousSeededTemplate(existing, seededExisting, seed) ?? legacyAdopted;
+      adoptPreviousSeededTemplate(existing, seededExisting, seed, sub) ?? legacyAdopted;
 
     if (prev) {
       if (legacyAdopted) adoptedLegacyIds.add(legacyAdopted.id);
@@ -228,7 +248,7 @@ export function syncPropertyLeaseTemplatesFromListing(
   // uploaded document, or HTML override with it, so anything they edited is
   // carried over. Untouched defaults carry nothing and are left behind.
   const preservedSeeded = existing.filter(
-    (t) => Boolean(t.listingSeedKey) && !consumedIds.has(t.id) && templateHasManagerEdits(t),
+    (t) => Boolean(t.listingSeedKey) && !consumedIds.has(t.id) && templateHasManagerEdits(t, sub),
   );
   const merged = [...nextSeeded, ...manual, ...preservedSeeded];
   return syncLegacyLeaseFieldsFromTemplates(sub, merged);

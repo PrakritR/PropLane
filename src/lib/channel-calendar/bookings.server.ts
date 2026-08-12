@@ -4,6 +4,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { managerHasCalendarAccessForProperty } from "@/lib/auth/manager-lease-scope";
 import {
+  buildExportCalendarUrl,
   listingSubmissionFromProperty,
   parseConnectionRow,
 } from "@/lib/channel-calendar/connections.server";
@@ -102,6 +103,7 @@ export async function listManagerChannelCalendarBookings(
       lastSyncedAt: connection.last_synced_at,
       lastError: connection.last_error,
       hasImportUrl: Boolean(connection.import_url?.trim()),
+      exportUrl: buildExportCalendarUrl(connection.export_token),
     };
 
     const list = byProperty.get(connection.property_id) ?? [];
