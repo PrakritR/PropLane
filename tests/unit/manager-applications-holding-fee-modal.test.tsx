@@ -50,9 +50,11 @@ vi.mock("@/lib/cosigner-submissions-storage", () => ({
 }));
 vi.mock("@/lib/household-charges", () => ({
   findHoldingDepositCharge: () => undefined,
-  findApplicationHoldingFeeCharge: () => undefined,
-  upsertApplicationHoldingFeeCharge: () => Promise.resolve({ ok: true }),
-  removeApplicationHoldingFeeCharge: () => Promise.resolve({ ok: true }),
+  setApplicantHoldingFee: () => ({ ok: true, charge: { id: "chg-1" }, alreadyPaid: false }),
+  removeApplicantHoldingFee: () => ({ ok: true }),
+  removeAllApplicationCharges: () => false,
+  removeResidentHouseholdPaymentData: () => false,
+  syncHouseholdChargesFromServer: () => Promise.resolve({ charges: [], rentProfiles: [] }),
 }));
 vi.mock("@/lib/demo/demo-session", () => ({
   isDemoModeActive: () => true,

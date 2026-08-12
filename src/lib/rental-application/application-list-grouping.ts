@@ -125,8 +125,10 @@ export function applicationListSortBucket(
 }
 
 /**
- * Build list clusters from bucket-scoped rows. Households with two or more members in
- * this bucket render as one visual group; a lone group member in the bucket stays a single row.
+ * Build list clusters from bucket-scoped rows. A household renders as one visual group
+ * whenever the group itself is multi-member portfolio-wide (more submissions than this
+ * bucket shows, or a declared household size above one), so a member who is alone in
+ * this bucket still clusters — only a genuine group of one stays a single row.
  */
 export function buildApplicationListClusters(
   rows: DemoApplicantRow[],
