@@ -107,25 +107,13 @@ export function buildLeaseTemplateSeeds(
     {
       seedKey: LONG_TERM_SEED_KEY,
       kind: "long-term",
-      label: "Individual room · Long-term",
+      label: "Long-term lease",
       applicationLeaseTerms: longTerms,
     },
     {
       seedKey: SHORT_TERM_SEED_KEY,
       kind: "short-term",
-      label: "Individual · Short-term",
-      applicationLeaseTerms: [SHORT_TERM_LEASE_TERM],
-    },
-    {
-      seedKey: BUNDLE_LONG_TERM_SEED_KEY,
-      kind: "long-term",
-      label: "Lease bundle · Long-term",
-      applicationLeaseTerms: longTerms,
-    },
-    {
-      seedKey: BUNDLE_SHORT_TERM_SEED_KEY,
-      kind: "short-term",
-      label: "Lease bundle · Short-term",
+      label: "Short-term lease",
       applicationLeaseTerms: [SHORT_TERM_LEASE_TERM],
     },
   ];
@@ -237,18 +225,13 @@ export function syncPropertyLeaseTemplatesFromListing(
         label: prev.label.trim() && prev.label !== defaultLabel ? prev.label : defaultLabel,
         updatedAt: nowIso(),
       });
-    } else {
-      const created = createPropertyLeaseTemplate({
-        kind: seed.kind,
-        label: seed.label,
-        source: "axis_default",
-      });
-      nextSeeded.push({
-        ...created,
-        listingSeedKey: seed.seedKey,
-        applicationLeaseTerms: seed.applicationLeaseTerms,
-      });
     }
+    // Deliberately NO else-branch. Sync refreshes templates a manager already
+    // has; it never conjures one. Auto-creating every seed on every sync is why
+    // each property showed the same four rows and why Delete could not work —
+    // the next sync simply recreated whatever was removed. A property with no
+    // templates is now a real, stable state, and adding one is an explicit act
+    // (`buildLeaseTemplateFromSeed`).
   }
 
   const manual = existing.filter((t) => !t.listingSeedKey && !adoptedLegacyIds.has(t.id));
@@ -390,4 +373,42 @@ export function submissionWithLeaseTemplateById(
   if (!template) return sub;
   const rest = templates.filter((t) => t.id !== templateId);
   return syncLegacyLeaseFieldsFromTemplates(sub, [template, ...rest]);
+}
+
+
+/**
+ * The default lease templates a manager can add. Nothing creates these on their
+ * behalf — see `syncPropertyLeaseTemplatesFromListing`.
+ */
+export function availableLeaseTemplateSeeds(
+  sub: ManagerListingSubmissionV1,
+): LeaseTemplateSeed[] {
+  const present = new Set(
+    readPropertyLeaseTemplates(sub)
+      .map((t) => t.listingSeedKey)
+      .filter(Boolean),
+  );
+  return buildLeaseTemplateSeeds(sub).filter((seed) => !present.has(seed.seedKey));
+}
+
+/** Add one default template to the property. Returns the updated submission. */
+export function addLeaseTemplateFromSeed(
+  sub: ManagerListingSubmissionV1,
+  seedKey: PropertyLeaseListingSeedKey,
+): ManagerListingSubmissionV1 {
+  const seed = buildLeaseTemplateSeeds(sub).find((s) => s.seedKey === seedKey);
+  if (!seed) return sub;
+  const existing = readPropertyLeaseTemplates(sub);
+  // Adding the same default twice would give the applicant-term router two
+  // equally valid matches for one lease term.
+  if (existing.some((t) => t.listingSeedKey === seedKey)) return sub;
+  const created = createPropertyLeaseTemplate({
+    kind: seed.kind,
+    label: seed.label,
+    source: "axis_default",
+  });
+  return syncLegacyLeaseFieldsFromTemplates(sub, [
+    ...existing,
+    { ...created, listingSeedKey: seed.seedKey, applicationLeaseTerms: seed.applicationLeaseTerms },
+  ]);
 }

@@ -185,6 +185,20 @@ export function readPropertyLeaseTemplates(
     if (rows.length > 0) return rows;
   }
 
+  // An empty list is a REAL state — a property with no lease templates. This
+  // reader used to fabricate a "Primary lease" whenever the array was empty,
+  // which is why every property appeared to have one and why deleting the last
+  // template could never stick.
+  //
+  // The fabrication survives only where it is doing its original job: migrating
+  // a legacy property that carries lease config in the pre-template fields. A
+  // property with none of those has genuinely opted out, and gets [].
+  const hasLegacyLeaseConfig =
+    sub.leaseConfigMode === "custom" ||
+    Boolean(typeof sub.customLeaseTerms === "string" && sub.customLeaseTerms.trim()) ||
+    Boolean(typeof sub.leaseTemplateDocUrl === "string" && sub.leaseTemplateDocUrl.trim());
+  if (!hasLegacyLeaseConfig) return [];
+
   const stamp = nowIso();
   return [
     {
