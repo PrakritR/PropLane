@@ -132,8 +132,6 @@ export function leaseBookingEntries(
     const parsedEnd = normalizeBookingDateKey(row.application?.leaseEnd);
     const openEnded = !parsedEnd;
     const end = parsedEnd || opts.openEndedHorizonKey;
-    // A horizon that has already passed would make the stay a zero-length
-    // range; keep at least the start day rather than dropping it.
     const roomId = parseRoomChoiceValue(row.roomChoice ?? "").listingRoomId ?? "";
     out.push({
       source: "proplane",
@@ -143,6 +141,8 @@ export function leaseBookingEntries(
       roomLabel: roomId ? opts.roomLabelForId(roomId) : "Whole home",
       summary: row.residentName?.trim() || "Resident",
       start,
+      // A horizon that has already passed would make the stay a zero-length
+      // range; keep at least the start day rather than dropping it.
       end: end >= start ? end : start,
       statusLabel: row.stageLabel?.trim() || row.status?.trim() || undefined,
       ...(openEnded ? { openEnded: true } : {}),
