@@ -1423,12 +1423,41 @@ reintroduce a local lookup.
 ## Per-stay-kind templates and Terms Rider (P6)
 
 Lease configuration is already stored additively in `property_data` JSON through
-`ManagerListingSubmissionV1.propertyLeaseTemplates[]`. The auto-seeded rows use
-`listingSeedKey: "primary"` for long-term and `listingSeedKey: "short-term"`
-for short-term. Each row owns its own `leaseConfigMode`, `leaseCustomKind`,
-`customLeaseTerms`, `leaseTemplateDocUrl`, and `leaseTemplateDocName`. The legacy
-top-level fields remain the long-term compatibility representation for listings
-saved before the template array existed. No migration is needed.
+`ManagerListingSubmissionV1.propertyLeaseTemplates[]`. Each row owns its own
+`leaseConfigMode`, `leaseCustomKind`, `customLeaseTerms`, `leaseTemplateDocUrl`,
+and `leaseTemplateDocName`. The legacy top-level fields remain the long-term
+compatibility representation for listings saved before the template array
+existed. No migration is needed.
+
+**Templates are opt-in — a property starts with none, and nothing creates one on
+a manager's behalf.** `syncPropertyLeaseTemplatesFromListing` only refreshes rows
+that already exist and deliberately has no else-branch that creates one;
+`readPropertyLeaseTemplates` returns `[]` for an empty list, keeping its
+"Primary lease" fabrication only where it migrates a legacy property whose lease
+config still sits in the pre-template top-level fields. Auto-creating every seed
+on every sync is why every property showed the same rows and why Delete could
+never stick — the next sync recreated whatever was removed. Adding is an explicit
+manager act: the property's Lease tab authors a row through
+`property-lease-form-modal.tsx` / `property-lease-upload-modal.tsx`, and
+`availableLeaseTemplateSeeds()` / `addLeaseTemplateFromSeed()` are the API for
+adding one of the DEFAULTS — the latter refuses a duplicate seed key, because two
+templates matching one lease term would leave the applicant-term router
+ambiguous. Those two defaults are long-term (`listingSeedKey: "primary"`) and
+short-term (`listingSeedKey: "short-term"`); the two bundle seeds were retired,
+since a bundle is a pricing arrangement rather than a lease format. A seed key the
+catalog no longer offers is dropped on sync **unless the manager edited that
+row** — custom terms, an uploaded document, or an HTML override — in which case
+it is carried over rather than deleted with the seed. Its application-template
+twin (`syncPropertyApplicationTemplatesFromListing`) follows the same rule, where
+the only manager-owned content on a seeded row is its renamed label. Coverage:
+`tests/unit/property-lease-template-opt-in.test.ts`,
+`tests/unit/property-lease-template-sync.test.ts`.
+
+Because a property may legitimately hold zero templates, the generate modal's
+picker (`listLeaseTemplateGenerateChoices`) lists one row per template the
+property actually has, best match first, and an empty list is not an error — the
+modal says so and generation falls back to the property's own lease terms,
+exactly as approval-time auto-generation already does.
 
 `selectLeaseTemplateDoc(ctx, stayKind)` in `generated-lease.ts` is the only
 uploaded-document selector for this path. Its behavior is intentional:
