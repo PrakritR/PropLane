@@ -531,6 +531,23 @@ This app already includes genuine native features — **push notifications** and
   3.1.1 and is bought in-app via StoreKit/RevenueCat on iOS — see
   [`docs/agents/apple-iap.md`](agents/apple-iap.md).
 
+### A credential screen must survive iOS Password AutoFill (Guideline 2.1(a))
+Build 69 was rejected because sign-in answered "Enter email and password." over
+credentials the reviewer could plainly see on an iPad. Two rules for any
+credential form the WebView renders:
+
+- **A real `<form>` with `name`d fields**, not loose inputs in a `div`. iOS
+  Password AutoFill and password managers identify credential fields by form
+  membership and name, and the keyboard offers "Go" instead of "return" only
+  inside one.
+- **The submitted value comes from the DOM, not React state.** WebKit writes an
+  autofilled value straight into the input and does not reliably fire a change
+  event, so state can be empty or hold a stale remembered email while the box
+  shows something else. `resolveFormCredentials`
+  (`src/lib/auth/form-credentials.ts`) is that one decision — it takes email and
+  password together so a pair that was never shown together can't be submitted.
+  Coverage: `tests/unit/auth-credential-form-autofill.test.ts`.
+
 ---
 
 ## Updating the app later
