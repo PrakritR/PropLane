@@ -72,6 +72,13 @@ function clusterLeadRow(rows: DemoApplicantRow[]): DemoApplicantRow {
   return sortHouseholdMembers(rows)[0] ?? rows[0]!;
 }
 
+/** Household card when the group has multiple members portfolio-wide, not only in this bucket. */
+export function isMultiMemberHouseholdGroup(group: ApplicationGroup | null | undefined): boolean {
+  if (!group) return false;
+  if (group.totalCount > 1) return true;
+  return (group.expectedSize ?? 0) > 1;
+}
+
 /**
  * Orders applications so group household members appear adjacent (organizer first),
  * while preserving the bucket's overall sort order between households and singles.
@@ -146,7 +153,17 @@ export function buildApplicationListClusters(
     }
 
     if (householdRows.length === 1) {
-      clusters.push({ kind: "single", row: householdRows[0]! });
+      const group = groups.get(gid) ?? null;
+      if (!isMultiMemberHouseholdGroup(group)) {
+        clusters.push({ kind: "single", row: householdRows[0]! });
+        continue;
+      }
+      clusters.push({
+        kind: "household",
+        groupId: gid,
+        group,
+        rows: householdRows,
+      });
       continue;
     }
 

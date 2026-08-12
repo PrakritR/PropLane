@@ -51,10 +51,30 @@ describe("application list grouping", () => {
     }
   });
 
-  it("leaves a lone group member as a single row cluster", () => {
+  it("leaves a lone group member as a single row cluster when the household is only one person", () => {
     const only = row("AXIS-9", "Alex", "joining");
     const groups = buildApplicationGroups([groupRowInputForRow(only)]);
     const clusters = buildApplicationListClusters([only], groups, "pending");
     expect(clusters).toEqual([{ kind: "single", row: only }]);
+  });
+
+  it("uses a household cluster for one bucket member when the group spans tabs", () => {
+    const approved = {
+      ...row("AXIS-1", "Jordan", "first"),
+      bucket: "approved" as const,
+      stage: "Approved",
+    };
+    const groups = buildApplicationGroups([
+      groupRowInputForRow(approved),
+      groupRowInputForRow(row("AXIS-2", "Priya", "joining")),
+    ]);
+    const clusters = buildApplicationListClusters([approved], groups, "approved");
+    expect(clusters).toHaveLength(1);
+    expect(clusters[0]?.kind).toBe("household");
+    if (clusters[0]?.kind === "household") {
+      expect(clusters[0].rows).toHaveLength(1);
+      expect(clusters[0].rows[0]?.id).toBe("AXIS-1");
+      expect(clusters[0].group?.totalCount).toBe(2);
+    }
   });
 });

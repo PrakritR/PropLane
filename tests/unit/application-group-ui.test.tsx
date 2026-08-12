@@ -211,6 +211,15 @@ describe("group application — manager reconciliation", () => {
     dumpHtml("manager-expanded", container.innerHTML);
   });
 
+  it("wraps a lone approved group member in the same household card as Pending", async () => {
+    ROWS = HOUSEHOLD_ROWS;
+    render(<ManagerApplications bucket="approved" />);
+    await waitFor(() => expect(screen.getAllByText("Jordan Reyes").length).toBeGreaterThan(0));
+    expect(document.querySelector("[data-attr='application-household-cluster']")).toBeTruthy();
+    expect(screen.getByText("Household application")).toBeTruthy();
+    expect(screen.getByText("Group 2/3")).toBeTruthy();
+  });
+
   it("reports a raw count instead of a misleading ratio when the roster is odd", async () => {
     // Two applications share a code no organizer application uses, and a third
     // group has more members than its organizer declared.

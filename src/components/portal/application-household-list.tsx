@@ -4,6 +4,7 @@ import type { ReactNode } from "react";
 import { Badge } from "@/components/ui/badge";
 import { PortalCollapsibleSection } from "@/components/portal/portal-collapsible-section";
 import type { CosignerSubmission } from "@/lib/cosigner-submissions-storage";
+import { stripPropertyRoomCountSuffix } from "@/lib/portal-mobile-preview";
 import { describeGroupBadge, type ApplicationGroup } from "@/lib/rental-application/application-groups";
 
 export function ApplicationHouseholdCluster({
@@ -75,15 +76,22 @@ export function ApplicationCosignerListRow({
   );
 }
 
-export function householdClusterHeader(group: ApplicationGroup | null) {
-  if (!group) return null;
-  const badge = describeGroupBadge(group);
+export function householdClusterHeader(group: ApplicationGroup | null, propertyLabel?: string | null) {
+  const property =
+    propertyLabel?.trim() ? stripPropertyRoomCountSuffix(propertyLabel.trim()) : "";
+  if (!group && !property) return null;
+  const badge = group ? describeGroupBadge(group) : null;
   return (
     <>
-      <span className="text-xs font-medium text-muted">Household application</span>
-      <span title={badge.title}>
-        <Badge tone={badge.tone}>{badge.label}</Badge>
-      </span>
+      {property ? <span className="truncate text-xs font-semibold text-foreground">{property}</span> : null}
+      {group ? (
+        <>
+          <span className="text-xs font-medium text-muted">Household application</span>
+          <span title={badge!.title}>
+            <Badge tone={badge!.tone}>{badge!.label}</Badge>
+          </span>
+        </>
+      ) : null}
     </>
   );
 }
