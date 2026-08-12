@@ -253,7 +253,17 @@ describe("findFirstOpenTourSlot", () => {
 
   it("returns null when nothing matches (manual handling)", async () => {
     const w1 = futureWindow(2, 20);
-    const store: Record<string, Row[]> = { portal_schedule_records: [publishedAvailabilityRow([])] };
+    // "Nothing matches" has to be expressed as availability published on the
+    // requested DAY that does not cover the requested TIME. An EMPTY published
+    // list is not the same thing: `shouldOfferDefaultTourGrid` treats "no future
+    // slot published" as a cue to offer the 9-5 default grid, so an empty list
+    // makes every default hour bookable and this request WOULD match.
+    // `resolveTourOfferingSlots` only skips the default on a day that already
+    // carries a future published slot, which is why the painted slot has to sit
+    // on the same day as `w1`.
+    const store: Record<string, Row[]> = {
+      portal_schedule_records: [publishedAvailabilityRow([futureWindow(2, 22).slotKey])],
+    };
     const slot = await findFirstOpenTourSlot(makeDb(store), {
       managerUserId: MANAGER,
       propertyId: PROPERTY,
@@ -362,8 +372,13 @@ describe("proposeTourConfirmation → approve → book", () => {
 
   it("does not propose when no slot matches", async () => {
     const win = futureWindow(3, 20);
+    // Same reason as "returns null when nothing matches": publish the day but
+    // not the hour, because an empty list opts the day into the 9-5 default.
     const store: Record<string, Row[]> = {
-      portal_schedule_records: [publishedAvailabilityRow([]), inquiriesRecord([tourInquiry("inq_none", win)])],
+      portal_schedule_records: [
+        publishedAvailabilityRow([futureWindow(3, 22).slotKey]),
+        inquiriesRecord([tourInquiry("inq_none", win)]),
+      ],
       agent_pending_actions: [],
     };
     const db = makeDb(store);
