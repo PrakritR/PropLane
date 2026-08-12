@@ -269,6 +269,40 @@ describe("property lease template sync", () => {
     expect(templates.find((t) => t.listingSeedKey === "cosigner-short-term")?.formVariant).toBe("cosigner");
   });
 
+  it("keeps a retired bundle application the manager renamed, and drops the untouched one", () => {
+    const sub = createDefaultListingSubmission();
+    sub.allowedLeaseTerms = ["12-Month"];
+    sub.propertyApplicationTemplates = [
+      {
+        id: "app-tpl-bundle-named",
+        kind: "long-term",
+        label: "Whole-house application",
+        formVariant: "standard",
+        listingSeedKey: "bundle-primary",
+        applicationLeaseTerms: ["12-Month"],
+        createdAt: "2026-01-01T00:00:00.000Z",
+        updatedAt: "2026-01-01T00:00:00.000Z",
+      },
+      {
+        id: "app-tpl-bundle-default",
+        kind: "short-term",
+        label: "Short-term application",
+        formVariant: "short_term",
+        listingSeedKey: "bundle-short-term",
+        applicationLeaseTerms: [SHORT_TERM_LEASE_TERM],
+        createdAt: "2026-01-01T00:00:00.000Z",
+        updatedAt: "2026-01-01T00:00:00.000Z",
+      },
+    ];
+    const templates = readPropertyApplicationTemplates(
+      syncPropertyApplicationTemplatesFromListing(sub),
+    );
+    expect(templates.find((t) => t.id === "app-tpl-bundle-named")?.label).toBe(
+      "Whole-house application",
+    );
+    expect(templates.some((t) => t.id === "app-tpl-bundle-default")).toBe(false);
+  });
+
   it("strips a legacy (optional) suffix from co-signer application labels on re-sync", () => {
     const sub = createDefaultListingSubmission();
     sub.allowedLeaseTerms = ["12-Month"];

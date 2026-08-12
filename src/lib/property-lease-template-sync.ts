@@ -50,25 +50,6 @@ export function leaseTemplateScenarioLabel(id: LeaseTemplateScenarioId): string 
   }
 }
 
-export function listingSeedKeyForLeaseScenario(
-  scenario: LeaseTemplateScenarioId,
-): PropertyLeaseListingSeedKey | null {
-  switch (scenario) {
-    case "individual-long":
-      return LONG_TERM_SEED_KEY;
-    case "individual-short":
-      return SHORT_TERM_SEED_KEY;
-    case "bundle-long":
-      return BUNDLE_LONG_TERM_SEED_KEY;
-    case "bundle-short":
-      return BUNDLE_SHORT_TERM_SEED_KEY;
-    case "custom":
-      return null;
-    default:
-      return LONG_TERM_SEED_KEY;
-  }
-}
-
 /** Legacy per-term seed keys collapsed into the single long-term default. */
 const LEGACY_LONG_TERM_SEED_KEYS: PropertyLeaseListingSeedKey[] = [
   "fixed-term",
@@ -339,15 +320,6 @@ export function leaseTemplateScenarioForTemplate(
       break;
   }
   return template.kind === "short-term" ? "individual-short" : "individual-long";
-}
-
-export function findLeaseTemplateForScenario(
-  templates: PropertyLeaseTemplate[],
-  scenario: LeaseTemplateScenarioId,
-): PropertyLeaseTemplate | null {
-  // A manager's own "Add lease" row carries no seed key, so a seed-key-only
-  // match makes every template they created invisible to the generate picker.
-  return templates.find((t) => leaseTemplateScenarioForTemplate(t) === scenario) ?? null;
 }
 
 /** Scenarios a bundle/short default falls back to when the property has no such template. */

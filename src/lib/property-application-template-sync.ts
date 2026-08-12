@@ -89,6 +89,26 @@ export function buildApplicationTemplateSeeds(
   ];
 }
 
+/**
+ * A seeded row carries no manager-authored content of its own — the question
+ * sets live per form variant on the submission — so a renamed label is the only
+ * thing a manager can lose when its seed key leaves the catalog.
+ */
+function applicationTemplateHasManagerEdits(template: PropertyApplicationTemplate): boolean {
+  const label = normalizePropertyApplicationTemplateLabel(template.label);
+  if (!label || !template.listingSeedKey) return false;
+  return (
+    label !==
+    defaultLabelForSeed({
+      seedKey: template.listingSeedKey,
+      kind: template.kind,
+      label,
+      formVariant: template.formVariant,
+      applicationLeaseTerms: template.applicationLeaseTerms ?? [],
+    })
+  );
+}
+
 function adoptLegacyDefaultTemplate(
   existing: PropertyApplicationTemplate[],
   seed: ApplicationTemplateSeed,
@@ -119,6 +139,7 @@ export function syncPropertyApplicationTemplatesFromListing(
     return syncLegacyApplicationFieldsFromTemplates(sub, []);
   }
   const adoptedLegacyIds = new Set<string>();
+  const consumedIds = new Set<string>();
   const seededExisting = existing.filter((t) => Boolean(t.listingSeedKey));
 
   const nextSeeded: PropertyApplicationTemplate[] = [];
@@ -132,6 +153,7 @@ export function syncPropertyApplicationTemplatesFromListing(
 
     if (prev) {
       if (legacyAdopted) adoptedLegacyIds.add(legacyAdopted.id);
+      consumedIds.add(prev.id);
       const defaultLabel = defaultLabelForSeed(seed);
       const trimmedPrevLabel = prev.label.trim();
       const normalizedForDefaultCheck = normalizePropertyApplicationTemplateLabel(trimmedPrevLabel);
@@ -160,8 +182,18 @@ export function syncPropertyApplicationTemplatesFromListing(
     }
   }
 
-  const manual = existing.filter((t) => !t.listingSeedKey && !adoptedLegacyIds.has(t.id));
-  const merged = [...nextSeeded, ...manual];
+  const manual = existing.filter((t) => !t.listingSeedKey && !consumedIds.has(t.id));
+  // Same rule as the lease twin (`syncPropertyLeaseTemplatesFromListing`): a seed
+  // key the catalog no longer offers — the retired bundle formats, a legacy
+  // per-term key — must not take a row the manager renamed with it. Untouched
+  // defaults carry nothing and are left behind.
+  const preservedSeeded = existing.filter(
+    (t) =>
+      Boolean(t.listingSeedKey) &&
+      !consumedIds.has(t.id) &&
+      applicationTemplateHasManagerEdits(t),
+  );
+  const merged = [...nextSeeded, ...manual, ...preservedSeeded];
   const hasShortTerm = merged.some((t) => t.formVariant === "short_term");
   return syncLegacyApplicationFieldsFromTemplates(
     {

@@ -148,7 +148,7 @@ export function LeaseGenerateModal({
                 <button
                   key={choice.id}
                   type="button"
-                  data-attr={`lease-generate-type-${choice.scenario}`}
+                  data-attr={`lease-generate-type-${choice.scenario}-${choice.id}`}
                   disabled={busy}
                   onClick={() => setSelectedChoiceId(choice.id)}
                   className={`rounded-full border px-3 py-1.5 text-sm font-medium transition ${
