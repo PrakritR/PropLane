@@ -108,38 +108,6 @@ export function ManagerPropertyLeasePanel({
 
   const persistSubmission = (nextSub: ManagerListingSubmissionV1, successMessage: string) => {
     if (!managerUserId) return false;
-
-    if (bulkPropertyIds.length > 0) {
-      let saved = 0;
-      let failed = 0;
-      for (const bulkPropertyId of bulkPropertyIds) {
-        const hit = resolveManagerListingSubmissionForPropertyId(managerUserId, bulkPropertyId);
-        if (!hit) {
-          failed += 1;
-          continue;
-        }
-        const base = syncPropertyLeaseTemplatesFromListing(hit.sub);
-        const merged =
-          readPropertyLeaseTemplates(nextSub).length > 0
-            ? syncLegacyLeaseFieldsFromTemplates(base, readPropertyLeaseTemplates(nextSub))
-            : nextSub;
-        if (persistManagerListingSubmission(hit.saveTarget, managerUserId, merged)) saved += 1;
-        else failed += 1;
-      }
-      if (saved === 0) {
-        showToast("Could not save lease settings.");
-        return false;
-      }
-      if (failed > 0) {
-        showToast(`Updated lease for ${saved} properties (${failed} could not be saved).`);
-      } else if (saved > 1) {
-        showToast(`Updated lease for ${saved} properties.`);
-      } else {
-        showToast(successMessage);
-      }
-      return true;
-    }
-
     if (!saveTarget) return false;
     if (!persistManagerListingSubmission(saveTarget, managerUserId, nextSub)) {
       showToast("Could not save lease settings.");

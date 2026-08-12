@@ -51,6 +51,7 @@ import { buildApplicationGroups, describeGroupBadge, groupForRow } from "@/lib/r
 import {
   applicationListSortBucket,
   buildApplicationListClusters,
+  householdClusterPropertyLabel,
   orderApplicationRowsWithHouseholds,
   signerAppIdsForCosignerLookup,
 } from "@/lib/rental-application/application-list-grouping";
@@ -1300,9 +1301,7 @@ export function ResidentApplicationsPanel({
                   key={cluster.groupId}
                   header={householdClusterHeader(
                     cluster.group,
-                    cluster.rows.every((r) => r.property === cluster.rows[0]?.property)
-                      ? cluster.rows[0]?.property
-                      : null,
+                    householdClusterPropertyLabel(cluster.rows),
                   )}
                 >
                   {cluster.rows.map((row) => renderRow(row, true))}

@@ -28,32 +28,33 @@ const DEFAULT_ROW_CLASS = "flex min-w-0 flex-1 basis-0 flex-nowrap items-center 
 const DEFAULT_MORE_BTN = cn(PORTAL_HEADER_ACTION_BTN, "max-lg:px-3 max-lg:text-base");
 
 function measureAvailableWidth(container: HTMLElement, gapPx: number): number {
+  const sectionRow = container.closest<HTMLElement>("[data-slot='portal-section-action-row']");
+  const slot = container.closest<HTMLElement>("[data-portal-action-slot]");
+  const bandRow = sectionRow?.parentElement;
+  if (
+    slot &&
+    sectionRow &&
+    bandRow &&
+    bandRow !== slot &&
+    slot.contains(bandRow) &&
+    bandRow.parentElement === slot &&
+    slot.clientWidth > 0
+  ) {
+    const siblingWidths: number[] = [];
+    for (const child of bandRow.children) {
+      if (child instanceof HTMLElement && child !== sectionRow) {
+        siblingWidths.push(child.offsetWidth);
+      }
+    }
+    const bandGap = parseFloat(getComputedStyle(bandRow).gap) || gapPx;
+    return computeSharedSlotActionBudget(slot.clientWidth, siblingWidths, bandGap);
+  }
+
   if (container.clientWidth > 0) return container.clientWidth;
 
-  const sectionRow = container.closest<HTMLElement>("[data-slot='portal-section-action-row']");
   if (sectionRow && sectionRow.clientWidth > 0) return sectionRow.clientWidth;
 
-  const slot = container.closest<HTMLElement>("[data-portal-action-slot]");
-  if (slot && slot.clientWidth > 0) {
-    const bandRow = sectionRow?.parentElement;
-    if (
-      sectionRow &&
-      bandRow &&
-      bandRow !== slot &&
-      slot.contains(bandRow) &&
-      bandRow.parentElement === slot
-    ) {
-      const siblingWidths: number[] = [];
-      for (const child of bandRow.children) {
-        if (child instanceof HTMLElement && child !== sectionRow) {
-          siblingWidths.push(child.offsetWidth);
-        }
-      }
-      const bandGap = parseFloat(getComputedStyle(bandRow).gap) || gapPx;
-      return computeSharedSlotActionBudget(slot.clientWidth, siblingWidths, bandGap);
-    }
-    return slot.clientWidth;
-  }
+  if (slot && slot.clientWidth > 0) return slot.clientWidth;
 
   let minWidth = Infinity;
   let node: HTMLElement | null = container.parentElement;

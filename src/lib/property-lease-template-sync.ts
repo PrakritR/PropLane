@@ -113,9 +113,34 @@ function defaultLabelForLeaseTemplate(template: PropertyLeaseTemplate): string {
   return "Long-term lease";
 }
 
-function templateHasManagerEdits(template: PropertyLeaseTemplate): boolean {
+/** Shipped default labels per seed — including retired names still on stored rows. */
+const KNOWN_DEFAULT_LEASE_TEMPLATE_LABELS: Partial<
+  Record<PropertyLeaseListingSeedKey, readonly string[]>
+> = {
+  primary: ["Long-term lease", "Individual room · Long-term", "Primary lease"],
+  "short-term": ["Short-term lease", "Individual · Short-term", "Short-term stay"],
+  "fixed-term": ["Fixed-term lease"],
+  "fixed-3-month": ["3-Month lease"],
+  "fixed-9-month": ["9-Month lease"],
+  "fixed-12-month": ["12-Month lease"],
+  "month-to-month": ["Month-to-month lease"],
+  "custom-term": ["Custom lease"],
+  "bundle-primary": ["Lease bundle · Long-term"],
+  "bundle-short-term": ["Lease bundle · Short-term"],
+};
+
+function isDefaultLeaseTemplateLabel(template: PropertyLeaseTemplate): boolean {
   const label = template.label.trim();
-  if (label && label !== defaultLabelForLeaseTemplate(template)) return true;
+  if (!label) return true;
+  const known = template.listingSeedKey
+    ? KNOWN_DEFAULT_LEASE_TEMPLATE_LABELS[template.listingSeedKey]
+    : undefined;
+  if (known?.includes(label)) return true;
+  return label === defaultLabelForLeaseTemplate(template);
+}
+
+function templateHasManagerEdits(template: PropertyLeaseTemplate): boolean {
+  if (!isDefaultLeaseTemplateLabel(template)) return true;
   return (
     template.leaseConfigMode === "custom" ||
     Boolean(template.customLeaseTerms?.trim()) ||

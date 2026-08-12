@@ -110,6 +110,7 @@ import { useCosignerSubmissionsMap } from "@/hooks/use-cosigner-submissions-map"
 import {
   applicationListSortBucket,
   buildApplicationListClusters,
+  householdClusterPropertyLabel,
   signerAppIdsForCosignerLookup,
 } from "@/lib/rental-application/application-list-grouping";
 import {
@@ -1814,9 +1815,7 @@ export function ManagerApplications({
                 key={cluster.groupId}
                 header={householdClusterHeader(
                   cluster.group,
-                  cluster.rows.every((r) => r.property === cluster.rows[0]?.property)
-                    ? cluster.rows[0]?.property
-                    : null,
+                  householdClusterPropertyLabel(cluster.rows),
                 )}
               >
                 {cluster.rows.map((row) => renderApplicationListRow(row, true))}
