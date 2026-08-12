@@ -86,7 +86,7 @@ describe("evidence · generate-lease picker follows the property's real formats"
     ).toBe(false);
     writeShot(
       "generate-no-templates",
-      "F · Same modal on a property with no saved formats — it says the draft falls back to the property's own lease terms, and Generate stays enabled.",
+      "F · Same modal on a property with no saved formats — it says the draft uses PropLane's standard lease template, and Generate stays enabled.",
       document.body.innerHTML,
     );
     document.body.innerHTML = "";

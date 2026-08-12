@@ -116,6 +116,7 @@ describe("merged day lookup", () => {
           lastSyncedAt: null,
           lastError: null,
           hasImportUrl: true,
+          exportUrl: "https://prop-lane.space/api/calendar/export/token.ics",
         },
       ],
     },

@@ -19,7 +19,7 @@ import {
   buildLeaseTemplateSeeds,
   syncPropertyLeaseTemplatesFromListing,
 } from "@/lib/property-lease-template-sync";
-import { readPropertyLeaseTemplates } from "@/lib/property-lease-templates";
+import { readPropertyLeaseTemplates, syncLegacyLeaseFieldsFromTemplates, createPropertyLeaseTemplate } from "@/lib/property-lease-templates";
 import { createDefaultListingSubmission } from "@/lib/manager-listing-submission";
 
 function submission() {
@@ -72,10 +72,38 @@ describe("syncPropertyLeaseTemplatesFromListing", () => {
     expect(templates[0]?.listingSeedKey).toBe("primary");
   });
 
-  it("preserves a manager's own manually added template", () => {
-    const added = addLeaseTemplateFromSeed(submission(), "short-term");
-    const synced = syncPropertyLeaseTemplatesFromListing(added);
-    expect(readPropertyLeaseTemplates(synced)).toHaveLength(1);
+  it("preserves a renamed seed template label across sync", () => {
+    const added = addLeaseTemplateFromSeed(submission(), "primary");
+    const renamed = syncLegacyLeaseFieldsFromTemplates(
+      added,
+      readPropertyLeaseTemplates(added).map((t) =>
+        t.listingSeedKey === "primary" ? { ...t, label: "My custom lease name" } : t,
+      ),
+    );
+    const synced = syncPropertyLeaseTemplatesFromListing(renamed);
+    expect(readPropertyLeaseTemplates(synced)[0]?.label).toBe("My custom lease name");
+  });
+
+  it("does not adopt bundle short-term as the primary seed row", () => {
+    const bundleShort = {
+      ...createPropertyLeaseTemplate({
+        kind: "short-term",
+        label: "Bundle short",
+        source: "axis_default",
+      }),
+      listingSeedKey: "bundle-short-term" as const,
+      customLeaseTerms: "Manager clause",
+    };
+    const withBundle = syncLegacyLeaseFieldsFromTemplates(submission(), [bundleShort]);
+    const synced = syncPropertyLeaseTemplatesFromListing(
+      addLeaseTemplateFromSeed(withBundle, "primary"),
+    );
+    const templates = readPropertyLeaseTemplates(synced);
+    const primary = templates.find((t) => t.listingSeedKey === "primary");
+    const bundle = templates.find((t) => t.listingSeedKey === "bundle-short-term");
+    expect(primary).toBeTruthy();
+    expect(primary?.customLeaseTerms?.trim()).not.toBe("Manager clause");
+    expect(bundle?.customLeaseTerms).toBe("Manager clause");
   });
 });
 
