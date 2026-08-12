@@ -180,7 +180,7 @@ export function buildApplicationListClusters(
   return clusters;
 }
 
-/** When every row in a household cluster names the same property, show it once in the header. */
+/** Primary applications that may have linked co-signer submissions in this list. */
 export function signerAppIdsForCosignerLookup(rows: DemoApplicantRow[]): string[] {
   const ids = new Set<string>();
   for (const row of rows) {

@@ -103,8 +103,9 @@ export function ManagerPropertyBookingsPanel({
         propertyLabel,
         roomLabelForId: (roomId) => rooms.find((r) => r.id === roomId)?.label ?? "Room",
         openEndedHorizonKey: openEndedBookingHorizonKey(),
+        entireHomeListing: submission ? isEntireHomeListing(submission) : false,
       }),
-    [leaseRows, propertyId, propertyLabel, rooms],
+    [leaseRows, propertyId, propertyLabel, rooms, submission],
   );
 
   const propertyOptions = useMemo(

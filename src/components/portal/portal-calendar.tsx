@@ -48,7 +48,7 @@ import {
   readLeasePipeline,
   syncLeasePipelineFromServer,
 } from "@/lib/lease-pipeline-storage";
-import { getPropertyById } from "@/lib/rental-application/data";
+import { getPropertyById, isEntireHomeProperty } from "@/lib/rental-application/data";
 import { normalizeManagerListingSubmissionV1 } from "@/lib/manager-listing-submission";
 import { ChannelCalendarLinkModal } from "@/components/portal/channel-calendar-link-modal";
 import { GoogleCalendarConnectDialog } from "@/components/portal/google-calendar-connect-dialog";
@@ -454,7 +454,11 @@ export function PortalCalendar({
     return leaseBookingEntriesForProperties(readLeasePipeline(userId), {
       properties: managerProperties
         .filter((property) => scoped.has(property.id))
-        .map((property) => ({ id: property.id, label: property.name })),
+        .map((property) => ({
+          id: property.id,
+          label: property.name,
+          entireHomeListing: isEntireHomeProperty(property.id),
+        })),
       roomLabelForId: (propertyId, roomId) =>
         bookingsRoomLabels.get(`${propertyId}:${roomId}`) ?? "Room",
       openEndedHorizonKey: openEndedBookingHorizonKey(),

@@ -194,7 +194,11 @@ export function ManagerPropertyLeasePanel({
           const seedLabel =
             availableLeaseTemplateSeeds(syncedSub).find((s) => s.seedKey === seedKey)?.label ??
             "Lease";
-          showToast(`${seedLabel} added.`);
+          showToast(
+            skipped > 0
+              ? `${seedLabel} added on ${saved} properties (${skipped} already had it).`
+              : `${seedLabel} added.`,
+          );
         }
         onUpdated();
         return;

@@ -109,6 +109,8 @@ export function leaseBookingEntries(
     propertyLabel: string;
     roomLabelForId: (roomId: string) => string;
     openEndedHorizonKey: string;
+    /** When false, a lease with no room choice is omitted rather than blocking every room. */
+    entireHomeListing?: boolean;
   },
 ): PropertyBookingEntry[] {
   const propertyId = opts.propertyId.trim();
@@ -127,6 +129,7 @@ export function leaseBookingEntries(
     const openEnded = !parsedEnd;
     const end = parsedEnd || opts.openEndedHorizonKey;
     const roomId = parseRoomChoiceValue(row.roomChoice ?? "").listingRoomId ?? "";
+    if (!roomId && !opts.entireHomeListing) continue;
     out.push({
       source: "proplane",
       propertyId,
@@ -156,7 +159,7 @@ export function leaseBookingEntries(
 export function leaseBookingEntriesForProperties(
   rows: readonly LeaseBookingRow[],
   opts: {
-    properties: readonly { id: string; label: string }[];
+    properties: readonly { id: string; label: string; entireHomeListing?: boolean }[];
     roomLabelForId?: (propertyId: string, roomId: string) => string;
     openEndedHorizonKey: string;
   },
@@ -169,6 +172,7 @@ export function leaseBookingEntriesForProperties(
         propertyLabel: property.label,
         roomLabelForId: (roomId) => opts.roomLabelForId?.(property.id, roomId) ?? "Room",
         openEndedHorizonKey: opts.openEndedHorizonKey,
+        entireHomeListing: property.entireHomeListing,
       }),
     );
   }

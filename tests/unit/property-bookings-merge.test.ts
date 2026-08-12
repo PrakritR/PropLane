@@ -100,8 +100,15 @@ describe("leaseBookingEntries", () => {
     expect(entry?.end).toBe("2028-01-01");
   });
 
-  it("treats a lease with no room as the whole home", () => {
-    const [entry] = leaseBookingEntries([{ ...base, roomChoice: "" }], leaseOpts());
+  it("skips a lease with no room on rent-by-room listings", () => {
+    expect(leaseBookingEntries([{ ...base, roomChoice: "" }], leaseOpts())).toHaveLength(0);
+  });
+
+  it("treats a lease with no room as the whole home on entire-home listings", () => {
+    const [entry] = leaseBookingEntries(
+      [{ ...base, roomChoice: "" }],
+      leaseOpts({ entireHomeListing: true }),
+    );
     expect(entry?.roomId).toBe("");
     expect(entry?.roomLabel).toBe("Whole home");
   });
@@ -181,7 +188,7 @@ describe("merged day lookup", () => {
             application: { leaseStart: "2026-09-01", leaseEnd: "2026-09-05" },
           },
         ],
-        leaseOpts(),
+        leaseOpts({ entireHomeListing: true }),
       );
       expect(filterBookingEntriesByRoom(wholeHome, "room-a")).toHaveLength(1);
     });
@@ -217,7 +224,7 @@ describe("leaseBookingEntriesForProperties", () => {
 
   const scoped = [
     { id: PROPERTY_ID, label: LABEL },
-    { id: "mgr-house-2", label: "Second house" },
+    { id: "mgr-house-2", label: "Second house", entireHomeListing: true },
   ];
 
   it("draws stays from every scoped house and none from outside it", () => {

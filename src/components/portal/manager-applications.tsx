@@ -97,7 +97,7 @@ import {
 } from "@/lib/rental-application/in-progress-application";
 import { isWithdrawnApplicationRow } from "@/lib/rental-application/resident-application-list";
 import { applicantDisplayName, applicantSecondaryEmail } from "@/lib/rental-application/applicant-name";
-import { groupIdForRow, groupRowInputForRow } from "@/components/portal/application-group-section";
+import { groupIdForRow, groupRowInputForRow, ApplicationGroupSection } from "@/components/portal/application-group-section";
 import {
   ApplicationCosignerListRow,
   ApplicationCosignerSection,
@@ -1289,6 +1289,7 @@ export function ManagerApplications({
         ? findHoldingDepositCharge(row.email, rowPropertyId, null, row.id)
         : undefined;
     const showPaidDepositNote = paidDepositCharge?.status === "paid";
+    const group = groupForRow(applicationGroups, { groupId: groupIdForRow(row) });
     return (
     <>
       {showPaidDepositNote ? (
@@ -1308,6 +1309,10 @@ export function ManagerApplications({
             navigate(href);
           }}
         />
+      ) : null}
+
+      {group ? (
+        <ApplicationGroupSection group={group} bundleGroup={group} currentRowId={row.id} />
       ) : null}
 
       <ApplicationReviewLauncherRow
