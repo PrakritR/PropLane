@@ -73,7 +73,13 @@ function renderFeeStep(
   const noop = () => {};
   return render(
     <RentalWizardStepBody
-      step={12}
+      // The fee step is step 11, not 12. The wizard was renumbered to
+      // RENTAL_WIZARD_STEP_COUNT = 11 (the old value survives only as
+      // LEGACY_RENTAL_WIZARD_STEP_COUNT for migrating saved progress), and
+      // RentalWizardStepBody returns null for any step past the count — so a
+      // stale 12 here renders NOTHING and every query below comes back null
+      // rather than failing on the thing it means to assert.
+      step={11}
       form={form}
       errors={{}}
       mode={mode}
