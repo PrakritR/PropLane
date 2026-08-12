@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  computeSharedSlotActionBudget,
   fitOptionalBetweenEdges,
   pickAdaptiveActions,
   pickVisibleActions,
@@ -81,6 +82,16 @@ describe("resolveAdaptiveOptionalFitCount", () => {
 
   it("measures the rendered row using the same visible set as the UI", () => {
     expect(renderedAdaptiveRowWidth(actions, 1, widthFor, 40, 2)).toBe(80 + 2 + 90 + 2 + 100 + 2 + 40);
+  });
+});
+
+describe("computeSharedSlotActionBudget", () => {
+  it("subtracts filter siblings from the shared title-band slot", () => {
+    expect(computeSharedSlotActionBudget(400, [72], 12)).toBe(316);
+  });
+
+  it("returns zero when siblings consume the slot", () => {
+    expect(computeSharedSlotActionBudget(80, [90], 8)).toBe(0);
   });
 });
 

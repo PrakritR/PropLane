@@ -10,6 +10,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { PORTAL_HEADER_ACTION_BTN } from "@/components/portal/portal-metrics";
 import {
+  computeSharedSlotActionBudget,
   pickAdaptiveActions,
   resolveAdaptiveOptionalFitCount,
   splitAdaptiveActions,
@@ -18,16 +19,41 @@ import {
 import { cn } from "@/lib/utils";
 
 const DEFAULT_GAP_PX = 8;
-/** Absorbs subpixel rounding, filter chip, and padding the measure row can miss. */
-const WIDTH_FUDGE_PX = 16;
+/** Absorbs subpixel rounding the hidden measure row can miss. */
+const WIDTH_FUDGE_PX = 4;
+const SCROLL_OVERFLOW_TOLERANCE_PX = 2;
 const rowAlignClass = (align: "start" | "end") =>
   align === "end" ? "justify-end" : "justify-start";
 const DEFAULT_ROW_CLASS = "flex min-w-0 flex-1 basis-0 flex-nowrap items-center gap-0.5 overflow-hidden";
 const DEFAULT_MORE_BTN = cn(PORTAL_HEADER_ACTION_BTN, "max-lg:px-3 max-lg:text-base");
 
-function measureAvailableWidth(container: HTMLElement): number {
+function measureAvailableWidth(container: HTMLElement, gapPx: number): number {
+  if (container.clientWidth > 0) return container.clientWidth;
+
+  const sectionRow = container.closest<HTMLElement>("[data-slot='portal-section-action-row']");
+  if (sectionRow && sectionRow.clientWidth > 0) return sectionRow.clientWidth;
+
   const slot = container.closest<HTMLElement>("[data-portal-action-slot]");
-  if (slot && slot.clientWidth > 0) return slot.clientWidth;
+  if (slot && slot.clientWidth > 0) {
+    const bandRow = sectionRow?.parentElement;
+    if (
+      sectionRow &&
+      bandRow &&
+      bandRow !== slot &&
+      slot.contains(bandRow) &&
+      bandRow.parentElement === slot
+    ) {
+      const siblingWidths: number[] = [];
+      for (const child of bandRow.children) {
+        if (child instanceof HTMLElement && child !== sectionRow) {
+          siblingWidths.push(child.offsetWidth);
+        }
+      }
+      const bandGap = parseFloat(getComputedStyle(bandRow).gap) || gapPx;
+      return computeSharedSlotActionBudget(slot.clientWidth, siblingWidths, bandGap);
+    }
+    return slot.clientWidth;
+  }
 
   let minWidth = Infinity;
   let node: HTMLElement | null = container.parentElement;
@@ -39,7 +65,7 @@ function measureAvailableWidth(container: HTMLElement): number {
   }
   if (Number.isFinite(minWidth) && minWidth > 0) return minWidth;
 
-  return container.clientWidth > 0 ? container.clientWidth : 0;
+  return 0;
 }
 
 /**
@@ -85,7 +111,7 @@ export function PortalAdaptiveActionRow({
     }
 
     const sync = () => {
-      const containerWidth = measureAvailableWidth(container);
+      const containerWidth = measureAvailableWidth(container, gapPx);
       if (containerWidth <= 0) return;
 
       const buttons = [...measure.querySelectorAll<HTMLElement>("[data-portal-adaptive-fit-action]")];
@@ -127,7 +153,7 @@ export function PortalAdaptiveActionRow({
   useLayoutEffect(() => {
     const row = containerRef.current;
     if (!row) return;
-    if (row.scrollWidth <= row.clientWidth + 1) return;
+    if (row.scrollWidth <= row.clientWidth + SCROLL_OVERFLOW_TOLERANCE_PX) return;
     if (optionalFitCount > 0) {
       setOptionalFitCount((count) => Math.max(0, count - 1));
       return;
@@ -219,6 +245,7 @@ export const PortalAdaptiveHeaderActions = PortalAdaptiveActionRow;
 
 export type { PortalAdaptiveAction, PortalAdaptiveAction as PortalAdaptiveHeaderAction } from "@/lib/portal-adaptive-actions";
 export {
+  computeSharedSlotActionBudget,
   fitOptionalBetweenEdges,
   pickAdaptiveActions,
   pickAdaptiveActions as pickAdaptiveHeaderActions,

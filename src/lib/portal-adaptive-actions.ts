@@ -148,6 +148,21 @@ function totalRowWidth({
   return segmentWidth(chunks, gap);
 }
 
+/**
+ * When a filter chip shares {@link data-portal-action-slot}, subtract sibling widths
+ * so the action row budget matches the flex child, not the whole slot.
+ */
+export function computeSharedSlotActionBudget(
+  slotWidth: number,
+  siblingWidths: number[],
+  gapPx: number,
+): number {
+  if (slotWidth <= 0) return 0;
+  const occupied = siblingWidths.reduce((sum, width) => sum + width, 0);
+  const gapTotal = siblingWidths.length > 0 ? gapPx : 0;
+  return Math.max(0, slotWidth - occupied - gapTotal);
+}
+
 export function fitOptionalBetweenEdges(
   leadingWidth: number,
   optionalWidths: number[],
