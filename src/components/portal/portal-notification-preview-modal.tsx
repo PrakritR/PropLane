@@ -288,6 +288,25 @@ export function PortalNotificationPreviewModal({
             smsAvailable={scheduledSmsAvailable || smsAvailable}
             refreshKey={scheduledRefreshKey}
             onChanged={onScheduledMessagesChanged}
+            onSendMessage={
+              skipMessage || !channelsOk || !messageReady || confirmBusy
+                ? undefined
+                : () =>
+                    onConfirm(
+                      skipMessage,
+                      portalMessageChannelsFromSelection(sendVia),
+                      {
+                        subject: draftSubject.trim(),
+                        body: draftBody.trim(),
+                        scheduleAt:
+                          showSchedule && scheduleLater && !skipMessage
+                            ? new Date(sendAt).toISOString()
+                            : undefined,
+                      },
+                    )
+            }
+            sendMessageLabel={effectiveConfirmLabel}
+            sendMessageBusy={confirmBusy}
           />
         ) : null}
       </PortalMessageComposeModalBody>

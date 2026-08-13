@@ -1869,43 +1869,78 @@ export function InboxScheduledCard({
 }
 
 /**
- * Stacks many scheduled-message rows at the tail of a thread — one summary chip
- * opens a popup listing each message in detail mode.
+ * One scheduled-message preview row (compose modal + scheduled list popup).
+ */
+export function InboxScheduledSubjectRow({
+  subject,
+  sendLabel,
+  onClick,
+}: {
+  subject: string;
+  sendLabel: string;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      className="flex w-full flex-col items-start rounded-xl border border-border bg-accent/15 px-3 py-2.5 text-left transition hover:bg-accent/25"
+      data-attr="inbox-scheduled-subject-row"
+      onClick={onClick}
+    >
+      <span className="line-clamp-2 text-sm font-semibold text-foreground">
+        {subject.trim() || "Scheduled message"}
+      </span>
+      <span className="mt-0.5 text-xs text-muted">Sends {sendLabel}</span>
+    </button>
+  );
+}
+
+/**
+ * Stacks scheduled-message rows at the tail of a thread — summary chip above the
+ * assistant opens a subject-row list; each row opens the full card in detail.
  */
 export function InboxScheduledThreadList({
   count,
   nextSendLabel,
-  defaultCollapsed = false,
   children,
+  footerAction,
 }: {
   count: number;
   nextSendLabel?: string;
+  /** @deprecated Collapse removed — summary chip always used when count >= 1. */
   defaultCollapsed?: boolean;
   children: ReactNode;
+  /** Optional action below the subject list (e.g. Send message in compose). */
+  footerAction?: ReactNode;
 }) {
-  const [modalOpen, setModalOpen] = useState(false);
-  const detailChildren = Children.map(children, (child) => {
-    if (!isValidElement(child)) return child;
-    return cloneElement(child as React.ReactElement<{ presentation?: "compact" | "detail" }>, {
+  const [listOpen, setListOpen] = useState(false);
+  const [detailOpen, setDetailOpen] = useState(false);
+  const [detailIdx, setDetailIdx] = useState(0);
+
+  const childArray = Children.toArray(children).filter(isValidElement);
+  const detailChildren = childArray.map((child) =>
+    cloneElement(child as React.ReactElement<{ presentation?: "compact" | "detail" }>, {
       presentation: "detail",
-    });
-  });
-  const wrap = (inner: ReactNode) => <div className="space-y-1.5 pt-1">{inner}</div>;
+    }),
+  );
 
-  if (count <= 1) return wrap(children);
+  if (count <= 0) return null;
 
-  const summary =
-    count === 1
-      ? "1 scheduled message"
-      : `${count} scheduled messages`;
+  const summary = count === 1 ? "1 scheduled message" : `${count} scheduled messages`;
   const when = nextSendLabel ? ` · next sends ${nextSendLabel}` : "";
+
+  const openDetail = (index: number) => {
+    setDetailIdx(index);
+    setListOpen(false);
+    setDetailOpen(true);
+  };
 
   return (
     <>
       <div className="pt-1" data-attr="inbox-scheduled-thread-list">
         <button
           type="button"
-          onClick={() => setModalOpen(true)}
+          onClick={() => setListOpen(true)}
           className="portal-inbox-scheduled-card flex w-full items-center justify-start gap-2 rounded-lg border border-dashed border-border/80 bg-accent/15 px-3 py-2 text-left transition hover:border-border hover:bg-accent/25"
           aria-haspopup="dialog"
           data-attr="inbox-scheduled-list-toggle"
@@ -1918,17 +1953,45 @@ export function InboxScheduledThreadList({
         </button>
       </div>
       <Modal
-        open={modalOpen}
-        onClose={() => setModalOpen(false)}
+        open={listOpen}
+        onClose={() => setListOpen(false)}
         title="Scheduled messages"
         dense
         assistantStrip={false}
         fullScreenMobile={false}
         panelClassName="max-w-lg p-3 sm:p-4"
+        dataAttr="inbox-scheduled-list-modal"
       >
-        <div className="max-h-[min(70vh,28rem)] space-y-4 overflow-y-auto overscroll-contain pr-0.5 [-webkit-overflow-scrolling:touch]">
-          {detailChildren}
-        </div>
+        <p className="text-xs font-semibold text-muted">Scheduled messages</p>
+        <ul className="mt-2 max-h-[min(70vh,28rem)] space-y-1.5 overflow-y-auto overscroll-contain pr-0.5 [-webkit-overflow-scrolling:touch]">
+          {childArray.map((child, index) => {
+            const props = (child as React.ReactElement<{ subject?: string; sendLabel?: string }>).props;
+            return (
+              <li key={child.key ?? index}>
+                <InboxScheduledSubjectRow
+                  subject={props.subject ?? ""}
+                  sendLabel={props.sendLabel ?? ""}
+                  onClick={() => openDetail(index)}
+                />
+              </li>
+            );
+          })}
+        </ul>
+        {footerAction ? (
+          <div className="mt-3 flex justify-end border-t border-border pt-3">{footerAction}</div>
+        ) : null}
+      </Modal>
+      <Modal
+        open={detailOpen}
+        onClose={() => setDetailOpen(false)}
+        title="Scheduled message"
+        dense
+        assistantStrip={false}
+        fullScreenMobile={false}
+        panelClassName="max-w-lg p-3 sm:p-4"
+        dataAttr="inbox-scheduled-detail-modal"
+      >
+        {detailChildren[detailIdx] ?? null}
       </Modal>
     </>
   );

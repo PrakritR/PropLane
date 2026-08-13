@@ -2725,7 +2725,7 @@ export function ManagerResidents({
                                 residentName={selected.name}
                                 portalBase={portalBase}
                                 smsUiEnabled={smsUiEnabled}
-                                onScheduleMessage={() => openResidentMessageModal(true)}
+                                onNewMessage={() => openResidentMessageModal(false)}
                                 scheduledRefreshKey={messageScheduledRefresh}
                               />
                             </ResidentDetailTabPanel>
@@ -4009,7 +4009,7 @@ export function ManagerResidents({
 
       <PortalNotificationPreviewModal
         open={messageOpen}
-        title="Schedule message"
+        title={messageScheduleLater ? "Schedule message" : "New message"}
         onClose={() => {
           if (messageBusy) return;
           setMessageOpen(false);
@@ -4046,9 +4046,9 @@ export function ManagerResidents({
             })(),
         )}
         defaultViaSms={false}
-        confirmLabel="Schedule message"
+        confirmLabel={messageScheduleLater ? "Schedule message" : "Send message"}
         confirmBusy={messageBusy}
-        confirmBusyLabel="Scheduling…"
+        confirmBusyLabel={messageScheduleLater ? "Scheduling…" : "Sending…"}
         onConfirm={(_skip, channels, draft) => {
           void sendResidentMessage(channels, draft);
         }}
