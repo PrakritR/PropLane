@@ -296,7 +296,12 @@ function ModalPanelInner({
 }) {
   const bodyFillsPanel = scrollableContent || Boolean(footer);
   return (
-    <div className={cn("flex flex-col overflow-hidden", bodyFillsPanel ? "min-h-0 flex-1" : "shrink-0")}>
+    <div
+      className={cn(
+        "flex h-full min-h-0 flex-col overflow-hidden",
+        bodyFillsPanel ? "flex-1" : "shrink-0",
+      )}
+    >
       {/* Title + close: fixed chrome a portaled field menu must never cover. A modal that
           is tall enough today to leave it clear is a coincidence, not a guarantee — the
           rule is universal, with no "except in a modal" carve-out. */}
@@ -350,12 +355,12 @@ function ModalPanelInner({
             dense ? "pt-2" : "pt-4",
           )}
         >
-          {scrollableContent || !footer ? (
-            children
-          ) : (
+          {scrollableContent && footer ? (
             <div className="min-h-0 flex-1 space-y-3 overflow-y-auto overflow-x-hidden overscroll-contain pr-0.5 [-webkit-overflow-scrolling:touch]">
               {children}
             </div>
+          ) : (
+            children
           )}
         </div>
         {showAssistantStrip ? (
@@ -366,6 +371,7 @@ function ModalPanelInner({
             conversationInstance={assistantConversationInstance}
             onExpandedChange={onAssistantExpandedChange}
             defaultExpanded={assistantDefaultExpanded}
+          fillHeight={!scrollableContent && Boolean(footer)}
             className={cn("shrink-0", dense ? "px-0" : undefined)}
           />
         ) : null}

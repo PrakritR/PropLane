@@ -32,6 +32,9 @@ export const MODAL_LARGE_PANEL_CLASS = "max-w-4xl w-full";
 /** Extra-wide centered dialog — listing preview, lease editor. */
 export const MODAL_XL_PANEL_CLASS = "max-w-5xl w-full";
 
+/** Tall editor dialog — fills the standard modal viewport height so body flex children can grow. */
+export const MODAL_TALL_PANEL_CLASS = "h-[min(92dvh,56rem)] max-h-[min(92dvh,56rem)]";
+
 /** Full-viewport modal shell — opt in with `fullPage` for rare immersive flows. */
 export const MODAL_FULL_PAGE_STACK_CLASS = "fixed inset-0 z-[70] overflow-hidden";
 export const MODAL_FULL_PAGE_CENTER_CLASS =

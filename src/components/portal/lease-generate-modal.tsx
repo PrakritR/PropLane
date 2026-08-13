@@ -9,8 +9,9 @@ import {
   ModalFooter,
   MODAL_FIELD_LABEL_CLASS,
   PORTAL_MODAL_FORM_FIELD_CLASS,
+  useModalPresentation,
 } from "@/components/ui/modal";
-import { MODAL_XL_PANEL_CLASS } from "@/components/ui/modal-styles";
+import { MODAL_TALL_PANEL_CLASS, MODAL_XL_PANEL_CLASS } from "@/components/ui/modal-styles";
 import { LeaseHtmlDirectEditor } from "@/components/portal/lease-html-direct-editor";
 import {
   propertyLeaseNeedsAssistantReview,
@@ -171,6 +172,7 @@ export function LeaseGenerateModal({
 
   const canGenerate = Boolean(editorHtml.trim() && !draft?.error && !(choices.length > 0 && !selectedTemplateId));
   const working = busy || generating;
+  const presentation = useModalPresentation();
 
   if (!row || !actionRow) return null;
 
@@ -181,7 +183,8 @@ export function LeaseGenerateModal({
       onClose={onClose}
       dismissBlocked={working}
       scrollableContent={false}
-      panelClassName={MODAL_XL_PANEL_CLASS}
+      panelClassName={cn(MODAL_XL_PANEL_CLASS, MODAL_TALL_PANEL_CLASS)}
+      assistantDefaultExpanded={presentation === "dialog"}
       assistantContext={assistantContext}
       assistantEditHint="Type in chat to edit the lease — changes apply after you confirm."
       assistantStorageScopeKey={`Lease generate · ${actionRow.id}`}
@@ -202,8 +205,8 @@ export function LeaseGenerateModal({
         </ModalFooter>
       }
     >
-      <div className="flex min-h-0 flex-1 flex-col gap-4">
-        <div className={cn(PORTAL_MODAL_FORM_FIELD_CLASS, "shrink-0")}>
+      <div className="grid min-h-0 flex-1 grid-rows-[auto_minmax(0,1fr)] gap-3">
+        <div className={cn(PORTAL_MODAL_FORM_FIELD_CLASS, "min-w-0")}>
           <label className={MODAL_FIELD_LABEL_CLASS} htmlFor="lease-generate-type">
             Lease type
           </label>
@@ -240,37 +243,37 @@ export function LeaseGenerateModal({
             {draft.error}
           </p>
         ) : editorHtml ? (
-          <div className="flex min-h-0 flex-1 flex-col gap-3">
-            {saveReviewOpen ? (
-              <div className="shrink-0 rounded-xl border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-950">
-                <p className="font-semibold">Review before generating</p>
-                <p className="mt-1">
-                  This draft still has items to fix. Ask PropLane Assistant in the panel below, then generate when
-                  it looks right — or{" "}
-                  <button
-                    type="button"
-                    className="font-semibold underline"
-                    onClick={() => {
-                      setSaveReviewOpen(false);
-                      commitGenerate();
-                    }}
-                  >
-                    generate anyway
-                  </button>
-                  .
-                </p>
-              </div>
-            ) : null}
-            <div className="flex min-h-0 flex-1 flex-col">
-              <p className={cn(MODAL_FIELD_LABEL_CLASS, "shrink-0")}>Lease format</p>
-              <LeaseHtmlDirectEditor
-                className="min-h-0 flex-1"
-                html={displayHtml}
-                baselineHtml={baselineHtml}
-                onChange={(next) => setHtmlOverride(next)}
-                showPersistBar={false}
-              />
+          <div className="grid min-h-0 grid-rows-[auto_minmax(0,1fr)] gap-1">
+            <div className="flex flex-col gap-2">
+              {saveReviewOpen ? (
+                <div className="rounded-xl border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-950">
+                  <p className="font-semibold">Review before generating</p>
+                  <p className="mt-1">
+                    This draft still has items to fix. Ask PropLane Assistant in the panel below, then generate when
+                    it looks right — or{" "}
+                    <button
+                      type="button"
+                      className="font-semibold underline"
+                      onClick={() => {
+                        setSaveReviewOpen(false);
+                        commitGenerate();
+                      }}
+                    >
+                      generate anyway
+                    </button>
+                    .
+                  </p>
+                </div>
+              ) : null}
+              <p className={MODAL_FIELD_LABEL_CLASS}>Lease format</p>
             </div>
+            <LeaseHtmlDirectEditor
+              className="min-h-0 h-full"
+              html={displayHtml}
+              baselineHtml={baselineHtml}
+              onChange={(next) => setHtmlOverride(next)}
+              showPersistBar={false}
+            />
           </div>
         ) : (
           <p className="text-sm text-muted">Choose a lease type to load the draft.</p>

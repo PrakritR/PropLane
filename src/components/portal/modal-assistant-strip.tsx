@@ -101,7 +101,7 @@ export function ModalAssistantStrip({
       <div
         className={cn(
           "flex min-w-0 flex-col border-t border-border bg-transparent",
-          fillHeight ? "min-h-0 flex-1" : "shrink-0",
+          fillHeight && showExpanded ? "min-h-0 flex-1" : "shrink-0",
           showExpanded && "@2xl:min-h-0 @2xl:w-80 @2xl:shrink-0 @2xl:border-t-0",
           showExpanded && (side === "left" ? "@2xl:border-r" : "@2xl:border-l"),
           className,

@@ -9,8 +9,9 @@ import {
   ModalFooter,
   MODAL_FIELD_LABEL_CLASS,
   PORTAL_MODAL_FORM_FIELD_CLASS,
+  useModalPresentation,
 } from "@/components/ui/modal";
-import { MODAL_LARGE_PANEL_CLASS } from "@/components/ui/modal-styles";
+import { MODAL_LARGE_PANEL_CLASS, MODAL_TALL_PANEL_CLASS } from "@/components/ui/modal-styles";
 import { LeaseHtmlDirectEditor } from "@/components/portal/lease-html-direct-editor";
 import {
   PropertyLeaseDocumentNotice,
@@ -112,6 +113,8 @@ export function ManagerPipelineLeaseEditModal({
     commitSave();
   };
 
+  const presentation = useModalPresentation();
+
   return (
     <Modal
       open={open}
@@ -120,7 +123,8 @@ export function ManagerPipelineLeaseEditModal({
       onClose={handleClose}
       dismissBlocked={saving}
       scrollableContent={false}
-      panelClassName={MODAL_LARGE_PANEL_CLASS}
+      panelClassName={cn(MODAL_LARGE_PANEL_CLASS, MODAL_TALL_PANEL_CLASS)}
+      assistantDefaultExpanded={presentation === "dialog"}
       assistantContext={assistantContext}
       assistantEditHint="Type in chat to edit the lease — changes apply after you confirm."
       assistantStorageScopeKey={`Lease packet edit · ${row.id}`}
@@ -141,8 +145,8 @@ export function ManagerPipelineLeaseEditModal({
         ) : null
       }
     >
-      <div className="flex min-h-0 flex-1 flex-col gap-4">
-        <div className={cn(PORTAL_MODAL_FORM_FIELD_CLASS, "shrink-0")}>
+      <div className="grid min-h-0 flex-1 grid-rows-[auto_minmax(0,1fr)] gap-3">
+        <div className={cn(PORTAL_MODAL_FORM_FIELD_CLASS, "min-w-0")}>
           <label className={MODAL_FIELD_LABEL_CLASS} htmlFor="resident-lease-document-name">
             Lease document name
           </label>
@@ -165,38 +169,38 @@ export function ManagerPipelineLeaseEditModal({
             manager&apos;s original document and cannot be edited here.
           </div>
         ) : (
-          <div className="flex min-h-0 flex-1 flex-col gap-3">
-            <PropertyLeaseDocumentNotice html={noticeHtml} />
-            {saveReviewOpen ? (
-              <div className="shrink-0 rounded-xl border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-950">
-                <p className="font-semibold">Review before saving</p>
-                <p className="mt-1">
-                  This lease still has items to fix. Ask PropLane Assistant in the panel below, then save when it
-                  looks right — or{" "}
-                  <button
-                    type="button"
-                    className="font-semibold underline"
-                    onClick={() => {
-                      setSaveReviewOpen(false);
-                      commitSave();
-                    }}
-                  >
-                    save anyway
-                  </button>
-                  .
-                </p>
-              </div>
-            ) : null}
-            <div className="flex min-h-0 flex-1 flex-col">
-              <p className={cn(MODAL_FIELD_LABEL_CLASS, "shrink-0")}>Lease format</p>
-              <LeaseHtmlDirectEditor
-                className="min-h-0 flex-1"
-                html={displayHtml}
-                baselineHtml={baselineHtml}
-                onChange={(next) => setHtmlOverride(next)}
-                showPersistBar={false}
-              />
+          <div className="grid min-h-0 grid-rows-[auto_minmax(0,1fr)] gap-1">
+            <div className="flex flex-col gap-2">
+              <PropertyLeaseDocumentNotice html={noticeHtml} />
+              {saveReviewOpen ? (
+                <div className="rounded-xl border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-950">
+                  <p className="font-semibold">Review before saving</p>
+                  <p className="mt-1">
+                    This lease still has items to fix. Ask PropLane Assistant in the panel below, then save when it
+                    looks right — or{" "}
+                    <button
+                      type="button"
+                      className="font-semibold underline"
+                      onClick={() => {
+                        setSaveReviewOpen(false);
+                        commitSave();
+                      }}
+                    >
+                      save anyway
+                    </button>
+                    .
+                  </p>
+                </div>
+              ) : null}
+              <p className={MODAL_FIELD_LABEL_CLASS}>Lease format</p>
             </div>
+            <LeaseHtmlDirectEditor
+              className="min-h-0 h-full"
+              html={displayHtml}
+              baselineHtml={baselineHtml}
+              onChange={(next) => setHtmlOverride(next)}
+              showPersistBar={false}
+            />
           </div>
         )}
       </div>
