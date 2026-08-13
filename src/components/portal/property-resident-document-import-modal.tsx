@@ -5,7 +5,7 @@ import { FileUp } from "lucide-react";
 import { Modal, MODAL_FIELD_LABEL_CLASS, ModalFooter, PORTAL_MODAL_FORM_FIELD_CLASS, PORTAL_MODAL_FORM_GRID_CLASS } from "@/components/ui/modal";
 import { Button } from "@/components/ui/button";
 import { Input, Select } from "@/components/ui/input";
-import { PortalFormSingleSelect } from "@/components/portal/portal-form-single-select";
+import { PortalFormSingleSelect } from "@/components/portal/filter-field-lists";
 import { readExtraListingsForUser } from "@/lib/demo-property-pipeline";
 import { commitResidentDocumentImport } from "@/lib/resident-document-import/commit-import.client";
 import type { ParsedResidentDocument, ResidentDocumentKind } from "@/lib/resident-document-import/types";
