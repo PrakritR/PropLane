@@ -88,6 +88,7 @@ import {
 } from "@/lib/portal-document-download";
 import type { CosignerSubmission } from "@/lib/cosigner-submissions-storage";
 import { getBundleChoiceLabel, getRoomChoiceLabel } from "@/lib/rental-application/data";
+import type { ApplicationGroupMember } from "@/lib/rental-application/application-groups";
 import {
   inProgressApplicationResumeUrl,
   applicationStageDisplayLabel,
@@ -97,7 +98,7 @@ import {
 } from "@/lib/rental-application/in-progress-application";
 import { isWithdrawnApplicationRow } from "@/lib/rental-application/resident-application-list";
 import { applicantDisplayName, applicantSecondaryEmail } from "@/lib/rental-application/applicant-name";
-import { groupIdForRow, groupRowInputForRow, ApplicationGroupSection } from "@/components/portal/application-group-section";
+import { groupIdForRow, groupRowInputForRow } from "@/components/portal/application-group-section";
 import {
   ApplicationCosignerListRow,
   ApplicationCosignerSection,
@@ -269,6 +270,7 @@ export function ApplicationDocumentPreview({
   bareCanvas = false,
   variant = "html",
   downloadPlacement = "bottom",
+  groupMembers = [],
 }: {
   row: DemoApplicantRow;
   collapsible?: boolean;
@@ -280,6 +282,8 @@ export function ApplicationDocumentPreview({
   variant?: "html" | "pdf";
   /** Where the download action sits relative to the preview frame. */
   downloadPlacement?: "top" | "bottom";
+  /** Other group-application members embedded in demo/HTML previews; server PDF loads these itself. */
+  groupMembers?: ApplicationGroupMember[];
 }) {
   const demo = isDemoModeActive();
   const [cosignerSubmissions, setCosignerSubmissions] = useState<CosignerSubmission[]>([]);
@@ -292,6 +296,7 @@ export function ApplicationDocumentPreview({
     row.application?.hasCosigner === "yes" ? "cosigner" : "",
     row.application?.rentalType ?? "",
     variant,
+    groupMembers.map((m) => m.id).join(","),
   ].join("|");
 
   useEffect(() => {
@@ -330,6 +335,7 @@ export function ApplicationDocumentPreview({
         row,
         applicationRoomLabel(row) || undefined,
         cosignerSubmissions,
+        groupMembers,
       );
       if (!cancelled) {
         setDemoPdfUrl(url);
@@ -339,7 +345,7 @@ export function ApplicationDocumentPreview({
     return () => {
       cancelled = true;
     };
-  }, [cosignerSubmissions, demo, previewKey, row, variant]);
+  }, [cosignerSubmissions, demo, groupMembers, previewKey, row, variant]);
 
   const previewHtml = useMemo(
     () =>
@@ -347,9 +353,10 @@ export function ApplicationDocumentPreview({
         ? buildApplicationHtml(row, {
             roomLabel: applicationRoomLabel(row) || undefined,
             cosignerSubmissions,
+            groupMembers,
           })
         : null,
-    [row, cosignerSubmissions, previewKey, variant],
+    [row, cosignerSubmissions, groupMembers, previewKey, variant],
   );
 
   const downloadButton = showDownload ? (
@@ -1311,12 +1318,9 @@ export function ManagerApplications({
         />
       ) : null}
 
-      {group ? (
-        <ApplicationGroupSection group={group} bundleGroup={group} currentRowId={row.id} />
-      ) : null}
-
       <ApplicationReviewLauncherRow
         row={row}
+        group={group}
         bareCanvas
         showDownload={false}
         activeView={applicationReviewView}

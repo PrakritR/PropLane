@@ -41,13 +41,12 @@ import {
   householdClusterHeaderForRows,
 } from "@/components/portal/application-household-list";
 import {
-  ApplicationGroupSection,
   groupIdForRow,
   groupRowInputForRow,
 } from "@/components/portal/application-group-section";
 import { ManagerCosignerReadonlyReview } from "@/components/portal/manager-cosigner-readonly-review";
 import { useCosignerSubmissionsMap } from "@/hooks/use-cosigner-submissions-map";
-import { buildApplicationGroups, describeGroupBadge, groupForRow } from "@/lib/rental-application/application-groups";
+import { buildApplicationGroups, describeGroupBadge, groupForRow, type ApplicationGroupMember } from "@/lib/rental-application/application-groups";
 import {
   applicationListSortBucket,
   buildApplicationListClusters,
@@ -144,7 +143,13 @@ function rowStatusLabel(row: DemoApplicantRow): string {
 }
 
 /** Inline server PDF for submitted, approved, and rejected applications. */
-function ResidentApplicationPdfFrame({ row }: { row: DemoApplicantRow }) {
+function ResidentApplicationPdfFrame({
+  row,
+  groupMembers = [],
+}: {
+  row: DemoApplicantRow;
+  groupMembers?: ApplicationGroupMember[];
+}) {
   return (
     <ApplicationDocumentPreview
       row={row}
@@ -152,6 +157,7 @@ function ResidentApplicationPdfFrame({ row }: { row: DemoApplicantRow }) {
       showDownload
       variant="pdf"
       downloadPlacement="bottom"
+      groupMembers={groupMembers}
     />
   );
 }
@@ -1005,7 +1011,6 @@ export function ResidentApplicationsPanel({
     const cosignerSubmissions = cosignerSubmissionsBySigner.get(signerKey) ?? [];
     return (
       <div className="space-y-4">
-        {group ? <ApplicationGroupSection group={group} currentRowId={row.id} /> : null}
         {row.application?.applyingAsGroup === "yes" && row.application?.groupRole === "first" ? (
           <GroupShareCallout
             leaderAppId={row.id}
@@ -1030,7 +1035,10 @@ export function ResidentApplicationsPanel({
             }}
           />
         ) : null}
-        <ResidentApplicationPdfFrame row={row} />
+        <ResidentApplicationPdfFrame
+          row={row}
+          groupMembers={group?.members.filter((member) => member.id !== row.id) ?? []}
+        />
       </div>
     );
   };

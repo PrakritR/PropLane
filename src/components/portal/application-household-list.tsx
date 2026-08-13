@@ -99,14 +99,22 @@ export function householdClusterHeader(group: ApplicationGroup | null, propertyL
   const badge = group ? describeGroupBadge(group) : null;
   return (
     <>
-      {property ? <span className="truncate text-xs font-semibold text-foreground">{property}</span> : null}
-      {group ? (
+      {property && group ? (
         <>
-          <span className="text-xs font-medium text-muted">Household application</span>
+          <span className="truncate text-xs font-semibold text-foreground">{property} group application</span>
           <span title={badge!.title}>
             <Badge tone={badge!.tone}>{badge!.label}</Badge>
           </span>
         </>
+      ) : group ? (
+        <>
+          <span className="text-xs font-semibold text-foreground">Group application</span>
+          <span title={badge!.title}>
+            <Badge tone={badge!.tone}>{badge!.label}</Badge>
+          </span>
+        </>
+      ) : property ? (
+        <span className="truncate text-xs font-semibold text-foreground">{property}</span>
       ) : null}
     </>
   );

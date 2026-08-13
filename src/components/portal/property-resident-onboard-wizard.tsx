@@ -40,9 +40,7 @@ const FIELD_DEFS: Array<{ key: string; label: string; type?: "text" | "email" | 
   { key: "monthlyUtilities", label: "Monthly utilities" },
 ];
 
-type WizardStep = "upload" | "review";
-
-function UploadCard({
+export function PropertyResidentPdfUploadCard({
   title,
   subtitle,
   fileName,
@@ -92,7 +90,6 @@ export function PropertyResidentOnboardWizard({
 }) {
   const applicationUploadRef = useRef<HTMLInputElement>(null);
   const leaseUploadRef = useRef<HTMLInputElement>(null);
-  const [step, setStep] = useState<WizardStep>("upload");
   const [busy, setBusy] = useState(false);
   const [applicationFile, setApplicationFile] = useState<File | null>(null);
   const [leaseFile, setLeaseFile] = useState<File | null>(null);
@@ -107,7 +104,6 @@ export function PropertyResidentOnboardWizard({
   const [leaseFullyExecuted, setLeaseFullyExecuted] = useState(false);
 
   const reset = useCallback(() => {
-    setStep("upload");
     setBusy(false);
     setApplicationFile(null);
     setLeaseFile(null);
@@ -227,7 +223,7 @@ export function PropertyResidentOnboardWizard({
     }
   }
 
-  function persistDraftForContinue() {
+  function persistDraft() {
     const draft: ResidentOnboardDraft = {
       propertyId: selectedPropertyId || propertyId,
       propertyLabel,
@@ -246,11 +242,6 @@ export function PropertyResidentOnboardWizard({
     return draft;
   }
 
-  function goToReview() {
-    persistDraftForContinue();
-    setStep("review");
-  }
-
   async function handleImport() {
     if (!fields.tenantName?.trim() || !fields.tenantEmail?.trim()) {
       showToast("Resident name and email are required.");
@@ -267,6 +258,7 @@ export function PropertyResidentOnboardWizard({
       return;
     }
 
+    persistDraft();
     setBusy(true);
     try {
       const label =
@@ -350,44 +342,36 @@ export function PropertyResidentOnboardWizard({
       onClose={() => {
         if (!busy) onClose();
       }}
-      title={step === "upload" ? "Add resident from PDFs" : "Review & import resident"}
-      description={
-        step === "upload"
-          ? "Upload an application PDF and/or lease PDF side by side. PropLane merges the readings and links this resident to this property."
-          : "Confirm resident details, rent, and property placement before creating records."
-      }
+      title="Add resident"
+      description="Upload an application PDF and/or lease PDF, confirm the details below, then import this resident to the property."
       dataAttr="property-resident-onboard-wizard"
     >
-      {step === "upload" ? (
-        <div className="space-y-4">
-          <div className="grid grid-cols-1 gap-3 min-[28rem]:grid-cols-2">
-            <UploadCard
-              title="Add application"
-              subtitle="Rental application PDF"
-              fileName={applicationFile?.name ?? null}
-              busy={busy}
-              dataAttr="property-onboard-application-pdf"
-              onPick={() => applicationUploadRef.current?.click()}
-            />
-            <UploadCard
-              title="Add lease"
-              subtitle="Signed or draft lease PDF"
-              fileName={leaseFile?.name ?? null}
-              busy={busy}
-              dataAttr="property-onboard-lease-pdf"
-              onPick={() => leaseUploadRef.current?.click()}
-            />
-          </div>
-          <p className="text-xs text-muted">
-            Upload one or both. Lease fields auto-fill from the application reading when both are present.
-          </p>
+      <div className="space-y-4">
+        <div className="grid grid-cols-1 gap-3 min-[28rem]:grid-cols-2">
+          <PropertyResidentPdfUploadCard
+            title="Add application"
+            subtitle="Rental application PDF"
+            fileName={applicationFile?.name ?? null}
+            busy={busy}
+            dataAttr="property-onboard-application-pdf"
+            onPick={() => applicationUploadRef.current?.click()}
+          />
+          <PropertyResidentPdfUploadCard
+            title="Add lease"
+            subtitle="Signed or draft lease PDF"
+            fileName={leaseFile?.name ?? null}
+            busy={busy}
+            dataAttr="property-onboard-lease-pdf"
+            onPick={() => leaseUploadRef.current?.click()}
+          />
         </div>
-      ) : (
-        <div className="space-y-4">
-          {residentSummary ? (
-            <p className="rounded-xl bg-accent/20 px-3 py-2 text-sm text-muted">{residentSummary}</p>
-          ) : null}
-          <div className={PORTAL_MODAL_FORM_GRID_CLASS}>
+        <p className="text-xs text-muted">
+          Upload one or both. Parsed fields appear below — edit anything before importing.
+        </p>
+        {residentSummary ? (
+          <p className="rounded-xl bg-accent/20 px-3 py-2 text-sm text-muted">{residentSummary}</p>
+        ) : null}
+        <div className={PORTAL_MODAL_FORM_GRID_CLASS}>
             {FIELD_DEFS.map((def) => (
               <label key={def.key} className={PORTAL_MODAL_FORM_FIELD_CLASS}>
                 <span className={MODAL_FIELD_LABEL_CLASS}>{def.label}</span>
@@ -446,7 +430,6 @@ export function PropertyResidentOnboardWizard({
             <span>Email portal account setup instructions after import.</span>
           </label>
         </div>
-      )}
 
       <input
         ref={applicationUploadRef}
@@ -472,32 +455,15 @@ export function PropertyResidentOnboardWizard({
       />
 
       <ModalFooter>
-        {step === "review" ? (
-          <Button type="button" variant="outline" disabled={busy} onClick={() => setStep("upload")}>
-            Back
-          </Button>
-        ) : null}
-        {step === "upload" ? (
-          <Button
-            type="button"
-            variant="primary"
-            disabled={busy || (!applicationFile && !leaseFile)}
-            onClick={goToReview}
-            data-attr="property-onboard-continue"
-          >
-            Continue
-          </Button>
-        ) : (
-          <Button
-            type="button"
-            variant="primary"
-            disabled={busy}
-            onClick={() => void handleImport()}
-            data-attr="property-onboard-import"
-          >
-            {busy ? "Importing…" : "Import resident"}
-          </Button>
-        )}
+        <Button
+          type="button"
+          variant="primary"
+          disabled={busy || (!applicationFile && !leaseFile)}
+          onClick={() => void handleImport()}
+          data-attr="property-onboard-import"
+        >
+          {busy ? "Importing…" : "Import resident"}
+        </Button>
       </ModalFooter>
     </Modal>
   );

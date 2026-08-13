@@ -4,6 +4,7 @@ import type { CosignerSubmission } from "@/lib/cosigner-submissions-storage";
 import { isAdminUser } from "@/lib/auth/admin-preview";
 import { managerCanAccessApplicationRecord } from "@/lib/auth/manager-application-access";
 import { applicationPdfFilename, buildApplicationPdf } from "@/lib/manager-application-pdf";
+import { loadApplicationGroupMembersForDocument } from "@/lib/application-group-document.server";
 import { normalizeApplicationAxisId } from "@/lib/manager-applications-storage";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
@@ -99,7 +100,11 @@ export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }
       .map((r) => r.row_data)
       .filter(Boolean) as CosignerSubmission[];
 
-    const pdf = await buildApplicationPdf(row, { roomLabel, cosignerSubmissions });
+    const groupMembers = await loadApplicationGroupMembersForDocument(db, row, {
+      managerUserId: record.manager_user_id ?? null,
+    });
+
+    const pdf = await buildApplicationPdf(row, { roomLabel, cosignerSubmissions, groupMembers });
     const filename = applicationPdfFilename(row);
 
     return new NextResponse(Buffer.from(pdf), {
