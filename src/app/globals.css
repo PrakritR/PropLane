@@ -2392,14 +2392,16 @@ html[data-communication-surface] {
   }
 }
 
-html[data-hide-assistant-fab] .portal-communication-inbox .portal-inbox-composer-row {
+html[data-hide-assistant-fab] .portal-communication-inbox .portal-inbox-composer-row,
+html[data-communication-hide-assistant-fab] .portal-communication-inbox .portal-inbox-composer-row,
+html[data-hide-assistant-fab] .portal-resident-detail-inbox .portal-inbox-composer-row,
+html[data-communication-hide-assistant-fab] .portal-resident-detail-inbox .portal-inbox-composer-row {
   padding-right: 0;
 }
 
-html[data-communication-surface][data-communication-hide-assistant-fab]
-  .portal-communication-inbox
-  .portal-inbox-composer-row {
-  padding-right: 0;
+html[data-hide-assistant-fab] .portal-resident-detail-inbox [data-attr="modal-assistant-strip"],
+html[data-communication-hide-assistant-fab] .portal-resident-detail-inbox [data-attr="modal-assistant-strip"] {
+  display: none !important;
 }
 
 @media (max-width: 1023px) {

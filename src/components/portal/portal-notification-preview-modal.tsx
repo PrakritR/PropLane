@@ -59,6 +59,7 @@ export function PortalNotificationPreviewModal({
   editableSubject = true,
   recipientPhone,
   showSchedule = true,
+  initialScheduleLater = false,
   confirmLabel,
   confirmLabelWithoutMessage,
   confirmBusy = false,
@@ -87,6 +88,8 @@ export function PortalNotificationPreviewModal({
   editableSubject?: boolean;
   recipientPhone?: string;
   showSchedule?: boolean;
+  /** When true, opens with Schedule for later checked (resident detail thread flow). */
+  initialScheduleLater?: boolean;
   confirmLabel: string;
   confirmLabelWithoutMessage?: string;
   confirmBusy?: boolean;
@@ -119,12 +122,12 @@ export function PortalNotificationPreviewModal({
     queueMicrotask(() => {
       setSkipMessage(false);
       setSendVia(defaultPortalMessageChannelSelection(emailAvailable, smsAvailable, defaultViaEmail, defaultViaSms));
-      setScheduleLater(false);
+      setScheduleLater(initialScheduleLater);
       setSendAt(defaultPortalMessageScheduleAt());
       setDraftSubject(subject);
       setDraftBody(body);
     });
-  }, [open, recipient, subject, body, emailAvailable, smsAvailable, defaultViaEmail, defaultViaSms]);
+  }, [open, recipient, subject, body, emailAvailable, smsAvailable, defaultViaEmail, defaultViaSms, initialScheduleLater]);
 
   const effectiveConfirmLabel = skipMessage
     ? (confirmLabelWithoutMessage ?? confirmLabel)
