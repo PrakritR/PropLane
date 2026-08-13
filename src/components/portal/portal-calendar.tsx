@@ -43,11 +43,7 @@ import {
   openEndedBookingHorizonKey,
   type PropertyBookingEntry,
 } from "@/lib/channel-calendar/property-bookings";
-import {
-  LEASE_PIPELINE_EVENT,
-  readLeasePipeline,
-  syncLeasePipelineFromServer,
-} from "@/lib/lease-pipeline-storage";
+import { useLeasePipelineRows } from "@/hooks/use-lease-pipeline-rows";
 import { getPropertyById, isEntireHomeProperty } from "@/lib/rental-application/data";
 import { normalizeManagerListingSubmissionV1 } from "@/lib/manager-listing-submission";
 import { ChannelCalendarLinkModal } from "@/components/portal/channel-calendar-link-modal";
@@ -416,20 +412,9 @@ export function PortalCalendar({
    * as free — and the day detail's "No PropLane stays and nothing from synced
    * Airbnb calendars" would assert an absence that was never checked.
    */
-  const [leasePipelineTick, setLeasePipelineTick] = useState(0);
-
-  useEffect(() => {
-    if (portal !== "manager" || !bookingsView || !userId) return;
-    const refresh = () => setLeasePipelineTick((tick) => tick + 1);
-    void syncLeasePipelineFromServer(userId)
-      .then(refresh)
-      .catch(() => {
-        // The Airbnb half still renders; a failed refresh keeps the cached stays.
-      });
-    // The store is already current when this fires, so re-read rather than refetch.
-    window.addEventListener(LEASE_PIPELINE_EVENT, refresh);
-    return () => window.removeEventListener(LEASE_PIPELINE_EVENT, refresh);
-  }, [portal, bookingsView, userId]);
+  const leasePipelineRows = useLeasePipelineRows(userId ?? null, {
+    enabled: portal === "manager" && bookingsView && Boolean(userId),
+  });
 
   // Listing catalog reads, so this is keyed on the listing tick alone — a lease
   // write does not change a room's name.
@@ -449,9 +434,8 @@ export function PortalCalendar({
 
   const bookingsLeaseEntries = useMemo<PropertyBookingEntry[]>(() => {
     if (portal !== "manager" || !bookingsView || !userId) return [];
-    void leasePipelineTick;
     const scoped = new Set(scopedCalendarPropertyIds);
-    return leaseBookingEntriesForProperties(readLeasePipeline(userId), {
+    return leaseBookingEntriesForProperties(leasePipelineRows, {
       properties: managerProperties
         .filter((property) => scoped.has(property.id))
         .map((property) => ({
@@ -467,7 +451,7 @@ export function PortalCalendar({
     portal,
     bookingsView,
     userId,
-    leasePipelineTick,
+    leasePipelineRows,
     managerProperties,
     scopedCalendarPropertyIds,
     bookingsRoomLabels,

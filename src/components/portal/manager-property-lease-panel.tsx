@@ -63,6 +63,19 @@ function leaseDocumentSummary(template: PropertyLeaseTemplate): string {
 }
 
 /**
+ * "The same lease" across two properties.
+ *
+ * A bulk save writes the template array verbatim, so those rows share an id; a
+ * bulk seed add mints a fresh id per property and only the `listingSeedKey`
+ * matches. A bulk delete has to recognize both, and nothing else — matching
+ * loosely (by label or kind) would delete a lease the manager never opened.
+ */
+function leaseTemplatesMatch(row: PropertyLeaseTemplate, target: PropertyLeaseTemplate): boolean {
+  if (row.id === target.id) return true;
+  return Boolean(target.listingSeedKey) && row.listingSeedKey === target.listingSeedKey;
+}
+
+/**
  * Per-property lease templates — PropLane default (long/short), upload, and inline format editor.
  */
 export function ManagerPropertyLeasePanel({
@@ -258,7 +271,56 @@ export function ManagerPropertyLeasePanel({
     return stripDisclosureReviewFromLeaseHtml(html);
   }, [previewTemplate, syncedSub, propertyHint, demoMode]);
 
+  const deleteTemplateAcrossProperties = (target: PropertyLeaseTemplate) => {
+    if (!managerUserId) return false;
+    let saved = 0;
+    let failed = 0;
+    let skipped = 0;
+    for (const bulkPropertyId of bulkPropertyIds) {
+      const hit = resolveManagerListingSubmissionForPropertyId(managerUserId, bulkPropertyId);
+      if (!hit) {
+        failed += 1;
+        continue;
+      }
+      const base = syncPropertyLeaseTemplatesFromListing(hit.sub);
+      const existing = readPropertyLeaseTemplates(base);
+      const remaining = existing.filter((row) => !leaseTemplatesMatch(row, target));
+      if (remaining.length === existing.length) {
+        skipped += 1;
+        continue;
+      }
+      const next = syncLegacyLeaseFieldsFromTemplates(base, remaining);
+      if (persistManagerListingSubmission(hit.saveTarget, managerUserId, next)) saved += 1;
+      else failed += 1;
+    }
+    if (saved === 0) {
+      showToast(
+        skipped > 0 && failed === 0
+          ? "That lease is not on the selected properties."
+          : "Could not delete lease.",
+      );
+      return false;
+    }
+    if (failed > 0) {
+      showToast(`Lease deleted on ${saved} properties (${failed} could not be saved).`);
+    } else if (saved > 1) {
+      showToast(`Lease deleted on ${saved} properties.`);
+    } else {
+      showToast(skipped > 0 ? `Lease deleted on ${saved} property.` : "Lease deleted.");
+    }
+    return true;
+  };
+
   const handleDelete = (templateId: string) => {
+    const target = templates.find((t) => t.id === templateId);
+    if (!target) return;
+
+    if (bulkPropertyIds.length > 0) {
+      if (!deleteTemplateAcrossProperties(target)) return;
+      onUpdated();
+      return;
+    }
+
     const next = removePropertyLeaseTemplate(templates, templateId);
     if (!persistTemplates(next)) {
       showToast("Could not delete lease.");

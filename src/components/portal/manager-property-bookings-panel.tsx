@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import {
   PORTAL_TOOLBAR_GROUP,
@@ -14,12 +14,7 @@ import {
   openEndedBookingHorizonKey,
   type PropertyBookingEntry,
 } from "@/lib/channel-calendar/property-bookings";
-import {
-  LEASE_PIPELINE_EVENT,
-  readLeasePipeline,
-  syncLeasePipelineFromServer,
-  type LeasePipelineRow,
-} from "@/lib/lease-pipeline-storage";
+import { useLeasePipelineRows } from "@/hooks/use-lease-pipeline-rows";
 import { isEntireHomeListing } from "@/lib/manager-listing-submission";
 import { cn } from "@/lib/utils";
 import type { ManagerListingSubmissionV1 } from "@/lib/manager-listing-submission";
@@ -47,39 +42,8 @@ export function ManagerPropertyBookingsPanel({
 }) {
   const [linkModalOpen, setLinkModalOpen] = useState(false);
   const [refreshSignal, setRefreshSignal] = useState(0);
-  // Seeded from the local cache so the calendar draws PropLane stays on the
-  // first paint; the effect below only replaces it with the server's copy.
-  const [leaseRows, setLeaseRows] = useState<LeasePipelineRow[]>(() =>
-    readLeasePipeline(managerUserId),
-  );
+  const leaseRows = useLeasePipelineRows(managerUserId);
   const [roomFilterId, setRoomFilterId] = useState("");
-
-  useEffect(() => {
-    let cancelled = false;
-    void syncLeasePipelineFromServer(managerUserId)
-      .then((rows) => {
-        if (!cancelled) setLeaseRows(rows);
-      })
-      .catch(() => {
-        // A failed refresh leaves the locally cached stays on screen rather
-        // than blanking the calendar — the Airbnb half still renders.
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [managerUserId]);
-
-  // Approving an application, voiding a lease, or completing a signature
-  // anywhere else in this session rewrites the lease store. Without this the
-  // calendar keeps drawing the pre-change occupancy — the one question the
-  // screen exists to answer — until it is remounted. The event means the local
-  // store is already current, so re-read it rather than refetching.
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    const onLeasePipelineChanged = () => setLeaseRows(readLeasePipeline(managerUserId));
-    window.addEventListener(LEASE_PIPELINE_EVENT, onLeasePipelineChanged);
-    return () => window.removeEventListener(LEASE_PIPELINE_EVENT, onLeasePipelineChanged);
-  }, [managerUserId]);
 
   // Rent-by-room only: an entire-home listing has no room axis to filter on.
   const rooms = useMemo(() => {
