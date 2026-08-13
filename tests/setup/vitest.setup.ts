@@ -30,3 +30,32 @@ if (typeof window !== "undefined" && !window.localStorage) {
   };
   Object.defineProperty(window, "localStorage", { value: storage, configurable: true, writable: false });
 }
+
+// jsdom does not implement `window.matchMedia` at all — it is a long-standing
+// gap, not a version drift. Any component reading a media query dies on mount
+// with "matchMedia is not a function", which surfaces as a wall of unrelated
+// assertion failures rather than the one real cause. Several suites had each
+// grown their own inline stub; this makes the baseline uniform so a suite only
+// needs its own when it wants to CONTROL the match result.
+//
+// Defined only when missing, so `vi.stubGlobal("matchMedia", …)` in an
+// individual test still wins.
+if (typeof window !== "undefined" && !window.matchMedia) {
+  Object.defineProperty(window, "matchMedia", {
+    configurable: true,
+    writable: true,
+    value: (query: string): MediaQueryList => {
+      const list: MediaQueryList = {
+        matches: false,
+        media: query,
+        onchange: null,
+        addListener: () => {},
+        removeListener: () => {},
+        addEventListener: () => {},
+        removeEventListener: () => {},
+        dispatchEvent: () => false,
+      };
+      return list;
+    },
+  });
+}
