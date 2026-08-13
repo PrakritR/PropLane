@@ -7,7 +7,7 @@ import {
   residentServiceFeeBreakdown,
   resolveServiceFeePayer,
   residentProcessingFeeCents,
-  type ProServiceFeeChoice,
+  type ServiceFeePayer,
 } from "@/lib/payment-policy";
 import type { ManagerSkuTier } from "@/lib/manager-access";
 
@@ -19,9 +19,10 @@ describe("manager payment settings — serviceFeePayer field", () => {
     expect(normalizeManagerManualPaymentSettings({ serviceFeePayer: "bogus" }).serviceFeePayer).toBe("resident");
   });
 
-  it("round-trips an explicit manager choice", () => {
+  it("round-trips an explicit manager or PropLane choice", () => {
     expect(normalizeManagerManualPaymentSettings({ serviceFeePayer: "manager" }).serviceFeePayer).toBe("manager");
     expect(normalizeManagerManualPaymentSettings({ serviceFeePayer: "resident" }).serviceFeePayer).toBe("resident");
+    expect(normalizeManagerManualPaymentSettings({ serviceFeePayer: "proplane" }).serviceFeePayer).toBe("proplane");
   });
 
   it("does not disturb the other manual-payment fields", () => {
@@ -44,12 +45,12 @@ describe("plan transitions change who is charged on the next payment", () => {
   const subtotal = 200_000;
   const fee = residentProcessingFeeCents(subtotal, "card");
 
-  function chargeFor(tier: ManagerSkuTier, proChoice: ProServiceFeeChoice) {
-    return residentServiceFeeBreakdown(subtotal, "card", resolveServiceFeePayer(tier, proChoice));
+  function chargeFor(tier: ManagerSkuTier, choice: ServiceFeePayer) {
+    return residentServiceFeeBreakdown(subtotal, "card", resolveServiceFeePayer(tier, choice));
   }
 
-  it("Business → Pro: the fee starts being charged (default: resident)", () => {
-    const before = chargeFor("business", "resident");
+  it("Business (PropLane pays) → Pro (resident): the fee starts being charged", () => {
+    const before = chargeFor("business", "proplane");
     expect(before.totalCents).toBe(subtotal); // PropLane absorbed
     expect(before.applicationFeeCents).toBe(0);
 
@@ -74,11 +75,11 @@ describe("plan transitions change who is charged on the next payment", () => {
     expect(after.managerPayoutCents).toBe(subtotal);
   });
 
-  it("Pro → Business: the fee stops entirely (PropLane absorbs)", () => {
+  it("Pro → Business (PropLane pays): the fee stops entirely", () => {
     const before = chargeFor("pro", "resident");
     expect(before.totalCents).toBe(subtotal + fee);
 
-    const after = chargeFor("business", "resident");
+    const after = chargeFor("business", "proplane");
     expect(after.totalCents).toBe(subtotal);
     expect(after.applicationFeeCents).toBe(0);
     expect(after.managerPayoutCents).toBe(subtotal);

@@ -1,7 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { sanitizePaymentContactInput } from "@/lib/listing-form-inputs";
-import { normalizeProServiceFeeChoice, type ProServiceFeeChoice } from "@/lib/payment-policy";
+import { normalizeServiceFeeChoice, type ServiceFeePayer } from "@/lib/payment-policy";
 
 export type ManagerManualPaymentSettings = {
   /**
@@ -18,12 +18,12 @@ export type ManagerManualPaymentSettings = {
   /** When false, receipt emails are ignored even if forwarded to the inbox. */
   receiptAutoMarkEnabled?: boolean;
   /**
-   * The Pro manager's choice for who pays the online payment service fee on
-   * resident charges. Only consulted on the Pro plan (Free forces resident,
-   * Business forces PropLane) — see `resolveServiceFeePayer`. Defaults to
-   * `resident` so upgrading to Pro never silently starts charging the manager.
+   * Who pays the online payment service fee on resident charges. Consulted on
+   * Pro and Business (Free forces resident) — see `resolveServiceFeePayer`.
+   * Defaults to `resident` so upgrading to Pro never silently starts charging
+   * the manager.
    */
-  serviceFeePayer: ProServiceFeeChoice;
+  serviceFeePayer: ServiceFeePayer;
 };
 
 export type ManagerManualPaymentSettingsView = ManagerManualPaymentSettings & {
@@ -70,7 +70,7 @@ export function normalizeManagerManualPaymentSettings(raw: unknown): ManagerManu
     venmoContact,
     ...(paymentInboxToken ? { paymentInboxToken } : {}),
     receiptAutoMarkEnabled: row.receiptAutoMarkEnabled === false ? false : true,
-    serviceFeePayer: normalizeProServiceFeeChoice(row.serviceFeePayer),
+    serviceFeePayer: normalizeServiceFeeChoice(row.serviceFeePayer),
   };
 }
 

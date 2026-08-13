@@ -4,6 +4,7 @@ import {
   achPlatformRecoupCents,
   managerAbsorbedPaymentFeeCents,
   normalizeProServiceFeeChoice,
+  normalizeServiceFeeChoice,
   residentProcessingFeeCents,
   residentProcessingFeeDisplayLabel,
   residentServiceFeeBreakdown,
@@ -15,7 +16,7 @@ import type { ManagerSkuTier } from "@/lib/manager-access";
 
 // The service fee is Stripe's real per-method processing cost, passed through at
 // cost. WHO pays it depends on the manager's plan (resolveServiceFeePayer):
-//   Free → resident always; Pro → the manager's choice; Business → PropLane.
+//   Free → resident always; Pro / Business → the manager's stored choice.
 // residentServiceFeeBreakdown places that fee onto the Connect destination
 // charge so the resident total, the retained application fee, and the manager
 // payout always reconcile.
@@ -59,25 +60,30 @@ describe("resolveServiceFeePayer — the plan rule", () => {
     expect(resolveServiceFeePayer("free", "manager")).toBe("resident"); // choice ignored on Free
   });
 
-  it("Pro → the manager's choice, in both positions", () => {
+  it("Pro / Business → the manager's stored choice", () => {
     expect(resolveServiceFeePayer("pro", "resident")).toBe("resident");
     expect(resolveServiceFeePayer("pro", "manager")).toBe("manager");
-  });
-
-  it("Business → PropLane always", () => {
-    expect(resolveServiceFeePayer("business", "resident")).toBe("proplane");
-    expect(resolveServiceFeePayer("business", "manager")).toBe("proplane");
+    expect(resolveServiceFeePayer("pro", "proplane")).toBe("proplane");
+    expect(resolveServiceFeePayer("business", "resident")).toBe("resident");
+    expect(resolveServiceFeePayer("business", "manager")).toBe("manager");
+    expect(resolveServiceFeePayer("business", "proplane")).toBe("proplane");
   });
 });
 
-describe("normalizeProServiceFeeChoice — default resident", () => {
-  it("only 'manager' opts into the manager absorbing it", () => {
-    expect(normalizeProServiceFeeChoice("manager")).toBe("manager");
-    expect(normalizeProServiceFeeChoice("resident")).toBe("resident");
-    expect(normalizeProServiceFeeChoice(undefined)).toBe("resident");
-    expect(normalizeProServiceFeeChoice(null)).toBe("resident");
-    expect(normalizeProServiceFeeChoice("proplane")).toBe("resident"); // not a stored choice
-    expect(normalizeProServiceFeeChoice("garbage")).toBe("resident");
+describe("normalizeServiceFeeChoice — default resident", () => {
+  it("accepts resident, manager, and proplane", () => {
+    expect(normalizeServiceFeeChoice("manager")).toBe("manager");
+    expect(normalizeServiceFeeChoice("resident")).toBe("resident");
+    expect(normalizeServiceFeeChoice("proplane")).toBe("proplane");
+    expect(normalizeServiceFeeChoice(undefined)).toBe("resident");
+    expect(normalizeServiceFeeChoice(null)).toBe("resident");
+    expect(normalizeServiceFeeChoice("garbage")).toBe("resident");
+  });
+});
+
+describe("normalizeProServiceFeeChoice — legacy two-value helper", () => {
+  it("maps proplane back to resident for older call sites", () => {
+    expect(normalizeProServiceFeeChoice("proplane")).toBe("resident");
   });
 });
 
@@ -139,21 +145,24 @@ describe("managerAbsorbedPaymentFeeCents", () => {
 describe("plan → charged amount (acceptance table)", () => {
   const cases: {
     tier: ManagerSkuTier;
-    proChoice: "resident" | "manager";
+    choice: ServiceFeePayer;
     expected: ServiceFeePayer;
   }[] = [
-    { tier: "free", proChoice: "resident", expected: "resident" },
-    { tier: "free", proChoice: "manager", expected: "resident" },
-    { tier: "pro", proChoice: "resident", expected: "resident" },
-    { tier: "pro", proChoice: "manager", expected: "manager" },
-    { tier: "business", proChoice: "resident", expected: "proplane" },
-    { tier: "business", proChoice: "manager", expected: "proplane" },
+    { tier: "free", choice: "resident", expected: "resident" },
+    { tier: "free", choice: "manager", expected: "resident" },
+    { tier: "free", choice: "proplane", expected: "resident" },
+    { tier: "pro", choice: "resident", expected: "resident" },
+    { tier: "pro", choice: "manager", expected: "manager" },
+    { tier: "pro", choice: "proplane", expected: "proplane" },
+    { tier: "business", choice: "resident", expected: "resident" },
+    { tier: "business", choice: "manager", expected: "manager" },
+    { tier: "business", choice: "proplane", expected: "proplane" },
   ];
 
   const subtotal = 200_000; // $2,000 rent
-  for (const { tier, proChoice, expected } of cases) {
-    it(`${tier}/${proChoice} → ${expected}`, () => {
-      const payer = resolveServiceFeePayer(tier, proChoice);
+  for (const { tier, choice, expected } of cases) {
+    it(`${tier}/${choice} → ${expected}`, () => {
+      const payer = resolveServiceFeePayer(tier, choice);
       expect(payer).toBe(expected);
       const b = residentServiceFeeBreakdown(subtotal, "card", payer);
       const fee = residentProcessingFeeCents(subtotal, "card");

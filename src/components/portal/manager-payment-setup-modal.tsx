@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState, type Dispatch, type SetStateAction } from "react";
+import { useCallback, useEffect, useRef, useState, type Dispatch, type SetStateAction } from "react";
 import { Modal, ModalFooter } from "@/components/ui/modal";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -13,7 +13,7 @@ import {
   type ManagerManualPaymentSettingsView,
 } from "@/lib/manager-manual-payment-settings";
 import { normalizeManagerSkuTier, type ManagerSkuTier } from "@/lib/manager-access";
-import type { ProServiceFeeChoice } from "@/lib/payment-policy";
+import type { ServiceFeePayer } from "@/lib/payment-policy";
 import { useGmailPaymentTrack } from "@/components/portal/gmail-payment-auto-track-panel";
 import {
   formatGmailPaymentsConnectError,
@@ -23,6 +23,16 @@ import { gmailFilterFromClause, gmailFilterSubjectHint } from "@/lib/gmail-payme
 import { stripeSetupStateFromStatus, type StripeSetupState } from "@/lib/stripe-setup-state";
 
 const DEMO_INBOX = "payments+demo-token@prop-lane.space";
+
+const SERVICE_FEE_PAYER_OPTIONS: {
+  id: ServiceFeePayer;
+  title: string;
+  detail: string;
+}[] = [
+  { id: "resident", title: "Resident pays", detail: "Added at checkout" },
+  { id: "manager", title: "I'll cover it", detail: "Deducted from your payout" },
+  { id: "proplane", title: "PropLane covers it", detail: "No fee to you or residents" },
+];
 
 type PaymentChannel = "zelle" | "venmo";
 
@@ -380,6 +390,7 @@ export function ManagerPaymentSetupModal({
   const [activeChannel, setActiveChannel] = useState<PaymentChannel | null>(null);
   const [skuTier, setSkuTier] = useState<ManagerSkuTier | null>(null);
   const [savingFeePayer, setSavingFeePayer] = useState(false);
+  const legacyBusinessFeePayerMigratedRef = useRef(false);
   const [selectedPropertyIds, setSelectedPropertyIds] = useState<Set<string>>(() => new Set());
   const [propertySelectionComplete, setPropertySelectionComplete] = useState(false);
 
@@ -468,6 +479,7 @@ export function ManagerPaymentSetupModal({
       setActiveChannel(null);
       setPropertySelectionComplete(false);
       setSelectedPropertyIds(new Set());
+      legacyBusinessFeePayerMigratedRef.current = false;
       return;
     }
     void loadStripeStatus();
@@ -500,6 +512,7 @@ export function ManagerPaymentSetupModal({
   async function persistSettings(
     patch: Partial<ManagerManualPaymentSettingsView>,
     channel: PaymentChannel | null = null,
+    options?: { silent?: boolean },
   ) {
     if (demo) {
       setDraft((prev) => draftFromSettings({ ...prev, ...patch }));
@@ -536,7 +549,9 @@ export function ManagerPaymentSetupModal({
         typeof data.chargesUpdated === "number" && data.chargesUpdated > 0
           ? ` Updated ${data.chargesUpdated} open charge${data.chargesUpdated === 1 ? "" : "s"}.`
           : "";
-      showToast(`Payment setup saved.${chargeNote}`);
+      if (!options?.silent) {
+        showToast(`Payment setup saved.${chargeNote}`);
+      }
     } catch {
       showToast("Could not save payment setup.");
     } finally {
@@ -557,7 +572,7 @@ export function ManagerPaymentSetupModal({
     await persistSettings({ receiptAutoMarkEnabled: enabled });
   }
 
-  async function changeFeePayer(choice: ProServiceFeeChoice) {
+  async function changeFeePayer(choice: ServiceFeePayer) {
     if ((draft.serviceFeePayer ?? "resident") === choice) return;
     setSavingFeePayer(true);
     try {
@@ -566,6 +581,16 @@ export function ManagerPaymentSetupModal({
       setSavingFeePayer(false);
     }
   }
+
+  useEffect(() => {
+    if (!open || demo || skuTier !== "business" || legacyBusinessFeePayerMigratedRef.current) return;
+    if ((draft.serviceFeePayer ?? "resident") !== "resident") {
+      legacyBusinessFeePayerMigratedRef.current = true;
+      return;
+    }
+    legacyBusinessFeePayerMigratedRef.current = true;
+    void persistSettings({ serviceFeePayer: "proplane" }, null, { silent: true });
+  }, [open, demo, skuTier, draft.serviceFeePayer]);
 
   const zelleContactConnected = draft.zellePaymentsEnabled && draft.zelleContact.trim().length > 0;
   const venmoContactConnected = draft.venmoPaymentsEnabled && draft.venmoContact.trim().length > 0;
@@ -684,35 +709,31 @@ export function ManagerPaymentSetupModal({
           {stripeState === "unknown" && stripeIssue ? (
             <p className="text-xs text-[var(--status-pending-fg)]">{stripeIssue}</p>
           ) : null}
-          {skuTier === "pro" ? (
+          {skuTier === "pro" || skuTier === "business" ? (
             <div className="space-y-2 rounded-xl border border-border bg-card px-4 py-3.5">
               <p className="text-sm font-semibold text-foreground">Online payment service fee</p>
               <p className="text-xs text-muted">
                 Choose who covers the payment processing fee on resident online payments (card, bank, Link). Your rent
                 still deposits into your own Stripe account either way.
               </p>
-              <div className="grid grid-cols-2 gap-2 pt-1">
-                {(["resident", "manager"] as const).map((choice) => {
-                  const selected = (draft.serviceFeePayer ?? "resident") === choice;
+              <div className="grid grid-cols-1 gap-2 pt-1 sm:grid-cols-3">
+                {SERVICE_FEE_PAYER_OPTIONS.map((option) => {
+                  const selected = (draft.serviceFeePayer ?? "resident") === option.id;
                   return (
                     <button
-                      key={choice}
+                      key={option.id}
                       type="button"
                       disabled={savingFeePayer}
-                      onClick={() => void changeFeePayer(choice)}
-                      data-attr={`manager-service-fee-payer-${choice}`}
+                      onClick={() => void changeFeePayer(option.id)}
+                      data-attr={`manager-service-fee-payer-${option.id}`}
                       className={`flex flex-col rounded-xl border px-3 py-2.5 text-left transition disabled:opacity-60 ${
                         selected
                           ? "border-primary bg-primary/5 ring-1 ring-primary/20"
                           : "border-border bg-background hover:border-primary/30"
                       }`}
                     >
-                      <span className="text-sm font-semibold text-foreground">
-                        {choice === "resident" ? "Resident pays" : "I'll cover it"}
-                      </span>
-                      <span className="mt-0.5 text-xs text-muted">
-                        {choice === "resident" ? "Added at checkout" : "Deducted from your payout"}
-                      </span>
+                      <span className="text-sm font-semibold text-foreground">{option.title}</span>
+                      <span className="mt-0.5 text-xs text-muted">{option.detail}</span>
                     </button>
                   );
                 })}
@@ -720,8 +741,8 @@ export function ManagerPaymentSetupModal({
             </div>
           ) : skuTier === "free" ? (
             <p className="text-xs text-muted">
-              On the Free plan, residents cover the payment processing fee on online payments. Upgrade to Pro to choose
-              who pays.
+              On the Free plan, residents cover the payment processing fee on online payments. Upgrade to Pro or Business
+              to choose who pays.
             </p>
           ) : null}
           <HubRow

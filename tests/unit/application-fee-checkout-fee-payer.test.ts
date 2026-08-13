@@ -280,7 +280,7 @@ describe("resolveApplicationFeeItemization — plan-based service fee resolver",
     expect(result.totalCents).toBe(5000);
   });
 
-  it("Business tier: PropLane absorbs, applicant pays face value", async () => {
+  it("Business tier (PropLane choice): PropLane absorbs, applicant pays face value", async () => {
     vi.mocked(getManagerPurchaseSku).mockResolvedValue({
       tier: "business",
       billing: null,
@@ -294,7 +294,7 @@ describe("resolveApplicationFeeItemization — plan-based service fee resolver",
       venmoPaymentsEnabled: false,
       venmoContact: "",
       receiptAutoMarkEnabled: true,
-      serviceFeePayer: "resident",
+      serviceFeePayer: "proplane",
     });
 
     const result = await resolveApplicationFeeItemization(db, "mgr_A", 5000);

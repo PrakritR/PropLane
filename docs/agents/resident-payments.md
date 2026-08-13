@@ -11,8 +11,8 @@ absorbs" model):
 | Manager plan | Who pays the service fee |
 | --- | --- |
 | **Free** | The **resident** — added on top of what they pay. Always. |
-| **Pro** | The **manager chooses** — resident pays, or the manager absorbs it. Per-manager, default **resident**. |
-| **Business** | **PropLane absorbs** it — neither resident nor manager is charged (the old "face value" behavior). |
+| **Pro** | The **manager chooses** — resident, manager, or PropLane. Default **resident**. |
+| **Business** | The **manager chooses** — resident, manager, or PropLane. Defaults to **PropLane** for existing Business accounts (migrated on first Payment setup open). |
 
 **The money still lands in the manager's own connected account.** Every resident
 payment stays a Connect **destination charge** on the PLATFORM account
@@ -39,9 +39,9 @@ moves, via `application_fee_amount`:
   `createAxisAchCheckoutSession` throws before creating the session if it ever
   fails, and adds the resident fee line item ONLY when the resident pays.
 
-The **Pro choice** is `serviceFeePayer: "resident" | "manager"` on
+The **manager choice** is `serviceFeePayer: "resident" | "manager" | "proplane"` on
 `ManagerManualPaymentSettings` (default `resident`), edited in the manager
-Payment setup modal (Pro-only) and read live at charge time in
+Payment setup modal (Pro and Business) and read live at charge time in
 `stripe-household-charge-checkout.server.ts` — a plan change or toggle flip takes
 effect on the next charge with no per-charge state. A resident learns their
 manager's fee-payer for pre-checkout disclosure via

@@ -44,27 +44,33 @@ export const RESIDENT_CARD_PAYMENT_DISPLAY_LABEL = "Card · Apple Pay";
  */
 export type ServiceFeePayer = "resident" | "manager" | "proplane";
 
-/** The stored per-manager choice a Pro manager makes; only consulted on the Pro tier. */
+/** @deprecated Use {@link ServiceFeePayer} — kept for older call sites. */
 export type ProServiceFeeChoice = "resident" | "manager";
 
+/** Normalize the stored per-manager service-fee payer from settings JSON. */
+export function normalizeServiceFeeChoice(raw: unknown): ServiceFeePayer {
+  if (raw === "manager" || raw === "proplane") return raw;
+  return "resident";
+}
+
+/** @deprecated Prefer {@link normalizeServiceFeeChoice}. */
 export function normalizeProServiceFeeChoice(raw: unknown): ProServiceFeeChoice {
-  return raw === "manager" ? "manager" : "resident";
+  const choice = normalizeServiceFeeChoice(raw);
+  return choice === "manager" ? "manager" : "resident";
 }
 
 /**
  * The plan rule, in one place:
  * - Free → the resident always pays (no choice).
- * - Pro  → the manager's stored choice ("resident" default, or "manager").
- * - Business → PropLane absorbs it.
+ * - Pro / Business → the manager's stored choice (`resident` default).
  *
  * `tier` is already normalized by callers (`normalizeManagerSkuTier(...) ?? "free"`),
  * so a legacy/unknown tier arrives here as `"free"` — resident pays, matching the
  * money layer's existing treatment of an unknown plan.
  */
-export function resolveServiceFeePayer(tier: ManagerSkuTier, proChoice: ProServiceFeeChoice): ServiceFeePayer {
-  if (tier === "business") return "proplane";
-  if (tier === "pro") return proChoice;
-  return "resident";
+export function resolveServiceFeePayer(tier: ManagerSkuTier, choice: ServiceFeePayer): ServiceFeePayer {
+  if (tier === "free") return "resident";
+  return choice;
 }
 
 /**
