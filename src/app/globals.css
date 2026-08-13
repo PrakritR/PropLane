@@ -2405,6 +2405,11 @@ html[data-communication-hide-assistant-fab] .portal-resident-detail-inbox .porta
   max-width: min(92%, 42rem);
 }
 
+html[data-hide-assistant-fab] .portal-resident-detail-inbox [data-attr="modal-assistant-strip"],
+html[data-communication-hide-assistant-fab] .portal-resident-detail-inbox [data-attr="modal-assistant-strip"] {
+  display: none !important;
+}
+
 @media (max-width: 1023px) {
   html[data-communication-thread-reading] .portal-inbox-composer-row {
     padding-right: 0;
