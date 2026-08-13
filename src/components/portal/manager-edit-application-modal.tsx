@@ -26,6 +26,7 @@ export function ManagerEditApplicationModal({
 }) {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
   const [editingPropertyIds, setEditingPropertyIds] = useState<string[]>([]);
+  const [editorRevision, setEditorRevision] = useState(0);
 
   const allSelected = propertyOptions.length > 0 && selectedIds.size === propertyOptions.length;
 
@@ -33,6 +34,7 @@ export function ManagerEditApplicationModal({
     if (!open) {
       setSelectedIds(new Set());
       setEditingPropertyIds([]);
+      setEditorRevision(0);
     }
   }, [open]);
 
@@ -40,7 +42,7 @@ export function ManagerEditApplicationModal({
     const firstId = editingPropertyIds[0]?.trim();
     if (!firstId || !managerUserId) return null;
     return resolveManagerListingSubmissionForPropertyId(managerUserId, firstId);
-  }, [editingPropertyIds, managerUserId]);
+  }, [editorRevision, editingPropertyIds, managerUserId]);
 
   const editorTitle = useMemo(() => {
     if (editingPropertyIds.length === 1) {
@@ -179,7 +181,10 @@ export function ManagerEditApplicationModal({
             listingId={
               resolved.saveTarget.mode === "listing" ? resolved.saveTarget.saveId : editingPropertyIds[0]
             }
-            onUpdated={onSaved}
+            onUpdated={() => {
+              setEditorRevision((revision) => revision + 1);
+              onSaved();
+            }}
             showToast={showToast}
           />
         </Modal>

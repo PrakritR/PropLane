@@ -30,8 +30,8 @@ const COSIGNER_ACTIVE_STEPS = [1, 2, 3, 4, 5] as const;
 
 export type CosignerApplicationKind = "long-term" | "short-term";
 
-export function cosignerApplicationEyebrow(kind: CosignerApplicationKind): string {
-  return kind === "short-term" ? "Short-term co-signer application" : "Long-term co-signer application";
+export function cosignerApplicationEyebrow(_kind?: CosignerApplicationKind): string {
+  return "Co-signer application";
 }
 
 const COSIGNER_STEP_META = [
@@ -213,7 +213,6 @@ export function CosignerApplyFlow({
 
   const stepTitle = COSIGNER_STEP_META[step - 1]?.title ?? "Co-signer form";
   const eyebrow = cosignerApplicationEyebrow(applicationKind);
-  const isShortTermCosigner = applicationKind === "short-term";
 
   const validateStep1 = (): Record<string, string> => {
     const errs: Record<string, string> = {};
@@ -258,12 +257,6 @@ export function CosignerApplyFlow({
     if (f.notEmployed) {
       const o = validateMoney(f.otherIncome, "Other / non-employment income");
       if (!o.ok) errs.otherIncome = o.message;
-      setFieldErrors(errs);
-      return errs;
-    }
-    if (isShortTermCosigner) {
-      const mi = validateMoney(f.monthlyIncome, "Monthly income");
-      if (!mi.ok) errs.monthlyIncome = mi.message;
       setFieldErrors(errs);
       return errs;
     }
@@ -632,30 +625,6 @@ export function CosignerApplyFlow({
                     className={err("otherIncome")}
                   />
                 </Field>
-            ) : isShortTermCosigner ? (
-              <>
-                <Field fieldKey="employerName" label="Employer name" optional error={fieldErrors.employerName}>
-                  <Input
-                    value={f.employerName}
-                    onChange={(e) => {
-                      patchField(setF, "employerName", e.target.value);
-                      clearError("employerName");
-                    }}
-                    className={err("employerName")}
-                  />
-                </Field>
-                <Field fieldKey="monthlyIncome" label="Monthly income ($)" error={fieldErrors.monthlyIncome}>
-                  <Input
-                    value={f.monthlyIncome}
-                    onChange={(e) => {
-                      patchField(setF, "monthlyIncome", e.target.value);
-                      clearError("monthlyIncome");
-                    }}
-                    placeholder="0"
-                    className={err("monthlyIncome")}
-                  />
-                </Field>
-              </>
             ) : (
               <>
                 <Field fieldKey="employerName" label="Employer name" error={fieldErrors.employerName}>
@@ -727,39 +696,25 @@ export function CosignerApplyFlow({
                   <option value="yes">Yes</option>
                 </Select>
               </Field>
-            </div>
-            <div
-              data-wizard-field="consentCredit"
-              className={`mt-6 rounded-xl border p-4 ${
-                fieldErrors.consentCredit
-                  ? "border-red-500 bg-red-50/50 ring-2 ring-red-100"
-                  : "border-border bg-accent/30"
-              }`}
-            >
-              <p className="text-sm font-semibold text-foreground">
-                Consent for Credit and Background Check
-                <span className="font-semibold text-primary"> *</span>
-              </p>
-              <label className="mt-3 flex cursor-pointer items-start gap-2 text-sm text-foreground">
-                <input
-                  type="checkbox"
-                  checked={f.consentCredit}
-                  onChange={(e) => {
-                    patchField(setF, "consentCredit", e.target.checked);
-                    clearError("consentCredit");
-                  }}
-                  className="mt-0.5 h-4 w-4 rounded border-border text-primary"
-                />
-                I consent to a credit and background check.
-              </label>
-              {fieldErrors.consentCredit ? (
-                <p className="mt-2 flex items-start gap-1.5 text-sm text-red-600">
-                  <span className="mt-0.5 inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-red-100 text-[10px] font-bold text-red-700">
-                    !
-                  </span>
-                  {fieldErrors.consentCredit}
-                </p>
-              ) : null}
+              <ApplyFieldRow
+                fieldKey="consentCredit"
+                label="Consent for credit and background check"
+                error={fieldErrors.consentCredit}
+                className="rounded-xl border border-border bg-accent/30 px-3 sm:grid-cols-1"
+              >
+                <label className="flex cursor-pointer items-start gap-2 text-sm text-foreground">
+                  <input
+                    type="checkbox"
+                    checked={f.consentCredit}
+                    onChange={(e) => {
+                      patchField(setF, "consentCredit", e.target.checked);
+                      clearError("consentCredit");
+                    }}
+                    className="mt-0.5 h-4 w-4 rounded border-border text-primary"
+                  />
+                  I consent to a credit and background check.
+                </label>
+              </ApplyFieldRow>
             </div>
           </>
         ) : null}

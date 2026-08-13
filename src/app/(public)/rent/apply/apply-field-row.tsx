@@ -44,7 +44,7 @@ export function ApplyFieldRow({
           {label}
           {requiredMarker ? (
             <span className="text-primary" aria-hidden="true">
-              *
+              {" *"}
             </span>
           ) : null}
           {optional ? <span className="font-normal text-muted/70">(optional)</span> : null}

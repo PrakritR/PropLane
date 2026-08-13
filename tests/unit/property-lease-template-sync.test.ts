@@ -250,23 +250,20 @@ describe("property lease template sync", () => {
     expect(again.leaseConfigMode).toBe("custom");
   });
 
-  it("mirrors lease defaults plus co-signer forms for application templates", () => {
+  it("mirrors lease defaults plus one co-signer form for application templates", () => {
     const sub = createDefaultListingSubmission();
     sub.allowedLeaseTerms = ["12-Month", "Month-to-Month", "Custom"];
     sub.shortTermRentalsAllowed = true;
     const synced = syncPropertyApplicationTemplatesFromListing(sub);
     const templates = readPropertyApplicationTemplates(synced);
     expect(templates.map((t) => t.listingSeedKey).sort()).toEqual(
-      ["cosigner", "cosigner-short-term", "primary", "short-term"].sort(),
+      ["cosigner", "primary", "short-term"].sort(),
     );
     expect(templates.find((t) => t.listingSeedKey === "primary")?.label).toBe("Long-term application");
     expect(templates.find((t) => t.listingSeedKey === "short-term")?.label).toBe("Short-term application");
-    expect(templates.find((t) => t.listingSeedKey === "cosigner")?.label).toBe("Long-term co-signer application");
-    expect(templates.find((t) => t.listingSeedKey === "cosigner-short-term")?.label).toBe(
-      "Short-term co-signer application",
-    );
+    expect(templates.find((t) => t.listingSeedKey === "cosigner")?.label).toBe("Co-signer application");
+    expect(templates.some((t) => t.listingSeedKey === "cosigner-short-term")).toBe(false);
     expect(templates.find((t) => t.listingSeedKey === "cosigner")?.formVariant).toBe("cosigner");
-    expect(templates.find((t) => t.listingSeedKey === "cosigner-short-term")?.formVariant).toBe("cosigner");
   });
 
   it("keeps a retired bundle application the manager renamed, and drops the untouched one", () => {
@@ -311,14 +308,14 @@ describe("property lease template sync", () => {
     const templates = readPropertyApplicationTemplates(seeded);
     const cosigner = templates.find((t) => t.listingSeedKey === "cosigner")!;
     const withOptional = templates.map((t) =>
-      t.id === cosigner.id ? { ...t, label: "Long-term co-signer application (optional)" } : t,
+      t.id === cosigner.id ? { ...t, label: "Co-signer application (optional)" } : t,
     );
     const resynced = syncPropertyApplicationTemplatesFromListing({
       ...seeded,
       propertyApplicationTemplates: withOptional,
     });
     expect(readPropertyApplicationTemplates(resynced).find((t) => t.listingSeedKey === "cosigner")?.label).toBe(
-      "Long-term co-signer application",
+      "Co-signer application",
     );
   });
 

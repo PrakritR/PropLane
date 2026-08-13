@@ -945,6 +945,11 @@ export function updateExtraListingFromSubmission(
   list[idx] = { ...next, managerUserId: owner, adminPublishLive: publishLive };
   map[ownerKey] = list;
   writeExtrasMap(map);
+  if (typeof window !== "undefined") {
+    // Local write only — tag sync-originated so listeners re-read storage without
+    // racing the in-flight server mirror with a stale server snapshot.
+    window.dispatchEvent(serverSyncOriginatedEvent(PROPERTY_PIPELINE_EVENT));
+  }
   mirrorPropertyRecord({
     id: listingId,
     managerUserId,

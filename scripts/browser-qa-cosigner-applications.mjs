@@ -29,7 +29,7 @@ async function testCosignerPublicFlow(page) {
   const main = await page.locator("main").innerText();
 
   if (/Step \d+ of/i.test(main)) issue("Co-signer public", "medium", "Still shows “Step N of M” header");
-  if (!/LONG-TERM CO-SIGNER APPLICATION/i.test(main)) issue("Co-signer public", "low", "Long-term eyebrow missing on /rent/apply/cosigner");
+  if (!/CO-SIGNER APPLICATION/i.test(main)) issue("Co-signer public", "low", "Co-signer eyebrow missing on /rent/apply/cosigner");
   if (/Current address|Driver's License|\bZIP\b/i.test(main)) issue("Co-signer public", "high", "Step 1 shows address/DL fields unexpectedly");
 
   await page.getByRole("textbox", { name: /PROPLANE/i }).fill("AXIS-TEST1234");
@@ -79,26 +79,30 @@ async function testManagerCosignerPreview(page) {
   await page.getByRole("button", { name: "Application", exact: true }).click();
   await page.waitForTimeout(1500);
 
-  const hasShortCosigner = await page.getByText("Short-term co-signer application").count();
-  const hasLongCosigner = await page.getByText("Long-term co-signer application").count();
-  if (!hasShortCosigner) issue("Property Application tab", "high", "Short-term co-signer application template row missing");
-  if (!hasLongCosigner) issue("Property Application tab", "high", "Long-term co-signer application template row missing");
+  const hasCosigner = await page.getByText("Co-signer application", { exact: true }).count();
+  if (!hasCosigner) issue("Property Application tab", "high", "Co-signer application template row missing");
+  if (await page.getByText("Short-term co-signer application").count()) {
+    issue("Property Application tab", "medium", "Legacy short-term co-signer row still visible — should be one shared form");
+  }
+  if (await page.getByText("Long-term co-signer application").count()) {
+    issue("Property Application tab", "medium", "Legacy long-term co-signer row still visible — should be one shared form");
+  }
 
-  if (!hasShortCosigner) return;
+  if (!hasCosigner) return;
 
   const views = page.getByRole("button", { name: "View" });
   let opened = false;
   for (let i = 0; i < (await views.count()); i++) {
     await views.nth(i).click();
     await page.waitForTimeout(500);
-    if (await page.getByText("SHORT-TERM CO-SIGNER APPLICATION").isVisible().catch(() => false)) {
+    if (await page.getByText("CO-SIGNER APPLICATION").isVisible().catch(() => false)) {
       opened = true;
       break;
     }
     await page.keyboard.press("Escape");
   }
   if (!opened) {
-    issue("Property Application tab", "high", "Could not open Short-term co-signer View preview modal");
+    issue("Property Application tab", "high", "Could not open Co-signer application View preview modal");
     return;
   }
 
@@ -120,7 +124,7 @@ async function testManagerCosignerPreview(page) {
   await dialog.getByRole("button", { name: "Continue" }).click();
   await dialog.getByText("Employment").waitFor();
   const t2 = await dialog.innerText();
-  if (/Supervisor|Employer address/i.test(t2)) issue("Co-signer preview", "medium", "Short-term employment preview not simplified");
+  if (/Supervisor|Employer address/i.test(t2)) issue("Co-signer preview", "medium", "Employment preview still has verbose fields");
 
   await dialog.getByLabel(/not currently employed/i).check();
   await dialog.locator("input").last().fill("4500");

@@ -26,6 +26,7 @@ export function ManagerEditLeasesModal({
 }) {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
   const [editingPropertyIds, setEditingPropertyIds] = useState<string[]>([]);
+  const [editorRevision, setEditorRevision] = useState(0);
 
   const allSelected = propertyOptions.length > 0 && selectedIds.size === propertyOptions.length;
 
@@ -33,6 +34,7 @@ export function ManagerEditLeasesModal({
     if (!open) {
       setSelectedIds(new Set());
       setEditingPropertyIds([]);
+      setEditorRevision(0);
     }
   }, [open]);
 
@@ -40,7 +42,7 @@ export function ManagerEditLeasesModal({
     const firstId = editingPropertyIds[0]?.trim();
     if (!firstId || !managerUserId) return null;
     return resolveManagerListingSubmissionForPropertyId(managerUserId, firstId);
-  }, [editingPropertyIds, managerUserId]);
+  }, [editorRevision, editingPropertyIds, managerUserId]);
 
   const editorTitle = useMemo(() => {
     if (editingPropertyIds.length === 1) {
@@ -183,7 +185,10 @@ export function ManagerEditLeasesModal({
             propertyHint={primaryPropertyLabel ? { buildingName: primaryPropertyLabel } : undefined}
             propertyId={primaryPropertyId}
             propertyLabel={primaryPropertyLabel}
-            onUpdated={onSaved}
+            onUpdated={() => {
+              setEditorRevision((revision) => revision + 1);
+              onSaved();
+            }}
             showToast={showToast}
           />
         </Modal>

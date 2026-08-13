@@ -445,7 +445,6 @@ export function ManagerPropertyApplicationQuestionsPanel({
                 embedded
                 previewMode
                 showToast={showToast}
-                applicationKind={previewTemplate.kind === "short-term" ? "short-term" : "long-term"}
                 onBack={() => {
                   setPreviewOpen(false);
                   setPreviewTemplate(null);

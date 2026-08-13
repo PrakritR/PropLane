@@ -161,6 +161,7 @@ export { MANAGER_STAGES };
 function ManagerPropertyInlineDetails({
   bucket,
   row,
+  dataRevision,
   onUpdated,
   onAfterUnlist,
   showToast,
@@ -177,6 +178,8 @@ function ManagerPropertyInlineDetails({
 }: {
   bucket: AdminPropertyBucketIndex;
   row: AdminPropertyRow | null;
+  /** Bumps when local property pipeline storage changes so listing submissions re-read. */
+  dataRevision: number;
   onUpdated: () => void;
   onAfterUnlist?: (propertyKey: string) => void;
   showToast: (m: string) => void;
@@ -273,7 +276,7 @@ function ManagerPropertyInlineDetails({
     }
 
     return null;
-  }, [managerUserId, row, linkedOwnerId]);
+  }, [dataRevision, managerUserId, row, linkedOwnerId]);
 
   // noteKey is stable per listing — derived from row identifiers so it doesn't depend on portalSub.
   const noteKey = useMemo(
@@ -292,7 +295,7 @@ function ManagerPropertyInlineDetails({
 
   const managerSubmission = useMemo(
     () => (row ? displaySub ?? submissionForAdminRow(row) : null),
-    [displaySub, row],
+    [dataRevision, displaySub, row],
   );
 
   const houseSaveTarget = useMemo(() => {
@@ -1155,6 +1158,7 @@ export function ManagerHousePropertiesPanel({
       key={rowKey}
       bucket={sourceBucket}
       row={row}
+      dataRevision={tick}
       onUpdated={handlePropertyUpdated}
       onAfterUnlist={handleAfterUnlist}
       showToast={showToast}

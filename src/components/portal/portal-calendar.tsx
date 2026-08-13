@@ -6,6 +6,7 @@ import { ApplicationFilterSortFields } from "@/components/portal/application-fil
 import { PortalFilterSortSheet, portalFilterActiveCount } from "@/components/portal/portal-filter-sort-sheet";
 import { PORTAL_PROPERTY_FILTER_SHEET_CLASS } from "@/components/portal/portal-filter-shell";
 import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
+import { BookingsCalendarFooterBar } from "@/components/portal/bookings-calendar-footer-bar";
 import {
   ManagerPortalPageShell,
   PORTAL_HEADER_ACTION_BTN,
@@ -525,26 +526,11 @@ export function PortalCalendar({
       </Button>
     ) : null;
 
-  const calendarLinkAirbnbButton =
-    portal === "manager" && bookingsView ? (
-      <Button
-        type="button"
-        variant="outline"
-        className={`shrink-0 ${PORTAL_HEADER_ACTION_BTN}`}
-        disabled={managerPropertyFilterOptions.length === 0}
-        data-attr="portfolio-bookings-link-airbnb"
-        onClick={() => setLinkAirbnbModalOpen(true)}
-      >
-        Link Airbnb
-      </Button>
-    ) : null;
-
   const calendarHeaderActions =
     portal === "manager" ? (
       <>
         {calendarGoogleCalendarButton}
         {calendarShareTourButton}
-        {calendarLinkAirbnbButton}
       </>
     ) : null;
 
@@ -591,12 +577,19 @@ export function PortalCalendar({
         {portal === "manager" ? (
           <div className="portal-calendar-page-body mt-1 flex min-h-[min(72vh,52rem)] flex-1 flex-col">
             {bookingsView ? (
-              <ManagerPortfolioBookingsCalendar
-                propertyIds={scopedCalendarPropertyIds}
-                showToast={showToast}
-                refreshSignal={bookingsRefreshSignal}
-                extraEntries={bookingsLeaseEntries}
-              />
+              <>
+                <ManagerPortfolioBookingsCalendar
+                  propertyIds={scopedCalendarPropertyIds}
+                  showToast={showToast}
+                  refreshSignal={bookingsRefreshSignal}
+                  extraEntries={bookingsLeaseEntries}
+                />
+                <BookingsCalendarFooterBar
+                  onLinkAirbnb={() => setLinkAirbnbModalOpen(true)}
+                  linkAirbnbDataAttr="portfolio-bookings-link-airbnb"
+                  linkAirbnbDisabled={managerPropertyFilterOptions.length === 0}
+                />
+              </>
             ) : servicesOnlyView ? (
               <div className="flex min-h-0 flex-1 flex-col">
                 {propertiesLoading && managerProperties.length === 0 ? (

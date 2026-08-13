@@ -1,12 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { Button } from "@/components/ui/button";
-import {
-  PORTAL_TOOLBAR_GROUP,
-  PORTAL_TOOLBAR_PILL_BUTTON,
-  PORTAL_TOOLBAR_PILL_BUTTON_ACTIVE,
-} from "@/components/portal/portal-metrics";
+import { BookingsCalendarFooterBar } from "@/components/portal/bookings-calendar-footer-bar";
 import { ManagerPortfolioBookingsCalendar } from "@/components/portal/manager-portfolio-bookings-calendar";
 import { ChannelCalendarLinkModal } from "@/components/portal/channel-calendar-link-modal";
 import {
@@ -16,7 +11,6 @@ import {
 } from "@/lib/channel-calendar/property-bookings";
 import { useLeasePipelineRows } from "@/hooks/use-lease-pipeline-rows";
 import { isEntireHomeListing } from "@/lib/manager-listing-submission";
-import { cn } from "@/lib/utils";
 import type { ManagerListingSubmissionV1 } from "@/lib/manager-listing-submission";
 
 /**
@@ -79,35 +73,6 @@ export function ManagerPropertyBookingsPanel({
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-3">
-      {rooms.length > 1 ? (
-        <div className={PORTAL_TOOLBAR_GROUP} role="group" aria-label="Filter bookings by room">
-          <button
-            type="button"
-            className={cn(PORTAL_TOOLBAR_PILL_BUTTON, !activeRoomFilterId && PORTAL_TOOLBAR_PILL_BUTTON_ACTIVE)}
-            aria-pressed={!activeRoomFilterId}
-            data-attr="property-bookings-room-all"
-            onClick={() => setRoomFilterId("")}
-          >
-            All rooms
-          </button>
-          {rooms.map((room) => (
-            <button
-              key={room.id}
-              type="button"
-              className={cn(
-                PORTAL_TOOLBAR_PILL_BUTTON,
-                activeRoomFilterId === room.id && PORTAL_TOOLBAR_PILL_BUTTON_ACTIVE,
-              )}
-              aria-pressed={activeRoomFilterId === room.id}
-              data-attr={`property-bookings-room-${room.id}`}
-              onClick={() => setRoomFilterId(room.id)}
-            >
-              {room.label}
-            </button>
-          ))}
-        </div>
-      ) : null}
-
       <ManagerPortfolioBookingsCalendar
         propertyIds={propertyId ? [propertyId] : []}
         showToast={showToast}
@@ -117,17 +82,12 @@ export function ManagerPropertyBookingsPanel({
         emptyMessage="This house is not listed yet, so it has no bookings."
       />
 
-      <div className="flex flex-wrap items-center justify-start gap-2">
-        <Button
-          type="button"
-          variant="outline"
-          className="h-9 min-h-0 px-4 text-[13px]"
-          data-attr="property-bookings-link-airbnb"
-          onClick={() => setLinkModalOpen(true)}
-        >
-          Link Airbnb
-        </Button>
-      </div>
+      <BookingsCalendarFooterBar
+        rooms={rooms.length > 1 ? rooms : undefined}
+        roomFilterId={activeRoomFilterId}
+        onRoomFilterIdChange={rooms.length > 1 ? setRoomFilterId : undefined}
+        onLinkAirbnb={() => setLinkModalOpen(true)}
+      />
 
       <ChannelCalendarLinkModal
         open={linkModalOpen}
