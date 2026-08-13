@@ -20,7 +20,14 @@ vi.mock("@/components/providers/app-ui-provider", () => ({
 }));
 vi.mock("@/lib/supabase/browser", () => ({
   createSupabaseBrowserClient: () => ({
-    auth: { getSession: async () => ({ data: { session: null } }) },
+    auth: {
+      getSession: async () => ({ data: { session: null } }),
+      // The prospect-autofill hook subscribes as well as reads, so a mock with
+      // only getSession throws on mount and fails every case here for a reason
+      // that has nothing to do with tour availability. Same shape the other
+      // browser-client mocks in this suite use.
+      onAuthStateChange: () => ({ data: { subscription: { unsubscribe: () => {} } } }),
+    },
   }),
 }));
 
