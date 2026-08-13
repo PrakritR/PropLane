@@ -92,11 +92,24 @@ export function checkrOrderCostCents(
   packageSlug: CheckrPackage,
   addOnProducts: readonly CheckrAddOnSlug[] = [],
 ): number {
-  const pkg = checkrPackageCatalog().find((p) => p.slug === packageSlug);
-  const base = pkg?.priceCents ?? 3499;
-  const addOnTotal = addOnProducts.reduce((sum, slug) => {
-    const addOn = checkrAddOnCatalog().find((a) => a.slug === slug);
-    return sum + (addOn?.priceCents ?? 0);
+  return sumScreeningOrderCents(
+    packageSlug,
+    addOnProducts,
+    checkrPackageCatalog(),
+    checkrAddOnCatalog(),
+  );
+}
+
+/** Sum package + selected add-ons from a catalog snapshot (API-loaded or default). */
+export function sumScreeningOrderCents(
+  packageSlug: CheckrPackage,
+  addOnSlugs: readonly CheckrAddOnSlug[],
+  packages: readonly Pick<CheckrPackageCatalogEntry, "slug" | "priceCents">[],
+  addOns: readonly Pick<CheckrAddOnCatalogEntry, "slug" | "priceCents">[],
+): number {
+  const base = packages.find((entry) => entry.slug === packageSlug)?.priceCents ?? 0;
+  const addOnTotal = addOnSlugs.reduce((sum, slug) => {
+    return sum + (addOns.find((entry) => entry.slug === slug)?.priceCents ?? 0);
   }, 0);
   return base + addOnTotal;
 }

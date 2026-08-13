@@ -359,6 +359,15 @@ function mirrorChargeRows(rows: HouseholdCharge[]) {
   postHouseholdPayload({ action: "replace", charges: rows, rentProfiles: readRentProfiles() });
 }
 
+/** Await server persistence after regenerating charges so a forced sync cannot resurrect stale rows. */
+export async function mirrorHouseholdChargesToServerAwait(): Promise<boolean> {
+  return postHouseholdPayloadAwait({
+    action: "replace",
+    charges: readAll(),
+    rentProfiles: readRentProfiles(),
+  });
+}
+
 function mirrorRentProfiles(rows: RecurringRentProfile[]) {
   postHouseholdPayload({ action: "replace", charges: readAll(), rentProfiles: rows });
 }

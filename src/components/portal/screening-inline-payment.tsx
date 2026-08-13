@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { StripeEmbeddedCheckout } from "@/components/stripe-embedded-checkout";
 import { Button } from "@/components/ui/button";
 import type { CheckrAddOnSlug } from "@/lib/checkr/packages";
@@ -31,84 +31,104 @@ export function ScreeningInlinePayment({
 }) {
   const [clientSecret, setClientSecret] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [loading, setLoading] = useState(false);
-  const inFlight = useRef(false);
-  const onPaidRef = useRef(onPaid);
-  const onErrorRef = useRef(onError);
-  const selectionKey = `${applicationId}:${packageSlug}:${addOnProducts.join(",")}`;
+  const [loading, setLoading] = useState(true);
+  const addOnKey = addOnProducts.join(",");
 
   useEffect(() => {
-    onPaidRef.current = onPaid;
-  }, [onPaid]);
-
-  useEffect(() => {
-    onErrorRef.current = onError;
-  }, [onError]);
-
-  const start = useCallback(async () => {
-    if (inFlight.current) return;
-    inFlight.current = true;
+    let cancelled = false;
+    setClientSecret(null);
+    setError(null);
     setLoading(true);
-    setError(null);
-    setClientSecret(null);
-    try {
-      const res = await fetch("/api/screening/checkout", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify({
-          applicationId,
-          packageSlug,
-          addOnProducts,
-          mode: "embedded",
-          returnPath,
-        }),
-      });
-      const data = (await res.json().catch(() => ({}))) as {
-        clientSecret?: string;
-        ran?: boolean;
-        backgroundCheck?: ApplicationBackgroundCheck;
-        error?: string;
-      };
-      if (!res.ok) {
-        const message = data.error ?? "Could not start payment. Please try again.";
-        setError(message);
-        onErrorRef.current?.(message);
-        return;
-      }
-      if (data.ran && data.backgroundCheck) {
-        onPaidRef.current(data.backgroundCheck);
-        return;
-      }
-      if (!data.clientSecret) {
-        const message = "Stripe did not return a payment form.";
-        setError(message);
-        onErrorRef.current?.(message);
-        return;
-      }
-      setClientSecret(data.clientSecret);
-    } catch {
-      const message = "Could not start payment. Please try again.";
-      setError(message);
-      onErrorRef.current?.(message);
-    } finally {
-      setLoading(false);
-      inFlight.current = false;
-    }
-  }, [applicationId, packageSlug, addOnProducts, returnPath]);
 
-  useEffect(() => {
-    inFlight.current = false;
-    setClientSecret(null);
+    void (async () => {
+      try {
+        const res = await fetch("/api/screening/checkout", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify({
+            applicationId,
+            packageSlug,
+            addOnProducts,
+            mode: "embedded",
+            returnPath,
+          }),
+        });
+        const data = (await res.json().catch(() => ({}))) as {
+          clientSecret?: string;
+          ran?: boolean;
+          backgroundCheck?: ApplicationBackgroundCheck;
+          error?: string;
+        };
+        if (cancelled) return;
+        if (!res.ok) {
+          const message = data.error ?? "Could not start payment. Please try again.";
+          setError(message);
+          onError?.(message);
+          return;
+        }
+        if (data.ran && data.backgroundCheck) {
+          onPaid(data.backgroundCheck);
+          return;
+        }
+        if (!data.clientSecret) {
+          const message = "Stripe did not return a payment form.";
+          setError(message);
+          onError?.(message);
+          return;
+        }
+        setClientSecret(data.clientSecret);
+      } catch {
+        if (cancelled) return;
+        const message = "Could not start payment. Please try again.";
+        setError(message);
+        onError?.(message);
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [applicationId, packageSlug, addOnKey, returnPath, onPaid, onError]);
+
+  const retry = () => {
     setError(null);
-    void start();
-  }, [selectionKey, start]);
+    setLoading(true);
+    setClientSecret(null);
+    void fetch("/api/screening/checkout", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      credentials: "include",
+      body: JSON.stringify({
+        applicationId,
+        packageSlug,
+        addOnProducts,
+        mode: "embedded",
+        returnPath,
+      }),
+    })
+      .then(async (res) => {
+        const data = (await res.json().catch(() => ({}))) as {
+          clientSecret?: string;
+          error?: string;
+        };
+        if (!res.ok || !data.clientSecret) {
+          setError(data.error ?? "Could not start payment. Please try again.");
+          return;
+        }
+        setClientSecret(data.clientSecret);
+      })
+      .catch(() => setError("Could not start payment. Please try again."))
+      .finally(() => setLoading(false));
+  };
 
   if (error) {
     return (
       <div className="space-y-3 rounded-2xl border border-border bg-card p-4" data-attr="screening-inline-error">
         <p className="text-sm font-medium text-red-600">{error}</p>
-        <Button type="button" variant="outline" className="px-4 text-[13px]" onClick={() => start()}>
+        <Button type="button" variant="outline" className="px-4 text-[13px]" onClick={retry}>
           Try again
         </Button>
       </div>

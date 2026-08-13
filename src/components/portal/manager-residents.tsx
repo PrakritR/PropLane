@@ -96,7 +96,6 @@ import {
   appendManagerApplicationRow,
   readManagerApplicationRows,
   syncManagerApplicationsFromServer,
-  upsertApplicationRowToServer,
   upsertApplicationRowToServerAwait,
   writeManagerApplicationRows,
   deleteManagerApplicationFromServer,
@@ -245,6 +244,7 @@ import {
 } from "@/components/portal/manager-create-service-request-modal";
 import { ManagerCreateWorkOrderModal } from "@/components/portal/manager-create-work-order-modal";
 import {
+  persistResidentProfileEdit,
   syncResidentBillingAndLeases,
 } from "@/lib/resident-lease-billing-sync";
 import {
@@ -453,6 +453,7 @@ export function ManagerResidents({
   // Edit resident
   const erSkipPricingFillRef = useRef(false);
   const [editResidentOpen, setEditResidentOpen] = useState(false);
+  const [erSaving, setErSaving] = useState(false);
   const [erName, setErName] = useState("");
   const [erEmail, setErEmail] = useState("");
   const [erPhone, setErPhone] = useState("");
@@ -2001,7 +2002,7 @@ export function ManagerResidents({
   }
 
   function saveEditedResident() {
-    if (!selected) return;
+    if (!selected || erSaving) return;
     if (!erName.trim()) {
       showToast("Enter the resident's name.");
       return;
@@ -2047,7 +2048,6 @@ export function ManagerResidents({
         leaseTerm: erLeaseTerm.trim() || undefined,
         notes: erNotes.trim() || undefined,
       },
-      // Mirror all edits back into the application so both views stay consistent.
       application: existing.application
         ? {
             ...existing.application,
@@ -2072,22 +2072,19 @@ export function ManagerResidents({
 
     const next = [...rows];
     next[idx] = nextRow;
-    writeManagerApplicationRows(next);
-    upsertApplicationRowToServer(nextRow);
-
-    // Refresh all pending move-in charges (rent, stay total, deposit, fees, proration) from the
-    // updated resident row. force=true wipes stale pending rows so edited amounts always win.
-    recordApprovedApplicationCharges(nextRow, userId ?? null, true);
-
-    // Regenerate leases only while still in manager-side review (Draft / Manager Review).
-    const residentEmail = nextRow.email ?? "";
-    if (residentEmail && nextRow.application) {
-      regenerateEditableLeasesForResident(residentEmail, userId, nextRow.application);
-    }
-
-    setEditResidentOpen(false);
-    setHcTick((n) => n + 1);
-    showToast("Resident updated.");
+    setErSaving(true);
+    void persistResidentProfileEdit({ rows: next, nextRow, managerUserId: userId ?? null })
+      .then((result) => {
+        if (!result.ok) {
+          showToast(result.error ?? "Could not save resident.");
+          return;
+        }
+        setEditResidentOpen(false);
+        setHcTick((n) => n + 1);
+        setLeaseTick((n) => n + 1);
+        showToast("Resident updated.");
+      })
+      .finally(() => setErSaving(false));
   }
 
   function openPaymentMethodEditor() {
@@ -3644,8 +3641,8 @@ export function ManagerResidents({
         scrollableContent
         footer={
           <ModalFooter>
-            <Button type="button" variant="primary" className="rounded-full" onClick={saveEditedResident}>
-              Save resident
+            <Button type="button" variant="primary" className="rounded-full" disabled={erSaving} onClick={saveEditedResident}>
+              {erSaving ? "Saving…" : "Save resident"}
             </Button>
           </ModalFooter>
         }

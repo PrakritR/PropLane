@@ -1,9 +1,17 @@
 import type { DemoApplicantRow } from "@/data/demo-portal";
-import { recordApprovedApplicationCharges } from "@/lib/household-charges";
-import { regenerateEditableLeasesForResident } from "@/lib/lease-pipeline-storage";
+import { isDemoModeActive } from "@/lib/demo/demo-session";
+import {
+  mirrorHouseholdChargesToServerAwait,
+  recordApprovedApplicationCharges,
+  syncHouseholdChargesFromServer,
+} from "@/lib/household-charges";
+import { regenerateEditableLeasesForResident, syncLeasePipelineFromServer } from "@/lib/lease-pipeline-storage";
 import {
   readManagerApplicationRows,
+  replaceManagerApplicationRowInCache,
+  syncManagerApplicationsFromServer,
   upsertApplicationRowToServer,
+  upsertApplicationRowToServerAwait,
   writeManagerApplicationRows,
 } from "@/lib/manager-applications-storage";
 import { shortTermCheckoutDate } from "@/lib/short-term-stay-pricing";
@@ -78,4 +86,45 @@ export function syncResidentBillingAndLeases(input: {
 
   recordApprovedApplicationCharges(row, input.managerUserId, true);
   return regenerateEditableLeasesForResident(email, input.managerUserId, row.application);
+}
+
+/**
+ * Save an edited resident profile, regenerate pending charges/leases, and persist
+ * to the server before any forced sync can resurrect stale payment rows.
+ */
+export async function persistResidentProfileEdit(input: {
+  rows: DemoApplicantRow[];
+  nextRow: DemoApplicantRow;
+  managerUserId: string | null;
+}): Promise<{ ok: boolean; error?: string }> {
+  const { rows, nextRow, managerUserId } = input;
+  writeManagerApplicationRows(rows);
+
+  if (!isDemoModeActive()) {
+    const persisted = await upsertApplicationRowToServerAwait(nextRow);
+    if (!persisted.ok) {
+      return { ok: false, error: persisted.error ?? "Could not save resident." };
+    }
+    if (persisted.row?.id) {
+      replaceManagerApplicationRowInCache(persisted.row);
+    }
+  }
+
+  recordApprovedApplicationCharges(nextRow, managerUserId, true);
+
+  const residentEmail = nextRow.email?.trim();
+  if (residentEmail && nextRow.application) {
+    regenerateEditableLeasesForResident(residentEmail, managerUserId, nextRow.application);
+  }
+
+  if (!isDemoModeActive()) {
+    await mirrorHouseholdChargesToServerAwait();
+    await Promise.all([
+      syncManagerApplicationsFromServer({ force: true, managerUserId }),
+      syncHouseholdChargesFromServer(true),
+      syncLeasePipelineFromServer(managerUserId, { force: true }),
+    ]);
+  }
+
+  return { ok: true };
 }
