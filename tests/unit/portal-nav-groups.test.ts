@@ -99,7 +99,10 @@ describe("groupNavItems", () => {
       .map((s) => ({ section: s.section }));
     const result = groupNavItems("pro", items);
 
-    expect(result[0]).toEqual({ id: "home", label: null, items: [{ section: "dashboard" }] });
+    // "home" is the ungrouped head of the sidebar; it carries the dashboard and
+    // the "app" section that was added alongside it. Asserted in full because
+    // this case is specifically about bucketing in config order.
+    expect(result[0]).toEqual({ id: "home", label: null, items: [{ section: "dashboard" }, { section: "app" }] });
     const leasing = result.find((g) => g.id === "leasing");
     expect(leasing?.label).toBe("Leasing");
     expect(leasing?.items.map((i) => i.section)).toEqual(["properties", "calendar", "applications", "leases"]);

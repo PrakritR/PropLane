@@ -34,7 +34,13 @@ describe("resident detail Communication keeps a way back on a phone", () => {
 
   it("opts the detail body into a flex fill so the chat has a bounded height", () => {
     expect(RESIDENTS).toContain('fillBody={resolvedDetailTab === "communication"}');
-    expect(DETAIL_PAGE).toContain('fillBody ? "flex min-h-0 flex-1 flex-col" : "min-h-0 flex-1"');
+    // The rule (AGENTS.md, portal-ui-system) is an UNBROKEN flex-1 + min-h-0
+    // chain — one `display: block` link pushes the page header off-screen. The
+    // ternary that used to express it was refactored into a derived `bodyFill`,
+    // which also covers the pinned-scroll case, so assert the chain the way the
+    // component builds it now.
+    expect(DETAIL_PAGE).toContain("const bodyFill = fillBody || pinScrollBody");
+    expect(DETAIL_PAGE).toContain('cn(bodyFill && "flex min-h-0 flex-1 flex-col")');
   });
 
   it("leaves every other detail page on block layout", () => {

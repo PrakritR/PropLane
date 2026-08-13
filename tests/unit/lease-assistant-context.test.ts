@@ -20,7 +20,10 @@ describe("buildLeaseModalAssistantContext", () => {
       currentSource: "custom_comments",
     });
     expect(ctx).toContain("propertyIds=a,b");
-    expect(ctx).toContain("single property");
+    // The context must tell the model that a section edit lands on ONE property
+    // even when several are selected. Assert the phrase that carries that
+    // meaning today rather than older wording.
+    expect(ctx).toContain("one property at a time");
   });
 });
 
