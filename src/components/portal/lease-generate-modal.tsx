@@ -9,9 +9,8 @@ import {
   ModalFooter,
   MODAL_FIELD_LABEL_CLASS,
   PORTAL_MODAL_FORM_FIELD_CLASS,
-  useModalPresentation,
 } from "@/components/ui/modal";
-import { MODAL_TALL_PANEL_CLASS, MODAL_XL_PANEL_CLASS } from "@/components/ui/modal-styles";
+import { MODAL_XL_PANEL_CLASS } from "@/components/ui/modal-styles";
 import { LeaseHtmlDirectEditor } from "@/components/portal/lease-html-direct-editor";
 import {
   propertyLeaseNeedsAssistantReview,
@@ -172,7 +171,6 @@ export function LeaseGenerateModal({
 
   const canGenerate = Boolean(editorHtml.trim() && !draft?.error && !(choices.length > 0 && !selectedTemplateId));
   const working = busy || generating;
-  const presentation = useModalPresentation();
 
   if (!row || !actionRow) return null;
 
@@ -182,9 +180,11 @@ export function LeaseGenerateModal({
       title={replacesManagerEdits ? "Regenerate lease" : "Generate lease"}
       onClose={onClose}
       dismissBlocked={working}
+      dense
+      fullPage
       scrollableContent={false}
-      panelClassName={cn(MODAL_XL_PANEL_CLASS, MODAL_TALL_PANEL_CLASS)}
-      assistantDefaultExpanded={presentation === "dialog"}
+      panelClassName={MODAL_XL_PANEL_CLASS}
+      assistantDefaultExpanded={false}
       assistantContext={assistantContext}
       assistantEditHint="Type in chat to edit the lease — changes apply after you confirm."
       assistantStorageScopeKey={`Lease generate · ${actionRow.id}`}
@@ -205,7 +205,7 @@ export function LeaseGenerateModal({
         </ModalFooter>
       }
     >
-      <div className="grid min-h-0 flex-1 grid-rows-[auto_minmax(0,1fr)] gap-3">
+      <div className="grid h-full min-h-0 flex-1 grid-rows-[auto_minmax(0,1fr)] gap-2">
         <div className={cn(PORTAL_MODAL_FORM_FIELD_CLASS, "min-w-0")}>
           <label className={MODAL_FIELD_LABEL_CLASS} htmlFor="lease-generate-type">
             Lease type
@@ -243,7 +243,7 @@ export function LeaseGenerateModal({
             {draft.error}
           </p>
         ) : editorHtml ? (
-          <div className="grid min-h-0 grid-rows-[auto_minmax(0,1fr)] gap-1">
+          <div className="grid min-h-0 grid-rows-[auto_minmax(0,1fr)] gap-1 overflow-hidden">
             <div className="flex flex-col gap-2">
               {saveReviewOpen ? (
                 <div className="rounded-xl border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-950">
@@ -268,7 +268,7 @@ export function LeaseGenerateModal({
               <p className={MODAL_FIELD_LABEL_CLASS}>Lease format</p>
             </div>
             <LeaseHtmlDirectEditor
-              className="min-h-0 h-full"
+              className="min-h-0 h-full flex-1"
               html={displayHtml}
               baselineHtml={baselineHtml}
               onChange={(next) => setHtmlOverride(next)}

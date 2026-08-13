@@ -9,9 +9,8 @@ import {
   ModalFooter,
   MODAL_FIELD_LABEL_CLASS,
   PORTAL_MODAL_FORM_FIELD_CLASS,
-  useModalPresentation,
 } from "@/components/ui/modal";
-import { MODAL_LARGE_PANEL_CLASS, MODAL_TALL_PANEL_CLASS } from "@/components/ui/modal-styles";
+import { MODAL_LARGE_PANEL_CLASS } from "@/components/ui/modal-styles";
 import { LeaseHtmlDirectEditor } from "@/components/portal/lease-html-direct-editor";
 import {
   PropertyLeaseDocumentNotice,
@@ -113,8 +112,6 @@ export function ManagerPipelineLeaseEditModal({
     commitSave();
   };
 
-  const presentation = useModalPresentation();
-
   return (
     <Modal
       open={open}
@@ -122,9 +119,11 @@ export function ManagerPipelineLeaseEditModal({
       description="Update this resident's lease format below, or type in chat to edit with PropLane Assistant."
       onClose={handleClose}
       dismissBlocked={saving}
+      dense
+      fullPage
       scrollableContent={false}
-      panelClassName={cn(MODAL_LARGE_PANEL_CLASS, MODAL_TALL_PANEL_CLASS)}
-      assistantDefaultExpanded={presentation === "dialog"}
+      panelClassName={MODAL_LARGE_PANEL_CLASS}
+      assistantDefaultExpanded={false}
       assistantContext={assistantContext}
       assistantEditHint="Type in chat to edit the lease — changes apply after you confirm."
       assistantStorageScopeKey={`Lease packet edit · ${row.id}`}
@@ -145,7 +144,7 @@ export function ManagerPipelineLeaseEditModal({
         ) : null
       }
     >
-      <div className="grid min-h-0 flex-1 grid-rows-[auto_minmax(0,1fr)] gap-3">
+      <div className="grid h-full min-h-0 flex-1 grid-rows-[auto_minmax(0,1fr)] gap-2">
         <div className={cn(PORTAL_MODAL_FORM_FIELD_CLASS, "min-w-0")}>
           <label className={MODAL_FIELD_LABEL_CLASS} htmlFor="resident-lease-document-name">
             Lease document name
@@ -169,7 +168,7 @@ export function ManagerPipelineLeaseEditModal({
             manager&apos;s original document and cannot be edited here.
           </div>
         ) : (
-          <div className="grid min-h-0 grid-rows-[auto_minmax(0,1fr)] gap-1">
+          <div className="grid min-h-0 grid-rows-[auto_minmax(0,1fr)] gap-1 overflow-hidden">
             <div className="flex flex-col gap-2">
               <PropertyLeaseDocumentNotice html={noticeHtml} />
               {saveReviewOpen ? (
@@ -195,7 +194,7 @@ export function ManagerPipelineLeaseEditModal({
               <p className={MODAL_FIELD_LABEL_CLASS}>Lease format</p>
             </div>
             <LeaseHtmlDirectEditor
-              className="min-h-0 h-full"
+              className="min-h-0 h-full flex-1"
               html={displayHtml}
               baselineHtml={baselineHtml}
               onChange={(next) => setHtmlOverride(next)}
