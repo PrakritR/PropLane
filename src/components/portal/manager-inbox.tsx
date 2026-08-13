@@ -173,6 +173,8 @@ export const ManagerInbox = forwardRef<
     filterResidentEmail?: string;
     /** Rendered when suppressListPane is set and no thread matches filterResidentEmail. */
     emptyThreadFallback?: React.ReactNode;
+    /** Resident profile Communication — opens full compose with scheduling. */
+    onScheduleMessage?: () => void;
   }
 >(function ManagerInbox(
   {
@@ -192,6 +194,7 @@ export const ManagerInbox = forwardRef<
     smsRecipients = [],
     filterResidentEmail,
     emptyThreadFallback,
+    onScheduleMessage,
   },
   ref,
 ) {
@@ -1483,15 +1486,28 @@ export const ManagerInbox = forwardRef<
         </Button>
       </>
     ) : (
-      <Button
-        type="button"
-        variant="outline"
-        className="min-h-0 rounded-full px-3 py-1.5 text-xs"
-        data-attr="inbox-thread-archive"
-        onClick={() => moveToTrash(activeThread.id)}
-      >
-        Archive
-      </Button>
+      <>
+        {embeddedResidentChat && onScheduleMessage ? (
+          <Button
+            type="button"
+            variant="outline"
+            className="min-h-0 rounded-full px-3 py-1.5 text-xs"
+            data-attr="resident-detail-inbox-schedule"
+            onClick={onScheduleMessage}
+          >
+            Schedule
+          </Button>
+        ) : null}
+        <Button
+          type="button"
+          variant="outline"
+          className="min-h-0 rounded-full px-3 py-1.5 text-xs"
+          data-attr="inbox-thread-archive"
+          onClick={() => moveToTrash(activeThread.id)}
+        >
+          Archive
+        </Button>
+      </>
     )
   ) : null;
 

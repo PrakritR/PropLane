@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState, type ReactNode, type RefObject } from "react";
+import { Button } from "@/components/ui/button";
 import { ManagerInbox, type ManagerInboxHandle } from "@/components/portal/manager-inbox";
 import {
   InboxComposer,
@@ -12,6 +13,7 @@ import {
   type InboxBubbleMessage,
 } from "@/components/portal/portal-inbox-ui";
 import { PortalSectionActionRow } from "@/components/portal/portal-section-action-row";
+import { PORTAL_HEADER_PRIMARY_ACTION_BTN } from "@/components/portal/portal-metrics";
 import { useAppUi } from "@/components/providers/app-ui-provider";
 import {
   MANAGER_INBOX_STORAGE_KEY,
@@ -74,12 +76,14 @@ export function ResidentDirectChatPane({
   smsResident,
   smsUiEnabled,
   onSent,
+  onScheduleMessage,
 }: {
   residentEmail: string;
   residentName?: string;
   smsResident?: ManagerSmsResidentConversation | null;
   smsUiEnabled: boolean;
   onSent: () => void;
+  onScheduleMessage?: () => void;
 }) {
   const { showToast } = useAppUi();
   const [draft, setDraft] = useState("");
@@ -335,6 +339,19 @@ export function ResidentDirectChatPane({
               {scheduledCards}
             </div>
           ) : null}
+          {onScheduleMessage ? (
+            <div className="shrink-0 border-t border-border bg-card/90 px-2 py-2 md:px-3">
+              <Button
+                type="button"
+                variant="outline"
+                className="h-8 min-h-0 w-full rounded-full px-3 text-[12px]"
+                data-attr="resident-detail-schedule-another"
+                onClick={onScheduleMessage}
+              >
+                Schedule a message
+              </Button>
+            </div>
+          ) : null}
           <InboxComposer
             value={draft}
             onChange={setDraft}
@@ -375,6 +392,8 @@ export function ManagerResidentDetailInbox({
   smsUiEnabled = false,
   inboxRef,
   emptyThreadFallback,
+  onNewMessage,
+  onScheduleMessage,
 }: {
   residentEmail: string;
   residentName?: string;
@@ -382,6 +401,10 @@ export function ManagerResidentDetailInbox({
   smsUiEnabled?: boolean;
   inboxRef?: RefObject<ManagerInboxHandle | null>;
   emptyThreadFallback?: ReactNode;
+  /** Opens the full compose modal (subject, schedule, email/SMS) — same as main Communication. */
+  onNewMessage?: () => void;
+  /** Opens compose with scheduling focused (thread header Schedule). */
+  onScheduleMessage?: () => void;
 }) {
   const commBase = `${portalBase}/communication`;
   const emailNorm = residentEmail.trim().toLowerCase();
@@ -445,11 +468,25 @@ export function ManagerResidentDetailInbox({
         smsResident={smsResidentForEmail}
         smsUiEnabled={smsUiEnabled}
         onSent={refreshConversations}
+        onScheduleMessage={onScheduleMessage}
       />
     );
 
   return (
-    <div className="portal-resident-detail-inbox flex min-h-0 flex-1 flex-col">
+    <div className="portal-resident-detail-inbox portal-communication-inbox flex min-h-0 flex-1 flex-col">
+      {onNewMessage ? (
+        <PortalSectionActionRow className="mb-2 shrink-0 justify-end">
+          <Button
+            type="button"
+            variant="primary"
+            className={`shrink-0 ${PORTAL_HEADER_PRIMARY_ACTION_BTN}`}
+            data-attr="resident-detail-new-message"
+            onClick={onNewMessage}
+          >
+            New message
+          </Button>
+        </PortalSectionActionRow>
+      ) : null}
       {archivedCount > 0 ? (
         <PortalSectionActionRow className="mb-2 shrink-0">
           <button
@@ -488,6 +525,7 @@ export function ManagerResidentDetailInbox({
             commBase={commBase}
             smsUiEnabled={smsUiEnabled}
             smsRecipients={smsResidents}
+            onScheduleMessage={onScheduleMessage}
           />
         }
       />

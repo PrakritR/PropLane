@@ -344,6 +344,7 @@ export function ManagerResidents({
   const [activeResidentLeaseId, setActiveResidentLeaseId] = useState<string | null>(null);
   const [regenerateConfirmLeaseId, setRegenerateConfirmLeaseId] = useState<string | null>(null);
   const [messageOpen, setMessageOpen] = useState(false);
+  const [messageScheduleLater, setMessageScheduleLater] = useState(false);
   const [messageBusy, setMessageBusy] = useState(false);
   const [leaseReminderBusy, setLeaseReminderBusy] = useState(false);
   const [leaseReminderPreview, setLeaseReminderPreview] = useState<{
@@ -1184,7 +1185,8 @@ export function ManagerResidents({
     }
   }
 
-  function openResidentMessageModal() {
+  function openResidentMessageModal(scheduleLater = false) {
+    setMessageScheduleLater(scheduleLater);
     setMessageOpen(true);
   }
 
@@ -2604,6 +2606,8 @@ export function ManagerResidents({
                                 residentName={selected.name}
                                 portalBase={portalBase}
                                 smsUiEnabled={smsUiEnabled}
+                                onNewMessage={() => openResidentMessageModal(false)}
+                                onScheduleMessage={() => openResidentMessageModal(true)}
                               />
                             </ResidentDetailTabPanel>
                             </div>
@@ -3882,7 +3886,9 @@ export function ManagerResidents({
         onClose={() => {
           if (messageBusy) return;
           setMessageOpen(false);
+          setMessageScheduleLater(false);
         }}
+        initialScheduleLater={messageScheduleLater}
         recipient={selected?.email ?? ""}
         recipientPhone={
           selected
