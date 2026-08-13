@@ -13,6 +13,7 @@ import {
   replaceManagerApplicationRowInCache,
   upsertApplicationRowToServerAwait,
 } from "@/lib/manager-applications-storage";
+import { mergeApplicationLeaseDatesIntoResidentRow } from "@/lib/resident-lease-billing-sync";
 import { normalizeCustomApplicationFields } from "@/lib/manager-listing-submission";
 import {
   activeApplicationWizardSteps,
@@ -53,7 +54,7 @@ type Props = {
   row: DemoApplicantRow;
   residentEmail: string;
   onCancel: () => void;
-  onSaved: () => void;
+  onSaved: (row: DemoApplicantRow) => void | Promise<void>;
   /** Manager edits keep bucket/stage; resident resubmit moves back to pending. */
   preserveReviewStatus?: boolean;
 };
@@ -224,17 +225,20 @@ export function ResidentApplicationEditor({ row, residentEmail, onCancel, onSave
       const pid = form.propertyId.trim() || row.propertyId?.trim() || "";
       const prop = pid ? getPropertyById(pid) : undefined;
       const groupId = resolveEditGroupId(form, row.application?.groupId);
-      const updated: DemoApplicantRow = {
-        ...row,
-        name: form.fullLegalName.trim() || row.name,
-        property: prop?.title?.trim() || row.property,
-        propertyId: pid || row.propertyId,
-        email: residentEmail,
-        bucket: preserveReviewStatus ? row.bucket : "pending",
-        stage: preserveReviewStatus ? row.stage : row.stage || "Submitted",
-        detail: `Updated ${new Date().toLocaleString()}`,
-        application: structuredClone({ ...form, email: residentEmail, groupId }),
-      };
+      const application = structuredClone({ ...form, email: residentEmail, groupId });
+      const updated = mergeApplicationLeaseDatesIntoResidentRow(
+        {
+          ...row,
+          name: form.fullLegalName.trim() || row.name,
+          property: prop?.title?.trim() || row.property,
+          propertyId: pid || row.propertyId,
+          email: residentEmail,
+          bucket: preserveReviewStatus ? row.bucket : "pending",
+          stage: preserveReviewStatus ? row.stage : row.stage || "Submitted",
+          detail: `Updated ${new Date().toLocaleString()}`,
+        },
+        application,
+      );
       const result = await upsertApplicationRowToServerAwait(updated);
       setSaving(false);
       if (!result.ok) {
@@ -243,7 +247,7 @@ export function ResidentApplicationEditor({ row, residentEmail, onCancel, onSave
       }
       replaceManagerApplicationRowInCache(updated);
       showToast("Application saved.");
-      onSaved();
+      await onSaved(updated);
     })();
   }, [form, lastActiveStep, nextActiveStep, onSaved, preserveReviewStatus, residentEmail, row, showToast, step, validateAllPrior, validateCurrentStep]);
 

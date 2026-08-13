@@ -358,6 +358,7 @@ export function ManagerPaymentSetupModal({
   initialChannel = null,
   gmailConnectErrorReason = null,
   propertyOptions,
+  presetPropertyIds,
 }: {
   open: boolean;
   onClose: () => void;
@@ -365,6 +366,8 @@ export function ManagerPaymentSetupModal({
   initialChannel?: PaymentChannel | null;
   gmailConnectErrorReason?: string | null;
   propertyOptions: { id: string; label: string }[];
+  /** When set, skip the property picker and scope saves to these ids (e.g. resident detail). */
+  presetPropertyIds?: string[];
 }) {
   const { showToast } = useAppUi();
   const demo = isDemoModeActive();
@@ -474,12 +477,18 @@ export function ManagerPaymentSetupModal({
   }, [open, initialChannel, loadStripeStatus, loadSettings, loadTier]);
 
   useEffect(() => {
-    if (open && !propertySelectionComplete && selectedPropertyIds.size === 0 && propertyOptions.length > 0) {
+    if (!open) return;
+    if (presetPropertyIds?.length) {
+      setSelectedPropertyIds(new Set(presetPropertyIds));
+      setPropertySelectionComplete(true);
+      return;
+    }
+    if (!propertySelectionComplete && selectedPropertyIds.size === 0 && propertyOptions.length > 0) {
       // Existing single-destination managers begin with every owned property
       // selected, preserving their live destination until they choose otherwise.
       setSelectedPropertyIds(new Set(propertyOptions.map((property) => property.id)));
     }
-  }, [open, propertyOptions, propertySelectionComplete, selectedPropertyIds.size]);
+  }, [open, presetPropertyIds, propertyOptions, propertySelectionComplete, selectedPropertyIds.size]);
 
   useEffect(() => {
     if (!open) return;
@@ -598,7 +607,7 @@ export function ManagerPaymentSetupModal({
   return (
     <>
       <Modal
-        open={open && !propertySelectionComplete}
+        open={open && !propertySelectionComplete && !presetPropertyIds?.length}
         title="Choose properties for payment setup"
         description="The Zelle destination you save next is shown only to residents and applicants for these properties."
         onClose={onClose}
@@ -654,11 +663,6 @@ export function ManagerPaymentSetupModal({
       <Modal open={open && propertySelectionComplete} title="Payment setup" onClose={onClose} assistantStrip={false}>
         <div className="space-y-3">
           {loading ? <p className="text-sm text-muted">Loading…</p> : null}
-          <p className="text-xs text-muted">
-            Stripe deposits resident payments into your own connected Stripe account and pays out to your bank, not to
-            PropLane. Each manager links their own account. Check a method to allow residents to use it; use Link to
-            finish setup.
-          </p>
           <HubRow
             label="Stripe (ACH)"
             connected={stripeState === "ready"}
@@ -714,11 +718,6 @@ export function ManagerPaymentSetupModal({
                 })}
               </div>
             </div>
-          ) : skuTier === "business" ? (
-            <p className="text-xs text-muted">
-              PropLane covers the payment processing fee on resident online payments — neither you nor your residents are
-              charged it.
-            </p>
           ) : skuTier === "free" ? (
             <p className="text-xs text-muted">
               On the Free plan, residents cover the payment processing fee on online payments. Upgrade to Pro to choose

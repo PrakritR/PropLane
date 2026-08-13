@@ -20,7 +20,7 @@ describe("evidence · pinned footer actions", () => {
           Reminders
         </button>
         <button type="button" className="h-10 shrink-0 rounded-full border border-border bg-card px-4 text-sm font-semibold">
-          Pay method
+          Payment setup
         </button>
         <button type="button" className="h-10 shrink-0 rounded-full bg-primary px-4 text-sm font-semibold text-white">
           Add payment

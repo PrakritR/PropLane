@@ -3166,7 +3166,35 @@ export function recordApprovedApplicationCharges(row: DemoApplicantRow, managerU
           c.residentEmail.trim().toLowerCase() === emailLowerForFilter &&
           c.propertyId === propertyId),
     );
-    if (hasExisting) return synced;
+    if (hasExisting) {
+      if (!sub) return synced;
+      if (row.application?.rentalType === "short_term") return synced;
+      const drafts = buildApprovedStandardChargeDrafts(row, sub, {
+        allowListingDefaults,
+        applicationId,
+        leaseStart,
+        leaseEnd,
+        moveInDue,
+      });
+      const pendingForApp = readAll().filter(
+        (c) => c.applicationId === applicationId && c.status === "pending" && c.kind !== "application_fee",
+      );
+      const expectedKinds = new Set(drafts.map((draft) => draft.kind));
+      const staleKind = pendingForApp.some((charge) => !expectedKinds.has(charge.kind));
+      const draftMismatch = drafts.some((draft) => {
+        if (!(draft.amount > 0)) return false;
+        const aliasIds = new Set(approvedChargeIdAliases(applicationId, draft.kind));
+        const match = pendingForApp.find(
+          (charge) =>
+            charge.kind === draft.kind &&
+            (aliasIds.has(charge.id) || charge.applicationId === applicationId),
+        );
+        if (!match) return true;
+        const label = moneyAmountLabel(Number(draft.amount.toFixed(2)));
+        return match.amountLabel !== label || match.title !== draft.title;
+      });
+      if (!staleKind && !draftMismatch) return synced;
+    }
   }
   // Preserve paid charges — only wipe pending ones so they can be regenerated with correct amounts.
   // Also wipe pending recurring rent/utilities for this resident+property so updated amounts are used.
