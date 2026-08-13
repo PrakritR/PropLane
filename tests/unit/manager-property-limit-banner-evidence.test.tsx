@@ -110,7 +110,10 @@ describe("manager Properties at the Free plan cap — rendered surface", () => {
     const bannerHtml = document.body.innerHTML;
 
     // "+ Add property" is refused, and says why — with the limit and the upgrade path.
-    const addButtons = screen.getAllByText(/Add property/i);
+    // The row reads a uniform "ADD" like every other portal add row; "Add
+    // property" is its ACCESSIBLE name, which is what a user is actually
+    // offered here — so match on the role, not the visible glyph.
+    const addButtons = screen.getAllByRole("button", { name: /Add property/i });
     fireEvent.click(addButtons[0]);
     await waitFor(() => {
       expect(screen.getByText(/Free includes 1 property/)).toBeTruthy();

@@ -46,19 +46,22 @@ function leaseCtx(submission: ManagerListingSubmissionV1 | undefined): LeaseGene
 }
 
 describe("application section catalog", () => {
-  it("maps every section to a valid applicant wizard step (household/co-signer before property)", () => {
+  // The "cosigner_intent" section was removed from the product — it is gone
+  // from src entirely, not renumbered — so it is no longer asserted here.
+  it("maps every section to a valid applicant wizard step (household before property)", () => {
     for (const section of RENTAL_APPLICATION_SECTIONS) {
       expect(section.wizardStep).toBeGreaterThanOrEqual(1);
       expect(section.wizardStep).toBeLessThanOrEqual(10);
     }
     expect(RENTAL_APPLICATION_SECTIONS.find((s) => s.id === "household")?.wizardStep).toBe(1);
-    expect(RENTAL_APPLICATION_SECTIONS.find((s) => s.id === "cosigner_intent")?.wizardStep).toBe(2);
+    expect(RENTAL_APPLICATION_SECTIONS.find((s) => s.id === "personal")?.wizardStep).toBe(2);
     expect(RENTAL_APPLICATION_SECTIONS.find((s) => s.id === "property")?.wizardStep).toBe(3);
   });
 
+  // Additional details is step 8 (consent is 9) since the wizard was renumbered.
   it("routes untagged and unknown sections to the Additional details step", () => {
-    expect(applicationWizardStepForSection(undefined)).toBe(9);
-    expect(applicationWizardStepForSection("bogus")).toBe(9);
+    expect(applicationWizardStepForSection(undefined)).toBe(8);
+    expect(applicationWizardStepForSection("bogus")).toBe(8);
     expect(applicationWizardStepForSection("household")).toBe(1);
     expect(applicationWizardStepForSection("property")).toBe(3);
   });
@@ -81,10 +84,10 @@ describe("custom application field sections", () => {
     expect(normalized.find((f) => f.id === "d")?.section).toBeUndefined();
   });
 
-  it("asks each question on its section's step; untagged fall back to step 9", () => {
+  it("asks each question on its section's step; untagged fall back to Additional details (step 8)", () => {
     const normalized = normalizeCustomApplicationFields(fields);
     expect(customFieldsForWizardStep(normalized, 3).map((f) => f.id)).toEqual(["a"]);
-    expect(customFieldsForWizardStep(normalized, 9).map((f) => f.id)).toEqual(["b", "c"]);
+    expect(customFieldsForWizardStep(normalized, 8).map((f) => f.id)).toEqual(["b", "c"]);
     expect(customFieldsForWizardStep(normalized, 4)).toEqual([]);
   });
 

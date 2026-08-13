@@ -27,6 +27,7 @@ export const PORTAL_LIST_ADD_ROW_CLASS =
  */
 export function PortalListAddRow({
   label,
+  ariaLabel,
   icon: Icon = Home,
   hint,
   onClick,
@@ -37,6 +38,15 @@ export function PortalListAddRow({
   bare = false,
 }: {
   label: string;
+  /**
+   * Accessible name, when the visible label is deliberately generic.
+   *
+   * These rows read a uniform "ADD" across the portal on purpose, but that
+   * leaves a screen reader with several identically-named buttons on one page
+   * and no way to tell a charge from a payment. Pass what the button actually
+   * adds; the visible text is unchanged.
+   */
+  ariaLabel?: string;
   icon?: LucideIcon;
   /** Secondary line under the label (e.g. “Browse homes”). */
   hint?: string;
@@ -55,7 +65,7 @@ export function PortalListAddRow({
       data-attr={dataAttr}
       disabled={disabled}
       onClick={onClick}
-      aria-label={label}
+      aria-label={ariaLabel ?? label}
       className={cn(PORTAL_LIST_ADD_ROW_CLASS, className)}
     >
       {bare ? null : (

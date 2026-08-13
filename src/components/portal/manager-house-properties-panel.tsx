@@ -1210,6 +1210,7 @@ export function ManagerHousePropertiesPanel({
           <div className={`${PORTAL_LIST_ADD_ROW_WRAP_CLASS} pt-5 sm:pt-6`}>
             <PortalListAddRow
               label="Add"
+              ariaLabel="Add property"
               icon={PORTAL_LIST_ADD_ICONS.property}
               onClick={onAddProperty}
               disabled={addPropertyDisabled}
@@ -1249,6 +1250,7 @@ export function ManagerHousePropertiesPanel({
             <div className={PORTAL_LIST_ADD_ROW_WRAP_CLASS}>
               <PortalListAddRow
                 label="Add"
+                ariaLabel="Add property"
                 icon={PORTAL_LIST_ADD_ICONS.property}
                 onClick={onAddProperty}
                 disabled={addPropertyDisabled}

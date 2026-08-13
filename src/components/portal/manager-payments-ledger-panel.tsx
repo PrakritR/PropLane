@@ -629,12 +629,16 @@ export function ManagerPaymentsLedgerPanel({
   };
 
   const hasAnySource = useMemo(() => rows.length > 0, [rows]);
+  // Visible label stays the uniform "Add"; the accessible name says which one,
+  // so a screen reader is not given two identically-named buttons.
   const addPaymentLabel = "Add";
+  const addPaymentAriaLabel = embeddedInResident ? "Add payment" : "Add charge";
   const renderAddPaymentRow = (className?: string) =>
     onAddPayment ? (
       <div className={className ?? PORTAL_LIST_ADD_ROW_WRAP_CLASS}>
         <PortalListAddRow
           label={addPaymentLabel}
+          ariaLabel={addPaymentAriaLabel}
           icon={PORTAL_LIST_ADD_ICONS.payment}
           onClick={onAddPayment}
           dataAttr="payments-list-add"
