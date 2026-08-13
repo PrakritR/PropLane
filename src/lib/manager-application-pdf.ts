@@ -19,6 +19,8 @@ import {
   INCOMPLETE_APPLICATION_LABEL,
   isInProgressApplicationRow,
 } from "@/lib/rental-application/in-progress-application";
+import type { ApplicationGroupMember } from "@/lib/rental-application/application-groups";
+import { formatApplicationGroupMemberLine } from "@/lib/application-group-document";
 
 const PAGE_WIDTH = 612;
 const PAGE_HEIGHT = 792;
@@ -198,6 +200,8 @@ export type ApplicationPdfOptions = {
   generatedAt?: string;
   /** Co-signer application(s) submitted against this applicant's Axis ID, if any. */
   cosignerSubmissions?: CosignerSubmission[];
+  /** Other applicants in the same group application (excludes this row when loaded server-side). */
+  groupMembers?: ApplicationGroupMember[];
 };
 
 export async function buildApplicationPdf(
@@ -443,6 +447,17 @@ export async function buildApplicationPdf(
     { label: "Occupants", value: clean(app.occupancyCount) },
     { label: "Pets", value: clean(app.pets) },
   ]);
+
+  const otherGroupMembers = (options.groupMembers ?? []).filter((m) => m.id !== row.id);
+  if (otherGroupMembers.length > 0) {
+    drawSection(
+      "Other group application members",
+      otherGroupMembers.map((member, index) => ({
+        label: `Member ${index + 1}`,
+        value: formatApplicationGroupMemberLine(member),
+      })),
+    );
+  }
 
   // ---- Co-signer application(s) -------------------------------------------
   const cosigners = options.cosignerSubmissions ?? [];

@@ -1,5 +1,7 @@
 import type { GroupRole, RentalWizardFormState } from "./types";
 
+export type { GroupRole } from "./types";
+
 /**
  * Group applications
  * ------------------
@@ -302,4 +304,24 @@ export function describeGroupBadge(group: ApplicationGroup): GroupBadgeDescripto
     tone: group.isComplete ? "confirmed" : "info",
     title: idText,
   };
+}
+
+/** Human-readable status for group rosters and application PDF/HTML documents. */
+export function applicationGroupMemberStatusLabel(status: ApplicationGroupMemberStatus): string {
+  switch (status) {
+    case "approved":
+      return "Approved";
+    case "rejected":
+      return "Rejected";
+    case "in_progress":
+      return "Incomplete";
+    case "flagged":
+      return "Flagged";
+    case "screened":
+      return "Screened";
+    case "screening":
+      return "Screening";
+    default:
+      return "New";
+  }
 }

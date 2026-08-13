@@ -10,6 +10,7 @@ import {
   type ApplicationGroupMemberStatus,
   type GroupRowInput,
 } from "@/lib/rental-application/application-groups";
+import { applicationStatusForRow } from "@/lib/rental-application/application-group-row-status";
 import { getBundleChoiceLabel, getPropertyById } from "@/lib/rental-application/data";
 import { buildMemberSplitLines, resolveBundleFinancialTotals, moneyLabel } from "@/lib/bundle-group/bundle-cost-split";
 import { normalizeManagerListingSubmissionV1 } from "@/lib/manager-listing-submission";
@@ -17,26 +18,12 @@ import { memberIndexInBundleGroup, type BundleApplicationGroup } from "@/lib/bun
 import { isInProgressApplicationRow, INCOMPLETE_APPLICATION_LABEL } from "@/lib/rental-application/in-progress-application";
 import { isWithdrawnApplicationRow } from "@/lib/rental-application/resident-application-list";
 
+export { applicationStatusForRow } from "@/lib/rental-application/application-group-row-status";
+
 type ApplicationStatusPill = {
   label: string;
   tone: "neutral" | "info" | "pending" | "confirmed" | "overdue";
 };
-
-/**
- * Single source of truth for an application's status — derived purely from the row's
- * existing bucket + screening signals (no new state, no writes). Both the row pill and
- * the group roster read the same value, so they can never contradict each other.
- */
-export function applicationStatusForRow(row: DemoApplicantRow): ApplicationGroupMemberStatus {
-  if (row.bucket === "approved") return "approved";
-  if (row.bucket === "rejected") return "rejected";
-  if (isInProgressApplicationRow(row)) return "in_progress";
-  const bg = row.backgroundCheckStatus;
-  if (bg === "flagged") return "flagged";
-  if (bg === "passed") return "screened";
-  if (bg === "pending_review" || row.screening) return "screening";
-  return "submitted";
-}
 
 const APPLICATION_STATUS_PILL: Record<ApplicationGroupMemberStatus, ApplicationStatusPill> = {
   approved: { label: "Approved", tone: "confirmed" },

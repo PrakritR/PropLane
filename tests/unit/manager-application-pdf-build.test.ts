@@ -68,4 +68,39 @@ describe("buildApplicationPdf", () => {
     expect(html).toContain("3:00 PM");
     expect(html).toContain("House rules acknowledged");
   });
+
+  it("lists other group members inside the PDF and HTML document", async () => {
+    const row = shortTermRow({
+      application: {
+        ...shortTermRow().application!,
+        applyingAsGroup: "yes",
+        groupRole: "joining",
+        groupId: "PROPLANE-TESTGRP",
+        groupSize: "",
+      },
+    });
+    const groupMembers = [
+      {
+        id: "PROPLANE-ORG01",
+        name: "Jordan Reyes",
+        email: "jordan@example.com",
+        role: "first" as const,
+        status: "approved" as const,
+      },
+      {
+        id: "PROPLANE-MEM02",
+        name: "Priya Nair",
+        email: "priya@example.com",
+        role: "joining" as const,
+        status: "screening" as const,
+      },
+    ];
+    const html = buildApplicationHtml(row, { roomLabel: "Room 7", groupMembers });
+    expect(html).toContain("Other group application members");
+    expect(html).toContain("Jordan Reyes");
+    expect(html).toContain("Priya Nair");
+
+    const pdf = await buildApplicationPdf(row, { roomLabel: "Room 7", groupMembers });
+    expect(String.fromCharCode(...pdf.slice(0, 4))).toBe("%PDF");
+  });
 });

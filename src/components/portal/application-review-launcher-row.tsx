@@ -6,6 +6,7 @@ import { ApplicationDocumentPreview } from "@/components/portal/manager-applicat
 import { ApplicationScreeningPanel } from "@/components/portal/application-screening-panel";
 import { ApplicationVerificationPhotos } from "@/components/portal/application-verification-photos";
 import { applicationShowsBackgroundCheck } from "@/lib/application-background-check";
+import type { ApplicationGroup } from "@/lib/rental-application/application-groups";
 import type { DemoApplicantRow } from "@/data/demo-portal";
 
 export type ApplicationReviewView = "application" | "background-check";
@@ -23,6 +24,7 @@ export function ApplicationReviewLauncherRow({
   onScreeningHeaderActionsChange,
   activeView: activeViewProp,
   onActiveViewChange,
+  group = null,
 }: {
   row: DemoApplicantRow;
   bareCanvas?: boolean;
@@ -32,6 +34,7 @@ export function ApplicationReviewLauncherRow({
   onScreeningHeaderActionsChange?: (actions: ReactNode) => void;
   activeView?: ApplicationReviewView;
   onActiveViewChange?: (view: ApplicationReviewView) => void;
+  group?: ApplicationGroup | null;
 }) {
   const showsScreening = applicationShowsBackgroundCheck(row);
   const [internalView, setInternalView] = useState<ApplicationReviewView>("application");
@@ -62,8 +65,16 @@ export function ApplicationReviewLauncherRow({
       ) : null}
 
       {showApplication ? (
-        <section>
-          <ApplicationDocumentPreview row={row} collapsible={false} showDownload={showDownload} variant="pdf" downloadPlacement="bottom" bareCanvas={bareCanvas} />
+        <section className="space-y-3">
+          <ApplicationDocumentPreview
+            row={row}
+            collapsible={false}
+            showDownload={showDownload}
+            variant="pdf"
+            downloadPlacement="bottom"
+            bareCanvas={bareCanvas}
+            groupMembers={group?.members.filter((member) => member.id !== row.id) ?? []}
+          />
           <ApplicationVerificationPhotos row={row} />
         </section>
       ) : (

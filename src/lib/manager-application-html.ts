@@ -13,6 +13,8 @@ import {
   INCOMPLETE_APPLICATION_LABEL,
   isInProgressApplicationRow,
 } from "@/lib/rental-application/in-progress-application";
+import type { ApplicationGroupMember } from "@/lib/rental-application/application-groups";
+import { formatApplicationGroupMemberLine } from "@/lib/application-group-document";
 import { leaseCss } from "@/lib/lease-templates/types";
 
 export type Field = { label: string; value: string };
@@ -172,6 +174,8 @@ export type ApplicationHtmlOptions = {
   generatedAt?: string;
   /** Co-signer application(s) submitted against this applicant's Axis ID, if any. */
   cosignerSubmissions?: CosignerSubmission[];
+  /** Other applicants in the same group application (excludes this row when provided). */
+  groupMembers?: ApplicationGroupMember[];
 };
 
 /**
@@ -187,6 +191,8 @@ export function buildApplicationHtml(row: DemoApplicantRow, options: Application
   const generated = options.generatedAt ? new Date(options.generatedAt) : new Date();
   const generatedLabel = generated.toLocaleString("en-US", { dateStyle: "long", timeStyle: "short" });
   const roomLabel = clean(options.roomLabel);
+
+  const otherGroupMembers = (options.groupMembers ?? []).filter((m) => m.id !== row.id);
 
   const signedRent =
     row.signedMonthlyRent && row.signedMonthlyRent > 0
@@ -263,6 +269,18 @@ ${section("Household", [
   { label: "Occupants", value: clean(app.occupancyCount) },
   { label: "Pets", value: clean(app.pets) },
 ])}
+
+${
+  otherGroupMembers.length > 0
+    ? section(
+        "Other group application members",
+        otherGroupMembers.map((member, index) => ({
+          label: `Member ${index + 1}`,
+          value: formatApplicationGroupMemberLine(member),
+        })),
+      )
+    : ""
+}
 
 ${cosignerSections(options.cosignerSubmissions)}
 

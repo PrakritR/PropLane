@@ -27,8 +27,9 @@ export async function buildDemoApplicationPdfDataUrl(
   row: DemoApplicantRow,
   roomLabel?: string,
   cosignerSubmissions?: CosignerSubmission[],
+  groupMembers?: import("@/lib/rental-application/application-groups").ApplicationGroupMember[],
 ): Promise<string> {
-  const bytes = await buildApplicationPdf(row, { roomLabel, cosignerSubmissions });
+  const bytes = await buildApplicationPdf(row, { roomLabel, cosignerSubmissions, groupMembers });
   return bytesToPdfDataUrl(bytes);
 }
 

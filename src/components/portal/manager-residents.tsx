@@ -71,6 +71,14 @@ import { LeaseGenerateModal } from "@/components/portal/lease-generate-modal";
 import { LeaseSigningModal } from "@/components/portal/lease-signing-modal";
 import { ManagerPipelineLeaseEditModal } from "@/components/portal/manager-pipeline-lease-edit-modal";
 import { PropertyResidentOnboardWizard } from "@/components/portal/property-resident-onboard-wizard";
+import { mergeParsedFields } from "@/lib/resident-document-import/onboard-draft";
+import { mapParsedFieldsToAddResidentForm } from "@/lib/resident-document-import/apply-parsed-to-add-resident";
+import {
+  parsedFieldsToRecord,
+  parseResidentDocumentPdfClient,
+  readDataUrlFromFile,
+} from "@/lib/resident-document-import.client";
+import type { ParsedResidentDocument } from "@/lib/resident-document-import/types";
 import { useManagerUserId } from "@/hooks/use-manager-user-id";
 import { usePaidPortalBasePath } from "@/lib/portal-base-path-client";
 import {
@@ -204,8 +212,9 @@ import {
   buildExistingResidentWelcomeEmailBody,
 } from "@/lib/existing-resident-welcome-email";
 import { LocalDestinationNav } from "@/components/ui/destination-nav";
-import { ApplicationGroupSection, groupIdForRow, groupRowInputForRow } from "@/components/portal/application-group-section";
+import { groupIdForRow, groupRowInputForRow } from "@/components/portal/application-group-section";
 import { ApplicationCosignerSection } from "@/components/portal/application-household-list";
+import { ApplicationHoldingFeeModal } from "@/components/portal/application-holding-fee-box";
 import { useCosignerSubmissionsMap } from "@/hooks/use-cosigner-submissions-map";
 import { signerAppIdsForCosignerLookup } from "@/lib/rental-application/application-list-grouping";
 import {
@@ -368,6 +377,7 @@ export function ManagerResidents({
   const [welcomePreviewContent, setWelcomePreviewContent] = useState("");
   const [approvePreviewRow, setApprovePreviewRow] = useState<DemoApplicantRow | null>(null);
   const [checkrScreeningRowId, setCheckrScreeningRowId] = useState<string | null>(null);
+  const [holdingFeeRowId, setHoldingFeeRowId] = useState<string | null>(null);
   const [checkrScreeningShowPicker, setCheckrScreeningShowPicker] = useState(false);
   const [applicationReviewView, setApplicationReviewView] = useState<ApplicationReviewView>("application");
   const [approveBusyId, setApproveBusyId] = useState<string | null>(null);
@@ -431,7 +441,14 @@ export function ManagerResidents({
   const [arSignedLeaseDataUrl, setArSignedLeaseDataUrl] = useState("");
   const [addResidentNoticePreview, setAddResidentNoticePreview] = useState<DemoApplicantRow | null>(null);
   const [arSaving, setArSaving] = useState(false);
+  const [arPdfBusy, setArPdfBusy] = useState(false);
+  const [arApplicationFile, setArApplicationFile] = useState<File | null>(null);
+  const [arLeaseImportFile, setArLeaseImportFile] = useState<File | null>(null);
+  const [arApplicationParse, setArApplicationParse] = useState<ParsedResidentDocument | null>(null);
+  const [arLeaseParse, setArLeaseParse] = useState<ParsedResidentDocument | null>(null);
   const [pdfOnboardOpen, setPdfOnboardOpen] = useState(false);
+  const arApplicationUploadRef = useRef<HTMLInputElement>(null);
+  const arLeaseImportUploadRef = useRef<HTMLInputElement>(null);
 
   // Edit resident
   const erSkipPricingFillRef = useRef(false);
@@ -680,15 +697,104 @@ export function ManagerResidents({
 
   const pdfOnboardPropertyId = arPropertyId || propertyOptions[0]?.id || "";
   const pdfOnboardPropertyLabel =
-    propertyOptions.find((p) => p.id === pdfOnboardPropertyId)?.label ?? "Property";
+    propertyOptions.find((p) => p.id === pdfOnboardPropertyId)?.label ?? pdfOnboardPropertyId;
 
   function openPdfOnboardWizard() {
     if (!pdfOnboardPropertyId) {
-      showToast("Add a property listing before importing a resident from PDFs.");
+      showToast("Select a property before uploading PDFs.");
       return;
     }
     setAddResidentOpen(false);
     setPdfOnboardOpen(true);
+  }
+
+  function applyParsedToAddResidentForm(
+    applicationParse: ParsedResidentDocument | null,
+    leaseParse: ParsedResidentDocument | null,
+  ) {
+    const merged = mergeParsedFields(applicationParse, leaseParse);
+    const primaryParse = leaseParse ?? applicationParse;
+    const propertyIdForPresets =
+      primaryParse?.propertyMatch?.propertyId?.trim() || arPropertyId || pdfOnboardPropertyId;
+    const leaseTermPresetValues = propertyIdForPresets
+      ? residentLeaseTermOptionsForProperty(propertyIdForPresets).map((opt) => opt.value)
+      : [];
+    const mapped = mapParsedFieldsToAddResidentForm({
+      fields: merged,
+      parse: primaryParse,
+      leaseTermPresetValues,
+    });
+    if (mapped.name) setArName(mapped.name);
+    if (mapped.email) setArEmail(mapped.email);
+    if (mapped.phone) setArPhone(mapped.phone);
+    if (mapped.propertyId) setArPropertyId(mapped.propertyId);
+    if (mapped.roomId) setArRoomId(mapped.roomId);
+    if (mapped.leaseTerm) {
+      setArLeaseTerm(mapped.leaseTerm);
+      setArLeaseTermCustomMode(Boolean(mapped.leaseTermCustomMode));
+    }
+    if (mapped.moveInDate) setArMoveInDate(mapped.moveInDate);
+    if (mapped.moveOutDate) setArMoveOutDate(mapped.moveOutDate);
+    if (mapped.rent) setArRent(mapped.rent);
+    if (mapped.utilities) setArUtilities(mapped.utilities);
+    if (mapped.moveInFee) setArMoveInFee(mapped.moveInFee);
+    if (mapped.securityDeposit) setArSecurityDeposit(mapped.securityDeposit);
+  }
+
+  async function handleAddResidentApplicationPdf(file: File) {
+    const propertyId = pdfOnboardPropertyId;
+    if (!propertyId) {
+      showToast("Select a property before uploading an application PDF.");
+      return;
+    }
+    setArPdfBusy(true);
+    try {
+      const url = await readDataUrlFromFile(file);
+      const parsed = await parseResidentDocumentPdfClient({
+        dataUrl: url,
+        fileName: file.name,
+        kind: "application",
+        propertyId,
+      });
+      setArApplicationFile(file);
+      setArApplicationParse(parsed);
+      applyParsedToAddResidentForm(parsed, arLeaseParse);
+      if (parsed.warnings[0]) showToast(parsed.warnings[0]);
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : "Could not read application PDF.");
+    } finally {
+      setArPdfBusy(false);
+      if (arApplicationUploadRef.current) arApplicationUploadRef.current.value = "";
+    }
+  }
+
+  async function handleAddResidentLeasePdf(file: File) {
+    const propertyId = pdfOnboardPropertyId;
+    if (!propertyId) {
+      showToast("Select a property before uploading a lease PDF.");
+      return;
+    }
+    setArPdfBusy(true);
+    try {
+      const url = await readDataUrlFromFile(file);
+      const parsed = await parseResidentDocumentPdfClient({
+        dataUrl: url,
+        fileName: file.name,
+        kind: "lease",
+        propertyId,
+      });
+      setArLeaseImportFile(file);
+      setArLeaseParse(parsed);
+      setArSignedLeaseDataUrl(url);
+      setArSignedLeaseFileName(file.name);
+      applyParsedToAddResidentForm(arApplicationParse, parsed);
+      if (parsed.warnings[0]) showToast(parsed.warnings[0]);
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : "Could not read lease PDF.");
+    } finally {
+      setArPdfBusy(false);
+      if (arLeaseImportUploadRef.current) arLeaseImportUploadRef.current.value = "";
+    }
   }
 
   const arRoomOptions = useMemo(() => {
@@ -2343,6 +2449,17 @@ export function ManagerResidents({
         >
           Edit application
         </Button>
+        {selectedApplicationRow.bucket !== "rejected" && !isWithdrawnApplicationRow(selectedApplicationRow) ? (
+          <Button
+            type="button"
+            variant="outline"
+            className={PORTAL_DETAIL_BTN}
+            data-attr="application-holding-fee-open"
+            onClick={() => setHoldingFeeRowId(selectedApplicationRow.id)}
+          >
+            Holding fee
+          </Button>
+        ) : null}
         {selectedApplicationRow.bucket === "pending" ? (
           <>
             {shouldOfferApplicationCompletionReminder(selectedApplicationRow) ? (
@@ -2617,12 +2734,6 @@ export function ManagerResidents({
                             <ResidentDetailTabPanel>
                               {selectedApplicationRow ? (
                                 <div className="space-y-0">
-                                  {selectedApplicationGroup ? (
-                                    <ApplicationGroupSection
-                                      group={selectedApplicationGroup}
-                                      currentRowId={selectedApplicationRow.id}
-                                    />
-                                  ) : null}
                                   {selectedApplicationCosigners.length > 0 ? (
                                     <ApplicationCosignerSection
                                       submissions={selectedApplicationCosigners}
@@ -2631,6 +2742,7 @@ export function ManagerResidents({
                                   ) : null}
                                   <ApplicationReviewLauncherRow
                                     row={selectedApplicationRow}
+                                    group={selectedApplicationGroup}
                                     bareCanvas
                                     showDownload={false}
                                     activeView={applicationReviewView}
@@ -3736,6 +3848,19 @@ export function ManagerResidents({
           setCheckrScreeningShowPicker(false);
         }}
         onUpdated={handleScreeningUpdated}
+      />
+
+      <ApplicationHoldingFeeModal
+        row={
+          holdingFeeRowId
+            ? (() => {
+                const row = readManagerApplicationRows().find((r) => r.id === holdingFeeRowId);
+                return row ? { ...row, managerUserId: userId ?? null } : null;
+              })()
+            : null
+        }
+        open={holdingFeeRowId !== null}
+        onClose={() => setHoldingFeeRowId(null)}
       />
 
       <PortalNotificationPreviewModal
