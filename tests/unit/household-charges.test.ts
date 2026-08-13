@@ -9,10 +9,8 @@ import {
   householdChargeToLedgerRow,
   isHouseholdChargeOverdue,
   isManagerAddedOneOffCharge,
-  isStaleRecurringHouseholdCharge,
   joinPropertyAndUnitLabel,
   mergeHouseholdChargesWithServer,
-  type RecurringRentProfile,
 } from "@/lib/household-charges";
 import type { HouseholdCharge } from "@/lib/household-charges";
 
@@ -402,45 +400,6 @@ describe("mergeHouseholdChargesWithServer", () => {
     const { merged } = mergeHouseholdChargesWithServer([serverFull], [localProrated]);
     expect(merged).toHaveLength(1);
     expect(merged[0]?.kind).toBe("prorated_rent");
-  });
-});
-
-describe("isStaleRecurringHouseholdCharge", () => {
-  const profile: RecurringRentProfile = {
-    id: "rrp-1",
-    active: true,
-    residentEmail: "res@test.com",
-    residentName: "Resident",
-    propertyId: "prop-1",
-    propertyLabel: "Test Property",
-    roomLabel: "Room 7",
-    managerUserId: "mgr-1",
-    monthlyRent: 825,
-    monthlyUtilities: 200,
-    dueDay: 1,
-    dueDayMode: "first_of_month",
-    startMonth: "2026-10",
-    leaseEnd: "2027-03-31",
-  };
-
-  it("flags recurring rows whose amount/title no longer match the profile", () => {
-    const staleRent = makeCharge({
-      id: "rent-jan",
-      kind: "rent",
-      recurringRentProfileId: profile.id,
-      rentMonth: "2027-01",
-      amountLabel: "$825.00",
-      balanceLabel: "$825.00",
-      title: "Prorated rent — January 2027",
-    });
-    const profileById = new Map([[profile.id, profile]]);
-    expect(isStaleRecurringHouseholdCharge(staleRent, profileById, [staleRent])).toBe(true);
-
-    const freshRent = makeCharge({
-      ...staleRent,
-      title: "Rent — January 2027",
-    });
-    expect(isStaleRecurringHouseholdCharge(freshRent, profileById, [freshRent])).toBe(false);
   });
 });
 

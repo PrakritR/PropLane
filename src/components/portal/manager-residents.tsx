@@ -638,8 +638,8 @@ export function ManagerResidents({
           getRoomChoiceLabel(row.assignedRoomChoice?.trim() || row.application?.roomChoice1?.trim() || "").split(" · ")[0]?.trim() ||
           "";
         const propertyLabel = (prop?.buildingName?.trim() || prop?.title?.trim()?.replace(/\s*·\s*\d+\s*rooms?\s*$/i, "") || row.property || "").trim();
-        const leaseStart = (row.application?.leaseStart?.trim() || row.manualResidentDetails?.moveInDate?.trim() || "");
-        const leaseEnd = (row.application?.leaseEnd?.trim() || row.manualResidentDetails?.moveOutDate?.trim() || "");
+        const leaseStart = (row.manualResidentDetails?.moveInDate?.trim() || row.application?.leaseStart?.trim() || "");
+        const leaseEnd = (row.manualResidentDetails?.moveOutDate?.trim() || row.application?.leaseEnd?.trim() || "");
         return {
           id: row.id,
           name: row.name,

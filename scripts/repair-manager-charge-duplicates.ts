@@ -1,26 +1,21 @@
 #!/usr/bin/env npx tsx
 /**
- * Remove duplicate upfront move-in charges and stale recurring rows for one manager.
- * Uses the same dedupe/stale rules as the browser charge store.
+ * Remove duplicate upfront move-in charge rows for one manager (server-side dedupe only).
  *
  * Dev/test:
- *   npx tsx --env-file=.env scripts/repair-manager-charge-duplicates.ts --email=ambika.mago@example.com
+ *   npx tsx --env-file=.env scripts/repair-manager-charge-duplicates.ts --email=manager@test.proplane.local
  *
  * Dry run:
  *   npx tsx --env-file=.env scripts/repair-manager-charge-duplicates.ts --manager-id=<uuid> --dry-run
  */
 
 import { createClient } from "@supabase/supabase-js";
-import {
-  dedupeHouseholdCharges,
-  duplicateHouseholdChargeIds,
-  isStaleRecurringHouseholdCharge,
-  type HouseholdCharge,
-  type RecurringRentProfile,
-} from "../src/lib/household-charges";
 import { reconcileDuplicateHouseholdChargeRecords } from "../src/lib/reports/ledger-sync";
 
-const DEFAULT_AMBIKA_MANAGER_ID = "c49d02b1-7e99-4484-9986-b3b4550c3519";
+function projectRefFromUrl(url: string): string | null {
+  const match = url.match(/https:\/\/([^.]+)\.supabase\.co/);
+  return match?.[1] ?? null;
+}
 
 async function main(): Promise<void> {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL?.trim();
@@ -33,18 +28,26 @@ async function main(): Promise<void> {
   const dryRun = process.argv.includes("--dry-run");
   const emailArg = process.argv.find((a) => a.startsWith("--email="));
   const managerArg = process.argv.find((a) => a.startsWith("--manager-id="));
+  const allowTarget = process.env.ALLOW_PROBE_TARGET?.trim();
 
-  const db = createClient(url, serviceKey, {
-    auth: { autoRefreshToken: false, persistSession: false },
-  });
+  const projectRef = projectRefFromUrl(url);
+  if (!allowTarget || !projectRef || allowTarget !== projectRef) {
+    console.error(
+      `Refusing to run: set ALLOW_PROBE_TARGET=${projectRef ?? "<project-ref>"} to confirm the Supabase project.`,
+    );
+    process.exit(1);
+  }
 
-  let managerUserId = managerArg?.split("=")[1]?.trim() || DEFAULT_AMBIKA_MANAGER_ID;
+  let managerUserId = managerArg?.split("=")[1]?.trim();
   if (emailArg) {
     const email = emailArg.split("=")[1]?.trim().toLowerCase();
     if (!email) {
       console.error("Invalid --email value.");
       process.exit(1);
     }
+    const db = createClient(url, serviceKey, {
+      auth: { autoRefreshToken: false, persistSession: false },
+    });
     const { data, error } = await db.from("profiles").select("id").eq("email", email).maybeSingle();
     if (error || !data?.id) {
       console.error(error?.message ?? `No profile for ${email}`);
@@ -53,76 +56,29 @@ async function main(): Promise<void> {
     managerUserId = data.id;
   }
 
-  const { data: chargeRows, error: chargeError } = await db
-    .from("portal_household_charge_records")
-    .select("id, row_data")
-    .eq("manager_user_id", managerUserId);
-  if (chargeError) {
-    console.error(chargeError.message);
+  if (!managerUserId) {
+    console.error("Pass --manager-id=<uuid> or --email=<address>.");
     process.exit(1);
   }
 
-  const charges = (chargeRows ?? [])
-    .map((row) => row.row_data as HouseholdCharge | null)
-    .filter((charge): charge is HouseholdCharge => Boolean(charge?.id));
-
-  const { data: profileRows, error: profileError } = await db
-    .from("portal_recurring_rent_profile_records")
-    .select("row_data")
-    .eq("manager_user_id", managerUserId);
-  if (profileError) {
-    console.error(profileError.message);
-    process.exit(1);
-  }
-
-  const profiles = (profileRows ?? [])
-    .map((row) => row.row_data as RecurringRentProfile | null)
-    .filter((profile): profile is RecurringRentProfile => Boolean(profile?.id));
-  const profileById = new Map(profiles.map((profile) => [profile.id, profile]));
-
-  const staleRecurringIds = charges
-    .filter(
-      (charge) =>
-        charge.status === "pending" &&
-        isStaleRecurringHouseholdCharge(charge, profileById, charges),
-    )
-    .map((charge) => charge.id);
-
-  const duplicateIds = duplicateHouseholdChargeIds(charges);
-  const deduped = dedupeHouseholdCharges(charges);
-  const keptIds = new Set(deduped.map((charge) => charge.id));
-  const structuralRemovals = charges.filter((charge) => !keptIds.has(charge.id)).map((charge) => charge.id);
-
-  const toDelete = [...new Set([...duplicateIds, ...staleRecurringIds, ...structuralRemovals])];
-
-  console.log(`Manager ${managerUserId}`);
-  console.log(`Charges scanned: ${charges.length}`);
-  console.log(`Duplicate upfront slots: ${duplicateIds.length}`);
-  console.log(`Stale recurring rows: ${staleRecurringIds.length}`);
-  console.log(`Structural dedupe removals: ${structuralRemovals.length}`);
-  console.log(`Total rows to delete: ${toDelete.length}`);
+  const db = createClient(url, serviceKey, {
+    auth: { autoRefreshToken: false, persistSession: false },
+  });
 
   if (dryRun) {
-    console.log("Dry run — no rows deleted.");
-    if (toDelete.length > 0) console.log(toDelete.join("\n"));
+    const { data: chargeRows } = await db
+      .from("portal_household_charge_records")
+      .select("id")
+      .eq("manager_user_id", managerUserId);
+    console.log(`Manager ${managerUserId}: ${chargeRows?.length ?? 0} charge rows (dry run — no deletes).`);
     return;
   }
 
-  if (toDelete.length > 0) {
-    const { error: deleteError } = await db
-      .from("portal_household_charge_records")
-      .delete()
-      .eq("manager_user_id", managerUserId)
-      .in("id", toDelete);
-    if (deleteError) {
-      console.error(deleteError.message);
-      process.exit(1);
-    }
-  }
-
   const { removedChargeIds } = await reconcileDuplicateHouseholdChargeRecords(db, managerUserId);
-  console.log(`Reconcile pass removed: ${removedChargeIds.length}`);
-  console.log("Done. Open Residents in the portal and re-save affected residents to regenerate recurring months.");
+  console.log(`Manager ${managerUserId}`);
+  console.log(`Duplicate rows removed: ${removedChargeIds.length}`);
+  if (removedChargeIds.length > 0) console.log(removedChargeIds.join("\n"));
+  console.log("Done. Re-save affected residents in the portal to refresh recurring months.");
 }
 
 main().catch((error) => {

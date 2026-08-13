@@ -831,8 +831,16 @@ function dedupeCharges(rows: HouseholdCharge[]): HouseholdCharge[] {
             : new Date(charge.createdAt).getTime() >= new Date(existing.createdAt).getTime()
               ? charge
               : existing;
+      const other = preferred === charge ? existing : charge;
       const canonicalId = approvedChargeId(preferred.applicationId!, preferred.kind);
-      byKey.set(key, mergeApprovedApplicationChargeRows(existing, charge, canonicalId));
+      const merged = mergeApprovedApplicationChargeRows(other, preferred, canonicalId);
+      byKey.set(key, {
+        ...merged,
+        kind: preferred.kind,
+        title: preferred.title?.trim() ? preferred.title : merged.title,
+        amountLabel: preferred.amountLabel?.trim() ? preferred.amountLabel : merged.amountLabel,
+        balanceLabel: merged.status === "paid" ? "$0.00" : preferred.balanceLabel || merged.balanceLabel,
+      });
       continue;
     }
     if (
@@ -1007,69 +1015,6 @@ function resolveLeaseDatesForBilling(row: Pick<DemoApplicantRow, "manuallyAdded"
   };
 }
 
-function expectedRecurringHouseholdCharge(
-  prof: RecurringRentProfile,
-  rentMonth: string,
-  kind: "rent" | "utilities",
-): { amountLabel: string; title: string } | null {
-  const [candidateYear, candidateMonthNum] = rentMonth.split("-").map(Number);
-  if (!candidateYear || !candidateMonthNum) return null;
-
-  const leaseEndParts = prof.leaseEnd?.trim().split("-").map(Number) ?? [];
-  const leaseEndYear = leaseEndParts[0] && Number.isFinite(leaseEndParts[0]) ? leaseEndParts[0] : null;
-  const leaseEndMonthNum = leaseEndParts[1] && Number.isFinite(leaseEndParts[1]) ? leaseEndParts[1] : null;
-  const leaseEndDay = leaseEndParts[2] && Number.isFinite(leaseEndParts[2]) ? leaseEndParts[2] : null;
-
-  const isLastMonth =
-    leaseEndYear !== null &&
-    leaseEndMonthNum !== null &&
-    leaseEndDay !== null &&
-    candidateYear === leaseEndYear &&
-    candidateMonthNum === leaseEndMonthNum;
-  const daysInCandidateMonth = new Date(candidateYear, candidateMonthNum, 0).getDate();
-  const isPartialLastMonth = isLastMonth && leaseEndDay! < daysInCandidateMonth;
-  const proratedFactor = isPartialLastMonth ? leaseEndDay! / daysInCandidateMonth : 1;
-  const monthLabel = new Date(candidateYear, candidateMonthNum - 1, 1).toLocaleString("default", {
-    month: "long",
-    year: "numeric",
-  });
-  const splitCtx = bundleSplitContextFromProfile(prof);
-
-  if (kind === "rent") {
-    const profileDailyRate =
-      typeof prof.dailyRentPrice === "number" && prof.dailyRentPrice > 0 ? prof.dailyRentPrice : 0;
-    if (!(prof.monthlyRent > 0 || profileDailyRate > 0)) return null;
-    const daysBilled = isPartialLastMonth ? leaseEndDay! : daysInCandidateMonth;
-    const householdAmount =
-      profileDailyRate > 0
-        ? Number((daysBilled * profileDailyRate).toFixed(2))
-        : Number((prof.monthlyRent * proratedFactor).toFixed(2));
-    const rawTitlePrefix =
-      profileDailyRate > 0
-        ? `${isPartialLastMonth ? "Prorated rent" : "Rent"} (${daysBilled} days × ${formatRoomPriceAmount(profileDailyRate)}/day)`
-        : isPartialLastMonth
-          ? "Prorated rent"
-          : "Rent";
-    const rentSplit = applyBundleGroupSplit(householdAmount, rawTitlePrefix, splitCtx);
-    return {
-      amountLabel: moneyAmountLabel(rentSplit.amount),
-      title: `${rentSplit.title} — ${monthLabel}`,
-    };
-  }
-
-  const utilAmt = prof.monthlyUtilities ?? 0;
-  if (!(utilAmt > 0)) return null;
-  const utilSplit = applyBundleGroupSplit(
-    Number((utilAmt * proratedFactor).toFixed(2)),
-    isPartialLastMonth ? "Prorated utilities" : "Utilities",
-    splitCtx,
-  );
-  return {
-    amountLabel: moneyAmountLabel(utilSplit.amount),
-    title: `${utilSplit.title} — ${monthLabel}`,
-  };
-}
-
 /** Pending recurring rent/utilities rows that should not bill or receive reminders. */
 export function isStaleRecurringHouseholdCharge(
   charge: HouseholdCharge,
@@ -1115,14 +1060,6 @@ export function isStaleRecurringHouseholdCharge(
             );
       if (hasUpfront) return true;
     }
-  }
-
-  const expected =
-    charge.kind === "rent" || charge.kind === "utilities"
-      ? expectedRecurringHouseholdCharge(prof, charge.rentMonth, charge.kind)
-      : null;
-  if (expected && (charge.amountLabel !== expected.amountLabel || charge.title !== expected.title)) {
-    return true;
   }
 
   return false;
@@ -2152,6 +2089,11 @@ function syncAllRecurringRentCharges(): boolean {
 
   // Build a map of profile id → profile for stale-charge cleanup
   const profileById = new Map(profiles.map((p) => [p.id, p]));
+  const staleIds = new Set<string>();
+  for (const c of existing) {
+    if (isStaleRecurringHouseholdCharge(c, profileById, existing)) staleIds.add(c.id);
+  }
+  const activeExisting = staleIds.size > 0 ? existing.filter((c) => !staleIds.has(c.id)) : existing;
 
   for (const profile of profiles) {
     const dueDayMode = profile.dueDayMode ?? "first_of_month";
@@ -2213,7 +2155,7 @@ function syncAllRecurringRentCharges(): boolean {
       if ((profile.monthlyRent > 0 || profileDailyRate > 0) && !hasUpfrontLastRent) {
         const chargeKey = `rent|${emailLower}|${profile.propertyId}|${rentMonth}`;
         const alreadyExists =
-          existing.some((c) => chargeBusinessKey(c) === chargeKey) ||
+          activeExisting.some((c) => chargeBusinessKey(c) === chargeKey) ||
           newCharges.some((c) => chargeBusinessKey(c) === chargeKey);
         if (!alreadyExists) {
           // Daily-priced rooms bill actual days-in-month × daily rate (partial last month
@@ -2265,7 +2207,7 @@ function syncAllRecurringRentCharges(): boolean {
       if (utilAmt > 0 && !hasUpfrontLastUtil) {
         const utilKey = `utilities_recurring|${emailLower}|${profile.propertyId}|${rentMonth}`;
         const alreadyUtil =
-          existing.some((c) => chargeBusinessKey(c) === utilKey) ||
+          activeExisting.some((c) => chargeBusinessKey(c) === utilKey) ||
           newCharges.some((c) => chargeBusinessKey(c) === utilKey);
         if (!alreadyUtil) {
           const utilSplit = applyBundleGroupSplit(
@@ -2312,7 +2254,7 @@ function syncAllRecurringRentCharges(): boolean {
         if (!(fee.amount > 0)) continue;
         const feeKey = `custom_fee|${emailLower}|${profile.propertyId}|${fee.id}|${rentMonth}`;
         const alreadyFee =
-          existing.some((c) => chargeBusinessKey(c) === feeKey) ||
+          activeExisting.some((c) => chargeBusinessKey(c) === feeKey) ||
           newCharges.some((c) => chargeBusinessKey(c) === feeKey);
         if (alreadyFee) continue;
         const feeSplit = applyBundleGroupSplit(fee.amount, fee.label, splitCtx);
@@ -2345,14 +2287,8 @@ function syncAllRecurringRentCharges(): boolean {
     }
   }
 
-  // Remove stale pending recurring charges that violate profile boundaries/formula.
-  // This cleans up incorrect charges created before the correct startMonth was computed.
-  const staleIds = new Set<string>();
-  for (const c of existing) {
-    if (isStaleRecurringHouseholdCharge(c, profileById, existing)) staleIds.add(c.id);
-  }
-
-  const cleanedExisting = staleIds.size > 0 ? existing.filter((c) => !staleIds.has(c.id)) : existing;
+  // Remove stale pending recurring charges that violate profile boundaries.
+  const cleanedExisting = staleIds.size > 0 ? activeExisting : existing;
   if (newCharges.length > 0 || staleIds.size > 0) {
     writeAll([...cleanedExisting, ...newCharges], true);
     emit();
@@ -3315,14 +3251,6 @@ export function recordApprovedApplicationCharges(row: DemoApplicantRow, managerU
       );
       const expectedKinds = new Set(drafts.map((draft) => draft.kind));
       const staleKind = pendingForApp.some((charge) => !expectedKinds.has(charge.kind));
-      const upfrontSlotsSeen = new Set<string>();
-      const duplicateUpfrontSlot = pendingForApp.some((charge) => {
-        const slot = upfrontApprovedChargeSlotKey(charge);
-        if (!slot) return false;
-        if (upfrontSlotsSeen.has(slot)) return true;
-        upfrontSlotsSeen.add(slot);
-        return false;
-      });
       const draftMismatch = drafts.some((draft) => {
         if (!(draft.amount > 0)) return false;
         const aliasIds = new Set(approvedChargeIdAliases(applicationId, draft.kind));
@@ -3335,7 +3263,7 @@ export function recordApprovedApplicationCharges(row: DemoApplicantRow, managerU
         const label = moneyAmountLabel(Number(draft.amount.toFixed(2)));
         return match.amountLabel !== label || match.title !== draft.title;
       });
-      if (!staleKind && !draftMismatch && !duplicateUpfrontSlot) return synced;
+      if (!staleKind && !draftMismatch) return synced;
     }
   }
   // Preserve paid charges — only wipe pending ones so they can be regenerated with correct amounts.
