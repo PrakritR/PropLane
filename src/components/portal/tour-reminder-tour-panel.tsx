@@ -87,8 +87,14 @@ export function TourReminderTourPanel({
           );
         }
       }
-    } catch (e) {
-      showToast(e instanceof Error ? e.message : "Could not load tour reminder.");
+    } catch {
+      // Never surface the raw error text. The only deliberate throw above already
+      // carries exactly this copy, so nothing is lost — but an unexpected failure
+      // (network blip, bad JSON) was putting an internal message like
+      // "Failed to parse URL from /api/portal/tour-reminders?…" in front of the
+      // manager, and because this panel loads when the tour modal OPENS, that
+      // toast also landed on top of the cancel/confirm result they were reading.
+      showToast("Could not load tour reminder.");
     } finally {
       setLoading(false);
     }
