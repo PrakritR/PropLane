@@ -5,6 +5,7 @@ import {
   createPropertyApplicationTemplate,
   readPropertyApplicationTemplates,
   syncLegacyApplicationFieldsFromTemplates,
+  withPropertyApplicationTemplatesExplicit,
   type PropertyApplicationTemplate,
 } from "@/lib/property-application-templates";
 import type { PropertyLeaseListingSeedKey, PropertyLeaseTemplateKind } from "@/lib/property-lease-templates";
@@ -13,7 +14,7 @@ import { buildLeaseTemplateSeeds } from "@/lib/property-lease-template-sync";
 const COSIGNER_LONG_TERM_SEED_KEY: PropertyLeaseListingSeedKey = "cosigner";
 const COSIGNER_SHORT_TERM_SEED_KEY: PropertyLeaseListingSeedKey = "cosigner-short-term";
 
-type ApplicationTemplateSeed = {
+export type ApplicationTemplateSeed = {
   seedKey: PropertyLeaseListingSeedKey;
   kind: PropertyLeaseTemplateKind;
   label: string;
@@ -87,6 +88,51 @@ export function buildApplicationTemplateSeeds(
     })),
     ...cosignerApplicationSeeds(leaseSeeds),
   ];
+}
+
+/**
+ * PropLane default applications this property does NOT currently carry.
+ *
+ * Auto-seeding stops for good once a manager deletes an application
+ * (`propertyApplicationTemplatesExplicit`), which is what makes Delete stick —
+ * the same opt-in rule the lease twin got. Without a way to add a default back,
+ * that decision is one-way: a manager who removes the PropLane application can
+ * never recover it. This is the list the Application tab offers, exactly as
+ * `availableLeaseTemplateSeeds` does for leases.
+ */
+export function availableApplicationTemplateSeeds(
+  sub: ManagerListingSubmissionV1,
+): ApplicationTemplateSeed[] {
+  const present = new Set(
+    readPropertyApplicationTemplates(sub)
+      .map((t) => t.listingSeedKey)
+      .filter(Boolean),
+  );
+  return buildApplicationTemplateSeeds(sub).filter((seed) => !present.has(seed.seedKey));
+}
+
+/** Add one PropLane default application. Returns the updated submission. */
+export function addApplicationTemplateFromSeed(
+  sub: ManagerListingSubmissionV1,
+  seedKey: PropertyLeaseListingSeedKey,
+): ManagerListingSubmissionV1 {
+  const seed = buildApplicationTemplateSeeds(sub).find((s) => s.seedKey === seedKey);
+  if (!seed) return sub;
+  const existing = readPropertyApplicationTemplates(sub);
+  // Two rows carrying one seed key would give the applicant-form router two
+  // equally valid matches for the same lease term.
+  if (existing.some((t) => t.listingSeedKey === seedKey)) return sub;
+  const created = createPropertyApplicationTemplate({
+    kind: seed.kind,
+    label: defaultLabelForSeed(seed),
+    listingSeedKey: seed.seedKey,
+    applicationLeaseTerms: seed.applicationLeaseTerms,
+    formVariant: seed.formVariant,
+  });
+  // Stay EXPLICIT. Adding one default by hand is curation, not a request to
+  // resume auto-seeding — dropping the flag here would silently restore every
+  // other default the manager had deleted.
+  return withPropertyApplicationTemplatesExplicit(sub, [...existing, created]);
 }
 
 /**

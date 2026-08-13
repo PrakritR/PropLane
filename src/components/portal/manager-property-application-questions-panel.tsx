@@ -30,7 +30,13 @@ import {
   withPropertyApplicationTemplatesExplicit,
   type PropertyApplicationTemplate,
 } from "@/lib/property-application-templates";
-import { submissionAfterRemovingApplicationTemplate, syncPropertyApplicationTemplatesFromListing } from "@/lib/property-application-template-sync";
+import {
+  addApplicationTemplateFromSeed,
+  availableApplicationTemplateSeeds,
+  submissionAfterRemovingApplicationTemplate,
+  syncPropertyApplicationTemplatesFromListing,
+} from "@/lib/property-application-template-sync";
+import { PropertyTemplatePresetList } from "@/components/portal/property-template-preset-list";
 import { formatApplicationLeaseTermsLabel } from "@/lib/property-lease-template-sync";
 import { normalizePropertyApplicationTemplateLabel } from "@/lib/property-application-template-sync";
 
@@ -194,6 +200,77 @@ export function ManagerPropertyApplicationQuestionsPanel({
     );
   };
 
+  /**
+   * PropLane defaults this property does not carry. Deleting an application
+   * sets `propertyApplicationTemplatesExplicit`, which permanently stops
+   * auto-seeding — so without this list a removed default is unrecoverable.
+   */
+  const availableSeeds = useMemo(() => availableApplicationTemplateSeeds(syncedSub), [syncedSub]);
+
+  const addSeedTemplate = useCallback(
+    (seedKey: string) => {
+      if (!managerUserId) return;
+
+      if (bulkPropertyIds.length > 0) {
+        let saved = 0;
+        let failed = 0;
+        let skipped = 0;
+        for (const propertyId of bulkPropertyIds) {
+          const hit = resolveManagerListingSubmissionForPropertyId(managerUserId, propertyId);
+          if (!hit) {
+            failed += 1;
+            continue;
+          }
+          // Resolve and write EACH property from its own submission, so a bulk
+          // add never stamps this property's list onto the others.
+          const base = hit.sub.propertyApplicationTemplatesExplicit
+            ? hit.sub
+            : syncPropertyApplicationTemplatesFromListing(hit.sub);
+          const next = addApplicationTemplateFromSeed(base, seedKey as never);
+          if (next === base) {
+            skipped += 1;
+            continue;
+          }
+          if (persistManagerListingSubmission(hit.saveTarget, managerUserId, next)) saved += 1;
+          else failed += 1;
+        }
+        if (saved === 0) {
+          showToast(
+            skipped > 0 && failed === 0
+              ? "That application is already on every selected property."
+              : "Could not add application.",
+          );
+          return;
+        }
+        showToast(
+          failed > 0
+            ? `Added application on ${saved} properties (${failed} could not be saved).`
+            : skipped > 0
+              ? `Added application on ${saved} properties (${skipped} already had it).`
+              : `Added application on ${saved} propert${saved === 1 ? "y" : "ies"}.`,
+        );
+        onUpdated();
+        return;
+      }
+
+      if (!saveTarget) return;
+      const base = sub.propertyApplicationTemplatesExplicit ? sub : syncedSub;
+      const next = addApplicationTemplateFromSeed(base, seedKey as never);
+      if (next === base) {
+        showToast("That application is already on this property.");
+        return;
+      }
+      const label = availableSeeds.find((s) => s.seedKey === seedKey)?.label ?? "Application";
+      if (!persistManagerListingSubmission(saveTarget, managerUserId, next)) {
+        showToast("Could not add application.");
+        return;
+      }
+      showToast(`${label} added.`);
+      onUpdated();
+    },
+    [availableSeeds, bulkPropertyIds, managerUserId, onUpdated, saveTarget, showToast, sub, syncedSub],
+  );
+
   const openAdd = useCallback(() => {
     setEditorMode("add");
     setEditingTemplate(null);
@@ -283,7 +360,31 @@ export function ManagerPropertyApplicationQuestionsPanel({
         ))}
       </PortalPropertyDetailSection>
 
+      {/* PropLane defaults first, then the shared Add row — same as Lease and Requests. */}
       <div className={PORTAL_LIST_ADD_ROW_WRAP_CLASS}>
+        {availableSeeds.length > 0 ? (
+          <div className="mb-3">
+            <PropertyTemplatePresetList
+              title="Add an application"
+              dataAttr="property-application-template-suggestions"
+              addDataAttrPrefix="property-application-seed-add"
+              presets={availableSeeds.map((seed) => ({
+                key: seed.seedKey,
+                label: seed.label,
+                subtitle:
+                  [
+                    "PropLane default application",
+                    formatApplicationLeaseTermsLabel(seed.applicationLeaseTerms)
+                      ? `Applicants: ${formatApplicationLeaseTermsLabel(seed.applicationLeaseTerms)}`
+                      : null,
+                  ]
+                    .filter(Boolean)
+                    .join(" · "),
+              }))}
+              onAdd={addSeedTemplate}
+            />
+          </div>
+        ) : null}
         <PortalListAddRow
           label="Add"
           icon={PORTAL_LIST_ADD_ICONS.application}
