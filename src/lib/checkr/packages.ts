@@ -101,6 +101,34 @@ export function checkrOrderCostCents(
   return base + addOnTotal;
 }
 
+/** Stripe product title — includes selected add-ons so the charged amount matches the label. */
+export function buildScreeningCheckoutProductName(
+  packageSlug: CheckrPackage,
+  addOnProducts: readonly CheckrAddOnSlug[] = [],
+): string {
+  const pkg = checkrPackageCatalog().find((p) => p.slug === packageSlug);
+  const pkgName = pkg?.name ?? packageSlug;
+  const addOnNames = addOnProducts
+    .map((slug) => checkrAddOnCatalog().find((a) => a.slug === slug)?.name)
+    .filter((name): name is string => Boolean(name));
+  if (addOnNames.length === 0) return `Applicant screening — ${pkgName}`;
+  return `Applicant screening — ${pkgName} + ${addOnNames.join(" + ")}`;
+}
+
+export function screeningCheckoutDescription(
+  packageSlug: CheckrPackage,
+  addOnProducts: readonly CheckrAddOnSlug[] = [],
+): string | undefined {
+  const pkg = checkrPackageCatalog().find((p) => p.slug === packageSlug);
+  const parts: string[] = [];
+  if (pkg?.tagline) parts.push(pkg.tagline);
+  for (const slug of addOnProducts) {
+    const addOn = checkrAddOnCatalog().find((a) => a.slug === slug);
+    if (addOn) parts.push(`Includes ${addOn.name.toLowerCase()}`);
+  }
+  return parts.length > 0 ? parts.join(" · ") : undefined;
+}
+
 export function formatCheckrPrice(cents: number): string {
   return `$${(cents / 100).toFixed(2)}`;
 }

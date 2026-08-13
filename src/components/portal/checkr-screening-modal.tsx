@@ -245,6 +245,16 @@ export function CheckrScreeningModal({
     [selectedPackage, selectedAddOns],
   );
 
+  const selectedPackageOption = useMemo(
+    () => packages.find((pkg) => pkg.slug === selectedPackage) ?? null,
+    [packages, selectedPackage],
+  );
+
+  const selectedAddOnOptions = useMemo(
+    () => addOns.filter((addOn) => selectedAddOns.includes(addOn.slug)),
+    [addOns, selectedAddOns],
+  );
+
   const toggleAddOn = (slug: CheckrAddOnSlug) => {
     setSelectedAddOns((cur) => (cur.includes(slug) ? cur.filter((s) => s !== slug) : [...cur, slug]));
   };
@@ -432,7 +442,30 @@ export function CheckrScreeningModal({
                   </p>
                 </>
               ) : (
-                <p className="font-semibold text-foreground">Total: {formatCheckrPrice(totalCents)} per run</p>
+                <dl className="space-y-1 text-sm" data-attr="screening-order-summary">
+                  {selectedPackageOption ? (
+                    <div className="flex items-center justify-between gap-3">
+                      <dt className="text-muted">{selectedPackageOption.name} package</dt>
+                      <dd className="shrink-0 tabular-nums font-medium text-foreground">
+                        {formatCheckrPrice(selectedPackageOption.priceCents)}
+                      </dd>
+                    </div>
+                  ) : null}
+                  {selectedAddOnOptions.map((addOn) => (
+                    <div key={addOn.slug} className="flex items-center justify-between gap-3">
+                      <dt className="text-muted">{addOn.name}</dt>
+                      <dd className="shrink-0 tabular-nums font-medium text-foreground">
+                        +{formatCheckrPrice(addOn.priceCents)}
+                      </dd>
+                    </div>
+                  ))}
+                  <div className="flex items-center justify-between gap-3 border-t border-border pt-2">
+                    <dt className="font-semibold text-foreground">Total per run</dt>
+                    <dd className="shrink-0 tabular-nums text-base font-bold text-foreground">
+                      {formatCheckrPrice(totalCents)}
+                    </dd>
+                  </div>
+                </dl>
               )}
             </div>
 

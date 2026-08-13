@@ -34,4 +34,16 @@ describe("checkr package catalog", () => {
     expect(checkrPackageCatalog()[0]?.priceCents).toBe(1999);
     expect(checkrOrderCostCents("starter", ["identity_verification"])).toBe(2494);
   });
+
+  it("builds a single Stripe product name that includes add-ons", async () => {
+    const { buildScreeningCheckoutProductName, checkrOrderCostCents, formatCheckrPrice } = await import(
+      "@/lib/checkr/packages"
+    );
+    expect(buildScreeningCheckoutProductName("essential")).toBe("Applicant screening — Essential");
+    expect(buildScreeningCheckoutProductName("essential", ["identity_verification"])).toBe(
+      "Applicant screening — Essential + Identity protection",
+    );
+    expect(checkrOrderCostCents("essential", ["identity_verification"])).toBe(3794);
+    expect(formatCheckrPrice(3794)).toBe("$37.94");
+  });
 });

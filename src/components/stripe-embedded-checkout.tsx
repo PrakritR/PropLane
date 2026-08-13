@@ -14,7 +14,7 @@ export function StripeEmbeddedCheckout({
 }) {
   return (
     <div className={className ?? "min-h-[360px] overflow-hidden rounded-2xl border border-border bg-card"}>
-      <EmbeddedCheckoutProvider stripe={stripePromise} options={{ clientSecret }}>
+      <EmbeddedCheckoutProvider key={clientSecret} stripe={stripePromise} options={{ clientSecret }}>
         <EmbeddedCheckout />
       </EmbeddedCheckoutProvider>
     </div>

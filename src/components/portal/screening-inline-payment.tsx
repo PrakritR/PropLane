@@ -33,7 +33,6 @@ export function ScreeningInlinePayment({
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const inFlight = useRef(false);
-  const startedSelectionKey = useRef<string | null>(null);
   const onPaidRef = useRef(onPaid);
   const onErrorRef = useRef(onError);
   const selectionKey = `${applicationId}:${packageSlug}:${addOnProducts.join(",")}`;
@@ -99,8 +98,9 @@ export function ScreeningInlinePayment({
   }, [applicationId, packageSlug, addOnProducts, returnPath]);
 
   useEffect(() => {
-    if (startedSelectionKey.current === selectionKey) return;
-    startedSelectionKey.current = selectionKey;
+    inFlight.current = false;
+    setClientSecret(null);
+    setError(null);
     void start();
   }, [selectionKey, start]);
 
@@ -122,7 +122,12 @@ export function ScreeningInlinePayment({
           Preparing secure payment…
         </div>
       ) : null}
-      {clientSecret ? <StripeEmbeddedCheckout clientSecret={clientSecret} className="min-h-[320px] overflow-hidden rounded-2xl border border-border bg-card" /> : null}
+      {clientSecret ? (
+        <StripeEmbeddedCheckout
+          clientSecret={clientSecret}
+          className="min-h-[320px] overflow-hidden rounded-2xl border border-border bg-card"
+        />
+      ) : null}
     </div>
   );
 }

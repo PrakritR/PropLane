@@ -22,11 +22,11 @@ import {
 import { checkrSkipsManagerCardCharge } from "@/lib/checkr/config";
 import type { CheckrPackage } from "@/lib/checkr/config";
 import {
-  checkrAddOnCatalog,
+  buildScreeningCheckoutProductName,
   checkrOrderCostCents,
-  checkrPackageCatalog,
   isCheckrAddOn,
   isCheckrPackage,
+  screeningCheckoutDescription,
   type CheckrAddOnSlug,
 } from "@/lib/checkr/packages";
 import { getManagerPurchaseSku } from "@/lib/manager-access-server";
@@ -101,8 +101,6 @@ export async function POST(req: Request) {
       return NextResponse.json({ ok: true, ran: true, backgroundCheck: result.backgroundCheck });
     }
 
-    const pkg = checkrPackageCatalog().find((p) => p.slug === packageSlug);
-    const addOnEntries = checkrAddOnCatalog().filter((a) => addOnProducts.includes(a.slug));
     const totalCents = checkrOrderCostCents(packageSlug, addOnProducts);
 
     const lineItems = [
@@ -110,21 +108,13 @@ export async function POST(req: Request) {
         price_data: {
           currency: "usd" as const,
           product_data: {
-            name: `Applicant screening — ${pkg?.name ?? packageSlug}`,
-            description: pkg?.tagline,
+            name: buildScreeningCheckoutProductName(packageSlug, addOnProducts),
+            description: screeningCheckoutDescription(packageSlug, addOnProducts),
           },
-          unit_amount: pkg?.priceCents ?? totalCents,
+          unit_amount: totalCents,
         },
         quantity: 1,
       },
-      ...addOnEntries.map((addOn) => ({
-        price_data: {
-          currency: "usd" as const,
-          product_data: { name: `Add-on — ${addOn.name}`, description: addOn.description },
-          unit_amount: addOn.priceCents,
-        },
-        quantity: 1,
-      })),
     ];
 
     const metadata: Record<string, string> = {
