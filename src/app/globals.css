@@ -2363,12 +2363,14 @@ html[data-rental-wizard-active] .axis-assistant-fab {
 }
 
 html[data-communication-surface][data-communication-thread-reading] .axis-assistant-fab,
-html[data-communication-surface][data-communication-thread-selected] .axis-assistant-fab {
+html[data-communication-surface][data-communication-thread-selected] .axis-assistant-fab,
+html[data-communication-surface][data-communication-hide-assistant-fab] .axis-assistant-fab {
   display: none !important;
 }
 
 html[data-communication-surface][data-communication-thread-reading] .portal-assistant-dock-rail,
-html[data-communication-surface][data-communication-thread-selected] .portal-assistant-dock-rail {
+html[data-communication-surface][data-communication-thread-selected] .portal-assistant-dock-rail,
+html[data-communication-surface][data-communication-hide-assistant-fab] .portal-assistant-dock-rail {
   display: none !important;
 }
 
@@ -2388,6 +2390,12 @@ html[data-communication-surface] {
 }
 
 html[data-hide-assistant-fab] .portal-communication-inbox .portal-inbox-composer-row {
+  padding-right: 0;
+}
+
+html[data-communication-surface][data-communication-hide-assistant-fab]
+  .portal-communication-inbox
+  .portal-inbox-composer-row {
   padding-right: 0;
 }
 

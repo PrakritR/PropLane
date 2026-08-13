@@ -135,6 +135,7 @@ export function ScopedInboxComposeModal({
   senderEmail = "portal-user@example.com",
   liveContacts = [],
   initialDraft = null,
+  initialScheduleLater = false,
 }: {
   open: boolean;
   onClose: () => void;
@@ -145,6 +146,8 @@ export function ScopedInboxComposeModal({
   senderEmail?: string;
   liveContacts?: InboxScopedContact[];
   initialDraft?: ResidentComposePrefill | null;
+  /** When true, opens with "Schedule for later" checked (resident thread schedule flow). */
+  initialScheduleLater?: boolean;
 }) {
   const { showToast } = useAppUi();
   const localContacts = useMemo(() => contactsForPortal(portal, liveContacts), [portal, liveContacts]);
@@ -245,9 +248,9 @@ export function ScopedInboxComposeModal({
     if (!open) return;
     queueMicrotask(() => {
       const draft = initialDraft;
-      if (draft?.subject?.trim() && draft?.body?.trim()) {
-        setSubject(draft.subject.trim());
-        setBody(draft.body.trim());
+      if (draft) {
+        setSubject(draft.subject?.trim() || "");
+        setBody(draft.body?.trim() || "");
         setPropertyContext({
           propertyId: draft.propertyId?.trim() || undefined,
           propertyTitle: draft.propertyTitle?.trim() || undefined,
@@ -261,10 +264,10 @@ export function ScopedInboxComposeModal({
         setSelectedKeys([]);
       }
       setSendVia(defaultPortalMessageChannelSelection(true, showSmsOption, true, false));
-      setScheduleLater(false);
+      setScheduleLater(initialScheduleLater);
       setSendAt(defaultPortalMessageScheduleAt());
     });
-  }, [open, portal, initialDraft, showSmsOption]);
+  }, [open, portal, initialDraft, initialScheduleLater, showSmsOption]);
 
   useEffect(() => {
     if (!open || !initialDraft || contacts.length === 0) return;
@@ -275,8 +278,10 @@ export function ScopedInboxComposeModal({
         ? contacts.find((c) => c.id === `mgr-${managerId}` || c.id === managerId)
         : undefined) ??
       (email ? contacts.find((c) => c.email.trim().toLowerCase() === email) : undefined);
-    if (!hit || hit.role !== "manager") return;
-    setSelectedCategories(["management"]);
+    if (!hit) return;
+    const category =
+      hit.role === "manager" ? "management" : hit.role === "vendor" ? "vendor" : "resident";
+    setSelectedCategories([category]);
     setSelectedKeys([`id:${hit.id}` as PersonKey]);
   }, [open, initialDraft, contacts]);
 
@@ -422,6 +427,8 @@ export function ScopedInboxComposeModal({
       title={title}
       onClose={onClose}
       dense
+      assistantStrip={portal !== "resident"}
+      fullScreenMobile={false}
       panelClassName={PORTAL_MESSAGE_COMPOSE_MODAL_PANEL_CLASS}
       footer={
         <ModalFooter>
@@ -474,22 +481,11 @@ export function ScopedInboxComposeModal({
 
         <PortalMessageBodyField value={body} onChange={setBody} minHeightClass="min-h-[7rem]" />
 
-        {/* Residents cannot schedule a message. `PortalMessageScheduleFields`
-            REMOVES itself when disabled (it returns null), so this hides the
-            whole "Schedule for later" control rather than greying it out — that
-            is intended: e021015a lists "hide resident compose scheduling" as one
-            of its changes. Reviewers keep re-raising this as an accidental
-            regression, hence this note. Do NOT confuse it with the separate
-            rule that resident-originated scheduled rows are cancel-only. The
-            resident send path still handles `scheduleLater` (resident-inbox-panel),
-            so reversing this is a one-line prop change if the product call
-            changes. */}
         <PortalMessageScheduleFields
           scheduleLater={scheduleLater}
           onScheduleLaterChange={setScheduleLater}
           sendAt={sendAt}
           onSendAtChange={setSendAt}
-          disabled={portal === "resident"}
         />
       </PortalMessageComposeModalBody>
     </Modal>

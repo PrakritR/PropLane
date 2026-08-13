@@ -10,6 +10,7 @@ export function shouldHideAssistantFab(): boolean {
   const html = document.documentElement;
   if (html.hasAttribute("data-hide-assistant-fab")) return true;
   if (html.hasAttribute("data-rental-wizard-active")) return true;
+  if (html.hasAttribute("data-communication-hide-assistant-fab")) return true;
   if (
     html.hasAttribute("data-communication-surface") &&
     (html.hasAttribute("data-communication-thread-reading") ||
@@ -30,6 +31,7 @@ export function subscribeAssistantFabVisibility(onStoreChange: () => void): () =
       "data-hide-assistant-fab",
       "data-rental-wizard-active",
       "data-communication-surface",
+      "data-communication-hide-assistant-fab",
       "data-communication-thread-reading",
       "data-communication-thread-selected",
     ],
