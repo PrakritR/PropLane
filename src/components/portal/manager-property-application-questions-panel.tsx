@@ -37,7 +37,6 @@ import {
   syncPropertyApplicationTemplatesFromListing,
 } from "@/lib/property-application-template-sync";
 import { PropertyTemplatePresetList } from "@/components/portal/property-template-preset-list";
-import { PropertyResidentDocumentImportModal } from "@/components/portal/property-resident-document-import-modal";
 import { formatApplicationLeaseTermsLabel } from "@/lib/property-lease-template-sync";
 import { normalizePropertyApplicationTemplateLabel } from "@/lib/property-application-template-sync";
 
@@ -97,7 +96,6 @@ export function ManagerPropertyApplicationQuestionsPanel({
   const [editingTemplate, setEditingTemplate] = useState<PropertyApplicationTemplate | null>(null);
   const [previewOpen, setPreviewOpen] = useState(false);
   const [previewTemplate, setPreviewTemplate] = useState<PropertyApplicationTemplate | null>(null);
-  const [importOpen, setImportOpen] = useState(false);
 
   const syncedSub = useMemo(() => syncPropertyApplicationTemplatesFromListing(sub), [sub]);
   const templates = useMemo(() => readPropertyApplicationTemplates(syncedSub), [syncedSub]);
@@ -387,17 +385,6 @@ export function ManagerPropertyApplicationQuestionsPanel({
             />
           </div>
         ) : null}
-        <div className="mb-3 flex justify-center">
-          <Button
-            type="button"
-            variant="outline"
-            className="rounded-full"
-            onClick={() => setImportOpen(true)}
-            data-attr="property-application-import-pdf"
-          >
-            Import application PDF
-          </Button>
-        </div>
         <PortalListAddRow
           label="Add"
           icon={PORTAL_LIST_ADD_ICONS.application}
@@ -485,17 +472,6 @@ export function ManagerPropertyApplicationQuestionsPanel({
           </div>
         ) : null}
       </Modal>
-
-      <PropertyResidentDocumentImportModal
-        open={importOpen}
-        kind="application"
-        propertyId={previewPropertyId || listingId?.trim() || saveTarget?.saveId || propertyIds?.[0] || ""}
-        propertyLabel={sub.buildingName?.trim() || sub.propertyTitle?.trim() || "Property"}
-        managerUserId={managerUserId}
-        onClose={() => setImportOpen(false)}
-        onImported={() => onUpdated()}
-        showToast={showToast}
-      />
     </>
   );
 }

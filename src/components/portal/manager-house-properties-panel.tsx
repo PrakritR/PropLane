@@ -39,6 +39,7 @@ import {
   type PropertyDetailTabId,
 } from "@/lib/portal-detail-routes";
 import { ManagerPropertyRequestsPanel } from "@/components/portal/manager-property-requests-panel";
+import { PropertyResidentOnboardWizard } from "@/components/portal/property-resident-onboard-wizard";
 import { PortalPropertyRecordRow } from "@/components/portal/portal-record-row";
 import {
   PortalListAddRow,
@@ -288,6 +289,7 @@ function ManagerPropertyInlineDetails({
   const [listingEditorOpen, setListingEditorOpen] = useState(false);
   const [draftEditorOpen, setDraftEditorOpen] = useState(false);
   const [shareApplicationOpen, setShareApplicationOpen] = useState(false);
+  const [residentOnboardOpen, setResidentOnboardOpen] = useState(false);
   const [pendingDestructiveAction, setPendingDestructiveAction] = useState<
     "delete-queue" | "delete-draft" | "unlist" | null
   >(null);
@@ -711,20 +713,38 @@ function ManagerPropertyInlineDetails({
     }
     if (activeDetailTab === "application" && bucket !== 3 && bucket !== 5) {
       return (
-        <div className="flex w-full justify-start gap-2">
+        <div className="flex w-full min-w-0 flex-nowrap items-center justify-start gap-2">
           <Button
             type="button"
             variant="outline"
             className={PORTAL_DETAIL_BTN}
             data-attr="property-application-add-footer"
-            onClick={() => applicationAddHandlerRef.current?.()}
+            onClick={() => setResidentOnboardOpen(true)}
           >
-            Add
+            Add application
+          </Button>
+          <Button
+            type="button"
+            variant="outline"
+            className={PORTAL_DETAIL_BTN}
+            data-attr="property-lease-add-footer-from-application"
+            onClick={() => setResidentOnboardOpen(true)}
+          >
+            Add lease
+          </Button>
+          <Button
+            type="button"
+            variant="primary"
+            className={PORTAL_DETAIL_BTN}
+            data-attr="property-resident-onboard-footer"
+            onClick={() => setResidentOnboardOpen(true)}
+          >
+            Add resident
           </Button>
           {sharePropertyId ? (
             <Button
               type="button"
-              variant="primary"
+              variant="outline"
               className={PORTAL_DETAIL_BTN}
               data-attr="property-application-send-footer"
               onClick={() => setShareApplicationOpen(true)}
@@ -737,15 +757,35 @@ function ManagerPropertyInlineDetails({
     }
     if (activeDetailTab === "lease" && bucket !== 3 && bucket !== 5) {
       return (
-        <Button
-          type="button"
-          variant="outline"
-          className={PORTAL_DETAIL_BTN}
-          data-attr="property-lease-add-footer"
-          onClick={() => leaseAddHandlerRef.current?.()}
-        >
-          Add
-        </Button>
+        <div className="flex w-full min-w-0 flex-nowrap items-center justify-start gap-2">
+          <Button
+            type="button"
+            variant="outline"
+            className={PORTAL_DETAIL_BTN}
+            data-attr="property-application-add-footer-from-lease"
+            onClick={() => setResidentOnboardOpen(true)}
+          >
+            Add application
+          </Button>
+          <Button
+            type="button"
+            variant="outline"
+            className={PORTAL_DETAIL_BTN}
+            data-attr="property-lease-add-footer"
+            onClick={() => setResidentOnboardOpen(true)}
+          >
+            Add lease
+          </Button>
+          <Button
+            type="button"
+            variant="primary"
+            className={PORTAL_DETAIL_BTN}
+            data-attr="property-resident-onboard-footer-lease-tab"
+            onClick={() => setResidentOnboardOpen(true)}
+          >
+            Add resident
+          </Button>
+        </div>
       );
     }
     if (activeDetailTab === "calendar" && calendarSubTab === "tours" && bucket === 2 && listingId) {
@@ -1012,6 +1052,21 @@ function ManagerPropertyInlineDetails({
             if (!destructiveBusy) setPendingDestructiveAction(null);
           }}
           onConfirm={confirmDestructiveAction}
+        />
+      ) : null}
+
+      {sharePropertyId ? (
+        <PropertyResidentOnboardWizard
+          open={residentOnboardOpen}
+          propertyId={sharePropertyId}
+          propertyLabel={propertyShareLabel}
+          managerUserId={managerUserId}
+          onClose={() => setResidentOnboardOpen(false)}
+          onImported={() => {
+            setResidentOnboardOpen(false);
+            onUpdated();
+          }}
+          showToast={showToast}
         />
       ) : null}
     </div>

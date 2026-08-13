@@ -1,22 +1,34 @@
 "use client";
 
-import { ChevronUp } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Modal } from "@/components/ui/modal";
-import { AssistantDockPanel } from "@/components/portal/assistant-dock-panel";
-import { LeaseSectionEditor } from "@/components/portal/lease-section-editor";
-import { AxisAssistantSparkleIcon } from "@/components/portal/assistant-shared";
-import { AssistantConversationProvider } from "@/lib/axis-assistant/assistant-conversation-context";
-import { modalAssistantStorageScope } from "@/lib/axis-assistant/assistant-chat-storage";
-import { usePortalAssistantConfig } from "@/lib/axis-assistant/portal-assistant-context";
+import { useAppUi } from "@/components/providers/app-ui-provider";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import {
+  Modal,
+  ModalFooter,
+  MODAL_FIELD_LABEL_CLASS,
+  PORTAL_MODAL_FORM_FIELD_CLASS,
+} from "@/components/ui/modal";
+import { LeaseHtmlDirectEditor } from "@/components/portal/lease-html-direct-editor";
+import {
+  PropertyLeaseDocumentNotice,
+  propertyLeaseNeedsAssistantReview,
+} from "@/components/portal/property-lease-document-notice";
 import { buildLeasePacketEditAssistantContext } from "@/lib/lease-assistant-context";
 import { AGENT_PENDING_ACTIONS_EVENT } from "@/lib/axis-assistant/pending-actions-events";
-import { leaseDocumentHtmlForSectionEdit } from "@/lib/lease-section-edit.client";
-import { getLeaseDocumentHtml, leaseAllowsManagerDocumentEdits, type LeasePipelineRow } from "@/lib/lease-pipeline-storage";
-import { cn } from "@/lib/utils";
+import {
+  leaseDocumentHtmlForSectionEdit,
+  saveLeaseDocumentHtml,
+} from "@/lib/lease-section-edit.client";
+import {
+  leaseAllowsManagerDocumentEdits,
+  type LeasePipelineRow,
+} from "@/lib/lease-pipeline-storage";
+import { stripDisclosureReviewFromLeaseHtml } from "@/lib/property-lease-document-display";
 import { useManagerUserId } from "@/hooks/use-manager-user-id";
 
-/** Full-width section editor with assistant dock. */
+/** Resident / pipeline lease editor — same shell as the property Lease tab editor, but edits one lease packet. */
 export function ManagerPipelineLeaseEditModal({
   open,
   row,
@@ -28,109 +40,162 @@ export function ManagerPipelineLeaseEditModal({
   onClose: () => void;
   onDone: () => void;
 }) {
-  const config = usePortalAssistantConfig();
+  const { showToast } = useAppUi();
   const { userId: managerUserId } = useManagerUserId();
-  const [savedRow, setSavedRow] = useState<LeasePipelineRow | null>(null);
-  const [chatOpen, setChatOpen] = useState(false);
+  const [htmlOverride, setHtmlOverride] = useState("");
+  const [saveReviewOpen, setSaveReviewOpen] = useState(false);
+  const [saving, setSaving] = useState(false);
 
-  const activeRow = savedRow?.id === row.id ? savedRow : row;
-  const assistantContext = useMemo(() => buildLeasePacketEditAssistantContext(activeRow), [activeRow]);
+  const canEdit = leaseAllowsManagerDocumentEdits(row);
+  const editableHtml = leaseDocumentHtmlForSectionEdit(row);
 
-  const editableHtml = leaseDocumentHtmlForSectionEdit(activeRow);
-  const canEdit = leaseAllowsManagerDocumentEdits(activeRow);
+  const baselineHtml = useMemo(() => {
+    if (!editableHtml) return "";
+    return stripDisclosureReviewFromLeaseHtml(editableHtml);
+  }, [editableHtml]);
+
+  const editorHtml = htmlOverride.trim() || baselineHtml;
+  const displayHtml = useMemo(() => stripDisclosureReviewFromLeaseHtml(editorHtml), [editorHtml]);
+  const noticeHtml = editorHtml;
+
+  const documentLabel = useMemo(() => {
+    const name = row.residentName?.trim() || "Resident";
+    const unit = row.unit?.trim();
+    return unit ? `${name} · ${unit}` : name;
+  }, [row.residentName, row.unit]);
 
   useEffect(() => {
     if (!open) return;
-    const refresh = () => {
-      onDone();
-    };
-    window.addEventListener(AGENT_PENDING_ACTIONS_EVENT, refresh);
-    return () => window.removeEventListener(AGENT_PENDING_ACTIONS_EVENT, refresh);
-  }, [open, onDone]);
+    const html = leaseDocumentHtmlForSectionEdit(row);
+    setHtmlOverride(html ? stripDisclosureReviewFromLeaseHtml(html) : "");
+    setSaveReviewOpen(false);
+  }, [open, row.id, row.updatedAtIso, row.generatedHtml, row.managerSectionEdits]);
+
+  const assistantContext = useMemo(() => buildLeasePacketEditAssistantContext(row), [row]);
+
+  const refreshFromAssistant = useCallback(() => {
+    onDone();
+  }, [onDone]);
+
+  useEffect(() => {
+    if (!open) return;
+    const onActions = () => refreshFromAssistant();
+    window.addEventListener(AGENT_PENDING_ACTIONS_EVENT, onActions);
+    return () => window.removeEventListener(AGENT_PENDING_ACTIONS_EVENT, onActions);
+  }, [open, refreshFromAssistant]);
 
   const handleClose = () => {
+    onClose();
+  };
+
+  const commitSave = () => {
+    if (!canEdit || !editableHtml) return;
+    setSaving(true);
+    const result = saveLeaseDocumentHtml(row.id, editorHtml, managerUserId);
+    setSaving(false);
+    if (!result.ok) {
+      showToast(result.error);
+      return;
+    }
+    showToast("Lease saved.");
     onDone();
     onClose();
   };
 
-  const handleSaved = useCallback(
-    (updated: LeasePipelineRow) => {
-      setSavedRow(updated);
-      onDone();
-    },
-    [onDone],
-  );
-
-  const storageScope = modalAssistantStorageScope(`Lease packet edit · ${activeRow.id}`, 0);
+  const save = () => {
+    if (propertyLeaseNeedsAssistantReview(noticeHtml)) {
+      setSaveReviewOpen(true);
+      return;
+    }
+    commitSave();
+  };
 
   return (
     <Modal
       open={open}
       title="Edit lease"
+      description="Update this resident's lease format below, or type in chat to edit with PropLane Assistant."
       onClose={handleClose}
-      assistantStrip={false}
-      scrollableContent={false}
-      dense
-      panelClassName="max-w-6xl w-full max-h-[min(92dvh,56rem)]"
+      dismissBlocked={saving}
+      panelClassName="max-w-4xl"
+      assistantContext={assistantContext}
+      assistantEditHint="Type in chat to edit the lease — changes apply after you confirm."
+      assistantStorageScopeKey={`Lease packet edit · ${row.id}`}
+      footer={
+        canEdit && editableHtml ? (
+          <ModalFooter className="w-full">
+            <Button
+              type="button"
+              variant="primary"
+              className="ml-auto rounded-full"
+              disabled={saving}
+              onClick={save}
+              data-attr="resident-lease-edit-save"
+            >
+              {saving ? "Saving…" : "Save"}
+            </Button>
+          </ModalFooter>
+        ) : null
+      }
     >
-      <div className="flex h-[min(82dvh,48rem)] max-h-[min(82dvh,48rem)] flex-col gap-2">
-        <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
-          {!canEdit ? (
-            <div className="flex min-h-0 flex-1 items-center justify-center rounded-2xl border border-border bg-accent/30 px-4 py-6 text-center text-sm text-muted">
-              This lease has entered signing and its document body is locked.
-            </div>
-          ) : editableHtml ? (
-            <div className="grid min-h-0 flex-1 gap-3 lg:grid-cols-[minmax(18rem,0.8fr)_minmax(0,1.6fr)]">
-              <LeaseSectionEditor key={`${activeRow.id}:${activeRow.updatedAtIso}`} row={activeRow} managerUserId={managerUserId} onSaved={handleSaved} className="min-h-0" fullHeight />
-              <div className="relative min-h-[18rem] overflow-hidden rounded-2xl border border-border bg-card">
-                <iframe title="Lease preview" srcDoc={getLeaseDocumentHtml(activeRow) ?? ""} sandbox="" className="absolute inset-0 h-full w-full border-0 bg-card" />
-              </div>
-            </div>
-          ) : (
-            <div className="flex min-h-0 flex-1 items-center justify-center rounded-2xl border border-border bg-accent/30 px-4 py-6 text-center text-sm text-muted">
-              Generate a PropLane lease before editing. Uploaded PDF templates are preserved as the manager’s original document and cannot be edited here.
-            </div>
-          )}
+      <div className="space-y-4">
+        <div className={PORTAL_MODAL_FORM_FIELD_CLASS}>
+          <label className={MODAL_FIELD_LABEL_CLASS} htmlFor="resident-lease-document-name">
+            Lease document name
+          </label>
+          <Input
+            id="resident-lease-document-name"
+            value={documentLabel}
+            readOnly
+            disabled
+            data-attr="resident-lease-document-name"
+          />
         </div>
 
-        {config ? (
-          <AssistantConversationProvider endpoint={config.endpoint} storageScope={storageScope}>
-            <div
-              className={cn(
-                "flex w-full shrink-0 flex-col",
-                chatOpen ? "max-h-[min(28vh,13rem)]" : "",
-              )}
-              data-attr="lease-edit-assistant"
-              data-expanded={chatOpen ? "true" : "false"}
-            >
-              {chatOpen ? (
-                <AssistantDockPanel
-                  managerName={config.managerName}
-                  endpoint={config.endpoint}
-                  contextHint={assistantContext}
-                  compact
-                  pinnedComposer
-                  onCollapse={() => setChatOpen(false)}
-                  className="min-h-0 flex-1 rounded-xl border border-border shadow-none"
-                />
-              ) : (
-                <button
-                  type="button"
-                  onClick={() => setChatOpen(true)}
-                  className="flex w-full items-center justify-between gap-2 rounded-xl border border-border bg-card px-3 py-3 text-left text-sm transition hover:bg-foreground/[0.02] md:py-4"
-                  data-attr="lease-edit-assistant-expand"
-                  aria-expanded={false}
-                >
-                  <span className="flex min-w-0 items-center gap-1.5 font-semibold text-primary">
-                    <AxisAssistantSparkleIcon className="h-4 w-4 shrink-0" />
-                    Ask PropLane Assistant
-                  </span>
-                  <ChevronUp className="h-4 w-4 shrink-0 text-muted" aria-hidden />
-                </button>
-              )}
+        {!canEdit ? (
+          <div className="rounded-2xl border border-border bg-accent/30 px-4 py-6 text-center text-sm text-muted">
+            This lease has entered signing and its document body is locked.
+          </div>
+        ) : !editableHtml ? (
+          <div className="rounded-2xl border border-border bg-accent/30 px-4 py-6 text-center text-sm text-muted">
+            Generate a PropLane lease before editing. Uploaded PDF templates are preserved as the
+            manager&apos;s original document and cannot be edited here.
+          </div>
+        ) : (
+          <div className="flex min-h-[min(420px,55vh)] flex-col gap-3">
+            <PropertyLeaseDocumentNotice html={noticeHtml} />
+            {saveReviewOpen ? (
+              <div className="rounded-xl border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-950">
+                <p className="font-semibold">Review before saving</p>
+                <p className="mt-1">
+                  This lease still has items to fix. Ask PropLane Assistant in the panel below, then save when it
+                  looks right — or{" "}
+                  <button
+                    type="button"
+                    className="font-semibold underline"
+                    onClick={() => {
+                      setSaveReviewOpen(false);
+                      commitSave();
+                    }}
+                  >
+                    save anyway
+                  </button>
+                  .
+                </p>
+              </div>
+            ) : null}
+            <div className="flex min-h-0 flex-1 flex-col">
+              <p className={MODAL_FIELD_LABEL_CLASS}>Lease format</p>
+              <LeaseHtmlDirectEditor
+                className="min-h-[min(380px,50vh)] flex-1"
+                html={displayHtml}
+                baselineHtml={baselineHtml}
+                onChange={(next) => setHtmlOverride(next)}
+                showPersistBar={false}
+              />
             </div>
-          </AssistantConversationProvider>
-        ) : null}
+          </div>
+        )}
       </div>
     </Modal>
   );

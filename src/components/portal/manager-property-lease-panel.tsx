@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { Button } from "@/components/ui/button";
-import { Modal } from "@/components/ui/modal";
+import { Modal, ModalFooter } from "@/components/ui/modal";
 import { PropertyLeaseFormModal } from "@/components/portal/property-lease-form-modal";
 import {
   PORTAL_LIST_ADD_ROW_WRAP_CLASS,
@@ -33,7 +33,6 @@ import {
   syncPropertyLeaseTemplatesFromListing,
 } from "@/lib/property-lease-template-sync";
 import { PropertyLeaseTemplateSuggestions } from "@/components/portal/property-lease-template-suggestions";
-import { PropertyResidentDocumentImportModal } from "@/components/portal/property-resident-document-import-modal";
 import type { PropertyLeaseListingSeedKey } from "@/lib/property-lease-templates";
 import {
   propertyLeaseSourceFromTemplate,
@@ -113,7 +112,6 @@ export function ManagerPropertyLeasePanel({
   const [editingTemplateId, setEditingTemplateId] = useState<string | null>(null);
   const [previewOpen, setPreviewOpen] = useState(false);
   const [previewTemplate, setPreviewTemplate] = useState<PropertyLeaseTemplate | null>(null);
-  const [importOpen, setImportOpen] = useState(false);
 
   const syncedSub = useMemo(() => syncPropertyLeaseTemplatesFromListing(sub), [sub]);
   const templates = useMemo(() => readPropertyLeaseTemplates(syncedSub), [syncedSub]);
@@ -393,17 +391,6 @@ export function ManagerPropertyLeasePanel({
             <PropertyLeaseTemplateSuggestions seeds={availableSeeds} onAddSeed={addSeedTemplate} />
           </div>
         ) : null}
-        <div className="mb-3 flex justify-center">
-          <Button
-            type="button"
-            variant="outline"
-            className="rounded-full"
-            onClick={() => setImportOpen(true)}
-            data-attr="property-lease-import-pdf"
-          >
-            Import lease PDF
-          </Button>
-        </div>
         <PortalListAddRow
           label="Add"
           icon={PORTAL_LIST_ADD_ICONS.lease}
@@ -427,6 +414,26 @@ export function ManagerPropertyLeasePanel({
         stackClassName="fixed inset-0 z-[80] overflow-y-auto overscroll-contain"
         panelClassName="flex max-h-[min(90vh,56rem)] w-full max-w-5xl flex-col"
         dataAttr="property-lease-preview"
+        footer={
+          previewTemplate ? (
+            <ModalFooter>
+              <Button
+                type="button"
+                variant="primary"
+                className="ml-auto rounded-full"
+                data-attr="property-lease-preview-edit"
+                onClick={() => {
+                  const templateId = previewTemplate.id;
+                  setPreviewOpen(false);
+                  setPreviewTemplate(null);
+                  openEdit(templateId);
+                }}
+              >
+                Edit lease
+              </Button>
+            </ModalFooter>
+          ) : null
+        }
       >
         {previewOpen && previewTemplate ? (
           <div className="mx-auto w-full max-w-5xl min-h-0 flex-1">
@@ -476,17 +483,6 @@ export function ManagerPropertyLeasePanel({
           onUpdated();
           return true;
         }}
-        showToast={showToast}
-      />
-
-      <PropertyResidentDocumentImportModal
-        open={importOpen}
-        kind="lease"
-        propertyId={propertyId ?? bulkPropertyIds[0] ?? ""}
-        propertyLabel={propertyLabel ?? sub.buildingName?.trim() ?? "Property"}
-        managerUserId={managerUserId}
-        onClose={() => setImportOpen(false)}
-        onImported={() => onUpdated()}
         showToast={showToast}
       />
     </>

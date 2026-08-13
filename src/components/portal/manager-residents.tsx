@@ -70,6 +70,7 @@ import { LeasePrimaryHeaderActions } from "@/components/portal/lease-primary-hea
 import { LeaseGenerateModal } from "@/components/portal/lease-generate-modal";
 import { LeaseSigningModal } from "@/components/portal/lease-signing-modal";
 import { ManagerPipelineLeaseEditModal } from "@/components/portal/manager-pipeline-lease-edit-modal";
+import { PropertyResidentOnboardWizard } from "@/components/portal/property-resident-onboard-wizard";
 import { useManagerUserId } from "@/hooks/use-manager-user-id";
 import { usePaidPortalBasePath } from "@/lib/portal-base-path-client";
 import {
@@ -429,6 +430,7 @@ export function ManagerResidents({
   const [arSignedLeaseDataUrl, setArSignedLeaseDataUrl] = useState("");
   const [addResidentNoticePreview, setAddResidentNoticePreview] = useState<DemoApplicantRow | null>(null);
   const [arSaving, setArSaving] = useState(false);
+  const [pdfOnboardOpen, setPdfOnboardOpen] = useState(false);
 
   // Edit resident
   const erSkipPricingFillRef = useRef(false);
@@ -674,6 +676,19 @@ export function ManagerResidents({
       .map(([id, label]) => ({ id, label }))
       .sort((a, b) => a.label.localeCompare(b.label, undefined, { sensitivity: "base" }));
   }, [residents, userId, propertyTick]);
+
+  const pdfOnboardPropertyId = arPropertyId || propertyOptions[0]?.id || "";
+  const pdfOnboardPropertyLabel =
+    propertyOptions.find((p) => p.id === pdfOnboardPropertyId)?.label ?? "Property";
+
+  function openPdfOnboardWizard() {
+    if (!pdfOnboardPropertyId) {
+      showToast("Add a property listing before importing a resident from PDFs.");
+      return;
+    }
+    setAddResidentOpen(false);
+    setPdfOnboardOpen(true);
+  }
 
   const arRoomOptions = useMemo(() => {
     void propertyTick;
@@ -3263,6 +3278,29 @@ export function ManagerResidents({
         }
       >
         <div className="min-w-0 max-w-full space-y-3 overflow-x-hidden">
+          <div className="flex flex-row flex-wrap gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              className="rounded-full"
+              onClick={openPdfOnboardWizard}
+              data-attr="residents-add-application-pdf"
+            >
+              Add application
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              className="rounded-full"
+              onClick={openPdfOnboardWizard}
+              data-attr="residents-add-lease-pdf"
+            >
+              Add lease
+            </Button>
+          </div>
+          <p className="text-xs text-muted">
+            Upload application and/or lease PDFs side by side — PropLane merges the readings, then you review and import. Or enter details manually below.
+          </p>
           <p className="text-xs text-muted">
             Onboard an existing tenant: creates an active resident record, sets up payments, and can email portal instructions (no application or screening). Generate or upload a lease in Manager Review unless you attach an already-signed PDF below.
           </p>
@@ -3868,6 +3906,24 @@ export function ManagerResidents({
           void sendResidentMessage(channels, draft);
         }}
       />
+
+      {pdfOnboardPropertyId ? (
+        <PropertyResidentOnboardWizard
+          open={pdfOnboardOpen}
+          propertyId={pdfOnboardPropertyId}
+          propertyLabel={pdfOnboardPropertyLabel}
+          managerUserId={userId}
+          onClose={() => setPdfOnboardOpen(false)}
+          onImported={() => {
+            setPdfOnboardOpen(false);
+            void syncManagerApplicationsFromServer({ force: true, managerUserId: userId }).then(() =>
+              setHcTick((n) => n + 1),
+            );
+            showToast("Resident imported from PDFs.");
+          }}
+          showToast={showToast}
+        />
+      ) : null}
     </>
   );
 }

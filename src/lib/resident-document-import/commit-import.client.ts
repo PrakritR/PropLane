@@ -54,8 +54,9 @@ function buildApplicationRow(args: {
       ? `${review.propertyId}${LISTING_ROOM_CHOICE_SEP}${review.roomId}`
       : undefined;
 
-  const existing =
-    review.residentMode === "existing"
+  const existing = review.existingApplicationId?.trim()
+    ? readManagerApplicationRows().find((row) => row.id === review.existingApplicationId)
+    : review.residentMode === "existing" && review.existingApplicationId?.trim()
       ? readManagerApplicationRows().find((row) => row.id === review.existingApplicationId)
       : null;
 

@@ -3,10 +3,18 @@
 import { useEffect, useMemo, useState } from "react";
 import { useAppUi } from "@/components/providers/app-ui-provider";
 import { Button } from "@/components/ui/button";
-import { Modal, ModalFooter, MODAL_WARNING_BOX_CLASS } from "@/components/ui/modal";
+import { NativeSelect } from "@/components/ui/input";
+import {
+  Modal,
+  ModalFooter,
+  MODAL_FIELD_LABEL_CLASS,
+  MODAL_WARNING_BOX_CLASS,
+  PORTAL_MODAL_FORM_FIELD_CLASS,
+} from "@/components/ui/modal";
 import { buildAiGeneratedLeaseHtml } from "@/lib/generated-lease";
 import {
   generateLeaseHtmlForRow,
+  leaseAllowsManagerGeneratedBodyEdits,
   leaseGenerationPreviewContextForRow,
   leaseApplicationSnapshotForRow,
   resolveManagerLeaseGenerationRow,
@@ -84,20 +92,36 @@ export function LeaseGenerateModal({
     return { html: outcome.html };
   }, [actionRow, open, managerUserId, selectedTemplateId]);
 
-  const confirm = () => {
+  const confirm = (opts?: { openEditor?: boolean }) => {
     if (!actionRow || busy) return;
     if (choices.length > 0 && !selectedTemplateId) return;
+
+    const openEditor = opts?.openEditor === true;
+    if (
+      openEditor &&
+      actionRow.generatedHtml &&
+      leaseAllowsManagerGeneratedBodyEdits(actionRow) &&
+      !replacesManagerEdits
+    ) {
+      onGenerated(actionRow.id);
+      return;
+    }
+
     const res = generateLeaseHtmlForRow(actionRow.id, managerUserId, {
       discardManagerEdits: replacesManagerEdits,
       templateId: selectedTemplateId,
     });
     if (res.ok) {
-      showToast(`Lease generated (v${res.version}).`);
+      if (!openEditor) {
+        showToast(`Lease generated (v${res.version}).`);
+      }
       onGenerated(actionRow.id);
     } else {
       showToast(res.error ?? "Could not generate lease.");
     }
   };
+
+  const canEditPreview = Boolean(preview?.html && !preview.error);
 
   if (!row || !actionRow) return null;
 
@@ -111,6 +135,16 @@ export function LeaseGenerateModal({
       panelClassName="max-w-5xl"
       footer={
         <ModalFooter>
+          <Button
+            type="button"
+            variant="outline"
+            className="rounded-full"
+            data-attr="lease-generate-edit"
+            disabled={busy || !canEditPreview || (choices.length > 0 && !selectedTemplateId)}
+            onClick={() => confirm({ openEditor: true })}
+          >
+            Edit lease
+          </Button>
           <Button
             type="button"
             variant="primary"
@@ -135,35 +169,32 @@ export function LeaseGenerateModal({
           </p>
         ) : null}
 
-        <div className="space-y-2">
-          <p className="text-xs font-semibold uppercase tracking-wide text-muted">Lease type</p>
+        <div className={PORTAL_MODAL_FORM_FIELD_CLASS}>
+          <label className={MODAL_FIELD_LABEL_CLASS} htmlFor="lease-generate-type">
+            Lease type
+          </label>
           {choices.length === 0 ? (
             <p className="text-sm text-muted">
               This property has no saved lease formats, so the draft uses PropLane&apos;s standard lease
               template. Add a lease format on the property&apos;s Lease tab to pick one here.
             </p>
           ) : (
-            <div className="flex flex-wrap gap-2">
+            <NativeSelect
+              id="lease-generate-type"
+              value={selectedChoiceId ?? ""}
+              onChange={(e) => setSelectedChoiceId(e.target.value || null)}
+              disabled={busy}
+              data-attr="lease-generate-type-select"
+            >
               {choices.map((choice) => (
-                <button
-                  key={choice.id}
-                  type="button"
-                  data-attr={`lease-generate-type-${choice.scenario}-${choice.id}`}
-                  disabled={busy}
-                  onClick={() => setSelectedChoiceId(choice.id)}
-                  className={`rounded-full border px-3 py-1.5 text-sm font-medium transition ${
-                    selectedChoiceId === choice.id
-                      ? "border-primary bg-primary/10 text-primary"
-                      : "border-border bg-card text-foreground hover:bg-accent/40"
-                  }`}
-                >
+                <option key={choice.id} value={choice.id}>
                   {choice.label}
-                </button>
+                </option>
               ))}
-            </div>
+            </NativeSelect>
           )}
           {actionRow.leaseKind === "joint_bundle" ? (
-            <p className="text-xs text-muted">
+            <p className="mt-2 text-xs text-muted">
               Bundle leases list every room in the bundle (or the entire home) and include all co-tenants on one
               document.
             </p>
@@ -171,7 +202,21 @@ export function LeaseGenerateModal({
         </div>
 
         <div className="space-y-2">
-          <p className="text-xs font-semibold uppercase tracking-wide text-muted">Preview</p>
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <p className={MODAL_FIELD_LABEL_CLASS}>Preview</p>
+            {canEditPreview ? (
+              <Button
+                type="button"
+                variant="outline"
+                className="h-9 min-h-0 rounded-full px-4 text-xs"
+                data-attr="lease-generate-edit-preview"
+                disabled={busy || (choices.length > 0 && !selectedTemplateId)}
+                onClick={() => confirm({ openEditor: true })}
+              >
+                Edit lease
+              </Button>
+            ) : null}
+          </div>
           {preview?.error ? (
             <p className="rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-800">
               {preview.error}
