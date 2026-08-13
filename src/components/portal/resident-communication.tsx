@@ -14,7 +14,11 @@ import {
 } from "@/components/portal/portal-inbox-ui";
 import { PortalCommunicationShell } from "@/components/portal/portal-communication-shell";
 import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
-import { PORTAL_HEADER_PRIMARY_ACTION_BTN } from "@/components/portal/portal-metrics";
+import {
+  PORTAL_HEADER_PRIMARY_ACTION_BTN,
+  PORTAL_HEADER_PRIMARY_ACTION_BTN_RESPONSIVE,
+} from "@/components/portal/portal-metrics";
+import { PortalSectionActionRow } from "@/components/portal/portal-section-action-row";
 import { filterEmailInboxThreads } from "@/lib/communication-inbox-filters";
 import {
   mergeUnifiedInboxItems,
@@ -317,49 +321,71 @@ export function ResidentCommunication({
   const [threadSelected, setThreadSelected] = useState(Boolean(threadId));
   const [searchQuery, setSearchQuery] = useState("");
 
+  const openCompose = () => inboxRef.current?.openCompose();
+
   const newMessageButton = (
     <Button
       type="button"
-      variant="outline"
+      variant="primary"
       className={`shrink-0 ${PORTAL_HEADER_PRIMARY_ACTION_BTN}`}
       data-attr="communication-new-message"
-      onClick={() => inboxRef.current?.openCompose()}
+      onClick={openCompose}
     >
       New message
     </Button>
   );
 
   const controlStack = (
-    <PortalListControlStack
-      destinations={[
-        { id: "active", label: "Active", href: `${commBase}/active`, dataAttr: "communication-segment-active" },
-        {
-          id: "archived",
-          label: "Archived",
-          href: `${commBase}/archived`,
-          dataAttr: "communication-segment-archived",
-        },
-      ]}
-      activeDestinationId={listSegment}
-      destinationAriaLabel="Conversation folders"
-      search={{
-        value: searchQuery,
-        onChange: setSearchQuery,
-        placeholder: "Search messages",
-        dataAttr: "resident-inbox-search",
-      }}
-    />
+    <div className="space-y-2">
+      <PortalListControlStack
+        destinations={[
+          { id: "active", label: "Active", href: `${commBase}/active`, dataAttr: "communication-segment-active" },
+          {
+            id: "archived",
+            label: "Archived",
+            href: `${commBase}/archived`,
+            dataAttr: "communication-segment-archived",
+          },
+        ]}
+        activeDestinationId={listSegment}
+        destinationAriaLabel="Conversation folders"
+        search={{
+          value: searchQuery,
+          onChange: setSearchQuery,
+          placeholder: "Search messages",
+          dataAttr: "resident-inbox-search",
+        }}
+      />
+      {!threadOpen ? (
+        <div className="flex justify-end md:hidden" data-slot="resident-communication-mobile-actions">
+          <Button
+            type="button"
+            variant="primary"
+            className={`shrink-0 ${PORTAL_HEADER_PRIMARY_ACTION_BTN_RESPONSIVE}`}
+            data-attr="communication-new-message"
+            onClick={openCompose}
+          >
+            New message
+          </Button>
+        </div>
+      ) : null}
+    </div>
   );
 
   return (
     <PortalCommunicationShell
       title="Communication"
-      titleAside={newMessageButton}
+      titleAside={
+        <PortalSectionActionRow variant="header" className="hidden gap-2 md:flex">
+          {newMessageButton}
+        </PortalSectionActionRow>
+      }
       hideTitleOnMobileNav
       controlStack={controlStack}
       hideMobileFilterRow={threadOpen}
       mobileThreadReading={threadOpen}
       threadSelected={threadSelected}
+      hideAssistantFab
     >
       <ResidentUnifiedInbox
         inboxRef={inboxRef}

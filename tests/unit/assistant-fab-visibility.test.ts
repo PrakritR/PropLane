@@ -16,6 +16,7 @@ describe("shouldHideAssistantFab", () => {
       "data-hide-assistant-fab": false,
       "data-rental-wizard-active": false,
       "data-communication-surface": false,
+      "data-communication-hide-assistant-fab": false,
       "data-communication-thread-reading": false,
       "data-communication-thread-selected": false,
     });
@@ -26,13 +27,22 @@ describe("shouldHideAssistantFab", () => {
     expect(shouldHideAssistantFab()).toBe(true);
   });
 
-  it("shows on Communication list (no thread open)", () => {
+  it("shows on Communication list (no thread open) for manager", () => {
     setHtmlAttrs({
       "data-communication-surface": true,
       "data-communication-thread-reading": false,
       "data-communication-thread-selected": false,
+      "data-communication-hide-assistant-fab": false,
     });
     expect(shouldHideAssistantFab()).toBe(false);
+  });
+
+  it("hides on resident Communication for the whole tab", () => {
+    setHtmlAttrs({
+      "data-communication-surface": true,
+      "data-communication-hide-assistant-fab": true,
+    });
+    expect(shouldHideAssistantFab()).toBe(true);
   });
 
   it("hides on Communication while a thread is open (desktop and mobile)", () => {

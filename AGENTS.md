@@ -1049,13 +1049,12 @@ conversations) plus the archive toggle. Invariants:
   `tests/unit/inbox-scheduled-thread.test.ts`,
   `tests/unit/inbox-thread-omnichannel.test.tsx`,
   `tests/unit/sms-comm-ui-flag.test.ts`.
-- **Residents cannot schedule a compose** — `disabled={portal === "resident"}` on
-  `PortalMessageScheduleFields`, which RETURNS NULL when disabled, so the control
-  is removed rather than greyed out. Deliberate (commit `e021015a`, "hide resident
-  compose scheduling"); reviewers keep re-raising it as a regression. Distinct
-  from the separate rule that resident-originated scheduled rows are cancel-only.
-  The resident send path still handles `scheduleLater`, so reversing it is a
-  one-line prop change.
+- **Residents can schedule compose** — `PortalMessageScheduleFields` is enabled in
+  `ScopedInboxComposeModal` for the resident portal; scheduled rows stay
+  cancel-only (no inline edit). Thread actions: **Schedule** in the header and
+  **Schedule a message** below existing scheduled cards (`resident-inbox-panel`).
+  The floating assistant FAB and in-thread assistant strip are hidden on the
+  resident Communication tab (`hideAssistantFab` on `PortalCommunicationShell`).
 - **A message enters the thread store only AFTER the send is authorized — on
   both sides.** `/api/portal/send-inbox-message` can still answer
   `403 "You can only message people connected to your account."` well past the

@@ -345,6 +345,7 @@ export function ManagerResidents({
   const [regenerateConfirmLeaseId, setRegenerateConfirmLeaseId] = useState<string | null>(null);
   const [messageOpen, setMessageOpen] = useState(false);
   const [messageBusy, setMessageBusy] = useState(false);
+  const [messageScheduledRefresh, setMessageScheduledRefresh] = useState(0);
   const [leaseReminderBusy, setLeaseReminderBusy] = useState(false);
   const [leaseReminderPreview, setLeaseReminderPreview] = useState<{
     res: ActiveResident;
@@ -1059,6 +1060,10 @@ export function ManagerResidents({
   useCommunicationSurfaceChrome({
     active: Boolean(residentIdProp && resolvedDetailTab === "communication"),
     threadReading: false,
+    // Resident-detail Communication is always a single open thread (no list pane),
+    // so treat it like an active conversation for assistant chrome.
+    threadSelected: Boolean(residentIdProp && resolvedDetailTab === "communication"),
+    hideAssistantFab: Boolean(residentIdProp && resolvedDetailTab === "communication"),
   });
 
   const selectedServiceResident = useMemo<(ManagerServiceResidentOption & { assignedRoomChoice?: string }) | null>(() => {
@@ -1139,6 +1144,7 @@ export function ManagerResidents({
           return;
         }
         setMessageOpen(false);
+        setMessageScheduledRefresh((n) => n + 1);
         showToast("Message scheduled.");
       } finally {
         setMessageBusy(false);
@@ -2600,6 +2606,7 @@ export function ManagerResidents({
                                 residentName={selected.name}
                                 portalBase={portalBase}
                                 smsUiEnabled={smsUiEnabled}
+                                onNewMessage={() => openResidentMessageModal()}
                               />
                             </ResidentDetailTabPanel>
                             </div>
@@ -3879,6 +3886,16 @@ export function ManagerResidents({
           if (messageBusy) return;
           setMessageOpen(false);
         }}
+        scheduledRecipientEmail={selected?.email}
+        scheduledSmsAvailable={Boolean(
+          selected &&
+            (() => {
+              const row = readManagerApplicationRows().find((r) => r.id === selected.id);
+              return Boolean(row?.manualResidentDetails?.phone?.trim() || row?.application?.phone?.trim());
+            })(),
+        )}
+        scheduledRefreshKey={messageScheduledRefresh}
+        onScheduledMessagesChanged={() => setMessageScheduledRefresh((n) => n + 1)}
         recipient={selected?.email ?? ""}
         recipientPhone={
           selected

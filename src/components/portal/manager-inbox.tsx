@@ -1496,7 +1496,10 @@ export const ManagerInbox = forwardRef<
   ) : null;
 
   const scheduledCards =
-    activeThread && activeThread.folder !== "trash" && threadScheduledItems.length > 0 ? (
+    activeThread &&
+    activeThread.folder !== "trash" &&
+    threadScheduledItems.length > 0 &&
+    !embeddedResidentChat ? (
       <InboxScheduledThreadList
         count={threadScheduledItems.length}
         nextSendLabel={threadScheduledItems[0]?.sendLabel}
@@ -1588,6 +1591,11 @@ export const ManagerInbox = forwardRef<
                 from: activeThread.from,
                 sentSemantics: activeIsSent,
               })}
+              storageScopeKey={
+                embeddedResidentChat
+                  ? `resident-detail-${activeThread.email.trim().toLowerCase()}`
+                  : "Communication thread"
+              }
             />
             <InboxComposer
               value={replyDraft}

@@ -1858,6 +1858,7 @@ export function InboxScheduledCard({
         title="Scheduled message"
         dense
         assistantStrip={false}
+        fullScreenMobile={false}
         panelClassName="max-w-lg p-3 sm:p-4"
         dataAttr="inbox-scheduled-detail-modal"
       >
@@ -1922,6 +1923,7 @@ export function InboxScheduledThreadList({
         title="Scheduled messages"
         dense
         assistantStrip={false}
+        fullScreenMobile={false}
         panelClassName="max-w-lg p-3 sm:p-4"
       >
         <div className="max-h-[min(70vh,28rem)] space-y-4 overflow-y-auto overscroll-contain pr-0.5 [-webkit-overflow-scrolling:touch]">

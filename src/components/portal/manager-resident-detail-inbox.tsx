@@ -1,18 +1,21 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState, type ReactNode, type RefObject } from "react";
+import { Button } from "@/components/ui/button";
 import { ManagerInbox, type ManagerInboxHandle } from "@/components/portal/manager-inbox";
 import {
   InboxComposer,
   InboxReplyChannelPicker,
-  InboxScheduledCard,
-  InboxScheduledThreadList,
   InboxThreadView,
   InboxTwoPane,
   type InboxBubbleMessage,
 } from "@/components/portal/portal-inbox-ui";
 import { PortalSectionActionRow } from "@/components/portal/portal-section-action-row";
-import { InboxThreadAssistantStrip, buildInboxThreadAssistantContext } from "@/components/portal/inbox-thread-assistant-strip";
+import { PORTAL_HEADER_PRIMARY_ACTION_BTN } from "@/components/portal/portal-metrics";
+import {
+  InboxThreadAssistantStrip,
+  buildInboxThreadAssistantContext,
+} from "@/components/portal/inbox-thread-assistant-strip";
 import { useAppUi } from "@/components/providers/app-ui-provider";
 import {
   MANAGER_INBOX_STORAGE_KEY,
@@ -22,16 +25,10 @@ import {
   type PersistedInboxThread,
 } from "@/lib/portal-inbox-storage";
 import { filterEmailInboxThreads } from "@/lib/communication-inbox-filters";
-import { scheduledItemsForRecipient } from "@/lib/inbox-scheduled-thread";
 import {
   normalizeManagerSmsConversationsPayload,
   type ManagerSmsResidentConversation,
 } from "@/lib/manager-sms-messages";
-import {
-  type ScheduledInboxMessageRecord,
-} from "@/lib/scheduled-inbox-messages";
-import { useScheduledPaymentMessages } from "@/components/portal/payment-schedule-ui";
-import { sendManualScheduledMessageNow } from "@/components/portal/portal-inbox-selection";
 import {
   INBOX_MAX_ATTACHMENTS,
   createPendingInboxAttachment,
@@ -87,35 +84,13 @@ export function ResidentDirectChatPane({
   const [replyAttachments, setReplyAttachments] = useState<InboxComposerAttachment[]>([]);
   const [sending, setSending] = useState(false);
   const [inboxTick, setInboxTick] = useState(0);
-  const [manualScheduledMessages, setManualScheduledMessages] = useState<ScheduledInboxMessageRecord[]>([]);
-  const [scheduledBusyId, setScheduledBusyId] = useState<string | null>(null);
-  const { messages: scheduledPaymentMessages, reload: reloadAutomationScheduled } = useScheduledPaymentMessages({
-    includeHidden: false,
-  });
 
   const email = residentEmail.trim();
   const displayName = residentName?.trim() || email || "Resident";
-  const subtitle = smsResident?.propertyLabel?.trim() || email;
   const smsAvailable = smsUiEnabled && Boolean(smsResident?.phone?.trim());
   const emailAvailable = Boolean(email);
   const [replyViaEmail, setReplyViaEmail] = useState(!smsAvailable && emailAvailable);
   const [replyViaSms, setReplyViaSms] = useState(smsAvailable);
-
-  const reloadScheduled = useCallback(async () => {
-    try {
-      const res = await fetch("/api/portal/scheduled-inbox-messages", { credentials: "include", cache: "no-store" });
-      if (!res.ok) return;
-      const body = (await res.json()) as { messages?: ScheduledInboxMessageRecord[] };
-      setManualScheduledMessages(Array.isArray(body.messages) ? body.messages : []);
-    } catch {
-      /* keep */
-    }
-    void reloadAutomationScheduled();
-  }, [reloadAutomationScheduled]);
-
-  useEffect(() => {
-    void reloadScheduled();
-  }, [reloadScheduled]);
 
   useEffect(() => {
     const sync = () => setInboxTick((n) => n + 1);
@@ -137,11 +112,6 @@ export function ResidentDirectChatPane({
     void inboxTick;
     return loadResidentThreadBubbles(email);
   }, [email, inboxTick]);
-
-  const threadScheduledItems = useMemo(
-    () => scheduledItemsForRecipient(email, manualScheduledMessages, scheduledPaymentMessages),
-    [email, manualScheduledMessages, scheduledPaymentMessages],
-  );
 
   const pickReplyAttachments = useCallback(
     (files: FileList | null) => {
@@ -275,51 +245,6 @@ export function ResidentDirectChatPane({
     smsResident,
   ]);
 
-  const scheduledCards =
-    threadScheduledItems.length > 0 ? (
-      <InboxScheduledThreadList
-        count={threadScheduledItems.length}
-        nextSendLabel={threadScheduledItems[0]?.sendLabel}
-        defaultCollapsed={threadScheduledItems.length > 2}
-      >
-        {threadScheduledItems.map((item) => (
-          <InboxScheduledCard
-            key={item.id}
-            sendLabel={item.sendLabel}
-            subject={item.subject}
-            body={item.body}
-            meta={item.meta}
-            channel={item.channel}
-            deliverViaEmail={item.deliverViaEmail}
-            deliverViaSms={item.deliverViaSms}
-            source={item.source}
-            editable={item.editable}
-            busy={scheduledBusyId === item.id}
-            onCancel={() => {
-              setScheduledBusyId(item.id);
-              void fetch(`/api/portal/scheduled-inbox-messages/${encodeURIComponent(item.id)}`, {
-                method: "PATCH",
-                headers: { "Content-Type": "application/json" },
-                credentials: "include",
-                body: JSON.stringify({ status: "cancelled" }),
-              }).finally(() => {
-                setScheduledBusyId(null);
-                void reloadScheduled();
-              });
-            }}
-            onSendNow={() => {
-              setScheduledBusyId(item.id);
-              void sendManualScheduledMessageNow(item.id).finally(() => {
-                setScheduledBusyId(null);
-                void reloadScheduled();
-                onSent();
-              });
-            }}
-          />
-        ))}
-      </InboxScheduledThreadList>
-    ) : null;
-
   return (
     <InboxThreadView
       title=""
@@ -330,21 +255,13 @@ export function ResidentDirectChatPane({
       emptyLabel="No messages yet. Send the first message below."
       composer={
         <>
-          {scheduledCards ? (
-            <div
-              className="shrink-0 border-t border-border bg-card/90 px-2 py-2 md:px-3"
-              data-attr="resident-direct-scheduled-pin"
-            >
-              {scheduledCards}
-            </div>
-          ) : null}
           <InboxThreadAssistantStrip
             contextHint={buildInboxThreadAssistantContext({
               subject: "Resident conversation",
               from: displayName,
-              email: subtitle,
+              email,
             })}
-            storageScopeKey={`resident-direct-${email}`}
+            storageScopeKey={`resident-detail-${email.trim().toLowerCase()}`}
           />
           <InboxComposer
             value={draft}
@@ -386,6 +303,7 @@ export function ManagerResidentDetailInbox({
   smsUiEnabled = false,
   inboxRef,
   emptyThreadFallback,
+  onNewMessage,
 }: {
   residentEmail: string;
   residentName?: string;
@@ -393,6 +311,8 @@ export function ManagerResidentDetailInbox({
   smsUiEnabled?: boolean;
   inboxRef?: RefObject<ManagerInboxHandle | null>;
   emptyThreadFallback?: ReactNode;
+  /** Opens the full compose modal (subject, schedule, email/SMS). */
+  onNewMessage?: () => void;
 }) {
   const commBase = `${portalBase}/communication`;
   const emailNorm = residentEmail.trim().toLowerCase();
@@ -460,7 +380,20 @@ export function ManagerResidentDetailInbox({
     );
 
   return (
-    <div className="portal-resident-detail-inbox flex min-h-0 flex-1 flex-col">
+    <div className="portal-resident-detail-inbox portal-communication-inbox flex min-h-0 flex-1 flex-col">
+      {onNewMessage ? (
+        <PortalSectionActionRow className="mb-2 shrink-0 justify-end">
+          <Button
+            type="button"
+            variant="primary"
+            className={`shrink-0 ${PORTAL_HEADER_PRIMARY_ACTION_BTN}`}
+            data-attr="resident-detail-new-message"
+            onClick={onNewMessage}
+          >
+            New message
+          </Button>
+        </PortalSectionActionRow>
+      ) : null}
       {archivedCount > 0 ? (
         <PortalSectionActionRow className="mb-2 shrink-0">
           <button

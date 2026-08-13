@@ -23,6 +23,7 @@ export function PortalCommunicationShell({
   mobileThreadReading = false,
   threadSelected = false,
   hideTitleOnMobileNav = true,
+  hideAssistantFab = false,
 }: {
   title: string;
   controlStack?: ReactNode;
@@ -36,12 +37,19 @@ export function PortalCommunicationShell({
   /** Any open conversation (desktop split or mobile) — hides the assistant FAB. */
   threadSelected?: boolean;
   hideTitleOnMobileNav?: boolean;
+  /** Hide the floating assistant FAB for the whole Communication tab. */
+  hideAssistantFab?: boolean;
 }) {
   const resolvedStack =
     controlStack ??
     (threadFilters ? <PortalListControlStack filterRow={threadFilters} /> : null);
 
-  useCommunicationSurfaceChrome({ active: true, threadReading: mobileThreadReading, threadSelected });
+  useCommunicationSurfaceChrome({
+    active: true,
+    threadReading: mobileThreadReading,
+    threadSelected,
+    hideAssistantFab,
+  });
 
   return (
     <ManagerPortalPageShell

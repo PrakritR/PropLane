@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect } from "react";
+import { useLayoutEffect } from "react";
 
 /**
  * Communication surfaces (main tab + resident-detail chat) apply their
@@ -12,12 +12,15 @@ export function useCommunicationSurfaceChrome({
   active,
   threadReading = false,
   threadSelected = false,
+  /** Hides the floating assistant FAB for the whole Communication tab (e.g. resident mobile). */
+  hideAssistantFab = false,
 }: {
   active: boolean;
   threadReading?: boolean;
   threadSelected?: boolean;
+  hideAssistantFab?: boolean;
 }) {
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!active) return;
     const html = document.documentElement;
     html.dataset.communicationSurface = "true";
@@ -31,10 +34,19 @@ export function useCommunicationSurfaceChrome({
     } else {
       delete html.dataset.communicationThreadSelected;
     }
+    if (hideAssistantFab) {
+      html.dataset.communicationHideAssistantFab = "true";
+      html.dataset.hideAssistantFab = "true";
+    } else {
+      delete html.dataset.communicationHideAssistantFab;
+      delete html.dataset.hideAssistantFab;
+    }
     return () => {
       delete html.dataset.communicationSurface;
       delete html.dataset.communicationThreadReading;
       delete html.dataset.communicationThreadSelected;
+      delete html.dataset.communicationHideAssistantFab;
+      delete html.dataset.hideAssistantFab;
     };
-  }, [active, threadReading, threadSelected]);
+  }, [active, hideAssistantFab, threadReading, threadSelected]);
 }
