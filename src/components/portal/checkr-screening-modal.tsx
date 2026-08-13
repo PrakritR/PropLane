@@ -11,7 +11,7 @@ import { track } from "@/lib/analytics/track-client";
 import { backgroundCheckStatusFromCheckr } from "@/lib/application-background-check";
 import { buildDemoBackgroundCheck } from "@/lib/checkr/demo-simulate";
 import type { CheckrAddOnSlug } from "@/lib/checkr/packages";
-import { checkrOrderCostCents, formatCheckrPrice } from "@/lib/checkr/packages";
+import { formatCheckrPrice, sumScreeningOrderCents } from "@/lib/checkr/packages";
 import type { CheckrPackage } from "@/lib/checkr/config";
 import type { ApplicationBackgroundCheck } from "@/lib/checkr/types";
 import { isDemoModeActive } from "@/lib/demo/demo-session";
@@ -120,6 +120,9 @@ export function CheckrScreeningModal({
   const [error, setError] = useState<string | null>(null);
   const [bg, setBg] = useState<ApplicationBackgroundCheck | undefined>(() => row?.backgroundCheck);
   const [showPackagePicker, setShowPackagePicker] = useState(showPackagePickerInitially);
+  const [checkoutPackage, setCheckoutPackage] = useState<CheckrPackage>("essential");
+  const [checkoutAddOns, setCheckoutAddOns] = useState<CheckrAddOnSlug[]>([]);
+  const checkoutSelectionReadyRef = useRef(false);
   const demoResolveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
@@ -129,6 +132,9 @@ export function CheckrScreeningModal({
     setBusy(false);
     setSelectedPackage("essential");
     setSelectedAddOns([]);
+    setCheckoutPackage("essential");
+    setCheckoutAddOns([]);
+    checkoutSelectionReadyRef.current = false;
     setShowPackagePicker(showPackagePickerInitially || row?.backgroundCheck?.status !== "complete");
     setPackagesLoaded(isDemo);
   }, [open, row?.id, row?.backgroundCheck, showPackagePickerInitially, isDemo]);
@@ -152,6 +158,20 @@ export function CheckrScreeningModal({
       .catch(() => undefined)
       .finally(() => setPackagesLoaded(true));
   }, [open, isDemo]);
+
+  useEffect(() => {
+    if (!open || !showPackagePicker) return;
+    const delay = checkoutSelectionReadyRef.current ? 350 : 0;
+    const timer = window.setTimeout(() => {
+      setCheckoutPackage(selectedPackage);
+      setCheckoutAddOns([...selectedAddOns]);
+      checkoutSelectionReadyRef.current = true;
+    }, delay);
+    return () => window.clearTimeout(timer);
+  }, [open, showPackagePicker, selectedPackage, selectedAddOns]);
+
+  const checkoutSelectionSyncing =
+    checkoutPackage !== selectedPackage || checkoutAddOns.join(",") !== selectedAddOns.join(",");
 
   const handlePaymentComplete = useCallback(
     (backgroundCheck: ApplicationBackgroundCheck) => {
@@ -241,8 +261,8 @@ export function CheckrScreeningModal({
   }, [open, row, isDemo, searchParams, pathname, router, showToast, handlePaymentComplete]);
 
   const totalCents = useMemo(
-    () => checkrOrderCostCents(selectedPackage, selectedAddOns),
-    [selectedPackage, selectedAddOns],
+    () => sumScreeningOrderCents(selectedPackage, selectedAddOns, packages, addOns),
+    [selectedPackage, selectedAddOns, packages, addOns],
   );
 
   const selectedPackageOption = useMemo(
@@ -463,6 +483,9 @@ export function CheckrScreeningModal({
                     <dt className="font-semibold text-foreground">Total per run</dt>
                     <dd className="shrink-0 tabular-nums text-base font-bold text-foreground">
                       {formatCheckrPrice(totalCents)}
+                      {checkoutSelectionSyncing ? (
+                        <span className="ml-2 text-xs font-normal text-muted">Updating…</span>
+                      ) : null}
                     </dd>
                   </div>
                 </dl>
@@ -470,14 +493,24 @@ export function CheckrScreeningModal({
             </div>
 
             {showInlinePayment ? (
-              <ScreeningInlinePayment
-                applicationId={row.id}
-                packageSlug={selectedPackage}
-                addOnProducts={selectedAddOns}
-                returnPath={returnPath}
-                onPaid={handlePaymentComplete}
-                onError={setError}
-              />
+              checkoutSelectionSyncing ? (
+                <div
+                  className="flex min-h-[120px] items-center justify-center rounded-2xl border border-border bg-card text-sm text-muted"
+                  data-attr="screening-checkout-syncing"
+                >
+                  Updating payment for your selection…
+                </div>
+              ) : (
+                <ScreeningInlinePayment
+                  key={`${row.id}:${checkoutPackage}:${checkoutAddOns.join(",")}`}
+                  applicationId={row.id}
+                  packageSlug={checkoutPackage}
+                  addOnProducts={checkoutAddOns}
+                  returnPath={returnPath}
+                  onPaid={handlePaymentComplete}
+                  onError={setError}
+                />
+              )
             ) : null}
 
             {bg?.status === "pending" ? (

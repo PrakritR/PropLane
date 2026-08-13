@@ -36,7 +36,7 @@ describe("checkr package catalog", () => {
   });
 
   it("builds a single Stripe product name that includes add-ons", async () => {
-    const { buildScreeningCheckoutProductName, checkrOrderCostCents, formatCheckrPrice } = await import(
+    const { buildScreeningCheckoutProductName, checkrOrderCostCents, formatCheckrPrice, sumScreeningOrderCents, checkrPackageCatalog, checkrAddOnCatalog } = await import(
       "@/lib/checkr/packages"
     );
     expect(buildScreeningCheckoutProductName("essential")).toBe("Applicant screening — Essential");
@@ -44,6 +44,14 @@ describe("checkr package catalog", () => {
       "Applicant screening — Essential + Identity protection",
     );
     expect(checkrOrderCostCents("essential", ["identity_verification"])).toBe(3794);
+    expect(
+      sumScreeningOrderCents(
+        "essential",
+        ["identity_verification"],
+        checkrPackageCatalog(),
+        checkrAddOnCatalog(),
+      ),
+    ).toBe(3794);
     expect(formatCheckrPrice(3794)).toBe("$37.94");
   });
 });
