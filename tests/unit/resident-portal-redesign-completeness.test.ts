@@ -168,7 +168,13 @@ describe("resident portal redesign completeness", () => {
     it("dashboard openCount respects customize visibility", () => {
       const src = readPanel("resident-dashboard.tsx");
       expect(src).toMatch(/canUsePayments && visibility\.payments \? pendingCharges\.length : 0/);
-      expect(src).toMatch(/visibility\.services && canUseServices/);
+      // Operand order is not the contract — that the services term is gated on
+      // BOTH the capability and the customize toggle is. The panel currently
+      // writes `canUseServices && visibility.services`; pinning one order made a
+      // no-op refactor red.
+      expect(src).toMatch(
+        /(canUseServices && visibility\.services|visibility\.services && canUseServices)/,
+      );
       expect(src).toMatch(/showHouseDetails/);
       expect(src).toMatch(/visibility\.communication \? inbox : 0/);
     });
@@ -197,9 +203,15 @@ describe("resident portal redesign completeness", () => {
       expect(moveIn).toContain("Move-in instructions");
     });
 
-    it("lease is a single view without status tabs; services filter rows span full width", () => {
+    it("lease filter tabs are a local nav, not a dropdown; services filter rows span full width", () => {
       const lease = readPanel("resident-lease-panel.tsx");
-      expect(lease).not.toContain("LocalDestinationNav");
+      // The redesign originally collapsed lease to a single view, and this
+      // asserted the ABSENCE of `LocalDestinationNav`. Routed status buckets have
+      // since been built back in deliberately — `ResidentLeaseBucketId` and
+      // `residentLeaseListHref` exist for exactly this — so the contract now
+      // matches services above: buckets render as a local nav, never a mobile
+      // dropdown.
+      expect(lease).toContain("LocalDestinationNav");
       expect(lease).toContain('variant="plain"');
       const services = readPanel("resident-services-panel.tsx");
       expect(services.match(/className="w-full"/g)?.length ?? 0).toBeGreaterThanOrEqual(2);
