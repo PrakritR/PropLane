@@ -36,6 +36,19 @@ vi.mock("@/components/providers/app-ui-provider", () => ({
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: vi.fn(), replace: vi.fn(), refresh: vi.fn(), prefetch: vi.fn() }),
 }));
+
+// Opening the tour modal now mounts the tour-reminder panel, which fetches on
+// mount. Unstubbed, that relative URL cannot be parsed under node, the panel
+// toasts its failure, and `toasts.at(-1)` below reads THAT instead of the
+// cancellation result this file is about.
+vi.stubGlobal("fetch", async (input: RequestInfo | URL) => {
+  const url = String(input);
+  const body = url.includes("/api/portal/tour-reminders") ? { reminder: null } : {};
+  return new Response(JSON.stringify(body), {
+    status: 200,
+    headers: { "content-type": "application/json" },
+  });
+});
 vi.mock("@/lib/tour-planned-change.client", async (importOriginal) => {
   const actual = (await importOriginal()) as Record<string, unknown>;
   return {
