@@ -10,6 +10,7 @@ import {
   MODAL_FIELD_LABEL_CLASS,
   PORTAL_MODAL_FORM_FIELD_CLASS,
 } from "@/components/ui/modal";
+import { MODAL_XL_PANEL_CLASS } from "@/components/ui/modal-styles";
 import { LeaseHtmlDirectEditor } from "@/components/portal/lease-html-direct-editor";
 import {
   PropertyLeaseDocumentNotice,
@@ -31,6 +32,7 @@ import { normalizeManagerListingSubmissionV1 } from "@/lib/manager-listing-submi
 import { listLeaseTemplateGenerateChoices } from "@/lib/property-lease-template-sync";
 import { stripDisclosureReviewFromLeaseHtml } from "@/lib/property-lease-document-display";
 import { getPropertyById } from "@/lib/rental-application/data";
+import { cn } from "@/lib/utils";
 
 export function LeaseGenerateModal({
   open,
@@ -180,8 +182,8 @@ export function LeaseGenerateModal({
       description="Review and edit the draft below, then generate to save it as this resident's lease."
       onClose={onClose}
       dismissBlocked={working}
-      fullPage={false}
-      panelClassName="max-w-5xl"
+      scrollableContent={false}
+      panelClassName={MODAL_XL_PANEL_CLASS}
       assistantContext={assistantContext}
       assistantEditHint="Type in chat to edit the lease — changes apply after you confirm."
       assistantStorageScopeKey={`Lease generate · ${actionRow.id}`}
@@ -204,8 +206,8 @@ export function LeaseGenerateModal({
         </ModalFooter>
       }
     >
-      <div className="space-y-4">
-        <div className={PORTAL_MODAL_FORM_FIELD_CLASS}>
+      <div className="flex min-h-0 flex-1 flex-col gap-4">
+        <div className={cn(PORTAL_MODAL_FORM_FIELD_CLASS, "shrink-0")}>
           <label className={MODAL_FIELD_LABEL_CLASS} htmlFor="lease-generate-type">
             Lease type
           </label>
@@ -242,10 +244,10 @@ export function LeaseGenerateModal({
             {draft.error}
           </p>
         ) : editorHtml ? (
-          <div className="flex min-h-[min(420px,55vh)] flex-col gap-3">
+          <div className="flex min-h-0 flex-1 flex-col gap-3">
             <PropertyLeaseDocumentNotice html={editorHtml} />
             {saveReviewOpen ? (
-              <div className="rounded-xl border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-950">
+              <div className="shrink-0 rounded-xl border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-950">
                 <p className="font-semibold">Review before generating</p>
                 <p className="mt-1">
                   This draft still has items to fix. Ask PropLane Assistant in the panel below, then generate when
@@ -265,9 +267,9 @@ export function LeaseGenerateModal({
               </div>
             ) : null}
             <div className="flex min-h-0 flex-1 flex-col">
-              <p className={MODAL_FIELD_LABEL_CLASS}>Lease format</p>
+              <p className={cn(MODAL_FIELD_LABEL_CLASS, "shrink-0")}>Lease format</p>
               <LeaseHtmlDirectEditor
-                className="min-h-[min(380px,50vh)] flex-1"
+                className="min-h-0 flex-1"
                 html={displayHtml}
                 baselineHtml={baselineHtml}
                 onChange={(next) => setHtmlOverride(next)}
