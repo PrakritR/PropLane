@@ -62,6 +62,7 @@ export async function GET(req: Request) {
       ...status,
       missingSecret: !status.configured && Boolean(status.googleAuthUser),
       oauthRedirectUri: googleCalendarOAuthRedirectUri(browserOrigin),
+      managerEmail: ctx.user.email?.trim() || null,
     });
   } catch (e) {
     return NextResponse.json({ error: e instanceof Error ? e.message : "Failed" }, { status: 500 });

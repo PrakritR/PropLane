@@ -35,11 +35,21 @@ describe("dedicated Google service OAuth state", () => {
     );
     expect(oauthUrl.searchParams.get("scope")).toContain("calendar.events");
     expect(oauthUrl.searchParams.get("scope")).not.toContain("gmail.readonly");
+    expect(oauthUrl.searchParams.get("include_granted_scopes")).toBe("true");
     expect(verifyOAuthState(oauthUrl.searchParams.get("state")!)).toEqual({
       userId: "manager-1",
       returnOrigin: "https://prop-lane.space",
       returnPath: "/auth/manager/connect-google",
     });
+  });
+
+  it("passes login_hint when the manager email is known", () => {
+    const oauthUrl = new URL(
+      buildGoogleCalendarOAuthUrl("http://localhost:3011", "manager-1", "/portal/calendar", {
+        loginHint: "manager@test.proplane.local",
+      }),
+    );
+    expect(oauthUrl.searchParams.get("login_hint")).toBe("manager@test.proplane.local");
   });
 
   it("signs the onboarding return path into Gmail state", () => {

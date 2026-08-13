@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 
-import { exchangeGoogleCalendarCode, verifyOAuthState } from "@/lib/google-calendar/api.server";
+import { exchangeGoogleCalendarCode, googleCalendarOAuthReturnTo, verifyOAuthState } from "@/lib/google-calendar/api.server";
 import { debugGoogleCalendarLog } from "@/lib/google-calendar/debug-log.server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 
@@ -20,8 +20,10 @@ export async function GET(req: Request) {
       error: oauthError,
       description: oauthErrorDescription?.slice(0, 200) ?? null,
     });
+    const oauthState = state ? verifyOAuthState(state) : null;
+    const returnTo = googleCalendarOAuthReturnTo(oauthState, callbackOrigin);
     const reason = encodeURIComponent(oauthErrorDescription ?? oauthError);
-    return NextResponse.redirect(`${callbackOrigin}/portal/calendar?gcal=error&reason=${reason}`);
+    return NextResponse.redirect(`${returnTo}?gcal=error&reason=${reason}`);
   }
 
   if (!code || !state) {

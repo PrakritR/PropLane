@@ -85,6 +85,7 @@ export function buildGoogleCalendarOAuthUrl(
   browserOrigin: string,
   managerUserId: string,
   returnPath?: string,
+  opts?: { loginHint?: string | null },
 ): string {
   const returnOrigin = browserOrigin.replace(/\/$/, "");
   const redirectUri = googleCalendarOAuthRedirectUri(browserOrigin);
@@ -96,9 +97,25 @@ export function buildGoogleCalendarOAuthUrl(
     scope: GOOGLE_CALENDAR_OAUTH_SCOPES,
     access_type: "offline",
     prompt: "consent",
+    include_granted_scopes: "true",
     state,
   });
+  const loginHint = opts?.loginHint?.trim();
+  if (loginHint?.includes("@")) {
+    params.set("login_hint", loginHint);
+  }
   return `${GOOGLE_AUTH_URL}?${params.toString()}`;
+}
+
+export function googleCalendarOAuthReturnTo(
+  oauthState: GoogleCalendarOAuthState | null,
+  fallbackOrigin: string,
+  fallbackPath = "/portal/calendar",
+): string {
+  if (oauthState) {
+    return `${oauthState.returnOrigin}${oauthState.returnPath}`;
+  }
+  return `${fallbackOrigin.replace(/\/$/, "")}${fallbackPath}`;
 }
 
 function signOAuthState(managerUserId: string, returnOrigin: string, returnPath?: string): string {

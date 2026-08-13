@@ -25,7 +25,7 @@ async function requireManager() {
   const legacy = String(profile?.role ?? user.user_metadata?.role ?? "").toLowerCase();
   const isManager = roleList.includes("manager") || legacy === "manager" || legacy === "admin";
   if (!isManager) return null;
-  return { db, userId: user.id };
+  return { db, userId: user.id, userEmail: user.email?.trim() || null };
 }
 
 export async function GET(req: Request) {
@@ -62,7 +62,9 @@ export async function GET(req: Request) {
       browserOrigin: origin,
       redirectUri,
     });
-    const oauthUrl = buildGoogleCalendarOAuthUrl(origin, ctx.userId, returnPath);
+    const oauthUrl = buildGoogleCalendarOAuthUrl(origin, ctx.userId, returnPath, {
+      loginHint: ctx.userEmail,
+    });
     return NextResponse.redirect(oauthUrl);
   } catch (e) {
     debugGoogleCalendarLog("connect/route.ts:GET", "calendar oauth failed", {

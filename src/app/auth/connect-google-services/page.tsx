@@ -5,6 +5,7 @@ import { AuthPageHeader } from "@/components/auth/auth-mobile-primitives";
 import { useAppUi } from "@/components/providers/app-ui-provider";
 import { Button } from "@/components/ui/button";
 import { MANAGER_GOOGLE_SERVICES_ONBOARDING_PATH } from "@/lib/auth/manager-google-services-onboarding";
+import { formatGoogleCalendarConnectError } from "@/lib/google-calendar/connect-errors";
 import { portalDashboardPath } from "@/lib/auth/portal-roles";
 import { BANNER_INFO_CLASS, BANNER_NEUTRAL_CLASS } from "@/lib/ui-styles";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -21,13 +22,7 @@ type GoogleServicesStatus = {
 };
 
 function formatGcalConnectError(reason: string | null): string {
-  if (!reason) return "Could not connect Google Calendar.";
-  const decoded = decodeURIComponent(reason);
-  const lower = decoded.toLowerCase();
-  if (lower.includes("access_denied") || lower.includes("verification process")) {
-    return "Google blocked sign-in because the OAuth app is in Testing mode. Add your email as a test user or publish the app.";
-  }
-  return `Could not connect Google Calendar: ${decoded}`;
+  return formatGoogleCalendarConnectError(reason);
 }
 
 function formatGmailConnectError(reason: string | null): string {
