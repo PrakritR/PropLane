@@ -23,8 +23,10 @@ export function propertyCatalogFromSubmission(
   propertyId: string,
   sub: ManagerListingSubmissionV1,
 ): PropertyCatalogEntry {
-  const label = sub.buildingName?.trim() || sub.propertyTitle?.trim() || propertyId;
-  const address = [sub.streetAddress, sub.city, sub.state, sub.zipCode].filter(Boolean).join(", ");
+  // ManagerListingSubmissionV1 carries `buildingName`, `address` and `zip` —
+  // there is no propertyTitle/streetAddress/city/state/zipCode on it.
+  const label = sub.buildingName?.trim() || propertyId;
+  const address = [sub.address?.trim(), sub.zip?.trim()].filter(Boolean).join(", ");
   const rooms = (sub.rooms ?? [])
     .filter((room) => room.name?.trim())
     .map((room) => ({

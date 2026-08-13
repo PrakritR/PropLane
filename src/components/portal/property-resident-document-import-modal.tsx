@@ -5,7 +5,6 @@ import { FileUp } from "lucide-react";
 import { Modal, MODAL_FIELD_LABEL_CLASS, ModalFooter, PORTAL_MODAL_FORM_FIELD_CLASS, PORTAL_MODAL_FORM_GRID_CLASS } from "@/components/ui/modal";
 import { Button } from "@/components/ui/button";
 import { Input, Select } from "@/components/ui/input";
-import { PortalFormSingleSelect } from "@/components/portal/portal-form-single-select";
 import { readExtraListingsForUser } from "@/lib/demo-property-pipeline";
 import { commitResidentDocumentImport } from "@/lib/resident-document-import/commit-import.client";
 import type { ParsedResidentDocument, ResidentDocumentKind } from "@/lib/resident-document-import/types";
@@ -237,19 +236,23 @@ export function PropertyResidentDocumentImportModal({
                   />
                 </label>
               ))}
-              <div className={PORTAL_MODAL_FORM_FIELD_CLASS}>
-                <PortalFormSingleSelect
-                  label="Property"
-                  labelClassName={MODAL_FIELD_LABEL_CLASS}
+              <label className={PORTAL_MODAL_FORM_FIELD_CLASS}>
+                <span className={MODAL_FIELD_LABEL_CLASS}>Property</span>
+                <Select
                   value={selectedPropertyId}
-                  onChange={(next) => {
-                    setSelectedPropertyId(next);
+                  onChange={(e) => {
+                    setSelectedPropertyId(e.target.value);
                     setSelectedRoomId("");
                   }}
-                  options={propertyOptions}
-                  placeholder="Select property…"
-                />
-              </div>
+                >
+                  <option value="">Select property…</option>
+                  {propertyOptions.map((property) => (
+                    <option key={property.value} value={property.value}>
+                      {property.label}
+                    </option>
+                  ))}
+                </Select>
+              </label>
               {roomOptions.length > 0 ? (
                 <label className={PORTAL_MODAL_FORM_FIELD_CLASS}>
                   <span className={MODAL_FIELD_LABEL_CLASS}>Room</span>

@@ -490,7 +490,7 @@ export function ManagerPropertyApplicationQuestionsPanel({
         open={importOpen}
         kind="application"
         propertyId={previewPropertyId || listingId?.trim() || saveTarget?.saveId || propertyIds?.[0] || ""}
-        propertyLabel={sub.buildingName?.trim() || sub.propertyTitle?.trim() || "Property"}
+        propertyLabel={sub.buildingName?.trim() || sub.address?.trim() || "Property"}
         managerUserId={managerUserId}
         onClose={() => setImportOpen(false)}
         onImported={() => onUpdated()}

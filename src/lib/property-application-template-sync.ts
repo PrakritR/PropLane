@@ -40,31 +40,49 @@ function defaultLabelForSeed(seed: ApplicationTemplateSeed): string {
   return "Long-term application";
 }
 
-function cosignerApplicationSeed(
-  leaseSeeds: ReturnType<typeof buildLeaseTemplateSeeds>,
-): ApplicationTemplateSeed | null {
-  if (leaseSeeds.length === 0) return null;
-  return {
-    seedKey: COSIGNER_SEED_KEY,
-    kind: "long-term",
-    label: defaultLabelForSeed({
-      seedKey: COSIGNER_SEED_KEY,
-      kind: "long-term",
-      label: "",
-      formVariant: "cosigner",
-      applicationLeaseTerms: [],
-    }),
-    formVariant: "cosigner" as ApplicationFormVariant,
-    applicationLeaseTerms: [],
-  };
+/**
+ * Every label this seed has EVER shipped as a default, not just the current one.
+ *
+ * The two co-signer forms were consolidated into one, so a property seeded
+ * before that still carries "Long-term co-signer application" / "Short-term
+ * co-signer application". Those are untouched defaults, not manager edits —
+ * and `applicationTemplateHasManagerEdits` is what decides whether a row with a
+ * retired seed key is preserved. Judging them against the current label alone
+ * marks them edited, so the retired `cosigner-short-term` row is kept forever
+ * and the property shows a stale duplicate co-signer application it has no way
+ * to remove.
+ */
+function shippedDefaultLabelsForSeed(seed: ApplicationTemplateSeed): string[] {
+  if (seed.seedKey === COSIGNER_SEED_KEY || seed.seedKey === COSIGNER_SHORT_TERM_SEED_KEY) {
+    return [
+      "Co-signer application",
+      "Long-term co-signer application",
+      "Short-term co-signer application",
+    ];
+  }
+  return [defaultLabelForSeed(seed)];
 }
+
+/**
+ * The single co-signer application every property is seeded with.
+ *
+ * A plain constant: `buildLeaseTemplateSeeds` always returns seeds, so the
+ * old "no lease seeds means no co-signer seed" branch was unreachable and its
+ * parameter unused — a variability that no longer exists.
+ */
+const COSIGNER_APPLICATION_SEED: ApplicationTemplateSeed = {
+  seedKey: COSIGNER_SEED_KEY,
+  kind: "long-term",
+  label: "Co-signer application",
+  formVariant: "cosigner" as ApplicationFormVariant,
+  applicationLeaseTerms: [],
+};
 
 /** Every property keeps auto-seeded applications for each lease default plus one co-signer form. */
 export function buildApplicationTemplateSeeds(
   sub: Parameters<typeof buildLeaseTemplateSeeds>[0],
 ): ApplicationTemplateSeed[] {
   const leaseSeeds = buildLeaseTemplateSeeds(sub);
-  const cosignerSeed = cosignerApplicationSeed(leaseSeeds);
   return [
     ...leaseSeeds.map((seed) => ({
       seedKey: seed.seedKey,
@@ -79,7 +97,7 @@ export function buildApplicationTemplateSeeds(
       formVariant: (seed.kind === "short-term" ? "short_term" : "standard") as ApplicationFormVariant,
       applicationLeaseTerms: seed.applicationLeaseTerms,
     })),
-    ...(cosignerSeed ? [cosignerSeed] : []),
+    COSIGNER_APPLICATION_SEED,
   ];
 }
 
@@ -136,16 +154,14 @@ export function addApplicationTemplateFromSeed(
 function applicationTemplateHasManagerEdits(template: PropertyApplicationTemplate): boolean {
   const label = normalizePropertyApplicationTemplateLabel(template.label);
   if (!label || !template.listingSeedKey) return false;
-  return (
-    label !==
-    defaultLabelForSeed({
-      seedKey: template.listingSeedKey,
-      kind: template.kind,
-      label,
-      formVariant: template.formVariant,
-      applicationLeaseTerms: template.applicationLeaseTerms ?? [],
-    })
-  );
+  const shipped = shippedDefaultLabelsForSeed({
+    seedKey: template.listingSeedKey,
+    kind: template.kind,
+    label,
+    formVariant: template.formVariant,
+    applicationLeaseTerms: template.applicationLeaseTerms ?? [],
+  });
+  return !shipped.includes(label);
 }
 
 function adoptLegacyDefaultTemplate(

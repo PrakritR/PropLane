@@ -32,15 +32,36 @@ const DEFAULT_PRODUCTION_WEB_ORIGINS = [
   "https://www.axis-seattle-housing.com",
 ] as const;
 
+/**
+ * Is an ENV-supplied origin actually a live production web origin?
+ *
+ * `NEXT_PUBLIC_APP_URL` is documented as `http://localhost:3000` for local dev
+ * (`.env.example`, SUPABASE_STRIPE_SETUP.md §3), so taking it on trust made
+ * `isKnownProductionWebHost("localhost")` true on every dev box — which makes
+ * `isProductionPublicSite()` true and quietly filters sandbox listings out of
+ * the local rent catalog. A preview deploy has the same problem via
+ * `*.vercel.app`. Neither is ever a production web origin, so neither belongs
+ * in this list no matter what the environment says.
+ */
+function envOriginIsProductionWebOrigin(origin: string): boolean {
+  if (!origin) return false;
+  try {
+    const { hostname } = new URL(origin);
+    return !isLocalHost(hostname) && !isVercelDeploymentHost(hostname);
+  } catch {
+    return false;
+  }
+}
+
 /** Every production HTTPS origin managers may open — used for OAuth allowlist docs and redirect resolution. */
 export function knownProductionWebOrigins(): string[] {
   const seen = new Set<string>();
   const out: string[] = [];
-  for (const raw of [
+  const fromEnv = [
     trimOrigin(process.env.NEXT_PUBLIC_CANONICAL_APP_URL),
     trimOrigin(process.env.NEXT_PUBLIC_APP_URL),
-    ...DEFAULT_PRODUCTION_WEB_ORIGINS,
-  ]) {
+  ].filter(envOriginIsProductionWebOrigin);
+  for (const raw of [...fromEnv, ...DEFAULT_PRODUCTION_WEB_ORIGINS]) {
     const origin = raw.replace(/\/$/, "");
     if (!origin || seen.has(origin)) continue;
     seen.add(origin);
