@@ -279,21 +279,30 @@ export const ResidentInboxPanel = forwardRef<
     }
   }, []);
 
+  const loadEligibleContacts = useCallback(async () => {
+    if (isDemoModeActive()) return;
+    try {
+      const res = await fetch("/api/portal/inbox-eligible-contacts?portal=resident", {
+        credentials: "include",
+        cache: "no-store",
+      });
+      if (!res.ok) return;
+      const data = (await res.json()) as { contacts?: InboxScopedContact[] };
+      setEligibleContacts(Array.isArray(data.contacts) ? data.contacts : []);
+    } catch {
+      setEligibleContacts([]);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!embeddedInCommunication || isDemoModeActive()) return;
+    void loadEligibleContacts();
+  }, [embeddedInCommunication, loadEligibleContacts]);
+
   useEffect(() => {
     if (!composeOpen || isDemoModeActive()) return;
-    let active = true;
-    void fetch("/api/portal/inbox-eligible-contacts?portal=resident", { credentials: "include" })
-      .then((res) => (res.ok ? res.json() : { contacts: [] }))
-      .then((data: { contacts?: InboxScopedContact[] }) => {
-        if (active) setEligibleContacts(Array.isArray(data.contacts) ? data.contacts : []);
-      })
-      .catch(() => {
-        if (active) setEligibleContacts([]);
-      });
-    return () => {
-      active = false;
-    };
-  }, [composeOpen]);
+    void loadEligibleContacts();
+  }, [composeOpen, loadEligibleContacts]);
 
   useEffect(() => {
     const prefill = consumeResidentComposePrefill();
@@ -314,9 +323,9 @@ export const ResidentInboxPanel = forwardRef<
   }, [searchParams]);
 
   useEffect(() => {
-    if (tabId !== "schedule") return;
+    if (tabId !== "schedule" && !embeddedInCommunication) return;
     void reloadScheduledMessages();
-  }, [reloadScheduledMessages, tabId]);
+  }, [embeddedInCommunication, reloadScheduledMessages, tabId]);
 
   useEffect(() => {
     persistInboxRef.current = false;
@@ -673,6 +682,7 @@ export const ResidentInboxPanel = forwardRef<
         showToast("Choose your property manager.");
         return;
       }
+      void loadEligibleContacts();
       const contact = eligibleContacts.find((c) => c.email.trim().toLowerCase() === email);
       const subjectBase = thread.subject?.trim() || "";
       setComposeDraft({
@@ -684,7 +694,7 @@ export const ResidentInboxPanel = forwardRef<
       setComposeScheduleLater(true);
       setComposeOpen(true);
     },
-    [eligibleContacts, showToast],
+    [eligibleContacts, loadEligibleContacts, showToast],
   );
 
   useImperativeHandle(
