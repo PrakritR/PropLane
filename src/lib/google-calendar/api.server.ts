@@ -9,6 +9,7 @@ import {
   saveGoogleCalendarConnection,
 } from "@/lib/google-calendar/settings";
 import { GOOGLE_CALENDAR_OAUTH_SCOPES } from "@/lib/google-calendar/scopes";
+import { isKnownProductionWebHost, resolveShareableAppOrigin } from "@/lib/app-url";
 import { sanitizeOAuthReturnPath } from "@/lib/auth/oauth-return-path";
 import { debugGoogleCalendarLog } from "@/lib/google-calendar/debug-log.server";
 
@@ -45,11 +46,29 @@ function stateSecret(): string {
   return clientSecret();
 }
 
-/** OAuth redirect host — override when multiple dev ports share one Google redirect URI. */
+/**
+ * OAuth redirect host — override when multiple dev ports share one Google redirect URI.
+ *
+ * On production we may serve multiple domains (prop-lane.space and the legacy Axis host).
+ * Google Cloud typically allowlists one callback origin; map every live production host
+ * to the deployment's canonical origin so Calendar/Gmail connect works from any of them.
+ *
+ * `GOOGLE_CALENDAR_REDIRECT_ORIGIN` is for local multi-port dev only — never applied on
+ * production hosts, or a laptop .env.local would break production OAuth callbacks.
+ */
 export function resolveGoogleCalendarRedirectOrigin(browserOrigin: string): string {
+  const normalized = browserOrigin.replace(/\/$/, "");
+  try {
+    const { hostname } = new URL(normalized);
+    if (isKnownProductionWebHost(hostname)) {
+      return resolveShareableAppOrigin(normalized).replace(/\/$/, "");
+    }
+  } catch {
+    /* fall through */
+  }
   const override = process.env.GOOGLE_CALENDAR_REDIRECT_ORIGIN?.trim().replace(/\/$/, "");
   if (override) return override;
-  return browserOrigin.replace(/\/$/, "");
+  return normalized;
 }
 
 export function googleCalendarOAuthRedirectUri(browserOrigin: string): string {

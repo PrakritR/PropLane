@@ -6,6 +6,7 @@ import { loadGmailPaymentsConnection } from "@/lib/gmail-payments/settings";
 import {
   isGoogleCalendarOAuthConfigured,
   loadGoogleCalendarConnection,
+  warmGoogleCalendarOAuthConfig,
 } from "@/lib/google-calendar/settings";
 
 const ROW_KEY = "googleServicesOnboarding";
@@ -67,6 +68,7 @@ export async function loadGoogleServicesOnboardingStatus(
   calendarEmail: string | null;
   gmailEmail: string | null;
 }> {
+  await warmGoogleCalendarOAuthConfig();
   const [dismissed, calendar, gmail] = await Promise.all([
     isGoogleServicesOnboardingDismissed(db, userId),
     loadGoogleCalendarConnection(db, userId),
