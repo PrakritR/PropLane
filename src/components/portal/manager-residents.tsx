@@ -1059,6 +1059,10 @@ export function ManagerResidents({
   useCommunicationSurfaceChrome({
     active: Boolean(residentIdProp && resolvedDetailTab === "communication"),
     threadReading: false,
+    // Resident-detail Communication is always a single open thread (no list pane),
+    // so treat it like an active conversation for assistant chrome.
+    threadSelected: Boolean(residentIdProp && resolvedDetailTab === "communication"),
+    hideAssistantFab: Boolean(residentIdProp && resolvedDetailTab === "communication"),
   });
 
   const selectedServiceResident = useMemo<(ManagerServiceResidentOption & { assignedRoomChoice?: string }) | null>(() => {
