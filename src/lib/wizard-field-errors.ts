@@ -58,6 +58,8 @@ export const LISTING_STEP_FIELD_ORDER: Record<number, string[]> = {
   0: [
     "listingPropertyTypeId",
     "address",
+    "city",
+    "state",
     "zip",
     "listingStoriesId",
     "listingTotalBathroomsId",

@@ -4,8 +4,10 @@ import {
   isValidZipInput,
   parseSanitizedMoneyNumber,
   sanitizeMoneyInput,
+  sanitizeCityInput,
   sanitizeNeighborhoodInput,
   sanitizePlaceNameInput,
+  sanitizeStateInput,
   sanitizeZipInput,
 } from "@/lib/listing-form-inputs";
 
@@ -26,6 +28,15 @@ describe("listing-form-inputs", () => {
     expect(isValidZipInput("98103")).toBe(true);
     expect(isValidZipInput("98103-1234")).toBe(true);
     expect(isValidZipInput("981")).toBe(false);
+  });
+
+  it("uppercases and caps state abbreviations", () => {
+    expect(sanitizeStateInput("wa")).toBe("WA");
+    expect(sanitizeStateInput("washington")).toBe("WA");
+  });
+
+  it("blocks digits in city names", () => {
+    expect(sanitizeCityInput("Seattle 981")).toBe("Seattle ");
   });
 
   it("blocks digits in neighborhood names", () => {

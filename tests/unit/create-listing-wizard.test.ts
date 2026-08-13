@@ -27,6 +27,8 @@ import {
 function filledPricingSubmission() {
   const sub = createDefaultListingSubmission();
   sub.address = "123 Main St";
+  sub.city = "Seattle";
+  sub.state = "WA";
   sub.zip = "98101";
   sub.listingPropertyTypeId = "house";
   sub.listingStoriesId = "2";
@@ -46,13 +48,17 @@ function filledPricingSubmission() {
 }
 
 describe("create listing wizard", () => {
-  it("requires address and valid zip on home step", () => {
+  it("requires address, city, state, and valid zip on home step", () => {
     const sub = createDefaultListingSubmission();
     const errs = validateListingWizardStep(0, sub);
     expect(errs.address).toMatch(/required/i);
+    expect(errs.city).toMatch(/required/i);
+    expect(errs.state).toMatch(/state/i);
     expect(errs.zip).toMatch(/required/i);
 
     sub.address = "123 Main St";
+    sub.city = "Seattle";
+    sub.state = "WA";
     sub.zip = "9810";
     const zipErrs = validateListingWizardStep(0, sub);
     expect(zipErrs.zip).toMatch(/valid/i);
@@ -61,6 +67,8 @@ describe("create listing wizard", () => {
   it("requires property setup fields on new listing home step", () => {
     const sub = createDefaultListingSubmission();
     sub.address = "123 Main St";
+    sub.city = "Seattle";
+    sub.state = "WA";
     sub.zip = "98101";
     const errs = validateListingWizardStep(0, sub);
     expect(errs.listingPropertyTypeId).toBeTruthy();
@@ -71,6 +79,8 @@ describe("create listing wizard", () => {
   it("requires bedroom slots when unset on new listing home step", () => {
     const sub = createDefaultListingSubmission();
     sub.address = "123 Main St";
+    sub.city = "Seattle";
+    sub.state = "WA";
     sub.zip = "98101";
     sub.listingPropertyTypeId = "house";
     sub.listingStoriesId = "2";
@@ -83,6 +93,8 @@ describe("create listing wizard", () => {
   it("skips property setup validation in edit mode", () => {
     const sub = createDefaultListingSubmission();
     sub.address = "123 Main St";
+    sub.city = "Seattle";
+    sub.state = "WA";
     sub.zip = "98101";
     const errs = validateListingWizardStep(0, sub, { isEditMode: true });
     expect(errs.listingPropertyTypeId).toBeUndefined();

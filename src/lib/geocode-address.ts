@@ -1,4 +1,5 @@
 import type { MockProperty } from "@/data/types";
+import { US_STATE_ABBREVS } from "@/app/(public)/rent/apply/apply-validation";
 
 export type GeocodeCoords = { lat: number; lng: number };
 
@@ -9,6 +10,7 @@ export type AddressSuggestion = {
   zip: string;
   neighborhood: string;
   city: string;
+  state: string;
   lat: number | null;
   lng: number | null;
 };
@@ -27,6 +29,8 @@ type NominatimAddressParts = {
   hamlet?: string;
   municipality?: string;
   county?: string;
+  state?: string;
+  "ISO3166-2-lvl4"?: string;
   postcode?: string;
   building?: string;
 };
@@ -41,11 +45,16 @@ export type NominatimSearchHit = {
 
 /** Build a stable geocoding query from listing address fields. */
 export function listingGeocodeQuery(
-  property: Pick<MockProperty, "address" | "zip" | "neighborhood" | "unitLabel">,
+  property: Pick<MockProperty, "address" | "zip" | "neighborhood" | "unitLabel"> & {
+    city?: string;
+    state?: string;
+  },
 ): string {
   const street = property.address?.trim() ?? "";
   const unit = property.unitLabel?.trim() ?? "";
   const neighborhood = property.neighborhood?.trim() ?? "";
+  const city = property.city?.trim() ?? "";
+  const state = property.state?.trim().toUpperCase() ?? "";
   const zip = property.zip?.trim() ?? "";
 
   // Deliberately DROP the unit from the geocode query. A unit is inside the same
@@ -63,7 +72,10 @@ export function listingGeocodeQuery(
     .replace(/[,\s]+$/, "")
     .trim() || street;
 
-  const parts = [streetLine, neighborhood, zip].filter(Boolean);
+  const location =
+    city && state ? `${city}, ${state}` : city || neighborhood;
+
+  const parts = [streetLine, location, zip].filter(Boolean);
   if (!parts.length) return "";
 
   const query = parts.join(", ");
@@ -90,6 +102,19 @@ function firstNonEmpty(...values: Array<string | undefined>): string {
   return "";
 }
 
+function parseNominatimState(parts: NominatimAddressParts): string {
+  const iso = parts["ISO3166-2-lvl4"]?.trim() ?? "";
+  const isoMatch = iso.match(/^US-([A-Z]{2})$/i);
+  if (isoMatch) return isoMatch[1]!.toUpperCase();
+
+  const raw = parts.state?.trim() ?? "";
+  if (/^[A-Za-z]{2}$/.test(raw)) {
+    const abbrev = raw.toUpperCase();
+    return US_STATE_ABBREVS.has(abbrev) ? abbrev : "";
+  }
+  return "";
+}
+
 /** Map a Nominatim search hit into listing address fields. */
 export function parseNominatimAddressSuggestion(hit: NominatimSearchHit): AddressSuggestion | null {
   const parts = hit.address ?? {};
@@ -97,6 +122,7 @@ export function parseNominatimAddressSuggestion(hit: NominatimSearchHit): Addres
   const house = parts.house_number?.trim() ?? "";
   const street = house && road ? `${house} ${road}` : firstNonEmpty(road, house);
   const city = firstNonEmpty(parts.city, parts.town, parts.village, parts.hamlet, parts.municipality);
+  const state = parseNominatimState(parts);
   const neighborhood = firstNonEmpty(
     parts.neighbourhood,
     parts.suburb,
@@ -118,6 +144,7 @@ export function parseNominatimAddressSuggestion(hit: NominatimSearchHit): Addres
     zip,
     neighborhood,
     city,
+    state,
     lat: coords?.lat ?? null,
     lng: coords?.lng ?? null,
   };
