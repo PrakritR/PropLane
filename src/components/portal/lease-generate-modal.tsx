@@ -8,7 +8,6 @@ import {
   Modal,
   ModalFooter,
   MODAL_FIELD_LABEL_CLASS,
-  MODAL_WARNING_BOX_CLASS,
   PORTAL_MODAL_FORM_FIELD_CLASS,
 } from "@/components/ui/modal";
 import { LeaseHtmlDirectEditor } from "@/components/portal/lease-html-direct-editor";
@@ -31,7 +30,6 @@ import {
 import { normalizeManagerListingSubmissionV1 } from "@/lib/manager-listing-submission";
 import { listLeaseTemplateGenerateChoices } from "@/lib/property-lease-template-sync";
 import { stripDisclosureReviewFromLeaseHtml } from "@/lib/property-lease-document-display";
-import { LEASE_AI_REVIEW_DISCLAIMER } from "@/lib/lease-templates/types";
 import { getPropertyById } from "@/lib/rental-application/data";
 
 export function LeaseGenerateModal({
@@ -207,16 +205,6 @@ export function LeaseGenerateModal({
       }
     >
       <div className="space-y-4">
-        <p className={MODAL_WARNING_BOX_CLASS}>
-          <strong>AI-generated draft.</strong> {LEASE_AI_REVIEW_DISCLAIMER}
-        </p>
-        {replacesManagerEdits ? (
-          <p className={MODAL_WARNING_BOX_CLASS}>
-            <strong>Manager edits will be replaced.</strong> Regeneration rebuilds this lease from the current
-            application and listing terms. Your saved body edits will not be kept.
-          </p>
-        ) : null}
-
         <div className={PORTAL_MODAL_FORM_FIELD_CLASS}>
           <label className={MODAL_FIELD_LABEL_CLASS} htmlFor="lease-generate-type">
             Lease type
