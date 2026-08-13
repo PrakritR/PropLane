@@ -1,18 +1,27 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
-import { Input, Textarea } from "@/components/ui/input";
+import { Modal } from "@/components/ui/modal";
 import { useAppUi } from "@/components/providers/app-ui-provider";
 import { formatTourReminderTimingLabel } from "@/components/portal/reminder-settings-shared";
+import { patchScheduledMessage } from "@/components/portal/payment-schedule-ui";
+import { InboxScheduledCard } from "@/components/portal/portal-inbox-ui";
 import type { ScheduledInboxMessageRecord } from "@/lib/scheduled-inbox-messages";
-import { formatPacificDateTime } from "@/lib/pacific-time";
+import { formatScheduledSendAt } from "@/lib/scheduled-payment-messages";
 
-function formatSendAtLabel(sendAt: string): string {
-  const d = new Date(sendAt);
-  if (Number.isNaN(d.getTime())) return sendAt;
-  return formatPacificDateTime(d);
+function formatSendDate(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return iso;
+  return d.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
+}
+
+function tourReminderCardLabel(row: ScheduledInboxMessageRecord): string {
+  if (row.tourReminderMinutesBefore != null) {
+    return formatTourReminderTimingLabel(row.tourReminderMinutesBefore);
+  }
+  return "Before tour";
 }
 
 export function TourReminderTourPanel({
@@ -36,11 +45,14 @@ export function TourReminderTourPanel({
 }) {
   const { showToast } = useAppUi();
   const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
   const [reminders, setReminders] = useState<ScheduledInboxMessageRecord[]>([]);
-  const [subject, setSubject] = useState("");
-  const [body, setBody] = useState("");
-  const [sendAtLocal, setSendAtLocal] = useState("");
+  const [editingReminder, setEditingReminder] = useState<ScheduledInboxMessageRecord | null>(null);
+  const [detailBusy, setDetailBusy] = useState(false);
+
+  const manageable = useMemo(
+    () => reminders.filter((row) => row.status === "scheduled" || row.status === "cancelled"),
+    [reminders],
+  );
 
   const load = useCallback(async () => {
     if (!recipientEmail?.includes("@")) {
@@ -83,25 +95,7 @@ export function TourReminderTourPanel({
         }
       }
       setReminders(currentList);
-      const primary = currentList[0] ?? null;
-      if (primary) {
-        setSubject(primary.subject);
-        setBody(primary.body);
-        const d = new Date(primary.sendAt);
-        if (!Number.isNaN(d.getTime())) {
-          const pad = (n: number) => String(n).padStart(2, "0");
-          setSendAtLocal(
-            `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`,
-          );
-        }
-      }
     } catch {
-      // Never surface the raw error text. The only deliberate throw above already
-      // carries exactly this copy, so nothing is lost — but an unexpected failure
-      // (network blip, bad JSON) was putting an internal message like
-      // "Failed to parse URL from /api/portal/tour-reminders?…" in front of the
-      // manager, and because this panel loads when the tour modal OPENS, that
-      // toast also landed on top of the cancel/confirm result they were reading.
       showToast("Could not load tour reminder.");
     } finally {
       setLoading(false);
@@ -112,43 +106,23 @@ export function TourReminderTourPanel({
     void load();
   }, [load]);
 
-  const save = async () => {
-    if (!recipientEmail?.includes("@")) return;
-    setSaving(true);
+  const toggleCancelled = async (message: ScheduledInboxMessageRecord, cancelled: boolean) => {
+    const previous = reminders;
+    setReminders((prev) =>
+      prev.map((row) =>
+        row.id === message.id ? { ...row, status: cancelled ? "cancelled" : "scheduled" } : row,
+      ),
+    );
     try {
-      const sendAt =
-        reminders.length === 1 && sendAtLocal ? new Date(sendAtLocal).toISOString() : undefined;
-      const res = await fetch("/api/portal/tour-reminders", {
-        method: "PUT",
-        credentials: "include",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          plannedEventId,
-          tourStartIso,
-          tourEndIso,
-          recipientEmail,
-          recipientName,
-          propertyTitle,
-          instructions,
-          subject,
-          body,
-          sendAt,
-        }),
-      });
-      if (!res.ok) throw new Error("Could not save tour reminder.");
-      const data = (await res.json()) as {
-        reminder: ScheduledInboxMessageRecord | null;
-        reminders?: ScheduledInboxMessageRecord[];
-      };
-      const nextList = data.reminders ?? (data.reminder ? [data.reminder] : []);
-      setReminders(nextList);
-      showToast(nextList.length > 1 ? "Tour reminders saved." : "Tour reminder saved.");
-    } catch (e) {
-      showToast(e instanceof Error ? e.message : "Could not save tour reminder.");
-    } finally {
-      setSaving(false);
+      await patchScheduledMessage(message.id, { cancelled });
+      await load();
+    } catch {
+      setReminders(previous);
+      showToast("Could not update reminder.");
     }
   };
+
+  const editingSendLabel = editingReminder ? formatScheduledSendAt(editingReminder.sendAt) : "";
 
   if (!recipientEmail?.includes("@")) {
     return (
@@ -170,80 +144,132 @@ export function TourReminderTourPanel({
     );
   }
 
-  const reminder = reminders[0];
-  const scheduledReminders = reminders.filter((row) => row.status === "scheduled");
+  const primary = reminders[0];
   const commsHref = `${managerPortalBase}/communication?recipient=${encodeURIComponent(recipientEmail)}`;
 
   return (
-    <div className="space-y-3 rounded-2xl border border-border bg-card px-4 py-3" data-attr="tour-reminder-panel">
-      <div className="flex flex-wrap items-start justify-between gap-2">
-        <div>
-          <p className="text-xs font-bold uppercase tracking-[0.14em] text-muted">
-            Tour reminder{reminders.length > 1 ? "s" : ""}
-          </p>
-          {scheduledReminders.length > 0 ? (
-            <ul className="mt-1 space-y-0.5 text-sm text-muted">
-              {scheduledReminders.map((row) => (
-                <li key={row.id}>
-                  <span className="font-semibold text-foreground">Scheduled</span>
-                  {row.tourReminderMinutesBefore != null ? (
-                    <> · {formatTourReminderTimingLabel(row.tourReminderMinutesBefore)}</>
-                  ) : null}
-                  {" · sends "}
-                  {formatSendAtLabel(row.sendAt)}
-                </li>
-              ))}
-            </ul>
-          ) : (
-            <p className="mt-1 text-sm text-muted">
-              Status: <span className="font-semibold text-foreground">{reminder.status}</span>
+    <>
+      <div className="space-y-3 rounded-2xl border border-border bg-card px-4 py-3" data-attr="tour-reminder-panel">
+        <div className="flex flex-wrap items-start justify-between gap-2">
+          <div>
+            <p className="text-xs font-bold uppercase tracking-[0.14em] text-muted">Tour reminders</p>
+            <p className="mt-1 text-xs text-muted">
+              {primary.deliverViaEmail ? "Email" : null}
+              {primary.deliverViaEmail && primary.deliverViaSms ? " · " : null}
+              {primary.deliverViaSms ? "SMS" : null}
+              {!primary.deliverViaEmail && !primary.deliverViaSms ? "Inbox only" : null}
             </p>
-          )}
-          <p className="mt-1 text-xs text-muted">
-            {reminder.deliverViaEmail ? "Email" : null}
-            {reminder.deliverViaEmail && reminder.deliverViaSms ? " · " : null}
-            {reminder.deliverViaSms ? "SMS" : null}
-            {!reminder.deliverViaEmail && !reminder.deliverViaSms ? "Inbox only" : null}
-          </p>
+          </div>
+          <Link
+            href={commsHref}
+            className="text-xs font-semibold text-primary underline-offset-2 hover:underline"
+            data-attr="tour-reminder-open-communication"
+          >
+            Open in Communication
+          </Link>
         </div>
-        <Link
-          href={commsHref}
-          className="text-xs font-semibold text-primary underline-offset-2 hover:underline"
-          data-attr="tour-reminder-open-communication"
-        >
-          Open in Communication
-        </Link>
+
+        {manageable.length === 0 ? (
+          <p className="text-sm text-muted">These reminders were already sent. Open Communication to view the thread.</p>
+        ) : (
+          <div>
+            <p className="text-xs font-semibold text-muted">Scheduled messages</p>
+            <ul className="mt-2 space-y-2">
+              {manageable.map((row) => {
+                const cancelled = row.status === "cancelled";
+                const label = tourReminderCardLabel(row);
+                return (
+                  <li
+                    key={row.id}
+                    className={`rounded-xl border border-border bg-card px-3 py-2.5 text-foreground shadow-sm ${
+                      cancelled ? "opacity-80" : ""
+                    }`}
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <button
+                        type="button"
+                        className={`min-w-0 flex-1 text-left ${cancelled ? "line-through" : ""}`}
+                        onClick={() => setEditingReminder(row)}
+                        data-attr="tour-reminder-card"
+                      >
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="text-sm font-semibold text-foreground">{label}</span>
+                          <span
+                            className={`rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${
+                              cancelled ? "bg-muted/30 text-muted" : "bg-primary/15 text-primary"
+                            }`}
+                          >
+                            {cancelled ? "Off" : "Scheduled"}
+                          </span>
+                        </div>
+                        <span className="mt-1 block text-xs text-muted">Sends {formatSendDate(row.sendAt)}</span>
+                        <span className="mt-0.5 block text-[11px] font-medium text-primary">Update message</span>
+                      </button>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        className="h-8 shrink-0 rounded-full px-3 text-xs"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          void toggleCancelled(row, !cancelled);
+                        }}
+                        data-attr="tour-reminder-toggle"
+                      >
+                        {cancelled ? "Turn on" : "Turn off"}
+                      </Button>
+                    </div>
+                  </li>
+                );
+              })}
+            </ul>
+          </div>
+        )}
       </div>
 
-      {scheduledReminders.length > 0 ? (
-        <div className="space-y-2">
-          {scheduledReminders.length === 1 ? (
-            <label className="block text-xs font-semibold text-muted">
-              Send at
-              <Input
-                type="datetime-local"
-                className="mt-1"
-                value={sendAtLocal}
-                onChange={(e) => setSendAtLocal(e.target.value)}
-                data-attr="tour-reminder-send-at"
-              />
-            </label>
-          ) : null}
-          <label className="block text-xs font-semibold text-muted">
-            Subject
-            <Input className="mt-1" value={subject} onChange={(e) => setSubject(e.target.value)} data-attr="tour-reminder-subject" />
-          </label>
-          <label className="block text-xs font-semibold text-muted">
-            Message
-            <Textarea className="mt-1 min-h-[8rem]" value={body} onChange={(e) => setBody(e.target.value)} data-attr="tour-reminder-body" />
-          </label>
-          <Button type="button" variant="primary" className="rounded-full" disabled={saving} onClick={() => save()} data-attr="tour-reminder-save">
-            {saving ? "Saving…" : scheduledReminders.length > 1 ? "Save reminders" : "Save reminder"}
-          </Button>
-        </div>
-      ) : (
-        <p className="text-sm text-muted">These reminders were already sent. Open Communication to view the thread.</p>
-      )}
-    </div>
+      <Modal
+        open={Boolean(editingReminder)}
+        onClose={() => setEditingReminder(null)}
+        title="Scheduled message"
+        dense
+        assistantStrip={false}
+        panelClassName="max-w-lg p-3 sm:p-4"
+      >
+        {editingReminder ? (
+          <InboxScheduledCard
+            key={editingReminder.id}
+            sendLabel={editingSendLabel}
+            subject={editingReminder.subject}
+            body={editingReminder.body}
+            meta="Placeholders are filled when the reminder sends."
+            source="automation"
+            editable={editingReminder.status === "scheduled"}
+            busy={detailBusy}
+            presentation="detail"
+            onCancel={() => void toggleCancelled(editingReminder, true).then(() => setEditingReminder(null))}
+            onSendNow={() => {}}
+            showSendActions={false}
+            onSaveEdit={
+              editingReminder.status === "scheduled"
+                ? async (next) => {
+                    setDetailBusy(true);
+                    try {
+                      await patchScheduledMessage(editingReminder.id, {
+                        customSubject: next.subject,
+                        customBody: next.body,
+                      });
+                      await load();
+                      setEditingReminder(null);
+                    } catch (e) {
+                      showToast(e instanceof Error ? e.message : "Could not save reminder.");
+                    } finally {
+                      setDetailBusy(false);
+                    }
+                  }
+                : undefined
+            }
+          />
+        ) : null}
+      </Modal>
+    </>
   );
 }

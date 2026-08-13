@@ -23,6 +23,10 @@ vi.mock("@/lib/payment-automation-settings", async (importOriginal) => {
   };
 });
 
+vi.mock("@/lib/scheduled-inbox-messages", () => ({
+  updateScheduledInboxMessage: vi.fn(),
+}));
+
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import {
@@ -30,12 +34,14 @@ import {
   parseScheduledMessageListId,
 } from "@/lib/payment-automation-server";
 import { upsertScheduledMessageOverride } from "@/lib/payment-automation-settings";
+import { updateScheduledInboxMessage } from "@/lib/scheduled-inbox-messages";
 import { GET } from "@/app/api/portal/scheduled-messages/route";
 import { PATCH } from "@/app/api/portal/scheduled-messages/[id]/route";
 import { encodeScheduledMessagePathId } from "@/lib/scheduled-message-path-id";
 
 const SAMPLE_ID = "sched|charge-1|pre_due|3|2026-07-01";
 const PATH_ID = encodeScheduledMessagePathId(SAMPLE_ID);
+const TOUR_INBOX_ID = "sched_inbox_123_abc";
 
 function mockManagerAuth(userId = "mgr-a") {
   vi.mocked(createSupabaseServerClient).mockResolvedValue({
@@ -78,6 +84,7 @@ describe("/api/portal/scheduled-messages", () => {
       daysBeforeDue: 3,
     });
     vi.mocked(upsertScheduledMessageOverride).mockResolvedValue(undefined);
+    vi.mocked(updateScheduledInboxMessage).mockResolvedValue(undefined);
   });
 
   it("GET returns 401 when unauthenticated", async () => {
@@ -149,6 +156,30 @@ describe("/api/portal/scheduled-messages", () => {
         patch: { cancelled: true, customSubject: "Custom subject" },
       }),
     );
+  });
+
+  it("PATCH updates tour inbox scheduled messages by sched_inbox id", async () => {
+    mockManagerAuth();
+
+    const req = jsonRequest(`http://localhost/api/portal/scheduled-messages/${TOUR_INBOX_ID}`, {
+      method: "PATCH",
+      body: { cancelled: true, customSubject: "Tour subject", customBody: "Tour body" },
+    });
+    const res = await PATCH(req, { params: Promise.resolve({ id: TOUR_INBOX_ID }) });
+    const { status, data } = await parseJsonResponse<{ ok?: boolean }>(res);
+    expect(status).toBe(200);
+    expect(data.ok).toBe(true);
+    expect(updateScheduledInboxMessage).toHaveBeenCalledWith(
+      expect.anything(),
+      "mgr-a",
+      TOUR_INBOX_ID,
+      expect.objectContaining({
+        status: "cancelled",
+        subject: "Tour subject",
+        body: "Tour body",
+      }),
+    );
+    expect(upsertScheduledMessageOverride).not.toHaveBeenCalled();
   });
 
   it("PATCH returns 400 for invalid message id", async () => {

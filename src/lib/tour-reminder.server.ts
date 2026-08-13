@@ -75,15 +75,66 @@ async function loadTourReminderRows(
   return (data ?? []) as TourReminderDbRow[];
 }
 
+function pickPreferredTourReminderRow(rows: ScheduledInboxMessageRecord[]): ScheduledInboxMessageRecord {
+  const rank = (status: ScheduledInboxMessageRecord["status"]) =>
+    status === "scheduled" ? 0 : status === "cancelled" ? 1 : 2;
+  return [...rows].sort((a, b) => {
+    const byStatus = rank(a.status) - rank(b.status);
+    if (byStatus !== 0) return byStatus;
+    return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+  })[0]!;
+}
+
+/** Cancel extra scheduled rows that share the same tour offset (legacy double-create cleanup). */
+export async function reconcileDuplicateTourReminders(
+  db: Db,
+  managerUserId: string,
+  plannedEventId: string,
+): Promise<void> {
+  const rows = (await loadTourReminderRows(db, managerUserId, plannedEventId))
+    .map((row) => parseTourReminderRow(row))
+    .filter((row): row is ScheduledInboxMessageRecord => row != null);
+  const groups = new Map<number | "legacy", ScheduledInboxMessageRecord[]>();
+  for (const row of rows) {
+    const key = row.tourReminderMinutesBefore ?? "legacy";
+    const list = groups.get(key) ?? [];
+    list.push(row);
+    groups.set(key, list);
+  }
+  const now = new Date().toISOString();
+  for (const group of groups.values()) {
+    if (group.length <= 1) continue;
+    const winner = pickPreferredTourReminderRow(group);
+    for (const row of group) {
+      if (row.id === winner.id || row.status !== "scheduled") continue;
+      await updateScheduledInboxMessage(db, managerUserId, row.id, {
+        status: "cancelled",
+        cancelledAt: now,
+      });
+    }
+  }
+}
+
 export async function listTourRemindersForPlannedEvent(
   db: Db,
   managerUserId: string,
   plannedEventId: string,
 ): Promise<ScheduledInboxMessageRecord[]> {
   const rows = await loadTourReminderRows(db, managerUserId, plannedEventId);
-  return rows
+  const parsed = rows
     .map((row) => parseTourReminderRow(row))
-    .filter((row): row is ScheduledInboxMessageRecord => row != null && row.status !== "cancelled");
+    .filter(
+      (row): row is ScheduledInboxMessageRecord =>
+        row != null && (row.status === "scheduled" || row.status === "cancelled" || row.status === "sent"),
+    );
+  const groups = new Map<number | "legacy", ScheduledInboxMessageRecord[]>();
+  for (const row of parsed) {
+    const key = row.tourReminderMinutesBefore ?? "legacy";
+    const list = groups.get(key) ?? [];
+    list.push(row);
+    groups.set(key, list);
+  }
+  return [...groups.values()].map((group) => pickPreferredTourReminderRow(group));
 }
 
 export async function findTourReminderForPlannedEvent(
@@ -237,6 +288,8 @@ export async function upsertTourReminderForPlannedEvent(
       cancelledAt: now,
     });
   }
+
+  await reconcileDuplicateTourReminders(db, input.managerUserId, input.plannedEventId);
 
   const refreshed = await listTourRemindersForPlannedEvent(db, input.managerUserId, input.plannedEventId);
   if (!refreshed.length) return null;

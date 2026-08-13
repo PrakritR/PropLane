@@ -1,6 +1,7 @@
 import { parseScheduledMessageListId } from "@/lib/payment-automation-server";
 import { upsertScheduledMessageOverride } from "@/lib/payment-automation-settings";
 import { decodeScheduledMessagePathId } from "@/lib/scheduled-message-path-id";
+import { updateScheduledInboxMessage } from "@/lib/scheduled-inbox-messages";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { NextResponse } from "next/server";
@@ -33,10 +34,6 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
 
     const { id: rawId } = await ctx.params;
     const id = decodeScheduledMessagePathId(rawId);
-    const parsed = parseScheduledMessageListId(id);
-    if (!parsed) {
-      return NextResponse.json({ error: "Invalid scheduled message id." }, { status: 400 });
-    }
 
     const body = (await req.json()) as {
       cancelled?: boolean;
@@ -46,6 +43,28 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
       customDaysBeforeDue?: number;
       customSendAt?: string;
     };
+
+    if (id.startsWith("sched_inbox_")) {
+      const now = new Date().toISOString();
+      const inboxPatch: Parameters<typeof updateScheduledInboxMessage>[3] = {};
+      if (typeof body.cancelled === "boolean") {
+        inboxPatch.status = body.cancelled ? "cancelled" : "scheduled";
+        inboxPatch.cancelledAt = body.cancelled ? now : null;
+      }
+      if (typeof body.customSubject === "string") inboxPatch.subject = body.customSubject.trim();
+      if (typeof body.customBody === "string") inboxPatch.body = body.customBody.trim();
+      if (typeof body.customSendAt === "string" && body.customSendAt.trim()) {
+        const parsedSendAt = new Date(body.customSendAt);
+        if (!Number.isNaN(parsedSendAt.getTime())) inboxPatch.sendAt = parsedSendAt.toISOString();
+      }
+      await updateScheduledInboxMessage(auth.db, auth.userId, id, inboxPatch);
+      return NextResponse.json({ ok: true });
+    }
+
+    const parsed = parseScheduledMessageListId(id);
+    if (!parsed) {
+      return NextResponse.json({ error: "Invalid scheduled message id." }, { status: 400 });
+    }
 
     const patch: {
       cancelled?: boolean;
@@ -64,8 +83,8 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
       patch.customDaysBeforeDue = Math.max(0, Math.min(60, Math.round(body.customDaysBeforeDue)));
     }
     if (typeof body.customSendAt === "string" && body.customSendAt.trim()) {
-      const parsed = new Date(body.customSendAt);
-      if (!Number.isNaN(parsed.getTime())) patch.customSendAt = parsed.toISOString();
+      const parsedSendAt = new Date(body.customSendAt);
+      if (!Number.isNaN(parsedSendAt.getTime())) patch.customSendAt = parsedSendAt.toISOString();
     }
 
     await upsertScheduledMessageOverride(auth.db, {

@@ -5,6 +5,7 @@ import {
   cancelTourReminderForPlannedEvent,
   findTourReminderForPlannedEvent,
   listTourRemindersForPlannedEvent,
+  reconcileDuplicateTourReminders,
   upsertTourReminderForPlannedEvent,
 } from "@/lib/tour-reminder.server";
 
@@ -38,6 +39,7 @@ export async function GET(req: Request) {
     if (!ctx) return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
     const plannedEventId = new URL(req.url).searchParams.get("plannedEventId")?.trim() ?? "";
     if (!plannedEventId) return NextResponse.json({ error: "plannedEventId required." }, { status: 400 });
+    await reconcileDuplicateTourReminders(ctx.db, ctx.userId, plannedEventId);
     const reminder = await findTourReminderForPlannedEvent(ctx.db, ctx.userId, plannedEventId);
     const reminders = await listTourRemindersForPlannedEvent(ctx.db, ctx.userId, plannedEventId);
     return NextResponse.json({ reminder, reminders });
