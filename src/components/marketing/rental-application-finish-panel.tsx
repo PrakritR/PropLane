@@ -119,7 +119,9 @@ export function RentalApplicationFinishPanel({
                 ? `Check ${email} for your resident account setup link.`
                 : "Check your email for your resident account setup link."
           : email
-            ? `Confirmation for ${email}`
+            ? emailSent
+              ? `We emailed a confirmation to ${email}. Sign in to track your application in the resident portal.`
+              : `Confirmation for ${email}`
             : "Sign in to track your application in the resident portal."}
       </p>
 

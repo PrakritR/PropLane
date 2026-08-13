@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import {
-  APPLICATION_SUBMITTED_EMAIL_SUBJECT,
+  applicationSubmittedEmailSubject,
   buildApplicationSubmittedEmailBody,
   buildApplicationSubmittedEmailHtml,
   buildApplicationSubmittedMailtoHref,
@@ -50,6 +50,7 @@ export async function POST(req: Request) {
       propertyTitle?: unknown;
       includeSetupHandoff?: unknown;
       setupToken?: unknown;
+      accountReady?: unknown;
     };
     try {
       body = (await req.json()) as typeof body;
@@ -62,6 +63,7 @@ export async function POST(req: Request) {
     const applicantName = typeof body.applicantName === "string" ? body.applicantName.trim() : "";
     const propertyTitle = typeof body.propertyTitle === "string" ? body.propertyTitle.trim() : "";
     const includeSetupHandoff = body.includeSetupHandoff === true;
+    const accountReady = body.accountReady === true;
     const providedSetupToken = typeof body.setupToken === "string" ? body.setupToken.trim() : "";
 
     if (!email || !EMAIL_RE.test(email)) {
@@ -97,9 +99,11 @@ export async function POST(req: Request) {
         providedSetupToken,
       );
 
-    let token: string;
+    let token: string | undefined;
     let ensuredAxisId: string;
-    if (reuseToken) {
+    if (accountReady) {
+      ensuredAxisId = normalizeApplicationAxisId(match.id);
+    } else if (reuseToken) {
       token = providedSetupToken;
       ensuredAxisId = normalizeApplicationAxisId(match.id);
     } else {
@@ -112,14 +116,17 @@ export async function POST(req: Request) {
     }
 
     const origin = appOrigin();
-    const signupUrl = residentAccountCreationUrl(origin, ensuredAxisId, token);
-    const setupHref = buildResidentSetupHref(token, ensuredAxisId);
+    const signupUrl = accountReady
+      ? `${origin}/resident/applications`
+      : residentAccountCreationUrl(origin, ensuredAxisId, token);
+    const setupHref = token ? buildResidentSetupHref(token, ensuredAxisId) : undefined;
     const text = buildApplicationSubmittedEmailBody({
       applicantName: applicantName || undefined,
       applicantEmail: email,
       axisId: ensuredAxisId,
       signupUrl,
       propertyTitle: propertyTitle || undefined,
+      accountReady,
     });
     const html = buildApplicationSubmittedEmailHtml({
       applicantName: applicantName || undefined,
@@ -127,6 +134,7 @@ export async function POST(req: Request) {
       axisId: ensuredAxisId,
       signupUrl,
       propertyTitle: propertyTitle || undefined,
+      accountReady,
     });
     const mailtoHref = buildApplicationSubmittedMailtoHref({
       to: email,
@@ -136,6 +144,7 @@ export async function POST(req: Request) {
       origin,
       propertyTitle: propertyTitle || undefined,
       setupToken: token,
+      accountReady,
     });
 
     const rowData = (match.row_data ?? {}) as {
@@ -208,7 +217,7 @@ export async function POST(req: Request) {
         ok: true,
         skipped: true,
         mailtoHref,
-        ...(includeSetupHandoff ? { setupHref } : {}),
+        ...(includeSetupHandoff && setupHref ? { setupHref } : {}),
       });
     }
 
@@ -219,7 +228,7 @@ export async function POST(req: Request) {
           ok: false,
           error: "Email delivery is not configured.",
           mailtoHref,
-          ...(includeSetupHandoff ? { setupHref } : {}),
+          ...(includeSetupHandoff && setupHref ? { setupHref } : {}),
         },
         { status: 503 },
       );
@@ -229,7 +238,7 @@ export async function POST(req: Request) {
     const res = await fetch("https://api.resend.com/emails", {
       method: "POST",
       headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
-      body: JSON.stringify({ from, to: [email], subject: APPLICATION_SUBMITTED_EMAIL_SUBJECT, text, html }),
+      body: JSON.stringify({ from, to: [email], subject: applicationSubmittedEmailSubject(accountReady), text, html }),
     });
     const payload = (await res.json().catch(() => ({}))) as { message?: string; id?: string };
     if (!res.ok) {
@@ -237,7 +246,7 @@ export async function POST(req: Request) {
         {
           ok: false,
           error: payload.message ?? res.statusText,
-          ...(includeSetupHandoff ? { setupHref } : {}),
+          ...(includeSetupHandoff && setupHref ? { setupHref } : {}),
         },
         { status: 502 },
       );

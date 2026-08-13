@@ -1520,7 +1520,8 @@ function RentalApplicationWizardInner({
       let setupHref: string | undefined = sync.setupHref;
       const propertyTitle = (listing?.title?.trim() || pid.trim()) || undefined;
       const isGuestSubmit = !residentUserId && !isDemoModeActive();
-      if (sync.ok && emailTrim.includes("@") && isGuestSubmit) {
+      const accountReady = mode === "portal" && Boolean(residentUserId) && !isDemoModeActive();
+      if (sync.ok && emailTrim.includes("@") && !isDemoModeActive()) {
         try {
           const res = await fetch("/api/portal/send-application-submitted", {
             method: "POST",
@@ -1530,10 +1531,11 @@ function RentalApplicationWizardInner({
               axisId,
               applicantName: applicantName !== "Applicant" ? applicantName : undefined,
               propertyTitle,
-              includeSetupHandoff: true,
+              includeSetupHandoff: isGuestSubmit,
+              accountReady,
               // Reuse the token already minted on the row so the emailed link
               // matches the finish-screen link (the route skips token rotation).
-              setupToken: sync.setupToken,
+              setupToken: isGuestSubmit ? sync.setupToken : undefined,
             }),
           });
           const payload = (await res.json().catch(() => ({}))) as { mailtoHref?: string; setupHref?: string };
