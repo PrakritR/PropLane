@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Modal, ModalFooter, MODAL_INSET_BOX_CLASS, MODAL_WARNING_BOX_CLASS } from "@/components/ui/modal";
+import { PortalComposeScheduledMessagesSection } from "@/components/portal/portal-compose-scheduled-messages-section";
 import { cn } from "@/lib/utils";
 import {
   defaultPortalMessageChannelSelection,
@@ -60,6 +61,10 @@ export function PortalNotificationPreviewModal({
   recipientPhone,
   showSchedule = true,
   initialScheduleLater = false,
+  scheduledRecipientEmail,
+  scheduledSmsAvailable = false,
+  scheduledRefreshKey = 0,
+  onScheduledMessagesChanged,
   confirmLabel,
   confirmLabelWithoutMessage,
   confirmBusy = false,
@@ -90,6 +95,11 @@ export function PortalNotificationPreviewModal({
   showSchedule?: boolean;
   /** When true, opens with Schedule for later checked (resident detail thread flow). */
   initialScheduleLater?: boolean;
+  /** When set, lists this recipient's scheduled messages at the bottom of the modal. */
+  scheduledRecipientEmail?: string;
+  scheduledSmsAvailable?: boolean;
+  scheduledRefreshKey?: number;
+  onScheduledMessagesChanged?: () => void;
   confirmLabel: string;
   confirmLabelWithoutMessage?: string;
   confirmBusy?: boolean;
@@ -185,6 +195,8 @@ export function PortalNotificationPreviewModal({
       title={title}
       onClose={onClose}
       dense
+      assistantStrip={false}
+      fullScreenMobile={false}
       footer={footer}
       panelClassName={cn(PORTAL_MESSAGE_COMPOSE_MODAL_PANEL_CLASS, panelClassName)}
     >
@@ -267,6 +279,16 @@ export function PortalNotificationPreviewModal({
         ) : null}
         {skipMessage ? (
           <p className="text-xs text-muted">The action will complete without sending this message.</p>
+        ) : null}
+
+        {scheduledRecipientEmail?.trim() ? (
+          <PortalComposeScheduledMessagesSection
+            recipientEmail={scheduledRecipientEmail}
+            active={open}
+            smsAvailable={scheduledSmsAvailable || smsAvailable}
+            refreshKey={scheduledRefreshKey}
+            onChanged={onScheduledMessagesChanged}
+          />
         ) : null}
       </PortalMessageComposeModalBody>
     </Modal>

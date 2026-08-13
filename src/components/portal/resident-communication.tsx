@@ -14,7 +14,11 @@ import {
 } from "@/components/portal/portal-inbox-ui";
 import { PortalCommunicationShell } from "@/components/portal/portal-communication-shell";
 import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
-import { PORTAL_HEADER_PRIMARY_ACTION_BTN_RESPONSIVE } from "@/components/portal/portal-metrics";
+import {
+  PORTAL_HEADER_PRIMARY_ACTION_BTN,
+  PORTAL_HEADER_PRIMARY_ACTION_BTN_RESPONSIVE,
+} from "@/components/portal/portal-metrics";
+import { PortalSectionActionRow } from "@/components/portal/portal-section-action-row";
 import { filterEmailInboxThreads } from "@/lib/communication-inbox-filters";
 import {
   mergeUnifiedInboxItems,
@@ -317,13 +321,15 @@ export function ResidentCommunication({
   const [threadSelected, setThreadSelected] = useState(Boolean(threadId));
   const [searchQuery, setSearchQuery] = useState("");
 
+  const openCompose = () => inboxRef.current?.openCompose();
+
   const newMessageButton = (
     <Button
       type="button"
       variant="primary"
-      className={`shrink-0 ${PORTAL_HEADER_PRIMARY_ACTION_BTN_RESPONSIVE}`}
+      className={`shrink-0 ${PORTAL_HEADER_PRIMARY_ACTION_BTN}`}
       data-attr="communication-new-message"
-      onClick={() => inboxRef.current?.openCompose()}
+      onClick={openCompose}
     >
       New message
     </Button>
@@ -352,7 +358,15 @@ export function ResidentCommunication({
       />
       {!threadOpen ? (
         <div className="flex justify-end md:hidden" data-slot="resident-communication-mobile-actions">
-          {newMessageButton}
+          <Button
+            type="button"
+            variant="primary"
+            className={`shrink-0 ${PORTAL_HEADER_PRIMARY_ACTION_BTN_RESPONSIVE}`}
+            data-attr="communication-new-message"
+            onClick={openCompose}
+          >
+            New message
+          </Button>
         </div>
       ) : null}
     </div>
@@ -361,7 +375,11 @@ export function ResidentCommunication({
   return (
     <PortalCommunicationShell
       title="Communication"
-      titleAside={newMessageButton}
+      titleAside={
+        <PortalSectionActionRow variant="header" className="hidden gap-2 md:flex">
+          {newMessageButton}
+        </PortalSectionActionRow>
+      }
       hideTitleOnMobileNav
       controlStack={controlStack}
       hideMobileFilterRow={threadOpen}

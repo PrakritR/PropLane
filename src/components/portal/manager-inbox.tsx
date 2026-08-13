@@ -173,10 +173,6 @@ export const ManagerInbox = forwardRef<
     filterResidentEmail?: string;
     /** Rendered when suppressListPane is set and no thread matches filterResidentEmail. */
     emptyThreadFallback?: React.ReactNode;
-    /** Resident profile Communication — opens full compose with scheduling. */
-    onScheduleMessage?: () => void;
-    /** Resident profile Communication — opens the New message compose modal. */
-    onNewMessage?: () => void;
   }
 >(function ManagerInbox(
   {
@@ -196,8 +192,6 @@ export const ManagerInbox = forwardRef<
     smsRecipients = [],
     filterResidentEmail,
     emptyThreadFallback,
-    onScheduleMessage,
-    onNewMessage,
   },
   ref,
 ) {
@@ -1489,33 +1483,23 @@ export const ManagerInbox = forwardRef<
         </Button>
       </>
     ) : (
-      <>
-        {embeddedResidentChat && onScheduleMessage ? (
-          <Button
-            type="button"
-            variant="outline"
-            className="min-h-0 rounded-full px-3 py-1.5 text-xs"
-            data-attr="resident-detail-inbox-schedule"
-            onClick={onScheduleMessage}
-          >
-            Schedule
-          </Button>
-        ) : null}
-        <Button
-          type="button"
-          variant="outline"
-          className="min-h-0 rounded-full px-3 py-1.5 text-xs"
-          data-attr="inbox-thread-archive"
-          onClick={() => moveToTrash(activeThread.id)}
-        >
-          Archive
-        </Button>
-      </>
+      <Button
+        type="button"
+        variant="outline"
+        className="min-h-0 rounded-full px-3 py-1.5 text-xs"
+        data-attr="inbox-thread-archive"
+        onClick={() => moveToTrash(activeThread.id)}
+      >
+        Archive
+      </Button>
     )
   ) : null;
 
   const scheduledCards =
-    activeThread && activeThread.folder !== "trash" && threadScheduledItems.length > 0 ? (
+    activeThread &&
+    activeThread.folder !== "trash" &&
+    threadScheduledItems.length > 0 &&
+    !embeddedResidentChat ? (
       <InboxScheduledThreadList
         count={threadScheduledItems.length}
         nextSendLabel={threadScheduledItems[0]?.sendLabel}
@@ -1599,37 +1583,6 @@ export const ManagerInbox = forwardRef<
                     : undefined
                 }
               />
-            ) : null}
-            {embeddedResidentChat && (onNewMessage || onScheduleMessage) ? (
-              <div
-                className="shrink-0 border-t border-border bg-card/90 px-2 py-2 md:px-3"
-                data-attr="resident-detail-compose-actions"
-              >
-                <div className="flex flex-wrap gap-2">
-                  {onNewMessage ? (
-                    <Button
-                      type="button"
-                      variant="primary"
-                      className="h-8 min-h-0 flex-1 rounded-full px-3 text-[12px]"
-                      data-attr="resident-detail-new-message"
-                      onClick={onNewMessage}
-                    >
-                      New message
-                    </Button>
-                  ) : null}
-                  {onScheduleMessage ? (
-                    <Button
-                      type="button"
-                      variant="outline"
-                      className="h-8 min-h-0 flex-1 rounded-full px-3 text-[12px]"
-                      data-attr="resident-detail-schedule-message"
-                      onClick={onScheduleMessage}
-                    >
-                      Schedule message
-                    </Button>
-                  ) : null}
-                </div>
-              </div>
             ) : null}
             <InboxThreadAssistantStrip
               contextHint={buildInboxThreadAssistantContext({
