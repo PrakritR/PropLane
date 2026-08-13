@@ -21,7 +21,7 @@ describe("pinned footer action row", () => {
     const { container, getByText } = render(
       <PortalPageFooterActions pinned rowVariant="header">
         <button type="button">Reminders</button>
-        <button type="button">Pay method</button>
+        <button type="button">Payment setup</button>
         <button type="button">Add payment</button>
       </PortalPageFooterActions>,
     );

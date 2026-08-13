@@ -375,11 +375,11 @@ export function ManagerPaymentsLedgerPanel({
             });
             showToast(leases > 0 ? "Payment and lease updated." : "Payment updated.");
           } else {
-            syncResidentBillingAndLeases({ residentEmail: email, managerUserId });
+            void syncResidentBillingAndLeases({ residentEmail: email, managerUserId });
             showToast("Payment updated.");
           }
         } else {
-          syncResidentBillingAndLeases({ residentEmail: email, managerUserId });
+          void syncResidentBillingAndLeases({ residentEmail: email, managerUserId });
           showToast("Payment updated.");
         }
       } else {

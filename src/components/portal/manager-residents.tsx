@@ -124,16 +124,12 @@ import {
 } from "@/lib/resident-manual-lease-terms";
 import { buildLeaseReadyForResidentMessage } from "@/lib/resident-portal-login-copy";
 
-import { sanitizePaymentContactInput } from "@/lib/listing-form-inputs";
 import {
   buildMockPropertyFromDraft,
   readExtraListingsForUser,
   readPendingManagerPropertiesForUser,
   syncPropertyPipelineFromServer,
-  updateExtraListingFromSubmissionOnServer,
 } from "@/lib/demo-property-pipeline";
-import { openStripeConnectOnboarding } from "@/lib/stripe-connect-onboarding-client";
-import { acceptedPaymentMethodsForListing } from "@/lib/payment-policy";
 import { deliverPortalInboxMessage } from "@/lib/portal-message-delivery";
 import {
   appendLeaseThreadMessage,
@@ -238,6 +234,7 @@ import {
 import { ManagerWorkOrdersPanel } from "@/components/portal/manager-work-orders-panel";
 
 import { ManagerAddPaymentModal } from "@/components/portal/manager-add-payment-modal";
+import { ManagerPaymentSetupModal } from "@/components/portal/manager-payment-setup-modal";
 import {
   ManagerCreateServiceRequestModal,
   type ManagerServiceResidentOption,
@@ -399,7 +396,7 @@ export function ManagerResidents({
 
   const activeDetailTab = parseResidentDetailTab(detailTabProp);
   const [applicationEditOpen, setApplicationEditOpen] = useState(false);
-  const [addPaymentMethodOpen, setAddPaymentMethodOpen] = useState(false);
+  const [residentPaymentSetupOpen, setResidentPaymentSetupOpen] = useState(false);
   const [addResidentPaymentOpen, setAddResidentPaymentOpen] = useState(false);
   const [addResidentRequestOpen, setAddResidentRequestOpen] = useState(false);
   const [addResidentWorkOrderOpen, setAddResidentWorkOrderOpen] = useState(false);
@@ -411,17 +408,6 @@ export function ManagerResidents({
   const handleEmbeddedPaymentBulkActions = useCallback((actions: ReactNode | null) => {
     setEmbeddedPaymentBulkActions(actions);
   }, []);
-  const [pmPropertyId, setPmPropertyId] = useState("");
-  const [pmZelleEnabled, setPmZelleEnabled] = useState(false);
-  const [pmZelleContact, setPmZelleContact] = useState("");
-  const [pmVenmoEnabled, setPmVenmoEnabled] = useState(false);
-  const [pmVenmoContact, setPmVenmoContact] = useState("");
-  const [pmAxisPaymentsEnabled, setPmAxisPaymentsEnabled] = useState(true);
-  const [pmCardEnabled, setPmCardEnabled] = useState(true);
-  const [pmConnectReady, setPmConnectReady] = useState<boolean | null>(null);
-  const [pmPayoutSetupBusy, setPmPayoutSetupBusy] = useState(false);
-  const [pmSaving, setPmSaving] = useState(false);
-
   // Add resident manually
   const [addResidentOpen, setAddResidentOpen] = useState(false);
   const [arName, setArName] = useState("");
@@ -2087,122 +2073,14 @@ export function ManagerResidents({
       .finally(() => setErSaving(false));
   }
 
-  function openPaymentMethodEditor() {
+  function openResidentPaymentSetup() {
     if (!selected) return;
-    const propId = selected.propertyId?.trim() || "";
-    setPmPropertyId(propId);
-    const listing = propId && userId ? readExtraListingsForUser(userId).find((p) => p.id === propId) : undefined;
-    const sub = listing?.listingSubmission ? normalizeManagerListingSubmissionV1(listing.listingSubmission) : null;
-    setPmZelleEnabled(Boolean(sub?.zellePaymentsEnabled));
-    setPmZelleContact(sub?.zelleContact ?? "");
-    setPmVenmoEnabled(Boolean(sub?.venmoPaymentsEnabled));
-    setPmVenmoContact(sub?.venmoContact ?? "");
-    const accepted = acceptedPaymentMethodsForListing(sub);
-    setPmAxisPaymentsEnabled(sub?.axisPaymentsEnabled !== false && accepted.includes("ach"));
-    setPmCardEnabled(sub?.axisPaymentsEnabled !== false && accepted.includes("card"));
-    setPmConnectReady(null);
-    setAddPaymentMethodOpen(true);
-    if (isDemoModeActive()) {
-      setPmConnectReady(true);
-      return;
-    }
-    void fetch("/api/stripe/connect/status", { credentials: "include", cache: "no-store" })
-      .then(async (res) => {
-        if (!res.ok) {
-          setPmConnectReady(false);
-          return;
-        }
-        const body = (await res.json()) as { paymentReady?: boolean; payoutsEnabled?: boolean; transfersEnabled?: boolean };
-        setPmConnectReady(Boolean(body.paymentReady ?? (body.payoutsEnabled && body.transfersEnabled)));
-      })
-      .catch(() => setPmConnectReady(false));
-  }
-
-  async function savePaymentMethodSettings() {
-    if (!userId || !pmPropertyId) {
+    const propId = selected.propertyId?.trim() || selected.assignedPropertyId?.trim() || "";
+    if (!propId) {
       showToast("This resident isn't linked to a property yet.");
       return;
     }
-    const zelleContact = sanitizePaymentContactInput(pmZelleContact).trim();
-    const venmoContact = sanitizePaymentContactInput(pmVenmoContact).trim();
-    if (pmZelleEnabled && !zelleContact) {
-      showToast("Enter a Zelle phone or email, or turn Zelle off.");
-      return;
-    }
-    if (pmVenmoEnabled && !venmoContact) {
-      showToast("Enter a Venmo username, phone, or email, or turn Venmo off.");
-      return;
-    }
-    if (!pmZelleEnabled && !pmVenmoEnabled && !pmAxisPaymentsEnabled && !pmCardEnabled) {
-      showToast("Enable at least one payment method.");
-      return;
-    }
-    // Scoped to this manager's own properties only — readExtraListingsForUser(userId) can never
-    // resolve a listing owned by another manager, and the server re-checks ownership on write.
-    const listing = readExtraListingsForUser(userId).find((p) => p.id === pmPropertyId);
-    if (!listing?.listingSubmission) {
-      showToast("Could not find this property's payment settings.");
-      return;
-    }
-    setPmSaving(true);
-    const acceptedPaymentMethods = [
-      ...(pmZelleEnabled && zelleContact ? (["zelle"] as const) : []),
-      ...(pmVenmoEnabled && venmoContact ? (["venmo"] as const) : []),
-      ...(pmAxisPaymentsEnabled ? (["ach"] as const) : []),
-      ...(pmCardEnabled ? (["card"] as const) : []),
-    ];
-    const stripeEnabled = pmAxisPaymentsEnabled || pmCardEnabled;
-    const nextSubmission = {
-      ...normalizeManagerListingSubmissionV1(listing.listingSubmission),
-      zellePaymentsEnabled: pmZelleEnabled,
-      zelleContact,
-      venmoPaymentsEnabled: pmVenmoEnabled,
-      venmoContact,
-      axisPaymentsEnabled: stripeEnabled,
-      applicationFeeStripeEnabled: stripeEnabled ? true : undefined,
-      acceptedPaymentMethods: [...acceptedPaymentMethods],
-    };
-    const ok = await updateExtraListingFromSubmissionOnServer(pmPropertyId, userId, nextSubmission);
-    setPmSaving(false);
-    if (!ok) {
-      showToast("Could not save payment methods. Try again.");
-      return;
-    }
-    setPropertyTick((n) => n + 1);
-    showToast("Payment methods saved.");
-    setAddPaymentMethodOpen(false);
-  }
-
-  function goToPayoutSetup() {
-    if (pmPayoutSetupBusy) return;
-    setPmPayoutSetupBusy(true);
-    void openStripeConnectOnboarding({ showToast }).then((opened) => {
-      setPmPayoutSetupBusy(false);
-      if (!opened) return;
-      const refresh = () => {
-        if (isDemoModeActive()) {
-          setPmConnectReady(true);
-          return;
-        }
-        void fetch("/api/stripe/connect/status", { credentials: "include", cache: "no-store" })
-          .then(async (res) => {
-            if (!res.ok) {
-              setPmConnectReady(false);
-              return;
-            }
-            const body = (await res.json()) as { paymentReady?: boolean; payoutsEnabled?: boolean; transfersEnabled?: boolean };
-            setPmConnectReady(Boolean(body.paymentReady ?? (body.payoutsEnabled && body.transfersEnabled)));
-          })
-          .catch(() => setPmConnectReady(false));
-      };
-      window.addEventListener("message", function onMsg(e: MessageEvent) {
-        if (e.origin !== window.location.origin) return;
-        if (e.data?.type !== "axis-stripe-connect") return;
-        refresh();
-        window.removeEventListener("message", onMsg);
-      });
-      window.addEventListener("axis-stripe-connect-refresh", refresh, { once: true });
-    });
+    setResidentPaymentSetupOpen(true);
   }
 
   async function deleteSelectedResident() {
@@ -2617,10 +2495,10 @@ export function ManagerResidents({
         type="button"
         variant="outline"
         className={PORTAL_DETAIL_BTN}
-        onClick={openPaymentMethodEditor}
-        data-attr="resident-payment-method-open"
+        onClick={openResidentPaymentSetup}
+        data-attr="resident-payment-setup-open"
       >
-        Pay method
+        Payment setup
       </Button>
       <Button
         type="button"
@@ -3231,162 +3109,21 @@ export function ManagerResidents({
         }}
       />
 
-      <Modal open={addPaymentMethodOpen} title="Payment methods" onClose={() => setAddPaymentMethodOpen(false)}>
-        <div className="space-y-4 text-sm">
-          {!pmPropertyId ? (
-            <p className="rounded-xl border border-border bg-accent/30 px-3 py-2 text-xs text-muted">
-              This resident isn&apos;t linked to a property yet, so payment methods can&apos;t be edited here.
-            </p>
-          ) : (
-            <div className="space-y-3">
-              <div className="flex w-full items-start justify-between gap-3 rounded-xl border border-border bg-card px-4 py-3.5">
-                <label className="flex min-w-0 flex-1 cursor-pointer items-start gap-3">
-                  <input
-                    type="checkbox"
-                    className="mt-0.5 h-4 w-4 shrink-0 rounded border-border"
-                    checked={pmZelleEnabled}
-                    onChange={(e) => setPmZelleEnabled(e.target.checked)}
-                    data-attr="resident-payment-zelle-toggle"
-                  />
-                  <span>
-                    <span className="text-sm font-semibold text-foreground">Zelle</span>
-                    <span className="mt-0.5 block text-xs leading-relaxed text-muted">
-                      Residents send to your Zelle contact, then tap Check payment to confirm receipt.
-                    </span>
-                  </span>
-                </label>
-              </div>
-              {pmZelleEnabled ? (
-                <div className="rounded-xl border border-border bg-accent/20 px-4 py-3">
-                  <label className="text-xs font-semibold text-muted">Zelle phone or email</label>
-                  <Input
-                    className="mt-1"
-                    value={pmZelleContact}
-                    onChange={(e) => setPmZelleContact(sanitizePaymentContactInput(e.target.value))}
-                    placeholder="+1 555 010 8899 or name@email.com"
-                    data-attr="resident-payment-zelle-contact-input"
-                  />
-                </div>
-              ) : null}
-              <div className="flex w-full items-start justify-between gap-3 rounded-xl border border-border bg-card px-4 py-3.5">
-                <label className="flex min-w-0 flex-1 cursor-pointer items-start gap-3">
-                  <input
-                    type="checkbox"
-                    className="mt-0.5 h-4 w-4 shrink-0 rounded border-border"
-                    checked={pmVenmoEnabled}
-                    onChange={(e) => setPmVenmoEnabled(e.target.checked)}
-                    data-attr="resident-payment-venmo-toggle"
-                  />
-                  <span>
-                    <span className="text-sm font-semibold text-foreground">Venmo</span>
-                    <span className="mt-0.5 block text-xs leading-relaxed text-muted">
-                      Residents send to your Venmo contact, then tap Check payment to confirm receipt.
-                    </span>
-                  </span>
-                </label>
-              </div>
-              {pmVenmoEnabled ? (
-                <div className="rounded-xl border border-border bg-accent/20 px-4 py-3">
-                  <label className="text-xs font-semibold text-muted">Venmo username, phone, or email</label>
-                  <Input
-                    className="mt-1"
-                    value={pmVenmoContact}
-                    onChange={(e) => setPmVenmoContact(sanitizePaymentContactInput(e.target.value))}
-                    placeholder="@username, +1 555 010 8899, or name@email.com"
-                    data-attr="resident-payment-venmo-contact-input"
-                  />
-                </div>
-              ) : null}
-              <div className="flex w-full items-start justify-between gap-3 rounded-xl border border-border bg-card px-4 py-3.5">
-                <label className="flex min-w-0 flex-1 cursor-pointer items-start gap-3">
-                  <input
-                    type="checkbox"
-                    className="mt-0.5 h-4 w-4 shrink-0 rounded border-border"
-                    checked={pmAxisPaymentsEnabled}
-                    onChange={(e) => setPmAxisPaymentsEnabled(e.target.checked)}
-                    data-attr="resident-payment-axis-ach-toggle"
-                  />
-                  <span>
-                    <span className="text-sm font-semibold text-foreground">
-                      Bank transfer & card: you receive the full amount
-                    </span>
-                    <span className="mt-0.5 block text-xs leading-relaxed text-muted">
-                      Stripe Checkout with bank (ACH), card, or Link — PropLane covers processing.
-                    </span>
-                  </span>
-                </label>
-              </div>
-              {pmAxisPaymentsEnabled ? (
-                <div className="rounded-xl border border-border bg-accent/20 px-4 py-3 text-xs leading-relaxed text-muted">
-                  Residents pay through Stripe Checkout with bank (ACH), card, or Link and are charged exactly the
-                  charge amount. PropLane covers payment processing, so the full charge amount transfers to your
-                  connected payout account after checkout.
-                  {pmConnectReady === false ? (
-                    <>
-                      {" "}
-                      <button
-                        type="button"
-                        className="font-medium text-primary underline disabled:opacity-60"
-                        onClick={goToPayoutSetup}
-                        disabled={pmPayoutSetupBusy}
-                        data-attr="resident-payment-payout-setup"
-                      >
-                        {pmPayoutSetupBusy ? "Opening Stripe…" : "Complete payout setup"}
-                      </button>{" "}
-                      before residents can pay by bank.
-                    </>
-                  ) : null}
-                </div>
-              ) : null}
-              <div className="space-y-2 rounded-xl border border-border bg-card p-4">
-                <label className="flex cursor-pointer items-start gap-3">
-                  <input
-                    type="checkbox"
-                    className="mt-0.5 h-4 w-4 shrink-0 rounded border-border"
-                    checked={pmCardEnabled}
-                    onChange={(e) => setPmCardEnabled(e.target.checked)}
-                    data-attr="resident-payment-card-toggle"
-                  />
-                  <span className="text-sm font-medium text-foreground">Credit card with Stripe</span>
-                </label>
-                {pmCardEnabled ? (
-                  <p className="pl-7 text-xs leading-relaxed text-muted">
-                    Residents can pay by card through Stripe Checkout at no added cost to them, and you receive the full
-                    charge amount. PropLane covers card processing.
-                    {pmConnectReady === false ? (
-                      <>
-                        {" "}
-                        <button
-                          type="button"
-                          className="font-medium text-primary underline disabled:opacity-60"
-                          onClick={goToPayoutSetup}
-                          disabled={pmPayoutSetupBusy}
-                          data-attr="resident-payment-payout-setup-card"
-                        >
-                          {pmPayoutSetupBusy ? "Opening Stripe…" : "Complete payout setup"}
-                        </button>{" "}
-                        first.
-                      </>
-                    ) : null}
-                  </p>
-                ) : null}
-              </div>
-            </div>
-          )}
-          <PortalSectionActionRow className="pt-1">
-            <Button
-              type="button"
-              variant="primary"
-              className="rounded-full"
-              onClick={savePaymentMethodSettings}
-              disabled={pmSaving || !pmPropertyId}
-              data-attr="resident-payment-method-save"
-            >
-              {pmSaving ? "Saving…" : "Save"}
-            </Button>
-          </PortalSectionActionRow>
-        </div>
-      </Modal>
+      <ManagerPaymentSetupModal
+        open={residentPaymentSetupOpen}
+        onClose={() => {
+          setResidentPaymentSetupOpen(false);
+          setPropertyTick((n) => n + 1);
+          setHcTick((n) => n + 1);
+        }}
+        portalBase={portalBase}
+        propertyOptions={propertyOptions}
+        presetPropertyIds={
+          selected?.propertyId?.trim() || selected?.assignedPropertyId?.trim()
+            ? [selected.propertyId?.trim() || selected.assignedPropertyId!.trim()]
+            : undefined
+        }
+      />
 
       <Modal
         open={addResidentOpen && addResidentNoticePreview === null}
@@ -3817,14 +3554,20 @@ export function ManagerResidents({
             residentEmail={(selectedApplicationRow.email ?? selected?.email ?? "").trim().toLowerCase()}
             preserveReviewStatus
             onCancel={() => setApplicationEditOpen(false)}
-            onSaved={() => {
+            onSaved={async (savedRow) => {
               setApplicationEditOpen(false);
-              setHcTick((n) => n + 1);
-              const email = (selectedApplicationRow.email ?? selected?.email ?? "").trim().toLowerCase();
+              const email = (savedRow.email ?? selectedApplicationRow.email ?? selected?.email ?? "")
+                .trim()
+                .toLowerCase();
               if (email) {
-                syncResidentBillingAndLeases({ residentEmail: email, managerUserId: userId ?? null });
+                await syncResidentBillingAndLeases({
+                  residentEmail: email,
+                  managerUserId: userId ?? null,
+                  row: savedRow,
+                });
                 setLeaseTick((n) => n + 1);
               }
+              setHcTick((n) => n + 1);
             }}
           />
         ) : null}
