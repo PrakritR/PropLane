@@ -1,6 +1,7 @@
 import {
   DEFAULT_MANAGER_AUTOMATION_SETTINGS,
   DEFAULT_TOUR_REMINDER_TEMPLATE,
+  normalizeTourReminderMinutesBeforeList,
   type ManagerAutomationSettings,
   type ReminderTemplate,
 } from "@/lib/payment-automation-settings";
@@ -56,9 +57,14 @@ export function tourReminderSendAtIso(tourStartIso: string, minutesBefore: numbe
 }
 
 export function tourReminderSettingsFromAutomation(settings: ManagerAutomationSettings) {
+  const minutesBeforeList = normalizeTourReminderMinutesBeforeList(
+    settings.tourReminderMinutesBeforeList,
+    settings.tourReminderMinutesBefore,
+  );
   return {
     enabled: settings.tourReminderEnabled !== false,
-    minutesBefore: settings.tourReminderMinutesBefore,
+    minutesBefore: minutesBeforeList[minutesBeforeList.length - 1] ?? DEFAULT_TOUR_REMINDER_MINUTES_BEFORE,
+    minutesBeforeList,
     deliverViaEmail: settings.tourReminderDeliverViaEmail !== false,
     deliverViaSms: settings.tourReminderDeliverViaSms === true,
     template: settings.templates.tourReminder,

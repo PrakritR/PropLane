@@ -4,6 +4,7 @@ import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import {
   cancelTourReminderForPlannedEvent,
   findTourReminderForPlannedEvent,
+  listTourRemindersForPlannedEvent,
   upsertTourReminderForPlannedEvent,
 } from "@/lib/tour-reminder.server";
 
@@ -38,7 +39,8 @@ export async function GET(req: Request) {
     const plannedEventId = new URL(req.url).searchParams.get("plannedEventId")?.trim() ?? "";
     if (!plannedEventId) return NextResponse.json({ error: "plannedEventId required." }, { status: 400 });
     const reminder = await findTourReminderForPlannedEvent(ctx.db, ctx.userId, plannedEventId);
-    return NextResponse.json({ reminder });
+    const reminders = await listTourRemindersForPlannedEvent(ctx.db, ctx.userId, plannedEventId);
+    return NextResponse.json({ reminder, reminders });
   } catch (e) {
     const message = e instanceof Error ? e.message : "Failed";
     return NextResponse.json({ error: message }, { status: 500 });
@@ -88,7 +90,8 @@ export async function PUT(req: Request) {
       deliverViaEmail: body.deliverViaEmail,
       deliverViaSms: body.deliverViaSms,
     });
-    return NextResponse.json({ reminder });
+    const reminders = await listTourRemindersForPlannedEvent(ctx.db, ctx.userId, plannedEventId);
+    return NextResponse.json({ reminder, reminders });
   } catch (e) {
     const message = e instanceof Error ? e.message : "Failed";
     return NextResponse.json({ error: message }, { status: 500 });

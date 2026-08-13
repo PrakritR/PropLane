@@ -1,8 +1,12 @@
 "use client";
 
+import { useMemo, useState } from "react";
+import { Button } from "@/components/ui/button";
 import { Modal } from "@/components/ui/modal";
-import { CheckboxMultiSelect, FieldSingleSelect } from "@/components/ui/checkbox-multi-select";
+import { CheckboxMultiSelect } from "@/components/ui/checkbox-multi-select";
+import { Input } from "@/components/ui/input";
 import { InboxScheduledCard } from "@/components/portal/portal-inbox-ui";
+import { normalizeTourReminderMinutesBeforeList } from "@/lib/payment-automation-settings";
 
 export const REMINDER_FIELD_LABEL_CLASS = "text-xs font-semibold text-muted";
 
@@ -152,61 +156,138 @@ export function formatTourReminderTimingLabel(minutes: number): string {
   return `${hours}h ${remainder}m before tour`;
 }
 
-export function tourReminderTimingPresetValue(minutes: number): string {
-  return TOUR_REMINDER_TIMING_PRESETS.includes(minutes as (typeof TOUR_REMINDER_TIMING_PRESETS)[number])
-    ? String(minutes)
-    : "custom";
+function sortTourReminderMinutes(minutes: number[]): number[] {
+  return normalizeTourReminderMinutesBeforeList(minutes);
+}
+
+function TourReminderTimingChipRow({
+  minutes,
+  disabled,
+  onChange,
+}: {
+  minutes: number[];
+  disabled?: boolean;
+  onChange: (next: number[]) => void;
+}) {
+  const sorted = sortTourReminderMinutes(minutes);
+  if (!sorted.length) return null;
+  return (
+    <ul className="flex flex-wrap gap-1.5" aria-label="Selected reminder timings">
+      {sorted.map((value) => (
+        <li key={value}>
+          <button
+            type="button"
+            disabled={disabled}
+            className="inline-flex max-w-full items-center gap-1 rounded-full border border-primary/25 bg-primary/10 px-2.5 py-1 text-xs font-medium text-foreground transition hover:bg-primary/15 disabled:opacity-50"
+            onClick={() => onChange(minutes.filter((m) => m !== value))}
+            aria-label={`Remove ${formatTourReminderTimingLabel(value)}`}
+          >
+            <span className="truncate">{formatTourReminderTimingLabel(value)}</span>
+            <span className="text-muted" aria-hidden>
+              ×
+            </span>
+          </button>
+        </li>
+      ))}
+    </ul>
+  );
 }
 
 export function TourReminderTimingSelect({
-  minutesBefore,
+  minutesBeforeList,
   disabled,
-  onChangeMinutes,
+  onChangeMinutesList,
 }: {
-  minutesBefore: number;
+  minutesBeforeList: number[];
   disabled?: boolean;
-  onChangeMinutes: (minutes: number) => void;
+  onChangeMinutesList: (minutes: number[]) => void;
 }) {
-  const presetValue = tourReminderTimingPresetValue(minutesBefore);
-  const options = [
-    ...TOUR_REMINDER_TIMING_PRESETS.map((minutes) => ({
+  const [customMinutesInput, setCustomMinutesInput] = useState("");
+  const sorted = useMemo(() => sortTourReminderMinutes(minutesBeforeList), [minutesBeforeList]);
+  const selectedTokens = sorted.map(String);
+  const hasSelection = sorted.length > 0;
+
+  const presetOptions = TOUR_REMINDER_TIMING_PRESETS.map((minutes) => ({
+    value: String(minutes),
+    label: formatTourReminderTimingLabel(minutes),
+  }));
+  const customOptions = sorted
+    .filter((minutes) => !TOUR_REMINDER_TIMING_PRESETS.includes(minutes as (typeof TOUR_REMINDER_TIMING_PRESETS)[number]))
+    .map((minutes) => ({
       value: String(minutes),
       label: formatTourReminderTimingLabel(minutes),
-    })),
-    { value: "custom", label: "Custom" },
-  ];
+    }));
+  const options = [...customOptions, ...presetOptions];
+
+  const commitSelection = (tokens: string[]) => {
+    const next = sortTourReminderMinutes(tokens.map((token) => Number(token)).filter((n) => Number.isFinite(n)));
+    onChangeMinutesList(next);
+  };
+
+  const addCustomMinutes = () => {
+    const minutes = Math.round(Number(customMinutesInput.trim()));
+    if (!Number.isFinite(minutes) || minutes < 5 || minutes > 1440) return;
+    commitSelection([...selectedTokens, String(minutes)]);
+    setCustomMinutesInput("");
+  };
 
   return (
     <div className="space-y-2">
-      <FieldSingleSelect
+      {hasSelection ? (
+        <>
+          <p className={REMINDER_FIELD_LABEL_CLASS}>Reminders</p>
+          <TourReminderTimingChipRow
+            minutes={sorted}
+            disabled={disabled}
+            onChange={(next) => onChangeMinutesList(next)}
+          />
+        </>
+      ) : null}
+      <CheckboxMultiSelect
         label="Reminder timing"
         labelClassName={REMINDER_FIELD_LABEL_CLASS}
+        hideLabel={hasSelection}
+        selectionTriggerLabel={hasSelection ? "Add or remove…" : undefined}
         options={options}
-        value={presetValue}
+        selected={selectedTokens}
+        onChange={commitSelection}
         disabled={disabled}
+        emptyLabel="Choose reminders…"
         dataAttr="tour-reminder-timing"
-        onChange={(next) => {
-          if (next === "custom") return;
-          onChangeMinutes(Number(next));
-        }}
+        menuFooter={
+          <div className="px-3 py-2">
+            <p className="mb-1.5 text-[10px] font-bold uppercase tracking-[0.12em] text-muted">Custom minutes</p>
+            <div className="flex gap-2">
+              <Input
+                type="number"
+                min={5}
+                max={1440}
+                className="h-9 min-h-0 flex-1"
+                placeholder="Minutes before tour"
+                value={customMinutesInput}
+                disabled={disabled}
+                data-attr="tour-reminder-custom-minutes"
+                onChange={(e) => setCustomMinutesInput(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    addCustomMinutes();
+                  }
+                }}
+              />
+              <Button
+                type="button"
+                variant="outline"
+                className="h-9 shrink-0 rounded-full px-3 text-xs"
+                disabled={disabled || !customMinutesInput.trim()}
+                onClick={addCustomMinutes}
+              >
+                Add
+              </Button>
+            </div>
+          </div>
+        }
       />
-      {presetValue === "custom" ? (
-        <label className="block text-xs font-semibold uppercase tracking-[0.12em] text-muted">
-          Custom minutes before tour
-          <input
-            type="number"
-            min={5}
-            max={1440}
-            disabled={disabled}
-            value={minutesBefore}
-            onChange={(e) =>
-              onChangeMinutes(Math.max(5, Math.min(1440, Number(e.target.value) || 30)))
-            }
-            className="mt-1.5 flex h-10 w-full rounded-xl border border-border bg-background px-3 text-sm text-foreground outline-none transition focus:border-primary/40 focus:ring-2 focus:ring-primary/15 disabled:opacity-50"
-            data-attr="tour-reminder-minutes-before"
-          />
-        </label>
-      ) : null}
     </div>
   );
 }

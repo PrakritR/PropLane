@@ -2,6 +2,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { formatRangeLabel } from "@/lib/tour-inquiry-confirm.server";
 import {
   loadManagerAutomationSettings,
+  normalizeTourReminderMinutesBeforeList,
   type ManagerAutomationSettings,
 } from "@/lib/payment-automation-settings";
 import {
@@ -20,30 +21,16 @@ import {
 
 type Db = SupabaseClient;
 
-function rowData(record: ScheduledInboxMessageRecord): Record<string, unknown> {
-  return {
-    subject: record.subject,
-    body: record.body,
-    recipientEmail: record.recipientEmail,
-    recipientName: record.recipientName,
-    recipientUserId: record.recipientUserId ?? null,
-    deliverViaEmail: record.deliverViaEmail,
-    deliverViaSms: record.deliverViaSms,
-    messageKind: record.messageKind,
-    tourPlannedEventId: record.tourPlannedEventId,
-    tourStartIso: record.tourStartIso,
-    senderPortal: "manager",
-  };
-}
-
-function parseTourReminderRow(row: {
+type TourReminderDbRow = {
   id: string;
   manager_user_id: string;
   send_at: string;
   status: string;
   row_data: unknown;
   created_at: string;
-}): ScheduledInboxMessageRecord | null {
+};
+
+function parseTourReminderRow(row: TourReminderDbRow): ScheduledInboxMessageRecord | null {
   const data = (row.row_data ?? {}) as Record<string, unknown>;
   if (data.messageKind !== TOUR_REMINDER_MESSAGE_KIND) return null;
   return {
@@ -61,10 +48,42 @@ function parseTourReminderRow(row: {
     messageKind: TOUR_REMINDER_MESSAGE_KIND,
     tourPlannedEventId: typeof data.tourPlannedEventId === "string" ? data.tourPlannedEventId : undefined,
     tourStartIso: typeof data.tourStartIso === "string" ? data.tourStartIso : undefined,
+    tourReminderMinutesBefore:
+      typeof data.tourReminderMinutesBefore === "number" && Number.isFinite(data.tourReminderMinutesBefore)
+        ? data.tourReminderMinutesBefore
+        : undefined,
     createdAt: row.created_at,
     sentAt: typeof data.sentAt === "string" ? data.sentAt : null,
     cancelledAt: typeof data.cancelledAt === "string" ? data.cancelledAt : null,
   };
+}
+
+async function loadTourReminderRows(
+  db: Db,
+  managerUserId: string,
+  plannedEventId: string,
+): Promise<TourReminderDbRow[]> {
+  const { data, error } = await db
+    .from("portal_scheduled_inbox_message_records")
+    .select("id, manager_user_id, send_at, status, row_data, created_at")
+    .eq("manager_user_id", managerUserId)
+    .eq("row_data->>messageKind", TOUR_REMINDER_MESSAGE_KIND)
+    .eq("row_data->>tourPlannedEventId", plannedEventId)
+    .order("send_at", { ascending: true })
+    .limit(20);
+  if (error) throw error;
+  return (data ?? []) as TourReminderDbRow[];
+}
+
+export async function listTourRemindersForPlannedEvent(
+  db: Db,
+  managerUserId: string,
+  plannedEventId: string,
+): Promise<ScheduledInboxMessageRecord[]> {
+  const rows = await loadTourReminderRows(db, managerUserId, plannedEventId);
+  return rows
+    .map((row) => parseTourReminderRow(row))
+    .filter((row): row is ScheduledInboxMessageRecord => row != null && row.status !== "cancelled");
 }
 
 export async function findTourReminderForPlannedEvent(
@@ -72,22 +91,10 @@ export async function findTourReminderForPlannedEvent(
   managerUserId: string,
   plannedEventId: string,
 ): Promise<ScheduledInboxMessageRecord | null> {
-  const { data, error } = await db
-    .from("portal_scheduled_inbox_message_records")
-    .select("id, manager_user_id, send_at, status, row_data, created_at")
-    .eq("manager_user_id", managerUserId)
-    .eq("row_data->>messageKind", TOUR_REMINDER_MESSAGE_KIND)
-    .eq("row_data->>tourPlannedEventId", plannedEventId)
-    .order("created_at", { ascending: false })
-    .limit(5);
-  if (error) throw error;
-  for (const row of data ?? []) {
-    const parsed = parseTourReminderRow(
-      row as { id: string; manager_user_id: string; send_at: string; status: string; row_data: unknown; created_at: string },
-    );
-    if (parsed && parsed.status !== "cancelled") return parsed;
-  }
-  return null;
+  const reminders = await listTourRemindersForPlannedEvent(db, managerUserId, plannedEventId);
+  const scheduled = reminders.filter((row) => row.status === "scheduled");
+  if (!scheduled.length) return reminders[0] ?? null;
+  return scheduled.sort((a, b) => new Date(a.sendAt).getTime() - new Date(b.sendAt).getTime())[0] ?? null;
 }
 
 export async function cancelTourReminderForPlannedEvent(
@@ -95,12 +102,16 @@ export async function cancelTourReminderForPlannedEvent(
   managerUserId: string,
   plannedEventId: string,
 ): Promise<void> {
-  const existing = await findTourReminderForPlannedEvent(db, managerUserId, plannedEventId);
-  if (!existing || existing.status !== "scheduled") return;
-  await updateScheduledInboxMessage(db, managerUserId, existing.id, {
-    status: "cancelled",
-    cancelledAt: new Date().toISOString(),
-  });
+  const rows = await loadTourReminderRows(db, managerUserId, plannedEventId);
+  const now = new Date().toISOString();
+  for (const row of rows) {
+    const parsed = parseTourReminderRow(row);
+    if (!parsed || parsed.status !== "scheduled") continue;
+    await updateScheduledInboxMessage(db, managerUserId, parsed.id, {
+      status: "cancelled",
+      cancelledAt: now,
+    });
+  }
 }
 
 export type UpsertTourReminderInput = {
@@ -119,7 +130,26 @@ export type UpsertTourReminderInput = {
   sendAt?: string;
   deliverViaEmail?: boolean;
   deliverViaSms?: boolean;
+  minutesBeforeList?: number[];
 };
+
+function buildTourReminderContent(
+  input: UpsertTourReminderInput,
+  settings: ManagerAutomationSettings,
+): { subject: string; body: string } {
+  const ctx: TourReminderTemplateContext = {
+    guestName: input.recipientName.trim() || "Guest",
+    propertyTitle: input.propertyTitle?.trim() ?? "",
+    tourTime: formatRangeLabel(input.tourStartIso, input.tourEndIso),
+    managerName: input.managerName.trim() || "Your property manager",
+    instructions: input.instructions?.trim() ?? "",
+  };
+  const templated = fillTourReminderTemplate(settings.templates.tourReminder ?? DEFAULT_TOUR_REMINDER_TEMPLATE, ctx);
+  return {
+    subject: input.subject?.trim() || templated.subject,
+    body: input.body?.trim() || templated.body,
+  };
+}
 
 export async function upsertTourReminderForPlannedEvent(
   db: Db,
@@ -134,60 +164,83 @@ export async function upsertTourReminderForPlannedEvent(
   const email = input.recipientEmail.trim().toLowerCase();
   if (!email.includes("@")) return null;
 
-  const ctx: TourReminderTemplateContext = {
-    guestName: input.recipientName.trim() || "Guest",
-    propertyTitle: input.propertyTitle?.trim() ?? "",
-    tourTime: formatRangeLabel(input.tourStartIso, input.tourEndIso),
-    managerName: input.managerName.trim() || "Your property manager",
-    instructions: input.instructions?.trim() ?? "",
-  };
-  const templated = fillTourReminderTemplate(settings.templates.tourReminder ?? DEFAULT_TOUR_REMINDER_TEMPLATE, ctx);
-  const subject = input.subject?.trim() || templated.subject;
-  const body = input.body?.trim() || templated.body;
-  const sendAt =
-    input.sendAt?.trim() ||
-    tourReminderSendAtIso(input.tourStartIso, settings.tourReminderMinutesBefore) ||
-    null;
-  if (!sendAt) {
-    await cancelTourReminderForPlannedEvent(db, input.managerUserId, input.plannedEventId);
-    return null;
-  }
-
+  const minutesBeforeList = normalizeTourReminderMinutesBeforeList(
+    input.minutesBeforeList ?? settings.tourReminderMinutesBeforeList,
+    settings.tourReminderMinutesBefore,
+  );
+  const { subject, body } = buildTourReminderContent(input, settings);
   const deliverViaEmail = input.deliverViaEmail ?? settings.tourReminderDeliverViaEmail !== false;
   const deliverViaSms = input.deliverViaSms ?? settings.tourReminderDeliverViaSms === true;
-  const existing = await findTourReminderForPlannedEvent(db, input.managerUserId, input.plannedEventId);
 
-  if (existing?.status === "sent") return existing;
+  const existing = await listTourRemindersForPlannedEvent(db, input.managerUserId, input.plannedEventId);
+  const keyedRows = new Map(
+    existing
+      .filter((row) => row.tourReminderMinutesBefore != null)
+      .map((row) => [row.tourReminderMinutesBefore as number, row]),
+  );
+  const legacyRows = existing.filter((row) => row.tourReminderMinutesBefore == null);
+  const keptIds = new Set<string>();
+  const now = new Date().toISOString();
 
-  if (existing) {
-    await updateScheduledInboxMessage(db, input.managerUserId, existing.id, {
+  for (const minutesBefore of minutesBeforeList) {
+    const sendAt =
+      input.sendAt?.trim() && minutesBeforeList.length === 1
+        ? input.sendAt.trim()
+        : tourReminderSendAtIso(input.tourStartIso, minutesBefore);
+    if (!sendAt) continue;
+
+    let prior = keyedRows.get(minutesBefore) ?? legacyRows.shift();
+    if (prior?.status === "sent") {
+      keptIds.add(prior.id);
+      continue;
+    }
+
+    if (prior) {
+      await updateScheduledInboxMessage(db, input.managerUserId, prior.id, {
+        sendAt,
+        subject,
+        body,
+        recipientEmail: email,
+        recipientName: input.recipientName.trim() || email,
+        deliverViaEmail,
+        deliverViaSms,
+        tourReminderMinutesBefore: minutesBefore,
+      });
+      keptIds.add(prior.id);
+      continue;
+    }
+
+    const id = generateScheduledInboxMessageId();
+    const created = await createScheduledInboxMessage(db, {
+      id,
+      managerUserId: input.managerUserId,
       sendAt,
+      status: "scheduled",
       subject,
       body,
       recipientEmail: email,
       recipientName: input.recipientName.trim() || email,
       deliverViaEmail,
       deliverViaSms,
+      messageKind: TOUR_REMINDER_MESSAGE_KIND,
+      tourPlannedEventId: input.plannedEventId,
+      tourStartIso: input.tourStartIso,
+      tourReminderMinutesBefore: minutesBefore,
     });
-    return { ...existing, sendAt, subject, body, recipientEmail: email, deliverViaEmail, deliverViaSms, tourStartIso: input.tourStartIso };
+    keptIds.add(created.id);
   }
 
-  const id = generateScheduledInboxMessageId();
-  return createScheduledInboxMessage(db, {
-    id,
-    managerUserId: input.managerUserId,
-    sendAt,
-    status: "scheduled",
-    subject,
-    body,
-    recipientEmail: email,
-    recipientName: input.recipientName.trim() || email,
-    deliverViaEmail,
-    deliverViaSms,
-    messageKind: TOUR_REMINDER_MESSAGE_KIND,
-    tourPlannedEventId: input.plannedEventId,
-    tourStartIso: input.tourStartIso,
-  });
+  for (const row of existing) {
+    if (row.status !== "scheduled" || keptIds.has(row.id)) continue;
+    await updateScheduledInboxMessage(db, input.managerUserId, row.id, {
+      status: "cancelled",
+      cancelledAt: now,
+    });
+  }
+
+  const refreshed = await listTourRemindersForPlannedEvent(db, input.managerUserId, input.plannedEventId);
+  if (!refreshed.length) return null;
+  return refreshed.sort((a, b) => new Date(a.sendAt).getTime() - new Date(b.sendAt).getTime())[0] ?? null;
 }
 
 export async function scheduleTourReminderAfterConfirm(

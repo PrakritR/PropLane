@@ -13,6 +13,7 @@ import {
 import {
   DEFAULT_MANAGER_AUTOMATION_SETTINGS,
   PAYMENT_AUTOMATION_SETTINGS_EVENT,
+  normalizeTourReminderMinutesBeforeList,
   type ManagerAutomationSettings,
 } from "@/lib/payment-automation-settings";
 import { isDemoModeActive } from "@/lib/demo/demo-session";
@@ -76,6 +77,14 @@ export function TourReminderSettingsModal({
   );
 
   const save = async () => {
+    const minutesBeforeList = normalizeTourReminderMinutesBeforeList(
+      draft.tourReminderMinutesBeforeList,
+      draft.tourReminderMinutesBefore,
+    );
+    if (minutesBeforeList.length === 0) {
+      showToast("Choose at least one reminder timing.");
+      return;
+    }
     if (!draft.tourReminderDeliverViaEmail && !draft.tourReminderDeliverViaSms) {
       showToast("Choose at least one channel under Send via.");
       return;
@@ -93,7 +102,8 @@ export function TourReminderSettingsModal({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           tourReminderEnabled: true,
-          tourReminderMinutesBefore: draft.tourReminderMinutesBefore,
+          tourReminderMinutesBefore: Math.min(...minutesBeforeList),
+          tourReminderMinutesBeforeList: minutesBeforeList,
           tourReminderDeliverViaEmail: draft.tourReminderDeliverViaEmail,
           tourReminderDeliverViaSms: draft.tourReminderDeliverViaSms,
           templates: { tourReminder: draft.templates.tourReminder },
@@ -127,9 +137,18 @@ export function TourReminderSettingsModal({
         ) : (
           <div className="space-y-4">
             <TourReminderTimingSelect
-              minutesBefore={draft.tourReminderMinutesBefore}
-              onChangeMinutes={(minutes) =>
-                setDraft((prev) => ({ ...prev, tourReminderMinutesBefore: minutes }))
+              minutesBeforeList={normalizeTourReminderMinutesBeforeList(
+                draft.tourReminderMinutesBeforeList,
+                draft.tourReminderMinutesBefore,
+              )}
+              onChangeMinutesList={(minutesBeforeList) =>
+                setDraft((prev) => ({
+                  ...prev,
+                  tourReminderMinutesBeforeList: minutesBeforeList,
+                  tourReminderMinutesBefore: minutesBeforeList.length
+                    ? Math.min(...minutesBeforeList)
+                    : prev.tourReminderMinutesBefore,
+                }))
               }
             />
 

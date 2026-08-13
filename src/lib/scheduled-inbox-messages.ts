@@ -34,6 +34,7 @@ export type ScheduledInboxMessageRecord = {
   messageKind?: string;
   tourPlannedEventId?: string;
   tourStartIso?: string;
+  tourReminderMinutesBefore?: number;
 };
 
 function rowFromDb(row: {
@@ -77,6 +78,10 @@ function rowFromDb(row: {
     messageKind: typeof data.messageKind === "string" ? data.messageKind : undefined,
     tourPlannedEventId: typeof data.tourPlannedEventId === "string" ? data.tourPlannedEventId : undefined,
     tourStartIso: typeof data.tourStartIso === "string" ? data.tourStartIso : undefined,
+    tourReminderMinutesBefore:
+      typeof data.tourReminderMinutesBefore === "number" && Number.isFinite(data.tourReminderMinutesBefore)
+        ? data.tourReminderMinutesBefore
+        : undefined,
   };
 }
 
@@ -152,6 +157,10 @@ export async function createScheduledInboxMessage(
     ...(input.senderUserId ? { senderUserId: input.senderUserId } : {}),
     ...(input.senderName ? { senderName: input.senderName } : {}),
     ...(input.senderEmail ? { senderEmail: input.senderEmail } : {}),
+    ...(input.messageKind ? { messageKind: input.messageKind } : {}),
+    ...(input.tourPlannedEventId ? { tourPlannedEventId: input.tourPlannedEventId } : {}),
+    ...(input.tourStartIso ? { tourStartIso: input.tourStartIso } : {}),
+    ...(input.tourReminderMinutesBefore != null ? { tourReminderMinutesBefore: input.tourReminderMinutesBefore } : {}),
   };
   const { error } = await db.from("portal_scheduled_inbox_message_records").insert({
     id: input.id,
@@ -216,7 +225,7 @@ export async function updateScheduledInboxMessage(
       ScheduledInboxMessageRecord,
       "sendAt" | "status" | "subject" | "body" | "recipientEmail" | "recipientName" | "recipientUserId" | "deliverViaEmail" | "deliverViaSms"
     >
-  > & { sentAt?: string | null; cancelledAt?: string | null },
+  > & { sentAt?: string | null; cancelledAt?: string | null; tourReminderMinutesBefore?: number },
 ): Promise<void> {
   const { data: existing } = await db
     .from("portal_scheduled_inbox_message_records")
@@ -239,6 +248,7 @@ export async function updateScheduledInboxMessage(
     ...(patch.recipientUserId !== undefined ? { recipientUserId: patch.recipientUserId } : {}),
     ...(patch.deliverViaEmail != null ? { deliverViaEmail: patch.deliverViaEmail } : {}),
     ...(patch.deliverViaSms != null ? { deliverViaSms: patch.deliverViaSms } : {}),
+    ...(patch.tourReminderMinutesBefore != null ? { tourReminderMinutesBefore: patch.tourReminderMinutesBefore } : {}),
     ...(patch.sentAt !== undefined ? { sentAt: patch.sentAt } : {}),
     ...(patch.cancelledAt !== undefined ? { cancelledAt: patch.cancelledAt } : {}),
   };

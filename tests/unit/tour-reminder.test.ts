@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { normalizeTourReminderMinutesBeforeList } from "@/lib/payment-automation-settings";
 import {
   DEFAULT_TOUR_REMINDER_TEMPLATE,
   fillTourReminderTemplate,
@@ -6,6 +7,11 @@ import {
 } from "@/lib/tour-reminder";
 
 describe("tour-reminder", () => {
+  it("normalizes multi-select minutes and dedupes", () => {
+    expect(normalizeTourReminderMinutesBeforeList([30, 15, 30, 90], 60)).toEqual([90, 30, 15]);
+    expect(normalizeTourReminderMinutesBeforeList(null, 45)).toEqual([45]);
+  });
+
   it("fills template placeholders", () => {
     const { subject, body } = fillTourReminderTemplate(DEFAULT_TOUR_REMINDER_TEMPLATE, {
       guestName: "Alex",

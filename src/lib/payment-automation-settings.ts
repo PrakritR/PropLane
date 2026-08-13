@@ -31,7 +31,10 @@ export type ManagerAutomationSettings = {
   proposeTourConfirmations: boolean;
   /** Confirmed tour reminders sent before the tour start time. */
   tourReminderEnabled: boolean;
+  /** @deprecated Legacy single value — use tourReminderMinutesBeforeList. Kept in sync with the list minimum. */
   tourReminderMinutesBefore: number;
+  /** Minutes before tour start to send each reminder (e.g. [60, 30, 15]). */
+  tourReminderMinutesBeforeList: number[];
   tourReminderDeliverViaEmail: boolean;
   tourReminderDeliverViaSms: boolean;
   paymentReminderDeliverViaEmail: boolean;
@@ -50,6 +53,27 @@ export const DEFAULT_POST_DUE_REMINDER_DAYS = [] as const;
 export const PAYMENT_AUTOMATION_SETTINGS_EVENT = "axis:payment-automation-settings";
 
 export const DEFAULT_TOUR_REMINDER_MINUTES_BEFORE = 30;
+
+export function clampTourReminderMinutesBefore(minutes: number): number {
+  return Math.max(5, Math.min(24 * 60, Math.round(minutes) || DEFAULT_TOUR_REMINDER_MINUTES_BEFORE));
+}
+
+export function normalizeTourReminderMinutesBeforeList(
+  rawList: unknown,
+  legacySingle?: unknown,
+): number[] {
+  const fromList = Array.isArray(rawList)
+    ? rawList
+        .map((value) => clampTourReminderMinutesBefore(Number(value)))
+        .filter((value) => Number.isFinite(value))
+    : [];
+  const merged =
+    fromList.length > 0
+      ? fromList
+      : [clampTourReminderMinutesBefore(Number(legacySingle) || DEFAULT_TOUR_REMINDER_MINUTES_BEFORE)];
+  const unique = [...new Set(merged)].sort((a, b) => b - a);
+  return unique.length > 0 ? unique : [DEFAULT_TOUR_REMINDER_MINUTES_BEFORE];
+}
 
 export const DEFAULT_TOUR_REMINDER_TEMPLATE: ReminderTemplate = {
   subject: "Reminder: your tour at {propertyTitle}",
@@ -83,6 +107,7 @@ export const DEFAULT_MANAGER_AUTOMATION_SETTINGS: ManagerAutomationSettings = {
   proposeTourConfirmations: false,
   tourReminderEnabled: true,
   tourReminderMinutesBefore: DEFAULT_TOUR_REMINDER_MINUTES_BEFORE,
+  tourReminderMinutesBeforeList: [DEFAULT_TOUR_REMINDER_MINUTES_BEFORE],
   tourReminderDeliverViaEmail: true,
   tourReminderDeliverViaSms: false,
   paymentReminderDeliverViaEmail: true,
@@ -272,13 +297,16 @@ export function normalizeManagerAutomationSettings(raw: unknown): ManagerAutomat
     // overdueDailyEnabled — no saved value must never auto-enable a proposal.
     proposeTourConfirmations: row.proposeTourConfirmations === true,
     tourReminderEnabled: row.tourReminderEnabled !== false,
-    tourReminderMinutesBefore: Math.max(
-      5,
-      Math.min(
-        24 * 60,
-        Math.round(Number(row.tourReminderMinutesBefore ?? base.tourReminderMinutesBefore) || base.tourReminderMinutesBefore),
-      ),
-    ),
+    ...(() => {
+      const tourReminderMinutesBeforeList = normalizeTourReminderMinutesBeforeList(
+        row.tourReminderMinutesBeforeList,
+        row.tourReminderMinutesBefore ?? base.tourReminderMinutesBefore,
+      );
+      return {
+        tourReminderMinutesBeforeList,
+        tourReminderMinutesBefore: Math.min(...tourReminderMinutesBeforeList),
+      };
+    })(),
     tourReminderDeliverViaEmail: row.tourReminderDeliverViaEmail !== false,
     tourReminderDeliverViaSms: row.tourReminderDeliverViaSms === true,
     paymentReminderDeliverViaEmail: row.paymentReminderDeliverViaEmail !== false,
