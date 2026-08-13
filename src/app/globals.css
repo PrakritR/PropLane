@@ -2399,6 +2399,12 @@ html[data-communication-hide-assistant-fab] .portal-resident-detail-inbox .porta
   padding-right: 0;
 }
 
+/* Resident detail chat is full-width (no list pane) — allow bubbles to use it. */
+.portal-resident-detail-inbox .portal-inbox-inbound-bubble,
+.portal-resident-detail-inbox .portal-inbox-outbound-bubble {
+  max-width: min(92%, 42rem);
+}
+
 @media (max-width: 1023px) {
   html[data-communication-thread-reading] .portal-inbox-composer-row {
     padding-right: 0;
