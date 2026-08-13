@@ -140,10 +140,53 @@ function modalButtonLabels(): string[] {
 }
 
 afterEach(cleanup);
+
+/**
+ * Pin the clock to a Monday 06:00, BEFORE the 10:00 windows these tests paint.
+ *
+ * The fixtures build their days from `new Date()`, so on a real clock the painted
+ * week is already past by midweek and today's 10:00 slot is past by late morning.
+ * `slotIsBookable` then drops every painted slot and the grid reports the 9-5
+ * default instead — a failure that depended on the day and hour the suite ran.
+ */
 beforeEach(() => {
+  vi.useFakeTimers({ shouldAdvanceTime: true });
+  vi.setSystemTime(new Date(2026, 7, 10, 6, 0, 0, 0));
   vi.clearAllMocks();
   PAINTED_SLOTS = new Set<string>();
 });
+afterEach(() => {
+  vi.useRealTimers();
+});
+
+/**
+ * Paint EVERY day of the pinned week.
+ *
+ * `resolveTourOfferingSlots` merges the 9-5 default into any horizon day with no
+ * future published window of its own, and the week badge totals the whole visible
+ * week — so painting one or two days left the other five defaulting and the badge
+ * counted them too (5 x 16 = 80 extra). Publishing every day keeps the default out
+ * of the number entirely, so the badge is once again exactly "painted minus taken"
+ * and each subtraction below stays legible.
+ */
+function paintWholeWeek(slots: number[] = [20, 22]): Set<string> {
+  const monday = startOfWeekMonday(new Date());
+  const out = new Set<string>();
+  for (let i = 0; i < 7; i += 1) {
+    const day = new Date(monday.getFullYear(), monday.getMonth(), monday.getDate() + i);
+    for (const slot of slots) out.add(`${toLocalDateStr(day)}:${slot}`);
+  }
+  return out;
+}
+
+/** The week's "N open slots" badge — painted availability minus what is booked. */
+function weekOpenSlotCount(): number | null {
+  const badge = [...document.querySelectorAll("*")].find(
+    (el) => el.children.length === 0 && /^\d+ open slots?$/.test((el.textContent ?? "").trim()),
+  );
+  const match = /(\d+) open/.exec(badge?.textContent ?? "");
+  return match ? Number(match[1]) : null;
+}
 
 describe("the detail modal for a CONFIRMED tour", () => {
   it("offers cancel, not move tour date", async () => {
@@ -351,7 +394,7 @@ describe("a multi-day Google block does not swallow a confirmed tour", () => {
   it("still counts the block's day-two half hour as taken", async () => {
     // Precedence decides what a cell DRAWS; it must not change what is open.
     const { start, tuesday, dayOne, dayTwo } = weekDays();
-    PAINTED_SLOTS = new Set([`${dayTwo}:20`, `${dayTwo}:22`]);
+    PAINTED_SLOTS = paintWholeWeek();
     render(
       <PortalCalendarPanels
         storageKey="axis_mgr_avail_slots_v2_test"
@@ -360,46 +403,36 @@ describe("a multi-day Google block does not swallow a confirmed tour", () => {
       />,
     );
 
-    const badge = await waitFor(() => {
-      const hit = [...document.querySelectorAll("*")].find(
-        (el) => el.children.length === 0 && /^\d+ open slots?$/.test((el.textContent ?? "").trim()),
-      );
-      if (!hit) throw new Error("week badge not rendered");
-      return hit;
-    });
-    expect(badge.textContent?.trim()).toBe("0 open slots");
+    await waitFor(() => expect(weekOpenSlotCount()).not.toBeNull());
+    // 14 painted (2 x 7 days). The block spans Mon 00:00 -> Wed 00:00, taking all
+    // four of Mon's and Tue's windows, and the tour sits inside one of Tue's — it
+    // must not hand a window back. 12 would mean day two's half hours were still
+    // advertised under the block.
+    expect(weekOpenSlotCount()).toBe(10);
   });
 });
 
 describe("counts stay honest after a tour changes state", () => {
-  /** The week's "N open slots" badge — painted availability minus what is booked. */
-  function weekOpenSlotCount(): number | null {
-    const badge = [...document.querySelectorAll("*")].find(
-      (el) => el.children.length === 0 && /^\d+ open slots?$/.test((el.textContent ?? "").trim()),
-    );
-    const match = /(\d+) open/.exec(badge?.textContent ?? "");
-    return match ? Number(match[1]) : null;
-  }
-
   it("does not count a slot a confirmed tour already occupies as open", async () => {
     const tour = confirmedTour();
     // Two painted windows on the tour's day; the tour consumes one of them.
-    PAINTED_SLOTS = new Set([`${tour.dateStr}:20`, `${tour.dateStr}:22`]);
+    PAINTED_SLOTS = paintWholeWeek();
 
     renderCalendar();
     await waitFor(() => expect(weekOpenSlotCount()).not.toBeNull());
 
-    // Before the fix this read 2: the booked 10 am window still advertised
-    // itself as open, so the calendar over-reported remaining capacity while
-    // the public grid had already (correctly) stopped offering that half hour.
-    expect(weekOpenSlotCount()).toBe(1);
+    // 14 painted, and the confirmed tour consumes exactly one. Before the fix this
+    // read 14: the booked 10 am window still advertised itself as open, so the
+    // calendar over-reported remaining capacity while the public grid had already
+    // (correctly) stopped offering that half hour.
+    expect(weekOpenSlotCount()).toBe(13);
   });
 
   it("still draws a Free/declined Google event but does not count it as taken", async () => {
     // Both invariants at once: the manager SEES the event, and the "N open"
     // header agrees with what the public booking page actually offers.
     const tour = confirmedTour();
-    PAINTED_SLOTS = new Set([`${tour.dateStr}:20`, `${tour.dateStr}:22`]);
+    PAINTED_SLOTS = paintWholeWeek();
 
     render(
       <PortalCalendarPanels
@@ -420,7 +453,8 @@ describe("counts stay honest after a tour changes state", () => {
     );
 
     await waitFor(() => expect(weekOpenSlotCount()).not.toBeNull());
-    expect(weekOpenSlotCount()).toBe(2);
+    // A Free/declined event blocks nothing, so all 14 painted windows stay open.
+    expect(weekOpenSlotCount()).toBe(14);
     expect(
       [...document.querySelectorAll("button")].some((el) => el.textContent?.includes("Focus time")),
     ).toBe(true);
@@ -438,7 +472,7 @@ describe("counts stay honest after a tour changes state", () => {
     const tuesday = new Date(start.getTime() + 24 * 60 * 60 * 1000);
     const dayOne = toLocalDateStr(start);
     const dayTwo = toLocalDateStr(tuesday);
-    PAINTED_SLOTS = new Set([`${dayOne}:20`, `${dayTwo}:20`]);
+    PAINTED_SLOTS = paintWholeWeek();
 
     render(
       <PortalCalendarPanels
@@ -465,9 +499,10 @@ describe("counts stay honest after a tour changes state", () => {
     );
 
     await waitFor(() => expect(weekOpenSlotCount()).not.toBeNull());
-    // Before the rollover this read 1: the second day's painted 10 am window
-    // still advertised itself as open under an event that covers it.
-    expect(weekOpenSlotCount()).toBe(0);
+    // 14 painted; the span covers Mon and Tue, so all four of their windows go.
+    // 12 is the pre-rollover reading — only the FIRST day lost capacity, while the
+    // public route, which works in real instants, blocked the whole span.
+    expect(weekOpenSlotCount()).toBe(10);
   });
 
   it("tells the page around it whenever a tour changes, so tab counts refresh", async () => {

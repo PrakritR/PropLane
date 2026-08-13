@@ -46,11 +46,23 @@ function DraftFields({
   );
 }
 
+/** A real tap on a listbox row: press and release in place, same pointer, no drag. */
+function pickOption(label: string) {
+  const target = screen.getByText(label);
+  const init = { pointerId: 1, clientX: 10, clientY: 10 };
+  fireEvent.pointerDown(target, init);
+  fireEvent.pointerUp(target, init);
+}
+
 describe("usePortalFilterDraft", () => {
   it("keeps edits in draft until commitAll", async () => {
     render(<DraftHarness />);
     expect(screen.getByTestId("applied")).toHaveTextContent("none");
-    fireEvent.pointerDown(screen.getByText("Property 0"));
+    // The listbox picks on pointerUP, not pointerDOWN — pointerdown only arms the
+    // press, and the pick is discarded if the pointer then moves more than the
+    // slop, so `preventDefault` on pointerdown never blocks list scrolling.
+    // Firing pointerDown alone therefore picks nothing.
+    pickOption("Property 0");
     expect(screen.getByTestId("applied")).toHaveTextContent("none");
     fireEvent.click(screen.getByTestId("commit"));
     await waitFor(() => {

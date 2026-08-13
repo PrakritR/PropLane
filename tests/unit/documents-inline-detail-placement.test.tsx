@@ -102,11 +102,17 @@ describe("ResidentOtherDocumentsTable — detail is nested under its own row", (
     fireEvent.click(rowTwo);
 
     // Detail row is directly after the clicked row, in the same tbody, and holds
-    // the actual preview (a Download control) — not an empty or misplaced node.
+    // the actual preview — not an empty or misplaced node.
+    //
+    // This used to look for a "Download" control. The viewer is now mounted with
+    // `hideActions`, and Download/Remove moved to the detail FOOTER strip
+    // (`selectedFooterActions`), which renders outside this `<tr>` — so that
+    // probe could never pass again. The fixture is a PNG, so the rendered preview
+    // image is the direct evidence the detail is populated.
     const detailRow = rowTwo.nextElementSibling as HTMLElement;
     expect(detailRow.tagName).toBe("TR");
     expect(detailRow.parentElement).toBe(rowTwo.parentElement);
-    expect(within(detailRow).getByText("Download")).toBeTruthy();
+    expect(within(detailRow).getByAltText("Renters insurance.png")).toBeTruthy();
 
     // The first row did NOT gain a detail (its next sibling is still a data row).
     const rowOne = dataRows.find((tr) => tr.textContent?.includes("Move-in photo.png"))!;
