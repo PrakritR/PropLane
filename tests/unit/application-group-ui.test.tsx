@@ -179,7 +179,7 @@ describe("group application — applicant Group ID hand-off", () => {
 });
 
 describe("group application — manager reconciliation", () => {
-  it("badges each member row, and keeps the roster OUT of the expanded application", async () => {
+  it("badges each member row, and rosters the household inside the expanded application", async () => {
     ROWS = HOUSEHOLD_ROWS;
     const { container, rerender } = render(<ManagerApplications bucket="pending" />);
 
@@ -199,17 +199,18 @@ describe("group application — manager reconciliation", () => {
     rerender(<ManagerApplications bucket="pending" />);
     await waitFor(() => expect(screen.getAllByText("Priya Nair").length).toBeGreaterThan(0));
 
-    // The household roster used to render inside the expanded application as
-    // well. It is deliberately gone: the group belongs to the LIST, where a
-    // manager compares members, and repeating it per application pushed the
-    // applicant's own answers below the fold. The row badge is the whole
-    // group affordance now.
+    // The household roster also renders inside the expanded application: the row
+    // badge alone is unreachable on touch, where there is no hover affordance to
+    // read the Group ID or the other members off.
     rerender(<ManagerApplications bucket="pending" applicationId="AXIS-1002" />);
     await waitFor(() => expect(screen.getAllByText("Priya Nair").length).toBeGreaterThan(0));
-    expect(screen.queryByText("Group application")).toBeNull();
-    expect(screen.queryByText(/2 of 3 applied · waiting on 1/)).toBeNull();
-    expect(screen.queryByText("(this application)")).toBeNull();
-    expect(screen.queryByText("· organizer")).toBeNull();
+    expect(screen.getByText("Group application")).toBeTruthy();
+    expect(screen.getByText(/2 of 3 applied · waiting on 1/)).toBeTruthy();
+    expect(screen.getByText(GROUP_ID)).toBeTruthy();
+    expect(screen.getByText("(this application)")).toBeTruthy();
+    expect(screen.getByText("· organizer")).toBeTruthy();
+    expect(screen.getAllByText("Jordan Reyes").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Sam Okafor").length).toBeGreaterThan(0);
     dumpHtml("manager-expanded", container.innerHTML);
   });
 
@@ -269,13 +270,13 @@ describe("group application — manager reconciliation", () => {
     expect(screen.getAllByText("Group 3 · 2 declared").length).toBe(1);
     dumpHtml("manager-edge-rows", container.innerHTML);
 
-    // Same rule as above: the over-subscribed warning is carried by the row
-    // badge ("Group 3 · 2 declared"), not repeated in the expanded detail.
+    // The expanded detail spells the same warning out in full, since the row
+    // badge's "Group 3 · 2 declared" shorthand has no room to explain itself.
     rerenderEdge(<ManagerApplications bucket="pending" applicationId="AXIS-300" />);
     await waitFor(() => expect(screen.getAllByText("Ada Vance").length).toBeGreaterThan(0));
     expect(
-      screen.queryByText(/carry this Group ID, more than the 2 the organizer declared/),
-    ).toBeNull();
+      screen.getByText(/carry this Group ID, more than the 2 the organizer declared/),
+    ).toBeTruthy();
     dumpHtml("manager-edge-expanded", container.innerHTML);
   });
 });

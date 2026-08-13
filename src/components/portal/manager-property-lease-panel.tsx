@@ -117,17 +117,23 @@ export function ManagerPropertyLeasePanel({
   const templates = useMemo(() => readPropertyLeaseTemplates(syncedSub), [syncedSub]);
   const availableSeeds = useMemo(() => availableLeaseTemplateSeeds(syncedSub), [syncedSub]);
 
-  const bulkPropertyIds = propertyIds?.filter((id) => id.trim()) ?? [];
+  const bulkPropertyIds = useMemo(
+    () => propertyIds?.filter((id) => id.trim()) ?? [],
+    [propertyIds],
+  );
 
-  const persistSubmission = (nextSub: ManagerListingSubmissionV1, successMessage: string) => {
-    if (!managerUserId || !saveTarget) return false;
-    if (!persistManagerListingSubmission(saveTarget, managerUserId, nextSub)) {
-      showToast("Could not save lease settings.");
-      return false;
-    }
-    showToast(successMessage);
-    return true;
-  };
+  const persistSubmission = useCallback(
+    (nextSub: ManagerListingSubmissionV1, successMessage: string) => {
+      if (!managerUserId || !saveTarget) return false;
+      if (!persistManagerListingSubmission(saveTarget, managerUserId, nextSub)) {
+        showToast("Could not save lease settings.");
+        return false;
+      }
+      showToast(successMessage);
+      return true;
+    },
+    [managerUserId, saveTarget, showToast],
+  );
 
   const persistTemplates = (nextTemplates: PropertyLeaseTemplate[]) => {
     if (!managerUserId) return false;
@@ -177,7 +183,7 @@ export function ManagerPropertyLeasePanel({
         let failed = 0;
         let skipped = 0;
         for (const bulkPropertyId of bulkPropertyIds) {
-          const hit = resolveManagerListingSubmissionForPropertyId(managerUserId!, bulkPropertyId);
+          const hit = resolveManagerListingSubmissionForPropertyId(managerUserId, bulkPropertyId);
           if (!hit) {
             failed += 1;
             continue;
@@ -188,7 +194,7 @@ export function ManagerPropertyLeasePanel({
             skipped += 1;
             continue;
           }
-          if (persistManagerListingSubmission(hit.saveTarget, managerUserId!, nextSub)) saved += 1;
+          if (persistManagerListingSubmission(hit.saveTarget, managerUserId, nextSub)) saved += 1;
           else failed += 1;
         }
         if (saved === 0) {
