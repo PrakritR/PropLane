@@ -780,7 +780,13 @@ export function ManagerLeasesPipelinePanel({
     );
   };
 
-  const renderLeaseRowDetail = (row: LeasePipelineRow) => <LeaseDocumentPreview row={row} />;
+  const renderLeaseRowDetail = (row: LeasePipelineRow) => (
+    <LeaseDocumentPreview
+      row={row}
+      stretch
+      className="min-h-[calc(100dvh-14rem)] flex-1 max-lg:min-h-[calc(100dvh-17rem-var(--portal-native-bottom-nav-inset,0px))]"
+    />
+  );
 
   const importReviewRow = useMemo(
     () => (importReviewRowId ? (rows.find((r) => r.id === importReviewRowId) ?? null) : null),
@@ -969,6 +975,8 @@ export function ManagerLeasesPipelinePanel({
           inlineActions
           actions={renderLeaseHeaderActions(detailRow)}
           pinScrollBody
+          fillBody
+          scrollBody={false}
         >
           {renderLeaseRowDetail(detailRow)}
         </PortalRecordDetailPage>

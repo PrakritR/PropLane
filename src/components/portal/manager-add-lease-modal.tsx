@@ -31,6 +31,14 @@ import {
   readPendingManagerPropertiesForUser,
   syncPropertyPipelineFromServer,
 } from "@/lib/demo-property-pipeline";
+import { PropertyResidentDocumentImportModal } from "@/components/portal/property-resident-document-import-modal";
+import type { ParsedResidentDocument } from "@/lib/resident-document-import/types";
+import {
+  parseResidentDocumentPdfClient,
+  readDataUrlFromFile,
+} from "@/lib/resident-document-import.client";
+
+const NEW_RESIDENT_ID = "__new_resident__";
 
 /** Property name only — strips " · 9 rooms", unit labels, and legacy id suffixes. */
 function displayPropertyLabel(raw: string): string {
@@ -149,6 +157,12 @@ export function ManagerAddLeaseModal({
   const [busy, setBusy] = useState(false);
   const [generateLeaseRowId, setGenerateLeaseRowId] = useState<string | null>(null);
   const [importReviewLeaseId, setImportReviewLeaseId] = useState<string | null>(null);
+  const [newResidentImportOpen, setNewResidentImportOpen] = useState(false);
+  const [newResidentImportBootstrap, setNewResidentImportBootstrap] = useState<{
+    parse: ParsedResidentDocument;
+    file: File;
+    dataUrl: string;
+  } | null>(null);
   const uploadRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -186,14 +200,23 @@ export function ManagerAddLeaseModal({
   }, [residents, selectedProperty]);
 
   const selectedResident = useMemo(
-    () => residents.find((row) => row.applicationId === applicationId) ?? null,
+    () =>
+      applicationId && applicationId !== NEW_RESIDENT_ID
+        ? residents.find((row) => row.applicationId === applicationId) ?? null
+        : null,
     [applicationId, residents],
   );
+
+  const isNewResident = applicationId === NEW_RESIDENT_ID;
+  const canGenerateLease = Boolean(applicationId && !isNewResident);
+  const canUploadLease = Boolean(propertyId && (canGenerateLease || isNewResident));
 
   useEffect(() => {
     if (!open) return;
     setImportReviewLeaseId(null);
     setGenerateLeaseRowId(null);
+    setNewResidentImportOpen(false);
+    setNewResidentImportBootstrap(null);
     if (!initialApplicationId && !initialPropertyId) {
       setPropertyId("");
       setApplicationId("");
@@ -225,6 +248,39 @@ export function ManagerAddLeaseModal({
   }
 
   async function handleUpload(file: File) {
+    if (isNewResident) {
+      if (!propertyId) {
+        showToast("Select a property first.");
+        return;
+      }
+      if (file.type !== "application/pdf") {
+        showToast("Please choose a PDF file.");
+        return;
+      }
+      if (file.size > 3.5 * 1024 * 1024) {
+        showToast("PDF too large (max 3.5 MB).");
+        return;
+      }
+      setBusy(true);
+      try {
+        const dataUrl = await readDataUrlFromFile(file);
+        const parsed = await parseResidentDocumentPdfClient({
+          dataUrl,
+          fileName: file.name,
+          kind: "lease",
+          propertyId,
+        });
+        setNewResidentImportBootstrap({ parse: parsed, file, dataUrl });
+        setNewResidentImportOpen(true);
+      } catch (err) {
+        showToast(err instanceof Error ? err.message : "Could not read lease PDF.");
+      } finally {
+        setBusy(false);
+        if (uploadRef.current) uploadRef.current.value = "";
+      }
+      return;
+    }
+
     const ensured = ensureLeaseRow();
     if (!ensured.ok) return;
     setBusy(true);
@@ -297,6 +353,28 @@ export function ManagerAddLeaseModal({
         title="Add lease"
         description="Choose a property and resident, then upload a signed PDF or generate a lease."
         dataAttr="manager-add-lease-modal"
+        footer={
+          <ModalFooter>
+            <Button
+              type="button"
+              variant="outline"
+              data-attr="add-lease-generate"
+              disabled={!canGenerateLease || busy}
+              onClick={openGenerateConfirm}
+            >
+              {busy ? "Uploading…" : "Generate lease"}
+            </Button>
+            <Button
+              type="button"
+              variant="primary"
+              data-attr="add-lease-upload"
+              disabled={!canUploadLease || busy}
+              onClick={() => uploadRef.current?.click()}
+            >
+              {busy ? "Uploading…" : "Upload PDF"}
+            </Button>
+          </ModalFooter>
+        }
       >
         <div className="grid gap-3 sm:grid-cols-2">
           <label className="flex flex-col gap-0.5 sm:col-span-2">
@@ -327,25 +405,28 @@ export function ManagerAddLeaseModal({
               className={compactField}
               value={applicationId}
               onChange={(e) => setApplicationId(e.target.value)}
-              disabled={busy || !propertyId || residentsForProperty.length === 0}
+              disabled={busy || !propertyId}
               data-attr="add-lease-resident"
             >
               <option value="">
-                {!propertyId
-                  ? "Select property first"
-                  : residentsForProperty.length === 0
-                    ? "No approved residents at this property"
-                    : "Select resident"}
+                {!propertyId ? "Select property first" : "Select resident"}
               </option>
-              {residentsForProperty.map((row) => (
-                <option key={row.applicationId} value={row.applicationId}>
-                  {row.residentName}
-                  {row.roomLabel ? ` · ${row.roomLabel}` : ""}
-                </option>
-              ))}
+              <option value={NEW_RESIDENT_ID}>New resident…</option>
+              {residentsForProperty.length === 0 ? null : (
+                residentsForProperty.map((row) => (
+                  <option key={row.applicationId} value={row.applicationId}>
+                    {row.residentName}
+                    {row.roomLabel ? ` · ${row.roomLabel}` : ""}
+                  </option>
+                ))
+              )}
             </Select>
           </label>
-          {selectedResident ? (
+          {isNewResident ? (
+            <p className="text-sm text-muted sm:col-span-2">
+              Upload a lease PDF to create a resident record, or pick an approved resident to generate a lease.
+            </p>
+          ) : selectedResident ? (
             <p className="text-sm text-muted sm:col-span-2">
               Lease will be added for{" "}
               <span className="font-medium text-foreground">{selectedResident.residentName}</span>
@@ -354,30 +435,30 @@ export function ManagerAddLeaseModal({
             </p>
           ) : null}
         </div>
-        <ModalFooter>
-          <Button type="button" variant="outline" onClick={onClose} disabled={busy}>
-            Cancel
-          </Button>
-          <Button
-            type="button"
-            variant="outline"
-            data-attr="add-lease-generate"
-            disabled={!applicationId || busy}
-            onClick={openGenerateConfirm}
-          >
-            {busy ? "Uploading…" : "Generate lease"}
-          </Button>
-          <Button
-            type="button"
-            variant="primary"
-            data-attr="add-lease-upload"
-            disabled={!applicationId || busy}
-            onClick={() => uploadRef.current?.click()}
-          >
-            {busy ? "Uploading…" : "Upload PDF"}
-          </Button>
-        </ModalFooter>
       </Modal>
+
+      {newResidentImportOpen && selectedProperty ? (
+        <PropertyResidentDocumentImportModal
+          open
+          kind="lease"
+          propertyId={propertyId}
+          propertyLabel={selectedProperty.propertyLabel}
+          managerUserId={managerUserId}
+          initialPdf={newResidentImportBootstrap}
+          showToast={showToast}
+          onClose={() => {
+            setNewResidentImportOpen(false);
+            setNewResidentImportBootstrap(null);
+          }}
+          onImported={({ leaseId }) => {
+            onSubmitted();
+            setNewResidentImportOpen(false);
+            setNewResidentImportBootstrap(null);
+            if (leaseId) onOpenLease?.(leaseId);
+            onClose();
+          }}
+        />
+      ) : null}
 
       <input
         ref={uploadRef}

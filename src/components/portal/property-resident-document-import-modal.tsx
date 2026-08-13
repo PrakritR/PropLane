@@ -36,6 +36,8 @@ export function PropertyResidentDocumentImportModal({
   onClose,
   onImported,
   showToast,
+  initialPdf = null,
+  forcedExistingApplicationId,
 }: {
   open: boolean;
   kind: ResidentDocumentKind;
@@ -45,6 +47,13 @@ export function PropertyResidentDocumentImportModal({
   onClose: () => void;
   onImported: (result: { applicationId: string; leaseId?: string }) => void;
   showToast: (message: string) => void;
+  /** Skip the upload card when the parent already parsed a PDF. */
+  initialPdf?: {
+    parse: ParsedResidentDocument;
+    file: File;
+    dataUrl: string;
+  } | null;
+  forcedExistingApplicationId?: string;
 }) {
   const uploadRef = useRef<HTMLInputElement>(null);
   const [busy, setBusy] = useState(false);
@@ -59,6 +68,22 @@ export function PropertyResidentDocumentImportModal({
 
   useEffect(() => {
     if (!open) return;
+    if (initialPdf) {
+      setParse(initialPdf.parse);
+      setFile(initialPdf.file);
+      setDataUrl(initialPdf.dataUrl);
+      setFields(parsedFieldsToRecord(initialPdf.parse.fields));
+      setSelectedPropertyId(
+        propertyId.trim() || initialPdf.parse.propertyMatch?.propertyId?.trim() || "",
+      );
+      setSelectedRoomId(initialPdf.parse.propertyMatch?.roomId?.trim() || "");
+      setSendAccountSetup(initialPdf.parse.residentMatch.kind === "new");
+      setLeaseFullyExecuted(
+        initialPdf.parse.suggestedLeaseBucket === "signed" ||
+          initialPdf.parse.leaseSignatures?.fullyExecuted === true,
+      );
+      return;
+    }
     setParse(null);
     setFile(null);
     setDataUrl("");
@@ -67,7 +92,7 @@ export function PropertyResidentDocumentImportModal({
     setSelectedRoomId("");
     setSendAccountSetup(true);
     setLeaseFullyExecuted(false);
-  }, [open, propertyId]);
+  }, [open, propertyId, initialPdf]);
 
   const propertyOptions = useMemo(() => {
     if (!managerUserId) return [];
@@ -151,6 +176,10 @@ export function PropertyResidentDocumentImportModal({
     try {
       const label =
         propertyOptions.find((row) => row.value === selectedPropertyId)?.label || propertyLabel || "Property";
+      const forcedExistingId = forcedExistingApplicationId?.trim() || "";
+      const existingApplicationId =
+        forcedExistingId ||
+        (parse.residentMatch.kind === "existing" ? parse.residentMatch.applicationId : undefined);
       const result = await commitResidentDocumentImport({
         parse,
         review: {
@@ -160,9 +189,8 @@ export function PropertyResidentDocumentImportModal({
           fields,
           propertyId: selectedPropertyId,
           roomId: selectedRoomId,
-          residentMode: parse.residentMatch.kind === "existing" ? "existing" : "new",
-          existingApplicationId:
-            parse.residentMatch.kind === "existing" ? parse.residentMatch.applicationId : undefined,
+          residentMode: existingApplicationId ? "existing" : "new",
+          existingApplicationId,
           sendAccountSetup,
           leaseFullyExecuted,
         },
@@ -209,6 +237,22 @@ export function PropertyResidentDocumentImportModal({
           : "Upload a completed rental application. PropLane extracts resident details and creates or updates their record."
       }
       dataAttr={`property-${kind}-import-modal`}
+      footer={
+        parse ? (
+          <ModalFooter>
+            <Button
+              type="button"
+              variant="primary"
+              className="ml-auto rounded-full"
+              disabled={busy}
+              onClick={() => void handleImport()}
+              data-attr={`property-${kind}-import-confirm`}
+            >
+              {busy ? "Importing…" : kind === "lease" ? "Import lease" : "Import application"}
+            </Button>
+          </ModalFooter>
+        ) : null
+      }
     >
       <div className="space-y-4">
         {!parse ? (
@@ -307,13 +351,6 @@ export function PropertyResidentDocumentImportModal({
         }}
       />
 
-      {parse ? (
-        <ModalFooter>
-          <Button type="button" variant="primary" disabled={busy} onClick={() => void handleImport()} data-attr={`property-${kind}-import-confirm`}>
-            {busy ? "Importing…" : kind === "lease" ? "Import lease" : "Import application"}
-          </Button>
-        </ModalFooter>
-      ) : null}
     </Modal>
   );
 }

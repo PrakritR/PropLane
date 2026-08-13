@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Modal, MODAL_FIELD_LABEL_CLASS, ModalFooter } from "@/components/ui/modal";
 import { Button } from "@/components/ui/button";
 import { PortalFormSingleSelect } from "@/components/portal/filter-field-lists";
@@ -33,6 +33,13 @@ import {
   syncInProgressApplicationRow,
 } from "@/lib/rental-application/in-progress-application";
 import { createInitialRentalWizardState } from "@/lib/rental-application/state";
+import { PropertyResidentDocumentImportModal } from "@/components/portal/property-resident-document-import-modal";
+import type { ParsedResidentDocument } from "@/lib/resident-document-import/types";
+import {
+  parseResidentDocumentPdfClient,
+  parsedFieldsToRecord,
+  readDataUrlFromFile,
+} from "@/lib/resident-document-import.client";
 
 const NEW_RESIDENT_ID = "__new_resident__";
 
@@ -193,6 +200,14 @@ export function ManagerApplicationOnBehalfModal({
   const [sendPreview, setSendPreview] = useState<{ to: string; subject: string; text: string } | null>(null);
   const [sendBusy, setSendBusy] = useState(false);
   const [previewBusy, setPreviewBusy] = useState(false);
+  const [uploadBusy, setUploadBusy] = useState(false);
+  const [importPdfOpen, setImportPdfOpen] = useState(false);
+  const [importPdfBootstrap, setImportPdfBootstrap] = useState<{
+    parse: ParsedResidentDocument;
+    file: File;
+    dataUrl: string;
+  } | null>(null);
+  const uploadRef = useRef<HTMLInputElement>(null);
 
   const reset = useCallback(() => {
     setPhase("pick");
@@ -204,6 +219,9 @@ export function ManagerApplicationOnBehalfModal({
     setSendPreview(null);
     setSendBusy(false);
     setPreviewBusy(false);
+    setUploadBusy(false);
+    setImportPdfOpen(false);
+    setImportPdfBootstrap(null);
     clearRentalWizardDraft();
   }, []);
 
@@ -254,11 +272,57 @@ export function ManagerApplicationOnBehalfModal({
   const resolvedName = selectedResident?.residentName ?? "";
 
   const canStartWizard = Boolean(propertyId && residentId);
+  const canUploadPdf = Boolean(propertyId);
+  const forcedExistingApplicationId =
+    residentId && residentId !== NEW_RESIDENT_ID ? residentId : undefined;
 
   const handleClose = () => {
     reset();
     onClose();
   };
+
+  async function handleApplicationPdfChosen(file: File) {
+    if (!propertyId) {
+      showToast("Select a property first.");
+      return;
+    }
+    if (file.type !== "application/pdf") {
+      showToast("Please choose a PDF file.");
+      return;
+    }
+    if (file.size > 3.5 * 1024 * 1024) {
+      showToast("PDF too large (max 3.5 MB).");
+      return;
+    }
+    setUploadBusy(true);
+    try {
+      const dataUrl = await readDataUrlFromFile(file);
+      const parsed = await parseResidentDocumentPdfClient({
+        dataUrl,
+        fileName: file.name,
+        kind: "application",
+        propertyId,
+      });
+      const fields = parsedFieldsToRecord(parsed.fields);
+      if (selectedResident && residentId !== NEW_RESIDENT_ID) {
+        if (!fields.tenantName?.trim()) fields.tenantName = selectedResident.residentName;
+        if (!fields.tenantEmail?.trim()) fields.tenantEmail = selectedResident.residentEmail;
+        parsed.fields = Object.entries(fields).map(([key, value]) => {
+          const existing = parsed.fields.find((field) => field.key === key);
+          return existing
+            ? { ...existing, value }
+            : { key, label: key, value, confidence: "high" as const, source: "deterministic" as const };
+        });
+      }
+      setImportPdfBootstrap({ parse: parsed, file, dataUrl });
+      setImportPdfOpen(true);
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : "Could not read application PDF.");
+    } finally {
+      setUploadBusy(false);
+      if (uploadRef.current) uploadRef.current.value = "";
+    }
+  }
 
   const startWizard = () => {
     if (!canStartWizard) {
@@ -356,8 +420,30 @@ export function ManagerApplicationOnBehalfModal({
         open={open && phase === "pick"}
         onClose={handleClose}
         title="Add application"
-        description="Choose a property and resident. The resident enters their email in the application."
+        description="Choose a property and resident, then upload an application PDF or fill one out manually."
         dataAttr="manager-add-application-modal"
+        footer={
+          <ModalFooter>
+            <Button
+              type="button"
+              variant="outline"
+              data-attr="add-application-manual"
+              disabled={!canStartWizard || uploadBusy}
+              onClick={startWizard}
+            >
+              Fill out manually
+            </Button>
+            <Button
+              type="button"
+              variant="primary"
+              data-attr="add-application-upload"
+              disabled={!canUploadPdf || uploadBusy}
+              onClick={() => uploadRef.current?.click()}
+            >
+              {uploadBusy ? "Reading PDF…" : "Upload application PDF"}
+            </Button>
+          </ModalFooter>
+        }
       >
         <div className="grid gap-3 sm:grid-cols-2">
           <div className="sm:col-span-2">
@@ -390,21 +476,40 @@ export function ManagerApplicationOnBehalfModal({
             />
           </div>
         </div>
-        <ModalFooter>
-          <Button type="button" variant="outline" onClick={handleClose}>
-            Cancel
-          </Button>
-          <Button
-            type="button"
-            variant="primary"
-            data-attr="add-application-continue"
-            disabled={!canStartWizard}
-            onClick={startWizard}
-          >
-            Continue to application
-          </Button>
-        </ModalFooter>
       </Modal>
+
+      <input
+        ref={uploadRef}
+        type="file"
+        accept="application/pdf"
+        className="sr-only"
+        aria-hidden
+        onChange={(e) => {
+          const file = e.target.files?.[0];
+          if (file) void handleApplicationPdfChosen(file);
+        }}
+      />
+
+      {importPdfOpen && selectedProperty ? (
+        <PropertyResidentDocumentImportModal
+          open
+          kind="application"
+          propertyId={propertyId}
+          propertyLabel={selectedProperty.propertyLabel}
+          managerUserId={managerUserId}
+          initialPdf={importPdfBootstrap}
+          forcedExistingApplicationId={forcedExistingApplicationId}
+          showToast={showToast}
+          onClose={() => {
+            setImportPdfOpen(false);
+            setImportPdfBootstrap(null);
+          }}
+          onImported={() => {
+            onSubmitted();
+            handleClose();
+          }}
+        />
+      ) : null}
 
       <Modal
         open={open && phase === "wizard"}
