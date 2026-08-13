@@ -14,7 +14,7 @@ import {
 } from "@/components/portal/portal-inbox-ui";
 import { PortalCommunicationShell } from "@/components/portal/portal-communication-shell";
 import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
-import { PORTAL_HEADER_PRIMARY_ACTION_BTN } from "@/components/portal/portal-metrics";
+import { PORTAL_HEADER_PRIMARY_ACTION_BTN_RESPONSIVE } from "@/components/portal/portal-metrics";
 import { filterEmailInboxThreads } from "@/lib/communication-inbox-filters";
 import {
   mergeUnifiedInboxItems,
@@ -320,8 +320,8 @@ export function ResidentCommunication({
   const newMessageButton = (
     <Button
       type="button"
-      variant="outline"
-      className={`shrink-0 ${PORTAL_HEADER_PRIMARY_ACTION_BTN}`}
+      variant="primary"
+      className={`shrink-0 ${PORTAL_HEADER_PRIMARY_ACTION_BTN_RESPONSIVE}`}
       data-attr="communication-new-message"
       onClick={() => inboxRef.current?.openCompose()}
     >
@@ -330,25 +330,32 @@ export function ResidentCommunication({
   );
 
   const controlStack = (
-    <PortalListControlStack
-      destinations={[
-        { id: "active", label: "Active", href: `${commBase}/active`, dataAttr: "communication-segment-active" },
-        {
-          id: "archived",
-          label: "Archived",
-          href: `${commBase}/archived`,
-          dataAttr: "communication-segment-archived",
-        },
-      ]}
-      activeDestinationId={listSegment}
-      destinationAriaLabel="Conversation folders"
-      search={{
-        value: searchQuery,
-        onChange: setSearchQuery,
-        placeholder: "Search messages",
-        dataAttr: "resident-inbox-search",
-      }}
-    />
+    <div className="space-y-2">
+      <PortalListControlStack
+        destinations={[
+          { id: "active", label: "Active", href: `${commBase}/active`, dataAttr: "communication-segment-active" },
+          {
+            id: "archived",
+            label: "Archived",
+            href: `${commBase}/archived`,
+            dataAttr: "communication-segment-archived",
+          },
+        ]}
+        activeDestinationId={listSegment}
+        destinationAriaLabel="Conversation folders"
+        search={{
+          value: searchQuery,
+          onChange: setSearchQuery,
+          placeholder: "Search messages",
+          dataAttr: "resident-inbox-search",
+        }}
+      />
+      {!threadOpen ? (
+        <div className="flex justify-end md:hidden" data-slot="resident-communication-mobile-actions">
+          {newMessageButton}
+        </div>
+      ) : null}
+    </div>
   );
 
   return (
