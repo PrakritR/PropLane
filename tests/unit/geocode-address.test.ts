@@ -2,15 +2,17 @@ import { describe, expect, it } from "vitest";
 import { listingGeocodeQuery, parseGeocodeResult, parseNominatimAddressSuggestion } from "@/lib/geocode-address";
 
 describe("listingGeocodeQuery", () => {
-  it("joins street, neighborhood, zip, and USA for US zips", () => {
+  it("joins street, city, state, zip, and USA for US zips", () => {
     expect(
       listingGeocodeQuery({
         address: "41932 Paseo Padre Pkwy",
         zip: "94538",
         neighborhood: "Fremont",
+        city: "Fremont",
+        state: "CA",
         unitLabel: "",
       }),
-    ).toBe("41932 Paseo Padre Pkwy, Fremont, 94538, USA");
+    ).toBe("41932 Paseo Padre Pkwy, Fremont, CA, 94538, USA");
   });
 
   it("omits the unit — it adds no geographic precision and hurts the match", () => {
@@ -19,9 +21,11 @@ describe("listingGeocodeQuery", () => {
         address: "4709B 8th Ave NE",
         zip: "98105",
         neighborhood: "University District",
+        city: "Seattle",
+        state: "WA",
         unitLabel: "Room 2",
       }),
-    ).toBe("4709B 8th Ave NE, University District, 98105, USA");
+    ).toBe("4709B 8th Ave NE, Seattle, WA, 98105, USA");
   });
 
   it("strips a unit already embedded in the street line", () => {
@@ -55,7 +59,7 @@ describe("parseGeocodeResult", () => {
 });
 
 describe("parseNominatimAddressSuggestion", () => {
-  it("maps street, zip, and neighborhood from address details", () => {
+  it("maps street, zip, city, state, and neighborhood from address details", () => {
     expect(
       parseNominatimAddressSuggestion({
         place_id: 1,
@@ -67,6 +71,8 @@ describe("parseNominatimAddressSuggestion", () => {
           road: "22nd Avenue Northwest",
           neighbourhood: "Ballard",
           city: "Seattle",
+          state: "Washington",
+          "ISO3166-2-lvl4": "US-WA",
           postcode: "98107",
         },
       }),
@@ -75,6 +81,7 @@ describe("parseNominatimAddressSuggestion", () => {
       zip: "98107",
       neighborhood: "Ballard",
       city: "Seattle",
+      state: "WA",
       lat: 47.6689,
       lng: -122.3845,
     });

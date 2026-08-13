@@ -138,9 +138,10 @@ import {
   parseSanitizedInteger,
   parseSanitizedMoneyNumber,
   sanitizeBuildingNameInput,
+  sanitizeCityInput,
   sanitizeMoneyInput,
-  sanitizeNeighborhoodInput,
   sanitizePlaceNameInput,
+  sanitizeStateInput,
   sanitizeStreetAddressInput,
   sanitizeZipInput,
 } from "@/lib/listing-form-inputs";
@@ -3478,7 +3479,7 @@ export function ManagerAddListingForm({
           >
             <ListingSubsection
               title="Address & property type"
-              description="Where the place is and what kind of home it is. Choosing an address result fills in ZIP and neighborhood for you."
+              description="Where the place is and what kind of home it is. Choosing an address result fills in city, state, and ZIP for you."
             >
               <div className="grid gap-3 sm:grid-cols-2">
               <div data-wizard-field="listingPropertyTypeId" className={wizardSectionErrorClass(Boolean(stepFieldErrors.listingPropertyTypeId))}>
@@ -3517,7 +3518,7 @@ export function ManagerAddListingForm({
               </div>
 
               <div className="relative z-20 sm:col-span-2" data-wizard-field="address">
-                <FieldLabel required hint="Start typing to search. Choosing a result fills in ZIP and neighborhood below.">Street address</FieldLabel>
+                <FieldLabel required hint="Start typing to search. Choosing a result fills in city, state, and ZIP below.">Street address</FieldLabel>
                 <ListingAddressAutocomplete
                   value={sub.address}
                   className={wizardFieldErrorClass(Boolean(stepFieldErrors.address), listingTextInputCls)}
@@ -3529,20 +3530,53 @@ export function ManagerAddListingForm({
                   onSelect={(suggestion) => {
                     clearListingFieldError("address");
                     clearListingFieldError("zip");
-                    clearListingFieldError("neighborhood");
+                    clearListingFieldError("city");
+                    clearListingFieldError("state");
                     setSub((s) => ({
                       ...s,
                       address: sanitizeStreetAddressInput(suggestion.address || suggestion.label),
                       zip: suggestion.zip ? sanitizeZipInput(suggestion.zip) : s.zip,
-                      neighborhood: suggestion.neighborhood
-                        ? sanitizeNeighborhoodInput(suggestion.neighborhood)
-                        : s.neighborhood,
+                      city: suggestion.city ? sanitizeCityInput(suggestion.city) : s.city,
+                      state: suggestion.state ? sanitizeStateInput(suggestion.state) : s.state,
                     }));
                   }}
                 />
                 <StepFieldError msg={stepFieldErrors.address} />
               </div>
 
+              <GridField>
+                <FieldLabel required hint="Fills in from the address. Edit if it is off.">City</FieldLabel>
+                <div data-wizard-field="city">
+                  <Input
+                    value={sub.city}
+                    onChange={(e) => {
+                      clearListingFieldError("city");
+                      setSub((s) => ({ ...s, city: sanitizeCityInput(e.target.value) }));
+                    }}
+                    className={wizardFieldErrorClass(Boolean(stepFieldErrors.city), listingTextInputCls)}
+                    placeholder="Autofilled"
+                    autoComplete="address-level2"
+                  />
+                  <StepFieldError msg={stepFieldErrors.city} />
+                </div>
+              </GridField>
+              <GridField>
+                <FieldLabel required hint="2-letter code, e.g. WA or CA.">State</FieldLabel>
+                <div data-wizard-field="state">
+                  <Input
+                    value={sub.state}
+                    onChange={(e) => {
+                      clearListingFieldError("state");
+                      setSub((s) => ({ ...s, state: sanitizeStateInput(e.target.value) }));
+                    }}
+                    className={wizardFieldErrorClass(Boolean(stepFieldErrors.state), listingTextInputCls)}
+                    placeholder="WA"
+                    maxLength={2}
+                    autoComplete="address-level1"
+                  />
+                  <StepFieldError msg={stepFieldErrors.state} />
+                </div>
+              </GridField>
               <GridField>
                 <FieldLabel required hint="Fills in from the address. Edit if it is off.">ZIP</FieldLabel>
                 <div data-wizard-field="zip">
@@ -3556,23 +3590,9 @@ export function ManagerAddListingForm({
                     maxLength={10}
                     inputMode="numeric"
                     placeholder="Autofilled"
+                    autoComplete="postal-code"
                   />
                   <StepFieldError msg={stepFieldErrors.zip} />
-                </div>
-              </GridField>
-              <GridField>
-                <FieldLabel optional hint="Fills in from the address. Edit if it is off.">Neighborhood</FieldLabel>
-                <div data-wizard-field="neighborhood">
-                  <Input
-                    value={sub.neighborhood}
-                    onChange={(e) => {
-                      clearListingFieldError("neighborhood");
-                      setSub((s) => ({ ...s, neighborhood: sanitizeNeighborhoodInput(e.target.value) }));
-                    }}
-                    className={wizardFieldErrorClass(Boolean(stepFieldErrors.neighborhood), listingTextInputCls)}
-                    placeholder="Autofilled"
-                  />
-                  <StepFieldError msg={stepFieldErrors.neighborhood} />
                 </div>
               </GridField>
               </div>

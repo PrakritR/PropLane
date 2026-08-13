@@ -1,4 +1,5 @@
 import { isValidZipInput } from "@/lib/listing-form-inputs";
+import { validateStateAbbrev } from "@/app/(public)/rent/apply/apply-validation";
 import {
   deriveListingLtFeeToggles,
   validateListingLtFeeToggles,
@@ -66,6 +67,9 @@ export function validateListingWizardStep(
 
   if (stepIndex === 0) {
     if (!sub.address.trim()) errs.address = "Street address is required.";
+    if (!sub.city.trim()) errs.city = "City is required.";
+    const stateCheck = validateStateAbbrev(sub.state);
+    if (!stateCheck.ok) errs.state = stateCheck.message;
     if (!sub.zip.trim()) errs.zip = "ZIP is required.";
     else if (!isValidZipInput(sub.zip)) errs.zip = "Enter a valid 5-digit ZIP or ZIP+4.";
     if (!isEditMode) {

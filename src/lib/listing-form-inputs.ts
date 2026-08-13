@@ -65,6 +65,16 @@ export function sanitizeStreetAddressInput(value: string): string {
   return value.replace(/[^\w\s#\-.,/'()]/gi, "");
 }
 
+/** City names — letters and separators only (no digits). */
+export function sanitizeCityInput(value: string): string {
+  return value.replace(/[^a-zA-Z\s\-'.]/g, "");
+}
+
+/** US state / territory postal abbreviation. */
+export function sanitizeStateInput(value: string): string {
+  return value.replace(/[^a-zA-Z]/g, "").toUpperCase().slice(0, 2);
+}
+
 /** Neighborhood names — letters and separators only (no digits). */
 export function sanitizeNeighborhoodInput(value: string): string {
   return value.replace(/[^a-zA-Z\s\-'.]/g, "");

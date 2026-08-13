@@ -254,6 +254,11 @@ export type ManagerListingSubmissionV1 = {
   buildingName: string;
   address: string;
   zip: string;
+  /** City for the listing address (replaces neighborhood in the wizard). */
+  city: string;
+  /** US state or territory postal abbreviation (e.g. WA). */
+  state: string;
+  /** Legacy browse/search label; new listings derive this from city when saved. */
   neighborhood: string;
   /** Free text: stories, floor count, unit type (e.g. “3-story townhouse”). Show in sidebar when set. */
   homeStructureNote: string;
@@ -1454,6 +1459,11 @@ export function normalizeManagerListingSubmissionV1(sub: ManagerListingSubmissio
 
   const next = {
     ...sub,
+    city: typeof sub.city === "string" ? sub.city.trim() : "",
+    state:
+      typeof sub.state === "string"
+        ? sub.state.trim().toUpperCase().slice(0, 2)
+        : "",
     listingPropertyTypeId: typeof sub.listingPropertyTypeId === "string" ? sub.listingPropertyTypeId : "",
     // Migration-first (dormant): record the current rental model as durable data. Nothing
     // reads this yet — listingPlaceCategoryId (kept as the rollback source) still drives
@@ -1999,12 +2009,34 @@ export function createNewListingWizardSubmission(): ManagerListingSubmissionV1 {
   });
 }
 
+/** Browse/search location label derived from structured city/state, with neighborhood fallback. */
+export function listingSubmissionLocationLabel(
+  sub: Pick<ManagerListingSubmissionV1, "city" | "state" | "neighborhood">,
+): string {
+  const city = sub.city?.trim() ?? "";
+  if (city) return city;
+  return sub.neighborhood?.trim() ?? "";
+}
+
+/** City and state line for leases, geocoding, and display. */
+export function listingSubmissionCityStateLine(
+  sub: Pick<ManagerListingSubmissionV1, "city" | "state" | "neighborhood">,
+): string {
+  const city = sub.city?.trim() ?? "";
+  const state = sub.state?.trim().toUpperCase() ?? "";
+  if (city && state) return `${city}, ${state}`;
+  if (city) return city;
+  return sub.neighborhood?.trim() ?? "";
+}
+
 export function createDefaultListingSubmission(): ManagerListingSubmissionV1 {
   return {
     v: 1,
     buildingName: "",
     address: "",
     zip: "",
+    city: "",
+    state: "",
     neighborhood: "",
     homeStructureNote: "",
     listingPropertyTypeId: "",
@@ -2097,6 +2129,9 @@ export function legacyAdminFieldsToSubmission(row: {
   sub.address = row.address;
   sub.zip = row.zip;
   sub.neighborhood = row.neighborhood;
+  if (!sub.city.trim() && row.neighborhood.trim()) {
+    sub.city = row.neighborhood.trim();
+  }
   sub.tagline = row.tagline;
   sub.petFriendly = row.petFriendly;
   sub.rooms = [{ ...emptyRoom(0), name: row.unitLabel, monthlyRent: row.monthlyRent }];

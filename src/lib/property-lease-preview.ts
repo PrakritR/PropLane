@@ -32,29 +32,54 @@ function escapeHtml(s: string): string {
 }
 
 /** Avoid "Seattle, WA, Seattle, WA 98101" when the street line already includes city/state. */
+/** Avoid duplicating city/state when the street line already includes them. */
 export function formatLeaseAddressForDisplay(
-  sub: Pick<ManagerListingSubmissionV1, "address" | "neighborhood" | "zip">,
+  sub: Pick<ManagerListingSubmissionV1, "address" | "neighborhood" | "zip" | "city" | "state">,
 ): { street: string; cityStateZip: string; full: string } {
   const raw = sub.address.trim();
   const zip = sub.zip.trim();
   const neighborhood = sub.neighborhood.trim();
-  const defaultCityStateZip = zip ? `Seattle, WA ${zip}` : "Seattle, WA";
-  const hasCityState = /\b(seattle|washington|,\s*wa\b)/i.test(raw);
+  const city = sub.city?.trim() ?? "";
+  const state = sub.state?.trim().toUpperCase() ?? "";
+  const structuredCityState = city && state ? `${city}, ${state}` : city;
+  const defaultCityState = structuredCityState || "Seattle, WA";
+  const defaultCityStateZip = zip ? `${defaultCityState} ${zip}` : defaultCityState;
+  const hasCityState = structuredCityState
+    ? new RegExp(structuredCityState.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i").test(raw)
+    : /\b(seattle|washington|,\s*wa\b)/i.test(raw);
 
   let street = raw;
   if (hasCityState) {
-    street =
-      raw
-        .replace(/,?\s*seattle,?\s*wa\.?\s*\d{0,5}/i, "")
-        .replace(/,?\s*washington/i, "")
-        .replace(/\s*,\s*$/, "")
-        .trim() || raw;
+    if (structuredCityState) {
+      street =
+        raw
+          .replace(
+            new RegExp(`,?\\s*${structuredCityState.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\.?\\s*\\d{0,5}`, "i"),
+            "",
+          )
+          .replace(/\s*,\s*$/, "")
+          .trim() || raw;
+    } else {
+      street =
+        raw
+          .replace(/,?\s*seattle,?\s*wa\.?\s*\d{0,5}/i, "")
+          .replace(/,?\s*washington/i, "")
+          .replace(/\s*,\s*$/, "")
+          .trim() || raw;
+    }
   }
 
   let cityStateZip = defaultCityStateZip;
   if (hasCityState) {
-    const inline = raw.match(/seattle,?\s*wa\.?\s*\d{5}/i)?.[0];
-    cityStateZip = inline ?? (zip && !raw.includes(zip) ? `Seattle, WA ${zip}` : defaultCityStateZip);
+    if (structuredCityState) {
+      const inline = raw.match(
+        new RegExp(`${structuredCityState.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\.?\\s*\\d{5}`, "i"),
+      )?.[0];
+      cityStateZip = inline ?? (zip && !raw.includes(zip) ? `${structuredCityState} ${zip}` : defaultCityStateZip);
+    } else {
+      const inline = raw.match(/seattle,?\s*wa\.?\s*\d{5}/i)?.[0];
+      cityStateZip = inline ?? (zip && !raw.includes(zip) ? `Seattle, WA ${zip}` : defaultCityStateZip);
+    }
   } else if (neighborhood) {
     cityStateZip = zip ? `${neighborhood}, Seattle, WA ${zip}` : `${neighborhood}, Seattle, WA`;
   }

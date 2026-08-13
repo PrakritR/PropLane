@@ -141,7 +141,7 @@ export function ListingAddressAutocomplete({
                 >
                   <span className="font-medium">{suggestion.address || suggestion.label}</span>
                   <span className="mt-0.5 block text-[11px] text-muted">
-                    {[suggestion.neighborhood, suggestion.city, suggestion.zip].filter(Boolean).join(" · ")}
+                    {[suggestion.city, suggestion.state, suggestion.zip].filter(Boolean).join(" · ")}
                   </span>
                 </button>
               </li>
