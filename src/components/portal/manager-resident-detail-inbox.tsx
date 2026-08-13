@@ -13,7 +13,10 @@ import {
   type InboxBubbleMessage,
 } from "@/components/portal/portal-inbox-ui";
 import { PortalSectionActionRow } from "@/components/portal/portal-section-action-row";
-import { PORTAL_HEADER_PRIMARY_ACTION_BTN } from "@/components/portal/portal-metrics";
+import {
+  InboxThreadAssistantStrip,
+  buildInboxThreadAssistantContext,
+} from "@/components/portal/inbox-thread-assistant-strip";
 import { useAppUi } from "@/components/providers/app-ui-provider";
 import {
   MANAGER_INBOX_STORAGE_KEY,
@@ -76,6 +79,7 @@ export function ResidentDirectChatPane({
   smsResident,
   smsUiEnabled,
   onSent,
+  onNewMessage,
   onScheduleMessage,
 }: {
   residentEmail: string;
@@ -83,6 +87,7 @@ export function ResidentDirectChatPane({
   smsResident?: ManagerSmsResidentConversation | null;
   smsUiEnabled: boolean;
   onSent: () => void;
+  onNewMessage?: () => void;
   onScheduleMessage?: () => void;
 }) {
   const { showToast } = useAppUi();
@@ -97,6 +102,7 @@ export function ResidentDirectChatPane({
   });
 
   const email = residentEmail.trim();
+  const displayName = residentName?.trim() || email || "Resident";
   const smsAvailable = smsUiEnabled && Boolean(smsResident?.phone?.trim());
   const emailAvailable = Boolean(email);
   const [replyViaEmail, setReplyViaEmail] = useState(!smsAvailable && emailAvailable);
@@ -339,19 +345,45 @@ export function ResidentDirectChatPane({
               {scheduledCards}
             </div>
           ) : null}
-          {onScheduleMessage ? (
-            <div className="shrink-0 border-t border-border bg-card/90 px-2 py-2 md:px-3">
-              <Button
-                type="button"
-                variant="outline"
-                className="h-8 min-h-0 w-full rounded-full px-3 text-[12px]"
-                data-attr="resident-detail-schedule-another"
-                onClick={onScheduleMessage}
-              >
-                Schedule a message
-              </Button>
+          {onNewMessage || onScheduleMessage ? (
+            <div
+              className="shrink-0 border-t border-border bg-card/90 px-2 py-2 md:px-3"
+              data-attr="resident-detail-compose-actions"
+            >
+              <div className="flex flex-wrap gap-2">
+                {onNewMessage ? (
+                  <Button
+                    type="button"
+                    variant="primary"
+                    className="h-8 min-h-0 flex-1 rounded-full px-3 text-[12px]"
+                    data-attr="resident-detail-new-message"
+                    onClick={onNewMessage}
+                  >
+                    New message
+                  </Button>
+                ) : null}
+                {onScheduleMessage ? (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="h-8 min-h-0 flex-1 rounded-full px-3 text-[12px]"
+                    data-attr="resident-detail-schedule-message"
+                    onClick={onScheduleMessage}
+                  >
+                    Schedule message
+                  </Button>
+                ) : null}
+              </div>
             </div>
           ) : null}
+          <InboxThreadAssistantStrip
+            contextHint={buildInboxThreadAssistantContext({
+              subject: "Resident conversation",
+              from: displayName,
+              email,
+            })}
+            storageScopeKey={`resident-detail-${email.trim().toLowerCase()}`}
+          />
           <InboxComposer
             value={draft}
             onChange={setDraft}
@@ -468,25 +500,13 @@ export function ManagerResidentDetailInbox({
         smsResident={smsResidentForEmail}
         smsUiEnabled={smsUiEnabled}
         onSent={refreshConversations}
+        onNewMessage={onNewMessage}
         onScheduleMessage={onScheduleMessage}
       />
     );
 
   return (
     <div className="portal-resident-detail-inbox portal-communication-inbox flex min-h-0 flex-1 flex-col">
-      {onNewMessage ? (
-        <PortalSectionActionRow className="mb-2 shrink-0 justify-end">
-          <Button
-            type="button"
-            variant="primary"
-            className={`shrink-0 ${PORTAL_HEADER_PRIMARY_ACTION_BTN}`}
-            data-attr="resident-detail-new-message"
-            onClick={onNewMessage}
-          >
-            New message
-          </Button>
-        </PortalSectionActionRow>
-      ) : null}
       {archivedCount > 0 ? (
         <PortalSectionActionRow className="mb-2 shrink-0">
           <button
@@ -525,6 +545,7 @@ export function ManagerResidentDetailInbox({
             commBase={commBase}
             smsUiEnabled={smsUiEnabled}
             smsRecipients={smsResidents}
+            onNewMessage={onNewMessage}
             onScheduleMessage={onScheduleMessage}
           />
         }
