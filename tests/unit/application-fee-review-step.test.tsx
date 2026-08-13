@@ -62,9 +62,15 @@ afterEach(cleanup);
 const WAIVER_SENTENCE =
   "No application fee is required. Your first application fee already covers additional applications.";
 
+// Review is step 10 and the application-fee step is step 11 (see the
+// `step === 10` / `step === 11` branches in rental-wizard-steps.tsx). These were
+// 11/12 here, one past their real positions, so "Review" rendered the fee step
+// and "the fee step" rendered nothing at all. The waived cases failed loudly;
+// the fee-is-due case passed by accident, because the fee step also prints an
+// "Application fee" label when one is owed.
 describe("application fee: Review and the fee step agree (F8)", () => {
   it("Review shows $0.00 and states the waiver, instead of the bare published $50.00", () => {
-    render(<RentalWizardStepBody {...props({ step: 11 })} />);
+    render(<RentalWizardStepBody {...props({ step: 10 })} />);
     const row = screen.getByText("Application fee").closest("div")!.parentElement!;
     expect(row.textContent).toContain("$0.00");
     expect(row.textContent).toContain(WAIVER_SENTENCE);
@@ -73,7 +79,7 @@ describe("application fee: Review and the fee step agree (F8)", () => {
   });
 
   it("the fee step one screen later says the SAME thing", () => {
-    render(<RentalWizardStepBody {...props({ step: 12 })} />);
+    render(<RentalWizardStepBody {...props({ step: 11 })} />);
     expect(screen.getByText(WAIVER_SENTENCE)).toBeTruthy();
   });
 
@@ -81,7 +87,7 @@ describe("application fee: Review and the fee step agree (F8)", () => {
     render(
       <RentalWizardStepBody
         {...props({
-          step: 11,
+          step: 10,
           applicationFeeGate: { needsFee: true, paid: false, displayLabel: "$50.00", amount: 50, waived: false },
         })}
       />,

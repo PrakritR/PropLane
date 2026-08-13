@@ -473,6 +473,11 @@ describe("submitting the wizard", () => {
       ...base,
       buildingName: "Ravenna Craftsman",
       address: "5200 Ravenna Ave NE",
+      // City/state became required on step 0; without them the wizard refuses to
+      // submit with "Please fix the highlighted fields" and never reaches the
+      // upload path these two tests are about.
+      city: "Seattle",
+      state: "WA",
       zip: "98105",
       listingPropertyTypeId: "house",
       listingStoriesId: "two",
