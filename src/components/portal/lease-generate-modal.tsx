@@ -11,17 +11,26 @@ import {
   MODAL_WARNING_BOX_CLASS,
   PORTAL_MODAL_FORM_FIELD_CLASS,
 } from "@/components/ui/modal";
+import { LeaseHtmlDirectEditor } from "@/components/portal/lease-html-direct-editor";
+import {
+  PropertyLeaseDocumentNotice,
+  propertyLeaseNeedsAssistantReview,
+} from "@/components/portal/property-lease-document-notice";
 import { buildAiGeneratedLeaseHtml } from "@/lib/generated-lease";
+import { buildLeasePacketEditAssistantContext } from "@/lib/lease-assistant-context";
+import { saveLeaseDocumentHtml } from "@/lib/lease-section-edit.client";
 import {
   generateLeaseHtmlForRow,
-  leaseAllowsManagerGeneratedBodyEdits,
+  getLeaseDocumentHtml,
   leaseGenerationPreviewContextForRow,
   leaseApplicationSnapshotForRow,
+  readLeasePipeline,
   resolveManagerLeaseGenerationRow,
   type LeasePipelineRow,
 } from "@/lib/lease-pipeline-storage";
 import { normalizeManagerListingSubmissionV1 } from "@/lib/manager-listing-submission";
 import { listLeaseTemplateGenerateChoices } from "@/lib/property-lease-template-sync";
+import { stripDisclosureReviewFromLeaseHtml } from "@/lib/property-lease-document-display";
 import { LEASE_AI_REVIEW_DISCLAIMER } from "@/lib/lease-templates/types";
 import { getPropertyById } from "@/lib/rental-application/data";
 
@@ -40,10 +49,14 @@ export function LeaseGenerateModal({
   busy?: boolean;
   replacesManagerEdits?: boolean;
   onClose: () => void;
-  /** Called after a successful generate — open the lease editor. */
+  /** Called after the draft is saved as this resident's lease. */
   onGenerated: (rowId: string) => void;
 }) {
   const { showToast } = useAppUi();
+  const [htmlOverride, setHtmlOverride] = useState("");
+  const [saveReviewOpen, setSaveReviewOpen] = useState(false);
+  const [generating, setGenerating] = useState(false);
+
   const submission = useMemo(() => {
     if (!row?.propertyId) return null;
     const prop = getPropertyById(row.propertyId);
@@ -76,6 +89,7 @@ export function LeaseGenerateModal({
   useEffect(() => {
     if (!open) return;
     setSelectedChoiceId(defaultChoiceId);
+    setSaveReviewOpen(false);
   }, [open, defaultChoiceId, row?.id]);
 
   const selectedTemplateId = useMemo(
@@ -83,7 +97,7 @@ export function LeaseGenerateModal({
     [choices, selectedChoiceId],
   );
 
-  const preview = useMemo(() => {
+  const draft = useMemo(() => {
     if (!actionRow || !open) return null;
     const ctx = leaseGenerationPreviewContextForRow(actionRow, managerUserId, selectedTemplateId);
     if (!ctx) return { error: "No application data on file." };
@@ -92,36 +106,72 @@ export function LeaseGenerateModal({
     return { html: outcome.html };
   }, [actionRow, open, managerUserId, selectedTemplateId]);
 
-  const confirm = (opts?: { openEditor?: boolean }) => {
-    if (!actionRow || busy) return;
-    if (choices.length > 0 && !selectedTemplateId) return;
+  const baselineHtml = useMemo(() => {
+    if (!draft?.html) return "";
+    return stripDisclosureReviewFromLeaseHtml(draft.html);
+  }, [draft?.html]);
 
-    const openEditor = opts?.openEditor === true;
-    if (
-      openEditor &&
-      actionRow.generatedHtml &&
-      leaseAllowsManagerGeneratedBodyEdits(actionRow) &&
-      !replacesManagerEdits
-    ) {
-      onGenerated(actionRow.id);
+  useEffect(() => {
+    if (!open) return;
+    setHtmlOverride(baselineHtml);
+    setSaveReviewOpen(false);
+  }, [open, row?.id, selectedChoiceId, baselineHtml]);
+
+  const editorHtml = htmlOverride.trim() || baselineHtml;
+  const displayHtml = useMemo(() => stripDisclosureReviewFromLeaseHtml(editorHtml), [editorHtml]);
+
+  const assistantContext = useMemo(
+    () => (actionRow ? buildLeasePacketEditAssistantContext(actionRow) : ""),
+    [actionRow],
+  );
+
+  const commitGenerate = () => {
+    if (!actionRow || busy || generating) return;
+    if (choices.length > 0 && !selectedTemplateId) return;
+    if (!editorHtml.trim()) {
+      showToast("No lease content to save.");
       return;
     }
+    if (draft?.error) return;
 
+    setGenerating(true);
     const res = generateLeaseHtmlForRow(actionRow.id, managerUserId, {
       discardManagerEdits: replacesManagerEdits,
       templateId: selectedTemplateId,
     });
-    if (res.ok) {
-      if (!openEditor) {
-        showToast(`Lease generated (v${res.version}).`);
-      }
-      onGenerated(actionRow.id);
-    } else {
+    if (!res.ok) {
+      setGenerating(false);
       showToast(res.error ?? "Could not generate lease.");
+      return;
     }
+
+    const rowAfter = readLeasePipeline(managerUserId).find((candidate) => candidate.id === actionRow.id);
+    const generatedHtml = rowAfter ? getLeaseDocumentHtml(rowAfter)?.trim() ?? "" : "";
+    if (editorHtml.trim() !== generatedHtml) {
+      const saveRes = saveLeaseDocumentHtml(actionRow.id, editorHtml, managerUserId);
+      setGenerating(false);
+      if (!saveRes.ok) {
+        showToast(saveRes.error);
+        return;
+      }
+    } else {
+      setGenerating(false);
+    }
+
+    showToast(`Lease generated (v${res.version}).`);
+    onGenerated(actionRow.id);
   };
 
-  const canEditPreview = Boolean(preview?.html && !preview.error);
+  const confirm = () => {
+    if (propertyLeaseNeedsAssistantReview(editorHtml)) {
+      setSaveReviewOpen(true);
+      return;
+    }
+    commitGenerate();
+  };
+
+  const canGenerate = Boolean(editorHtml.trim() && !draft?.error && !(choices.length > 0 && !selectedTemplateId));
+  const working = busy || generating;
 
   if (!row || !actionRow) return null;
 
@@ -129,31 +179,29 @@ export function LeaseGenerateModal({
     <Modal
       open={open}
       title={replacesManagerEdits ? "Regenerate lease" : "Generate lease"}
+      description="Review and edit the draft below, then generate to save it as this resident's lease."
       onClose={onClose}
-      dismissBlocked={busy}
+      dismissBlocked={working}
       fullPage={false}
       panelClassName="max-w-5xl"
+      assistantContext={assistantContext}
+      assistantEditHint="Type in chat to edit the lease — changes apply after you confirm."
+      assistantStorageScopeKey={`Lease generate · ${actionRow.id}`}
       footer={
         <ModalFooter>
           <Button
             type="button"
-            variant="outline"
-            className="rounded-full"
-            data-attr="lease-generate-edit"
-            disabled={busy || !canEditPreview || (choices.length > 0 && !selectedTemplateId)}
-            onClick={() => confirm({ openEditor: true })}
-          >
-            Edit lease
-          </Button>
-          <Button
-            type="button"
             variant="primary"
-            className="rounded-full"
+            className="ml-auto rounded-full"
             data-attr="lease-generate-confirm"
-            disabled={busy || Boolean(preview?.error) || (choices.length > 0 && !selectedTemplateId)}
-            onClick={() => confirm()}
+            disabled={working || !canGenerate}
+            onClick={confirm}
           >
-            {busy ? "Generating…" : replacesManagerEdits ? "Regenerate lease" : "Generate lease"}
+            {working
+              ? "Generating…"
+              : replacesManagerEdits
+                ? "Regenerate lease"
+                : "Generate lease"}
           </Button>
         </ModalFooter>
       }
@@ -183,7 +231,7 @@ export function LeaseGenerateModal({
               id="lease-generate-type"
               value={selectedChoiceId ?? ""}
               onChange={(e) => setSelectedChoiceId(e.target.value || null)}
-              disabled={busy}
+              disabled={working}
               data-attr="lease-generate-type-select"
             >
               {choices.map((choice) => (
@@ -201,37 +249,47 @@ export function LeaseGenerateModal({
           ) : null}
         </div>
 
-        <div className="space-y-2">
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <p className={MODAL_FIELD_LABEL_CLASS}>Preview</p>
-            {canEditPreview ? (
-              <Button
-                type="button"
-                variant="outline"
-                className="h-9 min-h-0 rounded-full px-4 text-xs"
-                data-attr="lease-generate-edit-preview"
-                disabled={busy || (choices.length > 0 && !selectedTemplateId)}
-                onClick={() => confirm({ openEditor: true })}
-              >
-                Edit lease
-              </Button>
+        {draft?.error ? (
+          <p className="rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-800">
+            {draft.error}
+          </p>
+        ) : editorHtml ? (
+          <div className="flex min-h-[min(420px,55vh)] flex-col gap-3">
+            <PropertyLeaseDocumentNotice html={editorHtml} />
+            {saveReviewOpen ? (
+              <div className="rounded-xl border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-950">
+                <p className="font-semibold">Review before generating</p>
+                <p className="mt-1">
+                  This draft still has items to fix. Ask PropLane Assistant in the panel below, then generate when
+                  it looks right — or{" "}
+                  <button
+                    type="button"
+                    className="font-semibold underline"
+                    onClick={() => {
+                      setSaveReviewOpen(false);
+                      commitGenerate();
+                    }}
+                  >
+                    generate anyway
+                  </button>
+                  .
+                </p>
+              </div>
             ) : null}
+            <div className="flex min-h-0 flex-1 flex-col">
+              <p className={MODAL_FIELD_LABEL_CLASS}>Lease format</p>
+              <LeaseHtmlDirectEditor
+                className="min-h-[min(380px,50vh)] flex-1"
+                html={displayHtml}
+                baselineHtml={baselineHtml}
+                onChange={(next) => setHtmlOverride(next)}
+                showPersistBar={false}
+              />
+            </div>
           </div>
-          {preview?.error ? (
-            <p className="rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-800">
-              {preview.error}
-            </p>
-          ) : preview?.html ? (
-            <iframe
-              title="Lease preview"
-              className="h-[min(50vh,28rem)] w-full rounded-xl border border-border bg-white"
-              srcDoc={preview.html}
-              sandbox=""
-            />
-          ) : (
-            <p className="text-sm text-muted">Choose a lease type to preview the draft.</p>
-          )}
-        </div>
+        ) : (
+          <p className="text-sm text-muted">Choose a lease type to load the draft.</p>
+        )}
       </div>
     </Modal>
   );

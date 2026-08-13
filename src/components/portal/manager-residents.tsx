@@ -2901,10 +2901,9 @@ export function ManagerResidents({
           generateLeaseRow?.generatedHtml || generateLeaseRow?.managerUploadedPdf?.dataUrl,
         )}
         onClose={() => setRegenerateConfirmLeaseId(null)}
-        onGenerated={(rowId) => {
+        onGenerated={() => {
           setLeaseTick((n) => n + 1);
           setRegenerateConfirmLeaseId(null);
-          setEditResidentLeaseId(rowId);
         }}
       />
       {signingLease ? (

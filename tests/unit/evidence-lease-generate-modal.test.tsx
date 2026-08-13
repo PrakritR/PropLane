@@ -21,6 +21,11 @@ vi.mock("@/lib/lease-pipeline-storage", () => ({
   leaseApplicationSnapshotForRow: () => ({ leaseTerm: "12-Month", rentalType: "long-term" }),
   leaseGenerationPreviewContextForRow: () => ({ ok: true }),
   generateLeaseHtmlForRow: () => ({ ok: true, version: 1 }),
+  readLeasePipeline: () => [ROW],
+  getLeaseDocumentHtml: () => "<h1>Residential lease</h1><p>Between Test Manager and Priya Raman for 5259 Brooklyn Ave NE.</p>",
+}));
+vi.mock("@/lib/lease-section-edit.client", () => ({
+  saveLeaseDocumentHtml: () => ({ ok: true, row: ROW }),
 }));
 vi.mock("@/lib/generated-lease", () => ({
   buildAiGeneratedLeaseHtml: () => ({
