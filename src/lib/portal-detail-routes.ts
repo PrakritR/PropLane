@@ -76,10 +76,10 @@ export const RESIDENT_DETAIL_TAB_LABELS: Record<ResidentDetailTabId, string> = {
 
 /** Compact labels for resident detail tabs on phone-width layouts. */
 export const RESIDENT_DETAIL_TAB_SHORT_LABELS: Record<ResidentDetailTabId, string> = {
-  application: "Application",
+  application: "Apply",
   lease: "Lease",
-  payments: "Payments",
-  services: "Services",
+  payments: "Pay",
+  services: "Svc",
   communication: "Comms",
 };
 

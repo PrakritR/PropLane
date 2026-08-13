@@ -8,12 +8,11 @@ import {
   Modal,
   ModalFooter,
   MODAL_FIELD_LABEL_CLASS,
-  MODAL_WARNING_BOX_CLASS,
   PORTAL_MODAL_FORM_FIELD_CLASS,
 } from "@/components/ui/modal";
+import { MODAL_XL_PANEL_CLASS } from "@/components/ui/modal-styles";
 import { LeaseHtmlDirectEditor } from "@/components/portal/lease-html-direct-editor";
 import {
-  PropertyLeaseDocumentNotice,
   propertyLeaseNeedsAssistantReview,
 } from "@/components/portal/property-lease-document-notice";
 import { buildAiGeneratedLeaseHtml } from "@/lib/generated-lease";
@@ -31,8 +30,8 @@ import {
 import { normalizeManagerListingSubmissionV1 } from "@/lib/manager-listing-submission";
 import { listLeaseTemplateGenerateChoices } from "@/lib/property-lease-template-sync";
 import { stripDisclosureReviewFromLeaseHtml } from "@/lib/property-lease-document-display";
-import { LEASE_AI_REVIEW_DISCLAIMER } from "@/lib/lease-templates/types";
 import { getPropertyById } from "@/lib/rental-application/data";
+import { cn } from "@/lib/utils";
 
 export function LeaseGenerateModal({
   open,
@@ -179,11 +178,10 @@ export function LeaseGenerateModal({
     <Modal
       open={open}
       title={replacesManagerEdits ? "Regenerate lease" : "Generate lease"}
-      description="Review and edit the draft below, then generate to save it as this resident's lease."
       onClose={onClose}
       dismissBlocked={working}
-      fullPage={false}
-      panelClassName="max-w-5xl"
+      scrollableContent={false}
+      panelClassName={MODAL_XL_PANEL_CLASS}
       assistantContext={assistantContext}
       assistantEditHint="Type in chat to edit the lease — changes apply after you confirm."
       assistantStorageScopeKey={`Lease generate · ${actionRow.id}`}
@@ -199,25 +197,13 @@ export function LeaseGenerateModal({
           >
             {working
               ? "Generating…"
-              : replacesManagerEdits
-                ? "Regenerate lease"
-                : "Generate lease"}
+              : "Generate lease"}
           </Button>
         </ModalFooter>
       }
     >
-      <div className="space-y-4">
-        <p className={MODAL_WARNING_BOX_CLASS}>
-          <strong>AI-generated draft.</strong> {LEASE_AI_REVIEW_DISCLAIMER}
-        </p>
-        {replacesManagerEdits ? (
-          <p className={MODAL_WARNING_BOX_CLASS}>
-            <strong>Manager edits will be replaced.</strong> Regeneration rebuilds this lease from the current
-            application and listing terms. Your saved body edits will not be kept.
-          </p>
-        ) : null}
-
-        <div className={PORTAL_MODAL_FORM_FIELD_CLASS}>
+      <div className="flex min-h-0 flex-1 flex-col gap-4">
+        <div className={cn(PORTAL_MODAL_FORM_FIELD_CLASS, "shrink-0")}>
           <label className={MODAL_FIELD_LABEL_CLASS} htmlFor="lease-generate-type">
             Lease type
           </label>
@@ -254,10 +240,9 @@ export function LeaseGenerateModal({
             {draft.error}
           </p>
         ) : editorHtml ? (
-          <div className="flex min-h-[min(420px,55vh)] flex-col gap-3">
-            <PropertyLeaseDocumentNotice html={editorHtml} />
+          <div className="flex min-h-0 flex-1 flex-col gap-3">
             {saveReviewOpen ? (
-              <div className="rounded-xl border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-950">
+              <div className="shrink-0 rounded-xl border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-950">
                 <p className="font-semibold">Review before generating</p>
                 <p className="mt-1">
                   This draft still has items to fix. Ask PropLane Assistant in the panel below, then generate when
@@ -277,9 +262,9 @@ export function LeaseGenerateModal({
               </div>
             ) : null}
             <div className="flex min-h-0 flex-1 flex-col">
-              <p className={MODAL_FIELD_LABEL_CLASS}>Lease format</p>
+              <p className={cn(MODAL_FIELD_LABEL_CLASS, "shrink-0")}>Lease format</p>
               <LeaseHtmlDirectEditor
-                className="min-h-[min(380px,50vh)] flex-1"
+                className="min-h-0 flex-1"
                 html={displayHtml}
                 baselineHtml={baselineHtml}
                 onChange={(next) => setHtmlOverride(next)}

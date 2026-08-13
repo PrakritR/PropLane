@@ -10,6 +10,7 @@ import {
   MODAL_FIELD_LABEL_CLASS,
   PORTAL_MODAL_FORM_FIELD_CLASS,
 } from "@/components/ui/modal";
+import { MODAL_LARGE_PANEL_CLASS } from "@/components/ui/modal-styles";
 import { LeaseHtmlDirectEditor } from "@/components/portal/lease-html-direct-editor";
 import {
   PropertyLeaseDocumentNotice,
@@ -27,6 +28,7 @@ import {
 } from "@/lib/lease-pipeline-storage";
 import { stripDisclosureReviewFromLeaseHtml } from "@/lib/property-lease-document-display";
 import { useManagerUserId } from "@/hooks/use-manager-user-id";
+import { cn } from "@/lib/utils";
 
 /** Resident / pipeline lease editor — same shell as the property Lease tab editor, but edits one lease packet. */
 export function ManagerPipelineLeaseEditModal({
@@ -117,7 +119,8 @@ export function ManagerPipelineLeaseEditModal({
       description="Update this resident's lease format below, or type in chat to edit with PropLane Assistant."
       onClose={handleClose}
       dismissBlocked={saving}
-      panelClassName="max-w-4xl"
+      scrollableContent={false}
+      panelClassName={MODAL_LARGE_PANEL_CLASS}
       assistantContext={assistantContext}
       assistantEditHint="Type in chat to edit the lease — changes apply after you confirm."
       assistantStorageScopeKey={`Lease packet edit · ${row.id}`}
@@ -138,8 +141,8 @@ export function ManagerPipelineLeaseEditModal({
         ) : null
       }
     >
-      <div className="space-y-4">
-        <div className={PORTAL_MODAL_FORM_FIELD_CLASS}>
+      <div className="flex min-h-0 flex-1 flex-col gap-4">
+        <div className={cn(PORTAL_MODAL_FORM_FIELD_CLASS, "shrink-0")}>
           <label className={MODAL_FIELD_LABEL_CLASS} htmlFor="resident-lease-document-name">
             Lease document name
           </label>
@@ -162,10 +165,10 @@ export function ManagerPipelineLeaseEditModal({
             manager&apos;s original document and cannot be edited here.
           </div>
         ) : (
-          <div className="flex min-h-[min(420px,55vh)] flex-col gap-3">
+          <div className="flex min-h-0 flex-1 flex-col gap-3">
             <PropertyLeaseDocumentNotice html={noticeHtml} />
             {saveReviewOpen ? (
-              <div className="rounded-xl border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-950">
+              <div className="shrink-0 rounded-xl border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-950">
                 <p className="font-semibold">Review before saving</p>
                 <p className="mt-1">
                   This lease still has items to fix. Ask PropLane Assistant in the panel below, then save when it
@@ -185,9 +188,9 @@ export function ManagerPipelineLeaseEditModal({
               </div>
             ) : null}
             <div className="flex min-h-0 flex-1 flex-col">
-              <p className={MODAL_FIELD_LABEL_CLASS}>Lease format</p>
+              <p className={cn(MODAL_FIELD_LABEL_CLASS, "shrink-0")}>Lease format</p>
               <LeaseHtmlDirectEditor
-                className="min-h-[min(380px,50vh)] flex-1"
+                className="min-h-0 flex-1"
                 html={displayHtml}
                 baselineHtml={baselineHtml}
                 onChange={(next) => setHtmlOverride(next)}
