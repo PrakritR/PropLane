@@ -13,6 +13,10 @@ import { vi } from "vitest";
 vi.mock("@/lib/demo-property-pipeline", () => ({
   PROPERTY_PIPELINE_EVENT: "property-pipeline-changed",
   syncPropertyPipelineFromServer: () => Promise.resolve(),
+  // The resident document-import modal now mounts inside this panel's tree and
+  // reads the manager's listings for its property picker. Without it the whole
+  // panel throws on mount, which reads as a lease-template failure.
+  readExtraListingsForUser: () => [],
 }));
 
 let PERSISTED: unknown = null;

@@ -48,7 +48,10 @@ export async function POST(req: Request) {
       dataUrl,
       fileName,
       preferredPropertyId: body.propertyId?.trim() || null,
-      actor: { landlordId: auth.userId, userId: auth.userId },
+      // TraceActor is { userId, sessionId?, metadata? } — AGENTS.md requires the
+      // trace to carry landlordId, which rides in metadata rather than as a
+      // top-level field.
+      actor: { userId: auth.userId, metadata: { landlordId: auth.userId } },
     });
     return NextResponse.json({ parse });
   } catch (err) {

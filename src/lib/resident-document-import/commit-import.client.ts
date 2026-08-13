@@ -34,6 +34,7 @@ function buildApplicationRow(args: {
   managerUserId: string | null;
   propertyLabel: string;
 }): DemoApplicantRow {
+  const { parse, review, managerUserId, propertyLabel } = args;
   const fields = review.fields;
   const name = fields.tenantName?.trim() || "Resident";
   const email = fields.tenantEmail?.trim() || "";
