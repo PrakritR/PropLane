@@ -3,7 +3,13 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Modal, ModalFooter } from "@/components/ui/modal";
+import {
+  Modal,
+  ModalFooter,
+  MODAL_FIELD_LABEL_CLASS,
+  PORTAL_MODAL_FORM_FIELD_CLASS,
+  PORTAL_MODAL_FORM_GRID_CLASS,
+} from "@/components/ui/modal";
 import {
   LeaseConfigForm,
   LeaseDocumentModeField,
@@ -30,12 +36,11 @@ import {
   applyPropertyLeaseDocumentMode,
   documentModeFromLease,
   leaseSourceFromDraft,
+  PROPERTY_LEASE_DOCUMENT_MODE_OPTIONS,
   type PropertyLeaseDocumentMode,
   type PropertyLeaseSource,
 } from "@/lib/property-lease-source";
 import { parseUploadedLeasePdf } from "@/lib/lease-template-parse.client";
-
-const fieldLabelClass = "mb-1.5 block text-xs font-semibold uppercase tracking-[0.12em] text-muted";
 
 function validateLeaseDraft(draft: LeaseConfigDraft, mode: PropertyLeaseDocumentMode): string | null {
   if (mode !== "upload") return null;
@@ -114,6 +119,10 @@ export function PropertyLeaseFormModal({
   const typeMeta = useMemo(
     () => PROPERTY_LEASE_TYPE_OPTIONS.find((o) => o.id === kind),
     [kind],
+  );
+  const documentModeMeta = useMemo(
+    () => PROPERTY_LEASE_DOCUMENT_MODE_OPTIONS.find((o) => o.id === documentMode),
+    [documentMode],
   );
 
   const previewSub = useMemo(
@@ -349,7 +358,11 @@ export function PropertyLeaseFormModal({
     <Modal
       open={open}
       title={mode === "add" ? "New lease" : "Edit lease"}
-      description="Choose a PropLane default or upload a PDF. Edit the lease format below, or type in chat to edit with PropLane Assistant."
+      description={
+        mode === "add"
+          ? "Choose a PropLane default or upload a PDF. Edit the lease format below, or type in chat to edit with PropLane Assistant."
+          : "Update the lease name and format below, or type in chat to edit with PropLane Assistant."
+      }
       onClose={dismiss}
       panelClassName="max-w-4xl"
       assistantContext={assistantContext}
@@ -382,24 +395,48 @@ export function PropertyLeaseFormModal({
       }
     >
       <div className="space-y-4">
-        <div>
-          <label className={fieldLabelClass} htmlFor="property-lease-name">
-            Lease name
-          </label>
-          <Input
-            id="property-lease-name"
-            value={label}
-            onChange={(e) => setLabel(e.target.value)}
-            placeholder={typeMeta?.defaultLabel ?? "e.g. Room rental lease"}
-            data-attr="property-lease-name"
-          />
-        </div>
-
-        <LeaseDocumentModeField
-          mode={documentMode}
-          onModeChange={handleDocumentModeChange}
-          dataAttrPrefix="property"
-        />
+        {mode === "add" ? (
+          <div className="space-y-3">
+            <div className={PORTAL_MODAL_FORM_GRID_CLASS}>
+              <div className={PORTAL_MODAL_FORM_FIELD_CLASS}>
+                <label className={MODAL_FIELD_LABEL_CLASS} htmlFor="property-lease-name">
+                  Lease document name
+                </label>
+                <Input
+                  id="property-lease-name"
+                  value={label}
+                  onChange={(e) => setLabel(e.target.value)}
+                  placeholder={typeMeta?.defaultLabel ?? "e.g. Room rental lease"}
+                  data-attr="property-lease-name"
+                />
+              </div>
+              <LeaseDocumentModeField
+                mode={documentMode}
+                onModeChange={handleDocumentModeChange}
+                dataAttrPrefix="property"
+                labelClassName={MODAL_FIELD_LABEL_CLASS}
+                fieldClassName={PORTAL_MODAL_FORM_FIELD_CLASS}
+                showDetail={false}
+              />
+            </div>
+            {documentModeMeta ? (
+              <p className="text-xs leading-relaxed text-muted">{documentModeMeta.detail}</p>
+            ) : null}
+          </div>
+        ) : (
+          <div className={PORTAL_MODAL_FORM_FIELD_CLASS}>
+            <label className={MODAL_FIELD_LABEL_CLASS} htmlFor="property-lease-name">
+              Lease document name
+            </label>
+            <Input
+              id="property-lease-name"
+              value={label}
+              onChange={(e) => setLabel(e.target.value)}
+              placeholder={typeMeta?.defaultLabel ?? "e.g. Room rental lease"}
+              data-attr="property-lease-name"
+            />
+          </div>
+        )}
 
         {documentMode === "upload" ? (
           <LeaseConfigForm
@@ -446,7 +483,7 @@ export function PropertyLeaseFormModal({
               </div>
             ) : null}
             <div className="flex min-h-0 flex-1 flex-col">
-              <p className={fieldLabelClass}>Lease format</p>
+              <p className={MODAL_FIELD_LABEL_CLASS}>Lease format</p>
               <LeaseHtmlDirectEditor
                 className="min-h-[min(380px,50vh)] flex-1"
                 html={displayHtml}

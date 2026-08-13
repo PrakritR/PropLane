@@ -122,17 +122,26 @@ export function LeaseDocumentModeField({
   mode,
   onModeChange,
   dataAttrPrefix = "property",
+  label = "Lease document type",
+  labelClassName = fieldLabelClass,
+  fieldClassName,
+  showDetail = true,
 }: {
   mode: PropertyLeaseDocumentMode;
   onModeChange: (mode: PropertyLeaseDocumentMode) => void;
   dataAttrPrefix?: "listing" | "property";
+  label?: string;
+  labelClassName?: string;
+  fieldClassName?: string;
+  /** When false, omit per-field helper — parent can show it full-width below a two-column row. */
+  showDetail?: boolean;
 }) {
   const modeMeta = PROPERTY_LEASE_DOCUMENT_MODE_OPTIONS.find((o) => o.id === mode);
 
-  return (
-    <div>
-      <label className={fieldLabelClass} htmlFor={`${dataAttrPrefix}-lease-document`}>
-        Lease document
+  const field = (
+    <>
+      <label className={labelClassName} htmlFor={`${dataAttrPrefix}-lease-document`}>
+        {label}
       </label>
       <NativeSelect
         id={`${dataAttrPrefix}-lease-document`}
@@ -146,9 +155,13 @@ export function LeaseDocumentModeField({
           </option>
         ))}
       </NativeSelect>
-      {modeMeta ? <p className="mt-1.5 text-xs leading-relaxed text-muted">{modeMeta.detail}</p> : null}
-    </div>
+      {showDetail && modeMeta ? (
+        <p className="mt-1.5 text-xs leading-relaxed text-muted">{modeMeta.detail}</p>
+      ) : null}
+    </>
   );
+
+  return fieldClassName ? <div className={fieldClassName}>{field}</div> : <div>{field}</div>;
 }
 
 /** @deprecated Use LeaseDocumentModeField for property lease modals. */

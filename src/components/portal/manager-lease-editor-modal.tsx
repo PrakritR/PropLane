@@ -368,11 +368,13 @@ export function ManagerLeaseEditorModal({
             />
           </div>
         ) : null}
-        <LeaseDocumentModeField
-          mode={documentMode}
-          onModeChange={handleDocumentModeChange}
-          dataAttrPrefix="property"
-        />
+        {!templateId ? (
+          <LeaseDocumentModeField
+            mode={documentMode}
+            onModeChange={handleDocumentModeChange}
+            dataAttrPrefix="property"
+          />
+        ) : null}
         {documentMode === "upload" ? (
           <LeaseConfigForm
             variant="modal"
