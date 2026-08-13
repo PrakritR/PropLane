@@ -2569,6 +2569,7 @@ export function ManagerResidents({
                           <div className="flex min-h-0 flex-1 flex-col gap-0">
                             <PortalPageChrome>
                             <PortalDetailDestinationNav
+                                denseEqualRow
                                 items={(
                                   [
                                     showResidentApplication ? "application" : null,

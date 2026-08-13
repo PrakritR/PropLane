@@ -13,7 +13,6 @@ import {
 import { MODAL_XL_PANEL_CLASS } from "@/components/ui/modal-styles";
 import { LeaseHtmlDirectEditor } from "@/components/portal/lease-html-direct-editor";
 import {
-  PropertyLeaseDocumentNotice,
   propertyLeaseNeedsAssistantReview,
 } from "@/components/portal/property-lease-document-notice";
 import { buildAiGeneratedLeaseHtml } from "@/lib/generated-lease";
@@ -179,7 +178,6 @@ export function LeaseGenerateModal({
     <Modal
       open={open}
       title={replacesManagerEdits ? "Regenerate lease" : "Generate lease"}
-      description="Review and edit the draft below, then generate to save it as this resident's lease."
       onClose={onClose}
       dismissBlocked={working}
       scrollableContent={false}
@@ -199,9 +197,7 @@ export function LeaseGenerateModal({
           >
             {working
               ? "Generating…"
-              : replacesManagerEdits
-                ? "Regenerate lease"
-                : "Generate lease"}
+              : "Generate lease"}
           </Button>
         </ModalFooter>
       }
@@ -245,7 +241,6 @@ export function LeaseGenerateModal({
           </p>
         ) : editorHtml ? (
           <div className="flex min-h-0 flex-1 flex-col gap-3">
-            <PropertyLeaseDocumentNotice html={editorHtml} />
             {saveReviewOpen ? (
               <div className="shrink-0 rounded-xl border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-950">
                 <p className="font-semibold">Review before generating</p>
