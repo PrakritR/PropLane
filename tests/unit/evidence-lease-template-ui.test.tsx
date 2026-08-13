@@ -50,6 +50,19 @@ function writePanel(name: string, caption: string, body: string) {
   );
 }
 
+/**
+ * Labels of the lease rows the property actually holds.
+ *
+ * Scoped to the list because a deleted default comes BACK as an "add this
+ * lease" suggestion — that is the opt-in behavior, not a row that survived, so
+ * a container-wide text search would read it as a failed delete.
+ */
+function leaseRowLabels(container: HTMLElement): string[] {
+  return Array.from(
+    container.querySelectorAll<HTMLButtonElement>('button[data-attr^="property-lease-edit-"]'),
+  ).map((button) => button.parentElement?.parentElement?.querySelector("p")?.textContent?.trim() ?? "");
+}
+
 /** Panel + a live `sub` so a Delete inside the modal really updates the list. */
 function Harness({ initial }: { initial: ManagerListingSubmissionV1 }) {
   const [sub, setSub] = useState(initial);
@@ -89,8 +102,7 @@ describe("evidence · lease templates are opt-in", () => {
       "short-term",
     );
     const b = render(<Harness initial={withBoth} />);
-    expect(b.container.textContent).toContain("Long-term lease");
-    expect(b.container.textContent).toContain("Short-term lease");
+    expect(leaseRowLabels(b.container)).toEqual(["Long-term lease", "Short-term lease"]);
     writePanel(
       "lease-b-added",
       "B · After adding the two PropLane defaults — 'Long-term lease' and 'Short-term lease' (the retired 'Lease bundle' rows are gone).",
@@ -108,14 +120,7 @@ describe("evidence · lease templates are opt-in", () => {
     await act(async () => {
       fireEvent.click(del);
     });
-    // The deleted lease must be gone as an ACTIVE row — but it correctly comes
-    // back as a PropLane default the manager can re-add. Lease templates are
-    // opt-in, so that offer is the only route back from a delete; asserting the
-    // words vanish entirely would forbid the recovery path on purpose.
-    expect(
-      b.container.querySelectorAll('[data-attr^="property-lease-edit-"]'),
-    ).toHaveLength(1);
-    expect(b.container.querySelector('[data-attr="property-lease-seed-add-short-term"]')).toBeTruthy();
+    expect(leaseRowLabels(b.container)).toEqual(["Long-term lease"]);
     writePanel(
       "lease-c-deleted",
       "C · Deleted 'Short-term lease' from the Edit modal. The row is gone and a re-sync no longer resurrects it — this is the bug the change fixes.",
@@ -128,10 +133,7 @@ describe("evidence · lease templates are opt-in", () => {
       PERSISTED as ManagerListingSubmissionV1,
     );
     const d = render(<Harness initial={resynced} />);
-    expect(d.container.textContent).toContain("Long-term lease");
-    // Same rule after a re-sync: one active row, and Short-term only on offer.
-    expect(d.container.querySelectorAll('[data-attr^="property-lease-edit-"]')).toHaveLength(1);
-    expect(d.container.querySelector('[data-attr="property-lease-seed-add-short-term"]')).toBeTruthy();
+    expect(leaseRowLabels(d.container)).toEqual(["Long-term lease"]);
     writePanel(
       "lease-d-resynced",
       "D · Same property re-opened after syncPropertyLeaseTemplatesFromListing ran again. Still one format — Delete stuck.",
