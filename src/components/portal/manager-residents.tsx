@@ -70,7 +70,7 @@ import { LeasePrimaryHeaderActions } from "@/components/portal/lease-primary-hea
 import { LeaseGenerateModal } from "@/components/portal/lease-generate-modal";
 import { LeaseSigningModal } from "@/components/portal/lease-signing-modal";
 import { ManagerPipelineLeaseEditModal } from "@/components/portal/manager-pipeline-lease-edit-modal";
-import { PropertyResidentOnboardWizard } from "@/components/portal/property-resident-onboard-wizard";
+import { PropertyResidentPdfUploadCard } from "@/components/portal/property-resident-onboard-wizard";
 import { mergeParsedFields } from "@/lib/resident-document-import/onboard-draft";
 import { mapParsedFieldsToAddResidentForm } from "@/lib/resident-document-import/apply-parsed-to-add-resident";
 import {
@@ -447,7 +447,6 @@ export function ManagerResidents({
   const [arLeaseImportFile, setArLeaseImportFile] = useState<File | null>(null);
   const [arApplicationParse, setArApplicationParse] = useState<ParsedResidentDocument | null>(null);
   const [arLeaseParse, setArLeaseParse] = useState<ParsedResidentDocument | null>(null);
-  const [pdfOnboardOpen, setPdfOnboardOpen] = useState(false);
   const arApplicationUploadRef = useRef<HTMLInputElement>(null);
   const arLeaseImportUploadRef = useRef<HTMLInputElement>(null);
 
@@ -696,17 +695,21 @@ export function ManagerResidents({
       .sort((a, b) => a.label.localeCompare(b.label, undefined, { sensitivity: "base" }));
   }, [residents, userId, propertyTick]);
 
-  const pdfOnboardPropertyId = arPropertyId || propertyOptions[0]?.id || "";
-  const pdfOnboardPropertyLabel =
-    propertyOptions.find((p) => p.id === pdfOnboardPropertyId)?.label ?? pdfOnboardPropertyId;
+  const arPdfPropertyId = arPropertyId || propertyOptions[0]?.id || "";
 
-  function openPdfOnboardWizard() {
-    if (!pdfOnboardPropertyId) {
-      showToast("Select a property before uploading PDFs.");
-      return;
+  function acceptAddResidentPdfFile(file: File | undefined, input: HTMLInputElement | null): file is File {
+    if (!file) return false;
+    if (file.type !== "application/pdf") {
+      showToast("Please choose a PDF file.");
+      if (input) input.value = "";
+      return false;
     }
-    setAddResidentOpen(false);
-    setPdfOnboardOpen(true);
+    if (file.size > 3.5 * 1024 * 1024) {
+      showToast("PDF too large (max 3.5 MB).");
+      if (input) input.value = "";
+      return false;
+    }
+    return true;
   }
 
   function applyParsedToAddResidentForm(
@@ -716,7 +719,7 @@ export function ManagerResidents({
     const merged = mergeParsedFields(applicationParse, leaseParse);
     const primaryParse = leaseParse ?? applicationParse;
     const propertyIdForPresets =
-      primaryParse?.propertyMatch?.propertyId?.trim() || arPropertyId || pdfOnboardPropertyId;
+      primaryParse?.propertyMatch?.propertyId?.trim() || arPropertyId || arPdfPropertyId;
     const leaseTermPresetValues = propertyIdForPresets
       ? residentLeaseTermOptionsForProperty(propertyIdForPresets).map((opt) => opt.value)
       : [];
@@ -743,9 +746,9 @@ export function ManagerResidents({
   }
 
   async function handleAddResidentApplicationPdf(file: File) {
-    const propertyId = pdfOnboardPropertyId;
+    const propertyId = arPdfPropertyId;
     if (!propertyId) {
-      showToast("Select a property before uploading an application PDF.");
+      showToast("Add a property listing before uploading an application PDF.");
       return;
     }
     setArPdfBusy(true);
@@ -770,9 +773,9 @@ export function ManagerResidents({
   }
 
   async function handleAddResidentLeasePdf(file: File) {
-    const propertyId = pdfOnboardPropertyId;
+    const propertyId = arPdfPropertyId;
     if (!propertyId) {
-      showToast("Select a property before uploading a lease PDF.");
+      showToast("Add a property listing before uploading a lease PDF.");
       return;
     }
     setArPdfBusy(true);
@@ -1765,6 +1768,11 @@ export function ManagerResidents({
     setArNotes("");
     setArSignedLeaseFileName("");
     setArSignedLeaseDataUrl("");
+    setArPdfBusy(false);
+    setArApplicationFile(null);
+    setArLeaseImportFile(null);
+    setArApplicationParse(null);
+    setArLeaseParse(null);
     setAddResidentNoticePreview(null);
   }
 
@@ -3400,31 +3408,51 @@ export function ManagerResidents({
         }
       >
         <div className="min-w-0 max-w-full space-y-3 overflow-x-hidden">
-          <div className="grid grid-cols-1 gap-2 min-[24rem]:grid-cols-2">
-            <Button
-              type="button"
-              variant="outline"
-              className="rounded-full"
-              onClick={openPdfOnboardWizard}
-              data-attr="residents-add-application-pdf"
-            >
-              Add application
-            </Button>
-            <Button
-              type="button"
-              variant="outline"
-              className="rounded-full"
-              onClick={openPdfOnboardWizard}
-              data-attr="residents-add-lease-pdf"
-            >
-              Add lease
-            </Button>
+          <div className="grid grid-cols-1 gap-3 min-[28rem]:grid-cols-2">
+            <PropertyResidentPdfUploadCard
+              title="Add application"
+              subtitle="Rental application PDF"
+              fileName={arApplicationFile?.name ?? null}
+              busy={arPdfBusy}
+              dataAttr="residents-add-application-pdf"
+              onPick={() => arApplicationUploadRef.current?.click()}
+            />
+            <PropertyResidentPdfUploadCard
+              title="Add lease"
+              subtitle="Signed or draft lease PDF"
+              fileName={arLeaseImportFile?.name ?? null}
+              busy={arPdfBusy}
+              dataAttr="residents-add-lease-pdf"
+              onPick={() => arLeaseImportUploadRef.current?.click()}
+            />
           </div>
+          <input
+            ref={arApplicationUploadRef}
+            type="file"
+            accept="application/pdf"
+            className="sr-only"
+            onChange={(e) => {
+              const file = e.target.files?.[0];
+              if (!acceptAddResidentPdfFile(file, e.currentTarget)) return;
+              void handleAddResidentApplicationPdf(file);
+            }}
+          />
+          <input
+            ref={arLeaseImportUploadRef}
+            type="file"
+            accept="application/pdf"
+            className="sr-only"
+            onChange={(e) => {
+              const file = e.target.files?.[0];
+              if (!acceptAddResidentPdfFile(file, e.currentTarget)) return;
+              void handleAddResidentLeasePdf(file);
+            }}
+          />
           <p className="text-xs text-muted">
-            Upload application and/or lease PDFs side by side — PropLane merges the readings, then you review and import. Or enter details manually below.
+            Upload one or both. Parsed fields appear below — edit anything before importing.
           </p>
           <p className="text-xs text-muted">
-            Onboard an existing tenant: creates an active resident record, sets up payments, and can email portal instructions (no application or screening). Generate or upload a lease in Manager Review unless you attach an already-signed PDF below.
+            Onboard an existing tenant: creates an active resident record, sets up payments, and can email portal instructions (no application or screening).
           </p>
           <div className={PORTAL_MODAL_FORM_GRID_CLASS}>
             <label className={PORTAL_MODAL_FORM_FIELD_CLASS}>
@@ -3557,37 +3585,6 @@ export function ManagerResidents({
                 />
               </label>
             ) : null}
-            <label className={cn(PORTAL_MODAL_FORM_FIELD_CLASS, PORTAL_MODAL_FORM_FULL_ROW_CLASS)}>
-              <span className="font-medium text-muted">Signed lease (PDF, optional)</span>
-              <input
-                type="file"
-                accept="application/pdf"
-                className="text-sm text-muted file:mr-3 file:rounded-full file:border-0 file:bg-accent file:px-3 file:py-1.5 file:text-sm"
-                onChange={(e) => {
-                  const file = e.target.files?.[0];
-                  if (!file) return;
-                  if (file.type !== "application/pdf") {
-                    showToast("Please choose a PDF file.");
-                    e.target.value = "";
-                    return;
-                  }
-                  if (file.size > 3.5 * 1024 * 1024) {
-                    showToast("PDF too large (max 3.5 MB).");
-                    e.target.value = "";
-                    return;
-                  }
-                  const reader = new FileReader();
-                  reader.onload = () => {
-                    setArSignedLeaseDataUrl(reader.result as string);
-                    setArSignedLeaseFileName(file.name);
-                  };
-                  reader.readAsDataURL(file);
-                }}
-              />
-              {arSignedLeaseFileName ? (
-                <span className="text-xs text-muted">Attached: {arSignedLeaseFileName}</span>
-              ) : null}
-            </label>
             <label className={cn(PORTAL_MODAL_FORM_FIELD_CLASS, PORTAL_MODAL_FORM_FULL_ROW_CLASS)}>
               <span className="font-medium text-muted">Notes</span>
               <Textarea
@@ -4054,23 +4051,6 @@ export function ManagerResidents({
         }}
       />
 
-      {pdfOnboardPropertyId ? (
-        <PropertyResidentOnboardWizard
-          open={pdfOnboardOpen}
-          propertyId={pdfOnboardPropertyId}
-          propertyLabel={pdfOnboardPropertyLabel}
-          managerUserId={userId}
-          onClose={() => setPdfOnboardOpen(false)}
-          onImported={() => {
-            setPdfOnboardOpen(false);
-            void syncManagerApplicationsFromServer({ force: true, managerUserId: userId }).then(() =>
-              setHcTick((n) => n + 1),
-            );
-            showToast("Resident imported from PDFs.");
-          }}
-          showToast={showToast}
-        />
-      ) : null}
     </>
   );
 }
