@@ -9,8 +9,10 @@ import {
   householdChargeToLedgerRow,
   isHouseholdChargeOverdue,
   isManagerAddedOneOffCharge,
+  isStaleRecurringHouseholdCharge,
   joinPropertyAndUnitLabel,
   mergeHouseholdChargesWithServer,
+  type RecurringRentProfile,
 } from "@/lib/household-charges";
 import type { HouseholdCharge } from "@/lib/household-charges";
 
@@ -341,6 +343,104 @@ describe("mergeHouseholdChargesWithServer", () => {
     expect(merged).toHaveLength(1);
     expect(merged[0]?.id).toBe("hc_app_pl_ms5v4juh_stay_total");
     expect(duplicateHouseholdChargeIds([legacy, canonical])).toEqual(["hc_app_proplane_ms5v4juh_stay_total"]);
+  });
+
+  it("dedupes conflicting first-month rent kinds to one upfront slot", () => {
+    const fullMonth = makeCharge({
+      id: "hc_app_app123_first_month_rent",
+      kind: "first_month_rent",
+      applicationId: "app123",
+      residentEmail: "res@test.com",
+      propertyId: "prop-1",
+      amountLabel: "$825.00",
+      balanceLabel: "$825.00",
+      title: "First month's rent",
+      createdAt: "2026-08-01T00:00:00.000Z",
+    });
+    const prorated = makeCharge({
+      id: "hc_app_app123_prorated_rent",
+      kind: "prorated_rent",
+      applicationId: "app123",
+      residentEmail: "res@test.com",
+      propertyId: "prop-1",
+      amountLabel: "$870.00",
+      balanceLabel: "$870.00",
+      title: "Prorated first month's rent (29 days × $30/day)",
+      createdAt: "2026-08-02T00:00:00.000Z",
+    });
+
+    const merged = dedupeHouseholdCharges([fullMonth, prorated]);
+    expect(merged).toHaveLength(1);
+    expect(merged[0]?.kind).toBe("prorated_rent");
+    expect(merged[0]?.amountLabel).toBe("$870.00");
+    expect(duplicateHouseholdChargeIds([fullMonth, prorated])).toEqual(["hc_app_app123_first_month_rent"]);
+  });
+
+  it("merges duplicate upfront rent rows from server sync", () => {
+    const serverFull = makeCharge({
+      id: "hc_app_app123_first_month_rent",
+      kind: "first_month_rent",
+      applicationId: "app123",
+      residentEmail: "res@test.com",
+      propertyId: "prop-1",
+      amountLabel: "$825.00",
+      balanceLabel: "$825.00",
+      title: "First month's rent",
+    });
+    const localProrated = makeCharge({
+      id: "hc_app_app123_prorated_rent",
+      kind: "prorated_rent",
+      applicationId: "app123",
+      residentEmail: "res@test.com",
+      propertyId: "prop-1",
+      amountLabel: "$870.00",
+      balanceLabel: "$870.00",
+      title: "Prorated first month's rent (29 days × $30/day)",
+      createdAt: "2026-08-02T00:00:00.000Z",
+    });
+
+    const { merged } = mergeHouseholdChargesWithServer([serverFull], [localProrated]);
+    expect(merged).toHaveLength(1);
+    expect(merged[0]?.kind).toBe("prorated_rent");
+  });
+});
+
+describe("isStaleRecurringHouseholdCharge", () => {
+  const profile: RecurringRentProfile = {
+    id: "rrp-1",
+    active: true,
+    residentEmail: "res@test.com",
+    residentName: "Resident",
+    propertyId: "prop-1",
+    propertyLabel: "Test Property",
+    roomLabel: "Room 7",
+    managerUserId: "mgr-1",
+    monthlyRent: 825,
+    monthlyUtilities: 200,
+    dueDay: 1,
+    dueDayMode: "first_of_month",
+    startMonth: "2026-10",
+    leaseEnd: "2027-03-31",
+  };
+
+  it("flags recurring rows whose amount/title no longer match the profile", () => {
+    const staleRent = makeCharge({
+      id: "rent-jan",
+      kind: "rent",
+      recurringRentProfileId: profile.id,
+      rentMonth: "2027-01",
+      amountLabel: "$825.00",
+      balanceLabel: "$825.00",
+      title: "Prorated rent — January 2027",
+    });
+    const profileById = new Map([[profile.id, profile]]);
+    expect(isStaleRecurringHouseholdCharge(staleRent, profileById, [staleRent])).toBe(true);
+
+    const freshRent = makeCharge({
+      ...staleRent,
+      title: "Rent — January 2027",
+    });
+    expect(isStaleRecurringHouseholdCharge(freshRent, profileById, [freshRent])).toBe(false);
   });
 });
 
