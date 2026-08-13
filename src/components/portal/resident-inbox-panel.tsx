@@ -301,8 +301,13 @@ export const ResidentInboxPanel = forwardRef<
       setComposeOpen(true);
       return;
     }
-    const propertyId = searchParams.get("propertyId")?.trim() ?? "";
-    if (searchParams.get("compose") !== "1" || !propertyId) return;
+    // `useSearchParams()` is typed `ReadonlyURLSearchParams | null` and really
+    // does hand back null (a render outside a Suspense boundary, and any test
+    // that mounts this panel without a router). An unguarded `.get` throws in a
+    // passive effect, which takes the whole panel down rather than just skipping
+    // the compose deep-link this effect exists to honour.
+    const propertyId = searchParams?.get("propertyId")?.trim() ?? "";
+    if (searchParams?.get("compose") !== "1" || !propertyId) return;
     setComposeDraft(residentListingManagerMessageDraft(propertyId));
     setComposeOpen(true);
   }, [searchParams]);

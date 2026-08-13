@@ -62,7 +62,11 @@ describe("pro portal documents section", () => {
     expect(sections.indexOf("financials")).toBeLessThan(sections.indexOf("documents"));
     expect(sections.indexOf("documents")).toBeLessThan(sections.indexOf("bugs-feedback"));
     expect(sections.indexOf("relationships")).toBeLessThan(sections.indexOf("bugs-feedback"));
-    expect(sections.indexOf("profile")).toBe(sections.indexOf("bugs-feedback") + 1);
+    // Feedback comes before profile — that is the ordering rule this case is
+    // named for. It is deliberately NOT an adjacency check: the "app" section
+    // now sits between them, and a new tail section landing there is a normal
+    // addition, not a regression in the order.
+    expect(sections.indexOf("bugs-feedback")).toBeLessThan(sections.indexOf("profile"));
     expect(sections).not.toContain("plan");
   });
 

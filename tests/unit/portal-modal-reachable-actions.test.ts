@@ -21,7 +21,12 @@ describe("calendar detail modal keeps its action row reachable", () => {
       (line) => line.includes("modal-panel") && line.includes("z-[81]"),
     );
     expect(panel).toBeTruthy();
-    expect(panel).toContain("max-h-[min(520px,calc(100svh-2rem))]");
+    // The invariant is that the panel caps its own height against the viewport
+    // (AGENTS.md: "a hand-rolled .modal-panel must cap its own height"), not any
+    // particular pixel ceiling — that number is a design choice and has already
+    // moved once (520 -> 600). Match the shape so a retune stays green while
+    // REMOVING the cap still fails.
+    expect(panel).toMatch(/max-h-\[min\(\d+px,calc\(100svh-2rem\)\)\]/);
     expect(panel).toContain("overflow-y-auto");
   });
 
