@@ -134,14 +134,17 @@ export function UploadedLeasePdfPreview({
   fileName,
   className,
   embeddedInFlex = false,
+  documentFlow = false,
 }: {
   dataUrl: string;
   title: string;
   fileName?: string;
   className?: string;
   embeddedInFlex?: boolean;
+  /** Stack pages in the page scroll instead of a nested preview scroller. */
+  documentFlow?: boolean;
 }) {
-  const [useRaster, setUseRaster] = useState(false);
+  const [useRaster, setUseRaster] = useState(() => prefersRasterPreview() || documentFlow);
   const [pages, setPages] = useState<string[]>([]);
   const [totalPages, setTotalPages] = useState(0);
   const [loading, setLoading] = useState(false);
@@ -149,8 +152,8 @@ export function UploadedLeasePdfPreview({
   const pageUrlsRef = useRef<string[]>([]);
 
   useEffect(() => {
-    setUseRaster(prefersRasterPreview());
-  }, []);
+    setUseRaster(prefersRasterPreview() || documentFlow);
+  }, [documentFlow]);
 
   useEffect(() => {
     if (!useRaster) return;
@@ -205,9 +208,11 @@ export function UploadedLeasePdfPreview({
     };
   }, [dataUrl, useRaster]);
 
-  const scrollClass = embeddedInFlex
-    ? "min-h-0 flex-1 overflow-y-auto overscroll-contain [-webkit-overflow-scrolling:touch]"
-    : "max-h-[min(80dvh,900px)] overflow-y-auto overscroll-contain [-webkit-overflow-scrolling:touch]";
+  const scrollClass = documentFlow
+    ? ""
+    : embeddedInFlex
+      ? "min-h-0 flex-1 overflow-y-auto overscroll-contain [-webkit-overflow-scrolling:touch]"
+      : "max-h-[min(80dvh,900px)] overflow-y-auto overscroll-contain [-webkit-overflow-scrolling:touch]";
 
   const header = (
     <div className="border-b border-border bg-card px-3 py-2 text-xs">
@@ -234,7 +239,7 @@ export function UploadedLeasePdfPreview({
         <iframe
           title={title}
           src={dataUrl}
-          className={`block w-full border-0 bg-white ${embeddedInFlex ? "min-h-[70dvh] flex-1" : "min-h-[min(80dvh,900px)]"}`}
+          className={`block w-full border-0 bg-white ${embeddedInFlex ? "min-h-[70dvh] flex-1" : documentFlow ? "min-h-[50rem]" : "min-h-[min(80dvh,900px)]"}`}
         />
       </div>
     );
@@ -243,7 +248,7 @@ export function UploadedLeasePdfPreview({
   return (
     <div className={className}>
       {header}
-      <div className={scrollClass}>
+      <div className={scrollClass || undefined}>
         {error && !pages.length ? (
           <div className="space-y-2 px-4 py-8 text-center text-sm text-muted">
             <p>{error}</p>

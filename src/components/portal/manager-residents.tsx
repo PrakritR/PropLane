@@ -2769,7 +2769,7 @@ export function ManagerResidents({
                             ) : null}
 
                             {showResidentLease && resolvedDetailTab === "lease" ? (
-                            <ResidentDetailTabPanel fill>
+                            <ResidentDetailTabPanel>
                               {residentLeaseRows.length > 1 ? (
                                 <div className="mb-3 -mx-2.5 bg-background sm:-mx-4 lg:mx-0">
                                   <LocalDestinationNav
@@ -2788,10 +2788,9 @@ export function ManagerResidents({
                               {residentLease ? (
                                 <LeaseDocumentPreview
                                   row={residentLease}
-                                  stretch
+                                  flow
                                   suppressApplicationDraft={Boolean(selected.manuallyAdded)}
                                   emptyHint="No lease document yet. Generate or upload one from Manager Review first."
-                                  className="min-h-[calc(100dvh-14rem)] flex-1 max-lg:min-h-[calc(100dvh-17rem-var(--portal-native-bottom-nav-inset,0px))]"
                                 />
                               ) : (
                                 <p className="text-sm text-muted">
