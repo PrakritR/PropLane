@@ -360,6 +360,7 @@ export function ResidentCommunication({
       hideMobileFilterRow={threadOpen}
       mobileThreadReading={threadOpen}
       threadSelected={threadSelected}
+      hideAssistantFab
     >
       <ResidentUnifiedInbox
         inboxRef={inboxRef}

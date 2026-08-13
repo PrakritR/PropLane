@@ -233,6 +233,7 @@ export const ResidentInboxPanel = forwardRef<
   const [smsConfigured, setSmsConfigured] = useState(false);
   const [composeOpen, setComposeOpen] = useState(false);
   const [composeDraft, setComposeDraft] = useState<ResidentComposePrefill | null>(null);
+  const [composeScheduleLater, setComposeScheduleLater] = useState(false);
   // Threads marked read while viewing "Unopened" stay listed until the tab is
   // switched or the page is refreshed; they only move to "Opened" on reset.
   const [retainedIds, setRetainedIds] = useState<Set<string>>(() => new Set());
@@ -665,6 +666,27 @@ export const ResidentInboxPanel = forwardRef<
     return collapsed.find((t) => inboxThreadCounterpartyEmail(t) === norm)?.id ?? null;
   }, []);
 
+  const openScheduleForThread = useCallback(
+    (thread: InboxThread) => {
+      const email = (inboxThreadCounterpartyEmail(thread) || thread.email).trim().toLowerCase();
+      if (!email) {
+        showToast("Choose your property manager.");
+        return;
+      }
+      const contact = eligibleContacts.find((c) => c.email.trim().toLowerCase() === email);
+      const subjectBase = thread.subject?.trim() || "";
+      setComposeDraft({
+        subject: subjectBase && !/^re:/i.test(subjectBase) ? `Re: ${subjectBase}` : subjectBase,
+        body: "",
+        recipientEmail: email,
+        managerUserId: contact?.id?.replace(/^mgr-/, ""),
+      });
+      setComposeScheduleLater(true);
+      setComposeOpen(true);
+    },
+    [eligibleContacts, showToast],
+  );
+
   useImperativeHandle(
     ref,
     () => ({
@@ -714,7 +736,9 @@ export const ResidentInboxPanel = forwardRef<
             }
             showToast("Message scheduled.");
             void reloadScheduledMessages();
-            navigate("/resident/communication/email/schedule");
+            if (!embeddedInCommunication) {
+              navigate("/resident/communication/email/schedule");
+            }
             return;
           }
 
@@ -1215,29 +1239,44 @@ export const ResidentInboxPanel = forwardRef<
   );
 
   const residentScheduledCards =
-    activeThread && activeThread.folder !== "trash" && threadScheduledItems.length > 0 ? (
-      <InboxScheduledThreadList
-        count={threadScheduledItems.length}
-        nextSendLabel={threadScheduledItems[0]?.sendLabel}
-      >
-        {threadScheduledItems.map((item) => (
-          <InboxScheduledCard
-            key={item.id}
-            sendLabel={item.sendLabel}
-            subject={item.subject}
-            body={item.body}
-            meta={item.meta}
-            channel={item.channel}
-            deliverViaEmail={item.deliverViaEmail}
-            deliverViaSms={item.deliverViaSms}
-            source={item.source}
-            editable={false}
-            busy={scheduledBusyId === item.id}
-            onCancel={() => void cancelResidentScheduled(item.id)}
-            onSendNow={() => void sendResidentScheduledNow(item.id)}
-          />
-        ))}
-      </InboxScheduledThreadList>
+    activeThread && activeThread.folder !== "trash" ? (
+      <div className="space-y-2 pt-1">
+        {threadScheduledItems.length > 0 ? (
+          <InboxScheduledThreadList
+            count={threadScheduledItems.length}
+            nextSendLabel={threadScheduledItems[0]?.sendLabel}
+          >
+            {threadScheduledItems.map((item) => (
+              <InboxScheduledCard
+                key={item.id}
+                sendLabel={item.sendLabel}
+                subject={item.subject}
+                body={item.body}
+                meta={item.meta}
+                channel={item.channel}
+                deliverViaEmail={item.deliverViaEmail}
+                deliverViaSms={item.deliverViaSms}
+                source={item.source}
+                editable={false}
+                busy={scheduledBusyId === item.id}
+                onCancel={() => void cancelResidentScheduled(item.id)}
+                onSendNow={() => void sendResidentScheduledNow(item.id)}
+              />
+            ))}
+          </InboxScheduledThreadList>
+        ) : null}
+        {embeddedInCommunication && tabId !== "trash" ? (
+          <Button
+            type="button"
+            variant="outline"
+            className="h-8 min-h-0 w-full rounded-full px-3 text-[12px]"
+            data-attr="resident-inbox-schedule-another"
+            onClick={() => openScheduleForThread(activeThread)}
+          >
+            Schedule a message
+          </Button>
+        ) : null}
+      </div>
     ) : null;
 
   const openThread = useCallback(
@@ -1388,6 +1427,7 @@ export const ResidentInboxPanel = forwardRef<
         onClose={() => {
           setComposeOpen(false);
           setComposeDraft(null);
+          setComposeScheduleLater(false);
         }}
         onSend={handleComposeSend}
         portal="resident"
@@ -1395,6 +1435,7 @@ export const ResidentInboxPanel = forwardRef<
         senderEmail={session.email?.trim().toLowerCase() || "resident@example.com"}
         liveContacts={eligibleContacts}
         initialDraft={composeDraft}
+        initialScheduleLater={composeScheduleLater}
       />
 
       {tabId !== "schedule" && !suppressListPane ? (
@@ -1459,27 +1500,42 @@ export const ResidentInboxPanel = forwardRef<
               threadKey={activeThread.id}
               onBack={() => setExpandedId(null)}
               headerActions={
-                renderExtraActions({
-                  id: activeThread.id,
-                  name: activeThread.from,
-                  email: activeThread.email,
-                  subject: activeThread.subject,
-                  whenLabel: activeThread.time,
-                  read: !activeThread.unread,
-                })
+                <>
+                  {embeddedInCommunication && activeThread.folder !== "trash" && tabId !== "trash" ? (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className={threadActionBtn}
+                      data-attr="resident-inbox-schedule-message"
+                      onClick={() => openScheduleForThread(activeThread)}
+                    >
+                      Schedule
+                    </Button>
+                  ) : null}
+                  {renderExtraActions({
+                    id: activeThread.id,
+                    name: activeThread.from,
+                    email: activeThread.email,
+                    subject: activeThread.subject,
+                    whenLabel: activeThread.time,
+                    read: !activeThread.unread,
+                  })}
+                </>
               }
               emptyLabel="No messages in this conversation."
               composer={
                 activeThread.folder === "trash" || tabId === "trash" ? undefined : (
                   <>
-                    <InboxThreadAssistantStrip
-                      contextHint={buildInboxThreadAssistantContext({
-                        subject: activeThread.subject,
-                        email: activeThread.email,
-                        from: activeThread.from,
-                        sentSemantics: activeIsSent,
-                      })}
-                    />
+                    {embeddedInCommunication ? null : (
+                      <InboxThreadAssistantStrip
+                        contextHint={buildInboxThreadAssistantContext({
+                          subject: activeThread.subject,
+                          email: activeThread.email,
+                          from: activeThread.from,
+                          sentSemantics: activeIsSent,
+                        })}
+                      />
+                    )}
                     <InboxComposer
                       value={replyDraft}
                       onChange={setReplyDraft}

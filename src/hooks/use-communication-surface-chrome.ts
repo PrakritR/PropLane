@@ -12,10 +12,13 @@ export function useCommunicationSurfaceChrome({
   active,
   threadReading = false,
   threadSelected = false,
+  /** Hides the floating assistant FAB for the whole Communication tab (e.g. resident mobile). */
+  hideAssistantFab = false,
 }: {
   active: boolean;
   threadReading?: boolean;
   threadSelected?: boolean;
+  hideAssistantFab?: boolean;
 }) {
   useEffect(() => {
     if (!active) return;
@@ -31,10 +34,16 @@ export function useCommunicationSurfaceChrome({
     } else {
       delete html.dataset.communicationThreadSelected;
     }
+    if (hideAssistantFab) {
+      html.dataset.communicationHideAssistantFab = "true";
+    } else {
+      delete html.dataset.communicationHideAssistantFab;
+    }
     return () => {
       delete html.dataset.communicationSurface;
       delete html.dataset.communicationThreadReading;
       delete html.dataset.communicationThreadSelected;
+      delete html.dataset.communicationHideAssistantFab;
     };
-  }, [active, threadReading, threadSelected]);
+  }, [active, hideAssistantFab, threadReading, threadSelected]);
 }
