@@ -84,8 +84,14 @@ Sign-in Google OAuth (above) is separate from **Calendar sync**. Each manager co
    - `http://localhost:3009/api/portal/gmail-payments/callback`
    - `http://localhost:3011/api/portal/google-calendar/callback` (Cursor 2)
    - `http://localhost:3011/api/portal/gmail-payments/callback`
-   - Production: `{NEXT_PUBLIC_APP_URL}/api/portal/google-calendar/callback` (read from Vercel / `.env.local` — do not hardcode a marketing domain)
-   - Production: `{NEXT_PUBLIC_APP_URL}/api/portal/gmail-payments/callback`
+   - Production: register **every** live domain (canonical + legacy), or set `GOOGLE_CALENDAR_REDIRECT_ORIGIN` to the one origin Google Cloud allowlists:
+   - `https://prop-lane.space/api/portal/google-calendar/callback`
+   - `https://prop-lane.space/api/portal/gmail-payments/callback`
+   - `https://www.prop-lane.space/api/portal/google-calendar/callback`
+   - `https://www.prop-lane.space/api/portal/gmail-payments/callback`
+   - `https://www.axis-seattle-housing.com/api/portal/google-calendar/callback` (legacy host — still live)
+   - `https://www.axis-seattle-housing.com/api/portal/gmail-payments/callback`
+   - When only one origin is registered in Google Cloud, PropLane maps every production host to `NEXT_PUBLIC_CANONICAL_APP_URL` / `NEXT_PUBLIC_APP_URL` for the OAuth callback automatically.
 4. Set `GOOGLE_CALENDAR_CLIENT_ID` and `GOOGLE_CALENDAR_CLIENT_SECRET` in `.env.local` / Vercel.
    Use the **same** Google OAuth client ID and secret as Supabase **Authentication → Providers → Google** so sign-in tokens work for calendar sync.
 5. Apply migration `20260723220000_google_calendar_integration.sql` on Supabase.
@@ -113,7 +119,7 @@ Use these exact values when configuring Google + Supabase for the live site:
 | Supabase project URL | `https://qahnczmilgptcedaqype.supabase.co` |
 | Google **Authorized redirect URI** (Google Cloud only) | `https://qahnczmilgptcedaqype.supabase.co/auth/v1/callback` |
 | Supabase **Site URL** | `https://prop-lane.space` |
-| Supabase **Redirect URLs** | The production allowlist in [`docs/mobile-app.md` → Google sign-in (native app)](docs/mobile-app.md) (Apple callbacks: [`docs/apple-sign-in-setup.md`](docs/apple-sign-in-setup.md)), plus the localhost dev entries from step 5 above |
+| Supabase **Redirect URLs** | Every entry in `httpsCallbackUrls` from `https://prop-lane.space/api/auth/oauth-providers` — must include **both** `https://prop-lane.space/auth/callback` and `https://www.axis-seattle-housing.com/auth/callback` (and the partner-pricing / resident-signup / vendor-signup variants for each live domain), plus the localhost dev entries from step 5 above and the native scheme entries in [`docs/mobile-app.md`](docs/mobile-app.md) |
 | App OAuth callback (this website) | `https://prop-lane.space/auth/callback` and `/auth/callback/partner-pricing` for Partner pricing Google signup |
 
 Verify live config: open `https://prop-lane.space/api/auth/oauth-providers` — it should report `googleEnabled: true` and the redirect URIs above.

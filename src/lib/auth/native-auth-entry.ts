@@ -1,4 +1,5 @@
 import { detectNativePlatformSync } from "@/lib/native/detect-native";
+import { isKnownProductionWebHost } from "@/lib/app-url";
 import {
   NATIVE_AUTH_LEGACY_ENTRY_PATH,
   NATIVE_AUTH_WEB_ENTRY_PATH,
@@ -50,11 +51,5 @@ export function nativeAuthEntryPathForHost(_hostname: string): string {
 }
 
 export function isProductionAxisHost(hostname: string): boolean {
-  const h = hostname.toLowerCase();
-  return (
-    h === "prop-lane.space" ||
-    h === "www.prop-lane.space" ||
-    h === "www.axis-seattle-housing.com" ||
-    h === "axis-seattle-housing.com"
-  );
+  return isKnownProductionWebHost(hostname);
 }

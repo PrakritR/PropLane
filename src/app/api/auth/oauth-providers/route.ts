@@ -1,11 +1,14 @@
 import { NextResponse } from "next/server";
-import { resolveShareableAppOrigin } from "@/lib/app-url";
+import { knownProductionWebOrigins, resolveShareableAppOrigin } from "@/lib/app-url";
 import { supabaseGoogleOAuthRedirectUri } from "@/lib/auth/google-oauth-redirect";
 import {
   httpsOAuthCallbackUrls,
   nativeOAuthSetupHint,
   nativeSupabaseRedirectUrls,
 } from "@/lib/auth/native-oauth-redirect-urls";
+import { gmailPaymentsOAuthRedirectUri } from "@/lib/gmail-payments/api.server";
+import { googleCalendarOAuthRedirectUri } from "@/lib/google-calendar/api.server";
+import { warmGoogleCalendarOAuthConfig } from "@/lib/google-calendar/settings";
 
 export const runtime = "nodejs";
 
@@ -47,9 +50,17 @@ export async function GET() {
     const settings = (await res.json()) as ProviderSettings;
     const googleEnabled = settings.external?.google === true;
     const appOrigin = resolveShareableAppOrigin();
+    await warmGoogleCalendarOAuthConfig();
     const googleRedirectUri = supabaseGoogleOAuthRedirectUri(supabaseUrl);
     const httpsCallbacks = httpsOAuthCallbackUrls(appOrigin);
     const nativeCallbacks = nativeSupabaseRedirectUrls();
+    const googleServiceCallbackOrigins = knownProductionWebOrigins();
+    const googleCalendarCallbackUrls = [
+      ...new Set(googleServiceCallbackOrigins.map((origin) => googleCalendarOAuthRedirectUri(origin))),
+    ];
+    const gmailPaymentsCallbackUrls = [
+      ...new Set(googleServiceCallbackOrigins.map((origin) => gmailPaymentsOAuthRedirectUri(origin))),
+    ];
     return NextResponse.json({
       googleEnabled,
       supabaseUrl,
@@ -57,13 +68,19 @@ export async function GET() {
       appCallbackUrl: httpsCallbacks[0],
       httpsCallbackUrls: httpsCallbacks,
       nativeCallbackUrls: nativeCallbacks,
+      googleCalendarCallbackUrls,
+      gmailPaymentsCallbackUrls,
       hint: googleEnabled
         ? null
-        : `After enabling Google, allowlist ${httpsCallbacks[0]} in Supabase URL configuration.`,
+        : `After enabling Google, allowlist every httpsCallbackUrls entry in Supabase URL configuration.`,
       nativeRedirectHint: nativeOAuthSetupHint(),
       googleRedirectHint: googleRedirectUri
         ? `If Google shows redirect_uri_mismatch, add this exact URI in Google Cloud → Credentials → OAuth client → Authorized redirect URIs: ${googleRedirectUri}`
         : null,
+      googleServiceRedirectHint:
+        "Calendar and Gmail payment connect use the googleCalendarCallbackUrls / gmailPaymentsCallbackUrls entries. " +
+        "Add each listed URI to the same Google OAuth client. Managers may start connect from any production domain; " +
+        "callbacks use the canonical origin when multiple live domains share one deployment.",
     });
   } catch {
     return NextResponse.json({

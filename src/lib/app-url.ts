@@ -24,6 +24,42 @@ function isUsableEmailLinkHost(hostname: string): boolean {
 /** Canonical, user-facing production domain — the only host outbound emails link to. */
 export const PRODUCTION_APP_ORIGIN = "https://prop-lane.space";
 
+/** Live web origins that serve the same Vercel deployment (multi-domain production). */
+const DEFAULT_PRODUCTION_WEB_ORIGINS = [
+  PRODUCTION_APP_ORIGIN,
+  "https://www.prop-lane.space",
+  "https://axis-seattle-housing.com",
+  "https://www.axis-seattle-housing.com",
+] as const;
+
+/** Every production HTTPS origin managers may open — used for OAuth allowlist docs and redirect resolution. */
+export function knownProductionWebOrigins(): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const raw of [
+    trimOrigin(process.env.NEXT_PUBLIC_CANONICAL_APP_URL),
+    trimOrigin(process.env.NEXT_PUBLIC_APP_URL),
+    ...DEFAULT_PRODUCTION_WEB_ORIGINS,
+  ]) {
+    const origin = raw.replace(/\/$/, "");
+    if (!origin || seen.has(origin)) continue;
+    seen.add(origin);
+    out.push(origin);
+  }
+  return out;
+}
+
+export function isKnownProductionWebHost(hostname: string): boolean {
+  const h = hostname.toLowerCase();
+  return knownProductionWebOrigins().some((origin) => {
+    try {
+      return new URL(origin).hostname.toLowerCase() === h;
+    } catch {
+      return false;
+    }
+  });
+}
+
 /**
  * Base URL for links embedded in OUTBOUND EMAILS (and other shareable, on-platform
  * links). Recipients authenticate on the canonical domain, so an email must NEVER
