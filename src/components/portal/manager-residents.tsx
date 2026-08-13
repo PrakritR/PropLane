@@ -3277,7 +3277,7 @@ export function ManagerResidents({
         }
       >
         <div className="min-w-0 max-w-full space-y-3 overflow-x-hidden">
-          <div className="flex flex-row flex-wrap gap-2">
+          <div className="grid grid-cols-1 gap-2 min-[24rem]:grid-cols-2">
             <Button
               type="button"
               variant="outline"

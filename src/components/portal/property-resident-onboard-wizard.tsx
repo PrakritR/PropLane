@@ -60,7 +60,7 @@ function UploadCard({
   return (
     <button
       type="button"
-      className="flex min-h-[10rem] min-w-[min(100%,11rem)] flex-1 basis-[calc(50%-0.375rem)] flex-col items-center justify-center gap-2 rounded-2xl border-2 border-dashed border-border bg-accent/10 px-3 py-6 text-center transition hover:border-primary/40 hover:bg-primary/[0.05] disabled:opacity-60"
+      className="flex min-h-[10rem] w-full flex-col items-center justify-center gap-2 rounded-2xl border-2 border-dashed border-border bg-accent/10 px-3 py-6 text-center transition hover:border-primary/40 hover:bg-primary/[0.05] disabled:opacity-60"
       onClick={onPick}
       disabled={busy}
       data-attr={dataAttr}
@@ -360,7 +360,7 @@ export function PropertyResidentOnboardWizard({
     >
       {step === "upload" ? (
         <div className="space-y-4">
-          <div className="flex flex-row flex-wrap gap-3">
+          <div className="grid grid-cols-1 gap-3 min-[28rem]:grid-cols-2">
             <UploadCard
               title="Add application"
               subtitle="Rental application PDF"

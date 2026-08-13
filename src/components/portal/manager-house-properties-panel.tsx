@@ -3,6 +3,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
+import {
+  DropdownMenuItem,
+} from "@/components/ui/dropdown-menu";
+import {
+  PortalAdaptiveActionRow,
+  type PortalAdaptiveAction,
+} from "@/components/portal/portal-adaptive-action-row";
 import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
 import { PortalDetailDestinationNav } from "@/components/portal/portal-detail-destination-nav";
 import type { MockProperty } from "@/data/types";
@@ -711,37 +718,104 @@ function ManagerPropertyInlineDetails({
       }
       return null;
     }
-    if (activeDetailTab === "application" && bucket !== 3 && bucket !== 5) {
-      return (
-        <div className="flex w-full min-w-0 flex-nowrap items-center justify-start gap-2">
-          <Button
-            type="button"
-            variant="outline"
-            className={PORTAL_DETAIL_BTN}
-            data-attr="property-application-add-footer"
-            onClick={() => setResidentOnboardOpen(true)}
-          >
-            Add application
-          </Button>
-          <Button
-            type="button"
-            variant="outline"
-            className={PORTAL_DETAIL_BTN}
-            data-attr="property-lease-add-footer-from-application"
-            onClick={() => setResidentOnboardOpen(true)}
-          >
-            Add lease
-          </Button>
-          <Button
-            type="button"
-            variant="primary"
-            className={PORTAL_DETAIL_BTN}
-            data-attr="property-resident-onboard-footer"
-            onClick={() => setResidentOnboardOpen(true)}
-          >
-            Add resident
-          </Button>
-          {sharePropertyId ? (
+    if (
+      (activeDetailTab === "application" || activeDetailTab === "lease") &&
+      bucket !== 3 &&
+      bucket !== 5
+    ) {
+      const fromLeaseTab = activeDetailTab === "lease";
+      const openOnboard = () => setResidentOnboardOpen(true);
+      const actions: PortalAdaptiveAction[] = [
+        {
+          id: "add-application",
+          node: (
+            <Button
+              type="button"
+              variant="outline"
+              className={PORTAL_DETAIL_BTN}
+              data-attr={
+                fromLeaseTab
+                  ? "property-application-add-footer-from-lease"
+                  : "property-application-add-footer"
+              }
+              onClick={openOnboard}
+            >
+              Add application
+            </Button>
+          ),
+          menuItem: (
+            <DropdownMenuItem
+              data-attr={
+                fromLeaseTab
+                  ? "property-application-add-footer-from-lease"
+                  : "property-application-add-footer"
+              }
+              onSelect={openOnboard}
+            >
+              Add application
+            </DropdownMenuItem>
+          ),
+        },
+        {
+          id: "add-lease",
+          node: (
+            <Button
+              type="button"
+              variant="outline"
+              className={PORTAL_DETAIL_BTN}
+              data-attr={
+                fromLeaseTab ? "property-lease-add-footer" : "property-lease-add-footer-from-application"
+              }
+              onClick={openOnboard}
+            >
+              Add lease
+            </Button>
+          ),
+          menuItem: (
+            <DropdownMenuItem
+              data-attr={
+                fromLeaseTab ? "property-lease-add-footer" : "property-lease-add-footer-from-application"
+              }
+              onSelect={openOnboard}
+            >
+              Add lease
+            </DropdownMenuItem>
+          ),
+        },
+        {
+          id: "add-resident",
+          alwaysVisible: true,
+          pinEdge: "end",
+          keepPriority: 10,
+          node: (
+            <Button
+              type="button"
+              variant="primary"
+              className={PORTAL_DETAIL_BTN}
+              data-attr={
+                fromLeaseTab ? "property-resident-onboard-footer-lease-tab" : "property-resident-onboard-footer"
+              }
+              onClick={openOnboard}
+            >
+              Add resident
+            </Button>
+          ),
+          menuItem: (
+            <DropdownMenuItem
+              data-attr={
+                fromLeaseTab ? "property-resident-onboard-footer-lease-tab" : "property-resident-onboard-footer"
+              }
+              onSelect={openOnboard}
+            >
+              Add resident
+            </DropdownMenuItem>
+          ),
+        },
+      ];
+      if (!fromLeaseTab && sharePropertyId) {
+        actions.push({
+          id: "send-application",
+          node: (
             <Button
               type="button"
               variant="outline"
@@ -751,41 +825,24 @@ function ManagerPropertyInlineDetails({
             >
               Send application
             </Button>
-          ) : null}
-        </div>
-      );
-    }
-    if (activeDetailTab === "lease" && bucket !== 3 && bucket !== 5) {
+          ),
+          menuItem: (
+            <DropdownMenuItem
+              data-attr="property-application-send-footer"
+              onSelect={() => setShareApplicationOpen(true)}
+            >
+              Send application
+            </DropdownMenuItem>
+          ),
+        });
+      }
       return (
-        <div className="flex w-full min-w-0 flex-nowrap items-center justify-start gap-2">
-          <Button
-            type="button"
-            variant="outline"
-            className={PORTAL_DETAIL_BTN}
-            data-attr="property-application-add-footer-from-lease"
-            onClick={() => setResidentOnboardOpen(true)}
-          >
-            Add application
-          </Button>
-          <Button
-            type="button"
-            variant="outline"
-            className={PORTAL_DETAIL_BTN}
-            data-attr="property-lease-add-footer"
-            onClick={() => setResidentOnboardOpen(true)}
-          >
-            Add lease
-          </Button>
-          <Button
-            type="button"
-            variant="primary"
-            className={PORTAL_DETAIL_BTN}
-            data-attr="property-resident-onboard-footer-lease-tab"
-            onClick={() => setResidentOnboardOpen(true)}
-          >
-            Add resident
-          </Button>
-        </div>
+        <PortalAdaptiveActionRow
+          actions={actions}
+          moreAriaLabel="More resident actions"
+          moreDataAttr="property-resident-footer-more"
+          gapPx={8}
+        />
       );
     }
     if (activeDetailTab === "calendar" && calendarSubTab === "tours" && bucket === 2 && listingId) {
