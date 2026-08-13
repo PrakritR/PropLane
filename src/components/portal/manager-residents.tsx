@@ -2075,7 +2075,11 @@ export function ManagerResidents({
 
   function openResidentPaymentSetup() {
     if (!selected) return;
-    const propId = selected.propertyId?.trim() || selected.assignedPropertyId?.trim() || "";
+    // `ActiveResident` has no `assignedPropertyId` — reading it here failed the
+    // production type check. The fallback is already applied where these rows are
+    // built (`row.assignedPropertyId || row.propertyId`), so `propertyId` carries
+    // it and nothing is lost by dropping the duplicate.
+    const propId = selected.propertyId.trim();
     if (!propId) {
       showToast("This resident isn't linked to a property yet.");
       return;
@@ -3118,11 +3122,7 @@ export function ManagerResidents({
         }}
         portalBase={portalBase}
         propertyOptions={propertyOptions}
-        presetPropertyIds={
-          selected?.propertyId?.trim() || selected?.assignedPropertyId?.trim()
-            ? [selected.propertyId?.trim() || selected.assignedPropertyId!.trim()]
-            : undefined
-        }
+        presetPropertyIds={selected?.propertyId.trim() ? [selected.propertyId.trim()] : undefined}
       />
 
       <Modal
