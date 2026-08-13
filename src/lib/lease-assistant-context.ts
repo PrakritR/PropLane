@@ -45,7 +45,7 @@ export function buildLeasePacketEditAssistantContext(row: LeasePipelineRow): str
   const parts = [
     `Lease packet edit`,
     `leaseId=${row.id}`,
-    `resident=${row.residentName.trim() || "Resident"}`,
+    `resident=${row.residentName?.trim() || "Resident"}`,
   ];
   if (row.unit?.trim()) parts.push(`unit=${row.unit.trim()}`);
   if (app.managerRentOverride?.trim()) parts.push(`rent=${app.managerRentOverride.trim()}`);

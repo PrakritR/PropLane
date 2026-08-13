@@ -26,6 +26,10 @@ vi.mock("@/lib/lease-pipeline-storage", () => ({
 }));
 vi.mock("@/lib/lease-section-edit.client", () => ({
   saveLeaseDocumentHtml: () => ({ ok: true, row: ROW }),
+  // `buildLeasePacketEditAssistantContext` reads the document's sections to
+  // describe them to the assistant. This stub has no document, so it returns
+  // none — the modal's no-sections branch, which is what this render exercises.
+  readLeaseSectionsForEdit: () => [],
 }));
 vi.mock("@/lib/generated-lease", () => ({
   buildAiGeneratedLeaseHtml: () => ({

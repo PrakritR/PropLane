@@ -2,7 +2,11 @@ name: Test
 
 on:
   push:
-    branches: [main]
+    # `prakrit` is the integration branch every lane merges through, so it is the
+    # one branch where breakage actually accumulates — yet it had no test trigger,
+    # and `main` sat red for days before anyone noticed. The `e2e` job stays gated
+    # on `main`/`schedule` below, so this adds unit + integration + check only.
+    branches: [main, prakrit]
   pull_request:
   workflow_dispatch:
   schedule:
