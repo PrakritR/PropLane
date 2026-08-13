@@ -1581,14 +1581,16 @@ export const ManagerInbox = forwardRef<
                 }
               />
             ) : null}
-            <InboxThreadAssistantStrip
-              contextHint={buildInboxThreadAssistantContext({
-                subject: activeThread.subject,
-                email: activeThread.email,
-                from: activeThread.from,
-                sentSemantics: activeIsSent,
-              })}
-            />
+            {!embeddedResidentChat ? (
+              <InboxThreadAssistantStrip
+                contextHint={buildInboxThreadAssistantContext({
+                  subject: activeThread.subject,
+                  email: activeThread.email,
+                  from: activeThread.from,
+                  sentSemantics: activeIsSent,
+                })}
+              />
+            ) : null}
             <InboxComposer
               value={replyDraft}
               onChange={setReplyDraft}

@@ -12,7 +12,6 @@ import {
   type InboxBubbleMessage,
 } from "@/components/portal/portal-inbox-ui";
 import { PortalSectionActionRow } from "@/components/portal/portal-section-action-row";
-import { InboxThreadAssistantStrip, buildInboxThreadAssistantContext } from "@/components/portal/inbox-thread-assistant-strip";
 import { useAppUi } from "@/components/providers/app-ui-provider";
 import {
   MANAGER_INBOX_STORAGE_KEY,
@@ -94,8 +93,6 @@ export function ResidentDirectChatPane({
   });
 
   const email = residentEmail.trim();
-  const displayName = residentName?.trim() || email || "Resident";
-  const subtitle = smsResident?.propertyLabel?.trim() || email;
   const smsAvailable = smsUiEnabled && Boolean(smsResident?.phone?.trim());
   const emailAvailable = Boolean(email);
   const [replyViaEmail, setReplyViaEmail] = useState(!smsAvailable && emailAvailable);
@@ -338,14 +335,6 @@ export function ResidentDirectChatPane({
               {scheduledCards}
             </div>
           ) : null}
-          <InboxThreadAssistantStrip
-            contextHint={buildInboxThreadAssistantContext({
-              subject: "Resident conversation",
-              from: displayName,
-              email: subtitle,
-            })}
-            storageScopeKey={`resident-direct-${email}`}
-          />
           <InboxComposer
             value={draft}
             onChange={setDraft}
