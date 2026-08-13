@@ -10,7 +10,7 @@ import {
   MODAL_FIELD_LABEL_CLASS,
   PORTAL_MODAL_FORM_FIELD_CLASS,
 } from "@/components/ui/modal";
-import { MODAL_XL_PANEL_CLASS } from "@/components/ui/modal-styles";
+import { MODAL_TALL_PANEL_CLASS, MODAL_XL_PANEL_CLASS } from "@/components/ui/modal-styles";
 import { LeaseHtmlDirectEditor } from "@/components/portal/lease-html-direct-editor";
 import {
   propertyLeaseNeedsAssistantReview,
@@ -181,9 +181,8 @@ export function LeaseGenerateModal({
       onClose={onClose}
       dismissBlocked={working}
       dense
-      fullPage
       scrollableContent={false}
-      panelClassName={MODAL_XL_PANEL_CLASS}
+      panelClassName={cn(MODAL_XL_PANEL_CLASS, MODAL_TALL_PANEL_CLASS)}
       assistantDefaultExpanded={false}
       assistantContext={assistantContext}
       assistantEditHint="Type in chat to edit the lease — changes apply after you confirm."
