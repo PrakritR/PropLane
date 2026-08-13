@@ -2,7 +2,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { MANAGER_GOOGLE_SERVICES_ONBOARDING_PATH } from "@/lib/auth/manager-google-services-onboarding";
 import { isGmailPaymentsOAuthConfigured } from "@/lib/gmail-payments/api.server";
-import { loadGmailPaymentsConnection } from "@/lib/gmail-payments/settings";
+import { loadGmailPaymentsConnection, managerHasAnyGmailPaymentsConnection } from "@/lib/gmail-payments/settings";
 import {
   isGoogleCalendarOAuthConfigured,
   loadGoogleCalendarConnection,
@@ -69,13 +69,13 @@ export async function loadGoogleServicesOnboardingStatus(
   gmailEmail: string | null;
 }> {
   await warmGoogleCalendarOAuthConfig();
-  const [dismissed, calendar, gmail] = await Promise.all([
+  const [dismissed, calendar, gmailConnected] = await Promise.all([
     isGoogleServicesOnboardingDismissed(db, userId),
     loadGoogleCalendarConnection(db, userId),
-    loadGmailPaymentsConnection(db, userId, "manager"),
+    managerHasAnyGmailPaymentsConnection(db, userId),
   ]);
   const calendarConnected = calendar.connected && Boolean(calendar.refreshToken);
-  const gmailConnected = gmail.connected && Boolean(gmail.refreshToken);
+  const legacyGmail = await loadGmailPaymentsConnection(db, userId, "manager");
   return {
     dismissed,
     calendarConnected,
@@ -83,7 +83,7 @@ export async function loadGoogleServicesOnboardingStatus(
     gmailConnected,
     gmailConfigured: isGmailPaymentsOAuthConfigured(),
     calendarEmail: calendar.email,
-    gmailEmail: gmail.email,
+    gmailEmail: legacyGmail.email,
   };
 }
 

@@ -19,6 +19,7 @@ import {
   formatGmailPaymentsConnectError,
   isGmailPaymentsOAuthBlocked,
 } from "@/lib/gmail-payments/connect-errors";
+import { gmailFilterFromClause, gmailFilterSubjectHint } from "@/lib/gmail-payments/gmail-query";
 import { stripeSetupStateFromStatus, type StripeSetupState } from "@/lib/stripe-setup-state";
 
 const DEMO_INBOX = "payments+demo-token@prop-lane.space";
@@ -115,9 +116,7 @@ function ChannelPaymentSetupModal({
   onAutoMarkChange,
   gmailStatus,
   gmailBusy,
-  gmailSyncBusy,
   onLinkGmail,
-  onSyncGmail,
   showToast,
   gmailConnectErrorReason,
 }: {
@@ -133,9 +132,7 @@ function ChannelPaymentSetupModal({
   onAutoMarkChange: (enabled: boolean) => void | Promise<void>;
   gmailStatus: ReturnType<typeof useGmailPaymentTrack>["gmailStatus"];
   gmailBusy: boolean;
-  gmailSyncBusy: boolean;
   onLinkGmail: () => void;
-  onSyncGmail: () => void;
   showToast: (message: string) => void;
   gmailConnectErrorReason?: string | null;
 }) {
@@ -144,7 +141,8 @@ function ChannelPaymentSetupModal({
     ? formatGmailPaymentsConnectError(gmailConnectErrorReason)
     : null;
   const placeholder = channel === "zelle" ? "phone number (or email)" : "@username or phone";
-  const filterFrom = channel === "zelle" ? "zellepay.com" : "venmo.com";
+  const filterFrom = gmailFilterFromClause(channel);
+  const filterSubject = gmailFilterSubjectHint(channel);
   const contact = channel === "zelle" ? draft.zelleContact : draft.venmoContact;
   const contactConnected =
     channel === "zelle"
@@ -208,14 +206,14 @@ function ChannelPaymentSetupModal({
         </div>
 
         <div className="space-y-2 rounded-xl border border-border bg-card px-4 py-3">
-          <p className="text-sm font-semibold text-foreground">Step 3 — Link Gmail (optional)</p>
+          <p className="text-sm font-semibold text-foreground">Step 3 — Link the Gmail inbox for {label} (optional)</p>
           <p className="text-xs text-muted">
-            We read {label} notification emails and match the <span className="font-mono">PL-</span> code and amount. If
-            a resident forgets the code, we still match on the amount plus their name and property; anything we
-            can&apos;t confidently match is never auto-marked — the charge stays pending for you to mark paid manually.
-            Linked-Gmail receipts are checked when you tap{" "}
-            <span className="font-medium">Sync now</span>. If Google blocks Link Gmail, skip to Step 4 — forwarding works
-            without Google approval.
+            Use the Gmail account that receives your {label} payment alerts — it can be different from the inbox you use
+            for other payment methods. We read those emails and match the <span className="font-mono">PL-</span> code and
+            amount. If a resident forgets the code, we still match on the amount plus their name and property; anything
+            we can&apos;t confidently match is never auto-marked — the charge stays pending for you to mark paid manually.
+            Linked inboxes are checked automatically when residents tap Check payment and on a daily schedule. If Google
+            blocks Link Gmail, skip to Step 4 — forwarding works without Google approval.
           </p>
           {gmailConnectError ? (
             <p
@@ -241,21 +239,9 @@ function ChannelPaymentSetupModal({
                 data-attr={`manager-payment-${channel}-gmail-link`}
                 className="text-sm font-medium text-primary hover:underline disabled:opacity-50"
               >
-                {gmailBusy ? "Opening…" : "Link Gmail"}
+                {gmailBusy ? "Opening…" : `Link Gmail for ${label}`}
               </button>
             )}
-            {gmailStatus?.connected ? (
-              <Button
-                type="button"
-                variant="outline"
-                className="h-7 rounded-full px-3 text-xs"
-                disabled={gmailSyncBusy}
-                data-attr={`manager-payment-${channel}-gmail-sync`}
-                onClick={onSyncGmail}
-              >
-                {gmailSyncBusy ? "Syncing…" : "Sync now"}
-              </Button>
-            ) : null}
           </div>
           {gmailStatus?.configured === false ? (
             <p className="text-xs text-muted">Google sign-in is not configured on this server.</p>
@@ -270,8 +256,8 @@ function ChannelPaymentSetupModal({
               </p>
               <p className="mt-1 text-sm leading-relaxed text-muted">
                 {gmailStatus?.connected
-                  ? "Optional backup: also forward receipts so they are matched the moment they arrive."
-                  : "Set up a Gmail filter to forward receipt emails to PropLane. This works even when Google blocks Link Gmail."}
+                  ? "Optional backup: also forward receipts from this inbox so they are matched the moment they arrive."
+                  : `Set up a Gmail filter in the inbox that receives your ${label} alerts. This works even when Google blocks Link Gmail.`}
               </p>
             </div>
             <ol className="space-y-3 text-sm leading-relaxed text-foreground">
@@ -308,6 +294,10 @@ function ChannelPaymentSetupModal({
                       Copy
                     </Button>
                   </div>
+                  <p className="text-xs text-muted">
+                    Optional: add Subject contains <span className="font-mono">{filterSubject}</span> if this inbox gets
+                    other mail from those senders.
+                  </p>
                 </div>
               </li>
               <li className="flex gap-3">
@@ -390,11 +380,8 @@ export function ManagerPaymentSetupModal({
   const [selectedPropertyIds, setSelectedPropertyIds] = useState<Set<string>>(() => new Set());
   const [propertySelectionComplete, setPropertySelectionComplete] = useState(false);
 
-  const { gmailStatus, gmailBusy, gmailSyncBusy, linkGmail, syncGmail } = useGmailPaymentTrack({
-    role: "manager",
-    demo,
-    showToast,
-  });
+  const zelleGmail = useGmailPaymentTrack({ role: "manager", channel: "zelle", demo, showToast });
+  const venmoGmail = useGmailPaymentTrack({ role: "manager", channel: "venmo", demo, showToast });
 
   const loadStripeStatus = useCallback(async () => {
     if (demo) {
@@ -573,13 +560,18 @@ export function ManagerPaymentSetupModal({
 
   const zelleContactConnected = draft.zellePaymentsEnabled && draft.zelleContact.trim().length > 0;
   const venmoContactConnected = draft.venmoPaymentsEnabled && draft.venmoContact.trim().length > 0;
-  const gmailLinked = Boolean(gmailStatus?.connected);
   const autoMarkOn = draft.receiptAutoMarkEnabled !== false;
   const hasForwardingInbox = Boolean(draft.paymentInboxAddress?.trim());
-  const manualTrackingReady = (contactConnected: boolean) =>
-    contactConnected && autoMarkOn && (gmailLinked || hasForwardingInbox);
-  const zelleTrackingReady = manualTrackingReady(zelleContactConnected);
-  const venmoTrackingReady = manualTrackingReady(venmoContactConnected);
+  const manualTrackingReady = (contactConnected: boolean, channelGmailConnected: boolean) =>
+    contactConnected && autoMarkOn && (channelGmailConnected || hasForwardingInbox);
+  const zelleTrackingReady = manualTrackingReady(
+    zelleContactConnected,
+    Boolean(zelleGmail.gmailStatus?.connected),
+  );
+  const venmoTrackingReady = manualTrackingReady(
+    venmoContactConnected,
+    Boolean(venmoGmail.gmailStatus?.connected),
+  );
 
   const channelModalProps = {
     draft,
@@ -587,11 +579,6 @@ export function ManagerPaymentSetupModal({
     paymentInboxAddress: draft.paymentInboxAddress,
     autoMarkEnabled: autoMarkOn,
     onAutoMarkChange: toggleAutoMark,
-    gmailStatus,
-    gmailBusy,
-    gmailSyncBusy,
-    onLinkGmail: linkGmail,
-    onSyncGmail: () => void syncGmail(),
     showToast,
   };
 
@@ -802,6 +789,9 @@ export function ManagerPaymentSetupModal({
             )
           }
           {...channelModalProps}
+          gmailStatus={activeChannel === "zelle" ? zelleGmail.gmailStatus : venmoGmail.gmailStatus}
+          gmailBusy={activeChannel === "zelle" ? zelleGmail.gmailBusy : venmoGmail.gmailBusy}
+          onLinkGmail={activeChannel === "zelle" ? zelleGmail.linkGmail : venmoGmail.linkGmail}
           gmailConnectErrorReason={gmailConnectErrorReason}
         />
       ) : null}

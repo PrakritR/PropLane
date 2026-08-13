@@ -13,9 +13,9 @@ import {
 } from "@/lib/payment-receipt-email/parse-receipt";
 
 import { ensureGmailPaymentsAccessToken, listPaymentReceiptMessages } from "./api.server";
-import { buildPaymentReceiptGmailQuery } from "./gmail-query";
-import type { GmailPaymentTrackRole } from "./portal-role";
-import { saveGmailPaymentsConnection } from "./settings";
+import { buildPaymentReceiptGmailQuery, type PaymentReceiptGmailChannel } from "./gmail-query";
+import type { GmailPaymentTrackRole, ManagerPaymentReceiptChannel } from "./portal-role";
+import { listConnectedManagerReceiptChannels, saveGmailPaymentsConnection } from "./settings";
 
 export type GmailPaymentsSyncResult = {
   scanned: number;
@@ -25,6 +25,26 @@ export type GmailPaymentsSyncResult = {
   idempotent: number;
   errors: string[];
 };
+
+type ReceiptCandidate = {
+  msg: { id: string; fromEmail: string; subject: string; body: string };
+  receipt: NonNullable<ReturnType<typeof parseResidentReceiptContext>>;
+};
+
+async function scanManagerReceiptMessages(
+  db: SupabaseClient,
+  userId: string,
+  channel: ManagerPaymentReceiptChannel | null,
+): Promise<{ messages: Awaited<ReturnType<typeof listPaymentReceiptMessages>>; queryChannel: PaymentReceiptGmailChannel }> {
+  const queryChannel: PaymentReceiptGmailChannel = channel ?? "all";
+  const { accessToken } = await ensureGmailPaymentsAccessToken(db, userId, "manager", channel ?? undefined);
+  const messages = await listPaymentReceiptMessages(
+    accessToken,
+    buildPaymentReceiptGmailQuery(30, queryChannel),
+    40,
+  );
+  return { messages, queryChannel };
+}
 
 export async function syncGmailPaymentReceipts(
   db: SupabaseClient,
@@ -38,11 +58,8 @@ export async function syncGmailPaymentReceipts(
     }
   }
 
-  const { accessToken } = await ensureGmailPaymentsAccessToken(db, userId, role);
-  const messages = await listPaymentReceiptMessages(accessToken, buildPaymentReceiptGmailQuery(30), 40);
-
   const result: GmailPaymentsSyncResult = {
-    scanned: messages.length,
+    scanned: 0,
     markedPaid: 0,
     unmatched: 0,
     ambiguous: 0,
@@ -68,10 +85,46 @@ export async function syncGmailPaymentReceipts(
   };
 
   if (role === "manager") {
-    const candidates = messages.flatMap((msg) => {
-      const receipt = parseResidentReceiptContext({ fromEmail: msg.fromEmail, subject: msg.subject, body: msg.body });
-      return receipt ? [{ msg, receipt }] : [];
-    });
+    const inboxes = await listConnectedManagerReceiptChannels(db, userId);
+    if (inboxes.length === 0) {
+      result.errors.push("gmail_not_connected");
+      return result;
+    }
+
+    const seenMessageIds = new Set<string>();
+    const candidates: ReceiptCandidate[] = [];
+
+    for (const { channel } of inboxes) {
+      try {
+        const { messages } = await scanManagerReceiptMessages(db, userId, channel);
+        result.scanned += messages.length;
+        for (const msg of messages) {
+          if (seenMessageIds.has(msg.id)) continue;
+          seenMessageIds.add(msg.id);
+          const receipt = parseResidentReceiptContext({
+            fromEmail: msg.fromEmail,
+            subject: msg.subject,
+            body: msg.body,
+          });
+          if (receipt) {
+            candidates.push({ msg, receipt });
+          }
+        }
+        await saveGmailPaymentsConnection(
+          db,
+          userId,
+          "manager",
+          {
+            lastSyncAt: new Date().toISOString(),
+            lastSyncMarkedPaid: result.markedPaid,
+          },
+          channel ?? undefined,
+        );
+      } catch (e) {
+        result.errors.push(e instanceof Error ? e.message : "sync error");
+      }
+    }
+
     if (candidates.length > 0) {
       try {
         const processedIds = await loadProcessedReceiptSourceIds(
@@ -99,20 +152,26 @@ export async function syncGmailPaymentReceipts(
         result.errors.push(e instanceof Error ? e.message : "sync error");
       }
     }
-  } else {
-    for (const msg of messages) {
-      try {
-        const receipt = parseWorkOrderPaymentReceiptEmail({
-          fromEmail: msg.fromEmail,
-          subject: msg.subject,
-          body: msg.body,
-        });
-        if (!receipt) continue;
-        const outcome = await markWorkOrderPaidFromVendorReceipt(db, userId, receipt, msg.id);
-        tally(outcome.outcome);
-      } catch (e) {
-        result.errors.push(e instanceof Error ? e.message : "sync error");
-      }
+
+    return result;
+  }
+
+  const { accessToken } = await ensureGmailPaymentsAccessToken(db, userId, role);
+  const messages = await listPaymentReceiptMessages(accessToken, buildPaymentReceiptGmailQuery(30), 40);
+  result.scanned = messages.length;
+
+  for (const msg of messages) {
+    try {
+      const receipt = parseWorkOrderPaymentReceiptEmail({
+        fromEmail: msg.fromEmail,
+        subject: msg.subject,
+        body: msg.body,
+      });
+      if (!receipt) continue;
+      const outcome = await markWorkOrderPaidFromVendorReceipt(db, userId, receipt, msg.id);
+      tally(outcome.outcome);
+    } catch (e) {
+      result.errors.push(e instanceof Error ? e.message : "sync error");
     }
   }
 

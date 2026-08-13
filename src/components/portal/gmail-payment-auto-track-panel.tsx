@@ -1,8 +1,11 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { Button } from "@/components/ui/button";
-import type { GmailPaymentTrackRole } from "@/lib/gmail-payments/portal-role";
+import type { GmailPaymentTrackRole, ManagerPaymentReceiptChannel } from "@/lib/gmail-payments/portal-role";
+import {
+  gmailFilterFromClause,
+  gmailFilterSubjectHint,
+} from "@/lib/gmail-payments/gmail-query";
 
 export type GmailPaymentTrackStatus = {
   connected: boolean;
@@ -14,22 +17,24 @@ export type GmailPaymentTrackStatus = {
 
 export function useGmailPaymentTrack({
   role,
+  channel,
   demo,
   showToast,
 }: {
   role: GmailPaymentTrackRole;
+  channel?: ManagerPaymentReceiptChannel;
   demo: boolean;
   showToast: (message: string) => void;
 }) {
   const apiBase = role === "vendor" ? "/api/vendor/gmail-payments" : "/api/portal/gmail-payments";
+  const channelQuery = channel ? `&channel=${encodeURIComponent(channel)}` : "";
   const connectPath =
     role === "vendor"
       ? `/api/vendor/gmail-payments/connect?origin=${encodeURIComponent(typeof window !== "undefined" ? window.location.origin : "")}`
-      : `/api/portal/gmail-payments/connect?origin=${encodeURIComponent(typeof window !== "undefined" ? window.location.origin : "")}`;
+      : `/api/portal/gmail-payments/connect?origin=${encodeURIComponent(typeof window !== "undefined" ? window.location.origin : "")}${channelQuery}`;
 
   const [gmailStatus, setGmailStatus] = useState<GmailPaymentTrackStatus | null>(null);
   const [gmailBusy, setGmailBusy] = useState(false);
-  const [gmailSyncBusy, setGmailSyncBusy] = useState(false);
 
   const loadGmailStatus = useCallback(async () => {
     if (demo) {
@@ -37,13 +42,14 @@ export function useGmailPaymentTrack({
       return;
     }
     try {
-      const res = await fetch(apiBase, { credentials: "include" });
+      const statusUrl = channel ? `${apiBase}?channel=${encodeURIComponent(channel)}` : apiBase;
+      const res = await fetch(statusUrl, { credentials: "include" });
       const data = (await res.json().catch(() => ({}))) as { status?: GmailPaymentTrackStatus };
       if (res.ok && data.status) setGmailStatus(data.status);
     } catch {
       setGmailStatus(null);
     }
-  }, [apiBase, demo]);
+  }, [apiBase, channel, demo]);
 
   useEffect(() => {
     void loadGmailStatus();
@@ -58,49 +64,15 @@ export function useGmailPaymentTrack({
     window.location.assign(connectPath);
   }
 
-  async function syncGmail() {
-    if (demo) return;
-    setGmailSyncBusy(true);
-    try {
-      const res = await fetch(`${apiBase}/sync`, { method: "POST", credentials: "include" });
-      const data = (await res.json().catch(() => ({}))) as {
-        result?: { scanned: number; markedPaid: number };
-        error?: string;
-      };
-      if (!res.ok) {
-        showToast(data.error ?? "Gmail sync failed.");
-        return;
-      }
-      const r = data.result;
-      showToast(
-        r
-          ? `Synced ${r.scanned} receipt${r.scanned === 1 ? "" : "s"}; ${r.markedPaid} marked paid.`
-          : "Gmail sync complete.",
-      );
-      void loadGmailStatus();
-    } catch {
-      showToast("Gmail sync failed.");
-    } finally {
-      setGmailSyncBusy(false);
-    }
-  }
-
   return {
     gmailStatus,
     gmailBusy,
-    gmailSyncBusy,
     linkGmail,
-    syncGmail,
     loadGmailStatus,
   };
 }
 
 type ManualChannel = "zelle" | "venmo";
-
-const CHANNEL_FILTER_FROM: Record<ManualChannel, string> = {
-  zelle: "zellepay.com",
-  venmo: "venmo.com",
-};
 
 export function GmailPaymentTrackSteps({
   role,
@@ -110,9 +82,7 @@ export function GmailPaymentTrackSteps({
   onAutoMarkChange,
   gmailStatus,
   gmailBusy,
-  gmailSyncBusy,
   onLinkGmail,
-  onSyncGmail,
   showToast,
   compact,
 }: {
@@ -123,23 +93,26 @@ export function GmailPaymentTrackSteps({
   onAutoMarkChange: (enabled: boolean) => void | Promise<void>;
   gmailStatus: GmailPaymentTrackStatus | null;
   gmailBusy: boolean;
-  gmailSyncBusy: boolean;
   onLinkGmail: () => void;
-  onSyncGmail: () => void;
   showToast: (message: string) => void;
   compact?: boolean;
 }) {
   const refLabel = role === "manager" ? "PL-" : "WO-";
-  const filterFrom = channel ? CHANNEL_FILTER_FROM[channel] : "venmo.com OR zellepay.com";
+  const filterFrom = channel ? gmailFilterFromClause(channel) : "venmo.com OR zellepay.com";
+  const filterSubject = channel ? gmailFilterSubjectHint(channel) : null;
   const channelLabel = channel === "zelle" ? "Zelle" : channel === "venmo" ? "Venmo" : "Zelle/Venmo";
 
   return (
     <ol className={`list-decimal space-y-3 pl-5 text-xs leading-relaxed text-muted ${compact ? "mt-3" : ""}`}>
       <li className="text-foreground">
-        <span className="font-medium text-foreground">Link Gmail</span>
-        <span className="text-muted"> — we read {channelLabel} notification emails and match the </span>
+        <span className="font-medium text-foreground">Link the Gmail inbox for {channelLabel}</span>
+        <span className="text-muted">
+          {" "}
+          — use the account that receives {channelLabel} payment alerts (it can differ from your other payment inbox).
+          We read those emails and match the{" "}
+        </span>
         <span className="font-mono">{refLabel}</span>
-        <span className="text-muted"> code and amount.</span>
+        <span className="text-muted"> code and amount. Receipts are checked automatically when residents tap Check payment and on a daily schedule.</span>
         <div className="mt-2 flex flex-wrap items-center gap-2">
           {gmailStatus?.connected ? (
             <span className="text-sm font-medium text-[var(--status-confirmed-fg)]">
@@ -156,18 +129,6 @@ export function GmailPaymentTrackSteps({
               {gmailBusy ? "Opening…" : "Link Gmail"}
             </button>
           )}
-          {gmailStatus?.connected ? (
-            <Button
-              type="button"
-              variant="outline"
-              className="h-7 rounded-full px-3 text-xs"
-              disabled={gmailSyncBusy}
-              data-attr={channel ? `manager-payment-${channel}-gmail-sync` : `${role}-payment-gmail-sync`}
-              onClick={onSyncGmail}
-            >
-              {gmailSyncBusy ? "Syncing…" : "Sync now"}
-            </Button>
-          ) : null}
         </div>
         {gmailStatus?.configured === false ? (
           <p className="mt-1 text-muted">Google sign-in is not configured on this server.</p>
@@ -176,9 +137,6 @@ export function GmailPaymentTrackSteps({
             If Google shows &quot;This app is blocked,&quot; skip Link Gmail and set up the Gmail filter below instead.
           </p>
         ) : null}
-        {gmailStatus?.connected && gmailStatus.lastSyncAt ? (
-          <p className="mt-1 text-muted">Last sync {new Date(gmailStatus.lastSyncAt).toLocaleString()}</p>
-        ) : null}
       </li>
 
       {paymentInboxAddress && role === "manager" ? (
@@ -186,9 +144,18 @@ export function GmailPaymentTrackSteps({
           <span className="font-medium text-foreground">Set up a Gmail filter</span>
           <span className="text-muted"> (optional if Gmail is linked above)</span>
           <ul className="mt-2 list-disc space-y-1 pl-4">
-            <li>Open Gmail → Settings → Filters → Create filter.</li>
+            <li>
+              In the Gmail account that receives your {channelLabel} alerts, open Settings → Filters → Create filter.
+            </li>
             <li>
               From: <span className="font-mono">{filterFrom}</span>
+              {filterSubject ? (
+                <>
+                  {" "}
+                  — optionally add Subject contains <span className="font-mono">{filterSubject}</span> if you get too
+                  much other mail from those senders.
+                </>
+              ) : null}
             </li>
             <li>
               Choose “Forward it to” and add{" "}
@@ -205,7 +172,7 @@ export function GmailPaymentTrackSteps({
                 Copy
               </button>
             </li>
-            <li>Save the filter. New {channelLabel} emails will auto-mark matching charges.</li>
+            <li>Save the filter. Forwarded {channelLabel} receipts are matched as soon as they arrive.</li>
           </ul>
         </li>
       ) : null}
@@ -222,7 +189,9 @@ export function GmailPaymentTrackSteps({
             />
             <span>
               <span className="font-medium text-foreground">Automatically mark matching charges paid</span>
-              <span className="block text-muted">Turn this on so {channelLabel} receipts mark the right charge without a manual review.</span>
+              <span className="block text-muted">
+                Turn this on so {channelLabel} receipts mark the right charge without a manual review.
+              </span>
             </span>
           </label>
         </li>
@@ -246,7 +215,7 @@ export function GmailPaymentAutoTrackPanel({
   onAutoMarkChange: (enabled: boolean) => void | Promise<void>;
   showToast: (message: string) => void;
 }) {
-  const { gmailStatus, gmailBusy, gmailSyncBusy, linkGmail, syncGmail } = useGmailPaymentTrack({
+  const { gmailStatus, gmailBusy, linkGmail } = useGmailPaymentTrack({
     role,
     demo,
     showToast,
@@ -261,7 +230,7 @@ export function GmailPaymentAutoTrackPanel({
     <div className="rounded-xl border border-border bg-muted/30 px-4 py-3 space-y-3">
       <p className="text-xs font-medium uppercase tracking-wide text-muted">Auto-track receipts</p>
       <p className="text-sm text-foreground">
-        Link Gmail to read {roleHint}. We match the{" "}
+        Link each Gmail inbox that receives payment alerts (Zelle and Venmo can use different addresses). We match the{" "}
         <span className="font-mono">{role === "manager" ? "PL-" : "WO-"}</span> code and amount, then mark{" "}
         {role === "manager" ? "the charge" : "the work order"} paid.
       </p>
@@ -273,9 +242,7 @@ export function GmailPaymentAutoTrackPanel({
           onAutoMarkChange={onAutoMarkChange}
           gmailStatus={gmailStatus}
           gmailBusy={gmailBusy}
-          gmailSyncBusy={gmailSyncBusy}
           onLinkGmail={linkGmail}
-          onSyncGmail={() => void syncGmail()}
           showToast={showToast}
         />
       </div>

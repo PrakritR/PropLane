@@ -2,7 +2,12 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { isGoogleCalendarOAuthConfigured } from "@/lib/google-calendar/settings";
 
-import { gmailPaymentsStorageKey, type GmailPaymentTrackRole } from "./portal-role";
+import {
+  gmailPaymentsStorageKey,
+  MANAGER_PAYMENT_RECEIPT_CHANNELS,
+  type GmailPaymentTrackRole,
+  type ManagerPaymentReceiptChannel,
+} from "./portal-role";
 
 export type GmailPaymentsConnection = {
   connected: boolean;
@@ -55,14 +60,31 @@ function rowDataRecord(raw: unknown): Record<string, unknown> {
 function readConnectionFromRowData(
   rowData: Record<string, unknown>,
   role: GmailPaymentTrackRole,
+  channel?: ManagerPaymentReceiptChannel,
 ): GmailPaymentsConnection {
-  const key = gmailPaymentsStorageKey(role);
+  const key = gmailPaymentsStorageKey(role, channel);
   const nested = rowData[key];
   if (nested) return normalizeGmailPaymentsConnection(nested);
-  // Legacy flat gmailPayments = manager connection
-  if (role === "manager" && rowData.gmailPayments) {
-    return normalizeGmailPaymentsConnection(rowData.gmailPayments);
+
+  // Per-channel keys absent — fall back to the legacy single manager inbox.
+  if (role === "manager" && channel) {
+    if (rowData.gmailPaymentsManager) {
+      return normalizeGmailPaymentsConnection(rowData.gmailPaymentsManager);
+    }
+    if (rowData.gmailPayments) {
+      return normalizeGmailPaymentsConnection(rowData.gmailPayments);
+    }
   }
+
+  if (role === "manager" && !channel) {
+    if (rowData.gmailPaymentsManager) {
+      return normalizeGmailPaymentsConnection(rowData.gmailPaymentsManager);
+    }
+    if (rowData.gmailPayments) {
+      return normalizeGmailPaymentsConnection(rowData.gmailPayments);
+    }
+  }
+
   return { ...DEFAULT_GMAIL_PAYMENTS_CONNECTION };
 }
 
@@ -70,6 +92,7 @@ export async function loadGmailPaymentsConnection(
   db: SupabaseClient,
   userId: string,
   role: GmailPaymentTrackRole,
+  channel?: ManagerPaymentReceiptChannel,
 ): Promise<GmailPaymentsConnection> {
   const { data, error } = await db
     .from("manager_automation_settings")
@@ -77,7 +100,46 @@ export async function loadGmailPaymentsConnection(
     .eq("manager_user_id", userId)
     .maybeSingle();
   if (error) throw error;
-  return readConnectionFromRowData(rowDataRecord(data?.row_data), role);
+  return readConnectionFromRowData(rowDataRecord(data?.row_data), role, channel);
+}
+
+/** Connected manager receipt inboxes — one per Zelle/Venmo channel, plus legacy single inbox. */
+export async function listConnectedManagerReceiptChannels(
+  db: SupabaseClient,
+  userId: string,
+): Promise<{ channel: ManagerPaymentReceiptChannel | null; connection: GmailPaymentsConnection }[]> {
+  const { data, error } = await db
+    .from("manager_automation_settings")
+    .select("row_data")
+    .eq("manager_user_id", userId)
+    .maybeSingle();
+  if (error) throw error;
+  const rowData = rowDataRecord(data?.row_data);
+
+  const out: { channel: ManagerPaymentReceiptChannel | null; connection: GmailPaymentsConnection }[] = [];
+  for (const channel of MANAGER_PAYMENT_RECEIPT_CHANNELS) {
+    const connection = readConnectionFromRowData(rowData, "manager", channel);
+    if (connection.connected) {
+      out.push({ channel, connection });
+    }
+  }
+
+  if (out.length === 0) {
+    const legacy = readConnectionFromRowData(rowData, "manager");
+    if (legacy.connected) {
+      out.push({ channel: null, connection: legacy });
+    }
+  }
+
+  return out;
+}
+
+export async function managerHasAnyGmailPaymentsConnection(
+  db: SupabaseClient,
+  userId: string,
+): Promise<boolean> {
+  const connected = await listConnectedManagerReceiptChannels(db, userId);
+  return connected.length > 0;
 }
 
 export async function saveGmailPaymentsConnection(
@@ -85,8 +147,9 @@ export async function saveGmailPaymentsConnection(
   userId: string,
   role: GmailPaymentTrackRole,
   patch: Partial<GmailPaymentsConnection>,
+  channel?: ManagerPaymentReceiptChannel,
 ): Promise<GmailPaymentsConnection> {
-  const current = await loadGmailPaymentsConnection(db, userId, role);
+  const current = await loadGmailPaymentsConnection(db, userId, role, channel);
   const next = normalizeGmailPaymentsConnection({ ...current, ...patch });
   const { data: existing, error: readError } = await db
     .from("manager_automation_settings")
@@ -96,9 +159,11 @@ export async function saveGmailPaymentsConnection(
   if (readError) throw readError;
 
   const row_data = rowDataRecord(existing?.row_data);
-  row_data[gmailPaymentsStorageKey(role)] = next;
-  if (role === "manager") {
+  const key = gmailPaymentsStorageKey(role, channel);
+  row_data[key] = next;
+  if (role === "manager" && !channel) {
     row_data.gmailPayments = next;
+    row_data.gmailPaymentsManager = next;
   }
 
   const { error } = await db.from("manager_automation_settings").upsert(
@@ -117,9 +182,16 @@ export async function clearGmailPaymentsConnection(
   db: SupabaseClient,
   userId: string,
   role: GmailPaymentTrackRole,
+  channel?: ManagerPaymentReceiptChannel,
 ): Promise<void> {
-  await saveGmailPaymentsConnection(db, userId, role, {
-    ...DEFAULT_GMAIL_PAYMENTS_CONNECTION,
-    connected: false,
-  });
+  await saveGmailPaymentsConnection(
+    db,
+    userId,
+    role,
+    {
+      ...DEFAULT_GMAIL_PAYMENTS_CONNECTION,
+      connected: false,
+    },
+    channel,
+  );
 }

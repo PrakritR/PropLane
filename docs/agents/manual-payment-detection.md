@@ -12,7 +12,7 @@ architecture reference behind it; keep the two in sync.
 
 | Path | Trigger | Latency |
 | --- | --- | --- |
-| **Linked Gmail** | Manager taps **Check payments** / **Sync now** (`POST /api/portal/gmail-payments/sync`); a resident's **Check payment** also runs a sync (`resident-check-manual-payment.server.ts`) | `GET /api/cron/sync-manual-payments` runs once daily on Vercel Hobby (managers with rent due in 48h are prioritized inside each run; urgent paths still use **Check payments** / resident sync) |
+| **Linked Gmail** | Resident taps **Check payment** (`resident-check-manual-payment.server.ts`); manager taps **Check payments** on the Payments tab (`POST /api/portal/gmail-payments/sync`) | `GET /api/cron/sync-manual-payments` runs once daily on Vercel Hobby (managers with rent due in 48h are prioritized inside each run) |
 | **Forwarded email** (`payments+<token>@…`) | A Gmail filter forwards receipts; the inbound webhook processes each on arrival | Instant |
 
 Both paths run the SAME parse → match → mark-paid pipeline
@@ -64,9 +64,9 @@ applied to at most one charge.
 1. **Choose properties, then save your Zelle/Venmo contact** — Zelle accepts a phone number (usual) or email. The saved destination is applied only to those listings and their pending charges, so the resident screen and application flow use the same current destination.
 2. **Turn on payment-received email notifications** in Zelle/your bank app or
    the Venmo app.
-3. **Link Gmail** (read-only receipt scope) *or* set up a **forwarding filter**
-   to `payments+<token>@prop-lane.space` for instant detection. If Google shows
-   **“This app is blocked”** on Link Gmail (`gmail.readonly` is a restricted
+3. **Link the Gmail inbox for each channel** (read-only receipt scope) *or* set up a **forwarding filter**
+   to `payments+<token>@prop-lane.space` for instant detection. Zelle and Venmo can use different Gmail
+   accounts. If Google shows **“This app is blocked”** on Link Gmail (`gmail.readonly` is a restricted
    scope), skip Step 3 and use forwarding — it uses the same matching pipeline.
 4. **Auto-mark charges paid** toggle — on by default.
 
@@ -80,8 +80,7 @@ applied to at most one charge.
 
 ### Detection timing
 - **Forwarded email:** matched the moment the receipt lands.
-- **Linked Gmail:** matched when the manager taps **Sync now** (or a resident
-  taps **Check payment**, which triggers the same sync).
+- **Linked Gmail:** matched when a resident taps **Check payment**, when the manager taps **Check payments**, or on the daily cron scan.
 - Anything we can't confidently attribute is counted **ambiguous** and left
   alone — the charge stays pending for the manager to mark paid manually, and
   is never silently credited.

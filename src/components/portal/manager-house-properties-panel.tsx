@@ -25,6 +25,7 @@ import { ManagerPropertyPromotionPanel } from "@/components/portal/manager-prope
 import { ManagerPropertyCalendarPanel } from "@/components/portal/manager-property-calendar-panel";
 import { ConfirmDeleteModal } from "@/components/portal/confirm-delete-modal";
 import { ShareLeadLinkModal } from "@/components/portal/share-lead-link-modal";
+import { TourReminderSettingsModal } from "@/components/portal/tour-reminder-settings-modal";
 import { PortalPageFooterActions, PortalSectionActionRow } from "@/components/portal/portal-section-action-row";
 import { PortalPageChrome, PortalPageScrollBody } from "@/lib/portal-page-chrome-layout";
 import { cn } from "@/lib/utils";
@@ -296,6 +297,7 @@ function ManagerPropertyInlineDetails({
   const [listingEditorOpen, setListingEditorOpen] = useState(false);
   const [draftEditorOpen, setDraftEditorOpen] = useState(false);
   const [shareApplicationOpen, setShareApplicationOpen] = useState(false);
+  const [tourReminderSettingsOpen, setTourReminderSettingsOpen] = useState(false);
   const [residentOnboardOpen, setResidentOnboardOpen] = useState(false);
   const [pendingDestructiveAction, setPendingDestructiveAction] = useState<
     "delete-queue" | "delete-draft" | "unlist" | null
@@ -847,15 +849,59 @@ function ManagerPropertyInlineDetails({
     }
     if (activeDetailTab === "calendar" && calendarSubTab === "tours" && bucket === 2 && listingId) {
       return (
-        <Button
-          type="button"
-          variant="primary"
-          className={PORTAL_DETAIL_BTN}
-          data-attr="listing-send-tour-link-footer"
-          onClick={() => tourSendHandlerRef.current?.()}
-        >
-          Send tour link
-        </Button>
+        <PortalAdaptiveActionRow
+          actions={[
+            {
+              id: "tour-reminders",
+              node: (
+                <Button
+                  type="button"
+                  variant="outline"
+                  className={PORTAL_DETAIL_BTN}
+                  data-attr="property-calendar-tour-reminder-settings"
+                  onClick={() => setTourReminderSettingsOpen(true)}
+                >
+                  Reminders
+                </Button>
+              ),
+              menuItem: (
+                <DropdownMenuItem
+                  data-attr="property-calendar-tour-reminder-settings-menu"
+                  onSelect={() => setTourReminderSettingsOpen(true)}
+                >
+                  Reminders
+                </DropdownMenuItem>
+              ),
+            },
+            {
+              id: "send-tour",
+              alwaysVisible: true,
+              pinEdge: "end",
+              node: (
+                <Button
+                  type="button"
+                  variant="primary"
+                  className={PORTAL_DETAIL_BTN}
+                  data-attr="listing-send-tour-link-footer"
+                  onClick={() => tourSendHandlerRef.current?.()}
+                >
+                  Send tour link
+                </Button>
+              ),
+              menuItem: (
+                <DropdownMenuItem
+                  data-attr="listing-send-tour-link-footer-menu"
+                  onSelect={() => tourSendHandlerRef.current?.()}
+                >
+                  Send tour link
+                </DropdownMenuItem>
+              ),
+            },
+          ]}
+          moreAriaLabel="More calendar actions"
+          moreDataAttr="property-calendar-footer-more"
+          gapPx={8}
+        />
       );
     }
     if (activeDetailTab === "requests" && bucket === 2 && stablePropertyId) {
@@ -894,6 +940,7 @@ function ManagerPropertyInlineDetails({
     canEditListing,
     sharePropertyId,
     openFullListingEditor,
+    calendarSubTab,
   ]);
 
   const propertyTopHeaderActionsRef = useRef(propertyTopHeaderActions);
@@ -1126,6 +1173,11 @@ function ManagerPropertyInlineDetails({
           showToast={showToast}
         />
       ) : null}
+
+      <TourReminderSettingsModal
+        open={tourReminderSettingsOpen}
+        onClose={() => setTourReminderSettingsOpen(false)}
+      />
     </div>
   );
 }

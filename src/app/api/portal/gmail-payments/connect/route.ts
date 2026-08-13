@@ -5,6 +5,7 @@ import {
   gmailPaymentsOAuthRedirectUri,
   isGmailPaymentsOAuthConfigured,
 } from "@/lib/gmail-payments/api.server";
+import type { ManagerPaymentReceiptChannel } from "@/lib/gmail-payments/portal-role";
 import { requireManager } from "@/lib/gmail-payments/require-manager.server";
 import { sanitizeOAuthReturnPath } from "@/lib/auth/oauth-return-path";
 import { warmGoogleCalendarOAuthConfig } from "@/lib/google-calendar/settings";
@@ -30,7 +31,10 @@ export async function GET(req: Request) {
       return NextResponse.redirect(`${returnTo}?gmail-pay=error&reason=${reason}`);
     }
     void gmailPaymentsOAuthRedirectUri(origin);
-    const oauthUrl = buildGmailPaymentsOAuthUrl(origin, ctx.userId, "manager", returnPath);
+    const channelParam = url.searchParams.get("channel")?.trim();
+    const channel: ManagerPaymentReceiptChannel | undefined =
+      channelParam === "venmo" || channelParam === "zelle" ? channelParam : undefined;
+    const oauthUrl = buildGmailPaymentsOAuthUrl(origin, ctx.userId, "manager", returnPath, channel);
     return NextResponse.redirect(oauthUrl);
   } catch (e) {
     const reason = encodeURIComponent(e instanceof Error ? e.message : "Failed to start Gmail connect.");

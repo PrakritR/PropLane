@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { syncGmailPaymentReceipts } from "@/lib/gmail-payments/sync.server";
-import { loadGmailPaymentsConnection } from "@/lib/gmail-payments/settings";
+import { listConnectedManagerReceiptChannels } from "@/lib/gmail-payments/settings";
 import { householdChargeDueDate, type HouseholdCharge } from "@/lib/household-charges";
 import { isProductionRuntime } from "@/lib/server-env";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
@@ -53,12 +53,17 @@ export async function GET(req: Request) {
   let markedPaid = 0;
   const errors: string[] = [];
   for (const [managerId, charges] of byManager) {
-    const connection = await loadGmailPaymentsConnection(db, managerId, "manager").catch(() => null);
-    if (!connection?.connected) {
+    const inboxes = await listConnectedManagerReceiptChannels(db, managerId).catch(() => []);
+    if (inboxes.length === 0) {
       skipped += 1;
       continue;
     }
-    const last = connection.lastSyncAt ? Date.parse(connection.lastSyncAt) : 0;
+    const last = Math.max(
+      0,
+      ...inboxes.map(({ connection }) =>
+        connection.lastSyncAt ? Date.parse(connection.lastSyncAt) : 0,
+      ),
+    );
     if (Number.isFinite(last) && now.getTime() - last < minimumIntervalMs(charges, now)) {
       skipped += 1;
       continue;

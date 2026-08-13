@@ -38,7 +38,14 @@ export async function GET(req: Request) {
 
   try {
     const db = createSupabaseServiceRoleClient();
-    await exchangeGmailPaymentsCode(db, oauthState.userId, code, oauthState.returnOrigin, oauthState.role);
+    await exchangeGmailPaymentsCode(
+      db,
+      oauthState.userId,
+      code,
+      oauthState.returnOrigin,
+      oauthState.role,
+      oauthState.channel,
+    );
     return NextResponse.redirect(`${returnTo}?gmail-pay=connected`);
   } catch (error) {
     const message = error instanceof Error ? error.message : "unknown";

@@ -8,6 +8,7 @@ import { FieldSingleSelect } from "@/components/ui/checkbox-multi-select";
 import { Modal, ModalFooter, MODAL_HEADER_CLOSE_CLASS } from "@/components/ui/modal";
 import { X } from "lucide-react";
 import { PortalNotificationPreviewModal, type NotificationConfirmDraft } from "@/components/portal/portal-notification-preview-modal";
+import { TourReminderTourPanel } from "@/components/portal/tour-reminder-tour-panel";
 import { PORTAL_CALENDAR_FRAME, PortalSegmentedControl } from "./portal-metrics";
 import { useAppUi } from "@/components/providers/app-ui-provider";
 import { formatPacificDate } from "@/lib/pacific-time";
@@ -1584,6 +1585,22 @@ export function PortalCalendarPanels({
               <p className="text-xs font-bold uppercase tracking-[0.14em] text-sky-700 portal-calendar-callout-sky-sub [html[data-theme=dark]_&]:portal-calendar-callout-sky-sub">Confirmation details</p>
               <p className="mt-1.5 whitespace-pre-wrap text-sky-950 portal-calendar-callout-sky-title [html[data-theme=dark]_&]:portal-calendar-callout-sky-title">{selectedBlock.meeting.instructions}</p>
             </div>
+          ) : null}
+
+          {selectedIsConfirmedTour && !selectedBlock.meeting.isPeerTour ? (
+            <TourReminderTourPanel
+              plannedEventId={selectedBlock.meeting.sourceId}
+              tourStartIso={selectedBlock.meeting.startIso}
+              tourEndIso={selectedBlock.meeting.endIso}
+              recipientEmail={selectedBlock.meeting.email}
+              recipientName={selectedBlock.meeting.name}
+              propertyTitle={
+                selectedBlock.meeting.propertyTitle
+                  ? `${selectedBlock.meeting.propertyTitle}${selectedBlock.meeting.roomLabel ? ` · ${selectedBlock.meeting.roomLabel}` : ""}`
+                  : undefined
+              }
+              instructions={selectedBlock.meeting.instructions}
+            />
           ) : null}
 
           {selectedBlock.meeting.isPeerTour ? (

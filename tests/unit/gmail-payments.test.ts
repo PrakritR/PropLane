@@ -4,7 +4,12 @@ import {
   formatGmailPaymentsConnectError,
   isGmailPaymentsOAuthBlocked,
 } from "@/lib/gmail-payments/connect-errors";
-import { buildPaymentReceiptGmailQuery } from "@/lib/gmail-payments/gmail-query";
+import {
+  buildPaymentReceiptGmailQuery,
+  gmailFilterFromClause,
+  gmailFilterSubjectHint,
+} from "@/lib/gmail-payments/gmail-query";
+import { gmailPaymentsStorageKey } from "@/lib/gmail-payments/portal-role";
 import { normalizeGmailPaymentsConnection } from "@/lib/gmail-payments/settings";
 import { isValidZelleContact } from "@/lib/manager-manual-payment-settings";
 
@@ -18,9 +23,36 @@ describe("buildPaymentReceiptGmailQuery", () => {
     expect(q).toContain('subject:"paid you"');
   });
 
+  it("scopes venmo-only and zelle-only searches", () => {
+    const venmo = buildPaymentReceiptGmailQuery(7, "venmo");
+    const zelle = buildPaymentReceiptGmailQuery(7, "zelle");
+    expect(venmo).toContain("venmo.com");
+    expect(venmo).not.toContain("zellepay.com");
+    expect(zelle).toContain("zellepay.com");
+    expect(zelle).toContain("chase.com");
+    expect(zelle).not.toContain("mail.venmo.com");
+  });
+
   it("clamps days between 1 and 90", () => {
     expect(buildPaymentReceiptGmailQuery(0)).toContain("newer_than:1d");
     expect(buildPaymentReceiptGmailQuery(200)).toContain("newer_than:90d");
+  });
+});
+
+describe("gmail filter helpers", () => {
+  it("lists bank senders for zelle filters", () => {
+    expect(gmailFilterFromClause("zelle")).toContain("chase.com");
+    expect(gmailFilterFromClause("venmo")).toContain("mail.venmo.com");
+    expect(gmailFilterSubjectHint("venmo")).toBe("paid you");
+    expect(gmailFilterSubjectHint("zelle")).toBe("Zelle");
+  });
+});
+
+describe("gmailPaymentsStorageKey", () => {
+  it("uses separate manager keys per receipt channel", () => {
+    expect(gmailPaymentsStorageKey("manager", "venmo")).toBe("gmailPaymentsManagerVenmo");
+    expect(gmailPaymentsStorageKey("manager", "zelle")).toBe("gmailPaymentsManagerZelle");
+    expect(gmailPaymentsStorageKey("vendor")).toBe("gmailPaymentsVendor");
   });
 });
 
