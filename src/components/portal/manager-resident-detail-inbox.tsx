@@ -81,7 +81,7 @@ export function ResidentDirectChatPane({
   smsResident,
   smsUiEnabled,
   onSent,
-  onScheduleMessage,
+  onNewMessage,
   scheduledRefreshKey = 0,
 }: {
   residentEmail: string;
@@ -89,7 +89,7 @@ export function ResidentDirectChatPane({
   smsResident?: ManagerSmsResidentConversation | null;
   smsUiEnabled: boolean;
   onSent: () => void;
-  onScheduleMessage?: () => void;
+  onNewMessage?: () => void;
   scheduledRefreshKey?: number;
 }) {
   const { showToast } = useAppUi();
@@ -228,7 +228,6 @@ export function ResidentDirectChatPane({
       <InboxScheduledThreadList
         count={threadScheduledItems.length}
         nextSendLabel={threadScheduledItems[0]?.sendLabel}
-        defaultCollapsed={threadScheduledItems.length > 2}
       >
         {threadScheduledItems.map((item) => (
           <InboxScheduledCard
@@ -395,15 +394,15 @@ export function ResidentDirectChatPane({
       hideIdentityHeader
       emptyLabel="No messages yet. Send the first message below."
       headerActions={
-        onScheduleMessage ? (
+        onNewMessage ? (
           <Button
             type="button"
-            variant="outline"
+            variant="primary"
             className="min-h-0 rounded-full px-3 py-1.5 text-xs"
-            data-attr="resident-detail-inbox-schedule"
-            onClick={onScheduleMessage}
+            data-attr="resident-detail-new-message"
+            onClick={onNewMessage}
           >
-            Schedule
+            New message
           </Button>
         ) : null
       }
@@ -466,6 +465,7 @@ export function ManagerResidentDetailInbox({
   inboxRef,
   emptyThreadFallback,
   onScheduleMessage,
+  onNewMessage,
   scheduledRefreshKey = 0,
 }: {
   residentEmail: string;
@@ -474,8 +474,10 @@ export function ManagerResidentDetailInbox({
   smsUiEnabled?: boolean;
   inboxRef?: RefObject<ManagerInboxHandle | null>;
   emptyThreadFallback?: ReactNode;
-  /** Opens compose with scheduling focused. */
+  /** @deprecated Use onNewMessage */
   onScheduleMessage?: () => void;
+  /** Opens the compose modal. */
+  onNewMessage?: () => void;
   scheduledRefreshKey?: number;
 }) {
   const commBase = `${portalBase}/communication`;
@@ -540,7 +542,7 @@ export function ManagerResidentDetailInbox({
         smsResident={smsResidentForEmail}
         smsUiEnabled={smsUiEnabled}
         onSent={refreshConversations}
-        onScheduleMessage={onScheduleMessage}
+        onNewMessage={onNewMessage ?? onScheduleMessage}
         scheduledRefreshKey={scheduledRefreshKey}
       />
     );
@@ -585,7 +587,7 @@ export function ManagerResidentDetailInbox({
             commBase={commBase}
             smsUiEnabled={smsUiEnabled}
             smsRecipients={smsResidents}
-            onScheduleMessage={onScheduleMessage}
+            onNewMessage={onNewMessage ?? onScheduleMessage}
             scheduledRefreshKey={scheduledRefreshKey}
           />
         }

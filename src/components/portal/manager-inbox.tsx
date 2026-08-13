@@ -173,8 +173,8 @@ export const ManagerInbox = forwardRef<
     filterResidentEmail?: string;
     /** Rendered when suppressListPane is set and no thread matches filterResidentEmail. */
     emptyThreadFallback?: React.ReactNode;
-    /** Resident profile Communication — opens compose with scheduling focused. */
-    onScheduleMessage?: () => void;
+    /** Resident profile Communication — opens compose modal. */
+    onNewMessage?: () => void;
     /** Bumps when a parent modal schedules/cancels for the filtered resident. */
     scheduledRefreshKey?: number;
   }
@@ -196,7 +196,7 @@ export const ManagerInbox = forwardRef<
     smsRecipients = [],
     filterResidentEmail,
     emptyThreadFallback,
-    onScheduleMessage,
+    onNewMessage,
     scheduledRefreshKey = 0,
   },
   ref,
@@ -1284,7 +1284,6 @@ export const ManagerInbox = forwardRef<
 
   const showAiDraftUi = Boolean(
     activeThread &&
-      !embeddedResidentChat &&
       activeThread.folder === "inbox" &&
       ((activeThread.messages ?? []).length > 0 || Boolean(activeThread.body?.trim())),
   );
@@ -1495,15 +1494,15 @@ export const ManagerInbox = forwardRef<
       </>
     ) : (
       <>
-        {embeddedResidentChat && onScheduleMessage ? (
+        {embeddedResidentChat && onNewMessage ? (
           <Button
             type="button"
-            variant="outline"
+            variant="primary"
             className="min-h-0 rounded-full px-3 py-1.5 text-xs"
-            data-attr="resident-detail-inbox-schedule"
-            onClick={onScheduleMessage}
+            data-attr="resident-detail-new-message"
+            onClick={onNewMessage}
           >
-            Schedule
+            New message
           </Button>
         ) : null}
         <Button
@@ -1526,7 +1525,6 @@ export const ManagerInbox = forwardRef<
       <InboxScheduledThreadList
         count={threadScheduledItems.length}
         nextSendLabel={threadScheduledItems[0]?.sendLabel}
-        defaultCollapsed={embeddedInCommunication && threadScheduledItems.length > 2}
       >
         {threadScheduledItems.map((item) => (
           <InboxScheduledCard

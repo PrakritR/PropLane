@@ -10,7 +10,7 @@ import {
   MODAL_FIELD_LABEL_CLASS,
   PORTAL_MODAL_FORM_FIELD_CLASS,
 } from "@/components/ui/modal";
-import { MODAL_LARGE_PANEL_CLASS } from "@/components/ui/modal-styles";
+import { MODAL_LARGE_PANEL_CLASS, MODAL_TALL_PANEL_CLASS } from "@/components/ui/modal-styles";
 import { LeaseHtmlDirectEditor } from "@/components/portal/lease-html-direct-editor";
 import {
   PropertyLeaseDocumentNotice,
@@ -120,9 +120,8 @@ export function ManagerPipelineLeaseEditModal({
       onClose={handleClose}
       dismissBlocked={saving}
       dense
-      fullPage
       scrollableContent={false}
-      panelClassName={MODAL_LARGE_PANEL_CLASS}
+      panelClassName={cn(MODAL_LARGE_PANEL_CLASS, MODAL_TALL_PANEL_CLASS)}
       assistantDefaultExpanded={false}
       assistantContext={assistantContext}
       assistantEditHint="Type in chat to edit the lease — changes apply after you confirm."

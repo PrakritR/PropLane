@@ -2,7 +2,8 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Modal } from "@/components/ui/modal";
-import { InboxScheduledCard } from "@/components/portal/portal-inbox-ui";
+import { Button } from "@/components/ui/button";
+import { InboxScheduledCard, InboxScheduledSubjectRow } from "@/components/portal/portal-inbox-ui";
 import { useScheduledPaymentMessages, patchScheduledMessage } from "@/components/portal/payment-schedule-ui";
 import {
   sendAutomationScheduledMessageNow,
@@ -25,6 +26,9 @@ export function PortalComposeScheduledMessagesSection({
   smsAvailable = false,
   refreshKey = 0,
   onChanged,
+  onSendMessage,
+  sendMessageLabel = "Send message",
+  sendMessageBusy = false,
 }: {
   recipientEmail: string;
   /** Parent modal is open — reload when this flips true. */
@@ -32,6 +36,10 @@ export function PortalComposeScheduledMessagesSection({
   smsAvailable?: boolean;
   refreshKey?: number;
   onChanged?: () => void;
+  /** Primary compose action shown below the scheduled list (image 4 template). */
+  onSendMessage?: () => void;
+  sendMessageLabel?: string;
+  sendMessageBusy?: boolean;
 }) {
   const [manualMessages, setManualMessages] = useState<ScheduledInboxMessageRecord[]>([]);
   const [busyId, setBusyId] = useState<string | null>(null);
@@ -148,20 +156,28 @@ export function PortalComposeScheduledMessagesSection({
         <ul className="mt-2 max-h-[min(28vh,12rem)] space-y-1.5 overflow-y-auto overscroll-contain pr-0.5 [-webkit-overflow-scrolling:touch]">
           {items.map((item) => (
             <li key={item.id}>
-              <button
-                type="button"
-                className="flex w-full flex-col items-start rounded-xl border border-border bg-accent/15 px-3 py-2.5 text-left transition hover:bg-accent/25"
-                data-attr="compose-scheduled-subject-row"
+              <InboxScheduledSubjectRow
+                subject={item.subject}
+                sendLabel={item.sendLabel}
                 onClick={() => setEditing(item)}
-              >
-                <span className="line-clamp-2 text-sm font-semibold text-foreground">
-                  {item.subject.trim() || "Scheduled message"}
-                </span>
-                <span className="mt-0.5 text-xs text-muted">Sends {item.sendLabel}</span>
-              </button>
+              />
             </li>
           ))}
         </ul>
+        {onSendMessage ? (
+          <div className="mt-3 flex justify-end border-t border-border pt-3">
+            <Button
+              type="button"
+              variant="primary"
+              className="rounded-full"
+              data-attr="compose-scheduled-send-message"
+              disabled={sendMessageBusy}
+              onClick={onSendMessage}
+            >
+              {sendMessageBusy ? "Sending…" : sendMessageLabel}
+            </Button>
+          </div>
+        ) : null}
       </div>
 
       <Modal
