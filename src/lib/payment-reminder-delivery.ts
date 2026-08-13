@@ -28,6 +28,9 @@ export async function deliverPaymentReminder(input: {
   slotLabel: string;
   /** Defaults to 'payments'. Email/SMS follow the resident's per-category preference. */
   eventCategory?: NotificationCategory;
+  /** Manager-level channel gates from reminder settings. */
+  managerDeliverViaEmail?: boolean;
+  managerDeliverViaSms?: boolean;
 }): Promise<{ sent: boolean; error?: string }> {
   const { db, charge, managerId, dedupId, managerName, managerSmsFromNumber, apiKey, from, subject, slotLabel } =
     input;
@@ -55,8 +58,13 @@ export async function deliverPaymentReminder(input: {
       })
     : { inbox: true, email: DEFAULT_NOTIFICATION_PREFERENCES[category].email, sms: false };
 
+  const managerDeliverViaEmail = input.managerDeliverViaEmail !== false;
+  const managerDeliverViaSms = input.managerDeliverViaSms === true;
+  const emailAllowed = managerDeliverViaEmail && channels.email;
+  const smsAllowed = managerDeliverViaSms && channels.sms;
+
   let emailSent = false;
-  if (apiKey && channels.email) {
+  if (apiKey && emailAllowed) {
     try {
       const res = await fetch("https://api.resend.com/emails", {
         method: "POST",
@@ -145,7 +153,7 @@ export async function deliverPaymentReminder(input: {
   }
 
   let smsDelivered = false;
-  if (canSendResidentOutboundSms(managerSmsFromNumber) && channels.sms) {
+  if (canSendResidentOutboundSms(managerSmsFromNumber) && smsAllowed) {
     try {
       const residentPhone = String(residentProfile?.phone ?? "").trim();
       if (residentPhone) {

@@ -25,6 +25,7 @@ import {
 } from "@/lib/client-scheduled-message-overrides";
 import { readPortalApiError } from "@/lib/portal-api-error";
 import { InboxScheduledCard } from "@/components/portal/portal-inbox-ui";
+import { ReminderMessagePreviewCard, ReminderMessageUpdateModal, ReminderSendViaField } from "@/components/portal/reminder-settings-shared";
 import { sendAutomationScheduledMessageNow } from "@/components/portal/portal-inbox-selection";
 import { threadScheduledItemFromAutomationMessage } from "@/lib/inbox-scheduled-thread";
 import { applyReminderTemplate, type ReminderTemplateParams } from "@/lib/payment-reminder-email";
@@ -873,6 +874,10 @@ function PaymentAutomationSettingsForm({
       showToast("Choose at least one reminder before saving.");
       return false;
     }
+    if (!draft.paymentReminderDeliverViaEmail && !draft.paymentReminderDeliverViaSms) {
+      showToast("Choose at least one channel under Send via.");
+      return false;
+    }
     setBusy(true);
     try {
       const payload = currentPayload;
@@ -966,21 +971,26 @@ function PaymentAutomationSettingsForm({
   );
 
   const paymentsMessageBlock = compact && variant === "payments" ? (
-    <div className="rounded-xl border border-border bg-card px-3 py-2.5">
-      <p className={PORTAL_FIELD_LABEL_CLASS}>Message</p>
-      <p className="mt-1 truncate text-sm font-medium text-foreground">
-        {templatePreviewSubject || "Payment reminder"}
-      </p>
-      <p className="mt-0.5 line-clamp-2 text-xs text-muted">{templatePreviewBody}</p>
-      <button
-        type="button"
-        className="mt-2 text-xs font-semibold text-primary hover:underline"
-        onClick={() => setMessageModalOpen(true)}
-        data-attr="payment-reminder-update-message"
-      >
-        Update message
-      </button>
-    </div>
+    <>
+      <ReminderMessagePreviewCard
+        subject={templatePreviewSubject || "Payment reminder"}
+        body={templatePreviewBody}
+        onUpdate={() => setMessageModalOpen(true)}
+        dataAttr="payment-reminder-update-message"
+      />
+      <ReminderSendViaField
+        viaEmail={draft.paymentReminderDeliverViaEmail !== false}
+        viaSms={draft.paymentReminderDeliverViaSms === true}
+        onChange={({ viaEmail, viaSms }) =>
+          setDraft((prev) => ({
+            ...prev,
+            paymentReminderDeliverViaEmail: viaEmail,
+            paymentReminderDeliverViaSms: viaSms,
+          }))
+        }
+        dataAttr="payment-reminder-send-via"
+      />
+    </>
   ) : null;
 
   return (
@@ -1128,41 +1138,22 @@ function PaymentAutomationSettingsForm({
       ) : null}
     </div>
     {compact && variant === "payments" ? (
-      <Modal
+      <ReminderMessageUpdateModal
         open={messageModalOpen}
         onClose={() => setMessageModalOpen(false)}
-        title="Update message"
-        dense
-        assistantStrip={false}
-        panelClassName="max-w-lg p-3 sm:p-4"
-      >
-        <div className="space-y-3">
-          <InboxScheduledCard
-            sendLabel="Preview"
-            subject={draft.templates.preDue.subject}
-            body={draft.templates.preDue.body}
-            meta="Placeholders like {residentName} and {dueDate} are filled when the reminder sends."
-            source="automation"
-            editable
-            presentation="detail"
-            showSendActions={false}
-            onCancel={() => setMessageModalOpen(false)}
-            onSendNow={() => {}}
-            onSaveEdit={async (next) => {
-              setDraft({
-                ...draft,
-                templates: {
-                  ...draft.templates,
-                  preDue: { subject: next.subject, body: next.body },
-                },
-              });
-            }}
-          />
-          <p className="text-[11px] text-muted">
-            Placeholders: {"{residentName}"}, {"{chargeTitle}"}, {"{balanceDue}"}, {"{dueDate}"}, {"{daysUntilDue}"}, {"{daysUntilDuePhrase}"}, {"{propertyLine}"}, {"{managerName}"}, {"{residentPortalLogin}"}
-          </p>
-        </div>
-      </Modal>
+        subject={draft.templates.preDue.subject}
+        body={draft.templates.preDue.body}
+        placeholders='Placeholders: {residentName}, {chargeTitle}, {balanceDue}, {dueDate}, {daysUntilDue}, {daysUntilDuePhrase}, {propertyLine}, {managerName}, {residentPortalLogin}'
+        onSave={(next) => {
+          setDraft({
+            ...draft,
+            templates: {
+              ...draft.templates,
+              preDue: { subject: next.subject, body: next.body },
+            },
+          });
+        }}
+      />
     ) : null}
     </>
   );

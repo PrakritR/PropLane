@@ -34,6 +34,8 @@ export type ManagerAutomationSettings = {
   tourReminderMinutesBefore: number;
   tourReminderDeliverViaEmail: boolean;
   tourReminderDeliverViaSms: boolean;
+  paymentReminderDeliverViaEmail: boolean;
+  paymentReminderDeliverViaSms: boolean;
   templates: {
     preDue: ReminderTemplate;
     overdue: ReminderTemplate;
@@ -83,6 +85,8 @@ export const DEFAULT_MANAGER_AUTOMATION_SETTINGS: ManagerAutomationSettings = {
   tourReminderMinutesBefore: DEFAULT_TOUR_REMINDER_MINUTES_BEFORE,
   tourReminderDeliverViaEmail: true,
   tourReminderDeliverViaSms: false,
+  paymentReminderDeliverViaEmail: true,
+  paymentReminderDeliverViaSms: false,
   templates: {
     preDue: {
       subject: "Payment due {daysUntilDuePhrase}: {chargeTitle}",
@@ -277,6 +281,8 @@ export function normalizeManagerAutomationSettings(raw: unknown): ManagerAutomat
     ),
     tourReminderDeliverViaEmail: row.tourReminderDeliverViaEmail !== false,
     tourReminderDeliverViaSms: row.tourReminderDeliverViaSms === true,
+    paymentReminderDeliverViaEmail: row.paymentReminderDeliverViaEmail !== false,
+    paymentReminderDeliverViaSms: row.paymentReminderDeliverViaSms === true,
     templates: {
       preDue: normalizeTemplate(templatesRaw.preDue, base.templates.preDue),
       overdue: normalizeTemplate(templatesRaw.overdue, base.templates.overdue),

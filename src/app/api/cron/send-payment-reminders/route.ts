@@ -239,6 +239,8 @@ export async function GET(req: Request) {
         text: message.body,
         html: reminderHtmlFromText(message.body),
         slotLabel: message.typeLabel,
+        managerDeliverViaEmail: settings.paymentReminderDeliverViaEmail,
+        managerDeliverViaSms: settings.paymentReminderDeliverViaSms,
       });
       if (result.error) errors.push(result.error);
       if (result.sent) {
@@ -336,6 +338,8 @@ export async function GET(req: Request) {
                 html: reminderHtmlFromText(noticeText),
                 slotLabel: "late_fee_created",
                 eventCategory: "payments",
+                managerDeliverViaEmail: settings.paymentReminderDeliverViaEmail,
+                managerDeliverViaSms: settings.paymentReminderDeliverViaSms,
               });
               if (result.error) errors.push(result.error);
               if (result.sent) noteResidentEmailed(charge.residentEmail);
