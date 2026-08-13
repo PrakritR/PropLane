@@ -6,16 +6,25 @@ import { ManagerInbox, type ManagerInboxHandle } from "@/components/portal/manag
 import {
   InboxComposer,
   InboxReplyChannelPicker,
+  InboxScheduledCard,
+  InboxScheduledThreadList,
   InboxThreadView,
   InboxTwoPane,
   type InboxBubbleMessage,
 } from "@/components/portal/portal-inbox-ui";
 import { PortalSectionActionRow } from "@/components/portal/portal-section-action-row";
-import { PORTAL_HEADER_PRIMARY_ACTION_BTN } from "@/components/portal/portal-metrics";
 import {
   InboxThreadAssistantStrip,
   buildInboxThreadAssistantContext,
 } from "@/components/portal/inbox-thread-assistant-strip";
+import { useScheduledPaymentMessages, patchScheduledMessage } from "@/components/portal/payment-schedule-ui";
+import {
+  sendAutomationScheduledMessageNow,
+  sendManualScheduledMessageNow,
+} from "@/components/portal/portal-inbox-selection";
+import { readPortalApiError } from "@/lib/portal-api-error";
+import { scheduledItemsForRecipient } from "@/lib/inbox-scheduled-thread";
+import type { ScheduledInboxMessageRecord } from "@/lib/scheduled-inbox-messages";
 import { useAppUi } from "@/components/providers/app-ui-provider";
 import {
   MANAGER_INBOX_STORAGE_KEY,
@@ -72,18 +81,50 @@ export function ResidentDirectChatPane({
   smsResident,
   smsUiEnabled,
   onSent,
+  onScheduleMessage,
+  scheduledRefreshKey = 0,
 }: {
   residentEmail: string;
   residentName?: string;
   smsResident?: ManagerSmsResidentConversation | null;
   smsUiEnabled: boolean;
   onSent: () => void;
+  onScheduleMessage?: () => void;
+  scheduledRefreshKey?: number;
 }) {
   const { showToast } = useAppUi();
   const [draft, setDraft] = useState("");
   const [replyAttachments, setReplyAttachments] = useState<InboxComposerAttachment[]>([]);
   const [sending, setSending] = useState(false);
   const [inboxTick, setInboxTick] = useState(0);
+  const [manualScheduledMessages, setManualScheduledMessages] = useState<ScheduledInboxMessageRecord[]>([]);
+  const [scheduledBusyId, setScheduledBusyId] = useState<string | null>(null);
+  const { messages: scheduledPaymentMessages, reload: reloadAutomationScheduled } = useScheduledPaymentMessages({
+    includeHidden: false,
+  });
+
+  const reloadManualScheduled = useCallback(async () => {
+    try {
+      const res = await fetch("/api/portal/scheduled-inbox-messages", {
+        credentials: "include",
+        cache: "no-store",
+      });
+      if (!res.ok) return;
+      const body = (await res.json()) as { messages?: ScheduledInboxMessageRecord[] };
+      setManualScheduledMessages(Array.isArray(body.messages) ? body.messages : []);
+    } catch {
+      /* keep */
+    }
+  }, []);
+
+  const reloadScheduled = useCallback(() => {
+    void reloadManualScheduled();
+    void reloadAutomationScheduled();
+  }, [reloadAutomationScheduled, reloadManualScheduled]);
+
+  useEffect(() => {
+    reloadScheduled();
+  }, [reloadScheduled, scheduledRefreshKey]);
 
   const email = residentEmail.trim();
   const displayName = residentName?.trim() || email || "Resident";
@@ -112,6 +153,106 @@ export function ResidentDirectChatPane({
     void inboxTick;
     return loadResidentThreadBubbles(email);
   }, [email, inboxTick]);
+
+  const threadScheduledItems = useMemo(
+    () => scheduledItemsForRecipient(email, manualScheduledMessages, scheduledPaymentMessages),
+    [email, manualScheduledMessages, scheduledPaymentMessages],
+  );
+
+  const cancelScheduledItem = useCallback(
+    async (item: { id: string; source: "manual" | "automation" }) => {
+      setScheduledBusyId(item.id);
+      try {
+        if (item.source === "manual") {
+          const res = await fetch(`/api/portal/scheduled-inbox-messages/${encodeURIComponent(item.id)}`, {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            credentials: "include",
+            body: JSON.stringify({ cancelled: true }),
+          });
+          if (!res.ok) throw new Error(await readPortalApiError(res, "Could not cancel send."));
+        } else {
+          await patchScheduledMessage(item.id, { cancelled: true });
+        }
+        reloadScheduled();
+      } finally {
+        setScheduledBusyId(null);
+      }
+    },
+    [reloadScheduled],
+  );
+
+  const sendScheduledItemNow = useCallback(
+    async (item: { id: string; source: "manual" | "automation" }) => {
+      setScheduledBusyId(item.id);
+      try {
+        if (item.source === "manual") await sendManualScheduledMessageNow(item.id);
+        else await sendAutomationScheduledMessageNow(item.id);
+        reloadScheduled();
+        onSent();
+      } finally {
+        setScheduledBusyId(null);
+      }
+    },
+    [onSent, reloadScheduled],
+  );
+
+  const saveScheduledEdit = useCallback(
+    async (
+      item: { id: string; source: "manual" | "automation"; editable: boolean },
+      next: { subject: string; body: string; deliverViaEmail?: boolean; deliverViaSms?: boolean },
+    ) => {
+      if (item.source === "manual") {
+        const res = await fetch(`/api/portal/scheduled-inbox-messages/${encodeURIComponent(item.id)}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify({
+            subject: next.subject,
+            body: next.body,
+            ...(next.deliverViaEmail !== undefined ? { deliverViaEmail: next.deliverViaEmail } : {}),
+            ...(next.deliverViaSms !== undefined ? { deliverViaSms: next.deliverViaSms } : {}),
+          }),
+        });
+        if (!res.ok) throw new Error(await readPortalApiError(res, "Could not save changes."));
+      } else {
+        await patchScheduledMessage(item.id, { customSubject: next.subject, customBody: next.body });
+      }
+      reloadScheduled();
+    },
+    [reloadScheduled],
+  );
+
+  const scheduledCards =
+    threadScheduledItems.length > 0 ? (
+      <InboxScheduledThreadList
+        count={threadScheduledItems.length}
+        nextSendLabel={threadScheduledItems[0]?.sendLabel}
+        defaultCollapsed={threadScheduledItems.length > 2}
+      >
+        {threadScheduledItems.map((item) => (
+          <InboxScheduledCard
+            key={item.id}
+            sendLabel={item.sendLabel}
+            subject={item.subject}
+            body={item.body}
+            meta={item.meta}
+            channel={item.channel}
+            deliverViaEmail={item.deliverViaEmail}
+            deliverViaSms={item.deliverViaSms}
+            emailAvailable
+            smsAvailable={smsAvailable}
+            channelEditable={item.source === "manual" && item.editable}
+            source={item.source}
+            editable={item.editable}
+            busy={scheduledBusyId === item.id}
+            onCancel={() => void cancelScheduledItem(item)}
+            onSendNow={() => void sendScheduledItemNow(item)}
+            onSaveEdit={item.editable ? (next) => saveScheduledEdit(item, next) : undefined}
+          />
+        ))}
+      </InboxScheduledThreadList>
+    ) : null;
 
   const pickReplyAttachments = useCallback(
     (files: FileList | null) => {
@@ -253,8 +394,29 @@ export function ResidentDirectChatPane({
       scrollMode="pane"
       hideIdentityHeader
       emptyLabel="No messages yet. Send the first message below."
+      headerActions={
+        onScheduleMessage ? (
+          <Button
+            type="button"
+            variant="outline"
+            className="min-h-0 rounded-full px-3 py-1.5 text-xs"
+            data-attr="resident-detail-inbox-schedule"
+            onClick={onScheduleMessage}
+          >
+            Schedule
+          </Button>
+        ) : null
+      }
       composer={
         <>
+          {scheduledCards ? (
+            <div
+              className="shrink-0 border-t border-border bg-card/90 px-2 py-2 md:px-3"
+              data-attr="resident-direct-scheduled-pin"
+            >
+              {scheduledCards}
+            </div>
+          ) : null}
           <InboxThreadAssistantStrip
             contextHint={buildInboxThreadAssistantContext({
               subject: "Resident conversation",
@@ -303,7 +465,8 @@ export function ManagerResidentDetailInbox({
   smsUiEnabled = false,
   inboxRef,
   emptyThreadFallback,
-  onNewMessage,
+  onScheduleMessage,
+  scheduledRefreshKey = 0,
 }: {
   residentEmail: string;
   residentName?: string;
@@ -311,8 +474,9 @@ export function ManagerResidentDetailInbox({
   smsUiEnabled?: boolean;
   inboxRef?: RefObject<ManagerInboxHandle | null>;
   emptyThreadFallback?: ReactNode;
-  /** Opens the full compose modal (subject, schedule, email/SMS). */
-  onNewMessage?: () => void;
+  /** Opens compose with scheduling focused. */
+  onScheduleMessage?: () => void;
+  scheduledRefreshKey?: number;
 }) {
   const commBase = `${portalBase}/communication`;
   const emailNorm = residentEmail.trim().toLowerCase();
@@ -376,24 +540,13 @@ export function ManagerResidentDetailInbox({
         smsResident={smsResidentForEmail}
         smsUiEnabled={smsUiEnabled}
         onSent={refreshConversations}
+        onScheduleMessage={onScheduleMessage}
+        scheduledRefreshKey={scheduledRefreshKey}
       />
     );
 
   return (
     <div className="portal-resident-detail-inbox portal-communication-inbox flex min-h-0 flex-1 flex-col">
-      {onNewMessage ? (
-        <PortalSectionActionRow className="mb-2 shrink-0 justify-end">
-          <Button
-            type="button"
-            variant="primary"
-            className={`shrink-0 ${PORTAL_HEADER_PRIMARY_ACTION_BTN}`}
-            data-attr="resident-detail-new-message"
-            onClick={onNewMessage}
-          >
-            New message
-          </Button>
-        </PortalSectionActionRow>
-      ) : null}
       {archivedCount > 0 ? (
         <PortalSectionActionRow className="mb-2 shrink-0">
           <button
@@ -432,6 +585,8 @@ export function ManagerResidentDetailInbox({
             commBase={commBase}
             smsUiEnabled={smsUiEnabled}
             smsRecipients={smsResidents}
+            onScheduleMessage={onScheduleMessage}
+            scheduledRefreshKey={scheduledRefreshKey}
           />
         }
       />

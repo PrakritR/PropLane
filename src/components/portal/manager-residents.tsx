@@ -354,6 +354,7 @@ export function ManagerResidents({
   const [regenerateConfirmLeaseId, setRegenerateConfirmLeaseId] = useState<string | null>(null);
   const [messageOpen, setMessageOpen] = useState(false);
   const [messageBusy, setMessageBusy] = useState(false);
+  const [messageScheduleLater, setMessageScheduleLater] = useState(false);
   const [messageScheduledRefresh, setMessageScheduledRefresh] = useState(0);
   const [leaseReminderBusy, setLeaseReminderBusy] = useState(false);
   const [leaseReminderPreview, setLeaseReminderPreview] = useState<{
@@ -1292,7 +1293,8 @@ export function ManagerResidents({
     }
   }
 
-  function openResidentMessageModal() {
+  function openResidentMessageModal(scheduleLater = true) {
+    setMessageScheduleLater(scheduleLater);
     setMessageOpen(true);
   }
 
@@ -2723,7 +2725,8 @@ export function ManagerResidents({
                                 residentName={selected.name}
                                 portalBase={portalBase}
                                 smsUiEnabled={smsUiEnabled}
-                                onNewMessage={() => openResidentMessageModal()}
+                                onScheduleMessage={() => openResidentMessageModal(true)}
+                                scheduledRefreshKey={messageScheduledRefresh}
                               />
                             </ResidentDetailTabPanel>
                             </div>
@@ -4006,11 +4009,13 @@ export function ManagerResidents({
 
       <PortalNotificationPreviewModal
         open={messageOpen}
-        title="Message resident"
+        title="Schedule message"
         onClose={() => {
           if (messageBusy) return;
           setMessageOpen(false);
+          setMessageScheduleLater(false);
         }}
+        initialScheduleLater={messageScheduleLater}
         scheduledRecipientEmail={selected?.email}
         scheduledSmsAvailable={Boolean(
           selected &&
@@ -4041,9 +4046,9 @@ export function ManagerResidents({
             })(),
         )}
         defaultViaSms={false}
-        confirmLabel="Send message"
+        confirmLabel="Schedule message"
         confirmBusy={messageBusy}
-        confirmBusyLabel="Sending…"
+        confirmBusyLabel="Scheduling…"
         onConfirm={(_skip, channels, draft) => {
           void sendResidentMessage(channels, draft);
         }}
