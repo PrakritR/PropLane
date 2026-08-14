@@ -17,6 +17,9 @@ import { INBOX_LIST_SCROLL } from "@/components/portal/portal-inbox-ui";
 import { leaseDetailHref, leaseListHref } from "@/lib/portal-detail-routes";
 import { usePortalNavigate } from "@/lib/portal-nav-client";
 import { Badge } from "@/components/ui/badge";
+import { ApplicationHouseholdCluster } from "@/components/portal/application-household-list";
+import { groupHouseLabel, numberGroupsByHouse } from "@/lib/rental-application/group-house-label";
+import { normalizeGroupId } from "@/lib/rental-application/application-groups";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -256,6 +259,58 @@ export function ManagerLeasesPipelinePanel({
   const hasLeaseDocument = (row: LeasePipelineRow) => Boolean(row.generatedHtml || row.managerUploadedPdf?.dataUrl);
   void refreshKey;
   const bucketRows = useMemo(() => rows.filter((r) => leaseRowMatchesManagerTab(r, tab)), [rows, tab]);
+
+  /**
+   * "Group 1" per HOUSE, numbered over EVERY lease row rather than the current
+   * pipeline tab — a household must keep the same number as it moves from Manager
+   * review to Signed, and must match what Applications and Residents print.
+   * A lease reaches its household through the application it came from.
+   */
+  const leaseGroupNumbers = useMemo(
+    () =>
+      numberGroupsByHouse(
+        rows.map((row) => ({
+          groupId: normalizeGroupId(row.application?.groupId ?? ""),
+          property: row.unit ?? "",
+        })),
+      ),
+    [rows],
+  );
+
+  /**
+   * Housemates collected under one header, at the position of the group's first
+   * row so the surrounding order is otherwise preserved. A group of one inside
+   * this tab is not a household and stays a plain row.
+   */
+  const leaseClusters = useMemo(() => {
+    type Cluster = { groupId: string; property: string | null; ordinal: number; rows: LeasePipelineRow[] };
+    const out: Cluster[] = [];
+    const byGroup = new Map<string, Cluster>();
+    const groupIdFor = (row: LeasePipelineRow) => normalizeGroupId(row.application?.groupId ?? "");
+    for (const row of bucketRows) {
+      const groupId = groupIdFor(row);
+      const grouped = groupId && bucketRows.filter((other) => groupIdFor(other) === groupId).length > 1;
+      if (!grouped) {
+        out.push({ groupId: "", property: null, ordinal: 0, rows: [row] });
+        continue;
+      }
+      const existing = byGroup.get(groupId);
+      if (existing) {
+        existing.rows.push(row);
+        continue;
+      }
+      const numbering = leaseGroupNumbers.get(groupId);
+      const cluster: Cluster = {
+        groupId,
+        property: numbering?.property ?? null,
+        ordinal: numbering?.ordinal ?? 1,
+        rows: [row],
+      };
+      byGroup.set(groupId, cluster);
+      out.push(cluster);
+    }
+    return out;
+  }, [bucketRows, leaseGroupNumbers]);
   const detailRow = useMemo(() => {
     if (!leaseIdProp) return null;
     const decoded = decodeURIComponent(leaseIdProp);
@@ -1006,28 +1061,45 @@ export function ManagerLeasesPipelinePanel({
     <>
       {leaseModals}
       <div className={INBOX_LIST_SCROLL}>
-        {bucketRows.map((row) => (
-          <PortalPersonRecordRow
-            key={row.id}
-            name={row.residentName}
-            subtitle={row.unit}
-            preview={
-              row.pendingRenewal && row.status === "Manager Review"
-                ? "Renewal requested · Manager Review"
-                : row.status
-            }
-            meta={row.updated}
-            badge={
-              row.pendingRenewal ? (
-                <Badge tone="warning">Renewal requested</Badge>
-              ) : row.leaseKind === "joint_bundle" ? (
-                <Badge tone="neutral">Joint bundle</Badge>
-              ) : undefined
-            }
-            onOpen={() => openLeaseDetail(row)}
-            dataAttr="lease-list-row"
-          />
-        ))}
+        {leaseClusters.map((cluster) => {
+          const renderLeaseRow = (row: LeasePipelineRow) => (
+            <PortalPersonRecordRow
+              key={row.id}
+              name={row.residentName}
+              subtitle={row.unit}
+              preview={
+                row.pendingRenewal && row.status === "Manager Review"
+                  ? "Renewal requested · Manager Review"
+                  : row.status
+              }
+              meta={row.updated}
+              badge={
+                row.pendingRenewal ? (
+                  <Badge tone="warning">Renewal requested</Badge>
+                ) : row.leaseKind === "joint_bundle" ? (
+                  <Badge tone="neutral">Joint bundle</Badge>
+                ) : undefined
+              }
+              onOpen={() => openLeaseDetail(row)}
+              dataAttr="lease-list-row"
+            />
+          );
+
+          if (!cluster.groupId) return cluster.rows.map(renderLeaseRow);
+
+          return (
+            <ApplicationHouseholdCluster
+              key={cluster.groupId}
+              header={
+                <span className="truncate text-xs font-semibold text-foreground">
+                  {groupHouseLabel(cluster.property, cluster.ordinal)}
+                </span>
+              }
+            >
+              {cluster.rows.map(renderLeaseRow)}
+            </ApplicationHouseholdCluster>
+          );
+        })}
         {onAddLease ? (
           <div className="px-3 py-3 max-md:px-2.5">
             <PortalListAddRow

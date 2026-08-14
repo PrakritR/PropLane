@@ -213,7 +213,9 @@ describe("group application — manager reconciliation", () => {
     render(<ManagerApplications bucket="approved" />);
     await waitFor(() => expect(screen.getAllByText("Jordan Reyes").length).toBeGreaterThan(0));
     expect(document.querySelector("[data-attr='application-household-cluster']")).toBeTruthy();
-    expect(screen.getByText("The Pioneer group application")).toBeTruthy();
+    // The header now carries the house AND a per-house ordinal, so a manager can
+    // tell two households at the same address apart: "<house> Group <n> application".
+    expect(screen.getByText("The Pioneer Group 1 application")).toBeTruthy();
     expect(screen.getByText("Group 2/3")).toBeTruthy();
   });
 
