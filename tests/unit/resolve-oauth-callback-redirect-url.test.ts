@@ -55,16 +55,23 @@ describe("resolveOAuthCallbackRedirectUrl", () => {
     ).toBe("space.proplane.app://auth/callback/partner-pricing");
   });
 
-  it("falls back to the HTTPS bridge on iOS when WebAuthSession is absent", () => {
-    // Such an iOS binary cannot run ASWebAuthenticationSession, so openOAuthUrl never reaches
-    // OAuth (it shows a rebuild hint) — the redirect_to value is moot, so keep the legacy one.
+  it("keeps the custom scheme on iOS even when the isPluginAvailable probe says otherwise", () => {
+    // This is the OTHER half of the single gate: `resolveOAuthCallbackRedirectUrl` picks
+    // `redirect_to` and `openOAuthUrl` picks the transport, and they must never disagree — a
+    // https `redirect_to` with an ASWebAuthenticationSession transport means the sheet never
+    // sees its callback scheme and the sign-in hangs.
+    //
+    // It used to fall back to the HTTPS bridge when the probe said the plugin was missing, on
+    // the reasoning that OAuth could not start anyway so the value was moot. It is no longer
+    // moot: iOS always attempts ASWebAuthenticationSession now, because that probe answers
+    // false for "not registered yet" too and acting on it dead-ended sign-in for App Review.
     stubCapacitorShell("ios", false);
     expect(resolveOAuthCallbackRedirectUrl("https://prop-lane.space")).toBe(
-      appendNativeOAuthBridgeParam("https://prop-lane.space/auth/callback"),
+      "space.proplane.app://auth/callback",
     );
     expect(
       resolveOAuthCallbackRedirectUrl("https://prop-lane.space", "/auth/callback/partner-pricing"),
-    ).toBe(appendNativeOAuthBridgeParam("https://prop-lane.space/auth/callback/partner-pricing"));
+    ).toBe("space.proplane.app://auth/callback/partner-pricing");
   });
 
   // Load-bearing invariant: Android MUST NOT move onto the custom scheme. It reports

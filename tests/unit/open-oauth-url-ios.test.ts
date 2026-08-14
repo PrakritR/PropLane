@@ -67,15 +67,20 @@ describe("usesIosAsWebAuthenticationSession", () => {
 
     const { usesIosAsWebAuthenticationSession } = await import("@/lib/native/ios-oauth");
     expect(usesIosAsWebAuthenticationSession()).toBe(true);
-    expect(isPluginAvailableMock).toHaveBeenCalledWith("WebAuthSession");
   });
 
-  it("returns false on iOS when the WebAuthSession plugin is absent", async () => {
+  it("stays true on iOS even when the isPluginAvailable probe says otherwise", async () => {
+    // App Review 2.1 rejection of build 1.0 (69): "we received an error message after we
+    // attempted to log in". The plugin is attached at runtime by `BridgeViewController`, so this
+    // probe answers false for "not registered YET" as well as "not in this binary" — and acting
+    // on it dead-ended sign-in with "update the PropLane app" on a fresh install. Absence is now
+    // detected from the `authenticate()` rejection, which is the only signal that can tell the
+    // two apart; see the UNIMPLEMENTED case below.
     stubIosNativeShell();
     isPluginAvailableMock.mockReturnValue(false);
 
     const { usesIosAsWebAuthenticationSession } = await import("@/lib/native/ios-oauth");
-    expect(usesIosAsWebAuthenticationSession()).toBe(false);
+    expect(usesIosAsWebAuthenticationSession()).toBe(true);
   });
 });
 
@@ -165,7 +170,9 @@ describe("openOAuthUrl on iOS", () => {
     // SFSafariViewController (@capacitor/browser) — that renders the portal inside
     // in-app Safari. It fails with a rebuild hint instead.
     stubIosNativeShell();
-    isPluginAvailableMock.mockReturnValue(false);
+    // Absence as it ACTUALLY manifests: Capacitor rejects the call with UNIMPLEMENTED. The
+    // isPluginAvailable probe is no longer the gate — see the note on the probe test above.
+    authenticateMock.mockRejectedValue(Object.assign(new Error("not implemented"), { code: "UNIMPLEMENTED" }));
 
     const { openOAuthUrl, NATIVE_IOS_OAUTH_REBUILD_MESSAGE, NativeOAuthUnavailableError } =
       await import("@/lib/native/open-url");
@@ -177,7 +184,8 @@ describe("openOAuthUrl on iOS", () => {
       openOAuthUrl("https://accounts.google.com/o/oauth2/auth?client_id=test"),
     ).rejects.toBeInstanceOf(NativeOAuthUnavailableError);
 
-    expect(authenticateMock).not.toHaveBeenCalled();
+    // The safety property is unchanged: iOS never opens SFSafariViewController, which would
+    // render PropLane's own pages inside in-app Safari.
     expect(browserOpenMock).not.toHaveBeenCalled();
   });
 
@@ -185,7 +193,7 @@ describe("openOAuthUrl on iOS", () => {
     // Navigating to /auth/sign-in?error=oauth&message=… is what the user experiences as
     // "it just refreshes and goes back". Nothing was opened, so the caller renders it in place.
     stubIosNativeShell();
-    isPluginAvailableMock.mockReturnValue(false);
+    authenticateMock.mockRejectedValue(Object.assign(new Error("not implemented"), { code: "UNIMPLEMENTED" }));
 
     const { openOAuthUrl, isNativeOAuthInProgress } = await import("@/lib/native/open-url");
     await expect(

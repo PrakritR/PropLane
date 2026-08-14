@@ -250,16 +250,16 @@ export async function openOAuthUrl(url: string): Promise<void> {
 
   // Anything not positively identified as Android takes the iOS path — the stricter
   // one, which never opens SFSafariViewController.
+  //
+  // There is deliberately no `isPluginAvailable` pre-flight here any more. It gated the whole
+  // flow on a probe that answers false for "not registered YET" as well as "not in this
+  // binary" — `WebAuthSessionPlugin` is attached at runtime by `BridgeViewController` — and a
+  // false negative dead-ended sign-in with an "update the app" message on a fresh install.
+  // A genuinely missing plugin now surfaces from the `authenticate()` call itself, which is the
+  // only source that can tell the difference.
   if (resolveNativeOAuthPlatform() !== "android") {
-    if (usesIosAsWebAuthenticationSession()) {
-      await openOAuthUrlWithWebAuthSession(url);
-      return;
-    }
-    // Plugin absent = this iOS binary predates WebAuthSession. Do NOT fall back to
-    // SFSafariViewController; report the update hint to the caller so the sign-in screen can
-    // show it in place, instead of reloading the page and losing the message.
-    clearNativeOAuthInProgress();
-    throw new NativeOAuthUnavailableError(NATIVE_IOS_OAUTH_REBUILD_MESSAGE);
+    await openOAuthUrlWithWebAuthSession(url);
+    return;
   }
 
   await openOAuthUrlWithSystemBrowser(url);
@@ -283,6 +283,14 @@ async function openOAuthUrlWithWebAuthSession(oauthUrl: string): Promise<void> {
     if (code === "CANCELED") {
       clearNativeOAuthInProgress();
       return;
+    }
+    // The binary really does not carry `WebAuthSessionPlugin`, so Capacitor rejected the call
+    // rather than the plugin rejecting it. This is the ONE place that can tell that apart from
+    // "the probe ran too early", which is why the update hint lives here now instead of in a
+    // pre-flight gate that dead-ended sign-in for everyone it guessed wrong about.
+    if (code === "UNIMPLEMENTED" || code === "UNAVAILABLE") {
+      clearNativeOAuthInProgress();
+      throw new NativeOAuthUnavailableError(NATIVE_IOS_OAUTH_REBUILD_MESSAGE);
     }
     // Every code in this map means the plugin never presented anything — no window to anchor
     // to (NO_ANCHOR), bad arguments or `session.start()` returning false (START_FAILED). Those
