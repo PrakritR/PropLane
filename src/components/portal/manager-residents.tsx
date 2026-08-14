@@ -208,7 +208,11 @@ import {
 } from "@/lib/existing-resident-welcome-email";
 import { LocalDestinationNav } from "@/components/ui/destination-nav";
 import { groupIdForRow, groupRowInputForRow } from "@/components/portal/application-group-section";
-import { ApplicationCosignerSection } from "@/components/portal/application-household-list";
+import {
+  ApplicationCosignerSection,
+  ApplicationHouseholdCluster,
+} from "@/components/portal/application-household-list";
+import { groupHouseLabel, numberGroupsByHouse } from "@/lib/rental-application/group-house-label";
 import { ApplicationHoldingFeeModal } from "@/components/portal/application-holding-fee-box";
 import { useCosignerSubmissionsMap } from "@/hooks/use-cosigner-submissions-map";
 import { signerAppIdsForCosignerLookup } from "@/lib/rental-application/application-list-grouping";
@@ -282,6 +286,8 @@ type ActiveResident = {
   propertyId: string;
   propertyLabel: string;
   roomLabel: string;
+  /** Normalized household group id, so the list can cluster housemates together. */
+  groupId: string;
   signedMonthlyRent: number | null;
   leaseStart: string;
   leaseEnd: string;
@@ -647,6 +653,7 @@ export function ManagerResidents({
           propertyId: propId,
           propertyLabel,
           roomLabel,
+          groupId: groupIdForRow(row).trim().toUpperCase(),
           signedMonthlyRent: row.signedMonthlyRent ?? null,
           leaseStart,
           leaseEnd,
@@ -966,6 +973,54 @@ export function ManagerResidents({
       return aNum - bNum;
     });
   }, [residents, propertyFilters, searchQuery]);
+
+  /**
+   * "Group 1" per HOUSE, numbered over EVERY resident rather than the filtered
+   * list — a search or property filter must not renumber a household, and the
+   * number has to agree with the one Applications and Leases print.
+   */
+  const residentGroupNumbers = useMemo(
+    () =>
+      numberGroupsByHouse(
+        residents.map((res) => ({ groupId: res.groupId, property: res.propertyLabel })),
+      ),
+    [residents],
+  );
+
+  /**
+   * The visible list, with housemates collected under one header. Grouped rows are
+   * pulled together at the position of the group's FIRST row, so the surrounding
+   * sort order is otherwise preserved; ungrouped residents stay individual rows.
+   */
+  const residentListClusters = useMemo(() => {
+    type Cluster = { groupId: string; property: string | null; ordinal: number; rows: ActiveResident[] };
+    const out: Cluster[] = [];
+    const byGroup = new Map<string, Cluster>();
+    for (const res of filtered) {
+      // A group of one is not a household — render it as a plain row.
+      const grouped =
+        res.groupId && filtered.filter((other) => other.groupId === res.groupId).length > 1;
+      if (!grouped) {
+        out.push({ groupId: "", property: null, ordinal: 0, rows: [res] });
+        continue;
+      }
+      const existing = byGroup.get(res.groupId);
+      if (existing) {
+        existing.rows.push(res);
+        continue;
+      }
+      const numbering = residentGroupNumbers.get(res.groupId);
+      const cluster: Cluster = {
+        groupId: res.groupId,
+        property: numbering?.property ?? null,
+        ordinal: numbering?.ordinal ?? 1,
+        rows: [res],
+      };
+      byGroup.set(res.groupId, cluster);
+      out.push(cluster);
+    }
+    return out;
+  }, [filtered, residentGroupNumbers]);
 
   const activeResidentId = residentIdProp ? decodeURIComponent(residentIdProp) : null;
   const selected = useMemo(
@@ -3030,22 +3085,39 @@ export function ManagerResidents({
         </div>
       ) : (
         <div className={PORTAL_LIST_PAGE_BODY}>
-          {filtered.map((res) => {
-            const housingLabel = [res.roomLabel, !propertyFilters.length ? res.propertyLabel : null]
-              .filter(Boolean)
-              .join(" · ");
+          {residentListClusters.map((cluster) => {
+            const renderResidentRow = (res: ActiveResident) => {
+              const housingLabel = [res.roomLabel, !propertyFilters.length ? res.propertyLabel : null]
+                .filter(Boolean)
+                .join(" · ");
+              return (
+                <PortalPersonRecordRow
+                  key={res.id}
+                  name={res.name || "—"}
+                  subtitle={housingLabel || undefined}
+                  preview={res.email || housingLabel || " "}
+                  meta={res.leaseStart ? shortDateLabel(res.leaseStart) : undefined}
+                  onOpen={() =>
+                    navigate(residentDetailHref(portalBase, residentsTab, res.id, resolvedDetailTab))
+                  }
+                  dataAttr="resident-list-row"
+                />
+              );
+            };
+
+            if (!cluster.groupId) return cluster.rows.map(renderResidentRow);
+
             return (
-              <PortalPersonRecordRow
-                key={res.id}
-                name={res.name || "—"}
-                subtitle={housingLabel || undefined}
-                preview={res.email || housingLabel || " "}
-                meta={res.leaseStart ? shortDateLabel(res.leaseStart) : undefined}
-                onOpen={() =>
-                  navigate(residentDetailHref(portalBase, residentsTab, res.id, resolvedDetailTab))
+              <ApplicationHouseholdCluster
+                key={cluster.groupId}
+                header={
+                  <span className="truncate text-xs font-semibold text-foreground">
+                    {groupHouseLabel(cluster.property, cluster.ordinal)}
+                  </span>
                 }
-                dataAttr="resident-list-row"
-              />
+              >
+                {cluster.rows.map(renderResidentRow)}
+              </ApplicationHouseholdCluster>
             );
           })}
           <div className="px-3 py-3 max-md:px-2.5">
