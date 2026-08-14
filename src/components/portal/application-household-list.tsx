@@ -6,6 +6,7 @@ import { PortalCollapsibleSection } from "@/components/portal/portal-collapsible
 import type { CosignerSubmission } from "@/lib/cosigner-submissions-storage";
 import { stripPropertyRoomCountSuffix } from "@/lib/portal-mobile-preview";
 import { describeGroupBadge, type ApplicationGroup } from "@/lib/rental-application/application-groups";
+import { dominantPropertyLabel, groupHouseLabel } from "@/lib/rental-application/group-house-label";
 
 export function ApplicationHouseholdCluster({
   header,
@@ -88,27 +89,34 @@ export function householdClusterPropertyLabel(
 export function householdClusterHeaderForRows(
   group: ApplicationGroup | null,
   rows: ReadonlyArray<{ property: string }>,
+  groupOrdinal?: number | null,
 ) {
-  return householdClusterHeader(group, householdClusterPropertyLabel(rows));
+  // A GROUP anchors to the house most of its rows sit at. The strict
+  // "every row shares one property" rule below returns null for a household split
+  // across two addresses — which is exactly the real case (three at 5257, one at
+  // 5259) — and dropped the house from the header entirely. A cluster with no
+  // group keeps the strict rule: unrelated rows must not claim a shared house.
+  const label = group ? dominantPropertyLabel(rows) : householdClusterPropertyLabel(rows);
+  return householdClusterHeader(group, label, groupOrdinal);
 }
 
-export function householdClusterHeader(group: ApplicationGroup | null, propertyLabel?: string | null) {
+export function householdClusterHeader(
+  group: ApplicationGroup | null,
+  propertyLabel?: string | null,
+  groupOrdinal?: number | null,
+) {
   const property =
     propertyLabel?.trim() ? stripPropertyRoomCountSuffix(propertyLabel.trim()) : "";
   if (!group && !property) return null;
   const badge = group ? describeGroupBadge(group) : null;
+  // "5257 Brooklyn Ave NE Group 1 application" — the house is the most useful
+  // thing on this row, so it leads even when the ordinal is unknown.
+  const groupHeading = group ? `${groupHouseLabel(property || null, groupOrdinal ?? 1)} application` : "";
   return (
     <>
-      {property && group ? (
+      {group ? (
         <>
-          <span className="truncate text-xs font-semibold text-foreground">{property} group application</span>
-          <span title={badge!.title}>
-            <Badge tone={badge!.tone}>{badge!.label}</Badge>
-          </span>
-        </>
-      ) : group ? (
-        <>
-          <span className="text-xs font-semibold text-foreground">Group application</span>
+          <span className="truncate text-xs font-semibold text-foreground">{groupHeading}</span>
           <span title={badge!.title}>
             <Badge tone={badge!.tone}>{badge!.label}</Badge>
           </span>

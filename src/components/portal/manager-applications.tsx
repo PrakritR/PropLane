@@ -99,6 +99,7 @@ import {
 import { isWithdrawnApplicationRow } from "@/lib/rental-application/resident-application-list";
 import { applicantDisplayName, applicantSecondaryEmail } from "@/lib/rental-application/applicant-name";
 import { groupIdForRow, groupRowInputForRow } from "@/components/portal/application-group-section";
+import { numberGroupsByHouse } from "@/lib/rental-application/group-house-label";
 import {
   ApplicationCosignerListRow,
   ApplicationCosignerSection,
@@ -698,6 +699,19 @@ export function ManagerApplications({
   // in-progress) so the whole household is visible from any one member's row.
   const applicationGroups = useMemo(
     () => buildBundleApplicationGroups(scopedRows.map(groupRowInputForRow)),
+    [scopedRows],
+  );
+
+  /**
+   * "Group 1" per HOUSE, derived from every scoped row rather than the current
+   * bucket — otherwise the same household would renumber as it moved between
+   * Pending and Approved, or between this tab and Residents / Leases.
+   */
+  const groupHouseNumbers = useMemo(
+    () =>
+      numberGroupsByHouse(
+        scopedRows.map((row) => ({ groupId: groupIdForRow(row), property: row.property ?? "" })),
+      ),
     [scopedRows],
   );
 
@@ -1821,7 +1835,11 @@ export function ManagerApplications({
             return (
               <ApplicationHouseholdCluster
                 key={cluster.groupId}
-                header={householdClusterHeaderForRows(cluster.group, cluster.rows)}
+                header={householdClusterHeaderForRows(
+                  cluster.group,
+                  cluster.rows,
+                  groupHouseNumbers.get(cluster.groupId.trim().toUpperCase())?.ordinal,
+                )}
               >
                 {cluster.rows.map((row) => renderApplicationListRow(row, true))}
               </ApplicationHouseholdCluster>
