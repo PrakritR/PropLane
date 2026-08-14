@@ -1,7 +1,13 @@
 import type { DemoApplicantRow } from "@/data/demo-portal";
+import { resolveBundleFinancialTotals } from "@/lib/bundle-group/bundle-cost-split";
 import {
+  getBundleChoiceLabel,
   getPropertyById,
   getRoomChoiceLabel,
+  getRoomOptionsForProperty,
+  isEntireHomeProperty,
+  isPropertyRentedByRoom,
+  LISTING_ROOM_CHOICE_SEP,
   parseRoomChoiceValue,
 } from "@/lib/rental-application/data";
 import { resolvePlacementLeaseDates } from "@/lib/rental-application/lease-dates";
@@ -177,6 +183,59 @@ function resolveManualResidentRoom(sub: NormalizedSub, roomId: string) {
   return null;
 }
 
+export type ManualResidentAssignment = {
+  assignedRoomChoice?: string;
+  bundleId?: string;
+  placementLabel?: string;
+};
+
+/** Room choice + bundle for manual add/edit resident — mirrors the rental application wizard. */
+export function resolveManualResidentAssignment(input: {
+  propertyId: string;
+  roomId: string;
+  bundleId: string;
+}): ManualResidentAssignment {
+  const propertyId = input.propertyId.trim();
+  if (!propertyId) return {};
+
+  const bundleId = input.bundleId.trim();
+  if (bundleId) {
+    return {
+      bundleId,
+      placementLabel: getBundleChoiceLabel(propertyId, bundleId) || undefined,
+    };
+  }
+
+  if (isEntireHomeProperty(propertyId)) {
+    return { assignedRoomChoice: propertyId };
+  }
+
+  if (!isPropertyRentedByRoom(propertyId)) {
+    const unitOpts = getRoomOptionsForProperty(propertyId, { includeUnavailable: true }).filter(
+      (o) => o.value !== "",
+    );
+    const roomId = input.roomId.trim();
+    const assignedRoomChoice =
+      roomId.length > 0
+        ? `${propertyId}${LISTING_ROOM_CHOICE_SEP}${roomId}`
+        : unitOpts.length <= 1
+          ? (unitOpts[0]?.value ?? propertyId)
+          : propertyId;
+    const placementLabel = assignedRoomChoice
+      ? getRoomChoiceLabel(assignedRoomChoice).split(" · ")[0]?.trim() || undefined
+      : undefined;
+    return { assignedRoomChoice, placementLabel };
+  }
+
+  const roomId = input.roomId.trim();
+  if (!roomId) return {};
+  const assignedRoomChoice = `${propertyId}${LISTING_ROOM_CHOICE_SEP}${roomId}`;
+  return {
+    assignedRoomChoice,
+    placementLabel: getRoomChoiceLabel(assignedRoomChoice).split(" · ")[0]?.trim() || undefined,
+  };
+}
+
 /**
  * Pricing for the manual add-resident form from the property listing (and room when
  * selected). Mirrors `recordApprovedApplicationCharges` / placement preview precedence.
@@ -184,6 +243,7 @@ function resolveManualResidentRoom(sub: NormalizedSub, roomId: string) {
 export function resolveManualResidentPlacementValues(input: {
   propertyId: string;
   roomId: string;
+  bundleId?: string;
   leaseTerm: string;
   leaseTermCustomMode: boolean;
 }): ManualResidentPricing | null {
@@ -198,6 +258,20 @@ export function resolveManualResidentPlacementValues(input: {
 
   const appFields = residentLeaseTermToApplicationFields(leaseTerm, input.leaseTermCustomMode, propertyId);
   const rentalType = appFields.rentalType;
+
+  const bundleId = input.bundleId?.trim() ?? "";
+  if (bundleId && rentalType !== "short_term") {
+    const totals = resolveBundleFinancialTotals(sub, bundleId);
+    if (totals) {
+      return {
+        rentalType,
+        rent: manualResidentMoneyField(totals.monthlyRent),
+        utilities: manualResidentMoneyField(totals.monthlyUtilities),
+        moveInFee: manualResidentMoneyField(totals.moveInFee),
+        securityDeposit: manualResidentMoneyField(totals.securityDeposit),
+      };
+    }
+  }
 
   if (rentalType === "short_term") {
     const stRentRaw = (room?.shortTermRent ?? "").trim() || sub.shortTermDailyCost;

@@ -109,9 +109,9 @@ import {
   MANAGER_PORTFOLIO_REFRESH_EVENTS,
 } from "@/lib/manager-portfolio-access";
 import { isPreviousResidentDirectoryRow, isResidentDirectoryRow } from "@/lib/current-resident";
-import { getPropertyById, getRoomChoiceLabel, LISTING_ROOM_CHOICE_SEP } from "@/lib/rental-application/data";
+import { getPropertyById, getBundleOptionsForProperty, isEntireHomeProperty, isPropertyRentedByRoom, getRoomChoiceLabel, LISTING_ROOM_CHOICE_SEP } from "@/lib/rental-application/data";
 import { computeLeaseEndDate, shouldAutoComputeLeaseEnd } from "@/lib/rental-application/lease-dates";
-import { resolveManualResidentPlacementValues } from "@/lib/rental-application/placement-values";
+import { resolveManualResidentAssignment, resolveManualResidentPlacementValues } from "@/lib/rental-application/placement-values";
 import { normalizeManagerListingSubmissionV1 } from "@/lib/manager-listing-submission";
 import {
   isResidentMonthToMonthLease,
@@ -415,6 +415,7 @@ export function ManagerResidents({
   const [arPhone, setArPhone] = useState("");
   const [arPropertyId, setArPropertyId] = useState("");
   const [arRoomId, setArRoomId] = useState("");
+  const [arBundleId, setArBundleId] = useState("");
   const [arLeaseTerm, setArLeaseTerm] = useState("");
   const [arLeaseTermCustomMode, setArLeaseTermCustomMode] = useState(false);
   const [arMoveInDate, setArMoveInDate] = useState("");
@@ -445,6 +446,7 @@ export function ManagerResidents({
   const [erPhone, setErPhone] = useState("");
   const [erPropertyId, setErPropertyId] = useState("");
   const [erRoomId, setErRoomId] = useState("");
+  const [erBundleId, setErBundleId] = useState("");
   const [erLeaseTerm, setErLeaseTerm] = useState("");
   const [erLeaseTermCustomMode, setErLeaseTermCustomMode] = useState(false);
   const [erMoveInDate, setErMoveInDate] = useState("");
@@ -719,7 +721,9 @@ export function ManagerResidents({
     if (mapped.email) setArEmail(mapped.email);
     if (mapped.phone) setArPhone(mapped.phone);
     if (mapped.propertyId) setArPropertyId(mapped.propertyId);
-    if (mapped.roomId) setArRoomId(mapped.roomId);
+    if (mapped.roomId && mapped.propertyId && isPropertyRentedByRoom(mapped.propertyId)) {
+      setArRoomId(mapped.roomId);
+    }
     if (mapped.leaseTerm) {
       setArLeaseTerm(mapped.leaseTerm);
       setArLeaseTermCustomMode(Boolean(mapped.leaseTermCustomMode));
@@ -852,6 +856,48 @@ export function ManagerResidents({
   );
   const erIsShortTermStay = erManualLeaseFields.rentalType === "short_term";
 
+  const arRentedByRoom = useMemo(
+    () => Boolean(arPropertyId.trim() && isPropertyRentedByRoom(arPropertyId)),
+    [arPropertyId, propertyTick],
+  );
+  const arEntireHome = useMemo(
+    () => Boolean(arPropertyId.trim() && isEntireHomeProperty(arPropertyId)),
+    [arPropertyId, propertyTick],
+  );
+  const arBundleOptions = useMemo(
+    () =>
+      arPropertyId.trim()
+        ? getBundleOptionsForProperty(arPropertyId, { rentalType: arIsShortTermStay ? "short_term" : "standard" })
+        : [],
+    [arPropertyId, arIsShortTermStay, propertyTick],
+  );
+  const arShowBundleSelect = arBundleOptions.length > 0;
+  const arShowRoomSelect = arRentedByRoom && !arBundleId.trim() && arRoomOptions.length > 0;
+  const arShowRoomSetupNote = arRentedByRoom && !arBundleId.trim() && arRoomOptions.length === 0;
+  const arShowWholeUnitPlacementNote =
+    Boolean(arPropertyId.trim()) && !arRentedByRoom && !arShowBundleSelect;
+
+  const erRentedByRoom = useMemo(
+    () => Boolean(erPropertyId.trim() && isPropertyRentedByRoom(erPropertyId)),
+    [erPropertyId, propertyTick],
+  );
+  const erEntireHome = useMemo(
+    () => Boolean(erPropertyId.trim() && isEntireHomeProperty(erPropertyId)),
+    [erPropertyId, propertyTick],
+  );
+  const erBundleOptions = useMemo(
+    () =>
+      erPropertyId.trim()
+        ? getBundleOptionsForProperty(erPropertyId, { rentalType: erIsShortTermStay ? "short_term" : "standard" })
+        : [],
+    [erPropertyId, erIsShortTermStay, propertyTick],
+  );
+  const erShowBundleSelect = erBundleOptions.length > 0;
+  const erShowRoomSelect = erRentedByRoom && !erBundleId.trim() && erRoomOptions.length > 0;
+  const erShowRoomSetupNote = erRentedByRoom && !erBundleId.trim() && erRoomOptions.length === 0;
+  const erShowWholeUnitPlacementNote =
+    Boolean(erPropertyId.trim()) && !erRentedByRoom && !erShowBundleSelect;
+
   const arStayPreview = useMemo(() => {
     if (!arIsShortTermStay) return null;
     const nights = shortTermStayNightCount(arMoveInDate, arMoveOutDate);
@@ -882,6 +928,7 @@ export function ManagerResidents({
     const pricing = resolveManualResidentPlacementValues({
       propertyId: arPropertyId,
       roomId: arRoomId,
+      bundleId: arBundleId,
       leaseTerm: arLeaseTerm,
       leaseTermCustomMode: arLeaseTermCustomMode,
     });
@@ -890,7 +937,7 @@ export function ManagerResidents({
     setArUtilities(pricing.utilities);
     setArMoveInFee(pricing.moveInFee);
     setArSecurityDeposit(pricing.securityDeposit);
-  }, [addResidentOpen, arPropertyId, arRoomId, arLeaseTerm, arLeaseTermCustomMode, propertyTick]);
+  }, [addResidentOpen, arPropertyId, arRoomId, arBundleId, arLeaseTerm, arLeaseTermCustomMode, propertyTick]);
 
   useEffect(() => {
     if (!addResidentOpen) return;
@@ -911,6 +958,7 @@ export function ManagerResidents({
     const pricing = resolveManualResidentPlacementValues({
       propertyId: erPropertyId,
       roomId: erRoomId,
+      bundleId: erBundleId,
       leaseTerm: erLeaseTerm,
       leaseTermCustomMode: erLeaseTermCustomMode,
     });
@@ -919,7 +967,7 @@ export function ManagerResidents({
     setErUtilities(pricing.utilities);
     setErMoveInFee(pricing.moveInFee);
     setErSecurityDeposit(pricing.securityDeposit);
-  }, [editResidentOpen, erPropertyId, erRoomId, erLeaseTerm, erLeaseTermCustomMode, propertyTick]);
+  }, [editResidentOpen, erPropertyId, erRoomId, erBundleId, erLeaseTerm, erLeaseTermCustomMode, propertyTick]);
 
   const erLeaseTermSelectValue = useMemo(
     () => residentLeaseTermSelectValue(erLeaseTerm, erLeaseTermCustomMode, erLeaseTermPresetValues),
@@ -1744,6 +1792,7 @@ export function ManagerResidents({
     setArPhone("");
     setArPropertyId("");
     setArRoomId("");
+    setArBundleId("");
     setArLeaseTerm("");
     setArLeaseTermCustomMode(false);
     setArMoveInDate("");
@@ -1786,7 +1835,12 @@ export function ManagerResidents({
     const propLabel = arPropertyId
       ? (propertyOptions.find((p) => p.id === arPropertyId)?.label ?? arPropertyId)
       : "—";
-    const selectedRoomLabel = arRoomId ? arRoomOptions.find((room) => room.id === arRoomId)?.name?.trim() ?? "" : "";
+    const placement = resolveManualResidentAssignment({
+      propertyId: arPropertyId,
+      roomId: arRoomId,
+      bundleId: arBundleId,
+    });
+    const selectedRoomLabel = placement.placementLabel?.trim() || "";
     const signedLeaseUploadedAt = arSignedLeaseDataUrl.trim() ? new Date().toISOString() : undefined;
     const hasUploadedLeasePdf = Boolean(arSignedLeaseDataUrl.trim());
     return {
@@ -1798,7 +1852,7 @@ export function ManagerResidents({
       bucket: "approved",
       detail: "",
       assignedPropertyId: arPropertyId || undefined,
-      assignedRoomChoice: arPropertyId && arRoomId ? `${arPropertyId}${LISTING_ROOM_CHOICE_SEP}${arRoomId}` : undefined,
+      assignedRoomChoice: placement.assignedRoomChoice,
       signedMonthlyRent: rent ?? undefined,
       managerUserId: userId ?? undefined,
       manuallyAdded: true,
@@ -1820,7 +1874,8 @@ export function ManagerResidents({
       application: arAppLeaseFields.leaseTerm
         ? ({
             propertyId: arPropertyId || undefined,
-            roomChoice1: arPropertyId && arRoomId ? `${arPropertyId}${LISTING_ROOM_CHOICE_SEP}${arRoomId}` : undefined,
+            roomChoice1: placement.assignedRoomChoice,
+            bundleId: placement.bundleId,
             leaseTerm: arAppLeaseFields.leaseTerm,
             rentalType: arAppLeaseFields.rentalType,
             leaseStart: arMoveInDate || undefined,
@@ -1950,15 +2005,20 @@ export function ManagerResidents({
     const app = row.application;
     const assignedPropId = row.assignedPropertyId?.trim() || row.propertyId?.trim() || app?.propertyId?.trim() || "";
     const assignedRoomChoice = row.assignedRoomChoice?.trim() || app?.roomChoice1?.trim() || "";
-    const assignedRoomId =
-      assignedPropId && assignedRoomChoice.startsWith(`${assignedPropId}${LISTING_ROOM_CHOICE_SEP}`)
-        ? assignedRoomChoice.slice(`${assignedPropId}${LISTING_ROOM_CHOICE_SEP}`.length)
-        : assignedRoomChoice;
+    const storedBundleId = app?.bundleId?.trim() ?? "";
+    const rentedByRoom = assignedPropId ? isPropertyRentedByRoom(assignedPropId) : false;
+    let roomIdForForm = "";
+    if (rentedByRoom && !storedBundleId && assignedPropId && assignedRoomChoice) {
+      if (assignedRoomChoice.startsWith(`${assignedPropId}${LISTING_ROOM_CHOICE_SEP}`)) {
+        roomIdForForm = assignedRoomChoice.slice(`${assignedPropId}${LISTING_ROOM_CHOICE_SEP}`.length);
+      }
+    }
     setErName(row.name || app?.fullLegalName?.trim() || "");
     setErEmail(row.email?.trim() || app?.email?.trim() || "");
     setErPhone(row.manualResidentDetails?.phone?.trim() || app?.phone?.trim() || "");
     setErPropertyId(assignedPropId);
-    setErRoomId(assignedRoomId);
+    setErRoomId(roomIdForForm);
+    setErBundleId(storedBundleId);
     const assignedPropIdForLease = assignedPropId;
     const storedLeaseTerm = row.manualResidentDetails?.leaseTerm || app?.leaseTerm || "";
     const erDisplayLeaseTerm = listingLeaseTermToResidentValue(storedLeaseTerm) || storedLeaseTerm;
@@ -2011,9 +2071,14 @@ export function ManagerResidents({
     const secDeposit = erSecurityDeposit.trim() ? Number(erSecurityDeposit.replace(/[^\d.]/g, "")) : null;
     const propId = erPropertyId.trim();
     const propLabel = propId ? propertyOptions.find((p) => p.id === propId)?.label ?? rows[idx]!.property : rows[idx]!.property;
-    const selectedRoomLabel = erRoomId ? erRoomOptions.find((room) => room.id === erRoomId)?.name?.trim() ?? "" : "";
+    const placement = resolveManualResidentAssignment({
+      propertyId: propId,
+      roomId: erRoomId,
+      bundleId: erBundleId,
+    });
+    const selectedRoomLabel = placement.placementLabel?.trim() || "";
     const existing = rows[idx]!;
-    const newRoomChoice = propId && erRoomId ? `${propId}${LISTING_ROOM_CHOICE_SEP}${erRoomId}` : undefined;
+    const newRoomChoice = placement.assignedRoomChoice;
     const nextRow: DemoApplicantRow = {
       ...existing,
       name: erName.trim(),
@@ -2042,6 +2107,7 @@ export function ManagerResidents({
             phone: erPhone.trim() || existing.application.phone,
             propertyId: propId || existing.application.propertyId,
             roomChoice1: newRoomChoice ?? existing.application.roomChoice1,
+            bundleId: placement.bundleId ?? "",
             leaseTerm: appLeaseFields.leaseTerm || existing.application.leaseTerm,
             rentalType: appLeaseFields.leaseTerm ? appLeaseFields.rentalType : existing.application.rentalType,
             leaseStart: erMoveInDate || existing.application.leaseStart,
@@ -3208,6 +3274,7 @@ export function ManagerResidents({
                 onChange={(next) => {
                   setArPropertyId(next);
                   setArRoomId("");
+                  setArBundleId("");
                 }}
                 options={propertyOptions.map((p) => ({ value: p.id, label: p.label }))}
                 placeholder="Select property…"
@@ -3247,16 +3314,45 @@ export function ManagerResidents({
                 />
               ) : null}
             </label>
-            <label className={PORTAL_MODAL_FORM_FIELD_CLASS}>
-              <span className="font-medium text-muted">Room</span>
-              {arRoomOptions.length > 0 ? (
+            {arShowBundleSelect ? (
+              <label className={PORTAL_MODAL_FORM_FIELD_CLASS}>
+                <span className="font-medium text-muted">Lease bundle</span>
+                <Select
+                  value={arBundleId}
+                  disabled={!arPropertyId || !arLeaseTerm}
+                  onChange={(e) => {
+                    const next = e.target.value;
+                    setArBundleId(next);
+                    if (next) setArRoomId("");
+                  }}
+                >
+                  <option value="">
+                    {arIsShortTermStay
+                      ? "None: standard short-term stay"
+                      : `None: ${arRentedByRoom ? "assign an individual room" : "standard lease"}`}
+                  </option>
+                  {arBundleOptions.map((o) => (
+                    <option key={o.value} value={o.value}>
+                      {o.label}
+                    </option>
+                  ))}
+                </Select>
+                <p className="mt-1 text-xs text-muted">
+                  {arRentedByRoom
+                    ? "Choose a bundle instead of a single room, or leave as none."
+                    : "Optional bundle pricing for this listing."}
+                </p>
+              </label>
+            ) : null}
+            {arShowRoomSelect ? (
+              <label className={PORTAL_MODAL_FORM_FIELD_CLASS}>
+                <span className="font-medium text-muted">Room</span>
                 <Select
                   value={arRoomId}
                   onChange={(e) => {
-                    const roomId = e.target.value;
-                    setArRoomId(roomId);
+                    setArRoomId(e.target.value);
+                    setArBundleId("");
                   }}
-                 
                 >
                   <option value="">Select room…</option>
                   {arRoomOptions.map((r) => (
@@ -3266,12 +3362,24 @@ export function ManagerResidents({
                     </option>
                   ))}
                 </Select>
-              ) : (
+              </label>
+            ) : arShowRoomSetupNote ? (
+              <div className={PORTAL_MODAL_FORM_FIELD_CLASS}>
+                <span className="font-medium text-muted">Room</span>
                 <p className="rounded-xl border border-dashed border-border bg-accent/30 px-3 py-2 text-xs text-muted">
                   Add rooms to this property in listing setup to assign a resident room here.
                 </p>
-              )}
-            </label>
+              </div>
+            ) : arShowWholeUnitPlacementNote ? (
+              <div className={PORTAL_MODAL_FORM_FIELD_CLASS}>
+                <span className="font-medium text-muted">Placement</span>
+                <p className="rounded-xl border border-dashed border-border bg-accent/30 px-3 py-2 text-xs text-muted">
+                  {arEntireHome
+                    ? "This property is leased as one home — no room assignment."
+                    : "This property is leased as one unit — no room assignment."}
+                </p>
+              </div>
+            ) : null}
             <label className={PORTAL_MODAL_FORM_FIELD_CLASS}>
               <span className="font-medium text-muted">{arIsShortTermStay ? "Rent / night ($)" : "Monthly rent ($)"}</span>
               <Input
@@ -3409,6 +3517,7 @@ export function ManagerResidents({
                 onChange={(next) => {
                   setErPropertyId(next);
                   setErRoomId("");
+                  setErBundleId("");
                 }}
                 options={propertyOptions.map((p) => ({ value: p.id, label: p.label }))}
                 placeholder="Select property…"
@@ -3448,14 +3557,44 @@ export function ManagerResidents({
                 />
               ) : null}
             </label>
-            <label className={PORTAL_MODAL_FORM_FIELD_CLASS}>
-              <span className="font-medium text-muted">Room</span>
-              {erRoomOptions.length > 0 ? (
+            {erShowBundleSelect ? (
+              <label className={PORTAL_MODAL_FORM_FIELD_CLASS}>
+                <span className="font-medium text-muted">Lease bundle</span>
+                <NativeSelect
+                  value={erBundleId}
+                  disabled={!erPropertyId || !erLeaseTerm}
+                  onChange={(e) => {
+                    const next = e.target.value;
+                    setErBundleId(next);
+                    if (next) setErRoomId("");
+                  }}
+                >
+                  <option value="">
+                    {erIsShortTermStay
+                      ? "None: standard short-term stay"
+                      : `None: ${erRentedByRoom ? "assign an individual room" : "standard lease"}`}
+                  </option>
+                  {erBundleOptions.map((o) => (
+                    <option key={o.value} value={o.value}>
+                      {o.label}
+                    </option>
+                  ))}
+                </NativeSelect>
+                <p className="mt-1 text-xs text-muted">
+                  {erRentedByRoom
+                    ? "Choose a bundle instead of a single room, or leave as none."
+                    : "Optional bundle pricing for this listing."}
+                </p>
+              </label>
+            ) : null}
+            {erShowRoomSelect ? (
+              <label className={PORTAL_MODAL_FORM_FIELD_CLASS}>
+                <span className="font-medium text-muted">Room</span>
                 <NativeSelect
                   value={erRoomId}
                   onChange={(e) => {
-                    const roomId = e.target.value;
-                    setErRoomId(roomId);
+                    setErRoomId(e.target.value);
+                    setErBundleId("");
                   }}
                 >
                   <option value="">Select room…</option>
@@ -3466,12 +3605,24 @@ export function ManagerResidents({
                     </option>
                   ))}
                 </NativeSelect>
-              ) : (
+              </label>
+            ) : erShowRoomSetupNote ? (
+              <div className={PORTAL_MODAL_FORM_FIELD_CLASS}>
+                <span className="font-medium text-muted">Room</span>
                 <p className="rounded-xl border border-dashed border-border bg-accent/30 px-3 py-2 text-xs text-muted">
                   Add rooms to this property in listing setup to assign a resident room here.
                 </p>
-              )}
-            </label>
+              </div>
+            ) : erShowWholeUnitPlacementNote ? (
+              <div className={PORTAL_MODAL_FORM_FIELD_CLASS}>
+                <span className="font-medium text-muted">Placement</span>
+                <p className="rounded-xl border border-dashed border-border bg-accent/30 px-3 py-2 text-xs text-muted">
+                  {erEntireHome
+                    ? "This property is leased as one home — no room assignment."
+                    : "This property is leased as one unit — no room assignment."}
+                </p>
+              </div>
+            ) : null}
             <label className={PORTAL_MODAL_FORM_FIELD_CLASS}>
               <span className="font-medium text-muted">{erIsShortTermStay ? "Rent / night ($)" : "Monthly rent ($)"}</span>
               <Input

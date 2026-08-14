@@ -8,7 +8,7 @@ import {
   normalizeManagerListingSubmissionV1,
   type ManagerRoomSubmission,
 } from "@/lib/manager-listing-submission";
-import { resolveManualResidentPlacementValues } from "@/lib/rental-application/placement-values";
+import { resolveManualResidentAssignment, resolveManualResidentPlacementValues } from "@/lib/rental-application/placement-values";
 import { SHORT_TERM_LEASE_TERM } from "@/lib/rental-application/lease-terms";
 import type { MockProperty } from "@/data/types";
 
@@ -122,5 +122,107 @@ describe("resolveManualResidentPlacementValues", () => {
     expect(v?.rent).toBe("200");
     expect(v?.securityDeposit).toBe("75");
     expect(v?.moveInFee).toBe("25");
+  });
+
+  it("fills entire-home pricing without a room id", () => {
+    const propertyId = "prop-entire";
+    const sub = createDefaultListingSubmission();
+    sub.listingPlaceCategoryId = "entire_home";
+    sub.entireHomeMonthlyRent = 3200;
+    sub.rooms = [room({ monthlyRent: 0 })];
+    const property: MockProperty = {
+      id: propertyId,
+      title: "Whole House",
+      tagline: "",
+      address: "1 Main St",
+      zip: "98105",
+      neighborhood: "U District",
+      beds: 3,
+      baths: 2,
+      rentLabel: "$3200/mo",
+      available: "Now",
+      petFriendly: false,
+      buildingId: "b1",
+      buildingName: "Whole House",
+      unitLabel: "",
+      adminPublishLive: true,
+      managerUserId: MANAGER_ID,
+      listingSubmission: normalizeManagerListingSubmissionV1(sub),
+    };
+    cachePublicExtraListings([property], { silent: true });
+
+    const assignment = resolveManualResidentAssignment({
+      propertyId,
+      roomId: "",
+      bundleId: "",
+    });
+    expect(assignment.assignedRoomChoice).toBe(propertyId);
+    expect(assignment.bundleId).toBeUndefined();
+
+    const v = resolveManualResidentPlacementValues({
+      propertyId,
+      roomId: "",
+      leaseTerm: "12 months",
+      leaseTermCustomMode: false,
+    });
+    expect(v?.rent).toBe("3200");
+  });
+
+  it("fills bundle pricing when a lease bundle is selected", () => {
+    const propertyId = "prop-bundle";
+    const sub = createDefaultListingSubmission();
+    sub.rooms = [
+      room({ id: "room-a", name: "Room A", monthlyRent: 900, utilitiesEstimate: "100" }),
+      room({ id: "room-b", name: "Room B", monthlyRent: 850, utilitiesEstimate: "100" }),
+    ];
+    sub.bundles = [
+      {
+        id: "bundle-1",
+        label: "2-room bundle",
+        price: "1500",
+        roomsLine: "Room A + Room B",
+        includedRoomIds: ["room-a", "room-b"],
+        shortTermEnabled: false,
+        shortTermNightlyRent: "",
+      },
+    ];
+    const property: MockProperty = {
+      id: propertyId,
+      title: "Bundle House",
+      tagline: "",
+      address: "2 Main St",
+      zip: "98105",
+      neighborhood: "U District",
+      beds: 2,
+      baths: 1,
+      rentLabel: "$1500/mo",
+      available: "Now",
+      petFriendly: false,
+      buildingId: "b2",
+      buildingName: "Bundle House",
+      unitLabel: "",
+      adminPublishLive: true,
+      managerUserId: MANAGER_ID,
+      listingSubmission: normalizeManagerListingSubmissionV1(sub),
+    };
+    cachePublicExtraListings([property], { silent: true });
+
+    const assignment = resolveManualResidentAssignment({
+      propertyId,
+      roomId: "",
+      bundleId: "bundle-1",
+    });
+    expect(assignment.bundleId).toBe("bundle-1");
+    expect(assignment.assignedRoomChoice).toBeUndefined();
+
+    const v = resolveManualResidentPlacementValues({
+      propertyId,
+      roomId: "",
+      bundleId: "bundle-1",
+      leaseTerm: "12 months",
+      leaseTermCustomMode: false,
+    });
+    expect(v?.rent).toBe("1500");
+    expect(Number(v?.utilities)).toBeGreaterThan(0);
   });
 });

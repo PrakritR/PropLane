@@ -20,10 +20,6 @@ import { LISTING_ASSISTANT_UPDATED_EVENT, type ListingAssistantUpdatedDetail } f
 import { Input, Select, Textarea } from "@/components/ui/input";
 import { ListingAddressAutocomplete } from "@/components/portal/listing-address-autocomplete";
 import {
-  ListingRoomDetailTabToggle,
-  type ListingRoomDetailTabId,
-} from "@/components/portal/manager-listing-room-detail-tabs";
-import {
   ListingUnifiedFeesTable,
   type FeeExpandableSection,
 } from "@/components/portal/listing-unified-fees-table";
@@ -1466,7 +1462,6 @@ export function ManagerAddListingForm({
   // Object URLs for video preview (avoids putting huge base64 strings in <video src>).
   // Keyed by a stable id like "room-<id>", "bath-<id>", "space-<id>", "house".
   const [videoPreviewUrls, setVideoPreviewUrls] = useState<Record<string, string>>({});
-  const [roomDetailTabById, setRoomDetailTabById] = useState<Record<string, ListingRoomDetailTabId>>({});
   const videoPreviewUrlsRef = useRef<Record<string, string>>({});
   useEffect(() => {
     videoPreviewUrlsRef.current = videoPreviewUrls;
@@ -4053,13 +4048,13 @@ export function ManagerAddListingForm({
             title="Rooms"
             description={
               isEntireHome
-                ? "List each bedroom — name, floor, furnishing, and amenities. Rent and utilities are set on Pricing. House move-in instructions are on Home."
-                : "Name, floor, furnishing, amenities, and per-room move-in notes. Rent is set on Pricing."
+                ? "List each bedroom — name, floor, furnishing, amenities, and optional photos or video. Rent and utilities are set on Pricing. House move-in instructions are on Home."
+                : "Name, floor, furnishing, amenities, photos, video, and per-room move-in notes. Rent is set on Pricing."
             }
           >
             <div className="mb-2 flex flex-wrap items-end justify-between gap-2">
               <p className="text-sm text-muted">
-                Layout details only — add optional photos per room if helpful.
+                Layout details plus optional photos and video per room — same as bathrooms.
               </p>
               <Button type="button" variant="outline" className={LISTING_WIZARD_ACTION_BTN} onClick={addRoom}>
                 + Add room
@@ -4211,98 +4206,88 @@ export function ManagerAddListingForm({
                         />
                       </div>
 
-                      {!isEntireHome ? (
-                        <div className="sm:col-span-2 space-y-3">
-                          <ListingRoomDetailTabToggle
-                            value={roomDetailTabById[room.id] ?? "preview"}
-                            onChange={(next) =>
-                              setRoomDetailTabById((prev) => ({ ...prev, [room.id]: next }))
-                            }
-                          />
-
-                          {(roomDetailTabById[room.id] ?? "preview") === "preview" ? (
-                      <div className="grid gap-3 sm:grid-cols-2">
-                      <div>
-                        <FieldLabel hint="Up to 8 images, auto-compressed.">Photos</FieldLabel>
-                        <div
-                          className={`mt-2 ${mediaDropZoneClass(activeDropZone === `room-photos-${room.id}`)}`}
-                          onDragOver={(e) => handleDragOver(e, `room-photos-${room.id}`)}
-                          onDragEnter={(e) => handleDragOver(e, `room-photos-${room.id}`)}
-                          onDragLeave={(e) => handleDragLeave(e, `room-photos-${room.id}`)}
-                          onDrop={(e) => onDropRoomPhotos(i, room.id, e)}
-                        >
-                          <MediaPickTrigger
-                            accept="image/*"
-                            multiple
-                            onFiles={(files) => { void onPickRoomPhotos(i, files); }}
-                          >
-                            Add photos
-                          </MediaPickTrigger>
-                          <p className="mt-2 text-xs text-muted">Drop photos here or use the button.</p>
-                          {room.photoDataUrls.length > 0 ? (
-                            <div className="mt-3 flex flex-wrap gap-2">
-                              {room.photoDataUrls.map((url, pi) => (
-                                <div key={`${room.id}-p-${pi}`} className="relative h-20 w-20 shrink-0 overflow-hidden rounded-lg border border-border bg-accent/30">
-                                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                                  <img src={url} alt="" className="h-full w-full object-cover" />
-                                  <button
-                                    type="button"
-                                    className="absolute right-0 top-0 flex h-6 w-6 items-center justify-center rounded-bl bg-black/55 text-sm font-bold text-white hover:bg-black/70"
-                                    onClick={() => removeRoomPhoto(i, pi)}
-                                    aria-label="Remove photo"
-                                  >
-                                    ×
-                                  </button>
-                                </div>
-                              ))}
-                            </div>
-                          ) : null}
-                        </div>
-                      </div>
-
-                      <div>
-                        <FieldLabel hint="One short clip, ~14 MB max, MP4/MOV/WebM.">Video tour</FieldLabel>
-                        <div
-                          className={`mt-2 ${mediaDropZoneClass(activeDropZone === `room-video-${room.id}`)}`}
-                          onDragOver={(e) => handleDragOver(e, `room-video-${room.id}`)}
-                          onDragEnter={(e) => handleDragOver(e, `room-video-${room.id}`)}
-                          onDragLeave={(e) => handleDragLeave(e, `room-video-${room.id}`)}
-                          onDrop={(e) => onDropRoomVideo(i, room.id, e)}
-                        >
-                          <MediaPickTrigger
-                            accept="video/*"
-                            disabled={videoUploadingKeys.has(`room-${room.id}`)}
-                            onFiles={(files) => { void onPickRoomVideo(i, files?.[0] ?? null); }}
-                          >
-                            {videoUploadingKeys.has(`room-${room.id}`) ? "Uploading…" : room.videoDataUrl ? "Replace video" : "Add video"}
-                          </MediaPickTrigger>
-                          {videoUploadingKeys.has(`room-${room.id}`) ? (
-                            <p className="mt-2 text-xs text-primary">Uploading…</p>
-                          ) : (
-                          <p className="mt-2 text-xs text-muted">Drop one video here or use the button.</p>
-                          )}
-                          {room.videoDataUrl ? (
-                            <div className="mt-4 space-y-2">
-                              <video
-                                src={videoPreviewUrls[`room-${room.id}`] ?? room.videoDataUrl}
-                                controls
-                                playsInline
-                                className="max-h-52 w-full rounded-lg border border-border bg-black object-contain"
-                              />
-                              <button
-                                type="button"
-                                className="text-xs font-semibold text-rose-600 hover:underline"
-                                onClick={() => clearRoomVideo(i)}
-                              >
-                                Remove video
-                              </button>
-                            </div>
-                          ) : null}
-                        </div>
-                      </div>
-                      </div>
-                          ) : (
+                      <div className="sm:col-span-2 grid gap-3 sm:grid-cols-2">
                         <div>
+                          <FieldLabel hint="Up to 8 images, auto-compressed.">Photos</FieldLabel>
+                          <div
+                            className={`mt-2 ${mediaDropZoneClass(activeDropZone === `room-photos-${room.id}`)}`}
+                            onDragOver={(e) => handleDragOver(e, `room-photos-${room.id}`)}
+                            onDragEnter={(e) => handleDragOver(e, `room-photos-${room.id}`)}
+                            onDragLeave={(e) => handleDragLeave(e, `room-photos-${room.id}`)}
+                            onDrop={(e) => onDropRoomPhotos(i, room.id, e)}
+                          >
+                            <MediaPickTrigger
+                              accept="image/*"
+                              multiple
+                              onFiles={(files) => { void onPickRoomPhotos(i, files); }}
+                            >
+                              Add photos
+                            </MediaPickTrigger>
+                            <p className="mt-2 text-xs text-muted">Drop photos here or use the button.</p>
+                            {room.photoDataUrls.length > 0 ? (
+                              <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-3">
+                                {room.photoDataUrls.map((url, pi) => (
+                                  <div key={`${room.id}-p-${pi}`} className="group relative overflow-hidden rounded-lg border border-border bg-accent/30">
+                                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                                    <img src={url} alt="" className="h-28 w-full object-cover" />
+                                    <button
+                                      type="button"
+                                      className="absolute right-1 top-1 rounded-full bg-card px-2 py-0.5 text-[11px] font-semibold text-rose-600 shadow-sm opacity-0 transition group-hover:opacity-100"
+                                      onClick={() => removeRoomPhoto(i, pi)}
+                                    >
+                                      Remove
+                                    </button>
+                                  </div>
+                                ))}
+                              </div>
+                            ) : null}
+                          </div>
+                        </div>
+
+                        <div>
+                          <FieldLabel hint="One short clip, ~14 MB max.">Video</FieldLabel>
+                          <div
+                            className={`mt-2 ${mediaDropZoneClass(activeDropZone === `room-video-${room.id}`)}`}
+                            onDragOver={(e) => handleDragOver(e, `room-video-${room.id}`)}
+                            onDragEnter={(e) => handleDragOver(e, `room-video-${room.id}`)}
+                            onDragLeave={(e) => handleDragLeave(e, `room-video-${room.id}`)}
+                            onDrop={(e) => onDropRoomVideo(i, room.id, e)}
+                          >
+                            <MediaPickTrigger
+                              accept="video/*"
+                              disabled={videoUploadingKeys.has(`room-${room.id}`)}
+                              onFiles={(files) => { void onPickRoomVideo(i, files?.[0] ?? null); }}
+                            >
+                              {videoUploadingKeys.has(`room-${room.id}`) ? "Uploading…" : room.videoDataUrl ? "Replace video" : "Add video"}
+                            </MediaPickTrigger>
+                            {videoUploadingKeys.has(`room-${room.id}`) ? (
+                              <p className="mt-2 text-xs text-primary">Uploading…</p>
+                            ) : (
+                              <p className="mt-2 text-xs text-muted">Drop one video here or use the button.</p>
+                            )}
+                            {room.videoDataUrl ? (
+                              <div className="mt-4 space-y-2">
+                                <video
+                                  src={videoPreviewUrls[`room-${room.id}`] ?? room.videoDataUrl}
+                                  controls
+                                  playsInline
+                                  className="max-h-52 w-full rounded-lg border border-border bg-black object-contain"
+                                />
+                                <button
+                                  type="button"
+                                  className="text-xs font-semibold text-rose-600 hover:underline"
+                                  onClick={() => clearRoomVideo(i)}
+                                >
+                                  Remove video
+                                </button>
+                              </div>
+                            ) : null}
+                          </div>
+                        </div>
+                      </div>
+
+                      {!isEntireHome ? (
+                        <div className="sm:col-span-2">
                           <FieldLabel hint="Keys, parking, access, what to bring for this room.">
                             Move-in instructions
                           </FieldLabel>
@@ -4313,8 +4298,6 @@ export function ManagerAddListingForm({
                             className={listingTextInputCls}
                             placeholder="Room-specific access, parking, and move-in details…"
                           />
-                        </div>
-                          )}
                         </div>
                       ) : null}
                   </ListingWizardCollapsibleCard>
