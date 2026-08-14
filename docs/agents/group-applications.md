@@ -29,12 +29,37 @@ portal, and identity while the household reads as one unit.
   `resident-applications-panel.tsx` after approval.
 - **No silent deadlock.** A group never *blocks* — approvals stay per-member.
   An unfinished member surfaces as "waiting on N", it does not gate the others.
+- **One household header, three surfaces: `"<house> Group N"`.** Applications,
+  Residents, and Leases all collect housemates under a cluster header built by
+  `src/lib/rental-application/group-house-label.ts`. Two rules make the number
+  trustworthy, and both are easy to break by computing it locally:
+  - **The ordinal is per house and numbered over EVERY row the surface holds**,
+    never the current tab, bucket, search, or property filter — otherwise the
+    same household renumbers as it moves Pending → Approved, or reads as
+    "Group 1" on one tab and "Group 2" on the next. Ordinals are assigned over a
+    sorted group id so they do not depend on row order.
+  - **A group that spans houses anchors to its dominant property**
+    (`dominantPropertyLabel`), because the strict "every row shares one property"
+    rule (`householdClusterPropertyLabel`) returns null for a real split
+    household and dropped the house from the header entirely. That strict rule
+    still governs clusters with NO group — unrelated rows must not claim a
+    shared house.
+
+  A group with only one row present in the visible list is not a household and
+  stays a plain row. Coverage: `tests/unit/group-house-label.test.ts`,
+  `tests/unit/application-group-ui.test.tsx`.
 - **Money-adjacent surfaces for bundle+group households.** When applicants apply as a
   group **and** select the same `bundleId`, move-in charges split equally across the
   declared household size (`src/lib/bundle-group/bundle-cost-split.ts` →
   `household-charges.ts`). Each member still has their own charge rows with split
   metadata; amounts are equal shares of bundle totals (deposit, utilities, rent,
-  move-in fee).
+  move-in fee). The applicant wizard is not the only writer of `bundleId` — a
+  manager picks one directly on the add/edit resident form, which resolves the
+  placement through `resolveManualResidentAssignment`
+  (`src/lib/rental-application/placement-values.ts`) so a manual placement
+  stores the same `application.bundleId` and prices off the same bundle totals.
+  A bundle and a single room are mutually exclusive there, exactly as in the
+  wizard.
 - **Joint bundle lease.** When every member of a complete bundle group is approved,
   `lease-pipeline-storage.ts` creates one `leaseKind: "joint_bundle"` row (not one
   lease per person). All co-tenants appear on the lease document; the manager reviews
