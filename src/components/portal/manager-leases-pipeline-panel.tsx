@@ -19,7 +19,8 @@ import { usePortalNavigate } from "@/lib/portal-nav-client";
 import { Badge } from "@/components/ui/badge";
 import { ApplicationHouseholdCluster } from "@/components/portal/application-household-list";
 import { groupHouseLabel, numberGroupsByHouse } from "@/lib/rental-application/group-house-label";
-import { normalizeGroupId } from "@/lib/rental-application/application-groups";
+import { applicationHasGroup, normalizeGroupId } from "@/lib/rental-application/application-groups";
+import { getPropertyById } from "@/lib/rental-application/data";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -62,6 +63,15 @@ import { readManagerApplicationRows } from "@/lib/manager-applications-storage";
 import { retryUploadedLeaseParse, uploadAndParseLeasePdf } from "@/lib/uploaded-lease-parse.client";
 import { UploadedLeaseReviewModal } from "@/components/portal/uploaded-lease-review-modal";
 import type { UploadedLeaseFieldKey } from "@/lib/uploaded-lease-extraction";
+
+/** Property title for household group numbering — not the placement label in `row.unit`. */
+function leaseRowPropertyLabel(row: LeasePipelineRow): string {
+  const propertyId = row.propertyId?.trim() ?? "";
+  const fromCatalog = propertyId ? getPropertyById(propertyId)?.title?.trim() : "";
+  if (fromCatalog) return fromCatalog;
+  const unit = row.unit?.trim() ?? "";
+  return unit.split(" · ")[0]?.trim() || unit || "";
+}
 
 export function ManagerLeasesPipelinePanel({
   rows,
@@ -270,8 +280,10 @@ export function ManagerLeasesPipelinePanel({
     () =>
       numberGroupsByHouse(
         rows.map((row) => ({
-          groupId: normalizeGroupId(row.application?.groupId ?? ""),
-          property: row.unit ?? "",
+          groupId: applicationHasGroup(row.application)
+            ? normalizeGroupId(row.application?.groupId ?? "")
+            : "",
+          property: leaseRowPropertyLabel(row),
         })),
       ),
     [rows],
@@ -286,7 +298,8 @@ export function ManagerLeasesPipelinePanel({
     type Cluster = { groupId: string; property: string | null; ordinal: number; rows: LeasePipelineRow[] };
     const out: Cluster[] = [];
     const byGroup = new Map<string, Cluster>();
-    const groupIdFor = (row: LeasePipelineRow) => normalizeGroupId(row.application?.groupId ?? "");
+    const groupIdFor = (row: LeasePipelineRow) =>
+      applicationHasGroup(row.application) ? normalizeGroupId(row.application?.groupId ?? "") : "";
     for (const row of bucketRows) {
       const groupId = groupIdFor(row);
       const grouped = groupId && bucketRows.filter((other) => groupIdFor(other) === groupId).length > 1;

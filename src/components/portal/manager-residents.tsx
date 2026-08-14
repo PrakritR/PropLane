@@ -2161,7 +2161,7 @@ export function ManagerResidents({
             email: erEmail.trim() || existing.application.email,
             phone: erPhone.trim() || existing.application.phone,
             propertyId: propId || existing.application.propertyId,
-            roomChoice1: newRoomChoice ?? existing.application.roomChoice1,
+            roomChoice1: newRoomChoice ?? (placement.bundleId ? "" : existing.application.roomChoice1),
             bundleId: placement.bundleId ?? "",
             leaseTerm: appLeaseFields.leaseTerm || existing.application.leaseTerm,
             rentalType: appLeaseFields.leaseTerm ? appLeaseFields.rentalType : existing.application.rentalType,
