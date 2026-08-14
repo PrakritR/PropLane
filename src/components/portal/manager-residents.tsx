@@ -926,8 +926,20 @@ export function ManagerResidents({
   }, [arIsShortTermStay]);
 
   useEffect(() => {
+    if (!arBundleId.trim()) return;
+    if (arBundleOptions.some((o) => o.value === arBundleId)) return;
+    setArBundleId("");
+  }, [arBundleId, arBundleOptions]);
+
+  useEffect(() => {
     if (erIsShortTermStay) setErUtilities("0");
   }, [erIsShortTermStay]);
+
+  useEffect(() => {
+    if (!erBundleId.trim()) return;
+    if (erBundleOptions.some((o) => o.value === erBundleId)) return;
+    setErBundleId("");
+  }, [erBundleId, erBundleOptions]);
 
   useEffect(() => {
     if (!addResidentOpen) return;
