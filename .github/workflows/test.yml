@@ -24,9 +24,16 @@ jobs:
       - run: npm run lockfile:verify
       - run: npm run test:unit
 
+  # Every job below is INDEPENDENT on purpose. They used to chain off `unit`
+  # (integration -> unit, e2e -> integration, check -> unit) to save CI minutes,
+  # but that made one red unit test cancel the entire rest of the pipeline. A
+  # long-known-red test then hid a type error for days, and a commit that could
+  # not build reached `production` — the site only stayed up because Vercel keeps
+  # the last good deployment serving. Each job does its own checkout and `npm ci`
+  # and consumes nothing from the others, so running them in parallel costs only
+  # machine time and buys an honest signal per dimension.
   integration:
     runs-on: ubuntu-latest
-    needs: unit
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -46,7 +53,6 @@ jobs:
 
   e2e:
     runs-on: ubuntu-latest
-    needs: integration
     # Backstop so a hung suite costs minutes, not GitHub's 6h job default. The
     # real guards against hanging are Playwright's globalSetup preflight and
     # globalTimeout (see playwright.config.ts); this is the outer safety net that
@@ -81,7 +87,6 @@ jobs:
 
   check:
     runs-on: ubuntu-latest
-    needs: unit
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -90,3 +95,24 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run check
+
+  # Deploy gate. `npm run check` is `lint && test:unit && build`, so it stops at
+  # the unit suite and never reaches the build — decoupling the JOBS above is not
+  # enough on its own. This runs the production build directly, so a commit that
+  # cannot compile is red here no matter what any test is doing. That is exactly
+  # what shipped: a `Property 'assignedPropertyId' does not exist` type error
+  # reached `production` while every test signal was either green or cancelled.
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.TEST_SUPABASE_URL }}
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.TEST_SUPABASE_ANON_KEY }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.TEST_SUPABASE_SERVICE_ROLE_KEY }}
