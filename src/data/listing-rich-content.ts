@@ -52,6 +52,27 @@ export type ListingRoomRow = {
   bathroomShareCount?: number | null;
 };
 
+/** Rent + utilities line for floor-plan room cards (browser overlay). */
+export function listingRoomPriceMetaLine(room: ListingRoomRow): string | undefined {
+  const parts: string[] = [];
+  const amount = room.priceHeadlineAmount;
+  if (typeof amount === "number" && Number.isFinite(amount) && amount > 0) {
+    const formatted = amount % 1 === 0 ? `$${amount.toLocaleString("en-US")}` : `$${amount.toFixed(2)}`;
+    parts.push(room.pricePeriod === "day" ? `${formatted}/day` : `${formatted}/mo`);
+  } else {
+    const raw = room.price?.trim();
+    if (raw && raw !== "—" && raw !== "Included") {
+      const numbers = raw.match(/\d+(?:[.,]\d+)*/g);
+      if (!numbers || numbers.some((n) => Number.parseFloat(n.replace(/,/g, "")) > 0)) {
+        parts.push(raw);
+      }
+    }
+  }
+  const utilities = room.utilitiesEstimate?.trim();
+  if (utilities) parts.push(utilities);
+  return parts.length > 0 ? parts.join(" · ") : undefined;
+}
+
 export type ListingFloorCard = {
   /** Stable React key when cards are built from bathrooms (defaults to floorLabel). */
   cardKey?: string;
@@ -463,26 +484,6 @@ const defaultLease: LeaseBasicRow[] = [
     price: "—",
     status: "At signing",
     body: "Move-in charges are configured by the property manager on the listing. See the final lease for what they cover.",
-  },
-  {
-    id: "lease-signing",
-    section: "long-term",
-    icon: "✍️",
-    title: "Payment due at signing",
-    detail: "Listing or lease",
-    price: "—",
-    status: "At signing",
-    body: "When the listing includes deposit and move-in amounts, the public page can show their sum at signing. Otherwise the lease states the exact figure.",
-  },
-  {
-    id: "lease-utilities",
-    section: "long-term",
-    icon: "📊",
-    title: "Utilities",
-    detail: "Listing or your estimate",
-    price: "—",
-    status: "Estimated",
-    body: "Landlords may publish a utilities estimate on the listing.",
   },
 ];
 

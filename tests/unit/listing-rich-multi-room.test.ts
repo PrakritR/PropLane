@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { MockProperty } from "@/data/types";
-import { getListingRichContent } from "@/data/listing-rich-content";
+import { getListingRichContent, listingRoomPriceMetaLine } from "@/data/listing-rich-content";
 import { listingRichFromManagerSubmission } from "@/data/listing-rich-from-submission";
 import { createDefaultListingSubmission } from "@/lib/manager-listing-submission";
 
@@ -41,22 +41,33 @@ describe("listing multi-room lease basics", () => {
     expect(names).toEqual(["Room 1", "Room 2", "Room 3", "Room 4", "Room 5"]);
   });
 
-  it("lists each room rent under long term for by-room listings", () => {
+  it("shows per-room rent on floor plans, not in lease basics", () => {
     const sub = createDefaultListingSubmission();
     sub.securityDeposit = "600";
     sub.moveInFee = "150";
     sub.rooms = [
-      { ...sub.rooms[0]!, id: "room-1", name: "Room 1", floor: "2nd floor", monthlyRent: 3000 },
+      {
+        ...sub.rooms[0]!,
+        id: "room-1",
+        name: "Room 1",
+        floor: "2nd floor",
+        monthlyRent: 3000,
+        utilitiesEstimate: "$150",
+      },
     ];
     const property = mockProperty({ id: "single-room-lease", listingSubmission: sub });
     const rich = listingRichFromManagerSubmission(property, sub);
-    const roomRow = rich.leaseBasics.find((row) => row.id === "lease-room-room-1");
-    expect(roomRow?.title).toBe("2nd floor");
-    expect(roomRow?.detail).toBe("Room 1");
-    expect(roomRow?.price).toBe("$3,000/mo");
-    expect(roomRow?.section).toBe("long-term");
+    const floorRoom = rich.floorPlans.flatMap((f) => f.rooms).find((r) => r.id === "room-1");
+    expect(floorRoom?.priceHeadlineAmount).toBe(3000);
+    expect(floorRoom?.utilitiesEstimate).toBeTruthy();
+    expect(listingRoomPriceMetaLine(floorRoom!)).toMatch(/\$3,000\/mo/);
+    expect(listingRoomPriceMetaLine(floorRoom!)).toMatch(/\$150/);
+    expect(rich.leaseBasics.some((row) => row.id === "lease-room-room-1")).toBe(false);
+    expect(rich.leaseBasics.some((row) => row.id === "lease-utilities")).toBe(false);
+    expect(rich.leaseBasics.some((row) => row.id === "lease-signing")).toBe(false);
     expect(rich.pricingBreakdown?.some((line) => line.label === "Security deposit")).toBe(true);
     expect(rich.pricingBreakdown?.some((line) => line.label === "Move-in fee")).toBe(true);
+    expect(rich.pricingBreakdown?.some((line) => line.label === "Due at signing")).toBe(false);
   });
 
   it("routes short-term custom fees to the short-term lease basics section", () => {
@@ -97,7 +108,7 @@ describe("listing multi-room lease basics", () => {
 
     const property = mockProperty({ id: "mgr-test-magnolia", listingSubmission: sub });
     const rich = listingRichFromManagerSubmission(property, sub);
-    const leaseRow = rich.leaseBasics.find((row) => row.id === "lease-multi-room");
+    const leaseRow = rich.leaseBasics.find((row) => row.id === "lease-bundle-bundle-multi");
 
     expect(leaseRow?.title).toBe("Two or more rooms");
     expect(leaseRow?.price).toBe("$2,200/mo");

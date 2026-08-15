@@ -3,6 +3,7 @@ import type {
   ListingRoomRow,
   ListingSharedRow,
 } from "@/data/listing-rich-content";
+import { listingRoomPriceMetaLine } from "@/data/listing-rich-content";
 import type { ListingSpaceMediaEntry } from "@/components/marketing/listing-space-media-browser";
 
 export function roomMediaEntriesFromFloors(
@@ -13,7 +14,7 @@ export function roomMediaEntriesFromFloors(
       id: room.id,
       eyebrow: f.floorLabel,
       title: room.name,
-      metaLine: room.price,
+      metaLine: listingRoomPriceMetaLine(room),
       availability: room.availability,
       photoUrls: room.modal.photoUrls,
       videoSrc: room.modal.videoSrc,

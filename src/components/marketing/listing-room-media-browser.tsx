@@ -2,6 +2,7 @@
 
 import { useMemo } from "react";
 import type { ListingRoomRow } from "@/data/listing-rich-content";
+import { listingRoomPriceMetaLine } from "@/data/listing-rich-content";
 import {
   ListingSpaceMediaBrowser,
   type ListingSpaceMediaCta,
@@ -57,7 +58,7 @@ export function ListingRoomMediaBrowser({
         id: entry.room.id,
         eyebrow: entry.floorLabel,
         title: entry.room.name,
-        metaLine: entry.room.price,
+        metaLine: listingRoomPriceMetaLine(entry.room),
         availability: entry.room.availability,
         photoUrls: entry.room.modal.photoUrls,
         videoSrc: entry.room.modal.videoSrc,

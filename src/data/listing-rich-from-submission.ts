@@ -36,9 +36,7 @@ import {
 } from "@/lib/listing-utilities-payment";
 import {
   formatListingFeeDisplay,
-  paymentAtSigningDetailBody,
   paymentAtSigningPriceLabel,
-  utilitiesListingEstimateDetail,
   utilitiesListingEstimateLabel,
 } from "@/lib/rental-application/listing-fees-display";
 import {
@@ -99,15 +97,6 @@ function listingFeeDisplayToLeaseBasicRow(
     status: row.status,
     body: row.body,
   };
-}
-
-function shouldShowLeaseUtilitiesRow(sub: ManagerListingSubmissionV1, rooms: ManagerRoomSubmission[]): boolean {
-  if (utilitiesListingSummaryLabel(sub) !== "—") return true;
-  return rooms.some(
-    (r) =>
-      r.name.trim() &&
-      (Boolean((r.utilitiesEstimate ?? "").trim()) || resolveRoomUtilitiesPaymentModel(r) !== "manager_billed"),
-  );
 }
 
 function shortTermStayPriceLabel(sub: ManagerListingSubmissionV1): string {
@@ -191,10 +180,9 @@ function resolveFloorPlanImageUrl(
   return propertyWide || undefined;
 }
 
-/** One-line hint under the room name on listing cards — avoid repeating floor + detail. */
+/** One-line hint under the room name on listing cards — rent/utilities live on the price meta line. */
 function roomListingTableSubtitle(r: ManagerRoomSubmission): string {
-  const util = r.utilitiesEstimate?.trim();
-  if (util) return `Utilities ~ ${util}`;
+  void r;
   return "Open Details for layout, notes & photos";
 }
 
@@ -288,8 +276,10 @@ function buildListingFloorCard(
       price: roomIsDailyPriced(r)
         ? roomHeadlinePriceLabel(r)
         : entireHome
-          ? (r.monthlyRent > 0 ? `$${r.monthlyRent}` : "Included")
-          : `$${r.monthlyRent}`,
+          ? r.monthlyRent > 0
+            ? normalizeLeaseRentPriceLabel(`$${r.monthlyRent}`, "month")
+            : "Included"
+          : normalizeLeaseRentPriceLabel(roomHeadlinePriceLabel(r), "month"),
       pricePeriod: roomIsDailyPriced(r) ? "day" : "month",
       priceMonthlyEquivalent: roomIsDailyPriced(r) ? roomMonthlyEquivalent(r) : undefined,
       priceHeadlineAmount: roomHeadlineAmount(r) ?? undefined,
@@ -520,6 +510,43 @@ function multiRoomLeaseBasicRow(
   };
 }
 
+/** Bundle rent packages from the listing pricing tab (not per-room rents). */
+function bundleLeaseBasicRows(
+  sub: ManagerListingSubmissionV1,
+  rooms: ManagerRoomSubmission[],
+): LeaseBasicRow[] {
+  if (isEntireHomeListing(sub)) return [];
+
+  const custom = (sub.bundles ?? []).filter(bundleRowHasContent);
+  const rows: LeaseBasicRow[] = [];
+  for (const b of custom) {
+    const longTermPrice = b.price.trim();
+    if (!longTermPrice) continue;
+    const scope = bundleScopeLineFromRow(b, rooms);
+    rows.push({
+      id: `lease-bundle-${b.id}`,
+      section: "long-term",
+      icon: "🏘️",
+      title: b.label.trim() || "Package",
+      detail:
+        scope ||
+        bundleRoomsDetailLine(b.includedRoomIds ?? [], rooms) ||
+        "Bundled rooms on one lease",
+      price: normalizeLeaseRentPriceLabel(longTermPrice, "month"),
+      status: "Monthly rent",
+      body: b.roomsLine.trim()
+        ? `${b.roomsLine.trim()}.`
+        : scope
+          ? `Bundle includes: ${scope}.`
+          : twoOrMoreRoomDetailBody(rooms),
+    });
+  }
+  if (rows.length > 0) return rows;
+
+  const multiLt = multiRoomLeaseBasicRow(rooms, sub);
+  return multiLt ? [multiLt] : [];
+}
+
 function entireHomeLongTermRentRow(
   sub: ManagerListingSubmissionV1,
   rooms: ManagerRoomSubmission[],
@@ -598,34 +625,6 @@ function shortTermBundleRentRows(
   return rows;
 }
 
-function perRoomLongTermRentRows(
-  rooms: ManagerRoomSubmission[],
-  sub: ManagerListingSubmissionV1,
-): LeaseBasicRow[] {
-  if (isEntireHomeListing(sub)) return [];
-  return [...rooms]
-    .filter((r) => r.name.trim() && (roomHeadlineAmount(r) ?? 0) > 0)
-    .sort(compareRoomsByFloorThenName)
-    .map((r) => {
-      const daily = roomIsDailyPriced(r);
-      const priceLabel = roomHeadlinePriceLabel(r);
-      const floor = r.floor.trim();
-      const name = r.name.trim();
-      return {
-        id: `lease-room-${r.id}`,
-        section: "long-term" as const,
-        icon: "🛏️",
-        title: floor || name,
-        detail: floor ? name : "Bedroom",
-        price: normalizeLeaseRentPriceLabel(priceLabel, daily ? "day" : "month"),
-        status: daily ? "Daily rent" : "Monthly rent",
-        body: daily
-          ? `${name}${floor ? ` on ${floor}` : ""}: ${priceLabel}. Billed by the day for the days in each month.`
-          : `${name}${floor ? ` on ${floor}` : ""}: ${priceLabel} per month.`,
-      };
-    });
-}
-
 function buildPricingBreakdownLines(sub: ManagerListingSubmissionV1): ListingPricingBreakdownLine[] {
   const lines: ListingPricingBreakdownLine[] = [];
 
@@ -646,11 +645,6 @@ function buildPricingBreakdownLines(sub: ManagerListingSubmissionV1): ListingPri
   const moveIn = listingPresetFeeAmount(sub, "move_in_fee");
   if (moveIn > 0) {
     lines.push({ label: "Move-in fee", value: formatListingFeeDisplay(String(moveIn)) });
-  }
-
-  const signing = paymentAtSigningPriceLabel(sub);
-  if (signing !== "—" && (sub.paymentAtSigningIncludes?.length ?? 0) > 0) {
-    lines.push({ label: "Due at signing", value: signing });
   }
 
   if (sub.shortTermRentalsAllowed) {
@@ -679,9 +673,7 @@ function buildLeaseBasicsRows(
 
   const entireLt = entireHomeLongTermRentRow(sub, rooms);
   if (entireLt) rows.push(entireLt);
-  rows.push(...perRoomLongTermRentRows(rooms, sub));
-  const multiLt = multiRoomLeaseBasicRow(rooms, sub);
-  if (multiLt) rows.push(multiLt);
+  rows.push(...bundleLeaseBasicRows(sub, rooms));
 
   if (feeMeaningfulForListing(sub.applicationFee)) {
     rows.push({
@@ -701,32 +693,6 @@ function buildLeaseBasicsRows(
       listingFeeDisplayToLeaseBasicRow(r, "long-term"),
     ),
   );
-
-  if (shouldShowLeaseUtilitiesRow(sub, rooms)) {
-    rows.push({
-      id: "lease-utilities",
-      section: "long-term",
-      icon: "📊",
-      title: "Utilities",
-      detail: "Per room",
-      price: utilitiesListingEstimateLabel(sub),
-      status: "Estimated",
-      body: utilitiesListingEstimateDetail(sub),
-    });
-  }
-
-  if ((sub.paymentAtSigningIncludes?.length ?? 0) > 0) {
-    rows.push({
-      id: "lease-signing",
-      section: "long-term",
-      icon: "✍️",
-      title: "Payment due at signing",
-      detail: sub.paymentAtSigningIncludes?.length ? "Selected charges" : "None selected",
-      price: paymentAtSigningPriceLabel(sub),
-      status: "At signing",
-      body: paymentAtSigningDetailBody(sub),
-    });
-  }
 
   if (sub.shortTermRentalsAllowed) {
     const entireSt = entireHomeShortTermRentRow(sub, rooms);
