@@ -2750,6 +2750,41 @@ export function ManagerResidents({
                               />
                             </ResidentDetailTabPanel>
                             </div>
+                            ) : showResidentLease && resolvedDetailTab === "lease" ? (
+                            <div className="flex min-h-0 flex-1 flex-col">
+                            <ResidentDetailTabPanel fill>
+                              {residentLeaseRows.length > 1 ? (
+                                <div className="mb-3 shrink-0 -mx-2.5 bg-background sm:-mx-4 lg:mx-0">
+                                  <LocalDestinationNav
+                                    items={residentLeaseRows.map((row) => ({
+                                      id: row.id,
+                                      label: row.status ?? row.stageLabel ?? "Lease",
+                                      dataAttr: `resident-lease-pick-${row.id}`,
+                                    }))}
+                                    activeId={residentLease?.id ?? residentLeaseRows[0]!.id}
+                                    onChange={setActiveResidentLeaseId}
+                                    ariaLabel="Resident leases"
+                                    className="rounded-none border-0 border-b border-border bg-transparent p-0 md:rounded-2xl md:border md:border-border md:bg-accent/30 md:p-1"
+                                  />
+                                </div>
+                              ) : null}
+                              {residentLease ? (
+                                <LeaseDocumentPreview
+                                  row={residentLease}
+                                  stretch
+                                  className="min-h-0 flex-1"
+                                  suppressApplicationDraft={Boolean(selected.manuallyAdded)}
+                                  emptyHint="No lease document yet. Generate or upload one from Manager Review first."
+                                />
+                              ) : (
+                                <p className="text-sm text-muted">
+                                  {selectedApplicationRow?.bucket === "approved"
+                                    ? "Add or upload a lease from the Leases section."
+                                    : "Approve the application first, then add a lease from the Leases section."}
+                                </p>
+                              )}
+                            </ResidentDetailTabPanel>
+                            </div>
                             ) : (
                             <PortalPageScrollBody>
 
@@ -2779,40 +2814,6 @@ export function ManagerResidents({
                                 </div>
                               ) : (
                                 <p className="text-sm text-muted">No application on file for this resident.</p>
-                              )}
-                            </ResidentDetailTabPanel>
-                            ) : null}
-
-                            {showResidentLease && resolvedDetailTab === "lease" ? (
-                            <ResidentDetailTabPanel>
-                              {residentLeaseRows.length > 1 ? (
-                                <div className="mb-3 -mx-2.5 bg-background sm:-mx-4 lg:mx-0">
-                                  <LocalDestinationNav
-                                    items={residentLeaseRows.map((row) => ({
-                                      id: row.id,
-                                      label: row.status ?? row.stageLabel ?? "Lease",
-                                      dataAttr: `resident-lease-pick-${row.id}`,
-                                    }))}
-                                    activeId={residentLease?.id ?? residentLeaseRows[0]!.id}
-                                    onChange={setActiveResidentLeaseId}
-                                    ariaLabel="Resident leases"
-                                    className="rounded-none border-0 border-b border-border bg-transparent p-0 md:rounded-2xl md:border md:border-border md:bg-accent/30 md:p-1"
-                                  />
-                                </div>
-                              ) : null}
-                              {residentLease ? (
-                                <LeaseDocumentPreview
-                                  row={residentLease}
-                                  flow
-                                  suppressApplicationDraft={Boolean(selected.manuallyAdded)}
-                                  emptyHint="No lease document yet. Generate or upload one from Manager Review first."
-                                />
-                              ) : (
-                                <p className="text-sm text-muted">
-                                  {selectedApplicationRow?.bucket === "approved"
-                                    ? "Add or upload a lease from the Leases section."
-                                    : "Approve the application first, then add a lease from the Leases section."}
-                                </p>
                               )}
                             </ResidentDetailTabPanel>
                             ) : null}
@@ -3115,13 +3116,15 @@ export function ManagerResidents({
           dataAttrBack="resident-detail-back"
           actions={residentProfileHeaderActions}
           inlineActions
-          // Communication is a fill-height chat that scrolls internally; every
-          // other tab flows. Without this the chat has no bounded height, so it
-          // overflows the clipped Communication surface and shoves the back
-          // button and the profile tabs off a page that cannot scroll.
+          // Communication is a fill-height chat; the lease tab scrolls the document
+          // inside a bounded preview frame. Without fillBody both overflow a clipped
+          // portal surface with no way to reach the rest of the document.
           pinScrollBody
           scrollBody={false}
-          fillBody={resolvedDetailTab === "communication"}
+          fillBody={
+            resolvedDetailTab === "communication" ||
+            (showResidentLease && resolvedDetailTab === "lease")
+          }
         >
           {residentDetailPanel}
         </PortalRecordDetailPage>

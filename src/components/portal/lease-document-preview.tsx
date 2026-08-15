@@ -82,7 +82,7 @@ function AutoHeightLeaseHtmlFrame({ srcDoc, title }: { srcDoc: string; title: st
       ref={iframeRef}
       title={title}
       srcDoc={srcDoc}
-      sandbox=""
+      sandbox="allow-same-origin"
       scrolling="no"
       className="block w-full border-0 bg-card"
       style={{ height }}
@@ -170,7 +170,7 @@ export function LeaseDocumentPreview({
               <iframe
                 title="Lease document"
                 srcDoc={previewHtml}
-                sandbox=""
+                sandbox="allow-same-origin"
                 scrolling={frameScroll}
                 className={frameClass}
               />
@@ -186,7 +186,7 @@ export function LeaseDocumentPreview({
               <iframe
                 title="Lease draft preview"
                 srcDoc={syntheticHtml}
-                sandbox=""
+                sandbox="allow-same-origin"
                 scrolling={frameScroll}
                 className={frameClass}
               />
