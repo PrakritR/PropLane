@@ -51,7 +51,17 @@ export function downloadBackgroundCheckForApplication(row: DemoApplicantRow): vo
   }
 }
 
-export function BackgroundCheckReportFrame({ row, demo, bareCanvas = false }: { row: DemoApplicantRow; demo: boolean; bareCanvas?: boolean }) {
+export function BackgroundCheckReportFrame({
+  row,
+  demo,
+  bareCanvas = false,
+  stretch = false,
+}: {
+  row: DemoApplicantRow;
+  demo: boolean;
+  bareCanvas?: boolean;
+  stretch?: boolean;
+}) {
   const bg = row.backgroundCheck;
   const reportHtml = useMemo(() => buildBackgroundCheckReportHtml(row), [row]);
   const canTryOfficialPdf = bg?.status === "complete" && !(bg.simulated && demo);
@@ -95,26 +105,35 @@ export function BackgroundCheckReportFrame({ row, demo, bareCanvas = false }: { 
     };
   }, [pdfHref]);
 
-  const frameClass = bareCanvas
-    ? "h-[min(70vh,720px)] w-full border-0 bg-white"
-    : "h-[min(52vh,420px)] w-full border-0 bg-white";
+  const frameClass = stretch
+    ? "absolute inset-0 h-full w-full border-0 bg-white"
+    : bareCanvas
+      ? "h-[min(70vh,720px)] w-full border-0 bg-white"
+      : "h-[min(52vh,420px)] w-full border-0 bg-white";
+
+  const frameShell = (content: ReactNode) =>
+    stretch ? (
+      <div className="relative min-h-0 flex-1 overflow-hidden rounded-2xl border border-border bg-card">{content}</div>
+    ) : (
+      content
+    );
 
   if (pdfSrc && !pdfFailed) {
     if (!pdfReady) {
-      return (
-        <div className={`flex items-center justify-center text-sm text-muted ${frameClass}`}>
+      return frameShell(
+        <div className={`flex items-center justify-center text-sm text-muted ${stretch ? "h-full min-h-[12rem]" : frameClass}`}>
           Loading Checkr report…
-        </div>
+        </div>,
       );
     }
-    return (
+    return frameShell(
       <iframe
         key={pdfSrc}
         src={pdfSrc}
         title="Background check report preview"
         loading="lazy"
         className={frameClass}
-      />
+      />,
     );
   }
 
@@ -128,14 +147,15 @@ export function BackgroundCheckReportFrame({ row, demo, bareCanvas = false }: { 
     );
   }
 
-  return (
+  return frameShell(
     <iframe
       srcDoc={reportHtml}
       title="Background check report preview"
-      sandbox="allow-same-origin"
+      sandbox=""
       loading="lazy"
-      className={bareCanvas ? "h-[min(70vh,720px)] w-full border-0 bg-transparent" : "h-[min(52vh,420px)] w-full border-0 bg-white"}
-    />
+      scrolling={stretch ? "yes" : undefined}
+      className={frameClass}
+    />,
   );
 }
 
@@ -160,9 +180,11 @@ export function ApplicationScreeningPanel({
   onOpenScreeningModal,
   collapsible = true,
   bareCanvas = false,
+  stretch = false,
   headerActionsPlacement = "section",
   onHeaderActionsChange,
   presentation = "full",
+  className,
 }: {
   row: DemoApplicantRow;
   onUpdated?: () => void;
@@ -171,10 +193,12 @@ export function ApplicationScreeningPanel({
   /** When false, renders flat content (e.g. inside a review modal). */
   collapsible?: boolean;
   bareCanvas?: boolean;
+  stretch?: boolean;
   /** When `parent`, header buttons render via `onHeaderActionsChange` instead of the Screening sub-section. */
   headerActionsPlacement?: "section" | "parent";
   onHeaderActionsChange?: (actions: React.ReactNode) => void;
   presentation?: "full" | "compact";
+  className?: string;
 }) {
   const { showToast } = useAppUi();
   const demo = isDemoModeActive() || isScreeningTestModeActive();
@@ -530,7 +554,7 @@ export function ApplicationScreeningPanel({
     );
   }
 
-  const panelBody = (
+  const panelHead = (
     <>
       {!screeningAllowed && !demo ? (
         <>
@@ -599,25 +623,54 @@ export function ApplicationScreeningPanel({
           ) : null}
         </div>
       ) : null}
+    </>
+  );
 
-      <BackgroundCheckReportFrame row={{ ...row, backgroundCheck: bg }} demo={demo} bareCanvas={bareCanvas} />
+  const reportFrame = (
+    <BackgroundCheckReportFrame
+      row={{ ...row, backgroundCheck: bg }}
+      demo={demo}
+      bareCanvas={bareCanvas}
+      stretch={stretch}
+    />
+  );
 
+  const panelTail = (
+    <>
       {screening?.adverseActionRequired ? (
         <p className="rounded-xl border px-3 py-2 text-xs portal-banner-pending">
           Adverse action may be required before denying based on this consumer report (FCRA).
         </p>
       ) : null}
+    </>
+  );
 
+  const panelBody = (
+    <>
+      {panelHead}
+      {reportFrame}
+      {panelTail}
     </>
   );
 
   if (!collapsible) {
     return (
-      <div className="space-y-3" data-slot="application-screening-inline">
+      <div
+        className={`${stretch ? "flex min-h-0 flex-1 flex-col gap-3" : "space-y-3"} ${className ?? ""}`.trim()}
+        data-slot="application-screening-inline"
+      >
         {headerActionsPlacement === "section" && headerActions ? (
-          <div className="flex flex-nowrap items-center justify-start gap-2 overflow-x-auto">{headerActions}</div>
+          <div className="flex shrink-0 flex-nowrap items-center justify-start gap-2 overflow-x-auto">{headerActions}</div>
         ) : null}
-        {panelBody}
+        {stretch ? (
+          <div className="flex min-h-0 flex-1 flex-col gap-3">
+            <div className="flex shrink-0 flex-col gap-3">{panelHead}</div>
+            {reportFrame}
+            <div className="shrink-0">{panelTail}</div>
+          </div>
+        ) : (
+          panelBody
+        )}
       </div>
     );
   }

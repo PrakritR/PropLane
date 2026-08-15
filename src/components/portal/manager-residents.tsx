@@ -2785,23 +2785,24 @@ export function ManagerResidents({
                               )}
                             </ResidentDetailTabPanel>
                             </div>
-                            ) : (
-                            <PortalPageScrollBody>
-
-                            {showResidentApplication && resolvedDetailTab === "application" ? (
-                            <ResidentDetailTabPanel>
+                            ) : showResidentApplication && resolvedDetailTab === "application" ? (
+                            <div className="flex min-h-0 flex-1 flex-col">
+                            <ResidentDetailTabPanel fill>
                               {selectedApplicationRow ? (
-                                <div className="space-y-0">
+                                <div className="flex min-h-0 flex-1 flex-col gap-0">
                                   {selectedApplicationCosigners.length > 0 ? (
-                                    <ApplicationCosignerSection
-                                      submissions={selectedApplicationCosigners}
-                                      primaryApplicationAxisId={selectedApplicationRow.id}
-                                    />
+                                    <div className="shrink-0">
+                                      <ApplicationCosignerSection
+                                        submissions={selectedApplicationCosigners}
+                                        primaryApplicationAxisId={selectedApplicationRow.id}
+                                      />
+                                    </div>
                                   ) : null}
                                   <ApplicationReviewLauncherRow
                                     row={selectedApplicationRow}
                                     group={selectedApplicationGroup}
                                     bareCanvas
+                                    stretch
                                     showDownload={false}
                                     activeView={applicationReviewView}
                                     onActiveViewChange={setApplicationReviewView}
@@ -2810,13 +2811,16 @@ export function ManagerResidents({
                                       setCheckrScreeningShowPicker(Boolean(opts?.showPackagePicker));
                                       setCheckrScreeningRowId(selectedApplicationRow.id);
                                     }}
+                                    className="min-h-0 flex-1"
                                   />
                                 </div>
                               ) : (
                                 <p className="text-sm text-muted">No application on file for this resident.</p>
                               )}
                             </ResidentDetailTabPanel>
-                            ) : null}
+                            </div>
+                            ) : (
+                            <PortalPageScrollBody>
 
                             {resolvedDetailTab === "payments" ? (
                             <ResidentDetailTabPanel>
@@ -3116,14 +3120,15 @@ export function ManagerResidents({
           dataAttrBack="resident-detail-back"
           actions={residentProfileHeaderActions}
           inlineActions
-          // Communication is a fill-height chat; the lease tab scrolls the document
-          // inside a bounded preview frame. Without fillBody both overflow a clipped
-          // portal surface with no way to reach the rest of the document.
+          // Communication is a fill-height chat; the lease and application tabs scroll
+          // the document inside a bounded preview frame. Without fillBody both overflow a
+          // clipped portal surface with no way to reach the rest of the document.
           pinScrollBody
           scrollBody={false}
           fillBody={
             resolvedDetailTab === "communication" ||
-            (showResidentLease && resolvedDetailTab === "lease")
+            (showResidentLease && resolvedDetailTab === "lease") ||
+            (showResidentApplication && resolvedDetailTab === "application")
           }
         >
           {residentDetailPanel}

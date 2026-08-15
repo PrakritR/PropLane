@@ -18,6 +18,7 @@ export type ApplicationReviewView = "application" | "background-check";
 export function ApplicationReviewLauncherRow({
   row,
   bareCanvas = false,
+  stretch = false,
   showDownload = true,
   onScreeningUpdated,
   onOpenScreeningModal,
@@ -25,9 +26,12 @@ export function ApplicationReviewLauncherRow({
   activeView: activeViewProp,
   onActiveViewChange,
   group = null,
+  className,
 }: {
   row: DemoApplicantRow;
   bareCanvas?: boolean;
+  /** Fill the parent flex area with a scrollable document frame (resident profile tab). */
+  stretch?: boolean;
   showDownload?: boolean;
   onScreeningUpdated?: () => void;
   onOpenScreeningModal?: (opts?: { showPackagePicker?: boolean }) => void;
@@ -35,6 +39,7 @@ export function ApplicationReviewLauncherRow({
   activeView?: ApplicationReviewView;
   onActiveViewChange?: (view: ApplicationReviewView) => void;
   group?: ApplicationGroup | null;
+  className?: string;
 }) {
   const showsScreening = applicationShowsBackgroundCheck(row);
   const [internalView, setInternalView] = useState<ApplicationReviewView>("application");
@@ -53,19 +58,22 @@ export function ApplicationReviewLauncherRow({
   const showApplication = activeView === "application" || !showsScreening;
 
   return (
-    <div className="space-y-3" data-slot="application-review-inline">
+    <div
+      className={`${stretch ? "flex min-h-0 flex-1 flex-col gap-3" : "space-y-3"} ${className ?? ""}`.trim()}
+      data-slot="application-review-inline"
+    >
       {showsScreening ? (
         <SegmentedTwo
           value={activeView}
           onChange={setActiveView}
           left={{ id: "application", label: "Application" }}
           right={{ id: "background-check", label: "Background check" }}
-          className="w-full"
+          className="w-full shrink-0"
         />
       ) : null}
 
       {showApplication ? (
-        <section className="space-y-3">
+        <section className={stretch ? "flex min-h-0 flex-1 flex-col gap-3" : "space-y-3"}>
           <ApplicationDocumentPreview
             row={row}
             collapsible={false}
@@ -73,9 +81,13 @@ export function ApplicationReviewLauncherRow({
             variant="pdf"
             downloadPlacement="bottom"
             bareCanvas={bareCanvas}
+            stretch={stretch}
+            className={stretch ? "min-h-0 flex-1" : undefined}
             groupMembers={group?.members.filter((member) => member.id !== row.id) ?? []}
           />
-          <ApplicationVerificationPhotos row={row} />
+          <div className={stretch ? "shrink-0" : undefined}>
+            <ApplicationVerificationPhotos row={row} />
+          </div>
         </section>
       ) : (
         <ApplicationScreeningPanel
@@ -83,6 +95,8 @@ export function ApplicationReviewLauncherRow({
           collapsible={false}
           presentation="full"
           bareCanvas={bareCanvas}
+          stretch={stretch}
+          className={stretch ? "min-h-0 flex-1" : undefined}
           headerActionsPlacement="parent"
           onHeaderActionsChange={onScreeningHeaderActionsChange}
           onUpdated={onScreeningUpdated}

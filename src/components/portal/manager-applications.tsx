@@ -269,9 +269,11 @@ export function ApplicationDocumentPreview({
   showDownload = true,
   downloadLabel = "Download PDF",
   bareCanvas = false,
+  stretch = false,
   variant = "html",
   downloadPlacement = "bottom",
   groupMembers = [],
+  className,
 }: {
   row: DemoApplicantRow;
   collapsible?: boolean;
@@ -279,12 +281,15 @@ export function ApplicationDocumentPreview({
   downloadLabel?: string;
   /** Flat on the portal page canvas — no white document card chrome. */
   bareCanvas?: boolean;
+  /** Fill the parent flex area with a scrollable document frame (resident profile tab). */
+  stretch?: boolean;
   /** `pdf` renders the server-built application PDF; `html` uses saved answers. */
   variant?: "html" | "pdf";
   /** Where the download action sits relative to the preview frame. */
   downloadPlacement?: "top" | "bottom";
   /** Other group-application members embedded in demo/HTML previews; server PDF loads these itself. */
   groupMembers?: ApplicationGroupMember[];
+  className?: string;
 }) {
   const demo = isDemoModeActive();
   const [cosignerSubmissions, setCosignerSubmissions] = useState<CosignerSubmission[]>([]);
@@ -382,16 +387,15 @@ export function ApplicationDocumentPreview({
 
   const pdfSrc = variant === "pdf" && !demo ? applicationPdfHref(row, { inline: true }) : demoPdfUrl;
 
+  const previewFrameShell = stretch
+    ? "relative flex min-h-0 flex-1 flex-col overflow-hidden rounded-2xl border border-border bg-card"
+    : bareCanvas
+      ? "w-full overflow-hidden rounded-2xl border border-border bg-card"
+      : "overflow-hidden rounded-2xl border border-border bg-card";
+
   const previewBody =
     variant === "pdf" ? (
-      <div
-        className={
-          bareCanvas
-            ? "w-full overflow-hidden rounded-2xl border border-border bg-card"
-            : "overflow-hidden rounded-2xl border border-border bg-card"
-        }
-        data-testid="application-pdf-preview"
-      >
+      <div className={previewFrameShell} data-testid="application-pdf-preview">
         {!row.application ? (
           <p className="px-4 py-8 text-center text-sm text-muted">Application details are not available for this record.</p>
         ) : demo && demoPdfLoading ? (
@@ -402,13 +406,19 @@ export function ApplicationDocumentPreview({
               dataUrl={pdfSrc}
               title={`Application ${row.id}`}
               fileName={applicationPdfFilename(row)}
+              embeddedInFlex={stretch}
+              className={stretch ? "flex min-h-0 flex-1 flex-col" : undefined}
             />
           ) : (
             <iframe
               key={previewKey}
               title={`Application ${row.id}`}
               src={pdfSrc}
-              className="h-[min(80vh,1200px)] w-full border-0 bg-card"
+              className={
+                stretch
+                  ? "absolute inset-0 h-full w-full border-0 bg-card"
+                  : "h-[min(80vh,1200px)] w-full border-0 bg-card"
+              }
               data-testid="manager-application-pdf"
             />
           )
@@ -417,17 +427,20 @@ export function ApplicationDocumentPreview({
         )}
       </div>
     ) : (
-      <div className={bareCanvas ? "w-full" : "overflow-hidden border-t border-border bg-white"}>
+      <div className={stretch ? previewFrameShell : bareCanvas ? "w-full" : "overflow-hidden border-t border-border bg-white"}>
         <iframe
           key={previewKey}
           srcDoc={iframeHtml ?? undefined}
           title="Application document"
-          sandbox="allow-same-origin"
+          sandbox=""
           loading="lazy"
+          scrolling={stretch ? "yes" : undefined}
           className={
-            bareCanvas
-              ? "h-[min(70vh,720px)] w-full border-0 bg-transparent"
-              : "h-[min(52vh,420px)] w-full border-0 bg-white"
+            stretch
+              ? "absolute inset-0 h-full w-full border-0 bg-transparent"
+              : bareCanvas
+                ? "h-[min(70vh,720px)] w-full border-0 bg-transparent"
+                : "h-[min(52vh,420px)] w-full border-0 bg-white"
           }
         />
       </div>
@@ -435,7 +448,9 @@ export function ApplicationDocumentPreview({
 
   if (!collapsible) {
     return (
-      <div className={bareCanvas ? "space-y-3" : "mt-4 space-y-3"}>
+      <div
+        className={`${stretch ? "flex min-h-0 flex-1 flex-col gap-3" : bareCanvas ? "space-y-3" : "mt-4 space-y-3"} ${className ?? ""}`.trim()}
+      >
         {downloadPlacement === "top" ? downloadActions : null}
         {previewBody}
         {downloadPlacement === "bottom" ? downloadActions : null}
