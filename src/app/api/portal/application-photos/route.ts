@@ -302,7 +302,12 @@ export async function GET(req: Request) {
     // ran this route's sanitizer — re-apply the allowlist at serve time so a
     // hostile stored name can't break header construction.
     const safeName = sanitizeFileName(attachment?.fileName, "photo");
-    return new NextResponse(served.body, {
+    // `BodyInit` accepts neither a Node `Buffer` nor a `Uint8Array<ArrayBufferLike>` (that would
+    // admit a SharedArrayBuffer), so copy into a Uint8Array with its own plain ArrayBuffer.
+    // Copying is also the safe choice here: `Buffer.from` allocates out of a shared pool, so
+    // handing out a view over `served.body.buffer` risks exposing bytes beyond this photo.
+    const body = new Uint8Array(served.body);
+    return new NextResponse(body, {
       headers: {
         "Content-Type": served.contentType,
         "Content-Disposition": `inline; filename="${safeName}"`,

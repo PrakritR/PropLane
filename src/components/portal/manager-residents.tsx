@@ -2222,7 +2222,16 @@ export function ManagerResidents({
         setEditResidentOpen(false);
         setHcTick((n) => n + 1);
         setLeaseTick((n) => n + 1);
-        showToast("Resident updated.");
+        // Say what actually propagated. Charges and leases each decline for legitimate reasons
+        // — an unresolvable (unlisted/draft) property, a signed or uploaded lease — and
+        // reporting a flat "Resident updated." for an edit that changed nothing downstream is
+        // how "I set changes to the resident and it does not update the application, lease or
+        // payments" goes unexplained.
+        showToast(
+          result.sync?.skipped?.length
+            ? `Resident updated, but ${result.sync.skipped.join("; ")}.`
+            : "Resident updated — application, lease and charges rebuilt.",
+        );
       })
       .finally(() => setErSaving(false));
   }

@@ -59,11 +59,63 @@ function resolveResidentRow(input: { residentEmail: string; row?: DemoApplicantR
   return readManagerApplicationRows().find((r) => r.email?.trim().toLowerCase() === email) ?? null;
 }
 
-function regenerateBillingForRow(row: DemoApplicantRow, managerUserId: string | null): number {
-  recordApprovedApplicationCharges(row, managerUserId, true);
+export type ResidentBillingSyncOutcome = {
+  /** Charges were rebuilt from the edited row. */
+  chargesRegenerated: boolean;
+  /** How many editable leases were regenerated. */
+  leasesRegenerated: number;
+  /** Why nothing (or not everything) propagated — manager-facing, empty when all ran. */
+  skipped: string[];
+};
+
+/**
+ * Rebuild charges and editable leases from an edited resident row.
+ *
+ * Returns WHAT happened rather than a bare count, because every one of these steps can decline
+ * silently and the caller was reporting a flat "Resident updated." either way:
+ *
+ *  - `recordApprovedApplicationCharges` bails when `getPropertyById` cannot resolve the
+ *    resident's property. That lookup covers live, extra and PENDING listings but not UNLISTED
+ *    or DRAFT ones, so a resident living at an unlisted property silently never has charges
+ *    rebuilt.
+ *  - `regenerateEditableLeasesForResident` only touches leases in Draft or Manager Review, and
+ *    only ones a lease can actually be generated for. A signed lease is deliberately excluded —
+ *    it is the evidence of what was signed — and an uploaded PDF is not regenerated either.
+ *
+ * Those are all legitimate refusals. Reporting them as success is not: the manager edits rent,
+ * is told the resident was updated, and finds the application, lease and charges unchanged with
+ * nothing saying why.
+ */
+function regenerateBillingForRow(
+  row: DemoApplicantRow,
+  managerUserId: string | null,
+): ResidentBillingSyncOutcome {
+  const skipped: string[] = [];
+  const chargesRegenerated = recordApprovedApplicationCharges(row, managerUserId, true);
+  if (!chargesRegenerated) {
+    skipped.push(
+      "charges were not rebuilt — this resident's property could not be resolved (an unlisted or draft listing does not resolve here)",
+    );
+  }
+
   const residentEmail = row.email?.trim();
-  if (!residentEmail || !row.application) return 0;
-  return regenerateEditableLeasesForResident(residentEmail, managerUserId, row.application);
+  if (!residentEmail || !row.application) {
+    skipped.push("the lease was not regenerated — this resident has no application on file");
+    return { chargesRegenerated, leasesRegenerated: 0, skipped };
+  }
+
+  const leasesRegenerated = regenerateEditableLeasesForResident(
+    residentEmail,
+    managerUserId,
+    row.application,
+  );
+  if (leasesRegenerated === 0) {
+    skipped.push(
+      "no lease was regenerated — only leases in Draft or Manager Review update, and a signed or uploaded lease is never rewritten",
+    );
+  }
+
+  return { chargesRegenerated, leasesRegenerated, skipped };
 }
 
 /** After a short-term stay-total payment edit, align application dates, charges, and editable leases. */
@@ -119,7 +171,7 @@ export function syncResidentAfterStayPaymentEdit(input: {
   next[idx] = nextRow;
   writeManagerApplicationRows(next);
   upsertApplicationRowToServer(nextRow);
-  return regenerateBillingForRow(nextRow, input.managerUserId);
+  return regenerateBillingForRow(nextRow, input.managerUserId).leasesRegenerated;
 }
 
 /**
@@ -134,7 +186,7 @@ export async function syncResidentBillingAndLeases(input: {
   const row = resolveResidentRow(input);
   if (!row) return 0;
 
-  const leases = regenerateBillingForRow(row, input.managerUserId);
+  const leases = regenerateBillingForRow(row, input.managerUserId).leasesRegenerated;
   await mirrorResidentBillingToServer(input.managerUserId);
   return leases;
 }
@@ -147,7 +199,7 @@ export async function persistResidentProfileEdit(input: {
   rows: DemoApplicantRow[];
   nextRow: DemoApplicantRow;
   managerUserId: string | null;
-}): Promise<{ ok: boolean; error?: string }> {
+}): Promise<{ ok: boolean; error?: string; sync?: ResidentBillingSyncOutcome }> {
   const { rows, nextRow, managerUserId } = input;
   writeManagerApplicationRows(rows);
 
@@ -162,8 +214,8 @@ export async function persistResidentProfileEdit(input: {
     }
   }
 
-  regenerateBillingForRow(nextRow, managerUserId);
+  const sync = regenerateBillingForRow(nextRow, managerUserId);
   await mirrorResidentBillingToServer(managerUserId);
 
-  return { ok: true };
+  return { ok: true, sync };
 }
