@@ -205,6 +205,16 @@ function ListingPricingCtaCard({
             ? `Rent + utilities estimate. Base rent ${rich.startingRentLabel}.`
             : "Before utilities and other fees."}
         </p>
+        {rich.pricingBreakdown && rich.pricingBreakdown.length > 0 ? (
+          <ul className="mt-4 divide-y divide-border/50 border-t border-border/60 pt-3 text-sm">
+            {rich.pricingBreakdown.map((line) => (
+              <li key={line.label} className="flex items-start justify-between gap-3 py-2 first:pt-0 last:pb-0">
+                <span className="text-muted">{line.label}</span>
+                <span className="shrink-0 font-semibold text-foreground">{line.value}</span>
+              </li>
+            ))}
+          </ul>
+        ) : null}
       </div>
       <div className="px-5 pb-5 pt-4 sm:px-6 sm:pb-6">
         {textTourHref ? (
@@ -499,7 +509,13 @@ export function ListingDetailSections({
                 collapseOnMobile={collapseOnMobile}
                 compact={compactSections}
               >
-                <LeaseBasicsTableInteractive rows={rich.leaseBasics} listingPropertyId={property.id} propertyLabel={propertyLabel} contactSmsPhone={property.contactSmsPhone} />
+                <LeaseBasicsTableInteractive
+                  rows={rich.leaseBasics}
+                  listingPropertyId={property.id}
+                  propertyLabel={propertyLabel}
+                  contactSmsPhone={property.contactSmsPhone}
+                  showTermSections={Boolean(rich.shortTermRentalsAllowed)}
+                />
               </ListingDetailCollapsibleSection>
 
               <ListingDetailCollapsibleSection

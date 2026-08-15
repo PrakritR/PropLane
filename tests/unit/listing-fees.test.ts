@@ -1,10 +1,13 @@
 import { describe, expect, it } from "vitest";
 import {
   applyListingFeesToSubmission,
+  customFeeBelongsInShortTermLeaseSection,
   defaultCoreListingFeeRows,
   defaultRemovedStandardListingFeeRowsForNewListing,
   legacyListingAmountsFromFees,
+  listingFeeRowsForLeaseBasicsSection,
   listingFeesFromLegacyScalars,
+  normalizeListingFeeRow,
   resolveListingFees,
   validateListingFeeRows,
 } from "@/lib/listing-fees";
@@ -90,5 +93,23 @@ describe("listing fees migration", () => {
     if (sec) sec.amount = "";
     const errs = validateListingFeeRows(fees);
     expect(Object.keys(errs).length).toBeGreaterThan(0);
+  });
+
+  it("classifies short-term custom fees for lease-basics sections", () => {
+    const fee = normalizeListingFeeRow({
+      id: "cf1",
+      label: "Short term lease",
+      amount: "100",
+      frequency: "one-time",
+      presetId: "custom",
+    });
+    expect(customFeeBelongsInShortTermLeaseSection(fee)).toBe(true);
+    const sub = createDefaultListingSubmission();
+    sub.shortTermRentalsAllowed = true;
+    sub.customFees = [fee];
+    const longTerm = listingFeeRowsForLeaseBasicsSection(sub, "long-term", (v) => `$${v}`);
+    const shortTerm = listingFeeRowsForLeaseBasicsSection(sub, "short-term", (v) => `$${v}`);
+    expect(longTerm.some((row) => row.title === "Custom lease")).toBe(false);
+    expect(shortTerm.some((row) => row.title === "Custom lease")).toBe(true);
   });
 });

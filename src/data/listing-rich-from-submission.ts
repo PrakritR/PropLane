@@ -43,6 +43,7 @@ import {
 } from "@/lib/rental-application/listing-fees-display";
 import {
   listingFeeRowsForLeaseBasicsSection,
+  listingPresetFeeAmount,
   type ListingFeeDisplayRow,
 } from "@/lib/listing-fees";
 
@@ -129,6 +130,7 @@ import type {
   LeaseBasicRow,
   ListingBathroomRow,
   ListingFloorCard,
+  ListingPricingBreakdownLine,
   ListingRichContent,
   ListingRoomRow,
   ListingSharedRow,
@@ -596,6 +598,79 @@ function shortTermBundleRentRows(
   return rows;
 }
 
+function perRoomLongTermRentRows(
+  rooms: ManagerRoomSubmission[],
+  sub: ManagerListingSubmissionV1,
+): LeaseBasicRow[] {
+  if (isEntireHomeListing(sub)) return [];
+  return [...rooms]
+    .filter((r) => r.name.trim() && (roomHeadlineAmount(r) ?? 0) > 0)
+    .sort(compareRoomsByFloorThenName)
+    .map((r) => {
+      const daily = roomIsDailyPriced(r);
+      const priceLabel = roomHeadlinePriceLabel(r);
+      const floor = r.floor.trim();
+      const name = r.name.trim();
+      return {
+        id: `lease-room-${r.id}`,
+        section: "long-term" as const,
+        icon: "🛏️",
+        title: floor || name,
+        detail: floor ? name : "Bedroom",
+        price: normalizeLeaseRentPriceLabel(priceLabel, daily ? "day" : "month"),
+        status: daily ? "Daily rent" : "Monthly rent",
+        body: daily
+          ? `${name}${floor ? ` on ${floor}` : ""}: ${priceLabel}. Billed by the day for the days in each month.`
+          : `${name}${floor ? ` on ${floor}` : ""}: ${priceLabel} per month.`,
+      };
+    });
+}
+
+function buildPricingBreakdownLines(sub: ManagerListingSubmissionV1): ListingPricingBreakdownLine[] {
+  const lines: ListingPricingBreakdownLine[] = [];
+
+  if (feeMeaningfulForListing(sub.applicationFee)) {
+    lines.push({ label: "Application fee", value: formatListingFeeDisplay(sub.applicationFee) });
+  }
+
+  const holding = listingPresetFeeAmount(sub, "holding_deposit");
+  if (holding > 0) {
+    lines.push({ label: "Holding deposit", value: formatListingFeeDisplay(String(holding)) });
+  }
+
+  const security = listingPresetFeeAmount(sub, "security_deposit");
+  if (security > 0) {
+    lines.push({ label: "Security deposit", value: formatListingFeeDisplay(String(security)) });
+  }
+
+  const moveIn = listingPresetFeeAmount(sub, "move_in_fee");
+  if (moveIn > 0) {
+    lines.push({ label: "Move-in fee", value: formatListingFeeDisplay(String(moveIn)) });
+  }
+
+  const signing = paymentAtSigningPriceLabel(sub);
+  if (signing !== "—" && (sub.paymentAtSigningIncludes?.length ?? 0) > 0) {
+    lines.push({ label: "Due at signing", value: signing });
+  }
+
+  if (sub.shortTermRentalsAllowed) {
+    const nightly = sub.shortTermDailyCost?.trim();
+    if (nightly && parseMoneyAmount(nightly) > 0) {
+      lines.push({ label: "Short-term nightly", value: `${formatListingFeeDisplay(nightly)}/night` });
+    }
+    const stDeposit = listingPresetFeeAmount(sub, "short_term_deposit");
+    if (stDeposit > 0) {
+      lines.push({ label: "Short-term deposit", value: formatListingFeeDisplay(String(stDeposit)) });
+    }
+    const stMoveIn = listingPresetFeeAmount(sub, "short_term_move_in");
+    if (stMoveIn > 0) {
+      lines.push({ label: "Short-term move-in", value: formatListingFeeDisplay(String(stMoveIn)) });
+    }
+  }
+
+  return lines;
+}
+
 function buildLeaseBasicsRows(
   sub: ManagerListingSubmissionV1,
   rooms: ManagerRoomSubmission[],
@@ -604,6 +679,7 @@ function buildLeaseBasicsRows(
 
   const entireLt = entireHomeLongTermRentRow(sub, rooms);
   if (entireLt) rows.push(entireLt);
+  rows.push(...perRoomLongTermRentRows(rooms, sub));
   const multiLt = multiRoomLeaseBasicRow(rooms, sub);
   if (multiLt) rows.push(multiLt);
 
@@ -999,6 +1075,8 @@ export function listingRichFromManagerSubmission(
       ? monthlyRangeLabel([Math.min(...mids)])
       : property.rentLabel.trim().replace(/\s*\/\s*/g, "/") || "—",
     estimatedMonthlyTotalLabel: monthlyTotals.length ? monthlyRangeLabel([Math.min(...monthlyTotals)]) : undefined,
+    pricingBreakdown: buildPricingBreakdownLines(sub),
+    shortTermRentalsAllowed: Boolean(sub.shortTermRentalsAllowed),
     floorPlansSectionTitle: undefined,
     floorPlans:
       floorPlans.length > 0

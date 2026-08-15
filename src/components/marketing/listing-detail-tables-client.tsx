@@ -1077,22 +1077,37 @@ export function LeaseBasicsTableInteractive({
   listingPropertyId,
   propertyLabel = null,
   contactSmsPhone = null,
+  showTermSections = false,
 }: {
   rows: LeaseBasicRow[];
   listingPropertyId: string;
   propertyLabel?: string | null;
   contactSmsPhone?: string | null;
+  /** When true, always render Long term / Short term headings (short-term may be empty). */
+  showTermSections?: boolean;
 }) {
   const [modal, setModal] = useState<ModalState>(null);
 
-  const sectionGroups: { key: "long-term" | "short-term"; label: string; rows: LeaseBasicRow[] }[] = [];
   const longTerm = rows.filter((r) => r.section !== "short-term");
   const shortTerm = rows.filter((r) => r.section === "short-term");
-  if (longTerm.length) sectionGroups.push({ key: "long-term", label: "Long term", rows: longTerm });
-  if (shortTerm.length) sectionGroups.push({ key: "short-term", label: "Short term", rows: shortTerm });
+  const sectionGroups: { key: "long-term" | "short-term"; label: string; rows: LeaseBasicRow[] }[] = [];
+  if (showTermSections) {
+    sectionGroups.push({ key: "long-term", label: "Long term", rows: longTerm });
+    sectionGroups.push({ key: "short-term", label: "Short term", rows: shortTerm });
+  } else {
+    if (longTerm.length) sectionGroups.push({ key: "long-term", label: "Long term", rows: longTerm });
+    if (shortTerm.length) sectionGroups.push({ key: "short-term", label: "Short term", rows: shortTerm });
+  }
 
-  const renderMobileRows = (sectionRows: LeaseBasicRow[]) =>
-    sectionRows.map((r) => (
+  const renderMobileRows = (sectionRows: LeaseBasicRow[]) => {
+    if (sectionRows.length === 0) {
+      return (
+        <p className="rounded-xl border border-dashed border-border/80 bg-muted/20 px-4 py-3 text-sm text-muted">
+          No fees listed for this term.
+        </p>
+      );
+    }
+    return sectionRows.map((r) => (
       <InteractiveListingRow
         key={r.id}
         onOpen={() => setModal({ kind: "lease", row: r })}
@@ -1111,9 +1126,15 @@ export function LeaseBasicsTableInteractive({
         <p className="mt-2 text-xs font-semibold text-foreground sm:text-sm">{r.price}</p>
       </InteractiveListingRow>
     ));
+  };
 
-  const renderDesktopRows = (sectionRows: LeaseBasicRow[]) =>
-    sectionRows.map((r) => (
+  const renderDesktopRows = (sectionRows: LeaseBasicRow[]) => {
+    if (sectionRows.length === 0) {
+      return (
+        <p className="border-b border-border py-3 text-sm text-muted last:border-0">No fees listed for this term.</p>
+      );
+    }
+    return sectionRows.map((r) => (
       <InteractiveListingRow
         key={r.id}
         onOpen={() => setModal({ kind: "lease", row: r })}
@@ -1131,13 +1152,14 @@ export function LeaseBasicsTableInteractive({
         <p className="text-xs font-semibold text-foreground sm:text-sm">{r.price}</p>
       </InteractiveListingRow>
     ));
+  };
 
   return (
     <>
       <div className="space-y-5 md:hidden">
         {sectionGroups.map((group) => (
           <div key={group.key} className="space-y-2.5">
-            {sectionGroups.length > 1 ? (
+            {sectionGroups.length > 1 || showTermSections ? (
               <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-muted">{group.label}</p>
             ) : null}
             {renderMobileRows(group.rows)}
@@ -1147,8 +1169,8 @@ export function LeaseBasicsTableInteractive({
       <div className="hidden min-w-0 md:block">
         <div className="min-w-[560px] lg:min-w-0">
           {sectionGroups.map((group) => (
-            <div key={group.key} className={group.key === "short-term" && sectionGroups.length > 1 ? "mt-6" : ""}>
-              {sectionGroups.length > 1 ? (
+            <div key={group.key} className={group.key === "short-term" && (sectionGroups.length > 1 || showTermSections) ? "mt-6" : ""}>
+              {sectionGroups.length > 1 || showTermSections ? (
                 <p className="mb-2 text-[10px] font-bold uppercase tracking-[0.18em] text-muted">{group.label}</p>
               ) : null}
               <div

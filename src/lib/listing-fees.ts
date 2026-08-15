@@ -637,6 +637,15 @@ export function displayLeaseFeeTitle(label: string): string {
   return t;
 }
 
+/** Custom fees billed only on short stays belong in the short-term lease-basics section. */
+export function customFeeBelongsInShortTermLeaseSection(fee: ListingFeeRow): boolean {
+  if (fee.presetId && fee.presetId !== "custom") return false;
+  if (fee.shortTermOnly) return true;
+  if (listingFeeCadence(fee) === "nightly") return true;
+  if (typeof fee.shortTermAmount === "string" && fee.shortTermAmount.trim()) return true;
+  return /^short\s*term/i.test(fee.label.trim());
+}
+
 function feeBelongsInLeaseBasicsSection(
   fee: ListingFeeRow,
   section: LeaseBasicsFeeSection,
@@ -649,7 +658,8 @@ function feeBelongsInLeaseBasicsSection(
     presetId === "short_term_nightly" ||
     presetId === "short_term_deposit" ||
     presetId === "short_term_move_in" ||
-    Boolean(meta?.shortTermSection);
+    Boolean(meta?.shortTermSection) ||
+    customFeeBelongsInShortTermLeaseSection(fee);
 
   if (section === "short-term") {
     if (!shortTermOn) return false;
@@ -673,6 +683,28 @@ function listingFeeToDisplayRow(fee: ListingFeeRow, formatPrice: (raw: string) =
       price,
       status: "One-time",
       body: `${title}: ${price} (one-time, credited toward security deposit when you are approved).`,
+    };
+  }
+  if (fee.presetId === "security_deposit") {
+    return {
+      id: "security-deposit",
+      icon: "🔒",
+      title,
+      detail: "One-time charge",
+      price,
+      status: fee.dueAtSigning ? "At signing" : "One-time",
+      body: `${title}: ${price} (refundable security deposit).`,
+    };
+  }
+  if (fee.presetId === "move_in_fee") {
+    return {
+      id: "move-in-fee",
+      icon: "🧾",
+      title,
+      detail: "One-time charge",
+      price,
+      status: fee.dueAtSigning ? "At signing" : "One-time",
+      body: `${title}: ${price} (due at move-in).`,
     };
   }
   if (fee.presetId === "parking_monthly") {

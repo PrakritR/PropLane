@@ -111,6 +111,11 @@ export type ListingSharedRow = {
 
 export type LeaseBasicSection = "long-term" | "short-term";
 
+export type ListingPricingBreakdownLine = {
+  label: string;
+  value: string;
+};
+
 export type LeaseBasicRow = {
   id: string;
   icon: string;
@@ -155,6 +160,10 @@ export type ListingRichContent = {
   startingRentLabel: string;
   /** Lowest rent + utility estimate from submitted rooms, when utilities were entered. */
   estimatedMonthlyTotalLabel?: string;
+  /** Deposits, move-in, and signing totals for the pricing sidebar. */
+  pricingBreakdown?: ListingPricingBreakdownLine[];
+  /** When true, lease basics render explicit Long term / Short term headings. */
+  shortTermRentalsAllowed?: boolean;
   /** Section title above room cards (e.g. bathroom grouping vs floor plan). */
   floorPlansSectionTitle?: string;
   floorPlans: ListingFloorCard[];

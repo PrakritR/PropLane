@@ -41,6 +41,41 @@ describe("listing multi-room lease basics", () => {
     expect(names).toEqual(["Room 1", "Room 2", "Room 3", "Room 4", "Room 5"]);
   });
 
+  it("lists each room rent under long term for by-room listings", () => {
+    const sub = createDefaultListingSubmission();
+    sub.securityDeposit = "600";
+    sub.moveInFee = "150";
+    sub.rooms = [
+      { ...sub.rooms[0]!, id: "room-1", name: "Room 1", floor: "2nd floor", monthlyRent: 3000 },
+    ];
+    const property = mockProperty({ id: "single-room-lease", listingSubmission: sub });
+    const rich = listingRichFromManagerSubmission(property, sub);
+    const roomRow = rich.leaseBasics.find((row) => row.id === "lease-room-room-1");
+    expect(roomRow?.title).toBe("2nd floor");
+    expect(roomRow?.detail).toBe("Room 1");
+    expect(roomRow?.price).toBe("$3,000/mo");
+    expect(roomRow?.section).toBe("long-term");
+    expect(rich.pricingBreakdown?.some((line) => line.label === "Security deposit")).toBe(true);
+    expect(rich.pricingBreakdown?.some((line) => line.label === "Move-in fee")).toBe(true);
+  });
+
+  it("routes short-term custom fees to the short-term lease basics section", () => {
+    const sub = createDefaultListingSubmission();
+    sub.shortTermRentalsAllowed = true;
+    sub.shortTermDailyCost = "95";
+    sub.customFees = [
+      ...(sub.customFees ?? []),
+      { id: "cf-st", label: "Short term lease", amount: "100", frequency: "one-time" },
+    ];
+    const property = mockProperty({ id: "st-custom-fee", listingSubmission: sub });
+    const rich = listingRichFromManagerSubmission(property, sub);
+    expect(rich.shortTermRentalsAllowed).toBe(true);
+    const custom = rich.leaseBasics.find((row) => row.id === "fee-cf-st");
+    expect(custom?.section).toBe("short-term");
+    expect(custom?.title).toBe("Custom lease");
+    expect(rich.leaseBasics.some((row) => row.section === "long-term" && row.title === "Custom lease")).toBe(false);
+  });
+
   it("adds a two-or-more-rooms row to lease basics for shared listings", () => {
     const sub = createDefaultListingSubmission();
     sub.rooms = [
