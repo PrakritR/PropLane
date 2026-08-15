@@ -41,6 +41,8 @@ export type ScheduledPaymentMessage = {
   status: ScheduledPaymentMessageStatus;
   managerUserId: string;
   typeLabel: string;
+  /** Present when this row bundles several charges into one send slot. */
+  bundledChargeIds?: string[];
 };
 
 function startOfLocalDay(d: Date): Date {

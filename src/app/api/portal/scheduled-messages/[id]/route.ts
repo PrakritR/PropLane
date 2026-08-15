@@ -1,5 +1,6 @@
 import { parseScheduledMessageListId } from "@/lib/payment-automation-server";
 import { upsertScheduledMessageOverride } from "@/lib/payment-automation-settings";
+import { parseCombinedScheduledMessageListId } from "@/lib/combined-payment-reminders";
 import { decodeScheduledMessagePathId } from "@/lib/scheduled-message-path-id";
 import { updateScheduledInboxMessage } from "@/lib/scheduled-inbox-messages";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
@@ -58,6 +59,43 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
         if (!Number.isNaN(parsedSendAt.getTime())) inboxPatch.sendAt = parsedSendAt.toISOString();
       }
       await updateScheduledInboxMessage(auth.db, auth.userId, id, inboxPatch);
+      return NextResponse.json({ ok: true });
+    }
+
+    const bundled = parseCombinedScheduledMessageListId(id);
+    if (bundled) {
+      const patch: {
+        cancelled?: boolean;
+        cancelledBecausePaid?: boolean;
+        customSubject?: string;
+        customBody?: string;
+        customDaysBeforeDue?: number;
+        customSendAt?: string;
+      } = {};
+
+      if (typeof body.cancelled === "boolean") patch.cancelled = body.cancelled;
+      if (typeof body.cancelledBecausePaid === "boolean") patch.cancelledBecausePaid = body.cancelledBecausePaid;
+      if (typeof body.customSubject === "string") patch.customSubject = body.customSubject.trim();
+      if (typeof body.customBody === "string") patch.customBody = body.customBody.trim();
+      if (typeof body.customDaysBeforeDue === "number" && Number.isFinite(body.customDaysBeforeDue)) {
+        patch.customDaysBeforeDue = Math.max(0, Math.min(60, Math.round(body.customDaysBeforeDue)));
+      }
+      if (typeof body.customSendAt === "string" && body.customSendAt.trim()) {
+        const parsedSendAt = new Date(body.customSendAt);
+        if (!Number.isNaN(parsedSendAt.getTime())) patch.customSendAt = parsedSendAt.toISOString();
+      }
+
+      await Promise.all(
+        bundled.chargeIds.map((chargeId) =>
+          upsertScheduledMessageOverride(auth.db, {
+            managerUserId: auth.userId,
+            chargeId,
+            kind: bundled.kind,
+            daysBeforeDue: bundled.daysBeforeDue,
+            patch,
+          }),
+        ),
+      );
       return NextResponse.json({ ok: true });
     }
 

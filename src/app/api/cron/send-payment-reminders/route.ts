@@ -19,9 +19,10 @@ import {
 } from "@/lib/payment-reminder-delivery";
 import { buildLateFeeNoticeText, buildLateFeeNoticeSubject } from "@/lib/payment-reminder-email";
 import {
-  projectScheduledPaymentMessages,
-  shouldSendScheduledMessage,
-} from "@/lib/scheduled-payment-messages";
+  combineScheduledPaymentMessages,
+  parseCombinedScheduledMessageListId,
+  scheduledPaymentMessageChargeIds,
+} from "@/lib/combined-payment-reminders";
 import { householdChargeDueDate } from "@/lib/household-charges";
 
 export const runtime = "nodejs";
@@ -191,46 +192,52 @@ export async function GET(req: Request) {
 
     const chargeById = new Map(eligibleCharges.map((c) => [c.id, c]));
 
-    for (const message of scheduled) {
-      if (message.kind === "late_fee") continue;
-      if (!shouldSendScheduledMessage(message, now)) {
+    const dueReminders = scheduled.filter(
+      (message) => message.kind !== "late_fee" && shouldSendScheduledMessage(message, now),
+    );
+    const bundledReminders = combineScheduledPaymentMessages(dueReminders);
+
+    for (const message of bundledReminders) {
+      const chargeIds = scheduledPaymentMessageChargeIds(message);
+      const charges = chargeIds
+        .map((id) => chargeById.get(id))
+        .filter((c): c is HouseholdCharge => Boolean(c && isUnpaidHouseholdCharge(c)));
+      if (!charges.length) {
         skipped++;
         continue;
       }
 
-      const dedupCandidates = legacyPaymentReminderDedupIds({
-        kind: message.kind,
-        chargeId: message.chargeId,
-        daysBeforeDue: message.daysBeforeDue ?? undefined,
+      const dedupIds = chargeIds.flatMap((chargeId) => {
+        const dedupCandidates = legacyPaymentReminderDedupIds({
+          kind: message.kind,
+          chargeId,
+          daysBeforeDue: message.daysBeforeDue ?? undefined,
+        });
+        return message.kind === "overdue_daily"
+          ? [paymentReminderDedupId({ kind: "overdue_daily", chargeId, todayKey })]
+          : dedupCandidates;
       });
-      const dedupId =
-        message.kind === "overdue_daily"
-          ? paymentReminderDedupId({ kind: "overdue_daily", chargeId: message.chargeId, todayKey })
-          : dedupCandidates[0]!;
 
-      if (sentDedupIds.has(dedupId) || dedupCandidates.some((id) => sentDedupIds.has(id))) {
+      if (dedupIds.some((id) => sentDedupIds.has(id))) {
         skipped++;
         continue;
       }
 
-      const charge = chargeById.get(message.chargeId);
-      if (!charge || !isUnpaidHouseholdCharge(charge)) {
-        skipped++;
-        continue;
-      }
-
-      // Per-resident email cap — don't send this resident a second reminder in
-      // the same run.
-      if (!residentEmailBudgetLeft(charge.residentEmail)) {
+      const primary = charges[0]!;
+      if (!residentEmailBudgetLeft(primary.residentEmail)) {
         skipped++;
         continue;
       }
 
       const result = await deliverPaymentReminder({
         db,
-        charge,
+        charge: primary,
         managerId,
-        dedupId,
+        dedupId: dedupIds[0]!,
+        bundledDedupEntries: dedupIds.slice(1).map((dedupId, index) => ({
+          dedupId,
+          chargeId: chargeIds[index + 1]!,
+        })),
         managerName,
         managerSmsFromNumber,
         apiKey: apiKey ?? "",
@@ -241,12 +248,13 @@ export async function GET(req: Request) {
         slotLabel: message.typeLabel,
         managerDeliverViaEmail: settings.paymentReminderDeliverViaEmail,
         managerDeliverViaSms: settings.paymentReminderDeliverViaSms,
+        skipManualPaymentInstructions: chargeIds.length > 1,
       });
       if (result.error) errors.push(result.error);
       if (result.sent) {
         sent++;
-        sentDedupIds.add(dedupId);
-        noteResidentEmailed(charge.residentEmail);
+        for (const dedupId of dedupIds) sentDedupIds.add(dedupId);
+        noteResidentEmailed(primary.residentEmail);
       }
     }
 

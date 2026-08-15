@@ -44,10 +44,8 @@ import {
   isUpcomingScheduledInboxMessage,
   type ScheduledInboxMessageRecord,
 } from "@/lib/scheduled-inbox-messages";
-import {
-  formatScheduledSendAt,
-  type ScheduledPaymentMessage,
-} from "@/lib/scheduled-payment-messages";
+import { combineScheduledPaymentMessages } from "@/lib/combined-payment-reminders";
+import type { ScheduledPaymentMessage } from "@/lib/scheduled-payment-messages";
 
 function messagePreview(body: string, max = 120): string {
   const text = body.trim().replace(/\s+/g, " ");
@@ -141,7 +139,10 @@ export function ManagerInboxSchedulePanel({
     const manual: ScheduleRow[] = manualMessages
       .filter((message) => isUpcomingScheduledInboxMessage(message.sendAt, message.status))
       .map((message) => ({ kind: "manual", message }));
-    const automation: ScheduleRow[] = automationMessages.map((message) => ({ kind: "automation", message }));
+    const automation: ScheduleRow[] = combineScheduledPaymentMessages(automationMessages).map((message) => ({
+      kind: "automation",
+      message,
+    }));
     const targetEmail = filterResidentEmail?.trim().toLowerCase();
     return [...manual, ...automation]
       .filter((row) => sendAtWithinScheduleHorizon(row.message.sendAt, horizonDays))

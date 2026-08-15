@@ -91,4 +91,21 @@ describe("scheduledItemsForRecipient (inline in the person's thread)", () => {
     expect(items.map((i) => i.id)).toEqual(["early", "late"]);
     expect(items.every((i) => i.channel === "email")).toBe(true);
   });
+
+  it("combines several payment reminders for the same send slot into one thread row", () => {
+    const sendAt = new Date();
+    sendAt.setDate(sendAt.getDate() + 2);
+    const iso = sendAt.toISOString();
+    const items = scheduledItemsForRecipient(
+      "dana@example.com",
+      [],
+      [
+        automation({ id: "a1", chargeId: "chg-1", chargeTitle: "Lease", sendAt: iso }),
+        automation({ id: "a2", chargeId: "chg-2", chargeTitle: "Deposit", sendAt: iso }),
+        automation({ id: "a3", chargeId: "chg-3", chargeTitle: "Move-in", sendAt: iso }),
+      ],
+    );
+    expect(items).toHaveLength(1);
+    expect(items[0]!.subject).toContain("3 payments");
+  });
 });

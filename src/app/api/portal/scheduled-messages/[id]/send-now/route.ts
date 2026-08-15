@@ -4,6 +4,11 @@ import {
   paymentReminderDedupId,
 } from "@/lib/payment-automation-settings";
 import {
+  combineScheduledPaymentMessages,
+  parseCombinedScheduledMessageListId,
+  scheduledPaymentMessageChargeIds,
+} from "@/lib/combined-payment-reminders";
+import {
   loadManagerPendingCharges,
   loadManagerScheduledMessages,
   parseScheduledMessageListId,
@@ -41,13 +46,15 @@ export async function POST(_req: Request, ctx: { params: Promise<{ id: string }>
 
     const { id: rawId } = await ctx.params;
     const decodedId = decodeScheduledMessagePathId(rawId);
-    const parsed = parseScheduledMessageListId(decodedId);
-    if (!parsed) {
+    const bundled = parseCombinedScheduledMessageListId(decodedId);
+    const parsed = bundled ? null : parseScheduledMessageListId(decodedId);
+    if (!bundled && !parsed) {
       return NextResponse.json({ error: "Invalid scheduled message id." }, { status: 400 });
     }
 
     const { messages } = await loadManagerScheduledMessages(auth.db, auth.userId, { includeHidden: true });
-    const message = messages.find((m) => m.id === decodedId);
+    const displayMessages = combineScheduledPaymentMessages(messages);
+    const message = displayMessages.find((m) => m.id === decodedId);
     if (!message) {
       return NextResponse.json({ error: "Scheduled message not found." }, { status: 404 });
     }
@@ -59,10 +66,14 @@ export async function POST(_req: Request, ctx: { params: Promise<{ id: string }>
     }
 
     const charges = await loadManagerPendingCharges(auth.db, auth.userId);
-    const charge = charges.find((c) => c.id === message.chargeId);
-    if (!charge) {
+    const chargeIds = scheduledPaymentMessageChargeIds(message);
+    const outstanding = chargeIds
+      .map((id) => charges.find((c) => c.id === id))
+      .filter((c): c is NonNullable<typeof c> => Boolean(c));
+    if (!outstanding.length) {
       return NextResponse.json({ error: "Charge no longer outstanding." }, { status: 400 });
     }
+    const charge = outstanding[0]!;
 
     const { data: profile } = await auth.db
       .from("profiles")
@@ -75,21 +86,26 @@ export async function POST(_req: Request, ctx: { params: Promise<{ id: string }>
     const from = process.env.RESEND_FROM?.trim() || "PropLane <onboarding@resend.dev>";
     const todayKey = new Date().toISOString().slice(0, 10);
 
-    const dedupCandidates = legacyPaymentReminderDedupIds({
-      kind: message.kind,
-      chargeId: message.chargeId,
-      daysBeforeDue: message.daysBeforeDue ?? undefined,
+    const dedupIds = chargeIds.flatMap((chargeId) => {
+      const dedupCandidates = legacyPaymentReminderDedupIds({
+        kind: message.kind,
+        chargeId,
+        daysBeforeDue: message.daysBeforeDue ?? undefined,
+      });
+      return message.kind === "overdue_daily"
+        ? [paymentReminderDedupId({ kind: "overdue_daily", chargeId, todayKey })]
+        : dedupCandidates;
     });
-    const dedupId =
-      message.kind === "overdue_daily"
-        ? paymentReminderDedupId({ kind: "overdue_daily", chargeId: message.chargeId, todayKey })
-        : dedupCandidates[0]!;
 
     const result = await deliverPaymentReminder({
       db: auth.db,
       charge,
       managerId: auth.userId,
-      dedupId,
+      dedupId: dedupIds[0]!,
+      bundledDedupEntries: dedupIds.slice(1).map((dedupId, index) => ({
+        dedupId,
+        chargeId: chargeIds[index + 1]!,
+      })),
       managerName,
       managerSmsFromNumber,
       apiKey,
@@ -98,6 +114,7 @@ export async function POST(_req: Request, ctx: { params: Promise<{ id: string }>
       text: message.body,
       html: reminderHtmlFromText(message.body),
       slotLabel: message.typeLabel,
+      skipManualPaymentInstructions: chargeIds.length > 1,
     });
 
     if (!result.sent) {

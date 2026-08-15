@@ -7,6 +7,7 @@ import {
   formatScheduledSendAt,
   type ScheduledPaymentMessage,
 } from "@/lib/scheduled-payment-messages";
+import { combineScheduledPaymentMessages } from "@/lib/combined-payment-reminders";
 
 /**
  * A scheduled / automated message surfaced INLINE inside a person's
@@ -74,7 +75,10 @@ export function threadScheduledItemFromAutomationMessage(
     sendLabel: formatScheduledSendAt(message.sendAt),
     subject: message.subject,
     body: message.body,
-    meta: [message.chargeTitle, message.propertyLabel].filter(Boolean).join(" · ") || undefined,
+    meta:
+      message.bundledChargeIds && message.bundledChargeIds.length > 1
+        ? `${message.bundledChargeIds.length} payments${message.propertyLabel ? ` · ${message.propertyLabel}` : ""}`
+        : [message.chargeTitle, message.propertyLabel].filter(Boolean).join(" · ") || undefined,
     editable: true,
     channel: "email",
     deliverViaEmail: true,
@@ -105,7 +109,7 @@ export function scheduledItemsForRecipient(
     items.push(threadScheduledItemFromManualMessage(message));
   }
 
-  for (const message of automation) {
+  for (const message of combineScheduledPaymentMessages(automation)) {
     if (message.status !== "scheduled") continue;
     if (!isUpcomingScheduledInboxMessage(message.sendAt, message.status)) continue;
     if (normalizeEmail(message.residentEmail) !== target) continue;

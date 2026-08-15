@@ -31,10 +31,16 @@ export async function deliverPaymentReminder(input: {
   /** Manager-level channel gates from reminder settings. */
   managerDeliverViaEmail?: boolean;
   managerDeliverViaSms?: boolean;
+  /** Combined reminders already include portal pay copy — skip per-charge Zelle/Venmo blocks. */
+  skipManualPaymentInstructions?: boolean;
+  /** Extra dedup rows to record when one send covers several charges. */
+  bundledDedupEntries?: { dedupId: string; chargeId: string }[];
 }): Promise<{ sent: boolean; error?: string }> {
   const { db, charge, managerId, dedupId, managerName, managerSmsFromNumber, apiKey, from, subject, slotLabel } =
     input;
-  const text = appendManualPaymentInstructions(input.text, charge);
+  const text = input.skipManualPaymentInstructions
+    ? input.text
+    : appendManualPaymentInstructions(input.text, charge);
   const html = reminderHtmlFromText(text);
   if (!isUnpaidHouseholdCharge(charge)) {
     return { sent: false, error: "charge_paid" };
@@ -127,25 +133,31 @@ export async function deliverPaymentReminder(input: {
   }
 
   try {
-    await db.from("portal_outbound_mail_records").upsert(
-      {
-        id: dedupId,
-        recipient_email: residentLower,
-        subject,
-        channel: "email",
-        row_data: {
-          id: dedupId,
-          to: residentLower,
+    const dedupEntries = [
+      { dedupId, chargeId: charge.id },
+      ...(input.bundledDedupEntries ?? []),
+    ];
+    for (const entry of dedupEntries) {
+      await db.from("portal_outbound_mail_records").upsert(
+        {
+          id: entry.dedupId,
+          recipient_email: residentLower,
           subject,
-          body: text,
-          sentAt: new Date().toISOString(),
-          emailSent,
-          chargeId: charge.id,
-          slot: slotLabel,
+          channel: "email",
+          row_data: {
+            id: entry.dedupId,
+            to: residentLower,
+            subject,
+            body: text,
+            sentAt: new Date().toISOString(),
+            emailSent,
+            chargeId: entry.chargeId,
+            slot: slotLabel,
+          },
         },
-      },
-      { onConflict: "id" },
-    );
+        { onConflict: "id" },
+      );
+    }
   } catch {
     if (!emailSent && !apiKey) {
       return { sent: false, error: "Could not record the reminder send." };
