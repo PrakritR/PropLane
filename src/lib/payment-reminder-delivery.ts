@@ -132,32 +132,29 @@ export async function deliverPaymentReminder(input: {
     /* non-critical */
   }
 
+  const dedupEntries = [{ dedupId, chargeId: charge.id }, ...(input.bundledDedupEntries ?? [])];
+
   try {
-    const dedupEntries = [
-      { dedupId, chargeId: charge.id },
-      ...(input.bundledDedupEntries ?? []),
-    ];
-    for (const entry of dedupEntries) {
-      await db.from("portal_outbound_mail_records").upsert(
-        {
+    const sentAt = new Date().toISOString();
+    await db.from("portal_outbound_mail_records").upsert(
+      dedupEntries.map((entry) => ({
+        id: entry.dedupId,
+        recipient_email: residentLower,
+        subject,
+        channel: "email",
+        row_data: {
           id: entry.dedupId,
-          recipient_email: residentLower,
+          to: residentLower,
           subject,
-          channel: "email",
-          row_data: {
-            id: entry.dedupId,
-            to: residentLower,
-            subject,
-            body: text,
-            sentAt: new Date().toISOString(),
-            emailSent,
-            chargeId: entry.chargeId,
-            slot: slotLabel,
-          },
+          body: text,
+          sentAt,
+          emailSent,
+          chargeId: entry.chargeId,
+          slot: slotLabel,
         },
-        { onConflict: "id" },
-      );
-    }
+      })),
+      { onConflict: "id" },
+    );
   } catch {
     if (!emailSent && !apiKey) {
       return { sent: false, error: "Could not record the reminder send." };
@@ -249,11 +246,18 @@ export async function deliverPaymentReminder(input: {
 
   // An account-less resident (no profile row) can't see the portal inbox — if
   // the email failed and no SMS went out, nothing actually reached them. Drop
-  // the dedup row so the next cron run retries instead of recording a
-  // phantom send.
+  // every dedup row this send wrote (a bundle records one per charge, and the
+  // cron skips the whole bundle if ANY of them survives) so the next run
+  // retries instead of recording a phantom send.
   if (!emailSent && !smsDelivered && !residentUserId) {
     try {
-      await db.from("portal_outbound_mail_records").delete().eq("id", dedupId);
+      await db
+        .from("portal_outbound_mail_records")
+        .delete()
+        .in(
+          "id",
+          dedupEntries.map((entry) => entry.dedupId),
+        );
     } catch {
       /* keep the row — a duplicate reminder beats silently never retrying */
     }

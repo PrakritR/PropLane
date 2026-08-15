@@ -7,10 +7,12 @@ import { lateFeePolicyFromSubmission } from "@/lib/payment-policy";
 import {
   loadManagerAutomationSettings,
   loadScheduledMessageOverrides,
-  paymentReminderDedupId,
-  legacyPaymentReminderDedupIds,
   DEFAULT_MANAGER_AUTOMATION_SETTINGS,
 } from "@/lib/payment-automation-settings";
+import {
+  projectScheduledPaymentMessages,
+  shouldSendScheduledMessage,
+} from "@/lib/scheduled-payment-messages";
 import { loadListingByPropertyId } from "@/lib/payment-automation-server";
 import { syncLedgerChargeEntry } from "@/lib/reports/ledger-sync";
 import {
@@ -20,7 +22,7 @@ import {
 import { buildLateFeeNoticeText, buildLateFeeNoticeSubject } from "@/lib/payment-reminder-email";
 import {
   combineScheduledPaymentMessages,
-  parseCombinedScheduledMessageListId,
+  paymentReminderDedupPlan,
   scheduledPaymentMessageChargeIds,
 } from "@/lib/combined-payment-reminders";
 import { householdChargeDueDate } from "@/lib/household-charges";
@@ -207,23 +209,20 @@ export async function GET(req: Request) {
         continue;
       }
 
-      const dedupIds = chargeIds.flatMap((chargeId) => {
-        const dedupCandidates = legacyPaymentReminderDedupIds({
-          kind: message.kind,
-          chargeId,
-          daysBeforeDue: message.daysBeforeDue ?? undefined,
-        });
-        return message.kind === "overdue_daily"
-          ? [paymentReminderDedupId({ kind: "overdue_daily", chargeId, todayKey })]
-          : dedupCandidates;
+      const primary = charges[0]!;
+      const dedupPlan = paymentReminderDedupPlan({
+        kind: message.kind,
+        daysBeforeDue: message.daysBeforeDue,
+        chargeIds,
+        primaryChargeId: primary.id,
+        todayKey,
       });
 
-      if (dedupIds.some((id) => sentDedupIds.has(id))) {
+      if (!dedupPlan || dedupPlan.allDedupIds.some((id) => sentDedupIds.has(id))) {
         skipped++;
         continue;
       }
 
-      const primary = charges[0]!;
       if (!residentEmailBudgetLeft(primary.residentEmail)) {
         skipped++;
         continue;
@@ -233,11 +232,8 @@ export async function GET(req: Request) {
         db,
         charge: primary,
         managerId,
-        dedupId: dedupIds[0]!,
-        bundledDedupEntries: dedupIds.slice(1).map((dedupId, index) => ({
-          dedupId,
-          chargeId: chargeIds[index + 1]!,
-        })),
+        dedupId: dedupPlan.dedupId,
+        bundledDedupEntries: dedupPlan.bundledDedupEntries,
         managerName,
         managerSmsFromNumber,
         apiKey: apiKey ?? "",
@@ -253,7 +249,7 @@ export async function GET(req: Request) {
       if (result.error) errors.push(result.error);
       if (result.sent) {
         sent++;
-        for (const dedupId of dedupIds) sentDedupIds.add(dedupId);
+        for (const dedupId of dedupPlan.allDedupIds) sentDedupIds.add(dedupId);
         noteResidentEmailed(primary.residentEmail);
       }
     }

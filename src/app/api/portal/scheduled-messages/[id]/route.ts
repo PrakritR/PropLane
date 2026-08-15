@@ -28,6 +28,31 @@ async function requireManager() {
   return { db, userId: user.id };
 }
 
+type ScheduledMessageOverridePatch = Parameters<typeof upsertScheduledMessageOverride>[1]["patch"];
+
+function buildOverridePatch(body: {
+  cancelled?: boolean;
+  cancelledBecausePaid?: boolean;
+  customSubject?: string;
+  customBody?: string;
+  customDaysBeforeDue?: number;
+  customSendAt?: string;
+}): ScheduledMessageOverridePatch {
+  const patch: ScheduledMessageOverridePatch = {};
+  if (typeof body.cancelled === "boolean") patch.cancelled = body.cancelled;
+  if (typeof body.cancelledBecausePaid === "boolean") patch.cancelledBecausePaid = body.cancelledBecausePaid;
+  if (typeof body.customSubject === "string") patch.customSubject = body.customSubject.trim();
+  if (typeof body.customBody === "string") patch.customBody = body.customBody.trim();
+  if (typeof body.customDaysBeforeDue === "number" && Number.isFinite(body.customDaysBeforeDue)) {
+    patch.customDaysBeforeDue = Math.max(0, Math.min(60, Math.round(body.customDaysBeforeDue)));
+  }
+  if (typeof body.customSendAt === "string" && body.customSendAt.trim()) {
+    const parsedSendAt = new Date(body.customSendAt);
+    if (!Number.isNaN(parsedSendAt.getTime())) patch.customSendAt = parsedSendAt.toISOString();
+  }
+  return patch;
+}
+
 export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }> }) {
   try {
     const auth = await requireManager();
@@ -64,26 +89,7 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
 
     const bundled = parseCombinedScheduledMessageListId(id);
     if (bundled) {
-      const patch: {
-        cancelled?: boolean;
-        cancelledBecausePaid?: boolean;
-        customSubject?: string;
-        customBody?: string;
-        customDaysBeforeDue?: number;
-        customSendAt?: string;
-      } = {};
-
-      if (typeof body.cancelled === "boolean") patch.cancelled = body.cancelled;
-      if (typeof body.cancelledBecausePaid === "boolean") patch.cancelledBecausePaid = body.cancelledBecausePaid;
-      if (typeof body.customSubject === "string") patch.customSubject = body.customSubject.trim();
-      if (typeof body.customBody === "string") patch.customBody = body.customBody.trim();
-      if (typeof body.customDaysBeforeDue === "number" && Number.isFinite(body.customDaysBeforeDue)) {
-        patch.customDaysBeforeDue = Math.max(0, Math.min(60, Math.round(body.customDaysBeforeDue)));
-      }
-      if (typeof body.customSendAt === "string" && body.customSendAt.trim()) {
-        const parsedSendAt = new Date(body.customSendAt);
-        if (!Number.isNaN(parsedSendAt.getTime())) patch.customSendAt = parsedSendAt.toISOString();
-      }
+      const patch = buildOverridePatch(body);
 
       await Promise.all(
         bundled.chargeIds.map((chargeId) =>
@@ -104,33 +110,12 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
       return NextResponse.json({ error: "Invalid scheduled message id." }, { status: 400 });
     }
 
-    const patch: {
-      cancelled?: boolean;
-      cancelledBecausePaid?: boolean;
-      customSubject?: string;
-      customBody?: string;
-      customDaysBeforeDue?: number;
-      customSendAt?: string;
-    } = {};
-
-    if (typeof body.cancelled === "boolean") patch.cancelled = body.cancelled;
-    if (typeof body.cancelledBecausePaid === "boolean") patch.cancelledBecausePaid = body.cancelledBecausePaid;
-    if (typeof body.customSubject === "string") patch.customSubject = body.customSubject.trim();
-    if (typeof body.customBody === "string") patch.customBody = body.customBody.trim();
-    if (typeof body.customDaysBeforeDue === "number" && Number.isFinite(body.customDaysBeforeDue)) {
-      patch.customDaysBeforeDue = Math.max(0, Math.min(60, Math.round(body.customDaysBeforeDue)));
-    }
-    if (typeof body.customSendAt === "string" && body.customSendAt.trim()) {
-      const parsedSendAt = new Date(body.customSendAt);
-      if (!Number.isNaN(parsedSendAt.getTime())) patch.customSendAt = parsedSendAt.toISOString();
-    }
-
     await upsertScheduledMessageOverride(auth.db, {
       managerUserId: auth.userId,
       chargeId: parsed.chargeId,
       kind: parsed.kind,
       daysBeforeDue: parsed.daysBeforeDue,
-      patch,
+      patch: buildOverridePatch(body),
     });
 
     return NextResponse.json({ ok: true });

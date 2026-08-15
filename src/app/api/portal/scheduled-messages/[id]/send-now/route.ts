@@ -1,11 +1,8 @@
 import { NextResponse } from "next/server";
 import {
-  legacyPaymentReminderDedupIds,
-  paymentReminderDedupId,
-} from "@/lib/payment-automation-settings";
-import {
   combineScheduledPaymentMessages,
   parseCombinedScheduledMessageListId,
+  paymentReminderDedupPlan,
   scheduledPaymentMessageChargeIds,
 } from "@/lib/combined-payment-reminders";
 import {
@@ -86,26 +83,23 @@ export async function POST(_req: Request, ctx: { params: Promise<{ id: string }>
     const from = process.env.RESEND_FROM?.trim() || "PropLane <onboarding@resend.dev>";
     const todayKey = new Date().toISOString().slice(0, 10);
 
-    const dedupIds = chargeIds.flatMap((chargeId) => {
-      const dedupCandidates = legacyPaymentReminderDedupIds({
-        kind: message.kind,
-        chargeId,
-        daysBeforeDue: message.daysBeforeDue ?? undefined,
-      });
-      return message.kind === "overdue_daily"
-        ? [paymentReminderDedupId({ kind: "overdue_daily", chargeId, todayKey })]
-        : dedupCandidates;
+    const dedupPlan = paymentReminderDedupPlan({
+      kind: message.kind,
+      daysBeforeDue: message.daysBeforeDue,
+      chargeIds,
+      primaryChargeId: charge.id,
+      todayKey,
     });
+    if (!dedupPlan) {
+      return NextResponse.json({ error: "Could not send reminder." }, { status: 400 });
+    }
 
     const result = await deliverPaymentReminder({
       db: auth.db,
       charge,
       managerId: auth.userId,
-      dedupId: dedupIds[0]!,
-      bundledDedupEntries: dedupIds.slice(1).map((dedupId, index) => ({
-        dedupId,
-        chargeId: chargeIds[index + 1]!,
-      })),
+      dedupId: dedupPlan.dedupId,
+      bundledDedupEntries: dedupPlan.bundledDedupEntries,
       managerName,
       managerSmsFromNumber,
       apiKey,

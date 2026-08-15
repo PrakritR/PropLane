@@ -1,5 +1,9 @@
 import { expandResidentPortalLoginTemplatePlaceholder } from "@/lib/resident-portal-login-copy";
-import type { PaymentReminderKind } from "@/lib/payment-automation-settings";
+import {
+  legacyPaymentReminderDedupIds,
+  paymentReminderDedupId,
+  type PaymentReminderKind,
+} from "@/lib/payment-automation-settings";
 import {
   formatDaysUntilDuePhrase,
   formatDaysUntilDueShort,
@@ -37,6 +41,54 @@ export function scheduledPaymentMessageBundleKey(message: ScheduledPaymentMessag
 
 export function scheduledPaymentMessageChargeIds(message: ScheduledPaymentMessage): string[] {
   return message.bundledChargeIds?.length ? message.bundledChargeIds : [message.chargeId];
+}
+
+export type PaymentReminderDedupPlan = {
+  /** Dedup id recorded against the charge the send is attributed to. */
+  dedupId: string;
+  /** Every dedup id the send covers — the set to check before sending and to record after. */
+  allDedupIds: string[];
+  /** The remaining ids, each paired with the charge it actually belongs to. */
+  bundledDedupEntries: { dedupId: string; chargeId: string }[];
+};
+
+/**
+ * Dedup ids for a (possibly bundled) reminder, kept paired with their own charge.
+ * A single charge can yield SEVERAL ids (the legacy `payment_reminder_7d_…` style
+ * aliases), so the ids can never be zipped positionally against the charge list.
+ */
+export function paymentReminderDedupPlan(input: {
+  kind: PaymentReminderKind;
+  daysBeforeDue?: number | null;
+  chargeIds: string[];
+  primaryChargeId: string;
+  todayKey: string;
+}): PaymentReminderDedupPlan | null {
+  const groups = input.chargeIds.map((chargeId) => ({
+    chargeId,
+    dedupIds:
+      input.kind === "overdue_daily"
+        ? [paymentReminderDedupId({ kind: "overdue_daily", chargeId, todayKey: input.todayKey })]
+        : legacyPaymentReminderDedupIds({
+            kind: input.kind,
+            chargeId,
+            daysBeforeDue: input.daysBeforeDue ?? undefined,
+          }),
+  }));
+
+  const primary = groups.find((group) => group.chargeId === input.primaryChargeId) ?? groups[0];
+  const dedupId = primary?.dedupIds[0];
+  if (!dedupId) return null;
+
+  return {
+    dedupId,
+    allDedupIds: groups.flatMap((group) => group.dedupIds),
+    bundledDedupEntries: groups.flatMap((group) =>
+      group.dedupIds
+        .filter((id) => id !== dedupId)
+        .map((id) => ({ dedupId: id, chargeId: group.chargeId })),
+    ),
+  };
 }
 
 export function combinedScheduledMessageListId(input: {

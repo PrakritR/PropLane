@@ -1,5 +1,4 @@
 import { randomUUID } from "node:crypto";
-import sharp from "sharp";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { linkedPropertyIdsForModule } from "@/lib/auth/co-manager-module-scope";
 import { isResidentSetupTokenValid } from "@/lib/auth/resident-setup-token";
@@ -213,18 +212,24 @@ export function applicationPhotoNeedsPreviewConversion(storagePath: string, cont
  * ID photos inline. Original bytes are unchanged when preview is off.
  */
 export async function applicationPhotoServeBytes(
-  bytes: Buffer,
+  bytes: Buffer<ArrayBuffer>,
   storagePath: string,
   opts: { preview: boolean },
-): Promise<{ body: Buffer; contentType: string }> {
+): Promise<{ body: Buffer<ArrayBuffer>; contentType: string }> {
   const contentType = contentTypeForApplicationPhotoPath(storagePath);
   if (!opts.preview || !applicationPhotoNeedsPreviewConversion(storagePath, contentType)) {
     return { body: bytes, contentType };
   }
   try {
+    const { default: sharp } = await import("sharp");
     const converted = await sharp(bytes).rotate().jpeg({ quality: 88 }).toBuffer();
-    return { body: converted, contentType: "image/jpeg" };
-  } catch {
+    return { body: Buffer.from(converted), contentType: "image/jpeg" };
+  } catch (e) {
+    // A libvips build without HEVC support fails for EVERY iPhone capture, and
+    // the fallback bytes render as "Preview unavailable" with no other signal.
+    // Path + type only — never the bytes.
+    const reason = e instanceof Error ? e.message : String(e);
+    console.error(`[application-photos] HEIC preview conversion failed for ${storagePath} (${contentType}): ${reason}`);
     return { body: bytes, contentType };
   }
 }

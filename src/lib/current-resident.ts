@@ -1,5 +1,6 @@
 import type { DemoApplicantRow } from "@/data/demo-portal";
 import { isDraftApplicationRow } from "@/lib/manager-applications-storage";
+import { isInProgressApplicationRow } from "@/lib/rental-application/in-progress-application";
 
 /** Pending (submitted) or active approved residents that should keep generated payment schedules. */
 export function shouldReconcileResidentPaymentSchedule(row: DemoApplicantRow, nowMs = Date.now()): boolean {

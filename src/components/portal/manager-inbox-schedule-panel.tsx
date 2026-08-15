@@ -45,7 +45,10 @@ import {
   type ScheduledInboxMessageRecord,
 } from "@/lib/scheduled-inbox-messages";
 import { combineScheduledPaymentMessages } from "@/lib/combined-payment-reminders";
-import type { ScheduledPaymentMessage } from "@/lib/scheduled-payment-messages";
+import {
+  formatScheduledSendAt,
+  type ScheduledPaymentMessage,
+} from "@/lib/scheduled-payment-messages";
 
 function messagePreview(body: string, max = 120): string {
   const text = body.trim().replace(/\s+/g, " ");
