@@ -22,7 +22,8 @@ export type ListingFeeRowId =
   | "parkingMonthly"
   | "hoaMonthly"
   | "otherMonthlyFees"
-  | "monthToMonthSurcharge";
+  | "monthToMonthSurcharge"
+  | "customLeaseSurcharge";
 
 export type ListingStandardFeeRowId = ListingFeeRowId;
 
@@ -98,6 +99,12 @@ export const LISTING_STANDARD_FEE_ROWS: readonly {
     stField: "shortTermMonthToMonthSurcharge",
     ltField: "monthToMonthSurcharge",
   },
+  {
+    id: "customLeaseSurcharge",
+    label: "Custom lease",
+    ltField: "customLeaseSurcharge",
+    ltHint: "leases not 1st → month-end",
+  },
 ];
 
 function emptyFeeToggles(): ListingFeeToggles {
@@ -111,6 +118,7 @@ function emptyFeeToggles(): ListingFeeToggles {
     hoaMonthly: false,
     otherMonthlyFees: false,
     monthToMonthSurcharge: false,
+    customLeaseSurcharge: false,
   };
 }
 

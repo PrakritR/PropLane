@@ -270,6 +270,7 @@ export function ApplicationDocumentPreview({
   downloadLabel = "Download PDF",
   bareCanvas = false,
   stretch = false,
+  flow = false,
   variant = "html",
   downloadPlacement = "bottom",
   groupMembers = [],
@@ -283,6 +284,11 @@ export function ApplicationDocumentPreview({
   bareCanvas?: boolean;
   /** Fill the parent flex area with a scrollable document frame (resident profile tab). */
   stretch?: boolean;
+  /**
+   * Expand with the document on the page scroll — no nested document frame scroll
+   * (resident profile application tab with verification photos below).
+   */
+  flow?: boolean;
   /** `pdf` renders the server-built application PDF; `html` uses saved answers. */
   variant?: "html" | "pdf";
   /** Where the download action sits relative to the preview frame. */
@@ -389,9 +395,11 @@ export function ApplicationDocumentPreview({
 
   const previewFrameShell = stretch
     ? "relative flex min-h-0 flex-1 flex-col overflow-hidden rounded-2xl border border-border bg-card"
-    : bareCanvas
+    : flow
       ? "w-full overflow-hidden rounded-2xl border border-border bg-card"
-      : "overflow-hidden rounded-2xl border border-border bg-card";
+      : bareCanvas
+        ? "w-full overflow-hidden rounded-2xl border border-border bg-card"
+        : "overflow-hidden rounded-2xl border border-border bg-card";
 
   const previewBody =
     variant === "pdf" ? (
@@ -401,13 +409,14 @@ export function ApplicationDocumentPreview({
         ) : demo && demoPdfLoading ? (
           <p className="px-4 py-8 text-center text-sm text-muted">Loading application PDF…</p>
         ) : pdfSrc ? (
-          pdfSrc.startsWith("data:") ? (
+          pdfSrc.startsWith("data:") || flow ? (
             <UploadedLeasePdfPreview
               dataUrl={pdfSrc}
               title={`Application ${row.id}`}
               fileName={applicationPdfFilename(row)}
-              embeddedInFlex={stretch}
-              className={stretch ? "flex min-h-0 flex-1 flex-col" : undefined}
+              embeddedInFlex={stretch && !flow}
+              documentFlow={flow}
+              className={stretch && !flow ? "flex min-h-0 flex-1 flex-col" : undefined}
             />
           ) : (
             <iframe
@@ -427,20 +436,22 @@ export function ApplicationDocumentPreview({
         )}
       </div>
     ) : (
-      <div className={stretch ? previewFrameShell : bareCanvas ? "w-full" : "overflow-hidden border-t border-border bg-white"}>
+      <div className={stretch || flow ? previewFrameShell : bareCanvas ? "w-full" : "overflow-hidden border-t border-border bg-white"}>
         <iframe
           key={previewKey}
           srcDoc={iframeHtml ?? undefined}
           title="Application document"
           sandbox=""
           loading="lazy"
-          scrolling={stretch ? "yes" : undefined}
+          scrolling={stretch || flow ? "yes" : undefined}
           className={
             stretch
               ? "absolute inset-0 h-full w-full border-0 bg-transparent"
-              : bareCanvas
-                ? "h-[min(70vh,720px)] w-full border-0 bg-transparent"
-                : "h-[min(52vh,420px)] w-full border-0 bg-white"
+              : flow
+                ? "h-[min(78vh,900px)] w-full border-0 bg-transparent"
+                : bareCanvas
+                  ? "h-[min(70vh,720px)] w-full border-0 bg-transparent"
+                  : "h-[min(52vh,420px)] w-full border-0 bg-white"
           }
         />
       </div>
@@ -449,7 +460,7 @@ export function ApplicationDocumentPreview({
   if (!collapsible) {
     return (
       <div
-        className={`${stretch ? "flex min-h-0 flex-1 flex-col gap-3" : bareCanvas ? "space-y-3" : "mt-4 space-y-3"} ${className ?? ""}`.trim()}
+        className={`${stretch && !flow ? "flex min-h-0 flex-1 flex-col gap-3" : bareCanvas || flow ? "space-y-3" : "mt-4 space-y-3"} ${className ?? ""}`.trim()}
       >
         {downloadPlacement === "top" ? downloadActions : null}
         {previewBody}

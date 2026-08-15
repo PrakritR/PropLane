@@ -73,7 +73,13 @@ export function ApplicationReviewLauncherRow({
       ) : null}
 
       {showApplication ? (
-        <section className={stretch ? "flex min-h-0 flex-1 flex-col gap-3" : "space-y-3"}>
+        <section
+          className={
+            stretch
+              ? "flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto overscroll-contain [-webkit-overflow-scrolling:touch]"
+              : "space-y-3"
+          }
+        >
           <ApplicationDocumentPreview
             row={row}
             collapsible={false}
@@ -81,13 +87,12 @@ export function ApplicationReviewLauncherRow({
             variant="pdf"
             downloadPlacement="bottom"
             bareCanvas={bareCanvas}
-            stretch={stretch}
-            className={stretch ? "min-h-0 flex-1" : undefined}
+            stretch={false}
+            flow={stretch}
+            className={stretch ? "shrink-0" : undefined}
             groupMembers={group?.members.filter((member) => member.id !== row.id) ?? []}
           />
-          <div className={stretch ? "shrink-0" : undefined}>
-            <ApplicationVerificationPhotos row={row} />
-          </div>
+          <ApplicationVerificationPhotos row={row} />
         </section>
       ) : (
         <ApplicationScreeningPanel

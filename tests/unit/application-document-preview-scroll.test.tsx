@@ -54,4 +54,21 @@ describe("application document preview — stretch mode", () => {
     expect(shell!.className).toContain("flex-1");
     expect(shell!.className).toContain("overflow-hidden");
   });
+
+  it("uses page-flow pdf preview when flow is set", () => {
+    const { container } = render(
+      <ApplicationDocumentPreview
+        row={row}
+        collapsible={false}
+        variant="pdf"
+        flow
+        bareCanvas
+        showDownload={false}
+      />,
+    );
+    const shell = container.querySelector('[data-testid="application-pdf-preview"]');
+    expect(shell).not.toBeNull();
+    expect(shell!.className).not.toContain("flex-1");
+    expect(container.querySelector("iframe")).toBeNull();
+  });
 });

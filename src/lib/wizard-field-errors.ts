@@ -79,6 +79,7 @@ export const LISTING_STEP_FIELD_ORDER: Record<number, string[]> = {
     "hoaMonthly",
     "otherMonthlyFees",
     "monthToMonthSurcharge",
+    "customLeaseSurcharge",
     "zelleContact",
     "venmoContact",
     "residentPaymentMethods",

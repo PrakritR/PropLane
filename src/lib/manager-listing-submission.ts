@@ -390,6 +390,8 @@ export type ManagerListingSubmissionV1 = {
   otherMonthlyFees: string;
   /** Extra monthly charge added automatically when tenant is on month-to-month (e.g. $25). */
   monthToMonthSurcharge?: string;
+  /** Extra monthly charge when the resident's lease does not align to calendar months (1st through last day). */
+  customLeaseSurcharge?: string;
   /** Manager-defined fees beyond the standard fields (shown on the listing). */
   customFees?: ManagerCustomFeeRow[];
   sharedSpaces: ManagerSharedSpaceSubmission[];
@@ -1514,6 +1516,7 @@ export function normalizeManagerListingSubmissionV1(sub: ManagerListingSubmissio
     holdingDeposit: typeof sub.holdingDeposit === "string" ? sub.holdingDeposit : "",
     holdingDepositTiming: sub.holdingDepositTiming === "at_application" ? "at_application" : "after_approval",
     monthToMonthSurcharge: typeof sub.monthToMonthSurcharge === "string" ? sub.monthToMonthSurcharge : "",
+    customLeaseSurcharge: typeof sub.customLeaseSurcharge === "string" ? sub.customLeaseSurcharge : "",
     allowedLeaseTerms,
     leaseTermsBody,
     paymentAtSigningIncludes,

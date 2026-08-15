@@ -9,7 +9,7 @@ import {
   authorizeApplicationPhotoWrite,
   buildApplicationPhotoPath,
   canActorAccessApplicationPhoto,
-  contentTypeForApplicationPhotoPath,
+  applicationPhotoServeBytes,
   countApplicationPhotoObjects,
   isPathInApplicationFolder,
   MAX_APPLICATION_PHOTO_OBJECTS,
@@ -287,13 +287,15 @@ export async function GET(req: Request) {
     const { data, error } = await db.storage.from(APPLICATION_DOCUMENTS_BUCKET).download(storagePath);
     if (error || !data) return NextResponse.json({ error: "Not found." }, { status: 404 });
     const bytes = Buffer.from(await data.arrayBuffer());
+    const preview = url.searchParams.get("preview") === "1";
+    const served = await applicationPhotoServeBytes(bytes, storagePath, { preview });
     // The stored fileName arrives via the application autosave path, which never
     // ran this route's sanitizer — re-apply the allowlist at serve time so a
     // hostile stored name can't break header construction.
     const safeName = sanitizeFileName(attachment?.fileName, "photo");
-    return new NextResponse(bytes, {
+    return new NextResponse(served.body, {
       headers: {
-        "Content-Type": contentTypeForApplicationPhotoPath(storagePath),
+        "Content-Type": served.contentType,
         "Content-Disposition": `inline; filename="${safeName}"`,
         "Cache-Control": "private, no-store",
       },

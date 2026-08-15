@@ -39,6 +39,7 @@ export function buildDemoPropertyCreationSubmission(): ManagerListingSubmissionV
     hoaMonthly: "$0.00",
     otherMonthlyFees: "$0.00",
     monthToMonthSurcharge: "$0.00",
+    customLeaseSurcharge: "$0.00",
     allowedLeaseTerms: ["12-Month"],
     axisPaymentsEnabled: true,
     applicationFeeStripeEnabled: true,

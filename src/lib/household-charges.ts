@@ -5,6 +5,7 @@
 
 import { isDemoModeActive } from "@/lib/demo/demo-session";
 import { createCoalescedRefresher, type CoalescedRefresher } from "@/lib/coalesced-refresh";
+import { recurringMonthlyFeesForLease } from "@/lib/custom-lease-billing";
 import { getPropertyById } from "@/lib/rental-application/data";
 import { parseMoneyAmount } from "@/lib/parse-money";
 import { paymentAtSigningPriceLabel } from "@/lib/rental-application/listing-fees-display";
@@ -3572,7 +3573,12 @@ export function recordApprovedApplicationCharges(row: DemoApplicantRow, managerU
   // after move-in. The move-in month itself is covered by the upfront first-month/prorated
   // charges above; monthly custom fees begin with the first full recurring month (they are a
   // flat monthly service, not prorated, and are not charged for the partial move-in month).
-  const monthlyFeeSet = monthlyCustomFees(sub);
+  const monthlyFeeSet = recurringMonthlyFeesForLease(sub, monthlyCustomFees(sub), {
+    leaseStart,
+    leaseEnd,
+    leaseTerm: row.application?.leaseTerm,
+    rentalType: row.application?.rentalType,
+  });
   let computedStartMonth: string | undefined;
   if (leaseStart && (rentAmount > 0 || utilities.amount > 0 || (dailyBasisRate && dailyBasisRate > 0) || monthlyFeeSet.length > 0)) {
     const [leaseYearRaw, leaseMonthRaw] = leaseStart.split("-").map(Number);

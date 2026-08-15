@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import sharp from "sharp";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { linkedPropertyIdsForModule } from "@/lib/auth/co-manager-module-scope";
 import { isResidentSetupTokenValid } from "@/lib/auth/resident-setup-token";
@@ -189,6 +190,42 @@ export function contentTypeForApplicationPhotoPath(path: string): string {
       return "application/pdf";
     default:
       return "image/jpeg";
+  }
+}
+
+function storageExt(path: string): string {
+  return path.split(".").pop()?.toLowerCase() ?? "";
+}
+
+/** HEIC/HEIF from phone cameras are not displayable in browsers — convert for inline preview. */
+export function applicationPhotoNeedsPreviewConversion(storagePath: string, contentType: string): boolean {
+  const ext = storageExt(storagePath);
+  return (
+    ext === "heic" ||
+    ext === "heif" ||
+    contentType === "image/heic" ||
+    contentType === "image/heif"
+  );
+}
+
+/**
+ * When `preview` is set, convert HEIC/HEIF captures to JPEG so managers can see
+ * ID photos inline. Original bytes are unchanged when preview is off.
+ */
+export async function applicationPhotoServeBytes(
+  bytes: Buffer,
+  storagePath: string,
+  opts: { preview: boolean },
+): Promise<{ body: Buffer; contentType: string }> {
+  const contentType = contentTypeForApplicationPhotoPath(storagePath);
+  if (!opts.preview || !applicationPhotoNeedsPreviewConversion(storagePath, contentType)) {
+    return { body: bytes, contentType };
+  }
+  try {
+    const converted = await sharp(bytes).rotate().jpeg({ quality: 88 }).toBuffer();
+    return { body: converted, contentType: "image/jpeg" };
+  } catch {
+    return { body: bytes, contentType };
   }
 }
 

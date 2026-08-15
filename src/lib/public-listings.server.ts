@@ -118,6 +118,7 @@ const PUBLIC_SUBMISSION_KEYS = [
   "otherMonthlyFees",
   "customFees",
   "monthToMonthSurcharge",
+  "customLeaseSurcharge",
   "allowedLeaseTerms",
   "leaseTermsBody",
   "shortTermRentalsAllowed",
