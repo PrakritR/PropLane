@@ -1,4 +1,7 @@
-import { expandResidentPortalLoginTemplatePlaceholder } from "@/lib/resident-portal-login-copy";
+import {
+  expandResidentPortalLoginTemplatePlaceholder,
+  residentPortalLoginTemplatePlaceholder,
+} from "@/lib/resident-portal-login-copy";
 import {
   legacyPaymentReminderDedupIds,
   paymentReminderDedupId,
@@ -144,6 +147,19 @@ function daysUntilDueForBundle(messages: ScheduledPaymentMessage[]): number {
   return 0;
 }
 
+function signOffLineFromReminderBody(body: string): string {
+  const lines = body
+    .trim()
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean);
+  for (let i = lines.length - 1; i >= 0; i--) {
+    const line = lines[i]!;
+    if (line.includes("PropLane") && !line.startsWith("How to sign in")) return line;
+  }
+  return "PropLane Portal";
+}
+
 /** Build one concise subject/body for several charges that share a send slot. */
 export function buildCombinedPaymentReminderContent(
   messages: ScheduledPaymentMessage[],
@@ -200,11 +216,11 @@ export function buildCombinedPaymentReminderContent(
       ? [`Amount due: ${first.balanceDue}`, ...(propertyLine ? [propertyLine] : [])]
       : [...chargeLines, ...(propertyLine ? ["", propertyLine] : [])]),
     "",
-    "Sign in to your resident portal to review and pay your outstanding charges.",
+    residentPortalLoginTemplatePlaceholder(),
     "",
     "If you have any questions, please don't hesitate to reach out.",
     "",
-    first.body.split("\n").find((line) => line.includes("PropLane")) ?? "PropLane Portal",
+    signOffLineFromReminderBody(first.body),
   ];
 
   const body = expandResidentPortalLoginTemplatePlaceholder(bodyParts.join("\n"), {

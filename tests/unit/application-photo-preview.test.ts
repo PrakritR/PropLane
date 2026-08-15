@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  ApplicationPhotoPreviewUnavailable,
   applicationPhotoNeedsPreviewConversion,
   applicationPhotoServeBytes,
   contentTypeForApplicationPhotoPath,
@@ -20,10 +21,10 @@ describe("application photo inline preview", () => {
     expect(served.contentType).toBe(contentTypeForApplicationPhotoPath("application/x/idFront.jpg"));
   });
 
-  it("falls back to original bytes when HEIC conversion fails", async () => {
+  it("refuses preview when HEIC conversion fails", async () => {
     const bytes = Buffer.from("not-a-real-heic");
-    const served = await applicationPhotoServeBytes(bytes, "application/x/idFront.heic", { preview: true });
-    expect(served.body).toEqual(bytes);
-    expect(served.contentType).toBe("image/heic");
+    await expect(
+      applicationPhotoServeBytes(bytes, "application/x/idFront.heic", { preview: true }),
+    ).rejects.toBeInstanceOf(ApplicationPhotoPreviewUnavailable);
   });
 });

@@ -197,6 +197,10 @@ function storageExt(path: string): string {
 }
 
 /** HEIC/HEIF from phone cameras are not displayable in browsers — convert for inline preview. */
+export class ApplicationPhotoPreviewUnavailable extends Error {
+  override readonly name = "ApplicationPhotoPreviewUnavailable";
+}
+
 export function applicationPhotoNeedsPreviewConversion(storagePath: string, contentType: string): boolean {
   const ext = storageExt(storagePath);
   return (
@@ -230,6 +234,9 @@ export async function applicationPhotoServeBytes(
     // Path + type only — never the bytes.
     const reason = e instanceof Error ? e.message : String(e);
     console.error(`[application-photos] HEIC preview conversion failed for ${storagePath} (${contentType}): ${reason}`);
+    if (opts.preview) {
+      throw new ApplicationPhotoPreviewUnavailable(reason);
+    }
     return { body: bytes, contentType };
   }
 }

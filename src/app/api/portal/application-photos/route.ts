@@ -10,6 +10,7 @@ import {
   buildApplicationPhotoPath,
   canActorAccessApplicationPhoto,
   applicationPhotoServeBytes,
+  ApplicationPhotoPreviewUnavailable,
   countApplicationPhotoObjects,
   isPathInApplicationFolder,
   MAX_APPLICATION_PHOTO_OBJECTS,
@@ -288,7 +289,15 @@ export async function GET(req: Request) {
     if (error || !data) return NextResponse.json({ error: "Not found." }, { status: 404 });
     const bytes = Buffer.from(await data.arrayBuffer());
     const preview = url.searchParams.get("preview") === "1";
-    const served = await applicationPhotoServeBytes(bytes, storagePath, { preview });
+    let served: { body: Buffer; contentType: string };
+    try {
+      served = await applicationPhotoServeBytes(bytes, storagePath, { preview });
+    } catch (e) {
+      if (e instanceof ApplicationPhotoPreviewUnavailable) {
+        return NextResponse.json({ error: "Preview unavailable." }, { status: 404 });
+      }
+      throw e;
+    }
     // The stored fileName arrives via the application autosave path, which never
     // ran this route's sanitizer — re-apply the allowlist at serve time so a
     // hostile stored name can't break header construction.
