@@ -65,6 +65,37 @@ export function formatLeaseDateLabel(value: string | undefined | null): string {
   return parsed.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
 }
 
+/** Last calendar day of a month (`month` is 1–12). */
+export function lastDayOfCalendarMonth(year: number, month: number): number {
+  return new Date(year, month, 0).getDate();
+}
+
+/**
+ * A regular long-term lease starts on the 1st and ends on the last day of a month.
+ * Both dates must be present; open-ended or partial dates are not standard.
+ */
+export function isStandardCalendarLease(
+  leaseStart: string | undefined | null,
+  leaseEnd: string | undefined | null,
+): boolean {
+  const start = parseFlexibleLocalDate(leaseStart);
+  const end = parseFlexibleLocalDate(leaseEnd);
+  if (!start || !end) return false;
+  if (start.getDate() !== 1) return false;
+  return end.getDate() === lastDayOfCalendarMonth(end.getFullYear(), end.getMonth() + 1);
+}
+
+/** Mid-month start or a lease end before the month's last day — requires both dates. */
+export function isCustomCalendarLease(
+  leaseStart: string | undefined | null,
+  leaseEnd: string | undefined | null,
+): boolean {
+  const start = parseFlexibleLocalDate(leaseStart);
+  const end = parseFlexibleLocalDate(leaseEnd);
+  if (!start || !end) return false;
+  return !isStandardCalendarLease(leaseStart, leaseEnd);
+}
+
 export function resolvePlacementLeaseDates(input: {
   leaseTerm?: string | null;
   leaseStart?: string | null;

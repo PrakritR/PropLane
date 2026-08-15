@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
   computeLeaseEndDate,
+  isCustomCalendarLease,
+  isStandardCalendarLease,
   normalizeIsoDateInput,
   resolvePlacementLeaseDates,
 } from "@/lib/rental-application/lease-dates";
@@ -29,5 +31,14 @@ describe("lease-dates", () => {
       leaseStart: "2026-06-01",
       leaseEnd: "2026-08-31",
     });
+  });
+
+  it("detects standard vs custom calendar lease boundaries", () => {
+    expect(isStandardCalendarLease("2026-06-01", "2026-08-31")).toBe(true);
+    expect(isStandardCalendarLease("2026-06-15", "2026-08-31")).toBe(false);
+    expect(isStandardCalendarLease("2026-06-01", "2026-08-15")).toBe(false);
+    expect(isCustomCalendarLease("2026-06-01", "2026-08-31")).toBe(false);
+    expect(isCustomCalendarLease("2026-06-15", "2026-08-14")).toBe(true);
+    expect(isCustomCalendarLease("2026-06-01", "")).toBe(false);
   });
 });

@@ -179,6 +179,7 @@ const PRESET_ID_FOR_ROW: Partial<Record<ListingFeeRowId, string>> = {
   hoaMonthly: "hoa_monthly",
   otherMonthlyFees: "other_monthly",
   monthToMonthSurcharge: "mtm_surcharge",
+  customLeaseSurcharge: "custom_lease_surcharge",
 };
 
 function FeeCadenceSelect({

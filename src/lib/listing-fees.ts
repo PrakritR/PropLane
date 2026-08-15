@@ -29,6 +29,7 @@ export type ListingFeePresetId =
   | "hoa_monthly"
   | "other_monthly"
   | "mtm_surcharge"
+  | "custom_lease_surcharge"
   | "short_term_nightly"
   | "short_term_deposit"
   | "short_term_move_in";
@@ -97,6 +98,12 @@ export const LISTING_FEE_PRESETS: readonly ListingFeePresetMeta[] = [
   {
     presetId: "mtm_surcharge",
     defaultLabel: "Month-to-month surcharge",
+    cadence: "monthly",
+    requiredInWizard: true,
+  },
+  {
+    presetId: "custom_lease_surcharge",
+    defaultLabel: "Custom lease",
     cadence: "monthly",
     requiredInWizard: true,
   },
@@ -243,6 +250,7 @@ export function legacyListingAmountsFromFees(fees: ListingFeeRow[]): Pick<
   | "hoaMonthly"
   | "otherMonthlyFees"
   | "monthToMonthSurcharge"
+  | "customLeaseSurcharge"
   | "shortTermDailyCost"
   | "shortTermDeposit"
   | "shortTermMoveInFee"
@@ -256,6 +264,7 @@ export function legacyListingAmountsFromFees(fees: ListingFeeRow[]): Pick<
     hoaMonthly: feeAmountForPreset(fees, "hoa_monthly"),
     otherMonthlyFees: feeAmountForPreset(fees, "other_monthly"),
     monthToMonthSurcharge: feeAmountForPreset(fees, "mtm_surcharge"),
+    customLeaseSurcharge: feeAmountForPreset(fees, "custom_lease_surcharge"),
     shortTermDailyCost: feeAmountForPreset(fees, "short_term_nightly"),
     shortTermDeposit: feeAmountForPreset(fees, "short_term_deposit"),
     shortTermMoveInFee: feeAmountForPreset(fees, "short_term_move_in"),
@@ -273,6 +282,7 @@ export function listingFeesFromLegacyScalars(
     | "hoaMonthly"
     | "otherMonthlyFees"
     | "monthToMonthSurcharge"
+    | "customLeaseSurcharge"
     | "shortTermDailyCost"
     | "shortTermDeposit"
     | "shortTermMoveInFee"
@@ -307,6 +317,9 @@ export function listingFeesFromLegacyScalars(
         break;
       case "mtm_surcharge":
         row.amount = (sub.monthToMonthSurcharge ?? "").replace(/^\$/, "").trim();
+        break;
+      case "custom_lease_surcharge":
+        row.amount = (sub.customLeaseSurcharge ?? "").replace(/^\$/, "").trim();
         break;
       default:
         break;
@@ -345,6 +358,7 @@ export function resolveListingFees(
     | "hoaMonthly"
     | "otherMonthlyFees"
     | "monthToMonthSurcharge"
+    | "customLeaseSurcharge"
     | "shortTermDailyCost"
     | "shortTermDeposit"
     | "shortTermMoveInFee"
@@ -392,6 +406,7 @@ export function listingFeesForWizard(
     | "hoaMonthly"
     | "otherMonthlyFees"
     | "monthToMonthSurcharge"
+    | "customLeaseSurcharge"
     | "shortTermDailyCost"
     | "shortTermDeposit"
     | "shortTermMoveInFee"
@@ -455,7 +470,8 @@ export type RemovedStandardListingFeeRowId =
   | "parkingMonthly"
   | "hoaMonthly"
   | "otherMonthlyFees"
-  | "monthToMonthSurcharge";
+  | "monthToMonthSurcharge"
+  | "customLeaseSurcharge";
 
 const REMOVED_STANDARD_FEE_ROW_IDS = new Set<string>([
   "rent",
@@ -467,6 +483,7 @@ const REMOVED_STANDARD_FEE_ROW_IDS = new Set<string>([
   "hoaMonthly",
   "otherMonthlyFees",
   "monthToMonthSurcharge",
+  "customLeaseSurcharge",
 ]);
 
 /** Standard "Other fees" rows hidden until the manager adds them via + Add fee. */
@@ -479,6 +496,30 @@ export const DEFAULT_HIDDEN_STANDARD_LISTING_FEE_ROW_IDS: readonly RemovedStanda
   "otherMonthlyFees",
   "monthToMonthSurcharge",
 ] as const;
+
+const LT_FIELD_BY_REMOVED_ROW: Partial<
+  Record<RemovedStandardListingFeeRowId, keyof ManagerListingSubmissionV1>
+> = {
+  customLeaseSurcharge: "customLeaseSurcharge",
+};
+
+/**
+ * Custom lease pricing stays visible in Pricing on edit when a price was saved —
+ * never remain in `removedStandardListingFeeRows` once the manager has set an amount.
+ */
+export function reconcileRemovedStandardListingFeeRows(
+  sub: ManagerListingSubmissionV1,
+): RemovedStandardListingFeeRowId[] {
+  const removed = parseRemovedStandardListingFeeRows(sub);
+  return removed.filter((id) => {
+    const field = LT_FIELD_BY_REMOVED_ROW[id];
+    if (!field) return true;
+    const raw = String(sub[field] ?? "")
+      .replace(/^\$/, "")
+      .trim();
+    return !isListingFeeAmountFilled(raw);
+  });
+}
 
 export function defaultRemovedStandardListingFeeRowsForNewListing(): RemovedStandardListingFeeRowId[] {
   return [...DEFAULT_HIDDEN_STANDARD_LISTING_FEE_ROW_IDS];
@@ -493,6 +534,7 @@ const REMOVED_ROW_EXCLUDED_PRESET_IDS: Partial<Record<RemovedStandardListingFeeR
   hoaMonthly: ["hoa_monthly"],
   otherMonthlyFees: ["other_monthly"],
   monthToMonthSurcharge: ["mtm_surcharge"],
+  customLeaseSurcharge: ["custom_lease_surcharge"],
   rent: ["short_term_nightly"],
   applicationFee: [],
 };
@@ -528,7 +570,8 @@ export function presetIdsExcludedForRemovedListingFeeRows(
 
 /** Ensure submission has unified fees + legacy fields in sync (call from normalize). */
 export function ensureSubmissionListingFees(sub: ManagerListingSubmissionV1): ManagerListingSubmissionV1 {
-  const removedRows = removedStandardListingFeeRowSet(sub);
+  const reconciledRemoved = reconcileRemovedStandardListingFeeRows(sub);
+  const removedRows = new Set(reconciledRemoved);
   const excludedPresets = presetIdsExcludedForRemovedListingFeeRows(removedRows);
   let fees = resolveListingFees(sub);
   if (excludedPresets.size > 0) {
@@ -541,10 +584,9 @@ export function ensureSubmissionListingFees(sub: ManagerListingSubmissionV1): Ma
     fees = [...fees.filter((f) => f.presetId !== "custom"), ...customs];
   }
   const next = applyListingFeesToSubmission(sub, fees);
-  const removed = parseRemovedStandardListingFeeRows(sub);
   return {
     ...next,
-    removedStandardListingFeeRows: removed.length > 0 ? removed : [],
+    removedStandardListingFeeRows: reconciledRemoved.length > 0 ? reconciledRemoved : [],
   };
 }
 
@@ -598,6 +640,8 @@ function legacyFieldKeyForPreset(presetId: ListingFeePresetId): keyof ManagerLis
       return "otherMonthlyFees";
     case "mtm_surcharge":
       return "monthToMonthSurcharge";
+    case "custom_lease_surcharge":
+      return "customLeaseSurcharge";
     default:
       return null;
   }
@@ -749,6 +793,17 @@ function listingFeeToDisplayRow(fee: ListingFeeRow, formatPrice: (raw: string) =
       price,
       status: "Monthly",
       body: `${title}: ${price} per month when on month-to-month.`,
+    };
+  }
+  if (fee.presetId === "custom_lease_surcharge") {
+    return {
+      id: "custom-lease-surcharge",
+      icon: "📅",
+      title,
+      detail: "Non-standard lease dates",
+      price,
+      status: "Monthly",
+      body: `${title}: ${price} per month when the lease does not start on the 1st or end on the last day of a month.`,
     };
   }
 

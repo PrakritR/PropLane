@@ -111,6 +111,8 @@ function legacyFieldKeyForFee(fee: ListingFeeRow): string {
       return "otherMonthlyFees";
     case "mtm_surcharge":
       return "monthToMonthSurcharge";
+    case "custom_lease_surcharge":
+      return "customLeaseSurcharge";
     default:
       return listingFeeWizardFieldKey(fee.id);
   }

@@ -77,6 +77,7 @@ describe("listing fees migration", () => {
   it("new listing wizard hides every standard other fee except application", () => {
     const hidden = defaultRemovedStandardListingFeeRowsForNewListing();
     expect(hidden).not.toContain("applicationFee");
+    expect(hidden).not.toContain("customLeaseSurcharge");
     expect(hidden).toContain("parkingMonthly");
     expect(hidden).toContain("holdingDeposit");
 
@@ -85,6 +86,22 @@ describe("listing fees migration", () => {
     expect(sub.holdingDeposit).toBe("");
     expect(sub.customFees?.some((f) => f.presetId === "parking_monthly")).toBe(false);
     expect(sub.customFees?.some((f) => f.presetId === "holding_deposit")).toBe(false);
+    expect(sub.customFees?.some((f) => f.presetId === "custom_lease_surcharge")).toBe(true);
+  });
+
+  it("re-shows custom lease pricing on edit when a price was saved", () => {
+    const sub = createDefaultListingSubmission();
+    sub.customLeaseSurcharge = "50";
+    sub.removedStandardListingFeeRows = [
+      "customLeaseSurcharge",
+      ...defaultRemovedStandardListingFeeRowsForNewListing(),
+    ];
+    const normalized = normalizeManagerListingSubmissionV1(sub);
+    expect(normalized.customLeaseSurcharge).toBe("50");
+    expect(normalized.removedStandardListingFeeRows).not.toContain("customLeaseSurcharge");
+    expect(normalized.customFees?.some((f) => f.presetId === "custom_lease_surcharge" && f.amount === "50")).toBe(
+      true,
+    );
   });
 
   it("validates required preset amounts", () => {
