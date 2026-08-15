@@ -245,6 +245,7 @@ import {
 } from "@/components/portal/manager-create-service-request-modal";
 import { ManagerCreateWorkOrderModal } from "@/components/portal/manager-create-work-order-modal";
 import {
+  mergeApplicationLeaseDatesIntoResidentRow,
   persistResidentProfileEdit,
   syncResidentBillingAndLeases,
 } from "@/lib/resident-lease-billing-sync";
@@ -2146,7 +2147,23 @@ export function ManagerResidents({
     const selectedRoomLabel = placement.placementLabel?.trim() || "";
     const existing = rows[idx]!;
     const newRoomChoice = placement.assignedRoomChoice;
-    const nextRow: DemoApplicantRow = {
+    const baseApplication =
+      existing.application ??
+      (appLeaseFields.leaseTerm || propId || erEmail.trim() || erMoveInDate
+        ? ({
+            propertyId: propId || undefined,
+            roomChoice1: newRoomChoice,
+            bundleId: placement.bundleId ?? "",
+            leaseTerm: appLeaseFields.leaseTerm,
+            rentalType: appLeaseFields.rentalType,
+            leaseStart: erMoveInDate || undefined,
+            leaseEnd: erMoveOutDate || undefined,
+            fullLegalName: erName.trim(),
+            email: erEmail.trim(),
+            phone: erPhone.trim() || undefined,
+          } as DemoApplicantRow["application"])
+        : undefined);
+    let nextRow: DemoApplicantRow = {
       ...existing,
       name: erName.trim(),
       email: erEmail.trim() || existing.email,
@@ -2166,28 +2183,32 @@ export function ManagerResidents({
         leaseTerm: erLeaseTerm.trim() || undefined,
         notes: erNotes.trim() || undefined,
       },
-      application: existing.application
+      application: baseApplication
         ? {
-            ...existing.application,
-            fullLegalName: erName.trim() || existing.application.fullLegalName,
-            email: erEmail.trim() || existing.application.email,
-            phone: erPhone.trim() || existing.application.phone,
-            propertyId: propId || existing.application.propertyId,
-            roomChoice1: newRoomChoice ?? (placement.bundleId ? "" : existing.application.roomChoice1),
+            ...baseApplication,
+            fullLegalName: erName.trim() || baseApplication.fullLegalName,
+            email: erEmail.trim() || baseApplication.email,
+            phone: erPhone.trim() || baseApplication.phone,
+            propertyId: propId || baseApplication.propertyId,
+            roomChoice1: newRoomChoice ?? (placement.bundleId ? "" : baseApplication.roomChoice1),
             bundleId: placement.bundleId ?? "",
-            leaseTerm: appLeaseFields.leaseTerm || existing.application.leaseTerm,
-            rentalType: appLeaseFields.leaseTerm ? appLeaseFields.rentalType : existing.application.rentalType,
-            leaseStart: erMoveInDate || existing.application.leaseStart,
-            leaseEnd: erMoveOutDate || existing.application.leaseEnd,
-            managerRentOverride: erRent.trim() || existing.application.managerRentOverride,
+            leaseTerm: appLeaseFields.leaseTerm || baseApplication.leaseTerm,
+            rentalType: appLeaseFields.leaseTerm ? appLeaseFields.rentalType : baseApplication.rentalType,
+            leaseStart: erMoveInDate || baseApplication.leaseStart,
+            leaseEnd: erMoveOutDate || baseApplication.leaseEnd,
+            managerRentOverride: erRent.trim() || baseApplication.managerRentOverride,
             managerUtilitiesOverride: erSavingShortTerm
               ? ""
-              : erUtilities.trim() || existing.application.managerUtilitiesOverride,
-            managerMoveInFeeOverride: erMoveInFee.trim() || existing.application.managerMoveInFeeOverride,
-            managerSecurityDepositOverride: erSecurityDeposit.trim() || existing.application.managerSecurityDepositOverride,
+              : erUtilities.trim() || baseApplication.managerUtilitiesOverride,
+            managerMoveInFeeOverride: erMoveInFee.trim() || baseApplication.managerMoveInFeeOverride,
+            managerSecurityDepositOverride:
+              erSecurityDeposit.trim() || baseApplication.managerSecurityDepositOverride,
           }
-        : existing.application,
+        : undefined,
     };
+    if (nextRow.application) {
+      nextRow = mergeApplicationLeaseDatesIntoResidentRow(nextRow, nextRow.application);
+    }
 
     const next = [...rows];
     next[idx] = nextRow;

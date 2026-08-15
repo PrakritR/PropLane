@@ -1,5 +1,12 @@
 import type { DemoApplicantRow } from "@/data/demo-portal";
-import { isInProgressApplicationRow } from "@/lib/rental-application/in-progress-application";
+import { isDraftApplicationRow } from "@/lib/manager-applications-storage";
+
+/** Pending (submitted) or active approved residents that should keep generated payment schedules. */
+export function shouldReconcileResidentPaymentSchedule(row: DemoApplicantRow, nowMs = Date.now()): boolean {
+  if (!row.email?.trim()) return false;
+  if (row.bucket === "pending") return !isDraftApplicationRow(row);
+  return isCurrentResidentApplicationRow(row, nowMs);
+}
 
 export const PREVIOUS_RESIDENT_STAGE_TOKENS = ["moved out", "previous", "past", "former", "inactive"] as const;
 

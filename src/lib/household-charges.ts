@@ -28,7 +28,7 @@ import {
   type RentDueDayMode,
   type ResidentAcceptedPaymentMethod,
 } from "@/lib/payment-policy";
-import { isCurrentResidentApplicationRow } from "@/lib/current-resident";
+import { shouldReconcileResidentPaymentSchedule } from "@/lib/current-resident";
 import { applicationVisibleToPortalUser } from "@/lib/manager-portfolio-access";
 import type { DemoManagerPaymentLedgerRow, ManagerPaymentBucket } from "@/data/demo-portal";
 import type { DemoApplicantRow } from "@/data/demo-portal";
@@ -2304,9 +2304,7 @@ function syncAllRecurringRentCharges(): boolean {
 export function reconcileApprovedResidentPaymentSchedules(managerUserId: string | null, force = false): boolean {
   if (!isBrowser()) return false;
   const currentRows = readManagerApplicationRows().filter((row) => {
-    if (!isCurrentResidentApplicationRow(row)) return false;
-    const email = row.email?.trim();
-    if (!email) return false;
+    if (!shouldReconcileResidentPaymentSchedule(row)) return false;
     if (!managerUserId) return true;
     // Match Add payment / Payments UI: include co-managed residents the portal
     // user can see, not only rows whose managerUserId equals the signed-in user.

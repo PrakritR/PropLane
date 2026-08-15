@@ -4,10 +4,12 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import {
   readHouseholdCharges,
+  reconcileApprovedResidentPaymentSchedules,
   recordApprovedApplicationCharges,
   removeResidentHouseholdPaymentData,
 } from "@/lib/household-charges";
 import { cachePublicExtraListings } from "@/lib/demo-property-pipeline";
+import { writeManagerApplicationRows } from "@/lib/manager-applications-storage";
 import {
   createDefaultListingSubmission,
   normalizeManagerListingSubmissionV1,
@@ -121,5 +123,18 @@ describe("resident lease billing sync", () => {
     const charges = readHouseholdCharges();
     expect(charges.some((c) => c.kind === "prorated_rent")).toBe(false);
     expect(charges.some((c) => c.kind === "first_month_rent")).toBe(true);
+  });
+
+  it("keeps pending resident charges when payment schedules reconcile", () => {
+    const pending = { ...residentRow("2026-09-01"), bucket: "pending" as const, stage: "Submitted" };
+    writeManagerApplicationRows([pending]);
+    removeResidentHouseholdPaymentData(EMAIL);
+    recordApprovedApplicationCharges(pending, MANAGER_ID, true);
+    expect(readHouseholdCharges().some((c) => c.kind === "security_deposit")).toBe(true);
+
+    reconcileApprovedResidentPaymentSchedules(MANAGER_ID, true);
+
+    const charges = readHouseholdCharges();
+    expect(charges.some((c) => c.kind === "security_deposit")).toBe(true);
   });
 });

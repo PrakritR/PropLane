@@ -1,4 +1,5 @@
 import type { DemoApplicantRow } from "@/data/demo-portal";
+import { syncPropertyPipelineFromServer } from "@/lib/demo-property-pipeline";
 import { isDemoModeActive } from "@/lib/demo/demo-session";
 import {
   mirrorHouseholdChargesToServerAwait,
@@ -151,6 +152,7 @@ export async function persistResidentProfileEdit(input: {
   writeManagerApplicationRows(rows);
 
   if (!isDemoModeActive()) {
+    await syncPropertyPipelineFromServer({ force: true });
     const persisted = await upsertApplicationRowToServerAwait(nextRow);
     if (!persisted.ok) {
       return { ok: false, error: persisted.error ?? "Could not save resident." };
