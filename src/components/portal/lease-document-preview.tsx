@@ -36,9 +36,29 @@ function draftHtmlFromApplication(application: Partial<RentalWizardFormState> | 
   }
 }
 
+/**
+ * The lease document, sized to fit its content when that is measurable and scrollable when it
+ * is not — so the rest of the lease is never simply unreachable.
+ *
+ * `sandbox=""` applies EVERY restriction, `allow-same-origin` included, which puts the frame in
+ * an opaque origin and makes `iframe.contentDocument` null from here. So the measurement below
+ * cannot run for this frame at all: height stayed at its initial value, `scrolling="no"` kept
+ * the frame from scrolling, and the wrapper's `overflow-hidden` clipped the remainder. A lease
+ * longer than that initial height simply could not be read — reported as "I am unable to scroll
+ * through the lease".
+ *
+ * The sandbox is NOT loosened to fix it. Lease HTML can carry manager-authored section edits and
+ * content derived from third-party uploads, and `allow-same-origin` on a `srcDoc` frame hands
+ * that content this origin. Instead the frame falls back to scrolling itself, which costs a
+ * nested scroll region but keeps every page of the lease reachable.
+ *
+ * Achieving true page-flow for a sandboxed document needs the frame to report its own height via
+ * `postMessage`, which means `allow-scripts` — executing that content. That is a security call,
+ * not a layout one, so it is deliberately not made here.
+ */
 function AutoHeightLeaseHtmlFrame({ srcDoc, title }: { srcDoc: string; title: string }) {
   const iframeRef = useRef<HTMLIFrameElement>(null);
-  const [height, setHeight] = useState(480);
+  const [measuredHeight, setMeasuredHeight] = useState<number | null>(null);
 
   useEffect(() => {
     const iframe = iframeRef.current;
@@ -56,16 +76,21 @@ function AutoHeightLeaseHtmlFrame({ srcDoc, title }: { srcDoc: string; title: st
           doc.documentElement.offsetHeight,
           320,
         );
-        setHeight(next);
+        setMeasuredHeight(next);
       } catch {
-        /* sandboxed */
+        /* Opaque origin — leave `measuredHeight` null so the frame scrolls instead. */
       }
     };
 
     const onLoad = () => {
       measure();
-      const doc = iframe.contentDocument;
-      if (!doc?.body) return;
+      let doc: Document | null = null;
+      try {
+        doc = iframe.contentDocument;
+      } catch {
+        doc = null;
+      }
+      if (!doc?.body || typeof ResizeObserver === "undefined") return;
       resizeObserver = new ResizeObserver(measure);
       resizeObserver.observe(doc.body);
     };
@@ -77,15 +102,20 @@ function AutoHeightLeaseHtmlFrame({ srcDoc, title }: { srcDoc: string; title: st
     };
   }, [srcDoc]);
 
+  const flows = measuredHeight !== null;
   return (
     <iframe
       ref={iframeRef}
       title={title}
       srcDoc={srcDoc}
-      sandbox="allow-same-origin"
-      scrolling="no"
-      className="block w-full border-0 bg-card"
-      style={{ height }}
+      sandbox=""
+      // Only suppress the frame's own scrollbar when we actually grew it to fit the document.
+      scrolling={flows ? "no" : "auto"}
+      // The unmeasured height is a CLASS, not an inline style: `min()` is what this needs and
+      // inline `min()` is dropped by some style parsers, which would leave the frame with no
+      // height at all — the failure this whole component is about.
+      className={`block w-full border-0 bg-card ${flows ? "" : "h-[min(78vh,900px)]"}`}
+      style={flows ? { height: measuredHeight } : undefined}
     />
   );
 }
@@ -170,7 +200,7 @@ export function LeaseDocumentPreview({
               <iframe
                 title="Lease document"
                 srcDoc={previewHtml}
-                sandbox="allow-same-origin"
+                sandbox=""
                 scrolling={frameScroll}
                 className={frameClass}
               />
@@ -186,7 +216,7 @@ export function LeaseDocumentPreview({
               <iframe
                 title="Lease draft preview"
                 srcDoc={syntheticHtml}
-                sandbox="allow-same-origin"
+                sandbox=""
                 scrolling={frameScroll}
                 className={frameClass}
               />
