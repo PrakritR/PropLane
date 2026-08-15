@@ -33,7 +33,12 @@ describe("resident detail Communication keeps a way back on a phone", () => {
   });
 
   it("opts the detail body into a flex fill so the chat has a bounded height", () => {
-    expect(RESIDENTS).toContain('fillBody={resolvedDetailTab === "communication"}');
+    // The contract is that COMMUNICATION opts into the flex fill — not the exact shape of the
+    // expression. `fillBody` has since been widened to cover the lease and application tabs too
+    // (they scroll a document inside a bounded preview frame and otherwise overflow a clipped
+    // portal surface), so pinning the old single-tab literal failed a legitimate widening while
+    // the behaviour it guards was intact.
+    expect(RESIDENTS).toMatch(/fillBody=\{[\s\S]{0,400}?resolvedDetailTab === "communication"/);
     // The rule (AGENTS.md, portal-ui-system) is an UNBROKEN flex-1 + min-h-0
     // chain — one `display: block` link pushes the page header off-screen. The
     // ternary that used to express it was refactored into a derived `bodyFill`,
