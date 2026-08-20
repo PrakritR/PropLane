@@ -436,12 +436,15 @@ export function buildLeaseHtml(ctx: LeaseGenerationContext, config: LeaseJurisdi
       : sub?.buildingName?.trim() || list?.buildingName?.trim() || room?.buildingName?.trim() || "[LANDLORD ENTITY NAME]",
   );
   const subNorm = sub ? normalizeManagerListingSubmissionV1(sub) : undefined;
+  const streetFromSubmission = subNorm ? listingSubmissionStreetLine(subNorm).trim() : "";
   const address = propertyTemplatePreview
     ? "—"
     : escapeHtml(
-        subNorm
-          ? listingSubmissionStreetLine(subNorm)
-          : (room?.address ?? list?.address ?? sub?.address ?? ""),
+        streetFromSubmission ||
+          room?.address?.trim() ||
+          list?.address?.trim() ||
+          sub?.address?.trim() ||
+          "",
       );
   const cityZip = propertyTemplatePreview
     ? "—"

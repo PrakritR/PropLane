@@ -2021,7 +2021,7 @@ export function listingSubmissionLocationLabel(
   return sub.neighborhood?.trim() ?? "";
 }
 
-/** City and state line for leases, geocoding, and display. */
+/** City and state line for leases, geocoding, and display. Neighborhood is browse-only — never a legal city. */
 export function listingSubmissionCityStateLine(
   sub: Pick<ManagerListingSubmissionV1, "city" | "state" | "neighborhood">,
 ): string {
@@ -2029,7 +2029,7 @@ export function listingSubmissionCityStateLine(
   const state = sub.state?.trim().toUpperCase() ?? "";
   if (city && state) return `${city}, ${state}`;
   if (city) return city;
-  return sub.neighborhood?.trim() ?? "";
+  return state;
 }
 
 /** City, state, and ZIP for leases and formal addresses. */
