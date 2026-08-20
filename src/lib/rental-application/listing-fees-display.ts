@@ -124,10 +124,16 @@ export function computeLeasePaymentAtSigning(
   sub: ListingSigningComputationInput,
   amounts: LeaseSigningAmounts,
 ): number {
-  if (!sub?.v) return 0;
+  const legacyFallback = () =>
+    amounts.securityDeposit +
+    amounts.moveInFee +
+    (amounts.customOneTimeFees ?? 0) +
+    (amounts.otherSigningCost ?? 0);
+
+  if (!sub?.v) return legacyFallback();
   const n = normalizeManagerListingSubmissionV1(sub);
   const includes = n.paymentAtSigningIncludes ?? [];
-  if (!includes.length) return 0;
+  if (!includes.length) return legacyFallback();
 
   let sum = 0;
   if (includes.includes("security_deposit")) sum += amounts.securityDeposit;

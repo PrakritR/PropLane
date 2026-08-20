@@ -157,4 +157,15 @@ describe("lease payment at signing", () => {
     expect(formatListingFeeDisplay("50")).toBe("$50.00");
     expect(formatListingFeeDisplay("$75")).toBe("$75");
   });
+
+  it("falls back to deposit and move-in when signing checkboxes are absent", () => {
+    expect(
+      computeLeasePaymentAtSigning(undefined, {
+        securityDeposit: 400,
+        moveInFee: 200,
+        monthlyRent: 800,
+        monthlyUtilities: 200,
+      }),
+    ).toBe(600);
+  });
 });

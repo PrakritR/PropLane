@@ -650,9 +650,11 @@ export function buildLeaseHtml(ctx: LeaseGenerationContext, config: LeaseJurisdi
     customOneTimeFees: customFeesTotalNum,
     otherSigningCost: showOtherSigningCost ? (otherCostNum ?? 0) : 0,
   };
-  const paySigningNum = sub
+  const computedSigning = sub
     ? computeLeasePaymentAtSigning(sub, signingAmounts)
-    : (leaseBilling?.dueAtSigning ?? signingAmounts.securityDeposit + signingAmounts.moveInFee);
+    : signingAmounts.securityDeposit + signingAmounts.moveInFee;
+  const paySigningNum =
+    leaseBilling?.dueAtSigning != null ? leaseBilling.dueAtSigning : computedSigning;
   const paySigning = escapeHtml(
     propertyTemplatePreview ? "—" : paySigningNum > 0 ? fmtUsd(paySigningNum) : "—",
   );

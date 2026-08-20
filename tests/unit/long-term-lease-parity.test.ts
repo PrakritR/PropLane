@@ -203,12 +203,11 @@ describe("long-term lease parity", () => {
   });
 
   it("honors payment-at-signing checkboxes for the due-at-signing total", () => {
-    const html = buildLeaseHtml(
-      longTermContext({
-        paymentAtSigningIncludes: ["security_deposit"],
-      }),
-      SEATTLE_LEASE_CONFIG,
-    );
+    const ctx = longTermContext({
+      paymentAtSigningIncludes: ["security_deposit"],
+    });
+    ctx.leaseBilling = { ...ctx.leaseBilling!, dueAtSigning: 400 };
+    const html = buildLeaseHtml(ctx, SEATTLE_LEASE_CONFIG);
     expect(html).toContain("Payment due at signing</th><td class=\"amount\"><strong>$400.00");
     expect(html).toContain("Due at signing includes: security deposit");
     expect(html).not.toContain("Due at signing includes: security deposit and move-in fee");
