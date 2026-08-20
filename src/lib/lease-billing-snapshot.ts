@@ -8,6 +8,8 @@ import { collectLinkedPropertyIdsForModule } from "@/lib/manager-portfolio-acces
 import { parseMoneyLabel } from "@/lib/portal-monthly-profit";
 import { readManagerApplicationRows } from "@/lib/manager-applications-storage";
 import { resolvePlacementValuesForRow } from "@/lib/rental-application/placement-values";
+import { computeLeasePaymentAtSigning } from "@/lib/rental-application/listing-fees-display";
+import { normalizeManagerListingSubmissionV1 } from "@/lib/manager-listing-submission";
 import type { LeaseGenerationContext } from "@/lib/generated-lease";
 import type { RentalWizardFormState } from "@/lib/rental-application/types";
 
@@ -117,13 +119,19 @@ export function buildLeaseBillingSnapshot(
     if (SIGNING_CHARGE_KINDS.includes(c.kind)) dueAtSigning += chargeAmount(c);
   }
   if (dueAtSigning <= 0) {
-    dueAtSigning =
-      securityDeposit +
-      moveInFee +
-      placement.otherCostAmount +
-      (applicationFee ?? 0) +
-      (proratedRent ?? 0) +
-      (proratedUtilities ?? 0);
+    const sub =
+      applicant.property?.listingSubmission?.v === 1
+        ? normalizeManagerListingSubmissionV1(applicant.property.listingSubmission)
+        : undefined;
+    dueAtSigning = computeLeasePaymentAtSigning(sub, {
+      securityDeposit,
+      moveInFee,
+      monthlyRent,
+      monthlyUtilities,
+      proratedRent,
+      proratedUtilities,
+      otherSigningCost: placement.otherCostAmount,
+    });
   }
 
   return {

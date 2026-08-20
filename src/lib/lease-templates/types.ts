@@ -47,7 +47,12 @@ export function leaseCss(): string {
     table { width: 100%; border-collapse: collapse; margin: 0.6rem 0 1rem; font-size: 0.93rem; }
     th, td { border: 1px solid #999; padding: 6px 9px; text-align: left; vertical-align: top; }
     th { background: #f0f0f0; font-weight: 700; }
-    .total-row td { font-weight: 700; background: #f9f9f9; }
+    .total-row th, .total-row td { font-weight: 700; background: #f9f9f9; }
+    table.fee-table td.amount, table.fee-table th.amount { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  table.fee-table .total-row td.amount { font-size: 1.02em; }
+    p.fee-note { font-size: 0.88rem; color: #444; margin: -0.35rem 0 1rem; }
+    ul.lease-shared-spaces { margin: 0.5rem 0 1rem 1.35rem; padding: 0; }
+    ul.lease-shared-spaces li { margin: 0.35rem 0; }
     .addendum { border-top: 3px double #333; margin-top: 3rem; padding-top: 1.5rem; }
     .disclosure-review { border: 2px solid #7f1d1d; padding: 10px 12px; margin: 0 0 1.25rem; background: #fff7ed; }
     .disclosure-review p:first-child { margin-top: 0; }

@@ -2032,6 +2032,41 @@ export function listingSubmissionCityStateLine(
   return sub.neighborhood?.trim() ?? "";
 }
 
+/** City, state, and ZIP for leases and formal addresses. */
+export function listingSubmissionCityZipLine(
+  sub: Pick<ManagerListingSubmissionV1, "city" | "state" | "neighborhood" | "zip">,
+): string {
+  const cityState = listingSubmissionCityStateLine(sub);
+  const zip = sub.zip?.trim() ?? "";
+  if (cityState && zip) return `${cityState} ${zip}`;
+  return cityState || zip;
+}
+
+/**
+ * Street line for leases — when city/state/ZIP live in separate fields, strip a trailing
+ * ", City, ST ZIP" suffix from a geocoded `address` so Premises and mailing do not repeat it.
+ */
+export function listingSubmissionStreetLine(
+  sub: Pick<ManagerListingSubmissionV1, "address" | "city" | "state" | "neighborhood" | "zip">,
+): string {
+  const street = sub.address?.trim() ?? "";
+  const cityZip = listingSubmissionCityZipLine(sub);
+  if (!street || !cityZip) return street;
+  const suffix = `, ${cityZip}`;
+  if (street.endsWith(suffix) || street.toLowerCase().endsWith(suffix.toLowerCase())) {
+    return street.slice(0, street.length - suffix.length).trim();
+  }
+  const cityState = listingSubmissionCityStateLine(sub);
+  const zip = sub.zip?.trim() ?? "";
+  if (cityState && zip) {
+    const altSuffix = `, ${cityState} ${zip}`;
+    if (street.endsWith(altSuffix) || street.toLowerCase().endsWith(altSuffix.toLowerCase())) {
+      return street.slice(0, street.length - altSuffix.length).trim();
+    }
+  }
+  return street;
+}
+
 export function createDefaultListingSubmission(): ManagerListingSubmissionV1 {
   return {
     v: 1,

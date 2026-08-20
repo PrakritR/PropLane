@@ -5,6 +5,7 @@ import {
   createDefaultListingSubmission,
   emptyBathroom,
   emptyRoom,
+  emptySharedSpace,
   type ManagerListingSubmissionV1,
 } from "@/lib/manager-listing-submission";
 import type { LeaseGenerationContext } from "@/lib/generated-lease";
@@ -21,12 +22,23 @@ function longTermContext(overrides: Partial<ManagerListingSubmissionV1> = {}): L
     ...createDefaultListingSubmission(),
     buildingName: "Brooklyn House",
     address: "5259 Brooklyn Ave NE, Seattle, WA 98105",
+    city: "Seattle",
+    state: "WA",
+    zip: "98105",
+    neighborhood: "Greek Row",
     yearBuilt: 1977,
     securityDeposit: "400",
     moveInFee: "200",
     lateFeeAmount: "75",
     rooms: [room, { ...emptyRoom(1), id: "room-6", name: "Room 6", monthlyRent: 800 }],
     bathrooms: [bathroom],
+    sharedSpaces: [
+      {
+        ...emptySharedSpace(0),
+        name: "Kitchen & dining",
+        roomAccessIds: ["room-7", "room-6"],
+      },
+    ],
     longTermBreakLeaseFee: "900",
     longTermLeaseUpFeePercent: 100,
     longTermHoldoverDailyRate: "45",
@@ -125,10 +137,14 @@ describe("long-term lease parity", () => {
     expect(first).toContain("$30.00");
     expect(first).toContain("Hall bath is shared with Room 6.");
     expect(first).toContain("Lease Summary");
-    expect(first).toContain("Monthly rent</th><td><strong>$825.00");
-    expect(first).toContain("Monthly utilities</th><td><strong>$175.00");
-    expect(first).toContain("Total monthly payment</th><td><strong>$1,000.00");
-    expect(first).toContain("Payment due at signing</th><td><strong>$600.00");
+    expect(first).toContain("Monthly rent</th><td class=\"amount\"><strong>$825.00");
+    expect(first).toContain("Monthly utilities</th><td class=\"amount\"><strong>$175.00");
+    expect(first).toContain("Total monthly payment</th><td class=\"amount\"><strong>$1,000.00");
+    expect(first).toContain("Payment due at signing</th><td class=\"amount\"><strong>$600.00");
+    expect(first).toContain("Mailing address: 5259 Brooklyn Ave NE, Seattle, WA 98105");
+    expect(first).not.toContain("Greek Row");
+    expect(first).not.toContain("additional authorized occupant");
+    expect(first).toContain("<ul class=\"lease-shared-spaces\">");
     expect(changed).toContain("$750.00");
     expect(changed).toContain("$55.00 per day");
     expect(changed).not.toContain("$900.00");
@@ -184,6 +200,18 @@ describe("long-term lease parity", () => {
     expect(html).not.toContain("$900.00");
     expect(html).not.toContain("Holdover:");
     expect(html).not.toContain("break-lease fee");
+  });
+
+  it("honors payment-at-signing checkboxes for the due-at-signing total", () => {
+    const html = buildLeaseHtml(
+      longTermContext({
+        paymentAtSigningIncludes: ["security_deposit"],
+      }),
+      SEATTLE_LEASE_CONFIG,
+    );
+    expect(html).toContain("Payment due at signing</th><td class=\"amount\"><strong>$400.00");
+    expect(html).toContain("Due at signing includes: security deposit");
+    expect(html).not.toContain("Due at signing includes: security deposit and move-in fee");
   });
 
   it("renders a configured returned-payment clause without an unset jurisdiction citation", () => {

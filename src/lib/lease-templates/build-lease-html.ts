@@ -3,10 +3,17 @@ import {
   activeCustomLeaseTerms,
   entireHomeMonthlyRentAmount,
   isEntireHomeListing,
+  listingSubmissionCityZipLine,
+  listingSubmissionStreetLine,
   normalizeManagerListingSubmissionV1,
   type ManagerListingSubmissionV1,
 } from "@/lib/manager-listing-submission";
-import { paymentAtSigningPriceLabel, utilitiesListingEstimateLabel } from "@/lib/rental-application/listing-fees-display";
+import {
+  computeLeasePaymentAtSigning,
+  formatListingFeeDisplay,
+  paymentAtSigningIncludedLabels,
+  utilitiesListingEstimateLabel,
+} from "@/lib/rental-application/listing-fees-display";
 import { formatUtilitiesListingLine, resolveListingUtilitiesPaymentModel } from "@/lib/listing-utilities-payment";
 import {
   hasResidentPaidLeaseUtility,
@@ -194,24 +201,36 @@ ${rows}
 </table>`;
 }
 
-function sharedSpacesLeaseParagraph(raw: ManagerListingSubmissionV1 | undefined): string {
-  if (!raw?.v) return "Common kitchen, bath, and living areas as shared among residents.";
+function sharedSpacesLeaseHtml(raw: ManagerListingSubmissionV1 | undefined): string {
+  if (!raw?.v) {
+    return "<p>Common kitchen, bath, and living areas as shared among residents.</p>";
+  }
   const sub = normalizeManagerListingSubmissionV1(raw);
   const entries = sub.sharedSpaces?.filter((s) => s.name.trim()) ?? [];
-  if (!entries.length) return "Common kitchen, bath, and living areas as shared among residents.";
-  return entries
-    .map((s) => {
-      const names = (s.roomAccessIds ?? [])
-        .map((id) => sub.rooms.find((r) => r.id === id)?.name?.trim())
-        .filter(Boolean)
-        .join(", ");
-      const head = names.length
-        ? `${s.name.trim()} — access includes: ${names}.`
-        : `${s.name.trim()}.`;
-      const d = s.detail.trim();
-      return d ? `${head} ${d}` : head;
-    })
-    .join(" ");
+  if (!entries.length) {
+    return "<p>Common kitchen, bath, and living areas as shared among residents.</p>";
+  }
+  const items = entries.map((s) => {
+    const names = (s.roomAccessIds ?? [])
+      .map((id) => sub.rooms.find((r) => r.id === id)?.name?.trim())
+      .filter(Boolean)
+      .join(", ");
+    const head = names.length
+      ? `${s.name.trim()} — access includes: ${names}`
+      : s.name.trim();
+    const d = s.detail.trim();
+    return escapeHtml(d ? `${head}. ${d}` : `${head}.`);
+  });
+  return `<ul class="lease-shared-spaces">${items.map((line) => `<li>${line}</li>`).join("")}</ul>`;
+}
+
+function leaseAmenitiesSummaryHtml(raw: string | undefined): string {
+  const items = (raw ?? "")
+    .split(/[\n,]+/)
+    .map((s) => s.trim())
+    .filter(Boolean);
+  if (!items.length) return escapeHtml("See listing amenities.");
+  return escapeHtml(items.join(", "));
 }
 
 function bathroomArrangementLeaseParagraph(
@@ -416,18 +435,22 @@ export function buildLeaseHtml(ctx: LeaseGenerationContext, config: LeaseJurisdi
       ? PROPERTY_LEASE_TEMPLATE_PLACEHOLDER
       : sub?.buildingName?.trim() || list?.buildingName?.trim() || room?.buildingName?.trim() || "[LANDLORD ENTITY NAME]",
   );
+  const subNorm = sub ? normalizeManagerListingSubmissionV1(sub) : undefined;
   const address = propertyTemplatePreview
     ? "—"
-    : escapeHtml(room?.address ?? list?.address ?? sub?.address ?? "");
+    : escapeHtml(
+        subNorm
+          ? listingSubmissionStreetLine(subNorm)
+          : (room?.address ?? list?.address ?? sub?.address ?? ""),
+      );
   const cityZip = propertyTemplatePreview
     ? "—"
-    : [room?.neighborhood ?? list?.neighborhood ?? sub?.neighborhood, room?.zip ?? list?.zip ?? sub?.zip]
-        .filter(Boolean)
-        .join(", ");
+    : subNorm
+      ? listingSubmissionCityZipLine(subNorm)
+      : [room?.zip ?? list?.zip].filter(Boolean).join(" ");
   const landlordMailing = propertyTemplatePreview ? "—" : address + (cityZip ? `, ${escapeHtml(cityZip)}` : "");
 
   // ── Room / premises ───────────────────────────────────────────────────────
-  const subNorm = sub ? normalizeManagerListingSubmissionV1(sub) : undefined;
   // The SAME chain the charge ledger uses, so this document can never be priced off a
   // different room than the one the resident is billed for.
   const specificRoom = resolveSubmissionRoom(subNorm, {
@@ -555,7 +578,7 @@ export function buildLeaseHtml(ctx: LeaseGenerationContext, config: LeaseJurisdi
       ? fmtUsd(rentNum + (utilitiesNum != null && utilitiesNum > 0 ? utilitiesNum : 0))
       : null;
 
-  const appFee = escapeHtml(sub?.applicationFee ?? "—");
+  const appFee = escapeHtml(propertyTemplatePreview ? "—" : formatListingFeeDisplay(sub?.applicationFee ?? ""));
   // One derivation for the deposit, exactly as for the rate: `resolveStayPricing` already
   // picked the field the ledger will charge (override, then shortTermDeposit or
   // securityDeposit keyed on rentalType). Recomputing it here let the document and the ledger
@@ -594,7 +617,7 @@ export function buildLeaseHtml(ctx: LeaseGenerationContext, config: LeaseJurisdi
   });
   const customFeesTotalNum = billableOneTimeCustomFees.reduce((s, f) => s + (parseAmount(f.amount) ?? 0), 0);
   const customFeeSigningRows = billableOneTimeCustomFees
-    .map((f) => `  <tr><th>${escapeHtml(f.label?.trim() || "Custom fee")}</th><td>${escapeHtml(fmtUsd(parseAmount(f.amount) ?? 0))}</td></tr>`)
+    .map((f) => `  <tr><th>${escapeHtml(f.label?.trim() || "Custom fee")}</th><td class="amount">${escapeHtml(fmtUsd(parseAmount(f.amount) ?? 0))}</td></tr>`)
     .join("\n");
   // Monthly custom fees now bill (recurring, alongside rent), so they too must appear in the
   // lease — as Monthly line items in Exhibit A (not in the due-at-signing total).
@@ -610,20 +633,32 @@ export function buildLeaseHtml(ctx: LeaseGenerationContext, config: LeaseJurisdi
   const customFeeExhibitRows = [...billableOneTimeCustomFees, ...billableMonthlyCustomFees]
     .map(
       (f) =>
-        `  <tr><td>${escapeHtml(f.label?.trim() || "Custom fee")}</td><td>${escapeHtml(fmtUsd(parseAmount(f.amount) ?? 0))}</td><td>${
+        `  <tr><td>${escapeHtml(f.label?.trim() || "Custom fee")}</td><td class="amount">${escapeHtml(fmtUsd(parseAmount(f.amount) ?? 0))}</td><td>${
           f.frequency === "one-time" ? "One-time" : "Monthly"
         }</td></tr>`,
     )
     .join("\n");
 
-  const paySigningBase = sub ? paymentAtSigningPriceLabel(sub) : "—";
-  const paySigningFromCharges = ctx.leaseBilling && ctx.leaseBilling.dueAtSigning > 0 ? ctx.leaseBilling.dueAtSigning : null;
-  const paySigningNum =
-    paySigningFromCharges ??
-    (parseAmount(secDep) ?? 0) + (parseAmount(moveInFee) ?? 0) + (otherCostNum ?? 0) + customFeesTotalNum;
+  const leaseBilling = ctx.leaseBilling;
+  const signingAmounts = {
+    securityDeposit: leaseBilling?.securityDeposit ?? parseAmount(secDep) ?? 0,
+    moveInFee: leaseBilling?.moveInFee ?? parseAmount(moveInFee) ?? 0,
+    monthlyRent: leaseBilling?.monthlyRent ?? rentNum ?? 0,
+    monthlyUtilities: leaseBilling?.monthlyUtilities ?? utilitiesNum ?? 0,
+    proratedRent: leaseBilling?.proratedRent,
+    proratedUtilities: leaseBilling?.proratedUtilities,
+    customOneTimeFees: customFeesTotalNum,
+    otherSigningCost: showOtherSigningCost ? (otherCostNum ?? 0) : 0,
+  };
+  const paySigningNum = sub
+    ? computeLeasePaymentAtSigning(sub, signingAmounts)
+    : (leaseBilling?.dueAtSigning ?? signingAmounts.securityDeposit + signingAmounts.moveInFee);
   const paySigning = escapeHtml(
-    propertyTemplatePreview ? "—" : paySigningNum > 0 ? fmtUsd(paySigningNum) : paySigningBase,
+    propertyTemplatePreview ? "—" : paySigningNum > 0 ? fmtUsd(paySigningNum) : "—",
   );
+  const paySigningIncludesNote = sub
+    ? escapeHtml(paymentAtSigningIncludedLabels(sub))
+    : "";
 
   // The catalog receives only facts available to lease generation. Fields that the product
   // does not collect stay undefined so the evaluator can report them as unknown rather than
@@ -700,7 +735,7 @@ export function buildLeaseHtml(ctx: LeaseGenerationContext, config: LeaseJurisdi
       ? "Lease term options are filled when a resident is placed at this property."
       : sub?.leaseTermsBody?.trim() || "Standard lease lengths and renewal as posted on the listing.",
   );
-  const sharedSpacesText = propertyTemplatePreview ? "" : sharedSpacesLeaseParagraph(sub);
+  const sharedSpacesHtml = propertyTemplatePreview ? "" : sharedSpacesLeaseHtml(sub);
   const leaseUtilityLines = normalizeLeaseUtilities(subNorm?.leaseUtilities);
   const utilitiesBreakdown = utilitiesResponsibilityHtml(leaseUtilityLines);
   const utilitiesEstimateSentence = !utilitiesBreakdown
@@ -708,11 +743,9 @@ export function buildLeaseHtml(ctx: LeaseGenerationContext, config: LeaseJurisdi
     : hasResidentPaidLeaseUtility(leaseUtilityLines ?? [])
       ? "This estimate reflects the utilities the Resident is responsible for above."
       : "All utilities and services listed above are included in the monthly rent or paid by Landlord, up to any allowance shown.";
-  const amenities = escapeHtml(
-    propertyTemplatePreview
-      ? PROPERTY_LEASE_TEMPLATE_PLACEHOLDER
-      : sub?.amenitiesText?.trim() || "See listing amenities.",
-  );
+  const amenitiesHtml = propertyTemplatePreview
+    ? escapeHtml(PROPERTY_LEASE_TEMPLATE_PLACEHOLDER)
+    : leaseAmenitiesSummaryHtml(sub?.amenitiesText);
   const houseRules = escapeHtml(propertyTemplatePreview ? "" : sub?.houseRulesText?.trim() || "");
   const bathroomArrangement = propertyTemplatePreview
     ? ""
@@ -905,7 +938,7 @@ ${
 </table>
 
 <h2>4. Payment</h2>
-<table>
+<table class="fee-table">
   <tr><th width="35%">Daily rent</th><td>${escapeHtml(dailyCostRaw)} per day</td></tr>
   <tr><th>Total rent for stay</th><td>${totalRent}</td></tr>
   <tr><th>Deposit</th><td>${escapeHtml(shortDepositRaw)}</td></tr>
@@ -913,8 +946,9 @@ ${
   ${stayMoveInLabel ? `<tr><th>Move-in fee</th><td>${escapeHtml(stayMoveInLabel)}</td></tr>` : ""}
   ${stayOtherNum > 0 ? `<tr><th>${otherCostLabel}</th><td>${fmtUsd(stayOtherNum)}</td></tr>` : ""}
 ${stCustomFeeRows}
-  <tr class="total-row"><th>Total due</th><td><strong>${totalDue}</strong></td></tr>
+  <tr class="total-row"><th>Total due</th><td class="amount"><strong>${totalDue}</strong></td></tr>
 </table>
+${paySigningIncludesNote ? `<p class="fee-note">Amounts due before check-in follow the listing&apos;s payment-at-signing settings (${paySigningIncludesNote}).</p>` : ""}
 ${holdingCreditApplies ? `<p>${HOLDING_DEPOSIT_CREDIT_NOTE}</p>` : ""}
 
 <h2>5. Lodger Status</h2>
@@ -966,19 +1000,20 @@ ${customTermsAddendumHtml(subNorm, "Additional Provisions from Owner/Host", prop
     config.brandTitle && billing
       ? `<div style="border:1px solid #999;padding:12px 14px;margin:0 0 1.25rem;background:#fafafa">
   <p style="margin:0 0 0.5rem;font-weight:700;text-align:center">Lease Summary</p>
-  <table>
+  <table class="fee-table">
     <tr><th width="40%">Landlord</th><td>${landlordEntity}</td></tr>
     <tr><th>Resident</th><td>${tenantName}</td></tr>
-    <tr><th>Premises</th><td>${roomLabel}, ${address}</td></tr>
+    <tr><th>Premises</th><td>${roomLabel}, ${address}${cityZip ? `, ${escapeHtml(cityZip)}` : ""}</td></tr>
     <tr><th>Lease term</th><td>${leaseStart} – ${leaseEnd} (${leaseTerm})</td></tr>
-    <tr><th>Monthly rent</th><td><strong>${summaryMonthlyRent}</strong></td></tr>
-    <tr><th>Monthly utilities</th><td><strong>${summaryMonthlyUtilities}</strong></td></tr>
-    ${summaryTotalMonthly ? `<tr class="total-row"><th>Total monthly payment</th><td><strong>${summaryTotalMonthly}</strong></td></tr>` : ""}
-    ${firstPartialMonthPayment > 0 ? `<tr><th>First partial month payment</th><td>${fmtUsd(firstPartialMonthPayment)}</td></tr>` : ""}
-    <tr><th>Security deposit</th><td>${secDep}</td></tr>
-    <tr><th>Move-in fee</th><td>${moveInFee}</td></tr>
-    <tr class="total-row"><th>Payment due at signing</th><td><strong>${paySigning}</strong></td></tr>
+    <tr><th>Monthly rent</th><td class="amount"><strong>${summaryMonthlyRent}</strong></td></tr>
+    <tr><th>Monthly utilities</th><td class="amount"><strong>${summaryMonthlyUtilities}</strong></td></tr>
+    ${summaryTotalMonthly ? `<tr class="total-row"><th>Total monthly payment</th><td class="amount"><strong>${summaryTotalMonthly}</strong></td></tr>` : ""}
+    ${firstPartialMonthPayment > 0 ? `<tr><th>First partial month payment</th><td class="amount">${fmtUsd(firstPartialMonthPayment)}</td></tr>` : ""}
+    <tr><th>Security deposit</th><td class="amount">${secDep}</td></tr>
+    <tr><th>Move-in fee</th><td class="amount">${moveInFee}</td></tr>
+    <tr class="total-row"><th>Payment due at signing</th><td class="amount"><strong>${paySigning}</strong></td></tr>
   </table>
+  ${paySigningIncludesNote ? `<p class="fee-note">Due at signing includes: ${paySigningIncludesNote}.</p>` : ""}
 </div>`
       : "";
 
@@ -1059,14 +1094,15 @@ ${rentDisclosureHtml}
 ${proratedSection ? proratedSection.replace(PRORATED_SECTION_TOKEN, String(nextSection())) : ""}
 
 <h2>${nextSection()}. Security Deposit &amp; Move-In Charges</h2>
-<table>
-  <tr><th width="50%">Application fee</th><td>${appFee}</td></tr>
-  <tr><th>Security deposit</th><td><strong>${secDep}</strong></td></tr>
-  <tr><th>Move-in fee (non-refundable)</th><td>${moveInFee}</td></tr>
-  ${showOtherSigningCost ? `<tr><th>${otherCostLabel}</th><td>${otherCostAmount}</td></tr>` : ""}
+<table class="fee-table">
+  <tr><th width="50%">Application fee</th><td class="amount">${appFee}</td></tr>
+  <tr><th>Security deposit</th><td class="amount"><strong>${secDep}</strong></td></tr>
+  <tr><th>Move-in fee (non-refundable)</th><td class="amount">${moveInFee}</td></tr>
+  ${showOtherSigningCost ? `<tr><th>${otherCostLabel}</th><td class="amount">${otherCostAmount}</td></tr>` : ""}
 ${customFeeSigningRows}
-  <tr><th>Total due at signing</th><td><strong>${paySigning}</strong></td></tr>
+  <tr class="total-row"><th>Total due at signing</th><td class="amount"><strong>${paySigning}</strong></td></tr>
 </table>
+${paySigningIncludesNote ? `<p class="fee-note">Due at signing includes: ${paySigningIncludesNote}.</p>` : ""}
 <p>${HOLDING_DEPOSIT_CREDIT_NOTE}</p>
 <p>Resident shall pay a security deposit of <strong>${secDep}</strong> at lease signing. The deposit shall be held in accordance with ${config.depositStatuteRef} and secures Resident&apos;s full performance under this Agreement. Resident&apos;s liability is not limited to the deposit amount, and the deposit may not be applied toward rent or other charges during the tenancy.</p>
 <p>${config.depositReturnWindow ?? "Within the period required by applicable law after termination of the tenancy and vacancy of the Premises"}, Landlord shall return any refundable portion of the deposit or provide a written itemized statement of deductions, as required by law. Resident shall provide a forwarding address for delivery of the deposit accounting and any refund. Any refund may be issued as a single check payable to all Residents.</p>
@@ -1092,7 +1128,7 @@ ${longTermTrashViolationFee != null && longTermTrashViolationFee > 0 ? `<p><stro
 ${utilitiesDisclosureHtml}
 
 <h2>${nextSection("useOccupancy")}. Use, Occupancy &amp; Guest Policy</h2>
-<p>The Premises shall be used exclusively as a private residence. The only authorized occupant(s) are: <strong>${tenantName}</strong> and <strong>${occupancy}</strong> additional authorized occupant(s) listed in writing at signing.</p>
+<p>The Premises shall be used exclusively as a private residence. The only authorized occupant is <strong>${tenantName}</strong>. No other person may reside in or occupy the Premises without Landlord&apos;s prior written consent.</p>
 <ul>
   <li><strong>Guests:</strong> ${longTermGuestCap ? `Gatherings of more than ${longTermGuestCap} guests require Landlord's prior written approval.` : "No guest is permitted on the property or in the room unless Landlord gives prior written approval in advance."}</li>
   <li><strong>No short-term rentals:</strong> Listing the room on Airbnb, VRBO, or any similar platform is strictly prohibited and constitutes grounds for immediate termination.</li>
@@ -1101,9 +1137,9 @@ ${utilitiesDisclosureHtml}
 </ul>
 
 <h2>${nextSection()}. Shared Spaces</h2>
-<p>${escapeHtml(sharedSpacesText)}</p>
+${sharedSpacesHtml}
 ${bathroomArrangement ? `<p><strong>Bathroom arrangement:</strong> ${escapeHtml(bathroomArrangement)}</p>` : ""}
-<p><strong>Building amenities (summary):</strong> ${amenities}</p>
+<p><strong>Building amenities (summary):</strong> ${amenitiesHtml}</p>
 
 <h2>${nextSection()}. House Rules</h2>
 ${houseRules
@@ -1216,18 +1252,19 @@ ${longTermDisputeVenue ? `<p>Venue for a dispute arising from this Agreement is 
 </table>
 
 <h2>${nextSection()}. Rent &amp; Fees Schedule (Exhibit A)</h2>
-<table>
+<table class="fee-table">
   <tr><th>Item</th><th>Amount</th><th>Frequency</th></tr>
-  <tr><td>${rentRowLabel}</td><td><strong>${escapeHtml(typeof monthlyRentStr === "string" ? monthlyRentStr : String(monthlyRentStr))}</strong></td><td>${isDailyBasis ? "Per day, billed each month by actual days" : "Monthly, due 1st"}</td></tr>
-  <tr><td>Utilities / services estimate</td><td>${utilitiesStr}</td><td>Monthly</td></tr>
-  ${totalMonthly ? `<tr class="total-row"><td><strong>Total monthly payment</strong></td><td><strong>${totalMonthly}</strong></td><td>Monthly</td></tr>` : ""}
-  <tr><td>Application fee</td><td>${appFee}</td><td>One-time</td></tr>
-  <tr><td>Security deposit</td><td>${secDep}</td><td>One-time (refundable)</td></tr>
-  <tr><td>Move-in fee</td><td>${moveInFee}</td><td>One-time (non-refundable)</td></tr>
-  ${showOtherSigningCost ? `<tr><td>${otherCostLabel}</td><td>${otherCostAmount}</td><td>One-time</td></tr>` : ""}
+  <tr><td>${rentRowLabel}</td><td class="amount"><strong>${escapeHtml(typeof monthlyRentStr === "string" ? monthlyRentStr : String(monthlyRentStr))}</strong></td><td>${isDailyBasis ? "Per day, billed each month by actual days" : "Monthly, due 1st"}</td></tr>
+  <tr><td>Utilities / services estimate</td><td class="amount">${utilitiesStr}</td><td>Monthly</td></tr>
+  ${totalMonthly ? `<tr class="total-row"><td><strong>Total monthly payment</strong></td><td class="amount"><strong>${totalMonthly}</strong></td><td>Monthly</td></tr>` : ""}
+  <tr><td>Application fee</td><td class="amount">${appFee}</td><td>One-time</td></tr>
+  <tr><td>Security deposit</td><td class="amount">${secDep}</td><td>One-time (refundable)</td></tr>
+  <tr><td>Move-in fee</td><td class="amount">${moveInFee}</td><td>One-time (non-refundable)</td></tr>
+  ${showOtherSigningCost ? `<tr><td>${otherCostLabel}</td><td class="amount">${otherCostAmount}</td><td>One-time</td></tr>` : ""}
 ${customFeeExhibitRows}
-  <tr><td>Total due at signing</td><td>${paySigning}</td><td>At signing</td></tr>
+  <tr class="total-row"><td><strong>Total due at signing</strong></td><td class="amount"><strong>${paySigning}</strong></td><td>At signing</td></tr>
 </table>
+${paySigningIncludesNote ? `<p class="fee-note">Due at signing includes: ${paySigningIncludesNote}.</p>` : ""}
 
 <h2>${nextSection()}. Electronic Signature</h2>
 <p><strong>Landlord / Authorized Agent</strong> and <strong>Resident / Tenant</strong> each execute this Agreement <strong>one time</strong> through the PropLane portal (one manager signature and one resident signature). The <strong>Electronic Signature Certificate</strong> appended to the signed copy is the binding record for both parties. No duplicate handwritten signature lines are included in this document.</p>

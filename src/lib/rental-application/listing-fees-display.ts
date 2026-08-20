@@ -103,6 +103,52 @@ export function paymentAtSigningPriceLabel(sub: ListingSigningComputationInput):
   return `$${sum.toFixed(2)}`;
 }
 
+/** Dollar amounts for a placed resident — used by leases and the charge ledger. */
+export type LeaseSigningAmounts = {
+  securityDeposit: number;
+  moveInFee: number;
+  monthlyRent: number;
+  monthlyUtilities: number;
+  proratedRent?: number;
+  proratedUtilities?: number;
+  /** One-time custom fees that bill before move-in. */
+  customOneTimeFees?: number;
+  otherSigningCost?: number;
+};
+
+/**
+ * Total due at signing for a specific placement, honoring the listing's
+ * `paymentAtSigningIncludes` checkboxes (not every fee on the listing).
+ */
+export function computeLeasePaymentAtSigning(
+  sub: ListingSigningComputationInput,
+  amounts: LeaseSigningAmounts,
+): number {
+  if (!sub?.v) return 0;
+  const n = normalizeManagerListingSubmissionV1(sub);
+  const includes = n.paymentAtSigningIncludes ?? [];
+  if (!includes.length) return 0;
+
+  let sum = 0;
+  if (includes.includes("security_deposit")) sum += amounts.securityDeposit;
+  if (includes.includes("move_in_fee")) sum += amounts.moveInFee;
+  if (includes.includes("first_month_rent")) {
+    const rent =
+      amounts.proratedRent != null && amounts.proratedRent > 0 ? amounts.proratedRent : amounts.monthlyRent;
+    sum += rent;
+  }
+  if (includes.includes("first_month_utilities")) {
+    const util =
+      amounts.proratedUtilities != null && amounts.proratedUtilities > 0
+        ? amounts.proratedUtilities
+        : amounts.monthlyUtilities;
+    sum += util;
+  }
+  sum += amounts.customOneTimeFees ?? 0;
+  sum += amounts.otherSigningCost ?? 0;
+  return sum;
+}
+
 /** Detail copy for listing / lease when explaining signing charges. */
 export function paymentAtSigningDetailBody(sub: ListingSigningComputationInput): string {
   if (!sub?.v) return "Confirm amounts and timing with the property manager.";

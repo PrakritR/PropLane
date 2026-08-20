@@ -16,6 +16,11 @@ import {
   createNewListingWizardSubmission,
   normalizeManagerListingSubmissionV1,
 } from "@/lib/manager-listing-submission";
+import {
+  computeLeasePaymentAtSigning,
+  formatListingFeeDisplay,
+  paymentAtSigningPriceLabel,
+} from "@/lib/rental-application/listing-fees-display";
 
 describe("listing fees migration", () => {
   it("builds preset rows from legacy scalar fields", () => {
@@ -128,5 +133,28 @@ describe("listing fees migration", () => {
     const shortTerm = listingFeeRowsForLeaseBasicsSection(sub, "short-term", (v) => `$${v}`);
     expect(longTerm.some((row) => row.title === "Custom lease")).toBe(false);
     expect(shortTerm.some((row) => row.title === "Custom lease")).toBe(true);
+  });
+});
+
+describe("lease payment at signing", () => {
+  it("sums only the listing checkboxes for a placed resident", () => {
+    const sub = createDefaultListingSubmission();
+    sub.securityDeposit = "400";
+    sub.moveInFee = "200";
+    sub.paymentAtSigningIncludes = ["security_deposit"];
+    expect(
+      computeLeasePaymentAtSigning(sub, {
+        securityDeposit: 400,
+        moveInFee: 200,
+        monthlyRent: 800,
+        monthlyUtilities: 200,
+      }),
+    ).toBe(400);
+    expect(paymentAtSigningPriceLabel(sub)).toBe("$400.00");
+  });
+
+  it("formats bare fee amounts for lease tables", () => {
+    expect(formatListingFeeDisplay("50")).toBe("$50.00");
+    expect(formatListingFeeDisplay("$75")).toBe("$75");
   });
 });
