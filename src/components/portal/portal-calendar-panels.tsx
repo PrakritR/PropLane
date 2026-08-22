@@ -495,12 +495,27 @@ export function PortalCalendarPanels({
   const [monthPick, setMonthPick] = useState<{ start: string | null; end: string | null }>({ start: null, end: null });
   const [uncontrolledAnchorDate, setUncontrolledAnchorDate] = useState(() => new Date());
   const anchorDate = anchorDateProp ?? uncontrolledAnchorDate;
+  /**
+   * Move the anchor date.
+   *
+   * The uncontrolled path MUST go through React's functional updater. It used to read
+   * `uncontrolledAnchorDate` out of this closure and hand `setUncontrolledAnchorDate` a plain
+   * value, which made every caller holding a stale copy of this callback navigate relative to
+   * whatever the anchor was when that copy was made. `shiftAvailabilityWeek` memoizes with `[]`
+   * deps, so it held the FIRST copy forever: with today Aug 21 (week Aug 17-23), `<` went to the
+   * week of Aug 14 and `>` then went to the week of Aug 28 instead of back to Aug 17 — the
+   * reported "next date does not go to the next date". Reading `prev` from React means a stale
+   * copy is harmless because the previous value is supplied at apply time, not captured.
+   */
   const setAnchorDate = useCallback(
     (updater: Date | ((prev: Date) => Date)) => {
-      const prev = anchorDateProp ?? uncontrolledAnchorDate;
-      const next = typeof updater === "function" ? updater(prev) : updater;
-      if (onAnchorDateChange) onAnchorDateChange(next);
-      else setUncontrolledAnchorDate(next);
+      const apply = (prev: Date) => (typeof updater === "function" ? updater(prev) : updater);
+      if (onAnchorDateChange) {
+        // Controlled: the parent owns the value, so the current prop IS the previous value.
+        onAnchorDateChange(apply(anchorDateProp ?? uncontrolledAnchorDate));
+        return;
+      }
+      setUncontrolledAnchorDate(apply);
     },
     [anchorDateProp, onAnchorDateChange, uncontrolledAnchorDate],
   );
@@ -1249,9 +1264,15 @@ export function PortalCalendarPanels({
     setMonthPick({ start: null, end: null });
   }, [today]);
 
-  const shiftAvailabilityWeek = useCallback((dir: -1 | 1) => {
-    setAnchorDate((d) => addDays(d, dir * 7));
-  }, []);
+  // `setAnchorDate` is a real dependency: omitting it pinned this handler to the first copy, and
+  // in CONTROLLED mode (where the parent owns the date) that copy also carries a stale prop, so
+  // the functional-updater fix above cannot save it on its own.
+  const shiftAvailabilityWeek = useCallback(
+    (dir: -1 | 1) => {
+      setAnchorDate((d) => addDays(d, dir * 7));
+    },
+    [setAnchorDate],
+  );
 
   useEffect(() => {
     if (!compactAvailability) return;

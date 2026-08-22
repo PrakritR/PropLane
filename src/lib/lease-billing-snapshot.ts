@@ -10,6 +10,7 @@ import { readManagerApplicationRows } from "@/lib/manager-applications-storage";
 import { resolvePlacementValuesForRow } from "@/lib/rental-application/placement-values";
 import { computeLeasePaymentAtSigning } from "@/lib/rental-application/listing-fees-display";
 import { normalizeManagerListingSubmissionV1 } from "@/lib/manager-listing-submission";
+import { getPropertyById } from "@/lib/rental-application/data";
 import type { LeaseGenerationContext } from "@/lib/generated-lease";
 import type { RentalWizardFormState } from "@/lib/rental-application/types";
 
@@ -119,9 +120,13 @@ export function buildLeaseBillingSnapshot(
     if (SIGNING_CHARGE_KINDS.includes(c.kind)) dueAtSigning += chargeAmount(c);
   }
   if (dueAtSigning <= 0) {
+    // `DemoApplicantRow.property` is the property LABEL (a string), not the property object —
+    // reading `.listingSubmission` off it did not compile and broke the production build. The
+    // listing has to be resolved by id, which `resolvePlacementValuesForRow` already gives us.
+    const listing = placement.propertyId ? getPropertyById(placement.propertyId) : undefined;
     const sub =
-      applicant.property?.listingSubmission?.v === 1
-        ? normalizeManagerListingSubmissionV1(applicant.property.listingSubmission)
+      listing?.listingSubmission?.v === 1
+        ? normalizeManagerListingSubmissionV1(listing.listingSubmission)
         : undefined;
     dueAtSigning = computeLeasePaymentAtSigning(sub, {
       securityDeposit,
