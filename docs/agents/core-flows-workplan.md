@@ -93,6 +93,46 @@ Driven end to end in a real browser as the resident:
 - **Test both roles for portal gating.** A single-role account passes while multi-role accounts
   break (AGENTS.md, "`profiles.role` is legacy and singular").
 
+## Tours — status 2026-08-22
+
+Verified in a browser, both roles:
+
+- Resident books a specific room + date + time; the request lands in the manager calendar and in
+  the resident Tour tab under Pending. Slots honour the 9-5 grid.
+- Manager confirms from the calendar; the inquiry becomes a planned event (inquiry payload went
+  3 -> 2, planned events present). The confirm itself works.
+- `link-tour-inquiry` returns 200 after the test-project migration (see resolved issue 1).
+
+Fixed this pass:
+
+- The plain **Approve** button never told the guest. The route defaults `notifyTenant` to false
+  and that call site omitted it, so which control the manager clicked decided whether the
+  prospect was ever told their tour was confirmed. Guard:
+  `tests/unit/tour-approve-notifies-guest.test.ts`.
+- Tour mail to sandbox addresses was posted to Resend for a domain that does not resolve.
+  `deliverEmail` hand-rolled a check that knew only `@axis.local`, while the canonical test
+  accounts are `@test.proplane.local`. It now uses the shared `shouldSkipOutboundEmail`. Guard:
+  `tests/unit/tour-email-skips-sandbox.test.ts`.
+
+**Correction to a previous claim.** An earlier note said the calendar counter did not refresh
+after confirming ("3 pending - 0 confirmed"). That reading was taken 8s into a 13.8s cold-compile
+request, so it was measured before the write landed. The confirm path does refresh
+(`setMeetingRefresh`, `onMeetingsChanged`, `reloadAvailability`). Treat it as unproven rather
+than as a known bug, and re-measure on a warm server before chasing it.
+
+**Still not verified: that a confirmation email actually ARRIVES.** Everything up to the send is
+now correct, but delivery could not be observed, for a reason worth knowing:
+
+- `notifyTenantTourConfirmed` writes an inbox thread, calls `deliverEmail`, and texts the guest.
+  It does NOT write `portal_outbound_mail_records` — that table being empty proves nothing, and
+  an earlier read of it was a false signal.
+- The test resident is a sandbox address and is now (correctly) skipped, so it can never
+  demonstrate delivery. Verifying arrival needs a REAL inbox: book and confirm a tour for an
+  address you control, then check `RESEND_FROM` is a verified sender.
+
+**Reminders are a separate mechanism** (`tour-reminder.server.ts`, `/api/portal/tour-reminders`)
+and are still entirely untested.
+
 ## Suggested order
 
 Tours (closest to done) -> Applications -> Leases -> Communication -> Services -> Properties tabs.

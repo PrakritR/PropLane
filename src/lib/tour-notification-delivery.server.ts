@@ -7,6 +7,7 @@ import { formatPacificDateTime } from "@/lib/pacific-time";
 import { appendResidentPropertyManagerInboxMessage } from "@/lib/property-manager-inbox-thread.server";
 import { sendPropLaneSms } from "@/lib/proplane-sms-transport.server";
 import { sendResidentOutboundSms } from "@/lib/resident-outbound-sms.server";
+import { shouldSkipOutboundEmail } from "@/lib/portal-sandbox-accounts";
 import {
   resolveManagerRecipientProfiles,
   resolvePropertyLeadRecipientIds,
@@ -80,7 +81,15 @@ export async function resolvePropertyAddressForTour(
 }
 
 async function deliverEmail(to: string[], subject: string, text: string, html?: string): Promise<{ sent: boolean; skipped: boolean; error?: string }> {
-  const recipients = to.map((email) => email.trim().toLowerCase()).filter((email) => email.includes("@") && !email.endsWith("@axis.local"));
+  // `shouldSkipOutboundEmail` is the ONE rule for sandbox addresses, and it covers BOTH
+  // `@axis.local` and `@test.proplane.local`. This hand-rolled check only knew the first, so
+  // tour mail to the canonical test accounts — the ones AGENTS.md says the demo portfolio and
+  // e2e runs use — was posted to Resend for a domain that does not exist. Every tour confirmation
+  // during testing became a real send that could only bounce, which is both a false "sent" signal
+  // and a slow way to damage sender reputation.
+  const recipients = to
+    .map((email) => email.trim().toLowerCase())
+    .filter((email) => email.includes("@") && !shouldSkipOutboundEmail(email));
   if (recipients.length === 0) return { sent: false, skipped: true };
   const apiKey = process.env.RESEND_API_KEY?.trim();
   if (!apiKey) return { sent: false, skipped: false, error: "Email delivery not configured (RESEND_API_KEY missing)." };
