@@ -27,6 +27,21 @@ import { residentSectionLockedForStage, type ResidentPortalNavStage } from "@/li
 export type PortalNavLockKind = "none" | "upsell" | "inert";
 
 
+/**
+ * Sections switched off while they are unfinished, for EVERY viewer and every plan.
+ *
+ * Payments is parked: the flows around it (reminders, re-pay, ledger) are mid-build, and a
+ * manager or resident who wanders in lands in a half-built surface. Locking it is deliberately
+ * cheaper than half-fixing it, and it shrinks the surface the flows that DO matter get tested
+ * against.
+ *
+ * `inert`, never `upsell`: an upsell lock still navigates, because that row is the only entry
+ * point to the upgrade page. There is nothing to buy here — the section is simply not ready —
+ * so the row must not lead anywhere. Deleting an entry from this set is all it takes to bring a
+ * section back.
+ */
+const DEFERRED_SECTIONS = new Set(["payments"]);
+
 export function portalNavLockKind(params: {
   kind: PortalKind;
   section: string;
@@ -35,6 +50,10 @@ export function portalNavLockKind(params: {
   residentNavStage?: ResidentPortalNavStage | null;
 }): PortalNavLockKind {
   const { kind, section, subscriptionTier, residentNavStage } = params;
+
+  // Checked before tier and stage: a deferred section is locked for a paid manager and a
+  // fully-approved resident alike, which neither of those rules would do on its own.
+  if (DEFERRED_SECTIONS.has(section)) return "inert";
 
   if (kind === "resident") {
     if (residentNavStage && residentSectionLockedForStage(section, residentNavStage)) return "inert";

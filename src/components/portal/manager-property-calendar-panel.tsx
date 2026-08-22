@@ -5,6 +5,7 @@ import { PortalListControlStack } from "@/components/portal/portal-list-control-
 import { ManagerPropertyTourPanel } from "@/components/portal/manager-property-tour-panel";
 import { ManagerPropertyBookingsPanel } from "@/components/portal/manager-property-bookings-panel";
 import {
+  PROPERTY_CALENDAR_SUB_TABS,
   PROPERTY_CALENDAR_SUB_TAB_LABELS,
   propertyCalendarSubHref,
   type PropertyCalendarSubTabId,
@@ -38,7 +39,8 @@ export function ManagerPropertyCalendarPanel({
 }) {
   const subTabs = useMemo(
     () =>
-      (["tours", "bookings"] as const).map((id) => ({
+      // "bookings" retired — drive the strip off the canonical list so it cannot drift again.
+      PROPERTY_CALENDAR_SUB_TABS.map((id) => ({
         id,
         label: PROPERTY_CALENDAR_SUB_TAB_LABELS[id],
         href: propertyCalendarSubHref(propertiesBase, stage, propertyRouteKey, id),

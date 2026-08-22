@@ -91,17 +91,23 @@ export function parsePropertyDetailTab(raw: string | undefined | null): Property
   return "preview";
 }
 
-/** Routed sub-views inside a property's Calendar tab. */
-export const PROPERTY_CALENDAR_SUB_TABS = ["tours", "bookings"] as const;
+/**
+ * Routed sub-views inside a property's Calendar tab.
+ *
+ * "bookings" was retired: it was a half-built surface the captain asked to remove so the flows
+ * that matter (tours, applications, leases, communication, services) are not tested around it.
+ * `parsePropertyCalendarSubTab` still ACCEPTS the old value and lands on tours, so a bookmarked
+ * or emailed `/calendar/bookings` link redirects instead of 404ing.
+ */
+export const PROPERTY_CALENDAR_SUB_TABS = ["tours"] as const;
 export type PropertyCalendarSubTabId = (typeof PROPERTY_CALENDAR_SUB_TABS)[number];
 
 export const PROPERTY_CALENDAR_SUB_TAB_LABELS: Record<PropertyCalendarSubTabId, string> = {
   tours: "Tours",
-  bookings: "Bookings",
 };
 
-export function parsePropertyCalendarSubTab(raw: string | undefined | null): PropertyCalendarSubTabId {
-  if (raw === "bookings") return "bookings";
+export function parsePropertyCalendarSubTab(_raw: string | undefined | null): PropertyCalendarSubTabId {
+  // Only one sub-view remains; a retired "bookings" link falls through to it rather than 404.
   return "tours";
 }
 
@@ -163,13 +169,12 @@ export function residentPaymentDetailHref(
 }
 
 
-/** Routed calendar views (manager portal). */
-export const CALENDAR_VIEW_TABS = ["tours", "bookings", "services"] as const;
+/** Routed calendar views (manager portal). "bookings" retired — see PROPERTY_CALENDAR_SUB_TABS. */
+export const CALENDAR_VIEW_TABS = ["tours", "services"] as const;
 export type CalendarViewTabId = (typeof CALENDAR_VIEW_TABS)[number];
 
 export const CALENDAR_VIEW_TAB_LABELS: Record<CalendarViewTabId, string> = {
   tours: "Tours",
-  bookings: "Bookings",
   services: "Service orders",
 };
 
