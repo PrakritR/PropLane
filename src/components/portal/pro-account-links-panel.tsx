@@ -462,7 +462,11 @@ export function ProAccountLinksPanel({ userId }: { userId: string }) {
 
   useEffect(() => {
     let cancelled = false;
-    void fetch("/api/portal/purge-orphaned-co-manager-links", {
+    // The route is under /api/pro, not /api/portal. This 404'd on every Team tab load, and a
+    // 404 does not reject a fetch — the `.then` chain carried on and the panel looked fine, so
+    // orphaned co-manager links were simply never purged. `account-links-sync.tsx` already
+    // calls the correct path.
+    void fetch("/api/pro/purge-orphaned-co-manager-links", {
       method: "POST",
       credentials: "include",
     })
