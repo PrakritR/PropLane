@@ -16,11 +16,13 @@ Scope agreed with the captain on 2026-08-21. Everything outside this list is exp
 
 ## Explicitly OUT of scope
 
-- **Payments** — the captain wants this parked. **Lock the section on BOTH the manager and
-  resident side** so nobody lands in a half-built flow. Use `portalNavLockKind`
-  (`src/lib/portals/nav-locks.ts`); resident locks are `inert`, and a locked row must never be a
-  live link to a path the server then bounces (see AGENTS.md "Portal nav locks"). Payment
-  *reminders* are part of this deferral.
+- **Payments** — parked. **DONE 2026-08-22, both halves:** `DEFERRED_SECTIONS` in
+  `src/lib/portals/nav-locks.ts` locks the nav row `inert` for every role and plan, and
+  `renderPortalSection` redirects the section away so a typed URL, an old bookmark or an emailed
+  link cannot reach it either. The nav lock alone was only the door. The redirect runs BEFORE the
+  legacy rewrites, because `stripe` -> `payments` would otherwise land inside a deferred section.
+  Guard: `tests/unit/deferred-sections-sealed.test.ts`. Bringing Payments back is deleting one
+  entry from that set. Payment *reminders* are part of this deferral.
 - **Bookings** — remove the tab. It appears in the calendar segmented control
   (Tours / Service orders / Bookings).
 - **Promotion** — leave exactly as is.

@@ -66,6 +66,7 @@ import { buildPortalWorkspaceModel } from "@/lib/portal-workspace-model";
 import { legacyManagerPortalSectionPath, parseCalendarViewTab } from "@/lib/portal-detail-routes";
 import type { PortalKind } from "@/lib/portal-types";
 import { notFound, redirect } from "next/navigation";
+import { DEFERRED_SECTIONS } from "@/lib/portals/nav-locks";
 
 const LEGACY_FINANCIALS_TAB_MAP: Record<string, string> = {
   "rent-roll": "income",
@@ -240,6 +241,18 @@ export async function renderPortalSection(
   searchParams?: PortalSearchParams,
 ) {
   const def = await getPortalDefinition(kind);
+
+  // A deferred section is unreachable by URL as well as by nav. The nav lock alone only hides the
+  // door: typing `/portal/payments`, following an old bookmark, or an emailed link still rendered
+  // the half-built surface the lock exists to keep people out of. AGENTS.md is explicit that a
+  // locked row must never point at a path the server still serves — this is the server half of
+  // that rule.
+  //
+  // Runs FIRST, before the legacy rewrites and the resident stage guard, so no earlier redirect
+  // can land inside a deferred section (`stripe` -> `payments` did exactly that).
+  if (DEFERRED_SECTIONS.has(section)) {
+    redirect(`${def.basePath}/dashboard`);
+  }
 
   if (section === "finances") {
     const defaultTab = kind === "resident" ? "summary" : "income";

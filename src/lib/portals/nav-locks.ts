@@ -40,7 +40,7 @@ export type PortalNavLockKind = "none" | "upsell" | "inert";
  * so the row must not lead anywhere. Deleting an entry from this set is all it takes to bring a
  * section back.
  */
-const DEFERRED_SECTIONS = new Set(["payments"]);
+export const DEFERRED_SECTIONS = new Set(["payments"]);
 
 export function portalNavLockKind(params: {
   kind: PortalKind;
