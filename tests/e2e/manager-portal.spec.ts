@@ -63,7 +63,12 @@ test.describe("Manager portal", () => {
     }
     await expect(page).toHaveURL(/\/portal\/properties/, { timeout: 30_000 });
 
-    await gotoAppPath(page, "/portal/services/work-orders");
+    try {
+      await page.goto("/portal/work-orders", { waitUntil: "domcontentloaded", timeout: 45_000 });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (!message.includes("ERR_ABORTED")) throw error;
+    }
     await expect(page).toHaveURL(/\/portal\/services\/work-orders/, { timeout: 30_000 });
   });
 

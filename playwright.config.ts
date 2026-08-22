@@ -7,8 +7,13 @@ dotenv.config({ path: path.resolve(__dirname, ".env.local"), override: false });
 dotenv.config({ path: path.resolve(__dirname, ".env"), override: false });
 
 const baseURL = process.env.PLAYWRIGHT_BASE_URL ?? process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000";
-const authDir = path.join(__dirname, "tests/.auth");
 const portalE2eEnabled = process.env.E2E_TESTS_ENABLED === "1";
+
+const chromiumProject = {
+  name: "chromium",
+  testIgnore: /auth\.setup\.ts/,
+  use: { ...devices["Desktop Chrome"], viewport: { width: 1280, height: 900 } },
+} as const;
 
 export default defineConfig({
   testDir: "./tests/e2e",
@@ -46,21 +51,7 @@ export default defineConfig({
       },
   projects: [
     ...(portalE2eEnabled
-      ? [
-          { name: "setup", testMatch: /auth\.setup\.ts/ },
-          {
-            name: "chromium",
-            testIgnore: /auth\.setup\.ts/,
-            use: { ...devices["Desktop Chrome"], viewport: { width: 1280, height: 900 } },
-            dependencies: ["setup"],
-          },
-        ]
-      : [
-          {
-            name: "chromium",
-            testIgnore: /auth\.setup\.ts/,
-            use: { ...devices["Desktop Chrome"], viewport: { width: 1280, height: 900 } },
-          },
-        ]),
+      ? [{ name: "setup", testMatch: /auth\.setup\.ts/ }, { ...chromiumProject, dependencies: ["setup"] as const }]
+      : [chromiumProject]),
   ],
 });
