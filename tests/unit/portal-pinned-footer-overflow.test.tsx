@@ -17,7 +17,7 @@ function footerRow(container: HTMLElement): HTMLElement | null {
 }
 
 describe("pinned footer action row", () => {
-  it("keeps header-variant overflow reachable by scrolling it", () => {
+  it("keeps header-variant actions in a single nowrap row (adaptive footer, no clip)", () => {
     const { container, getByText } = render(
       <PortalPageFooterActions pinned rowVariant="header">
         <button type="button">Reminders</button>
@@ -26,10 +26,13 @@ describe("pinned footer action row", () => {
       </PortalPageFooterActions>,
     );
 
-    const row = footerRow(container);
+    const dock = container.querySelector<HTMLElement>("[data-slot='portal-page-footer-actions']");
+    expect(dock).toBeTruthy();
+    expect(dock!.dataset.rowVariant).toBe("header");
+    const row = dock!.querySelector<HTMLElement>("div.mx-auto > div");
     expect(row).toBeTruthy();
-    expect(row!.className).toContain("overflow-x-auto");
     expect(row!.className).toContain("flex-nowrap");
+    expect(row!.className).toContain("overflow-hidden");
     expect(getByText("Add payment")).toBeTruthy();
   });
 
