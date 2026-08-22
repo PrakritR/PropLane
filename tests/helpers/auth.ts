@@ -25,10 +25,6 @@ async function hasSupabaseSessionCookie(page: Page): Promise<boolean> {
   return cookies.some((c) => /^sb-.+-auth-token(\.\d+)?$/.test(c.name));
 }
 
-function pathMatches(pathname: string, nextPath: string): boolean {
-  return new RegExp(`^${escapeRegExp(nextPath)}(/|$)`).test(pathname);
-}
-
 /**
  * Sign in through the unified auth hub. Returns once authentication has settled
  * (the URL has left `/auth/sign-in`) — the exact post-auth landing is NOT
@@ -39,8 +35,13 @@ function pathMatches(pathname: string, nextPath: string): boolean {
  */
 export async function signIn(page: Page, email: string, password: string, next = "/portal/dashboard") {
   await page.goto(`/auth/sign-in?next=${encodeURIComponent(next)}`, { waitUntil: "domcontentloaded" });
-  await page.getByPlaceholder("Email").fill(email);
-  await page.getByPlaceholder("Password").fill(password);
+  if (new URL(page.url()).pathname !== "/auth/sign-in") return;
+
+  const emailField = page.getByPlaceholder("Email");
+  const passwordField = page.getByPlaceholder("Password");
+  await expect(emailField).toBeVisible({ timeout: 15_000 });
+  await emailField.fill(email);
+  await passwordField.fill(password);
   await page.getByRole("button", { name: /sign in/i }).click();
   await expect
     .poll(
@@ -73,32 +74,52 @@ export async function signIn(page: Page, email: string, password: string, next =
  */
 export async function establishActivePortal(page: Page, role: PortalRole, next: string) {
   const nextPath = next.split("?")[0] ?? next;
-  if (pathMatches(new URL(page.url()).pathname, nextPath)) return;
+  const nextPathRe = new RegExp(`^${escapeRegExp(nextPath)}(/|$)`);
+  if (nextPathRe.test(new URL(page.url()).pathname)) return;
 
   await page.goto(`/auth/choose-portal?next=${encodeURIComponent(next)}`, { waitUntil: "domcontentloaded" });
-  if (pathMatches(new URL(page.url()).pathname, nextPath)) return;
 
   const option = page.getByRole("button", { name: new RegExp(`^${PORTAL_CHOOSER_LABEL[role]}\\b`) });
-  await expect(option.first()).toBeVisible({ timeout: 45_000 });
+
+  // Single-role accounts auto-choose on the client (`choose-portal/page.tsx`) and
+  // hard-navigate with `window.location.assign` — the chooser button may never
+  // paint. Poll for either the destination or a visible chooser option.
+  await expect
+    .poll(
+      async () => {
+        const pathname = new URL(page.url()).pathname;
+        if (nextPathRe.test(pathname)) return "arrived";
+        if ((await option.count()) > 0 && (await option.first().isEnabled().catch(() => false))) {
+          return "chooser";
+        }
+        return "pending";
+      },
+      { timeout: 45_000 },
+    )
+    .not.toBe("pending");
+
+  if (nextPathRe.test(new URL(page.url()).pathname)) return;
+
   await option.first().click();
 
-  await expect
-    .poll(() => new URL(page.url()).pathname, { timeout: 45_000 })
-    .toMatch(new RegExp(`^${escapeRegExp(nextPath)}(/|$)`));
+  await expect.poll(() => new URL(page.url()).pathname, { timeout: 45_000 }).toMatch(nextPathRe);
 }
 
 export async function signInAsAdmin(page: Page) {
   await signIn(page, E2E_ACCOUNTS.admin.email, E2E_ACCOUNTS.admin.password, "/admin/dashboard");
+  if (new URL(page.url()).pathname.startsWith("/admin/")) return;
   await establishActivePortal(page, "admin", "/admin/dashboard");
 }
 
 export async function signInAsManager(page: Page) {
   await signIn(page, E2E_ACCOUNTS.manager.email, E2E_ACCOUNTS.manager.password, "/portal/dashboard");
+  if (new URL(page.url()).pathname.startsWith("/portal/")) return;
   await establishActivePortal(page, "manager", "/portal/dashboard");
 }
 
 export async function signInAsResident(page: Page) {
   await signIn(page, E2E_ACCOUNTS.resident.email, E2E_ACCOUNTS.resident.password, "/resident/dashboard");
+  if (new URL(page.url()).pathname.startsWith("/resident/")) return;
   await establishActivePortal(page, "resident", "/resident/dashboard");
 }
 

@@ -28,6 +28,7 @@ dist/
 test-results/
 playwright-report/
 playwright/.cache/
+tests/.auth/
 .manager-resident-apply-journey/
 .playwright-mcp/
 coverage/

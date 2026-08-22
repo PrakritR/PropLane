@@ -31,8 +31,8 @@ describe("custom fees in the generated lease", () => {
     ]);
     expect(html).toContain("Cleaning fee");
     expect(html).toContain("$125");
-    // It appears in Exhibit A as a One-time item.
-    expect(html).toMatch(/Cleaning fee<\/td><td>\$125\.00<\/td><td>One-time<\/td>/);
+    // Exhibit A lists custom fees with the fee-table amount column class.
+    expect(html).toMatch(/Cleaning fee<\/td><td class="amount">\$125\.00<\/td><td>One-time<\/td>/);
   });
 
   it("lists a monthly custom fee in Exhibit A as a Monthly item (it now bills recurring)", () => {
@@ -40,7 +40,7 @@ describe("custom fees in the generated lease", () => {
       { id: "cf1", label: "Parking spot", amount: "100", frequency: "monthly" },
     ]);
     expect(html).toContain("Parking spot");
-    expect(html).toMatch(/Parking spot<\/td><td>\$100\.00<\/td><td>Monthly<\/td>/);
+    expect(html).toMatch(/Parking spot<\/td><td class="amount">\$100\.00<\/td><td>Monthly<\/td>/);
   });
 
   it("lists a short-term custom fee in the short-term stay's Payment table", () => {

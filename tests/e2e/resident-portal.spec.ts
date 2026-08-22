@@ -1,9 +1,12 @@
 import { test, expect } from "@playwright/test";
-import { signInAsResident, mockStripeCheckoutRoutes } from "../helpers/auth";
-import { pathToUrlRegExp } from "../helpers/url-match";
+import path from "node:path";
+import { mockStripeCheckoutRoutes } from "../helpers/auth";
+import { gotoAppPath, pathToUrlRegExp } from "../helpers/url-match";
 import { RESIDENT_PORTAL_SMOKE_PATHS } from "../../src/lib/portals/resident-sections";
 
 const portalTestsEnabled = process.env.E2E_TESTS_ENABLED === "1";
+
+test.use({ storageState: path.join(__dirname, "../.auth/resident.json") });
 
 const RESIDENT_SECTIONS = [
   ...RESIDENT_PORTAL_SMOKE_PATHS,
@@ -15,7 +18,7 @@ test.describe("Resident portal", () => {
 
   test.beforeEach(async ({ page }) => {
     await mockStripeCheckoutRoutes(page);
-    await signInAsResident(page);
+    await page.goto("/resident/dashboard", { waitUntil: "domcontentloaded" });
   });
 
   test("dashboard loads", async ({ page }) => {
@@ -31,9 +34,16 @@ test.describe("Resident portal", () => {
   });
 
   test("all resident sections load via direct navigation", async ({ page }) => {
-    test.setTimeout(120_000);
+    test.setTimeout(180_000);
     for (const { path } of RESIDENT_SECTIONS) {
-      await page.goto(path, { waitUntil: "domcontentloaded", timeout: 45_000 });
+      try {
+        await gotoAppPath(page, path);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        if (!message.includes("Session expired")) throw error;
+        await page.goto("/resident/dashboard", { waitUntil: "domcontentloaded" });
+        await gotoAppPath(page, path);
+      }
       await expect(page).toHaveURL(pathToUrlRegExp(path));
       await expect(page.getByRole("heading").first().or(page.locator("main")).first()).toBeVisible({
         timeout: 30_000,

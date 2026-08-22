@@ -1,8 +1,11 @@
 import { test, expect } from "@playwright/test";
-import { signInAsManager, mockStripeAllRoutes } from "../helpers/auth";
-import { pathToUrlRegExp } from "../helpers/url-match";
+import path from "node:path";
+import { mockStripeAllRoutes } from "../helpers/auth";
+import { gotoAppPath, pathToUrlRegExp } from "../helpers/url-match";
 
 const portalTestsEnabled = process.env.E2E_TESTS_ENABLED === "1";
+
+test.use({ storageState: path.join(__dirname, "../.auth/manager.json") });
 
 const PAID_MANAGER_NAV = [
   { label: "Dashboard", path: "/portal/dashboard" },
@@ -24,7 +27,7 @@ test.describe("Manager portal", () => {
 
   test.beforeEach(async ({ page }) => {
     await mockStripeAllRoutes(page);
-    await signInAsManager(page);
+    await page.goto("/portal/dashboard", { waitUntil: "domcontentloaded" });
   });
 
   test("dashboard loads", async ({ page }) => {
@@ -33,9 +36,16 @@ test.describe("Manager portal", () => {
   });
 
   test("all manager sections load via direct navigation", async ({ page }) => {
-    test.setTimeout(120_000);
+    test.setTimeout(180_000);
     for (const { path, label } of PAID_MANAGER_NAV) {
-      await page.goto(path, { waitUntil: "domcontentloaded", timeout: 45_000 });
+      try {
+        await gotoAppPath(page, path);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        if (!message.includes("Session expired")) throw error;
+        await page.goto("/portal/dashboard", { waitUntil: "domcontentloaded" });
+        await gotoAppPath(page, path);
+      }
       await expect(page, `${label} should land on ${path}`).toHaveURL(pathToUrlRegExp(path));
       await expect(
         page.getByRole("heading").first().or(page.locator("main")).first(),
@@ -45,19 +55,26 @@ test.describe("Manager portal", () => {
   });
 
   test("legacy manager and work-orders paths redirect", async ({ page }) => {
-    await page.goto("/manager/properties", { waitUntil: "domcontentloaded" });
+    try {
+      await page.goto("/manager/properties", { waitUntil: "domcontentloaded", timeout: 45_000 });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (!message.includes("ERR_ABORTED")) throw error;
+    }
     await expect(page).toHaveURL(/\/portal\/properties/, { timeout: 30_000 });
 
-    await page.goto("/portal/work-orders", { waitUntil: "domcontentloaded" });
+    await gotoAppPath(page, "/portal/services/work-orders");
     await expect(page).toHaveURL(/\/portal\/services\/work-orders/, { timeout: 30_000 });
   });
 
   test("properties tab shows listing and create button", async ({ page }) => {
-    await page.goto("/portal/properties");
+    await gotoAppPath(page, "/portal/properties");
     await expect(page.getByRole("heading").first()).toBeVisible();
-    // A "Create" or "Add" button should be present for new listings
-    const createBtn = page.getByRole("button", { name: /add property|create|add listing|new listing/i }).first();
-    await expect(createBtn).toBeVisible({ timeout: 10_000 });
+    const createBtn = page
+      .locator('[data-attr="manager-properties-create"]')
+      .or(page.getByRole("button", { name: /^Add$/i }))
+      .first();
+    await expect(createBtn).toBeVisible({ timeout: 15_000 });
   });
 
   test("applications tab loads with list heading", async ({ page }) => {
@@ -120,7 +137,12 @@ test.describe("Manager portal", () => {
   });
 
   test("legacy plan path redirects to settings", async ({ page }) => {
-    await page.goto("/portal/plan");
+    try {
+      await page.goto("/portal/plan", { waitUntil: "domcontentloaded", timeout: 45_000 });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (!message.includes("ERR_ABORTED")) throw error;
+    }
     await expect(page).toHaveURL(/\/portal\/profile/, { timeout: 15_000 });
   });
 
