@@ -50,11 +50,24 @@ Driven end to end in a real browser as the resident:
 
 ## Known open issues
 
-1. **`POST /api/auth/link-tour-inquiry` returns 400 immediately after a booking.** The booking
-   still succeeds and the tour still shows in the resident's Tour tab, so the visible flow is
-   fine — but the call fails silently (`.catch(() => false)` in
-   `src/lib/tour-resident-link.client.ts`). Find out what the link is meant to guarantee before
-   patching it; it is on a booking path.
+1. ~~**`POST /api/auth/link-tour-inquiry` returns 400 after a booking.**~~ **RESOLVED 2026-08-22.**
+   Not a code bug. The response body was
+   `Could not find the table 'public.resident_tour_links' in the schema cache` — the table was
+   missing from the **test** project while present in production, i.e. schema drift, not a
+   defect. `20260730140000_resident_tour_links.sql` was applied to
+   `emstjswhotsnyksqhqyf` (prop-lane test) and the same booking now returns
+   `200 {"ok":true}`.
+
+   Two things worth carrying:
+   - PostgREST says "not found in the schema cache" for BOTH a missing table and a stale cache.
+     Check `to_regclass` before concluding which; the wording does not distinguish them.
+   - Production was never affected. Verify a suspected schema bug against BOTH projects before
+     calling it a production issue — this one only ever broke local testing.
+
+   Every table the six in-scope flows depend on is confirmed present in test (checked
+   2026-08-22): schedule records, tour links, applications, lease pipeline, inbox threads,
+   scheduled inbox messages, service requests, work orders, property records, outbound mail,
+   notification preferences, scheduled message overrides.
 2. **Same-day tours after 5pm.** Not a bug: the default grid is 9-5
    (`DEFAULT_TOUR_START_SLOT` / `DEFAULT_TOUR_END_SLOT_EXCLUSIVE` in `src/lib/tour-slot-math.ts`),
    so an evening visitor only sees tomorrow. If the captain wants evening tours, extend the
