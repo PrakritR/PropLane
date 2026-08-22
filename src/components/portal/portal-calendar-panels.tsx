@@ -786,6 +786,13 @@ export function PortalCalendarPanels({
     const result = await acceptPartnerInquiryFromServer(selectedBlock.meeting.sourceId, {
       start: selectedBlock.meeting.startIso,
       end: endIsoForDuration(selectedBlock.meeting.startIso, selectedDurationMinutes),
+      // `notifyTenant` defaults to FALSE on the route, so omitting it here silently confirmed the
+      // tour without telling the guest. There are two approve paths — this "Approve" button and
+      // the guest-notify preview — and only the preview passed it, so which control the manager
+      // happened to use decided whether the prospect was ever told their tour was confirmed.
+      // A confirmed tour the guest never hears about is the one outcome that strands someone at
+      // a property, so this path notifies too.
+      notifyTenant: true,
     });
     if (!result.ok) {
       showToast(result.error ?? "Could not approve request.");
