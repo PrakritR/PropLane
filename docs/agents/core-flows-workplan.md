@@ -133,6 +133,36 @@ now correct, but delivery could not be observed, for a reason worth knowing:
 **Reminders are a separate mechanism** (`tour-reminder.server.ts`, `/api/portal/tour-reminders`)
 and are still entirely untested.
 
+## Applications — status 2026-08-22
+
+Driven as the resident against a real listing. **The wizard is not broken.** It creates an
+application, validates each step, and advances correctly:
+
+    Household -> Signer Information -> Property Information -> Employment and Income
+      -> References -> Additional Details
+
+- "Apply to property" creates a real record (`PROPLANE-906DB8EF`) and opens at `wizardStep=1`.
+- Signer fields pre-fill from the account.
+- Every stall was LEGITIMATE validation, not a defect: "Lease term is required",
+  "Number of occupants is required", "at least one positive amount in the income section".
+  Each cleared as soon as the field was supplied, and the step advanced.
+
+**Submission was not reached, and the reason is tooling, not the product.** The remaining steps
+need controls a script cannot drive:
+
+- **Custom dropdowns are not `<select>`.** They are `[data-attr^=select-]` buttons opening
+  `[role=option]` lists, and they ignore a programmatic `.click()` — the pick needs real pointer
+  events (`pointerdown` + `pointerup`), the same shape as the filter listbox in
+  `filter-field-lists.tsx`. Playwright's own `click` works; `element.click()` does not.
+- **Screening questions are radio groups**, not checkboxes — a checkbox-only sweep leaves
+  Additional Details incomplete with no visible error.
+- **ID upload is a file input.** It cannot be set programmatically at all and needs a real
+  fixture file.
+
+So the next session should either finish the last two steps by hand in the browser, or write it
+as a Playwright e2e spec (which can drive all three control types) rather than a console script.
+Do NOT record "applications are broken" — nothing in the flow failed.
+
 ## Suggested order
 
 Tours (closest to done) -> Applications -> Leases -> Communication -> Services -> Properties tabs.
