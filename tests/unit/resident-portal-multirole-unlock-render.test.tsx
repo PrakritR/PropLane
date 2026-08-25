@@ -164,8 +164,21 @@ function makeMultiRoleDb() {
   };
 }
 
-/** The sections that were padlocked in production for this account. */
-const PREVIOUSLY_LOCKED = ["Lease", "Payments", "Documents", "Services"] as const;
+/**
+ * The sections that were padlocked in production for this account.
+ *
+ * "Payments" is deliberately NOT in this list any more. It is a DEFERRED section
+ * (`DEFERRED_SECTIONS` in `portals/nav-locks.ts`) and is locked for every viewer on purpose while
+ * the flows around it are unfinished — so it is expected to render as a padlock here, and
+ * asserting otherwise would fail for the intended reason rather than the bug this guard exists
+ * for.
+ *
+ * The guard's real subject is untouched: a manager+resident account must not be locked out of its
+ * OWN resident portal by role resolution reading `profiles.role` (legacy and singular) instead of
+ * `profile_roles`. That bug padlocked all four sections at once; the three below still prove it.
+ * If Payments is ever un-deferred, put it back.
+ */
+const PREVIOUSLY_LOCKED = ["Lease", "Documents", "Services"] as const;
 
 afterEach(cleanup);
 
