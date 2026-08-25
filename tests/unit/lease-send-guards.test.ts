@@ -134,6 +134,26 @@ describe("a lease cannot be sent to an applicant who has not been approved", () 
     expect(storedRow()?.status).toBe("Resident Signature Pending");
   });
 
+  it("bumps the document version when pending section edits are materialized on send", async () => {
+    seedDemoManagerApplicationRows([applicationRow()], MANAGER_ID);
+    seedDemoLeasePipeline(
+      [
+        leaseRow({
+          generatedHtml: `<!doctype html><html><body><h2>Rent</h2><p>Due on the first.</p></body></html>`,
+          managerSectionEdits: { rent: { format: "text", value: "Due on the fifth." } },
+          versionNumber: 1,
+          pdfVersion: 1,
+        }),
+      ],
+      MANAGER_ID,
+    );
+
+    const result = await sendLeaseToResident(ROW_ID, MANAGER_ID);
+    expect(result.ok).toBe(true);
+    expect(storedRow()?.versionNumber).toBe(2);
+    expect(String(storedRow()?.generatedHtml)).toContain("Due on the fifth.");
+  });
+
   /**
    * Fails OPEN by design. An existing resident onboarded off-platform has no
    * application, and the applications store loads lazily — refusing on absence

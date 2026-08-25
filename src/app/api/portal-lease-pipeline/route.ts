@@ -520,7 +520,18 @@ export async function POST(req: Request) {
         typeof nextRow.generatedHtml !== "string" &&
         !incomingClearsSignatures
       ) {
-        const materializingTemplatePdf = Boolean(storedRow?.templateDocumentUrl && nextRow.managerUploadedPdf?.dataUrl);
+        // `sendLeaseToResident` materializes a manager template into the first
+        // `managerUploadedPdf` and clears `generatedHtml`. The template URL may
+        // live only on the incoming row (resolved at send time) or the stored
+        // row may have HTML without a persisted template pointer — both are
+        // legitimate send paths and must not be refused as body deletion.
+        const materializingTemplatePdf = Boolean(
+          nextRow.managerUploadedPdf?.dataUrl &&
+          !storedRow?.managerUploadedPdf?.dataUrl &&
+          (storedRow?.templateDocumentUrl ||
+            nextRow.templateDocumentUrl ||
+            (typeof storedGeneratedHtml === "string" && storedGeneratedHtml.trim().length > 0)),
+        );
         if (!materializingTemplatePdf) {
           return NextResponse.json({ error: "A generated lease body cannot be removed through this save path." }, { status: 400 });
         }
