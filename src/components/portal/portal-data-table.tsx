@@ -322,10 +322,22 @@ export const RESIDENT_DOCUMENTS_DETAIL_FOOTER_BTN = cn(
   "h-9 min-h-0 w-auto max-w-none flex-none shrink-0 px-4",
 );
 
-/** Wrap pinned footer actions on resident profile detail tabs (lease, application, payments, …). */
+/**
+ * Wrap pinned footer actions on resident profile detail tabs (lease, application, payments, …).
+ *
+ * `w-full flex-1 basis-0` is load-bearing, not cosmetic. Without it this is a flex item with
+ * `flex-basis: auto`, so it shrinks to fit its own content — and the adaptive action rows inside
+ * measure `container.clientWidth` to decide how many buttons fit. That made the measurement
+ * circular: the row asked "how much room do I have?" and was told "exactly as much as you are
+ * already using", so buttons collapsed into the "…" overflow menu on a wide desktop with obvious
+ * empty space beside them, and could never expand back out.
+ *
+ * Spanning the footer means `clientWidth` is the space actually AVAILABLE, so the overflow menu
+ * appears only when the buttons genuinely do not fit.
+ */
 export function ResidentDocumentsDetailFooter({ children }: { children: ReactNode }) {
   return (
-    <div className="flex min-w-0 flex-nowrap items-center justify-start gap-2 [&_button]:w-auto [&_button]:shrink-0">
+    <div className="flex w-full min-w-0 flex-1 basis-0 flex-nowrap items-center justify-start gap-2 [&_button]:w-auto [&_button]:shrink-0">
       {children}
     </div>
   );
