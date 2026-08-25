@@ -92,6 +92,13 @@ export type LeaseGenerationContext = {
   leaseBilling?: LeaseBillingSnapshot;
   /** Property-level template preview — no resident yet; omit disclosure blocks and bracket placeholders. */
   propertyTemplatePreview?: boolean;
+  /**
+   * Legal name of the landlord party, from the manager's own setting
+   * (`manager-landlord-profile.ts`). Absent means the manager has not set one — the template then
+   * falls back as it always did, and `leaseLandlordNameBlocker` stops the SEND rather than
+   * letting a lease name a building, or `[LANDLORD ENTITY NAME]`, as a contracting party.
+   */
+  landlordLegalName?: string;
 };
 
 export function leaseContextFromApplication(

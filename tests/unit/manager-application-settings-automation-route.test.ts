@@ -16,6 +16,9 @@ const validateManagerApplicationFeeCents = vi.fn();
 const suggestedManagerApplicationFeeCents = vi.fn();
 const loadApplicationAutomation = vi.fn();
 const saveApplicationAutomation = vi.fn();
+const loadManagerLandlordProfile = vi.fn();
+const saveManagerLandlordProfile = vi.fn();
+const validateLandlordLegalName = vi.fn();
 const listApplicationFeeWaiverCodes = vi.fn();
 const pickPrimaryApplicationFeeWaiverCode = vi.fn();
 const setPrimaryApplicationFeeWaiverCode = vi.fn();
@@ -34,6 +37,11 @@ vi.mock("@/lib/manager-application-settings.server", () => ({
 vi.mock("@/lib/application-automation-preferences", () => ({
   loadApplicationAutomation: (...a: unknown[]) => loadApplicationAutomation(...a),
   saveApplicationAutomation: (...a: unknown[]) => saveApplicationAutomation(...a),
+}));
+vi.mock("@/lib/manager-landlord-profile", () => ({
+  loadManagerLandlordProfile: (...a: unknown[]) => loadManagerLandlordProfile(...a),
+  saveManagerLandlordProfile: (...a: unknown[]) => saveManagerLandlordProfile(...a),
+  validateLandlordLegalName: (...a: unknown[]) => validateLandlordLegalName(...a),
 }));
 vi.mock("@/lib/application-fee-waiver", () => ({
   listApplicationFeeWaiverCodes: (...a: unknown[]) => listApplicationFeeWaiverCodes(...a),
@@ -61,6 +69,9 @@ beforeEach(() => {
   requireManagerRouteUser.mockResolvedValue({ db: {}, userId: "mgr-1" });
   saveApplicationAutomation.mockResolvedValue(AUTOMATION);
   loadApplicationAutomation.mockResolvedValue(AUTOMATION);
+  loadManagerLandlordProfile.mockResolvedValue({ landlordLegalName: "Doe Holdings LLC" });
+  saveManagerLandlordProfile.mockResolvedValue({ landlordLegalName: "Doe Holdings LLC" });
+  validateLandlordLegalName.mockReturnValue({ ok: true, landlordLegalName: "Doe Holdings LLC" });
   loadManagerApplicationSettings.mockResolvedValue({ applicationFeeCents: 5000 });
   saveManagerApplicationSettings.mockResolvedValue({ applicationFeeCents: 5000 });
   validateManagerApplicationFeeCents.mockReturnValue({ ok: true, applicationFeeCents: 5000 });

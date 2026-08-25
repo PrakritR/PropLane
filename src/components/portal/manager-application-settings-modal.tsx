@@ -6,6 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { useAppUi } from "@/components/providers/app-ui-provider";
 import { isDemoModeActive } from "@/lib/demo/demo-session";
+import { cacheLandlordLegalName } from "@/lib/manager-landlord-profile";
 import {
   DEFAULT_APPLICATION_AUTOMATION,
   normalizeApplicationAutomation,
@@ -65,12 +66,14 @@ export function ManagerApplicationSettingsModal({ open, onClose }: { open: boole
   const [automation, setAutomation] = useState<ApplicationAutomationPreferences>(
     DEFAULT_APPLICATION_AUTOMATION,
   );
+  const [landlordLegalName, setLandlordLegalName] = useState("");
 
   const load = useCallback(async () => {
     if (demo) {
       setWaiverCode("WELCOME50");
       setFeeCents(5000);
       setAutomation(DEFAULT_APPLICATION_AUTOMATION);
+      setLandlordLegalName("Demo Property Holdings LLC");
       return;
     }
     setLoading(true);
@@ -79,6 +82,7 @@ export function ManagerApplicationSettingsModal({ open, onClose }: { open: boole
       const data = (await res.json().catch(() => ({}))) as {
         settings?: { applicationFeeCents: number | null };
         automation?: unknown;
+        landlord?: { landlordLegalName?: string } | null;
         waiverCode?: string | null;
         error?: string;
       };
@@ -88,6 +92,11 @@ export function ManagerApplicationSettingsModal({ open, onClose }: { open: boole
       }
       setFeeCents(data.settings?.applicationFeeCents ?? null);
       setAutomation(normalizeApplicationAutomation(data.automation));
+      const savedLandlord = (data.landlord?.landlordLegalName ?? "").trim();
+      setLandlordLegalName(savedLandlord);
+      // Keep the generator's cache in step with the server on every load, so a manager who set
+      // the name on another device still generates a correctly-named lease here.
+      cacheLandlordLegalName(savedLandlord);
       setWaiverCode((data.waiverCode ?? "").trim());
     } catch {
       showToast("Could not load promo code.");
@@ -114,13 +123,24 @@ export function ManagerApplicationSettingsModal({ open, onClose }: { open: boole
         credentials: "include",
         headers: { "Content-Type": "application/json" },
         // Re-send the stored fee unchanged so this save never clears it.
-        body: JSON.stringify({ applicationFeeCents: feeCents, waiverCode: nextWaiver, automation }),
+        body: JSON.stringify({
+          applicationFeeCents: feeCents,
+          waiverCode: nextWaiver,
+          automation,
+          landlordLegalName: landlordLegalName.trim(),
+        }),
       });
-      const data = (await res.json().catch(() => ({}))) as { error?: string };
+      const data = (await res.json().catch(() => ({}))) as {
+        error?: string;
+        landlord?: { landlordLegalName?: string } | null;
+      };
       if (!res.ok) {
         showToast(data.error ?? "Could not save settings.");
         return;
       }
+      // Only cache what the server accepted — it normalizes, and the generator must not print a
+      // name the server rejected or rewrote.
+      cacheLandlordLegalName(data.landlord?.landlordLegalName ?? landlordLegalName.trim());
       showToast("Application settings saved.");
       onClose();
     } catch {
@@ -153,6 +173,23 @@ export function ManagerApplicationSettingsModal({ open, onClose }: { open: boole
     >
       <div className="space-y-5">
         <div className="space-y-2">
+          <p className="text-[13px] font-semibold text-foreground">Landlord legal name</p>
+          <Input
+            aria-label="Landlord legal name"
+            value={landlordLegalName}
+            onChange={(e) => setLandlordLegalName(e.target.value)}
+            placeholder="E.G. DOE PROPERTY HOLDINGS LLC"
+            data-attr="manager-landlord-legal-name-input"
+            disabled={loading || saving}
+            className="w-full"
+          />
+          <p className="text-xs text-muted">
+            The party named on every lease you generate — a person or an entity, exactly as it
+            should appear on a contract. PropLane will not send a lease until this is set.
+          </p>
+        </div>
+
+        <div className="space-y-2 border-t border-border pt-4">
           <p className="text-[13px] font-semibold text-foreground">Promo code</p>
           <Input
             aria-label="Promo code"
