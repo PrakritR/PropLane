@@ -23,6 +23,7 @@ import { ManagerPropertyApplicationQuestionsPanel } from "@/components/portal/ma
 import { ManagerPropertyLeasePanel } from "@/components/portal/manager-property-lease-panel";
 import { ManagerPropertyPromotionPanel } from "@/components/portal/manager-property-promotion-panel";
 import { ManagerPropertyCalendarPanel } from "@/components/portal/manager-property-calendar-panel";
+import { ManagerPropertyTourPanel } from "@/components/portal/manager-property-tour-panel";
 import { ConfirmDeleteModal } from "@/components/portal/confirm-delete-modal";
 import { ShareLeadLinkModal } from "@/components/portal/share-lead-link-modal";
 import { ManagerPortalSettingsModal } from "@/components/portal/manager-portal-settings-modal";
@@ -628,7 +629,7 @@ function ManagerPropertyInlineDetails({
     bucket === 3 || bucket === 5
       ? ["preview"]
       : bucket === 2 && listingId
-        ? ["preview", "house-details", "move-in", "application", "lease", "calendar", "requests", "promotion"]
+        ? ["preview", "house-details", "move-in", "application", "lease", "tours", "calendar", "requests", "promotion"]
         : ["preview", "house-details", "move-in", "application", "lease"];
   const activeDetailTab = availableTabs.includes(detailTab) ? detailTab : availableTabs[0]!;
   const detailSectionTabs = useMemo(
@@ -668,6 +669,7 @@ function ManagerPropertyInlineDetails({
         dataAttr: "property-detail-tab-details",
       });
     }
+    pushTopTab("tours", "tours");
     pushTopTab("calendar", "calendar");
     pushTopTab("application", "application");
     pushTopTab("lease", "lease");
@@ -847,7 +849,7 @@ function ManagerPropertyInlineDetails({
         />
       );
     }
-    if (activeDetailTab === "calendar" && calendarSubTab === "tours" && bucket === 2 && listingId) {
+    if (activeDetailTab === "tours" && bucket === 2 && listingId) {
       return (
         <PortalAdaptiveActionRow
           actions={[
@@ -898,8 +900,8 @@ function ManagerPropertyInlineDetails({
               ),
             },
           ]}
-          moreAriaLabel="More calendar actions"
-          moreDataAttr="property-calendar-footer-more"
+          moreAriaLabel="More tour actions"
+          moreDataAttr="property-tours-footer-more"
           gapPx={8}
         />
       );
@@ -940,7 +942,6 @@ function ManagerPropertyInlineDetails({
     canEditListing,
     sharePropertyId,
     openFullListingEditor,
-    calendarSubTab,
   ]);
 
   const propertyTopHeaderActionsRef = useRef(propertyTopHeaderActions);
@@ -1079,6 +1080,16 @@ function ManagerPropertyInlineDetails({
           propertyHint={leasePropertyHint}
           demoMode={isDemoModeActive()}
           onRegisterAddLease={registerLeaseAddHandler}
+        />
+      ) : null}
+
+      {activeDetailTab === "tours" && bucket === 2 && listingId ? (
+        <ManagerPropertyTourPanel
+          listingId={listingId}
+          managerUserId={managerUserId}
+          propertyLabel={propertyShareLabel}
+          showToast={showToast}
+          onRegisterSendTour={registerTourSendHandler}
         />
       ) : null}
 

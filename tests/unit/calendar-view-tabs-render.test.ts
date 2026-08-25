@@ -1,12 +1,7 @@
 /**
  * Every routed calendar tab must render a view of its own.
  *
- * The failure this guards against is not a crash — it is a tab that renders the WRONG panel.
- * `portal-calendar.tsx` picks its view with a chain of booleans (`bookingsView`, then
- * `servicesOnlyView`, then tours as the fallback), so adding an id to `CALENDAR_VIEW_TABS`
- * without adding a branch silently lands it on tours, and adding one to the property strip
- * without a panel lands it on Bookings under someone else's label. Both look fine to a build,
- * to typecheck, and to every other test.
+ * Tours and service orders moved to `/portal/tours`; calendar is availability + bookings only.
  */
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -16,15 +11,17 @@ import {
   CALENDAR_VIEW_TAB_LABELS,
   PROPERTY_CALENDAR_SUB_TABS,
   PROPERTY_CALENDAR_SUB_TAB_LABELS,
+  TOURS_HUB_TABS,
   parseCalendarViewTab,
   parsePropertyCalendarSubTab,
+  parseToursHubTab,
 } from "@/lib/portal-detail-routes";
 
 const read = (p: string) => readFileSync(join(process.cwd(), p), "utf8");
 
 describe("portfolio calendar tabs", () => {
-  it("offers tours, service orders and bookings", () => {
-    expect([...CALENDAR_VIEW_TABS]).toEqual(["tours", "services", "bookings"]);
+  it("offers availability and bookings", () => {
+    expect([...CALENDAR_VIEW_TABS]).toEqual(["availability", "bookings"]);
   });
 
   it("every tab has a label", () => {
@@ -39,29 +36,34 @@ describe("portfolio calendar tabs", () => {
     }
   });
 
-  it("an unknown view lands on tours rather than 404ing", () => {
-    // Old bookmarks and emailed links must keep working.
-    for (const raw of ["all", "", null, undefined, "bogus"]) {
-      expect(parseCalendarViewTab(raw)).toBe("tours");
+  it("legacy tour and service paths land on availability", () => {
+    for (const raw of ["all", "tours", "services", "", null, undefined, "bogus"]) {
+      expect(parseCalendarViewTab(raw)).toBe("availability");
     }
   });
 
   it("each non-default tab has its own render branch", () => {
-    // Tours is the fallback branch, so it has no boolean of its own to find.
     const src = read("src/components/portal/portal-calendar.tsx");
-    expect(src).toContain('const bookingsView = calendarView === "bookings"');
-    expect(src).toContain('const servicesOnlyView = calendarView === "services"');
-    // The dead literal that retired the view — if this comes back, the tab renders tours.
-    expect(src).not.toContain("const bookingsView = false");
+    expect(src).toContain('const bookingsView = !schedulingHub && calendarView === "bookings"');
+    expect(src).toContain('calendarView === "availability"');
+    expect(src).toContain("schedulingHub");
+  });
+});
+
+describe("portfolio tours hub", () => {
+  it("offers tours and service orders segments", () => {
+    expect([...TOURS_HUB_TABS]).toEqual(["tours", "services"]);
+  });
+
+  it("unknown segment lands on tours", () => {
+    expect(parseToursHubTab("bogus")).toBe("tours");
+    expect(parseToursHubTab("services")).toBe("services");
   });
 });
 
 describe("property calendar sub-tabs", () => {
-  it("offers exactly the sub-views that have a panel", () => {
-    // Services is deliberately absent: the services calendar is manager-wide and there is no
-    // property-scoped panel, so a tab here would render the Bookings panel under a Services
-    // label. Add the panel first, then the tab.
-    expect([...PROPERTY_CALENDAR_SUB_TABS]).toEqual(["tours", "bookings"]);
+  it("is bookings-only after tours moved to their own tab", () => {
+    expect([...PROPERTY_CALENDAR_SUB_TABS]).toEqual(["bookings"]);
   });
 
   it("every sub-tab has a label and round-trips", () => {
@@ -71,23 +73,13 @@ describe("property calendar sub-tabs", () => {
     }
   });
 
-  it("an unknown sub-view lands on tours", () => {
-    for (const raw of ["", null, undefined, "services", "bogus"]) {
-      expect(parsePropertyCalendarSubTab(raw)).toBe("tours");
-    }
+  it("legacy tours sub-path lands on bookings", () => {
+    expect(parsePropertyCalendarSubTab("tours")).toBe("bookings");
   });
 
-  it("the strip is driven off the canonical list, not a second copy", () => {
-    // A hardcoded second list is how the two tab sources drifted apart before.
+  it("property calendar panel is bookings-only", () => {
     const src = read("src/components/portal/manager-property-calendar-panel.tsx");
-    expect(src).toContain("PROPERTY_CALENDAR_SUB_TABS.map");
-  });
-
-  it("the panel branches on tours and falls through to bookings", () => {
-    // With exactly two sub-tabs a binary is correct. Adding a third without changing this is
-    // what would render the wrong panel, so this assertion is the tripwire.
-    const src = read("src/components/portal/manager-property-calendar-panel.tsx");
-    expect(src).toContain('calendarSubTab === "tours"');
-    expect(PROPERTY_CALENDAR_SUB_TABS).toHaveLength(2);
+    expect(src).toContain("ManagerPropertyBookingsPanel");
+    expect(src).not.toContain('calendarSubTab === "tours"');
   });
 });

@@ -39,7 +39,7 @@ describe("portal-detail-routes", () => {
     expect(parsePropertyDetailTab("lease")).toBe("lease");
     expect(parsePropertyDetailTab("promotion")).toBe("promotion");
     expect(parsePropertyDetailTab("calendar")).toBe("calendar");
-    expect(parsePropertyDetailTab("tour-calendar")).toBe("calendar");
+    expect(parsePropertyDetailTab("tour-calendar")).toBe("tours");
     expect(parsePropertyDetailTab("booking-calendars")).toBe("calendar");
     expect(parsePropertyDetailTab("bogus")).toBe("preview");
     expect(parsePropertyDetailTab(undefined)).toBe("preview");
@@ -49,7 +49,9 @@ describe("portal-detail-routes", () => {
     expect(PROPERTY_DETAIL_TABS).toContain("promotion");
     expect(PROPERTY_DETAIL_TABS).toContain("requests");
     expect(PROPERTY_DETAIL_TABS).toContain("move-in");
+    expect(PROPERTY_DETAIL_TABS).toContain("tours");
     expect(PROPERTY_DETAIL_TABS).toContain("calendar");
+    expect(PROPERTY_DETAIL_TAB_LABELS.tours).toBe("Tours");
     expect(PROPERTY_DETAIL_TAB_LABELS.calendar).toBe("Calendar");
   });
 
@@ -72,19 +74,19 @@ describe("portal-detail-routes", () => {
     expect(residentDetailHref("/portal", "current", "res-1", "lease")).toBe(
       "/portal/residents/current/res-1/lease",
     );
-    expect(calendarViewHref("/portal", "tours")).toBe("/portal/calendar/tours");
+    expect(calendarViewHref("/portal", "availability")).toBe("/portal/calendar/availability");
+    expect(calendarViewHref("/portal", "bookings")).toBe("/portal/calendar/bookings");
     expect(teamLinkHref("/portal", "linked")).toBe("/portal/relationships");
   });
 
   it("parses calendar and team routed tabs", () => {
-    expect(parseCalendarViewTab("services")).toBe("services");
-    // Bookings is a view of its own again (it was briefly retired).
+    expect(parseCalendarViewTab("availability")).toBe("availability");
     expect(parseCalendarViewTab("bookings")).toBe("bookings");
-    // Anything unrecognised still lands on tours rather than 404ing, so an old
-    // bookmark or emailed link keeps working.
-    expect(parseCalendarViewTab("all")).toBe("tours");
-    expect(parseCalendarViewTab("")).toBe("tours");
-    expect(parseCalendarViewTab("nonsense")).toBe("tours");
+    expect(parseCalendarViewTab("services")).toBe("availability");
+    expect(parseCalendarViewTab("tours")).toBe("availability");
+    expect(parseCalendarViewTab("all")).toBe("availability");
+    expect(parseCalendarViewTab("")).toBe("availability");
+    expect(parseCalendarViewTab("nonsense")).toBe("availability");
     expect(parseTeamLinkTab("linked")).toBe("linked");
     expect(parseTeamLinkTab(undefined)).toBe("pending");
   });
