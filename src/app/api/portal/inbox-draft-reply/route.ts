@@ -30,6 +30,8 @@ import {
   inboxThreadManagerReplyPending,
   inboxThreadMessages,
   inboxMessageOutbound,
+  type InboxThreadMessage,
+  type PersistedInboxThread,
   parseTourNotificationGuestEmail,
   type InboxAiDraft,
 } from "@/lib/portal-inbox-storage";
@@ -83,15 +85,51 @@ function resolveResidentSenderEmail(rowData: ThreadRowData): string {
   return email;
 }
 
+/**
+ * Stored thread messages arrive loosely typed — `id` and `at` are absent on legacy rows, and
+ * `from`/`body` are optional — while `InboxThreadMessage` requires all four. Filling the gaps
+ * here is what lets the shared `inboxThreadMessages` / `inboxThreadManagerReplyPending` helpers
+ * read this row at all; casting instead is what failed to compile.
+ */
+function normalizeThreadMessages(
+  messages: ThreadRowData["messages"],
+): InboxThreadMessage[] | undefined {
+  if (!messages) return undefined;
+  return messages.map((m, index) => ({
+    id: `msg-${index}`,
+    from: m.from ?? "",
+    body: m.body ?? "",
+    at: "",
+    ...(m.outbound === undefined ? {} : { outbound: m.outbound }),
+  }));
+}
+
+/**
+ * A full `PersistedInboxThread` from the loosely-typed stored row.
+ *
+ * The shared thread helpers take the whole record, not a fragment, so passing a partial object
+ * did not compile. The display-only fields are filled with the row's own values where present
+ * and empty strings otherwise: nothing here is rendered, it only feeds the turn walker.
+ */
+function toPersistedThread(rowData: ThreadRowData, folder: "inbox" | "sent" | "trash"): PersistedInboxThread {
+  return {
+    id: String(rowData.id ?? ""),
+    folder,
+    from: String(rowData.from ?? ""),
+    email: String(rowData.email ?? ""),
+    subject: String(rowData.subject ?? ""),
+    preview: "",
+    body: String(rowData.body ?? ""),
+    time: "",
+    unread: false,
+    rootOutbound: rowData.rootOutbound === true,
+    messages: normalizeThreadMessages(rowData.messages),
+  };
+}
+
 function buildConversationPrompt(rowData: ThreadRowData): string {
   const folder = String(rowData.folder ?? "inbox") as "inbox" | "sent" | "trash";
-  const thread = {
-    folder,
-    body: String(rowData.body ?? ""),
-    messages: rowData.messages,
-    rootOutbound: rowData.rootOutbound,
-  };
-  const turns = inboxThreadMessages(thread);
+  const turns = inboxThreadMessages(toPersistedThread(rowData, folder));
   const lines = turns.map((turn, index) => {
     const speaker = inboxMessageOutbound(turn, index, folder) ? "Manager" : "Resident";
     return `${speaker}: ${turn.body.trim()}`;
@@ -132,12 +170,7 @@ export async function POST(req: Request) {
       return NextResponse.json({ ok: true, skip: true, reason: "not-inbound" });
     }
 
-    if (!inboxThreadManagerReplyPending({
-      folder: "inbox",
-      body: String(rowData.body ?? ""),
-      messages: rowData.messages as ThreadRowData["messages"],
-      rootOutbound: rowData.rootOutbound === true,
-    })) {
+    if (!inboxThreadManagerReplyPending(toPersistedThread(rowData, "inbox"))) {
       return NextResponse.json({ ok: true, skip: true, reason: "already-replied" });
     }
 
@@ -189,12 +222,16 @@ export async function POST(req: Request) {
 
     const result = await traceAgentTurn(
       {
-        landlordId: scope.user.id,
+        // `TraceActor` is {userId, sessionId?, metadata?}. The extra fields here were an agent
+        // CONTEXT, not a trace actor, so this did not compile. AGENTS.md still requires every
+        // trace to carry `landlordId`, and the manager chat route already shows where it goes:
+        // inside `metadata`.
         userId: scope.user.id,
-        email: scope.user.email ?? "",
-        roles: [],
-        isAdmin: scope.user.role === "admin",
-        db: scope.db,
+        metadata: {
+          landlordId: scope.user.id,
+          role: scope.user.role === "admin" ? "admin" : "manager",
+          surface: "inbox-draft-reply",
+        },
       },
       [{ role: "user", content: userPrompt }],
       async () => {
