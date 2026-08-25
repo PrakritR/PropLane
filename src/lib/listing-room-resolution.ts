@@ -32,6 +32,15 @@ export type SubmissionRoomLookup = {
   signedMonthlyRent?: number | null;
 };
 
+/**
+ * Trailing room number, when a name ends in one — `"room 10"` → `"10"`, `"attic"` → `null`.
+ * Used to keep "Room 1" from substring-matching "Room 10".
+ */
+function roomNumberSuffix(name: string): string | null {
+  const match = /(\d+)\s*$/.exec(name);
+  return match ? String(Number(match[1])) : null;
+}
+
 /** Callers pass an ALREADY-NORMALIZED submission (`normalizeManagerListingSubmissionV1`). */
 export function resolveSubmissionRoom(
   sub: ManagerListingSubmissionV1 | null | undefined,
@@ -48,6 +57,10 @@ export function resolveSubmissionRoom(
     if (named) return named;
   }
 
+  // Tracks that the application NAMED a room this catalog does not contain. That is a
+  // disagreement between the application and the listing, not a missing hint, so the guessy
+  // fallbacks below must not paper over it with somebody else's room.
+  let namedAnUnknownRoom = false;
   for (const choice of lookup.roomChoices ?? []) {
     const trimmed = choice?.trim();
     if (!trimmed) continue;
@@ -55,6 +68,7 @@ export function resolveSubmissionRoom(
     if (!listingRoomId) continue;
     const byId = rooms.find((r) => r.id === listingRoomId);
     if (byId) return byId;
+    namedAnUnknownRoom = true;
   }
 
   const signedRent = Number(lookup.signedMonthlyRent ?? 0);
@@ -68,12 +82,24 @@ export function resolveSubmissionRoom(
     const named = rooms.filter((r) => r.name.trim());
     const exact = named.find((r) => r.name.trim().toLowerCase() === label);
     if (exact) return exact;
-    const partial = named.find((r) => {
+    const partial = named.filter((r) => {
       const name = r.name.trim().toLowerCase();
-      return name.includes(label) || label.includes(name);
+      if (!(name.includes(label) || label.includes(name))) return false;
+      // "room 10".includes("room 1") is true, so a plain substring test puts the Room 1
+      // resident on Room 10's rent and deposit. When both names end in a number, that number
+      // IS the room identity and has to match.
+      return roomNumberSuffix(name) === roomNumberSuffix(label);
     });
-    if (partial) return partial;
+    // Several partial matches means the answer would be decided by array order, which says
+    // nothing about where this resident actually lives.
+    if (partial.length === 1) return partial[0];
   }
+
+  // Past this point every remaining rule is a guess from shape rather than a match on this
+  // resident's placement, so an application that named a room we could not find stops here.
+  // "—" in the document reads as not-set and gets corrected; a confident figure belonging to
+  // another room gets signed.
+  if (namedAnUnknownRoom) return undefined;
 
   if (rooms.length === 1) return rooms[0];
   // Last resort: only one room is configured with daily_rate → it must be the right room.
