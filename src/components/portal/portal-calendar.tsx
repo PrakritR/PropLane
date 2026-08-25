@@ -67,7 +67,9 @@ import {
 import {
   calendarViewHref,
   parseCalendarViewTab,
+  toursHubHref,
   type CalendarViewTabId,
+  type ToursHubTabId,
 } from "@/lib/portal-detail-routes";
 
 const MANAGER_PORTAL_BASE = "/portal";
@@ -77,12 +79,18 @@ export function PortalCalendar({
   initialUserId,
   initialEmail,
   calendarView: calendarViewProp,
+  schedulingHub = false,
+  toursHubTab: toursHubTabProp,
 }: {
   portal: "manager" | "admin";
   initialUserId?: string | null;
   initialEmail?: string | null;
-  /** Routed view tab (manager portal only). */
+  /** Routed view tab (manager portfolio calendar only). */
   calendarView?: CalendarViewTabId;
+  /** Combined tours + service orders hub (`/portal/tours`). */
+  schedulingHub?: boolean;
+  /** Routed segment inside the tours hub. */
+  toursHubTab?: import("@/lib/portal-detail-routes").ToursHubTabId;
 }) {
   const { userId, email, ready: authReady } = useManagerUserId({
     userId: initialUserId,
@@ -99,7 +107,8 @@ export function PortalCalendar({
   const [coManagerPeers, setCoManagerPeers] = useState<CoManagerCalendarPeerDto[]>([]);
   const [shareAvailability, setShareAvailability] = useState(false);
   const [googleCalendarTick, setGoogleCalendarTick] = useState(0);
-  const calendarView = portal === "manager" ? parseCalendarViewTab(calendarViewProp) : "tours";
+  const calendarView = portal === "manager" && !schedulingHub ? parseCalendarViewTab(calendarViewProp) : "availability";
+  const toursHubTab: ToursHubTabId = toursHubTabProp ?? "tours";
   const [workOrderTick, setWorkOrderTick] = useState(0);
   const [calendarAnchorDate, setCalendarAnchorDate] = useState(() => new Date());
 
@@ -377,36 +386,47 @@ export function PortalCalendar({
   ]);
 
   const calendarTabs = useMemo(
-    () => [
-      {
-        id: "tours" as const,
-        label: "Tours",
-        count: calendarTabCounts.tours,
-        href: calendarViewHref(MANAGER_PORTAL_BASE, "tours"),
-        dataAttr: "calendar-tab-tours",
-      },
-      {
-        id: "services" as const,
-        label: "Service orders",
-        count: calendarTabCounts.services,
-        href: calendarViewHref(MANAGER_PORTAL_BASE, "services"),
-        dataAttr: "calendar-tab-services",
-      },
-      {
-        id: "bookings" as const,
-        label: "Bookings",
-        count: calendarTabCounts.bookings,
-        href: calendarViewHref(MANAGER_PORTAL_BASE, "bookings"),
-        dataAttr: "calendar-tab-bookings",
-      },
-    ],
-    [calendarTabCounts],
+    () =>
+      schedulingHub
+        ? [
+            {
+              id: "tours" as const,
+              label: "Tours",
+              count: calendarTabCounts.tours,
+              href: toursHubHref(MANAGER_PORTAL_BASE, "tours"),
+              dataAttr: "tours-hub-tab-tours",
+            },
+            {
+              id: "services" as const,
+              label: "Service orders",
+              count: calendarTabCounts.services,
+              href: toursHubHref(MANAGER_PORTAL_BASE, "services"),
+              dataAttr: "tours-hub-tab-services",
+            },
+          ]
+        : [
+            {
+              id: "availability" as const,
+              label: "Availability",
+              count: calendarTabCounts.tours,
+              href: calendarViewHref(MANAGER_PORTAL_BASE, "availability"),
+              dataAttr: "calendar-tab-availability",
+            },
+            {
+              id: "bookings" as const,
+              label: "Bookings",
+              count: calendarTabCounts.bookings,
+              href: calendarViewHref(MANAGER_PORTAL_BASE, "bookings"),
+              dataAttr: "calendar-tab-bookings",
+            },
+          ],
+    [calendarTabCounts, schedulingHub],
   );
 
-  const bookingsView = calendarView === "bookings";
-  const showTourAvailability = calendarView === "tours";
-  const showServiceVisits = calendarView === "services";
-  const servicesOnlyView = calendarView === "services";
+  const bookingsView = !schedulingHub && calendarView === "bookings";
+  const availabilityView = schedulingHub ? toursHubTab === "tours" : calendarView === "availability";
+  const showServiceVisits = schedulingHub && toursHubTab === "services";
+  const servicesOnlyView = showServiceVisits;
 
   /**
    * PropLane's own stays for the portfolio-wide Bookings view.
@@ -469,14 +489,14 @@ export function PortalCalendar({
   const calendarPanelsReadOnly =
     servicesOnlyView ||
     bookingsView ||
-    (showTourAvailability && activeCalendarPropertyFilters.length !== 1);
-  const calendarStorageKey = showTourAvailability ? storageKey : null;
+    (availabilityView && activeCalendarPropertyFilters.length !== 1);
+  const calendarStorageKey = availabilityView ? storageKey : null;
   const calendarUnavailableMessage = servicesOnlyView
     ? "No scheduled service visits yet. Vendor visits and your own assigned work appear here once a visit time is set."
     : bookingsView
       ? "No houses in your portfolio yet."
-      : activeCalendarPropertyFilters.length !== 1 && showTourAvailability
-        ? "Select one house in the filter to edit tour availability. Tours across your portfolio still appear below."
+      : activeCalendarPropertyFilters.length !== 1 && availabilityView
+        ? "Select one house in the filter to edit tour availability."
         : "Select one house before creating tour windows.";
 
 
@@ -510,7 +530,7 @@ export function PortalCalendar({
     ) : null;
 
   const calendarShareTourButton =
-    portal === "manager" && showTourAvailability ? (
+    portal === "manager" && schedulingHub && availabilityView ? (
       <Button
         type="button"
         variant="outline"
@@ -529,7 +549,7 @@ export function PortalCalendar({
     ) : null;
 
   const calendarRemindersButton =
-    portal === "manager" && showTourAvailability ? (
+    portal === "manager" && schedulingHub && availabilityView ? (
       <Button
         type="button"
         variant="outline"
@@ -550,7 +570,8 @@ export function PortalCalendar({
       </>
     ) : null;
 
-  const pageTitle = portal === "manager" ? "Calendar" : "Schedule meeting";
+  const pageTitle =
+    portal === "manager" ? (schedulingHub ? "Tours" : "Calendar") : "Schedule meeting";
 
   if (portal === "manager" && !authReady) {
     return (
@@ -586,12 +607,12 @@ export function PortalCalendar({
           <PortalListControlStack
             className="mb-2"
             destinations={calendarTabs}
-            activeDestinationId={calendarView}
-            destinationAriaLabel="Calendar views"
+            activeDestinationId={schedulingHub ? toursHubTab : calendarView}
+            destinationAriaLabel={schedulingHub ? "Tours views" : "Calendar views"}
           />
         ) : null}
         {portal === "manager" ? (
-          <div className="portal-calendar-page-body mt-1 flex min-h-[min(72vh,52rem)] flex-1 flex-col">
+          <div className="portal-calendar-page-body mt-1 flex min-h-[min(72vh,52rem)] flex-1 flex-col bg-accent/30">
             {bookingsView ? (
               <>
                 <ManagerPortfolioBookingsCalendar
@@ -638,7 +659,8 @@ export function PortalCalendar({
               </div>
             ) : (
               <div className="flex min-h-0 flex-1 flex-col gap-3">
-                {showCoManagerCoordination ? (
+                {schedulingHub && availabilityView ? <TourProposalsPanel /> : null}
+                {showCoManagerCoordination && availabilityView ? (
                   <label className="flex cursor-pointer items-start gap-3 rounded-lg border border-border bg-card px-4 py-3 text-sm shadow-sm">
                     <input
                       type="checkbox"
@@ -655,15 +677,14 @@ export function PortalCalendar({
                     </span>
                   </label>
                 ) : null}
-                <TourProposalsPanel />
                 {propertiesLoading && managerProperties.length === 0 ? (
                   <p className="text-sm text-muted">Loading houses from the backend…</p>
                 ) : (
                   <PortalCalendarPanels
-                    key={`${calendarStorageKey ?? "calendar-unavailable"}-tours-${scopedCalendarPropertyIds.join(",")}`}
+                    key={`${calendarStorageKey ?? "calendar-unavailable"}-avail-${scopedCalendarPropertyIds.join(",")}-${schedulingHub ? toursHubTab : calendarView}`}
             storageKey={calendarStorageKey}
             availabilityStorageKeys={
-              showTourAvailability && availabilityStorageKeys.length > 1
+              availabilityView && availabilityStorageKeys.length > 1
                 ? availabilityStorageKeys
                 : undefined
             }
@@ -676,9 +697,11 @@ export function PortalCalendar({
                 : calendarUnavailableMessage
             }
             compactAvailability
-            availabilityHeading={portal === "manager" ? "Your availability" : "Schedule meeting"}
+            availabilityHeading={portal === "manager" ? (schedulingHub ? "Tour schedule" : "Your availability") : "Schedule meeting"}
             scheduledTourFilter={
-              calendarScheduledTourFilter && showTourAvailability ? calendarScheduledTourFilter : undefined
+              schedulingHub && toursHubTab === "tours" && calendarScheduledTourFilter
+                ? calendarScheduledTourFilter
+                : undefined
             }
             coManagerAvailabilityOverlays={showCoManagerCoordination ? coManagerAvailabilityOverlays : undefined}
             externalMeetings={portal === "manager" ? mergedExternalMeetings : undefined}
@@ -687,7 +710,7 @@ export function PortalCalendar({
             // rescheduled, cancelled or deleted, instead of at the next reload.
             onMeetingsChanged={() => setCalendarRefreshSignal((n) => n + 1)}
             readOnly={portal === "manager" ? calendarPanelsReadOnly : false}
-            eventSummaryLabel="tour"
+            eventSummaryLabel={schedulingHub && servicesOnlyView ? "visit" : schedulingHub ? "tour" : "slot"}
             preferEventCountsInDayHeader
             anchorDate={calendarAnchorDate}
             onAnchorDateChange={setCalendarAnchorDate}
@@ -704,7 +727,7 @@ export function PortalCalendar({
                 : undefined
             }
             onCopyWeekToHouses={
-              portal === "manager" && userId && calendarEditingPropertyId && showTourAvailability
+              portal === "manager" && userId && calendarEditingPropertyId && availabilityView && !servicesOnlyView
                 ? (propertyIds, weekDateStrs, scope) => {
                     if (!userId || !calendarEditingPropertyId) return;
                     const srcKey = managerPropertyAvailabilityStorageKey(userId, calendarEditingPropertyId);

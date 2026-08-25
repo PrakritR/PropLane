@@ -105,7 +105,9 @@ describe("groupNavItems", () => {
     expect(result[0]).toEqual({ id: "home", label: null, items: [{ section: "dashboard" }, { section: "app" }] });
     const leasing = result.find((g) => g.id === "leasing");
     expect(leasing?.label).toBe("Leasing");
-    expect(leasing?.items.map((i) => i.section)).toEqual(["properties", "calendar", "applications", "leases"]);
+    expect(leasing?.items.map((i) => i.section)).toEqual(["properties", "tours", "applications", "leases"]);
+    const operations = result.find((g) => g.id === "operations");
+    expect(operations?.items.map((i) => i.section)).toEqual(["calendar", "services", "communication"]);
     const tenancy = result.find((g) => g.id === "tenancy");
     expect(tenancy?.items.map((i) => i.section)).toEqual(["residents", "payments"]);
     const finances = result.find((g) => g.id === "finances");
