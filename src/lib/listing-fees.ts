@@ -712,9 +712,17 @@ function feeBelongsInLeaseBasicsSection(
   return !isShortTermPreset;
 }
 
-function listingFeeToDisplayRow(fee: ListingFeeRow, formatPrice: (raw: string) => string): ListingFeeDisplayRow | null {
+function listingFeeToDisplayRow(
+  fee: ListingFeeRow,
+  formatPrice: (raw: string) => string,
+  section: LeaseBasicsFeeSection = "long-term",
+): ListingFeeDisplayRow | null {
   const cadence = listingFeeCadence(fee);
-  const price = formatPrice(fee.amount);
+  const amountRaw =
+    section === "short-term" && typeof fee.shortTermAmount === "string" && fee.shortTermAmount.trim()
+      ? fee.shortTermAmount
+      : fee.amount;
+  const price = formatPrice(amountRaw);
   const title = displayLeaseFeeTitle(
     fee.label.trim() || PRESET_BY_ID.get(fee.presetId as ListingFeePresetId)?.defaultLabel || "Fee",
   );
@@ -834,13 +842,19 @@ export function listingFeeRowsForLeaseBasicsSection(
 ): ListingFeeDisplayRow[] {
   const shortTermOn = Boolean(sub.shortTermRentalsAllowed);
   const exclude = new Set(opts?.excludePresetIds ?? []);
-  const fees = resolveListingFees(sub).filter((f) => feeMeaningfulForPublicListing(f.amount));
+  const fees = resolveListingFees(sub).filter((fee) => {
+    if (section === "short-term" && typeof fee.shortTermAmount === "string" && fee.shortTermAmount.trim()) {
+      return feeMeaningfulForPublicListing(fee.shortTermAmount);
+    }
+    return feeMeaningfulForPublicListing(fee.amount);
+  });
   const rows: ListingFeeDisplayRow[] = [];
 
   for (const fee of fees) {
+    if (fee.presetId === "holding_deposit") continue;
     if (fee.presetId && exclude.has(fee.presetId as ListingFeePresetId)) continue;
     if (!feeBelongsInLeaseBasicsSection(fee, section, shortTermOn)) continue;
-    const row = listingFeeToDisplayRow(fee, formatPrice);
+    const row = listingFeeToDisplayRow(fee, formatPrice, section);
     if (row) rows.push(row);
   }
 

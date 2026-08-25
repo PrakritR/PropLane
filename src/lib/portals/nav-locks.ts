@@ -30,17 +30,11 @@ export type PortalNavLockKind = "none" | "upsell" | "inert";
 /**
  * Sections switched off while they are unfinished, for EVERY viewer and every plan.
  *
- * Payments is parked: the flows around it (reminders, re-pay, ledger) are mid-build, and a
- * manager or resident who wanders in lands in a half-built surface. Locking it is deliberately
- * cheaper than half-fixing it, and it shrinks the surface the flows that DO matter get tested
- * against.
- *
- * `inert`, never `upsell`: an upsell lock still navigates, because that row is the only entry
- * point to the upgrade page. There is nothing to buy here — the section is simply not ready —
- * so the row must not lead anywhere. Deleting an entry from this set is all it takes to bring a
- * section back.
+ * Empty by default — add a section id here only when it must stay unreachable by URL and nav
+ * until the flows around it are ready. Payments was parked here during mid-build work and is
+ * live again; keep the redirect guard in `render-portal-section.tsx` for any future deferrals.
  */
-export const DEFERRED_SECTIONS = new Set(["payments"]);
+export const DEFERRED_SECTIONS = new Set<string>([]);
 
 export function portalNavLockKind(params: {
   kind: PortalKind;

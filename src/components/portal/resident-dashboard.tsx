@@ -417,7 +417,6 @@ export function ResidentDashboard({
   const initialEmail = residentEmail.trim().toLowerCase();
   const session = usePortalSession({ userId: residentUserId, email: initialEmail || null });
   const email = session.email?.trim().toLowerCase() || initialEmail;
-  const canUsePayments = applicationApproved;
   const userId = session.userId ?? residentUserId;
   const { residentAxisId, profileManagerId, axisResolved } = useResidentPortalAxisContext();
   const { visibility, setVisible, reset } = useResidentDashboardVisibility(userId);
@@ -608,6 +607,7 @@ export function ResidentDashboard({
     applicationRows,
     serviceItems,
   } = data;
+  const canUsePayments = applicationApproved || pendingCharges.length > 0;
   const pendingApplicationRows = applicationRows.filter((r) => r.bucket === "pending");
   const pendingApplicationCount = pendingApplicationRows.length;
   const pendingTours = useMemo(

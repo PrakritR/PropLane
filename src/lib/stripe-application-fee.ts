@@ -2,6 +2,7 @@ import type Stripe from "stripe";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { APPLICATION_FEE_CHECKOUT_PURPOSE, axisAchCheckoutPaid } from "@/lib/stripe-axis-ach-checkout";
 import type { HouseholdCharge } from "@/lib/household-charges";
+import { cancelFuturePaymentRemindersForCharge } from "@/lib/payment-reminder-lifecycle.server";
 import { syncLedgerPaymentEntry } from "@/lib/reports/ledger-sync";
 
 export function includesHoldingDeposit(session: Stripe.Checkout.Session): boolean {
@@ -89,6 +90,9 @@ export async function markApplicationFeePaidFromStripeSession(
 
   if (upsertErr) return { ok: false };
   await syncLedgerPaymentEntry(db, nextCharge, now, session.id);
+  if (charge.managerUserId) {
+    await cancelFuturePaymentRemindersForCharge(db, charge.managerUserId, match.id as string).catch(() => undefined);
+  }
   return { ok: true, chargeId: match.id as string };
 }
 
@@ -179,5 +183,8 @@ export async function markApplicationDepositPaidFromStripeSession(
 
   if (upsertErr) return { ok: false };
   await syncLedgerPaymentEntry(db, nextCharge, now, session.id);
+  if (charge.managerUserId) {
+    await cancelFuturePaymentRemindersForCharge(db, charge.managerUserId, match.id as string).catch(() => undefined);
+  }
   return { ok: true, chargeId: match.id as string };
 }
