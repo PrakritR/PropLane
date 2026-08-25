@@ -286,6 +286,15 @@ export function TourScheduleFlow({
               ? ` · ${MONTHS[calMonth]} ${selectedDay}, ${calYear} · ${formatAvailabilitySlotLabel(selectedSlotIndex)}`
               : ""}
           </p>
+          {/*
+            A requested time reads like a booked one, so this says the opposite plainly. A guest
+            who travels to the property on an unconfirmed request finds nobody there — the same
+            warning is in the acknowledgment email.
+          */}
+          <p className="font-semibold" data-attr="tour-request-not-confirmed-notice">
+            This tour is not confirmed yet — please do not go to the property until you receive
+            your confirmation.
+          </p>
         </ProspectPublicSuccessBanner>
 
         {!signedInUserId ? (

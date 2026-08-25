@@ -97,6 +97,12 @@ export function buildTourRequestTenantBody(ctx: TourNotificationContext): string
   if (ctx.propertyAddress?.trim()) lines.push(`Address: ${ctx.propertyAddress.trim()}`);
   lines.push(
     "",
+    "This tour is NOT confirmed yet.",
+    // Said plainly and before anything else, because a requested time reads like a booked one.
+    // A guest who travels to a property on an unconfirmed request finds nobody there, and the
+    // manager only hears about it as a complaint.
+    "Please do not go to the property until you receive a confirmation email from us. The manager still has to approve this time, and they may offer a different one.",
+    "",
     "You will receive a separate confirmation email once the manager approves your tour time.",
   );
   if (ctx.createAccountUrl?.trim()) {

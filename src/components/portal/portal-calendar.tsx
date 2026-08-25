@@ -392,12 +392,18 @@ export function PortalCalendar({
         href: calendarViewHref(MANAGER_PORTAL_BASE, "services"),
         dataAttr: "calendar-tab-services",
       },
+      {
+        id: "bookings" as const,
+        label: "Bookings",
+        count: calendarTabCounts.bookings,
+        href: calendarViewHref(MANAGER_PORTAL_BASE, "bookings"),
+        dataAttr: "calendar-tab-bookings",
+      },
     ],
     [calendarTabCounts],
   );
 
-  // Bookings was retired; the view can no longer be selected.
-  const bookingsView = false;
+  const bookingsView = calendarView === "bookings";
   const showTourAvailability = calendarView === "tours";
   const showServiceVisits = calendarView === "services";
   const servicesOnlyView = calendarView === "services";

@@ -78,11 +78,13 @@ describe("portal-detail-routes", () => {
 
   it("parses calendar and team routed tabs", () => {
     expect(parseCalendarViewTab("services")).toBe("services");
-    // "bookings" was retired. It must still PARSE — an old bookmark or emailed link should land
-    // on tours rather than 404 — but it is no longer a view of its own.
-    expect(parseCalendarViewTab("bookings")).toBe("tours");
+    // Bookings is a view of its own again (it was briefly retired).
+    expect(parseCalendarViewTab("bookings")).toBe("bookings");
+    // Anything unrecognised still lands on tours rather than 404ing, so an old
+    // bookmark or emailed link keeps working.
     expect(parseCalendarViewTab("all")).toBe("tours");
     expect(parseCalendarViewTab("")).toBe("tours");
+    expect(parseCalendarViewTab("nonsense")).toBe("tours");
     expect(parseTeamLinkTab("linked")).toBe("linked");
     expect(parseTeamLinkTab(undefined)).toBe("pending");
   });

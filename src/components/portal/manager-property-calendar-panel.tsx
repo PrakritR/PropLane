@@ -39,7 +39,7 @@ export function ManagerPropertyCalendarPanel({
 }) {
   const subTabs = useMemo(
     () =>
-      // "bookings" retired — drive the strip off the canonical list so it cannot drift again.
+      // Drive the strip off the canonical list so the two tab sources cannot drift apart.
       PROPERTY_CALENDAR_SUB_TABS.map((id) => ({
         id,
         label: PROPERTY_CALENDAR_SUB_TAB_LABELS[id],

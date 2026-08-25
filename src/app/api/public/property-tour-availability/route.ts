@@ -8,6 +8,7 @@ import { googleEventBlocksTours } from "@/lib/google-calendar/busy";
 import { publicSchedulingHostLabel } from "@/lib/public-host-label";
 import { clientIpFrom, rateLimit } from "@/lib/rate-limit";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
+import { loadTourNoticeDaysByManager } from "@/lib/manager-tour-settings";
 import {
   DEFAULT_TOUR_HORIZON_DAYS,
   payloadSlots,
@@ -548,16 +549,25 @@ export async function GET(req: Request) {
       }
     }
 
+    // How much notice each manager requires before a tour. One batched read for the whole grid:
+    // this endpoint is anonymous and deliberately uncached, so a query per offering would be paid
+    // on every page load.
+    const { noticeDays: noticeDaysByManager } = await loadTourNoticeDaysByManager(
+      db,
+      availabilityManagerIds,
+    );
+
     const slotHosts: Record<string, PropertyManagerEntry[]> = {};
     for (const offering of offerings) {
       const managerUserId = offering.managerUserId;
+      const noticeDays = noticeDaysByManager.get(managerUserId) ?? 0;
       const host = {
         userId: managerUserId,
         label: labelByManagerId.get(managerUserId) ?? "Property manager",
         propertyId: offering.propertyId,
       };
       for (const slot of offering.slots) {
-        if (!slotIsBookable(slot)) continue;
+        if (!slotIsBookable(slot, Date.now(), noticeDays)) continue;
         if (slotBlocked(slot, blockedSlotsByManager.get(managerUserId) ?? [])) continue;
         const hosts = slotHosts[slot] ?? [];
         if (!hosts.some((item) => item.userId === host.userId)) {

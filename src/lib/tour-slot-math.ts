@@ -156,11 +156,70 @@ export function slotBlocked(slot: string, blocks: TourBlock[]): boolean {
   return blocks.some((block) => block.slotKey === slot || overlaps(slot, block));
 }
 
-/** Now-relative gate: a slot in the past can never be booked. */
-export function slotIsBookable(slot: string, now: number = Date.now()): boolean {
+/**
+ * How much notice a manager requires before a tour, in whole days. `0` means same-day tours are
+ * allowed; `3` means the soonest bookable day is three days after today.
+ *
+ * Deliberately CALENDAR days rather than 72 hours. A manager saying "I need three days' notice"
+ * means "nothing sooner than three days from today", and hour arithmetic makes that unpredictable
+ * — booking at 9am and at 11pm on the same day would offer different first days.
+ */
+export const TOUR_NOTICE_DAY_OPTIONS = [0, 1, 2, 3, 7] as const;
+export type TourNoticeDays = (typeof TOUR_NOTICE_DAY_OPTIONS)[number];
+export const DEFAULT_TOUR_NOTICE_DAYS = 0;
+
+/** Only a whole number of days inside the offered range counts; anything else means no notice. */
+export function normalizeTourNoticeDays(raw: unknown): number {
+  const n = typeof raw === "number" ? raw : Number(raw);
+  if (!Number.isFinite(n)) return DEFAULT_TOUR_NOTICE_DAYS;
+  const days = Math.floor(n);
+  if (days <= 0) return 0;
+  // Cap rather than reject: a stored value beyond the offered options still means "a lot of
+  // notice", and silently reading it as zero would open same-day tours the manager disallowed.
+  return Math.min(days, 30);
+}
+
+/**
+ * The soonest Pacific calendar date a tour may be booked on, as `"YYYY-MM-DD"`.
+ *
+ * The day shift is done on the calendar (`Date.UTC` on the date parts), never by adding
+ * `days * 86_400_000` to an instant: a DST day is 23 or 25 hours long, so instant arithmetic
+ * lands on the wrong date twice a year — exactly the class of bug this module's header warns about.
+ */
+export function earliestBookableTourDate(
+  noticeDays: number,
+  now: number = Date.now(),
+  timeZone: string = TOUR_CALENDAR_TIME_ZONE,
+): string {
+  const today = tourCalendarDateStr(now, timeZone);
+  const days = normalizeTourNoticeDays(noticeDays);
+  if (days === 0) return today;
+  const [year, month, day] = today.split("-").map(Number);
+  const shifted = new Date(Date.UTC(year!, month! - 1, day! + days));
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${shifted.getUTCFullYear()}-${pad(shifted.getUTCMonth() + 1)}-${pad(shifted.getUTCDate())}`;
+}
+
+/**
+ * Now-relative gate: a slot in the past can never be booked, and a slot inside the manager's
+ * required notice period can never be booked either.
+ *
+ * `noticeDays` defaults to 0, so every existing caller keeps today-onward behaviour.
+ */
+export function slotIsBookable(
+  slot: string,
+  now: number = Date.now(),
+  noticeDays: number = DEFAULT_TOUR_NOTICE_DAYS,
+): boolean {
   const startMs = slotStartMs(slot);
   if (startMs === null) return false;
-  return startMs >= now;
+  if (startMs < now) return false;
+  const days = normalizeTourNoticeDays(noticeDays);
+  if (days === 0) return true;
+  // A slotKey's date part is already the Pacific wall date, so this compares like with like —
+  // and ISO dates order lexicographically, so no Date is constructed from the slot.
+  const slotDate = slot.slice(0, slot.indexOf(":"));
+  return slotDate >= earliestBookableTourDate(days, now, TOUR_CALENDAR_TIME_ZONE);
 }
 
 /* -------------------------------------------------------------------------- */

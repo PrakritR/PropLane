@@ -94,20 +94,29 @@ export function parsePropertyDetailTab(raw: string | undefined | null): Property
 /**
  * Routed sub-views inside a property's Calendar tab.
  *
- * "bookings" was retired: it was a half-built surface the captain asked to remove so the flows
- * that matter (tours, applications, leases, communication, services) are not tested around it.
- * `parsePropertyCalendarSubTab` still ACCEPTS the old value and lands on tours, so a bookmarked
- * or emailed `/calendar/bookings` link redirects instead of 404ing.
+ * This list and {@link CALENDAR_VIEW_TABS} are the two canonical sources — the property strip maps
+ * this one rather than keeping its own copy, so the two cannot drift apart again.
+ *
+ * Bookings was briefly retired and is back by captain request; an unknown value still falls
+ * through to tours rather than 404ing, so old links keep working either way.
+ *
+ * Service visits are deliberately NOT a sub-tab here yet. The portfolio Calendar's Services view
+ * is manager-wide, and there is no property-scoped service-visit panel to point a tab at — adding
+ * the tab before the panel would render Bookings data under a Services label, which is worse than
+ * the tab being absent. Tracked as the remaining half of this request.
  */
-export const PROPERTY_CALENDAR_SUB_TABS = ["tours"] as const;
+export const PROPERTY_CALENDAR_SUB_TABS = ["tours", "bookings"] as const;
 export type PropertyCalendarSubTabId = (typeof PROPERTY_CALENDAR_SUB_TABS)[number];
 
 export const PROPERTY_CALENDAR_SUB_TAB_LABELS: Record<PropertyCalendarSubTabId, string> = {
   tours: "Tours",
+  bookings: "Bookings",
 };
 
-export function parsePropertyCalendarSubTab(_raw: string | undefined | null): PropertyCalendarSubTabId {
-  // Only one sub-view remains; a retired "bookings" link falls through to it rather than 404.
+export function parsePropertyCalendarSubTab(raw: string | undefined | null): PropertyCalendarSubTabId {
+  if (raw && (PROPERTY_CALENDAR_SUB_TABS as readonly string[]).includes(raw)) {
+    return raw as PropertyCalendarSubTabId;
+  }
   return "tours";
 }
 
@@ -169,13 +178,14 @@ export function residentPaymentDetailHref(
 }
 
 
-/** Routed calendar views (manager portal). "bookings" retired — see PROPERTY_CALENDAR_SUB_TABS. */
-export const CALENDAR_VIEW_TABS = ["tours", "services"] as const;
+/** Routed calendar views (manager portal). Kept in step with PROPERTY_CALENDAR_SUB_TABS. */
+export const CALENDAR_VIEW_TABS = ["tours", "services", "bookings"] as const;
 export type CalendarViewTabId = (typeof CALENDAR_VIEW_TABS)[number];
 
 export const CALENDAR_VIEW_TAB_LABELS: Record<CalendarViewTabId, string> = {
   tours: "Tours",
   services: "Service orders",
+  bookings: "Bookings",
 };
 
 export function parseCalendarViewTab(raw: string | undefined | null): CalendarViewTabId {
