@@ -2847,6 +2847,9 @@ export function ManagerResidents({
                                       setCheckrScreeningShowPicker(Boolean(opts?.showPackagePicker));
                                       setCheckrScreeningRowId(selectedApplicationRow.id);
                                     }}
+                                    omitReviewSections={
+                                      selectedApplicationCosigners.length > 0 ? ["cosigner"] : undefined
+                                    }
                                     className="min-h-0 flex-1"
                                   />
                                 </div>
