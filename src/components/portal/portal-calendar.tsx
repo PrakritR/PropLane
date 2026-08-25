@@ -710,7 +710,7 @@ export function PortalCalendar({
             // rescheduled, cancelled or deleted, instead of at the next reload.
             onMeetingsChanged={() => setCalendarRefreshSignal((n) => n + 1)}
             readOnly={portal === "manager" ? calendarPanelsReadOnly : false}
-            eventSummaryLabel={schedulingHub && servicesOnlyView ? "visit" : schedulingHub ? "tour" : "slot"}
+            eventSummaryLabel={schedulingHub && servicesOnlyView ? "visit" : schedulingHub ? "tour" : "event"}
             preferEventCountsInDayHeader
             anchorDate={calendarAnchorDate}
             onAnchorDateChange={setCalendarAnchorDate}

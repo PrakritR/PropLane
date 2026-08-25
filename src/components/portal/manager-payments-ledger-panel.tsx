@@ -114,7 +114,7 @@ function paymentReminderBadge(
     .sort()
     .map((iso) => formatScheduledSendAt(iso))[0];
   return (
-    <Badge variant="secondary" className="shrink-0 text-[10px] font-semibold uppercase tracking-wide">
+    <Badge tone="pending">
       Reminder {nextSend}
     </Badge>
   );
