@@ -2,7 +2,7 @@
 
 import { useEffect, useState, type ReactNode } from "react";
 import { SegmentedTwo } from "@/components/ui/segmented-control";
-import { ApplicationDocumentPreview } from "@/components/portal/manager-applications";
+import { ManagerApplicationReadonlyReview } from "@/components/portal/manager-application-readonly-review";
 import { ApplicationScreeningPanel } from "@/components/portal/application-screening-panel";
 import { ApplicationVerificationPhotos } from "@/components/portal/application-verification-photos";
 import { applicationShowsBackgroundCheck } from "@/lib/application-background-check";
@@ -26,6 +26,7 @@ export function ApplicationReviewLauncherRow({
   activeView: activeViewProp,
   onActiveViewChange,
   group = null,
+  omitReviewSections,
   className,
 }: {
   row: DemoApplicantRow;
@@ -39,6 +40,8 @@ export function ApplicationReviewLauncherRow({
   activeView?: ApplicationReviewView;
   onActiveViewChange?: (view: ApplicationReviewView) => void;
   group?: ApplicationGroup | null;
+  /** Skip answer cards already rendered above the Application / Background check toggle. */
+  omitReviewSections?: Array<"group" | "cosigner">;
   className?: string;
 }) {
   const showsScreening = applicationShowsBackgroundCheck(row);
@@ -79,19 +82,20 @@ export function ApplicationReviewLauncherRow({
               ? "flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto overscroll-contain [-webkit-overflow-scrolling:touch]"
               : "space-y-3"
           }
+          data-testid="application-readonly-review"
         >
-          <ApplicationDocumentPreview
-            row={row}
-            collapsible={false}
-            showDownload={showDownload}
-            variant="pdf"
-            downloadPlacement="bottom"
-            bareCanvas={bareCanvas}
-            stretch={false}
-            flow={stretch}
-            className={stretch ? "shrink-0" : undefined}
-            groupMembers={group?.members.filter((member) => member.id !== row.id) ?? []}
-          />
+          {row.application ? (
+            <ManagerApplicationReadonlyReview
+              partial={row.application}
+              assignedPropertyId={row.assignedPropertyId}
+              assignedRoomChoice={row.assignedRoomChoice}
+              omitSections={omitReviewSections}
+            />
+          ) : (
+            <p className="rounded-2xl border border-border bg-card px-4 py-8 text-center text-sm text-muted">
+              Application details are not available for this record.
+            </p>
+          )}
           <ApplicationVerificationPhotos row={row} />
         </section>
       ) : (

@@ -42,14 +42,36 @@ export function mergeApplicationLeaseDatesIntoResidentRow(
   };
 }
 
-async function mirrorResidentBillingToServer(managerUserId: string | null): Promise<void> {
+/**
+ * Push the rebuilt charges to the server, then refresh the local caches from it.
+ *
+ * The ORDER is the invariant and must not be relaxed: the mirror WRITE completes before any
+ * forced read, or a forced sync racing ahead of it pulls back the pre-edit rows and resurrects
+ * the stale payment rows the edit just replaced.
+ *
+ * The three reads afterwards are a different matter. They re-download state the client has
+ * already computed locally and just wrote, so nothing about the manager's next screen depends
+ * on them completing — which is why {@link persistResidentProfileEdit} waits for the write and
+ * lets the read-back settle on its own. Awaiting all four made one "Save resident" six sequential
+ * round trips on a free-tier project, which is the "saving takes forever" this splits apart.
+ */
+async function mirrorResidentBillingWrite(): Promise<void> {
   if (isDemoModeActive()) return;
   await mirrorHouseholdChargesToServerAwait();
-  await Promise.all([
+}
+
+function refreshResidentBillingReads(managerUserId: string | null): Promise<unknown> {
+  if (isDemoModeActive()) return Promise.resolve();
+  return Promise.all([
     syncManagerApplicationsFromServer({ force: true, managerUserId }),
     syncHouseholdChargesFromServer(true),
     syncLeasePipelineFromServer(managerUserId, { force: true }),
   ]);
+}
+
+async function mirrorResidentBillingToServer(managerUserId: string | null): Promise<void> {
+  await mirrorResidentBillingWrite();
+  await refreshResidentBillingReads(managerUserId);
 }
 
 function resolveResidentRow(input: { residentEmail: string; row?: DemoApplicantRow }): DemoApplicantRow | null {
@@ -204,8 +226,14 @@ export async function persistResidentProfileEdit(input: {
   writeManagerApplicationRows(rows);
 
   if (!isDemoModeActive()) {
-    await syncPropertyPipelineFromServer({ force: true });
-    const persisted = await upsertApplicationRowToServerAwait(nextRow);
+    // These two are independent and used to run back to back. The row being saved was already
+    // built by the caller, so the upsert does not read the property pipeline; the pipeline
+    // refresh is needed by `regenerateBillingForRow` below, which runs after both. Racing them
+    // removes a whole round trip from what the manager waits on.
+    const [, persisted] = await Promise.all([
+      syncPropertyPipelineFromServer({ force: true }),
+      upsertApplicationRowToServerAwait(nextRow),
+    ]);
     if (!persisted.ok) {
       return { ok: false, error: persisted.error ?? "Could not save resident." };
     }
@@ -215,7 +243,14 @@ export async function persistResidentProfileEdit(input: {
   }
 
   const sync = regenerateBillingForRow(nextRow, managerUserId);
-  await mirrorResidentBillingToServer(managerUserId);
+
+  // Wait for the WRITE, never the read-back. The charges must reach the server before this
+  // resolves — reporting "updated" for an edit still sitting in the browser is the failure this
+  // whole module exists to prevent. The refresh that follows only re-downloads what the local
+  // store already holds, so it is chained after the write (preserving the ordering invariant in
+  // `mirrorResidentBillingWrite`) and left to settle on its own.
+  await mirrorResidentBillingWrite();
+  void refreshResidentBillingReads(managerUserId);
 
   return { ok: true, sync };
 }

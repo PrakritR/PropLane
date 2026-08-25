@@ -99,7 +99,7 @@ import {
 } from "@/lib/rental-application/in-progress-application";
 import { isWithdrawnApplicationRow } from "@/lib/rental-application/resident-application-list";
 import { applicantDisplayName, applicantSecondaryEmail } from "@/lib/rental-application/applicant-name";
-import { groupIdForRow, groupRowInputForRow } from "@/components/portal/application-group-section";
+import { ApplicationGroupSection, groupIdForRow, groupRowInputForRow } from "@/components/portal/application-group-section";
 import { numberGroupsByHouse } from "@/lib/rental-application/group-house-label";
 import {
   ApplicationCosignerListRow,
@@ -1304,6 +1304,9 @@ export function ManagerApplications({
           }}
         />
       ) : null}
+      {group ? (
+        <ApplicationGroupSection group={group} bundleGroup={group} currentRowId={row.id} />
+      ) : null}
 
       <ApplicationReviewLauncherRow
         row={row}
@@ -1314,6 +1317,10 @@ export function ManagerApplications({
         onActiveViewChange={setApplicationReviewView}
         onScreeningUpdated={handleScreeningFlowComplete}
         onOpenScreeningModal={(opts) => openDetailScreeningModal(row, opts)}
+        omitReviewSections={[
+          ...(cosignerSubmissions.length > 0 ? (["cosigner"] as const) : []),
+          ...(group ? (["group"] as const) : []),
+        ]}
       />
 
     </>
