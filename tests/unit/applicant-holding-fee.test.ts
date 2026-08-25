@@ -12,12 +12,23 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import {
   findHoldingDepositCharge,
+  holdingDepositCreditCentsForApplication,
   markHouseholdChargePaid,
   readHouseholdCharges,
+  recordApprovedApplicationCharges,
   removeApplicantHoldingFee,
   removeResidentHouseholdPaymentData,
   setApplicantHoldingFee,
 } from "@/lib/household-charges";
+import { cachePublicExtraListings } from "@/lib/demo-property-pipeline";
+import {
+  createDefaultListingSubmission,
+  normalizeManagerListingSubmissionV1,
+} from "@/lib/manager-listing-submission";
+import type { MockProperty } from "@/data/types";
+import type { DemoApplicantRow } from "@/lib/manager-applications-storage";
+import { writeManagerApplicationRows } from "@/lib/manager-applications-storage";
+import { LISTING_ROOM_CHOICE_SEP } from "@/lib/rental-application/data";
 
 const EMAIL = "hold.applicant@test.proplane.local";
 const PROPERTY = "prop-holding-fee";
@@ -129,5 +140,108 @@ describe("removeApplicantHoldingFee", () => {
         applicationId: APP_ID,
       }).ok,
     ).toBe(true);
+  });
+});
+
+describe("holdingDepositCreditCentsForApplication", () => {
+  it("credits pending and paid holding deposits toward security deposit", () => {
+    setApplicantHoldingFee(base(500));
+    expect(holdingDepositCreditCentsForApplication(APP_ID)).toBe(50_000);
+
+    const created = setApplicantHoldingFee(base(500));
+    expect(created.ok).toBe(true);
+    if (!created.ok) return;
+    markHouseholdChargePaid(created.charge.id);
+    expect(holdingDepositCreditCentsForApplication(APP_ID)).toBe(50_000);
+  });
+
+  it("returns zero when there is no holding deposit", () => {
+    expect(holdingDepositCreditCentsForApplication(APP_ID)).toBe(0);
+  });
+});
+
+function seedApprovedListing(propertyId: string) {
+  let sub = createDefaultListingSubmission();
+  sub.rooms = [
+    {
+      ...sub.rooms[0]!,
+      id: "room-a",
+      name: "Room A",
+      monthlyRent: 825,
+      securityDeposit: "2000",
+      utilitiesEstimate: "0",
+      utilitiesPaymentModel: "manager_billed",
+    },
+  ];
+  sub.securityDeposit = "2000";
+  sub.moveInFee = "0";
+  const property: MockProperty = {
+    id: propertyId,
+    title: "Hold credit home",
+    managerUserId: "mgr-1",
+    listingSubmission: normalizeManagerListingSubmissionV1(sub),
+  };
+  cachePublicExtraListings([property]);
+}
+
+function approvedRow(propertyId: string): DemoApplicantRow {
+  const roomChoice = `Room A${LISTING_ROOM_CHOICE_SEP}room-a`;
+  return {
+    id: APP_ID,
+    name: "Hold Applicant",
+    email: EMAIL,
+    property: "Hold credit home",
+    propertyId,
+    assignedPropertyId: propertyId,
+    assignedRoomChoice: roomChoice,
+    bucket: "approved",
+    stage: "Approved",
+    managerUserId: "mgr-1",
+    application: {
+      propertyId,
+      roomChoice1: roomChoice,
+      leaseStart: "2026-08-01",
+      leaseEnd: "2027-07-31",
+      leaseTerm: "12 months",
+      fullLegalName: "Hold Applicant",
+    },
+  };
+}
+
+describe("holding fee security deposit credit at approval", () => {
+  beforeEach(() => {
+    window.sessionStorage.clear();
+    removeResidentHouseholdPaymentData(EMAIL);
+  });
+
+  it("reduces security deposit by a pending holding fee", () => {
+    const propertyId = "prop-hold-credit";
+    seedApprovedListing(propertyId);
+    setApplicantHoldingFee(base(500));
+
+    recordApprovedApplicationCharges(approvedRow(propertyId), "mgr-1", true);
+
+    const charges = readHouseholdCharges().filter((c) => c.residentEmail === EMAIL);
+    expect(charges.find((c) => c.kind === "holding_deposit")?.amountLabel).toBe("$500.00");
+    expect(charges.find((c) => c.kind === "security_deposit")?.amountLabel).toBe("$1,500.00");
+    expect(charges.find((c) => c.kind === "security_deposit")?.title).toMatch(/holding deposit credited/i);
+  });
+
+  it("re-syncs security deposit when holding fee changes after approval", () => {
+    const propertyId = "prop-hold-resync";
+    seedApprovedListing(propertyId);
+    const row = approvedRow(propertyId);
+    writeManagerApplicationRows([row]);
+    recordApprovedApplicationCharges(row, "mgr-1", true);
+    expect(
+      readHouseholdCharges().find((c) => c.kind === "security_deposit" && c.residentEmail === EMAIL)
+        ?.amountLabel,
+    ).toBe("$2,000.00");
+
+    setApplicantHoldingFee(base(500));
+    expect(
+      readHouseholdCharges().find((c) => c.kind === "security_deposit" && c.residentEmail === EMAIL)
+        ?.amountLabel,
+    ).toBe("$1,500.00");
   });
 });

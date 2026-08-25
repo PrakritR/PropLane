@@ -71,7 +71,34 @@ function sampleRow(overrides: Partial<DemoManagerPaymentLedgerRow> = {}): DemoMa
 }
 
 describe("ManagerPaymentsLedgerPanel", () => {
-  it("uses resident-style DataList cards on the main payments ledger", () => {
+  it("groups the main payments ledger by resident", () => {
+    const { container } = render(
+      <ManagerPaymentsLedgerPanel
+        rows={[
+          sampleRow({ id: "hc_a", chargeTitle: "Move-in cost" }),
+          sampleRow({ id: "hc_b", chargeTitle: "July rent" }),
+          sampleRow({
+            id: "hc_c",
+            residentName: "Jordan Lee",
+            residentEmail: "jordan@example.com",
+            chargeTitle: "Application fee",
+          }),
+        ]}
+        managerUserId="mgr-test"
+        activeBucket="pending"
+        direction="incoming"
+        onAddPayment={() => undefined}
+      />,
+    );
+
+    expect(container.querySelector('[data-attr="payments-resident-groups"]')).toBeTruthy();
+    expect(container.querySelectorAll('[data-attr="application-household-cluster"]')).toHaveLength(2);
+    expect(container.textContent).toContain("Maya Chen");
+    expect(container.textContent).toContain("Jordan Lee");
+    expect(container.textContent).toContain("2 charges");
+  });
+
+  it("uses charge-style DataList cards on the main payments ledger", () => {
     const { container } = render(
       <ManagerPaymentsLedgerPanel
         rows={[sampleRow()]}
@@ -85,7 +112,6 @@ describe("ManagerPaymentsLedgerPanel", () => {
     expect(container.querySelector('[data-slot="data-list"]')).toBeTruthy();
     expect(container.querySelector('[data-slot="data-list-mobile-row"]')).toBeTruthy();
     const mobileRow = container.querySelector('[data-slot="data-list-mobile-row"]');
-    expect(mobileRow?.textContent).toContain("Maya Chen");
     expect(mobileRow?.textContent).toContain("July rent");
     expect(mobileRow?.textContent).toContain("$1,850.00");
     expect(container.querySelector('[data-attr="payment-list-row"]')).toBeNull();

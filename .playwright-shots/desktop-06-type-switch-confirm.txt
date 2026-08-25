@@ -1,0 +1,2 @@
+browser confirm() shown on type switch with entered content:
+Switch promotion type? The content you've entered will be discarded.

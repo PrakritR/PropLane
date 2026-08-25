@@ -88,6 +88,7 @@ import {
   householdChargeToLedgerRow,
   readChargesForManagerResident,
   recordApprovedApplicationCharges,
+  removeAllApplicationCharges,
   removeResidentHouseholdPaymentData,
   syncHouseholdChargesFromServer,
   type HouseholdCharge,
@@ -1736,37 +1737,19 @@ export function ManagerResidents({
 
   const deleteApplicationForRow = async (row: DemoApplicantRow) => {
     if (!window.confirm(`Delete the application for ${row.name || row.email}? This cannot be undone.`)) return;
-    const email = row.email?.trim().toLowerCase();
     const nextRows = readManagerApplicationRows().filter((candidate) => candidate.id !== row.id);
     writeManagerApplicationRows(nextRows);
     setHcTick((n) => n + 1);
 
-    let serverError: string | null = null;
-    if (email || row.id) {
-      try {
-        const res = await fetch("/api/portal/delete-resident-access", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          credentials: "include",
-          body: JSON.stringify({ email, purgeData: true, applicationId: row.id }),
-        });
-        const body = (await res.json().catch(() => null)) as { error?: string } | null;
-        if (!res.ok) {
-          serverError = body?.error ?? "Could not delete application.";
-        }
-      } catch {
-        serverError = "Could not delete application.";
-      }
-    } else {
-      const result = await deleteManagerApplicationFromServer(row.id);
-      if (!result.ok) serverError = result.error ?? "Could not delete application.";
-    }
-
-    if (serverError) {
+    const result = await deleteManagerApplicationFromServer(row.id);
+    if (!result.ok) {
       void syncManagerApplicationsFromServer({ force: true, managerUserId: userId }).then(() => setHcTick((n) => n + 1));
-      showToast(serverError);
+      showToast(result.error ?? "Could not delete application.");
       return;
     }
+
+    removeAllApplicationCharges(row.id, userId ?? null);
+    deleteLeasePipelineRowsForResident("", row.id, userId ?? null);
 
     showToast("Application deleted.");
     navigate(`${portalBase}/residents/${residentsTab}`);
@@ -2852,6 +2835,9 @@ export function ManagerResidents({
                                       setCheckrScreeningShowPicker(Boolean(opts?.showPackagePicker));
                                       setCheckrScreeningRowId(selectedApplicationRow.id);
                                     }}
+                                    omitReviewSections={
+                                      selectedApplicationCosigners.length > 0 ? ["cosigner"] : undefined
+                                    }
                                     className="min-h-0 flex-1"
                                   />
                                 </div>

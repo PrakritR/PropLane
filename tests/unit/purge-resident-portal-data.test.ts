@@ -1,5 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
-import { purgeManagerPortalData, purgeResidentPortalData } from "@/lib/auth/purge-portal-account-data";
+import {
+  purgeApplicationPortalData,
+  purgeManagerPortalData,
+  purgeResidentPortalData,
+} from "@/lib/auth/purge-portal-account-data";
 
 vi.mock("@/lib/auth/purge-orphaned-co-manager-links", () => ({
   purgeCoManagerReferencesToUser: vi.fn(async () => undefined),
@@ -58,10 +62,8 @@ describe("purgeResidentPortalData", () => {
   });
 
   it("reclaims the application-documents photo bytes for every deleted application row (retention Option A)", async () => {
-    // The manager UI's Delete button routes through /api/portal/delete-resident-access
-    // → deleteResidentAccount → THIS purge — so this path, not only the
-    // /api/manager-applications delete action, must reclaim the applicant's
-    // private ID / income photo uploads when it hard-deletes the row.
+    // Full resident purge (delete resident from Residents tab) still reclaims
+    // photos for every application row tied to that email.
     const chain = mockDeleteChain();
     const { storage, removed } = mockStorage();
     const db = { from: vi.fn(() => chain), storage } as unknown as Parameters<typeof purgeResidentPortalData>[0];
@@ -73,6 +75,24 @@ describe("purgeResidentPortalData", () => {
     // The email lookup resolved application "app-1"; the explicit id was also passed.
     expect(folders).toContain("application/PROPLANE-APP1/idPhotoFront-1-abc.jpg");
     expect(folders).toContain("application/PROPLANE-DCA4B226/idPhotoFront-1-abc.jpg");
+  });
+});
+
+describe("purgeApplicationPortalData", () => {
+  it("purges only application-scoped rows and reclaims photos", async () => {
+    const chain = mockDeleteChain();
+    const { storage, removed } = mockStorage();
+    const db = { from: vi.fn(() => chain), storage } as unknown as Parameters<typeof purgeApplicationPortalData>[0];
+
+    await purgeApplicationPortalData(db, "PROPLANE-APP1");
+
+    const tables = db.from.mock.calls.map((call) => call[0]);
+    expect(tables).toContain("manager_application_records");
+    expect(tables).toContain("portal_household_charge_records");
+    expect(tables).toContain("screening_orders");
+    expect(tables).not.toContain("profiles");
+    expect(storage.from).toHaveBeenCalledWith("application-documents");
+    expect(removed.flatMap((r) => r.paths)).toContain("application/PROPLANE-APP1/idPhotoFront-1-abc.jpg");
   });
 });
 

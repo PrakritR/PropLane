@@ -38,7 +38,7 @@ import { buildManagerPropertyFilterOptions, MANAGER_PORTFOLIO_REFRESH_EVENTS } f
 import { buildManagerShareablePropertyOptions } from "@/lib/manager-property-links";
 import { ShareLeadLinkModal } from "@/components/portal/share-lead-link-modal";
 import { TourProposalsPanel } from "@/components/portal/tour-proposals-panel";
-import { TourReminderSettingsModal } from "@/components/portal/tour-reminder-settings-modal";
+import { ManagerPortalSettingsModal } from "@/components/portal/manager-portal-settings-modal";
 import { ManagerPortfolioBookingsCalendar } from "@/components/portal/manager-portfolio-bookings-calendar";
 import {
   leaseBookingEntriesForProperties,
@@ -95,7 +95,7 @@ export function PortalCalendar({
   const [propertyTick, setPropertyTick] = useState(0);
   const [propertiesLoading, setPropertiesLoading] = useState(false);
   const [shareTourModalOpen, setShareTourModalOpen] = useState(false);
-  const [tourReminderSettingsOpen, setTourReminderSettingsOpen] = useState(false);
+  const [calendarSettingsOpen, setCalendarSettingsOpen] = useState(false);
   const [coManagerPeers, setCoManagerPeers] = useState<CoManagerCalendarPeerDto[]>([]);
   const [shareAvailability, setShareAvailability] = useState(false);
   const [googleCalendarTick, setGoogleCalendarTick] = useState(0);
@@ -528,23 +528,23 @@ export function PortalCalendar({
       </Button>
     ) : null;
 
-  const calendarRemindersButton =
+  const calendarSettingsButton =
     portal === "manager" && showTourAvailability ? (
       <Button
         type="button"
         variant="outline"
         className={`shrink-0 ${PORTAL_HEADER_ACTION_BTN}`}
-        data-attr="calendar-tour-reminder-settings"
-        onClick={() => setTourReminderSettingsOpen(true)}
+        data-attr="calendar-settings-open"
+        onClick={() => setCalendarSettingsOpen(true)}
       >
-        Reminders
+        Settings
       </Button>
     ) : null;
 
   const calendarHeaderActions =
     portal === "manager" ? (
       <>
-        {calendarRemindersButton}
+        {calendarSettingsButton}
         {calendarGoogleCalendarButton}
         {calendarShareTourButton}
       </>
@@ -775,9 +775,10 @@ export function PortalCalendar({
           onChanged={() => setBookingsRefreshSignal((n) => n + 1)}
         />
       ) : null}
-      <TourReminderSettingsModal
-        open={tourReminderSettingsOpen}
-        onClose={() => setTourReminderSettingsOpen(false)}
+      <ManagerPortalSettingsModal
+        open={calendarSettingsOpen}
+        onClose={() => setCalendarSettingsOpen(false)}
+        initialTab="calendar"
       />
     </>
   );

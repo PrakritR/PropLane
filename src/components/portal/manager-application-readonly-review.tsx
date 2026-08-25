@@ -48,24 +48,29 @@ export function ManagerApplicationReadonlyReview({
   partial,
   assignedPropertyId,
   assignedRoomChoice,
+  omitSections,
 }: {
   partial: Partial<RentalWizardFormState>;
   assignedPropertyId?: string;
   assignedRoomChoice?: string;
+  /** Hide roster-style sections when the parent already shows household cards above the toggle. */
+  omitSections?: Array<"group" | "cosigner">;
 }) {
   const form: RentalWizardFormState = { ...createInitialRentalWizardState(), ...partial };
+  const omit = new Set(omitSections ?? []);
   const prop = getPropertyById(form.propertyId);
   const roomLabel = (id: string) => getRoomChoiceLabel(id);
   const assignedProperty = assignedPropertyId ? getPropertyById(assignedPropertyId) : undefined;
 
   return (
-    <div className="grid gap-5 xl:grid-cols-2 xl:gap-6">
+    <div className="grid gap-3 xl:grid-cols-2">
       {assignedPropertyId || assignedRoomChoice ? (
         <ReviewSection title="Manager final placement">
           <Row k="Assigned property" v={displayOrDash(assignedProperty?.title)} />
           <Row k="Assigned room" v={displayOrDash(roomLabel(assignedRoomChoice ?? ""))} />
         </ReviewSection>
       ) : null}
+      {!omit.has("group") ? (
       <ReviewSection title="Group application">
         <Row k="Applying as group" v={form.applyingAsGroup === "yes" ? "Yes" : form.applyingAsGroup === "no" ? "No" : "—"} />
         {form.applyingAsGroup === "yes" ? (
@@ -76,9 +81,12 @@ export function ManagerApplicationReadonlyReview({
           </>
         ) : null}
       </ReviewSection>
+      ) : null}
+      {!omit.has("cosigner") ? (
       <ReviewSection title="Co-signer">
         <Row k="Co-signer planned" v={form.hasCosigner === "yes" ? "Yes" : form.hasCosigner === "no" ? "No" : "—"} />
       </ReviewSection>
+      ) : null}
       <ReviewSection title="Property information">
         <Row k="Property" v={displayOrDash(prop?.title)} />
         {form.bundleId.trim() ? (

@@ -6,6 +6,10 @@ import { Modal } from "@/components/ui/modal";
 import { Input } from "@/components/ui/input";
 import { useAppUi } from "@/components/providers/app-ui-provider";
 import {
+  buildHoldingFeeNoticeBody,
+  deliverPortalInboxMessage,
+} from "@/lib/portal-message-delivery";
+import {
   findHoldingDepositCharge,
   removeApplicantHoldingFee,
   setApplicantHoldingFee,
@@ -93,6 +97,7 @@ export function ApplicationHoldingFeeBox({
     }
     setBusy(true);
     try {
+      const previousAmount = existing?.amountLabel;
       const result = setApplicantHoldingFee({
         residentEmail,
         residentName,
@@ -111,6 +116,28 @@ export function ApplicationHoldingFeeBox({
           ? "This holding fee is already paid — the amount was left unchanged."
           : `Holding fee of ${result.charge.amountLabel} added for ${result.charge.residentName}.`,
       );
+
+      const shouldNotify =
+        !result.alreadyPaid &&
+        residentEmail.includes("@") &&
+        result.charge.amountLabel !== previousAmount;
+      if (shouldNotify) {
+        const notice = await deliverPortalInboxMessage({
+          eventCategory: "payments",
+          toEmails: [residentEmail],
+          subject: `Holding fee due: ${result.charge.amountLabel}`,
+          text: buildHoldingFeeNoticeBody({
+            residentName: residentName.trim() || "there",
+            residentEmail,
+            amountLabel: result.charge.amountLabel,
+            propertyLabel: result.charge.propertyLabel,
+          }),
+        });
+        if (!notice.ok && notice.error) {
+          showToast(`Holding fee saved, but notice failed: ${notice.error}`);
+        }
+      }
+
       onChanged?.();
     } finally {
       setBusy(false);
@@ -155,8 +182,9 @@ export function ApplicationHoldingFeeBox({
         ) : null}
       </div>
       <p className={`${bare ? "" : "mt-1 "}text-xs text-muted`}>
-        Optional. It appears on their Payments tab straight away — the deposit and move-in fee are
-        only billed once you approve.
+        Optional. We notify the applicant and add it to their Payments tab right away. The same
+        amount credits toward their security deposit when you approve — deposit and move-in fee
+        charges are only billed at approval.
       </p>
 
       {paid ? (

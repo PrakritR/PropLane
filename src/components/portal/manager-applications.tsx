@@ -54,7 +54,7 @@ import {
 } from "@/components/portal/portal-list-add-row";
 import { CheckrScreeningModal } from "@/components/portal/checkr-screening-modal";
 import { ManagerScreeningSettingsButton, ManagerScreeningSettingsModal } from "@/components/portal/manager-screening-settings";
-import { ManagerApplicationSettingsModal } from "@/components/portal/manager-application-settings-modal";
+import { ManagerPortalSettingsModal } from "@/components/portal/manager-portal-settings-modal";
 import type { DemoApplicantRow, ManagerApplicationBucket } from "@/data/demo-portal";
 import type { ApplicationBackgroundCheck } from "@/lib/checkr/types";
 import {
@@ -99,7 +99,7 @@ import {
 } from "@/lib/rental-application/in-progress-application";
 import { isWithdrawnApplicationRow } from "@/lib/rental-application/resident-application-list";
 import { applicantDisplayName, applicantSecondaryEmail } from "@/lib/rental-application/applicant-name";
-import { groupIdForRow, groupRowInputForRow } from "@/components/portal/application-group-section";
+import { ApplicationGroupSection, groupIdForRow, groupRowInputForRow } from "@/components/portal/application-group-section";
 import { numberGroupsByHouse } from "@/lib/rental-application/group-house-label";
 import {
   ApplicationCosignerListRow,
@@ -129,18 +129,11 @@ import {
 import {
   findHoldingDepositCharge,
   removeAllApplicationCharges,
-  removeResidentHouseholdPaymentData,
   syncHouseholdChargesFromServer,
 } from "@/lib/household-charges";
 import {
   deleteLeasePipelineRowsForResident,
 } from "@/lib/lease-pipeline-storage";
-import {
-  deleteManagerWorkOrdersForResident,
-} from "@/lib/manager-work-orders-storage";
-import { deleteServiceRequestsForResident } from "@/lib/service-requests-storage";
-import { clearUploadedOwnLease } from "@/lib/resident-lease-upload";
-import { loadPersistedInbox, MANAGER_INBOX_STORAGE_KEY, persistInbox } from "@/lib/portal-inbox-storage";
 import {
   RESIDENT_WELCOME_EMAIL_SUBJECT,
   buildResidentWelcomeEmailBody,
@@ -909,36 +902,13 @@ export function ManagerApplications({
     showToast(msg);
   };
 
-  const purgeResidentLocalData = (residentEmail: string, applicationId: string) => {
-    const email = residentEmail.trim().toLowerCase();
-    if (!email) return;
-
-    removeResidentHouseholdPaymentData(residentEmail);
+  const purgeApplicationLocalData = (applicationId: string) => {
     removeAllApplicationCharges(applicationId, userId ?? null);
-    deleteLeasePipelineRowsForResident(residentEmail, applicationId, userId);
-    deleteManagerWorkOrdersForResident(residentEmail);
-    deleteServiceRequestsForResident(residentEmail);
-    clearUploadedOwnLease(residentEmail);
-
-    const allInbox = loadPersistedInbox(MANAGER_INBOX_STORAGE_KEY, []);
-    const deletedThreads = allInbox.filter((thread) => thread.email.trim().toLowerCase() === email);
-    persistInbox(
-      MANAGER_INBOX_STORAGE_KEY,
-      allInbox.filter((thread) => thread.email.trim().toLowerCase() !== email),
-    );
-    for (const thread of deletedThreads) {
-      void fetch("/api/portal-inbox-threads", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify({ action: "delete", id: thread.id }),
-      }).catch(() => undefined);
-    }
+    deleteLeasePipelineRowsForResident("", applicationId, userId ?? null);
   };
 
   const deleteApplication = async (id: string) => {
     const row = rows.find((candidate) => candidate.id === id);
-    const email = row?.email?.trim().toLowerCase();
     const nextRows = rows.filter((r) => r.id !== id);
 
     // Drop from the session cache as well as React state — `syncManagerApplicationsFromServer`
@@ -947,38 +917,14 @@ export function ManagerApplications({
     writeManagerApplicationRows(nextRows);
     setRows(nextRows);
 
-    let serverError: string | null = null;
-    if (email || id) {
-      try {
-        const res = await fetch("/api/portal/delete-resident-access", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          credentials: "include",
-          body: JSON.stringify({ email, purgeData: true, applicationId: id }),
-        });
-        const body = (await res.json().catch(() => null)) as { error?: string } | null;
-        if (!res.ok) {
-          serverError = body?.error ?? "Could not delete application and resident data.";
-        }
-      } catch {
-        serverError = "Could not delete application and resident data.";
-      }
-    } else {
-      const result = await deleteManagerApplicationFromServer(id);
-      if (!result.ok) serverError = result.error ?? "Could not delete application.";
-    }
-
-    if (serverError) {
+    const result = await deleteManagerApplicationFromServer(id);
+    if (!result.ok) {
       setRows(await syncManagerApplicationsFromServer({ managerUserId: userId }));
-      showToast(serverError);
+      showToast(result.error ?? "Could not delete application.");
       return;
     }
 
-    if (email) {
-      purgeResidentLocalData(email, id);
-    } else {
-      removeAllApplicationCharges(id, userId ?? null);
-    }
+    purgeApplicationLocalData(id);
 
     const [syncedRows] = await Promise.all([
       syncManagerApplicationsFromServer({ force: true, managerUserId: userId }),
@@ -990,11 +936,7 @@ export function ManagerApplications({
       navigate(applicationsListHref(bucket));
     }
 
-    showToast(
-      email
-        ? "Application deleted. Resident account, payments, documents, inbox, and services were removed."
-        : "Application deleted.",
-    );
+    showToast("Application deleted.");
   };
 
   const sendApplicationReminder = async (
@@ -1362,6 +1304,9 @@ export function ManagerApplications({
           }}
         />
       ) : null}
+      {group ? (
+        <ApplicationGroupSection group={group} bundleGroup={group} currentRowId={row.id} />
+      ) : null}
 
       <ApplicationReviewLauncherRow
         row={row}
@@ -1372,6 +1317,10 @@ export function ManagerApplications({
         onActiveViewChange={setApplicationReviewView}
         onScreeningUpdated={handleScreeningFlowComplete}
         onOpenScreeningModal={(opts) => openDetailScreeningModal(row, opts)}
+        omitReviewSections={[
+          ...(cosignerSubmissions.length > 0 ? (["cosigner"] as const) : []),
+          ...(group ? (["group"] as const) : []),
+        ]}
       />
 
     </>
@@ -1441,7 +1390,7 @@ export function ManagerApplications({
     </Button>
   );
 
-  const applicationsPromoButton = (
+  const applicationsSettingsButton = (
     <Button
       type="button"
       variant="outline"
@@ -1449,7 +1398,7 @@ export function ManagerApplications({
       data-attr="application-settings-open"
       onClick={() => setApplicationSettingsOpen(true)}
     >
-      Promo
+      Settings
     </Button>
   );
 
@@ -1494,15 +1443,15 @@ export function ManagerApplications({
           ),
         },
         {
-          id: "promo",
+          id: "settings",
           keepPriority: 2,
-          node: applicationsPromoButton,
+          node: applicationsSettingsButton,
           menuItem: (
             <DropdownMenuItem
               data-attr="application-settings-menu"
               onSelect={() => setApplicationSettingsOpen(true)}
             >
-              Promo
+              Settings
             </DropdownMenuItem>
           ),
         },
@@ -1766,9 +1715,10 @@ export function ManagerApplications({
       />
       <div className="mt-2 space-y-4 max-md:mt-3">
       <ManagerScreeningSettingsModal open={screeningModalOpen} onClose={() => setScreeningModalOpen(false)} />
-      <ManagerApplicationSettingsModal
+      <ManagerPortalSettingsModal
         open={applicationSettingsOpen}
         onClose={() => setApplicationSettingsOpen(false)}
+        initialTab="applications"
       />
       <CheckrScreeningModal
         key={checkrScreeningRowId ?? "none"}
