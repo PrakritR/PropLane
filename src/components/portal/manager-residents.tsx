@@ -176,6 +176,7 @@ import {
 } from "@/lib/service-requests-storage";
 import type { DemoApplicantRow, ManagerApplicationBucket, ManagerWorkOrderBucket } from "@/data/demo-portal";
 import { transitionApplicationBucket } from "@/lib/application-review";
+import { useApplicationAutomation } from "@/hooks/use-application-automation";
 import { isWithdrawnApplicationRow } from "@/lib/rental-application/resident-application-list";
 import {
   APPLICATION_COMPLETION_REMINDER_SUBJECT,
@@ -329,6 +330,7 @@ export function ManagerResidents({
   const navigate = usePortalNavigate();
   const portalBase = usePaidPortalBasePath();
   const { userId, email: managerEmail, ready: authReady } = useManagerUserId();
+  const applicationAutomation = useApplicationAutomation(userId);
   const {
     messages: scheduledPaymentMessages,
     settings: residentReminderSettings,
@@ -1708,6 +1710,9 @@ export function ManagerResidents({
     const result = await transitionApplicationBucket(id, nextBucket, {
       userId: userId ?? null,
       skipWelcomeEmail: opts?.skipWelcomeEmail,
+      // Without this a manager who switched automation on sees it do nothing when they approve
+      // from this surface.
+      automation: applicationAutomation,
     });
     if (!result) return;
     setHcTick((n) => n + 1);

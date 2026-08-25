@@ -73,6 +73,7 @@ import {
 import { buildManagerShareablePropertyOptions } from "@/lib/manager-property-links";
 import { syncPropertyPipelineFromServer, hasCachedPropertyPipeline } from "@/lib/demo-property-pipeline";
 import { transitionApplicationBucket } from "@/lib/application-review";
+import { useApplicationAutomation } from "@/hooks/use-application-automation";
 import { applicationShowsBackgroundCheck } from "@/lib/application-background-check";
 import { isDemoModeActive } from "@/lib/demo/demo-session";
 import {
@@ -514,6 +515,7 @@ export function ManagerApplications({
 }) {
   const { showToast } = useAppUi();
   const { userId, ready: authReady } = useManagerUserId();
+  const applicationAutomation = useApplicationAutomation(userId);
   const pathname = usePathname();
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -882,6 +884,9 @@ export function ManagerApplications({
     const result = await transitionApplicationBucket(id, nextBucket, {
       userId: userId ?? null,
       skipWelcomeEmail: opts?.skipWelcomeEmail,
+      // Without this a manager who switched automation on sees it do nothing when they approve
+      // from this surface.
+      automation: applicationAutomation,
     });
     if (!result) return;
     setRows(readManagerApplicationRows());
