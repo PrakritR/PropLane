@@ -8,6 +8,8 @@ import {
 } from "@/lib/household-charges";
 import { isDemoModeActive } from "@/lib/demo/demo-session";
 import { isWithdrawnApplicationRow } from "@/lib/rental-application/resident-application-list";
+import type { ApplicationAutomationPreferences } from "@/lib/application-automation-preferences";
+import type { ApplicationAutomationResult } from "@/lib/application-automation-run.client";
 
 export function stageLabelForApplicationBucket(bucket: ManagerApplicationBucket): string {
   if (bucket === "approved") return "Approved";
@@ -63,6 +65,8 @@ export type ApplicationBucketTransition = {
   /** Set when the transition did NOT take effect; local state has been rolled back. */
   blocked?: "withdrawn" | "error";
   message?: string;
+  /** What the manager's enabled post-approval automation did, when any is on. */
+  automation?: ApplicationAutomationResult;
 };
 
 type ResidentApprovalRefusal = {
@@ -138,7 +142,15 @@ function rollbackApprovedTransition(
 export async function transitionApplicationBucket(
   id: string,
   nextBucket: ManagerApplicationBucket,
-  opts: { userId: string | null; skipWelcomeEmail?: boolean },
+  opts: {
+    userId: string | null;
+    skipWelcomeEmail?: boolean;
+    /**
+     * The manager's saved automation flags. Omitted (the default) means fully manual — the
+     * approval behaves exactly as it did before automation existed.
+     */
+    automation?: ApplicationAutomationPreferences;
+  },
 ): Promise<ApplicationBucketTransition | null> {
   const rows = readManagerApplicationRows();
   const row = rows.find((r) => r.id === id);
@@ -233,5 +245,34 @@ export async function transitionApplicationBucket(
     welcomeSent = welcome.status === "sent";
   }
 
-  return { row: updatedRow, welcomeSent };
+  // Post-approval automation runs ONLY here, after every rollback path above has been passed —
+  // so the server has confirmed the approval and the lease row exists. Firing it earlier could
+  // generate and send a lease for an approval the server then refused.
+  //
+  // The runner is imported DYNAMICALLY and only when a step is actually enabled. It reaches the
+  // whole lease-pipeline module, and a static import would pull that entire graph into every
+  // approval — including the fully-manual one this feature is not meant to touch.
+  let automation: ApplicationAutomationResult | undefined;
+  const wantsAutomation =
+    opts.automation && (opts.automation.autoGenerateLease || opts.automation.autoSendLease);
+  if (nextBucket === "approved" && opts.automation && wantsAutomation) {
+    try {
+      const { runPostApprovalAutomation } = await import("@/lib/application-automation-run.client");
+      automation = await runPostApprovalAutomation({
+        applicationId: id,
+        residentEmail: updatedRow.email ?? "",
+        managerUserId: opts.userId ?? null,
+        prefs: opts.automation,
+        // Read here rather than trusting a caller to pass it: a surface that forgets would write
+        // real rows from /demo.
+        isDemo: isDemoModeActive(),
+        isWithdrawn: isWithdrawnApplicationRow(updatedRow),
+      });
+    } catch {
+      // Automation is a convenience on top of a completed approval. A failure here must not
+      // report the approval itself as failed — the manager can still generate and send by hand.
+    }
+  }
+
+  return { row: updatedRow, welcomeSent, automation };
 }
