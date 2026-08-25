@@ -100,8 +100,8 @@ export default function PrivacyPolicyPage() {
               Message and data rates may apply. Reply STOP to unsubscribe at any time, or HELP for help.
             </p>
             <p className="mt-2 font-medium text-foreground">
-              Mobile opt-in information and consent will not be shared with third parties or affiliates for marketing
-              purposes.
+              Mobile phone numbers, opt-in information, and consent will not be shared, sold, or transferred to
+              third parties or affiliates for marketing or promotional purposes.
             </p>
             <p className="mt-2">
               We retain records of your SMS consent (the wording you agreed to, and when) for as long as required to

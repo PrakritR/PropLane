@@ -102,8 +102,8 @@ export default function SmsConsentPage() {
               <Link href="/sms-terms" className="font-medium text-primary hover:opacity-90">
                 SMS Terms of Service
               </Link>
-              . Mobile opt-in data and consent are not shared with third parties or affiliates for marketing
-              purposes.
+              . Mobile phone numbers, opt-in data, and consent are not shared, sold, or transferred to third
+              parties or affiliates for marketing or promotional purposes.
             </p>
           </section>
         </div>
