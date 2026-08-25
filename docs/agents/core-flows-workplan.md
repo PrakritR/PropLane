@@ -23,8 +23,13 @@ Scope agreed with the captain on 2026-08-21. Everything outside this list is exp
   legacy rewrites, because `stripe` -> `payments` would otherwise land inside a deferred section.
   Guard: `tests/unit/deferred-sections-sealed.test.ts`. Bringing Payments back is deleting one
   entry from that set. Payment *reminders* are part of this deferral.
-- **Bookings** — remove the tab. It appears in the calendar segmented control
-  (Tours / Service orders / Bookings).
+- ~~**Bookings** — remove the tab.~~ **REVERSED 2026-08-25 by captain request:** Bookings is a
+  routed view again on the portfolio Calendar and on a property's Calendar tab. The panels were
+  never deleted, only the routing, so restoring it was restoring two constant lists plus the
+  `const bookingsView = false` literal. Guard: `tests/unit/calendar-view-tabs-render.test.ts`.
+  A property-level **Services** sub-tab is the remaining half of that request and is deliberately
+  NOT wired: the services calendar is manager-wide and there is no property-scoped service-visit
+  panel, so the tab would render Bookings data under a Services label. Build the panel first.
 - **Promotion** — leave exactly as is.
 
 ## Environment
@@ -170,3 +175,72 @@ Do NOT record "applications are broken" — nothing in the flow failed.
 Tours (closest to done) -> Applications -> Leases -> Communication -> Services -> Properties tabs.
 Lock Payments and remove Bookings early: both are small, and they shrink the surface everything
 else has to be tested against.
+
+
+## 2026-08-25 — lease accuracy, automation, tour notice
+
+### Lease "random charges" — root cause found and fixed
+
+The reported lease quoted utilities $200, move-in $300 and deposit $800 for a room whose listing
+record carried none of those, and whose manager overrides were all empty strings.
+
+The figures were not fabricated by the template — a bare listing correctly renders "—" for every
+one of them, verified by rendering it. They belonged to a **different room**.
+`resolveSubmissionRoom` is the single decision the lease document AND the charge ledger both price
+from, and when the room id does not match it walks a cascade of looser fallbacks. Three could
+return the wrong room rather than no room:
+
+- the label pass fell back to a substring compare, and `"room 10".includes("room 1")` is true, so
+  the Room 1 resident was priced at Room 10's rent and deposit;
+- a substring compare matching several rooms took whichever the array listed first, so the answer
+  depended on room ordering;
+- a listing with exactly one room handed that room over even when the application named a
+  different one — which is what a stale local catalog does after room ids are regenerated.
+
+Fixed so a numeric room name must match on its number, an ambiguous match is refused, and an
+application naming an unknown room stops before the shape-based guesses. Returning nothing is the
+safe failure: "—" reads as not-set and gets corrected; a confident figure from someone else's room
+gets signed. Guard: `tests/unit/listing-room-resolution-wrong-room.test.ts`.
+
+**Short-term pricing was already correct** — a 10-night stay at $50/night renders $50.00 per day,
+$500.00 total, deposit $250.00, total due $750.00. The wrong-room resolver was what made nightly
+rates look wrong.
+
+**Worth knowing:** only 2 of 10 production `manager_property_records` carry a `submission` at all.
+Lease generation reads the manager's browser-side listing catalog, so the server-side record is
+usually a thin projection. Anything that tries to generate or re-price a lease server-side has
+nothing to read.
+
+### Application → lease automation
+
+Three per-manager switches, all off by default, on
+`manager_automation_settings.row_data.applicationAutomation` (no migration — that table always has
+a `row_data` JSON column): auto-approve, auto-generate the lease on approval, auto-send it.
+
+`shouldAutomate` is the one decision and every manual-path guard still runs: withdrawn
+applications, /demo, already-done steps, and `leaseSendGateBlocker` with its own message. The send
+gate is judged on the row AFTER generation — asking it before is asking "may I send this?" of a row
+with no document.
+
+**Auto-approve has a switch but no trigger yet.** It needs a decision about when an unattended
+approval fires (approval is browser-side, so it would run when the manager's Applications tab
+loads). That decision is the captain's, not a plumbing gap.
+
+### Tour notice period
+
+A manager can require N days' notice. `slotIsBookable` takes an optional `noticeDays` defaulting to
+0, so existing callers are unchanged. CALENDAR days, not 72 hours — "three days' notice" must mean
+the same first day at 9am and at 11pm. The shift is done on the Pacific calendar date, never by
+adding 86_400_000ms, because a DST day is 23 or 25 hours; covered across the Nov 1 fall-back.
+The public availability route batches one read for all host managers and **fails open** on error:
+losing the notice window beats a prospect who cannot book at all.
+
+Guests are now told plainly, in the acknowledgment email and the in-app success banner, that the
+tour is NOT confirmed and not to travel to the property until confirmation arrives.
+
+### Still open
+
+- Auto-approve trigger (above).
+- Property-level Services calendar sub-tab (needs a property-scoped panel).
+- Two long-standing red unit guards, unrelated to this work: `manager-inbox-search`,
+  `manager-inbox-resident-scope-selection`.
