@@ -4,7 +4,7 @@
 
 import { resolveEmailLinkBaseUrl } from "@/lib/app-url";
 import { formatPacificDateTime } from "@/lib/pacific-time";
-import { appendResidentPropertyManagerInboxMessage } from "@/lib/property-manager-inbox-thread.server";
+import { appendResidentPropertyManagerInboxMessage, appendManagerPropertyLeadInboxMessage } from "@/lib/property-manager-inbox-thread.server";
 import { sendPropLaneSms } from "@/lib/proplane-sms-transport.server";
 import { sendResidentOutboundSms } from "@/lib/resident-outbound-sms.server";
 import { shouldSkipOutboundEmail } from "@/lib/portal-sandbox-accounts";
@@ -310,6 +310,8 @@ export async function notifyManagerTourRequest(
 
   const subject = TOUR_REQUEST_MANAGER_SUBJECT;
   const text = buildTourRequestManagerBody(ctx);
+  const guestEmail = textField(inquiry as Record<string, unknown>, "email").trim().toLowerCase();
+  if (!guestEmail.includes("@")) return { ok: false, error: "Guest email is required." };
 
   const recipientIds = await resolvePropertyLeadRecipientIds(db, {
     ownerManagerUserId: managerUserId,
@@ -319,14 +321,12 @@ export async function notifyManagerTourRequest(
   if (recipients.length === 0) return { ok: false, error: "Manager email not found." };
 
   for (const recipient of recipients) {
-    await upsertInboxThread(db, {
-      scope: MANAGER_INBOX_SCOPE,
-      ownerUserId: recipient.userId,
-      participantEmail: recipient.email,
-      folder: "inbox",
-      fromName: "PropLane Tours",
-      fromEmail: "tours@axis.local",
-      toLine: recipient.email,
+    await appendManagerPropertyLeadInboxMessage(db, recipient.userId, {
+      propertyId,
+      propertyTitle: ctx.propertyTitle || "Property",
+      prospectName: ctx.guestName || "Guest",
+      prospectEmail: guestEmail,
+      topic: "Tour request",
       subject,
       body: text,
     });

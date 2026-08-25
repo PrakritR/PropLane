@@ -27,9 +27,11 @@ row must never carry `aiDraft`.
 ## Flow
 
 1. **Generate** — on inbox sync, `manager-inbox.tsx` auto-requests a draft for
-   each incoming inbox-folder thread from a resident that has no draft and no
-   manager reply yet (`POST /api/portal/inbox-draft-reply`). Idempotent: a second
-   call returns the cached draft. The route stores the draft on the manager row.
+   each incoming inbox-folder thread that still needs a manager reply
+   (`inboxThreadManagerReplyPending`) (`POST /api/portal/inbox-draft-reply`).
+   Idempotent: a second call returns the cached draft. The route stores the draft
+   on the manager row. Resident follow-ups in `messages` (`outbound: false`) still
+   qualify; only a manager outbound turn closes drafting.
 2. **Approve & Send** — reuses the existing reply path (`handleReply` →
    `/api/portal/send-inbox-message` with `threadId` + `toEmails`), which appends
    the reply to the manager thread and delivers a resident inbox row. The client

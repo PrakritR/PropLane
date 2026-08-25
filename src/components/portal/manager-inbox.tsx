@@ -29,6 +29,7 @@ import {
   inboxThreadSortMs,
   appendReplyToInboxThread,
   collapsePersonInboxThreads,
+  inboxThreadManagerReplyPending,
   resolveCollapsedInboxThread,
   inboxThreadCounterpartyEmail,
   type InboxAiDraft,
@@ -105,10 +106,7 @@ type InboxThread = {
 };
 
 function threadEligibleForAiDraft(thread: InboxThread): boolean {
-  if (thread.folder !== "inbox") return false;
-  // `messages` holds manager replies only — draft when the resident message is unanswered.
-  if ((thread.messages ?? []).length > 0) return false;
-  return Boolean(thread.body?.trim());
+  return inboxThreadManagerReplyPending(thread);
 }
 
 /** Search deliberately skips the trash folder; say so rather than letting a
@@ -1156,6 +1154,12 @@ export const ManagerInbox = forwardRef<
           delete next[threadId];
           return next;
         });
+      } else if (data.ok && data.skip) {
+        setDraftErrors((prev) => {
+          const next = { ...prev };
+          delete next[threadId];
+          return next;
+        });
       } else if (!data.ok && data.error) {
         setDraftErrors((prev) => ({ ...prev, [threadId]: data.error ?? "Could not draft reply." }));
       }
@@ -1596,7 +1600,8 @@ export const ManagerInbox = forwardRef<
                 autoSend={aiAutoSend}
                 onAutoSendChange={setAiAutoSend}
                 onGenerate={
-                  discardedDraftIds.has(activeThread.id) || draftErrors[activeThread.id]
+                  threadEligibleForAiDraft(activeThread) &&
+                  activeThread.aiDraft?.status !== "pending_approval"
                     ? () => {
                         draftAttemptedRef.current.delete(activeThread.id);
                         void requestInboxAiDraft(activeThread.id, true);

@@ -40,6 +40,7 @@ vi.mock("@/lib/portal-inbox-storage", () => ({
   collapsePersonInboxThreads: (threads: unknown[]) => threads,
   resolveCollapsedInboxThread: (id: string | null, collapsed: Array<{ id: string }>) => collapsed.find((t) => t.id === id) ?? null,
   inboxThreadCounterpartyEmail: (t: { email?: string }) => t.email ?? "",
+  inboxThreadManagerReplyPending: () => true,
   mergeInboxRowsWithLocalTrash: (rows: unknown[]) => rows,
   countUnopenedPersistedInbox: () => 0,
   beginInboxMutation: () => {},

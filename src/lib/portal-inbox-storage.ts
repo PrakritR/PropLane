@@ -420,15 +420,60 @@ export function inboxThreadSortMs(id: string, activityTime?: string | null): num
   return 0;
 }
 
+/** PropLane system senders — never a real conversation counterparty. */
+const INBOX_SYSTEM_COUNTERPARTY_EMAILS = new Set(["tours@axis.local"]);
+
+/** Guest email embedded in a tour-request manager notification body. */
+export function parseTourNotificationGuestEmail(body: string): string {
+  const match = body.match(/Guest:\s*(?:[^\n(]+)?\(([^)\s]+@[^)\s]+)\)/i);
+  return match?.[1]?.trim().toLowerCase() ?? "";
+}
+
 /** Stable resident/counterparty key for collapsing duplicate person-threads. */
 export function inboxThreadCounterpartyEmail(
-  thread: Pick<PersistedInboxThread, "email" | "from">,
+  thread: Pick<PersistedInboxThread, "email" | "from" | "body">,
 ): string {
   const email = String(thread.email ?? "").trim().toLowerCase();
-  if (email.includes("@")) return email;
+  if (email.includes("@") && !INBOX_SYSTEM_COUNTERPARTY_EMAILS.has(email)) return email;
+  const fromBody = parseTourNotificationGuestEmail(String(thread.body ?? ""));
+  if (fromBody.includes("@")) return fromBody;
   const from = String(thread.from ?? "").trim().toLowerCase();
   if (from.includes("@")) return from;
   return email;
+}
+
+/** Whether a thread turn is outbound from the inbox owner's perspective. */
+export function inboxMessageOutbound(
+  message: InboxThreadMessage,
+  index: number,
+  folder: PersistedInboxThread["folder"],
+): boolean {
+  return message.outbound ?? (index === 0 ? folder === "sent" : true);
+}
+
+/**
+ * True when an inbox-folder thread still needs a manager reply — the latest
+ * turn is inbound and no manager outbound turn follows it. `messages` holds
+ * both resident follow-ups (outbound: false) and manager replies (default
+ * outbound), so a non-empty array does NOT mean the manager already answered.
+ */
+export function inboxThreadManagerReplyPending(
+  thread: Pick<PersistedInboxThread, "folder" | "body" | "messages" | "rootOutbound">,
+): boolean {
+  if (thread.folder !== "inbox") return false;
+  const turns = inboxThreadMessages(thread as PersistedInboxThread);
+  if (turns.length === 0) return Boolean(thread.body?.trim());
+
+  let lastInboundIndex = -1;
+  for (let i = 0; i < turns.length; i++) {
+    if (!inboxMessageOutbound(turns[i]!, i, thread.folder)) lastInboundIndex = i;
+  }
+  if (lastInboundIndex < 0) return false;
+
+  for (let i = lastInboundIndex + 1; i < turns.length; i++) {
+    if (inboxMessageOutbound(turns[i]!, i, thread.folder)) return false;
+  }
+  return true;
 }
 
 /** Resolve a collapsed person-thread id for deep-linking Communication from another surface. */
