@@ -137,6 +137,7 @@ export async function createServiceRequestFromResidentSms(args: {
       senderEmail: residentEmail,
       senderName: residentName,
       managerUserId,
+      propertyId: propertyId || undefined,
       title,
       description: text,
     }).catch(() => undefined);

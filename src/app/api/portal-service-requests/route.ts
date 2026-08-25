@@ -10,7 +10,11 @@ import {
   repairServiceRequestScopesForManager,
   shouldRunScopeRepair,
 } from "@/lib/repair-service-request-scopes.server";
-import { notifyManagerOfResidentFiledItem } from "@/lib/work-order-notification.server";
+import {
+  notifyManagerOfResidentFiledItem,
+  notifyManagersOfManagerAuthoredItem,
+  notifyResidentOfManagerAuthoredItem,
+} from "@/lib/work-order-notification.server";
 
 export const runtime = "nodejs";
 
@@ -311,19 +315,45 @@ export async function POST(req: Request) {
       .upsert(record, { onConflict: "id" });
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
     const managerUserId = record.manager_user_id;
-    if (!preExisting && !actor.admin && role === "resident" && managerUserId) {
-      // New resident-submitted request → Axis inbox + email + SMS to manager.
+    if (!preExisting && !actor.admin && managerUserId) {
+      const rowData = record.row_data as ServiceRequest;
       const title = stamped.offerName?.trim() || "Add-on service";
       const description = stamped.notes?.trim() || stamped.offerDescription?.trim();
-      await notifyManagerOfResidentFiledItem(db, {
-        kind: "service-request",
-        senderUserId: actor.userId,
-        senderEmail: actor.email,
-        senderName: stamped.residentName?.trim() || undefined,
-        managerUserId,
-        title,
-        description: description || undefined,
-      }).catch(() => undefined);
+      const propertyId = stamped.propertyId?.trim() || undefined;
+      if (role === "resident") {
+        await notifyManagerOfResidentFiledItem(db, {
+          kind: "service-request",
+          senderUserId: actor.userId,
+          senderEmail: actor.email,
+          senderName: stamped.residentName?.trim() || undefined,
+          managerUserId,
+          propertyId,
+          title,
+          description: description || undefined,
+        }).catch(() => undefined);
+      } else {
+        await notifyManagersOfManagerAuthoredItem(db, {
+          kind: "service-request",
+          senderUserId: actor.userId,
+          senderEmail: actor.email,
+          ownerManagerUserId: managerUserId,
+          propertyId,
+          title,
+          description: description || undefined,
+          residentName: stamped.residentName?.trim() || rowData.residentName?.trim() || undefined,
+        }).catch(() => undefined);
+        const residentEmail = stamped.residentEmail?.trim().toLowerCase();
+        if (residentEmail?.includes("@")) {
+          await notifyResidentOfManagerAuthoredItem(db, {
+            kind: "service-request",
+            senderUserId: actor.userId,
+            senderEmail: actor.email,
+            residentEmail,
+            title,
+            description: description || undefined,
+          }).catch(() => undefined);
+        }
+      }
     }
     return NextResponse.json({ ok: true, row: record.row_data });
   } catch (e) {

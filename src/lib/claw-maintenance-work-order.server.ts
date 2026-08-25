@@ -240,6 +240,7 @@ export async function createWorkOrderFromResidentSms(args: {
       senderEmail: residentEmail,
       senderName: ctx.residentName,
       managerUserId,
+      propertyId: ctx.assignedPropertyId ?? ctx.propertyId ?? undefined,
       title,
       description: text,
       propertyLabel: ctx.propertyName,

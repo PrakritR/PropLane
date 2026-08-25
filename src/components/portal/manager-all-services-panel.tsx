@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { usePortalNavigate } from "@/lib/portal-nav-client";
 import {
@@ -51,11 +51,7 @@ import { getRoomChoiceLabel } from "@/lib/rental-application/data";
 import { ManagerCreateServiceRequestModal } from "@/components/portal/manager-create-service-request-modal";
 import { ManagerEditServiceRequestsModal } from "@/components/portal/manager-edit-service-requests-modal";
 import { ManagerCreateWorkOrderModal } from "@/components/portal/manager-create-work-order-modal";
-import {
-  ManagerVendorsPanel,
-  ManagerVendorsToolbar,
-  type ManagerVendorsPanelHandle,
-} from "@/components/portal/manager-vendors-panel";
+import { PortalEmptyState } from "@/components/portal/portal-empty-state";
 import { useAppUi } from "@/components/providers/app-ui-provider";
 import { Button } from "@/components/ui/button";
 import { DestinationNav } from "@/components/ui/destination-nav";
@@ -113,8 +109,13 @@ export function ManagerAllServicesPanel({
   const [addRequestOpen, setAddRequestOpen] = useState(false);
   const [editServiceRequestsOpen, setEditServiceRequestsOpen] = useState(false);
   const [addWorkOrderOpen, setAddWorkOrderOpen] = useState(false);
-  const vendorsPanelRef = useRef<ManagerVendorsPanelHandle>(null);
   const typeFilter: FilterType = tabId;
+
+  useEffect(() => {
+    if (vendorIdProp && typeFilter === "vendors") {
+      navigate(`${basePath}/services/vendors`);
+    }
+  }, [vendorIdProp, typeFilter, basePath, navigate]);
 
   const propertyOptions = useMemo(() => {
     void propertyTick;
@@ -345,6 +346,7 @@ export function ManagerAllServicesPanel({
         {
           id: "vendors",
           label: "Vendors",
+          shortLabel: "Soon",
           href: `${basePath}/services/vendors`,
           dataAttr: "manager-services-tab-vendors",
         },
@@ -371,13 +373,7 @@ export function ManagerAllServicesPanel({
   };
 
   const servicesAddButton =
-    typeFilter === "vendors" ? (
-      <ManagerVendorsToolbar
-        onCatalog={() => vendorsPanelRef.current?.openCatalog()}
-        onDefaults={() => vendorsPanelRef.current?.openDefaults()}
-        onAdd={() => vendorsPanelRef.current?.openAddVendor()}
-      />
-    ) : typeFilter === "requests" ? (
+    typeFilter === "vendors" ? null : typeFilter === "requests" ? (
       <div className="flex w-full shrink-0 flex-col gap-2 md:w-auto md:flex-row md:items-center">
         <Button
           type="button"
@@ -499,7 +495,7 @@ export function ManagerAllServicesPanel({
   }
 
   if (vendorIdProp && typeFilter === "vendors") {
-    return <ManagerVendorsPanel ref={vendorsPanelRef} embedded vendorId={vendorIdProp} listBasePath={basePath} />;
+    return null;
   }
 
   const activeBucketId =
@@ -549,7 +545,10 @@ export function ManagerAllServicesPanel({
         }
       />
       {typeFilter === "vendors" ? (
-        <ManagerVendorsPanel ref={vendorsPanelRef} embedded listBasePath={basePath} />
+        <PortalEmptyState
+          icon="vendor"
+          title="Vendor management is coming soon. Use Work orders and Requests for maintenance and add-on services."
+        />
       ) : typeFilter === "work-orders" ? (
         <ManagerWorkOrdersPanel
           allRows={filteredWorkOrders}

@@ -2,6 +2,7 @@ import "server-only";
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { residentSmsLinkOrigin } from "@/lib/claw-resident-links";
+import { resolvePropertyScopedManagerRecipientIds } from "@/lib/co-manager-notification-recipients.server";
 import { deliverPortalInboxMessage } from "@/lib/portal-inbox-delivery";
 import type { NotificationCategory } from "@/lib/notification-preferences";
 
@@ -105,6 +106,19 @@ export async function notifyWorkOrderEvent(
  * Resident filed a work order or add-on service request → manager gets Axis inbox,
  * email, and SMS (when the manager has a phone on file).
  */
+async function resolveServiceNotificationRecipientIds(
+  db: SupabaseClient,
+  input: { ownerManagerUserId: string; propertyId?: string },
+): Promise<string[]> {
+  const ownerManagerUserId = input.ownerManagerUserId.trim();
+  if (!ownerManagerUserId) return [];
+  return resolvePropertyScopedManagerRecipientIds(db, {
+    ownerManagerUserId,
+    propertyId: input.propertyId?.trim() || undefined,
+    channel: "services",
+  });
+}
+
 export async function notifyManagerOfResidentFiledItem(
   db: SupabaseClient,
   input: {
@@ -113,6 +127,7 @@ export async function notifyManagerOfResidentFiledItem(
     senderEmail: string;
     senderName?: string;
     managerUserId: string;
+    propertyId?: string;
     title: string;
     description?: string;
     propertyLabel?: string;
@@ -120,6 +135,12 @@ export async function notifyManagerOfResidentFiledItem(
 ): Promise<void> {
   const managerUserId = input.managerUserId.trim();
   if (!managerUserId) return;
+
+  const recipientIds = await resolveServiceNotificationRecipientIds(db, {
+    ownerManagerUserId: managerUserId,
+    propertyId: input.propertyId,
+  });
+  if (recipientIds.length === 0) return;
 
   const kindLabel = input.kind === "service-request" ? "add-on service" : "work order";
   const title = input.title.trim() || (input.kind === "service-request" ? "Add-on service" : "Work order");
@@ -138,8 +159,97 @@ export async function notifyManagerOfResidentFiledItem(
     text: description,
     title,
     propertyLabel: input.propertyLabel,
-    toUserIds: [managerUserId],
+    toUserIds: recipientIds,
     audience: "manager",
+    itemKind: input.kind,
+  });
+}
+
+/** Manager logged a work order or add-on service on a resident's behalf → owner + co-managers. */
+export async function notifyManagersOfManagerAuthoredItem(
+  db: SupabaseClient,
+  input: {
+    kind: ResidentFiledItemKind;
+    senderUserId: string;
+    senderEmail: string;
+    senderName?: string;
+    ownerManagerUserId: string;
+    propertyId?: string;
+    title: string;
+    description?: string;
+    propertyLabel?: string;
+    residentName?: string;
+  },
+): Promise<void> {
+  const ownerManagerUserId = input.ownerManagerUserId.trim();
+  if (!ownerManagerUserId) return;
+
+  const recipientIds = await resolveServiceNotificationRecipientIds(db, {
+    ownerManagerUserId,
+    propertyId: input.propertyId,
+  });
+  if (recipientIds.length === 0) return;
+
+  const kindLabel = input.kind === "service-request" ? "add-on service" : "work order";
+  const title = input.title.trim() || (input.kind === "service-request" ? "Add-on service" : "Work order");
+  const residentRef = input.residentName?.trim() ? ` for ${input.residentName.trim()}` : "";
+  const at = input.propertyLabel?.trim() ? ` at ${input.propertyLabel.trim()}` : "";
+  const description =
+    input.description?.trim() ||
+    `A new ${kindLabel} "${title}"${residentRef}${at} was logged in Services.`;
+
+  await notifyWorkOrderEvent(db, {
+    event: "created",
+    senderUserId: input.senderUserId,
+    senderEmail: input.senderEmail,
+    senderName: input.senderName,
+    subject: `New ${kindLabel}: ${title}`,
+    text: description,
+    title,
+    propertyLabel: input.propertyLabel,
+    toUserIds: recipientIds,
+    audience: "manager",
+    itemKind: input.kind,
+  });
+}
+
+/** Best-effort notice to the resident when a manager opens a service item on their behalf. */
+export async function notifyResidentOfManagerAuthoredItem(
+  db: SupabaseClient,
+  input: {
+    kind: ResidentFiledItemKind;
+    senderUserId: string;
+    senderEmail: string;
+    senderName?: string;
+    residentEmail: string;
+    title: string;
+    description?: string;
+    propertyLabel?: string;
+  },
+): Promise<void> {
+  const residentEmail = input.residentEmail.trim().toLowerCase();
+  if (!residentEmail.includes("@")) return;
+
+  const kindLabel = input.kind === "service-request" ? "add-on service" : "work order";
+  const title = input.title.trim() || (input.kind === "service-request" ? "Add-on service" : "Work order");
+  const portalPath =
+    input.kind === "service-request" ? "/resident/services/requests" : "/resident/services/work-orders";
+
+  await notifyWorkOrderEvent(db, {
+    event: "created",
+    senderUserId: input.senderUserId,
+    senderEmail: input.senderEmail,
+    senderName: input.senderName,
+    subject: `${kindLabel[0]!.toUpperCase()}${kindLabel.slice(1)} opened: ${title}`,
+    text:
+      input.description?.trim() ||
+      `Your property manager logged a ${kindLabel} "${title}"${
+        input.propertyLabel?.trim() ? ` at ${input.propertyLabel.trim()}` : ""
+      }. Sign in to your resident portal (${portalPath}) to view updates.`,
+    title,
+    propertyLabel: input.propertyLabel,
+    toEmails: [residentEmail],
+    audience: "resident",
     itemKind: input.kind,
   });
 }
