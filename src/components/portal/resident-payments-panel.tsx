@@ -211,9 +211,15 @@ export function ResidentPaymentsPanel({
 
   const paymentsUnlocked = useMemo(() => {
     void applicationTick;
+    void tick;
     if (!email) return false;
-    return applicationsForResidentEmail(email).some((row) => row.bucket === "approved");
-  }, [applicationTick, email]);
+    if (applicationsForResidentEmail(email).some((row) => row.bucket === "approved")) return true;
+    // Manager-added residents and anyone with live charges should reach Payments even
+    // before an application row exists in the local cache.
+    return readChargesForResident(email, userId).some(
+      (c) => c.status === "pending" || c.status === "processing" || c.status === "paid",
+    );
+  }, [applicationTick, email, tick, userId]);
 
   useEffect(() => {
     if (isStripeResidentPayMethod(paymentMethod) && !availablePaymentMethods.includes(paymentMethod)) {
@@ -269,6 +275,11 @@ export function ResidentPaymentsPanel({
 
   const availableManualChannels = useMemo(
     () => availableManualChannelsForCharges(unpaidPayableCharges),
+    [unpaidPayableCharges],
+  );
+
+  const totalDueCents = useMemo(
+    () => unpaidPayableCharges.reduce((sum, charge) => sum + centsFromLabel(charge.balanceLabel), 0),
     [unpaidPayableCharges],
   );
 
@@ -1305,6 +1316,27 @@ export function ResidentPaymentsPanel({
         <PortalDataTableEmpty icon="payment" message="No charges yet." variant="stacked" />
       ) : (
         <>
+          {totalDueCents > 0 ? (
+            <div
+              className="mb-4 flex flex-col gap-3 rounded-2xl border border-border bg-card p-4 sm:flex-row sm:items-center sm:justify-between"
+              data-attr="resident-payments-balance-due"
+            >
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-wide text-muted">Balance due</p>
+                <p className="text-2xl font-bold tabular-nums text-foreground">{formatUsd(totalDueCents)}</p>
+                <p className="mt-1 text-sm text-muted">
+                  {unpaidPayableCharges.length} charge{unpaidPayableCharges.length === 1 ? "" : "s"} ready to pay
+                  {availableManualChannels.length > 0
+                    ? ` · ${availableManualChannels.map((c) => residentManualPaymentMethodLabel(c)).join(" · ")} available`
+                    : ""}
+                </p>
+              </div>
+              <p className="text-xs leading-relaxed text-muted sm:max-w-xs">
+                Select charges below or use <span className="font-semibold text-foreground">Pay all</span> to settle
+                everything in one checkout.
+              </p>
+            </div>
+          ) : null}
           {showBulkCheckoutBar && checkout ? (
             <div className="mb-4 rounded-xl border border-border bg-card p-3 sm:p-4">
               {renderCheckoutBlock(

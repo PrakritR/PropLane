@@ -1,7 +1,7 @@
 // A deferred section must be unreachable by URL, not merely hidden in the nav.
 //
-// Locking `payments` in `portalNavLockKind` stops the sidebar row from navigating, but that is
-// only the door. Typing `/portal/payments`, following an old bookmark, or clicking a link in an
+// Locking a section in `portalNavLockKind` stops the sidebar row from navigating, but that is
+// only the door. Typing `/portal/<section>`, following an old bookmark, or clicking a link in an
 // older email still rendered the half-built surface the lock exists to keep people out of —
 // and AGENTS.md is explicit that a locked row must never point at a path the server still
 // serves. `renderPortalSection` closes the server half.
@@ -16,32 +16,30 @@ import { DEFERRED_SECTIONS, portalNavLockKind } from "@/lib/portals/nav-locks";
 const RENDERER = readFileSync(join(process.cwd(), "src/lib/render-portal-section.tsx"), "utf8");
 
 describe("deferred sections", () => {
-  it("payments is deferred", () => {
-    expect(DEFERRED_SECTIONS.has("payments")).toBe(true);
+  it("has no deferred sections while payments is live", () => {
+    expect(DEFERRED_SECTIONS.has("payments")).toBe(false);
+    expect(DEFERRED_SECTIONS.size).toBe(0);
   });
 
-  it("is locked inert for every role and plan", () => {
+  it("does not inert-lock payments for any role or plan", () => {
     for (const kind of ["manager", "pro", "resident"] as const) {
       for (const tier of ["free", "paid", null] as const) {
-        expect(portalNavLockKind({ kind, section: "payments", subscriptionTier: tier })).toBe("inert");
+        expect(portalNavLockKind({ kind, section: "payments", subscriptionTier: tier })).toBe("none");
       }
     }
   });
 
   it("does not lock anything it was not asked to", () => {
-    // A deferral must not quietly take out a neighbouring section.
-    for (const section of ["dashboard", "leases", "applications", "communication", "services"]) {
+    for (const section of ["dashboard", "leases", "applications", "communication", "services", "payments"]) {
       expect(portalNavLockKind({ kind: "manager", section, subscriptionTier: "paid" })).toBe("none");
     }
   });
 
-  it("the renderer redirects a deferred section away", () => {
+  it("the renderer still guards deferred sections when the set is non-empty", () => {
     expect(RENDERER).toContain("DEFERRED_SECTIONS.has(section)");
   });
 
   it("redirects BEFORE the legacy rewrites, so nothing can land inside a deferred section", () => {
-    // `stripe` -> `payments` is exactly that case: an earlier redirect targeting a section that
-    // is now deferred. The guard only holds if it runs first.
     const guard = RENDERER.indexOf("DEFERRED_SECTIONS.has(section)");
     const stripeRewrite = RENDERER.indexOf('section === "stripe"');
     const financesRewrite = RENDERER.indexOf('section === "finances"');

@@ -32,16 +32,14 @@ describe("portal nav lock kinds", () => {
       });
 
       it(`${kind}: free-tier sections are not locked at all`, () => {
-        // "payments" is deliberately absent: it is a DEFERRED section now, locked inert for
-        // every viewer and every plan until the flows around it are finished.
-        for (const section of ["dashboard", "properties", "applications", "calendar", "profile"]) {
+        for (const section of ["dashboard", "properties", "applications", "calendar", "profile", "payments"]) {
           expect(portalNavLockKind({ kind, section, subscriptionTier: "free" })).toBe("none");
         }
       });
 
-      it(`${kind}: payments stays locked even on a paid plan (deferred, not a tier gate)`, () => {
-        expect(portalNavLockKind({ kind, section: "payments", subscriptionTier: "paid" })).toBe("inert");
-        expect(portalNavLockKind({ kind, section: "payments", subscriptionTier: "free" })).toBe("inert");
+      it(`${kind}: payments is reachable on paid plans (not deferred)`, () => {
+        expect(portalNavLockKind({ kind, section: "payments", subscriptionTier: "paid" })).toBe("none");
+        expect(portalNavLockKind({ kind, section: "payments", subscriptionTier: "free" })).toBe("none");
       });
 
       it(`${kind}: nothing is locked on a paid plan`, () => {
