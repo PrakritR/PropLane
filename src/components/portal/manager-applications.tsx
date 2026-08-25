@@ -54,7 +54,7 @@ import {
 } from "@/components/portal/portal-list-add-row";
 import { CheckrScreeningModal } from "@/components/portal/checkr-screening-modal";
 import { ManagerScreeningSettingsButton, ManagerScreeningSettingsModal } from "@/components/portal/manager-screening-settings";
-import { ManagerApplicationSettingsModal } from "@/components/portal/manager-application-settings-modal";
+import { ManagerPortalSettingsModal } from "@/components/portal/manager-portal-settings-modal";
 import type { DemoApplicantRow, ManagerApplicationBucket } from "@/data/demo-portal";
 import type { ApplicationBackgroundCheck } from "@/lib/checkr/types";
 import {
@@ -1390,7 +1390,7 @@ export function ManagerApplications({
     </Button>
   );
 
-  const applicationsPromoButton = (
+  const applicationsSettingsButton = (
     <Button
       type="button"
       variant="outline"
@@ -1398,7 +1398,7 @@ export function ManagerApplications({
       data-attr="application-settings-open"
       onClick={() => setApplicationSettingsOpen(true)}
     >
-      Promo
+      Settings
     </Button>
   );
 
@@ -1443,15 +1443,15 @@ export function ManagerApplications({
           ),
         },
         {
-          id: "promo",
+          id: "settings",
           keepPriority: 2,
-          node: applicationsPromoButton,
+          node: applicationsSettingsButton,
           menuItem: (
             <DropdownMenuItem
               data-attr="application-settings-menu"
               onSelect={() => setApplicationSettingsOpen(true)}
             >
-              Promo
+              Settings
             </DropdownMenuItem>
           ),
         },
@@ -1715,9 +1715,10 @@ export function ManagerApplications({
       />
       <div className="mt-2 space-y-4 max-md:mt-3">
       <ManagerScreeningSettingsModal open={screeningModalOpen} onClose={() => setScreeningModalOpen(false)} />
-      <ManagerApplicationSettingsModal
+      <ManagerPortalSettingsModal
         open={applicationSettingsOpen}
         onClose={() => setApplicationSettingsOpen(false)}
+        initialTab="applications"
       />
       <CheckrScreeningModal
         key={checkrScreeningRowId ?? "none"}

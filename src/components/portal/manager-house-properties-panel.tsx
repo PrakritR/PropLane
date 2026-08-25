@@ -25,7 +25,7 @@ import { ManagerPropertyPromotionPanel } from "@/components/portal/manager-prope
 import { ManagerPropertyCalendarPanel } from "@/components/portal/manager-property-calendar-panel";
 import { ConfirmDeleteModal } from "@/components/portal/confirm-delete-modal";
 import { ShareLeadLinkModal } from "@/components/portal/share-lead-link-modal";
-import { TourReminderSettingsModal } from "@/components/portal/tour-reminder-settings-modal";
+import { ManagerPortalSettingsModal } from "@/components/portal/manager-portal-settings-modal";
 import { PortalPageFooterActions, PortalSectionActionRow } from "@/components/portal/portal-section-action-row";
 import { PortalPageChrome, PortalPageScrollBody } from "@/lib/portal-page-chrome-layout";
 import { cn } from "@/lib/utils";
@@ -297,7 +297,7 @@ function ManagerPropertyInlineDetails({
   const [listingEditorOpen, setListingEditorOpen] = useState(false);
   const [draftEditorOpen, setDraftEditorOpen] = useState(false);
   const [shareApplicationOpen, setShareApplicationOpen] = useState(false);
-  const [tourReminderSettingsOpen, setTourReminderSettingsOpen] = useState(false);
+  const [portalSettingsOpen, setPortalSettingsOpen] = useState(false);
   const [residentOnboardOpen, setResidentOnboardOpen] = useState(false);
   const [pendingDestructiveAction, setPendingDestructiveAction] = useState<
     "delete-queue" | "delete-draft" | "unlist" | null
@@ -852,24 +852,24 @@ function ManagerPropertyInlineDetails({
         <PortalAdaptiveActionRow
           actions={[
             {
-              id: "tour-reminders",
+              id: "calendar-settings",
               node: (
                 <Button
                   type="button"
                   variant="outline"
                   className={PORTAL_DETAIL_BTN}
-                  data-attr="property-calendar-tour-reminder-settings"
-                  onClick={() => setTourReminderSettingsOpen(true)}
+                  data-attr="property-calendar-settings"
+                  onClick={() => setPortalSettingsOpen(true)}
                 >
-                  Reminders
+                  Settings
                 </Button>
               ),
               menuItem: (
                 <DropdownMenuItem
-                  data-attr="property-calendar-tour-reminder-settings-menu"
-                  onSelect={() => setTourReminderSettingsOpen(true)}
+                  data-attr="property-calendar-settings-menu"
+                  onSelect={() => setPortalSettingsOpen(true)}
                 >
-                  Reminders
+                  Settings
                 </DropdownMenuItem>
               ),
             },
@@ -1174,9 +1174,10 @@ function ManagerPropertyInlineDetails({
         />
       ) : null}
 
-      <TourReminderSettingsModal
-        open={tourReminderSettingsOpen}
-        onClose={() => setTourReminderSettingsOpen(false)}
+      <ManagerPortalSettingsModal
+        open={portalSettingsOpen}
+        onClose={() => setPortalSettingsOpen(false)}
+        initialTab="calendar"
       />
     </div>
   );
