@@ -53,6 +53,40 @@ describe("resolvePropertyScopedManagerRecipientIds", () => {
     ).resolves.toEqual(["owner-1", "co-1"]);
   });
 
+  it("includes co-managers with services access on the property", async () => {
+    const db = {
+      from: vi.fn(() => ({
+        select: vi.fn(() => ({
+          eq: vi.fn(() => ({
+            eq: vi.fn(async () => ({
+              data: [
+                {
+                  invitee_user_id: "co-services",
+                  assigned_property_ids: ["prop-a"],
+                  property_co_manager_permissions: { "prop-a": { services: true } },
+                },
+                {
+                  invitee_user_id: "co-inbox-only",
+                  assigned_property_ids: ["prop-a"],
+                  property_co_manager_permissions: { "prop-a": { inbox: true } },
+                },
+              ],
+              error: null,
+            })),
+          })),
+        })),
+      })),
+    } as unknown as Parameters<typeof resolvePropertyScopedManagerRecipientIds>[0];
+
+    await expect(
+      resolvePropertyScopedManagerRecipientIds(db, {
+        ownerManagerUserId: "owner-1",
+        propertyId: "prop-a",
+        channel: "services",
+      }),
+    ).resolves.toEqual(["owner-1", "co-services"]);
+  });
+
   it("unions inbox and calendar co-managers for property leads", async () => {
     const linkRows = [
       {

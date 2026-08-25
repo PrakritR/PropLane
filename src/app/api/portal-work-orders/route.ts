@@ -12,6 +12,7 @@ import {
 } from "@/lib/repair-service-request-scopes.server";
 import {
   notifyManagerOfResidentFiledItem,
+  notifyManagersOfManagerAuthoredItem,
   notifyWorkOrderEvent,
 } from "@/lib/work-order-notification.server";
 import type { WorkOrderRowWithDispatch } from "@/lib/work-order-dispatch";
@@ -325,9 +326,34 @@ async function notifyManagerOfCreatedWorkOrder(
     senderEmail: actor.email,
     senderName: row.residentName?.trim() || undefined,
     managerUserId: mid,
+    propertyId: row.assignedPropertyId?.trim() || row.propertyId?.trim() || undefined,
     title,
     description: row.description?.trim() || undefined,
     propertyLabel: row.propertyName?.trim() || undefined,
+  }).catch(() => undefined);
+}
+
+/** Manager-filed work order → owner + co-managers with Services access. Never throws. */
+async function notifyManagersOfManagerCreatedWorkOrder(
+  db: Db,
+  actor: Actor,
+  row: DemoManagerWorkOrderRow,
+  managerUserId: string | null | undefined,
+): Promise<void> {
+  if (actor.admin || actor.role === "resident") return;
+  const ownerId = managerUserId?.trim() || row.managerUserId?.trim() || actor.userId;
+  if (!ownerId) return;
+  const title = row.title?.trim() || "Work order";
+  await notifyManagersOfManagerAuthoredItem(db, {
+    kind: "work-order",
+    senderUserId: actor.userId,
+    senderEmail: actor.email,
+    ownerManagerUserId: ownerId,
+    propertyId: row.assignedPropertyId?.trim() || row.propertyId?.trim() || undefined,
+    title,
+    description: row.description?.trim() || undefined,
+    propertyLabel: row.propertyName?.trim() || undefined,
+    residentName: row.residentName?.trim() || undefined,
   }).catch(() => undefined);
 }
 
@@ -465,6 +491,7 @@ export async function POST(req: Request) {
           if (!existing) {
             await notifyResidentOfCreatedWorkOrder(db, actor, stamped);
             await notifyManagerOfCreatedWorkOrder(db, actor, stamped, persisted.manager_user_id);
+            await notifyManagersOfManagerCreatedWorkOrder(db, actor, stamped, persisted.manager_user_id);
           }
           maybePrepareDispatch(existing, stamped.id);
           await maybeSyncWorkOrderGoogleCalendar(existing, persisted);
@@ -524,6 +551,7 @@ export async function POST(req: Request) {
     if (!existing) {
       await notifyResidentOfCreatedWorkOrder(db, actor, stamped);
       await notifyManagerOfCreatedWorkOrder(db, actor, stamped, persisted.manager_user_id);
+      await notifyManagersOfManagerCreatedWorkOrder(db, actor, stamped, persisted.manager_user_id);
     }
     maybePrepareDispatch(existing, stamped.id);
     await maybeSyncWorkOrderGoogleCalendar(existing, persisted);

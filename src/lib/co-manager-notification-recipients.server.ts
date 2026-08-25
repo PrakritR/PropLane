@@ -10,7 +10,7 @@ import type { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 
 type ServiceClient = ReturnType<typeof createSupabaseServiceRoleClient>;
 
-export type CoManagerNotificationChannel = "inbox" | "calendar";
+export type CoManagerNotificationChannel = "inbox" | "calendar" | "services";
 
 function channelPermission(channel: CoManagerNotificationChannel): CoManagerPermissionId {
   return channel;
