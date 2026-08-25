@@ -105,8 +105,8 @@ export default function SmsTermsPage() {
               <Link href="/privacy" className="font-medium text-primary hover:opacity-90">
                 Privacy Policy
               </Link>{" "}
-              describes how we handle your information. Mobile opt-in information and consent will not be shared with
-              third parties or affiliates for marketing purposes.
+              describes how we handle your information. Mobile phone numbers, opt-in information, and consent will not be
+              shared, sold, or transferred to third parties or affiliates for marketing or promotional purposes.
             </p>
           </section>
 
