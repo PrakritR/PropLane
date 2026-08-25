@@ -52,14 +52,11 @@ import {
   type BulkPaymentReminderPreviewItem,
 } from "@/components/portal/portal-notification-preview-modal";
 import {
-  ChargeRemindersModal,
   cancelFutureRemindersForPaidCharge,
-  patchScheduledMessage,
   restoreFutureRemindersForPendingCharge,
-  summarizeChargeReminders,
 } from "@/components/portal/payment-schedule-ui";
 import type { ScheduledPaymentMessage } from "@/lib/scheduled-payment-messages";
-import { manageableRemindersForCharge } from "@/lib/scheduled-payment-messages";
+import { manageableRemindersForCharge, formatScheduledSendAt } from "@/lib/scheduled-payment-messages";
 import { paymentReminderRecipientLabel } from "@/lib/payment-reminder-ui";
 import { buildManualPaymentInstructionLines, buildPaymentReminderBody } from "@/lib/manual-payment-instructions";
 import {
@@ -93,7 +90,34 @@ function paymentReminderLabel(
   if (!row.householdChargeId || isPaidRow(row)) return null;
   const reminders = manageableRemindersForCharge(scheduledMessages, row.householdChargeId);
   if (!reminders.length) return null;
-  return summarizeChargeReminders(reminders);
+  const scheduled = reminders.filter((message) => message.status === "scheduled");
+  if (scheduled.length) {
+    const sends = scheduled.map((message) => formatScheduledSendAt(message.sendAt)).join(", ");
+    return `Reminders scheduled: ${sends}`;
+  }
+  const active = reminders.filter((message) => message.status !== "cancelled");
+  if (active.length) return "Reminders paused";
+  return null;
+}
+
+function paymentReminderBadge(
+  row: DemoManagerPaymentLedgerRow,
+  scheduledMessages: ScheduledPaymentMessage[],
+): ReactNode | null {
+  if (!row.householdChargeId || isPaidRow(row)) return null;
+  const scheduled = manageableRemindersForCharge(scheduledMessages, row.householdChargeId).filter(
+    (message) => message.status === "scheduled",
+  );
+  if (!scheduled.length) return null;
+  const nextSend = scheduled
+    .map((message) => message.sendAt)
+    .sort()
+    .map((iso) => formatScheduledSendAt(iso))[0];
+  return (
+    <Badge variant="secondary" className="shrink-0 text-[10px] font-semibold uppercase tracking-wide">
+      Reminder {nextSend}
+    </Badge>
+  );
 }
 
 function dueDateDisplayToInputValue(display: string): string {
@@ -191,7 +215,6 @@ export function ManagerPaymentsLedgerPanel({
   const [sendingReminderId, setSendingReminderId] = useState<string | null>(null);
   const [reminderPreview, setReminderPreview] = useState<{ row: DemoManagerPaymentLedgerRow; subject: string; body: string } | null>(null);
   const [bulkReminderPreview, setBulkReminderPreview] = useState<BulkPaymentReminderPreviewItem[] | null>(null);
-  const [chargeRemindersRow, setChargeRemindersRow] = useState<DemoManagerPaymentLedgerRow | null>(null);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
 
   const selectedRows = useMemo(
@@ -807,7 +830,6 @@ export function ManagerPaymentsLedgerPanel({
     const canEdit = Boolean(row.householdChargeId && !isPaidRow(row));
     const editing = canEdit && editingRowId === row.id;
     const showSendReminder = !isPaidRow(row);
-    const showScheduleReminders = !isPaidRow(row) && Boolean(row.householdChargeId);
     const showMoveToPending = activeBucket === "paid";
     const btnClass = RESIDENT_DETAIL_HEADER_ACTION_BTN;
 
@@ -848,18 +870,6 @@ export function ManagerPaymentsLedgerPanel({
       </Button>
     ) : null;
 
-    const scheduleRemindersButton = showScheduleReminders ? (
-      <Button
-        type="button"
-        variant="outline"
-        className={btnClass}
-        data-attr="payments-schedule-reminders"
-        onClick={() => setChargeRemindersRow(row)}
-      >
-        Schedule reminders
-      </Button>
-    ) : null;
-
     const moveToPendingButton = showMoveToPending ? (
       <Button
         type="button"
@@ -896,14 +906,6 @@ export function ManagerPaymentsLedgerPanel({
                 {sendingReminderId === row.id ? "Sending…" : "Send reminder"}
               </DropdownMenuItem>
             ) : null}
-            {showScheduleReminders ? (
-              <DropdownMenuItem
-                data-attr="payments-schedule-reminders"
-                onSelect={() => setChargeRemindersRow(row)}
-              >
-                Schedule reminders
-              </DropdownMenuItem>
-            ) : null}
             {showMoveToPending ? (
               <DropdownMenuItem data-attr="payments-move-pending" onSelect={() => void moveToPending(row)}>
                 Move to pending
@@ -924,7 +926,6 @@ export function ManagerPaymentsLedgerPanel({
           {markPaidButton}
           {editButtons}
           {sendReminderButton}
-          {scheduleRemindersButton}
           {moveToPendingButton}
         </div>
       </>
@@ -1083,45 +1084,21 @@ export function ManagerPaymentsLedgerPanel({
           ),
         });
       } else {
-        const openEdit = () => {
-          startEdit(singleSelectedRow);
-          openPaymentDetail(singleSelectedRow);
-        };
-        const openSchedule = () => setChargeRemindersRow(singleSelectedRow);
-        actions.push(
-          {
-            id: "edit",
-            keepPriority: 2,
-            node: (
-              <Button
-                type="button"
-                variant="outline"
-                className={PAYMENTS_BULK_BAR_BTN}
-                onClick={openEdit}
-              >
-                Edit
-              </Button>
-            ),
-            menuItem: <DropdownMenuItem onSelect={openEdit}>Edit</DropdownMenuItem>,
-          },
-          {
-            id: "schedule-reminders",
-            keepPriority: 2,
-            node: (
-              <Button
-                type="button"
-                variant="outline"
-                className={PAYMENTS_BULK_BAR_BTN}
-                onClick={openSchedule}
-              >
-                Schedule reminders
-              </Button>
-            ),
-            menuItem: (
-              <DropdownMenuItem onSelect={openSchedule}>Schedule reminders</DropdownMenuItem>
-            ),
-          },
-        );
+        actions.push({
+          id: "edit",
+          keepPriority: 2,
+          node: (
+            <Button
+              type="button"
+              variant="outline"
+              className={PAYMENTS_BULK_BAR_BTN}
+              onClick={() => startEdit(singleSelectedRow)}
+            >
+              Edit
+            </Button>
+          ),
+          menuItem: <DropdownMenuItem onSelect={() => startEdit(singleSelectedRow)}>Edit</DropdownMenuItem>,
+        });
       }
     }
 
@@ -1157,7 +1134,6 @@ export function ManagerPaymentsLedgerPanel({
     markSelectedAsPaid,
     moveSelectedToPending,
     openBulkReminderPreview,
-    openPaymentDetail,
     openReminderPreview,
     remindableSelectedRows,
     saveBulkEditAmount,
@@ -1302,7 +1278,10 @@ export function ManagerPaymentsLedgerPanel({
           primary: ledgerRowPrimaryLabel(row),
           meta: ledgerRowMetaLine(row, scheduledMessages),
           trailing: (
-            <span className="text-sm font-semibold tabular-nums text-foreground">{row.lineAmount}</span>
+            <div className="flex flex-col items-end gap-1">
+              {paymentReminderBadge(row, scheduledMessages)}
+              <span className="text-sm font-semibold tabular-nums text-foreground">{row.lineAmount}</span>
+            </div>
           ),
           selected: isSelected,
           onSelectedChange: () => toggleSelected(row.id),
@@ -1371,23 +1350,6 @@ export function ManagerPaymentsLedgerPanel({
         onClose={() => setBulkReminderPreview(null)}
         confirmBusy={sendingReminderId === "bulk"}
         onConfirm={() => void doSendBulkReminders()}
-      />
-    ) : null}
-    {chargeRemindersRow?.householdChargeId ? (
-      <ChargeRemindersModal
-        open
-        onClose={() => setChargeRemindersRow(null)}
-        residentName={chargeRemindersRow.residentName}
-        chargeTitle={chargeRemindersRow.chargeTitle}
-        dueDate={chargeRemindersRow.dueDate}
-        messages={manageableRemindersForCharge(scheduledMessages, chargeRemindersRow.householdChargeId)}
-        scheduleSummary={reminderScheduleSummary}
-        onMessageSaved={() => onScheduleChanged?.()}
-        onToggleCancel={async (message, cancelled) => {
-          await patchScheduledMessage(message.id, { cancelled });
-          onScheduleChanged?.();
-        }}
-        onOpenSettings={onOpenReminderSettings}
       />
     ) : null}
     {selectedIds.size > 0 && !(embeddedInResident && onEmbeddedBulkActions) ? (

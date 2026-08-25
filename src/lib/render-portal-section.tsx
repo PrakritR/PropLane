@@ -841,17 +841,22 @@ export async function renderPortalSection(
       const propertyCalendarSubRaw = tabParts.length >= 4 ? tabParts[3]! : undefined;
       if (propertyDetailTabRaw === "tour-calendar" && propertyKey) {
         redirect(
-          `${def.basePath}/properties/${stage}/${encodeURIComponent(propertyKey)}/calendar/tours`,
+          `${def.basePath}/properties/${stage}/${encodeURIComponent(propertyKey)}/tours`,
         );
       }
       if (propertyDetailTabRaw === "booking-calendars" && propertyKey) {
         redirect(
-          `${def.basePath}/properties/${stage}/${encodeURIComponent(propertyKey)}/calendar/bookings`,
+          `${def.basePath}/properties/${stage}/${encodeURIComponent(propertyKey)}/calendar`,
+        );
+      }
+      if (propertyDetailTabRaw === "calendar" && propertyKey && propertyCalendarSubRaw === "tours") {
+        redirect(
+          `${def.basePath}/properties/${stage}/${encodeURIComponent(propertyKey)}/tours`,
         );
       }
       if (propertyDetailTabRaw === "calendar" && propertyKey && !propertyCalendarSubRaw) {
         redirect(
-          `${def.basePath}/properties/${stage}/${encodeURIComponent(propertyKey)}/calendar/tours`,
+          `${def.basePath}/properties/${stage}/${encodeURIComponent(propertyKey)}/calendar`,
         );
       }
       const { parsePropertyDetailTab, parsePropertyCalendarSubTab, PROPERTY_CALENDAR_SUB_TABS } =
@@ -907,17 +912,46 @@ export async function renderPortalSection(
       );
     }
 
+    if (section === "tours") {
+      if (tabParts?.length) {
+        const segmentRaw = tabParts[0]!;
+        if (segmentRaw === "tours") {
+          redirect(`${def.basePath}/tours`);
+        }
+        const { TOURS_HUB_TABS } = await import("@/lib/portal-detail-routes");
+        if (!TOURS_HUB_TABS.includes(segmentRaw as (typeof TOURS_HUB_TABS)[number])) notFound();
+        if (tabParts.length > 1) notFound();
+      }
+      const { parseToursHubTab } = await import("@/lib/portal-detail-routes");
+      const toursHubTab = tabParts?.length ? parseToursHubTab(tabParts[0]) : "tours";
+      const PortalCalendar = await loadPortalCalendar();
+      return subscriptionGated(
+        <PortalCalendar
+          portal="manager"
+          initialUserId={effectiveWorkspaceUserId}
+          schedulingHub
+          toursHubTab={toursHubTab}
+        />,
+        kind,
+        "tours",
+        managerOwnerSubscriptionTier,
+      );
+    }
+
     if (section === "calendar") {
-      const CALENDAR_VIEWS = ["tours", "bookings", "services", "all"] as const;
+      const CALENDAR_VIEWS = ["availability", "bookings", "tours", "services", "all"] as const;
       if (tabParts?.length) {
         const viewRaw = tabParts[0]!;
-        if (viewRaw === "all") {
-          redirect(`${def.basePath}/calendar/tours`);
+        if (viewRaw === "all" || viewRaw === "tours") {
+          redirect(`${def.basePath}/calendar/availability`);
+        }
+        if (viewRaw === "services") {
+          redirect(`${def.basePath}/tours/services`);
         }
         if (!CALENDAR_VIEWS.includes(viewRaw as (typeof CALENDAR_VIEWS)[number])) notFound();
         if (tabParts.length > 1) notFound();
       } else if (kind === "pro") {
-        redirect(`${def.basePath}/calendar/tours`);
+        redirect(`${def.basePath}/calendar/availability`);
       }
       const calendarView = tabParts?.length ? parseCalendarViewTab(tabParts[0]) : undefined;
       const PortalCalendar = await loadPortalCalendar();

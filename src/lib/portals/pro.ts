@@ -9,7 +9,7 @@ export const proPortal: PortalDefinition = {
   sections: [
     { section: "dashboard", label: "Dashboard", tabs: [] },
     { section: "properties", label: "Properties", tabs: [] },
-    { section: "calendar", label: "Calendar", tabs: [] },
+    { section: "tours", label: "Tours", tabs: [] },
     { section: "applications", label: "Applications", tabs: [] },
     { section: "leases", label: "Leases", tabs: [] },
     {
@@ -22,6 +22,7 @@ export const proPortal: PortalDefinition = {
       label: "Payments",
       tabs: [],
     },
+    { section: "calendar", label: "Calendar", tabs: [] },
     {
       section: "services",
       label: "Services",
@@ -88,8 +89,9 @@ export const proPortal: PortalDefinition = {
 /** Default smoke-test paths for web + native WebView (manager/pro portal). */
 export const MANAGER_PORTAL_SMOKE_PATHS = [
   { label: "Dashboard", path: "/portal/dashboard" },
-  { label: "Properties", path: "/portal/properties" },
-  { label: "Calendar", path: "/portal/calendar/tours" },
+  { label: "Properties", path: "/portal/properties/listed" },
+  { label: "Tours", path: "/portal/tours" },
+  { label: "Calendar", path: "/portal/calendar/availability" },
   { label: "Applications", path: "/portal/applications/pending" },
   { label: "Leases", path: "/portal/leases" },
   { label: "Residents", path: "/portal/residents/current" },

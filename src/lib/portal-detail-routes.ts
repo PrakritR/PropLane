@@ -5,6 +5,7 @@ export const PROPERTY_DETAIL_TABS = [
   "move-in",
   "application",
   "lease",
+  "tours",
   "calendar",
   "requests",
   "promotion",
@@ -18,6 +19,7 @@ export const PROPERTY_DETAIL_TAB_LABELS: Record<PropertyDetailTabId, string> = {
   "move-in": "Move-in",
   application: "Application",
   lease: "Lease",
+  tours: "Tours",
   calendar: "Calendar",
   requests: "Requests",
   promotion: "Promotion",
@@ -34,6 +36,7 @@ export type PropertyDetailSectionTabId = (typeof PROPERTY_DETAIL_SECTION_TABS)[n
 
 export const PROPERTY_DETAIL_TOP_TAB_LABELS = {
   details: "Details",
+  tours: "Tours",
   calendar: "Calendar",
   application: "Application",
   lease: "Lease",
@@ -52,6 +55,7 @@ export const PROPERTY_DETAIL_TOP_TAB_SHORT_LABELS: Partial<
 };
 
 export function propertyDetailTopNavId(tab: PropertyDetailTabId): PropertyDetailTopTabId {
+  if (tab === "tours") return "tours";
   if (tab === "calendar") return "calendar";
   if (tab === "application") return "application";
   if (tab === "lease") return "lease";
@@ -84,7 +88,8 @@ export const RESIDENT_DETAIL_TAB_SHORT_LABELS: Record<ResidentDetailTabId, strin
 };
 
 export function parsePropertyDetailTab(raw: string | undefined | null): PropertyDetailTabId {
-  if (raw === "tour-calendar" || raw === "booking-calendars") return "calendar";
+  if (raw === "tour-calendar") return "tours";
+  if (raw === "booking-calendars") return "calendar";
   if (raw && (PROPERTY_DETAIL_TABS as readonly string[]).includes(raw)) {
     return raw as PropertyDetailTabId;
   }
@@ -92,32 +97,22 @@ export function parsePropertyDetailTab(raw: string | undefined | null): Property
 }
 
 /**
- * Routed sub-views inside a property's Calendar tab.
- *
- * This list and {@link CALENDAR_VIEW_TABS} are the two canonical sources — the property strip maps
- * this one rather than keeping its own copy, so the two cannot drift apart again.
- *
- * Bookings was briefly retired and is back by captain request; an unknown value still falls
- * through to tours rather than 404ing, so old links keep working either way.
- *
- * Service visits are deliberately NOT a sub-tab here yet. The portfolio Calendar's Services view
- * is manager-wide, and there is no property-scoped service-visit panel to point a tab at — adding
- * the tab before the panel would render Bookings data under a Services label, which is worse than
- * the tab being absent. Tracked as the remaining half of this request.
+ * Legacy sub-paths under a property's Calendar tab. Tours moved to the `tours` detail tab;
+ * calendar is bookings-only. Old `/calendar/tours` links redirect in render-portal-section.
  */
-export const PROPERTY_CALENDAR_SUB_TABS = ["tours", "bookings"] as const;
+export const PROPERTY_CALENDAR_SUB_TABS = ["bookings"] as const;
 export type PropertyCalendarSubTabId = (typeof PROPERTY_CALENDAR_SUB_TABS)[number];
 
 export const PROPERTY_CALENDAR_SUB_TAB_LABELS: Record<PropertyCalendarSubTabId, string> = {
-  tours: "Tours",
   bookings: "Bookings",
 };
 
 export function parsePropertyCalendarSubTab(raw: string | undefined | null): PropertyCalendarSubTabId {
+  if (raw === "tours") return "bookings";
   if (raw && (PROPERTY_CALENDAR_SUB_TABS as readonly string[]).includes(raw)) {
     return raw as PropertyCalendarSubTabId;
   }
-  return "tours";
+  return "bookings";
 }
 
 export function propertyCalendarSubHref(
@@ -178,26 +173,49 @@ export function residentPaymentDetailHref(
 }
 
 
-/** Routed calendar views (manager portal). Kept in step with PROPERTY_CALENDAR_SUB_TABS. */
-export const CALENDAR_VIEW_TABS = ["tours", "services", "bookings"] as const;
+/** Portfolio calendar views — availability editing and channel bookings only. */
+export const CALENDAR_VIEW_TABS = ["availability", "bookings"] as const;
 export type CalendarViewTabId = (typeof CALENDAR_VIEW_TABS)[number];
 
 export const CALENDAR_VIEW_TAB_LABELS: Record<CalendarViewTabId, string> = {
-  tours: "Tours",
-  services: "Service orders",
+  availability: "Availability",
   bookings: "Bookings",
 };
 
+/** Combined tours + service orders live under Operations → Tours, not Calendar. */
+export const PORTFOLIO_TOURS_HREF = "/portal/tours";
+
 export function parseCalendarViewTab(raw: string | undefined | null): CalendarViewTabId {
-  if (raw === "all") return "tours";
+  if (raw === "all" || raw === "tours" || raw === "services") return "availability";
   if (raw && (CALENDAR_VIEW_TABS as readonly string[]).includes(raw)) {
     return raw as CalendarViewTabId;
   }
-  return "tours";
+  return "availability";
 }
 
 export function calendarViewHref(basePath: string, tab: CalendarViewTabId): string {
   return `${basePath}/calendar/${tab}`;
+}
+
+export function portfolioToursHref(basePath: string): string {
+  return `${basePath}/tours`;
+}
+
+export const TOURS_HUB_TABS = ["tours", "services"] as const;
+export type ToursHubTabId = (typeof TOURS_HUB_TABS)[number];
+
+export const TOURS_HUB_TAB_LABELS: Record<ToursHubTabId, string> = {
+  tours: "Tours",
+  services: "Service orders",
+};
+
+export function parseToursHubTab(raw: string | undefined | null): ToursHubTabId {
+  if (raw === "services" || raw === "service-orders") return "services";
+  return "tours";
+}
+
+export function toursHubHref(basePath: string, tab: ToursHubTabId): string {
+  return tab === "tours" ? portfolioToursHref(basePath) : `${portfolioToursHref(basePath)}/services`;
 }
 
 /** Routed team link filters (manager relationships). */
