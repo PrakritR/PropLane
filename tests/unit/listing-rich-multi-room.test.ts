@@ -67,7 +67,32 @@ describe("listing multi-room lease basics", () => {
     expect(rich.leaseBasics.some((row) => row.id === "lease-signing")).toBe(false);
     expect(rich.pricingBreakdown?.some((line) => line.label === "Security deposit")).toBe(true);
     expect(rich.pricingBreakdown?.some((line) => line.label === "Move-in fee")).toBe(true);
+    expect(rich.pricingBreakdown?.some((line) => line.label === "Holding deposit")).toBe(false);
     expect(rich.pricingBreakdown?.some((line) => line.label === "Due at signing")).toBe(false);
+  });
+
+  it("shows short-term room nightly rates and placement fees on listing", () => {
+    const sub = createDefaultListingSubmission();
+    sub.shortTermRentalsAllowed = true;
+    sub.shortTermApplicationFee = "50";
+    sub.shortTermDeposit = "200";
+    sub.shortTermMoveInFee = "75";
+    sub.rooms = [
+      { ...sub.rooms[0]!, id: "room-1", name: "Room 1", floor: "2nd floor", monthlyRent: 800, shortTermRent: "50" },
+      { ...sub.rooms[0]!, id: "room-2", name: "Room 2", floor: "2nd floor", monthlyRent: 800, shortTermRent: "50" },
+    ];
+    const property = mockProperty({ id: "st-room-costs", listingSubmission: sub });
+    const rich = listingRichFromManagerSubmission(property, sub);
+
+    expect(rich.leaseBasics.find((row) => row.id === "lease-st-application")?.price).toBe("$50.00");
+    expect(rich.leaseBasics.filter((row) => row.section === "short-term" && row.price.endsWith("/night"))).toHaveLength(2);
+    expect(rich.leaseBasics.find((row) => row.id === "lease-st-deposit")?.price).toBe("$200.00");
+    expect(rich.leaseBasics.find((row) => row.id === "lease-st-move-in")?.price).toBe("$75.00");
+
+    expect(rich.pricingBreakdown?.some((line) => line.label === "Short-term application fee" && line.value === "$50.00")).toBe(true);
+    expect(rich.pricingBreakdown?.some((line) => line.label === "Nightly rate" && line.value === "$50.00/night")).toBe(true);
+    expect(rich.pricingBreakdown?.some((line) => line.label === "Short-term deposit")).toBe(true);
+    expect(rich.pricingBreakdown?.some((line) => line.label === "Move-in / cleaning")).toBe(true);
   });
 
   it("routes short-term custom fees to the short-term lease basics section", () => {
