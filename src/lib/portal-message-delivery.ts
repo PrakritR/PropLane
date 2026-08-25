@@ -86,3 +86,35 @@ export function buildNewChargeNoticeBody(input: {
     afterLoginHint: "payments",
   });
 }
+
+export function buildHoldingFeeNoticeBody(input: {
+  residentName: string;
+  residentEmail?: string;
+  amountLabel: string;
+  propertyLabel?: string;
+}): string {
+  const payUrl = residentPortalUrl("payments");
+  const lines = [
+    `Hi ${input.residentName || "there"},`,
+    "",
+    "Your property manager added a holding fee to your PropLane Payments tab:",
+    "",
+    `Holding deposit — ${input.amountLabel}`,
+  ];
+  if (input.propertyLabel?.trim()) lines.push(`Property: ${input.propertyLabel.trim()}`);
+  lines.push(
+    "",
+    "Pay it from your Payments tab to hold the home while your application is reviewed.",
+    "This amount counts toward your security deposit if your application is approved.",
+    "",
+    `Open Payments: ${payUrl}`,
+    "",
+    "Questions? Reply to this message or contact your property manager in PropLane.",
+    "",
+    "PropLane",
+  );
+  return appendResidentPortalLoginInstructions(lines.join("\n"), {
+    residentEmail: input.residentEmail,
+    afterLoginHint: "payments",
+  });
+}

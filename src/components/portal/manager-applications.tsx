@@ -129,18 +129,11 @@ import {
 import {
   findHoldingDepositCharge,
   removeAllApplicationCharges,
-  removeResidentHouseholdPaymentData,
   syncHouseholdChargesFromServer,
 } from "@/lib/household-charges";
 import {
   deleteLeasePipelineRowsForResident,
 } from "@/lib/lease-pipeline-storage";
-import {
-  deleteManagerWorkOrdersForResident,
-} from "@/lib/manager-work-orders-storage";
-import { deleteServiceRequestsForResident } from "@/lib/service-requests-storage";
-import { clearUploadedOwnLease } from "@/lib/resident-lease-upload";
-import { loadPersistedInbox, MANAGER_INBOX_STORAGE_KEY, persistInbox } from "@/lib/portal-inbox-storage";
 import {
   RESIDENT_WELCOME_EMAIL_SUBJECT,
   buildResidentWelcomeEmailBody,
@@ -909,36 +902,13 @@ export function ManagerApplications({
     showToast(msg);
   };
 
-  const purgeResidentLocalData = (residentEmail: string, applicationId: string) => {
-    const email = residentEmail.trim().toLowerCase();
-    if (!email) return;
-
-    removeResidentHouseholdPaymentData(residentEmail);
+  const purgeApplicationLocalData = (applicationId: string) => {
     removeAllApplicationCharges(applicationId, userId ?? null);
-    deleteLeasePipelineRowsForResident(residentEmail, applicationId, userId);
-    deleteManagerWorkOrdersForResident(residentEmail);
-    deleteServiceRequestsForResident(residentEmail);
-    clearUploadedOwnLease(residentEmail);
-
-    const allInbox = loadPersistedInbox(MANAGER_INBOX_STORAGE_KEY, []);
-    const deletedThreads = allInbox.filter((thread) => thread.email.trim().toLowerCase() === email);
-    persistInbox(
-      MANAGER_INBOX_STORAGE_KEY,
-      allInbox.filter((thread) => thread.email.trim().toLowerCase() !== email),
-    );
-    for (const thread of deletedThreads) {
-      void fetch("/api/portal-inbox-threads", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify({ action: "delete", id: thread.id }),
-      }).catch(() => undefined);
-    }
+    deleteLeasePipelineRowsForResident("", applicationId, userId ?? null);
   };
 
   const deleteApplication = async (id: string) => {
     const row = rows.find((candidate) => candidate.id === id);
-    const email = row?.email?.trim().toLowerCase();
     const nextRows = rows.filter((r) => r.id !== id);
 
     // Drop from the session cache as well as React state — `syncManagerApplicationsFromServer`
@@ -947,38 +917,14 @@ export function ManagerApplications({
     writeManagerApplicationRows(nextRows);
     setRows(nextRows);
 
-    let serverError: string | null = null;
-    if (email || id) {
-      try {
-        const res = await fetch("/api/portal/delete-resident-access", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          credentials: "include",
-          body: JSON.stringify({ email, purgeData: true, applicationId: id }),
-        });
-        const body = (await res.json().catch(() => null)) as { error?: string } | null;
-        if (!res.ok) {
-          serverError = body?.error ?? "Could not delete application and resident data.";
-        }
-      } catch {
-        serverError = "Could not delete application and resident data.";
-      }
-    } else {
-      const result = await deleteManagerApplicationFromServer(id);
-      if (!result.ok) serverError = result.error ?? "Could not delete application.";
-    }
-
-    if (serverError) {
+    const result = await deleteManagerApplicationFromServer(id);
+    if (!result.ok) {
       setRows(await syncManagerApplicationsFromServer({ managerUserId: userId }));
-      showToast(serverError);
+      showToast(result.error ?? "Could not delete application.");
       return;
     }
 
-    if (email) {
-      purgeResidentLocalData(email, id);
-    } else {
-      removeAllApplicationCharges(id, userId ?? null);
-    }
+    purgeApplicationLocalData(id);
 
     const [syncedRows] = await Promise.all([
       syncManagerApplicationsFromServer({ force: true, managerUserId: userId }),
@@ -990,11 +936,7 @@ export function ManagerApplications({
       navigate(applicationsListHref(bucket));
     }
 
-    showToast(
-      email
-        ? "Application deleted. Resident account, payments, documents, inbox, and services were removed."
-        : "Application deleted.",
-    );
+    showToast("Application deleted.");
   };
 
   const sendApplicationReminder = async (

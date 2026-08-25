@@ -115,6 +115,23 @@ export async function purgeResidentPortalData(
   await Promise.allSettled([...photoReclaimIds].map((id) => reclaimApplicationPhotos(db, id)));
 }
 
+/** Remove portal rows keyed to one application without touching the resident login. */
+export async function purgeApplicationPortalData(db: ServiceDb, applicationId: string): Promise<void> {
+  const appId = applicationId.trim();
+  if (!appId) return;
+
+  const deleteOps: PromiseLike<{ error: { message: string } | null }>[] = [
+    db.from("manager_application_records").delete().eq("id", appId),
+    db.from("portal_household_charge_records").delete().filter("row_data->>applicationId", "eq", appId),
+    db.from("portal_lease_pipeline_records").delete().filter("row_data->>axisId", "eq", appId),
+    db.from("cosigner_submission_records").delete().eq("signer_app_id", appId),
+    db.from("screening_orders").delete().eq("application_id", appId),
+  ];
+
+  assertNoDeleteErrors(await Promise.all(deleteOps));
+  await reclaimApplicationPhotos(db, appId).catch(() => undefined);
+}
+
 /** Remove properties, resident records, payments, leases, and other portal rows for a manager. */
 export async function purgeManagerPortalData(db: ServiceDb, managerUserId: string): Promise<void> {
   if (!managerUserId) return;

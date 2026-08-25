@@ -48,6 +48,7 @@ vi.mock("@/lib/manager-applications-storage", async (importOriginal) => {
       writtenRows = rows;
       ROWS = rows;
     },
+    deleteManagerApplicationFromServer: vi.fn(async () => ({ ok: true })),
   };
 });
 vi.mock("@/lib/demo-property-pipeline", async (importOriginal) => {
@@ -112,6 +113,7 @@ vi.mock("@/lib/demo/demo-session", () => ({
 }));
 
 import { ManagerApplications } from "@/components/portal/manager-applications";
+import { deleteManagerApplicationFromServer } from "@/lib/manager-applications-storage";
 
 beforeEach(() => {
   ROWS = [INCOMPLETE_ROW];
@@ -146,9 +148,10 @@ describe("manager Applications — delete incomplete draft", () => {
       expect(writtenRows?.some((row) => row.id === INCOMPLETE_ROW.id)).toBe(false);
     });
     await waitFor(() => expect(screen.queryByText("ambika Mago")).toBeNull());
-    expect(fetchMock).toHaveBeenCalledWith(
+    expect(deleteManagerApplicationFromServer).toHaveBeenCalledWith(INCOMPLETE_ROW.id);
+    expect(fetchMock).not.toHaveBeenCalledWith(
       "/api/portal/delete-resident-access",
-      expect.objectContaining({ method: "POST" }),
+      expect.anything(),
     );
   });
 });

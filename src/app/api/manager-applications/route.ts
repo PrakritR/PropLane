@@ -13,7 +13,7 @@ import {
   notifyManagerApplicationSubmitted,
   shouldNotifyManagerOfApplicationSubmit,
 } from "@/lib/application-submitted-notification.server";
-import { reclaimApplicationPhotos } from "@/lib/rental-application/application-photos.server";
+import { purgeApplicationPortalData } from "@/lib/auth/purge-portal-account-data";
 import { isWithdrawnApplicationRow } from "@/lib/rental-application/resident-application-list";
 import { residentOwnsApplicationRow } from "@/lib/rental-application/resident-application-ownership";
 import { tryAutoOrderScreening } from "@/lib/screening/order-screening";
@@ -714,19 +714,14 @@ export async function POST(req: Request) {
         const authError = await assertCanDeleteApplicationRecords(db, user, recordsToDelete ?? []);
         if (authError) return NextResponse.json({ error: authError }, { status: 403 });
 
-        const { error } = await db.from("manager_application_records").delete().in("id", [...idsToDelete]);
-        if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-
-        // Reclaim the applicant's ID / income photos — a hard delete of the
-        // application takes its private uploads with it. Best-effort; never
-        // blocks the delete response.
-        const photoIds = new Set<string>();
+        const purgeIds = new Set<string>();
         for (const record of recordsToDelete ?? []) {
+          if (record.id) purgeIds.add(record.id);
           const row = record.row_data as Partial<DemoApplicantRow> | null;
-          const axisId = typeof row?.id === "string" ? row.id : record.id;
-          if (axisId) photoIds.add(axisId);
+          const axisId = typeof row?.id === "string" ? row.id.trim() : "";
+          if (axisId) purgeIds.add(axisId);
         }
-        await Promise.allSettled([...photoIds].map((axisId) => reclaimApplicationPhotos(db, axisId)));
+        await Promise.all([...purgeIds].map((appId) => purgeApplicationPortalData(db, appId)));
       }
       return NextResponse.json({ ok: true, deleted: idsToDelete.size });
     }

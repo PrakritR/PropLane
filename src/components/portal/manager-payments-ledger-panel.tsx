@@ -9,12 +9,15 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { BulkActionBar } from "@/components/ui/bulk-action-bar";
+import { Badge } from "@/components/ui/badge";
 import { useAppUi } from "@/components/providers/app-ui-provider";
+import {
+  ApplicationHouseholdCluster,
+} from "@/components/portal/application-household-list";
+
 import {
   PortalDataTableEmpty,
 } from "@/components/portal/portal-data-table";
-
-import { PortalRecordDetailPage } from "@/components/portal/portal-record-detail-page";
 import { PORTAL_LIST_PAGE_BODY } from "@/components/portal/portal-inbox-ui";
 import { DataList } from "@/components/ui/data-list";
 import {
@@ -23,6 +26,10 @@ import {
   PORTAL_LIST_ADD_ROW_WRAP_CLASS,
 } from "@/components/portal/portal-list-add-row";
 import type { DemoManagerPaymentLedgerRow, ManagerPaymentBucket, ManagerPaymentDirection } from "@/data/demo-portal";
+import { PortalRecordDetailPage } from "@/components/portal/portal-record-detail-page";
+import {
+  clusterManagerPaymentLedgerRows,
+} from "@/lib/manager-payment-ledger-grouping";
 import { paymentDetailHref, paymentListHref } from "@/lib/portal-detail-routes";
 import { formatPacificDateTime } from "@/lib/pacific-time";
 import { RESIDENT_DETAIL_HEADER_ACTION_BTN } from "@/components/portal/portal-metrics";
@@ -126,7 +133,7 @@ function ledgerRowMetaLine(
   row: DemoManagerPaymentLedgerRow,
   scheduledMessages: ScheduledPaymentMessage[],
 ): string {
-  const parts = [row.propertyName, formatLedgerRoomLabel(row.roomNumber)].filter(Boolean);
+  const parts = [ledgerRowPropertyLine(row)].filter((part) => part !== "—");
   const due = row.dueDate?.trim();
   if (due) parts.push(`Due ${due}`);
   const reminder = paymentReminderLabel(row, scheduledMessages);
@@ -134,24 +141,8 @@ function ledgerRowMetaLine(
   return parts.join(" · ");
 }
 
-function ledgerRowManagerPrimaryLabel(row: DemoManagerPaymentLedgerRow): string {
-  return row.residentName;
-}
-
-function ledgerRowManagerMetaLine(
-  row: DemoManagerPaymentLedgerRow,
-  scheduledMessages: ScheduledPaymentMessage[],
-): string {
-  const parts = [
-    ledgerRowPrimaryLabel(row),
-    row.propertyName,
-    formatLedgerRoomLabel(row.roomNumber),
-  ].filter(Boolean);
-  const due = row.dueDate?.trim();
-  if (due) parts.push(`Due ${due}`);
-  const reminder = paymentReminderLabel(row, scheduledMessages);
-  if (reminder) parts.push(reminder);
-  return parts.join(" · ");
+function ledgerRowPropertyLine(row: DemoManagerPaymentLedgerRow): string {
+  return [row.propertyName, formatLedgerRoomLabel(row.roomNumber)].filter(Boolean).join(" · ") || "—";
 }
 
 export function ManagerPaymentsLedgerPanel({
@@ -214,6 +205,10 @@ export function ManagerPaymentsLedgerPanel({
   );
   const showSelection = rows.length > 0;
   const rowIdsKey = useMemo(() => rows.map((row) => row.id).join(","), [rows]);
+  const residentClusters = useMemo(
+    () => (embeddedInResident ? [] : clusterManagerPaymentLedgerRows(rows)),
+    [embeddedInResident, rows],
+  );
   const detailRow = useMemo(() => {
     if (!paymentIdProp) return null;
     const decoded = decodeURIComponent(paymentIdProp);
@@ -1281,24 +1276,31 @@ export function ManagerPaymentsLedgerPanel({
     </div>
   );
 
-  const renderChargeDataList = (variant: "embedded" | "manager") => (
+  const chargeListColumns = [
+    { id: "charge", header: "Charge", cell: (row: DemoManagerPaymentLedgerRow) => ledgerRowPrimaryLabel(row) },
+    { id: "property", header: "Property", cell: (row: DemoManagerPaymentLedgerRow) => ledgerRowPropertyLine(row) },
+    { id: "due", header: "Due", cell: (row: DemoManagerPaymentLedgerRow) => row.dueDate || "—" },
+    {
+      id: "amount",
+      header: "Amount",
+      cell: (row: DemoManagerPaymentLedgerRow) => row.lineAmount,
+      headerClassName: "text-right",
+      cellClassName: "text-right tabular-nums",
+    },
+  ] as const;
+
+  const renderChargeDataList = (listRows: DemoManagerPaymentLedgerRow[]) => (
     <DataList
       hideColumnHeaders
       selectable={showSelection}
-      rows={rows.map((row) => {
+      rows={listRows.map((row) => {
         const isSelected = selectedIds.has(row.id);
         const isEditing = editingRowId === row.id && Boolean(row.householdChargeId);
-        const primary =
-          variant === "embedded" ? ledgerRowPrimaryLabel(row) : ledgerRowManagerPrimaryLabel(row);
-        const meta =
-          variant === "embedded"
-            ? ledgerRowMetaLine(row, scheduledMessages)
-            : ledgerRowManagerMetaLine(row, scheduledMessages);
         return {
           id: row.id,
           data: row,
-          primary,
-          meta,
+          primary: ledgerRowPrimaryLabel(row),
+          meta: ledgerRowMetaLine(row, scheduledMessages),
           trailing: (
             <span className="text-sm font-semibold tabular-nums text-foreground">{row.lineAmount}</span>
           ),
@@ -1309,19 +1311,35 @@ export function ManagerPaymentsLedgerPanel({
           expandedContent: isEditing ? renderInlineEditForm(row) : undefined,
         };
       })}
-      columns={[
-        { id: "charge", header: "Charge", cell: (row) => ledgerRowPrimaryLabel(row) },
-        { id: "property", header: "Property", cell: (row) => row.propertyName || "—" },
-        { id: "due", header: "Due", cell: (row) => row.dueDate || "—" },
-        {
-          id: "amount",
-          header: "Amount",
-          cell: (row) => row.lineAmount,
-          headerClassName: "text-right",
-          cellClassName: "text-right tabular-nums",
-        },
-      ]}
+      columns={[...chargeListColumns]}
     />
+  );
+
+  const renderManagerGroupedLedger = () => (
+    <div className="space-y-3" data-attr="payments-resident-groups">
+      {residentClusters.map((cluster) => (
+        <ApplicationHouseholdCluster
+          key={cluster.key}
+          header={
+            <>
+              <span className="truncate text-xs font-semibold text-foreground">{cluster.residentLabel}</span>
+              {cluster.residentEmail &&
+              cluster.residentEmail.toLowerCase() !== cluster.residentLabel.trim().toLowerCase() ? (
+                <span className="truncate text-xs text-muted">{cluster.residentEmail}</span>
+              ) : null}
+              {cluster.propertyLabel ? (
+                <span className="truncate text-xs text-muted">{cluster.propertyLabel}</span>
+              ) : null}
+              <Badge tone="info">
+                {cluster.rows.length === 1 ? "1 charge" : `${cluster.rows.length} charges`}
+              </Badge>
+            </>
+          }
+        >
+          {renderChargeDataList(cluster.rows)}
+        </ApplicationHouseholdCluster>
+      ))}
+    </div>
   );
 
   return (
@@ -1416,7 +1434,7 @@ export function ManagerPaymentsLedgerPanel({
     ) : (
       <div className={PORTAL_LIST_PAGE_BODY}>
         <>
-          {renderChargeDataList(embeddedInResident ? "embedded" : "manager")}
+          {embeddedInResident ? renderChargeDataList(rows) : renderManagerGroupedLedger()}
           {renderAddPaymentRow()}
         </>
       </div>

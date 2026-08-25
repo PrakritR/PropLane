@@ -1955,6 +1955,7 @@ export function setApplicantHoldingFee(input: {
 
   const rest = readAll().filter((c) => c.id !== charge.id);
   writeAll([...rest, charge]);
+  reconcileApprovedChargesForHoldingFee(input.applicationId ?? "", input.managerUserId ?? null);
   return { ok: true, charge, alreadyPaid: false };
 }
 
@@ -1976,15 +1977,38 @@ export function removeApplicantHoldingFee(input: {
     return { ok: false, error: "This holding fee has already been paid — handle a refund with the applicant directly." };
   }
   writeAll(readAll().filter((c) => c.id !== existing.id));
+  reconcileApprovedChargesForHoldingFee(input.applicationId ?? "", existing.managerUserId ?? null);
   return { ok: true };
 }
 
 function paidHoldingDepositCreditCents(applicationId: string): number {
+  return holdingDepositCreditCentsForApplication(applicationId);
+}
+
+/**
+ * Manager-entered holding fee for an application — pending or paid. That amount
+ * credits toward the security deposit billed at approval so the resident is not
+ * asked twice for the same dollars.
+ */
+export function holdingDepositCreditCentsForApplication(applicationId: string): number {
   const appId = applicationId.trim();
   if (!appId) return 0;
-  const charge = readAll().find((c) => c.applicationId === appId && c.kind === "holding_deposit" && c.status === "paid");
+  const charge = readAll().find(
+    (c) =>
+      c.applicationId === appId &&
+      c.kind === "holding_deposit" &&
+      (c.status === "pending" || c.status === "paid"),
+  );
   if (!charge) return 0;
   return Math.round(parseMoneyAmount(charge.amountLabel) * 100);
+}
+
+function reconcileApprovedChargesForHoldingFee(applicationId: string, managerUserId: string | null): void {
+  const appId = applicationId.trim();
+  if (!appId) return;
+  const row = readManagerApplicationRows().find((r) => r.id === appId);
+  if (!row || row.bucket !== "approved") return;
+  recordApprovedApplicationCharges(row, managerUserId, false);
 }
 
 /**
@@ -3268,7 +3292,7 @@ export function recordApprovedApplicationCharges(row: DemoApplicantRow, managerU
   // Preserve paid charges — only wipe pending ones so they can be regenerated with correct amounts.
   // Also wipe pending recurring rent/utilities for this resident+property so updated amounts are used.
   const rows = readAll().filter((charge) => {
-    if (charge.applicationId === applicationId && charge.kind !== "application_fee" && charge.status === "pending") return false;
+    if (charge.applicationId === applicationId && charge.kind !== "application_fee" && charge.kind !== "holding_deposit" && charge.status === "pending") return false;
     if (
       (charge.kind === "rent" || charge.kind === "utilities") &&
       charge.status === "pending" &&
