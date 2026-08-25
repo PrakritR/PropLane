@@ -350,4 +350,80 @@ describe("POST /api/portal-lease-pipeline: signed documents are immutable server
     expect(stored).toContain("Edited wording");
     expect(stored).not.toMatch(/script|onclick|onerror|javascript:|evil\.test|<img|<a\b/i);
   });
+
+  it("accepts send-to-resident materialization that replaces generated HTML with the first uploaded PDF", async () => {
+    const managerReview = executedRow({
+      bucket: "manager",
+      status: "Manager Review",
+      residentSignature: null,
+      managerSignature: null,
+      fullySignedAt: null,
+      generatedHtml: "<html><body>MANAGER TEMPLATE PREVIEW</body></html>",
+      managerUploadedPdf: null,
+      versionNumber: 1,
+      pdfVersion: 1,
+    });
+    seedExecuted(managerReview);
+    const pdf = {
+      dataUrl: "data:application/pdf;base64,QUJD",
+      originalDataUrl: "data:application/pdf;base64,QUJD",
+      fileName: "lease.pdf",
+      uploadedAt: "2026-08-01T00:00:00.000Z",
+    };
+
+    const res = await post({
+      action: "upsert",
+      row: {
+        ...managerReview,
+        generatedHtml: null,
+        managerUploadedPdf: pdf,
+        bucket: "resident",
+        status: "Resident Signature Pending",
+        sentToResidentAt: "2026-08-02T00:00:00.000Z",
+        currentActorRole: "resident",
+      },
+    });
+
+    expect(res.status).toBe(200);
+    expect(storedRowData().generatedHtml).toBeNull();
+    expect((storedRowData().managerUploadedPdf as Row).dataUrl).toBe(pdf.dataUrl);
+    expect(storedRowData().status).toBe("Resident Signature Pending");
+  });
+
+  it("accepts send-to-resident materialization when the template URL rides only on the incoming row", async () => {
+    const managerReview = executedRow({
+      bucket: "manager",
+      status: "Manager Review",
+      residentSignature: null,
+      managerSignature: null,
+      fullySignedAt: null,
+      generatedHtml: "<html><body>MANAGER TEMPLATE PREVIEW</body></html>",
+      managerUploadedPdf: null,
+    });
+    seedExecuted(managerReview);
+    const pdf = {
+      dataUrl: "data:application/pdf;base64,QUJD",
+      originalDataUrl: "data:application/pdf;base64,QUJD",
+      fileName: "lease.pdf",
+      uploadedAt: "2026-08-01T00:00:00.000Z",
+    };
+
+    const res = await post({
+      action: "upsert",
+      row: {
+        ...managerReview,
+        generatedHtml: null,
+        managerUploadedPdf: pdf,
+        templateDocumentUrl: "/api/portal/lease-template?path=manager%2Flease.pdf",
+        bucket: "resident",
+        status: "Resident Signature Pending",
+        sentToResidentAt: "2026-08-02T00:00:00.000Z",
+        currentActorRole: "resident",
+      },
+    });
+
+    expect(res.status).toBe(200);
+    expect(storedRowData().generatedHtml).toBeNull();
+    expect(storedRowData().templateDocumentUrl).toContain("lease-template");
+  });
 });

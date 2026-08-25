@@ -1263,9 +1263,13 @@ function persistLeaseDeleteToServer(ids: string[]) {
   }).catch(() => undefined);
 }
 
-async function persistLeaseRowToServerAwait(row: LeasePipelineRow): Promise<boolean> {
-  if (!canUseStorage()) return false;
-  if (isDemoModeActive()) return true;
+async function persistLeaseRowToServerAwait(
+  row: LeasePipelineRow,
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  if (!canUseStorage()) {
+    return { ok: false, error: "Lease could not be saved to the server. Check your connection and try again." };
+  }
+  if (isDemoModeActive()) return { ok: true };
   try {
     const res = await fetch("/api/portal-lease-pipeline", {
       method: "POST",
@@ -1273,9 +1277,17 @@ async function persistLeaseRowToServerAwait(row: LeasePipelineRow): Promise<bool
       credentials: "include",
       body: JSON.stringify({ action: "upsert", row }),
     });
-    return res.ok;
+    if (res.ok) return { ok: true };
+    let message = "Lease could not be saved to the server. Check your connection and try again.";
+    try {
+      const body = (await res.json()) as { error?: string };
+      if (body.error?.trim()) message = body.error.trim();
+    } catch {
+      // Keep generic fallback when the body is not JSON.
+    }
+    return { ok: false, error: message };
   } catch {
-    return false;
+    return { ok: false, error: "Lease could not be saved to the server. Check your connection and try again." };
   }
 }
 
@@ -2275,6 +2287,8 @@ async function prepareManagerTemplatePdfForSignature(
           uploadedAt: iso,
         },
         templateVersion: row.templateVersion ?? leaseTemplateVersionForContext(ctx),
+        templateDocumentUrl: row.templateDocumentUrl ?? template.url,
+        templateDocumentName: row.templateDocumentName ?? template.name,
       },
     };
   } catch {
@@ -2818,8 +2832,24 @@ export async function sendLeaseToResident(rowId: string, managerUserId?: string 
   if (idx === -1) return { ok: false, error: "Lease record could not be saved locally." };
   const prepared = await prepareManagerTemplatePdfForSignature(raw[idx]!, managerUserId);
   if ("error" in prepared) return { ok: false, error: prepared.error };
-  const row = materializeManagerSectionEditsForSignature(prepared.row);
+  const beforeMaterialize = prepared.row;
+  let row = materializeManagerSectionEditsForSignature(prepared.row);
   const iso = new Date().toISOString();
+  if (
+    beforeMaterialize.generatedHtml &&
+    row.generatedHtml &&
+    row.generatedHtml !== beforeMaterialize.generatedHtml &&
+    !row.managerUploadedPdf?.dataUrl
+  ) {
+    const nextVersion = (row.versionNumber ?? row.pdfVersion ?? 1) + 1;
+    row = normalizeLeasePipelineRow({
+      ...row,
+      versionNumber: nextVersion,
+      pdfVersion: nextVersion,
+      generatedAtIso: iso,
+      managerDocumentEditedAtIso: iso,
+    });
+  }
   const updated = normalizeLeasePipelineRow({
     ...row,
     managerUserId: row.managerUserId ?? managerUserId ?? null,
@@ -2835,8 +2865,8 @@ export async function sendLeaseToResident(rowId: string, managerUserId?: string 
     signedAtIso: null,
   });
   const persisted = await persistLeaseRowToServerAwait(updated);
-  if (!persisted) {
-    return { ok: false, error: "Lease could not be saved to the server. Check your connection and try again." };
+  if (!persisted.ok) {
+    return persisted;
   }
   raw[idx] = updated;
   write(raw, managerUserId);
