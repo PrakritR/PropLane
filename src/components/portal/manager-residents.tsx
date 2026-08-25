@@ -213,6 +213,7 @@ import {
   ApplicationHouseholdCluster,
 } from "@/components/portal/application-household-list";
 import { groupHouseLabel, numberGroupsByHouse } from "@/lib/rental-application/group-house-label";
+import { dedupeResidentsByEmail } from "@/lib/resident-directory-dedupe";
 import { ApplicationHoldingFeeModal } from "@/components/portal/application-holding-fee-box";
 import { useCosignerSubmissionsMap } from "@/hooks/use-cosigner-submissions-map";
 import { signerAppIdsForCosignerLookup } from "@/lib/rental-application/application-list-grouping";
@@ -637,7 +638,7 @@ export function ManagerResidents({
     // pipeline cache, which React cannot see. Re-filter once that cache
     // hydrates so linked-property rows appear without a manual refresh.
     void propertyTick;
-    return readManagerApplicationRows()
+    const built = readManagerApplicationRows()
       .filter((row) => isResidentDirectoryRow(row) && applicationVisibleToPortalUser(row, userId, "residents"))
       .map((row) => {
         const propId = row.assignedPropertyId?.trim() || row.propertyId?.trim() || "";
@@ -667,6 +668,11 @@ export function ManagerResidents({
           isPrevious: isPreviousResidentDirectoryRow(row),
         };
       });
+    // One resident per email. This list is built 1:1 from approved application rows, so someone
+    // who applied twice — two rooms, or a second application after a move — became TWO residents
+    // sharing an address. Applications stay separate on purpose; only the resident identity
+    // collapses. Rows with no email are never merged (see the helper).
+    return dedupeResidentsByEmail(built);
   }, [userId, hcTick, propertyTick]);
 
   const propertyOptions = useMemo(() => {
