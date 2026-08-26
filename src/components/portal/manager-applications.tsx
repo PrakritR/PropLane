@@ -72,6 +72,7 @@ import { buildManagerShareablePropertyOptions } from "@/lib/manager-property-lin
 import { syncPropertyPipelineFromServer, hasCachedPropertyPipeline } from "@/lib/demo-property-pipeline";
 import { transitionApplicationBucket } from "@/lib/application-review";
 import { useApplicationAutomation } from "@/hooks/use-application-automation";
+import { selectAutoApprovals } from "@/lib/auto-approve-trigger";
 import { applicationShowsBackgroundCheck } from "@/lib/application-background-check";
 import { isDemoModeActive } from "@/lib/demo/demo-session";
 import {
@@ -486,6 +487,8 @@ export function ManagerApplications({
   const { showToast } = useAppUi();
   const { userId, ready: authReady } = useManagerUserId();
   const applicationAutomation = useApplicationAutomation(userId);
+  // Guards a single auto-approve pass per mount, so a re-render cannot fire a second one.
+  const autoApproveRanRef = useRef(false);
   const pathname = usePathname();
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -835,6 +838,49 @@ export function ManagerApplications({
     const qs = params.toString();
     router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
   }, [scopedRows, pathname, router, basePath, navigate]);
+
+  /**
+   * Auto-approve, when the manager has switched it on.
+   *
+   * The trigger is THIS list loading — the moment a manager would otherwise have clicked Approve,
+   * with the same data already loaded and the result visible on the screen they are looking at.
+   * It cannot be a background job: approval-time charge generation is browser-only, so a server
+   * sweep would approve applications and silently bill nobody.
+   *
+   * `selectAutoApprovals` caps the pass, so switching this on with a backlog does not provision a
+   * pile of accounts at once; the rest come on the next load.
+   */
+  useEffect(() => {
+    if (autoApproveRanRef.current) return;
+    if (!applicationAutomation.autoApproveApplications || !userId || rows.length === 0) return;
+    autoApproveRanRef.current = true;
+    const picked = selectAutoApprovals(
+      rows.map((row) => ({
+        id: row.id,
+        bucket: row.bucket,
+        withdrawnAt: row.withdrawnAt,
+        complete: !isInProgressApplicationRow(row),
+        screeningStatus: row.backgroundCheck?.status,
+      })),
+      { enabled: true, isDemo: isDemoModeActive() },
+    );
+    if (picked.length === 0) return;
+    void (async () => {
+      for (const candidate of picked) {
+        // Sequential on purpose: each approval writes charges and provisions an account, and the
+        // shared transition is not built to run concurrently against the same local store.
+        await setRowBucket(candidate.id, "approved");
+      }
+      showToast(
+        picked.length === 1
+          ? "1 application auto-approved."
+          : `${picked.length} applications auto-approved.`,
+      );
+    })();
+    // Deliberately keyed on the automation flag and the row set only — `setRowBucket` is redefined
+    // every render and would retrigger the pass.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [applicationAutomation.autoApproveApplications, rows, userId]);
 
   const setRowBucket = async (id: string, nextBucket: ManagerApplicationBucket, opts?: { skipWelcomeEmail?: boolean }) => {
     const result = await transitionApplicationBucket(id, nextBucket, {
