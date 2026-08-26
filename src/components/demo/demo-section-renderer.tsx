@@ -169,7 +169,12 @@ export function DemoSectionRenderer({
         return <ManagerDocumentsPanel tabId={tabId} basePath={basePath} />;
       case "relationships":
         if (tabId === "vendors") {
-          return <ManagerVendorsPanel embedded listBasePath={basePath} />;
+          return (
+            <Placeholder
+              title="Vendors"
+              message="Vendor management is not available in the demo sandbox."
+            />
+          );
         }
         return <ProAccountLinksPanel userId={managerUserId} />;
       case "promotion":

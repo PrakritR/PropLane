@@ -227,12 +227,12 @@ export function sortManagerTourClustersForBucket(
   clusters: ManagerTourListCluster[],
   bucket: ManagerTourBucketId,
 ): ManagerTourListCluster[] {
-  const clusterStart = new Map(
-    clusters.map((cluster) => [
-      cluster.key,
-      cluster.rows.length ? Math.min(...cluster.rows.map((row) => row.startMs)) : Infinity,
-    ]),
-  );
+  const clusterSortKey = (cluster: ManagerTourListCluster) => {
+    if (!cluster.rows.length) return bucket === "past" ? -Infinity : Infinity;
+    const times = cluster.rows.map((row) => row.startMs);
+    return bucket === "past" ? Math.max(...times) : Math.min(...times);
+  };
+  const clusterStart = new Map(clusters.map((cluster) => [cluster.key, clusterSortKey(cluster)]));
   const sorted = clusters.map((cluster) => ({
     ...cluster,
     rows: sortManagerTourRowsForBucket(cluster.rows, bucket),

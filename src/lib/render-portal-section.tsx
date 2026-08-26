@@ -515,7 +515,6 @@ export async function renderPortalSection(
         if (teamTabRaw === "owner" || teamTabRaw === "manager" || teamTabRaw === "pending" || teamTabRaw === "linked") {
           redirect(`${def.basePath}/${section}/managers`);
         }
-        if (!(TEAM_SECTION_TABS as readonly string[]).includes(teamTabRaw)) notFound();
         teamTab = parseTeamSectionTab(teamTabRaw);
         if (tabParts.length > 1 && teamTab !== "vendors") notFound();
         if (teamTab === "vendors" && tabParts.length > 2) notFound();
@@ -530,7 +529,7 @@ export async function renderPortalSection(
           <ManagerVendorsPanel
             embedded
             listBasePath={def.basePath}
-            vendorId={tabParts && tabParts.length > 1 ? tabParts[1]! : undefined}
+            vendorId={tabParts && tabParts.length > 1 ? decodeURIComponent(tabParts[1]!) : undefined}
           />,
           kind,
           "relationships",
@@ -656,7 +655,8 @@ export async function renderPortalSection(
       // path still resolves so bookmarks and links in sent messages keep working, carrying any
       // vendor id through to the detail.
       if (servicesTab === "vendors") {
-        const vendorId = tabParts.length > 1 ? `/${encodeURIComponent(tabParts[1]!)}` : "";
+        const vendorId =
+          tabParts.length > 1 ? `/${encodeURIComponent(decodeURIComponent(tabParts[1]!))}` : "";
         redirect(`${def.basePath}/relationships/vendors${vendorId}`);
       }
       if (!["requests", "work-orders"].includes(servicesTab)) notFound();

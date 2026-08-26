@@ -3,7 +3,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { usePortalNavigate } from "@/lib/portal-nav-client";
-import { vendorListHref } from "@/lib/portal-detail-routes";
 import { ApplicationHouseholdCluster } from "@/components/portal/application-household-list";
 import { Badge } from "@/components/ui/badge";
 import { clusterRowsByResident } from "@/lib/resident-row-clustering";

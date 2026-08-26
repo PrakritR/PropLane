@@ -138,17 +138,6 @@ export function ManagerPropertyTourPanel({
     [bucket, navigate],
   );
 
-  const googleBusyMeetings = useGoogleCalendarBusyMeetings({
-    enabled: Boolean(managerUserId),
-    onWarning: ({ warning, hint }) => {
-      if (!isGoogleBusyIncompleteWarning(warning)) return;
-      showToast(
-        hint ??
-          "PropLane could not load all your Google Calendar busy time, so this grid may be missing conflicts.",
-      );
-    },
-  });
-
   // This is the screen where a manager PUBLISHES tour availability, so it has to
   // show the conflicts that availability would collide with. It used to render
   // no busy overlay at all while /portal/calendar showed the same half hour as
@@ -174,6 +163,16 @@ export function ManagerPropertyTourPanel({
   // Google busy should be advisory (marked, still selectable) rather than blocking.
   // Answering it yes is a product change and must land on both calendars at once,
   // never on this one alone.
+  const googleBusyMeetings = useGoogleCalendarBusyMeetings({
+    enabled: Boolean(managerUserId),
+    onWarning: ({ warning, hint }) => {
+      if (!isGoogleBusyIncompleteWarning(warning)) return;
+      showToast(
+        hint ??
+          "PropLane could not load all your Google Calendar busy time, so this grid may be missing conflicts.",
+      );
+    },
+  });
 
   return (
     <>
