@@ -2,7 +2,6 @@
 
 import { ApplicationHouseholdCluster } from "@/components/portal/application-household-list";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
 import { DataList, type DataListRow } from "@/components/ui/data-list";
 import type { CosignerSubmission } from "@/lib/cosigner-submissions-storage";
 import {
@@ -22,17 +21,11 @@ export function ManagerApplicationsGroupedTable({
   cosignerSubmissionsBySigner,
   onOpenApplication,
   onOpenCosigner,
-  showReminderForRow,
-  onSendReminder,
-  reminderBusyId,
 }: {
   clusters: ManagerApplicationListCluster[];
   cosignerSubmissionsBySigner: Map<string, CosignerSubmission[]>;
   onOpenApplication: (row: DemoApplicantRow) => void;
   onOpenCosigner: (row: DemoApplicantRow, index: number) => void;
-  showReminderForRow?: (row: DemoApplicantRow) => boolean;
-  onSendReminder?: (row: DemoApplicantRow) => void;
-  reminderBusyId?: string | null;
 }) {
   return (
     <div className="space-y-3" data-attr="applications-resident-groups">
@@ -74,29 +67,12 @@ export function ManagerApplicationsGroupedTable({
               rows={tableRows.map((entry): DataListRow<ApplicationTableRow> => {
                 if (entry.kind === "application") {
                   const row = entry.row;
-                  const showReminder = showReminderForRow?.(row) ?? false;
                   return {
                     id: row.id,
                     data: entry,
                     primary: applicationSubmittedLabel(row),
                     meta: applicationPropertyMeta(row),
                     onClick: () => onOpenApplication(row),
-                    inlineAction:
-                      showReminder && onSendReminder ? (
-                        <Button
-                          type="button"
-                          variant="outline"
-                          className="h-8 shrink-0 whitespace-nowrap rounded-full px-3 text-[11px] font-semibold"
-                          data-attr="application-send-reminder"
-                          disabled={Boolean(reminderBusyId)}
-                          onClick={(event) => {
-                            event.stopPropagation();
-                            onSendReminder(row);
-                          }}
-                        >
-                          {reminderBusyId === row.id ? "Loading…" : "Send reminder"}
-                        </Button>
-                      ) : undefined,
                   };
                 }
                 return {

@@ -40,6 +40,7 @@ import {
 import { UploadedLeasePdfPreview } from "@/components/portal/uploaded-lease-pdf-preview";
 import { PortalCollapsibleSection } from "@/components/portal/portal-collapsible-section";
 import { DestinationNav } from "@/components/ui/destination-nav";
+import { SegmentedTwo } from "@/components/ui/segmented-control";
 import { ApplicationReviewLauncherRow, type ApplicationReviewView } from "@/components/portal/application-review-launcher-row";
 import { downloadBackgroundCheckForApplication } from "@/components/portal/application-screening-panel";
 import { ApplicationHoldingFeeModal } from "@/components/portal/application-holding-fee-box";
@@ -68,6 +69,7 @@ import {
   applicationVisibleToPortalUser,
   buildManagerPropertyFilterOptions,
 } from "@/lib/manager-portfolio-access";
+import { PortalPageScrollBody } from "@/lib/portal-page-chrome-layout";
 import { buildManagerShareablePropertyOptions } from "@/lib/manager-property-links";
 import { syncPropertyPipelineFromServer, hasCachedPropertyPipeline } from "@/lib/demo-property-pipeline";
 import { transitionApplicationBucket } from "@/lib/application-review";
@@ -1330,6 +1332,7 @@ export function ManagerApplications({
         group={group}
         bareCanvas
         showDownload={false}
+        hideToggle={applicationShowsBackgroundCheck(row)}
         activeView={applicationReviewView}
         onActiveViewChange={setApplicationReviewView}
         onScreeningUpdated={handleScreeningFlowComplete}
@@ -1678,15 +1681,34 @@ export function ManagerApplications({
           inlineActions={!activeCosignerSubmission}
           actions={activeCosignerSubmission ? undefined : renderApplicationRowActions(detailRow)}
           pinScrollBody
+          scrollBody={false}
         >
-          {activeCosignerSubmission ? (
-            <ManagerCosignerReadonlyReview
-              sub={activeCosignerSubmission}
-              primaryApplicationAxisId={detailRow.id}
-            />
-          ) : (
-            renderApplicationDetail(detailRow)
-          )}
+          <div className="flex min-h-0 flex-1 flex-col">
+            {!activeCosignerSubmission && applicationShowsBackgroundCheck(detailRow) ? (
+              <div
+                className="shrink-0 border-b border-border bg-background px-3 py-2"
+                data-attr="application-review-toggle"
+              >
+                <SegmentedTwo
+                  value={applicationReviewView}
+                  onChange={setApplicationReviewView}
+                  left={{ id: "application", label: "Application" }}
+                  right={{ id: "background-check", label: "Background check" }}
+                  className="w-full"
+                />
+              </div>
+            ) : null}
+            <PortalPageScrollBody>
+              {activeCosignerSubmission ? (
+                <ManagerCosignerReadonlyReview
+                  sub={activeCosignerSubmission}
+                  primaryApplicationAxisId={detailRow.id}
+                />
+              ) : (
+                renderApplicationDetail(detailRow)
+              )}
+            </PortalPageScrollBody>
+          </div>
         </PortalRecordDetailPage>
       </>
     );
@@ -1780,9 +1802,6 @@ export function ManagerApplications({
             onOpenCosigner={(row, index) =>
               navigate(`${applicationDetailHref(basePath, tabForRow(row), row.id)}?cosigner=${index}`)
             }
-            showReminderForRow={showCompletionReminderForRow}
-            onSendReminder={(row) => void openReminderPreview(row)}
-            reminderBusyId={reminderPreviewBusyId ?? reminderBusyId}
           />
           <div className={PORTAL_LIST_ADD_ROW_WRAP_CLASS}>
             <PortalListAddRow

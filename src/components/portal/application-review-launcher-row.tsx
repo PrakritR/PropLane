@@ -28,6 +28,8 @@ export function ApplicationReviewLauncherRow({
   group = null,
   omitReviewSections,
   hasLinkedCosigner = false,
+  /** When a parent renders the Application / Background check toggle above scroll chrome. */
+  hideToggle = false,
   className,
 }: {
   row: DemoApplicantRow;
@@ -45,6 +47,7 @@ export function ApplicationReviewLauncherRow({
   omitReviewSections?: Array<"group" | "cosigner" | "placement">;
   /** Primary application has a linked co-signer submission — background check scopes to this applicant only. */
   hasLinkedCosigner?: boolean;
+  hideToggle?: boolean;
   className?: string;
 }) {
   const showsScreening = applicationShowsBackgroundCheck(row);
@@ -68,7 +71,7 @@ export function ApplicationReviewLauncherRow({
       className={`${stretch ? "flex min-h-0 flex-1 flex-col gap-3" : "space-y-3"} ${className ?? ""}`.trim()}
       data-slot="application-review-inline"
     >
-      {showsScreening ? (
+      {showsScreening && !hideToggle ? (
         <SegmentedTwo
           value={activeView}
           onChange={setActiveView}

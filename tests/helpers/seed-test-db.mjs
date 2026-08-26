@@ -315,6 +315,41 @@ async function seedScheduleToursForManager({ managerUserId, hostLabel, propertie
       guest: { name: "Alex Kim", email: "alex.tour@axis.local", phone: "+12025550113" },
       pendingGuest: { name: "Jordan Lee", email: "jordan.tour@axis.local", phone: "+12025550114" },
     },
+    {
+      plannedId: `seed-planned-${managerUserId.slice(0, 8)}-c`,
+      inquiryId: `seed-pending-${managerUserId.slice(0, 8)}-c`,
+      property: properties[2] ?? properties[0],
+      daysOut: 1,
+      slot: 22,
+      guest: { name: "Taylor Nguyen", email: "taylor.tour@axis.local", phone: "+12025550115" },
+      pendingGuest: { name: "Morgan Ellis", email: "morgan.tour@axis.local", phone: "+12025550116" },
+    },
+    {
+      plannedId: `seed-planned-${managerUserId.slice(0, 8)}-d`,
+      inquiryId: `seed-pending-${managerUserId.slice(0, 8)}-d`,
+      property: properties[3] ?? properties[0],
+      daysOut: 6,
+      slot: 26,
+      guest: { name: "Casey Brooks", email: "casey.tour@axis.local", phone: "+12025550117" },
+      pendingGuest: { name: "Riley West", email: "riley.tour@axis.local", phone: "+12025550118" },
+    },
+  ];
+
+  const pendingOnlySpecs = [
+    {
+      inquiryId: `seed-pending-${managerUserId.slice(0, 8)}-e`,
+      property: properties[4] ?? properties[0],
+      daysOut: 3,
+      slot: 28,
+      guest: { name: "Avery Chen", email: "avery.tour@axis.local", phone: "+12025550119" },
+    },
+    {
+      inquiryId: `seed-pending-${managerUserId.slice(0, 8)}-f`,
+      property: properties[5] ?? properties[1] ?? properties[0],
+      daysOut: 5,
+      slot: 30,
+      guest: { name: "Quinn Patel", email: "quinn.tour@axis.local", phone: "+12025550120" },
+    },
   ];
 
   for (const spec of tourSpecs) {
@@ -347,6 +382,30 @@ async function seedScheduleToursForManager({ managerUserId, hostLabel, propertie
       email: spec.pendingGuest.email,
       phone: spec.pendingGuest.phone,
       notes: "Interested in a furnished room with a desk setup.",
+      kind: "tour",
+      status: "pending",
+      managerUserId,
+      propertyId: spec.property.id,
+      propertyTitle: spec.property.name,
+      proposedStart: pendingStart,
+      proposedEnd: pendingEnd,
+      createdAt,
+      tourGroupId: `seed-grp-${spec.inquiryId}`,
+      requestedWindows: [{ start: pendingStart, end: pendingEnd, slotKey: pendingSlotKey, adminUserId: managerUserId }],
+    });
+  }
+
+  for (const spec of pendingOnlySpecs) {
+    const ds = isoDate(daysFromNow(spec.daysOut));
+    const pendingStart = slotIsoFromDateStr(ds, spec.slot);
+    const pendingEnd = slotIsoFromDateStr(ds, spec.slot + 2);
+    const pendingSlotKey = `${ds}:${spec.slot}`;
+    partnerInquiries.push({
+      id: spec.inquiryId,
+      name: spec.guest.name,
+      email: spec.guest.email,
+      phone: spec.guest.phone,
+      notes: "Looking for a quiet room with natural light.",
       kind: "tour",
       status: "pending",
       managerUserId,

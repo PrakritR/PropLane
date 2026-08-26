@@ -84,41 +84,48 @@ function isRemindableRow(row: DemoManagerPaymentLedgerRow): boolean {
   return !isPaidRow(row) && Boolean(row.householdChargeId || row.id);
 }
 
-function paymentReminderLabel(
+function paymentReminderMetaHint(
   row: DemoManagerPaymentLedgerRow,
   scheduledMessages: ScheduledPaymentMessage[],
 ): string | null {
   if (!row.householdChargeId || isPaidRow(row)) return null;
   const reminders = manageableRemindersForCharge(scheduledMessages, row.householdChargeId);
-  if (!reminders.length) return null;
-  const scheduled = reminders.filter((message) => message.status === "scheduled");
-  if (scheduled.length) {
-    const sends = scheduled.map((message) => formatScheduledSendAt(message.sendAt)).join(", ");
-    return `Reminders scheduled: ${sends}`;
+  const summary = summariseScheduledSends(reminders);
+  if (summary.count > 0 && summary.nextSendAt) {
+    const next = formatScheduledSendAt(summary.nextSendAt);
+    return summary.count === 1
+      ? `Next reminder ${next}`
+      : `Next reminder ${next} (+${summary.count - 1} more)`;
   }
-  const active = reminders.filter((message) => message.status !== "cancelled");
-  if (active.length) return "Reminders paused";
+  const hasScheduled = reminders.some((message) => message.status === "scheduled");
+  const hasActive = reminders.some((message) => message.status !== "cancelled" && message.status !== "sent");
+  if (hasActive && !hasScheduled) return "Reminders paused";
   return null;
 }
 
-function paymentReminderBadge(
+function formatDueMeta(due: string): string {
+  const trimmed = due.trim();
+  if (!trimmed) return "";
+  if (/^(due|before)\b/i.test(trimmed)) return trimmed;
+  return `Due ${trimmed}`;
+}
+
+function ledgerRowMetaLine(
   row: DemoManagerPaymentLedgerRow,
   scheduledMessages: ScheduledPaymentMessage[],
-): ReactNode | null {
-  if (!row.householdChargeId || isPaidRow(row)) return null;
-  const scheduled = manageableRemindersForCharge(scheduledMessages, row.householdChargeId).filter(
-    (message) => message.status === "scheduled",
-  );
-  if (!scheduled.length) return null;
-  const nextSend = scheduled
-    .map((message) => message.sendAt)
-    .sort()
-    .map((iso) => formatScheduledSendAt(iso))[0];
-  return (
-    <Badge tone="pending">
-      Reminder {nextSend}
-    </Badge>
-  );
+  options?: { includeProperty?: boolean },
+): string {
+  const includeProperty = options?.includeProperty ?? true;
+  const parts: string[] = [];
+  if (includeProperty) {
+    const property = ledgerRowPropertyLine(row);
+    if (property !== "—") parts.push(property);
+  }
+  const due = formatDueMeta(row.dueDate ?? "");
+  if (due) parts.push(due);
+  const reminder = paymentReminderMetaHint(row, scheduledMessages);
+  if (reminder) parts.push(reminder);
+  return parts.join(" · ");
 }
 
 function dueDateDisplayToInputValue(display: string): string {
@@ -152,18 +159,6 @@ function ledgerRowPrimaryLabel(row: DemoManagerPaymentLedgerRow): string {
     return `${row.chargeTitle} · ${row.manualPaymentChannel === "zelle" ? "Zelle" : "Venmo"} reported`;
   }
   return row.chargeTitle;
-}
-
-function ledgerRowMetaLine(
-  row: DemoManagerPaymentLedgerRow,
-  scheduledMessages: ScheduledPaymentMessage[],
-): string {
-  const parts = [ledgerRowPropertyLine(row)].filter((part) => part !== "—");
-  const due = row.dueDate?.trim();
-  if (due) parts.push(`Due ${due}`);
-  const reminder = paymentReminderLabel(row, scheduledMessages);
-  if (reminder) parts.push(reminder);
-  return parts.join(" · ");
 }
 
 function ledgerRowPropertyLine(row: DemoManagerPaymentLedgerRow): string {
@@ -1295,7 +1290,10 @@ export function ManagerPaymentsLedgerPanel({
     },
   ] as const;
 
-  const renderChargeDataList = (listRows: DemoManagerPaymentLedgerRow[]) => (
+  const renderChargeDataList = (
+    listRows: DemoManagerPaymentLedgerRow[],
+    options?: { omitPropertyInMeta?: boolean },
+  ) => (
     <DataList
       hideColumnHeaders
       selectable={showSelection}
@@ -1306,12 +1304,11 @@ export function ManagerPaymentsLedgerPanel({
           id: row.id,
           data: row,
           primary: ledgerRowPrimaryLabel(row),
-          meta: ledgerRowMetaLine(row, scheduledMessages),
+          meta: ledgerRowMetaLine(row, scheduledMessages, {
+            includeProperty: !options?.omitPropertyInMeta,
+          }),
           trailing: (
-            <div className="flex flex-col items-end gap-1">
-              {paymentReminderBadge(row, scheduledMessages)}
-              <span className="text-sm font-semibold tabular-nums text-foreground">{row.lineAmount}</span>
-            </div>
+            <span className="text-sm font-semibold tabular-nums text-foreground">{row.lineAmount}</span>
           ),
           selected: isSelected,
           onSelectedChange: () => toggleSelected(row.id),
@@ -1363,7 +1360,7 @@ export function ManagerPaymentsLedgerPanel({
             </>
           }
         >
-          {renderChargeDataList(cluster.rows)}
+          {renderChargeDataList(cluster.rows, { omitPropertyInMeta: true })}
         </ApplicationHouseholdCluster>
       ))}
     </div>

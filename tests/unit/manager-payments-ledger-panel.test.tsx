@@ -117,6 +117,62 @@ describe("ManagerPaymentsLedgerPanel", () => {
     expect(container.querySelector('[data-attr="payment-list-row"]')).toBeNull();
   });
 
+  it("shows compact reminder copy on grouped charge rows", () => {
+    const { container } = render(
+      <ManagerPaymentsLedgerPanel
+        rows={[sampleRow({ id: "hc_rem", householdChargeId: "hc_rem" })]}
+        managerUserId="mgr-test"
+        activeBucket="pending"
+        direction="incoming"
+        scheduledMessages={[
+          {
+            id: "msg-1",
+            chargeId: "hc_rem",
+            kind: "before_due",
+            daysBeforeDue: 7,
+            sendAt: "2026-08-28T07:00:00.000Z",
+            visibleFrom: "2026-08-21T07:00:00.000Z",
+            dueDate: "2026-09-11",
+            dueDateLabel: "Sep 11, 2026",
+            residentName: "Maya Chen",
+            residentEmail: "maya@example.com",
+            chargeTitle: "July rent",
+            propertyLabel: "The Magnolia",
+            balanceDue: "$1,850.00",
+            subject: "Reminder",
+            body: "Please pay",
+            status: "scheduled",
+          },
+          {
+            id: "msg-2",
+            chargeId: "hc_rem",
+            kind: "before_due",
+            daysBeforeDue: 3,
+            sendAt: "2026-09-04T07:00:00.000Z",
+            visibleFrom: "2026-08-28T07:00:00.000Z",
+            dueDate: "2026-09-11",
+            dueDateLabel: "Sep 11, 2026",
+            residentName: "Maya Chen",
+            residentEmail: "maya@example.com",
+            chargeTitle: "July rent",
+            propertyLabel: "The Magnolia",
+            balanceDue: "$1,850.00",
+            subject: "Reminder",
+            body: "Please pay",
+            status: "scheduled",
+          },
+        ]}
+        onAddPayment={() => undefined}
+      />,
+    );
+
+    const mobileRow = container.querySelector('[data-slot="data-list-mobile-row"]');
+    expect(mobileRow?.textContent).toContain("Next reminder");
+    expect(mobileRow?.textContent).toContain("(+1 more)");
+    expect(mobileRow?.textContent).not.toContain("Reminders scheduled:");
+    expect(mobileRow?.textContent).not.toContain("The Magnolia");
+  });
+
   it("uses resident-style DataList cards when embedded in a resident profile", () => {
     const { container } = render(
       <ManagerPaymentsLedgerPanel
