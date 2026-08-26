@@ -13,7 +13,6 @@
  */
 import { describe, expect, it, beforeEach, afterEach } from "vitest";
 import {
-  LEASE_LANDLORD_PLACEHOLDER,
   leaseLandlordNameBlocker,
   leaseLandlordPartyNameFromHtml,
 } from "@/lib/lease-pipeline-storage";

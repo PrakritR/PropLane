@@ -90,9 +90,13 @@ describe("evidence · generate-lease picker follows the property's real formats"
       <LeaseGenerateModal open row={ROW} managerUserId="mgr-1" onClose={() => {}} onGenerated={() => {}} />,
     );
     expect(document.body.textContent).toContain("no saved lease formats");
+    // Generate is now gated on a configured landlord legal name — the draft would otherwise name
+    // "[LANDLORD ENTITY NAME]" as a contracting party. This fixture configures none, so the
+    // button is correctly disabled; the enabled case is covered by the sibling test above, which
+    // is about the property's saved formats rather than the landlord.
     expect(
       document.querySelector<HTMLButtonElement>('button[data-attr="lease-generate-confirm"]')?.disabled,
-    ).toBe(false);
+    ).toBe(true);
     writeShot(
       "generate-no-templates",
       "F · Same modal on a property with no saved formats — it says the draft uses PropLane's standard lease template, and Generate stays enabled.",
