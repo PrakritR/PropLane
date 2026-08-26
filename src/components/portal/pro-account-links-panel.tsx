@@ -7,7 +7,6 @@ import { PortalActiveFilterChips } from "@/components/portal/portal-filter-chips
 import { PortalFilterSortSheet, portalFilterActiveCount } from "@/components/portal/portal-filter-sort-sheet";
 import { PORTAL_PROPERTY_FILTER_SHEET_CLASS } from "@/components/portal/portal-filter-shell";
 import { ApplicationFilterSortFields } from "@/components/portal/application-filter-sort-fields";
-import { ManagerTeamTabNav } from "@/components/portal/manager-team-tab-nav";
 import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
 import {
   ManagerPortalPageShell,
@@ -1494,7 +1493,7 @@ export function ProAccountLinksPanel({ userId }: { userId: string }) {
     >
       <PortalListControlStack
         className="mb-2"
-        destinationRow={<ManagerTeamTabNav activeTab="managers" />}
+        
       />
       {teamActiveFilterChips}
       <div className="space-y-4" data-attr="co-manager-unified-view">

@@ -37,7 +37,7 @@ export const PROPERTY_DETAIL_TOP_TAB_LABELS = {
   tours: "Tours",
   application: "Application",
   lease: "Lease",
-  requests: "Requests",
+  requests: "Services",
   promotion: "Promotion",
 } as const;
 
@@ -251,34 +251,6 @@ export function parseTeamLinkTab(raw: string | undefined | null): TeamLinkTabId 
     return raw as TeamLinkTabId;
   }
   return "pending";
-}
-
-/**
- * Routed tabs inside Team.
- *
- * Vendors moved here out of Services. They are PEOPLE a manager works with, which is what this
- * section is about — under Services they sat beside the work those people do, and the tab was a
- * permanent "(soon)" placeholder besides.
- */
-export const TEAM_SECTION_TABS = ["managers", "vendors"] as const;
-export type TeamSectionTabId = (typeof TEAM_SECTION_TABS)[number];
-
-export const TEAM_SECTION_TAB_LABELS: Record<TeamSectionTabId, string> = {
-  managers: "Managers",
-  vendors: "Vendors",
-};
-
-export function parseTeamSectionTab(raw: string | undefined | null): TeamSectionTabId {
-  if (raw && (TEAM_SECTION_TABS as readonly string[]).includes(raw)) {
-    return raw as TeamSectionTabId;
-  }
-  // Anything unrecognised — including the pre-tab bare /relationships URL and its old
-  // owner/manager/pending/linked sub-paths — lands on Managers rather than 404ing.
-  return "managers";
-}
-
-export function teamSectionHref(basePath: string, tab: TeamSectionTabId): string {
-  return `${basePath}/relationships/${tab}`;
 }
 
 export function teamLinkHref(basePath: string, _tab?: TeamLinkTabId): string {
@@ -596,11 +568,11 @@ export function workOrderDetailHref(
 // on the compatibility redirect from /services/vendors — a link that redirects on every click
 // costs a round trip and briefly shows the wrong section as active.
 export function vendorListHref(basePath: string): string {
-  return `${basePath}/relationships/vendors`;
+  return `${basePath}/vendors`;
 }
 
 export function vendorDetailHref(basePath: string, vendorId: string): string {
-  return `${basePath}/relationships/vendors/${encodeURIComponent(vendorId)}`;
+  return `${basePath}/vendors/${encodeURIComponent(vendorId)}`;
 }
 
 /** Legacy promotion content filters — routes now redirect to the unified list. */

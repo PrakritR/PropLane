@@ -18,6 +18,12 @@ import { scheduledCalendarMeetings } from "@/lib/google-calendar/meetings";
 
 const capturedProps: Record<string, unknown>[] = [];
 
+// The tour panel navigates now, so it calls useRouter — which throws outside an app router.
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({ push: vi.fn(), replace: vi.fn(), prefetch: vi.fn(), back: vi.fn() }),
+  usePathname: () => "/portal/properties/listed",
+  useSearchParams: () => new URLSearchParams(),
+}));
 vi.mock("@/components/portal/portal-calendar-panels", () => ({
   PortalCalendarPanels: (props: Record<string, unknown>) => {
     capturedProps.push(props);

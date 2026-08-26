@@ -48,6 +48,7 @@ import {
   loadManagerProperties,
   loadManagerResidents,
   loadManagerVendorsPanel,
+  loadPortalCalendar,
   loadProAccountLinksPanel,
   loadResidentServicesPanel,
 } from "@/lib/portal-panel-imports";
@@ -387,13 +388,22 @@ export async function renderPortalSection(
     redirect(`${def.basePath}/services/work-orders`);
   }
 
-  // Legacy path support: Vendors moved under Team; keep old URLs working.
-  if ((kind === "manager" || kind === "pro") && section === "vendors") {
-    redirect(`${def.basePath}/relationships/vendors`);
-  }
 
   if ((kind === "manager" || kind === "pro") && section === "calendar") {
-    redirect(`${def.basePath}/tours/pending`);
+    const { CALENDAR_VIEW_TABS, parseCalendarViewTab } = await import("@/lib/portal-detail-routes");
+    if (!tabParts?.length) {
+      redirect(`${def.basePath}/calendar/availability`);
+    }
+    const viewRaw = tabParts[0]!;
+    // Retired view names — and the Tours hub's own — land on Schedule rather than 404ing.
+    if (!(CALENDAR_VIEW_TABS as readonly string[]).includes(viewRaw)) {
+      redirect(`${def.basePath}/calendar/availability`);
+    }
+    if (tabParts.length > 1) notFound();
+    const PortalCalendar = await loadPortalCalendar();
+    return (
+      <PortalCalendar portal="manager" calendarView={parseCalendarViewTab(viewRaw)} />
+    );
   }
 
   const meta = findSection(def, section);
@@ -505,38 +515,31 @@ export async function renderPortalSection(
       redirect(`${def.basePath}/services/work-orders`);
     }
 
+    // Vendors is its own section under the Team heading, beside Managers.
+    if ((kind === "manager" || kind === "pro") && section === "vendors") {
+      const ManagerVendorsPanel = await loadManagerVendorsPanel();
+      return subscriptionGated(
+        <ManagerVendorsPanel
+          listBasePath={def.basePath}
+          vendorId={tabParts?.length ? decodeURIComponent(tabParts[0]!) : undefined}
+        />,
+        kind,
+        "vendors",
+        managerOwnerSubscriptionTier,
+      );
+    }
+
     if (kind === "pro" && section === "relationships") {
-      const { TEAM_SECTION_TABS, parseTeamSectionTab } = await import("@/lib/portal-detail-routes");
-      let teamTab: "managers" | "vendors" = "managers";
       if (tabParts?.length) {
         const teamTabRaw = tabParts[0]!;
-        // The pre-tab sub-paths land on Managers rather than 404ing, so an old bookmark still
-        // opens the team list it always did.
-        if (teamTabRaw === "owner" || teamTabRaw === "manager" || teamTabRaw === "pending" || teamTabRaw === "linked") {
-          redirect(`${def.basePath}/${section}/managers`);
+        // Vendors left this section; every other legacy sub-path lands on the team list rather
+        // than 404ing, because those URLs are in bookmarks.
+        if (teamTabRaw === "vendors") {
+          const vendorId = tabParts.length > 1 ? `/${encodeURIComponent(tabParts[1]!)}` : "";
+          redirect(`${def.basePath}/vendors${vendorId}`);
         }
-        teamTab = parseTeamSectionTab(teamTabRaw);
-        if (tabParts.length > 1 && teamTab !== "vendors") notFound();
-        if (teamTab === "vendors" && tabParts.length > 2) notFound();
-      } else {
-        // Bare /relationships gets a canonical tabbed URL so the strip has something to mark active.
-        redirect(`${def.basePath}/${section}/managers`);
+        redirect(`${def.basePath}/${section}`);
       }
-
-      if (teamTab === "vendors") {
-        const ManagerVendorsPanel = await loadManagerVendorsPanel();
-        return subscriptionGated(
-          <ManagerVendorsPanel
-            embedded
-            listBasePath={def.basePath}
-            vendorId={tabParts && tabParts.length > 1 ? decodeURIComponent(tabParts[1]!) : undefined}
-          />,
-          kind,
-          "relationships",
-          managerOwnerSubscriptionTier,
-        );
-      }
-
       const ProAccountLinksPanel = await loadProAccountLinksPanel();
       return subscriptionGated(
         <ProAccountLinksPanel userId={effectiveWorkspaceUserId!} />,

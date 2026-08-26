@@ -40,7 +40,6 @@ import {
   PORTAL_LIST_ADD_ROW_WRAP_CLASS,
   PortalListAddRow,
 } from "@/components/portal/portal-list-add-row";
-import { ManagerTeamTabNav } from "@/components/portal/manager-team-tab-nav";
 import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
 import { PortalDataTableEmpty, PORTAL_DETAIL_BTN, PortalTableDetailActions } from "@/components/portal/portal-data-table";
 import { PortalRecordDetailPage } from "@/components/portal/portal-record-detail-page";
@@ -507,7 +506,6 @@ export const ManagerVendorsPanel = forwardRef(function ManagerVendorsPanel(
       >
         <PortalListControlStack
           className="mb-2"
-          destinationRow={<ManagerTeamTabNav activeTab="vendors" basePath={listBasePath} />}
         />
         {body}
       </ManagerPortalPageShell>
