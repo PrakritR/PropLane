@@ -19,11 +19,11 @@ import {
   PORTAL_DATA_TABLE,
   PORTAL_DATA_TABLE_SCROLL,
   PORTAL_DATA_TABLE_WRAP,
-  PORTAL_LIST_PAGE_BODY,
   PORTAL_TABLE_HEAD_ROW,
   PORTAL_TABLE_TD,
   PortalDataTableEmpty,
 } from "@/components/portal/portal-data-table";
+import { PORTAL_LIST_PAGE_BODY } from "@/components/portal/portal-inbox-ui";
 import { ShareLeadLinkModal } from "@/components/portal/share-lead-link-modal";
 import { TourProposalsPanel } from "@/components/portal/tour-proposals-panel";
 import { useAppUi } from "@/components/providers/app-ui-provider";
