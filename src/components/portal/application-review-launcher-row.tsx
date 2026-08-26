@@ -30,6 +30,7 @@ export function ApplicationReviewLauncherRow({
   hasLinkedCosigner = false,
   /** When a parent renders the Application / Background check toggle above scroll chrome. */
   hideToggle = false,
+  householdPanels,
   className,
 }: {
   row: DemoApplicantRow;
@@ -48,6 +49,8 @@ export function ApplicationReviewLauncherRow({
   /** Primary application has a linked co-signer submission — background check scopes to this applicant only. */
   hasLinkedCosigner?: boolean;
   hideToggle?: boolean;
+  /** Rendered inside the Application tab, above the readonly review body. */
+  householdPanels?: ReactNode;
   className?: string;
 }) {
   const showsScreening = applicationShowsBackgroundCheck(row);
@@ -90,6 +93,7 @@ export function ApplicationReviewLauncherRow({
           }
           data-testid="application-readonly-review"
         >
+          {householdPanels}
           {row.application ? (
             <ManagerApplicationReadonlyReview
               partial={row.application}
