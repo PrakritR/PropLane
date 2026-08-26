@@ -3,6 +3,10 @@
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { usePortalNavigate } from "@/lib/portal-nav-client";
+import { ApplicationHouseholdCluster } from "@/components/portal/application-household-list";
+import { Badge } from "@/components/ui/badge";
+import { clusterRowsByResident } from "@/lib/resident-row-clustering";
+import { cn } from "@/lib/utils";
 import {
   serviceRequestDetailHref,
   serviceRequestListHref,
@@ -573,25 +577,56 @@ export function ManagerAllServicesPanel({
         </div>
       ) : (
         <div>
-          <div className={INBOX_LIST_SCROLL}>
-            {bucketedRequests.map((req) => {
-              const propertyLabel = resolveRequestPropertyLabel(req);
-              const unit = resolveRequestUnit(req);
-              const subtitle = [req.residentName, propertyLabel, unit].filter(Boolean).join(" · ");
-              return (
-                <PortalServiceRecordRow
-                  key={req.id}
-                  title={req.offerName}
-                  subtitle={subtitle || undefined}
-                  statusLabel={reqBucket === "pending" ? "Pending" : reqBucket === "approved" ? "Approved" : "Denied"}
-                  statusTone={
-                    reqBucket === "approved" ? "success" : reqBucket === "denied" ? "danger" : "warning"
-                  }
-                  onOpen={() => navigate(serviceRequestDetailHref(basePath, reqBucket, req.id))}
-                  dataAttr="service-request-list-row"
-                />
-              );
-            })}
+          {/*
+            Grouped by resident, the same way Payments and Tours are — a manager reads these tabs
+            side by side, and one flat list beside two grouped ones reads as a different product.
+            The resident is now the group HEADER rather than a repeated line in every subtitle.
+          */}
+          <div className={cn(INBOX_LIST_SCROLL, "space-y-3")} data-attr="services-resident-groups">
+            {clusterRowsByResident(
+              bucketedRequests.map((req) => ({ ...req, id: req.id })),
+              (req) => resolveRequestPropertyLabel(req) || null,
+            ).map((cluster) => (
+              <ApplicationHouseholdCluster
+                key={cluster.key}
+                header={
+                  <>
+                    <span className="truncate text-xs font-semibold text-foreground">
+                      {cluster.residentLabel}
+                    </span>
+                    {cluster.residentEmail &&
+                    cluster.residentEmail.toLowerCase() !== cluster.residentLabel.trim().toLowerCase() ? (
+                      <span className="truncate text-xs text-muted">{cluster.residentEmail}</span>
+                    ) : null}
+                    {cluster.propertyLabel ? (
+                      <span className="truncate text-xs text-muted">{cluster.propertyLabel}</span>
+                    ) : null}
+                    <Badge tone="info">
+                      {cluster.rows.length === 1 ? "1 request" : `${cluster.rows.length} requests`}
+                    </Badge>
+                  </>
+                }
+              >
+                {cluster.rows.map((req) => {
+                  const unit = resolveRequestUnit(req);
+                  // The resident is in the header now, so the row says what the header does not.
+                  const subtitle = [resolveRequestPropertyLabel(req), unit].filter(Boolean).join(" · ");
+                  return (
+                    <PortalServiceRecordRow
+                      key={req.id}
+                      title={req.offerName}
+                      subtitle={subtitle || undefined}
+                      statusLabel={reqBucket === "pending" ? "Pending" : reqBucket === "approved" ? "Approved" : "Denied"}
+                      statusTone={
+                        reqBucket === "approved" ? "success" : reqBucket === "denied" ? "danger" : "warning"
+                      }
+                      onOpen={() => navigate(serviceRequestDetailHref(basePath, reqBucket, req.id))}
+                      dataAttr="service-request-list-row"
+                    />
+                  );
+                })}
+              </ApplicationHouseholdCluster>
+            ))}
           </div>
           <div className={PORTAL_LIST_ADD_ROW_WRAP_CLASS}>
             <PortalListAddRow
