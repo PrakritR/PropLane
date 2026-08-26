@@ -39,6 +39,11 @@ export type ManagerAutomationSettings = {
   tourReminderDeliverViaSms: boolean;
   paymentReminderDeliverViaEmail: boolean;
   paymentReminderDeliverViaSms: boolean;
+  /**
+   * Opt-in (default OFF): when PropLane AI finishes a draft reply, send it without
+   * waiting for Approve — same checkbox as on the draft card in Communication.
+   */
+  inboxAiDraftAutoSend: boolean;
   templates: {
     preDue: ReminderTemplate;
     overdue: ReminderTemplate;
@@ -112,6 +117,7 @@ export const DEFAULT_MANAGER_AUTOMATION_SETTINGS: ManagerAutomationSettings = {
   tourReminderDeliverViaSms: false,
   paymentReminderDeliverViaEmail: true,
   paymentReminderDeliverViaSms: false,
+  inboxAiDraftAutoSend: false,
   templates: {
     preDue: {
       subject: "Payment due {daysUntilDuePhrase}: {chargeTitle}",
@@ -311,6 +317,7 @@ export function normalizeManagerAutomationSettings(raw: unknown): ManagerAutomat
     tourReminderDeliverViaSms: row.tourReminderDeliverViaSms === true,
     paymentReminderDeliverViaEmail: row.paymentReminderDeliverViaEmail !== false,
     paymentReminderDeliverViaSms: row.paymentReminderDeliverViaSms === true,
+    inboxAiDraftAutoSend: row.inboxAiDraftAutoSend === true,
     templates: {
       preDue: normalizeTemplate(templatesRaw.preDue, base.templates.preDue),
       overdue: normalizeTemplate(templatesRaw.overdue, base.templates.overdue),

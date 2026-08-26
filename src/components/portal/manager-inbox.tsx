@@ -12,6 +12,7 @@ import {
   InboxThreadAssistantStrip,
 } from "@/components/portal/inbox-thread-assistant-strip";
 import { usePaidPortalBasePath } from "@/lib/portal-base-path-client";
+import { useInboxAiDraftAutoSend } from "@/hooks/use-inbox-ai-draft-auto-send";
 import { appendPortalMessageToAdminInbox } from "@/lib/demo-admin-partner-inbox";
 import {
   MANAGER_INBOX_STORAGE_KEY,
@@ -643,7 +644,7 @@ export const ManagerInbox = forwardRef<
           delivery: "sending",
           attachments: attachmentMeta.length ? attachmentMeta : undefined,
         };
-        const updated = { ...appendReplyToInboxThread(thread, reply), aiDraft: undefined };
+        const updated = appendReplyToInboxThread(thread, reply);
         const next = local.map((t) => (t.id === thread.id ? updated : t));
         persistInboxRef.current = false;
         setLocal(next);
@@ -663,22 +664,21 @@ export const ManagerInbox = forwardRef<
             attachmentUrls: attachmentUrls.length ? attachmentUrls : undefined,
           }),
         });
-        const data = (await res.json().catch(() => ({}))) as { ok?: boolean };
+        const data = (await res.json().catch(() => ({}))) as { ok?: boolean; error?: string };
         emailOk = res.ok && data.ok === true;
         if (emailOk) {
-          const delivered = markThreadMessageDelivery(updated, replyId, undefined);
+          const delivered = markThreadMessageDelivery({ ...updated, aiDraft: undefined }, replyId, undefined);
           const ok = await upsertPersistedInboxRows(MANAGER_INBOX_STORAGE_KEY, [delivered], next.map((t) => (t.id === thread.id ? delivered : t)));
           persistInboxRef.current = true;
           if (!ok) {
             setLocal(local);
-            throw new Error("persist failed");
+            throw new Error("Could not save reply.");
           }
           setLocal((cur) => cur.map((t) => (t.id === thread.id ? delivered : t)));
         } else {
-          const failed = markThreadMessageDelivery(updated, replyId, "failed");
           persistInboxRef.current = true;
-          setLocal((cur) => cur.map((t) => (t.id === thread.id ? failed : t)));
-          throw new Error("email failed");
+          setLocal((cur) => cur.map((t) => (t.id === thread.id ? thread : t)));
+          throw new Error(data.error?.trim() || "Could not send email.");
         }
       }
 
@@ -868,7 +868,7 @@ export const ManagerInbox = forwardRef<
   const [aiDraftViaEmail, setAiDraftViaEmail] = useState(true);
   const [aiDraftViaSms, setAiDraftViaSms] = useState(false);
   const [approvingDraft, setApprovingDraft] = useState(false);
-  const [aiAutoSend, setAiAutoSend] = useState(false);
+  const { enabled: aiAutoSend, setEnabled: setAiAutoSend } = useInboxAiDraftAutoSend();
   const autoSentDraftRef = useRef<string | null>(null);
   const [draftErrors, setDraftErrors] = useState<Record<string, string>>({});
   const [discardedDraftIds, setDiscardedDraftIds] = useState<Set<string>>(() => new Set());
@@ -1107,8 +1107,9 @@ export const ManagerInbox = forwardRef<
       if (replyViaEmail && replyViaSms) showToast("Reply sent via email and SMS.");
       else if (replyViaSms) showToast("SMS sent.");
       else showToast("Reply sent.");
-    } catch {
-      showToast("Could not send reply.");
+    } catch (e) {
+      const message = e instanceof Error ? e.message.trim() : "";
+      showToast(message || "Could not send reply.");
     } finally {
       setReplySending(false);
     }
@@ -1224,6 +1225,13 @@ export const ManagerInbox = forwardRef<
     setApprovingDraft(true);
     try {
       await handleReply(activeThread.id, activeThread.aiDraft.text.trim(), { email: viaEmail, sms: viaSms });
+      if (viaEmail && viaSms) showToast("Reply sent via email and SMS.");
+      else if (viaSms) showToast("SMS sent.");
+      else showToast("Reply sent.");
+    } catch (e) {
+      autoSentDraftRef.current = null;
+      const message = e instanceof Error ? e.message.trim() : "";
+      showToast(message || "Could not send AI draft.");
     } finally {
       setApprovingDraft(false);
     }
