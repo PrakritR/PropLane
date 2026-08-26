@@ -9,15 +9,26 @@ import {
 
 export const runtime = "nodejs";
 
+const USER_FACING_TASK_ERRORS = new Set([
+  "Title is required.",
+  "End time must be after start time.",
+  "Task not found.",
+  "id required.",
+]);
+
+function taskRouteError(e: unknown, fallback: string): string {
+  if (e instanceof Error && USER_FACING_TASK_ERRORS.has(e.message)) return e.message;
+  return fallback;
+}
+
 export async function GET() {
   try {
     const ctx = await requireManagerRouteUser();
     if (!ctx) return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
     const tasks = await loadManagerTasks(ctx.db, ctx.userId);
     return NextResponse.json({ tasks });
-  } catch (e) {
-    const message = e instanceof Error ? e.message : "Failed";
-    return NextResponse.json({ error: message }, { status: 500 });
+  } catch {
+    return NextResponse.json({ error: "Could not load tasks." }, { status: 500 });
   }
 }
 
@@ -29,8 +40,7 @@ export async function POST(req: Request) {
     const task = await createManagerTaskRow(ctx.db, ctx.userId, body);
     return NextResponse.json({ task });
   } catch (e) {
-    const message = e instanceof Error ? e.message : "Failed";
-    return NextResponse.json({ error: message }, { status: 400 });
+    return NextResponse.json({ error: taskRouteError(e, "Could not save task.") }, { status: 400 });
   }
 }
 
@@ -44,8 +54,7 @@ export async function PATCH(req: Request) {
     const task = await patchManagerTaskRow(ctx.db, ctx.userId, taskId, body ?? {});
     return NextResponse.json({ task });
   } catch (e) {
-    const message = e instanceof Error ? e.message : "Failed";
-    return NextResponse.json({ error: message }, { status: 400 });
+    return NextResponse.json({ error: taskRouteError(e, "Could not save task.") }, { status: 400 });
   }
 }
 
@@ -59,7 +68,6 @@ export async function DELETE(req: Request) {
     await deleteManagerTaskRow(ctx.db, ctx.userId, taskId);
     return NextResponse.json({ ok: true });
   } catch (e) {
-    const message = e instanceof Error ? e.message : "Failed";
-    return NextResponse.json({ error: message }, { status: 400 });
+    return NextResponse.json({ error: taskRouteError(e, "Could not delete task.") }, { status: 400 });
   }
 }

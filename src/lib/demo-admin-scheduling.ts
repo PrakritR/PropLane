@@ -319,6 +319,7 @@ export async function syncScheduleRecordsFromServer(opts?: { force?: boolean }):
         }
         writeScheduleSyncedAt(Date.now());
         emitAdminUi();
+        void import("@/lib/manager-tasks").then((mod) => mod.reapplyAllManagerTasksToCalendar());
         return true;
       } catch {
         return false;

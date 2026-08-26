@@ -20,6 +20,7 @@ import {
 } from "@/lib/application-automation-preferences";
 import {
   generateLeaseHtmlForRow,
+  leaseLandlordNameBlocker,
   leaseSendGateBlocker,
   readLeasePipeline,
   sendLeaseToResident,
@@ -131,7 +132,7 @@ export async function runPostApprovalAutomation(input: {
     isDemo,
     isWithdrawn,
     alreadyDone: alreadySent(row),
-    gateBlocker: leaseSendGateBlocker(row),
+    gateBlocker: leaseSendGateBlocker(row) ?? leaseLandlordNameBlocker(row),
   });
   if (!sendDecision.run) {
     steps.push({ step: "send", ran: false, reason: sendDecision.reason, detail: sendDecision.detail });

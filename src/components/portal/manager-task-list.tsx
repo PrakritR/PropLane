@@ -17,6 +17,7 @@ import {
   createManagerTask,
   deleteManagerTask,
   fetchManagerTasks,
+  reapplyManagerTasksToCalendar,
   updateManagerTask,
   type ManagerTask,
 } from "@/lib/manager-tasks";
@@ -77,9 +78,9 @@ export function ManagerTaskList() {
     if (!userId) return;
     setLoading(true);
     try {
+      await syncScheduleRecordsFromServer({ force: true });
       const rows = await fetchManagerTasks(userId);
       setTasks(rows);
-      await syncScheduleRecordsFromServer({ force: true });
     } catch (e) {
       showToast(e instanceof Error ? e.message : "Could not load tasks.");
     } finally {
@@ -130,7 +131,7 @@ export function ManagerTaskList() {
         start,
         end,
       });
-      await syncScheduleRecordsFromServer({ force: true });
+      reapplyManagerTasksToCalendar(userId);
       setAddOpen(false);
       await refresh();
       showToast(start && end ? "Task added to your calendar." : "Task added.");
@@ -145,7 +146,7 @@ export function ManagerTaskList() {
     if (!userId) return;
     try {
       await updateManagerTask(userId, task.id, { completed: !task.completed });
-      await syncScheduleRecordsFromServer({ force: true });
+      reapplyManagerTasksToCalendar(userId);
       await refresh();
     } catch (e) {
       showToast(e instanceof Error ? e.message : "Could not update task.");
@@ -156,7 +157,7 @@ export function ManagerTaskList() {
     if (!userId) return;
     try {
       await deleteManagerTask(userId, taskId);
-      await syncScheduleRecordsFromServer({ force: true });
+      reapplyManagerTasksToCalendar(userId);
       await refresh();
       showToast("Task removed.");
     } catch (e) {

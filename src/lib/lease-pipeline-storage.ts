@@ -466,6 +466,11 @@ export function leaseLandlordNameBlocker(row: LeasePipelineRow): string | null {
   return null;
 }
 
+/** Non-blocking send warning when the landlord party still needs attention. */
+export function leaseLandlordNameWarning(row: LeasePipelineRow): string | null {
+  return leaseLandlordNameBlocker(row);
+}
+
 export function leaseSendGateBlockerAmong(row: LeasePipelineRow, apps: DemoApplicantRow[]): string | null {
   const approval = leaseApplicationApprovalBlockerAmong(row, apps);
   if (approval) return approval;

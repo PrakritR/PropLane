@@ -1521,6 +1521,11 @@ export function AiDraftReplyCard({
           </label>
         ) : null}
       </div>
+      {autoSend ? (
+        <p className="mt-2 text-[11px] text-amber-700 dark:text-amber-300">
+          Auto-send is on. AI drafts will send without your approval — review inbound messages carefully.
+        </p>
+      ) : null}
       <div className="mt-2 flex flex-wrap items-center gap-2">
         <Button
           type="button"

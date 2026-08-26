@@ -289,10 +289,11 @@ export function reinsertMissingDisclosureParagraphs(originalHtml: string, edited
       result,
     );
     if (present) continue;
+    const paragraph = match[0];
     if (/<\/body>/i.test(result)) {
-      result = result.replace(/<\/body>/i, `${match[0]}\n</body>`);
+      result = result.replace(/<\/body>/i, () => `${paragraph}\n</body>`);
     } else {
-      result = `${result}\n${match[0]}`;
+      result = `${result}\n${paragraph}`;
     }
   }
   return result;

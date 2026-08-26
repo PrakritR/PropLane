@@ -61,6 +61,11 @@ export function ApplicationsSettingsPanel({
   onWaiverCodeChange: (value: string) => void;
   onSave: () => void;
 }) {
+  const confirmAutoApproveEnable = () =>
+    window.confirm(
+      "Auto-approve will approve submitted applications without manual review, creating resident accounts and approval-time charges. Withdrawn applications are still skipped.\n\nTurn on auto-approve?",
+    );
+
   return (
     <div className="space-y-4">
       <label className="flex items-start gap-3">
@@ -70,7 +75,11 @@ export function ApplicationsSettingsPanel({
           checked={automation.autoApproveApplications}
           disabled={loading || saving}
           data-attr="manager-application-automation-autoApproveApplications"
-          onChange={(e) => onAutomationChange({ ...automation, autoApproveApplications: e.target.checked })}
+          onChange={(e) => {
+            const next = e.target.checked;
+            if (next && !confirmAutoApproveEnable()) return;
+            onAutomationChange({ ...automation, autoApproveApplications: next });
+          }}
         />
         <span className="min-w-0">
           <span className="block text-[13px] font-medium text-foreground">Auto-approve applications</span>
@@ -79,6 +88,11 @@ export function ApplicationsSettingsPanel({
           </span>
         </span>
       </label>
+      {automation.autoApproveApplications ? (
+        <p className="rounded-xl border border-amber-500/30 bg-amber-500/10 px-3 py-2.5 text-xs text-foreground">
+          Auto-approve is on. New submissions are approved without a manual review step.
+        </p>
+      ) : null}
       <div className="space-y-2 border-t border-border pt-4">
         <p className="text-[13px] font-semibold text-foreground">Promo code</p>
         <Input
@@ -616,7 +630,18 @@ export function CommunicationSettingsPanel({ onSaved }: { onSaved?: () => void }
           type="checkbox"
           className="mt-0.5 h-4 w-4 shrink-0 accent-primary"
           checked={draft.inboxAiDraftAutoSend}
-          onChange={(e) => setDraft((prev) => ({ ...prev, inboxAiDraftAutoSend: e.target.checked }))}
+          onChange={(e) => {
+            const next = e.target.checked;
+            if (
+              next &&
+              !window.confirm(
+                "Auto-send will email or text AI-drafted replies without your approval. Inbound resident and prospect messages are untrusted — misleading content could influence what goes out under your name.\n\nTurn on auto-send?",
+              )
+            ) {
+              return;
+            }
+            setDraft((prev) => ({ ...prev, inboxAiDraftAutoSend: next }));
+          }}
           data-attr="communication-inbox-ai-draft-auto-send"
         />
         <span className="min-w-0">
@@ -627,6 +652,11 @@ export function CommunicationSettingsPanel({ onSaved }: { onSaved?: () => void }
           </span>
         </span>
       </label>
+      {draft.inboxAiDraftAutoSend ? (
+        <p className="rounded-xl border border-amber-500/30 bg-amber-500/10 px-3 py-2.5 text-xs text-foreground">
+          Auto-send is on. Review each thread carefully — AI drafts send without a second confirmation.
+        </p>
+      ) : null}
       <div className="space-y-2 border-t border-border pt-4">
         <p className="text-[13px] font-semibold text-foreground">Payment reminders</p>
         <ReminderSendViaField

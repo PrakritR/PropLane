@@ -1,36 +1,10 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { PLANNED_RECORD_ID, rowsFromRecord } from "@/lib/tour-inquiry-confirm.server";
-import {
-  DEFAULT_EVENT_DURATION_MINUTES,
-  type PlannedEvent,
-} from "@/lib/demo-admin-scheduling";
+import { DEFAULT_EVENT_DURATION_MINUTES } from "@/lib/demo-admin-scheduling";
 import {
   managerTasksStorageKey,
   normalizeManagerTasks,
   type ManagerTask,
 } from "@/lib/manager-tasks";
-
-function plannedEventIdForTask(taskId: string): string {
-  return `task_${taskId}`;
-}
-
-function taskToPlannedEvent(task: ManagerTask, managerUserId: string): PlannedEvent | null {
-  if (!task.start || !task.end) return null;
-  return {
-    id: plannedEventIdForTask(task.id),
-    title: `Task · ${task.title}`,
-    start: task.start,
-    end: task.end,
-    kind: "task",
-    managerUserId,
-    sourceTaskId: task.id,
-    propertyId: task.propertyId,
-    propertyTitle: task.propertyTitle,
-    roomLabel: task.roomLabel,
-    notes: task.notes,
-    adminUserId: managerUserId,
-  };
-}
 
 function durationBetween(start: string, end: string): number {
   const ms = Date.parse(end) - Date.parse(start);
@@ -70,47 +44,6 @@ async function writeTasksRecord(db: SupabaseClient, managerUserId: string, tasks
   if (error) throw error;
 }
 
-async function syncTasksToPlannedEvents(db: SupabaseClient, managerUserId: string, tasks: ManagerTask[]): Promise<void> {
-  const { data: plannedRecord, error: plannedReadError } = await db
-    .from("portal_schedule_records")
-    .select("row_data")
-    .eq("id", PLANNED_RECORD_ID)
-    .maybeSingle();
-  if (plannedReadError) throw plannedReadError;
-
-  const plannedRows = rowsFromRecord(plannedRecord?.row_data);
-  const withoutManagerTasks = plannedRows.filter((event) => {
-    const kind = String(event.kind ?? "");
-    const owner = String(event.managerUserId ?? "");
-    return !(kind === "task" && owner === managerUserId);
-  });
-
-  const taskEvents = tasks
-    .filter((task) => !task.completed)
-    .map((task) => taskToPlannedEvent(task, managerUserId))
-    .filter((event): event is PlannedEvent => Boolean(event))
-    .map((event) => event as unknown as Record<string, unknown>);
-
-  const { error: writeError } = await db.from("portal_schedule_records").upsert(
-    {
-      id: PLANNED_RECORD_ID,
-      manager_user_id: null,
-      property_id: null,
-      record_type: PLANNED_RECORD_ID,
-      row_data: {
-        id: PLANNED_RECORD_ID,
-        recordType: PLANNED_RECORD_ID,
-        managerUserId: null,
-        propertyId: null,
-        payload: [...withoutManagerTasks, ...taskEvents],
-      },
-      updated_at: new Date().toISOString(),
-    },
-    { onConflict: "id" },
-  );
-  if (writeError) throw writeError;
-}
-
 export async function loadManagerTasks(db: SupabaseClient, managerUserId: string): Promise<ManagerTask[]> {
   return readTasksRecord(db, managerUserId);
 }
@@ -122,7 +55,6 @@ export async function saveManagerTasks(
 ): Promise<ManagerTask[]> {
   const normalized = normalizeManagerTasks(tasks);
   await writeTasksRecord(db, managerUserId, normalized);
-  await syncTasksToPlannedEvents(db, managerUserId, normalized);
   return normalized;
 }
 

@@ -12,12 +12,14 @@ import { DEFAULT_APPLICATION_AUTOMATION } from "@/lib/application-automation-pre
 const generateLeaseHtmlForRow = vi.fn();
 const sendLeaseToResident = vi.fn();
 const leaseSendGateBlocker = vi.fn();
+const leaseLandlordNameBlocker = vi.fn();
 const readLeasePipeline = vi.fn();
 
 vi.mock("@/lib/lease-pipeline-storage", () => ({
   generateLeaseHtmlForRow: (...a: unknown[]) => generateLeaseHtmlForRow(...a),
   sendLeaseToResident: (...a: unknown[]) => sendLeaseToResident(...a),
   leaseSendGateBlocker: (...a: unknown[]) => leaseSendGateBlocker(...a),
+  leaseLandlordNameBlocker: (...a: unknown[]) => leaseLandlordNameBlocker(...a),
   readLeasePipeline: (...a: unknown[]) => readLeasePipeline(...a),
 }));
 
@@ -52,6 +54,7 @@ const base = {
 beforeEach(() => {
   vi.clearAllMocks();
   leaseSendGateBlocker.mockReturnValue(null);
+  leaseLandlordNameBlocker.mockReturnValue(null);
   generateLeaseHtmlForRow.mockReturnValue({ ok: true, version: 2 });
   sendLeaseToResident.mockResolvedValue({ ok: true });
 });
@@ -84,6 +87,21 @@ describe("post-approval automation", () => {
       { step: "generate", ran: true },
       { step: "send", ran: true },
     ]);
+  });
+
+  it("NEVER sends when the landlord-name blocker refuses", async () => {
+    pipeline({ ...ROW, generatedHtml: "<html>lease</html>" });
+    leaseLandlordNameBlocker.mockReturnValue("Set your landlord legal name in Leases settings.");
+
+    const result = await runPostApprovalAutomation({ ...base, prefs: ALL_ON });
+
+    expect(sendLeaseToResident).not.toHaveBeenCalled();
+    expect(result.steps).toContainEqual({
+      step: "send",
+      ran: false,
+      reason: "gate_blocked",
+      detail: "Set your landlord legal name in Leases settings.",
+    });
   });
 
   it("NEVER sends when the send gate refuses, and reports the gate's own message", async () => {
