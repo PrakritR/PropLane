@@ -215,9 +215,7 @@ export function sortManagerTourRowsForBucket(
   bucket: ManagerTourBucketId,
 ): ManagerTourRow[] {
   const copy = [...rows];
-  if (bucket === "upcoming") {
-    copy.sort((a, b) => a.startMs - b.startMs);
-  } else if (bucket === "past") {
+  if (bucket === "past") {
     copy.sort((a, b) => b.startMs - a.startMs);
   } else {
     copy.sort((a, b) => a.startMs - b.startMs);
@@ -229,16 +227,20 @@ export function sortManagerTourClustersForBucket(
   clusters: ManagerTourListCluster[],
   bucket: ManagerTourBucketId,
 ): ManagerTourListCluster[] {
-  const clusterStart = (cluster: ManagerTourListCluster) =>
-    Math.min(...cluster.rows.map((row) => row.startMs));
+  const clusterStart = new Map(
+    clusters.map((cluster) => [
+      cluster.key,
+      cluster.rows.length ? Math.min(...cluster.rows.map((row) => row.startMs)) : Infinity,
+    ]),
+  );
   const sorted = clusters.map((cluster) => ({
     ...cluster,
     rows: sortManagerTourRowsForBucket(cluster.rows, bucket),
   }));
   if (bucket === "upcoming" || bucket === "pending") {
-    sorted.sort((a, b) => clusterStart(a) - clusterStart(b));
+    sorted.sort((a, b) => (clusterStart.get(a.key) ?? Infinity) - (clusterStart.get(b.key) ?? Infinity));
   } else {
-    sorted.sort((a, b) => clusterStart(b) - clusterStart(a));
+    sorted.sort((a, b) => (clusterStart.get(b.key) ?? -Infinity) - (clusterStart.get(a.key) ?? -Infinity));
   }
   return sorted;
 }

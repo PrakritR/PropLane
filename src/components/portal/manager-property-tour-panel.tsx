@@ -8,7 +8,6 @@ import { PortalDataTableEmpty } from "@/components/portal/portal-data-table";
 import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
 import { PortalPropertyDetailSection } from "@/components/portal/portal-property-detail-section";
 import { ShareLeadLinkModal } from "@/components/portal/share-lead-link-modal";
-import { TourProposalsPanel } from "@/components/portal/tour-proposals-panel";
 import { LocalDestinationNav } from "@/components/ui/destination-nav";
 import { managerPropertyAvailabilityStorageKey, syncScheduleRecordsFromServer } from "@/lib/demo-admin-scheduling";
 import {
@@ -150,6 +149,32 @@ export function ManagerPropertyTourPanel({
     },
   });
 
+  // This is the screen where a manager PUBLISHES tour availability, so it has to
+  // show the conflicts that availability would collide with. It used to render
+  // no busy overlay at all while /portal/calendar showed the same half hour as
+  // "Blocked" — a slot you could publish straight on top of (F-CAL-6).
+  //
+  // It therefore has to say when the overlay is INCOMPLETE — truncated, or a
+  // read that failed — because a manager who reached this panel from Properties
+  // may never open /portal/calendar, and an incomplete grid is indistinguishable
+  // from a free one. The connection-SETUP warnings (not connected, OAuth not
+  // configured, API disabled) stay with the portfolio calendar so the same
+  // account-level problem is not toasted twice.
+  //
+  // KNOWN, ACCEPTED consequence (ticket `axis-busy-time-advisory-availability`):
+  // `renderSlotButton` bails on any cell a meeting covers, so a busy half hour is
+  // not just marked — it is non-selectable, and the manager cannot publish
+  // availability over a personal Google event. As of F-CAL-6 that is true on BOTH
+  // manager calendars, the portfolio one at /portal/calendar and this per-property
+  // one; it is the pre-existing portfolio behaviour now applied consistently, not
+  // a restriction unique to this screen.
+  //
+  // The OPEN product question that ticket holds is whether a manager may
+  // deliberately publish tour availability OVER their own busy time — i.e. whether
+  // Google busy should be advisory (marked, still selectable) rather than blocking.
+  // Answering it yes is a product change and must land on both calendars at once,
+  // never on this one alone.
+
   return (
     <>
       <PortalPropertyDetailSection>
@@ -171,8 +196,6 @@ export function ManagerPropertyTourPanel({
             dataAttr: "property-tours-search",
           }}
         />
-
-        {bucket === "pending" ? <TourProposalsPanel /> : null}
 
         {!managerUserId ? (
           <p className="text-sm text-muted">Sign in to view tours for this property.</p>

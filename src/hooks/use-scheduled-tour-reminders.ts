@@ -28,6 +28,8 @@ export function useScheduledTourReminders() {
         (row) => row.messageKind === TOUR_REMINDER_MESSAGE_KIND,
       );
       setReminders(list);
+    } catch {
+      /* leave reminders as-is on transient failure */
     } finally {
       setLoading(false);
     }
@@ -36,13 +38,8 @@ export function useScheduledTourReminders() {
   useEffect(() => {
     void reload();
     const onSettings = () => void reload();
-    const onStorage = () => void reload();
     window.addEventListener(PAYMENT_AUTOMATION_SETTINGS_EVENT, onSettings);
-    window.addEventListener("storage", onStorage);
-    return () => {
-      window.removeEventListener(PAYMENT_AUTOMATION_SETTINGS_EVENT, onSettings);
-      window.removeEventListener("storage", onStorage);
-    };
+    return () => window.removeEventListener(PAYMENT_AUTOMATION_SETTINGS_EVENT, onSettings);
   }, [reload]);
 
   return { reminders, loading, reload };

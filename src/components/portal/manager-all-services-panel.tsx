@@ -56,7 +56,6 @@ import { getRoomChoiceLabel } from "@/lib/rental-application/data";
 import { ManagerCreateServiceRequestModal } from "@/components/portal/manager-create-service-request-modal";
 import { ManagerEditServiceRequestsModal } from "@/components/portal/manager-edit-service-requests-modal";
 import { ManagerCreateWorkOrderModal } from "@/components/portal/manager-create-work-order-modal";
-import { PortalEmptyState } from "@/components/portal/portal-empty-state";
 import { useAppUi } from "@/components/providers/app-ui-provider";
 import { Button } from "@/components/ui/button";
 import { DestinationNav } from "@/components/ui/destination-nav";
@@ -67,11 +66,11 @@ import {
   PortalListAddRow,
 } from "@/components/portal/portal-list-add-row";
 
-type FilterType = "requests" | "work-orders" | "vendors";
+type FilterType = "requests" | "work-orders";
 
 type RequestBucket = ManagerServiceRequestBucket;
 
-const SERVICES_TAB_IDS = ["requests", "work-orders", "vendors"] as const;
+const SERVICES_TAB_IDS = ["requests", "work-orders"] as const;
 
 export function ManagerAllServicesPanel({
   tabId: serverTabId,
@@ -115,12 +114,6 @@ export function ManagerAllServicesPanel({
   const [editServiceRequestsOpen, setEditServiceRequestsOpen] = useState(false);
   const [addWorkOrderOpen, setAddWorkOrderOpen] = useState(false);
   const typeFilter: FilterType = tabId;
-
-  useEffect(() => {
-    if (vendorIdProp && typeFilter === "vendors") {
-      navigate(vendorListHref(basePath));
-    }
-  }, [vendorIdProp, typeFilter, basePath, navigate]);
 
   const propertyOptions = useMemo(() => {
     void propertyTick;
@@ -296,9 +289,8 @@ export function ManagerAllServicesPanel({
 
   const resetServicesFilters = () => setPropertyFilters([]);
 
-  const servicesFilterSheet =
-    typeFilter !== "vendors" ? (
-      <PortalFilterSortSheet
+  const servicesFilterSheet = (
+    <PortalFilterSortSheet
         activeCount={portalFilterActiveCount([propertyFilters])}
         compactPanel
         filterFieldCount={1}
@@ -315,10 +307,9 @@ export function ManagerAllServicesPanel({
           dataAttr="services-filter-property"
         />
       </PortalFilterSortSheet>
-    ) : null;
+  );
 
   const activeFilterChips = useMemo((): PortalActiveFilterChip[] => {
-    if (typeFilter === "vendors") return [];
     const chips: PortalActiveFilterChip[] = [];
     if (propertyFilters.length > 0) {
       chips.push({
@@ -330,7 +321,7 @@ export function ManagerAllServicesPanel({
       });
     }
     return chips;
-  }, [typeFilter, propertyFilters, propertyFilterLabel]);
+  }, [propertyFilters, propertyFilterLabel]);
 
   const servicesTypeNav = (
     <DestinationNav
@@ -347,13 +338,6 @@ export function ManagerAllServicesPanel({
           shortLabel: "Orders",
           href: `${basePath}/services/work-orders/open`,
           dataAttr: "manager-services-tab-work-orders",
-        },
-        {
-          id: "vendors",
-          label: "Vendors",
-          shortLabel: "Soon",
-          href: vendorListHref(basePath),
-          dataAttr: "manager-services-tab-vendors",
         },
       ]}
       activeId={typeFilter}
@@ -378,7 +362,7 @@ export function ManagerAllServicesPanel({
   };
 
   const servicesAddButton =
-    typeFilter === "vendors" ? null : typeFilter === "requests" ? (
+    typeFilter === "requests" ? (
       <div className="flex w-full shrink-0 flex-col gap-2 md:w-auto md:flex-row md:items-center">
         <Button
           type="button"
@@ -499,12 +483,8 @@ export function ManagerAllServicesPanel({
     );
   }
 
-  if (vendorIdProp && typeFilter === "vendors") {
-    return null;
-  }
-
   const activeBucketId =
-    typeFilter === "work-orders" ? woBucket : typeFilter === "requests" ? reqBucket : undefined;
+    typeFilter === "work-orders" ? woBucket : reqBucket;
 
   const servicesListDestinations = (
     <div className="flex w-full min-w-0 flex-col gap-2">
@@ -525,7 +505,7 @@ export function ManagerAllServicesPanel({
   return (
     <ManagerPortalPageShell
       title="Services"
-      titleInlineFilter={typeFilter !== "vendors" ? servicesFilterSheet : null}
+      titleInlineFilter={servicesFilterSheet}
       titleAside={servicesAddButton}
       hideTitleOnMobileNav
       compactFilterRow
@@ -533,28 +513,17 @@ export function ManagerAllServicesPanel({
       <PortalListControlStack
         className="mb-2"
         destinationRow={servicesListDestinations}
-        search={
-          typeFilter === "vendors"
-            ? undefined
-            : {
-                value: searchQuery,
-                onChange: setSearchQuery,
-                placeholder:
-                  typeFilter === "work-orders" ? "Search maintenance requests" : "Search requests",
-                dataAttr:
-                  typeFilter === "work-orders" ? "services-work-orders-search" : "services-requests-search",
-              }
-        }
-        activeFilterChips={
-          typeFilter !== "vendors" ? <PortalActiveFilterChips chips={activeFilterChips} /> : null
-        }
+        search={{
+          value: searchQuery,
+          onChange: setSearchQuery,
+          placeholder:
+            typeFilter === "work-orders" ? "Search maintenance requests" : "Search requests",
+          dataAttr:
+            typeFilter === "work-orders" ? "services-work-orders-search" : "services-requests-search",
+        }}
+        activeFilterChips={<PortalActiveFilterChips chips={activeFilterChips} />}
       />
-      {typeFilter === "vendors" ? (
-        <PortalEmptyState
-          icon="vendor"
-          title="Vendor management is coming soon. Use Work orders and Requests for maintenance and add-on services."
-        />
-      ) : typeFilter === "work-orders" ? (
+      {typeFilter === "work-orders" ? (
         <ManagerWorkOrdersPanel
           allRows={filteredWorkOrders}
           bucket={woBucket}

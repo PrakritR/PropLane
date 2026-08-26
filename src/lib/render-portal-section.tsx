@@ -517,8 +517,9 @@ export async function renderPortalSection(
           redirect(`${def.basePath}/${section}/managers`);
         }
         if (!(TEAM_SECTION_TABS as readonly string[]).includes(teamTabRaw)) notFound();
-        if (tabParts.length > 1 && teamTabRaw !== "vendors") notFound();
         teamTab = parseTeamSectionTab(teamTabRaw);
+        if (tabParts.length > 1 && teamTab !== "vendors") notFound();
+        if (teamTab === "vendors" && tabParts.length > 2) notFound();
       } else {
         // Bare /relationships gets a canonical tabbed URL so the strip has something to mark active.
         redirect(`${def.basePath}/${section}/managers`);
@@ -530,7 +531,7 @@ export async function renderPortalSection(
           <ManagerVendorsPanel
             embedded
             listBasePath={def.basePath}
-            vendorId={tabParts && tabParts.length > 1 ? decodeURIComponent(tabParts[1]!) : undefined}
+            vendorId={tabParts && tabParts.length > 1 ? tabParts[1]! : undefined}
           />,
           kind,
           "relationships",

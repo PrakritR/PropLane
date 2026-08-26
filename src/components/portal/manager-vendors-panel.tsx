@@ -40,6 +40,8 @@ import {
   PORTAL_LIST_ADD_ROW_WRAP_CLASS,
   PortalListAddRow,
 } from "@/components/portal/portal-list-add-row";
+import { ManagerTeamTabNav } from "@/components/portal/manager-team-tab-nav";
+import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
 import { PortalDataTableEmpty, PORTAL_DETAIL_BTN, PortalTableDetailActions } from "@/components/portal/portal-data-table";
 import { PortalRecordDetailPage } from "@/components/portal/portal-record-detail-page";
 import { PORTAL_LIST_PAGE_BODY } from "@/components/portal/portal-inbox-ui";
@@ -153,7 +155,7 @@ export const ManagerVendorsPanel = forwardRef(function ManagerVendorsPanel(
     }).sort((a, b) => a.name.localeCompare(b.name));
   }, [tick, userId]);
 
-  const routeVendorId = vendorIdProp ? decodeURIComponent(vendorIdProp) : null;
+  const routeVendorId = vendorIdProp?.trim() || null;
   const routeVendor = useMemo(() => {
     if (!routeVendorId) return null;
     return vendors.find((row) => row.id === routeVendorId) ?? null;
@@ -439,7 +441,7 @@ export const ManagerVendorsPanel = forwardRef(function ManagerVendorsPanel(
       <>
         {modals}
         <PortalRecordDetailPage
-          pageTitle="Services"
+          pageTitle="Team"
           title={routeVendor.name}
           subtitle={routeVendor.trade || undefined}
           avatarName={routeVendor.name}
@@ -491,12 +493,30 @@ export const ManagerVendorsPanel = forwardRef(function ManagerVendorsPanel(
   );
 
   if (embedded) {
-    return <div>{body}</div>;
+    return (
+      <ManagerPortalPageShell
+        title="Team"
+        hideTitleOnMobileNav
+        titleAside={
+          <ManagerVendorsToolbar
+            onCatalog={openCatalogForm}
+            onDefaults={() => openDefaultsForm()}
+            onAdd={() => openAddVendorForm()}
+          />
+        }
+      >
+        <PortalListControlStack
+          className="mb-2"
+          destinationRow={<ManagerTeamTabNav activeTab="vendors" basePath={listBasePath} />}
+        />
+        {body}
+      </ManagerPortalPageShell>
+    );
   }
 
   return (
     <ManagerPortalPageShell
-      title="Services"
+      title="Team"
       titleAside={
         <ManagerVendorsToolbar
           onCatalog={openCatalogForm}
