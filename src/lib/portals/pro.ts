@@ -32,17 +32,31 @@ export const proPortal: PortalDefinition = {
     },
     { section: "task-list", label: "Task list", tabs: [] },
     {
+      // Where a manager sets availability and sees everything already committed — tours, service
+      // visits and scheduled tasks on one grid — plus a Bookings view of every room's stays.
+      section: "calendar",
+      label: "Calendar",
+      tabs: [
+        { id: "availability", label: "Schedule" },
+        { id: "bookings", label: "Bookings" },
+      ],
+    },
+    {
       section: "communication",
       label: "Communication",
       tabs: [],
     },
     {
       section: "relationships",
-      label: "Team",
-      tabs: [
-        { id: "managers", label: "Managers" },
-        { id: "vendors", label: "Vendors" },
-      ],
+      label: "Managers",
+      tabs: [],
+    },
+    {
+      // Its own sidebar entry beside Managers under the Team heading — the same shape Tenancy
+      // uses for Residents / Payments / Services, rather than a tab strip inside one page.
+      section: "vendors",
+      label: "Vendors",
+      tabs: [],
     },
     { section: "promotion", label: "Promotion", tabs: [] },
     {
@@ -100,7 +114,9 @@ export const MANAGER_PORTAL_SMOKE_PATHS = [
   { label: "Services", path: "/portal/services/requests" },
   { label: "Task list", path: "/portal/task-list" },
   { label: "Communication", path: "/portal/communication/active" },
-  { label: "Team", path: "/portal/relationships" },
+  { label: "Calendar", path: "/portal/calendar/availability" },
+  { label: "Managers", path: "/portal/relationships" },
+  { label: "Vendors", path: "/portal/vendors" },
   { label: "Promotion", path: "/portal/promotion" },
   { label: "Finances", path: "/portal/financials/income" },
   { label: "Documents", path: "/portal/documents/library" },

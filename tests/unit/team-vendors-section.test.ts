@@ -15,40 +15,49 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import {
-  TEAM_SECTION_TABS,
-  TEAM_SECTION_TAB_LABELS,
-  parseTeamSectionTab,
-  teamSectionHref,
-  vendorDetailHref,
-  vendorListHref,
-} from "@/lib/portal-detail-routes";
+import { vendorDetailHref, vendorListHref } from "@/lib/portal-detail-routes";
+import { PORTAL_NAV_GROUPS } from "@/lib/portals/nav-groups";
 import { proPortal } from "@/lib/portals/pro";
 
-describe("Team section tabs", () => {
-  it("offers Managers and Vendors", () => {
-    expect([...TEAM_SECTION_TABS]).toEqual(["managers", "vendors"]);
-    expect(TEAM_SECTION_TAB_LABELS.managers).toBe("Managers");
-    expect(TEAM_SECTION_TAB_LABELS.vendors).toBe("Vendors");
+describe("Team is two sidebar entries, not one tabbed page", () => {
+  it("lists Managers and Vendors as separate sections", () => {
+    // Same shape Tenancy uses for Residents / Payments / Services — two nav rows under one
+    // heading, rather than a tab strip inside a single page.
+    const managers = proPortal.sections.find((s) => s.section === "relationships");
+    const vendors = proPortal.sections.find((s) => s.section === "vendors");
+    expect(managers?.label).toBe("Managers");
+    expect(vendors?.label).toBe("Vendors");
+    // Neither carries sub-tabs — the split IS the navigation.
+    expect(managers?.tabs ?? []).toEqual([]);
+    expect(vendors?.tabs ?? []).toEqual([]);
   });
 
-  it("round-trips every tab", () => {
-    for (const tab of TEAM_SECTION_TABS) {
-      expect(parseTeamSectionTab(tab)).toBe(tab);
-      expect(teamSectionHref("/portal", tab)).toBe(`/portal/relationships/${tab}`);
-    }
+  it("groups both under the Team heading, in order", () => {
+    const group = PORTAL_NAV_GROUPS.pro.find((g) => g.id === "team");
+    expect(group?.label).toBe("Team");
+    expect(group?.sections).toEqual(["relationships", "vendors"]);
+  });
+});
+
+describe("Calendar is back under Operations", () => {
+  it("sits beside Task list", () => {
+    // It was removed entirely, leaving nowhere to set availability or see what is already
+    // committed. `/portal/calendar` had been redirecting to the Tours hub.
+    const group = PORTAL_NAV_GROUPS.pro.find((g) => g.id === "operations");
+    expect(group?.sections).toEqual(["task-list", "calendar", "communication"]);
   });
 
-  it("lands an unknown or legacy sub-path on Managers rather than 404ing", () => {
-    // `owner`, `manager`, `pending` and `linked` are the pre-tab sub-paths.
-    for (const raw of ["", null, undefined, "owner", "manager", "pending", "linked", "bogus"]) {
-      expect(parseTeamSectionTab(raw)).toBe("managers");
-    }
+  it("offers Schedule and Bookings", () => {
+    const calendar = proPortal.sections.find((s) => s.section === "calendar");
+    expect(calendar?.label).toBe("Calendar");
+    expect(calendar?.tabs.map((t) => t.id)).toEqual(["availability", "bookings"]);
   });
 
-  it("is declared on the manager portal with both tabs", () => {
-    const team = proPortal.sections.find((s) => s.section === "relationships");
-    expect(team?.tabs?.map((t) => t.id)).toEqual(["managers", "vendors"]);
+  it("renders rather than redirecting away", () => {
+    const src = readFileSync(join(process.cwd(), "src/lib/render-portal-section.tsx"), "utf8");
+    expect(src).toContain("loadPortalCalendar()");
+    // The redirect that removed the section must not come back.
+    expect(src).not.toContain('section === "calendar") {\n    redirect(`${def.basePath}/tours/pending`);');
   });
 });
 
@@ -68,20 +77,20 @@ describe("Services no longer carries Vendors", () => {
 });
 
 describe("vendor links", () => {
-  it("point at Team, not the old Services path", () => {
-    expect(vendorListHref("/portal")).toBe("/portal/relationships/vendors");
-    expect(vendorDetailHref("/portal", "vend-1")).toBe("/portal/relationships/vendors/vend-1");
+  it("point at the Vendors section, not the old Services path", () => {
+    expect(vendorListHref("/portal")).toBe("/portal/vendors");
+    expect(vendorDetailHref("/portal", "vend-1")).toBe("/portal/vendors/vend-1");
   });
 
   it("encodes a vendor id with awkward characters", () => {
-    expect(vendorDetailHref("/portal", "a b/c")).toBe("/portal/relationships/vendors/a%20b%2Fc");
+    expect(vendorDetailHref("/portal", "a b/c")).toBe("/portal/vendors/a%20b%2Fc");
   });
 
   it("still resolves the retired /services/vendors path", () => {
     // A redirect, not a 404 — the old URL is in bookmarks and in links already sent.
     const src = readFileSync(join(process.cwd(), "src/lib/render-portal-section.tsx"), "utf8");
     expect(src).toContain('if (servicesTab === "vendors")');
-    expect(src).toContain("/relationships/vendors");
+    expect(src).toContain("/vendors");
     // And it must not still be treated as a live services tab.
     expect(src).not.toContain('!["requests", "work-orders", "vendors"].includes(servicesTab)');
   });
