@@ -4,7 +4,7 @@ import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import { ManagerTaskList } from "@/components/portal/manager-task-list";
 
 vi.mock("next/navigation", () => ({
-  usePathname: () => "/portal/task-list",
+  usePathname: () => "/portal/task-list/in-progress",
   useRouter: () => ({ push: () => {}, replace: () => {}, refresh: () => {} }),
   useSearchParams: () => new URLSearchParams(),
 }));
@@ -13,6 +13,9 @@ vi.mock("@/hooks/use-manager-user-id", () => ({
 }));
 vi.mock("@/components/providers/app-ui-provider", () => ({
   useAppUi: () => ({ showToast: () => {} }),
+}));
+vi.mock("@/hooks/use-work-assignment-directory", () => ({
+  useWorkAssignmentDirectory: () => ({ teamMembers: [], vendors: [], ready: true }),
 }));
 vi.mock("@/lib/demo-admin-scheduling", () => ({
   formatRangeLabel: () => "Tomorrow",
@@ -37,8 +40,10 @@ describe("ManagerTaskList", () => {
   afterEach(() => cleanup());
 
   it("renders the task list shell and add row", async () => {
-    render(<ManagerTaskList />);
+    render(<ManagerTaskList tabId="in-progress" basePath="/portal" />);
     expect(screen.getByRole("heading", { name: "Task list" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /In progress/i })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /Completed/i })).toBeInTheDocument();
     await waitFor(() => {
       expect(screen.getByRole("button", { name: "Add task" })).toBeInTheDocument();
     });

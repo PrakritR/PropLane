@@ -3,6 +3,7 @@ import { isAdminUser } from "@/lib/auth/admin-preview";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { confirmTourInquiry } from "@/lib/tour-inquiry-confirm.server";
+import { normalizeAssignee } from "@/lib/work-assignment";
 
 export const runtime = "nodejs";
 
@@ -23,6 +24,7 @@ export async function POST(req: Request) {
       subject?: unknown;
       messageBody?: unknown;
       body?: unknown;
+      assignee?: unknown;
     };
     const id = typeof body.id === "string" ? body.id.trim() : "";
     if (!id) return NextResponse.json({ error: "id required" }, { status: 400 });
@@ -47,6 +49,7 @@ export async function POST(req: Request) {
       notifyTenant: body.notifyTenant === true,
       notificationSubject: typeof body.subject === "string" ? body.subject.trim() : undefined,
       notificationBody: customBody || undefined,
+      assignee: normalizeAssignee(body.assignee),
       req,
     });
 

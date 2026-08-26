@@ -222,6 +222,26 @@ export function managerTourDetailHref(
   return `${basePath}/tours/${bucket}/${encodeURIComponent(tourId)}`;
 }
 
+export const MANAGER_TASK_LIST_TABS = ["in-progress", "completed"] as const;
+export type ManagerTaskListTabId = (typeof MANAGER_TASK_LIST_TABS)[number];
+
+export const MANAGER_TASK_LIST_TAB_LABELS: Record<ManagerTaskListTabId, string> = {
+  "in-progress": "In progress",
+  completed: "Completed",
+};
+
+export function parseManagerTaskListTab(raw: string | undefined | null): ManagerTaskListTabId {
+  if (raw === "completed") return "completed";
+  return "in-progress";
+}
+
+export function managerTaskListHref(
+  basePath: string,
+  tab: ManagerTaskListTabId = "in-progress",
+): string {
+  return `${basePath}/task-list/${tab}`;
+}
+
 export const TOURS_HUB_TABS = ["tours", "services"] as const;
 export type ToursHubTabId = (typeof TOURS_HUB_TABS)[number];
 

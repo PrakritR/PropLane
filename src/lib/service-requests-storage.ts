@@ -310,7 +310,11 @@ export function updateServiceRequest(id: string, updates: Partial<ServiceRequest
   mirrorServiceRequestToServerBestEffort(all[idx]!);
 }
 
-export function approveServiceRequest(id: string, managerNote?: string): void {
+export function approveServiceRequest(
+  id: string,
+  managerNote?: string,
+  assignee?: import("@/lib/work-assignment").WorkAssignee | null,
+): void {
   const all = readAll();
   const idx = all.findIndex((r) => r.id === id);
   if (idx === -1) return;
@@ -323,6 +327,7 @@ export function approveServiceRequest(id: string, managerNote?: string): void {
     approvedAt: new Date().toISOString(),
     managerNote: managerNote?.trim() || row.managerNote,
     serviceChargeId,
+    assignee: assignee ?? row.assignee,
   };
   writeAll(all);
   mirrorServiceRequestToServerBestEffort(all[idx]!);

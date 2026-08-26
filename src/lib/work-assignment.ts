@@ -8,8 +8,8 @@
  * Two kinds of assignee, and the distinction is load-bearing:
  *
  *   - a **team member** (co-manager) can take anything — a service, a work order, a tour, a task;
- *   - a **vendor** can take SERVICE work only. A vendor is an outside contractor who fixes things;
- *     they do not show a prospect around a property, and they are not staff to hand a task to.
+ *   - a **vendor** can take staff TASK work only — not tours (they do not show prospects around)
+ *     and not add-on services (those stay with the manager team).
  *     `assignableKindsFor` is the one place that rule lives, so a new surface cannot quietly
  *     offer a vendor a tour.
  */
@@ -41,11 +41,11 @@ export type AssignmentCandidate = {
 /**
  * Which assignee types may take this kind of work.
  *
- * Vendors are service-only. Keeping this as one function rather than a check at each picker is
+ * Vendors are task-only. Keeping this as one function rather than a check at each picker is
  * what stops a future surface from offering a vendor a tour by omission.
  */
 export function assignableKindsFor(type: AssigneeType): AssignableWorkKind[] {
-  return type === "vendor" ? ["service"] : ["service", "tour", "task"];
+  return type === "vendor" ? ["task"] : ["service", "tour", "task"];
 }
 
 export function canAssign(type: AssigneeType, kind: AssignableWorkKind): boolean {

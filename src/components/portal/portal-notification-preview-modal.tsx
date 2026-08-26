@@ -4,7 +4,9 @@ import { useEffect, useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Modal, ModalFooter, MODAL_INSET_BOX_CLASS, MODAL_WARNING_BOX_CLASS } from "@/components/ui/modal";
 import { PortalComposeScheduledMessagesSection } from "@/components/portal/portal-compose-scheduled-messages-section";
+import { WorkAssignmentPicker } from "@/components/portal/work-assignment-picker";
 import { cn } from "@/lib/utils";
+import type { AssignableWorkKind, WorkAssignee } from "@/lib/work-assignment";
 import {
   defaultPortalMessageChannelSelection,
   defaultPortalMessageScheduleAt,
@@ -32,6 +34,7 @@ export type NotificationConfirmDraft = {
   subject: string;
   body: string;
   scheduleAt?: string;
+  assignee?: WorkAssignee | null;
 };
 
 export const NOTIFICATION_SEND_VIA_OPTIONS = PORTAL_MESSAGE_SEND_VIA_OPTIONS;
@@ -73,6 +76,10 @@ export function PortalNotificationPreviewModal({
   cancelLabel = "Cancel",
   onConfirm,
   panelClassName,
+  assigneeKind,
+  assigneeTeamMembers,
+  assigneeVendors,
+  assigneeLabel = "Assignee",
 }: {
   open: boolean;
   title: string;
@@ -114,6 +121,11 @@ export function PortalNotificationPreviewModal({
     draft?: NotificationConfirmDraft,
   ) => void;
   panelClassName?: string;
+  /** When set, renders an assignee picker above the message body. */
+  assigneeKind?: AssignableWorkKind;
+  assigneeTeamMembers?: readonly { userId: string; name?: string | null; email?: string | null }[];
+  assigneeVendors?: readonly { id: string; name?: string | null; trade?: string | null; active?: boolean }[];
+  assigneeLabel?: string;
 }) {
   const [skipMessage, setSkipMessage] = useState(false);
   const [sendVia, setSendVia] = useState<string[]>([]);
@@ -121,6 +133,9 @@ export function PortalNotificationPreviewModal({
   const [sendAt, setSendAt] = useState(defaultPortalMessageScheduleAt);
   const [draftSubject, setDraftSubject] = useState(subject);
   const [draftBody, setDraftBody] = useState(body);
+  const [draftAssignee, setDraftAssignee] = useState<WorkAssignee | null>(null);
+
+  const showAssigneePicker = Boolean(assigneeKind && assigneeTeamMembers);
 
   const sendViaOptions = useMemo(() => {
     return NOTIFICATION_SEND_VIA_OPTIONS.filter((option) => {
@@ -139,8 +154,20 @@ export function PortalNotificationPreviewModal({
       setSendAt(defaultPortalMessageScheduleAt());
       setDraftSubject(subject);
       setDraftBody(body);
+      setDraftAssignee(null);
     });
   }, [open, recipient, subject, body, emailAvailable, smsAvailable, defaultViaEmail, defaultViaSms, initialScheduleLater]);
+
+  const confirmDraft = useMemo(
+    (): NotificationConfirmDraft => ({
+      subject: draftSubject.trim(),
+      body: draftBody.trim(),
+      scheduleAt:
+        showSchedule && scheduleLater && !skipMessage ? new Date(sendAt).toISOString() : undefined,
+      assignee: showAssigneePicker ? draftAssignee : undefined,
+    }),
+    [draftAssignee, draftBody, draftSubject, scheduleLater, sendAt, showAssigneePicker, showSchedule, skipMessage],
+  );
 
   const effectiveConfirmLabel = skipMessage
     ? (confirmLabelWithoutMessage ?? confirmLabel)
@@ -172,20 +199,7 @@ export function PortalNotificationPreviewModal({
         className="rounded-full"
         data-attr="portal-notification-confirm"
         disabled={confirmBusy || !channelsOk || !messageReady}
-        onClick={() =>
-          onConfirm(
-            skipMessage,
-            portalMessageChannelsFromSelection(sendVia),
-            {
-              subject: draftSubject.trim(),
-              body: draftBody.trim(),
-              scheduleAt:
-                showSchedule && scheduleLater && !skipMessage
-                  ? new Date(sendAt).toISOString()
-                  : undefined,
-            },
-          )
-        }
+        onClick={() => onConfirm(skipMessage, portalMessageChannelsFromSelection(sendVia), confirmDraft)}
       >
         {confirmBusy ? confirmBusyLabel : effectiveConfirmLabel}
       </Button>
@@ -248,6 +262,19 @@ export function PortalNotificationPreviewModal({
           <p className="text-xs font-medium text-red-600">Choose at least one channel.</p>
         ) : null}
 
+        {showAssigneePicker && assigneeKind ? (
+          <WorkAssignmentPicker
+            kind={assigneeKind}
+            value={draftAssignee}
+            teamMembers={assigneeTeamMembers ?? []}
+            vendors={assigneeVendors ?? []}
+            disabled={confirmBusy}
+            label={assigneeLabel}
+            dataAttr="portal-notification-assignee"
+            onChange={setDraftAssignee}
+          />
+        ) : null}
+
         <PortalMessageBodyField
           value={draftBody}
           onChange={setDraftBody}
@@ -300,19 +327,7 @@ export function PortalNotificationPreviewModal({
             onSendMessage={
               skipMessage || !channelsOk || !messageReady || confirmBusy
                 ? undefined
-                : () =>
-                    onConfirm(
-                      skipMessage,
-                      portalMessageChannelsFromSelection(sendVia),
-                      {
-                        subject: draftSubject.trim(),
-                        body: draftBody.trim(),
-                        scheduleAt:
-                          showSchedule && scheduleLater && !skipMessage
-                            ? new Date(sendAt).toISOString()
-                            : undefined,
-                      },
-                    )
+                : () => onConfirm(skipMessage, portalMessageChannelsFromSelection(sendVia), confirmDraft)
             }
             sendMessageLabel={effectiveConfirmLabel}
             sendMessageBusy={confirmBusy}

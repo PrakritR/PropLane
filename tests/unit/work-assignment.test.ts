@@ -1,8 +1,8 @@
 /**
  * Who a piece of work can be assigned to.
  *
- * The rule that matters: a vendor is an outside contractor who fixes things. They can take SERVICE
- * work, but never a tour — they do not show a prospect around a property — and never a staff task.
+ * The rule that matters: vendors take staff TASK work only — never tours (they do not show
+ * prospects around) and never add-on services (those stay with the manager team).
  * That lives in `assignableKindsFor` alone, so a new surface cannot quietly offer a vendor a tour
  * by forgetting to check.
  *
@@ -34,31 +34,28 @@ describe("what a vendor may take", () => {
     expect(assignableKindsFor("team")).toEqual(["service", "tour", "task"]);
   });
 
-  it("limits a vendor to service work", () => {
-    expect(assignableKindsFor("vendor")).toEqual(["service"]);
-    expect(canAssign("vendor", "service")).toBe(true);
-    // A vendor does not show a prospect around, and is not staff to hand a task to.
+  it("limits a vendor to task work", () => {
+    expect(assignableKindsFor("vendor")).toEqual(["task"]);
+    expect(canAssign("vendor", "task")).toBe(true);
+    expect(canAssign("vendor", "service")).toBe(false);
     expect(canAssign("vendor", "tour")).toBe(false);
-    expect(canAssign("vendor", "task")).toBe(false);
   });
 });
 
 describe("candidates offered", () => {
-  it("offers vendors for services", () => {
-    const list = assignmentCandidatesFor("service", { teamMembers: TEAM, vendors: VENDORS });
-    expect(list.filter((c) => c.type === "vendor").map((c) => c.id)).toEqual(["v-1", "v-2"]);
+  it("offers vendors for tasks, not services or tours", () => {
+    const serviceList = assignmentCandidatesFor("service", { teamMembers: TEAM, vendors: VENDORS });
+    expect(serviceList.every((c) => c.type === "team")).toBe(true);
+
+    const taskList = assignmentCandidatesFor("task", { teamMembers: TEAM, vendors: VENDORS });
+    expect(taskList.filter((c) => c.type === "vendor").map((c) => c.id)).toEqual(["v-1", "v-2"]);
+
+    const tourList = assignmentCandidatesFor("tour", { teamMembers: TEAM, vendors: VENDORS });
+    expect(tourList.every((c) => c.type === "team")).toBe(true);
   });
 
-  it("offers NO vendors for a tour or a task", () => {
-    for (const kind of ["tour", "task"] as const) {
-      const list = assignmentCandidatesFor(kind, { teamMembers: TEAM, vendors: VENDORS });
-      expect(list.every((c) => c.type === "team")).toBe(true);
-    }
-  });
-
-  it("keeps an inactive vendor visible but unselectable", () => {
-    // Dropping them would make work they still hold look unassigned.
-    const list = assignmentCandidatesFor("service", { teamMembers: [], vendors: VENDORS });
+  it("keeps an inactive vendor visible but unselectable on tasks", () => {
+    const list = assignmentCandidatesFor("task", { teamMembers: [], vendors: VENDORS });
     expect(list.find((c) => c.id === "v-2")?.selectable).toBe(false);
     expect(list.find((c) => c.id === "v-1")?.selectable).toBe(true);
   });
@@ -101,7 +98,7 @@ describe("stored assignees", () => {
 });
 
 describe("displaying an assignee", () => {
-  const candidates = assignmentCandidatesFor("service", { teamMembers: TEAM, vendors: VENDORS });
+  const candidates = assignmentCandidatesFor("task", { teamMembers: TEAM, vendors: VENDORS });
 
   it("prefers the current name over the snapshot", () => {
     // The person was renamed since the assignment.

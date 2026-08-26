@@ -594,6 +594,7 @@ export type PlannedEvent = {
   googleCalendarEventId?: string;
   /** Set when a confirmed tour is cancelled — kept for Past list history. */
   canceledAt?: string | null;
+  assignee?: import("@/lib/work-assignment").WorkAssignee;
 };
 
 export function isActivePlannedEvent(event: PlannedEvent): boolean {
@@ -794,6 +795,7 @@ export async function acceptPartnerInquiryFromServer(
     notifyTenant?: boolean;
     subject?: string;
     body?: string;
+    assignee?: import("@/lib/work-assignment").WorkAssignee | null;
   },
 ): Promise<{ ok: boolean; error?: string; notificationSkipped?: boolean }> {
   const row = readPartnerInquiries().find((r) => r.id === id);
@@ -810,6 +812,7 @@ export async function acceptPartnerInquiryFromServer(
         notifyTenant: opts?.notifyTenant === true,
         subject: opts?.subject,
         body: opts?.body,
+        assignee: opts?.assignee ?? undefined,
       }),
     });
     const data = (await res.json().catch(() => ({}))) as {
