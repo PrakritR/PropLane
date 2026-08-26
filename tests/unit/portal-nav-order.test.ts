@@ -76,7 +76,7 @@ describe("pro portal nav grouping (leasing → tenancy → operations → market
   const sections = sectionIds(proPortal.sections);
   const leasingBlock = ["properties", "tours", "applications", "leases"];
   const tenancyBlock = ["residents", "payments", "services"];
-  const operationsBlock = ["calendar", "task-list", "communication"];
+  const operationsBlock = ["task-list", "communication"];
   const financesBlock = ["financials", "documents"];
 
   it("places leasing workflow contiguously after dashboard", () => {
@@ -84,7 +84,7 @@ describe("pro portal nav grouping (leasing → tenancy → operations → market
   });
 
   it("groups tenancy after leasing", () => {
-    expectContiguousBlock(sections, tenancyBlock, "leases", "calendar");
+    expectContiguousBlock(sections, tenancyBlock, "leases", "task-list");
   });
 
   it("groups operations before marketing", () => {
@@ -104,7 +104,7 @@ describe("pro portal nav grouping (leasing → tenancy → operations → market
   });
 
   it("free operational sections precede the finances block", () => {
-    expect(sections.slice(0, 13)).toEqual([
+    expect(sections.slice(0, 12)).toEqual([
       "dashboard",
       "properties",
       "tours",
@@ -113,7 +113,6 @@ describe("pro portal nav grouping (leasing → tenancy → operations → market
       "residents",
       "payments",
       "services",
-      "calendar",
       "task-list",
       "communication",
       "relationships",

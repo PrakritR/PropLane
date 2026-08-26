@@ -26,7 +26,7 @@ function shot(page: import("@playwright/test").Page, name: string) {
 const PORTAL_SECTIONS = [
   { name: "dashboard", path: "/portal/dashboard" },
   { name: "properties", path: "/portal/properties" },
-  { name: "calendar", path: "/portal/calendar/tours" },
+  { name: "tours", path: "/portal/tours/pending" },
   { name: "applications", path: "/portal/applications" },
   { name: "leases", path: "/portal/leases" },
   { name: "residents", path: "/portal/residents/current" },
