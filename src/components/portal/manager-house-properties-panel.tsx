@@ -1193,7 +1193,7 @@ function ManagerPropertyInlineDetails({
         open={portalSettingsOpen}
         onClose={() => setPortalSettingsOpen(false)}
         initialTab="calendar"
-        scopedTitle="Properties"
+        scopedTitle="Tour"
       />
     </div>
   );

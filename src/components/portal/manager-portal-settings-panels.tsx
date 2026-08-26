@@ -198,13 +198,13 @@ export function CalendarSettingsPanel({ onSaved }: { onSaved?: () => void }) {
   const [messageModalOpen, setMessageModalOpen] = useState(false);
 
   const load = useCallback(async () => {
-    if (demo) {
-      setTourSettings(DEFAULT_MANAGER_TOUR_SETTINGS);
-      setAutomation(DEFAULT_MANAGER_AUTOMATION_SETTINGS);
-      return;
-    }
     setLoading(true);
     try {
+      if (demo) {
+        setTourSettings(DEFAULT_MANAGER_TOUR_SETTINGS);
+        setAutomation(DEFAULT_MANAGER_AUTOMATION_SETTINGS);
+        return;
+      }
       const [tourRes, autoRes] = await Promise.all([
         fetch("/api/portal/manager-tour-settings", { credentials: "include", cache: "no-store" }),
         fetch("/api/portal/automation-settings", { credentials: "include", cache: "no-store" }),
@@ -293,7 +293,6 @@ export function CalendarSettingsPanel({ onSaved }: { onSaved?: () => void }) {
     <>
       <div className="space-y-5">
         <div className="space-y-2">
-          <p className="text-[13px] font-semibold text-foreground">Earliest bookable tour</p>
           <FieldSingleSelect
             label="Notice required"
             value={String(tourSettings.tourNoticeDays)}
@@ -309,10 +308,6 @@ export function CalendarSettingsPanel({ onSaved }: { onSaved?: () => void }) {
             }
             dataAttr="manager-tour-notice-days"
           />
-          <p className="text-xs text-muted">
-            How far in advance prospects must book. Same day lets them pick today&apos;s open slots; next day
-            means the earliest tour is tomorrow.
-          </p>
         </div>
 
         <label className="flex items-start gap-3 border-t border-border pt-4">
@@ -323,13 +318,7 @@ export function CalendarSettingsPanel({ onSaved }: { onSaved?: () => void }) {
             data-attr="manager-tour-auto-confirm-proposals"
             onChange={(e) => setAutomation((prev) => ({ ...prev, proposeTourConfirmations: e.target.checked }))}
           />
-          <span className="min-w-0">
-            <span className="block text-[13px] font-medium text-foreground">Propose tour confirmations</span>
-            <span className="block text-xs text-muted">
-              When a new tour inquiry arrives, PropLane suggests confirming it into the first open slot. You
-              still approve before anything is booked or emailed.
-            </span>
-          </span>
+          <span className="min-w-0 text-[13px] font-medium text-foreground">Auto confirm tours</span>
         </label>
 
         <div className="space-y-3 border-t border-border pt-4">
