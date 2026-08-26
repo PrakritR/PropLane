@@ -38,21 +38,29 @@ vi.mock("@/lib/supabase/service", () => ({
 
 describe("sendResidentOutboundSms", () => {
   beforeEach(() => {
+    vi.useFakeTimers();
+    // Noon Pacific: transport assertions must not depend on the wall clock or
+    // accidentally exercise the automated quiet-hours policy.
+    vi.setSystemTime(new Date("2026-08-25T19:00:00.000Z"));
     sendClaw.mockReset();
     registerRoute.mockReset();
     sendTwilio.mockReset();
     optedOut.mockResolvedValue(false);
     delete process.env.CLAW_MESSENGER_API_KEY;
     delete process.env.CLAW_MESSENGER_ENABLED;
+    vi.stubEnv("SMS_RUNTIME_ENABLED", "0");
     vi.resetModules();
   });
 
   afterEach(() => {
+    vi.useRealTimers();
     delete process.env.CLAW_MESSENGER_API_KEY;
     delete process.env.CLAW_MESSENGER_ENABLED;
+    vi.unstubAllEnvs();
   });
 
-  it("sends via Twilio when Claw is disabled", async () => {
+  it("does not let a caller-provided From number bypass the managed Twilio dispatcher", async () => {
+    vi.stubEnv("SMS_RUNTIME_ENABLED", "1");
     sendTwilio.mockResolvedValue({ sent: true, sid: "SM1" });
     const { sendResidentOutboundSms } = await import("@/lib/resident-outbound-sms.server");
     const result = await sendResidentOutboundSms({
@@ -60,9 +68,13 @@ describe("sendResidentOutboundSms", () => {
       text: "Lease ready to sign",
       fromNumber: "+14258909021",
     });
-    expect(result.sent).toBe(true);
-    expect(result.channel).toBe("twilio");
-    expect(sendTwilio).toHaveBeenCalled();
+    expect(result).toEqual({
+      sent: false,
+      channel: undefined,
+      error: "managed_sender_scope_required",
+      sid: undefined,
+    });
+    expect(sendTwilio).not.toHaveBeenCalled();
     expect(sendClaw).not.toHaveBeenCalled();
   });
 

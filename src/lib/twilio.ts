@@ -1,7 +1,7 @@
-import twilio from "twilio";
 import { isPhoneOptedOut } from "@/lib/sms-consent";
 import { normalizeE164 } from "@/lib/phone-e164";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
+import { createTwilioRestClient } from "@/lib/twilio-client.server";
 
 /**
  * Back-compat re-export for the server-side callers that already import it from here.
@@ -25,9 +25,8 @@ export async function sendSms(
   fromNumber: string,
   opts?: { skipOptOutCheck?: boolean; mediaUrls?: string[] },
 ): Promise<{ sent: boolean; sid?: string; error?: string }> {
-  const accountSid = process.env.TWILIO_ACCOUNT_SID?.trim();
-  const authToken = process.env.TWILIO_AUTH_TOKEN?.trim();
-  if (!accountSid || !authToken) return { sent: false };
+  const client = createTwilioRestClient();
+  if (!client) return { sent: false };
 
   const toNorm = normalizeE164(to);
   const fromNorm = normalizeE164(fromNumber);
@@ -52,7 +51,6 @@ export async function sendSms(
   const statusCallback = process.env.TWILIO_STATUS_CALLBACK_URL?.trim();
 
   try {
-    const client = twilio(accountSid, authToken);
     const message = await client.messages.create({
       to: toNorm,
       from: fromNorm,

@@ -125,6 +125,68 @@ test.describe("Manager portal", () => {
     }
   });
 
+  test("Communication adds a phone contact and opens its empty thread", async ({ page }) => {
+    let created = false;
+    const contact = {
+      residentUserId: null,
+      residentEmail: null,
+      name: "Jordan E2E",
+      directoryName: null,
+      savedContactName: "Jordan E2E",
+      phone: "+12065550123",
+      propertyLabel: null,
+      counterpartyRole: "unknown",
+      conversationKey: "e2e-manager:unknown:+12065550123",
+      memberKeys: ["e2e-manager:unknown:+12065550123"],
+      ownerManagerUserId: "e2e-manager",
+      messages: [],
+    };
+    await page.route("**/api/manager/sms-conversations", async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          workNumber: "+12065550999",
+          personalPhone: null,
+          phoneVerified: false,
+          forwardInbound: true,
+          smsConfigured: true,
+          residents: created ? [contact] : [],
+        }),
+      });
+    });
+    await page.route("**/api/manager/sms-contacts", async (route) => {
+      if (route.request().method() !== "POST") return route.continue();
+      expect(route.request().postDataJSON()).toEqual({
+        displayName: "Jordan E2E",
+        phone: "(206) 555-0123",
+      });
+      created = true;
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          ok: true,
+          contact: {
+            conversationKey: contact.conversationKey,
+            displayName: contact.savedContactName,
+            phone: contact.phone,
+          },
+        }),
+      });
+    });
+
+    await page.goto("/portal/communication/active");
+    await page.locator('[data-attr="communication-add-phone-contact"]').click();
+    await page.getByLabel("Name").fill("Jordan E2E");
+    await page.getByLabel("Phone number").fill("(206) 555-0123");
+    await page.locator('[data-attr="sms-contact-create-save"]').click();
+
+    await expect(page).toHaveURL(/\/portal\/communication\/active\/e2e-manager%3Aunknown%3A%2B12065550123/);
+    await expect(page.getByText("Jordan E2E").first()).toBeVisible();
+    await expect(page.getByText("No messages in this conversation.")).toBeVisible();
+  });
+
   test("documents tab loads with sub-tabs", async ({ page }) => {
     await page.goto("/portal/documents/income-documents");
     await expect(page.getByRole("heading").first()).toBeVisible();

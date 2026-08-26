@@ -246,6 +246,7 @@ export async function POST(req: Request) {
         text: smsBody,
         fromNumber: smsFromNumber,
         linkKind: "payments",
+        sendClass: "transactional",
         openThread: {
           managerUserId: user.id,
           residentUserId: residentUserId ?? null,

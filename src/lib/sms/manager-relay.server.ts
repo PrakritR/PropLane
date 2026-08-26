@@ -1,6 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { normalizeE164 } from "@/lib/phone-e164";
-import { sendSms } from "@/lib/twilio";
 import { sendFromManagerWorkNumber } from "@/lib/proplane-sms-transport.server";
 import { resolveActiveManagerSendNumber } from "@/lib/sms/manager-number-provisioning.server";
 
@@ -133,7 +132,7 @@ export type ManagerReplyResult =
  */
 export async function handleManagerReplyInbound(
   db: SupabaseClient,
-  args: { managerUserId: string; workNumber: string; body: string },
+  args: { managerUserId: string; workNumber: string; body: string; messageSid: string },
 ): Promise<ManagerReplyResult> {
   const sendNumber = await resolveActiveManagerSendNumber(db, args.managerUserId);
   if (!sendNumber) return { ok: false, error: "registration_pending" };
@@ -149,6 +148,10 @@ export async function handleManagerReplyInbound(
     residentUserId: active.residentUserId,
     source: "work_number",
     counterpartyRole: "resident",
+    // The inbound receipt is retried if the process dies before its completion
+    // write. Pin the outbound row to Twilio's immutable inbound identity so a
+    // replay can finish safely without delivering the manager reply twice.
+    dedupeKey: `manager_reply_${args.messageSid.trim()}`,
   });
   if (!sent.ok) return { ok: false, error: "send_failed" };
   return { ok: true, residentPhone: active.residentPhone };
@@ -196,23 +199,10 @@ export async function forwardResidentInboundToManagerCell(
   db: SupabaseClient,
   args: { managerUserId: string; workNumber: string; fromPhone: string; body: string },
 ): Promise<boolean> {
-  // Registration gate: never send FROM a number whose registration is not
-  // approved (the same rule as the reply leg).
-  const sendNumber = await resolveActiveManagerSendNumber(db, args.managerUserId);
-  if (!sendNumber) return false;
-
-  const { data } = await db
-    .from("profiles")
-    .select("phone, phone_verified_at")
-    .eq("id", args.managerUserId)
-    .maybeSingle();
-  const managerCell = String(data?.phone ?? "").trim();
-  if (!managerCell || !data?.phone_verified_at) return false;
-
-  const label = await senderLabelForInbound(db, { managerUserId: args.managerUserId, fromPhone: args.fromPhone });
-  const text = `${label}: ${args.body}\n\n(Reply to this text to respond — PropLane keeps your number private.)`;
-  // Honor the manager's own opt-out: a manager who texted STOP to their work
-  // number stops receiving forwards (carrier STOP applies to the number pair).
-  const res = await sendSms(managerCell, text, sendNumber);
-  return res.sent;
+  // Manager-cell forwarding is deliberately disabled in the managed-number
+  // control plane. It creates an ambiguous reply target and needs its own
+  // verified consent scope. Managers read/reply in the PropLane inbox instead.
+  void db;
+  void args;
+  return false;
 }

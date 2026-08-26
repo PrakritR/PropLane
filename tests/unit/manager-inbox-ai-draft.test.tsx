@@ -12,7 +12,8 @@
 //     `aiDraft` shows the PropLane AI approval card (Approve & Send / Edit /
 //     Discard) — the same card as the legacy inbox.
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { render, screen, cleanup } from "@testing-library/react";
+import { render, screen, cleanup, waitFor } from "@testing-library/react";
+import { useEffect, useState } from "react";
 
 const RESIDENT_MSG = {
   id: "thr-2000000001-root",
@@ -36,6 +37,8 @@ const THREADS = [
   },
 ];
 
+let inboxRows = THREADS;
+
 vi.mock("@/lib/portal-inbox-storage", () => ({
   collapsePersonInboxThreads: (threads: unknown[]) => threads,
   resolveCollapsedInboxThread: (id: string | null, collapsed: Array<{ id: string }>) => collapsed.find((t) => t.id === id) ?? null,
@@ -51,9 +54,12 @@ vi.mock("@/lib/portal-inbox-storage", () => ({
   VENDOR_INBOX_STORAGE_KEY: "vendor-inbox",
   MANAGER_INBOX_STORAGE_KEY: "manager-inbox",
   PORTAL_INBOX_CHANGED_EVENT: "portal-inbox-changed",
-  loadPersistedInbox: () => THREADS,
-  syncPersistedInboxFromServer: () => Promise.resolve(THREADS),
-  persistInbox: () => {},
+  loadPersistedInbox: () => inboxRows,
+  syncPersistedInboxFromServer: () => Promise.resolve(inboxRows),
+  persistInbox: (_key: string, rows: typeof THREADS) => {
+    inboxRows = rows;
+    window.dispatchEvent(new CustomEvent("portal-inbox-changed", { detail: { key: "manager-inbox" } }));
+  },
   persistInboxAwait: () => Promise.resolve(),
   invalidatePersistedInboxCache: () => {},
   inboxMutationInFlight: () => false,
@@ -87,7 +93,22 @@ import { ManagerInbox } from "@/components/portal/manager-inbox";
 
 afterEach(() => cleanup());
 
+function InboxChangeObserver() {
+  const [changeCount, setChangeCount] = useState(0);
+  useEffect(() => {
+    const onChange = () => setChangeCount((count) => count + 1);
+    window.addEventListener("portal-inbox-changed", onChange);
+    return () => window.removeEventListener("portal-inbox-changed", onChange);
+  }, []);
+  return <output data-testid="inbox-change-count">{changeCount}</output>;
+}
+
 describe("AI draft in the unified Communication inbox", () => {
+  afterEach(() => {
+    inboxRows = THREADS;
+    vi.unstubAllGlobals();
+  });
+
   it("keeps a controlled selection open and shows the approval card on an incoming resident thread", async () => {
     // No draft-reply fetch is needed — the thread already carries a pending
     // aiDraft — but stub fetch so any background call is inert.
@@ -116,7 +137,42 @@ describe("AI draft in the unified Communication inbox", () => {
     expect(screen.getByText(/I'll look into availability/)).toBeTruthy();
     expect(screen.getByText("Edit")).toBeTruthy();
     expect(screen.getByText("Discard")).toBeTruthy();
+  });
 
-    vi.unstubAllGlobals();
+  it("persists an auto-draft after commit, not from a state updater", async () => {
+    inboxRows = [{ ...THREADS[0], aiDraft: undefined }];
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        new Response(
+          JSON.stringify({
+            ok: true,
+            draft: { text: "I’ll check the parking availability and follow up.", status: "pending_approval" },
+          }),
+          { status: 200 },
+        ),
+      ),
+    );
+
+    render(
+      <>
+        <InboxChangeObserver />
+        <ManagerInbox
+          tabId="unopened"
+          embeddedInCommunication
+          externalTitleActions
+          suppressCompose
+          suppressListPane
+          commBase="/portal/communication"
+          controlledExpandedId="thr-2000000001"
+        />
+      </>,
+    );
+
+    await screen.findByText(/I’ll check the parking availability/);
+    await waitFor(() => expect(screen.getByTestId("inbox-change-count").textContent).not.toBe("0"));
+    expect(consoleError.mock.calls.flat().join(" ")).not.toContain("Cannot update a component");
+    consoleError.mockRestore();
   });
 });

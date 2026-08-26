@@ -115,6 +115,7 @@ export const reportManualPaymentTool = defineWriteTool({
       userEmail: ctx.email,
       chargeIds: fresh,
       channel: input.channel,
+      expectedManagerUserId: ctx.activeManagerId,
     });
     if (!result.ok) {
       // Allow a same-day retry after a hard failure.
@@ -156,6 +157,7 @@ export const startRentPaymentTool = defineWriteTool({
       userId: ctx.userId,
       userEmail: ctx.email,
       chargeIds: input.chargeIds,
+      expectedManagerUserId: ctx.activeManagerId,
     });
     if (!resolved.ok) throw new Error(resolved.error);
 
@@ -211,6 +213,7 @@ export const startRentPaymentTool = defineWriteTool({
       chargeIds: input.chargeIds,
       mode: "hosted",
       paymentMethod: "ach",
+      expectedManagerUserId: ctx.activeManagerId,
       appOrigin: resolveShareableAppOrigin(),
     });
     if (!result.ok) throw new Error(result.error);

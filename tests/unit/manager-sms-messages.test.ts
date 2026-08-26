@@ -117,7 +117,7 @@ describe("manager-sms-messages types", () => {
     const at = (iso: string) => ({ createdAt: iso }) as ManagerSmsMessageRow;
     const rows = [
       {
-        // Renders "Texter ····1976" — must not sort under "+".
+        // Renders a readable phone — must not sort under "+".
         resident: { name: "+15105791976", propertyLabel: null, residentEmail: null, phone: "+15105791976" },
         lastMessage: at("2026-07-16T10:00:00.000Z"),
       },
@@ -132,9 +132,9 @@ describe("manager-sms-messages types", () => {
       },
     ];
     expect(sortSmsConversationRows(rows, "name").map((r) => smsConversationDisplayName(r.resident))).toEqual([
+      "+1 (510) 579-1976",
       "Amy",
       "Ballard Commons · 2B",
-      "Texter ····1976",
     ]);
     // Newest/oldest ordering is untouched by the label change.
     expect(sortSmsConversationRows(rows, "newest").map((r) => r.resident.name)).toEqual([
@@ -145,7 +145,7 @@ describe("manager-sms-messages types", () => {
   });
 });
 
-describe("smsConversationDisplayName — never surface a raw phone in Communication", () => {
+describe("smsConversationDisplayName — manager Communication phone labels", () => {
   it("detects phone-like labels", () => {
     expect(isPhoneLikeLabel("+15105791976")).toBe(true);
     expect(isPhoneLikeLabel("(206) 555-0142")).toBe(true);
@@ -163,7 +163,7 @@ describe("smsConversationDisplayName — never surface a raw phone in Communicat
     ).toBe("Jane Resident");
   });
 
-  it("falls back to unit, then email, then a masked last-4 handle when the name is just a phone", () => {
+  it("falls back to unit, then email, then the full phone when the name is just a number", () => {
     expect(
       smsConversationDisplayName({ name: "+15105791976", propertyLabel: "Ballard Commons · 2B", residentEmail: "a@x.com" }),
     ).toBe("Ballard Commons · 2B");
@@ -172,21 +172,33 @@ describe("smsConversationDisplayName — never surface a raw phone in Communicat
     ).toBe("a@x.com");
     expect(
       smsConversationDisplayName({ name: "+15105791976", propertyLabel: null, residentEmail: null }),
-    ).toBe("Texter ····1976");
+    ).toBe("+1 (510) 579-1976");
     expect(
       smsConversationDisplayName({ name: "", propertyLabel: null, residentEmail: null, phone: "+12065550142" }),
-    ).toBe("Texter ····0142");
+    ).toBe("+1 (206) 555-0142");
     expect(
       smsConversationDisplayName({ name: "", propertyLabel: null, residentEmail: null, phone: null }),
     ).toBe("Unknown contact");
   });
 
-  it("keeps prospect threads distinguishable from one another", () => {
+  it("prefers a saved contact name over a phone-like directory label", () => {
+    expect(
+      smsConversationDisplayName({
+        name: "+15106489423",
+        savedContactName: "Akhil",
+        propertyLabel: null,
+        residentEmail: null,
+        phone: "+15106489423",
+      }),
+    ).toBe("Akhil");
+  });
+
+  it("keeps unnamed threads distinguishable by their full phone", () => {
     const a = smsConversationDisplayName({ name: "+15105791976", propertyLabel: null, residentEmail: null });
     const b = smsConversationDisplayName({ name: "+12065550142", propertyLabel: null, residentEmail: null });
     expect(a).not.toBe(b);
-    expect(a).not.toContain("+1");
-    expect(b).not.toContain("+1");
+    expect(a).toContain("510");
+    expect(b).toContain("206");
   });
 
   it("does not repeat the field the display name already used as the subtitle", () => {
@@ -202,5 +214,15 @@ describe("smsConversationDisplayName — never surface a raw phone in Communicat
     expect(
       smsConversationSubtitle({ name: "+15105791976", propertyLabel: null, residentEmail: "jane@x.com" }),
     ).toBe("");
+    // Saved name: keep the phone visible underneath.
+    expect(
+      smsConversationSubtitle({
+        name: "+15106489423",
+        savedContactName: "Akhil",
+        propertyLabel: null,
+        residentEmail: null,
+        phone: "+15106489423",
+      }),
+    ).toBe("+1 (510) 648-9423");
   });
 });

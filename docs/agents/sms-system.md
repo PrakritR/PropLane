@@ -45,18 +45,30 @@ threads the same way across the mapped-manager cohort instead of returning one
 flat feed. The manager/admin SMS UI keys rows on `conversationKey` and sorts via
 `sortSmsConversationRows` (Newest / Oldest / Name A–Z / House).
 
-**No Communication surface renders a raw phone number.** Every manager/admin SMS
-row and thread header — the SMS panel and the unified Communication list alike —
-takes its label from `smsConversationDisplayName` /
-`smsConversationSubtitle` (`src/lib/manager-sms-messages.ts`): name → property
-/ unit → email → a masked `Texter ····1234` handle → `Unknown contact`, where a
-`name` that is itself a number (`isPhoneLikeLabel`) counts as no name. This is
-a LABEL rule only — threading, replies and deletes still key on the phone /
-`conversationKey`, and both search boxes keep the phone in their haystack, so a
-manager typing a number still finds the thread. `sortSmsConversationRows` orders Name A–Z and
-House on that rendered label rather than the raw `name` for the same reason:
-sorting a value the list does not display makes the visible order look random.
-Coverage: `tests/unit/manager-sms-messages.test.ts`.
+**Manager Communication shows the full phone when there is no better label.**
+Every manager/admin SMS row and thread header — the SMS panel and the unified
+Communication list alike — takes its label from `smsConversationDisplayName` /
+`smsConversationSubtitle` (`src/lib/manager-sms-messages.ts`): name → saved
+contact name → property / unit → email → a readable phone
+(`+1 (510) 648-9423`) → `Unknown contact`, where a `name` that is itself a
+number (`isPhoneLikeLabel`) counts as no name. Phone numbers are not a secret
+on this surface, so they are not masked. This is a LABEL rule only —
+threading, replies and deletes still key on the phone / `conversationKey`, and
+both search boxes keep the phone in their haystack. When a saved contact name
+is the title, the subtitle still shows the phone so the manager can see both.
+`sortSmsConversationRows` orders Name A–Z and House on that rendered label
+rather than the raw `name` for the same reason: sorting a value the list does
+not display makes the visible order look random. Coverage:
+`tests/unit/manager-sms-messages.test.ts`.
+
+**Add phone contact renames existing sidebar numbers.**
+`POST /api/manager/sms-contacts` is an address-book write only (no consent).
+When the number already appears in Communication under any role, the route
+attaches the display name to that existing thread's
+`(manager, phone, role)` contact row and returns that conversation key —
+it does not create a parallel `unknown` contact beside the existing
+sidebar row. Brand-new numbers still create an `unknown`-role contact.
+Coverage: `tests/unit/manager-sms-contacts-route.test.ts`.
 
 **The backfill orders IDENTITY before TOPIC — never the other way round.**
 `claw_messaging_threads` holds exactly ONE mutable row per (manager, phone)
@@ -131,22 +143,20 @@ manager loading their OWN tab may provision on demand. Guarded by
 `tests/unit/admin-sms-no-provisioning.test.ts`.
 
 
-**Design: outbound sends from a per-manager work number; replies land in Axis.**
+**Design: outbound sends from a per-manager work number; replies land in PropLane.**
 Carriers do not allow sending SMS *from* a personal number — do not fake it.
-- Outbound: `sendSms` (`src/lib/twilio.ts`; optional `mediaUrls` for MMS) via
-  `deliverPortalInboxMessage`'s `deliverViaSms` path — from
-  `profiles.sms_from_number` (the manager's provisioned work number) to
-  recipients' `profiles.phone`. Work-order lifecycle copy lives in
-  `src/lib/work-order-notification.server.ts`.
+- Outbound manager-owned traffic enters `owner-sms-dispatcher.server.ts`; the
+  sender, campaign/service identity, consent, entitlement, segment budget, and
+  outbox state are server-derived. `profiles.sms_from_number` is display/cache
+  data and is never accepted as send authority.
 - Inbound: `POST /api/twilio/inbound` (Twilio Messaging webhook; signature
-  validated, `TWILIO_WEBHOOK_URL` overrides the URL behind proxies). Tries a
-  proxy-pair relay binding FIRST (below); only when `To` is outside the relay
-  pool does it fall back to the work-number path: resolves the manager by
-  `sms_from_number = To`, the sender by `profiles.phone = From`, logs to
+  validated, `TWILIO_WEBHOOK_URL` overrides the URL behind proxies). Managed
+  runtime bypasses the legacy proxy pool and resolves the manager from the
+  authoritative `manager_sms_numbers` assignment for `To`, logs to
   `inbound_sms_log`, writes a manager inbox notice + email + push
-  (`src/lib/sms-inbox-notice.server.ts`), and forwards to the manager's
-  personal phone only when `profiles.sms_forward_inbound` is on AND that
-  phone is OTP-verified.
+  (`src/lib/sms-inbox-notice.server.ts`), and records a distributed MessageSid
+  execution lease before any agent/reply side effect. Manager-cell forwarding
+  is off for this slice; managers reply in the portal.
 - MMS capture: inbound attachments are copied out of Twilio (whose media URLs
   need Basic auth and expire) into the PRIVATE `sms-media` bucket
   (`src/lib/sms-media.server.ts`). The durable identifier is the bucket PATH —
@@ -157,7 +167,8 @@ Carriers do not allow sending SMS *from* a personal number — do not fake it.
   POST send code / PUT confirm / PATCH prefs). When `TWILIO_VERIFY_SERVICE_SID`
   is set, OTPs go through Twilio Verify (needs no owned number and no A2P
   campaign, so verification works while the campaign is in carrier review);
-  otherwise the fallback is the hashed 6-digit OTP in `phone_verifications`
+  managed runtime requires that Verify path through the restricted REST client.
+  Runtime-off legacy installations may fall back to the hashed 6-digit OTP in `phone_verifications`
   (10-min TTL, 5 attempts, 60s resend throttle — the row's throttles apply on
   both paths). UI: `manager-phone-settings-panel.tsx` on manager Settings.
 - **A write that changes `profiles.phone` MUST null `phone_verified_at` in the
@@ -169,10 +180,11 @@ Carriers do not allow sending SMS *from* a personal number — do not fake it.
   `applyProspectMessagingContactToProfile` (`src/lib/tour-resident-link.server.ts`),
   which `/api/auth/create-resident-account` reaches with a caller-supplied
   `phone`, so this cannot be closed at a call site.
-- Env required before anything sends: `TWILIO_ACCOUNT_SID`,
-  `TWILIO_AUTH_TOKEN`, optional `TWILIO_DEFAULT_FROM` +
-  `TWILIO_WEBHOOK_URL` + `TWILIO_VERIFY_SERVICE_SID`; per-manager numbers go
-  in `profiles.sms_from_number`. Everything no-ops gracefully without them.
+- Env required before managed traffic sends: `TWILIO_ACCOUNT_SID`, restricted
+  `TWILIO_API_KEY_SID` / `TWILIO_API_KEY_SECRET`, the exact service/campaign,
+  callback and webhook URLs, `SMS_RUNTIME_ENABLED=1`, and
+  `SMS_OUTBOX_SCHEDULER_READY=1`. `TWILIO_AUTH_TOKEN` is reserved for webhook
+  signatures. Missing or partial production credentials fail closed.
 
 **Claw shared agent line (mapped-manager trial + admin oversight).**
 `src/lib/claw-resident-messaging.server.ts` / `claw-relay.server.ts` run a
@@ -224,8 +236,9 @@ unique — Twilio retries webhooks) and mirrored into the manager's Axis inbox.
 Pool maintenance: daily cron `/api/cron/sms-pool-topup` (Vercel Hobby crons
 must be once-per-day; an hourly schedule fails the whole deploy) always releases
 expired cooldowns, but the auto-buy loop (target 5 free, hard cap 100) stays
-dark unless `SMS_RELAY_POOL_AUTOBUY=1` — the current Sole Proprietor A2P brand
-allows exactly ONE local number, so extra buys would be carrier-filtered.
+dark unless `SMS_RELAY_POOL_AUTOBUY=1`. The relay pool is not part of the
+manager-number first slice and its auto-buy flag stays off; manager-owned
+numbers use the approved PropLane Standard brand/campaign instead.
 Bought numbers must join the Messaging Service
 (`TWILIO_MESSAGING_SERVICE_SID`) to inherit the A2P campaign; a failed attach
 releases the number. A2P compliance pages: `/sms-terms`, the SMS opt-in
@@ -264,49 +277,142 @@ server state machine in `src/lib/sms/manager-number-provisioning.server.ts`.
 
 - **`provision_state`** ∈ `pending_registration | provisioning | active | failed
   | released`. **`registration_state`** ∈ `pending | approved | rejected`.
-- **One number per manager, idempotent.** `provisionManagerNumber` short-circuits
-  on an existing active number — re-running never buys a second. A provider error
-  leaves a retryable `failed` (attempts++/`last_error`), never a half-created
-  record. The atomic `profiles.sms_from_number` claim + rollback-on-race
-  (releasing the just-bought number) is unchanged.
+- **One number per manager, idempotent.** A service-only provisioning-claim RPC
+  serializes requests before any provider purchase. A durable provisioning
+  operation is inserted first, and its request UUID is stamped into Twilio's
+  friendly name. The five-minute reconciliation worker can therefore recover a
+  lost purchase response without buying a second number. Messaging Service attachment
+  is mandatory; attachment or persistence failure requires a confirmed release. A
+  number remains `provisioning` until a newer, allow-listed Event Streams event
+  marks that exact phone SID registered.
 - **Money guard.** Real Twilio purchases happen ONLY when
-  `SMS_PROVISIONING_ENABLED=1`. Off by default: a fleet parks in
-  `pending_registration` at zero cost. `provisionManagerNumber` /
-  `activatePendingManagerNumbers({limit})` are bounded + observable; the daily
-  `backfill-manager-work-numbers` cron drives the sweep. Cost shape: one number
-  per manager per month, and all numbers sit under ONE brand/campaign whose
-  segment ceiling is shared — throttle observably, never silently drop.
-- **Registration is PER MANAGER (ISV/reseller model), one code path.** A number
-  can be `active` yet unsendable until that manager's OWN registration is
-  approved (`managerCanSendFromOwnNumber` = active + approved;
-  `resolveActiveManagerSendNumber` → null otherwise, callers fall back). A single
-  shared registration is the degenerate case: every row's `registration_ref`
-  points at the shared record and `effectiveRegistrationState` reads
-  `SMS_SHARED_REGISTRATION_STATE` from env, so ONE flip approves everyone.
-  `setManagerRegistrationState` (admin `POST /api/admin/manager-sms-registration`)
-  detaches a manager to their own state (ref → null) unless an explicit `ref` is
-  passed.
+  `SMS_PROVISIONING_ENABLED=1`, the DB runtime mode allows the owner, and the
+  owner explicitly clicks Request in Settings → Messaging. Signup only seeds a
+  parked row. The legacy provisioning route returns 410 and the old backfill
+  cron is inventory-only and no longer scheduled. There is no automatic fleet
+  purchase path.
+- **One PropLane brand/campaign.** Workspace registration uses the approved
+  PropLane campaign. Sendability still requires the individual number's carrier
+  registration to be `registered`, attachment to the configured Messaging
+  Service, exact account/service/campaign allow-list match, active paid
+  entitlement, and both runtime kill switches.
 - **Signup** (`scheduleManagerMessagingReady`) always seeds a parked record via
   `ensureManagerNumberRecord`. Release on deactivation is reversible
   (`releaseManagerNumber` → `released`, history kept; `restoreManagerNumber`).
-- **The number is ADVERTISED as a paid entitlement, but nothing here enforces
-  it yet.** `MANAGER_PLAN_TIERS` (`src/data/manager-plan-tiers.ts`) sells
-  "Dedicated phone number & texting" on Pro/Business with an *actively paid
-  plan — not during the free trial* qualifier, and the downgrade-to-Free and
-  native Switch-to-Free copy says the number is lost. That copy is ahead of the
-  code: no path in this file consults a plan tier, so a Free or trial manager is
-  still provisioned. Gate it here (not by hiding the copy) when the enforcement
-  lands.
+- **Paid entitlement is enforced.** Explicit setup reconciles Stripe/Apple into
+  `sms_manager_entitlements`; trialing, past-due,
+  canceled, legacy-unknown, and unreadable plans fail closed. Dispatch uses the
+  persisted state and never calls billing providers in the hot path. The pilot
+  allowlist controls rollout only; it is never accepted as proof of payment.
+  Stripe and RevenueCat lifecycle webhooks refresh this cache.
+
+The additive `20260825120000_sms_control_plane.sql` migration owns runtime
+configuration, scoped consent evidence, the durable outbox/attempt ledger,
+provider events, delivery events, and atomic campaign segment budget. It seeds
+runtime mode `paused`; applying it cannot send or buy anything.
+
+### Managed first-slice scope
+
+The managed-number launch covers manager-to-resident/applicant/prospect portal
+messages, consented lifecycle acknowledgements, weekly rent reminders, inbound
+messages and replies, STOP/START/HELP controls, delivery receipts, and explicit
+manager number setup. Those sends are owner-scoped and use the durable outbox.
+
+Personal-cell forwarding and manager-directed alert SMS (tour alerts, work-order
+alerts, manager assistant introductions, and other platform-to-manager notices)
+are deliberately outside this first slice. Managers continue to receive those
+notices through the durable portal inbox, email, and push paths. They must not be
+silently moved onto a manager work number until a separate manager-cell consent
+scope and unambiguous reply model exist. The legacy pooled proxy-number relay is
+also not a managed-runtime launch rail; `/api/twilio/inbound` bypasses it while
+`SMS_RUNTIME_ENABLED=1` and uses `sms_inbound_receipts` as the execution
+idempotency authority.
+
+### Activation order (fail closed)
+
+The Twilio campaign's current `LOW_VOLUME` registration is a carrier campaign
+classification, not an application architecture choice. The code keeps the
+campaign/service identifiers configurable so a future throughput upgrade does
+not change tenant ownership, consent, provisioning, or delivery semantics.
+
+Run the read-only repository gate at every rung; it validates the deployment
+environment without printing secrets and refuses to treat a suppressed Vercel
+CLI table as an empty environment:
+
+```bash
+npm run sms:cutover:check                                      # all flags exactly 0
+npm run sms:cutover:check -- --phase=scheduler-ready           # scheduler=1 only
+npm run sms:cutover:check -- --phase=provisioning-canary       # scheduler + purchasing
+npm run sms:cutover:check -- --phase=runtime-canary            # canary sending enabled
+```
+
+The gate also refuses to claim production migration coverage while the Supabase
+CLI is linked to dev/test. Link production deliberately for the check and
+restore the documented dev/test link immediately afterward. To stage Twilio
+values, `npm run setup:twilio-vercel` is a dry run. Add `-- --apply` to update
+Production only; Preview/Development require an explicit `--target` and are
+never populated as a side effect. Updates use Vercel's atomic `--force` replace,
+not remove-then-add.
+
+1. Apply the control-plane migration while both SMS environment flags remain
+   off and the DB runtime row remains `paused`.
+2. Rotate the Twilio Auth Token atomically with the deployment that receives
+   webhooks. Production REST access requires the restricted API key pair; the
+   Auth Token is retained only for signature validation.
+3. Configure the exact inbound, status callback, and Event Streams sink URLs.
+   The restricted key must be able to read inbound Message resources (for
+   provider-grounded STOP/START ordering), manage IncomingPhoneNumbers, and
+   read/write the configured Messaging Service sender pool and Verify service.
+   Set `TWILIO_VERIFY_SERVICE_SID` so personal-phone verification never borrows
+   a manager work number.
+   Create the Event Streams subscription for the A2P number registration and
+   deregistration event types; the webhook validates the exact signed URL,
+   Account SID, Messaging Service SID, Campaign SID, Phone SID, event id, and
+   provider timestamp.
+4. Verify that no existing `manager_sms_numbers` row is treated as current
+   without a Twilio-owned Phone SID, sender-pool attachment, and carrier
+   registration evidence. The migration deliberately defaults old rows to
+   unattached/unregistered; stale `profiles.sms_from_number` values are never
+   backfilled into sendable state.
+5. Put one paid owner UUID in `pilot_manager_user_ids`, set DB mode to
+   `allowlisted_self_service`, then enable provisioning only. The owner requests
+   exactly one number from Settings. Keep sending disabled until Event Streams
+   marks that exact number registered.
+6. Configure a five-minute authenticated scheduler for `/api/cron/sms-outbox`
+   (Vercel Pro Cron, Supabase Cron/pg_net, or another monitored scheduler), then
+   set `SMS_OUTBOX_SCHEDULER_READY=1`. The checked-in Vercel job remains a daily
+   safety net because the connected Vercel project is Hobby and rejects
+   sub-daily cron expressions. The monitor must alert on a non-2xx response and
+   inspect `unknownInventory`, `unknown`, `blocked`, and provisioning review
+   counts in the JSON response; a successful HTTP request alone is not health.
+7. Enable runtime for the canary and verify: inbound storage, portal reply,
+   rental-application-consented weekly reminder, STOP, replayed START rejection,
+   genuine START restoration, queued/delivered/failed callbacks, a forced
+   pre-dispatch failure, billing revocation, and unknown-submission handling.
+8. Expand the allowlist only after the canary has delivery receipts and no
+   unexplained `blocked`, `unknown`, stuck `provisioning`, or outbox backlog.
+
+Every `unknown` outbox row is terminal and operator-reviewable: the scheduler
+scans the durable backlog on every run and logs a structured alert with the
+bounded outbox-id inventory, the manager UI says not to resend, and automatic
+dispatch never retries it. Resolve the provider Message SID from Twilio logs
+before any manual recovery; absence of a locally persisted SID is not proof
+that Twilio rejected the submission. Activation requires the scheduler monitor
+to alert on both a non-empty inventory and an unreadable inventory.
+
+Applying migrations or setting environment variables is not activation by
+itself: the DB mode, provisioning flag, send flag, entitlement, attachment, and
+per-number carrier registration must all agree.
 
 ## Per-manager SMS proxy relay (`src/lib/sms/manager-relay.server.ts`)
 
-One PropLane number carries BOTH legs of a resident conversation, wired into
+One PropLane number can carry both legs of a resident conversation, wired into
 `/api/twilio/inbound`:
 
-- **Leg 1 (resident → manager):** stored in the PropLane thread AND forwarded as
-  an SMS to the manager's own verified cell, labelled with the sender's NAME (or
-  a masked `Texter ····1234` handle) — never the raw resident number.
-  Skipped when the Claw shared-line bridge is on (that path forwards itself).
+- **Leg 1 (resident → manager):** stored in the PropLane thread. Personal-cell
+  forwarding is intentionally off during the managed-number pilot: it needs a
+  separate manager-cell consent scope and replies are ambiguous unless a thread
+  is pinned. Managers reply from the portal for the first slice.
 - **Leg 2 (manager → resident):** the manager texts the SAME PropLane number from
   their cell. `detectManagerSelfReply` (From = manager's verified phone, To =
   their work number — the To pins the manager, so it is cross-tenant safe) routes
@@ -317,17 +423,31 @@ One PropLane number carries BOTH legs of a resident conversation, wired into
 
 ## Consent + quiet hours are transport-level (never bypassed)
 
-`sendPropLaneSms` gates EVERY send (Claw and Twilio branches) on `isPhoneOptedOut`
-+ quiet hours before dispatch — closing the old ungated Claw path that texted
-opted-out numbers (AI replies, manager tour alert) and got the campaign rejected.
-`sendClass` ∈ `control | transactional | automated`: `control` (STOP/HELP) and
-explicit `skipConsentCheck` bypass the opt-out check; quiet hours suppress ONLY
-`automated` (rent reminders, bulk notices). The **weekly rent reminder**
+When `SMS_RUNTIME_ENABLED=1` and `SMS_OUTBOX_SCHEDULER_READY=1`, every
+manager-owned Twilio send goes through
+`owner-sms-dispatcher.server.ts`; caller-provided From numbers and the raw
+`profiles.sms_from_number` fallback are ignored. The dispatcher fails closed on
+global suppression, purpose/class/conversation-scoped positive consent, paid
+entitlement, exact service/campaign identity, carrier registration, attachment,
+runtime mode, quiet hours, and the atomic segment budget. Legacy platform alerts
+without an owner scope do not borrow a manager number. Vendor one-job SMS,
+Twilio Verify, and the proxy relay remain explicitly separate transports.
+
+`sendClass` ∈ `control | transactional | automated`; quiet hours defer only
+`automated` traffic. The **weekly rent reminder**
 (`src/lib/sms/weekly-rent-reminder.server.ts`, cron
 `/api/cron/weekly-rent-reminders`) sends `automated` from the manager's own
-number and is idempotent PER ISO WEEK — the `portal_outbound_mail_records` dedup
-row is CLAIMED (`upsert … ignoreDuplicates`) before the send, so a retry /
-redeploy / duplicate tick can never text a resident twice.
+number and is idempotent per owner/resident/ISO week through the durable outbox
+unique key. Purpose-specific consent is materialized only from the rental
+application's server-owned consent timestamp and matching phone; a later scoped
+revoke always wins.
+
+STOP/START/HELP are authenticated and applied by one transactional RPC. A
+MessageSid-unique control receipt plus Twilio's immutable Message `dateCreated`
+prevents a delayed retry of an older signed START from reopening consent after
+a newer STOP. Persistence/provider-read failure returns 503 so Twilio retries. Delivery and
+carrier events are append-only, monotonic, and correlation-safe when a callback
+races provider-SID persistence.
 
 ### `isPhoneOptedOut` is unified across BOTH opt-out stores
 
@@ -347,16 +467,17 @@ the other re-enables the number instead of dead-ending — carriers expect START
 work. `isPhoneOptedOut(db, phone, { userId })` folds a user-keyed row's timestamps
 into the same comparison, so a legacy STOP recorded against a profile whose phone
 column is empty still blocks until a later opt-in supersedes it; the vendor-agent
-gates use this unified read so they agree with the send choke point. Both stores
-fail OPEN on infra error (a DB blip never drops all messaging). One shared
+gates use this unified read so they agree with the send choke point. The managed
+dispatcher fails closed when either suppression store is unreadable; older
+specialized transports retain their compatibility helper until migrated. One shared
 `profilePhoneVariants` helper (`sms-consent.ts`) matches un-normalized phone
 columns and is reused by the inbound webhooks so the variant sets cannot drift.
 Coverage: `tests/unit/sms-opt-out-unified.test.ts`.
 
-## Claw Messenger (production shared line, `+12053690702`)
+## Historical: Claw Messenger shared line
 
-The live PropLane messaging system today is ONE shared agent line (Twilio
-per-manager numbers above are provisioned but dormant while Claw is primary —
+The former PropLane messaging system used one shared agent line (Twilio
+per-manager numbers above replace it when managed runtime is enabled —
 `ensureManagerSmsNumber` deliberately keeps `sms_from_number` on the Claw
 line and does not buy a Twilio number while `isClawSharedLineBridgeEnabled()`).
 Inbound flow: `scripts/claw-messenger-gateway.mjs` (a long-running WS client,

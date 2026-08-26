@@ -94,6 +94,7 @@ vi.mock("@/lib/portal-inbox-storage", () => ({
     const p = Date.parse(t ?? "");
     return Number.isNaN(p) ? 0 : p;
   },
+  inboxThreadManagerReplyPending: () => false,
   inboxThreadMessages: () => [],
   appendReplyToInboxThread: () => THREADS,
 }));

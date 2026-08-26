@@ -38,6 +38,7 @@ export async function deliverPortalInboxMessage(input: {
         toEmails,
         toBroadcast: input.toBroadcast,
         subject: input.subject.trim(),
+        senderPortal: "manager",
         text: input.text.trim(),
         deliverToPortalInbox: true,
         deliverViaEmail: input.deliverViaEmail !== false,

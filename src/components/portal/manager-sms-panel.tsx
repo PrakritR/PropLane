@@ -10,7 +10,10 @@ import {
   useState,
   type PointerEvent as ReactPointerEvent,
 } from "react";
-import { ChevronLeft, Search, Trash2 } from "lucide-react";
+import { ChevronLeft, Pencil, Search, Trash2 } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Input, Select } from "@/components/ui/input";
+import { Modal, ModalFooter } from "@/components/ui/modal";
 import { useAppUi } from "@/components/providers/app-ui-provider";
 import { ManagerSmsComposeModal } from "@/components/portal/manager-sms-compose-modal";
 import {
@@ -25,9 +28,12 @@ import {
   InboxThreadEmpty,
   InboxTwoPane,
   PortalInboxEmptyState,
+  type InboxListSegment,
 } from "@/components/portal/portal-inbox-ui";
 import {
+  dispatchManagerSmsContactsChanged,
   MANAGER_SMS_SORT_OPTIONS,
+  isPhoneLikeLabel,
   normalizeManagerSmsConversationsPayload,
   smsConversationDisplayName,
   smsConversationSubtitle,
@@ -46,7 +52,18 @@ import { counterpartyRoleLabel } from "@/lib/sms-conversation-identity";
 import type { InboxScopedContact } from "@/data/inbox-scoped-directory";
 import { formatPacificDate } from "@/lib/pacific-time";
 import { useInboxThreadScroll } from "@/hooks/use-inbox-thread-scroll";
-import { Select } from "@/components/ui/input";
+import {
+  MANUAL_SMS_NETWORK_UNKNOWN_MESSAGE,
+  MANUAL_SMS_UNKNOWN_MESSAGE,
+  resolveManualSmsAttempt,
+  type ManualSmsAttempt,
+} from "@/lib/sms/manual-send-attempt";
+import {
+  archiveManagerSmsConversation,
+  loadManagerSmsArchivedIds,
+  MANAGER_SMS_ARCHIVE_CHANGED_EVENT,
+  restoreManagerSmsConversation,
+} from "@/lib/manager-sms-archive.client";
 
 const SMS_OPENED_STORAGE_KEY = "axis_manager_sms_opened_v1";
 // v2 stores CONVERSATION IDs, not phones: since one phone can be two threads
@@ -172,6 +189,10 @@ export const ManagerSmsPanel = forwardRef<
     controlledActiveId?: string | null;
     onControlledActiveIdChange?: (id: string | null) => void;
     onConversationOpened?: () => void;
+    /** When embedded in unified Communication — drives archive/restore chrome. */
+    listSegment?: InboxListSegment;
+    /** Fires after archive or restore so the parent list can refresh. */
+    onArchived?: () => void;
     /** Let the portal page scroll the thread instead of a nested pane (resident profile). */
     pageScroll?: boolean;
   }
@@ -190,6 +211,8 @@ export const ManagerSmsPanel = forwardRef<
     controlledActiveId,
     onControlledActiveIdChange,
     onConversationOpened,
+    listSegment = "active",
+    onArchived,
     pageScroll = false,
   },
   ref,
@@ -204,6 +227,9 @@ export const ManagerSmsPanel = forwardRef<
   const openedSmsIdsRef = useRef(openedSmsIds);
   const [hiddenConversationIds, setHiddenConversationIds] = useState<Set<string>>(() =>
     loadHiddenConversationIds(),
+  );
+  const [archivedConversationIds, setArchivedConversationIds] = useState<Set<string>>(() =>
+    loadManagerSmsArchivedIds(),
   );
   const [composeOpen, setComposeOpen] = useState(false);
   const [search, setSearch] = useState("");
@@ -224,10 +250,16 @@ export const ManagerSmsPanel = forwardRef<
   const [draft, setDraft] = useState("");
   const [replyViaEmail, setReplyViaEmail] = useState(false);
   const [replyViaSms, setReplyViaSms] = useState(true);
+  const [replyIssue, setReplyIssue] = useState<string | null>(null);
+  const replyAttemptRef = useRef<ManualSmsAttempt | null>(null);
   const [sending, setSending] = useState(false);
   const [pendingOutboundByRow, setPendingOutboundByRow] = useState<Record<string, ManagerSmsMessageRow[]>>({});
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [deletingMessageId, setDeletingMessageId] = useState<string | null>(null);
+  const [contactNameOpen, setContactNameOpen] = useState(false);
+  const [contactName, setContactName] = useState("");
+  const [contactNameError, setContactNameError] = useState<string | null>(null);
+  const [savingContactName, setSavingContactName] = useState(false);
   const messagesDeleteEndpoint = useMemo(() => smsMessagesDeleteEndpoint(endpoint), [endpoint]);
   // Keep the latest onConversationOpened without making it an effect dependency —
   // parents pass an inline callback that changes identity every render, and letting
@@ -238,6 +270,12 @@ export const ManagerSmsPanel = forwardRef<
     onConversationOpenedRef.current = onConversationOpened;
   }, [onConversationOpened]);
   const lastSyncedControlledIdRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    const sync = () => setArchivedConversationIds(loadManagerSmsArchivedIds());
+    window.addEventListener(MANAGER_SMS_ARCHIVE_CHANGED_EVENT, sync as EventListener);
+    return () => window.removeEventListener(MANAGER_SMS_ARCHIVE_CHANGED_EVENT, sync as EventListener);
+  }, []);
 
   const load = useCallback(async (opts?: { quiet?: boolean }) => {
     if (!opts?.quiet) setLoading(true);
@@ -307,7 +345,7 @@ export const ManagerSmsPanel = forwardRef<
         contacts: filterContacts,
         counterpartyEmail: resident.residentEmail,
         propertyLabel: resident.propertyLabel,
-        isResidentThread: true,
+        counterpartyRole: resident.counterpartyRole,
       }),
     );
   }, [data?.residents, filterResidentEmail, filterResidentUserId, threadFilters, filterContacts]);
@@ -325,11 +363,18 @@ export const ManagerSmsPanel = forwardRef<
           rowId,
           unread: smsThreadHasUnread(messages, openedSmsIds),
           hidden: hiddenConversationIds.has(rowId),
+          archived: archivedConversationIds.has(rowId),
         };
       })
       // iOS Messages: only threads with texts (or not locally deleted).
-      .filter((row) => row.lastMessage && !row.hidden);
-  }, [hiddenConversationIds, openedSmsIds, residents]);
+      .filter((row) => {
+        if (row.hidden) return false;
+        if (!row.lastMessage) return listSegment === "active";
+        if (listSegment === "archived") return row.archived;
+        if (listSegment === "unread") return !row.archived && row.unread;
+        return !row.archived;
+      });
+  }, [archivedConversationIds, hiddenConversationIds, listSegment, openedSmsIds, residents]);
 
   const unreadCount = useMemo(() => rows.filter((r) => r.unread).length, [rows]);
 
@@ -357,10 +402,25 @@ export const ManagerSmsPanel = forwardRef<
     return sortSmsConversationRows(filtered, sort);
   }, [rows, search, sort]);
 
-  const active = useMemo(
-    () => visibleRows.find((r) => r.rowId === activeId) ?? rows.find((r) => r.rowId === activeId) ?? null,
-    [activeId, rows, visibleRows],
-  );
+  const active = useMemo(() => {
+    const fromList = visibleRows.find((r) => r.rowId === activeId) ?? rows.find((r) => r.rowId === activeId);
+    if (fromList) return fromList;
+    if (!activeId) return null;
+    const resident = residents.find((r) => conversationId(r) === activeId);
+    if (!resident) return null;
+    const messages = Array.isArray(resident.messages) ? resident.messages : [];
+    const lastMessage = messages[messages.length - 1] ?? null;
+    if (hiddenConversationIds.has(activeId)) return null;
+    return {
+      resident,
+      messages,
+      lastMessage,
+      rowId: activeId,
+      unread: smsThreadHasUnread(messages, openedSmsIds),
+      hidden: false,
+      archived: archivedConversationIds.has(activeId),
+    };
+  }, [activeId, archivedConversationIds, hiddenConversationIds, openedSmsIds, residents, rows, visibleRows]);
 
   const { scrollRef: threadScrollRef, endRef: threadEndRef, handleScroll: handleThreadScroll } =
     useInboxThreadScroll(activeId ?? undefined, active?.messages.length ?? 0);
@@ -399,12 +459,19 @@ export const ManagerSmsPanel = forwardRef<
     // Only sync when the controlled selection actually changes — never on every
     // `rows` refetch or callback identity change, which would loop forever.
     if (lastSyncedControlledIdRef.current === controlledActiveId) return;
-    const row = rows.find((r) => r.rowId === controlledActiveId);
+    const row =
+      rows.find((r) => r.rowId === controlledActiveId) ??
+      (() => {
+        const resident = residents.find((r) => conversationId(r) === controlledActiveId);
+        if (!resident) return null;
+        const messages = Array.isArray(resident.messages) ? resident.messages : [];
+        return { rowId: controlledActiveId, messages, resident };
+      })();
     if (!row) return; // rows may load after the id is set; retry until present.
     lastSyncedControlledIdRef.current = controlledActiveId;
     markOpened(row.messages.filter((m) => m.direction === "inbound").map((m) => m.id));
     onConversationOpenedRef.current?.();
-  }, [controlledActiveId, markOpened, rows]);
+  }, [controlledActiveId, markOpened, residents, rows]);
 
   const composeResidents =
     filterResidentEmail || filterResidentUserId ? residents : (data?.residents ?? []);
@@ -414,6 +481,30 @@ export const ManagerSmsPanel = forwardRef<
       onSentNavigate?.();
     });
   }, [load, onSentNavigate]);
+
+  const archiveConversation = useCallback(
+    (resident: ManagerSmsResidentConversation) => {
+      const rowId = conversationId(resident);
+      archiveManagerSmsConversation(rowId);
+      setArchivedConversationIds(loadManagerSmsArchivedIds());
+      setActiveId(null);
+      onArchived?.();
+      showToast("Moved to archived.");
+    },
+    [onArchived, setActiveId, showToast],
+  );
+
+  const restoreConversation = useCallback(
+    (resident: ManagerSmsResidentConversation) => {
+      const rowId = conversationId(resident);
+      restoreManagerSmsConversation(rowId);
+      setArchivedConversationIds(loadManagerSmsArchivedIds());
+      setActiveId(null);
+      onArchived?.();
+      showToast("Restored.");
+    },
+    [onArchived, setActiveId, showToast],
+  );
 
   const deleteConversation = useCallback(
     async (resident: ManagerSmsResidentConversation) => {
@@ -471,6 +562,38 @@ export const ManagerSmsPanel = forwardRef<
     [activeId, endpoint, load, showToast],
   );
 
+  const deleteSavedContact = useCallback(
+    async (resident: ManagerSmsResidentConversation) => {
+      const conversationKey = resident.conversationKey?.trim();
+      if (!conversationKey) return;
+      if (!window.confirm(`Remove ${smsConversationDisplayName(resident)} from contacts?`)) return;
+      setDeletingId(conversationId(resident));
+      try {
+        const res = await fetch("/api/manager/sms-contacts", {
+          method: "DELETE",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ conversationKey }),
+        });
+        const body = (await res.json().catch(() => ({}))) as { error?: string };
+        if (!res.ok) {
+          showToast(body.error ?? "Could not remove contact.");
+          return;
+        }
+        dispatchManagerSmsContactsChanged();
+        setActiveId(null);
+        onArchived?.();
+        showToast("Contact removed.");
+        void load({ quiet: true });
+      } catch {
+        showToast("Could not remove contact.");
+      } finally {
+        setDeletingId(null);
+      }
+    },
+    [load, onArchived, setActiveId, showToast],
+  );
+
   const deleteMessage = useCallback(
     async (message: ManagerSmsMessageRow) => {
       if (!message.storageTable) {
@@ -510,9 +633,67 @@ export const ManagerSmsPanel = forwardRef<
     setDraft("");
     setReplyViaEmail(false);
     setReplyViaSms(true);
+    setReplyIssue(null);
+    replyAttemptRef.current = null;
   }, [activeId]);
 
+  const canEditContactName = Boolean(
+    active?.resident.conversationKey &&
+      active.resident.phone &&
+      (!active.resident.directoryName || isPhoneLikeLabel(active.resident.directoryName)),
+  );
+
+  const openContactName = useCallback(() => {
+    if (!active || !canEditContactName) return;
+    setContactName(active.resident.savedContactName?.trim() || "");
+    setContactNameError(null);
+    setContactNameOpen(true);
+  }, [active, canEditContactName]);
+
+  const saveContactName = useCallback(async () => {
+    if (!active?.resident.conversationKey) return;
+    const displayName = contactName.trim();
+    if (!displayName || displayName.length > 80) {
+      setContactNameError("Enter a contact name up to 80 characters.");
+      return;
+    }
+    setSavingContactName(true);
+    setContactNameError(null);
+    try {
+      const res = await fetch("/api/manager/sms-contacts", {
+        method: "PUT",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          conversationKey: active.resident.conversationKey,
+          displayName,
+        }),
+      });
+      const body = (await res.json().catch(() => ({}))) as { error?: string };
+      if (!res.ok) throw new Error(body.error ?? "Could not save contact name.");
+      setData((current) => current
+        ? {
+            ...current,
+            residents: current.residents.map((resident) =>
+              resident.conversationKey === active.resident.conversationKey
+                ? { ...resident, savedContactName: displayName }
+                : resident,
+            ),
+          }
+        : current);
+      setContactNameOpen(false);
+      showToast("Contact name saved.");
+      dispatchManagerSmsContactsChanged();
+      void load({ quiet: true });
+    } catch (e) {
+      setContactNameError(e instanceof Error ? e.message : "Could not save contact name.");
+    } finally {
+      setSavingContactName(false);
+    }
+  }, [active, contactName, load, showToast]);
+
   async function sendReply() {
+    if (replyIssue) return;
     if (!active?.resident.phone && !replyViaEmail) return;
     const text = draft.trim();
     if (!text) return;
@@ -532,26 +713,48 @@ export const ManagerSmsPanel = forwardRef<
       source: "work_number",
       createdAt: new Date().toISOString(),
     };
-    if (active) {
+    // The SMS transcript only owns SMS bubbles. An email-only reply should not
+    // briefly masquerade as an outbound text and then disappear on reload.
+    if (active && replyViaSms) {
       setPendingOutboundByRow((prev) => ({
         ...prev,
         [active.rowId]: [...(prev[active.rowId] ?? []), pendingRow],
       }));
     }
-    setDraft("");
+    let smsRequestPending = false;
+    let smsSucceeded = false;
     try {
-      let smsOk = !replyViaSms;
-      let emailOk = !replyViaEmail;
+      let smsOk = false;
+      let emailOk = false;
+      let smsQueued = false;
+      let failureMessage = "";
 
       if (replyViaSms) {
         if (!active?.resident.phone) {
           showToast("No phone on this conversation.");
           return;
         }
+        const attemptSignature = JSON.stringify([
+          active.rowId,
+          active.resident.phone,
+          active.resident.residentUserId ?? null,
+          active.resident.conversationKey ?? null,
+          text,
+        ]);
+        const attempt = resolveManualSmsAttempt(
+          replyAttemptRef.current,
+          attemptSignature,
+          1,
+        );
+        replyAttemptRef.current = attempt;
+        smsRequestPending = true;
         const res = await fetch(endpoint, {
           method: "POST",
           credentials: "include",
-          headers: { "Content-Type": "application/json" },
+          headers: {
+            "Content-Type": "application/json",
+            "Idempotency-Key": attempt.idempotencyKeys[0]!,
+          },
           body: JSON.stringify({
             toPhone: active.resident.phone,
             text,
@@ -559,39 +762,55 @@ export const ManagerSmsPanel = forwardRef<
             conversationKey: active.resident.conversationKey ?? null,
           }),
         });
-        const body = (await res.json().catch(() => ({}))) as { error?: string };
-        smsOk = res.ok;
-        if (!smsOk && !replyViaEmail) {
-          showToast(body.error ?? "Could not send.");
+        const body = (await res.json().catch(() => ({}))) as {
+          code?: string;
+          error?: string;
+          status?: string;
+        };
+        smsRequestPending = false;
+        if (
+          body.code === "delivery_outcome_unknown" ||
+          body.status === "unknown"
+        ) {
+          setReplyIssue(MANUAL_SMS_UNKNOWN_MESSAGE);
+          showToast(MANUAL_SMS_UNKNOWN_MESSAGE);
           return;
         }
+        smsOk = res.ok;
+        smsSucceeded = smsOk;
+        smsQueued = res.ok && body.status !== "submitted";
+        if (!smsOk) failureMessage = body.error?.trim() || "Text message failed.";
       }
 
       if (replyViaEmail) {
         const email = active?.resident.residentEmail?.trim();
         if (!email) {
-          showToast("No email on file for this resident.");
-          return;
+          failureMessage ||= "No email is available for this conversation.";
+        } else {
+          const res = await fetch("/api/portal/send-inbox-message", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            credentials: "include",
+            body: JSON.stringify({
+              fromName: "Property manager",
+              toEmails: [email],
+              subject: `Message from your property manager`,
+              text,
+              deliverToPortalInbox: true,
+              eventCategory: "messages",
+              senderPortal: "manager",
+            }),
+          });
+          const data = (await res.json().catch(() => ({}))) as { ok?: boolean; error?: string };
+          emailOk = res.ok && data.ok === true;
+          if (!emailOk) failureMessage = data.error?.trim() || failureMessage;
         }
-        const res = await fetch("/api/portal/send-inbox-message", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          credentials: "include",
-          body: JSON.stringify({
-            fromName: "Property manager",
-            toEmails: [email],
-            subject: `Message from your property manager`,
-            text,
-            deliverToPortalInbox: true,
-            eventCategory: "messages",
-          }),
-        });
-        const data = (await res.json().catch(() => ({}))) as { ok?: boolean; error?: string };
-        emailOk = res.ok && data.ok === true;
-        if (!emailOk && !smsOk) {
-          showToast(data.error ?? "Could not send email.");
-          return;
-        }
+      }
+
+      if (!smsOk && !emailOk) {
+        replyAttemptRef.current = null;
+        showToast(failureMessage || "Could not send.");
+        return;
       }
 
       if (replyViaSms) {
@@ -603,12 +822,32 @@ export const ManagerSmsPanel = forwardRef<
           return next;
         });
       }
-      if (replyViaEmail && replyViaSms) showToast("Sent via email and SMS.");
-      else if (replyViaEmail) showToast("Email sent.");
-      else showToast("SMS sent.");
+      if (emailOk && smsOk) {
+        showToast(smsQueued ? "Email sent; text message queued." : "Sent via email and text.");
+      } else if (emailOk) {
+        showToast(replyViaSms ? "Email sent. Text message failed." : "Email sent.");
+      } else if (smsQueued) {
+        showToast(replyViaEmail ? "Text message queued. Email failed." : "Text message queued.");
+      } else {
+        showToast(replyViaEmail ? "Text message sent. Email failed." : "Text message sent.");
+      }
+      setDraft("");
+      replyAttemptRef.current = null;
       await load();
     } catch {
-      showToast("Could not send.");
+      if (smsRequestPending) {
+        setReplyIssue(MANUAL_SMS_NETWORK_UNKNOWN_MESSAGE);
+        showToast(MANUAL_SMS_NETWORK_UNKNOWN_MESSAGE);
+      } else if (smsSucceeded) {
+        const message =
+          "The text message was sent, but the email outcome could not be confirmed. Do not resend this message. Check the conversation later.";
+        setReplyIssue(message);
+        setDraft("");
+        showToast(message);
+      } else {
+        replyAttemptRef.current = null;
+        showToast("Could not send.");
+      }
     } finally {
       if (active) {
         setPendingOutboundByRow((prev) => {
@@ -633,6 +872,7 @@ export const ManagerSmsPanel = forwardRef<
 
       <div className="portal-inbox-list-toolbar flex shrink-0 items-center gap-2 border-b border-border px-3 pb-2.5">
         <label className="relative block min-w-0 flex-1">
+          <span className="sr-only">Search conversations</span>
           <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted" />
           <input
             type="search"
@@ -640,7 +880,7 @@ export const ManagerSmsPanel = forwardRef<
             onChange={(e) => setSearch(e.target.value)}
             placeholder="Search"
             enterKeyHint="search"
-            className="portal-inbox-search h-9 w-full rounded-full border border-border bg-background pl-9 pr-3 text-sm text-foreground outline-none transition-[border-color,box-shadow] placeholder:text-muted/70 focus:border-primary/40 focus:ring-2 focus:ring-primary/15"
+            className="portal-inbox-search h-10 w-full rounded-full border border-border bg-background pl-9 pr-3 text-sm text-foreground outline-none transition-[border-color,box-shadow] placeholder:text-muted/70 focus:border-primary/40 focus:ring-2 focus:ring-primary/15"
             data-attr="sms-messages-search"
           />
         </label>
@@ -651,7 +891,7 @@ export const ManagerSmsPanel = forwardRef<
           id="sms-sort"
           value={sort}
           onChange={(e) => setSort(e.target.value as ManagerSmsSortId)}
-          className="h-9 shrink-0 rounded-full border border-border bg-card px-2.5 text-xs font-medium text-foreground outline-none focus:border-primary/40"
+          className="h-10 shrink-0 rounded-full border border-border bg-card px-2.5 text-xs font-medium text-foreground outline-none focus:border-primary/40"
           data-attr="sms-messages-sort"
           aria-label="Sort conversations"
         >
@@ -713,7 +953,7 @@ export const ManagerSmsPanel = forwardRef<
       >
         <button
           type="button"
-          className="flex min-h-9 touch-manipulation items-center gap-0.5 rounded-lg px-1 text-sm font-medium text-primary active:opacity-60 lg:hidden"
+          className="flex min-h-10 touch-manipulation items-center gap-0.5 rounded-lg px-1 text-sm font-medium text-primary active:opacity-60 lg:hidden"
           data-attr="sms-messages-back"
           onClick={() => setActiveId(null)}
           aria-label="Back to conversations"
@@ -729,19 +969,55 @@ export const ManagerSmsPanel = forwardRef<
             {smsConversationSubtitle(active.resident) || " "}
           </p>
         </div>
-        {allowDelete ? (
+        {canEditContactName ? (
           <button
             type="button"
-            className="flex h-9 w-9 touch-manipulation items-center justify-center rounded-lg text-muted transition-colors hover:bg-foreground/5 hover:text-danger disabled:opacity-50"
-            aria-label="Delete conversation"
-            data-attr="sms-messages-thread-delete"
-            disabled={deletingId === active.rowId}
-            onClick={() => void deleteConversation(active.resident)}
+            className="flex h-10 w-10 shrink-0 touch-manipulation items-center justify-center rounded-full text-muted transition-colors hover:bg-foreground/5 hover:text-foreground focus-visible:ring-2 focus-visible:ring-primary/40"
+            aria-label={active.resident.savedContactName ? "Edit contact name" : "Add contact name"}
+            data-attr="sms-contact-name-edit"
+            onClick={openContactName}
           >
-            <Trash2 className="h-[18px] w-[18px]" strokeWidth={1.75} />
+            <Pencil className="h-4 w-4" aria-hidden />
           </button>
+        ) : null}
+        {active.archived ? (
+          <Button
+            type="button"
+            variant="outline"
+            className="h-10 min-h-10 rounded-full px-3 text-xs"
+            data-attr="sms-messages-thread-restore"
+            onClick={() => restoreConversation(active.resident)}
+          >
+            Restore
+          </Button>
         ) : (
-          <span className="h-9 w-9" aria-hidden />
+          <>
+            <Button
+              type="button"
+              variant="outline"
+              className="h-10 min-h-10 rounded-full px-3 text-xs"
+              data-attr="sms-messages-thread-archive"
+              onClick={() => archiveConversation(active.resident)}
+            >
+              Archive
+            </Button>
+            {allowDelete ? (
+              <button
+                type="button"
+                className="flex h-10 w-10 touch-manipulation items-center justify-center rounded-full text-muted transition-colors hover:bg-foreground/5 hover:text-danger focus-visible:ring-2 focus-visible:ring-primary/40 disabled:opacity-50"
+                aria-label={active.messages.length === 0 ? "Remove contact" : "Delete conversation"}
+                data-attr="sms-messages-thread-delete"
+                disabled={deletingId === active.rowId}
+                onClick={() => void (
+                  active.messages.length === 0 && active.resident.savedContactName
+                    ? deleteSavedContact(active.resident)
+                    : deleteConversation(active.resident)
+                )}
+              >
+                <Trash2 className="h-[18px] w-[18px]" strokeWidth={1.75} />
+              </button>
+            ) : null}
+          </>
         )}
       </header>
 
@@ -801,12 +1077,22 @@ export const ManagerSmsPanel = forwardRef<
         storageScopeKey="Communication SMS thread"
       />
 
+      {replyIssue ? (
+        <p
+          className="border-t border-border bg-warning/10 px-4 py-2 text-xs leading-relaxed text-foreground"
+          role="alert"
+        >
+          {replyIssue}
+        </p>
+      ) : null}
+
+      {!active.archived ? (
       <InboxComposer
         value={draft}
         onChange={setDraft}
         onSubmit={() => void sendReply()}
         sending={sending}
-        disabled={!replyViaEmail && !replyViaSms}
+        disabled={(!replyViaEmail && !replyViaSms) || Boolean(replyIssue)}
         placeholder={replyViaSms && !replyViaEmail ? "Text message" : "Write a reply…"}
         maxLength={replyViaSms && !replyViaEmail ? 1600 : undefined}
         dataAttr="sms-messages-reply"
@@ -821,6 +1107,7 @@ export const ManagerSmsPanel = forwardRef<
           />
         }
       />
+      ) : null}
     </div>
   );
 
@@ -835,6 +1122,68 @@ export const ManagerSmsPanel = forwardRef<
           endpoint={endpoint}
         />
       ) : null}
+
+      <Modal
+        open={contactNameOpen}
+        onClose={() => {
+          if (!savingContactName) setContactNameOpen(false);
+        }}
+        title={active?.resident.savedContactName ? "Edit contact name" : "Add contact name"}
+        description="This label is private to your PropLane workspace and does not verify the texter's identity."
+        dense
+        assistantStrip={false}
+        panelClassName="max-w-md"
+        footer={
+          <ModalFooter>
+            <Button
+              type="button"
+              variant="ghost"
+              onClick={() => setContactNameOpen(false)}
+              disabled={savingContactName}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="submit"
+              form="sms-contact-name-form"
+              disabled={savingContactName}
+              aria-busy={savingContactName}
+              data-attr="sms-contact-name-save"
+            >
+              {savingContactName ? "Saving…" : "Save name"}
+            </Button>
+          </ModalFooter>
+        }
+      >
+        <form
+          id="sms-contact-name-form"
+          className="space-y-2"
+          onSubmit={(event) => {
+            event.preventDefault();
+            void saveContactName();
+          }}
+        >
+          <label htmlFor="sms-contact-name" className="text-sm font-medium text-foreground">
+            Contact name
+          </label>
+          <Input
+            id="sms-contact-name"
+            value={contactName}
+            onChange={(event) => setContactName(event.target.value)}
+            maxLength={80}
+            autoComplete="off"
+            spellCheck={false}
+            placeholder="e.g. Jordan from Unit 4"
+            aria-invalid={contactNameError ? true : undefined}
+            aria-describedby={contactNameError ? "sms-contact-name-error" : undefined}
+          />
+          {contactNameError ? (
+            <p id="sms-contact-name-error" className="text-xs text-danger" role="alert">
+              {contactNameError}
+            </p>
+          ) : null}
+        </form>
+      </Modal>
 
       {suppressListPane ? (
         <div className={pageScroll ? "flex flex-col" : "flex h-full min-h-0 flex-1 flex-col overflow-hidden"}>{threadPane}</div>
@@ -874,22 +1223,30 @@ function Bubble({
         : cluster === "last"
           ? "rounded-[1.125rem] rounded-tl-md"
           : "rounded-[1.125rem] rounded-bl-md border border-border bg-secondary text-foreground";
+  // `min-w-0` + `ml-auto`/`mr-auto` keep long URLs from expanding the flex
+  // item to full width (default min-width:auto), which made outbound bubbles
+  // look left-aligned while staying blue.
   return (
-    <div className={`group/msg flex ${outbound ? "justify-end" : "justify-start"}`}>
-      <div className="flex max-w-full flex-col">
+    <div className="group/msg flex w-full min-w-0">
+      <div
+        className={`flex min-w-0 max-w-[min(88%,20rem)] flex-col ${
+          outbound ? "ml-auto items-end" : "mr-auto items-start"
+        }`}
+      >
         <div
-          className={`relative max-w-[min(88%,20rem)] px-3.5 py-2 text-[15px] leading-relaxed sm:text-sm portal-inbox-inbound-bubble ${radius} ${
+          className={`relative w-full px-3.5 py-2 text-[15px] leading-relaxed sm:text-sm portal-inbox-inbound-bubble ${radius} ${
             outbound
               ? "portal-inbox-outbound-bubble"
               : cluster === "single"
                 ? "border border-border bg-secondary text-foreground"
                 : "border border-border bg-secondary text-foreground"
           } ${pending ? "opacity-80" : ""}`}
+          data-sms-bubble-align={outbound ? "end" : "start"}
         >
         {onDelete ? (
           <button
             type="button"
-            className="absolute -right-1 -top-1 flex h-7 w-7 touch-manipulation items-center justify-center rounded-full border border-border bg-card text-muted opacity-70 shadow-sm transition-opacity hover:text-danger focus-visible:opacity-100 sm:opacity-0 sm:group-hover/msg:opacity-100 disabled:opacity-40"
+            className="absolute -right-2 -top-2 flex h-10 w-10 touch-manipulation items-center justify-center rounded-full border border-border bg-card text-muted opacity-70 shadow-sm transition-opacity hover:text-danger focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-primary/40 sm:opacity-0 sm:group-hover/msg:opacity-100 disabled:opacity-40"
             aria-label="Delete message"
             data-attr="sms-messages-bubble-delete"
             disabled={deleting}

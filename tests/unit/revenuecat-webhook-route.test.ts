@@ -6,6 +6,16 @@ vi.mock("@/lib/manager-apple-subscription-sync", () => ({
 vi.mock("@/lib/analytics/posthog", () => ({
   track: vi.fn(),
 }));
+vi.mock("@/lib/sms/manager-sms-entitlement.server", () => ({
+  reconcileManagerSmsEntitlement: vi.fn(async () => ({
+    eligible: true,
+    tier: "pro",
+    source: "apple",
+  })),
+}));
+vi.mock("@/lib/supabase/service", () => ({
+  createSupabaseServiceRoleClient: vi.fn(() => ({})),
+}));
 
 import { POST } from "@/app/api/revenuecat/webhook/route";
 import { applyRevenueCatWebhookEvent } from "@/lib/manager-apple-subscription-sync";

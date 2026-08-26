@@ -1,5 +1,5 @@
 import type { ResidentAgentContext } from "../../resident-context";
-import { residentScopeOrFilter } from "../../resident-context";
+import { residentManagerIds, residentScopeOrFilter } from "../../resident-context";
 
 const PAGE_SIZE = 1000;
 
@@ -16,12 +16,12 @@ export async function loadResidentIdentityRows<T>(
 ): Promise<T[]> {
   const out: T[] = [];
   for (let from = 0; ; from += PAGE_SIZE) {
-    const { data, error } = await ctx.db
+    let query = ctx.db
       .from(table)
       .select("row_data")
-      .or(residentScopeOrFilter(ctx))
-      .order("id", { ascending: true })
-      .range(from, from + PAGE_SIZE - 1);
+      .or(residentScopeOrFilter(ctx));
+    if (ctx.activeManagerId) query = query.eq("manager_user_id", ctx.activeManagerId);
+    const { data, error } = await query.order("id", { ascending: true }).range(from, from + PAGE_SIZE - 1);
     if (error) throw new Error(error.message);
     const rows = (data ?? []) as { row_data: unknown }[];
     for (const r of rows) out.push(map(r.row_data));
@@ -41,12 +41,12 @@ export async function loadResidentEmailRows<T>(
 ): Promise<T[]> {
   const out: T[] = [];
   for (let from = 0; ; from += PAGE_SIZE) {
-    const { data, error } = await ctx.db
+    let query = ctx.db
       .from(table)
       .select("row_data")
-      .eq("resident_email", ctx.email)
-      .order("id", { ascending: true })
-      .range(from, from + PAGE_SIZE - 1);
+      .eq("resident_email", ctx.email);
+    if (ctx.activeManagerId) query = query.eq("manager_user_id", ctx.activeManagerId);
+    const { data, error } = await query.order("id", { ascending: true }).range(from, from + PAGE_SIZE - 1);
     if (error) throw new Error(error.message);
     const rows = (data ?? []) as { row_data: unknown }[];
     for (const r of rows) out.push(map(r.row_data));
@@ -62,11 +62,12 @@ export type LinkedManagerContact = { id: string; email: string; name: string };
  * authenticated context, never from model input).
  */
 export async function linkedManagerContacts(ctx: ResidentAgentContext): Promise<LinkedManagerContact[]> {
-  if (ctx.managerIds.length === 0) return [];
+  const managerIds = residentManagerIds(ctx);
+  if (managerIds.length === 0) return [];
   const { data, error } = await ctx.db
     .from("profiles")
     .select("id, email, full_name")
-    .in("id", ctx.managerIds);
+    .in("id", managerIds);
   if (error) throw new Error(error.message);
   return (data ?? [])
     .map((row: { id: unknown; email: unknown; full_name: unknown }) => {

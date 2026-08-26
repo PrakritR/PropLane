@@ -116,15 +116,16 @@ function latestApplicationOf(owned: OwnedApplication[]): {
 }
 
 /** Server-side: returns true when the resident has a lease that both manager and resident signed. */
-export async function loadResidentLeaseSignedStatus(email: string): Promise<boolean> {
+export async function loadResidentLeaseSignedStatus(email: string, managerUserId?: string): Promise<boolean> {
   const normalizedEmail = email.trim().toLowerCase();
   if (!normalizedEmail) return false;
   const db = createSupabaseServiceRoleClient();
-  const { data } = await db
+  let query = db
     .from("portal_lease_pipeline_records")
     .select("row_data")
-    .eq("resident_email", normalizedEmail)
-    .order("updated_at", { ascending: false });
+    .eq("resident_email", normalizedEmail);
+  if (managerUserId) query = query.eq("manager_user_id", managerUserId);
+  const { data } = await query.order("updated_at", { ascending: false });
   if (!data?.length) return false;
   return data.some((record) => {
     const row = record.row_data as Record<string, unknown> | null;
@@ -150,6 +151,7 @@ const loadResidentPortalAccessStateCached = cache(
     role: string | null,
     email: string,
     managerSubscriptionTier: ManagerSubscriptionTier,
+    managerUserId: string | null,
   ): Promise<ResidentPortalAccessState> => {
     if (!email) return emptyAccessState(managerSubscriptionTier);
 
@@ -159,11 +161,12 @@ const loadResidentPortalAccessStateCached = cache(
     const roleOk = await authorizeResidentRole(db, { userId, legacyRole: role });
     if (!roleOk) return emptyAccessState(managerSubscriptionTier);
 
-    const { data: applicationRows } = await db
+    let applicationQuery = db
       .from("manager_application_records")
       .select("row_data, updated_at, resident_email")
-      .eq("resident_email", email)
-      .order("updated_at", { ascending: false });
+      .eq("resident_email", email);
+    if (managerUserId) applicationQuery = applicationQuery.eq("manager_user_id", managerUserId);
+    const { data: applicationRows } = await applicationQuery.order("updated_at", { ascending: false });
 
     const ownedApplications = readOwnedApplications(applicationRows ?? [], email, userId);
     let latestApplication = latestApplicationOf(ownedApplications);
@@ -190,11 +193,16 @@ const loadResidentPortalAccessStateCached = cache(
       ) {
         const { data: axisRecord } = await db
           .from("manager_application_records")
-          .select("row_data, updated_at")
+          .select("row_data, updated_at, manager_user_id")
           .eq("id", profileAxisId)
           .maybeSingle();
 
-        if (axisRecord?.row_data && typeof axisRecord.row_data === "object" && !Array.isArray(axisRecord.row_data)) {
+        if (
+          axisRecord?.row_data &&
+          typeof axisRecord.row_data === "object" &&
+          !Array.isArray(axisRecord.row_data) &&
+          (!managerUserId || axisRecord.manager_user_id === managerUserId)
+        ) {
           const axisRow = axisRecord.row_data as Record<string, unknown>;
           hasSubmittedApplication = true;
           hasCompletedApplicationSubmission =
@@ -211,12 +219,12 @@ const loadResidentPortalAccessStateCached = cache(
         }
       }
 
-      if (!applicationApproved) {
+      if (!applicationApproved && !managerUserId) {
         applicationApproved = Boolean(profile?.application_approved === true);
       }
     }
 
-    const leaseSigned = await loadResidentLeaseSignedStatus(email);
+    const leaseSigned = await loadResidentLeaseSignedStatus(email, managerUserId ?? undefined);
     const leaseAccessUnlocked = leaseSigned;
     let hasTourLink = false;
     if (userId) {
@@ -249,6 +257,8 @@ export async function loadResidentPortalAccessState(params: {
   role: string | null | undefined;
   email: string | null | undefined;
   managerSubscriptionTier?: ManagerSubscriptionTier;
+  /** Optional owner scope for verified resident SMS; portal callers omit it. */
+  managerUserId?: string | null;
 }): Promise<ResidentPortalAccessState> {
   const managerSubscriptionTier = params.managerSubscriptionTier ?? null;
   const email = normalizeEmail(params.email);
@@ -257,5 +267,6 @@ export async function loadResidentPortalAccessState(params: {
     params.role ?? null,
     email,
     managerSubscriptionTier,
+    params.managerUserId?.trim() || null,
   );
 }

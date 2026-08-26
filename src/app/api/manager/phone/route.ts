@@ -1,9 +1,9 @@
 import { createHash, randomInt } from "node:crypto";
 import { NextResponse } from "next/server";
-import twilio from "twilio";
 import { managerContactSmsPhoneForPublicCta } from "@/lib/claw-leasing-links";
 import { scheduleManagerMessagingReady } from "@/lib/proplane-sms-transport.server";
 import { sendSms } from "@/lib/twilio";
+import { createTwilioRestClient } from "@/lib/twilio-client.server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 
@@ -21,10 +21,7 @@ function verifyServiceSid(): string | null {
 }
 
 function twilioRestClient() {
-  const accountSid = process.env.TWILIO_ACCOUNT_SID?.trim();
-  const authToken = process.env.TWILIO_AUTH_TOKEN?.trim();
-  if (!accountSid || !authToken) return null;
-  return twilio(accountSid, authToken);
+  return createTwilioRestClient();
 }
 
 const CODE_TTL_MS = 10 * 60 * 1000;
@@ -167,7 +164,10 @@ export async function POST(req: Request) {
     },
     { onConflict: "user_id" },
   );
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  if (error) {
+    console.error("phone verification state write failed", { userId: user.id, code: error.code });
+    return NextResponse.json({ error: "Could not start phone verification." }, { status: 500 });
+  }
 
   if (usingVerify) {
     const client = twilioRestClient();
@@ -178,11 +178,25 @@ export async function POST(req: Request) {
       await client.verify.v2.services(verifyServiceSid()!).verifications.create({ to: phone, channel: "sms" });
       return NextResponse.json({ ok: true });
     } catch (e) {
+      console.error("Twilio Verify send failed", {
+        userId: user.id,
+        code: typeof e === "object" && e && "code" in e ? String(e.code) : undefined,
+      });
       return NextResponse.json(
-        { error: `Could not send verification: ${e instanceof Error ? e.message : String(e)}` },
+        { error: "Could not send verification code. Try again shortly." },
         { status: 502 },
       );
     }
+  }
+
+  // The managed launch reserves the Auth Token for webhook signatures and
+  // requires Twilio Verify for OTP traffic. Never fall back to a manager work
+  // number or the ordinary A2P outbox for a verification code.
+  if (process.env.SMS_RUNTIME_ENABLED?.trim() === "1") {
+    return NextResponse.json(
+      { error: "Phone verification is not configured yet." },
+      { status: 503 },
+    );
   }
 
   const fromNumber =
@@ -198,8 +212,9 @@ export async function POST(req: Request) {
     { skipOptOutCheck: true },
   );
   if (!sent.sent) {
+    console.error("legacy phone verification SMS failed", { userId: user.id, reason: sent.error });
     return NextResponse.json(
-      { error: sent.error ? `Could not send SMS: ${sent.error}` : "SMS is not configured yet — add Twilio credentials." },
+      { error: "Could not send verification code. Try again shortly." },
       { status: 502 },
     );
   }
@@ -256,7 +271,10 @@ export async function PUT(req: Request) {
     .from("profiles")
     .update({ phone: String(row.phone), phone_verified_at: new Date().toISOString() })
     .eq("id", user.id);
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  if (error) {
+    console.error("verified phone profile write failed", { userId: user.id, code: error.code });
+    return NextResponse.json({ error: "Could not save verified phone." }, { status: 500 });
+  }
   await db.from("phone_verifications").delete().eq("user_id", user.id);
 
   // First verified personal phone → PropLane messaging assistant intro (idempotent).

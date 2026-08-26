@@ -86,11 +86,14 @@ export const getMoveInInfoTool = defineTool({
   handler: async (ctx: ResidentAgentContext) => {
     // Mirrors loadResidentMoveInForEmail but runs on ctx.db so the scope filter
     // is the context's own email (and the fake test client can observe it).
-    const { data: records } = await ctx.db
+    let applicationQuery = ctx.db
       .from("manager_application_records")
       .select("row_data, updated_at")
-      .eq("resident_email", ctx.email)
-      .order("updated_at", { ascending: false });
+      .eq("resident_email", ctx.email);
+    if (ctx.activeManagerId) {
+      applicationQuery = applicationQuery.eq("manager_user_id", ctx.activeManagerId);
+    }
+    const { data: records } = await applicationQuery.order("updated_at", { ascending: false });
 
     const applications = (records ?? [])
       .map((record: { row_data: unknown }) => asObject(record.row_data))
@@ -109,11 +112,12 @@ export const getMoveInInfoTool = defineTool({
 
     let propertiesById: Record<string, ReturnType<typeof propertyFromRecord>> = {};
     if (propertyId) {
-      const { data: propertyRecord } = await ctx.db
+      let propertyQuery = ctx.db
         .from("manager_property_records")
         .select("id, property_data, row_data")
-        .eq("id", propertyId)
-        .maybeSingle();
+        .eq("id", propertyId);
+      if (ctx.activeManagerId) propertyQuery = propertyQuery.eq("manager_user_id", ctx.activeManagerId);
+      const { data: propertyRecord } = await propertyQuery.maybeSingle();
       propertiesById = {
         [propertyId]: propertyRecord
           ? propertyFromRecord(propertyRecord as { id: string; property_data: unknown; row_data: unknown })
@@ -155,11 +159,12 @@ type OwnedLeaseRecord = {
 async function findOwnSignedLease(
   ctx: ResidentAgentContext,
 ): Promise<{ record: OwnedLeaseRecord; row: LeasePipelineRow } | null> {
-  const { data, error } = await ctx.db
+  let query = ctx.db
     .from("portal_lease_pipeline_records")
     .select("id, row_data, manager_user_id, property_id, resident_email")
-    .eq("resident_email", ctx.email)
-    .order("updated_at", { ascending: false });
+    .eq("resident_email", ctx.email);
+  if (ctx.activeManagerId) query = query.eq("manager_user_id", ctx.activeManagerId);
+  const { data, error } = await query.order("updated_at", { ascending: false });
   if (error) throw new Error(error.message);
   for (const record of (data ?? []) as OwnedLeaseRecord[]) {
     const row = asObject(record.row_data) as unknown as LeasePipelineRow | null;

@@ -3,6 +3,8 @@ import { timingSafeEqual } from "node:crypto";
 import { track } from "@/lib/analytics/posthog";
 import { applyRevenueCatWebhookEvent } from "@/lib/manager-apple-subscription-sync";
 import type { RevenueCatWebhookEvent } from "@/lib/manager-apple-webhook";
+import { reconcileManagerSmsEntitlement } from "@/lib/sms/manager-sms-entitlement.server";
+import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 
 export const runtime = "nodejs";
 
@@ -47,6 +49,15 @@ export async function POST(req: Request) {
 
   try {
     const { decision } = await applyRevenueCatWebhookEvent(event);
+    if (decision.action !== "ignore") {
+      const smsEntitlement = await reconcileManagerSmsEntitlement(
+        createSupabaseServiceRoleClient(),
+        decision.appUserId,
+      );
+      if (!smsEntitlement.eligible && smsEntitlement.reason === "plan_unreadable") {
+        throw new Error("SMS entitlement reconciliation failed after Apple subscription event.");
+      }
+    }
     // Server-confirmed conversion — mirror the Stripe `manager_subscription_purchased`
     // event. Fire only on the initial purchase (not every renewal); ids/enums only.
     if (decision.action === "grant" && String(event.type ?? "").trim().toUpperCase() === "INITIAL_PURCHASE") {

@@ -19,6 +19,7 @@ import { residentOwnsApplicationRow } from "@/lib/rental-application/resident-ap
 import { tryAutoOrderScreening } from "@/lib/screening/order-screening";
 import { runExistingResidentOnboarding } from "@/lib/existing-resident-onboarding.server";
 import { SMS_CONSENT_WORDING_VERSION } from "@/lib/rental-application/sms-consent";
+import { revokeApplicationScopedSmsConsentOnWithdrawal } from "@/lib/sms/application-consent.server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 
@@ -75,30 +76,36 @@ async function persistDraftRow(
   values: Record<string, unknown>,
 ): Promise<void> {
   const updateIfStillDraft = async (): Promise<boolean> => {
-    const { data: existingRows } = await db
+    const { data: existingRows, error: loadError } = await db
       .from("manager_application_records")
       .select("id, row_data")
       .in("id", ids);
+    if (loadError) throw new Error(`Could not inspect the existing application draft: ${loadError.message}`);
     const draftIds = (existingRows ?? [])
       .filter((row) => isDraftApplicationRow((row.row_data ?? {}) as DemoApplicantRow))
       .map((row) => String(row.id));
     if (draftIds.length === 0) return false;
-    const { data } = await db
+    const { data, error: updateError } = await db
       .from("manager_application_records")
       .update(values)
       .in("id", draftIds)
       .eq("row_data->>bucket", "pending")
       .is("row_data->>withdrawnAt", null)
       .select("id");
+    if (updateError) throw new Error(`Could not persist the application draft: ${updateError.message}`);
     return (data?.length ?? 0) > 0;
   };
 
   if (await updateIfStillDraft()) return;
   const { error } = await db.from("manager_application_records").insert(values);
-  // A failed insert means a row is there after all (unique violation on the id
-  // primary key); re-run the conditional update so a concurrently created draft
-  // still gets the newer snapshot, and a submitted one is left alone.
-  if (error) await updateIfStillDraft();
+  // Only a unique conflict proves a row appeared concurrently. Every other
+  // insert failure is a real persistence failure and must reach the route so an
+  // smsConsent=false update is never falsely acknowledged.
+  if (error?.code === "23505") {
+    await updateIfStillDraft();
+    return;
+  }
+  if (error) throw new Error(`Could not persist the application draft: ${error.message}`);
 }
 
 async function persistNormalizedRow(db: ReturnType<typeof createSupabaseServiceRoleClient>, oldId: string, row: DemoApplicantRow) {
@@ -111,15 +118,21 @@ async function persistNormalizedRow(db: ReturnType<typeof createSupabaseServiceR
     row_data: row,
     updated_at: new Date().toISOString(),
   };
-  if (oldId !== row.id) {
-    await db.from("manager_application_records").delete().eq("id", oldId);
-  }
   const incomingDraft = { ...row, withdrawnAt: undefined };
   if (isDraftApplicationRow(incomingDraft)) {
     await persistDraftRow(db, idVariants(row.id), values);
   } else {
     // Submit and every forward move stay authoritative and write unconditionally.
-    await db.from("manager_application_records").upsert(values, { onConflict: "id" });
+    const { error: upsertError } = await db
+      .from("manager_application_records")
+      .upsert(values, { onConflict: "id" });
+    if (upsertError) throw new Error(`Could not persist the application: ${upsertError.message}`);
+  }
+  // Persist the normalized row before deleting an obsolete alias. Reversing
+  // this order can erase the only durable copy if the upsert fails.
+  if (oldId !== row.id) {
+    const { error: deleteError } = await db.from("manager_application_records").delete().eq("id", oldId);
+    if (deleteError) throw new Error(`Could not remove the obsolete application id: ${deleteError.message}`);
   }
   if (row.bucket === "approved") {
     try {
@@ -308,6 +321,22 @@ function anchorServerOwnedSmsConsent(
     ...row,
     application: { ...row.application, smsConsentAt: undefined, smsConsentWordingVersion: undefined },
   };
+}
+
+async function revokeMaterializedApplicationConsentAfterWrite(
+  db: ReturnType<typeof createSupabaseServiceRoleClient>,
+  stored: StoredApplicationRecord | null,
+  nextRow: DemoApplicantRow,
+): Promise<void> {
+  const previousRow = (stored?.row_data ?? null) as DemoApplicantRow | null;
+  if (previousRow?.application?.smsConsent !== true || nextRow.application?.smsConsent !== false) return;
+  const result = await revokeApplicationScopedSmsConsentOnWithdrawal(db, {
+    applicationId: String(stored?.id ?? previousRow.id ?? nextRow.id),
+    managerUserId: String(stored?.manager_user_id ?? previousRow.managerUserId ?? nextRow.managerUserId ?? ""),
+    previousRow,
+    nextRow,
+  });
+  if (!result.ok) throw new Error(result.error);
 }
 
 /**
@@ -660,6 +689,7 @@ export async function POST(req: Request) {
           (stored?.row_data ?? null) as DemoApplicantRow | null,
         );
         await persistNormalizedRow(db, anchored.id, anchored);
+        await revokeMaterializedApplicationConsentAfterWrite(db, stored, anchored);
         if (anchored.bucket === "pending" && anchored.application?.consentCredit) {
           void tryAutoOrderScreening(db, anchored);
         }
@@ -795,11 +825,12 @@ export async function POST(req: Request) {
       const ids = idVariants(row.id);
       const { data: records, error: loadError } = await db
         .from("manager_application_records")
-        .select("id, row_data")
+        .select("id, row_data, manager_user_id")
         .in("id", ids)
         .limit(1);
       if (loadError) return NextResponse.json({ error: loadError.message }, { status: 500 });
-      const existing = records?.[0]?.row_data as DemoApplicantRow | undefined;
+      const existingRecord = records?.[0] as StoredApplicationRecord | undefined;
+      const existing = existingRecord?.row_data as DemoApplicantRow | undefined;
       const guest = await prepareGuestApplicationUpsert(db, {
         row,
         existing: existing ?? null,
@@ -811,6 +842,7 @@ export async function POST(req: Request) {
       row = anchorServerOwnedSmsConsent(guest.row, existing ?? null);
       const previousRow = existing ?? null;
       await persistNormalizedRow(db, row.id, row);
+      await revokeMaterializedApplicationConsentAfterWrite(db, existingRecord ?? null, row);
       if (shouldNotifyManagerOfApplicationSubmit(previousRow, row)) {
         void notifyManagerApplicationSubmitted(db, row).catch(() => undefined);
       }
@@ -937,8 +969,18 @@ export async function POST(req: Request) {
       );
     }
     const priorLoad = await loadStoredApplicationRecord(db, row.id);
+    if (priorLoad.error) {
+      // The previous consent snapshot decides whether an append-only revoke is
+      // required. Persisting smsConsent=false without that evidence could leave
+      // a materialized grant active while falsely acknowledging the opt-out.
+      return NextResponse.json(
+        { error: "Could not load the existing application." },
+        { status: 500 },
+      );
+    }
     const previousRow = (priorLoad.record?.row_data ?? null) as DemoApplicantRow | null;
     await persistNormalizedRow(db, row.id, row);
+    await revokeMaterializedApplicationConsentAfterWrite(db, priorLoad.record, row);
     if (shouldNotifyManagerOfApplicationSubmit(previousRow, row)) {
       void notifyManagerApplicationSubmitted(db, row).catch(() => undefined);
     }

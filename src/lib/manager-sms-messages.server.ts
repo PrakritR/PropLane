@@ -21,7 +21,10 @@ import {
   isPlaceholderManagerWorkNumber,
 } from "@/lib/claw-leasing-links";
 import { normalizeE164 } from "@/lib/twilio";
-import { resolveManagerWorkNumber } from "@/lib/twilio-provisioning";
+import {
+  loadManagerSmsContactMap,
+  managerSmsContactKey,
+} from "@/lib/sms/manager-sms-contacts.server";
 
 export type { ManagerSmsConversationsPayload, ManagerSmsMessageRow, ManagerSmsResidentConversation };
 
@@ -523,12 +526,8 @@ export async function fetchManagerSmsConversations(
     options?.scopeManagerIdsOverride && options.scopeManagerIdsOverride.length > 0
       ? [...new Set(options.scopeManagerIdsOverride.map((id) => id.trim()).filter(Boolean))]
       : await resolveSmsScopeManagerIds(db, managerUserId);
-  const mayProvision = options?.provisionWorkNumber !== false;
-  // Only the VIEWER's own work number may be provisioned on demand, and only
-  // when the caller opted in. The in-scope fallback is a single batched read of
-  // numbers already on file: calling the provisioning-capable resolver once per
-  // scope manager was both O(N) round-trips and a side effect — admin opening
-  // this page could mint Twilio numbers for every manager on the shared line.
+  // Conversation reads are strictly side-effect-free. Work-number setup is an
+  // explicit POST in Settings; opening an inbox must never spend money.
   const readNumbersOnFile = async (ids: string[]): Promise<string | null> => {
     if (ids.length === 0) return null;
     const { data } = await db.from("profiles").select("id, sms_from_number").in("id", ids);
@@ -542,13 +541,9 @@ export async function fetchManagerSmsConversations(
     }
     return null;
   };
-  const ownNumber = mayProvision
-    ? await resolveManagerWorkNumber(db, managerUserId)
-    : // Read-only twin of resolveManagerWorkNumber: the shared agent line is a
-      // constant, and anything else must already be on file.
-      (isClawSharedLineBridgeEnabled()
-        ? clawLeasingAgentPhoneE164()
-        : await readNumbersOnFile([managerUserId]));
+  const ownNumber = isClawSharedLineBridgeEnabled()
+    ? clawLeasingAgentPhoneE164()
+    : await readNumbersOnFile([managerUserId]);
   const workNumber =
     ownNumber || (await readNumbersOnFile(scopeManagerIds.filter((id) => id !== managerUserId)));
 
@@ -780,6 +775,7 @@ export async function fetchManagerSmsConversations(
       residentUserId: resident.residentUserId,
       residentEmail: resident.residentEmail,
       name: resident.name,
+      directoryName: resident.name,
       phone: resident.phone,
       propertyLabel: resident.propertyLabel,
       tenancyStatus: resident.tenancyStatus,
@@ -801,6 +797,7 @@ export async function fetchManagerSmsConversations(
       residentUserId: meta.counterpartyUserId ?? relayInfo?.userId ?? null,
       residentEmail: null,
       name: relayInfo?.name || meta.phoneDisplay || key,
+      directoryName: relayInfo?.name ?? null,
       phone: meta.phoneDisplay || null,
       propertyLabel: null,
       tenancyStatus: meta.role === "resident" ? "resident" : "applicant",
@@ -809,6 +806,43 @@ export async function fetchManagerSmsConversations(
       memberKeys: [key],
       ownerManagerUserId: meta.ownerId,
       messages,
+    });
+  }
+
+  const contactMap = await loadManagerSmsContactMap(db, scopeManagerIds);
+  const representedContactKeys = new Set<string>();
+  for (const conversation of conversations) {
+    const ownerId = String(conversation.ownerManagerUserId ?? managerUserId).trim();
+    const role = conversation.counterpartyRole ?? "unknown";
+    const key = managerSmsContactKey(ownerId, conversation.phone, role);
+    if (key) representedContactKeys.add(key);
+    conversation.savedContactName = key ? contactMap.get(key)?.displayName ?? null : null;
+  }
+
+  // Address-book contacts must remain visible before the first inbound text.
+  // They intentionally carry no messages and no directory identity. Sending
+  // still goes through the normal server-side consent/readiness gate; this row
+  // is only a safe way to find and open the contact from Communication.
+  for (const [contactKey, contact] of contactMap.entries()) {
+    if (representedContactKeys.has(contactKey) || !contact.displayName) continue;
+    const conversationKey = buildConversationKey({
+      ownerManagerUserId: contact.managerUserId,
+      role: contact.counterpartyRole,
+      counterpartyPhone: contact.phoneE164,
+    });
+    conversations.push({
+      residentUserId: null,
+      residentEmail: null,
+      name: contact.displayName,
+      directoryName: null,
+      savedContactName: contact.displayName,
+      phone: contact.phoneE164,
+      propertyLabel: null,
+      counterpartyRole: contact.counterpartyRole,
+      conversationKey,
+      memberKeys: [conversationKey],
+      ownerManagerUserId: contact.managerUserId,
+      messages: [],
     });
   }
 

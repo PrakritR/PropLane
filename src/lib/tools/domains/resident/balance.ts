@@ -22,8 +22,8 @@ export const getMyBalanceTool = defineTool({
   inputSchema: z.object({}).strict(),
   handler: async (ctx: ResidentAgentContext) => {
     const [balance, ledger] = await Promise.all([
-      queryResidentBalance(ctx.db, ctx.userId, ctx.email),
-      queryResidentLedger(ctx.db, ctx.userId, ctx.email, {}),
+      queryResidentBalance(ctx.db, ctx.userId, ctx.email, ctx.activeManagerId),
+      queryResidentLedger(ctx.db, ctx.userId, ctx.email, {}, ctx.activeManagerId),
     ]);
     return {
       summary: balance.rows,

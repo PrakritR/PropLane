@@ -1,7 +1,6 @@
 import { NextResponse } from "next/server";
 import { isAdminUser } from "@/lib/auth/admin-preview";
 import {
-  activatePendingManagerNumbers,
   setManagerRegistrationState,
 } from "@/lib/sms/manager-number-provisioning.server";
 import { normalizeRegistrationState } from "@/lib/sms/number-registration-policy";
@@ -43,12 +42,14 @@ export async function POST(req: Request) {
     const db = createSupabaseServiceRoleClient();
     await setManagerRegistrationState(db, managerUserId, state, "ref" in body ? { ref: body.ref } : undefined);
 
-    let sweep = null;
     if (body.provision) {
-      sweep = await activatePendingManagerNumbers(db, { managerUserIds: [managerUserId], limit: 1 });
+      return NextResponse.json(
+        { error: "Number purchases must be requested by the owner in Settings → Messaging." },
+        { status: 409 },
+      );
     }
 
-    return NextResponse.json({ ok: true, managerUserId, registrationState: state, sweep });
+    return NextResponse.json({ ok: true, managerUserId, registrationState: state, sweep: null });
   } catch (e) {
     const message = e instanceof Error ? e.message : "Failed to update registration state.";
     return NextResponse.json({ error: message }, { status: 500 });

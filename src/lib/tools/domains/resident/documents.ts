@@ -19,13 +19,13 @@ export const listMySharedDocumentsTool = defineTool({
       ["resident_user_id", ctx.userId],
       ["resident_email", ctx.email],
     ] as const) {
-      const { data, error } = await ctx.db
+      let query = ctx.db
         .from("manager_documents")
         .select("id, display_name, category, created_at, deleted_at, visibility")
         .eq("visibility", "resident")
-        .eq(column, value)
-        .order("id", { ascending: true })
-        .range(0, PAGE_SIZE - 1);
+        .eq(column, value);
+      if (ctx.activeManagerId) query = query.eq("manager_user_id", ctx.activeManagerId);
+      const { data, error } = await query.order("id", { ascending: true }).range(0, PAGE_SIZE - 1);
       if (error) throw new Error(error.message);
       for (const row of (data ?? []) as Record<string, unknown>[]) {
         if (row.deleted_at) continue;

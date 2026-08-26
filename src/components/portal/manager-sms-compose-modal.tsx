@@ -1,20 +1,23 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/input";
 import { Modal, ModalFooter } from "@/components/ui/modal";
-import { CheckboxMultiSelect, type CheckboxMultiSelectGroup } from "@/components/ui/checkbox-multi-select";
-import { RecipientChipsInput } from "@/components/ui/recipient-chips-input";
+import {
+  CheckboxMultiSelect,
+  type CheckboxMultiSelectGroup,
+} from "@/components/ui/checkbox-multi-select";
 import { useAppUi } from "@/components/providers/app-ui-provider";
 import type { ManagerSmsResidentConversation } from "@/lib/manager-sms-messages";
 import {
-  parseOtherRecipientTokens,
-  type OtherRecipientToken,
-} from "@/lib/communication-other-recipients";
+  MANUAL_SMS_NETWORK_UNKNOWN_MESSAGE,
+  MANUAL_SMS_UNKNOWN_MESSAGE,
+  resolveManualSmsAttempt,
+  type ManualSmsAttempt,
+} from "@/lib/sms/manual-send-attempt";
 
-type SmsComposeSection = "resident" | "applicant" | "other";
-type SmsDirectorySection = Exclude<SmsComposeSection, "other">;
+type SmsComposeSection = "resident" | "applicant";
 
 function formatPhoneDisplay(phone: string | null): string {
   if (!phone?.trim()) return "—";
@@ -38,7 +41,6 @@ function smsContactOptionLabel(r: ManagerSmsResidentConversation): string {
 
 function sectionLabel(section: SmsComposeSection): string {
   if (section === "applicant") return "Applicants";
-  if (section === "other") return "Other";
   return "Residents";
 }
 
@@ -63,17 +65,16 @@ export function ManagerSmsComposeModal({
     [residents],
   );
 
-  const [selectedSections, setSelectedSections] = useState<SmsComposeSection[]>([]);
+  const [selectedSections, setSelectedSections] = useState<SmsComposeSection[]>(
+    [],
+  );
   const [selectedPeople, setSelectedPeople] = useState<string[]>([]);
-  const [otherTokens, setOtherTokens] = useState<OtherRecipientToken[]>([]);
   const [body, setBody] = useState("");
   const [sending, setSending] = useState(false);
+  const [sendIssue, setSendIssue] = useState<string | null>(null);
+  const attemptRef = useRef<ManualSmsAttempt | null>(null);
 
-  const otherSelected = selectedSections.includes("other");
-  const directorySections = useMemo(
-    () => selectedSections.filter((s): s is SmsDirectorySection => s !== "other"),
-    [selectedSections],
-  );
+  const directorySections = selectedSections;
 
   const sectionOptions = useMemo(() => {
     const allSections: { value: SmsComposeSection; label: string }[] = [
@@ -82,11 +83,12 @@ export function ManagerSmsComposeModal({
     ];
     const base = allSections.filter((opt) =>
       withPhone.some((r) =>
-        opt.value === "applicant" ? r.tenancyStatus === "applicant" : r.tenancyStatus !== "applicant",
+        opt.value === "applicant"
+          ? r.tenancyStatus === "applicant"
+          : r.tenancyStatus !== "applicant",
       ),
     );
-    // Other always available, last in the list.
-    return [...base, { value: "other" as const, label: "Other" }];
+    return base;
   }, [withPhone]);
 
   const personGroups = useMemo((): CheckboxMultiSelectGroup[] => {
@@ -94,9 +96,13 @@ export function ManagerSmsComposeModal({
       .map((section) => {
         const options = withPhone
           .filter((r) =>
-            section === "applicant" ? r.tenancyStatus === "applicant" : r.tenancyStatus !== "applicant",
+            section === "applicant"
+              ? r.tenancyStatus === "applicant"
+              : r.tenancyStatus !== "applicant",
           )
-          .sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: "base" }))
+          .sort((a, b) =>
+            a.name.localeCompare(b.name, undefined, { sensitivity: "base" }),
+          )
           .map((r) => ({
             value: personKey(r),
             label: smsContactOptionLabel(r),
@@ -106,8 +112,14 @@ export function ManagerSmsComposeModal({
       .filter((g) => g.options.length > 0);
   }, [directorySections, withPhone]);
 
-  const flatPersonOptions = useMemo(() => personGroups.flatMap((g) => g.options), [personGroups]);
-  const validPersonKeys = useMemo(() => new Set(flatPersonOptions.map((o) => o.value)), [flatPersonOptions]);
+  const flatPersonOptions = useMemo(
+    () => personGroups.flatMap((g) => g.options),
+    [personGroups],
+  );
+  const validPersonKeys = useMemo(
+    () => new Set(flatPersonOptions.map((o) => o.value)),
+    [flatPersonOptions],
+  );
 
   const selectedRecipients = useMemo(
     () => withPhone.filter((r) => selectedPeople.includes(personKey(r))),
@@ -119,8 +131,9 @@ export function ManagerSmsComposeModal({
     queueMicrotask(() => {
       setSelectedSections([]);
       setSelectedPeople([]);
-      setOtherTokens([]);
       setBody("");
+      setSendIssue(null);
+      attemptRef.current = null;
     });
   }, [open]);
 
@@ -128,18 +141,9 @@ export function ManagerSmsComposeModal({
     setSelectedPeople((prev) => prev.filter((key) => validPersonKeys.has(key)));
   }, [validPersonKeys]);
 
-  useEffect(() => {
-    if (!otherSelected) setOtherTokens([]);
-  }, [otherSelected]);
-
   async function send() {
-    const otherPhones = otherSelected ? parseOtherRecipientTokens(otherTokens).phones : [];
     if (selectedSections.length === 0) {
-      showToast("Select Residents, Applicants, and/or Other.");
-      return;
-    }
-    if (otherSelected && otherPhones.length === 0) {
-      showToast("Type a phone number under Other.");
+      showToast("Select Residents and/or Applicants.");
       return;
     }
     if (directorySections.length > 0 && selectedRecipients.length === 0) {
@@ -152,52 +156,95 @@ export function ManagerSmsComposeModal({
       return;
     }
     setSending(true);
+    setSendIssue(null);
     try {
       let ok = 0;
+      let queued = 0;
       let lastError = "Could not send SMS.";
       const targets: { phone: string; residentUserId?: string | null }[] = [];
       const seen = new Set<string>();
       for (const recipient of selectedRecipients) {
         if (!recipient.phone || seen.has(recipient.phone)) continue;
         seen.add(recipient.phone);
-        targets.push({ phone: recipient.phone, residentUserId: recipient.residentUserId });
-      }
-      for (const phone of otherPhones) {
-        if (seen.has(phone)) continue;
-        seen.add(phone);
-        targets.push({ phone, residentUserId: null });
+        targets.push({
+          phone: recipient.phone,
+          residentUserId: recipient.residentUserId,
+        });
       }
       if (targets.length === 0) {
         showToast("Add at least one phone number.");
         return;
       }
-      for (const recipient of targets) {
+      const attemptSignature = JSON.stringify([
+        text,
+        ...targets.map((recipient) => [
+          recipient.phone,
+          recipient.residentUserId ?? null,
+        ]),
+      ]);
+      const attempt = resolveManualSmsAttempt(
+        attemptRef.current,
+        attemptSignature,
+        targets.length,
+      );
+      attemptRef.current = attempt;
+      let ambiguousOutcome = false;
+      for (const [index, recipient] of targets.entries()) {
         const res = await fetch(endpoint, {
           method: "POST",
           credentials: "include",
-          headers: { "Content-Type": "application/json" },
+          headers: {
+            "Content-Type": "application/json",
+            "Idempotency-Key": attempt.idempotencyKeys[index]!,
+          },
           body: JSON.stringify({
             toPhone: recipient.phone,
             text,
             residentUserId: recipient.residentUserId ?? undefined,
           }),
         });
-        const data = (await res.json().catch(() => ({}))) as { error?: string };
+        const data = (await res.json().catch(() => ({}))) as {
+          code?: string;
+          error?: string;
+          status?: string;
+        };
         if (!res.ok) {
           lastError = data.error ?? lastError;
+          if (
+            data.code === "delivery_outcome_unknown" ||
+            data.status === "unknown"
+          ) {
+            ambiguousOutcome = true;
+          }
           continue;
         }
         ok += 1;
+        if (data.status !== "submitted") queued += 1;
+      }
+      if (ambiguousOutcome) {
+        setSendIssue(MANUAL_SMS_UNKNOWN_MESSAGE);
+        return;
       }
       if (ok === 0) {
+        // A definitive pre-submit failure is safe to retry as a new attempt.
+        // Unknown/network outcomes intentionally retain the original keys.
+        attemptRef.current = null;
         showToast(lastError);
         return;
       }
-      showToast(ok === 1 ? "SMS sent." : `SMS sent to ${ok} people.`);
+      showToast(
+        queued > 0
+          ? queued === 1
+            ? "SMS queued."
+            : `${queued} SMS messages queued.`
+          : ok === 1
+            ? "SMS sent."
+            : `SMS sent to ${ok} people.`,
+      );
       onClose();
       onSent?.();
     } catch {
-      showToast("Could not send SMS.");
+      setSendIssue(MANUAL_SMS_NETWORK_UNKNOWN_MESSAGE);
     } finally {
       setSending(false);
     }
@@ -214,24 +261,25 @@ export function ManagerSmsComposeModal({
             type="button"
             variant="primary"
             className="rounded-full"
-            disabled={sending || !body.trim()}
+            disabled={sending || !body.trim() || Boolean(sendIssue)}
+            aria-busy={sending}
             data-attr="manager-sms-compose-send"
             onClick={() => send()}
           >
             {sending
               ? "Sending…"
-              : selectedPeople.length + (otherSelected ? otherTokens.length : 0) > 1
-                ? `Send SMS (${selectedPeople.length + (otherSelected ? otherTokens.length : 0)})`
+              : selectedPeople.length > 1
+                ? `Send SMS (${selectedPeople.length})`
                 : "Send SMS"}
           </Button>
         </ModalFooter>
       }
     >
       <div className="space-y-3">
-        {withPhone.length === 0 && !otherSelected ? (
+        {withPhone.length === 0 ? (
           <p className="text-sm text-muted">
-            No residents or applicants with a phone number yet. Choose Other in To to type a number, or add a phone on
-            their profile.
+            No residents or applicants with a phone number yet. Add a verified
+            phone to their profile first.
           </p>
         ) : null}
         <div className="grid gap-3 sm:grid-cols-2">
@@ -243,7 +291,7 @@ export function ManagerSmsComposeModal({
               setSelectedSections(
                 next.filter(
                   (v): v is SmsComposeSection =>
-                    v === "resident" || v === "applicant" || v === "other",
+                    v === "resident" || v === "applicant",
                 ),
               )
             }
@@ -259,31 +307,12 @@ export function ManagerSmsComposeModal({
               selectedSections.length === 0
                 ? "Pick a section first"
                 : directorySections.length === 0
-                  ? "Other uses the field below"
+                  ? "Pick Residents or Applicants first"
                   : "No people with phones in selected sections"
             }
             dataAttr="manager-sms-compose-person"
           />
         </div>
-
-        {otherSelected ? (
-          <div>
-            <label
-              className="text-[11px] font-bold uppercase tracking-[0.12em] text-muted"
-              htmlFor="manager-sms-compose-other"
-            >
-              Other
-            </label>
-            <RecipientChipsInput
-              id="manager-sms-compose-other"
-              tokens={otherTokens}
-              onChange={setOtherTokens}
-              placeholder="Type a phone, then press Space…"
-              dataAttr="manager-sms-compose-other"
-            />
-            <p className="mt-1 text-xs text-muted">Press Space, comma, or Enter to save each number as a chip.</p>
-          </div>
-        ) : null}
 
         <div>
           <label
@@ -302,8 +331,15 @@ export function ManagerSmsComposeModal({
             maxLength={1600}
             data-attr="manager-sms-compose-body"
           />
-          <span className="mt-1 block text-xs text-muted">{body.trim().length}/1600</span>
+          <span className="mt-1 block text-xs text-muted">
+            {body.trim().length}/1600
+          </span>
         </div>
+        {sendIssue ? (
+          <p className="text-sm leading-relaxed text-danger" role="alert">
+            {sendIssue}
+          </p>
+        ) : null}
       </div>
     </Modal>
   );

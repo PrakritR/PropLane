@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ComponentType, type ReactNode } from "react";
 import { usePathname, useSearchParams } from "next/navigation";
-import { Lock, MessageSquareText, Settings2, SlidersHorizontal, UserRound } from "lucide-react";
+import { Lock, MessageSquareText, Settings2, SlidersHorizontal, Smartphone, UserRound } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ThemeToggle } from "@/components/layout/theme-toggle";
@@ -11,6 +11,7 @@ import { PortalChangePasswordPanel } from "@/components/portal/portal-change-pas
 import { PortalBugFeedbackPanel } from "@/components/portal/portal-bug-feedback-panel";
 import { PortalDetailHeader } from "@/components/portal/portal-list-detail-shell";
 import { PortalSettingsExtras } from "@/components/portal/portal-settings-extras";
+import { PortalTextNotificationsBlock } from "@/components/portal/portal-text-notifications-block";
 import {
   PortalSettingsField,
   PortalSettingsFormBody,
@@ -36,7 +37,7 @@ import { isDemoModeActive } from "@/lib/demo/demo-session";
 
 const SETTINGS_TAB_PARAM = "tab";
 
-type SettingsGroupId = "profile" | "preferences" | "security" | "feedback" | "account";
+type SettingsGroupId = "profile" | "messaging" | "preferences" | "security" | "feedback" | "account";
 
 type SettingsGroup = {
   id: SettingsGroupId;
@@ -278,6 +279,12 @@ export function ResidentProfilePanel() {
         icon: UserRound,
       },
       {
+        id: "messaging",
+        label: "Messaging",
+        description: "Verify your phone for resident texts and the SMS assistant.",
+        icon: Smartphone,
+      },
+      {
         id: "preferences",
         label: "Preferences",
         description: "Appearance, assistant, and device options.",
@@ -367,6 +374,14 @@ export function ResidentProfilePanel() {
     switch (id) {
       case "profile":
         return personalInfoSection;
+      case "messaging":
+        return (
+          <PortalTextNotificationsBlock
+            dataAttrPrefix="resident"
+            demo={demo}
+            description="Verify your mobile number to receive property updates and securely use the resident text assistant."
+          />
+        );
       case "preferences":
         return (
           <>

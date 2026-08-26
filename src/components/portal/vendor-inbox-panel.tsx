@@ -36,9 +36,14 @@ import {
   upsertPersistedInboxRows,
   VENDOR_INBOX_STORAGE_KEY,
   inboxThreadSortMs,
+  formatInboxStamp,
   type InboxThreadMessage,
   type PersistedInboxThread,
 } from "@/lib/portal-inbox-storage";
+import {
+  InboxSendRefusal,
+  inboxReplySentToastMessage,
+} from "@/lib/inbox-reply-outcome";
 
 type InboxThread = PersistedInboxThread;
 
@@ -119,6 +124,10 @@ export const VendorInboxPanel = forwardRef<
   const [local, setLocal] = useState<InboxThread[]>(
     () => loadPersistedInbox(VENDOR_INBOX_STORAGE_KEY, VENDOR_INBOX_FALLBACK) as InboxThread[],
   );
+  const localRef = useRef(local);
+  useEffect(() => {
+    localRef.current = local;
+  }, [local]);
   const [persistReady, setPersistReady] = useState(false);
   const persistInboxRef = useRef(true);
   const [internalExpandedId, setInternalExpandedId] = useState<string | null>(null);
@@ -475,6 +484,7 @@ export const VendorInboxPanel = forwardRef<
               text: p.body.trim(),
               deliverToPortalInbox: true,
               eventCategory: "messages",
+              senderPortal: "vendor",
             }),
           });
           const data = (await res.json().catch(() => ({}))) as { ok?: boolean };
@@ -508,91 +518,163 @@ export const VendorInboxPanel = forwardRef<
       channels: { email: boolean; sms: boolean } = { email: true, sms: false },
       attachmentUrls: string[] = [],
     ) => {
-      const thread = local.find((t) => t.id === row.id);
+      const thread = localRef.current.find((t) => t.id === row.id);
       if (!thread) return;
-      if (!channels.email && !channels.sms) throw new Error("no channel");
+      if (!channels.email && !channels.sms) throw new InboxSendRefusal(null);
       const replyId = `reply-${Date.now().toString(36)}`;
       const attachmentMeta = attachmentMetaFromUrls(attachmentUrls);
       const reply: InboxThreadMessage = {
         id: replyId,
         from: vendorIdentity.name,
         body: text,
-        at: new Date().toLocaleString(),
+        at: formatInboxStamp(new Date()),
         outbound: true,
         delivery: "sending",
         attachments: attachmentMeta.length ? attachmentMeta : undefined,
       };
-      const updated = appendReplyToInboxThread(thread, reply);
-      const next = local.map((t) => (t.id === thread.id ? updated : t));
       persistInboxRef.current = false;
-      setLocal(next);
-      const ok = await upsertPersistedInboxRows(VENDOR_INBOX_STORAGE_KEY, [updated], next);
-      persistInboxRef.current = true;
-      if (!ok) {
-        setLocal(local);
-        throw new Error("persist failed");
-      }
+      setLocal((current) =>
+        current.map((item) =>
+          item.id === thread.id
+            ? appendReplyToInboxThread(item, reply)
+            : item,
+        ),
+      );
+      const rollbackReply = () => {
+        setLocal((current) =>
+          current.map((item) => {
+            if (item.id !== thread.id) return item;
+            const messages = (item.messages ?? []).filter(
+              (message) => message.id !== replyId,
+            );
+            if (messages.length === (thread.messages ?? []).length) {
+              return {
+                ...item,
+                messages,
+                preview: thread.preview,
+                time: thread.time,
+                unread: thread.unread,
+              };
+            }
+            const last = messages[messages.length - 1];
+            return {
+              ...item,
+              messages,
+              preview: last
+                ? last.body.slice(0, 100).replace(/\n/g, " ")
+                : thread.preview,
+              time: last?.at ?? thread.time,
+            };
+          }),
+        );
+      };
       const subject = thread.subject.startsWith("Re:") ? thread.subject : `Re: ${thread.subject}`;
-      let emailOk = !channels.email;
-      let smsOk = !channels.sms;
-      if (channels.email) {
-        const res = await fetch("/api/portal/send-inbox-message", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          credentials: "include",
-          body: JSON.stringify({
-            fromName: vendorIdentity.name,
-            fromEmail: vendorIdentity.email,
-            threadId: thread.id,
-            subject,
-            text,
-            toEmails: [thread.email],
-            deliverToPortalInbox: true,
-            deliverViaEmail: true,
-            deliverViaSms: false,
-            attachmentUrls: attachmentUrls.length ? attachmentUrls : undefined,
-          }),
-        });
-        const data = (await res.json().catch(() => ({}))) as { ok?: boolean };
-        emailOk = res.ok && data.ok === true;
-        if (!emailOk) {
-          const failed = markThreadMessageDelivery(updated, replyId, "failed");
-          setLocal((cur) => cur.map((t) => (t.id === thread.id ? failed : t)));
-          throw new Error("send failed");
+      let emailOk = false;
+      let smsOk = false;
+      let failureMessage = "";
+      try {
+        if (channels.email) {
+          try {
+            const res = await fetch("/api/portal/send-inbox-message", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              credentials: "include",
+              body: JSON.stringify({
+                fromName: vendorIdentity.name,
+                fromEmail: vendorIdentity.email,
+                threadId: thread.id,
+                subject,
+                text,
+                toEmails: [thread.email],
+                deliverToPortalInbox: true,
+                deliverViaEmail: true,
+                deliverViaSms: false,
+                senderPortal: "vendor",
+                attachmentUrls: attachmentUrls.length ? attachmentUrls : undefined,
+              }),
+            });
+            const data = (await res.json().catch(() => ({}))) as {
+              ok?: boolean;
+              error?: string;
+            };
+            emailOk = res.ok && data.ok === true;
+            if (!emailOk) failureMessage = data.error?.trim() ?? "";
+          } catch {
+            failureMessage = "";
+          }
         }
-      }
-      if (channels.sms && activeSmsAvailable) {
-        const res = await fetch("/api/portal/send-inbox-message", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          credentials: "include",
-          body: JSON.stringify({
-            fromName: vendorIdentity.name,
-            fromEmail: vendorIdentity.email,
-            threadId: thread.id,
-            subject,
-            text,
-            toEmails: [thread.email],
-            deliverToPortalInbox: false,
-            deliverViaEmail: false,
-            deliverViaSms: true,
-            attachmentUrls: attachmentUrls.length ? attachmentUrls : undefined,
-          }),
-        });
-        const data = (await res.json().catch(() => ({}))) as { ok?: boolean };
-        smsOk = res.ok && data.ok === true;
-        if (!smsOk && !channels.email) {
-          const failed = markThreadMessageDelivery(updated, replyId, "failed");
-          setLocal((cur) => cur.map((t) => (t.id === thread.id ? failed : t)));
-          throw new Error("send failed");
+        if (channels.sms) {
+          if (!activeSmsAvailable) {
+            failureMessage ||= "Text messaging is not available right now.";
+          } else {
+            try {
+              const res = await fetch("/api/portal/send-inbox-message", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                credentials: "include",
+                body: JSON.stringify({
+                  fromName: vendorIdentity.name,
+                  fromEmail: vendorIdentity.email,
+                  threadId: thread.id,
+                  subject,
+                  text,
+                  toEmails: [thread.email],
+                  deliverToPortalInbox: false,
+                  deliverViaEmail: false,
+                  deliverViaSms: true,
+                  senderPortal: "vendor",
+                  attachmentUrls: attachmentUrls.length ? attachmentUrls : undefined,
+                }),
+              });
+              const data = (await res.json().catch(() => ({}))) as {
+                ok?: boolean;
+                error?: string;
+              };
+              smsOk = res.ok && data.ok === true;
+              if (!smsOk) failureMessage = data.error?.trim() || failureMessage;
+            } catch {
+              // Preserve any explicit refusal from the other channel.
+            }
+          }
         }
+        if (!emailOk && !smsOk) {
+          rollbackReply();
+          throw new InboxSendRefusal(failureMessage || null);
+        }
+
+        const currentRows = localRef.current;
+        const currentThread = currentRows.find((item) => item.id === thread.id);
+        if (currentThread) {
+          const withReply = (currentThread.messages ?? []).some(
+            (message) => message.id === replyId,
+          )
+            ? currentThread
+            : appendReplyToInboxThread(currentThread, reply);
+          const delivered = markThreadMessageDelivery(withReply, replyId, undefined);
+          const persisted = currentRows.map((item) =>
+            item.id === thread.id ? delivered : item,
+          );
+          setLocal(persisted);
+          await upsertPersistedInboxRows(
+            VENDOR_INBOX_STORAGE_KEY,
+            [delivered],
+            persisted,
+          ).catch(() => false);
+        }
+      } finally {
+        persistInboxRef.current = true;
       }
-      if (!emailOk && !smsOk) throw new Error("send failed");
-      const delivered = markThreadMessageDelivery(updated, replyId, undefined);
-      setLocal((cur) => cur.map((t) => (t.id === thread.id ? delivered : t)));
-      void syncPersistedInboxFromServer(VENDOR_INBOX_STORAGE_KEY, { force: true });
+      void syncPersistedInboxFromServer(VENDOR_INBOX_STORAGE_KEY, {
+        force: true,
+      }).catch(() => {});
+      return {
+        emailRequested: channels.email,
+        smsRequested: channels.sms,
+        emailOk,
+        smsOk,
+      };
     },
-    [activeSmsAvailable, local, vendorIdentity],
+    [activeSmsAvailable, vendorIdentity],
   );
 
   const renderExtraActions = useCallback(
@@ -754,7 +836,7 @@ export const VendorInboxPanel = forwardRef<
     }
     setReplySending(true);
     try {
-      await handleReply(
+      const outcome = await handleReply(
         {
           id: activeThread.id,
           name: activeThread.from,
@@ -767,11 +849,16 @@ export const VendorInboxPanel = forwardRef<
         { email: viaEmail, sms: viaSms },
         attachmentUrls,
       );
+      if (!outcome) return;
       setReplyDraft("");
       setReplyAttachments([]);
-      showToast("Reply sent.");
-    } catch {
-      showToast("Could not send reply.");
+      showToast(inboxReplySentToastMessage(outcome));
+    } catch (error) {
+      showToast(
+        error instanceof InboxSendRefusal
+          ? (error.reason ?? "Could not send reply.")
+          : "Could not send reply.",
+      );
     } finally {
       setReplySending(false);
     }
@@ -910,7 +997,26 @@ export const VendorInboxPanel = forwardRef<
               const thread = local.find((t) => t.id === row.id);
               return thread ? inboxThreadMessages(thread) : [];
             }}
-            onReply={tabId === "trash" ? undefined : (row, text) => handleReply(row, text, { email: true, sms: false })}
+            onReply={
+              tabId === "trash"
+                ? undefined
+                : async (row, text) => {
+                    try {
+                      const outcome = await handleReply(row, text, {
+                        email: true,
+                        sms: false,
+                      });
+                      if (outcome)
+                        showToast(inboxReplySentToastMessage(outcome));
+                    } catch (error) {
+                      showToast(
+                        error instanceof InboxSendRefusal
+                          ? (error.reason ?? "Could not send reply.")
+                          : "Could not send reply.",
+                      );
+                    }
+                  }
+            }
             expandedId={expandedId}
             onToggleExpand={(id) => setExpandedId((cur) => (cur === id ? null : id))}
             renderExtraActions={renderExtraActions}

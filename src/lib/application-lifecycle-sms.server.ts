@@ -111,6 +111,7 @@ export async function notifyApplicantApplicationSms(
     text,
     fromNumber: input.fromNumber,
     linkKind: null,
+    sendClass: "transactional",
     openThread: managerUserId
       ? {
           managerUserId,

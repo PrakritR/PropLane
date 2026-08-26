@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState, type ReactNode, type RefObject } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from "react";
 import { Button } from "@/components/ui/button";
 import { ManagerInbox, type ManagerInboxHandle } from "@/components/portal/manager-inbox";
 import {
@@ -38,6 +38,12 @@ import {
   normalizeManagerSmsConversationsPayload,
   type ManagerSmsResidentConversation,
 } from "@/lib/manager-sms-messages";
+import {
+  isManualSmsOutcomeUnknown,
+  MANUAL_SMS_UNKNOWN_MESSAGE,
+  resolveManualSmsAttempt,
+  type ManualSmsAttempt,
+} from "@/lib/sms/manual-send-attempt";
 import {
   INBOX_MAX_ATTACHMENTS,
   createPendingInboxAttachment,
@@ -94,6 +100,7 @@ export function ResidentDirectChatPane({
 }) {
   const { showToast } = useAppUi();
   const [draft, setDraft] = useState("");
+  const smsAttemptRef = useRef<ManualSmsAttempt | null>(null);
   const [replyAttachments, setReplyAttachments] = useState<InboxComposerAttachment[]>([]);
   const [sending, setSending] = useState(false);
   const [inboxTick, setInboxTick] = useState(0);
@@ -311,6 +318,7 @@ export function ResidentDirectChatPane({
     try {
       let smsOk = !replyViaSms;
       let emailOk = !replyViaEmail;
+      let smsOutcomeUnknown = false;
 
       if (replyViaSms) {
         const phone = smsResident?.phone?.trim();
@@ -318,22 +326,48 @@ export function ResidentDirectChatPane({
           showToast("No phone on file for this resident.");
           return;
         }
-        const res = await fetch("/api/manager/sms-conversations", {
-          method: "POST",
-          credentials: "include",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            toPhone: phone,
-            text: text || "(attachment)",
-            residentUserId: smsResident?.residentUserId ?? null,
-            conversationKey: smsResident?.conversationKey ?? null,
-          }),
-        });
-        const body = (await res.json().catch(() => ({}))) as { error?: string };
-        smsOk = res.ok;
-        if (!smsOk && !replyViaEmail) {
-          showToast(body.error ?? "Could not send SMS.");
-          return;
+        const smsText = text || "(attachment)";
+        const attempt = resolveManualSmsAttempt(
+          smsAttemptRef.current,
+          JSON.stringify([
+            phone,
+            smsText,
+            smsResident?.residentUserId ?? null,
+            smsResident?.conversationKey ?? null,
+          ]),
+          1,
+        );
+        smsAttemptRef.current = attempt;
+        try {
+          const res = await fetch("/api/manager/sms-conversations", {
+            method: "POST",
+            credentials: "include",
+            headers: {
+              "Content-Type": "application/json",
+              "Idempotency-Key": attempt.idempotencyKeys[0]!,
+            },
+            body: JSON.stringify({
+              toPhone: phone,
+              text: smsText,
+              residentUserId: smsResident?.residentUserId ?? null,
+              conversationKey: smsResident?.conversationKey ?? null,
+            }),
+          });
+          const body = (await res.json().catch(() => ({}))) as {
+            code?: string;
+            error?: string;
+            status?: string;
+          };
+          smsOutcomeUnknown = isManualSmsOutcomeUnknown(body);
+          smsOk = res.ok && !smsOutcomeUnknown;
+          if (!smsOutcomeUnknown) smsAttemptRef.current = null;
+          if (!smsOk && !replyViaEmail && !smsOutcomeUnknown) {
+            showToast(body.error ?? "Could not send SMS.");
+            return;
+          }
+        } catch {
+          smsOutcomeUnknown = true;
+          smsOk = false;
         }
       }
 
@@ -349,6 +383,7 @@ export function ResidentDirectChatPane({
             text,
             deliverToPortalInbox: true,
             eventCategory: "messages",
+            senderPortal: "manager",
             attachmentUrls: attachmentUrls.length ? attachmentUrls : undefined,
           }),
         });
@@ -358,6 +393,15 @@ export function ResidentDirectChatPane({
           showToast(data.error ?? "Could not send email.");
           return;
         }
+      }
+
+      if (smsOutcomeUnknown) {
+        showToast(
+          replyViaEmail && emailOk
+            ? `Email sent. ${MANUAL_SMS_UNKNOWN_MESSAGE}`
+            : MANUAL_SMS_UNKNOWN_MESSAGE,
+        );
+        return;
       }
 
       setDraft("");

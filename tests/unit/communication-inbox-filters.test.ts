@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { filterEmailInboxThreads, isPhoneLikeContact, isSmsLikeInboxThread } from "@/lib/communication-inbox-filters";
+import { threadPassesCommunicationFilters } from "@/lib/communication-thread-filters";
 import type { PersistedInboxThread } from "@/lib/portal-inbox-storage";
 
 function thread(partial: Partial<PersistedInboxThread> & Pick<PersistedInboxThread, "id" | "from">): PersistedInboxThread {
@@ -43,5 +44,16 @@ describe("communication-inbox-filters", () => {
       "email-1",
       "sms-notice",
     ]);
+  });
+
+  it("uses an SMS conversation's role instead of assuming every SMS row is a resident", () => {
+    const filters = { propertyIds: [], roles: ["resident"] as const, contactIds: [] };
+    const args = { filters, contacts: [], isResidentThread: true };
+
+    expect(threadPassesCommunicationFilters({ ...args, counterpartyRole: "prospect" })).toBe(false);
+    expect(threadPassesCommunicationFilters({ ...args, counterpartyRole: "unknown" })).toBe(false);
+    expect(threadPassesCommunicationFilters({ ...args, counterpartyRole: "vendor" })).toBe(false);
+    expect(threadPassesCommunicationFilters({ ...args, counterpartyRole: "applicant" })).toBe(true);
+    expect(threadPassesCommunicationFilters({ ...args, counterpartyRole: "resident" })).toBe(true);
   });
 });

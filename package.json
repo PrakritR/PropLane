@@ -68,6 +68,7 @@
     "claw:assign-numbers": "node --env-file=.env.local scripts/assign-claw-leasing-numbers.mjs",
     "admin:backfill-work-numbers": "npx tsx --env-file=.env.local scripts/backfill-manager-work-numbers.ts",
     "setup:twilio-vercel": "node --env-file=.env.local scripts/sync-twilio-vercel-env.mjs",
+    "sms:cutover:check": "node scripts/check-sms-cutover-readiness.mjs",
     "setup:claw-manager-numbers": "node --env-file=.env.local scripts/stamp-claw-manager-numbers.mjs",
     "langfuse:setup": "node scripts/langfuse-setup-improvement-loop.mjs",
     "langfuse:sync-eval-dataset": "node scripts/langfuse-sync-eval-dataset.mjs",
