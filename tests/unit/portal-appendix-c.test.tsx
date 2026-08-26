@@ -19,6 +19,7 @@ import {
   propertyDetailHref,
   residentDetailHref,
   calendarViewHref,
+  bookingsHref,
   teamLinkHref,
   applicationDetailHref,
   applicationListHref,
@@ -73,8 +74,9 @@ describe("portal-detail-routes", () => {
     expect(residentDetailHref("/portal", "current", "res-1", "lease")).toBe(
       "/portal/residents/current/res-1/lease",
     );
-    expect(calendarViewHref("/portal", "availability")).toBe("/portal/calendar/availability");
-    expect(calendarViewHref("/portal", "bookings")).toBe("/portal/calendar/bookings");
+    expect(calendarViewHref("/portal", "availability")).toBe("/portal/calendar");
+    expect(calendarViewHref("/portal", "bookings")).toBe("/portal/bookings");
+    expect(bookingsHref("/portal")).toBe("/portal/bookings");
     expect(teamLinkHref("/portal", "linked")).toBe("/portal/relationships");
   });
 

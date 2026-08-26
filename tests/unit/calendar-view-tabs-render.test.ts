@@ -1,7 +1,6 @@
 /**
- * Every routed calendar tab must render a view of its own.
- *
- * Tours and service orders moved to `/portal/tours`; calendar is availability + bookings only.
+ * Portfolio calendar is schedule-only; Bookings is a separate sidebar section.
+ * Tours and service orders live at `/portal/tours`.
  */
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -19,18 +18,18 @@ import {
 
 const read = (p: string) => readFileSync(join(process.cwd(), p), "utf8");
 
-describe("portfolio calendar tabs", () => {
-  it("offers availability and bookings", () => {
+describe("portfolio calendar and bookings nav", () => {
+  it("still parses availability and bookings view ids for PortalCalendar", () => {
     expect([...CALENDAR_VIEW_TABS]).toEqual(["availability", "bookings"]);
   });
 
-  it("every tab has a label", () => {
+  it("every view id has a label", () => {
     for (const tab of CALENDAR_VIEW_TABS) {
       expect(CALENDAR_VIEW_TAB_LABELS[tab]?.trim()).toBeTruthy();
     }
   });
 
-  it("every tab round-trips through the parser", () => {
+  it("every view id round-trips through the parser", () => {
     for (const tab of CALENDAR_VIEW_TABS) {
       expect(parseCalendarViewTab(tab)).toBe(tab);
     }
@@ -42,11 +41,16 @@ describe("portfolio calendar tabs", () => {
     }
   });
 
-  it("each non-default tab has its own render branch", () => {
+  it("calendar page has no Schedule/Bookings tab strip; bookings is a dedicated page", () => {
     const src = read("src/components/portal/portal-calendar.tsx");
     expect(src).toContain('const bookingsView = !schedulingHub && calendarView === "bookings"');
-    expect(src).toContain('calendarView === "availability"');
-    expect(src).toContain("schedulingHub");
+    expect(src).toContain("bookingsPage");
+    expect(src).not.toContain('label: "Schedule"');
+    expect(src).not.toContain('label: "Bookings"');
+    const nav = read("src/lib/portals/nav-groups.ts");
+    expect(nav).toContain('"bookings"');
+    const render = read("src/lib/render-portal-section.tsx");
+    expect(render).toContain('section === "bookings"');
   });
 });
 

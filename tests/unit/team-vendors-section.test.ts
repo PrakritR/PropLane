@@ -39,24 +39,29 @@ describe("Team is two sidebar entries, not one tabbed page", () => {
   });
 });
 
-describe("Calendar is back under Operations", () => {
-  it("sits beside Task list", () => {
-    // It was removed entirely, leaving nowhere to set availability or see what is already
-    // committed. `/portal/calendar` had been redirecting to the Tours hub.
+describe("Calendar and Bookings are separate sidebar entries", () => {
+  it("lists Calendar and Bookings under Operations", () => {
     const group = PORTAL_NAV_GROUPS.pro.find((g) => g.id === "operations");
-    expect(group?.sections).toEqual(["task-list", "calendar", "communication"]);
+    expect(group?.sections).toEqual(["task-list", "calendar", "bookings", "communication"]);
   });
 
-  it("offers Schedule and Bookings", () => {
+  it("Calendar is schedule-only — no in-page tabs", () => {
     const calendar = proPortal.sections.find((s) => s.section === "calendar");
     expect(calendar?.label).toBe("Calendar");
-    expect(calendar?.tabs.map((t) => t.id)).toEqual(["availability", "bookings"]);
+    expect(calendar?.tabs ?? []).toEqual([]);
   });
 
-  it("renders rather than redirecting away", () => {
+  it("Bookings is its own section", () => {
+    const bookings = proPortal.sections.find((s) => s.section === "bookings");
+    expect(bookings?.label).toBe("Bookings");
+    expect(bookings?.tabs ?? []).toEqual([]);
+  });
+
+  it("renders both sections rather than redirecting away", () => {
     const src = readFileSync(join(process.cwd(), "src/lib/render-portal-section.tsx"), "utf8");
+    expect(src).toContain('section === "calendar"');
+    expect(src).toContain('section === "bookings"');
     expect(src).toContain("loadPortalCalendar()");
-    // The redirect that removed the section must not come back.
     expect(src).not.toContain('section === "calendar") {\n    redirect(`${def.basePath}/tours/pending`);');
   });
 });

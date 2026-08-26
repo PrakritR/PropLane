@@ -32,14 +32,16 @@ export const proPortal: PortalDefinition = {
     },
     { section: "task-list", label: "Task list", tabs: [] },
     {
-      // Where a manager sets availability and sees everything already committed — tours, service
-      // visits and scheduled tasks on one grid — plus a Bookings view of every room's stays.
+      // Availability + committed tours, service visits, and tasks on one grid.
       section: "calendar",
       label: "Calendar",
-      tabs: [
-        { id: "availability", label: "Schedule" },
-        { id: "bookings", label: "Bookings" },
-      ],
+      tabs: [],
+    },
+    {
+      // Channel + PropLane stays across the portfolio — separate from the schedule grid.
+      section: "bookings",
+      label: "Bookings",
+      tabs: [],
     },
     {
       section: "communication",
@@ -114,7 +116,8 @@ export const MANAGER_PORTAL_SMOKE_PATHS = [
   { label: "Services", path: "/portal/services/requests" },
   { label: "Task list", path: "/portal/task-list" },
   { label: "Communication", path: "/portal/communication/active" },
-  { label: "Calendar", path: "/portal/calendar/availability" },
+  { label: "Calendar", path: "/portal/calendar" },
+  { label: "Bookings", path: "/portal/bookings" },
   { label: "Managers", path: "/portal/relationships" },
   { label: "Vendors", path: "/portal/vendors" },
   { label: "Promotion", path: "/portal/promotion" },

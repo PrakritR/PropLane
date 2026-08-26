@@ -389,21 +389,32 @@ export async function renderPortalSection(
   }
 
 
+  if ((kind === "manager" || kind === "pro") && section === "bookings") {
+    if (tabParts?.length) notFound();
+    const PortalCalendar = await loadPortalCalendar();
+    return <PortalCalendar portal="manager" calendarView="bookings" bookingsPage />;
+  }
+
   if ((kind === "manager" || kind === "pro") && section === "calendar") {
-    const { CALENDAR_VIEW_TABS, parseCalendarViewTab } = await import("@/lib/portal-detail-routes");
+    const { parseCalendarViewTab } = await import("@/lib/portal-detail-routes");
     if (!tabParts?.length) {
-      redirect(`${def.basePath}/calendar/availability`);
+      const PortalCalendar = await loadPortalCalendar();
+      return <PortalCalendar portal="manager" calendarView="availability" />;
     }
     const viewRaw = tabParts[0]!;
+    if (viewRaw === "bookings") {
+      redirect(`${def.basePath}/bookings`);
+    }
+    if (viewRaw === "availability") {
+      redirect(`${def.basePath}/calendar`);
+    }
     // Retired view names — and the Tours hub's own — land on Schedule rather than 404ing.
-    if (!(CALENDAR_VIEW_TABS as readonly string[]).includes(viewRaw)) {
-      redirect(`${def.basePath}/calendar/availability`);
+    if (viewRaw !== "availability" && parseCalendarViewTab(viewRaw) !== "availability") {
+      redirect(`${def.basePath}/calendar`);
     }
     if (tabParts.length > 1) notFound();
     const PortalCalendar = await loadPortalCalendar();
-    return (
-      <PortalCalendar portal="manager" calendarView={parseCalendarViewTab(viewRaw)} />
-    );
+    return <PortalCalendar portal="manager" calendarView="availability" />;
   }
 
   const meta = findSection(def, section);

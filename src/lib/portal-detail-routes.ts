@@ -181,7 +181,12 @@ export function parseCalendarViewTab(raw: string | undefined | null): CalendarVi
 }
 
 export function calendarViewHref(basePath: string, tab: CalendarViewTabId): string {
-  return `${basePath}/calendar/${tab}`;
+  if (tab === "bookings") return `${basePath}/bookings`;
+  return `${basePath}/calendar`;
+}
+
+export function bookingsHref(basePath: string): string {
+  return `${basePath}/bookings`;
 }
 
 export function portfolioToursHref(basePath: string): string {

@@ -65,7 +65,6 @@ import {
   meetingsInWeek,
 } from "@/lib/manager-calendar-tour-meetings";
 import {
-  calendarViewHref,
   parseCalendarViewTab,
   toursHubHref,
   type CalendarViewTabId,
@@ -79,6 +78,8 @@ export function PortalCalendar({
   initialUserId,
   initialEmail,
   calendarView: calendarViewProp,
+  /** Dedicated sidebar Bookings page — no Schedule/Bookings tab strip. */
+  bookingsPage = false,
   schedulingHub = false,
   toursHubTab: toursHubTabProp,
 }: {
@@ -87,6 +88,7 @@ export function PortalCalendar({
   initialEmail?: string | null;
   /** Routed view tab (manager portfolio calendar only). */
   calendarView?: CalendarViewTabId;
+  bookingsPage?: boolean;
   /** Combined tours + service orders hub (`/portal/tours`). */
   schedulingHub?: boolean;
   /** Routed segment inside the tours hub. */
@@ -107,7 +109,12 @@ export function PortalCalendar({
   const [coManagerPeers, setCoManagerPeers] = useState<CoManagerCalendarPeerDto[]>([]);
   const [shareAvailability, setShareAvailability] = useState(false);
   const [googleCalendarTick, setGoogleCalendarTick] = useState(0);
-  const calendarView = portal === "manager" && !schedulingHub ? parseCalendarViewTab(calendarViewProp) : "availability";
+  const calendarView =
+    portal === "manager" && !schedulingHub
+      ? bookingsPage
+        ? "bookings"
+        : parseCalendarViewTab(calendarViewProp)
+      : "availability";
   const toursHubTab: ToursHubTabId = toursHubTabProp ?? "tours";
   const [workOrderTick, setWorkOrderTick] = useState(0);
   const [calendarAnchorDate, setCalendarAnchorDate] = useState(() => new Date());
@@ -404,22 +411,7 @@ export function PortalCalendar({
               dataAttr: "tours-hub-tab-services",
             },
           ]
-        : [
-            {
-              id: "availability" as const,
-              label: "Schedule",
-              count: calendarTabCounts.tours,
-              href: calendarViewHref(MANAGER_PORTAL_BASE, "availability"),
-              dataAttr: "calendar-tab-schedule",
-            },
-            {
-              id: "bookings" as const,
-              label: "Bookings",
-              count: calendarTabCounts.bookings,
-              href: calendarViewHref(MANAGER_PORTAL_BASE, "bookings"),
-              dataAttr: "calendar-tab-bookings",
-            },
-          ],
+        : [],
     [calendarTabCounts, schedulingHub],
   );
 
@@ -583,7 +575,7 @@ export function PortalCalendar({
     ) : null;
 
   const pageTitle =
-    portal === "manager" ? (schedulingHub ? "Tours" : "Calendar") : "Schedule meeting";
+    portal === "manager" ? (schedulingHub ? "Tours" : bookingsPage ? "Bookings" : "Calendar") : "Schedule meeting";
 
   if (portal === "manager" && !authReady) {
     return (
@@ -615,16 +607,22 @@ export function PortalCalendar({
         titleAside={calendarHeaderActions ?? undefined}
         compactFilterRow={portal === "manager"}
       >
-        {portal === "manager" ? (
+        {portal === "manager" && schedulingHub ? (
           <PortalListControlStack
             className="mb-2"
             destinations={calendarTabs}
-            activeDestinationId={schedulingHub ? toursHubTab : calendarView}
-            destinationAriaLabel={schedulingHub ? "Tours views" : "Calendar views"}
+            activeDestinationId={toursHubTab}
+            destinationAriaLabel="Tours views"
           />
         ) : null}
         {portal === "manager" ? (
-          <div className="portal-calendar-page-body mt-1 flex min-h-[min(72vh,52rem)] flex-1 flex-col bg-accent/30">
+          <div
+            className={
+              bookingsView
+                ? "flex min-h-[min(72vh,52rem)] flex-1 flex-col gap-3 pb-20"
+                : "portal-calendar-page-body mt-1 flex min-h-[min(72vh,52rem)] flex-1 flex-col bg-accent/30 pb-20"
+            }
+          >
             {bookingsView ? (
               <>
                 <ManagerPortfolioBookingsCalendar
@@ -632,6 +630,7 @@ export function PortalCalendar({
                   showToast={showToast}
                   refreshSignal={bookingsRefreshSignal}
                   extraEntries={bookingsLeaseEntries}
+                  variant={bookingsPage ? "standalone" : "embedded"}
                 />
                 <BookingsCalendarFooterBar
                   onLinkAirbnb={() => setLinkAirbnbModalOpen(true)}

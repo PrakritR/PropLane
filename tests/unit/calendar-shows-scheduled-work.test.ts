@@ -69,4 +69,13 @@ describe("nav icons", () => {
   it("keeps a fallback for unknown sections", () => {
     expect(ICONS).toContain("SECTION_ICONS[section] ?? Circle");
   });
+
+  it("gives Bookings a real glyph instead of the fallback circle", () => {
+    expect(ICONS).toMatch(/^\s*bookings: \w+,/m);
+    expect(ICONS).not.toMatch(/^\s*bookings: Circle,/m);
+  });
+
+  it("does not reuse the Calendar glyph for Bookings", () => {
+    expect(ICONS).not.toMatch(/^\s*bookings: Calendar,/m);
+  });
 });

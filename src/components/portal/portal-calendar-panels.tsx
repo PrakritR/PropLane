@@ -55,6 +55,8 @@ import {
 } from "@/lib/tour-slot-math";
 import { cn } from "@/lib/utils";
 import { HORIZONTAL_SCROLL_ATTR, PORTAL_HORIZONTAL_SCROLL_ROW_CLASS } from "@/lib/horizontal-scroll";
+import { PortalPageFooterActions } from "@/components/portal/portal-section-action-row";
+import { PORTAL_DETAIL_BTN } from "@/components/portal/portal-data-table";
 import {
   type CoManagerAvailabilityOverlay,
   type ScheduledTourFilter,
@@ -119,8 +121,6 @@ const CALENDAR_INACTIVE_SLOT =
   "border-border bg-accent/30 text-muted hover:border-primary/20 hover:bg-primary/[0.06] [html[data-theme=dark]_&]:portal-calendar-inactive-slot";
 const CALENDAR_CO_MANAGER_SLOT =
   "border-violet-300 bg-violet-100 text-violet-950 ring-1 ring-inset ring-violet-300/80 [html[data-theme=dark]_&]:border-violet-400/40 [html[data-theme=dark]_&]:bg-violet-500/15 [html[data-theme=dark]_&]:text-violet-100";
-const COMPACT_CALENDAR_ACTION_BTN =
-  "h-7 shrink-0 whitespace-nowrap rounded-full border-border px-2.5 text-xs font-semibold max-lg:h-8 max-lg:px-3";
 const COMPACT_TIME_SELECT_TRIGGER_FLAT =
   "h-8 min-h-0 shrink-0 rounded-md border-0 bg-transparent px-1 text-[11px] font-semibold whitespace-nowrap text-foreground shadow-none ring-0 hover:bg-accent/50 focus:border-transparent focus:ring-0 sm:text-xs";
 export const MEETING_CONFIRMED_COLOR =
@@ -1963,60 +1963,6 @@ export function PortalCalendarPanels({
                 </Button>
               ) : null}
             </div>
-            {!vendorMode && !readOnly ? (
-              <div className="mt-2 flex w-full flex-wrap items-center justify-center gap-1.5 sm:gap-2">
-                <Button
-                  type="button"
-                  variant="outline"
-                  className={COMPACT_CALENDAR_ACTION_BTN}
-                  disabled={readOnly}
-                  title={readOnly ? "Select one house to edit availability" : undefined}
-                  onClick={copyPreviousWeek}
-                >
-                  Copy previous week
-                </Button>
-                <Button
-                  type="button"
-                  variant="outline"
-                  className={COMPACT_CALENDAR_ACTION_BTN}
-                  disabled={readOnly}
-                  title={readOnly ? "Select one house to edit availability" : undefined}
-                  onClick={openBlockModal}
-                >
-                  Block
-                </Button>
-                <Button
-                  type="button"
-                  variant="outline"
-                  className={COMPACT_CALENDAR_ACTION_BTN}
-                  disabled={readOnly}
-                  title={readOnly ? "Select one house to edit availability" : undefined}
-                  onClick={clearCurrentWeek}
-                >
-                  Clear
-                </Button>
-                <Button
-                  type="button"
-                  variant="outline"
-                  className={COMPACT_CALENDAR_ACTION_BTN}
-                  disabled={readOnly || !onCopyWeekToHouses || !otherProperties?.length}
-                  title={
-                    readOnly
-                      ? "Select one house to edit availability"
-                      : !otherProperties?.length
-                        ? "Add another house to copy availability"
-                        : undefined
-                  }
-                  onClick={() => {
-                    setSelectedHouseIds(new Set());
-                    setCopyToHousesScope("week");
-                    setUpdateToHousesOpen(true);
-                  }}
-                >
-                  Copy to houses
-                </Button>
-              </div>
-            ) : null}
           </div>
 
           <div className={compactBodyClass}>
@@ -2236,6 +2182,55 @@ export function PortalCalendarPanels({
           })()}
           </div>
         </div>
+
+        {!vendorMode && !readOnly ? (
+          <PortalPageFooterActions pinned rowVariant="header">
+            <div className="flex w-full min-w-0 flex-nowrap items-center justify-start gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                className={PORTAL_DETAIL_BTN}
+                data-attr="calendar-copy-previous-week"
+                onClick={copyPreviousWeek}
+              >
+                Copy previous week
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                className={PORTAL_DETAIL_BTN}
+                data-attr="calendar-create-block"
+                onClick={openBlockModal}
+              >
+                Block
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                className={PORTAL_DETAIL_BTN}
+                data-attr="calendar-clear-week"
+                onClick={clearCurrentWeek}
+              >
+                Clear
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                className={PORTAL_DETAIL_BTN}
+                data-attr="calendar-copy-to-houses"
+                disabled={!onCopyWeekToHouses || !otherProperties?.length}
+                title={!otherProperties?.length ? "Add another house to copy availability" : undefined}
+                onClick={() => {
+                  setSelectedHouseIds(new Set());
+                  setCopyToHousesScope("week");
+                  setUpdateToHousesOpen(true);
+                }}
+              >
+                Copy to houses
+              </Button>
+            </div>
+          </PortalPageFooterActions>
+        ) : null}
 
         <Modal
           open={blockModalOpen}

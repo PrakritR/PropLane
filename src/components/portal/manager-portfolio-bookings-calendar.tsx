@@ -31,6 +31,7 @@ export function ManagerPortfolioBookingsCalendar({
   extraEntries,
   roomFilterId = "",
   emptyMessage,
+  variant = "embedded",
 }: {
   propertyIds: string[];
   showToast: (message: string) => void;
@@ -45,6 +46,8 @@ export function ManagerPortfolioBookingsCalendar({
   /** "" / "all" = every room. Only offered for rent-by-room listings. */
   roomFilterId?: string;
   emptyMessage?: string;
+  /** Standalone Bookings nav page — no nested card chrome. */
+  variant?: "embedded" | "standalone";
 }) {
   const [airbnbEntries, setAirbnbEntries] = useState<PropertyBookingEntry[]>([]);
   const [loading, setLoading] = useState(true);
@@ -126,9 +129,14 @@ export function ManagerPortfolioBookingsCalendar({
     return <p className="text-sm text-muted">Loading bookings…</p>;
   }
 
+  const shellClass =
+    variant === "standalone"
+      ? "flex min-h-0 flex-1 flex-col"
+      : "flex min-h-0 flex-1 flex-col rounded-xl border border-border bg-card p-3 sm:p-4";
+
   return (
     <>
-      <div className="flex min-h-0 flex-1 flex-col rounded-xl border border-border bg-card p-3 sm:p-4">
+      <div className={shellClass}>
         <div className="mb-3 flex items-center justify-between gap-2">
           <button
             type="button"
