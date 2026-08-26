@@ -12,6 +12,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { ListSkeleton } from "@/components/ui/list-skeleton";
 import { Badge } from "@/components/ui/badge";
+import { PortalRecordShareLinkButton } from "@/components/portal/portal-record-share-link-button";
 import { PortalNotificationPreviewModal } from "@/components/portal/portal-notification-preview-modal";
 import { ShareLeadLinkModal } from "@/components/portal/share-lead-link-modal";
 import { useAppUi } from "@/components/providers/app-ui-provider";
@@ -1164,6 +1165,15 @@ export function ManagerApplications({
       </Button>
     ) : null;
 
+    const copyViewLinkButton = (
+      <PortalRecordShareLinkButton
+        kind="application"
+        recordId={row.id}
+        className={RESIDENT_DETAIL_HEADER_ACTION_BTN}
+        dataAttr="application-copy-view-link"
+      />
+    );
+
     const deleteButton = (
       <Button
         type="button"
@@ -1217,6 +1227,18 @@ export function ManagerApplications({
           <DropdownMenuItem data-attr="application-pdf-download" onSelect={() => runApplicationPdfDownload(row, showToast)}>
             Download application
           </DropdownMenuItem>
+          <DropdownMenuItem
+            data-attr="application-copy-view-link-menu"
+            onSelect={(e) => e.preventDefault()}
+            className="p-0 focus:bg-transparent"
+          >
+            <PortalRecordShareLinkButton
+              kind="application"
+              recordId={row.id}
+              className="h-auto w-full justify-start rounded-none border-0 bg-transparent px-2 py-1.5 text-sm shadow-none hover:bg-accent"
+              dataAttr="application-copy-view-link-menu-btn"
+            />
+          </DropdownMenuItem>
           {canDownloadScreening ? (
             <DropdownMenuItem
               data-attr="screening-pdf-download"
@@ -1255,6 +1277,7 @@ export function ManagerApplications({
         <PortalSectionActionRow variant="header" className={RESIDENT_DETAIL_HEADER_ACTIONS_ROW}>
           <div className="flex w-full max-w-full flex-wrap items-center justify-end gap-1 md:hidden">
             {sendReminderButton}
+            {copyViewLinkButton}
             {rejectButton}
             {approveButton}
             {runCheckButton}
@@ -1263,6 +1286,7 @@ export function ManagerApplications({
           </div>
           <div className="hidden max-w-full flex-nowrap items-center gap-1 md:flex">
             {sendReminderButton}
+            {copyViewLinkButton}
             {rejectButton}
             {approveButton}
             {runCheckButton}

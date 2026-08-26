@@ -2546,6 +2546,7 @@ export function ManagerResidents({
         sendToResidentDataAttr="resident-lease-send"
         moveToManagerReviewDataAttr="resident-lease-move-manager-review"
         onSendToResident={() => openLeaseSendPreview(selected, residentLease)}
+        shareRecordId={residentLease.id}
         sendToResidentBusy={leaseSendBusy}
         // Deliberately never disabled for a blocked send: `openLeaseSendPreview`
         // states the reason and opens the review that clears it, and disabling
