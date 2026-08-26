@@ -54,6 +54,10 @@ export function LeaseHtmlDirectEditor({
     doc.body.contentEditable = "true";
     doc.body.setAttribute("spellcheck", "true");
     doc.body.setAttribute("data-attr", "lease-document-visual-editor");
+    doc.querySelectorAll("p[data-disclosure-rule]").forEach((el) => {
+      el.setAttribute("contenteditable", "false");
+      el.setAttribute("title", "Required disclosure — edit the surrounding text only");
+    });
 
     const onInput = () => {
       skipExternalSyncRef.current = true;

@@ -11,13 +11,15 @@
  * field would have blocked every send with no way out, which is why these assert the escape hatch
  * as carefully as the block.
  */
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, beforeEach, afterEach } from "vitest";
 import {
   LEASE_LANDLORD_PLACEHOLDER,
   leaseLandlordNameBlocker,
+  leaseLandlordPartyNameFromHtml,
 } from "@/lib/lease-pipeline-storage";
 import {
   MAX_LANDLORD_LEGAL_NAME_LENGTH,
+  cacheLandlordLegalName,
   normalizeManagerLandlordProfile,
   validateLandlordLegalName,
 } from "@/lib/manager-landlord-profile";
@@ -25,26 +27,51 @@ import {
 const row = (over: Record<string, unknown> = {}) =>
   ({ id: "lease-1", residentEmail: "a@b.com", ...over }) as never;
 
+const partiesHtml = (landlordName: string) =>
+  `<table><tr><th>Landlord / Operator</th><td><strong>${landlordName}</strong><br/>Mailing address: 1 Main</td></tr></table>`;
+
 describe("landlord-name send gate", () => {
+  beforeEach(() => {
+    cacheLandlordLegalName("Doe Property Holdings LLC");
+  });
+
+  afterEach(() => {
+    cacheLandlordLegalName("");
+  });
+
   it("blocks a lease that still names the placeholder", () => {
     const blocker = leaseLandlordNameBlocker(
       row({ generatedHtml: `<p>Landlord: ${LEASE_LANDLORD_PLACEHOLDER}</p>` }),
     );
     expect(blocker).toBeTruthy();
-    // The message has to say what to do, not just what is wrong.
     expect(blocker).toMatch(/Settings/i);
     expect(blocker).toMatch(/regenerate/i);
   });
 
-  it("allows a lease that names a real landlord", () => {
+  it("blocks when the manager has not configured a landlord legal name", () => {
+    cacheLandlordLegalName("");
+    expect(leaseLandlordNameBlocker(row({ generatedHtml: partiesHtml("5259 Brooklyn Ave NE") }))).toMatch(
+      /Settings/i,
+    );
+  });
+
+  it("blocks when the parties row does not match the configured landlord name", () => {
+    expect(leaseLandlordNameBlocker(row({ generatedHtml: partiesHtml("5259 Brooklyn Ave NE") }))).toMatch(
+      /Regenerate/i,
+    );
+  });
+
+  it("allows a lease that names the configured landlord", () => {
     expect(
-      leaseLandlordNameBlocker(row({ generatedHtml: "<p>Landlord: Doe Property Holdings LLC</p>" })),
+      leaseLandlordNameBlocker(row({ generatedHtml: partiesHtml("Doe Property Holdings LLC") })),
     ).toBeNull();
   });
 
+  it("reads the landlord party from the parties row", () => {
+    expect(leaseLandlordPartyNameFromHtml(partiesHtml("Jane Doe"))).toBe("Jane Doe");
+  });
+
   it("ignores a row with no generated document", () => {
-    // A manager-uploaded PDF is opaque here and its parties are the manager's own; the
-    // uploaded-lease review gate covers it.
     expect(leaseLandlordNameBlocker(row())).toBeNull();
     expect(leaseLandlordNameBlocker(row({ managerUploadedPdf: { dataUrl: "data:..." } }))).toBeNull();
   });

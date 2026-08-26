@@ -1,4 +1,5 @@
 import { AccountLinksSync } from "@/components/portal/account-links-sync";
+import { LandlordLegalNameCacheSync } from "@/components/portal/landlord-legal-name-cache-sync";
 import { PropertyPipelineAccountSync } from "@/components/portal/property-pipeline-account-sync";
 import { AxisAssistant } from "@/components/portal/axis-assistant";
 import { PortalAssistantDockRail } from "@/components/portal/portal-assistant-dock-rail";
@@ -42,6 +43,7 @@ export default async function PropertyPortalLayout({ children }: { children: Rea
         <PublicHomePrefetch />
         <PortalDataPrefetch kind="pro" />
         <PortalSessionKeepalive />
+        <LandlordLegalNameCacheSync />
         <PropertyPipelineAccountSync />
         <AccountLinksSync />
         <div className="relative isolate flex min-h-0 w-full flex-1 flex-col overflow-hidden lg:flex-row">

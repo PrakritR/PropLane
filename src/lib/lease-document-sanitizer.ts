@@ -273,6 +273,31 @@ function preserveDisclosureParagraphs(originalHtml: string, editedHtml: string):
   return { ok: true, html: restored };
 }
 
+/**
+ * Re-insert disclosure paragraphs the visual editor accidentally deleted. The sanitizer then
+ * restores their exact statutory bytes when the tag survived but the text changed.
+ */
+export function reinsertMissingDisclosureParagraphs(originalHtml: string, editedHtml: string): string {
+  const originals = [...originalHtml.matchAll(DISCLOSURE_PARAGRAPH)];
+  if (originals.length === 0) return editedHtml;
+
+  let result = editedHtml;
+  for (const match of originals) {
+    const ruleId = (match[1] ?? match[2] ?? "").toLowerCase();
+    if (!ruleId) continue;
+    const present = new RegExp(`data-disclosure-rule=["']${ruleId.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}["']`, "i").test(
+      result,
+    );
+    if (present) continue;
+    if (/<\/body>/i.test(result)) {
+      result = result.replace(/<\/body>/i, `${match[0]}\n</body>`);
+    } else {
+      result = `${result}\n${match[0]}`;
+    }
+  }
+  return result;
+}
+
 export function preserveVerbatimDisclosureClauses(originalHtml: string, editedHtml: string): VerbatimClauseResult {
   const paragraphs = preserveDisclosureParagraphs(originalHtml, editedHtml);
   if (!paragraphs.ok) return paragraphs;

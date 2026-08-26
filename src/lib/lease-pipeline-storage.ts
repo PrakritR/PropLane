@@ -425,6 +425,21 @@ export const LEASE_LANDLORD_PLACEHOLDER = "[LANDLORD ENTITY NAME]";
 export const LEASE_LANDLORD_NAME_REQUIRED_MESSAGE =
   "This lease still names \u201c[LANDLORD ENTITY NAME]\u201d as the landlord. Add your landlord legal name in Settings, then regenerate the lease before sending it.";
 
+export const LEASE_LANDLORD_NAME_NOT_CONFIGURED_MESSAGE =
+  "Add your landlord legal name in Settings (Lease tab) before sending this lease.";
+
+export const LEASE_LANDLORD_NAME_MISMATCH_MESSAGE =
+  "This lease names a different landlord than your Settings legal name. Regenerate the lease so the parties section matches.";
+
+/** Read the bold party name from the generated lease's Parties row. */
+export function leaseLandlordPartyNameFromHtml(html: string): string | null {
+  const match = html.match(
+    /<th[^>]*>\s*Landlord\s*\/\s*Operator\s*<\/th>\s*<td[^>]*>[\s\S]*?<strong>([^<]*)<\/strong>/i,
+  );
+  const name = match?.[1]?.replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">").trim();
+  return name || null;
+}
+
 /**
  * Refuse to send a lease whose landlord party is still the template's placeholder.
  *
@@ -440,7 +455,18 @@ export const LEASE_LANDLORD_NAME_REQUIRED_MESSAGE =
 export function leaseLandlordNameBlocker(row: LeasePipelineRow): string | null {
   const html = row.generatedHtml;
   if (!html) return null;
-  return html.includes(LEASE_LANDLORD_PLACEHOLDER) ? LEASE_LANDLORD_NAME_REQUIRED_MESSAGE : null;
+  if (html.includes(LEASE_LANDLORD_PLACEHOLDER)) {
+    return LEASE_LANDLORD_NAME_REQUIRED_MESSAGE;
+  }
+  const configured = cachedLandlordLegalName();
+  if (!configured) {
+    return LEASE_LANDLORD_NAME_NOT_CONFIGURED_MESSAGE;
+  }
+  const partyName = leaseLandlordPartyNameFromHtml(html);
+  if (partyName && partyName !== configured) {
+    return LEASE_LANDLORD_NAME_MISMATCH_MESSAGE;
+  }
+  return null;
 }
 
 export function leaseSendGateBlockerAmong(row: LeasePipelineRow, apps: DemoApplicantRow[]): string | null {

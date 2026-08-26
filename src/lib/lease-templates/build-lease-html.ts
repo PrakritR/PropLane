@@ -430,19 +430,22 @@ export function buildLeaseHtml(ctx: LeaseGenerationContext, config: LeaseJurisdi
   const pets = dash(a.pets);
 
   // ── Landlord ─────────────────────────────────────────────────────────────
-  // The manager's own legal name wins outright. The building-name fallbacks below are a PLACE,
-  // not a legal person, and they are kept only so a draft still renders something recognisable —
-  // `leaseLandlordNameBlocker` refuses the SEND whenever the real name is missing, so neither a
-  // building name nor the bracket placeholder can reach a document a resident is asked to sign.
+  // Only the manager's configured legal name may appear as the contracting party. A building name
+  // is a place, not a person — using it as the landlord shipped real leases that named an address
+  // as the operator. When the name is unset the template prints the explicit placeholder and
+  // `leaseLandlordNameBlocker` refuses the send.
+  const buildingLabel = propertyTemplatePreview
+    ? ""
+    : sub?.buildingName?.trim() || list?.buildingName?.trim() || room?.buildingName?.trim() || "";
   const landlordEntity = escapeHtml(
     propertyTemplatePreview
       ? PROPERTY_LEASE_TEMPLATE_PLACEHOLDER
-      : ctx.landlordLegalName?.trim() ||
-        sub?.buildingName?.trim() ||
-        list?.buildingName?.trim() ||
-        room?.buildingName?.trim() ||
-        "[LANDLORD ENTITY NAME]",
+      : ctx.landlordLegalName?.trim() || "[LANDLORD ENTITY NAME]",
   );
+  const landlordPropertyLine =
+    !propertyTemplatePreview && buildingLabel && buildingLabel !== ctx.landlordLegalName?.trim()
+      ? `<br/>Property: ${escapeHtml(buildingLabel)}`
+      : "";
   const subNorm = sub ? normalizeManagerListingSubmissionV1(sub) : undefined;
   const streetFromSubmission = subNorm ? listingSubmissionStreetLine(subNorm).trim() : "";
   const address = propertyTemplatePreview
@@ -1059,7 +1062,7 @@ ${disclosureReviewNotice}
 
 <h2>${nextSection()}. Parties</h2>
 <table>
-  <tr><th width="35%">Landlord / Operator</th><td><strong>${landlordEntity}</strong><br/>Mailing address: ${landlordMailing}<br/>For notices, use PropLane portal messaging or the address above.</td></tr>
+  <tr><th width="35%">Landlord / Operator</th><td><strong>${landlordEntity}</strong>${landlordPropertyLine}<br/>Mailing address: ${landlordMailing}<br/>For notices, use PropLane portal messaging or the address above.</td></tr>
   <tr><th>Resident / Tenant</th><td><strong>${tenantName}</strong><br/>Phone: ${tenantPhone} &nbsp;·&nbsp; Email: ${tenantEmail}<br/>Date of birth: ${tenantDob}</td></tr>
 </table>
 ${jointPartiesNote ? `<p>${jointPartiesNote}</p>` : ""}
