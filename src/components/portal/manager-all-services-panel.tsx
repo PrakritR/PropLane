@@ -3,6 +3,20 @@
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { usePortalNavigate } from "@/lib/portal-nav-client";
+import { LocalDestinationNav } from "@/components/ui/destination-nav";
+import {
+  buildUnifiedServiceRows,
+  countServiceRowsByState,
+  type ServiceRowState,
+} from "@/lib/unified-service-rows";
+
+/** The four states the merged list filters by, in the order a manager works through them. */
+const SERVICE_STATE_TABS: { id: ServiceRowState; label: string }[] = [
+  { id: "open", label: "Open" },
+  { id: "scheduled", label: "Scheduled" },
+  { id: "done", label: "Done" },
+  { id: "declined", label: "Declined" },
+];
 import { ApplicationHouseholdCluster } from "@/components/portal/application-household-list";
 import { Badge } from "@/components/ui/badge";
 import { clusterRowsByResident } from "@/lib/resident-row-clustering";
@@ -49,15 +63,11 @@ import {
   managerServiceRequestBucket,
   type ManagerServiceRequestBucket,
 } from "@/components/portal/manager-service-request-detail";
-import { applicationVisibleToPortalUser } from "@/lib/manager-portfolio-access";
-import { readManagerApplicationRows } from "@/lib/manager-applications-storage";
-import { getRoomChoiceLabel } from "@/lib/rental-application/data";
 import { ManagerCreateServiceRequestModal } from "@/components/portal/manager-create-service-request-modal";
 import { ManagerEditServiceRequestsModal } from "@/components/portal/manager-edit-service-requests-modal";
 import { ManagerCreateWorkOrderModal } from "@/components/portal/manager-create-work-order-modal";
 import { useAppUi } from "@/components/providers/app-ui-provider";
 import { Button } from "@/components/ui/button";
-import { DestinationNav } from "@/components/ui/destination-nav";
 import { useShallowTabId } from "@/components/ui/tabs";
 import {
   PORTAL_LIST_ADD_ICONS,
@@ -108,6 +118,7 @@ export function ManagerAllServicesPanel({
     if (reqBucket !== requestBucketProp) setReqBucket(requestBucketProp);
   }
   const [addRequestOpen, setAddRequestOpen] = useState(false);
+  const [serviceState, setServiceState] = useState<ServiceRowState>("open");
   const [editServiceRequestsOpen, setEditServiceRequestsOpen] = useState(false);
   const [addWorkOrderOpen, setAddWorkOrderOpen] = useState(false);
   const typeFilter: FilterType = tabId;
@@ -206,31 +217,10 @@ export function ManagerAllServicesPanel({
     );
   }, [serviceRequests, propertyFilters, searchQuery]);
 
-  const residentUnitByKey = useMemo(() => {
-    const map = new Map<string, string>();
-    for (const row of readManagerApplicationRows()) {
-      if (!applicationVisibleToPortalUser(row, userId)) continue;
-      const email = row.email?.trim().toLowerCase();
-      const propertyId = row.assignedPropertyId?.trim() || row.propertyId?.trim() || "";
-      if (!email || !propertyId) continue;
-      const roomLabel =
-        row.manualResidentDetails?.roomNumber?.trim() ||
-        getRoomChoiceLabel(row.assignedRoomChoice?.trim() || row.application?.roomChoice1?.trim() || "")
-          .split(" · ")[0]
-          ?.trim() ||
-        "";
-      if (roomLabel) map.set(`${email}|${propertyId}`, roomLabel);
-    }
-    return map;
-  }, [userId, dataTick]);
-
   const resolveRequestPropertyLabel = (req: ServiceRequest) =>
     req.propertyId && propertyOptions.find((p) => p.id === req.propertyId)
       ? propertyOptions.find((p) => p.id === req.propertyId)!.label
       : "—";
-
-  const resolveRequestUnit = (req: ServiceRequest) =>
-    residentUnitByKey.get(`${req.residentEmail.trim().toLowerCase()}|${req.propertyId.trim()}`) ?? "";
 
   const bucketedRequests = useMemo(
     () =>
@@ -246,35 +236,6 @@ export function ManagerAllServicesPanel({
     const decoded = decodeURIComponent(serviceRequestIdProp);
     return bucketedRequests.find((r) => r.id === decoded) ?? null;
   }, [serviceRequestIdProp, bucketedRequests]);
-
-  const woCounts = useMemo(() => {
-    const c: Record<ManagerWorkOrderBucket, number> = { open: 0, scheduled: 0, completed: 0 };
-    for (const r of filteredWorkOrders) c[r.bucket] += 1;
-    return c;
-  }, [filteredWorkOrders]);
-  const woTabs = useMemo(
-    () =>
-      (["open", "scheduled", "completed"] as const).map((id) => ({
-        id,
-        label: id === "open" ? "Pending" : id === "scheduled" ? "Scheduled" : "Completed",
-        count: woCounts[id],
-      })),
-    [woCounts],
-  );
-  const reqCounts = useMemo(() => {
-    const c: Record<RequestBucket, number> = { pending: 0, approved: 0, denied: 0 };
-    for (const r of filteredRequests) c[managerServiceRequestBucket(r.status)] += 1;
-    return c;
-  }, [filteredRequests]);
-  const reqTabs = useMemo(
-    () =>
-      (["pending", "approved", "denied"] as const).map((id) => ({
-        id,
-        label: id === "pending" ? "Pending" : id === "approved" ? "Approved" : "Denied",
-        count: reqCounts[id],
-      })),
-    [reqCounts],
-  );
 
   const propertyFilterLabel = useMemo(() => {
     if (propertyFilters.length === 0) return "";
@@ -319,31 +280,6 @@ export function ManagerAllServicesPanel({
     }
     return chips;
   }, [propertyFilters, propertyFilterLabel]);
-
-  const servicesTypeNav = (
-    <DestinationNav
-      items={[
-        {
-          id: "requests",
-          label: "Requests",
-          href: `${basePath}/services/requests/pending`,
-          dataAttr: "manager-services-tab-requests",
-        },
-        {
-          id: "work-orders",
-          label: "Work orders",
-          shortLabel: "Orders",
-          href: `${basePath}/services/work-orders/open`,
-          dataAttr: "manager-services-tab-work-orders",
-        },
-      ]}
-      activeId={typeFilter}
-      ariaLabel="Services section"
-      itemLayout="equal"
-      denseEqualRow
-      className="max-w-none"
-    />
-  );
 
   const renderRequestDetail = (req: ServiceRequest) => {
     return (
@@ -397,27 +333,29 @@ export function ManagerAllServicesPanel({
   // Hoisted above the early returns below. It sat after them, so on a render that took an
   // early return this hook did not run and the hook COUNT changed between renders, which
   // is the rules-of-hooks violation. Its deps are all resolved by this point.
-  const bucketDestinations = useMemo(() => {
-    if (typeFilter === "work-orders") {
-      return woTabs.map((t) => ({
-        id: t.id,
-        label: t.label,
-        shortLabel: t.id === "scheduled" ? "Sched." : t.id === "completed" ? "Done" : t.label,
-        href: `${basePath}/services/work-orders/${t.id}`,
-        count: t.count,
-      }));
-    }
-    if (typeFilter === "requests") {
-      return reqTabs.map((t) => ({
-        id: t.id,
-        label: t.label,
-        href: `${basePath}/services/requests/${t.id}`,
-        count: t.count,
-      }));
-    }
-    return undefined;
-  }, [typeFilter, woTabs, reqTabs, basePath]);
+  /**
+   * One Services list over both stores. Add-on services and maintenance work orders stay separate
+   * RECORDS — AGENTS.md forbids merging their tables — but a manager thinks of them as one pile of
+   * work. Each row keeps its own id and kind, so opening it routes into that record's own detail.
+   */
+  const unifiedRows = useMemo(
+    () =>
+      buildUnifiedServiceRows({
+        addOns: filteredRequests,
+        maintenance: filteredWorkOrders,
+        propertyLabelForRequest: (propertyId) =>
+          propertyOptions.find((option) => option.id === propertyId)?.label,
+      }),
+    [filteredRequests, filteredWorkOrders, propertyOptions],
+  );
+  const unifiedCounts = useMemo(() => countServiceRowsByState(unifiedRows), [unifiedRows]);
+  const visibleUnifiedRows = useMemo(
+    () => unifiedRows.filter((row) => row.state === serviceState),
+    [unifiedRows, serviceState],
+  );
 
+  // One row of state pills over the merged list. The Requests / Work orders type nav is gone —
+  // that split is now just the `kind` carried on each row.
   if (serviceRequestIdProp && detailRequest) {
     return (
       <>
@@ -480,22 +418,19 @@ export function ManagerAllServicesPanel({
     );
   }
 
-  const activeBucketId =
-    typeFilter === "work-orders" ? woBucket : reqBucket;
-
   const servicesListDestinations = (
     <div className="flex w-full min-w-0 flex-col gap-2">
-      {servicesTypeNav}
-      {bucketDestinations ? (
-        <DestinationNav
-          items={bucketDestinations}
-          activeId={activeBucketId}
-          ariaLabel={typeFilter === "work-orders" ? "Work order status" : "Request status"}
-          itemLayout="equal"
-          denseEqualRow
-          className="max-w-none"
-        />
-      ) : null}
+      <LocalDestinationNav
+        items={SERVICE_STATE_TABS.map((tab) => ({
+          id: tab.id,
+          label: tab.label,
+          count: unifiedCounts[tab.id],
+          dataAttr: `manager-services-state-${tab.id}`,
+        }))}
+        activeId={serviceState}
+        onChange={(id) => setServiceState(id as ServiceRowState)}
+        ariaLabel="Service status"
+      />
     </div>
   );
 
@@ -520,20 +455,7 @@ export function ManagerAllServicesPanel({
         }}
         activeFilterChips={<PortalActiveFilterChips chips={activeFilterChips} />}
       />
-      {typeFilter === "work-orders" ? (
-        <ManagerWorkOrdersPanel
-          allRows={filteredWorkOrders}
-          bucket={woBucket}
-          workOrderId={workOrderIdProp}
-          listBasePath={basePath}
-          onAfterSchedule={() => router.push(`${basePath}/services/work-orders/scheduled`)}
-          listAddAction={{
-            label: "Add",
-            onClick: () => setAddWorkOrderOpen(true),
-            dataAttr: "services-work-orders-list-add",
-          }}
-        />
-      ) : bucketedRequests.length === 0 ? (
+      {visibleUnifiedRows.length === 0 ? (
         <div className={PORTAL_LIST_ADD_ROW_WRAP_CLASS}>
           <PortalListAddRow
             label="Add"
@@ -545,15 +467,12 @@ export function ManagerAllServicesPanel({
       ) : (
         <div>
           {/*
-            Grouped by resident, the same way Payments and Tours are — a manager reads these tabs
-            side by side, and one flat list beside two grouped ones reads as a different product.
-            The resident is now the group HEADER rather than a repeated line in every subtitle.
+            One list over both stores, grouped by resident the way Payments and Tours are. Each row
+            opens its OWN record — an add-on goes to the request detail, maintenance to the work
+            order detail — so the merge stays presentational and the stores never mix.
           */}
           <div className={cn(INBOX_LIST_SCROLL, "space-y-3")} data-attr="services-resident-groups">
-            {clusterRowsByResident(
-              bucketedRequests.map((req) => ({ ...req, id: req.id })),
-              (req) => resolveRequestPropertyLabel(req) || null,
-            ).map((cluster) => (
+            {clusterRowsByResident(visibleUnifiedRows).map((cluster) => (
               <ApplicationHouseholdCluster
                 key={cluster.key}
                 header={
@@ -569,29 +488,44 @@ export function ManagerAllServicesPanel({
                       <span className="truncate text-xs text-muted">{cluster.propertyLabel}</span>
                     ) : null}
                     <Badge tone="info">
-                      {cluster.rows.length === 1 ? "1 request" : `${cluster.rows.length} requests`}
+                      {cluster.rows.length === 1 ? "1 item" : `${cluster.rows.length} items`}
                     </Badge>
                   </>
                 }
               >
-                {cluster.rows.map((req) => {
-                  const unit = resolveRequestUnit(req);
-                  // The resident is in the header now, so the row says what the header does not.
-                  const subtitle = [resolveRequestPropertyLabel(req), unit].filter(Boolean).join(" · ");
-                  return (
-                    <PortalServiceRecordRow
-                      key={req.id}
-                      title={req.offerName}
-                      subtitle={subtitle || undefined}
-                      statusLabel={reqBucket === "pending" ? "Pending" : reqBucket === "approved" ? "Approved" : "Denied"}
-                      statusTone={
-                        reqBucket === "approved" ? "success" : reqBucket === "denied" ? "danger" : "warning"
-                      }
-                      onOpen={() => navigate(serviceRequestDetailHref(basePath, reqBucket, req.id))}
-                      dataAttr="service-request-list-row"
-                    />
-                  );
-                })}
+                {cluster.rows.map((row) => (
+                  <PortalServiceRecordRow
+                    key={`${row.kind}-${row.id}`}
+                    title={row.title}
+                    subtitle={
+                      [
+                        row.kind === "add-on" ? "Add-on service" : "Maintenance",
+                        row.propertyLabel,
+                        row.unitLabel,
+                      ]
+                        .filter(Boolean)
+                        .join(" \u00b7 ") || undefined
+                    }
+                    statusLabel={row.statusLabel}
+                    statusTone={
+                      row.state === "done"
+                        ? "success"
+                        : row.state === "declined"
+                          ? "danger"
+                          : row.state === "scheduled"
+                            ? "neutral"
+                            : "warning"
+                    }
+                    onOpen={() =>
+                      navigate(
+                        row.kind === "add-on"
+                          ? serviceRequestDetailHref(basePath, reqBucket, row.id)
+                          : `${basePath}/services/work-orders/${woBucket}/${encodeURIComponent(row.id)}`,
+                      )
+                    }
+                    dataAttr={row.kind === "add-on" ? "service-request-list-row" : "work-order-list-row"}
+                  />
+                ))}
               </ApplicationHouseholdCluster>
             ))}
           </div>
