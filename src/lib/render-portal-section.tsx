@@ -943,11 +943,12 @@ export async function renderPortalSection(
       if (!MANAGER_TOUR_BUCKETS.includes(segmentRaw as (typeof MANAGER_TOUR_BUCKETS)[number])) {
         notFound();
       }
-      if (tabParts.length > 1) notFound();
+      if (tabParts.length > 2) notFound();
       const bucket = parseManagerTourBucket(segmentRaw);
+      const tourId = tabParts.length === 2 ? decodeURIComponent(tabParts[1]!) : undefined;
       const ManagerTours = await loadManagerTours();
       return subscriptionGated(
-        <ManagerTours bucket={bucket} basePath={def.basePath} />,
+        <ManagerTours bucket={bucket} basePath={def.basePath} tourId={tourId} />,
         kind,
         "tours",
         managerOwnerSubscriptionTier,

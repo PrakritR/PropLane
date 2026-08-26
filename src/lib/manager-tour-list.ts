@@ -14,6 +14,7 @@ import {
   type PlannedEvent,
 } from "@/lib/demo-admin-scheduling";
 import type { ManagerTourBucketId } from "@/lib/portal-detail-routes";
+import { clusterRowsByResident, type ResidentCluster } from "@/lib/resident-row-clustering";
 
 export type ManagerTourRowSource = "inquiry" | "planned";
 
@@ -184,6 +185,20 @@ export function countManagerTourRowsByBucket(rows: ManagerTourRow[]): Record<Man
       return acc;
     },
     { pending: 0, upcoming: 0, past: 0 } satisfies Record<ManagerTourBucketId, number>,
+  );
+}
+
+export type ManagerTourListCluster = ResidentCluster<ManagerTourRow>;
+
+/** Group tour rows by guest, matching the Payments resident-cluster shell. */
+export function clusterManagerTourListRows(rows: readonly ManagerTourRow[]): ManagerTourListCluster[] {
+  return clusterRowsByResident(
+    rows.map((row) => ({
+      ...row,
+      residentName: row.guestName,
+      residentEmail: row.guestEmail,
+    })),
+    (row) => row.propertyTitle || null,
   );
 }
 
