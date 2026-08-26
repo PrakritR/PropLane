@@ -12,6 +12,7 @@ import {
   Inbox,
   LayoutDashboard,
   Link2,
+  ListTodo,
   LogIn,
   Megaphone,
   MessageSquare,
@@ -35,6 +36,7 @@ const SECTION_ICONS: Record<string, LucideIcon> = {
   leases: ScrollText,
   lease: ScrollText,
   calendar: Calendar,
+  "task-list": ListTodo,
   // A tour is someone being shown a place, so it gets its own glyph rather than falling through
   // to the `?? Circle` default — which is what put an empty circle in the nav — and rather than
   // reusing Calendar, which already means the Calendar section sitting a few rows below it.

@@ -21,7 +21,7 @@ const route = createJsonRecordRoute({
       );
     }
     return q.or(
-      `manager_user_id.eq.${user.id},id.like.axis_mgr_avail_slots_v2_${user.id}%,id.like.axis_calendar_share_avail_${user.id}_prop_%,id.eq.axis_admin_partner_inquiries_v1,id.eq.axis_admin_planned_events_v1`,
+      `manager_user_id.eq.${user.id},id.like.axis_mgr_avail_slots_v2_${user.id}%,id.like.axis_calendar_share_avail_${user.id}_prop_%,id.like.axis_manager_tasks_v1_${user.id},id.eq.axis_admin_partner_inquiries_v1,id.eq.axis_admin_planned_events_v1`,
     );
   },
   buildUpsert: (row, user) => {

@@ -39,6 +39,7 @@ import { PortalTierPaywall } from "@/components/portal/portal-tier-paywall";
 import { PortalWorkspaceClient } from "@/components/portal/portal-workspace-client";
 import {
   loadManagerAllServicesPanel,
+  loadManagerTaskList,
   loadManagerApplications,
   loadManagerDocumentsPanel,
   loadManagerFinancesPanel,
@@ -690,6 +691,17 @@ export async function renderPortalSection(
       );
     }
 
+    if (section === "task-list") {
+      if (tabParts?.length) notFound();
+      const ManagerTaskList = await loadManagerTaskList();
+      return subscriptionGated(
+        <ManagerTaskList />,
+        kind,
+        "task-list",
+        managerOwnerSubscriptionTier,
+      );
+    }
+
     if (section === "payments") {
       if (tabParts?.length === 1 && tabParts[0] === "payouts") {
         return subscriptionGated(
@@ -939,9 +951,12 @@ export async function renderPortalSection(
     }
 
     if (section === "calendar") {
-      const CALENDAR_VIEWS = ["availability", "bookings", "tours", "services", "all"] as const;
+      const CALENDAR_VIEWS = ["availability", "bookings", "schedule", "tours", "services", "all"] as const;
       if (tabParts?.length) {
         const viewRaw = tabParts[0]!;
+        if (viewRaw === "schedule") {
+          redirect(`${def.basePath}/calendar/availability`);
+        }
         if (viewRaw === "all" || viewRaw === "tours") {
           redirect(`${def.basePath}/calendar/availability`);
         }

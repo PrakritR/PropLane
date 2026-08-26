@@ -49,13 +49,14 @@ describe("pro portal documents section", () => {
 
   it("orders leasing → tenancy → operations → marketing → team → finances, then feedback before profile", () => {
     const sections = proPortal.sections.map((s) => s.section);
-    expect(sections.indexOf("properties")).toBeLessThan(sections.indexOf("calendar"));
-    expect(sections.indexOf("calendar")).toBeLessThan(sections.indexOf("applications"));
+    expect(sections.indexOf("properties")).toBeLessThan(sections.indexOf("applications"));
     expect(sections.indexOf("applications")).toBeLessThan(sections.indexOf("leases"));
     expect(sections.indexOf("leases")).toBeLessThan(sections.indexOf("residents"));
     expect(sections.indexOf("residents")).toBeLessThan(sections.indexOf("payments"));
     expect(sections.indexOf("payments")).toBeLessThan(sections.indexOf("services"));
-    expect(sections.indexOf("services")).toBeLessThan(sections.indexOf("communication"));
+    expect(sections.indexOf("services")).toBeLessThan(sections.indexOf("calendar"));
+    expect(sections.indexOf("calendar")).toBeLessThan(sections.indexOf("task-list"));
+    expect(sections.indexOf("task-list")).toBeLessThan(sections.indexOf("communication"));
     expect(sections.indexOf("communication")).toBeLessThan(sections.indexOf("relationships"));
     expect(sections.indexOf("relationships")).toBeLessThan(sections.indexOf("promotion"));
     expect(sections.indexOf("promotion")).toBeLessThan(sections.indexOf("financials"));

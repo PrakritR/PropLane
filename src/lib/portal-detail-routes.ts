@@ -178,7 +178,7 @@ export const CALENDAR_VIEW_TABS = ["availability", "bookings"] as const;
 export type CalendarViewTabId = (typeof CALENDAR_VIEW_TABS)[number];
 
 export const CALENDAR_VIEW_TAB_LABELS: Record<CalendarViewTabId, string> = {
-  availability: "Availability",
+  availability: "Schedule",
   bookings: "Bookings",
 };
 
@@ -186,6 +186,7 @@ export const CALENDAR_VIEW_TAB_LABELS: Record<CalendarViewTabId, string> = {
 export const PORTFOLIO_TOURS_HREF = "/portal/tours";
 
 export function parseCalendarViewTab(raw: string | undefined | null): CalendarViewTabId {
+  if (raw === "schedule") return "availability";
   if (raw === "all" || raw === "tours" || raw === "services") return "availability";
   if (raw && (CALENDAR_VIEW_TABS as readonly string[]).includes(raw)) {
     return raw as CalendarViewTabId;

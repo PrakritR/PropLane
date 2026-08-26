@@ -1149,27 +1149,7 @@ export function PortalCalendarPanels({
     return map;
   }, [coManagerAvailabilityOverlays]);
 
-  const upcomingMeetingSummary = useMemo(() => {
-    const now = today.getTime() - 30 * 60 * 1000;
-    const sorted = meetings
-      .filter((meeting) => !isGoogleCalendarPrivateBlock(meeting))
-      .map((meeting) => ({ meeting, startMs: new Date(meeting.startIso).getTime() }))
-      .filter((item) => Number.isFinite(item.startMs) && item.startMs >= now)
-      .sort((a, b) => a.startMs - b.startMs);
-    const pending = sorted.filter((item) => item.meeting.source === "inquiry").length;
-    const confirmed = sorted.filter((item) => item.meeting.source === "planned" || item.meeting.source === "external").length;
-    return {
-      total: sorted.length,
-      pending,
-      confirmed,
-      next: sorted.slice(0, 3).map((item) => item.meeting),
-    };
-  }, [meetings, today]);
-
   const isPropertyTourCalendar = Boolean(scheduledTourFilter?.viewerUserId);
-  const eventSummaryKind =
-    eventSummaryLabel ??
-    (isPropertyTourCalendar || meetings.some((meeting) => meeting.kind === "tour") ? "tour" : "meeting");
 
   const startTimeOptions = useMemo(
     () =>
@@ -2038,38 +2018,6 @@ export function PortalCalendarPanels({
           </div>
 
           <div className={compactBodyClass}>
-          {upcomingMeetingSummary.total > 0 ? (
-            <div className="mt-2 rounded-2xl border px-4 py-3 portal-banner-info">
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <div>
-                  <p className="text-sm font-bold text-sky-950 portal-calendar-callout-sky-title [html[data-theme=dark]_&]:portal-calendar-callout-sky-title">
-                    {upcomingMeetingSummary.total} upcoming {eventSummaryKind}
-                    {upcomingMeetingSummary.total === 1 ? "" : "s"} on this calendar
-                  </p>
-                  <p className="mt-1 text-xs font-medium text-sky-800 portal-calendar-callout-sky-sub [html[data-theme=dark]_&]:portal-calendar-callout-sky-sub">
-                    {upcomingMeetingSummary.pending} pending · {upcomingMeetingSummary.confirmed} confirmed
-                  </p>
-                </div>
-              </div>
-              <div className="mt-3 grid gap-2 md:grid-cols-3">
-                {upcomingMeetingSummary.next.map((meeting) => (
-                  <button
-                    key={meeting.id}
-                    type="button"
-                    className="rounded-xl border bg-card px-3 py-2 text-left text-xs shadow-sm transition hover:border-primary/30 hover:bg-[var(--status-approved-bg)]"
-                    onClick={(e: MouseEvent<HTMLButtonElement>) => openSlotDetails(meeting.dateStr, meeting.startSlot, e.currentTarget, meeting)}
-                  >
-                    <span className="block font-bold text-foreground">{meetingCalendarGridLabel(meeting)}</span>
-                    <span className="mt-1 block text-muted">{formatRangeLabel(meeting.startIso, meeting.endIso)}</span>
-                    {meeting.propertyTitle ? (
-                      <span className="mt-1 block truncate text-muted">{meeting.propertyTitle}</span>
-                    ) : null}
-                  </button>
-                ))}
-              </div>
-            </div>
-          ) : null}
-
           {(() => {
             const renderSlotButton = (ds: string, slotIdx: number) => {
               const key = dateSlotKey(ds, slotIdx);
