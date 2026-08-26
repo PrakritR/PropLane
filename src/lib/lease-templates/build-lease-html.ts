@@ -430,10 +430,18 @@ export function buildLeaseHtml(ctx: LeaseGenerationContext, config: LeaseJurisdi
   const pets = dash(a.pets);
 
   // ── Landlord ─────────────────────────────────────────────────────────────
+  // The manager's own legal name wins outright. The building-name fallbacks below are a PLACE,
+  // not a legal person, and they are kept only so a draft still renders something recognisable —
+  // `leaseLandlordNameBlocker` refuses the SEND whenever the real name is missing, so neither a
+  // building name nor the bracket placeholder can reach a document a resident is asked to sign.
   const landlordEntity = escapeHtml(
     propertyTemplatePreview
       ? PROPERTY_LEASE_TEMPLATE_PLACEHOLDER
-      : sub?.buildingName?.trim() || list?.buildingName?.trim() || room?.buildingName?.trim() || "[LANDLORD ENTITY NAME]",
+      : ctx.landlordLegalName?.trim() ||
+        sub?.buildingName?.trim() ||
+        list?.buildingName?.trim() ||
+        room?.buildingName?.trim() ||
+        "[LANDLORD ENTITY NAME]",
   );
   const subNorm = sub ? normalizeManagerListingSubmissionV1(sub) : undefined;
   const streetFromSubmission = subNorm ? listingSubmissionStreetLine(subNorm).trim() : "";

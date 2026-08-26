@@ -480,11 +480,23 @@ export function PortalCalendar({
     bookingsRoomLabels,
   ]);
 
+  // The Calendar section is the operations overview: it answers "is anyone going into this
+  // property, or is anything scheduled to be done there". That means BOTH scheduled tours and
+  // service visits, not just the manager's own Google events. Previously service visits were
+  // merged only for the Tours hub's Services tab, so Calendar → Availability could only ever
+  // render 0 events while the Tours tab showed the very same week with two.
+  const showScheduledWorkOnCalendar = !schedulingHub && availabilityView;
   const mergedExternalMeetings = useMemo(() => {
     const base = portal === "manager" ? [...googleExternalMeetings] : [];
-    if (showServiceVisits) base.push(...serviceCalendarMeetings);
+    if (showServiceVisits || showScheduledWorkOnCalendar) base.push(...serviceCalendarMeetings);
     return base;
-  }, [portal, googleExternalMeetings, serviceCalendarMeetings, showServiceVisits]);
+  }, [
+    portal,
+    googleExternalMeetings,
+    serviceCalendarMeetings,
+    showServiceVisits,
+    showScheduledWorkOnCalendar,
+  ]);
 
   const calendarPanelsReadOnly =
     servicesOnlyView ||
@@ -699,9 +711,7 @@ export function PortalCalendar({
             compactAvailability
             availabilityHeading={portal === "manager" ? (schedulingHub ? "Tour schedule" : "Schedule") : "Schedule meeting"}
             scheduledTourFilter={
-              schedulingHub && toursHubTab === "tours" && calendarScheduledTourFilter
-                ? calendarScheduledTourFilter
-                : undefined
+              availabilityView && calendarScheduledTourFilter ? calendarScheduledTourFilter : undefined
             }
             coManagerAvailabilityOverlays={showCoManagerCoordination ? coManagerAvailabilityOverlays : undefined}
             externalMeetings={portal === "manager" ? mergedExternalMeetings : undefined}
@@ -710,7 +720,7 @@ export function PortalCalendar({
             // rescheduled, cancelled or deleted, instead of at the next reload.
             onMeetingsChanged={() => setCalendarRefreshSignal((n) => n + 1)}
             readOnly={portal === "manager" ? calendarPanelsReadOnly : false}
-            eventSummaryLabel={schedulingHub && servicesOnlyView ? "visit" : schedulingHub ? "tour" : "slot"}
+            eventSummaryLabel={schedulingHub && servicesOnlyView ? "visit" : schedulingHub ? "tour" : "event"}
             preferEventCountsInDayHeader
             anchorDate={calendarAnchorDate}
             onAnchorDateChange={setCalendarAnchorDate}

@@ -7,6 +7,7 @@ import {
   Circle,
   ClipboardList,
   CreditCard,
+  DoorOpen,
   Folder,
   Inbox,
   LayoutDashboard,
@@ -34,7 +35,11 @@ const SECTION_ICONS: Record<string, LucideIcon> = {
   leases: ScrollText,
   lease: ScrollText,
   calendar: Calendar,
-  tour: Calendar,
+  // A tour is someone being shown a place, so it gets its own glyph rather than falling through
+  // to the `?? Circle` default — which is what put an empty circle in the nav — and rather than
+  // reusing Calendar, which already means the Calendar section sitting a few rows below it.
+  tours: DoorOpen,
+  tour: DoorOpen,
   events: Calendar,
   applications: ClipboardList,
   payments: CreditCard,

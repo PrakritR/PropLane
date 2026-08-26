@@ -183,7 +183,7 @@ function ManagerPropertyInlineDetails({
   propertiesBase,
   stage,
   detailTab: detailTabProp = "preview",
-  calendarSubTab: calendarSubTabProp = "tours",
+  calendarSubTab: calendarSubTabProp = "bookings",
   onDetailHeaderActions,
 }: {
   bucket: AdminPropertyBucketIndex;

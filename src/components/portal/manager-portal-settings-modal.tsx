@@ -15,6 +15,7 @@ import {
   ResidentSettingsPanel,
 } from "@/components/portal/manager-portal-settings-panels";
 import type { ApplicationAutomationPreferences } from "@/lib/application-automation-preferences";
+import { cacheLandlordLegalName } from "@/lib/manager-landlord-profile";
 import { PORTAL_TOOLBAR_PILL_BUTTON, PORTAL_TOOLBAR_PILL_BUTTON_ACTIVE } from "@/components/portal/portal-metrics";
 
 export type ManagerPortalSettingsTab =
@@ -51,6 +52,7 @@ export function ManagerPortalSettingsModal({
   const [waiverCode, setWaiverCode] = useState("");
   const [feeCents, setFeeCents] = useState<number | null>(null);
   const [automation, setAutomation] = useState<ApplicationAutomationPreferences>(DEFAULT_APPLICATION_AUTOMATION);
+  const [landlordLegalName, setLandlordLegalName] = useState("");
 
   useEffect(() => {
     if (open) setTab(initialTab);
@@ -69,6 +71,7 @@ export function ManagerPortalSettingsModal({
       const data = (await res.json().catch(() => ({}))) as {
         settings?: { applicationFeeCents: number | null };
         automation?: unknown;
+        landlord?: { landlordLegalName?: string } | null;
         waiverCode?: string | null;
         error?: string;
       };
@@ -78,6 +81,11 @@ export function ManagerPortalSettingsModal({
       }
       setFeeCents(data.settings?.applicationFeeCents ?? null);
       setAutomation(normalizeApplicationAutomation(data.automation));
+      const savedLandlord = (data.landlord?.landlordLegalName ?? "").trim();
+      setLandlordLegalName(savedLandlord);
+      // Keep the generator's cache in step with the server on every load, so a manager who set the
+      // name on another device still generates a correctly-named lease here.
+      cacheLandlordLegalName(savedLandlord);
       setWaiverCode((data.waiverCode ?? "").trim());
     } catch {
       showToast("Could not load settings.");
@@ -96,6 +104,7 @@ export function ManagerPortalSettingsModal({
   async function saveApplicationBundle(patch: {
     waiverCode?: string;
     automation?: ApplicationAutomationPreferences;
+    landlordLegalName?: string;
   }) {
     if (demo) {
       showToast("Settings saved (demo).");
@@ -111,14 +120,23 @@ export function ManagerPortalSettingsModal({
           applicationFeeCents: feeCents,
           waiverCode: patch.waiverCode ?? waiverCode.trim(),
           automation: patch.automation ?? automation,
+          landlordLegalName: patch.landlordLegalName ?? landlordLegalName.trim(),
         }),
       });
-      const data = (await res.json().catch(() => ({}))) as { error?: string };
+      const data = (await res.json().catch(() => ({}))) as {
+        error?: string;
+        landlord?: { landlordLegalName?: string } | null;
+      };
       if (!res.ok) {
         showToast(data.error ?? "Could not save settings.");
         return;
       }
       if (patch.automation) setAutomation(patch.automation);
+      // Cache only what the server ACCEPTED — it normalizes, and the generator must not print a
+      // name the server rejected or rewrote.
+      const acceptedLandlord = (data.landlord?.landlordLegalName ?? landlordLegalName).trim();
+      setLandlordLegalName(acceptedLandlord);
+      cacheLandlordLegalName(acceptedLandlord);
       showToast("Settings saved.");
     } catch {
       showToast("Could not save settings.");
@@ -165,10 +183,12 @@ export function ManagerPortalSettingsModal({
       {tab === "lease" ? (
         <LeaseSettingsPanel
           automation={automation}
+          landlordLegalName={landlordLegalName}
           loading={loading}
           saving={saving}
           onAutomationChange={setAutomation}
-          onSave={() => void saveApplicationBundle({ automation })}
+          onLandlordLegalNameChange={setLandlordLegalName}
+          onSave={() => void saveApplicationBundle({ automation, landlordLegalName: landlordLegalName.trim() })}
         />
       ) : null}
 

@@ -89,20 +89,52 @@ export function ApplicationsSettingsPanel({
 
 export function LeaseSettingsPanel({
   automation,
+  landlordLegalName,
   loading,
   saving,
   onAutomationChange,
+  onLandlordLegalNameChange,
   onSave,
 }: {
   automation: ApplicationAutomationPreferences;
+  landlordLegalName: string;
   loading: boolean;
   saving: boolean;
   onAutomationChange: (next: ApplicationAutomationPreferences) => void;
+  onLandlordLegalNameChange: (next: string) => void;
   onSave: () => void;
 }) {
   return (
     <div className="space-y-4">
-      <p className="text-xs text-muted">
+      {/*
+        First, because a lease cannot be SENT without it. The template used to fall back to the
+        building name — a place, not a legal person — and then to a literal "[LANDLORD ENTITY
+        NAME]" that shipped onto documents residents were asked to sign.
+      */}
+      <div className="space-y-2">
+        <label
+          className="block text-[13px] font-semibold text-foreground"
+          htmlFor="manager-landlord-legal-name"
+        >
+          Landlord legal name
+        </label>
+        <input
+          id="manager-landlord-legal-name"
+          type="text"
+          value={landlordLegalName}
+          onChange={(e) => onLandlordLegalNameChange(e.target.value)}
+          placeholder="E.g. Doe Property Holdings LLC"
+          data-attr="manager-landlord-legal-name-input"
+          disabled={loading || saving}
+          className="w-full rounded-lg border border-border bg-card px-3 py-2 text-sm text-foreground"
+        />
+        <p className="text-xs text-muted">
+          The party named on every lease you generate — a person or an entity, exactly as it should
+          appear on a contract. PropLane will not send a lease until this is set.
+        </p>
+      </div>
+
+      <p className="border-t border-border pt-4 text-xs text-muted">
         After you approve an application, PropLane can build and send the lease for you. Every safety check
         that applies when you do this manually still applies.
       </p>

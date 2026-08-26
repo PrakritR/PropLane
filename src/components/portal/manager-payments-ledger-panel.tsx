@@ -57,6 +57,7 @@ import {
 } from "@/components/portal/payment-schedule-ui";
 import type { ScheduledPaymentMessage } from "@/lib/scheduled-payment-messages";
 import { manageableRemindersForCharge, formatScheduledSendAt } from "@/lib/scheduled-payment-messages";
+import { scheduledSendBadgeLabel, summariseScheduledSends } from "@/lib/scheduled-send-summary";
 import { paymentReminderRecipientLabel } from "@/lib/payment-reminder-ui";
 import { buildManualPaymentInstructionLines, buildPaymentReminderBody } from "@/lib/manual-payment-instructions";
 import {
@@ -114,7 +115,7 @@ function paymentReminderBadge(
     .sort()
     .map((iso) => formatScheduledSendAt(iso))[0];
   return (
-    <Badge variant="secondary" className="shrink-0 text-[10px] font-semibold uppercase tracking-wide">
+    <Badge tone="pending">
       Reminder {nextSend}
     </Badge>
   );
@@ -735,6 +736,35 @@ export function ManagerPaymentsLedgerPanel({
             <p className="font-semibold tabular-nums text-foreground">{row.balanceDue}</p>
           </div>
         </div>
+        {/*
+          Every reminder still queued for this charge, with its send time. The header badge says
+          THAT something is coming; a manager on the detail page deciding whether to chase needs to
+          know WHEN, and what kind.
+        */}
+        {(() => {
+          // `householdChargeId` is optional on a ledger row; without it there is no charge to
+          // match reminders against, so there is nothing to show rather than everything.
+          if (!row.householdChargeId) return null;
+          const reminders = manageableRemindersForCharge(scheduledMessages, row.householdChargeId)
+            .filter((message) => message.status === "scheduled")
+            .filter((message) => Date.parse(message.sendAt) > Date.now());
+          if (reminders.length === 0) return null;
+          return (
+            <div data-attr="payment-detail-scheduled-reminders">
+              <p className="text-xs font-medium text-muted">
+                {reminders.length === 1 ? "Scheduled reminder" : "Scheduled reminders"}
+              </p>
+              <ul className="mt-1 space-y-1">
+                {reminders.map((message) => (
+                  <li key={message.id} className="text-foreground">
+                    {formatScheduledSendAt(message.sendAt)}
+                    <span className="text-muted"> · {message.typeLabel}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          );
+        })()}
         {row.notes ? (
           <div>
             <p className="text-xs font-medium text-muted">Details</p>
@@ -1312,6 +1342,24 @@ export function ManagerPaymentsLedgerPanel({
               <Badge tone="info">
                 {cluster.rows.length === 1 ? "1 charge" : `${cluster.rows.length} charges`}
               </Badge>
+              {/*
+                What is QUEUED, beside what is due. Without it a manager cannot tell "I should
+                chase this" from "a reminder goes out tomorrow, leave it alone" — and chases a
+                resident PropLane is already chasing.
+              */}
+              {(() => {
+                const chargeIds = new Set(cluster.rows.map((row) => row.householdChargeId));
+                const label = scheduledSendBadgeLabel(
+                  summariseScheduledSends(
+                    scheduledMessages.filter((message) => chargeIds.has(message.chargeId)),
+                  ),
+                );
+                return label ? (
+                  <Badge tone="pending">
+                    <span data-attr="payments-cluster-scheduled">{label}</span>
+                  </Badge>
+                ) : null;
+              })()}
             </>
           }
         >

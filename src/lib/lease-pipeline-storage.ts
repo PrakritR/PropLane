@@ -42,6 +42,7 @@ import {
 import { stripLeaseAiDisclaimerFromHtml, stripLeaseAiReviewDisclaimer } from "@/lib/lease-templates/types";
 import { effectiveApplicationForRow, enrichApplicationForLease, readManagerApplicationRows, signedRentLabelForRow, writeManagerApplicationRows } from "@/lib/manager-applications-storage";
 import { getPropertyById, getRoomChoiceLabel, getBundleChoiceLabel } from "@/lib/rental-application/data";
+import { cachedLandlordLegalName } from "@/lib/manager-landlord-profile";
 import { normalizeManagerListingSubmissionV1 } from "@/lib/manager-listing-submission";
 import { submissionWithLeaseTemplateById } from "@/lib/property-lease-template-sync";
 import type { RentalWizardFormState } from "@/lib/rental-application/types";
@@ -418,6 +419,30 @@ export function leaseApplicationApprovalBlocker(row: LeasePipelineRow): string |
  * The row's own state (no document, already finalized, already signed) is
  * checked by the callers, which know it without consulting anything else.
  */
+/** The literal the template emits when it has no landlord name to print. */
+export const LEASE_LANDLORD_PLACEHOLDER = "[LANDLORD ENTITY NAME]";
+
+export const LEASE_LANDLORD_NAME_REQUIRED_MESSAGE =
+  "This lease still names \u201c[LANDLORD ENTITY NAME]\u201d as the landlord. Add your landlord legal name in Settings, then regenerate the lease before sending it.";
+
+/**
+ * Refuse to send a lease whose landlord party is still the template's placeholder.
+ *
+ * Deliberately gates on the DOCUMENT rather than on the manager's setting. The setting lives on
+ * the server and this gate is synchronous, but that is not the main reason: what matters is what
+ * the resident is asked to sign, and reading the artifact also catches a lease generated before
+ * the name was set, or one regenerated from a stale context. A document is the evidence; a
+ * setting is only an intention.
+ *
+ * A manager-uploaded PDF is exempt because its bytes are opaque here — its parties are the
+ * manager's own, and the uploaded-lease review gate already covers it.
+ */
+export function leaseLandlordNameBlocker(row: LeasePipelineRow): string | null {
+  const html = row.generatedHtml;
+  if (!html) return null;
+  return html.includes(LEASE_LANDLORD_PLACEHOLDER) ? LEASE_LANDLORD_NAME_REQUIRED_MESSAGE : null;
+}
+
 export function leaseSendGateBlockerAmong(row: LeasePipelineRow, apps: DemoApplicantRow[]): string | null {
   const approval = leaseApplicationApprovalBlockerAmong(row, apps);
   if (approval) return approval;
@@ -443,6 +468,10 @@ export function leaseSendGateBlockerAmong(row: LeasePipelineRow, apps: DemoAppli
     const next = leaseAllowsManagerDocumentEdits(row) ? "" : ` ${LEASE_MOVE_BACK_TO_REVIEW_MESSAGE}`;
     return `${UPLOADED_LEASE_REVIEW_REQUIRED_MESSAGE}${next}`;
   }
+  // Last, because it is the most mechanical to fix and the least likely: a lease that still
+  // names the placeholder as its landlord party must never reach a signature request.
+  const landlord = leaseLandlordNameBlocker(row);
+  if (landlord) return landlord;
   return null;
 }
 
@@ -2169,6 +2198,11 @@ function leaseGenerationContextForRow(
   const app = applicationSnapshotForLeaseRow(row);
   if (!app || !Object.keys(app).length) return null;
   let ctx = leaseContextFromApplication(app as RentalWizardFormState);
+  // The landlord party. Empty means the manager has not set one yet: the template keeps its old
+  // fallback and `leaseLandlordNameBlocker` refuses the send, rather than a building name or the
+  // bracket placeholder reaching a document a resident signs.
+  const landlordLegalName = cachedLandlordLegalName();
+  if (landlordLegalName) ctx = { ...ctx, landlordLegalName };
   if (row.leaseKind === "joint_bundle") {
     ctx = {
       ...ctx,

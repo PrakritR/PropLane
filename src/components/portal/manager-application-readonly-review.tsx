@@ -48,6 +48,7 @@ export function ManagerApplicationReadonlyReview({
   partial,
   assignedPropertyId,
   assignedRoomChoice,
+  omitSections,
 }: {
   partial: Partial<RentalWizardFormState>;
   assignedPropertyId?: string;

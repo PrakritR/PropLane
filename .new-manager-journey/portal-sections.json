@@ -1,0 +1,64 @@
+[
+  {
+    "name": "dashboard",
+    "ok": true
+  },
+  {
+    "name": "properties",
+    "ok": true
+  },
+  {
+    "name": "calendar",
+    "ok": true
+  },
+  {
+    "name": "applications",
+    "ok": true
+  },
+  {
+    "name": "leases",
+    "ok": true
+  },
+  {
+    "name": "residents",
+    "ok": true
+  },
+  {
+    "name": "payments",
+    "ok": true
+  },
+  {
+    "name": "services",
+    "ok": true
+  },
+  {
+    "name": "inbox",
+    "ok": true
+  },
+  {
+    "name": "documents",
+    "ok": true
+  },
+  {
+    "name": "finances",
+    "ok": true
+  },
+  {
+    "name": "promotion",
+    "ok": true
+  },
+  {
+    "name": "team",
+    "ok": true
+  },
+  {
+    "name": "settings",
+    "ok": false,
+    "note": "\u001b[2mexpect(\u001b[22m\u001b[31mlocator\u001b[39m\u001b[2m).\u001b[22mtoBeVisible\u001b[2m(\u001b[22m\u001b[2m)\u001b[22m failed\n\nLocator: getByRole('heading').first("
+  },
+  {
+    "name": "feedback",
+    "ok": false,
+    "note": "\u001b[2mexpect(\u001b[22m\u001b[31mlocator\u001b[39m\u001b[2m).\u001b[22mtoBeVisible\u001b[2m(\u001b[22m\u001b[2m)\u001b[22m failed\n\nLocator: getByRole('heading').first("
+  }
+]
