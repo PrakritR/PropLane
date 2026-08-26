@@ -52,6 +52,12 @@ describe("portfolio calendar and bookings nav", () => {
     const render = read("src/lib/render-portal-section.tsx");
     expect(render).toContain('section === "bookings"');
   });
+
+  it("calendar index route renders the schedule view instead of self-redirecting", () => {
+    const page = read("src/app/portal/calendar/page.tsx");
+    expect(page).toContain('renderProPortalSection("calendar")');
+    expect(page).not.toContain('redirect("/portal/calendar")');
+  });
 });
 
 describe("portfolio tours hub", () => {

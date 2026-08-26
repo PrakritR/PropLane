@@ -1,5 +1,6 @@
-import { redirect } from "next/navigation";
+import { renderProPortalSection } from "@/lib/portal-section-page";
 
-export default function CalendarIndexPage() {
-  redirect("/portal/calendar");
+/** Portfolio schedule grid — no sub-path segment (Bookings is `/portal/bookings`). */
+export default async function CalendarIndexPage() {
+  return renderProPortalSection("calendar");
 }
