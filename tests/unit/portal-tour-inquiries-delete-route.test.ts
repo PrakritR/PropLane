@@ -98,8 +98,13 @@ describe("POST /api/portal-tour-inquiries/delete", () => {
     expect(UPSERT_CALLS).toHaveLength(1);
     const upserted = UPSERT_CALLS[0] as { row_data?: { payload?: Record<string, unknown>[] } };
     const remaining = upserted.row_data?.payload ?? [];
+    // A cancelled tour is DECLINED, not erased. The guest was told this tour existed, so the
+    // record stays and carries its outcome; hard-deleting it would lose the fact that it was ever
+    // booked. Another manager's inquiry is untouched either way.
     expect(remaining.some((row) => row.id === "inq-victim")).toBe(true);
-    expect(remaining.some((row) => row.id === "inq-own")).toBe(false);
+    const own = remaining.find((row) => row.id === "inq-own");
+    expect(own).toBeTruthy();
+    expect(own?.status).toBe("declined");
   });
 
   it("skips guest notification when notifyTenant is false", async () => {

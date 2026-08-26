@@ -39,8 +39,11 @@ vi.mock("@/lib/manager-portfolio-access", () => ({
 vi.mock("@/lib/manager-property-links", () => ({
   buildManagerShareablePropertyOptions: () => [],
 }));
-vi.mock("@/lib/demo-property-pipeline", () => ({
-  PROPERTY_PIPELINE_EVENT: "property-pipeline-changed",
+// PARTIAL mock: the panel keeps picking up new readers from this module, and a fully-replaced
+// mock throws on the first export it does not name — three appeared in a row here. Spreading the
+// real module stubs only the network-touching calls and lets new readers keep working.
+vi.mock("@/lib/demo-property-pipeline", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/demo-property-pipeline")>()),
   syncPropertyPipelineFromServer: () => Promise.resolve(),
   hasCachedPropertyPipeline: () => true,
 }));
