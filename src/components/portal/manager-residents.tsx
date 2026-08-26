@@ -5,6 +5,7 @@ import { cn } from "@/lib/utils";
 import { useCommunicationSurfaceChrome } from "@/hooks/use-communication-surface-chrome";
 import { usePortalNavigate } from "@/lib/portal-nav-client";
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useSearchParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { SegmentedThree } from "@/components/ui/segmented-control";
 import { PortalDetailDestinationNav } from "@/components/portal/portal-detail-destination-nav";
@@ -64,7 +65,7 @@ import {
 } from "@/lib/portal-detail-routes";
 import { PortalRecordDetailPage } from "@/components/portal/portal-record-detail-page";
 import { ManagerResidentsGroupedTable } from "@/components/portal/manager-residents-grouped-table";
-import { clusterManagerResidentListRows } from "@/lib/manager-resident-list";
+import { buildResidentListClusters } from "@/lib/manager-resident-list-grouping";
 import { PortalListAddRow, PORTAL_LIST_ADD_ICONS } from "@/components/portal/portal-list-add-row";
 import { PORTAL_LIST_PAGE_BODY } from "@/components/portal/portal-inbox-ui";
 import { LeaseDocumentPreview } from "@/components/portal/lease-document-preview";
@@ -213,7 +214,8 @@ import {
 } from "@/lib/existing-resident-welcome-email";
 import { LocalDestinationNav } from "@/components/ui/destination-nav";
 import { groupIdForRow, groupRowInputForRow } from "@/components/portal/application-group-section";
-import { ApplicationCosignerSection } from "@/components/portal/application-household-list";
+import { ApplicationHouseholdInlinePanels } from "@/components/portal/application-household-inline-panels";
+import { ManagerCosignerReadonlyReview } from "@/components/portal/manager-cosigner-readonly-review";
 import { dedupeResidentsByEmail } from "@/lib/resident-directory-dedupe";
 import { ApplicationHoldingFeeModal } from "@/components/portal/application-holding-fee-box";
 import { ManagerPortalSettingsModal } from "@/components/portal/manager-portal-settings-modal";
@@ -321,6 +323,7 @@ export function ManagerResidents({
 }) {
   const { showToast } = useAppUi();
   const navigate = usePortalNavigate();
+  const searchParams = useSearchParams();
   const portalBase = usePaidPortalBasePath();
   const { userId, email: managerEmail, ready: authReady } = useManagerUserId();
   const applicationAutomation = useApplicationAutomation(userId);
@@ -1037,9 +1040,14 @@ export function ManagerResidents({
     });
   }, [residents, propertyFilters, searchQuery]);
 
+  const applicationGroups = useMemo(() => {
+    void hcTick;
+    return buildApplicationGroups(readManagerApplicationRows().map(groupRowInputForRow));
+  }, [hcTick]);
+
   const residentListClusters = useMemo(
     () =>
-      clusterManagerResidentListRows(
+      buildResidentListClusters(
         filtered.map((res) => ({
           id: res.id,
           name: res.name,
@@ -1047,9 +1055,11 @@ export function ManagerResidents({
           propertyLabel: res.propertyLabel,
           roomLabel: res.roomLabel,
           leaseStart: res.leaseStart,
+          groupId: res.groupId,
         })),
+        applicationGroups,
       ),
-    [filtered],
+    [filtered, applicationGroups],
   );
 
   const activeResidentId = residentIdProp ? decodeURIComponent(residentIdProp) : null;
@@ -1164,11 +1174,6 @@ export function ManagerResidents({
     return readManagerApplicationRows().find((row) => row.id === selected.id) ?? null;
   }, [selected, hcTick]);
 
-  const applicationGroups = useMemo(() => {
-    void hcTick;
-    return buildApplicationGroups(readManagerApplicationRows().map(groupRowInputForRow));
-  }, [hcTick]);
-
   const selectedApplicationGroup = useMemo(() => {
     if (!selectedApplicationRow) return null;
     return groupForRow(applicationGroups, { groupId: groupIdForRow(selectedApplicationRow) });
@@ -1184,6 +1189,18 @@ export function ManagerResidents({
     const key = normalizeApplicationAxisId(selectedApplicationRow.id).toUpperCase();
     return residentCosignerSubmissionsBySigner.get(key) ?? [];
   }, [selectedApplicationRow, residentCosignerSubmissionsBySigner]);
+
+  const activeCosignerIndexParam = searchParams.get("cosigner");
+  const activeCosignerIndex =
+    activeCosignerIndexParam != null && /^\d+$/.test(activeCosignerIndexParam)
+      ? parseInt(activeCosignerIndexParam, 10)
+      : null;
+  const activeCosignerSubmission =
+    activeCosignerIndex != null &&
+    activeCosignerIndex >= 0 &&
+    activeCosignerIndex < selectedApplicationCosigners.length
+      ? selectedApplicationCosigners[activeCosignerIndex]!
+      : null;
 
   useEffect(() => {
     if (!paymentIdProp || activeDetailTab !== "payments") {
@@ -2774,15 +2791,13 @@ export function ManagerResidents({
                             <div className="flex min-h-0 flex-1 flex-col">
                             <ResidentDetailTabPanel fill>
                               {selectedApplicationRow ? (
+                                activeCosignerSubmission ? (
+                                  <ManagerCosignerReadonlyReview
+                                    sub={activeCosignerSubmission}
+                                    primaryApplicationAxisId={selectedApplicationRow.id}
+                                  />
+                                ) : (
                                 <div className="flex min-h-0 flex-1 flex-col gap-0">
-                                  {selectedApplicationCosigners.length > 0 ? (
-                                    <div className="shrink-0">
-                                      <ApplicationCosignerSection
-                                        submissions={selectedApplicationCosigners}
-                                        primaryApplicationAxisId={selectedApplicationRow.id}
-                                      />
-                                    </div>
-                                  ) : null}
                                   <ApplicationReviewLauncherRow
                                     row={selectedApplicationRow}
                                     group={selectedApplicationGroup}
@@ -2796,12 +2811,37 @@ export function ManagerResidents({
                                       setCheckrScreeningShowPicker(Boolean(opts?.showPackagePicker));
                                       setCheckrScreeningRowId(selectedApplicationRow.id);
                                     }}
-                                    omitReviewSections={
-                                      selectedApplicationCosigners.length > 0 ? ["cosigner"] : undefined
+                                    hasLinkedCosigner={selectedApplicationCosigners.length > 0}
+                                    householdPanels={
+                                      applicationReviewView === "application" &&
+                                      (selectedApplicationCosigners.length > 0 || selectedApplicationGroup) ? (
+                                        <ApplicationHouseholdInlinePanels
+                                          cosignerSubmissions={selectedApplicationCosigners}
+                                          primaryApplicationAxisId={selectedApplicationRow.id}
+                                          hasCosigner={selectedApplicationRow.application?.hasCosigner}
+                                          onOpenCosigner={(index) => {
+                                            navigate(
+                                              `${residentDetailHref(portalBase, residentsTab, selected.id, "application")}?cosigner=${index}`,
+                                            );
+                                          }}
+                                          group={selectedApplicationGroup}
+                                          currentRowId={selectedApplicationRow.id}
+                                          onOpenApplication={(applicationId) => {
+                                            navigate(
+                                              residentDetailHref(portalBase, residentsTab, applicationId, "application"),
+                                            );
+                                          }}
+                                        />
+                                      ) : null
                                     }
+                                    omitReviewSections={[
+                                      ...(selectedApplicationCosigners.length > 0 ? (["cosigner"] as const) : []),
+                                      ...(selectedApplicationGroup ? (["group", "placement"] as const) : []),
+                                    ]}
                                     className="min-h-0 flex-1"
                                   />
                                 </div>
+                                )
                               ) : (
                                 <p className="text-sm text-muted">No application on file for this resident.</p>
                               )}

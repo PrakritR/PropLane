@@ -1,4 +1,5 @@
 import type { DemoApplicantRow } from "@/data/demo-portal";
+import type { ApplicationListTabId } from "@/lib/portal-detail-routes";
 import { getRoomChoiceLabel } from "@/lib/rental-application/data";
 import {
   applicationHasGroup,
@@ -6,6 +7,7 @@ import {
   type ApplicationGroup,
 } from "@/lib/rental-application/application-groups";
 import type { GroupRole } from "@/lib/rental-application/types";
+import { applicationRowSortMs } from "@/lib/manager-application-list";
 
 export type ApplicationListSortBucket = "approved" | "pending";
 
@@ -178,6 +180,52 @@ export function buildApplicationListClusters(
   }
 
   return clusters;
+}
+
+function clusterLeadForSort(cluster: ApplicationListCluster): DemoApplicantRow | null {
+  if (cluster.kind === "single") return cluster.row;
+  return cluster.rows[0] ?? null;
+}
+
+/** Bucket sort for manager application list clusters (households sort by their lead row). */
+export function sortApplicationListClustersForBucket(
+  clusters: ApplicationListCluster[],
+  tab: ApplicationListTabId,
+): ApplicationListCluster[] {
+  const bucket = applicationListSortBucket(tab);
+  const sortKey = (cluster: ApplicationListCluster) => {
+    const lead = clusterLeadForSort(cluster);
+    if (!lead) return tab === "rejected" ? -Infinity : Infinity;
+    if (tab === "rejected") return applicationRowSortMs(lead);
+    if (tab === "approved") return 0;
+    return applicationRowSortMs(lead);
+  };
+
+  const sorted = [...clusters].map((cluster) => {
+    if (cluster.kind !== "household") return cluster;
+    return {
+      ...cluster,
+      rows: [...cluster.rows].sort((a, b) => compareApplicationRowsForBucket(a, b, bucket)),
+    };
+  });
+
+  if (tab === "approved") {
+    sorted.sort((a, b) => {
+      const leadA = clusterLeadForSort(a);
+      const leadB = clusterLeadForSort(b);
+      if (!leadA || !leadB) return 0;
+      return compareApplicationRowsForBucket(leadA, leadB, bucket);
+    });
+    return sorted;
+  }
+
+  if (tab === "rejected") {
+    sorted.sort((a, b) => sortKey(b) - sortKey(a));
+    return sorted;
+  }
+
+  sorted.sort((a, b) => sortKey(a) - sortKey(b));
+  return sorted;
 }
 
 /** Primary applications that may have linked co-signer submissions in this list. */

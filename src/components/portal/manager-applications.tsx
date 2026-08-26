@@ -101,19 +101,20 @@ import {
 import { isWithdrawnApplicationRow } from "@/lib/rental-application/resident-application-list";
 import { applicantDisplayName, applicantSecondaryEmail } from "@/lib/rental-application/applicant-name";
 import { ManagerApplicationsGroupedTable } from "@/components/portal/manager-applications-grouped-table";
+import { ApplicationHouseholdInlinePanels } from "@/components/portal/application-household-inline-panels";
 import {
-  ApplicationGroupSection,
   groupIdForRow,
   groupRowInputForRow,
 } from "@/components/portal/application-group-section";
-import { ApplicationCosignerSection } from "@/components/portal/application-household-list";
 import { ManagerCosignerReadonlyReview } from "@/components/portal/manager-cosigner-readonly-review";
 import { useCosignerSubmissionsMap } from "@/hooks/use-cosigner-submissions-map";
+import { sortApplicationRowsForBucket } from "@/lib/manager-application-list";
 import {
-  clusterApplicationListRows,
-  sortApplicationClustersForBucket,
-} from "@/lib/manager-application-list";
-import { signerAppIdsForCosignerLookup } from "@/lib/rental-application/application-list-grouping";
+  applicationListSortBucket,
+  buildApplicationListClusters,
+  signerAppIdsForCosignerLookup,
+  sortApplicationListClustersForBucket,
+} from "@/lib/rental-application/application-list-grouping";
 import { buildBundleApplicationGroups } from "@/lib/bundle-group/bundle-group-application";
 import { groupForRow } from "@/lib/rental-application/application-groups";
 import {
@@ -753,10 +754,14 @@ export function ManagerApplications({
     return searched;
   }, [propertyFilteredRows, bucket, searchQuery]);
 
-  const listClusters = useMemo(
-    () => sortApplicationClustersForBucket(clusterApplicationListRows(rowsForBucket), bucket),
-    [rowsForBucket, bucket],
-  );
+  const listClusters = useMemo(() => {
+    const sortBucket = applicationListSortBucket(bucket);
+    const sorted = sortApplicationRowsForBucket(rowsForBucket, bucket);
+    return sortApplicationListClustersForBucket(
+      buildApplicationListClusters(sorted, applicationGroups, sortBucket),
+      bucket,
+    );
+  }, [rowsForBucket, bucket, applicationGroups]);
 
   const openDetailScreeningModal = useCallback((row: DemoApplicantRow, opts?: { showPackagePicker?: boolean }) => {
     setCheckrScreeningShowPicker(Boolean(opts?.showPackagePicker));
@@ -1296,6 +1301,24 @@ export function ManagerApplications({
     const showPaidDepositNote = paidDepositCharge?.status === "paid";
     const group = groupForRow(applicationGroups, { groupId: groupIdForRow(row) });
     const showHouseholdSections = applicationReviewView === "application";
+    const householdPanels =
+      showHouseholdSections &&
+      (cosignerSubmissions.length > 0 || group) ? (
+        <ApplicationHouseholdInlinePanels
+          cosignerSubmissions={cosignerSubmissions}
+          primaryApplicationAxisId={row.id}
+          hasCosigner={row.application?.hasCosigner}
+          onOpenCosigner={(index) => {
+            const href = `${applicationDetailHref(basePath, tabForRow(row), row.id)}?cosigner=${index}`;
+            navigate(href);
+          }}
+          group={group}
+          currentRowId={row.id}
+          onOpenApplication={(applicationId) =>
+            navigate(applicationDetailHref(basePath, tabForRow(row), applicationId))
+          }
+        />
+      ) : null;
     return (
     <>
       {showPaidDepositNote ? (
@@ -1305,26 +1328,6 @@ export function ManagerApplications({
           PropLane does not automatically refund it. Handle any refund directly with the applicant per your lease
           terms.
         </div>
-      ) : null}
-      {showHouseholdSections && cosignerSubmissions.length > 0 ? (
-        <ApplicationCosignerSection
-          submissions={cosignerSubmissions}
-          primaryApplicationAxisId={row.id}
-          hasCosigner={row.application?.hasCosigner}
-          onOpenCosigner={(index) => {
-            const href = `${applicationDetailHref(basePath, tabForRow(row), row.id)}?cosigner=${index}`;
-            navigate(href);
-          }}
-        />
-      ) : null}
-      {showHouseholdSections && group ? (
-        <ApplicationGroupSection
-          group={group}
-          bundleGroup={group}
-          currentRowId={row.id}
-          assignedPropertyId={row.assignedPropertyId}
-          assignedRoomChoice={row.assignedRoomChoice}
-        />
       ) : null}
 
       <ApplicationReviewLauncherRow
@@ -1338,6 +1341,7 @@ export function ManagerApplications({
         onScreeningUpdated={handleScreeningFlowComplete}
         onOpenScreeningModal={(opts) => openDetailScreeningModal(row, opts)}
         hasLinkedCosigner={cosignerSubmissions.length > 0}
+        householdPanels={householdPanels}
         omitReviewSections={[
           ...(cosignerSubmissions.length > 0 ? (["cosigner"] as const) : []),
           ...(group ? (["group", "placement"] as const) : []),

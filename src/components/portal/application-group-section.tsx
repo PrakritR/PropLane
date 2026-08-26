@@ -43,6 +43,10 @@ export function applicationStatusPill(row: DemoApplicantRow): ApplicationStatusP
   return APPLICATION_STATUS_PILL[applicationStatusForRow(row)];
 }
 
+export function groupMemberStatusBadge(status: ApplicationGroupMemberStatus): ApplicationStatusPill {
+  return APPLICATION_STATUS_PILL[status];
+}
+
 /** The Group ID a row participates in, or "" when it does not. */
 export function groupIdForRow(row: DemoApplicantRow): string {
   return applicationHasGroup(row.application) ? row.application?.groupId ?? "" : "";
