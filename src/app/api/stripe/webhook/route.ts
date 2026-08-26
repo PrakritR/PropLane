@@ -19,6 +19,7 @@ import {
   stripeInvoiceSubscriptionId,
 } from "@/lib/stripe-subscription-helpers";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
+import { reconcileManagerSmsEntitlement } from "@/lib/sms/manager-sms-entitlement.server";
 import {
   markApplicationDepositPaidFromStripeSession,
   markApplicationFeePaidFromStripeSession,
@@ -244,11 +245,29 @@ export async function POST(req: Request) {
             console.error("[stripe webhook] invoice.paid auto-expense", e);
           }
         }
+        const { data: smsPurchase } = await db
+          .from("manager_purchases")
+          .select("user_id")
+          .eq("stripe_subscription_id", subId)
+          .maybeSingle();
+        const smsManagerId = String(smsPurchase?.user_id ?? "").trim();
+        if (smsManagerId) {
+          const smsEntitlement = await reconcileManagerSmsEntitlement(db, smsManagerId);
+          if (!smsEntitlement.eligible && smsEntitlement.reason === "plan_unreadable") {
+            throw new Error("SMS entitlement reconciliation failed after invoice payment.");
+          }
+        }
       }
     }
 
     if (event.type === "customer.subscription.updated" || event.type === "customer.subscription.deleted") {
       const sub = event.data.object as Stripe.Subscription;
+      const { data: smsPurchase } = await db
+        .from("manager_purchases")
+        .select("user_id")
+        .eq("stripe_subscription_id", sub.id)
+        .maybeSingle();
+      const smsManagerId = String(smsPurchase?.user_id ?? "").trim();
       try {
         if (event.type === "customer.subscription.deleted") {
           await db
@@ -260,6 +279,14 @@ export async function POST(req: Request) {
         }
       } catch (e) {
         console.error("[stripe webhook] subscription event", e);
+      }
+      if (smsManagerId) {
+        const smsEntitlement = await reconcileManagerSmsEntitlement(db, smsManagerId, {
+          loadStripeSubscription: async () => sub,
+        });
+        if (!smsEntitlement.eligible && smsEntitlement.reason === "plan_unreadable") {
+          throw new Error("SMS entitlement reconciliation failed after subscription event.");
+        }
       }
     }
 

@@ -331,7 +331,7 @@ describe("handleClawLeasingInbound — known resident thread", () => {
     expect(sendFromManager).toHaveBeenCalledTimes(1);
   });
 
-  it("still replies when inbound persistence fails (best-effort log, no gateway retry loop)", async () => {
+  it("withholds the reply and releases the warm-process claim when durable inbound persistence fails", async () => {
     const { handleClawLeasingInbound } = await import("@/lib/claw-leasing-bot.server");
     logManagerSmsMessage.mockResolvedValueOnce(false);
 
@@ -341,18 +341,19 @@ describe("handleClawLeasingInbound — known resident thread", () => {
       messageId: "inbound-log-best-effort-test",
       workNumber: "+12053690702",
     });
-    expect(result.ok).toBe(true);
-    expect(result.replied).toBe(true);
-    expect(sendFromManager).toHaveBeenCalledTimes(1);
+    expect(result.ok).toBe(false);
+    expect(result.replied).toBe(false);
+    expect(sendFromManager).not.toHaveBeenCalled();
 
-    // The message stays claimed, so a gateway redelivery does not double-reply.
+    logManagerSmsMessage.mockResolvedValueOnce(true);
     const redelivered = await handleClawLeasingInbound({
       from: "+15105794001",
       text: "what do I owe this month?",
       messageId: "inbound-log-best-effort-test",
       workNumber: "+12053690702",
     });
-    expect(redelivered.replied).toBe(false);
+    expect(redelivered.replied).toBe(true);
+    expect(sendFromManager).toHaveBeenCalledTimes(1);
     expect(sendFromManager).toHaveBeenCalledTimes(1);
   });
 });

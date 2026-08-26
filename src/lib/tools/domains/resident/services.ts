@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { defineTool, defineWriteTool } from "../../registry";
 import type { ResidentAgentContext } from "../../resident-context";
+import { residentManagerIds } from "../../resident-context";
 import { writeAuditLog, updateAuditResult, auditDayBucket } from "../../audit";
 import type { DemoManagerWorkOrderRow } from "@/data/demo-portal";
 import { deliverPortalInboxMessage } from "@/lib/portal-inbox-delivery";
@@ -115,17 +116,19 @@ export type ServiceRequestRouting = {
  * authoritative link the API route verifies with residentBelongsToManager.
  */
 export async function resolveServiceRequestRouting(ctx: ResidentAgentContext): Promise<ServiceRequestRouting | null> {
-  if (ctx.managerIds.length === 0) return null;
-  const { data } = await ctx.db
+  const managerIds = residentManagerIds(ctx);
+  if (managerIds.length === 0) return null;
+  let query = ctx.db
     .from("manager_application_records")
     .select("manager_user_id, row_data, updated_at")
-    .eq("resident_email", ctx.email)
-    .order("updated_at", { ascending: false });
+    .eq("resident_email", ctx.email);
+  if (ctx.activeManagerId) query = query.eq("manager_user_id", ctx.activeManagerId);
+  const { data } = await query.order("updated_at", { ascending: false });
   const approved = (data ?? []).find((r: { manager_user_id: unknown; row_data: unknown }) => {
     const rowData = (r.row_data ?? {}) as Record<string, unknown>;
-    return rowData.bucket === "approved" && ctx.managerIds.includes(String(r.manager_user_id ?? "").trim());
+    return rowData.bucket === "approved" && managerIds.includes(String(r.manager_user_id ?? "").trim());
   });
-  const managerId = approved ? String(approved.manager_user_id).trim() : ctx.managerIds[0]!;
+  const managerId = approved ? String(approved.manager_user_id).trim() : managerIds[0]!;
   const rowData = (approved?.row_data ?? {}) as Record<string, unknown>;
   const contacts = await linkedManagerContacts(ctx);
   const contact = contacts.find((c) => c.id === managerId);
@@ -295,12 +298,13 @@ export const addServiceRequestNoteTool = defineWriteTool({
     const requestId = input.requestId.trim();
     const note = input.note.trim();
     // Re-resolve the full record, scoped to the resident's own email.
-    const { data: record, error: readError } = await ctx.db
+    let query = ctx.db
       .from("portal_service_request_records")
       .select("id, manager_user_id, resident_email, property_id, status, row_data")
       .eq("id", requestId)
-      .eq("resident_email", ctx.email)
-      .maybeSingle();
+      .eq("resident_email", ctx.email);
+    if (ctx.activeManagerId) query = query.eq("manager_user_id", ctx.activeManagerId);
+    const { data: record, error: readError } = await query.maybeSingle();
     if (readError) throw new Error(readError.message);
     if (!record) {
       throw new Error(`${requestId} is not one of your service requests.`);

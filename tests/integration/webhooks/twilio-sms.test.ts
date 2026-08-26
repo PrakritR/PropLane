@@ -1,7 +1,17 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+const mocks = vi.hoisted(() => ({
+  fetchCreatedAt: vi.fn(async () => "2026-08-25T11:59:59.000Z"),
+  rateLimit: vi.fn(() => ({ ok: true })),
+}));
+
 vi.mock("twilio", () => ({ default: { validateRequest: vi.fn().mockReturnValue(true) } }));
 vi.mock("@/lib/supabase/service", () => ({ createSupabaseServiceRoleClient: vi.fn() }));
+vi.mock("@/lib/rate-limit", () => ({ rateLimit: mocks.rateLimit }));
+vi.mock("@/lib/twilio-client.server", () => ({
+  twilioWebhookAuthToken: () => "test-token",
+  fetchTwilioMessageCreatedAt: mocks.fetchCreatedAt,
+}));
 vi.mock("@/lib/agent/vendor-agent.server", () => ({
   findVendorAgentSessionByPhone: vi.fn(),
   runVendorAgentSessionTurn: vi.fn().mockResolvedValue("ok"),
@@ -31,22 +41,32 @@ function smsRequest(params: Record<string, string>, signature: string | null = "
   return new Request("http://localhost/api/webhooks/twilio/sms", { method: "POST", body, headers });
 }
 
-function mockDb() {
+function mockDb(options?: {
+  controlError?: { message: string } | null;
+  applyControl?: boolean;
+  consent?: { opted_in_at: string | null; opted_out_at: string | null };
+}) {
   const profileUpdates: Array<{ patch: Record<string, unknown>; ids: string[] }> = [];
   const sessionUpdates: Array<Record<string, unknown>> = [];
-  // Cross-store opt-out unification: vendor STOP/START now also write the
-  // canonical `sms_consent` ledger (so the opt-out blocks EVERY send rail, not
-  // just the vendor agent). Capture those upserts so the tests can assert it.
-  const consentUpserts: Array<{ row: Record<string, unknown>; opts?: unknown }> = [];
+  const consent = options?.consent ?? { opted_in_at: null, opted_out_at: null };
+  const rpc = vi.fn(async (_name: string, args: Record<string, unknown>) => {
+    if (options?.controlError) return { data: null, error: options.controlError };
+    if (options?.applyControl !== false) {
+      if (args.p_keyword === "STOP") consent.opted_out_at = String(args.p_provider_occurred_at);
+      if (args.p_keyword === "START") consent.opted_in_at = String(args.p_provider_occurred_at);
+    }
+    return { data: options?.applyControl !== false, error: null };
+  });
   const client = {
+    rpc,
     from(table: string) {
       if (table === "sms_consent") {
-        return {
-          upsert: (row: Record<string, unknown>, opts?: unknown) => {
-            consentUpserts.push({ row, opts });
-            return Promise.resolve({ error: null });
-          },
+        const chain = {
+          select: () => chain,
+          eq: () => chain,
+          maybeSingle: async () => ({ data: consent, error: null }),
         };
+        return chain;
       }
       if (table === "agent_sessions") {
         const chain = {
@@ -60,16 +80,18 @@ function mockDb() {
               },
             }),
           }),
-          then: (resolve: (v: { data: unknown[] }) => void) =>
-            resolve({ data: [{ vendor_user_id: "vendor-user-1" }] }),
+          then: (resolve: (v: { data: unknown[]; error: null }) => void) =>
+            resolve({ data: [{ vendor_user_id: "vendor-user-1" }], error: null }),
         };
         return chain;
       }
       if (table === "profiles") {
+        const selectChain = {
+          eq: async () => ({ data: [{ id: "vendor-user-1" }], error: null }),
+          in: async () => ({ data: [{ id: "vendor-user-1" }], error: null }),
+        };
         return {
-          select: () => ({
-            eq: async () => ({ data: [{ id: "vendor-user-1" }], error: null }),
-          }),
+          select: () => selectChain,
           update: (patch: Record<string, unknown>) => ({
             in: async (_c: string, ids: string[]) => {
               profileUpdates.push({ patch, ids });
@@ -81,14 +103,13 @@ function mockDb() {
       throw new Error(`unexpected table ${table}`);
     },
   };
-  return { client: client as never, profileUpdates, sessionUpdates, consentUpserts };
+  return { client: client as never, profileUpdates, sessionUpdates, consent, rpc };
 }
 
 describe("/api/webhooks/twilio/sms", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.mocked(twilio.validateRequest).mockReturnValue(true);
-    vi.stubEnv("TWILIO_AUTH_TOKEN", "test-token");
     vi.stubEnv("TWILIO_WEBHOOK_URL", "https://axis.example/api/webhooks/twilio/sms");
     const { client } = mockDb();
     vi.mocked(createSupabaseServiceRoleClient).mockReturnValue(client);
@@ -131,30 +152,98 @@ describe("/api/webhooks/twilio/sms", () => {
     );
   });
 
-  it("STOP records the opt-out, unbinds the number, and never runs a turn", async () => {
-    const { client, profileUpdates, sessionUpdates, consentUpserts } = mockDb();
+  it("durably applies STOP before rate limiting, then updates the vendor profile and session", async () => {
+    mocks.rateLimit.mockReturnValue({ ok: false });
+    const { client, profileUpdates, sessionUpdates, consent, rpc } = mockDb();
     vi.mocked(createSupabaseServiceRoleClient).mockReturnValue(client);
 
-    const res = await POST(smsRequest({ From: "+12065550001", Body: "STOP" }));
+    const res = await POST(smsRequest({
+      From: "+12065550001",
+      Body: "STOP",
+      MessageSid: "SM11111111111111111111111111111111",
+    }));
     expect(res.status).toBe(200);
-    // Cross-store unification: STOP writes the canonical sms_consent ledger too,
-    // keyed by the normalized bare-10-digit phone, so it blocks EVERY send rail.
-    expect(consentUpserts).toHaveLength(1);
-    expect(consentUpserts[0]!.row.phone).toBe("2065550001");
-    expect(consentUpserts[0]!.row.opted_out_at).toBeTruthy();
-    // …and still the vendor-store column + session unbind, as before.
+    expect(rpc).toHaveBeenCalledWith("apply_sms_control_keyword", {
+      p_message_sid: "SM11111111111111111111111111111111",
+      p_recipient_phone_key: "2065550001",
+      p_keyword: "STOP",
+      p_provider_occurred_at: "2026-08-25T11:59:59.000Z",
+      p_manager_user_id: null,
+      p_messaging_service_sid: null,
+    });
+    expect(consent.opted_out_at).toBe("2026-08-25T11:59:59.000Z");
+    expect(mocks.rateLimit).not.toHaveBeenCalled();
     expect(profileUpdates[0]!.ids).toEqual(["vendor-user-1"]);
-    expect(profileUpdates[0]!.patch.sms_opt_out_at).toBeTruthy();
+    expect(profileUpdates[0]!.patch.sms_opt_out_at).toBe("2026-08-25T11:59:59.000Z");
     expect(sessionUpdates[0]!.vendor_phone_e164).toBeNull();
     expect(runVendorAgentSessionTurn).not.toHaveBeenCalled();
   });
 
-  it("rate-limits a flood from one number while still returning 200", async () => {
-    const from = "+12065559999";
-    for (let i = 0; i < 12; i++) {
-      const res = await POST(smsRequest({ From: from, Body: `msg ${i}` }));
-      expect(res.status).toBe(200);
-    }
-    expect(vi.mocked(runVendorAgentSessionTurn).mock.calls.length).toBeLessThanOrEqual(10);
+  it("returns retryable failure and leaves vendor state untouched when the control RPC fails", async () => {
+    const { client, profileUpdates, sessionUpdates } = mockDb({ controlError: { message: "db unavailable" } });
+    vi.mocked(createSupabaseServiceRoleClient).mockReturnValue(client);
+
+    const res = await POST(smsRequest({
+      From: "+12065550001",
+      Body: "START",
+      MessageSid: "SM22222222222222222222222222222222",
+    }));
+
+    expect(res.status).toBe(503);
+    expect(profileUpdates).toHaveLength(0);
+    expect(sessionUpdates).toHaveLength(0);
+  });
+
+  it("does not let a stale START clear a newer provider-ordered STOP", async () => {
+    const { client, profileUpdates } = mockDb({
+      applyControl: false,
+      consent: {
+        opted_in_at: "2026-08-25T11:59:59.000Z",
+        opted_out_at: "2026-08-25T12:00:01.000Z",
+      },
+    });
+    vi.mocked(createSupabaseServiceRoleClient).mockReturnValue(client);
+
+    const res = await POST(smsRequest({
+      From: "+12065550001",
+      Body: "START",
+      MessageSid: "SM33333333333333333333333333333333",
+    }));
+
+    expect(res.status).toBe(200);
+    expect(profileUpdates).toHaveLength(0);
+  });
+
+  it("finishes START profile updates on a replay when that provider event is still current", async () => {
+    const { client, profileUpdates } = mockDb({
+      applyControl: false,
+      consent: {
+        opted_in_at: "2026-08-25T11:59:59.000Z",
+        opted_out_at: "2026-08-25T11:00:00.000Z",
+      },
+    });
+    vi.mocked(createSupabaseServiceRoleClient).mockReturnValue(client);
+
+    const res = await POST(smsRequest({
+      From: "+12065550001",
+      Body: "START",
+      MessageSid: "SM44444444444444444444444444444444",
+    }));
+
+    expect(res.status).toBe(200);
+    expect(profileUpdates).toEqual([{
+      ids: ["vendor-user-1"],
+      patch: {
+        sms_opt_out_at: null,
+        sms_consent_at: "2026-08-25T11:59:59.000Z",
+      },
+    }]);
+  });
+
+  it("rate-limits ordinary traffic while still returning 200", async () => {
+    mocks.rateLimit.mockReturnValue({ ok: false });
+    const res = await POST(smsRequest({ From: "+12065559999", Body: "ordinary message" }));
+    expect(res.status).toBe(200);
+    expect(runVendorAgentSessionTurn).not.toHaveBeenCalled();
   });
 });

@@ -17,12 +17,19 @@ let PROFILE: { role: string; email: string } | null = null;
 let PROPERTY_RECORDS: Record<string, { manager_user_id: string | null; property_data: unknown }> = {};
 let STORED_ROWS: { id: string; row_data: DemoApplicantRow }[] = [];
 let UPSERTS: { id: string; manager_user_id: string | null; row_data: DemoApplicantRow }[] = [];
+let UPSERT_ERROR: { message: string; code?: string } | null = null;
+let APPLICATION_LOAD_FAILURE_AT: number | null = null;
+let applicationLoadCount = 0;
+const revokeApplicationConsent = vi.fn(async () => ({ ok: true as const }));
 
 vi.mock("@/lib/auth/admin-preview", () => ({ isAdminUser: vi.fn(async () => false) }));
 vi.mock("@/lib/auth/provision-approved-resident", () => ({
   provisionApprovedResidentAccount: vi.fn(async () => ({ ok: true })),
 }));
 vi.mock("@/lib/screening/order-screening", () => ({ tryAutoOrderScreening: vi.fn() }));
+vi.mock("@/lib/sms/application-consent.server", () => ({
+  revokeApplicationScopedSmsConsentOnWithdrawal: revokeApplicationConsent,
+}));
 vi.mock("@/lib/supabase/server", () => ({
   createSupabaseServerClient: async () => ({ auth: { getUser } }),
 }));
@@ -32,13 +39,17 @@ function makeDb() {
   return {
     from(table: string) {
       const state: { ids: string[] | null; eqId: string | null } = { ids: null, eqId: null };
+      let selected = false;
       const builder: Record<string, unknown> = {
-        select: () => builder,
+        select: () => {
+          selected = true;
+          return builder;
+        },
         update: () => builder,
         insert: () => Promise.resolve({ error: null }),
         upsert(values: { id: string; manager_user_id: string | null; row_data: DemoApplicantRow }) {
           if (table === "manager_application_records") UPSERTS.push(values);
-          return Promise.resolve({ error: null });
+          return Promise.resolve({ error: table === "manager_application_records" ? UPSERT_ERROR : null });
         },
         delete: () => builder,
         eq(column: string, value: string) {
@@ -61,6 +72,16 @@ function makeDb() {
         },
         then(resolve: (v: { data: unknown; error: unknown }) => unknown) {
           if (table === "manager_application_records") {
+            if (selected) applicationLoadCount += 1;
+            if (
+              selected &&
+              APPLICATION_LOAD_FAILURE_AT === applicationLoadCount
+            ) {
+              return Promise.resolve({
+                data: null,
+                error: { message: "database unavailable" },
+              }).then(resolve);
+            }
             const rows = state.ids ? STORED_ROWS.filter((r) => state.ids?.includes(r.id)) : STORED_ROWS;
             return Promise.resolve({ data: rows, error: null }).then(resolve);
           }
@@ -116,6 +137,9 @@ beforeEach(() => {
   PROPERTY_RECORDS = { [LISTING]: { manager_user_id: OWNER, property_data: {} } };
   STORED_ROWS = [];
   UPSERTS = [];
+  UPSERT_ERROR = null;
+  APPLICATION_LOAD_FAILURE_AT = null;
+  applicationLoadCount = 0;
 });
 
 describe("POST /api/manager-applications — server-owned SMS consent stamp", () => {
@@ -231,5 +255,56 @@ describe("POST /api/manager-applications — server-owned SMS consent stamp", ()
     expect(app.smsConsent).toBe(false);
     expect(app.smsConsentAt).toBeUndefined();
     expect(app.smsConsentWordingVersion).toBeUndefined();
+  });
+
+  it("fails closed instead of acknowledging an opt-out when persistence fails", async () => {
+    STORED_ROWS = [
+      {
+        id: "AXIS-90210",
+        row_data: residentRow({
+          managerUserId: OWNER,
+          application: application({
+            smsConsent: true,
+            smsConsentAt: "2026-07-01T12:00:00.000Z",
+            smsConsentWordingVersion: SMS_CONSENT_WORDING_VERSION,
+          }),
+        }),
+      },
+    ];
+    UPSERT_ERROR = { message: "database unavailable" };
+
+    const res = await submit(
+      residentRow({ application: application({ smsConsent: false }) }),
+    );
+
+    expect(res.status).toBe(500);
+    expect(res.body.error).toContain("Could not persist the application");
+    expect(revokeApplicationConsent).not.toHaveBeenCalled();
+  });
+
+  it("fails closed when the pre-revocation consent snapshot cannot be reloaded", async () => {
+    STORED_ROWS = [
+      {
+        id: "AXIS-90210",
+        row_data: residentRow({
+          managerUserId: OWNER,
+          application: application({
+            smsConsent: true,
+            smsConsentAt: "2026-07-01T12:00:00.000Z",
+            smsConsentWordingVersion: SMS_CONSENT_WORDING_VERSION,
+          }),
+        }),
+      },
+    ];
+    APPLICATION_LOAD_FAILURE_AT = 2;
+
+    const res = await submit(
+      residentRow({ application: application({ smsConsent: false }) }),
+    );
+
+    expect(res.status).toBe(500);
+    expect(res.body.error).toBe("Could not load the existing application.");
+    expect(UPSERTS).toHaveLength(0);
+    expect(revokeApplicationConsent).not.toHaveBeenCalled();
   });
 });

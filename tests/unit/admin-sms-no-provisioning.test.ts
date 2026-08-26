@@ -84,8 +84,8 @@ describe("admin SMS oversight work-number resolution", () => {
     expect(payload.workNumber).toBe("+12064440888");
   });
 
-  it("still lets a manager loading their OWN tab provision on demand", async () => {
+  it("keeps a manager's own inbox read side-effect-free", async () => {
     await fetchManagerSmsConversations(makeDb(), "mgr-self");
-    expect(resolveManagerWorkNumber).toHaveBeenCalledTimes(1);
+    expect(resolveManagerWorkNumber).not.toHaveBeenCalled();
   });
 });

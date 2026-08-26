@@ -65,7 +65,7 @@ export type LoadedHouseholdChargeForCheckout = {
  */
 export async function loadHouseholdChargesForCheckout(
   db: SupabaseClient,
-  input: { userId: string; userEmail: string; chargeIds: string[] },
+  input: { userId: string; userEmail: string; chargeIds: string[]; expectedManagerUserId?: string },
 ): Promise<
   | { ok: true; loaded: LoadedHouseholdChargeForCheckout[]; managerUserId: string }
   | HouseholdChargeCheckoutFailure
@@ -102,6 +102,9 @@ export async function loadHouseholdChargesForCheckout(
     const managerUserId = (row.manager_user_id as string | null)?.trim() || charge.managerUserId?.trim() || "";
     if (!managerUserId) {
       return { ok: false, status: 422, error: "A selected charge is not linked to a property manager yet." };
+    }
+    if (input.expectedManagerUserId && managerUserId !== input.expectedManagerUserId) {
+      return { ok: false, status: 403, error: "You do not have access to one of the selected charges." };
     }
 
     const listing =
@@ -170,6 +173,7 @@ export async function createHouseholdChargeCheckout(
     chargeIds: string[];
     mode: "embedded" | "hosted";
     paymentMethod: ResidentAxisPaymentMethod;
+    expectedManagerUserId?: string;
     /** Origin used to build the success/cancel/return URLs. */
     appOrigin: string;
   },

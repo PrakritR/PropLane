@@ -4,6 +4,7 @@ import { appendManualPaymentInstructions } from "@/lib/manual-payment-instructio
 import { sendPushToUser } from "@/lib/push-notifications.server";
 import type { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { canSendResidentOutboundSms, sendResidentOutboundSms } from "@/lib/resident-outbound-sms.server";
+import { sendPropLaneSms } from "@/lib/proplane-sms-transport.server";
 import {
   DEFAULT_NOTIFICATION_PREFERENCES,
   resolveChannels,
@@ -111,7 +112,7 @@ export async function deliverPaymentReminder(input: {
   }
 
   try {
-    if (managerId) {
+    if (managerId && process.env.SMS_RUNTIME_ENABLED?.trim() !== "1") {
       await deliverPortalMessageThreadSide(db, {
         scope: "axis_portal_inbox_manager_v1",
         folder: "sent",
@@ -220,10 +221,30 @@ export async function deliverPaymentReminder(input: {
         .maybeSingle();
       const managerPhone = String(managerProfile?.phone ?? "").trim();
       if (managerPhone && managerProfile?.sms_forward_inbound !== false) {
-        const { sendSms } = await import("@/lib/twilio");
-        await sendSms(managerPhone, `(${subject}) Reminder sent to ${residentLower}.`, managerSmsFromNumber).catch(
-          () => undefined,
-        );
+        const managerNotification = `(${subject}) Reminder sent to ${residentLower}.`;
+        if (process.env.SMS_RUNTIME_ENABLED?.trim() === "1") {
+          // Managed Twilio traffic must use the owner-scoped outbox so number
+          // readiness, entitlement, suppression, delivery state, and budget
+          // checks cannot be bypassed by this manager-only notification.
+          await sendPropLaneSms({
+            to: managerPhone,
+            text: managerNotification,
+            fromNumber: managerSmsFromNumber,
+            sendClass: "control",
+            purpose: "payment_reminder_manager_notification",
+            log: {
+              managerUserId: managerId,
+              residentPhone: managerPhone,
+              source: "automated",
+              counterpartyRole: "manager",
+            },
+          }).catch(() => undefined);
+        } else {
+          // Preserve the legacy shared/standalone Twilio behavior until the
+          // managed runtime is explicitly enabled.
+          const { sendSms } = await import("@/lib/twilio");
+          await sendSms(managerPhone, managerNotification, managerSmsFromNumber).catch(() => undefined);
+        }
       }
     }
   } catch {

@@ -86,6 +86,54 @@ describe("report_maintenance_issue", () => {
       reportMaintenanceIssueTool.preview(ctx, { description: "Kitchen sink is leaking" }),
     ).rejects.toThrow(/linked to a property manager/i);
   });
+
+  it("routes an SMS maintenance proposal to the texted work-number owner", async () => {
+    const { ctx } = makeResidentToolCtx(
+      {
+        manager_application_records: [
+          {
+            manager_user_id: "manager_2",
+            resident_email: RESIDENT.email,
+            updated_at: "2026-08-01T00:00:00.000Z",
+            row_data: {
+              bucket: "approved",
+              name: "Res A",
+              property: "Wrong Manager House",
+              propertyId: "prop_2",
+            },
+          },
+          {
+            manager_user_id: "manager_1",
+            resident_email: RESIDENT.email,
+            updated_at: "2026-07-01T00:00:00.000Z",
+            row_data: {
+              bucket: "approved",
+              name: "Res A",
+              property: "Maple House",
+              propertyId: "prop_1",
+            },
+          },
+        ],
+        profiles: [
+          { id: "manager_1", email: "one@axis.test", full_name: "Mgr One" },
+          { id: "manager_2", email: "two@axis.test", full_name: "Mgr Two" },
+        ],
+      },
+      { managerIds: ["manager_1", "manager_2"], activeManagerId: "manager_1" },
+    );
+
+    const preview = await reportMaintenanceIssueTool.preview(ctx, {
+      description: "Kitchen sink is leaking",
+    });
+    expect(preview.fields).toEqual(
+      expect.arrayContaining([
+        { label: "Property", value: "Maple House" },
+      ]),
+    );
+    expect(preview.summary).toContain("Mgr One");
+    expect(JSON.stringify(preview)).not.toContain("Wrong Manager House");
+    expect(JSON.stringify(preview)).not.toContain("Mgr Two");
+  });
 });
 
 describe("resident registry shape", () => {

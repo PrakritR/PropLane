@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { createHash } from "node:crypto";
 import { notifyProspectPropertyMessageHandoff } from "@/lib/property-lead-prospect-handoff.server";
 import { notifyManagerPropertyLeadMessage } from "@/lib/property-lead-notification.server";
 import { recordResidentProspectInboxMessage } from "@/lib/tour-notification-delivery.server";
@@ -142,6 +143,12 @@ export async function POST(req: Request) {
     }
 
     void notifyProspectPropertyMessageHandoff({
+      managerUserId,
+      propertyId,
+      messageFingerprint: createHash("sha256")
+        .update([managerUserId, propertyId, email, topic, message].join("\u0000"))
+        .digest("hex")
+        .slice(0, 32),
       name,
       email,
       phone: phone || undefined,

@@ -10,10 +10,10 @@
  * and only then falls back to the work-number → Axis-inbox path.
  */
 import type { SupabaseClient } from "@supabase/supabase-js";
-import twilio from "twilio";
 import { smsMediaAppUrl, storeInboundMedia } from "@/lib/sms-media.server";
 import { upsertManagerInboxNotice } from "@/lib/sms-inbox-notice.server";
 import { normalizeE164, sendSms } from "@/lib/twilio";
+import { createTwilioRestClient } from "@/lib/twilio-client.server";
 
 const RELAY_AREA_CODES = [206, 425, 253, 415, 510];
 export const RELAY_POOL_TARGET_FREE = 5;
@@ -25,10 +25,7 @@ export const RELAY_MAX_ACTIVE_THREADS_PER_MANAGER = 5;
 export const RELAY_PROVISION_MIN_INTERVAL_MS = 60_000;
 
 function twilioClient() {
-  const accountSid = process.env.TWILIO_ACCOUNT_SID?.trim();
-  const authToken = process.env.TWILIO_AUTH_TOKEN?.trim();
-  if (!accountSid || !authToken) return null;
-  return twilio(accountSid, authToken);
+  return createTwilioRestClient();
 }
 
 export type RelayNumberRow = {

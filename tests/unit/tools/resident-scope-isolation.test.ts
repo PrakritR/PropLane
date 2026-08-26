@@ -361,6 +361,33 @@ describe("resident read tools: cross-resident isolation", () => {
 });
 
 describe("resident write tools: previews reject foreign/invalid ids", () => {
+  it("SMS active-manager scope rejects another linked manager's charge before payment preview or execution", async () => {
+    const ownCharge = charge(RES_A, "CH-ACTIVE");
+    const otherManagerCharge = charge(RES_A, "CH-OTHER-MANAGER");
+    otherManagerCharge.manager_user_id = FOREIGN_MANAGER;
+    (otherManagerCharge.row_data as Record<string, unknown>).managerUserId = FOREIGN_MANAGER;
+    const { ctx, mutations } = makeResidentToolCtx(
+      {
+        portal_household_charge_records: [ownCharge, otherManagerCharge],
+      },
+      { managerIds: [MANAGER, FOREIGN_MANAGER], activeManagerId: MANAGER },
+    );
+
+    const preview = await previewWrite(reportManualPaymentTool, ctx, {
+      chargeIds: ["CH-OTHER-MANAGER"],
+      channel: "zelle",
+    });
+    expect(preview.ok).toBe(false);
+
+    const exec = await executeWrite(reportManualPaymentTool, ctx, {
+      chargeIds: ["CH-OTHER-MANAGER"],
+      channel: "zelle",
+    });
+    expect(exec.ok).toBe(false);
+    expect(mutations.filter((mutation) => mutation.table === "portal_household_charge_records")).toEqual([]);
+    expect(mutations.filter((mutation) => mutation.table === "audit_log")).toEqual([]);
+  });
+
   it("add_service_request_note rejects another resident's request", async () => {
     const { ctx } = seed();
     const preview = await previewWrite(addServiceRequestNoteTool, ctx, { requestId: "SR-B", note: "hi" });

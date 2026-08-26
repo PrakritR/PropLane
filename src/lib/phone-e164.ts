@@ -11,3 +11,21 @@ export function normalizeE164(phone: string): string | null {
   if (digits.length === 11 && digits.startsWith("1")) return `+${digits}`;
   return null;
 }
+
+/**
+ * Manager-facing phone label for Communication. Numbers are public knowledge
+ * on this surface, so show a readable NANP form (or the E.164 when non-US).
+ */
+export function formatSmsPhoneLabel(phone: string | null | undefined): string | null {
+  const raw = String(phone ?? "").trim();
+  if (!raw) return null;
+  const e164 = normalizeE164(raw) ?? (raw.startsWith("+") ? raw : null);
+  const digits = (e164 ?? raw).replace(/\D/g, "");
+  if (digits.length === 11 && digits.startsWith("1")) {
+    return `+1 (${digits.slice(1, 4)}) ${digits.slice(4, 7)}-${digits.slice(7)}`;
+  }
+  if (digits.length === 10) {
+    return `(${digits.slice(0, 3)}) ${digits.slice(3, 6)}-${digits.slice(6)}`;
+  }
+  return e164 ?? raw;
+}

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Modal, ModalFooter } from "@/components/ui/modal";
 import { CheckboxMultiSelect, type CheckboxMultiSelectGroup } from "@/components/ui/checkbox-multi-select";
@@ -48,6 +48,12 @@ import {
   MANAGER_INBOX_STORAGE_KEY,
   syncPersistedInboxFromServer,
 } from "@/lib/portal-inbox-storage";
+import {
+  isManualSmsOutcomeUnknown,
+  MANUAL_SMS_UNKNOWN_MESSAGE,
+  resolveManualSmsAttempt,
+  type ManualSmsAttempt,
+} from "@/lib/sms/manual-send-attempt";
 
 export type CommunicationComposeChannel = "email" | "sms";
 
@@ -63,6 +69,24 @@ async function postScheduledInboxMessage(payload: Record<string, unknown>): Prom
     body: JSON.stringify({ ...payload, senderPortal: "manager" }),
   });
   return res.ok;
+}
+
+export function buildSmsSchedulePayloads(args: {
+  targets: { phone: string; residentUserId?: string | null }[];
+  subject: string;
+  body: string;
+  sendAt: string;
+}): Record<string, unknown>[] {
+  return args.targets.map((target) => ({
+    subject: args.subject || "Message",
+    body: args.body,
+    sendAt: args.sendAt,
+    recipientEmail: `sms:${target.phone}`,
+    recipientName: target.phone,
+    residentUserId: target.residentUserId ?? undefined,
+    deliverViaEmail: false,
+    deliverViaSms: true,
+  }));
 }
 
 function contactOptionLabel(contact: InboxScopedContact): string {
@@ -168,6 +192,7 @@ export function ManagerCommunicationComposeModal({
   const [scheduleLater, setScheduleLater] = useState(false);
   const [sendAt, setSendAt] = useState(defaultPortalMessageScheduleAt);
   const [sending, setSending] = useState(false);
+  const smsAttemptRef = useRef<ManualSmsAttempt | null>(null);
 
   const { viaEmail, viaSms } = portalMessageChannelsFromSelection(sendVia);
 
@@ -267,6 +292,7 @@ export function ManagerCommunicationComposeModal({
       setScheduleLater(false);
       setSendAt(defaultPortalMessageScheduleAt());
       setSending(false);
+      smsAttemptRef.current = null;
     });
   }, [open, initialChannel, smsUiEnabled, initialDraft]);
 
@@ -502,20 +528,18 @@ export function ManagerCommunicationComposeModal({
         }
         if (schedulePayloads.length === 0 && viaSms) {
           const smsTargets = resolveSmsTargets();
-          const first = smsTargets[0];
-          if (!first) {
+          if (smsTargets.length === 0) {
             showToast("Add at least one recipient to schedule.");
             return;
           }
-          schedulePayloads.push({
-            subject: s || "Message",
-            body: text,
-            sendAt: when.toISOString(),
-            recipientEmail: `sms:${first.phone}`,
-            recipientName: first.phone,
-            deliverViaEmail: false,
-            deliverViaSms: true,
-          });
+          schedulePayloads.push(
+            ...buildSmsSchedulePayloads({
+              targets: smsTargets,
+              subject: s,
+              body: text,
+              sendAt: when.toISOString(),
+            }),
+          );
         }
         if (schedulePayloads.length === 0) {
           showToast("Add at least one recipient to schedule.");
@@ -541,6 +565,7 @@ export function ManagerCommunicationComposeModal({
     let emailOk = !viaEmail;
     let smsOk = !viaSms;
     let lastError = "Could not send.";
+    let smsOutcomeUnknown = false;
     let optimisticId: string | null = null;
     let primaryRecipientEmail: string | undefined;
 
@@ -588,6 +613,7 @@ export function ManagerCommunicationComposeModal({
             deliverToPortalInbox: true,
             deliverViaSms: false,
             eventCategory: "messages",
+            senderPortal: "manager",
           }),
         });
         const data = (await res.json().catch(() => ({}))) as { ok?: boolean; error?: string };
@@ -602,27 +628,68 @@ export function ManagerCommunicationComposeModal({
 
       if (viaSms) {
         const smsTargets = resolveSmsTargets();
+        const attempt = resolveManualSmsAttempt(
+          smsAttemptRef.current,
+          JSON.stringify([
+            text,
+            ...smsTargets.map((target) => [
+              target.phone,
+              target.residentUserId ?? null,
+            ]),
+          ]),
+          smsTargets.length,
+        );
+        smsAttemptRef.current = attempt;
         let sent = 0;
-        for (const target of smsTargets) {
-          const res = await fetch("/api/manager/sms-conversations", {
-            method: "POST",
-            credentials: "include",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              toPhone: target.phone,
-              text,
-              residentUserId: target.residentUserId ?? undefined,
-            }),
-          });
-          const data = (await res.json().catch(() => ({}))) as { error?: string };
-          if (!res.ok) {
-            lastError = data.error ?? lastError;
+        for (const [index, target] of smsTargets.entries()) {
+          try {
+            const res = await fetch("/api/manager/sms-conversations", {
+              method: "POST",
+              credentials: "include",
+              headers: {
+                "Content-Type": "application/json",
+                "Idempotency-Key": attempt.idempotencyKeys[index]!,
+              },
+              body: JSON.stringify({
+                toPhone: target.phone,
+                text,
+                residentUserId: target.residentUserId ?? undefined,
+              }),
+            });
+            const data = (await res.json().catch(() => ({}))) as {
+              code?: string;
+              error?: string;
+              status?: string;
+            };
+            if (isManualSmsOutcomeUnknown(data)) {
+              smsOutcomeUnknown = true;
+              lastError = MANUAL_SMS_UNKNOWN_MESSAGE;
+              continue;
+            }
+            if (!res.ok) {
+              lastError = data.error ?? lastError;
+              continue;
+            }
+            sent += 1;
+          } catch {
+            smsOutcomeUnknown = true;
+            lastError = MANUAL_SMS_UNKNOWN_MESSAGE;
             continue;
           }
-          sent += 1;
         }
-        smsOk = sent > 0;
+        smsOk = sent > 0 && !smsOutcomeUnknown;
+        if (!smsOutcomeUnknown) smsAttemptRef.current = null;
         if (!smsOk) lastError = lastError === "Could not send." ? "SMS could not be sent." : lastError;
+      }
+
+      if (smsOutcomeUnknown) {
+        if (optimisticId) onClearOptimistic?.(optimisticId);
+        showToast(
+          viaEmail && emailOk
+            ? `Email sent. ${MANUAL_SMS_UNKNOWN_MESSAGE}`
+            : MANUAL_SMS_UNKNOWN_MESSAGE,
+        );
+        return;
       }
 
       if ((viaEmail && !emailOk) || (viaSms && !smsOk)) {

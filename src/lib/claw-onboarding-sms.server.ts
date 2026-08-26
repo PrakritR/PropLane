@@ -91,6 +91,7 @@ export async function sendResidentPropLaneAssistantIntro(args: {
     text,
     fromNumber: args.fromNumber,
     linkKind: null,
+    sendClass: "transactional",
     openThread,
   });
   if (result.sent) {

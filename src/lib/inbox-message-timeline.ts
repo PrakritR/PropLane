@@ -27,6 +27,7 @@ export function buildInboxMessageTimeline(messages: InboxBubbleMessage[]): Inbox
   const channels = new Set(messages.map((m) => m.channel ?? "email"));
   const multiChannel = channels.size > 1;
   const items: InboxTimelineItem[] = [];
+  const keyOccurrences = new Map<string, number>();
 
   for (let i = 0; i < messages.length; i++) {
     const message = messages[i]!;
@@ -37,10 +38,15 @@ export function buildInboxMessageTimeline(messages: InboxBubbleMessage[]): Inbox
     const cluster = clusterPosition(sameDirAsPrev, sameDirAsNext);
     const showMeta = !sameDirAsNext;
     const showChannel = multiChannel && showMeta;
+    // Inbox storage de-duplicates known persisted histories, but this shared
+    // UI primitive also accepts caller-supplied messages. Keep rendered keys
+    // unique if malformed data still contains an id collision.
+    const occurrence = keyOccurrences.get(message.id) ?? 0;
+    keyOccurrences.set(message.id, occurrence + 1);
 
     items.push({
       type: "message",
-      key: message.id,
+      key: occurrence === 0 ? message.id : `${message.id}#${occurrence + 1}`,
       message,
       cluster,
       showMeta,

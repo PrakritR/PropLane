@@ -17,6 +17,7 @@ import {
 } from "@/lib/tools/confirm-gate.server";
 import {
   denyPendingAction,
+  peekPendingActionPortal,
   type AgentPortal,
   type PendingActionActor,
 } from "@/lib/tools/pending-actions";
@@ -27,6 +28,83 @@ import { formatAgentChatUserError } from "@/lib/agent/assistant-turn-error";
 import { scoreActionApproval, traceAgentAction } from "@/lib/observability/langfuse";
 
 type DecisionActor = PendingActionActor & { landlordId: string };
+
+export type PendingActionDecisionResult =
+  | { kind: "denied"; reply: string; known: boolean }
+  | { kind: "confirmed"; result: ConfirmGateResult };
+
+/**
+ * Transport-neutral pending-action decision. Portal HTTP routes and SMS both
+ * use this so trace/scoring behavior cannot drift by surface.
+ */
+export async function decidePendingAction<Ctx extends DecisionActor>(args: {
+  action: { kind: "deny" | "confirm"; actionId: string };
+  ctx: Ctx;
+  registry: ToolRegistry<Ctx>;
+  portal: AgentPortal;
+  traceMetadata?: Record<string, unknown>;
+}): Promise<PendingActionDecisionResult> {
+  const { action, ctx, registry, portal } = args;
+  const traceMetadata = args.traceMetadata ?? { portal };
+
+  if (action.kind === "deny") {
+    // Denial is a state change too. Check the portal before resolving the row,
+    // just like the confirm gate does, so a dual-role user cannot discard a
+    // resident proposal from the manager surface (or vice versa) by id.
+    const peeked = await peekPendingActionPortal(ctx, action.actionId);
+    const denied = peeked.state === "found" && peeked.portal === portal
+      ? await denyPendingAction(ctx, action.actionId)
+      : null;
+    track("assistant_action_denied", ctx.userId, { portal, known: !!denied });
+    if (denied) {
+      await traceAgentAction(
+        { userId: ctx.userId, metadata: traceMetadata },
+        {
+          toolName: denied.toolName,
+          actionId: action.actionId,
+          decision: "cancel",
+          proposalTraceId: denied.proposalTraceId,
+        },
+        async () => ({ ok: true as const, result: { reply: "denied" } }),
+      );
+      if (denied.proposalTraceId) {
+        await scoreActionApproval({
+          traceId: denied.proposalTraceId,
+          approved: false,
+          actionId: action.actionId,
+          toolName: denied.toolName,
+        });
+      }
+    }
+    return {
+      kind: "denied",
+      reply: denied
+        ? "Okay, cancelled. Nothing was sent or changed."
+        : "This action could not be cancelled. It may no longer be available.",
+      known: Boolean(denied),
+    };
+  }
+
+  const result = await runConfirmedPendingActionForPortal(
+    ctx,
+    registry,
+    portal,
+    action.actionId,
+    traceMetadata,
+  );
+  if (result.ok) {
+    track("assistant_action_confirmed", ctx.userId, { portal, action: result.toolName });
+    if (result.proposalTraceId) {
+      await scoreActionApproval({
+        traceId: result.proposalTraceId,
+        approved: true,
+        actionId: action.actionId,
+        toolName: result.toolName,
+      });
+    }
+  }
+  return { kind: "confirmed", result };
+}
 
 /**
  * Handle a confirm/deny body, or return null when the request is an ordinary
@@ -43,45 +121,28 @@ export async function handlePendingActionDecision<Ctx extends DecisionActor>(arg
   const traceMetadata = args.traceMetadata ?? { portal };
 
   if (typeof body.denyActionId === "string") {
-    const actionId = body.denyActionId;
-    const denied = await denyPendingAction(ctx, actionId);
-    track("assistant_action_denied", ctx.userId, { portal, known: !!denied });
-    if (denied) {
-      // Audit trace for the cancel, plus score the ORIGINAL proposal turn so
-      // the prompt/tools/args that produced the bad proposal are labelled.
-      await traceAgentAction(
-        { userId: ctx.userId, metadata: traceMetadata },
-        {
-          toolName: denied.toolName,
-          actionId,
-          decision: "cancel",
-          proposalTraceId: denied.proposalTraceId,
-        },
-        async () => ({ ok: true as const, result: { reply: "denied" } }),
-      );
-      if (denied.proposalTraceId) {
-        await scoreActionApproval({
-          traceId: denied.proposalTraceId,
-          approved: false,
-          actionId,
-          toolName: denied.toolName,
-        });
-      }
-    }
-    return NextResponse.json({ reply: "Okay, cancelled. Nothing was sent or changed." });
+    const decision = await decidePendingAction({
+      action: { kind: "deny", actionId: body.denyActionId },
+      ctx,
+      registry,
+      portal,
+      traceMetadata,
+    });
+    return NextResponse.json({ reply: decision.kind === "denied" ? decision.reply : "Okay, cancelled." });
   }
 
   if (typeof body.confirmActionId !== "string") return null;
 
   let result: ConfirmGateResult;
   try {
-    result = await runConfirmedPendingActionForPortal(
+    const decision = await decidePendingAction({
+      action: { kind: "confirm", actionId: body.confirmActionId },
       ctx,
       registry,
       portal,
-      body.confirmActionId,
       traceMetadata,
-    );
+    });
+    result = decision.kind === "confirmed" ? decision.result : { ok: false, status: 410, error: "Action unavailable." };
   } catch (e) {
     console.error(`[agent/${portal}] confirm action failed:`, e);
     const { message, httpStatus } = formatAgentChatUserError(e);
@@ -92,18 +153,6 @@ export async function handlePendingActionDecision<Ctx extends DecisionActor>(arg
     return NextResponse.json({ error: result.error }, { status: result.status });
   }
 
-  track("assistant_action_confirmed", ctx.userId, { portal, action: result.toolName });
-  // Score approval on the proposal trace when we have one. The confirm gate
-  // already claimed the row; scoring uses the server-stored proposalTraceId
-  // returned with the claim — never a client-supplied id.
-  if (result.proposalTraceId) {
-    await scoreActionApproval({
-      traceId: result.proposalTraceId,
-      approved: true,
-      actionId: body.confirmActionId,
-      toolName: result.toolName,
-    });
-  }
   await appendAgentMessages(ctx, portal, result.sessionId, [
     { role: "assistant", content: result.reply, toolTrace: { tools: [{ tool: result.toolName, ok: true }] } },
   ]);

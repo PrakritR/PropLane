@@ -136,11 +136,13 @@ function ResidentUnifiedInbox({
       });
     } else if (listSegment === "archived") {
       rows = rows.filter((t) => t.folder === "trash");
+    } else if (listSegment === "unread") {
+      rows = rows.filter((t) => t.folder !== "trash" && t.folder === "inbox" && t.unread);
     } else {
       rows = rows.filter((t) => t.folder !== "trash");
     }
 
-    return rows.map((t) => {
+    const items = rows.map((t) => {
       const msgs = inboxThreadMessages(t);
       const lastMsg = msgs[msgs.length - 1];
       const sentSemantics = t.folder === "sent";
@@ -159,6 +161,8 @@ function ResidentUnifiedInbox({
         sortMs: inboxThreadSortMs(t.id, t.time),
       };
     });
+    if (listSegment === "unread") return items.filter((item) => item.unread);
+    return items;
   }, [filteredEmail, searchQuery, listSegment]);
 
   const smsItems = useMemo((): UnifiedInboxListItem[] => {
@@ -181,6 +185,7 @@ function ResidentUnifiedInbox({
     };
     const q = searchQuery.trim().toLowerCase();
     if (q && !["text messages", "property manager", last.body].join(" ").toLowerCase().includes(q)) return [];
+    if (listSegment === "unread" && !unread) return [];
     return [item];
   }, [listSegment, searchQuery, smsMessages, smsOpened, smsUiEnabled]);
 
@@ -217,6 +222,10 @@ function ResidentUnifiedInbox({
           ) : listSegment === "archived" ? (
             <div className="p-4">
               <PortalInboxEmptyState title="No archived conversations." />
+            </div>
+          ) : listSegment === "unread" ? (
+            <div className="p-4">
+              <PortalInboxEmptyState title="No unread conversations." />
             </div>
           ) : onAddConversation ? (
             <InboxConversationListAddRow onClick={onAddConversation} dataAttr="resident-communication-add-conversation" />
@@ -306,7 +315,7 @@ export function ResidentCommunication({
   threadId,
   smsUiEnabled = false,
 }: {
-  /** Routed conversation list segment (Active / Archived). */
+  /** Routed conversation list segment (Active / Unread / Archived). */
   listSegment?: InboxListSegment;
   /** Deep-linked thread id from `/communication/{segment}/{threadId}`. */
   threadId?: string;
@@ -341,6 +350,12 @@ export function ResidentCommunication({
         destinations={[
           { id: "active", label: "Active", href: `${commBase}/active`, dataAttr: "communication-segment-active" },
           {
+            id: "unread",
+            label: "Unread",
+            href: `${commBase}/unread`,
+            dataAttr: "communication-segment-unread",
+          },
+          {
             id: "archived",
             label: "Archived",
             href: `${commBase}/archived`,
@@ -349,6 +364,7 @@ export function ResidentCommunication({
         ]}
         activeDestinationId={listSegment}
         destinationAriaLabel="Conversation folders"
+        destinationNavSize="toolbar"
         search={{
           value: searchQuery,
           onChange: setSearchQuery,

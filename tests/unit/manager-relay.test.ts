@@ -100,16 +100,16 @@ describe("handleManagerReplyInbound — leg 2 delivery", () => {
         { manager_user_id: "mgrA", resident_phone: "2065552222", resident_user_id: "resNew", conversation_key: "k2", counterparty_role: "resident", created_at: "2026-07-24T10:00:00Z" },
       ],
     }) as never;
-    const res = await handleManagerReplyInbound(db, { managerUserId: "mgrA", workNumber: "+12065559000", body: "on my way" });
+    const res = await handleManagerReplyInbound(db, { managerUserId: "mgrA", workNumber: "+12065559000", body: "on my way", messageSid: "SM11111111111111111111111111111111" });
     expect(res).toMatchObject({ ok: true, residentPhone: "2065552222" });
     expect(sendFromWorkNumberMock).toHaveBeenCalledWith(
-      expect.objectContaining({ managerUserId: "mgrA", to: "2065552222", text: "on my way", counterpartyRole: "resident" }),
+      expect.objectContaining({ managerUserId: "mgrA", to: "2065552222", text: "on my way", counterpartyRole: "resident", dedupeKey: "manager_reply_SM11111111111111111111111111111111" }),
     );
   });
 
   it("reports no_active_conversation when there is nothing to reply to", async () => {
     const db = createMemoryDb({ manager_sms_messages: [] }) as never;
-    const res = await handleManagerReplyInbound(db, { managerUserId: "mgrA", workNumber: "+12065559000", body: "hi" });
+    const res = await handleManagerReplyInbound(db, { managerUserId: "mgrA", workNumber: "+12065559000", body: "hi", messageSid: "SM22222222222222222222222222222222" });
     expect(res).toMatchObject({ ok: false, error: "no_active_conversation" });
   });
 
@@ -120,14 +120,14 @@ describe("handleManagerReplyInbound — leg 2 delivery", () => {
         { manager_user_id: "mgrA", resident_phone: "2065552222", resident_user_id: "resNew", conversation_key: "k2", counterparty_role: "resident", created_at: "2026-07-24T10:00:00Z" },
       ],
     }) as never;
-    const res = await handleManagerReplyInbound(db, { managerUserId: "mgrA", workNumber: "+12065559000", body: "hi" });
+    const res = await handleManagerReplyInbound(db, { managerUserId: "mgrA", workNumber: "+12065559000", body: "hi", messageSid: "SM33333333333333333333333333333333" });
     expect(res).toMatchObject({ ok: false, error: "registration_pending" });
     expect(sendFromWorkNumberMock).not.toHaveBeenCalled();
   });
 });
 
-describe("forwardResidentInboundToManagerCell — leg 1 privacy", () => {
-  it("forwards to the verified manager cell labelled, never leaking the raw resident number", async () => {
+describe("forwardResidentInboundToManagerCell — managed pilot", () => {
+  it("keeps manager-cell forwarding disabled until it has its own consent-bound reply design", async () => {
     const db = createMemoryDb({
       profiles: [
         { id: "mgrA", phone: "+12065550100", phone_verified_at: "2026-01-01T00:00:00Z" },
@@ -144,14 +144,8 @@ describe("forwardResidentInboundToManagerCell — leg 1 privacy", () => {
       fromPhone: "+12065552222",
       body: "leak in unit 4",
     });
-    expect(ok).toBe(true);
-    const [to, text, from, opts] = sendSmsMock.mock.calls[0]!;
-    expect(to).toBe("+12065550100"); // manager's cell
-    expect(from).toBe("+12065559000"); // PropLane work number (registration-approved)
-    expect(text).toContain("Jamie Rivera"); // name resolved via E.164 match
-    expect(text).not.toContain("2065552222"); // raw resident number never forwarded
-    // Manager's own opt-out is honored (no skipOptOutCheck bypass).
-    expect(opts?.skipOptOutCheck).toBeUndefined();
+    expect(ok).toBe(false);
+    expect(sendSmsMock).not.toHaveBeenCalled();
   });
 
   it("no-ops when the manager has no verified cell", async () => {

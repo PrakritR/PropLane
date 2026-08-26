@@ -20,6 +20,11 @@ export type ResidentAgentContext = {
   email: string;
   /** Managers linked to this resident (approved applications / charges / leases). */
   managerIds: string[];
+  /**
+   * Manager whose work number the resident texted. Present only for SMS.
+   * Portal sessions leave this unset so their multi-manager view is unchanged.
+   */
+  activeManagerId?: string;
   /** Application-phase residents get a reduced toolset. */
   phase: "application" | "approved";
   /** The linked manager's subscription tier gates services/inbox tools. */
@@ -82,4 +87,10 @@ export async function resolveResidentAgentContext(): Promise<ResidentAgentContex
 /** The `.or()` filter string matching the resident-scoped API routes. */
 export function residentScopeOrFilter(ctx: ResidentAgentContext): string {
   return `resident_user_id.eq.${ctx.userId},resident_email.eq.${ctx.email}`;
+}
+
+/** One texted owner over SMS, or every linked manager in the signed-in portal. */
+export function residentManagerIds(ctx: ResidentAgentContext): string[] {
+  if (!ctx.activeManagerId) return ctx.managerIds;
+  return ctx.managerIds.includes(ctx.activeManagerId) ? [ctx.activeManagerId] : [];
 }

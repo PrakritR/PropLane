@@ -108,14 +108,15 @@ export async function loadScheduledInboxMessagesForManager(
 export async function loadScheduledInboxMessagesForResident(
   db: SupabaseClient,
   senderUserId: string,
+  managerUserId?: string,
 ): Promise<ScheduledInboxMessageRecord[]> {
-  const { data, error } = await db
+  let query = db
     .from("portal_scheduled_inbox_message_records")
     .select("id, manager_user_id, send_at, status, row_data, created_at")
     .eq("row_data->>senderPortal", "resident")
-    .eq("row_data->>senderUserId", senderUserId)
-    .order("send_at", { ascending: true })
-    .limit(200);
+    .eq("row_data->>senderUserId", senderUserId);
+  if (managerUserId) query = query.eq("manager_user_id", managerUserId);
+  const { data, error } = await query.order("send_at", { ascending: true }).limit(200);
   if (error) throw error;
   return (data ?? []).map((row) =>
     rowFromDb(row as { id: string; manager_user_id: string; send_at: string; status: string; row_data: unknown; created_at: string }),
@@ -272,14 +273,16 @@ export async function updateScheduledInboxMessageForResident(
   senderUserId: string,
   id: string,
   patch: { status?: ScheduledInboxMessageStatus; cancelledAt?: string | null },
+  managerUserId?: string,
 ): Promise<void> {
-  const { data: existing } = await db
+  let readQuery = db
     .from("portal_scheduled_inbox_message_records")
     .select("row_data, status")
     .eq("id", id)
     .eq("row_data->>senderPortal", "resident")
-    .eq("row_data->>senderUserId", senderUserId)
-    .maybeSingle();
+    .eq("row_data->>senderUserId", senderUserId);
+  if (managerUserId) readQuery = readQuery.eq("manager_user_id", managerUserId);
+  const { data: existing } = await readQuery.maybeSingle();
   if (!existing) throw new Error("Scheduled message not found.");
 
   const prev = (existing.row_data ?? {}) as Record<string, unknown>;
@@ -288,7 +291,7 @@ export async function updateScheduledInboxMessageForResident(
     ...(patch.cancelledAt !== undefined ? { cancelledAt: patch.cancelledAt } : {}),
   };
 
-  const { error } = await db
+  let updateQuery = db
     .from("portal_scheduled_inbox_message_records")
     .update({
       ...(patch.status != null ? { status: patch.status } : {}),
@@ -298,6 +301,8 @@ export async function updateScheduledInboxMessageForResident(
     .eq("id", id)
     .eq("row_data->>senderPortal", "resident")
     .eq("row_data->>senderUserId", senderUserId);
+  if (managerUserId) updateQuery = updateQuery.eq("manager_user_id", managerUserId);
+  const { error } = await updateQuery;
   if (error) throw error;
 }
 

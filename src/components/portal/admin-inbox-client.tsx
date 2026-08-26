@@ -212,6 +212,7 @@ function ComposeModal({
           subject: topicTrim,
           text: bodyTrim,
           deliverViaEmail: false,
+          senderPortal: "manager",
         }),
       }).catch(() => undefined);
     }

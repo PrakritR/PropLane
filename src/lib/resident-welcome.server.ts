@@ -257,7 +257,7 @@ export async function deliverResidentWelcome(
   try {
     const { data: managerProfile } = await db.from("profiles").select("sms_from_number, full_name").eq("id", actor.userId).maybeSingle();
     const smsFromNumber = String(managerProfile?.sms_from_number ?? "").trim();
-    if (smsFromNumber && !skipExternalEmail) {
+    if (process.env.SMS_RUNTIME_ENABLED?.trim() !== "1" && smsFromNumber && !skipExternalEmail) {
       const { data: residentProfile } = await db.from("profiles").select("phone").eq("email", to).maybeSingle();
       const residentPhone = String(residentProfile?.phone ?? "").trim();
       if (residentPhone) {
@@ -418,7 +418,7 @@ export async function deliverExistingResidentWelcome(
   try {
     const { data: managerProfile } = await db.from("profiles").select("sms_from_number, full_name").eq("id", actor.userId).maybeSingle();
     const smsFromNumber = String(managerProfile?.sms_from_number ?? "").trim();
-    if (smsFromNumber && !skipExternalEmail) {
+    if (process.env.SMS_RUNTIME_ENABLED?.trim() !== "1" && smsFromNumber && !skipExternalEmail) {
       const { data: residentProfile } = await db.from("profiles").select("phone").eq("email", to).maybeSingle();
       const residentPhone = String(residentProfile?.phone ?? "").trim();
       if (residentPhone) {

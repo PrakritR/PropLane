@@ -501,9 +501,17 @@ export function inboxThreadMessages(thread: PersistedInboxThread): InboxThreadMe
     ...(thread.rootOutbound ? { outbound: true } : {}),
     ...(thread.attachments?.length ? { attachments: thread.attachments } : {}),
   };
-  // Merged person-threads can carry a prior thread's synthetic root in `messages`;
-  // skip an exact id collision so the timeline never renders duplicate React keys.
-  const extras = (thread.messages ?? []).filter((m) => m.id !== rootId);
+  // Merged person-threads can carry a prior thread's synthetic root in `messages`.
+  // A collapsed row may itself later be persisted and merged again, which can
+  // repeat a `merged:<thread>-root` entry. Message ids are their identity, so
+  // retain the first occurrence only; otherwise React receives duplicate keys
+  // and renders an unreliable timeline.
+  const seenIds = new Set([rootId]);
+  const extras = (thread.messages ?? []).filter((message) => {
+    if (!message.id || seenIds.has(message.id)) return false;
+    seenIds.add(message.id);
+    return true;
+  });
   return [root, ...extras];
 }
 

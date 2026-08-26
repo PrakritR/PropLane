@@ -66,6 +66,7 @@ export async function notifyManagerOfResidentSubmission(
         // notify; send-inbox-message dedupes poorly, but SMS prefs + phone gates
         // still make this the reliable client-side path if mirror lags.
         eventCategory: "maintenance",
+        senderPortal: "resident",
       }),
     });
     const payload = (await response.json().catch(() => ({}))) as SendResult;

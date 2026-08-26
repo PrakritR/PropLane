@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import twilio from "twilio";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
+import { shouldApplyTwilioStatus, twilioStatusRank } from "@/lib/sms/delivery-status";
+import { twilioWebhookAuthToken } from "@/lib/twilio-client.server";
 
 export const runtime = "nodejs";
 
@@ -31,7 +33,7 @@ function twimlOk(): NextResponse {
  * https://<host>/api/twilio/status
  */
 export async function POST(req: Request) {
-  const authToken = process.env.TWILIO_AUTH_TOKEN?.trim();
+  const authToken = twilioWebhookAuthToken();
   if (!authToken) return NextResponse.json({ error: "SMS not configured." }, { status: 503 });
 
   const raw = await req.text();
@@ -56,21 +58,46 @@ export async function POST(req: Request) {
 
   const row = { message_sid: messageSid, to_phone: toPhone, status, error_code: errorCode };
 
+  if (messageSid && status) {
+    const { error: eventError } = await db.from("sms_delivery_events").insert({
+      message_sid: messageSid,
+      status,
+      status_rank: twilioStatusRank(status),
+      error_code: errorCode,
+    });
+    if (eventError && eventError.code !== "23505") {
+      return NextResponse.json({ error: "Delivery event persistence unavailable." }, { status: 503 });
+    }
+
+    const { error: applyError } = await db.rpc("apply_sms_delivery_status", {
+      p_message_sid: messageSid,
+      p_status: status,
+      p_status_rank: twilioStatusRank(status),
+      p_error_code: errorCode,
+      p_provider_occurred_at: new Date().toISOString(),
+    });
+    if (applyError) {
+      return NextResponse.json({ error: "Delivery status persistence unavailable." }, { status: 503 });
+    }
+  }
+
   // Idempotent write keyed on message_sid: update the existing row in place, or
   // insert a fresh one. Errors (including a rare insert race on the unique
   // index) are swallowed — a status callback must always ack Twilio with 200.
   if (messageSid) {
     const { data: existing } = await db
       .from("sms_delivery_log")
-      .select("id")
+      .select("id, status")
       .eq("message_sid", messageSid)
       .limit(1);
     if ((existing ?? []).length > 0) {
-      await db
-        .from("sms_delivery_log")
-        .update({ to_phone: toPhone, status, error_code: errorCode })
-        .eq("message_sid", messageSid)
-        .then(() => undefined, () => undefined);
+      if (shouldApplyTwilioStatus(existing?.[0]?.status, status)) {
+        await db
+          .from("sms_delivery_log")
+          .update({ to_phone: toPhone, status, error_code: errorCode })
+          .eq("message_sid", messageSid)
+          .then(() => undefined, () => undefined);
+      }
       return twimlOk();
     }
   }

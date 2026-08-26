@@ -41,12 +41,11 @@ conversations) plus the archive toggle. Invariants:
 
 - **No folder tabs.** The list shows ALL live conversations (inbox + sent).
   Manager / resident / vendor route on
-  `/communication/{active|archived}[/{threadId}]` — `PortalListControlStack`
+  `/communication/{active|unread|archived}[/{threadId}]` — `PortalListControlStack`
   destinations that scope that ONE list and deep-link the open thread, never
-  folders: `archived` is the trashed view. Unread is NOT a segment — it is a
-  per-row dot on `InboxConversationRow` that clears when the thread is opened,
-  and the legacy `/communication/unread` path redirects to `active` (keeping the
-  deep-linked thread id). Admin still routes
+  folders: `archived` is the trashed view and `unread` is the unread-only view.
+  Unread rows also show a per-row dot on `InboxConversationRow` that clears when
+  the thread is opened. Admin still routes
   `/communication/inbox/{tab}` and reaches archived through its
   `admin-inbox-archived-toggle` button. Trash/restore live in the open thread —
   never re-add a top-level Schedule/Trash tab. `INBOX_TAB_DEFS` and the standalone

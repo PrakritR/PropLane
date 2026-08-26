@@ -45,13 +45,19 @@ import {
   type UnifiedInboxListItem,
 } from "@/lib/unified-inbox-merge";
 import {
+  MANAGER_SMS_CONTACTS_CHANGED_EVENT,
   normalizeManagerSmsConversationsPayload,
   smsConversationDisplayName,
   smsConversationSubtitle,
   smsThreadHasUnread,
+  type ManagerSmsContactsChangedDetail,
   type ManagerSmsResidentConversation,
 } from "@/lib/manager-sms-messages";
 import type { InboxScopedContact } from "@/data/inbox-scoped-directory";
+import {
+  loadManagerSmsArchivedIds,
+  MANAGER_SMS_ARCHIVE_CHANGED_EVENT,
+} from "@/lib/manager-sms-archive.client";
 
 const SMS_OPENED_STORAGE_KEY = "axis_manager_sms_opened_v1";
 const SMS_HIDDEN_STORAGE_KEY = "axis_manager_sms_hidden_v2";
@@ -177,6 +183,7 @@ export function ManagerUnifiedInbox({
   const [smsResidents, setSmsResidents] = useState<ManagerSmsResidentConversation[]>([]);
   const [smsOpenedIds, setSmsOpenedIds] = useState<Set<string>>(() => loadSmsOpenedIds());
   const [smsHiddenIds, setSmsHiddenIds] = useState<Set<string>>(() => loadSmsHiddenIds());
+  const [smsArchivedIds, setSmsArchivedIds] = useState<Set<string>>(() => loadManagerSmsArchivedIds());
   const [internalQuery, setInternalQuery] = useState("");
   const query = onSearchQueryChange ? (searchQueryProp ?? "") : internalQuery;
   const setQuery = onSearchQueryChange ?? setInternalQuery;
@@ -193,6 +200,12 @@ export function ManagerUnifiedInbox({
     (threadId: string) => `${commBase}/${listSegment}/${encodeURIComponent(threadId)}`,
     [commBase, listSegment],
   );
+
+  useEffect(() => {
+    const syncArchive = () => setSmsArchivedIds(loadManagerSmsArchivedIds());
+    window.addEventListener(MANAGER_SMS_ARCHIVE_CHANGED_EVENT, syncArchive as EventListener);
+    return () => window.removeEventListener(MANAGER_SMS_ARCHIVE_CHANGED_EVENT, syncArchive as EventListener);
+  }, []);
 
   useEffect(() => {
     const sync = () => setEmailThreads(loadPersistedInbox(MANAGER_INBOX_STORAGE_KEY, []));
@@ -216,7 +229,26 @@ export function ManagerUnifiedInbox({
       if (!res.ok) return;
       const body = (await res.json()) as { residents?: ManagerSmsResidentConversation[] };
       const normalized = normalizeManagerSmsConversationsPayload(body);
-      setSmsResidents(normalized.residents);
+      setSmsResidents((current) => {
+        const server = normalized.residents;
+        const serverKeys = new Set(
+          server.flatMap((row) =>
+            [row.conversationKey, ...(row.memberKeys ?? [])].filter(
+              (key): key is string => typeof key === "string" && key.length > 0,
+            ),
+          ),
+        );
+        // Keep just-created empty contacts until the server round-trip includes
+        // them — otherwise a fast refetch can wipe the optimistic seed and the
+        // URL points at a thread that vanished from the list.
+        const pendingOptimistic = current.filter((row) => {
+          const key = row.conversationKey?.trim();
+          if (!key || serverKeys.has(key)) return false;
+          if ((row.memberKeys ?? []).some((member) => serverKeys.has(member))) return false;
+          return Boolean(row.savedContactName) && (!row.messages || row.messages.length === 0);
+        });
+        return pendingOptimistic.length > 0 ? [...pendingOptimistic, ...server] : server;
+      });
     } catch {
       /* keep prior */
     }
@@ -243,6 +275,41 @@ export function ManagerUnifiedInbox({
       window.clearInterval(id);
       document.removeEventListener("visibilitychange", onVis);
     };
+  }, [loadSms, smsUiEnabled]);
+
+  useEffect(() => {
+    if (!smsUiEnabled) return;
+    const refreshContacts = (event: Event) => {
+      const detail = (event as CustomEvent<ManagerSmsContactsChangedDetail>).detail;
+      const optimistic = detail?.optimisticResident;
+      if (optimistic?.conversationKey) {
+        setSmsResidents((current) => {
+          const key = optimistic.conversationKey!;
+          const phone = String(optimistic.phone ?? "").trim();
+          let matched = false;
+          const next = current.map((row) => {
+            const sameKey =
+              row.conversationKey === key || (row.memberKeys ?? []).includes(key);
+            const samePhone =
+              Boolean(phone) &&
+              Boolean(row.phone) &&
+              String(row.phone).replace(/\D/g, "") === phone.replace(/\D/g, "");
+            if (!sameKey && !samePhone) return row;
+            matched = true;
+            return {
+              ...row,
+              name: optimistic.name || row.name,
+              savedContactName: optimistic.savedContactName ?? row.savedContactName,
+            };
+          });
+          if (matched) return next;
+          return [optimistic, ...current];
+        });
+      }
+      void loadSms();
+    };
+    window.addEventListener(MANAGER_SMS_CONTACTS_CHANGED_EVENT, refreshContacts);
+    return () => window.removeEventListener(MANAGER_SMS_CONTACTS_CHANGED_EVENT, refreshContacts);
   }, [loadSms, smsUiEnabled]);
 
   // Stable identity: passed into ManagerSmsPanel's controlled-open effect, so an
@@ -276,17 +343,20 @@ export function ManagerUnifiedInbox({
   const emailListItems = useMemo((): UnifiedInboxListItem[] => {
     const q = query.trim().toLowerCase();
     let rows = filteredEmail;
+    if (listSegment === "archived") {
+      rows = rows.filter((t) => t.folder === "trash");
+    } else if (listSegment === "unread") {
+      rows = rows.filter((t) => t.folder !== "trash" && t.folder === "inbox" && t.unread);
+    } else {
+      rows = rows.filter((t) => t.folder !== "trash");
+    }
     if (q) {
-      // Search spans every conversation except archived/trash.
+      // Search refines the selected segment; it must not leak read rows back
+      // into Unread or active rows back into Archived.
       rows = rows.filter((t) => {
-        if (t.folder === "trash") return false;
         const hay = [t.from, t.email, t.subject, t.body, t.preview].filter(Boolean).join(" ").toLowerCase();
         return hay.includes(q);
       });
-    } else if (listSegment === "archived") {
-      rows = rows.filter((t) => t.folder === "trash");
-    } else {
-      rows = rows.filter((t) => t.folder !== "trash");
     }
 
     return rows.map((t) => {
@@ -317,7 +387,13 @@ export function ManagerUnifiedInbox({
 
   // SMS rows (scoped + de-hidden), each tagged with its haystack and
   // last-message direction. Empty unless the SMS UI flag is on.
-  const allSmsItems = useMemo((): { item: UnifiedInboxListItem; lastOutbound: boolean; haystack: string }[] => {
+  const allSmsItems = useMemo((): {
+    item: UnifiedInboxListItem;
+    lastOutbound: boolean;
+    haystack: string;
+    archived: boolean;
+    unread: boolean;
+  }[] => {
     if (!smsUiEnabled) return [];
     const scoped = !threadFilters || !filterContacts
       ? smsResidents
@@ -327,7 +403,7 @@ export function ManagerUnifiedInbox({
             contacts: filterContacts,
             counterpartyEmail: resident.residentEmail,
             propertyLabel: resident.propertyLabel,
-            isResidentThread: true,
+            counterpartyRole: resident.counterpartyRole,
           }),
         );
 
@@ -336,21 +412,22 @@ export function ManagerUnifiedInbox({
         const messages = Array.isArray(resident.messages) ? resident.messages : [];
         const lastMessage = messages[messages.length - 1] ?? null;
         const rowId = smsConversationId(resident);
-        if (!lastMessage || smsHiddenIds.has(rowId)) return null;
+        if (smsHiddenIds.has(rowId)) return null;
+        const archived = smsArchivedIds.has(rowId);
         const unread = smsThreadHasUnread(messages, smsOpenedIds);
-        const lastOutbound = lastMessage.direction === "outbound";
+        const lastOutbound = lastMessage?.direction === "outbound";
         const item: UnifiedInboxListItem = {
           key: unifiedInboxKey("sms", rowId),
           channel: "sms",
           threadId: rowId,
-          // Never surface a raw phone number in Communication — show name/unit.
+          // Prefer person name / unit / email; fall back to a readable phone.
           name: smsConversationDisplayName(resident),
           subtitle: smsConversationSubtitle(resident) || undefined,
-          preview: previewLine(lastMessage.body, 80),
+          preview: lastMessage ? previewLine(lastMessage.body, 80) : "No messages yet",
           previewPrefix: lastOutbound ? "You: " : undefined,
-          time: iosListTimestamp(lastMessage.createdAt),
+          time: lastMessage ? iosListTimestamp(lastMessage.createdAt) : "",
           unread,
-          sortMs: Date.parse(lastMessage.createdAt) || 0,
+          sortMs: lastMessage ? Date.parse(lastMessage.createdAt) || 0 : 0,
         };
         // The phone is hidden in the UI but stays in the search index — a
         // manager who types a resident's number must still find the thread.
@@ -359,21 +436,25 @@ export function ManagerUnifiedInbox({
           resident.phone,
           resident.residentEmail,
           resident.propertyLabel,
-          lastMessage.body,
+          lastMessage?.body,
         ]
           .filter(Boolean)
           .join(" ")
           .toLowerCase();
-        return { item, lastOutbound, haystack };
+        return { item, lastOutbound, haystack, archived, unread };
       })
-      .filter((x): x is { item: UnifiedInboxListItem; lastOutbound: boolean; haystack: string } => x !== null);
-  }, [filterContacts, smsHiddenIds, smsOpenedIds, smsResidents, threadFilters, smsUiEnabled]);
+      .filter((x): x is { item: UnifiedInboxListItem; lastOutbound: boolean; haystack: string; archived: boolean; unread: boolean } => x !== null);
+  }, [filterContacts, smsArchivedIds, smsHiddenIds, smsOpenedIds, smsResidents, threadFilters, smsUiEnabled]);
 
   const smsListItems = useMemo((): UnifiedInboxListItem[] => {
-    if (listSegment === "archived") return [];
     const q = query.trim().toLowerCase();
-    const items = allSmsItems;
-    return items.filter(({ haystack }) => (q ? haystack.includes(q) : true)).map(({ item }) => item);
+    const items = allSmsItems.filter(({ archived, unread, haystack }) => {
+      if (q && !haystack.includes(q)) return false;
+      if (listSegment === "archived") return archived;
+      if (listSegment === "unread") return !archived && unread;
+      return !archived;
+    });
+    return items.map(({ item }) => item);
   }, [allSmsItems, query, listSegment]);
 
   const occupiedResidentEmails = useMemo(() => {
@@ -388,14 +469,15 @@ export function ManagerUnifiedInbox({
       if (messages.length === 0) continue;
       const rowId = smsConversationId(resident);
       if (smsHiddenIds.has(rowId)) continue;
+      if (smsArchivedIds.has(rowId)) continue;
       const email = resident.residentEmail?.trim().toLowerCase();
       if (email) occupied.add(email);
     }
     return occupied;
-  }, [filteredEmail, smsHiddenIds, smsResidents]);
+  }, [filteredEmail, smsArchivedIds, smsHiddenIds, smsResidents]);
 
   const placeholderListItems = useMemo(() => {
-    if (!filterContacts || listSegment === "archived") return [];
+    if (!filterContacts || listSegment === "archived" || listSegment === "unread") return [];
     return buildResidentPlaceholderInboxItems({
       contacts: filterContacts,
       filters: threadFilters ?? { propertyIds: [], roles: [], contactIds: [] },
@@ -435,15 +517,17 @@ export function ManagerUnifiedInbox({
       onRouteThreadChange?.(thread.id);
       selectCommunicationThreadUrl(threadDetailHref(thread.id), { replaceExisting: true });
     });
-    void fetch("/api/manager/sms-conversations", { credentials: "include", cache: "no-store" })
-      .then(async (res) => {
-        if (!res.ok) return;
-        const body = (await res.json()) as { residents?: ManagerSmsResidentConversation[] };
-        setSmsResidents(normalizeManagerSmsConversationsPayload(body).residents);
-      })
-      .catch(() => {
-        /* keep */
-      });
+    if (smsUiEnabled) {
+      void fetch("/api/manager/sms-conversations", { credentials: "include", cache: "no-store" })
+        .then(async (res) => {
+          if (!res.ok) return;
+          const body = (await res.json()) as { residents?: ManagerSmsResidentConversation[] };
+          setSmsResidents(normalizeManagerSmsConversationsPayload(body).residents);
+        })
+        .catch(() => {
+          /* keep */
+        });
+    }
   }, [onRouteThreadChange, placeholderContact, smsUiEnabled, threadDetailHref]);
 
   const threadOpen = (mobileThreadOpen || Boolean(routeThreadId)) && Boolean(selection);
@@ -482,16 +566,27 @@ export function ManagerUnifiedInbox({
 
   useEffect(() => {
     if (mergedRows.length === 0) {
-      setSelectedKey(null);
-      setMobileThreadOpen(false);
+      // A deep-linked / just-created thread may land before its SMS row is in
+      // the merged list. Keep the pending route alive until the row arrives.
+      if (!routeThreadId) {
+        setSelectedKey(null);
+        setMobileThreadOpen(false);
+      }
       return;
     }
     setSelectedKey((cur) => {
-      if (cur && mergedRows.some((r) => r.key === cur)) return cur;
       if (routeThreadId) {
         const routed = mergedRows.find((r) => r.threadId === routeThreadId);
         if (routed) return routed.key;
+        // Do not fall through to the first desktop row while the routed thread
+        // is still missing — that is the contact-create race.
+        if (cur && mergedRows.some((r) => r.key === cur)) {
+          const current = parseUnifiedInboxKey(cur);
+          if (current?.threadId === routeThreadId) return cur;
+        }
+        return null;
       }
+      if (cur && mergedRows.some((r) => r.key === cur)) return cur;
       if (inboxUsesDesktopSplit()) return mergedRows[0]!.key;
       return null;
     });
@@ -505,6 +600,12 @@ export function ManagerUnifiedInbox({
             items={[
               { id: "active", label: "Active", href: `${commBase}/active`, dataAttr: "communication-segment-active" },
               {
+                id: "unread",
+                label: "Unread",
+                href: `${commBase}/unread`,
+                dataAttr: "communication-segment-unread",
+              },
+              {
                 id: "archived",
                 label: "Archived",
                 href: `${commBase}/archived`,
@@ -513,14 +614,15 @@ export function ManagerUnifiedInbox({
             ]}
             activeId={listSegment}
             ariaLabel="Conversation folders"
-            className="mb-2"
+            size="toolbar"
+            className="mb-2 gap-0.5 rounded-xl border-0 bg-transparent p-0"
           />
           <div className="relative min-w-0">
             <input
               type="search"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              placeholder="Search residents or messages"
+              placeholder="Search contacts or messages"
               className="portal-inbox-search h-9 w-full rounded-xl border border-border bg-background px-3 text-sm outline-none focus:border-primary/40 focus:ring-2 focus:ring-primary/15"
               data-attr="unified-inbox-search"
             />
@@ -546,6 +648,10 @@ export function ManagerUnifiedInbox({
           ) : listSegment === "archived" ? (
             <div className="p-4">
               <PortalInboxEmptyState title="No archived conversations." />
+            </div>
+          ) : listSegment === "unread" ? (
+            <div className="p-4">
+              <PortalInboxEmptyState title="No unread conversations." />
             </div>
           ) : onAddConversation ? (
             <InboxConversationListAddRow onClick={onAddConversation} />
@@ -633,6 +739,14 @@ export function ManagerUnifiedInbox({
         }}
         onUnreadCountChange={onSmsUnreadCountChange}
         onConversationOpened={handleSmsConversationOpened}
+        listSegment={listSegment}
+        onArchived={() => {
+          setSmsArchivedIds(loadManagerSmsArchivedIds());
+          setSelectedKey(null);
+          setMobileThreadOpen(false);
+          onRouteThreadChange?.(undefined);
+          clearCommunicationThreadUrl(threadListHref());
+        }}
       />
     ) : (
       <InboxThreadEmpty

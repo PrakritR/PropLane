@@ -6,6 +6,7 @@ import {
   CreditCard,
   KeyRound,
   Lock,
+  MessagesSquare,
   MessageSquareText,
   Settings2,
   SlidersHorizontal,
@@ -31,6 +32,8 @@ import {
 } from "@/components/portal/portal-settings-ui";
 import { ManagerPlan } from "@/components/portal/manager-plan";
 import { ManagerApiKeysPanel } from "@/components/portal/manager-api-keys-panel";
+import { ManagerMessagingSettingsPanel } from "@/components/portal/manager-messaging-settings-panel";
+import { PortalTextNotificationsBlock } from "@/components/portal/portal-text-notifications-block";
 import { MANAGER_PLAN_PORTAL_HASH } from "@/lib/portals/manager-plan-path";
 import { AssistantDisplaySetting } from "@/components/portal/assistant-display-setting";
 import { AssistantCustomInstructionsSetting } from "@/components/portal/assistant-custom-instructions-setting";
@@ -61,6 +64,7 @@ const SETTINGS_TAB_PARAM = "tab";
 type SettingsGroupId =
   | "profile"
   | "billing"
+  | "messaging"
   | "preferences"
   | "security"
   | "developer"
@@ -73,6 +77,21 @@ type SettingsGroup = {
   description: string;
   icon: ComponentType<{ className?: string }>;
 };
+
+function ManagerMessagingSettingsPane() {
+  const [personalPhoneRefreshKey, setPersonalPhoneRefreshKey] = useState(0);
+  return (
+    <>
+      <PortalTextNotificationsBlock
+        dataAttrPrefix="manager"
+        title="Personal mobile"
+        description="Verify your own phone for account alerts and secure messaging setup. This is separate from the workspace work number."
+        onVerified={() => setPersonalPhoneRefreshKey((value) => value + 1)}
+      />
+      <ManagerMessagingSettingsPanel personalPhoneRefreshKey={personalPhoneRefreshKey} />
+    </>
+  );
+}
 
 export function PortalProfileClient({
   variant,
@@ -238,6 +257,14 @@ export function PortalProfileClient({
         icon: CreditCard,
       });
     }
+    if (!demo && variant === "manager") {
+      list.push({
+        id: "messaging",
+        label: "Messaging",
+        description: "Dedicated work number and texting readiness.",
+        icon: MessagesSquare,
+      });
+    }
     list.push(
       {
         id: "preferences",
@@ -378,6 +405,8 @@ export function PortalProfileClient({
             </PortalSettingsGroup>
           </PortalSettingsSection>
         );
+      case "messaging":
+        return <ManagerMessagingSettingsPane />;
       case "preferences":
         return (
           <>

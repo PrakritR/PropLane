@@ -14,17 +14,23 @@ export async function queryResidentBalance(
   db: SupabaseClient,
   residentUserId: string,
   residentEmail: string,
+  managerUserId?: string,
 ): Promise<ReportResult> {
+  let chargeQuery = db
+    .from("portal_household_charge_records")
+    .select("row_data")
+    .or(`resident_user_id.eq.${residentUserId},resident_email.eq.${residentEmail}`);
+  let ledgerQuery = db
+    .from("ledger_entries")
+    .select("entry_type, amount_cents, posted_date")
+    .or(`resident_user_id.eq.${residentUserId},resident_email.eq.${residentEmail}`);
+  if (managerUserId) {
+    chargeQuery = chargeQuery.eq("manager_user_id", managerUserId);
+    ledgerQuery = ledgerQuery.eq("manager_user_id", managerUserId);
+  }
   const [{ data: chargeRows }, { data: ledgerRows }] = await Promise.all([
-    db
-      .from("portal_household_charge_records")
-      .select("row_data")
-      .or(`resident_user_id.eq.${residentUserId},resident_email.eq.${residentEmail}`),
-    db
-      .from("ledger_entries")
-      .select("entry_type, amount_cents, posted_date")
-      .or(`resident_user_id.eq.${residentUserId},resident_email.eq.${residentEmail}`)
-      .order("posted_date", { ascending: true }),
+    chargeQuery,
+    ledgerQuery.order("posted_date", { ascending: true }),
   ]);
 
   const charges = ((chargeRows ?? []) as { row_data: unknown }[]).map((r) => r.row_data as HouseholdCharge);

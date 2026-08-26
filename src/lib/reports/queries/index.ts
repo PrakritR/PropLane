@@ -902,6 +902,7 @@ export async function queryResidentLedger(
   residentUserId: string,
   residentEmail: string,
   filters: { from?: string; to?: string },
+  managerUserId?: string,
 ): Promise<ReportResult> {
   const now = new Date();
   const from =
@@ -909,13 +910,14 @@ export async function queryResidentLedger(
     new Date(now.getFullYear() - 1, now.getMonth(), now.getDate()).toISOString().slice(0, 10);
   const to = filters.to?.trim() || now.toISOString().slice(0, 10);
 
-  const { data } = await db
+  let query = db
     .from("ledger_entries")
     .select("*")
     .or(`resident_user_id.eq.${residentUserId},resident_email.eq.${residentEmail}`)
     .gte("posted_date", from)
-    .lte("posted_date", to)
-    .order("posted_date", { ascending: true });
+    .lte("posted_date", to);
+  if (managerUserId) query = query.eq("manager_user_id", managerUserId);
+  const { data } = await query.order("posted_date", { ascending: true });
 
   let running = 0;
   const rows = (data ?? []).map((e) => {

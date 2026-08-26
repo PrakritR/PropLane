@@ -21,6 +21,25 @@ export type ProvisionState =
 
 export type RegistrationState = "pending" | "approved" | "rejected";
 
+/** Deployment-wide control for provisioning and managed-number sends. */
+export type SmsRuntimeMode = "paused" | "allowlisted_self_service" | "automatic";
+
+/** Whether the number is attached to the provider sender pool/service. */
+export type SmsNumberAttachmentState =
+  | "not_attached"
+  | "attaching"
+  | "attached"
+  | "failed";
+
+/** Carrier registration for the individual phone number, separate from its manager. */
+export type SmsNumberRegistrationState =
+  | "not_submitted"
+  | "pending"
+  | "registered"
+  | "failed"
+  | "deregistering"
+  | "deregistered";
+
 export type ManagerSmsNumberRecord = {
   managerUserId: string;
   phoneNumber: string | null;
@@ -38,6 +57,13 @@ export type ManagerSmsNumberRecord = {
   releasedAt: string | null;
   registrationUpdatedAt: string | null;
   updatedAt: string | null;
+  /** Additive control-plane fields. Optional while legacy row readers migrate. */
+  attachmentState?: SmsNumberAttachmentState;
+  numberRegistrationState?: SmsNumberRegistrationState;
+  graceStartedAt?: string | null;
+  graceExpiresAt?: string | null;
+  quarantinedAt?: string | null;
+  quarantineReason?: string | null;
 };
 
 const PROVISION_STATES: ReadonlySet<string> = new Set([
@@ -50,6 +76,28 @@ const PROVISION_STATES: ReadonlySet<string> = new Set([
 
 const REGISTRATION_STATES: ReadonlySet<string> = new Set(["pending", "approved", "rejected"]);
 
+const SMS_RUNTIME_MODES: ReadonlySet<string> = new Set([
+  "paused",
+  "allowlisted_self_service",
+  "automatic",
+]);
+
+const SMS_NUMBER_ATTACHMENT_STATES: ReadonlySet<string> = new Set([
+  "not_attached",
+  "attaching",
+  "attached",
+  "failed",
+]);
+
+const SMS_NUMBER_REGISTRATION_STATES: ReadonlySet<string> = new Set([
+  "not_submitted",
+  "pending",
+  "registered",
+  "failed",
+  "deregistering",
+  "deregistered",
+]);
+
 export function normalizeProvisionState(value: string | null | undefined): ProvisionState {
   const v = String(value ?? "").trim();
   return (PROVISION_STATES.has(v) ? v : "pending_registration") as ProvisionState;
@@ -58,6 +106,41 @@ export function normalizeProvisionState(value: string | null | undefined): Provi
 export function normalizeRegistrationState(value: string | null | undefined): RegistrationState {
   const v = String(value ?? "").trim();
   return (REGISTRATION_STATES.has(v) ? v : "pending") as RegistrationState;
+}
+
+/** Unknown runtime values fail closed to the deployment kill switch. */
+export function normalizeSmsRuntimeMode(value: string | null | undefined): SmsRuntimeMode {
+  const v = String(value ?? "").trim();
+  return (SMS_RUNTIME_MODES.has(v) ? v : "paused") as SmsRuntimeMode;
+}
+
+/** Unknown attachment values are treated as unattached, never send-ready. */
+export function normalizeSmsNumberAttachmentState(
+  value: string | null | undefined,
+): SmsNumberAttachmentState {
+  const v = String(value ?? "").trim();
+  return (SMS_NUMBER_ATTACHMENT_STATES.has(v) ? v : "not_attached") as SmsNumberAttachmentState;
+}
+
+/** Unknown per-number registration values are treated as not submitted. */
+export function normalizeSmsNumberRegistrationState(
+  value: string | null | undefined,
+): SmsNumberRegistrationState {
+  const v = String(value ?? "").trim();
+  return (SMS_NUMBER_REGISTRATION_STATES.has(v) ? v : "not_submitted") as SmsNumberRegistrationState;
+}
+
+/**
+ * Runtime gate shared by provisioning and dispatch. The pilot mode is explicit:
+ * merely being eligible or registered does not put a manager on the allowlist.
+ */
+export function smsRuntimeAllowsManager(
+  mode: SmsRuntimeMode | string | null | undefined,
+  managerIsAllowlisted: boolean,
+): boolean {
+  const normalized = normalizeSmsRuntimeMode(mode);
+  if (normalized === "automatic") return true;
+  return normalized === "allowlisted_self_service" && managerIsAllowlisted;
 }
 
 /**
@@ -146,6 +229,218 @@ export function needsProvisioning(
   if (!record) return true;
   const state = normalizeProvisionState(record.provisionState);
   return state === "pending_registration" || state === "failed";
+}
+
+// ---------------------------------------------------------------------------
+// SMS encoding / segment estimation. This intentionally models provider billing
+// units rather than JavaScript characters: GSM extension characters use two
+// septets, while non-GSM text uses UTF-16 code units (UCS-2), so an emoji uses
+// two units.
+// ---------------------------------------------------------------------------
+
+export type SmsEncoding = "gsm-7" | "ucs-2";
+
+export type SmsSegmentEstimate = {
+  encoding: SmsEncoding;
+  /** GSM septets or UCS-2/UTF-16 code units used by the body. */
+  encodedUnits: number;
+  segmentCount: number;
+  singleSegmentLimit: number;
+  multipartSegmentLimit: number;
+};
+
+const GSM_7_BASIC_CHARACTERS: ReadonlySet<string> = new Set(
+  Array.from(
+    "@£$¥èéùìòÇ\nØø\rÅåΔ_ΦΓΛΩΠΨΣΘΞÆæßÉ !\"#¤%&'()*+,-./0123456789:;<=>?¡ABCDEFGHIJKLMNOPQRSTUVWXYZÄÖÑÜ§¿abcdefghijklmnopqrstuvwxyzäöñüà",
+  ),
+);
+
+// Each extension-table character consumes an escape septet plus its own septet.
+const GSM_7_EXTENSION_CHARACTERS: ReadonlySet<string> = new Set(
+  Array.from("\f^{}\\[~]|€"),
+);
+
+function gsm7UnitCount(body: string): number | null {
+  let units = 0;
+  for (const character of body) {
+    if (GSM_7_BASIC_CHARACTERS.has(character)) {
+      units += 1;
+    } else if (GSM_7_EXTENSION_CHARACTERS.has(character)) {
+      units += 2;
+    } else {
+      return null;
+    }
+  }
+  return units;
+}
+
+/**
+ * Estimate provider-billed SMS segments using GSM-7 (160/153 septets) or UCS-2
+ * (70/67 UTF-16 code units). An empty body has zero segments.
+ */
+export function estimateSmsSegments(body: string): SmsSegmentEstimate {
+  const gsmUnits = gsm7UnitCount(body);
+  const encoding: SmsEncoding = gsmUnits === null ? "ucs-2" : "gsm-7";
+  const encodedUnits = gsmUnits ?? body.length;
+  const singleSegmentLimit = encoding === "gsm-7" ? 160 : 70;
+  const multipartSegmentLimit = encoding === "gsm-7" ? 153 : 67;
+  const segmentCount =
+    encodedUnits === 0
+      ? 0
+      : encodedUnits <= singleSegmentLimit
+        ? 1
+        : Math.ceil(encodedUnits / multipartSegmentLimit);
+
+  return {
+    encoding,
+    encodedUnits,
+    segmentCount,
+    singleSegmentLimit,
+    multipartSegmentLimit,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Strict managed-number sendability. Keep `managerCanSendFromOwnNumber` above
+// for compatibility with legacy callers; new dispatch code should use this
+// decision, which includes the runtime kill switch and carrier control plane.
+// ---------------------------------------------------------------------------
+
+export type SmsNumberGraceState = "none" | "active" | "expired" | "invalid";
+
+export type ManagerSmsNumberSendabilityRecord = Pick<
+  ManagerSmsNumberRecord,
+  | "provisionState"
+  | "phoneNumber"
+  | "registrationState"
+  | "registrationRef"
+> & {
+  attachmentState: SmsNumberAttachmentState | string | null | undefined;
+  numberRegistrationState: SmsNumberRegistrationState | string | null | undefined;
+  graceStartedAt: string | null | undefined;
+  graceExpiresAt: string | null | undefined;
+  quarantinedAt: string | null | undefined;
+  quarantineReason?: string | null | undefined;
+};
+
+export type ManagerSmsNumberBlockReason =
+  | "runtime_paused"
+  | "manager_not_allowlisted"
+  | "number_missing"
+  | "number_not_active"
+  | "manager_registration_not_approved"
+  | "number_not_attached"
+  | "number_not_registered"
+  | "number_quarantined"
+  | "number_in_grace"
+  | "number_grace_expired"
+  | "number_grace_invalid";
+
+export type ManagerSmsNumberSendabilityDecision = {
+  sendable: boolean;
+  reason: ManagerSmsNumberBlockReason | null;
+};
+
+export type ManagerSmsNumberSendabilityOptions = {
+  runtimeMode: SmsRuntimeMode | string | null | undefined;
+  managerIsAllowlisted?: boolean;
+  now?: Date;
+  env?: Record<string, string | undefined>;
+};
+
+function parseIsoMillis(value: string): number | null {
+  const millis = Date.parse(value);
+  return Number.isFinite(millis) ? millis : null;
+}
+
+/**
+ * Resolve the reconciliation grace window. A half-written or malformed window
+ * is invalid and therefore blocks sends instead of silently extending grace.
+ */
+export function resolveSmsNumberGraceState(
+  record: Pick<ManagerSmsNumberSendabilityRecord, "graceStartedAt" | "graceExpiresAt">,
+  now: Date = new Date(),
+): SmsNumberGraceState {
+  const startedAt = String(record.graceStartedAt ?? "").trim();
+  const expiresAt = String(record.graceExpiresAt ?? "").trim();
+  if (!startedAt && !expiresAt) return "none";
+  if (!startedAt || !expiresAt) return "invalid";
+
+  const startMillis = parseIsoMillis(startedAt);
+  const expiryMillis = parseIsoMillis(expiresAt);
+  const nowMillis = now.getTime();
+  if (
+    startMillis === null ||
+    expiryMillis === null ||
+    !Number.isFinite(nowMillis) ||
+    startMillis >= expiryMillis ||
+    nowMillis < startMillis
+  ) {
+    return "invalid";
+  }
+  return nowMillis >= expiryMillis ? "expired" : "active";
+}
+
+/** A timestamp or reason is enough to fail closed as quarantined. */
+export function smsNumberIsQuarantined(
+  record: Pick<ManagerSmsNumberSendabilityRecord, "quarantinedAt" | "quarantineReason">,
+): boolean {
+  return Boolean(
+    String(record.quarantinedAt ?? "").trim() ||
+      String(record.quarantineReason ?? "").trim(),
+  );
+}
+
+/**
+ * Complete pure send gate for a manager-owned number. Manager approval and
+ * per-number carrier registration are intentionally separate requirements.
+ */
+export function evaluateManagerSmsNumberSendability(
+  record: ManagerSmsNumberSendabilityRecord | null,
+  options: ManagerSmsNumberSendabilityOptions,
+): ManagerSmsNumberSendabilityDecision {
+  const runtimeMode = normalizeSmsRuntimeMode(options.runtimeMode);
+  if (runtimeMode === "paused") return { sendable: false, reason: "runtime_paused" };
+  if (!smsRuntimeAllowsManager(runtimeMode, options.managerIsAllowlisted ?? false)) {
+    return { sendable: false, reason: "manager_not_allowlisted" };
+  }
+  if (!record || !String(record.phoneNumber ?? "").trim()) {
+    return { sendable: false, reason: "number_missing" };
+  }
+  if (normalizeProvisionState(record.provisionState) !== "active") {
+    return { sendable: false, reason: "number_not_active" };
+  }
+  if (effectiveRegistrationState(record, options.env) !== "approved") {
+    return { sendable: false, reason: "manager_registration_not_approved" };
+  }
+  if (normalizeSmsNumberAttachmentState(record.attachmentState) !== "attached") {
+    return { sendable: false, reason: "number_not_attached" };
+  }
+  if (normalizeSmsNumberRegistrationState(record.numberRegistrationState) !== "registered") {
+    return { sendable: false, reason: "number_not_registered" };
+  }
+  if (smsNumberIsQuarantined(record)) {
+    return { sendable: false, reason: "number_quarantined" };
+  }
+
+  const graceState = resolveSmsNumberGraceState(record, options.now);
+  if (graceState === "active") {
+    return { sendable: false, reason: "number_in_grace" };
+  }
+  if (graceState === "expired") {
+    return { sendable: false, reason: "number_grace_expired" };
+  }
+  if (graceState === "invalid") {
+    return { sendable: false, reason: "number_grace_invalid" };
+  }
+  return { sendable: true, reason: null };
+}
+
+export function managerSmsNumberIsSendable(
+  record: ManagerSmsNumberSendabilityRecord | null,
+  options: ManagerSmsNumberSendabilityOptions,
+): boolean {
+  return evaluateManagerSmsNumberSendability(record, options).sendable;
 }
 
 // ---------------------------------------------------------------------------

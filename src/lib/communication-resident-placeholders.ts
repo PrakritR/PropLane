@@ -30,9 +30,9 @@ export function buildResidentPlaceholderInboxItems(args: {
   filters: CommunicationThreadFilters;
   occupiedEmails: ReadonlySet<string>;
   searchQuery?: string;
-  listSegment?: "active" | "archived";
+  listSegment?: "active" | "unread" | "archived";
 }): UnifiedInboxListItem[] {
-  if (args.listSegment === "archived") return [];
+  if (args.listSegment === "archived" || args.listSegment === "unread") return [];
 
   const q = args.searchQuery?.trim().toLowerCase() ?? "";
 

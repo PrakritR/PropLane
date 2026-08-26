@@ -1,9 +1,11 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { randomUUID } from "node:crypto";
 import {
   isClawSharedLineBridgeEnabled,
   isLegacyClawSharedSmsNumber,
   isPlaceholderManagerWorkNumber,
 } from "@/lib/claw-leasing-links";
+import { managerCarrierRegistrationNeedsAttention } from "@/lib/sms/manager-messaging-number";
 import {
   isProvisioningEnabled,
   managerCanSendFromOwnNumber,
@@ -63,6 +65,12 @@ export function mapNumberRow(row: Record<string, unknown> | null | undefined): M
     releasedAt: (row.released_at as string | null) ?? null,
     registrationUpdatedAt: (row.registration_updated_at as string | null) ?? null,
     updatedAt: (row.updated_at as string | null) ?? null,
+    attachmentState: String(row.attachment_state ?? "not_attached") as ManagerSmsNumberRecord["attachmentState"],
+    numberRegistrationState: String(row.number_registration_state ?? "not_submitted") as ManagerSmsNumberRecord["numberRegistrationState"],
+    graceStartedAt: (row.grace_started_at as string | null) ?? null,
+    graceExpiresAt: (row.grace_expires_at as string | null) ?? null,
+    quarantinedAt: (row.quarantined_at as string | null) ?? null,
+    quarantineReason: (row.quarantine_reason as string | null) ?? null,
   };
 }
 
@@ -125,6 +133,7 @@ export async function provisionManagerNumber(
   if (!id) return { ok: false, error: "Missing manager id.", state: "failed" };
 
   const record = await ensureManagerNumberRecord(db, id);
+  if (!record) return { ok: false, error: "Could not initialize work-number state.", state: "failed" };
 
   // 1. Idempotent short-circuit — already has a real active number.
   if (record && normalizeProvisionState(record.provisionState) === "active" && record.phoneNumber) {
@@ -143,16 +152,19 @@ export async function provisionManagerNumber(
   }
 
   // 3. Mark provisioning in-flight (observable) and bump the attempt counter.
-  await db
-    .from(TABLE)
-    .update({
-      provision_state: "provisioning",
-      attempts: (record?.attempts ?? 0) + 1,
-      last_error: null,
-      updated_at: nowIso(),
-    })
-    .eq("manager_user_id", id)
-    .then(() => undefined, () => undefined);
+  const requestId = randomUUID();
+  const { data: claimed, error: claimLockError } = await db.rpc("claim_manager_sms_provisioning", {
+    p_manager_user_id: id,
+    p_request_id: requestId,
+  });
+  if (claimLockError) return { ok: false, error: "Could not lock work-number setup.", state: "failed" };
+  if (claimed !== true) {
+    const current = await getManagerNumberRecord(db, id);
+    if (current?.phoneNumber && current.provisionState === "active") {
+      return { ok: true, number: current.phoneNumber, state: "active", alreadyProvisioned: true };
+    }
+    return { ok: false, error: "setup_in_progress", state: "provisioning" };
+  }
 
   // 3b. Clear a legacy Claw shared-line / placeholder stamp BEFORE buying, so the
   //     atomic `.is("sms_from_number", null)` claim can succeed. Without this the
@@ -162,35 +174,84 @@ export async function provisionManagerNumber(
   if (!isClawSharedLineBridgeEnabled()) {
     const { data: prof0 } = await db.from("profiles").select("sms_from_number").eq("id", id).maybeSingle();
     const cur = String(prof0?.sms_from_number ?? "").trim();
-    if (cur && (isLegacyClawSharedSmsNumber(cur) || isPlaceholderManagerWorkNumber(cur))) {
-      await db
+    let safeToClear = cur && (isLegacyClawSharedSmsNumber(cur) || isPlaceholderManagerWorkNumber(cur));
+    if (cur && !safeToClear) {
+      const { twilioOwnsPhoneNumber } = await import("@/lib/twilio-provisioning");
+      const providerOwns = await twilioOwnsPhoneNumber(cur);
+      if (providerOwns === null) {
+        return { ok: false, error: "Could not verify the existing messaging-number cache.", state: "failed" };
+      }
+      if (providerOwns) {
+        return { ok: false, error: "An owned Twilio number must be reconciled before setup can continue.", state: "failed" };
+      }
+      safeToClear = true;
+    }
+    if (safeToClear) {
+      const { error: clearError } = await db
         .from("profiles")
         .update({ sms_from_number: null })
         .eq("id", id)
-        .eq("sms_from_number", cur)
-        .then(() => undefined, () => undefined);
+        .eq("sms_from_number", cur);
+      if (clearError) {
+        await recordProvisionFailure(db, id, requestId, "Could not clear the legacy work-number cache.");
+        return { ok: false, error: "Could not prepare work-number setup.", state: "failed" };
+      }
     }
   }
 
   // 4. Provider purchase (all Twilio SDK usage lives in twilio-provisioning).
   const { purchaseManagerTwilioNumber, releaseTwilioNumber } = await import("@/lib/twilio-provisioning");
-  const purchase = await purchaseManagerTwilioNumber({ areaCode: opts?.areaCode });
+  const { error: operationError } = await db.from("sms_provisioning_operations").insert({
+    request_id: requestId,
+    manager_user_id: id,
+    area_code: opts?.areaCode ?? null,
+    state: "claimed",
+  });
+  if (operationError) {
+    await recordProvisionFailure(db, id, requestId, "Could not persist the provider operation intent.");
+    return { ok: false, error: "Could not initialize provider setup.", state: "failed" };
+  }
+  const purchase = await purchaseManagerTwilioNumber({ areaCode: opts?.areaCode, requestId });
   if (!purchase.ok) {
-    await recordProvisionFailure(db, id, purchase.error);
+    await db.from("sms_provisioning_operations").update({ state: "failed", last_error: purchase.error.slice(0, 500), updated_at: nowIso() }).eq("request_id", requestId);
+    await recordProvisionFailure(db, id, requestId, purchase.error);
     return { ok: false, error: purchase.error, state: "failed" };
+  }
+  const { error: providerPersistError } = await db.from("sms_provisioning_operations").update({
+    state: "attached",
+    phone_number: purchase.number,
+    phone_number_sid: purchase.sid,
+    messaging_service_sid: purchase.messagingServiceSid,
+    updated_at: nowIso(),
+  }).eq("request_id", requestId);
+  if (providerPersistError) {
+    // Do not open the row for another purchase. The provider number carries the
+    // request UUID in friendlyName and the reconciliation worker can recover it.
+    await db.from(TABLE).update({
+      quarantined_at: nowIso(),
+      quarantine_reason: "provider_operation_persistence_failed",
+      last_error: "Provider number purchased; awaiting reconciliation.",
+      updated_at: nowIso(),
+    }).eq("manager_user_id", id).eq("provision_request_id", requestId);
+    return { ok: false, error: "Provider setup is awaiting reconciliation.", state: "provisioning" };
   }
 
   // 5. Atomically claim the profile slot; on race, release the bought number so
   //    it is not orphaned/billed, then reconcile to the winner.
-  const { data: claimed, error: claimErr } = await db
+  const { data: profileClaimed, error: claimErr } = await db
     .from("profiles")
     .update({ sms_from_number: purchase.number, updated_at: nowIso() })
     .eq("id", id)
     .is("sms_from_number", null)
     .select("sms_from_number");
 
-  if (claimErr || !claimed || claimed.length === 0) {
-    await releaseTwilioNumber(purchase.sid).catch(() => undefined);
+  if (claimErr || !profileClaimed || profileClaimed.length === 0) {
+    const released = await releaseTwilioNumber(purchase.sid).catch(() => false);
+    await db.from("sms_provisioning_operations").update({
+      state: released ? "released" : "failed",
+      last_error: released ? null : "Provider release could not be confirmed.",
+      updated_at: nowIso(),
+    }).eq("request_id", requestId);
     // Reconcile to a stored number ONLY if it is a real owned number — never a
     // legacy Claw shared line or placeholder stamp, which would otherwise mark
     // the state row `active` with the SHARED line as the manager's own number.
@@ -198,42 +259,300 @@ export async function provisionManagerNumber(
     const stored = String(prof?.sms_from_number ?? "").trim();
     const storedIsReal = stored && !isLegacyClawSharedSmsNumber(stored) && !isPlaceholderManagerWorkNumber(stored);
     if (storedIsReal) {
-      await db
-        .from(TABLE)
-        .update({ provision_state: "active", phone_number: stored, provisioned_at: nowIso(), last_error: null, updated_at: nowIso() })
-        .eq("manager_user_id", id)
-        .then(() => undefined, () => undefined);
-      return { ok: true, number: stored, state: "active", alreadyProvisioned: true };
+      const winner = await getManagerNumberRecord(db, id);
+      if (winner?.phoneNumber === stored && winner.provisionState !== "failed" && winner.provisionState !== "released") {
+        return { ok: true, number: stored, state: winner.provisionState, alreadyProvisioned: true };
+      }
     }
-    await recordProvisionFailure(db, id, claimErr?.message ?? "Could not persist the work number.");
+    if (!released) {
+      await db.from(TABLE).update({
+        quarantined_at: nowIso(),
+        quarantine_reason: "provider_release_unconfirmed",
+        last_error: "A purchased number could not be safely released; operator review is required.",
+        updated_at: nowIso(),
+      }).eq("manager_user_id", id).eq("provision_request_id", requestId);
+      return { ok: false, error: "Provider cleanup requires review.", state: "provisioning" };
+    }
+    await recordProvisionFailure(db, id, requestId, claimErr?.message ?? "Could not persist the work number.");
     return { ok: false, error: claimErr?.message ?? "Could not persist the work number.", state: "failed" };
   }
 
-  // 6. Record the active number + provider ids.
-  await db
+  // 6. Persist the purchased/attached number. It remains `provisioning` until a
+  // trusted carrier event marks this exact phone SID registered.
+  const { data: persisted, error: persistError } = await db
     .from(TABLE)
     .update({
-      provision_state: "active",
+      provision_state: "provisioning",
       phone_number: purchase.number,
       phone_number_sid: purchase.sid,
       messaging_service_sid: purchase.messagingServiceSid ?? null,
+      attachment_state: "attached",
+      attached_at: nowIso(),
+      number_registration_state: "pending",
+      registration_submitted_at: nowIso(),
+      // One PropLane-owned approved brand/campaign: workspace approval is the
+      // shared PropLane approval. The individual number still cannot send until
+      // its separate carrier event marks number_registration_state registered.
+      registration_state: "approved",
+      registration_ref: null,
+      registration_updated_at: nowIso(),
       area_code: opts?.areaCode ?? null,
       provisioned_at: nowIso(),
       last_error: null,
       updated_at: nowIso(),
     })
     .eq("manager_user_id", id)
-    .then(() => undefined, () => undefined);
+    .eq("provision_request_id", requestId)
+    .select("manager_user_id");
 
-  return { ok: true, number: purchase.number, state: "active", alreadyProvisioned: false };
+  if (persistError || !persisted?.length) {
+    const released = await releaseTwilioNumber(purchase.sid).catch(() => false);
+    await db
+      .from("profiles")
+      .update({ sms_from_number: null })
+      .eq("id", id)
+      .eq("sms_from_number", purchase.number)
+      .then(() => undefined, () => undefined);
+    await db.from("sms_provisioning_operations").update({
+      state: released ? "released" : "failed",
+      last_error: released ? null : "Provider release could not be confirmed.",
+      updated_at: nowIso(),
+    }).eq("request_id", requestId);
+    if (!released) {
+      await db.from(TABLE).update({
+        quarantined_at: nowIso(),
+        quarantine_reason: "provider_release_unconfirmed",
+        last_error: "Purchased number persistence failed and provider release is unconfirmed.",
+        updated_at: nowIso(),
+      }).eq("manager_user_id", id).eq("provision_request_id", requestId);
+      return { ok: false, error: "Provider cleanup requires review.", state: "provisioning" };
+    }
+    await recordProvisionFailure(db, id, requestId, persistError?.message ?? "Could not persist the purchased work number.");
+    return { ok: false, error: "Could not persist the purchased work number.", state: "failed" };
+  }
+
+  await db.from("sms_provisioning_operations").update({ state: "persisted", updated_at: nowIso() }).eq("request_id", requestId);
+
+  return { ok: true, number: purchase.number, state: "provisioning", alreadyProvisioned: false };
 }
 
-async function recordProvisionFailure(db: SupabaseClient, managerUserId: string, error: string): Promise<void> {
+async function recordProvisionFailure(
+  db: SupabaseClient,
+  managerUserId: string,
+  requestId: string,
+  error: string,
+): Promise<void> {
   await db
     .from(TABLE)
-    .update({ provision_state: "failed", last_error: error.slice(0, 500), updated_at: nowIso() })
+    .update({ provision_state: "failed", attachment_state: "failed", last_error: error.slice(0, 500), updated_at: nowIso() })
     .eq("manager_user_id", managerUserId)
+    .eq("provision_request_id", requestId)
     .then(() => undefined, () => undefined);
+}
+
+export type ProvisioningReconciliationResult = {
+  considered: number;
+  recovered: number;
+  safelyReset: number;
+  needsReview: number;
+  attachmentChecked: number;
+  attachmentDrifted: number;
+};
+
+/**
+ * Recover a process crash between Twilio purchase and local persistence. The
+ * provider number is found by the request UUID stamped into friendlyName, so a
+ * retry never guesses by phone and never purchases a second number.
+ */
+export async function reconcilePendingManagerNumberOperations(
+  db: SupabaseClient,
+  limit = 5,
+): Promise<ProvisioningReconciliationResult> {
+  const result: ProvisioningReconciliationResult = {
+    considered: 0,
+    recovered: 0,
+    safelyReset: 0,
+    needsReview: 0,
+    attachmentChecked: 0,
+    attachmentDrifted: 0,
+  };
+  if (!isProvisioningEnabled()) return result;
+  const { data: rows, error } = await db
+    .from(TABLE)
+    .select("manager_user_id, provision_request_id, updated_at")
+    .eq("provision_state", "provisioning")
+    .is("phone_number_sid", null)
+    .not("provision_request_id", "is", null)
+    .order("updated_at", { ascending: true })
+    .limit(Math.max(1, Math.min(limit, 20)));
+  if (error) return result;
+
+  const { findManagerTwilioNumberByRequestId } = await import("@/lib/twilio-provisioning");
+  for (const row of rows ?? []) {
+    const managerUserId = String(row.manager_user_id ?? "").trim();
+    const requestId = String(row.provision_request_id ?? "").trim();
+    if (!managerUserId || !requestId) continue;
+    result.considered += 1;
+    const provider = await findManagerTwilioNumberByRequestId(requestId);
+    if (!provider.ok) {
+      await db.from(TABLE).update({
+        quarantined_at: nowIso(),
+        quarantine_reason: "provider_reconciliation_unavailable",
+        last_error: provider.error.slice(0, 500),
+        updated_at: nowIso(),
+      }).eq("manager_user_id", managerUserId).eq("provision_request_id", requestId);
+      result.needsReview += 1;
+      continue;
+    }
+    if (!provider.number) {
+      const updatedAt = Date.parse(String(row.updated_at ?? ""));
+      if (!Number.isFinite(updatedAt) || Date.now() - updatedAt < 15 * 60_000) continue;
+      await db.from("sms_provisioning_operations").update({
+        state: "failed",
+        last_error: "No provider number exists for the durable request identity.",
+        updated_at: nowIso(),
+      }).eq("request_id", requestId);
+      await recordProvisionFailure(
+        db,
+        managerUserId,
+        requestId,
+        "No provider number was created; setup may be retried.",
+      );
+      result.safelyReset += 1;
+      continue;
+    }
+
+    const recovered = provider.number;
+    let { data: profileClaim } = await db
+      .from("profiles")
+      .update({ sms_from_number: recovered.number, updated_at: nowIso() })
+      .eq("id", managerUserId)
+      .is("sms_from_number", null)
+      .select("id");
+    if (!profileClaim?.length) {
+      const { data: profile } = await db.from("profiles").select("sms_from_number").eq("id", managerUserId).maybeSingle();
+      if (String(profile?.sms_from_number ?? "").trim() !== recovered.number) {
+        await db.from(TABLE).update({
+          quarantined_at: nowIso(),
+          quarantine_reason: "profile_number_conflict",
+          last_error: "Recovered provider number conflicts with the profile cache.",
+          updated_at: nowIso(),
+        }).eq("manager_user_id", managerUserId).eq("provision_request_id", requestId);
+        result.needsReview += 1;
+        continue;
+      }
+      profileClaim = [{ id: managerUserId }];
+    }
+
+    const { data: persisted } = await db.from(TABLE).update({
+      phone_number: recovered.number,
+      phone_number_sid: recovered.sid,
+      messaging_service_sid: recovered.messagingServiceSid,
+      attachment_state: "attached",
+      attached_at: nowIso(),
+      number_registration_state: "pending",
+      registration_submitted_at: nowIso(),
+      registration_state: "approved",
+      registration_ref: null,
+      provisioned_at: nowIso(),
+      quarantined_at: null,
+      quarantine_reason: null,
+      last_error: null,
+      updated_at: nowIso(),
+    }).eq("manager_user_id", managerUserId).eq("provision_request_id", requestId).select("manager_user_id");
+    if (!persisted?.length) {
+      result.needsReview += 1;
+      continue;
+    }
+    await db.from("sms_provisioning_operations").update({
+      state: "persisted",
+      phone_number: recovered.number,
+      phone_number_sid: recovered.sid,
+      messaging_service_sid: recovered.messagingServiceSid,
+      last_error: null,
+      updated_at: nowIso(),
+    }).eq("request_id", requestId);
+    result.recovered += 1;
+  }
+
+  const { listAttachedTwilioNumbers } = await import("@/lib/twilio-provisioning");
+  const snapshot = await listAttachedTwilioNumbers();
+  if (!snapshot.ok) return result;
+  const { data: attachedRows } = await db
+    .from(TABLE)
+    .select(
+      "manager_user_id, phone_number, provision_state, number_registration_state, registration_submitted_at, last_provider_event_at, quarantined_at, quarantine_reason",
+    )
+    .eq("attachment_state", "attached")
+    .neq("provision_state", "released")
+    .not("phone_number", "is", null)
+    .order("provider_reconciled_at", { ascending: true, nullsFirst: true })
+    .limit(20);
+  for (const attachedRow of attachedRows ?? []) {
+    const managerUserId = String(attachedRow.manager_user_id ?? "").trim();
+    const phone = String(attachedRow.phone_number ?? "").trim();
+    if (!managerUserId || !phone) continue;
+    result.attachmentChecked += 1;
+    if (!snapshot.phoneNumbers.has(phone)) {
+      await db.from(TABLE).update({
+        attachment_state: "failed",
+        quarantined_at: nowIso(),
+        quarantine_reason: "messaging_service_attachment_missing",
+        last_error: "Twilio sender-pool attachment is missing.",
+        provider_reconciled_at: nowIso(),
+        updated_at: nowIso(),
+      }).eq("manager_user_id", managerUserId).eq("phone_number", phone);
+      result.attachmentDrifted += 1;
+    } else {
+      const reconciledAt = nowIso();
+      const carrierRegistrationStale =
+        managerCarrierRegistrationNeedsAttention({
+          provisionState: String(attachedRow.provision_state ?? ""),
+          carrierRegistrationState: String(
+            attachedRow.number_registration_state ?? "",
+          ),
+          registrationSubmittedAt:
+            typeof attachedRow.registration_submitted_at === "string"
+              ? attachedRow.registration_submitted_at
+              : null,
+          lastProviderEventAt:
+            typeof attachedRow.last_provider_event_at === "string"
+              ? attachedRow.last_provider_event_at
+              : null,
+        });
+      if (carrierRegistrationStale) {
+        result.needsReview += 1;
+        const alreadyQuarantined = Boolean(
+          String(attachedRow.quarantined_at ?? "").trim(),
+        );
+        await db
+          .from(TABLE)
+          .update(
+            alreadyQuarantined
+              ? { provider_reconciled_at: reconciledAt }
+              : {
+                  quarantined_at: reconciledAt,
+                  quarantine_reason: "carrier_registration_stale",
+                  last_error:
+                    "Carrier registration has not reported progress; operator review is required.",
+                  provider_reconciled_at: reconciledAt,
+                  updated_at: reconciledAt,
+                },
+          )
+          .eq("manager_user_id", managerUserId)
+          .eq("phone_number", phone);
+      } else {
+        // This is routine attachment observation, not lifecycle progress. Do
+        // not refresh updated_at and accidentally hide registration staleness.
+        await db
+          .from(TABLE)
+          .update({ provider_reconciled_at: reconciledAt })
+          .eq("manager_user_id", managerUserId)
+          .eq("phone_number", phone);
+      }
+    }
+  }
+  return result;
 }
 
 export type ActivateSweepResult = {

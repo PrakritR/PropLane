@@ -89,8 +89,17 @@ playwright.config.ts
 /env.local
 .env*
 
+# Codex local hooks (absolute graphify path from `graphify codex install`)
+.codex/
+
 # E2E get-started test screenshots (local evidence output)
 .get-started-evidence/
 
 # OAuth verification screenshots — evidence only, never committed (contains account picker frame)
 native-oauth-verification/
+
+# Graphify local knowledge graph (regenerated with `graphify update .`)
+graphify-out/
+
+# Local Playwright CLI session logs
+.playwright-cli/

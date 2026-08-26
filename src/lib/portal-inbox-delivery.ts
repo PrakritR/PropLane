@@ -738,6 +738,7 @@ export async function deliverPortalInboxMessage(
           text: body,
           fromNumber: smsFromNumber,
           linkKind: null, // already appended above
+          sendClass: eventCategory ? "automated" : "transactional",
           openThread,
         });
         if (result.sent) {

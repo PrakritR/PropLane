@@ -4,6 +4,18 @@
 > Update 2026-06-29: remediation is **knowingly deferred** — do not run the repair
 > or `db:push` yet. The migration file is committed and correct; it is simply not
 > applied. See [Impact](#impact) for the runtime consequence while deferred.
+> Update 2026-08-25: the SMS development blocker was narrowly unblocked on the
+> shared dev/test project. An isolated temporary CLI workdir applied and recorded
+> only `20260717120000_sms_consent_delivery.sql`,
+> `20260725120000_manager_sms_numbers.sql`, and
+> `20260825120000_sms_control_plane.sql`. The control plane was verified with
+> `sms_runtime_config.mode = 'paused'`, no manager number was created, and
+> anon/authenticated access remains denied. The broader migration-history drift
+> is still open; normal `db:push`, `db:baseline`, and broad repair remain unsafe.
+> Update 2026-08-26: the same isolated-workdir pattern applied only
+> `20260826130000_manager_sms_contacts.sql` to prop-lane test
+> (`emstjswhotsnyksqhqyf`) so Add phone contact can persist labels. Production
+> was not touched.
 
 ## Summary
 
@@ -16,6 +28,13 @@ newest migration and instead reports older, "out of order" local files.
 
 This blocks applying new migrations through the standard flow until the history
 is reconciled.
+
+The 2026-08-25 SMS exception did not reconcile the full history. It used remote
+history placeholders in a temporary workdir plus only the three real SMS files,
+and proceeded only after `db push --include-all --dry-run` listed exactly those
+three versions. Do not copy that exception into routine schema work: use it only
+for a reviewed, dependency-complete, additive migration batch against the
+explicit dev/test project ref.
 
 ## How it surfaced
 

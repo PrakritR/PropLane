@@ -850,19 +850,19 @@ export function InboxConversationRow({
 }) {
   return (
     <div
-      className={`portal-inbox-row flex items-center gap-2.5 border-b border-border/50 px-3 py-3 transition-colors max-md:gap-2 max-md:px-2.5 max-md:py-2.5 ${
+      className={`portal-inbox-row flex items-center gap-2 border-b border-border/50 px-2.5 py-2 transition-colors max-md:gap-1.5 max-md:px-2 max-md:py-1.5 ${
         selected
           ? "portal-inbox-row--selected border-l-[3px] border-l-primary bg-primary/[0.06]"
           : "border-l-[3px] border-l-transparent hover:bg-foreground/[0.03]"
       }`}
     >
       {leading}
-      <button type="button" onClick={onOpen} className="flex min-w-0 flex-1 items-center gap-3 text-left">
-        <InboxAvatar name={name} />
+      <button type="button" onClick={onOpen} className="flex min-w-0 flex-1 items-center gap-2.5 text-left">
+        <InboxAvatar name={name} className="h-8 w-8 text-[11px]" />
         <div className="min-w-0 flex-1">
           <div className="flex items-baseline justify-between gap-2">
             <p
-              className={`truncate text-sm ${
+              className={`truncate text-[13px] leading-tight ${
                 unread ? "font-semibold text-foreground" : "font-medium text-foreground/90"
               }`}
             >
@@ -898,9 +898,9 @@ export function InboxConversationRow({
   );
 }
 
-export type InboxListSegment = "active" | "archived";
+export type InboxListSegment = "active" | "unread" | "archived";
 
-/** Segment tabs above the conversation list (Active / Archived). */
+/** Segment tabs above the conversation list (Active / Unread / Archived). */
 export function InboxListSegmentTabs({
   value,
   onChange,
@@ -910,6 +910,7 @@ export function InboxListSegmentTabs({
 }) {
   const tabs: { id: InboxListSegment; label: string }[] = [
     { id: "active", label: "Active" },
+    { id: "unread", label: "Unread" },
     { id: "archived", label: "Archived" },
   ];
   return (
@@ -973,39 +974,48 @@ export function InboxBubble({
     return message.at;
   })();
 
+  // `min-w-0` + `ml-auto`/`mr-auto` so long URLs cannot expand the row and
+  // leave outbound (blue) bubbles sitting on the left.
   return (
-    <div className={`flex max-w-full flex-col ${outbound ? "items-end" : "items-start"}`}>
-      {showAuthor && !outbound && cluster === "single" ? (
-        <span className="mb-1 px-1 text-[11px] font-medium text-muted">{message.author}</span>
-      ) : null}
+    <div className="flex w-full min-w-0">
       <div
-        className={`portal-inbox-inbound-bubble max-w-[min(88%,20rem)] px-3.5 py-2 text-[15px] leading-relaxed sm:text-sm ${radius} ${
-          outbound
-            ? "portal-inbox-outbound-bubble text-white"
-            : cluster === "single"
-              ? "border border-border bg-secondary text-foreground"
-              : "border border-border bg-secondary text-foreground"
-        } ${sending ? "opacity-80" : ""} ${failed ? "ring-2 ring-rose-400/50" : ""}`}
+        className={`flex min-w-0 max-w-[min(88%,20rem)] flex-col ${
+          outbound ? "ml-auto items-end" : "mr-auto items-start"
+        }`}
+        data-inbox-bubble-align={outbound ? "end" : "start"}
       >
-        <p className="whitespace-pre-wrap break-words [overflow-wrap:anywhere]">{message.body || " "}</p>
-        {message.attachments?.length ? (
-          <div className="mt-2 flex flex-wrap gap-2">
-            {message.attachments.map((att) => (
-              <InboxAttachmentChip key={att.url} att={att} outbound={outbound} />
-            ))}
-          </div>
+        {showAuthor && !outbound && cluster === "single" ? (
+          <span className="mb-1 px-1 text-[11px] font-medium text-muted">{message.author}</span>
+        ) : null}
+        <div
+          className={`portal-inbox-inbound-bubble w-full px-3.5 py-2 text-[15px] leading-relaxed sm:text-sm ${radius} ${
+            outbound
+              ? "portal-inbox-outbound-bubble text-white"
+              : cluster === "single"
+                ? "border border-border bg-secondary text-foreground"
+                : "border border-border bg-secondary text-foreground"
+          } ${sending ? "opacity-80" : ""} ${failed ? "ring-2 ring-rose-400/50" : ""}`}
+        >
+          <p className="whitespace-pre-wrap break-words [overflow-wrap:anywhere]">{message.body || " "}</p>
+          {message.attachments?.length ? (
+            <div className="mt-2 flex flex-wrap gap-2">
+              {message.attachments.map((att) => (
+                <InboxAttachmentChip key={att.url} att={att} outbound={outbound} />
+              ))}
+            </div>
+          ) : null}
+        </div>
+        {showMeta && metaCaption ? (
+          <span
+            className={`mt-1 flex max-w-full items-center gap-1.5 px-1 text-[11px] text-muted ${
+              outbound ? "flex-row-reverse" : ""
+            }`}
+          >
+            {showChannel ? <InboxChannelTag channel={channel} /> : null}
+            <span className={sending ? "italic" : failed ? "font-medium text-rose-600" : ""}>{metaCaption}</span>
+          </span>
         ) : null}
       </div>
-      {showMeta && metaCaption ? (
-        <span
-          className={`mt-1 flex max-w-full items-center gap-1.5 px-1 text-[11px] text-muted ${
-            outbound ? "flex-row-reverse" : ""
-          }`}
-        >
-          {showChannel ? <InboxChannelTag channel={channel} /> : null}
-          <span className={sending ? "italic" : failed ? "font-medium text-rose-600" : ""}>{metaCaption}</span>
-        </span>
-      ) : null}
     </div>
   );
 }
@@ -1024,7 +1034,7 @@ export function InboxMessageTimeline({
       {items.map((item) => (
         <div
           key={item.key}
-          className={item.clusterStart ? "mt-3 first:mt-0" : "mt-0.5"}
+          className={`w-full min-w-0 ${item.clusterStart ? "mt-3 first:mt-0" : "mt-0.5"}`}
           data-inbox-cluster-start={item.clusterStart ? "true" : "false"}
         >
           <InboxBubble
@@ -1061,7 +1071,7 @@ export function inboxReplyModeToChannels(mode: InboxReplyChannelMode): { viaEmai
 }
 
 const INBOX_REPLY_CHANNEL_COMPACT_TRIGGER_CLASS =
-  "min-h-[2.75rem] w-[min(8.5rem,30vw)] rounded-2xl px-2.5 py-1.5 text-xs font-medium sm:text-xs";
+  "min-h-9 w-[min(7.5rem,28vw)] rounded-xl px-2 py-1 text-[11px] font-medium sm:text-xs";
 
 /** Email / SMS channel multi-select for thread replies — compact control beside the reply field. */
 export function InboxReplyChannelPicker({
@@ -1129,10 +1139,10 @@ export function InboxReplyChannelPicker({
 
 /** Shared thread-reply field + send affordance — keep identical across email/SMS/resident chat. */
 export const PORTAL_INBOX_COMPOSER_INPUT_CLASS =
-  "portal-inbox-composer-input max-h-32 min-h-[2.75rem] flex-1 resize-none rounded-2xl border border-border bg-background px-3.5 py-2.5 text-[15px] leading-snug text-foreground outline-none transition-[border-color,box-shadow] placeholder:text-muted/70 focus:border-primary/40 focus:ring-2 focus:ring-primary/15 disabled:opacity-60 sm:text-sm";
+  "portal-inbox-composer-input max-h-28 min-h-9 flex-1 resize-none rounded-xl border border-border/80 bg-background px-3 py-2 text-sm leading-snug text-foreground outline-none transition-[border-color,box-shadow] placeholder:text-muted/70 focus:border-primary/40 focus:ring-2 focus:ring-primary/15 disabled:opacity-60";
 
 export const PORTAL_INBOX_COMPOSER_SEND_CLASS =
-  "portal-inbox-composer-send mb-0.5 flex h-10 w-10 shrink-0 touch-manipulation items-center justify-center rounded-full bg-[var(--btn-primary)] text-primary-foreground shadow-[0_4px_14px_-6px_rgba(47,107,255,0.65)] transition-[filter,opacity] hover:brightness-110 disabled:opacity-40";
+  "portal-inbox-composer-send mb-0.5 flex h-9 w-9 shrink-0 touch-manipulation items-center justify-center rounded-full bg-[var(--btn-primary)] text-primary-foreground shadow-[0_2px_8px_-4px_rgba(47,107,255,0.55)] transition-[filter,opacity] hover:brightness-110 disabled:opacity-40";
 
 /** Persistent composer pinned to the bottom of an open thread. */
 export function InboxComposer({
@@ -1180,11 +1190,11 @@ export function InboxComposer({
   const resolvedChannel = channelControl ?? null;
   return (
     <div
-      className="portal-inbox-composer shrink-0 border-t border-border bg-card max-md:pb-[max(0.375rem,env(safe-area-inset-bottom,0px))] md:pb-[max(0.625rem,env(safe-area-inset-bottom,0px))]"
+      className="portal-inbox-composer shrink-0 border-t border-border/80 bg-card max-md:pb-[max(0.25rem,env(safe-area-inset-bottom,0px))] md:pb-[max(0.5rem,env(safe-area-inset-bottom,0px))]"
     >
       {channelBar ?? null}
       <form
-        className="px-2 py-1.5 max-md:py-1 md:px-3 md:py-2"
+        className="px-2 py-1 max-md:py-0.5 md:px-2.5 md:py-1.5"
         onSubmit={(e) => {
           e.preventDefault();
           if (canSend) onSubmit();
@@ -1228,8 +1238,8 @@ export function InboxComposer({
         ) : null}
         <div className="portal-inbox-composer-row flex items-end gap-2">
           {onAttachmentsPick ? (
-            <label className="mb-0.5 flex h-10 w-10 shrink-0 cursor-pointer items-center justify-center rounded-full border border-border text-muted hover:bg-accent/40 hover:text-foreground">
-              <Paperclip className="h-5 w-5" strokeWidth={2} />
+            <label className="mb-0.5 flex h-9 w-9 shrink-0 cursor-pointer items-center justify-center rounded-full border border-border/80 text-muted hover:bg-accent/40 hover:text-foreground">
+              <Paperclip className="h-4 w-4" strokeWidth={2} />
               <input
                 type="file"
                 accept={INBOX_ATTACHMENT_ACCEPT}
@@ -1270,9 +1280,9 @@ export function InboxComposer({
             className={PORTAL_INBOX_COMPOSER_SEND_CLASS}
           >
             {sending ? (
-              <span className="h-4 w-4 animate-spin rounded-full border-2 border-current/40 border-t-current" />
+              <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-current/40 border-t-current" />
             ) : (
-              <ArrowUp className="h-5 w-5" strokeWidth={2.25} />
+              <ArrowUp className="h-4 w-4" strokeWidth={2.25} />
             )}
           </button>
         </div>
@@ -1357,32 +1367,24 @@ export function InboxAiAssistBar({
   if (!onGenerate) return null;
 
   return (
-    <div className="portal-inbox-ai-assist-bar rounded-xl border border-primary/15 bg-primary/5 px-3 py-2.5" data-attr="inbox-ai-assist-bar">
-      <label className="text-[11px] font-semibold uppercase tracking-wide text-primary">
-        AI reply assist
-      </label>
-      <div className="mt-2 flex items-stretch gap-2">
-        <div
-          className="flex min-h-10 flex-1 items-center rounded-xl border border-border/80 bg-background/80 px-3 text-sm text-muted/80"
-          aria-hidden
-        >
-          Describe what you want to say…
-        </div>
-        <Button
-          type="button"
-          variant="outline"
-          className="h-10 min-h-0 shrink-0 gap-1.5 rounded-xl px-3.5 text-[13px]"
-          onClick={onGenerate}
-          data-attr="inbox-ai-draft-generate"
-        >
-          <Sparkles className="h-3.5 w-3.5 text-primary" strokeWidth={2.25} aria-hidden />
-          Draft
-        </Button>
-      </div>
-      {error ? <p className="mt-2 text-[12px] text-danger">Couldn’t draft a reply. Try again.</p> : null}
+    <div className="portal-inbox-ai-assist-bar px-1 py-1" data-attr="inbox-ai-assist-bar">
+      <Button
+        type="button"
+        variant="outline"
+        className="h-8 min-h-0 w-full justify-start gap-2 rounded-lg border border-primary/15 bg-primary/[0.04] px-2.5 text-[12px] font-medium text-foreground/90 hover:bg-primary/[0.08]"
+        onClick={onGenerate}
+        data-attr="inbox-ai-draft-generate"
+      >
+        <Sparkles className="h-3.5 w-3.5 shrink-0 text-primary" strokeWidth={2.25} aria-hidden />
+        Ask PropLane Assistant
+      </Button>
+      {error ? <p className="mt-1.5 px-0.5 text-[11px] text-danger">Couldn’t draft a reply. Try again.</p> : null}
     </div>
   );
 }
+
+const INBOX_AI_DRAFT_ACTION_BTN =
+  "h-7 min-h-0 gap-1 rounded-lg px-2.5 text-xs font-medium";
 
 /**
  * Approval-first AI reply card, shown above the reply composer on an incoming
@@ -1461,7 +1463,7 @@ export function AiDraftReplyCard({
           <div className="flex items-center justify-between gap-2">
             <span className="text-[13px] text-danger">Couldn’t draft a reply.</span>
             {onGenerate ? (
-              <Button type="button" variant="outline" className="h-8 min-h-0 px-3 text-[12px]" onClick={onGenerate}>
+              <Button type="button" variant="outline" className={`${INBOX_AI_DRAFT_ACTION_BTN}`} onClick={onGenerate}>
                 Try again
               </Button>
             ) : null}
@@ -1475,11 +1477,11 @@ export function AiDraftReplyCard({
           <Button
             type="button"
             variant="outline"
-            className="h-9 min-h-0 gap-1.5 px-3.5 text-[13px]"
+            className={`${INBOX_AI_DRAFT_ACTION_BTN}`}
             onClick={onGenerate}
             data-attr="inbox-ai-draft-generate"
           >
-            <Sparkles className="h-3.5 w-3.5 text-primary" strokeWidth={2.25} />
+            <Sparkles className="h-3 w-3 text-primary" strokeWidth={2.25} />
             Draft reply with PropLane AI
           </Button>
         </div>
@@ -1490,29 +1492,29 @@ export function AiDraftReplyCard({
 
   return (
     <div
-      className="portal-inbox-ai-draft mx-2 shrink-0 border border-dashed border-primary/25 bg-primary/5 px-3.5 py-3 md:mx-3"
+      className="portal-inbox-ai-draft mx-2 shrink-0 border border-dashed border-primary/20 bg-primary/[0.04] px-3 py-2.5 md:mx-3"
       data-attr="inbox-ai-draft-card"
     >
-      <div className="flex items-center gap-2">
-        <span className="flex h-5 w-5 items-center justify-center rounded-md bg-primary/10">
-          <Sparkles className="h-3 w-3 text-primary" strokeWidth={2.25} />
+      <div className="flex items-center gap-1.5">
+        <span className="flex h-4 w-4 items-center justify-center rounded-md bg-primary/10">
+          <Sparkles className="h-2.5 w-2.5 text-primary" strokeWidth={2.25} />
         </span>
-        <span className="text-sm font-semibold text-foreground">PropLane AI</span>
-        <span className="ml-auto rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-primary">
-          Draft · Pending approval
+        <span className="text-xs font-semibold text-foreground">PropLane AI</span>
+        <span className="ml-auto rounded-full bg-primary/10 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-primary">
+          Draft
         </span>
       </div>
-      <p className="portal-inbox-ai-draft-text mt-2 whitespace-pre-wrap break-words rounded-xl border border-border bg-card px-3 py-2.5 text-sm leading-relaxed text-foreground [overflow-wrap:anywhere]">
+      <p className="portal-inbox-ai-draft-text mt-1.5 whitespace-pre-wrap break-words rounded-lg border border-border/80 bg-card px-2.5 py-2 text-[13px] leading-relaxed text-foreground [overflow-wrap:anywhere]">
         {draft}
       </p>
-      {scheduledSection ? <div className="mt-2.5">{scheduledSection}</div> : null}
-      <div className="mt-2.5 flex flex-wrap items-end gap-2">
+      {scheduledSection ? <div className="mt-2">{scheduledSection}</div> : null}
+      <div className="mt-2 flex flex-wrap items-end gap-1.5">
         {channelControl}
         {onAutoSendChange ? (
-          <label className="mb-1.5 flex cursor-pointer items-center gap-2 text-[12px] text-foreground">
+          <label className="mb-0.5 flex cursor-pointer items-center gap-1.5 text-[11px] text-foreground">
             <input
               type="checkbox"
-              className="h-4 w-4 rounded border-border text-primary"
+              className="h-3.5 w-3.5 rounded border-border text-primary"
               checked={autoSend}
               onChange={(e) => onAutoSendChange(e.target.checked)}
               data-attr="inbox-ai-draft-auto-send"
@@ -1526,47 +1528,44 @@ export function AiDraftReplyCard({
           Auto-send is on. AI drafts will send without your approval — review inbound messages carefully.
         </p>
       ) : null}
-      <div className="mt-2 flex flex-wrap items-center gap-2">
+      <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
         <Button
           type="button"
           variant="primary"
-          className="h-9 min-h-0 gap-1.5 px-3.5 text-[13px]"
+          className={INBOX_AI_DRAFT_ACTION_BTN}
           onClick={onApprove}
           disabled={approving}
           data-attr="inbox-ai-draft-approve"
         >
           {approving ? (
-            <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-white/40 border-t-white" />
+            <span className="h-3 w-3 animate-spin rounded-full border-2 border-white/40 border-t-white" />
           ) : (
-            <Check className="h-3.5 w-3.5" strokeWidth={2.5} />
+            <Check className="h-3 w-3" strokeWidth={2.5} />
           )}
           Approve &amp; Send
         </Button>
         <Button
           type="button"
           variant="outline"
-          className="h-9 min-h-0 gap-1.5 px-3.5 text-[13px]"
+          className={INBOX_AI_DRAFT_ACTION_BTN}
           onClick={onEdit}
           disabled={approving}
           data-attr="inbox-ai-draft-edit"
         >
-          <Pencil className="h-3.5 w-3.5" strokeWidth={2.25} />
+          <Pencil className="h-3 w-3" strokeWidth={2.25} />
           Edit
         </Button>
         <Button
           type="button"
           variant="ghost"
-          className="h-9 min-h-0 gap-1.5 px-3 text-[13px] text-muted hover:text-danger"
+          className={`${INBOX_AI_DRAFT_ACTION_BTN} text-muted hover:text-danger`}
           onClick={onDiscard}
           disabled={approving}
           data-attr="inbox-ai-draft-discard"
         >
-          <X className="h-3.5 w-3.5" strokeWidth={2.25} />
+          <X className="h-3 w-3" strokeWidth={2.25} />
           Discard
         </Button>
-        <span className="ml-auto text-[11px] text-muted">
-          {autoSend ? "Will send automatically" : "You’re in control · nothing sends without you"}
-        </span>
       </div>
     </div>
   );
@@ -2240,7 +2239,7 @@ export function InboxTwoPane({
       data-height-mode={flowLayout ? "flow" : undefined}
     >
       <div
-        className={`grid min-h-0 flex-1 ${flowLayout ? "" : "h-full grid-rows-[minmax(0,1fr)]"} ${listHidden ? "grid-cols-1" : "lg:grid-cols-[minmax(320px,38%)_1fr]"}`}
+        className={`grid min-h-0 flex-1 ${flowLayout ? "" : "h-full grid-rows-[minmax(0,1fr)]"} ${listHidden ? "grid-cols-1" : "lg:grid-cols-[minmax(240px,28%)_1fr]"}`}
       >
         <section
           className={`portal-inbox-list-pane flex h-full min-h-0 min-w-0 flex-col overflow-hidden border-border lg:border-r ${
