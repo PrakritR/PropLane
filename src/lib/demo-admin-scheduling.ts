@@ -592,7 +592,13 @@ export type PlannedEvent = {
   slotKey?: string;
   /** Google Calendar event id after PropPlane sync. */
   googleCalendarEventId?: string;
+  /** Set when a confirmed tour is cancelled — kept for Past list history. */
+  canceledAt?: string | null;
 };
+
+export function isActivePlannedEvent(event: PlannedEvent): boolean {
+  return !String(event.canceledAt ?? "").trim();
+}
 
 export function readPartnerInquiries(): PartnerInquiry[] {
   const rows = readJson<PartnerInquiry[] | null>(INQ_KEY, null);
@@ -642,7 +648,11 @@ export function updatePartnerInquiry(id: string, patch: Partial<PartnerInquiry>)
 
 export function readPlannedEvents(): PlannedEvent[] {
   const rows = readJson<PlannedEvent[] | null>(PLANNED_KEY, null);
-  return Array.isArray(rows) ? rows.filter((row) => isFutureOrCurrentIsoWindow(row.end || row.start)) : [];
+  return Array.isArray(rows)
+    ? rows.filter(
+        (row) => isActivePlannedEvent(row) && isFutureOrCurrentIsoWindow(row.end || row.start),
+      )
+    : [];
 }
 
 /** Full planned-event history — list views need past tours the week grid omits. */
@@ -888,9 +898,12 @@ export async function deletePartnerInquiryFromServer(
 ): Promise<boolean> {
   const row = readPartnerInquiries().find((r) => r.id === id);
   if (!row) return false;
-  if (row.kind === "tour" && !(await deleteTourInquiryFromServer(row, opts))) return false;
+  if (row.kind === "tour") {
+    if (!(await deleteTourInquiryFromServer(row, opts))) return false;
+    await syncScheduleRecordsFromServer({ force: true });
+    return true;
+  }
   if (!deletePartnerInquiryLocally(row)) return false;
-  if (row.kind === "tour") return true;
   const [inquiriesOk, eventRecordsOk] = await Promise.all([
     writeJsonToServer(INQ_KEY, readPartnerInquiries()),
     deletePartnerInquiryEventRecords(row),

@@ -133,6 +133,34 @@ function DataListMobileRow<T>({
     );
   }
 
+  // Nested buttons (inline actions, overflow menus) cannot live inside a row <button>.
+  if (row.inlineAction || row.overflowActions?.length) {
+    return (
+      <div
+        role="button"
+        tabIndex={0}
+        className={cn(
+          DATA_LIST_MOBILE_ROW_CLASS,
+          "w-full text-left transition hover:bg-accent/40",
+        )}
+        onClick={(e) => {
+          if (!row.onClick || isPortalRowClickIgnored(e.target)) return;
+          row.onClick();
+        }}
+        onKeyDown={(e) => {
+          if (!row.onClick || isPortalRowClickIgnored(e.target)) return;
+          if (e.key === "Enter" || e.key === " ") {
+            e.preventDefault();
+            row.onClick();
+          }
+        }}
+        data-slot="data-list-mobile-row"
+      >
+        {body}
+      </div>
+    );
+  }
+
   return (
     <button
       type="button"
@@ -281,7 +309,13 @@ export function DataList<T>({
 
   return (
     <div className={cn("min-w-0", className)} data-slot="data-list">
-      <PortalResponsiveDataView mobile={mobileRows} desktop={desktopTable} />
+      {hideColumnHeaders ? (
+        // Resident-cluster lists (Applications, Leases, Tours, etc.) are card rows,
+        // not spreadsheets — skip the desktop table entirely so no column headers appear.
+        <div className="space-y-2">{mobileRows}</div>
+      ) : (
+        <PortalResponsiveDataView mobile={mobileRows} desktop={desktopTable} />
+      )}
     </div>
   );
 }

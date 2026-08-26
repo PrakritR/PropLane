@@ -167,15 +167,17 @@ export async function POST(req: Request) {
       }
     }
 
-    const nextInquiries = currentInquiries.filter((row) => {
+    const nextInquiries = currentInquiries.map((row) => {
       const rowId = textField(row, "id");
+      const owned = inquiryOwnedByManager(row, managerUserId);
+      if (!owned) return row;
       if (idsToRemove.has(rowId)) {
-        return !inquiryOwnedByManager(row, managerUserId);
+        return { ...row, status: "declined" };
       }
       if (start && end && sameTourSlot(row, managerUserId, start, end)) {
-        return !inquiryOwnedByManager(row, managerUserId);
+        return { ...row, status: "declined" };
       }
-      return true;
+      return row;
     });
 
     const { error: writeError } = await db.from("portal_schedule_records").upsert(

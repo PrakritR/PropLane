@@ -29,6 +29,7 @@ import {
   notifyTenantTourRescheduled,
 } from "@/lib/tour-notification-delivery.server";
 import { formatRangeLabel, PLANNED_RECORD_ID, rowsFromRecord } from "@/lib/tour-inquiry-confirm.server";
+import { isActivePlannedTourEvent } from "@/lib/tour-slot-math";
 
 type Db = ReturnType<typeof createSupabaseServiceRoleClient>;
 
@@ -197,6 +198,7 @@ function windowTakenByAnotherTour(
   return plannedRows.some((row) => {
     if (textField(row, "id") === input.exceptEventId) return false;
     if (textField(row, "kind") !== "tour") return false;
+    if (!isActivePlannedTourEvent(row)) return false;
     if (textField(row, "managerUserId") !== input.managerUserId) return false;
     const rowStart = Date.parse(textField(row, "start"));
     const rowEnd = Date.parse(textField(row, "end"));
@@ -235,7 +237,11 @@ export async function cancelPlannedTour(
 
   const writeError = await writePlannedRows(
     db,
-    plannedRows.filter((row) => textField(row, "id") !== opts.plannedEventId.trim()),
+    plannedRows.map((row) =>
+      textField(row, "id") === opts.plannedEventId.trim()
+        ? { ...row, canceledAt: new Date().toISOString() }
+        : row,
+    ),
   );
   if (writeError) return { ok: false, status: 500, error: writeError };
 

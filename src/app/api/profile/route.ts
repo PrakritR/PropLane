@@ -12,6 +12,37 @@ function looksLikeMissingPhoneColumn(err: { message?: string; code?: string }) {
   return m.includes("phone") && (m.includes("column") || m.includes("schema") || m.includes("unknown"));
 }
 
+export async function GET() {
+  try {
+    const supabase = await createSupabaseServerClient();
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+    if (!user) {
+      return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
+    }
+
+    const db = createSupabaseServiceRoleClient();
+    const { data: profile, error } = await db
+      .from("profiles")
+      .select("full_name, phone, email")
+      .eq("id", user.id)
+      .maybeSingle();
+    if (error) {
+      return NextResponse.json({ error: error.message }, { status: 400 });
+    }
+
+    return NextResponse.json({
+      fullName: profile?.full_name ?? null,
+      phone: profile?.phone ?? null,
+      email: profile?.email ?? user.email ?? null,
+    });
+  } catch (e) {
+    const message = e instanceof Error ? e.message : "Failed";
+    return NextResponse.json({ error: message }, { status: 500 });
+  }
+}
+
 export async function PATCH(req: Request) {
   try {
     const supabase = await createSupabaseServerClient();

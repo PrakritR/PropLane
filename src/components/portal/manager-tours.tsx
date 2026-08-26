@@ -26,7 +26,6 @@ import { ShareLeadLinkModal } from "@/components/portal/share-lead-link-modal";
 import { TourProposalsPanel } from "@/components/portal/tour-proposals-panel";
 import { useAppUi } from "@/components/providers/app-ui-provider";
 import { useManagerUserId } from "@/hooks/use-manager-user-id";
-import { useScheduledTourReminders } from "@/hooks/use-scheduled-tour-reminders";
 import {
   acceptPartnerInquiryFromServer,
   deletePartnerInquiryFromServer,
@@ -152,7 +151,6 @@ export function ManagerTours({
   const navigate = usePortalNavigate();
   const { showToast } = useAppUi();
   const { userId, ready: authReady } = useManagerUserId();
-  const { reminders, reload: reloadReminders } = useScheduledTourReminders();
   const [tick, setTick] = useState(0);
   const [propertyTick, setPropertyTick] = useState(0);
   const [propertyFilters, setPropertyFilters] = useState<string[]>([]);
@@ -167,9 +165,8 @@ export function ManagerTours({
 
   const refresh = useCallback(async () => {
     await syncScheduleRecordsFromServer({ force: true });
-    await reloadReminders();
     setTick((n) => n + 1);
-  }, [reloadReminders]);
+  }, []);
 
   useEffect(() => {
     if (!authReady || !userId) return;
@@ -448,7 +445,6 @@ export function ManagerTours({
   const renderGroupedTours = () => (
     <ManagerToursGroupedTable
       clusters={clusters}
-      reminders={reminders}
       selectedIds={selectedIds}
       onToggleSelected={toggleSelected}
       onRowClick={openTourDetail}

@@ -19,6 +19,7 @@ const SERVICE_STATE_TABS: { id: ServiceRowState; label: string }[] = [
 ];
 import { ApplicationHouseholdCluster } from "@/components/portal/application-household-list";
 import { Badge } from "@/components/ui/badge";
+import { DataList } from "@/components/ui/data-list";
 import { clusterRowsByResident } from "@/lib/resident-row-clustering";
 import { cn } from "@/lib/utils";
 import {
@@ -36,7 +37,6 @@ import {
 } from "@/components/portal/portal-metrics";
 import { PortalActiveFilterChips, type PortalActiveFilterChip } from "@/components/portal/portal-filter-chips";
 import { PortalRecordDetailPage } from "@/components/portal/portal-record-detail-page";
-import { PortalServiceRecordRow } from "@/components/portal/portal-record-row";
 import { INBOX_LIST_SCROLL } from "@/components/portal/portal-inbox-ui";
 import { useManagerUserId } from "@/hooks/use-manager-user-id";
 import {

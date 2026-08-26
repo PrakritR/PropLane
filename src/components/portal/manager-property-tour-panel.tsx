@@ -3,19 +3,17 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { ManagerToursGroupedTable } from "@/components/portal/manager-tours-grouped-table";
 import { PortalCalendarPanels } from "@/components/portal/portal-calendar-panels";
-import { PortalCollapsibleSection } from "@/components/portal/portal-collapsible-section";
 import { PortalDataTableEmpty } from "@/components/portal/portal-data-table";
 import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
 import { PortalPropertyDetailSection } from "@/components/portal/portal-property-detail-section";
 import { ShareLeadLinkModal } from "@/components/portal/share-lead-link-modal";
 import { LocalDestinationNav } from "@/components/ui/destination-nav";
+import { Modal } from "@/components/ui/modal";
 import { managerPropertyAvailabilityStorageKey, syncScheduleRecordsFromServer } from "@/lib/demo-admin-scheduling";
 import {
   isGoogleBusyIncompleteWarning,
   useGoogleCalendarBusyMeetings,
 } from "@/hooks/use-google-calendar-busy";
-import { useScheduledTourReminders } from "@/hooks/use-scheduled-tour-reminders";
-import type { ManagerPropertyFilterOption } from "@/lib/manager-portfolio-access";
 import {
   buildManagerTourRows,
   clusterManagerTourListRows,
@@ -24,6 +22,7 @@ import {
   sortManagerTourClustersForBucket,
   type ManagerTourRow,
 } from "@/lib/manager-tour-list";
+import type { ManagerPropertyFilterOption } from "@/lib/manager-portfolio-access";
 import {
   MANAGER_TOUR_BUCKET_LABELS,
   MANAGER_TOUR_BUCKETS,
@@ -43,6 +42,7 @@ export function ManagerPropertyTourPanel({
   propertyLabel,
   showToast,
   onRegisterSendTour,
+  onRegisterSetAvailability,
 }: {
   listingId: string;
   managerUserId: string | null;
@@ -55,26 +55,33 @@ export function ManagerPropertyTourPanel({
   showToast: (message: string) => void;
   /** Parent header "Send tour link" — same handler as the former section footer button. */
   onRegisterSendTour?: (openSendTour: (() => void) | null) => void;
+  /** Parent footer "Set availability" — opens the block-schedule modal. */
+  onRegisterSetAvailability?: (openAvailability: (() => void) | null) => void;
 }) {
   const navigate = usePortalNavigate();
   const [sendTourOpen, setSendTourOpen] = useState(false);
+  const [availabilityOpen, setAvailabilityOpen] = useState(false);
   const [bucket, setBucket] = useState<ManagerTourBucketId>("pending");
   const [searchQuery, setSearchQuery] = useState("");
   const [tick, setTick] = useState(0);
-  const { reminders, reload: reloadReminders } = useScheduledTourReminders();
 
   const openSendTour = useCallback(() => setSendTourOpen(true), []);
+  const openAvailability = useCallback(() => setAvailabilityOpen(true), []);
 
   useEffect(() => {
     onRegisterSendTour?.(openSendTour);
     return () => onRegisterSendTour?.(null);
   }, [onRegisterSendTour, openSendTour]);
 
+  useEffect(() => {
+    onRegisterSetAvailability?.(openAvailability);
+    return () => onRegisterSetAvailability?.(null);
+  }, [onRegisterSetAvailability, openAvailability]);
+
   const refresh = useCallback(async () => {
     await syncScheduleRecordsFromServer({ force: true });
-    await reloadReminders();
     setTick((n) => n + 1);
-  }, [reloadReminders]);
+  }, []);
 
   useEffect(() => {
     if (!managerUserId) return;
@@ -211,7 +218,6 @@ export function ManagerPropertyTourPanel({
         ) : (
           <ManagerToursGroupedTable
             clusters={clusters}
-            reminders={reminders}
             selectedIds={new Set()}
             onToggleSelected={() => {}}
             onRowClick={openTourDetail}
@@ -221,37 +227,36 @@ export function ManagerPropertyTourPanel({
         )}
       </PortalPropertyDetailSection>
 
-      <PortalPropertyDetailSection>
-        <PortalCollapsibleSection
-          title="Tour availability"
-          subtitle="Open slots prospects can book for this property"
-          defaultExpanded={false}
-          toggleDataAttr="property-tour-availability-toggle"
+      <Modal
+        open={availabilityOpen}
+        title="Set availability"
+        onClose={() => setAvailabilityOpen(false)}
+        panelClassName="max-w-3xl"
+      >
+        <p className="mb-3 text-xs text-muted">
+          Open slots prospects can book for {propertyLabel}. Paint the week grid or use Block for a recurring schedule.
+        </p>
+        <PortalCalendarPanels
+          key={storageKey ?? "property-calendar-unavailable"}
+          storageKey={storageKey}
           bareSurface
-        >
-          <PortalCalendarPanels
-            key={storageKey ?? "property-calendar-unavailable"}
-            storageKey={storageKey}
-            bareSurface
-            compactAvailability
-            flowScroll
-            defaultViewMode="week"
-            availabilityHeading="Your availability"
-            tourScopeLabel={propertyLabel}
-            unavailableMessage="Sign in to manage tour availability for this property."
-            externalMeetings={googleBusyMeetings}
-            scheduledTourFilter={
-              managerUserId
-                ? {
-                    viewerUserId: managerUserId,
-                    propertyId: listingId,
-                    peers: [],
-                  }
-                : undefined
-            }
-          />
-        </PortalCollapsibleSection>
-      </PortalPropertyDetailSection>
+          compactAvailability
+          defaultViewMode="week"
+          availabilityHeading="Your availability"
+          tourScopeLabel={propertyLabel}
+          unavailableMessage="Sign in to manage tour availability for this property."
+          externalMeetings={googleBusyMeetings}
+          scheduledTourFilter={
+            managerUserId
+              ? {
+                  viewerUserId: managerUserId,
+                  propertyId: listingId,
+                  peers: [],
+                }
+              : undefined
+          }
+        />
+      </Modal>
 
       <ShareLeadLinkModal
         open={sendTourOpen}

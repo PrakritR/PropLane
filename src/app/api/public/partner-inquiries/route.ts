@@ -14,6 +14,7 @@ import { loadManagerAutomationSettings } from "@/lib/payment-automation-settings
 import { proposeTourConfirmation } from "@/lib/tour-proposal.server";
 import { normalizeTourContactPhone, validateTourContactFields } from "@/lib/tour-contact-quality";
 import { linkTourInquiryToResident } from "@/lib/tour-resident-link.server";
+import { isActivePlannedTourEvent } from "@/lib/tour-slot-math";
 
 export const runtime = "nodejs";
 
@@ -126,6 +127,7 @@ async function hasManagerTourConflict(
   const plannedEvents = Array.isArray(plannedPayload) ? plannedPayload.filter(isObject) : [];
   for (const event of plannedEvents) {
     if (textValue(event.kind) !== "tour") continue;
+    if (!isActivePlannedTourEvent(event)) continue;
     if (textValue(event.managerUserId) !== managerUserId) continue;
     const plannedSlotKey = textValue(event.slotKey);
     if (plannedSlotKey && incomingSlotKeys.has(plannedSlotKey)) return true;

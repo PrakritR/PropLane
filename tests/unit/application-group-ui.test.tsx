@@ -4,8 +4,8 @@
 //
 //   1. `GroupShareCallout` — the applicant's Group ID hand-off (organizer,
 //      joining member, and the post-rejection reference-only variant).
-//   2. `ManagerApplications` — the group badge on the Linear-style row plus the
-//      "Group application" roster inside an expanded application.
+//   2. `ManagerApplications` — resident-clustered list (Tours-style) plus the
+//      group context inside an expanded application detail.
 //
 // Set GROUP_UI_HTML_DIR to also dump each rendered surface's HTML to that
 // directory so it can be screenshotted with the app's real stylesheet.
@@ -179,23 +179,18 @@ describe("group application — applicant Group ID hand-off", () => {
 });
 
 describe("group application — manager reconciliation", () => {
-  it("badges each member row, and rosters the household inside the expanded application", async () => {
+  it("clusters applicants by resident on each tab and keeps group context in detail only", async () => {
     ROWS = HOUSEHOLD_ROWS;
     const { container, rerender } = render(<ManagerApplications bucket="pending" />);
 
-    // Row badge on the default (Pending) tab: Priya has actually submitted, so
-    // she is the only member visible there — Sam is still a draft and now
-    // lives on the separate Incomplete tab, and Jordan (approved) is on a
-    // third tab entirely. The "2/3" ratio still reconciles across ALL of
-    // those buckets, it just no longer renders twice on one screen.
-    const rowBadges = await screen.findAllByText("Group 2/3");
-    expect(rowBadges.length).toBe(1);
+    // Pending tab: Priya submitted; Sam is incomplete on another tab; Jordan is approved elsewhere.
+    await waitFor(() => expect(screen.getAllByText("Priya Nair").length).toBeGreaterThan(0));
+    expect(document.querySelector("[data-attr='applications-resident-groups']")).toBeTruthy();
+    expect(screen.getByText("1 application")).toBeTruthy();
     dumpHtml("manager-rows", container.innerHTML);
 
-    // Switching to the Incomplete tab surfaces Sam's own "Group 2/3" badge.
     rerender(<ManagerApplications bucket="incomplete" />);
     expect(screen.getAllByText("Sam Okafor").length).toBeGreaterThan(0);
-    expect(screen.getByText("Group 2/3")).toBeTruthy();
     rerender(<ManagerApplications bucket="pending" />);
     await waitFor(() => expect(screen.getAllByText("Priya Nair").length).toBeGreaterThan(0));
 
@@ -208,20 +203,17 @@ describe("group application — manager reconciliation", () => {
     dumpHtml("manager-expanded", container.innerHTML);
   });
 
-  it("wraps a lone approved group member in the same household card as Pending", async () => {
+  it("shows an approved applicant in a resident cluster card", async () => {
     ROWS = HOUSEHOLD_ROWS;
     render(<ManagerApplications bucket="approved" />);
     await waitFor(() => expect(screen.getAllByText("Jordan Reyes").length).toBeGreaterThan(0));
-    expect(document.querySelector("[data-attr='application-household-cluster']")).toBeTruthy();
-    // The header now carries the house AND a per-house ordinal, so a manager can
-    // tell two households at the same address apart: "<house> Group <n> application".
-    expect(screen.getByText("The Pioneer Group 1 application")).toBeTruthy();
-    expect(screen.getByText("Group 2/3")).toBeTruthy();
+    expect(document.querySelector("[data-attr='applications-resident-groups']")).toBeTruthy();
+    expect(screen.getByText("1 application")).toBeTruthy();
   });
 
-  it("reports a raw count instead of a misleading ratio when the roster is odd", async () => {
-    // Two applications share a code no organizer application uses, and a third
-    // group has more members than its organizer declared.
+  it("lists each applicant in their own resident cluster when emails differ", async () => {
+    // Two applications share a group id but are different people — the list groups
+    // by resident identity (like Tours), not by group id.
     ROWS = [
       {
         id: "AXIS-2001",
@@ -260,17 +252,16 @@ describe("group application — manager reconciliation", () => {
     ];
 
     const { container, rerender: rerenderEdge } = render(<ManagerApplications />);
-    expect(await screen.findByText("Group 2 · organizer not shown")).toBeTruthy();
-    expect(screen.getByText("Casey Lin")).toBeTruthy();
+    await waitFor(() => expect(screen.getByText("Casey Lin")).toBeTruthy());
     expect(screen.getByText("Devon Marsh")).toBeTruthy();
-    expect(screen.getAllByText("Group 3 · 2 declared").length).toBe(1);
+    expect(screen.getAllByText("1 application").length).toBeGreaterThanOrEqual(2);
     dumpHtml("manager-edge-rows", container.innerHTML);
 
-    // Over-subscribed groups still surface on the row badge; the expanded detail no
-    // longer carries a separate roster card.
     rerenderEdge(<ManagerApplications bucket="pending" applicationId="AXIS-300" />);
     await waitFor(() => expect(screen.getAllByText("Ada Vance").length).toBeGreaterThan(0));
-    expect(screen.queryByText(/carry this Group ID, more than the 2 the organizer declared/)).toBeNull();
+    expect(
+      screen.getByText(/carry this Group ID, more than the 2 the organizer declared/),
+    ).toBeTruthy();
     dumpHtml("manager-edge-expanded", container.innerHTML);
   });
 });

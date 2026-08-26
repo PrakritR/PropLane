@@ -33,6 +33,12 @@ export type TourBlock = {
   slotKey?: string;
 };
 
+/** Soft-canceled tours stay in the store for history but must not block slots. */
+export function isActivePlannedTourEvent(event: Record<string, unknown>): boolean {
+  const canceledAt = event.canceledAt;
+  return !String(typeof canceledAt === "string" ? canceledAt : "").trim();
+}
+
 /** Milliseconds `timeZone` is offset from UTC at a given instant. */
 function timeZoneOffsetMs(utcMs: number, timeZone: string): number {
   const parts = new Intl.DateTimeFormat("en-US", {

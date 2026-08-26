@@ -39,6 +39,10 @@ import { ThemeToggle } from "@/components/layout/theme-toggle";
 import { useAppUi } from "@/components/providers/app-ui-provider";
 import { isDemoModeActive } from "@/lib/demo/demo-session";
 import type { PortalKind } from "@/lib/portal-types";
+import {
+  cacheLandlordLegalName,
+  landlordLegalNameFromAccountFullName,
+} from "@/lib/manager-landlord-profile";
 
 function dashToEmpty(v: string) {
   return v === "—" ? "" : v;
@@ -145,6 +149,9 @@ export function PortalProfileClient({
         showToast(body.error ?? "Could not save profile.");
         return;
       }
+      if (variant === "manager") {
+        cacheLandlordLegalName(landlordLegalNameFromAccountFullName(fullName));
+      }
       showToast("Profile saved.");
       setPendingSkipServerPropsSync(true);
       setEditing(false);
@@ -153,7 +160,7 @@ export function PortalProfileClient({
     } finally {
       setSaving(false);
     }
-  }, [demo, fullName, phone, showToast]);
+  }, [demo, fullName, phone, showToast, variant]);
 
   const editAction = editing ? (
     <div className="flex flex-wrap gap-2">

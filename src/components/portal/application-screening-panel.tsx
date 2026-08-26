@@ -13,6 +13,7 @@ import type { DemoApplicantRow } from "@/data/demo-portal";
 import { isDemoModeActive } from "@/lib/demo/demo-session";
 import { isScreeningTestModeActive } from "@/lib/screening/screening-test-mode";
 import { buildBackgroundCheckReportHtml } from "@/lib/background-check-report-html";
+import { applicantDisplayName } from "@/lib/rental-application/applicant-name";
 import { MANAGER_PLAN_PORTAL_URL } from "@/lib/portals/manager-plan-path";
 import type { ManagerScreeningSettings } from "@/lib/screening/types";
 
@@ -174,6 +175,19 @@ export function backgroundCheckChip(bc: ApplicationBackgroundCheck): { label: st
   return { label: `Checkr: ${label}`, className: `portal-badge-pending ${ring}` };
 }
 
+/** Shown when screening the primary applicant while a co-signer application is linked. */
+export function BackgroundCheckCosignerNotice({ applicantName }: { applicantName: string }) {
+  return (
+    <p
+      className="rounded-xl border border-border bg-accent/25 px-3 py-2.5 text-xs leading-relaxed text-foreground"
+      data-attr="background-check-cosigner-notice"
+    >
+      This background check runs on <span className="font-semibold">{applicantName}</span> only. To screen the
+      co-signer, open their co-signer application from this page.
+    </p>
+  );
+}
+
 export function ApplicationScreeningPanel({
   row,
   onUpdated,
@@ -185,6 +199,7 @@ export function ApplicationScreeningPanel({
   onHeaderActionsChange,
   presentation = "full",
   className,
+  hasLinkedCosigner = false,
 }: {
   row: DemoApplicantRow;
   onUpdated?: () => void;
@@ -199,6 +214,7 @@ export function ApplicationScreeningPanel({
   onHeaderActionsChange?: (actions: React.ReactNode) => void;
   presentation?: "full" | "compact";
   className?: string;
+  hasLinkedCosigner?: boolean;
 }) {
   const { showToast } = useAppUi();
   const demo = isDemoModeActive() || isScreeningTestModeActive();
@@ -556,6 +572,9 @@ export function ApplicationScreeningPanel({
 
   const panelHead = (
     <>
+      {hasLinkedCosigner ? (
+        <BackgroundCheckCosignerNotice applicantName={applicantDisplayName(row)} />
+      ) : null}
       {!screeningAllowed && !demo ? (
         <>
           <p className="native-hide text-xs text-muted">

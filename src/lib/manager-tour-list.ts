@@ -146,7 +146,8 @@ function plannedRow(event: PlannedEvent): ManagerTourRow | null {
   const startMs = Date.parse(event.start);
   const endMs = Date.parse(event.end);
   if (!Number.isFinite(startMs) || !Number.isFinite(endMs)) return null;
-  const upcoming = isUpcomingEnd(endMs);
+  const canceled = Boolean(event.canceledAt?.trim());
+  const upcoming = !canceled && isUpcomingEnd(endMs);
   return {
     id: `planned-${event.id}`,
     source: "planned",
@@ -162,9 +163,9 @@ function plannedRow(event: PlannedEvent): ManagerTourRow | null {
     endIso: event.end,
     startMs,
     endMs,
-    statusLabel: "Confirmed",
+    statusLabel: canceled ? "Canceled" : "Confirmed",
     notes: event.notes,
-    bucket: upcoming ? "upcoming" : "past",
+    bucket: canceled || !upcoming ? "past" : "upcoming",
   };
 }
 

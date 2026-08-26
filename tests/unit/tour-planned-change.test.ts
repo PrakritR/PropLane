@@ -64,6 +64,14 @@ const TOUR = {
   googleCalendarEventId: "gcal-1",
 };
 
+function expectSoftCanceledTour() {
+  expect(WRITTEN_PAYLOAD).toHaveLength(1);
+  expect(WRITTEN_PAYLOAD![0]).toMatchObject({
+    id: "planned-1",
+    canceledAt: expect.stringMatching(/^\d{4}-/),
+  });
+}
+
 describe("cancelPlannedTour", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -72,7 +80,7 @@ describe("cancelPlannedTour", () => {
     READ_ERROR = null;
   });
 
-  it("removes the tour and notifies the guest", async () => {
+  it("soft-cancels the tour and notifies the guest", async () => {
     const result = await cancelPlannedTour(db(), {
       plannedEventId: "planned-1",
       actorUserId: MANAGER,
@@ -81,7 +89,7 @@ describe("cancelPlannedTour", () => {
     });
 
     expect(result.ok).toBe(true);
-    expect(WRITTEN_PAYLOAD).toEqual([]);
+    expectSoftCanceledTour();
     expect(notifyCanceled).toHaveBeenCalledTimes(1);
     // The guest-facing reason reaches the notification, not just the audit log.
     expect(notifyCanceled.mock.calls[0]![4]).toBe("Unit is no longer available");
@@ -121,7 +129,7 @@ describe("cancelPlannedTour", () => {
     // The PropLane-side cancel already happened and the guest was told; a Google
     // failure is reported, never turned into a failed cancel.
     expect(result).toMatchObject({ ok: true, calendarSync: { ok: false, error: "calendar revoked" } });
-    expect(WRITTEN_PAYLOAD).toEqual([]);
+    expectSoftCanceledTour();
     expect(notifyCanceled).toHaveBeenCalledTimes(1);
   });
 
@@ -208,7 +216,7 @@ describe("cancelPlannedTour", () => {
       actorUserId: MANAGER,
       notifyGuest: false,
     });
-    expect(WRITTEN_PAYLOAD).toEqual([]);
+    expectSoftCanceledTour();
     expect(notifyCanceled).not.toHaveBeenCalled();
   });
 });

@@ -14,6 +14,7 @@ import { syncPlannedTourToGoogleCalendar } from "@/lib/google-calendar/sync.serv
 import { formatPacificDateTime } from "@/lib/pacific-time";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { notifyTenantTourConfirmed } from "@/lib/tour-notification-delivery.server";
+import { isActivePlannedTourEvent } from "@/lib/tour-slot-math";
 
 type Db = ReturnType<typeof createSupabaseServiceRoleClient>;
 
@@ -104,6 +105,7 @@ function plannedTourOccupiesWindow(
   if (!Number.isFinite(startMs) || !Number.isFinite(endMs)) return false;
   return plannedRows.some((event) => {
     if (textField(event, "kind") !== "tour") return false;
+    if (!isActivePlannedTourEvent(event)) return false;
     if (textField(event, "managerUserId") !== managerUserId) return false;
     const evStart = new Date(textField(event, "start")).getTime();
     const evEnd = new Date(textField(event, "end")).getTime();

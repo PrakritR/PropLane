@@ -36,6 +36,7 @@ vi.mock("@/components/portal/portal-property-detail-section", () => ({
 vi.mock("@/components/portal/share-lead-link-modal", () => ({
   ShareLeadLinkModal: () => null,
 }));
+vi.mock("@/lib/portal-nav-client", () => ({ usePortalNavigate: () => () => {} }));
 
 function meeting(over: Partial<DemoMeeting>): DemoMeeting {
   return {
@@ -56,6 +57,32 @@ afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
 });
+
+/** Availability grid lives in the Set availability modal — open it like the footer button. */
+async function renderPropertyToursPanel(options: {
+  managerUserId: string | null;
+  showToast?: (message: string) => void;
+  openAvailability?: boolean;
+}) {
+  let openAvailabilityModal: (() => void) | null = null;
+  const { ManagerPropertyTourPanel } = await import("@/components/portal/manager-property-tour-panel");
+  render(
+    <ManagerPropertyTourPanel
+      listingId="mgr-demo-ballard"
+      managerUserId={options.managerUserId}
+      propertyLabel="Ballard House"
+      showToast={options.showToast ?? (() => {})}
+      onRegisterSetAvailability={(fn) => {
+        openAvailabilityModal = fn;
+      }}
+    />,
+  );
+  const shouldOpen = options.openAvailability ?? Boolean(options.managerUserId);
+  if (shouldOpen) {
+    await waitFor(() => expect(typeof openAvailabilityModal).toBe("function"));
+    openAvailabilityModal!();
+  }
+}
 
 describe("day-header event counts (F-CAL-1)", () => {
   it("counts what the view tabs count — tours and service visits, not Google busy", () => {
@@ -87,15 +114,7 @@ describe("property availability calendar shows the same conflicts (F-CAL-6)", ()
       "fetch",
       vi.fn(async () => ({ ok: true, json: async () => ({ meetings: [busy] }) })),
     );
-    const { ManagerPropertyTourPanel } = await import("@/components/portal/manager-property-tour-panel");
-    render(
-      <ManagerPropertyTourPanel
-        listingId="mgr-demo-ballard"
-        managerUserId="m1"
-        propertyLabel="Ballard House"
-        showToast={() => {}}
-      />,
-    );
+    await renderPropertyToursPanel({ managerUserId: "m1" });
     await waitFor(() => {
       const latest = capturedProps.at(-1);
       expect((latest?.externalMeetings as DemoMeeting[] | undefined)?.map((m) => m.id)).toEqual(["busy-1"]);
@@ -106,15 +125,7 @@ describe("property availability calendar shows the same conflicts (F-CAL-6)", ()
     const fetchMock = vi.fn(async () => ({ ok: true, json: async () => ({ meetings: [] }) }));
     vi.stubGlobal("fetch", fetchMock);
     const { GOOGLE_BUSY_DEFAULT_DAYS_AHEAD } = await import("@/hooks/use-google-calendar-busy");
-    const { ManagerPropertyTourPanel } = await import("@/components/portal/manager-property-tour-panel");
-    render(
-      <ManagerPropertyTourPanel
-        listingId="mgr-demo-ballard"
-        managerUserId="m1"
-        propertyLabel="Ballard House"
-        showToast={() => {}}
-      />,
-    );
+    await renderPropertyToursPanel({ managerUserId: "m1" });
     await waitFor(() => expect(fetchMock).toHaveBeenCalled());
 
     const url = new URL(String(fetchMock.mock.calls[0]![0]), "https://example.test");
@@ -133,18 +144,9 @@ describe("property availability calendar shows the same conflicts (F-CAL-6)", ()
   it("asks Google for nothing when there is no signed-in manager", async () => {
     const fetchMock = vi.fn(async () => ({ ok: true, json: async () => ({ meetings: [] }) }));
     vi.stubGlobal("fetch", fetchMock);
-    const { ManagerPropertyTourPanel } = await import("@/components/portal/manager-property-tour-panel");
-    render(
-      <ManagerPropertyTourPanel
-        listingId="mgr-demo-ballard"
-        managerUserId={null}
-        propertyLabel="Ballard House"
-        showToast={() => {}}
-      />,
-    );
-    await waitFor(() => expect(capturedProps.length).toBeGreaterThan(0));
+    await renderPropertyToursPanel({ managerUserId: null, openAvailability: false });
     expect(fetchMock).not.toHaveBeenCalled();
-    expect(capturedProps.at(-1)?.externalMeetings).toEqual([]);
+    expect(capturedProps).toHaveLength(0);
   });
 });
 
@@ -158,15 +160,10 @@ describe("property availability calendar shows the same conflicts (F-CAL-6)", ()
 describe("an incomplete busy read is never presented as a free calendar", () => {
   async function renderPropertyPanel() {
     const toasts: string[] = [];
-    const { ManagerPropertyTourPanel } = await import("@/components/portal/manager-property-tour-panel");
-    render(
-      <ManagerPropertyTourPanel
-        listingId="mgr-demo-ballard"
-        managerUserId="m1"
-        propertyLabel="Ballard House"
-        showToast={(message: string) => toasts.push(message)}
-      />,
-    );
+    await renderPropertyToursPanel({
+      managerUserId: "m1",
+      showToast: (message: string) => toasts.push(message),
+    });
     return toasts;
   }
 

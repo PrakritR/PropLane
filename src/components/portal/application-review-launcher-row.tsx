@@ -27,6 +27,7 @@ export function ApplicationReviewLauncherRow({
   onActiveViewChange,
   group = null,
   omitReviewSections,
+  hasLinkedCosigner = false,
   className,
 }: {
   row: DemoApplicantRow;
@@ -41,7 +42,9 @@ export function ApplicationReviewLauncherRow({
   onActiveViewChange?: (view: ApplicationReviewView) => void;
   group?: ApplicationGroup | null;
   /** Skip answer cards already rendered above the Application / Background check toggle. */
-  omitReviewSections?: Array<"group" | "cosigner">;
+  omitReviewSections?: Array<"group" | "cosigner" | "placement">;
+  /** Primary application has a linked co-signer submission — background check scopes to this applicant only. */
+  hasLinkedCosigner?: boolean;
   className?: string;
 }) {
   const showsScreening = applicationShowsBackgroundCheck(row);
@@ -110,6 +113,7 @@ export function ApplicationReviewLauncherRow({
           onHeaderActionsChange={onScreeningHeaderActionsChange}
           onUpdated={onScreeningUpdated}
           onOpenScreeningModal={onOpenScreeningModal}
+          hasLinkedCosigner={hasLinkedCosigner}
         />
       )}
     </div>

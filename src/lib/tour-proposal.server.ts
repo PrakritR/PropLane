@@ -14,6 +14,7 @@ import { formatRangeLabel } from "@/lib/tour-inquiry-confirm.server";
 import { createPendingActionForUser, listProposedActionsForUser } from "@/lib/tools/pending-actions";
 import type { ActionPreview } from "@/lib/tools/registry";
 import {
+  isActivePlannedTourEvent,
   rowPayload,
   slotBlocked,
   slotIsBookable,
@@ -76,6 +77,7 @@ export async function loadManagerTourBlocks(
   const plannedEvents = Array.isArray(plannedPayload) ? plannedPayload.map(asObject).filter(Boolean) : [];
   for (const event of plannedEvents as Record<string, unknown>[]) {
     if (text(event, "kind") !== "tour") continue;
+    if (!isActivePlannedTourEvent(event)) continue;
     if (text(event, "managerUserId") !== managerUserId) continue;
     const start = text(event, "start");
     const end = text(event, "end");
