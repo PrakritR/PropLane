@@ -1,4 +1,5 @@
 import { isDemoModeActive } from "@/lib/demo/demo-session";
+import type { WorkAssignee } from "@/lib/work-assignment";
 import {
   createManagerCharge,
   deleteHouseholdCharge,
@@ -57,6 +58,15 @@ export type ServiceRequest = {
   depositPaidAt?: string;
   serviceChargeId?: string;
   depositChargeId?: string;
+  /**
+   * Who is handling this — a co-manager or a vendor.
+   *
+   * Work orders already carry vendor DISPATCH (`vendorId` / `vendorName` /
+   * `vendorAssignedAt`), which is a server-owned subsystem with its own lifecycle; this field
+   * deliberately does not duplicate it. Add-on services had no assignment at all, so this is the
+   * one place they get it, and `work-assignment.ts` decides who may be offered.
+   */
+  assignee?: WorkAssignee;
   // Return
   returnPhotoDataUrl?: string;
   returnedAt?: string;
