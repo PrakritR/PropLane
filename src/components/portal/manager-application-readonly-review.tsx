@@ -60,7 +60,7 @@ export function ApplicationManagerPlacementCard({
   );
 }
 
-export function ApplicationCosignerPlannedCard({ hasCosigner }: { hasCosigner?: string }) {
+export function ApplicationCosignerPlannedCard({ hasCosigner }: { hasCosigner?: string | null }) {
   return (
     <ReviewSection title="Co-signer">
       <Row

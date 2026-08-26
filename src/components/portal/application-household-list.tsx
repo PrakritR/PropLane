@@ -138,7 +138,8 @@ export function ApplicationCosignerSection({
   submissions: CosignerSubmission[];
   primaryApplicationAxisId: string;
   onOpenCosigner?: (index: number) => void;
-  hasCosigner?: string;
+  /** `YesNo` on the form, which includes null; anything but "yes"/"no" renders as unknown. */
+  hasCosigner?: string | null;
 }) {
   if (submissions.length === 0) return null;
 

@@ -109,14 +109,6 @@ export function parsePropertyCalendarSubTab(raw: string | undefined | null): Pro
   return "bookings";
 }
 
-export function propertyCalendarSubHref(
-  basePath: string,
-  stage: string,
-  propertyKey: string,
-  subTab: PropertyCalendarSubTabId,
-): string {
-  return `${propertyDetailHref(basePath, stage, propertyKey, "calendar")}/${subTab}`;
-}
 
 export function parseResidentDetailTab(raw: string | undefined | null): ResidentDetailTabId {
   if (raw && (RESIDENT_DETAIL_TABS as readonly string[]).includes(raw)) {

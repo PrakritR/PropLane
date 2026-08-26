@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { usePortalNavigate } from "@/lib/portal-nav-client";
+import { PortalServiceRecordRow } from "@/components/portal/portal-record-row";
 import { LocalDestinationNav } from "@/components/ui/destination-nav";
 import {
   buildUnifiedServiceRows,

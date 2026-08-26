@@ -3,7 +3,7 @@
 import { ApplicationHouseholdCluster } from "@/components/portal/application-household-list";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { DataList } from "@/components/ui/data-list";
+import { DataList, type DataListRow } from "@/components/ui/data-list";
 import type { CosignerSubmission } from "@/lib/cosigner-submissions-storage";
 import {
   applicationPropertyMeta,
@@ -71,7 +71,7 @@ export function ManagerApplicationsGroupedTable({
             <DataList
               hideColumnHeaders
               selectable={false}
-              rows={tableRows.map((entry) => {
+              rows={tableRows.map((entry): DataListRow<ApplicationTableRow> => {
                 if (entry.kind === "application") {
                   const row = entry.row;
                   const showReminder = showReminderForRow?.(row) ?? false;
