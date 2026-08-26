@@ -579,7 +579,7 @@ export function ManagerTours({
   ) : null;
 
   const bulkActions = (
-    <div className="flex min-w-0 flex-nowrap items-center justify-end gap-2 overflow-x-auto">
+    <div className="flex min-w-0 flex-wrap items-center justify-start gap-2">
       {singleSelectedRow?.guestEmail?.includes("@") ? (
         <Button
           type="button"
@@ -738,7 +738,7 @@ export function ManagerTours({
     >
       {modals}
       {selectedIds.size > 0 ? (
-        <BulkActionBar count={selectedIds.size} variant="payments">
+        <BulkActionBar count={selectedIds.size}>
           {bulkActions}
         </BulkActionBar>
       ) : null}
@@ -797,7 +797,12 @@ export function ManagerTours({
         kind="tour"
         properties={propertyOptions}
       />
-      <ManagerPortalSettingsModal open={settingsOpen} onClose={() => setSettingsOpen(false)} initialTab="calendar" />
+      <ManagerPortalSettingsModal
+        open={settingsOpen}
+        onClose={() => setSettingsOpen(false)}
+        initialTab="calendar"
+        scopedTitle="Tours"
+      />
     </ManagerPortalPageShell>
   );
 }
