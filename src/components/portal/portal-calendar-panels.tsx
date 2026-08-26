@@ -405,6 +405,22 @@ function buildTourGuestNotifyContext(
   });
 }
 
+/**
+ * Availability actions live in the page-fixed footer dock on a normal page, but that dock is
+ * `position: fixed` — inside a modal the buttons escape the panel and land at the bottom of the
+ * page behind it. `inline` renders them as an ordinary block under the grid instead.
+ */
+function FooterShell({ inline, children }: { inline: boolean; children: React.ReactNode }) {
+  if (!inline) {
+    return (
+      <PortalPageFooterActions pinned rowVariant="header">
+        {children}
+      </PortalPageFooterActions>
+    );
+  }
+  return <div className="mt-3 border-t border-border pt-3">{children}</div>;
+}
+
 export function PortalCalendarPanels({
   storageKey,
   /** When set, availability edits apply to every key (union display). */
@@ -433,6 +449,7 @@ export function PortalCalendarPanels({
   onAnchorDateChange,
   /** Flat portal canvas — no outer card or input-style chrome (property calendar tab). */
   bareSurface = false,
+  inlineFooter = false,
   /**
    * Scroll with the parent page instead of a nested grid viewport (property detail
    * tab). Keeps the week toolbar sticky inside that one scroll surface.
@@ -448,6 +465,14 @@ export function PortalCalendarPanels({
   unavailableMessage?: string;
   compactAvailability?: boolean;
   bareSurface?: boolean;
+  /**
+   * Render the availability actions INLINE instead of in the page-fixed footer dock.
+   *
+   * `PortalPageFooterActions pinned` is `position: fixed`, so inside a modal the buttons escape
+   * the panel and land at the bottom of the page behind it — visible, unreachable, and attached to
+   * the wrong surface. A modal passes this so they sit under the grid where they belong.
+   */
+  inlineFooter?: boolean;
   flowScroll?: boolean;
   otherProperties?: { id: string; name: string }[];
   onCopyWeekToHouses?: (propertyIds: string[], weekDateStrs: string[], scope: "week" | "entire") => void;
@@ -2184,8 +2209,8 @@ export function PortalCalendarPanels({
         </div>
 
         {!vendorMode && canEditAvailability ? (
-          <PortalPageFooterActions pinned rowVariant="header">
-            <div className="flex w-full min-w-0 flex-nowrap items-center justify-start gap-2">
+          <FooterShell inline={inlineFooter}>
+            <div className="flex w-full min-w-0 flex-wrap items-center justify-start gap-2">
               <Button
                 type="button"
                 variant="outline"
@@ -2229,7 +2254,7 @@ export function PortalCalendarPanels({
                 Copy to houses
               </Button>
             </div>
-          </PortalPageFooterActions>
+          </FooterShell>
         ) : null}
 
         <Modal

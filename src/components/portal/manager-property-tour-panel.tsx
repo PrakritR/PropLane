@@ -231,12 +231,16 @@ export function ManagerPropertyTourPanel({
         open={availabilityOpen}
         title="Set availability"
         onClose={() => setAvailabilityOpen(false)}
-        panelClassName="max-w-3xl"
+        // A seven-day grid does not fit in max-w-3xl — Sunday was clipped off the right edge with
+        // no way to scroll to it. Wider, and capped in height so the grid scrolls inside the panel
+        // instead of the panel growing past the viewport.
+        panelClassName="max-w-6xl"
       >
         <p className="mb-3 text-xs text-muted">
           Open slots prospects can book for {propertyLabel}. Paint the week grid or use Block for a recurring schedule.
         </p>
         <PortalCalendarPanels
+          inlineFooter
           key={storageKey ?? "property-calendar-unavailable"}
           storageKey={storageKey}
           bareSurface
