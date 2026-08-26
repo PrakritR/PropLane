@@ -1,4 +1,5 @@
 import { normalizeManagerSkuTier } from "@/lib/manager-access";
+import { ensureSandboxManagerLandlordProfile } from "@/lib/manager-landlord-profile";
 import { generateManagerId } from "@/lib/manager-id";
 import { isAxisIntentSessionId } from "@/lib/manager-signup-intent";
 import { primaryRoleWhenAddingManager } from "@/lib/auth/profile-primary-role";
@@ -111,6 +112,11 @@ export async function provisionPendingManagerAccount(
     }
     const { scheduleManagerMessagingReady } = await import("@/lib/proplane-sms-transport.server");
     scheduleManagerMessagingReady(opts.userId);
+    await ensureSandboxManagerLandlordProfile(supabase, {
+      managerUserId: opts.userId,
+      email,
+      fullName,
+    });
     return { managerId: existingPurchase.manager_id, created: false };
   }
 
@@ -156,6 +162,11 @@ export async function provisionPendingManagerAccount(
   // Prepare the manager's own SMS registration/number record; never stamp a shared line.
   const { scheduleManagerMessagingReady } = await import("@/lib/proplane-sms-transport.server");
   scheduleManagerMessagingReady(opts.userId);
+  await ensureSandboxManagerLandlordProfile(supabase, {
+    managerUserId: opts.userId,
+    email,
+    fullName,
+  });
 
   return { managerId, created: true };
 }

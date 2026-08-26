@@ -15,6 +15,7 @@ import {
   ResidentSettingsPanel,
 } from "@/components/portal/manager-portal-settings-panels";
 import type { ApplicationAutomationPreferences } from "@/lib/application-automation-preferences";
+import { CANONICAL_DEMO_MANAGER_NAME } from "@/lib/demo/demo-canonical-accounts";
 import { cacheLandlordLegalName } from "@/lib/manager-landlord-profile";
 import { PORTAL_TOOLBAR_PILL_BUTTON, PORTAL_TOOLBAR_PILL_BUTTON_ACTIVE } from "@/components/portal/portal-metrics";
 
@@ -63,6 +64,8 @@ export function ManagerPortalSettingsModal({
       setWaiverCode("WELCOME50");
       setFeeCents(5000);
       setAutomation(DEFAULT_APPLICATION_AUTOMATION);
+      setLandlordLegalName(CANONICAL_DEMO_MANAGER_NAME);
+      cacheLandlordLegalName(CANONICAL_DEMO_MANAGER_NAME);
       return;
     }
     setLoading(true);
