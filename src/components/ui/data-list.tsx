@@ -115,7 +115,7 @@ function DataListMobileRow<T>({
     ) : null}
     <div className="min-w-0 flex-1">
       <div className="flex min-w-0 items-center gap-2">
-        <p className="min-w-0 truncate text-sm font-semibold text-foreground">{row.primary}</p>
+        <p className="min-w-0 flex-1 truncate text-sm font-semibold text-foreground">{row.primary}</p>
         {row.trailing ? <div className="shrink-0">{row.trailing}</div> : null}
       </div>
       {row.meta ? <p className="truncate text-xs text-muted">{row.meta}</p> : null}

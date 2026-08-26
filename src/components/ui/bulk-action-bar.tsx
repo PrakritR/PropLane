@@ -10,11 +10,14 @@ export function BulkActionBar({
   className,
   /** Mirrors payment ledger list gutters so actions line up with amount column. */
   variant = "default",
+  /** Hide the "{n} selected" label (tours bulk bar shows actions only). */
+  hideCount = false,
 }: {
   count: number;
   children: ReactNode;
   className?: string;
   variant?: "default" | "payments";
+  hideCount?: boolean;
 }) {
   useEffect(() => {
     if (count <= 0) return;
@@ -45,11 +48,18 @@ export function BulkActionBar({
           <div className="relative min-w-0 w-full flex-1 overflow-hidden">{children}</div>
         </div>
       ) : (
-        <div className="mx-auto flex w-full max-w-5xl min-w-0 flex-nowrap items-center gap-5 sm:gap-6">
-          <p className="shrink-0 text-[10px] font-semibold tabular-nums text-foreground sm:text-[11px]">
-            {count} selected
-          </p>
-          <div className="relative min-w-0 flex-1">{children}</div>
+        <div
+          className={cn(
+            "mx-auto flex w-full max-w-5xl min-w-0 flex-nowrap items-center",
+            hideCount ? "justify-start gap-2" : "gap-5 sm:gap-6",
+          )}
+        >
+          {!hideCount ? (
+            <p className="shrink-0 text-[10px] font-semibold tabular-nums text-foreground sm:text-[11px]">
+              {count} selected
+            </p>
+          ) : null}
+          <div className={cn("relative min-w-0", hideCount ? undefined : "flex-1")}>{children}</div>
         </div>
       )}
     </div>

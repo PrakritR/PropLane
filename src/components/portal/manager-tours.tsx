@@ -326,6 +326,21 @@ export function ManagerTours({
     });
   }, []);
 
+  const openDeletePreview = useCallback(
+    (row: ManagerTourRow) => {
+      if (row.bucket === "pending" && row.source === "inquiry") {
+        openDeclinePreview(row);
+        return;
+      }
+      if (row.bucket === "upcoming" && row.source === "planned") {
+        openCancelPreview(row);
+        return;
+      }
+      showToast("This tour can't be deleted from here.");
+    },
+    [openCancelPreview, openDeclinePreview, showToast],
+  );
+
   const openGuestMessage = useCallback(
     (row: ManagerTourRow) => {
       const email = row.guestEmail?.trim() ?? "";
@@ -552,37 +567,28 @@ export function ManagerTours({
           Message
         </Button>
       ) : null}
-      {singleSelectedRow?.bucket === "pending" && singleSelectedRow.source === "inquiry" ? (
-        <>
-          <Button
-            type="button"
-            variant="outline"
-            className={`${BULK_BAR_BTN} text-rose-800`}
-            data-attr="tours-bulk-decline"
-            onClick={() => openDeclinePreview(singleSelectedRow)}
-          >
-            Decline
-          </Button>
-          <Button
-            type="button"
-            variant="primary"
-            className={BULK_BAR_BTN}
-            data-attr="tours-bulk-approve"
-            onClick={() => openApprovePreview(singleSelectedRow)}
-          >
-            Approve
-          </Button>
-        </>
-      ) : null}
-      {singleSelectedRow?.bucket === "upcoming" && singleSelectedRow.source === "planned" ? (
+      {singleSelectedRow &&
+      ((singleSelectedRow.bucket === "pending" && singleSelectedRow.source === "inquiry") ||
+        (singleSelectedRow.bucket === "upcoming" && singleSelectedRow.source === "planned")) ? (
         <Button
           type="button"
           variant="outline"
           className={`${BULK_BAR_BTN} text-rose-800`}
-          data-attr="tours-bulk-cancel"
-          onClick={() => openCancelPreview(singleSelectedRow)}
+          data-attr="tours-bulk-delete"
+          onClick={() => openDeletePreview(singleSelectedRow)}
         >
-          Cancel tour
+          Delete
+        </Button>
+      ) : null}
+      {singleSelectedRow?.bucket === "pending" && singleSelectedRow.source === "inquiry" ? (
+        <Button
+          type="button"
+          variant="primary"
+          className={BULK_BAR_BTN}
+          data-attr="tours-bulk-approve"
+          onClick={() => openApprovePreview(singleSelectedRow)}
+        >
+          Approve
         </Button>
       ) : null}
     </div>
@@ -699,7 +705,7 @@ export function ManagerTours({
     >
       {modals}
       {selectedIds.size > 0 ? (
-        <BulkActionBar count={selectedIds.size}>
+        <BulkActionBar count={selectedIds.size} hideCount>
           {bulkActions}
         </BulkActionBar>
       ) : null}

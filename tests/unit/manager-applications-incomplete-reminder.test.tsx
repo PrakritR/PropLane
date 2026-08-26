@@ -100,7 +100,7 @@ describe("manager Applications — incomplete detail reminder", () => {
     expect(screen.getAllByText("Send reminder").length).toBeGreaterThan(0);
   });
 
-  it("offers Send reminder on the Incomplete tab list before opening detail", () => {
+  it("does not offer Send reminder on the Incomplete tab list", () => {
     ROWS = [
       {
         id: "PROPLANE-INCOMPLETE-LIST",
@@ -114,6 +114,6 @@ describe("manager Applications — incomplete detail reminder", () => {
       },
     ];
     render(<ManagerApplications bucket="incomplete" />);
-    expect(screen.getAllByRole("button", { name: "Send reminder" }).length).toBeGreaterThan(0);
+    expect(screen.queryByRole("button", { name: "Send reminder" })).toBeNull();
   });
 });

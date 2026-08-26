@@ -109,6 +109,16 @@ describe("BulkActionBar", () => {
     expect(screen.getByText("3 selected")).toBeTruthy();
     expect(screen.getByRole("button", { name: "Delete" })).toBeTruthy();
   });
+
+  it("hides selection count when hideCount is set", () => {
+    render(
+      <BulkActionBar count={2} hideCount>
+        <button type="button">Message</button>
+      </BulkActionBar>,
+    );
+    expect(screen.queryByText("2 selected")).toBeNull();
+    expect(screen.getByRole("button", { name: "Message" })).toBeTruthy();
+  });
 });
 
 describe("PortalTabs", () => {
