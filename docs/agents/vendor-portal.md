@@ -29,8 +29,8 @@ reached via the shared `PortalMobileNavBar` (back arrow + top-right profile
 menu), which every portal's mobile/native layout renders now.
 
 **Invite → signup linking.** A manager's "Send invite" (Vendors — reachable at
-`/portal/services/vendors`, the `ManagerAllServicesPanel` component with
-`tabId="vendors"`; no longer a standalone top-level nav section — that was
+`/portal/relationships/vendors`, the `ManagerVendorsPanel` component under the
+Team section's Vendors tab; no longer a Services sub-tab — that was
 removed as redundant with the Services sub-tab)
 writes a `vendor_invites` row (`manager_user_id`, `vendor_directory_id`,
 `vendor_email`, status) — the invitee has no account yet, so this can't use the

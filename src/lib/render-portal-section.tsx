@@ -387,10 +387,9 @@ export async function renderPortalSection(
     redirect(`${def.basePath}/services/work-orders`);
   }
 
-  // Legacy path support: Vendors was briefly its own top-level nav section;
-  // it's back to being the Services "vendors" tab (redundant otherwise).
+  // Legacy path support: Vendors moved under Team; keep old URLs working.
   if ((kind === "manager" || kind === "pro") && section === "vendors") {
-    redirect(`${def.basePath}/services/vendors`);
+    redirect(`${def.basePath}/relationships/vendors`);
   }
 
   if ((kind === "manager" || kind === "pro") && section === "calendar") {
@@ -704,21 +703,16 @@ export async function renderPortalSection(
         servicesTab === "work-orders" && tabParts.length >= 3
           ? decodeURIComponent(tabParts[2]!)
           : undefined;
-      const vendorId =
-        servicesTab === "vendors" && tabParts.length >= 2
-          ? decodeURIComponent(tabParts[1]!)
-          : undefined;
 
       const ManagerAllServicesPanel = await loadManagerAllServicesPanel();
       return subscriptionGated(
         <ManagerAllServicesPanel
-          tabId={servicesTab as "requests" | "work-orders" | "vendors"}
+          tabId={servicesTab as "requests" | "work-orders"}
           basePath={def.basePath}
           requestBucket={requestBucket}
           workOrderBucket={workOrderBucket}
           serviceRequestId={serviceRequestId}
           workOrderId={workOrderId}
-          vendorId={vendorId}
         />,
         kind,
         "services",

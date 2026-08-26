@@ -79,7 +79,6 @@ export function ManagerAllServicesPanel({
   workOrderBucket: workOrderBucketProp = "open",
   serviceRequestId: serviceRequestIdProp,
   workOrderId: workOrderIdProp,
-  vendorId: vendorIdProp,
 }: {
   tabId: FilterType;
   basePath: string;
@@ -87,7 +86,6 @@ export function ManagerAllServicesPanel({
   workOrderBucket?: ManagerWorkOrderBucket;
   serviceRequestId?: string;
   workOrderId?: string;
-  vendorId?: string;
 }) {
   const tabId = useShallowTabId<FilterType>(serverTabId, SERVICES_TAB_IDS);
   const router = useRouter();

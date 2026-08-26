@@ -156,7 +156,7 @@ export function DemoSectionRenderer({
       case "services":
         return (
           <ManagerAllServicesPanel
-            tabId={(tabId as "requests" | "work-orders") ?? "requests"}
+            tabId={tabId === "work-orders" ? "work-orders" : "requests"}
             basePath={basePath}
           />
         );

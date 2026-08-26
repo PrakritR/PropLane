@@ -159,7 +159,7 @@ For each section: **load URL → heading visible → no error toast → primary 
 | --- | --- | --- |
 | Requests | `/portal/services/requests` | Add-on service requests list; create modal |
 | Work orders | `/portal/services/work-orders` | Maintenance WO list; dispatch |
-| Vendors | `/portal/services/vendors` | Vendor list; invite |
+| Vendors | `/portal/relationships/vendors` | Vendor list; invite |
 
 - [ ] Legacy `/portal/work-orders` → redirects to work-orders tab
 
