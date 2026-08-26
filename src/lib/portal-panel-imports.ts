@@ -24,6 +24,10 @@ export async function loadManagerAllServicesPanel() {
   return (await import("@/components/portal/manager-all-services-panel")).ManagerAllServicesPanel;
 }
 
+export async function loadManagerTaskList() {
+  return (await import("@/components/portal/manager-task-list")).ManagerTaskList;
+}
+
 export async function loadManagerInbox() {
   return (await import("@/components/portal/manager-inbox")).ManagerInbox;
 }

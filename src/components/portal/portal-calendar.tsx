@@ -407,10 +407,10 @@ export function PortalCalendar({
         : [
             {
               id: "availability" as const,
-              label: "Availability",
+              label: "Schedule",
               count: calendarTabCounts.tours,
               href: calendarViewHref(MANAGER_PORTAL_BASE, "availability"),
-              dataAttr: "calendar-tab-availability",
+              dataAttr: "calendar-tab-schedule",
             },
             {
               id: "bookings" as const,
@@ -697,7 +697,7 @@ export function PortalCalendar({
                 : calendarUnavailableMessage
             }
             compactAvailability
-            availabilityHeading={portal === "manager" ? (schedulingHub ? "Tour schedule" : "Your availability") : "Schedule meeting"}
+            availabilityHeading={portal === "manager" ? (schedulingHub ? "Tour schedule" : "Schedule") : "Schedule meeting"}
             scheduledTourFilter={
               schedulingHub && toursHubTab === "tours" && calendarScheduledTourFilter
                 ? calendarScheduledTourFilter

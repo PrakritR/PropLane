@@ -573,7 +573,8 @@ export type PlannedEvent = {
   start: string;
   end: string;
   sourceInquiryId?: string;
-  kind?: "partner" | "tour";
+  sourceTaskId?: string;
+  kind?: "partner" | "tour" | "task";
   managerUserId?: string;
   tourGroupId?: string;
   propertyId?: string;
@@ -641,6 +642,21 @@ export function updatePartnerInquiry(id: string, patch: Partial<PartnerInquiry>)
 export function readPlannedEvents(): PlannedEvent[] {
   const rows = readJson<PlannedEvent[] | null>(PLANNED_KEY, null);
   return Array.isArray(rows) ? rows.filter((row) => isFutureOrCurrentIsoWindow(row.end || row.start)) : [];
+}
+
+function readPlannedEventsRaw(): PlannedEvent[] {
+  const rows = readJson<PlannedEvent[] | null>(PLANNED_KEY, null);
+  return Array.isArray(rows) ? rows : [];
+}
+
+/** Replace this manager's task blocks on the shared planned-events calendar. */
+export function replaceManagerTaskPlannedEvents(managerUserId: string, taskEvents: PlannedEvent[]): void {
+  if (!isBrowser()) return;
+  const next = readPlannedEventsRaw().filter(
+    (event) => !(event.kind === "task" && event.managerUserId === managerUserId),
+  );
+  next.push(...taskEvents);
+  writeJson(PLANNED_KEY, next);
 }
 
 function appendPlannedEvent(ev: PlannedEvent) {

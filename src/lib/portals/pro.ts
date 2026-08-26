@@ -22,7 +22,6 @@ export const proPortal: PortalDefinition = {
       label: "Payments",
       tabs: [],
     },
-    { section: "calendar", label: "Calendar", tabs: [] },
     {
       section: "services",
       label: "Services",
@@ -32,6 +31,8 @@ export const proPortal: PortalDefinition = {
         { id: "vendors", label: "Vendors (soon)" },
       ],
     },
+    { section: "calendar", label: "Calendar", tabs: [] },
+    { section: "task-list", label: "Task list", tabs: [] },
     {
       section: "communication",
       label: "Communication",
@@ -97,6 +98,8 @@ export const MANAGER_PORTAL_SMOKE_PATHS = [
   { label: "Residents", path: "/portal/residents/current" },
   { label: "Payments", path: "/portal/payments" },
   { label: "Services", path: "/portal/services/requests" },
+  { label: "Calendar", path: "/portal/calendar/availability" },
+  { label: "Task list", path: "/portal/task-list" },
   { label: "Communication", path: "/portal/communication/active" },
   { label: "Team", path: "/portal/relationships" },
   { label: "Promotion", path: "/portal/promotion" },

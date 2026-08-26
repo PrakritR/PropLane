@@ -49,6 +49,9 @@ export function buildScheduledTourMeetings(
   const planned = (showAdminMeetings || showManagerTours)
     ? readPlannedEvents()
         .filter((event) => {
+          if (event.kind === "task") {
+            return scheduledTourFilter?.viewerUserId === event.managerUserId;
+          }
           if (showAdminMeetings) return event.kind !== "tour";
           if (!scheduledTourFilter) return false;
           return plannedTourVisibleToViewer(event, scheduledTourFilter);
@@ -73,7 +76,7 @@ export function buildScheduledTourMeetings(
             durationMinutes,
             title: event.title,
             color: isPeerTour ? MEETING_PEER_COLOR : MEETING_CONFIRMED_COLOR,
-            statusLabel: isPeerTour ? "Co-manager tour" : "Confirmed",
+            statusLabel: event.kind === "task" ? "Task" : isPeerTour ? "Co-manager tour" : "Confirmed",
             name: event.attendeeName,
             email: event.attendeeEmail,
             phone: event.attendeePhone,
