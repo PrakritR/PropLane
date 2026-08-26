@@ -644,6 +644,11 @@ export function readPlannedEvents(): PlannedEvent[] {
   return Array.isArray(rows) ? rows.filter((row) => isFutureOrCurrentIsoWindow(row.end || row.start)) : [];
 }
 
+/** Full planned-event history — list views need past tours the week grid omits. */
+export function readAllPlannedEvents(): PlannedEvent[] {
+  return readPlannedEventsRaw();
+}
+
 function readPlannedEventsRaw(): PlannedEvent[] {
   const rows = readJson<PlannedEvent[] | null>(PLANNED_KEY, null);
   return Array.isArray(rows) ? rows : [];

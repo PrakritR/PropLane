@@ -172,6 +172,14 @@ const LEASE_VISUAL_EDIT_EXTRA_STYLE = `
 .lease-visual-section-active { outline: 2px solid rgba(47, 107, 255, 0.75) !important; outline-offset: 4px; background: rgba(47, 107, 255, 0.06) !important; }
 body[contenteditable="true"] { outline: none; }
 body[contenteditable="true"]:focus { outline: none; }
+p[data-disclosure-rule] {
+  border-left: 3px solid #c2410c;
+  padding: 0.35rem 0 0.35rem 0.65rem;
+  margin: 0.6rem 0;
+  background: rgba(255, 247, 237, 0.85);
+  user-select: text;
+}
+p[data-disclosure-rule][contenteditable="false"] { cursor: default; }
 `;
 
 const LEASE_VISUAL_EDIT_SCRIPT = `
@@ -191,6 +199,10 @@ const LEASE_VISUAL_EDIT_SCRIPT = `
         el.scrollIntoView({ block: "nearest", behavior: "smooth" });
         parent.postMessage({ type: "lease-visual-section-focus", sectionId: sectionId }, "*");
       });
+    });
+    document.querySelectorAll("p[data-disclosure-rule]").forEach(function (el) {
+      el.setAttribute("contenteditable", "false");
+      el.setAttribute("title", "Required disclosure — edit the surrounding text only");
     });
   }
   if (document.readyState === "loading") {

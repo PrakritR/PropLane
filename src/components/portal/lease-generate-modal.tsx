@@ -12,15 +12,19 @@ import {
 } from "@/components/ui/modal";
 import { MODAL_TALL_PANEL_CLASS, MODAL_XL_PANEL_CLASS } from "@/components/ui/modal-styles";
 import { LeaseHtmlDirectEditor } from "@/components/portal/lease-html-direct-editor";
+import { LeaseAiReviewAcknowledgment } from "@/components/portal/lease-ai-review-acknowledgment";
 import {
+  PropertyLeaseDocumentNotice,
   propertyLeaseNeedsAssistantReview,
 } from "@/components/portal/property-lease-document-notice";
 import { buildAiGeneratedLeaseHtml } from "@/lib/generated-lease";
 import { buildLeasePacketEditAssistantContext } from "@/lib/lease-assistant-context";
 import { saveLeaseDocumentHtml } from "@/lib/lease-section-edit.client";
+import { cachedLandlordLegalName } from "@/lib/manager-landlord-profile";
 import {
   generateLeaseHtmlForRow,
   getLeaseDocumentHtml,
+  LEASE_LANDLORD_PLACEHOLDER,
   leaseGenerationPreviewContextForRow,
   leaseApplicationSnapshotForRow,
   readLeasePipeline,
@@ -55,6 +59,9 @@ export function LeaseGenerateModal({
   const [htmlOverride, setHtmlOverride] = useState("");
   const [saveReviewOpen, setSaveReviewOpen] = useState(false);
   const [generating, setGenerating] = useState(false);
+  const [reviewAcknowledged, setReviewAcknowledged] = useState(false);
+  const landlordLegalName = cachedLandlordLegalName();
+  const landlordNameMissing = !landlordLegalName.trim();
 
   const submission = useMemo(() => {
     if (!row?.propertyId) return null;
@@ -89,6 +96,7 @@ export function LeaseGenerateModal({
     if (!open) return;
     setSelectedChoiceId(defaultChoiceId);
     setSaveReviewOpen(false);
+    setReviewAcknowledged(false);
   }, [open, defaultChoiceId, row?.id]);
 
   const selectedTemplateId = useMemo(
@@ -118,6 +126,7 @@ export function LeaseGenerateModal({
 
   const editorHtml = htmlOverride.trim() || baselineHtml;
   const displayHtml = useMemo(() => stripDisclosureReviewFromLeaseHtml(editorHtml), [editorHtml]);
+  const draftShowsPlaceholder = Boolean(draft?.html?.includes(LEASE_LANDLORD_PLACEHOLDER));
 
   const assistantContext = useMemo(
     () => (actionRow ? buildLeasePacketEditAssistantContext(actionRow) : ""),
@@ -162,6 +171,14 @@ export function LeaseGenerateModal({
   };
 
   const confirm = () => {
+    if (!reviewAcknowledged) {
+      showToast("Confirm that you have reviewed this AI-generated draft before generating.");
+      return;
+    }
+    if (landlordNameMissing || draftShowsPlaceholder) {
+      showToast("Add your landlord legal name in Settings (Lease tab), then regenerate this lease.");
+      return;
+    }
     if (propertyLeaseNeedsAssistantReview(editorHtml)) {
       setSaveReviewOpen(true);
       return;
@@ -169,7 +186,14 @@ export function LeaseGenerateModal({
     commitGenerate();
   };
 
-  const canGenerate = Boolean(editorHtml.trim() && !draft?.error && !(choices.length > 0 && !selectedTemplateId));
+  const canGenerate = Boolean(
+    editorHtml.trim() &&
+      !draft?.error &&
+      !(choices.length > 0 && !selectedTemplateId) &&
+      reviewAcknowledged &&
+      !landlordNameMissing &&
+      !draftShowsPlaceholder,
+  );
   const working = busy || generating;
 
   if (!row || !actionRow) return null;
@@ -244,23 +268,23 @@ export function LeaseGenerateModal({
         ) : editorHtml ? (
           <div className="grid min-h-0 grid-rows-[auto_minmax(0,1fr)] gap-1 overflow-hidden">
             <div className="flex flex-col gap-2">
+              {landlordNameMissing || draftShowsPlaceholder ? (
+                <p className="rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-900">
+                  Add your <strong>landlord legal name</strong> in Settings → Lease before generating. That name
+                  appears in the Parties section — PropLane will not use the property address as the landlord.
+                </p>
+              ) : null}
+              <PropertyLeaseDocumentNotice html={editorHtml} />
+              <LeaseAiReviewAcknowledgment
+                checked={reviewAcknowledged}
+                onCheckedChange={setReviewAcknowledged}
+              />
               {saveReviewOpen ? (
                 <div className="rounded-xl border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-950">
                   <p className="font-semibold">Review before generating</p>
                   <p className="mt-1">
                     This draft still has items to fix. Ask PropLane Assistant in the panel below, then generate when
-                    it looks right — or{" "}
-                    <button
-                      type="button"
-                      className="font-semibold underline"
-                      onClick={() => {
-                        setSaveReviewOpen(false);
-                        commitGenerate();
-                      }}
-                    >
-                      generate anyway
-                    </button>
-                    .
+                    it looks right.
                   </p>
                 </div>
               ) : null}

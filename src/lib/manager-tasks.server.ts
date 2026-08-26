@@ -1,7 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { PLANNED_RECORD_ID, rowsFromRecord } from "@/lib/tour-inquiry-confirm.server";
 import {
-  endIsoForDuration,
   DEFAULT_EVENT_DURATION_MINUTES,
   type PlannedEvent,
 } from "@/lib/demo-admin-scheduling";
@@ -15,7 +14,8 @@ function plannedEventIdForTask(taskId: string): string {
   return `task_${taskId}`;
 }
 
-function taskToPlannedEvent(task: ManagerTask, managerUserId: string): PlannedEvent {
+function taskToPlannedEvent(task: ManagerTask, managerUserId: string): PlannedEvent | null {
+  if (!task.start || !task.end) return null;
   return {
     id: plannedEventIdForTask(task.id),
     title: `Task · ${task.title}`,
@@ -26,9 +26,16 @@ function taskToPlannedEvent(task: ManagerTask, managerUserId: string): PlannedEv
     sourceTaskId: task.id,
     propertyId: task.propertyId,
     propertyTitle: task.propertyTitle,
+    roomLabel: task.roomLabel,
     notes: task.notes,
     adminUserId: managerUserId,
   };
+}
+
+function durationBetween(start: string, end: string): number {
+  const ms = Date.parse(end) - Date.parse(start);
+  if (!Number.isFinite(ms) || ms <= 0) return DEFAULT_EVENT_DURATION_MINUTES;
+  return Math.max(15, Math.round(ms / 60_000));
 }
 
 async function readTasksRecord(db: SupabaseClient, managerUserId: string): Promise<ManagerTask[]> {
@@ -80,7 +87,9 @@ async function syncTasksToPlannedEvents(db: SupabaseClient, managerUserId: strin
 
   const taskEvents = tasks
     .filter((task) => !task.completed)
-    .map((task) => taskToPlannedEvent(task, managerUserId) as unknown as Record<string, unknown>);
+    .map((task) => taskToPlannedEvent(task, managerUserId))
+    .filter((event): event is PlannedEvent => Boolean(event))
+    .map((event) => event as unknown as Record<string, unknown>);
 
   const { error: writeError } = await db.from("portal_schedule_records").upsert(
     {
@@ -124,12 +133,12 @@ export async function createManagerTaskRow(
 ): Promise<ManagerTask> {
   const body = (input && typeof input === "object" ? input : {}) as Record<string, unknown>;
   const title = String(body.title ?? "").trim();
-  const start = String(body.start ?? "").trim();
-  if (!title || !start) throw new Error("Title and schedule time are required.");
-  const durationMinutes =
-    typeof body.durationMinutes === "number" && Number.isFinite(body.durationMinutes)
-      ? Math.max(15, Math.round(body.durationMinutes))
-      : DEFAULT_EVENT_DURATION_MINUTES;
+  if (!title) throw new Error("Title is required.");
+  const start = String(body.start ?? "").trim() || undefined;
+  const end = String(body.end ?? "").trim() || undefined;
+  if (start && end && Date.parse(end) <= Date.parse(start)) {
+    throw new Error("End time must be after start time.");
+  }
   const now = new Date().toISOString();
   const task: ManagerTask = {
     id: String(body.id ?? crypto.randomUUID()),
@@ -137,9 +146,10 @@ export async function createManagerTaskRow(
     notes: typeof body.notes === "string" ? body.notes.trim() || undefined : undefined,
     propertyId: typeof body.propertyId === "string" ? body.propertyId.trim() || undefined : undefined,
     propertyTitle: typeof body.propertyTitle === "string" ? body.propertyTitle.trim() || undefined : undefined,
+    roomLabel: typeof body.roomLabel === "string" ? body.roomLabel.trim() || undefined : undefined,
     start,
-    end: String(body.end ?? endIsoForDuration(start, durationMinutes)),
-    durationMinutes,
+    end,
+    durationMinutes: start && end ? durationBetween(start, end) : undefined,
     completed: false,
     createdAt: now,
     updatedAt: now,
@@ -158,18 +168,29 @@ export async function patchManagerTaskRow(
   const tasks = await readTasksRecord(db, managerUserId);
   const current = tasks.find((row) => row.id === taskId);
   if (!current) throw new Error("Task not found.");
+  const start = typeof patch.start === "string" ? patch.start.trim() || undefined : current.start;
+  const end = typeof patch.end === "string" ? patch.end.trim() || undefined : current.end;
   const durationMinutes =
     typeof patch.durationMinutes === "number" && Number.isFinite(patch.durationMinutes)
       ? Math.max(15, Math.round(patch.durationMinutes))
-      : current.durationMinutes;
-  const start = typeof patch.start === "string" ? patch.start : current.start;
+      : start && end
+        ? durationBetween(start, end)
+        : current.durationMinutes;
   const next: ManagerTask = {
     ...current,
     title: typeof patch.title === "string" ? patch.title.trim() || current.title : current.title,
     notes: typeof patch.notes === "string" ? patch.notes.trim() || undefined : current.notes,
+    propertyId:
+      typeof patch.propertyId === "string" ? patch.propertyId.trim() || undefined : current.propertyId,
+    propertyTitle:
+      typeof patch.propertyTitle === "string"
+        ? patch.propertyTitle.trim() || undefined
+        : current.propertyTitle,
+    roomLabel:
+      typeof patch.roomLabel === "string" ? patch.roomLabel.trim() || undefined : current.roomLabel,
     start,
+    end,
     durationMinutes,
-    end: typeof patch.end === "string" ? patch.end : endIsoForDuration(start, durationMinutes),
     completed: patch.completed === true ? true : patch.completed === false ? false : current.completed,
     updatedAt: new Date().toISOString(),
   };

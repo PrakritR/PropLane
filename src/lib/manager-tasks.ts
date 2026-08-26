@@ -1,6 +1,5 @@
 import {
   DEFAULT_EVENT_DURATION_MINUTES,
-  endIsoForDuration,
   replaceManagerTaskPlannedEvents,
   type PlannedEvent,
 } from "@/lib/demo-admin-scheduling";
@@ -16,11 +15,12 @@ export type ManagerTask = {
   notes?: string;
   propertyId?: string;
   propertyTitle?: string;
-  /** ISO start; required to place the task on the schedule. */
-  start: string;
-  /** ISO end; derived from duration when omitted on create. */
-  end: string;
-  durationMinutes: number;
+  roomLabel?: string;
+  /** ISO start; when omitted the task stays off the calendar. */
+  start?: string;
+  /** ISO end; calendar blocks require both start and end. */
+  end?: string;
+  durationMinutes?: number;
   completed: boolean;
   createdAt: string;
   updatedAt: string;
@@ -31,8 +31,9 @@ export type ManagerTaskInput = {
   notes?: string;
   propertyId?: string;
   propertyTitle?: string;
-  start: string;
-  durationMinutes?: number;
+  roomLabel?: string;
+  start?: string;
+  end?: string;
 };
 
 const localTasks = new Map<string, ManagerTask[]>();
@@ -49,24 +50,33 @@ function plannedEventIdForTask(taskId: string): string {
   return `task_${taskId}`;
 }
 
+function durationBetween(start: string, end: string): number {
+  const ms = Date.parse(end) - Date.parse(start);
+  if (!Number.isFinite(ms) || ms <= 0) return DEFAULT_EVENT_DURATION_MINUTES;
+  return Math.max(15, Math.round(ms / 60_000));
+}
+
 function normalizeTask(raw: unknown): ManagerTask | null {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
   const row = raw as Record<string, unknown>;
   const id = String(row.id ?? "").trim();
   const title = String(row.title ?? "").trim();
-  const start = String(row.start ?? "").trim();
-  if (!id || !title || !start) return null;
+  if (!id || !title) return null;
+  const start = String(row.start ?? "").trim() || undefined;
+  const end = String(row.end ?? "").trim() || undefined;
   const durationMinutes =
-    typeof row.durationMinutes === "number" && Number.isFinite(row.durationMinutes)
-      ? Math.max(15, Math.round(row.durationMinutes))
-      : DEFAULT_EVENT_DURATION_MINUTES;
-  const end = String(row.end ?? "").trim() || endIsoForDuration(start, durationMinutes);
+    start && end
+      ? durationBetween(start, end)
+      : typeof row.durationMinutes === "number" && Number.isFinite(row.durationMinutes)
+        ? Math.max(15, Math.round(row.durationMinutes))
+        : undefined;
   return {
     id,
     title,
     notes: typeof row.notes === "string" ? row.notes.trim() || undefined : undefined,
     propertyId: typeof row.propertyId === "string" ? row.propertyId.trim() || undefined : undefined,
     propertyTitle: typeof row.propertyTitle === "string" ? row.propertyTitle.trim() || undefined : undefined,
+    roomLabel: typeof row.roomLabel === "string" ? row.roomLabel.trim() || undefined : undefined,
     start,
     end,
     durationMinutes,
@@ -89,7 +99,8 @@ function writeLocalTasks(managerUserId: string, tasks: ManagerTask[]) {
   localTasks.set(managerUserId, tasks);
 }
 
-function taskToPlannedEvent(task: ManagerTask, managerUserId: string): PlannedEvent {
+function taskToPlannedEvent(task: ManagerTask, managerUserId: string): PlannedEvent | null {
+  if (!task.start || !task.end) return null;
   return {
     id: plannedEventIdForTask(task.id),
     title: `Task · ${task.title}`,
@@ -100,6 +111,7 @@ function taskToPlannedEvent(task: ManagerTask, managerUserId: string): PlannedEv
     sourceTaskId: task.id,
     propertyId: task.propertyId,
     propertyTitle: task.propertyTitle,
+    roomLabel: task.roomLabel,
     notes: task.notes,
     adminUserId: managerUserId,
   };
@@ -107,7 +119,10 @@ function taskToPlannedEvent(task: ManagerTask, managerUserId: string): PlannedEv
 
 function syncLocalTasksToPlannedEvents(managerUserId: string, tasks: ManagerTask[]) {
   if (!isBrowser()) return;
-  const events = tasks.filter((task) => !task.completed).map((task) => taskToPlannedEvent(task, managerUserId));
+  const events = tasks
+    .filter((task) => !task.completed)
+    .map((task) => taskToPlannedEvent(task, managerUserId))
+    .filter((event): event is PlannedEvent => Boolean(event));
   replaceManagerTaskPlannedEvents(managerUserId, events);
 }
 
@@ -118,7 +133,14 @@ export function notifyManagerTasksChanged() {
 }
 
 export function readManagerTasksLocal(managerUserId: string): ManagerTask[] {
-  return readLocalTasks(managerUserId).sort((a, b) => a.start.localeCompare(b.start));
+  return readLocalTasks(managerUserId).sort((a, b) => {
+    const aStart = a.start ?? "";
+    const bStart = b.start ?? "";
+    if (aStart && bStart) return aStart.localeCompare(bStart);
+    if (aStart) return -1;
+    if (bStart) return 1;
+    return b.createdAt.localeCompare(a.createdAt);
+  });
 }
 
 export async function fetchManagerTasks(managerUserId: string): Promise<ManagerTask[]> {
@@ -138,9 +160,12 @@ export async function createManagerTask(
   input: ManagerTaskInput,
 ): Promise<ManagerTask> {
   const title = input.title.trim();
-  const start = input.start.trim();
-  if (!title || !start) throw new Error("Title and schedule time are required.");
-  const durationMinutes = input.durationMinutes ?? DEFAULT_EVENT_DURATION_MINUTES;
+  if (!title) throw new Error("Title is required.");
+  const start = input.start?.trim() || undefined;
+  const end = input.end?.trim() || undefined;
+  if (start && end && Date.parse(end) <= Date.parse(start)) {
+    throw new Error("End time must be after start time.");
+  }
   const now = new Date().toISOString();
   const task: ManagerTask = {
     id: crypto.randomUUID(),
@@ -148,9 +173,10 @@ export async function createManagerTask(
     notes: input.notes?.trim() || undefined,
     propertyId: input.propertyId?.trim() || undefined,
     propertyTitle: input.propertyTitle?.trim() || undefined,
+    roomLabel: input.roomLabel?.trim() || undefined,
     start,
-    end: endIsoForDuration(start, durationMinutes),
-    durationMinutes,
+    end,
+    durationMinutes: start && end ? durationBetween(start, end) : undefined,
     completed: false,
     createdAt: now,
     updatedAt: now,
@@ -184,7 +210,12 @@ export async function createManagerTask(
 export async function updateManagerTask(
   managerUserId: string,
   taskId: string,
-  patch: Partial<Pick<ManagerTask, "title" | "notes" | "start" | "end" | "durationMinutes" | "completed">>,
+  patch: Partial<
+    Pick<
+      ManagerTask,
+      "title" | "notes" | "propertyId" | "propertyTitle" | "roomLabel" | "start" | "end" | "durationMinutes" | "completed"
+    >
+  >,
 ): Promise<ManagerTask> {
   if (!readLocalTasks(managerUserId).some((row) => row.id === taskId) && !isDemoModeActive()) {
     await fetchManagerTasks(managerUserId);
@@ -192,16 +223,22 @@ export async function updateManagerTask(
   const current = readLocalTasks(managerUserId).find((row) => row.id === taskId);
   if (!current) throw new Error("Task not found.");
 
-  const durationMinutes = patch.durationMinutes ?? current.durationMinutes;
-  const start = patch.start ?? current.start;
+  const start = patch.start !== undefined ? patch.start?.trim() || undefined : current.start;
+  const end = patch.end !== undefined ? patch.end?.trim() || undefined : current.end;
+  const durationMinutes =
+    patch.durationMinutes ?? (start && end ? durationBetween(start, end) : current.durationMinutes);
   const next: ManagerTask = {
     ...current,
     ...patch,
     title: patch.title?.trim() || current.title,
     notes: patch.notes !== undefined ? patch.notes.trim() || undefined : current.notes,
+    propertyId: patch.propertyId !== undefined ? patch.propertyId?.trim() || undefined : current.propertyId,
+    propertyTitle:
+      patch.propertyTitle !== undefined ? patch.propertyTitle?.trim() || undefined : current.propertyTitle,
+    roomLabel: patch.roomLabel !== undefined ? patch.roomLabel?.trim() || undefined : current.roomLabel,
     start,
+    end,
     durationMinutes,
-    end: patch.end ?? endIsoForDuration(start, durationMinutes),
     updatedAt: new Date().toISOString(),
   };
 

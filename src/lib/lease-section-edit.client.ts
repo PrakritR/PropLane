@@ -1,4 +1,8 @@
 import {
+  reinsertMissingDisclosureParagraphs,
+  sanitizeManagerLeaseDocumentEdit,
+} from "@/lib/lease-document-sanitizer";
+import {
   applyLeaseSectionBodyEdits,
   parseLeaseHtmlSections,
   type LeaseHtmlSection,
@@ -109,12 +113,18 @@ function persistLeaseDocumentHtml(
     return { ok: false, error: "No document changes to save." };
   }
 
+  const mergedHtml = reinsertMissingDisclosureParagraphs(baseHtml, nextHtml);
+  const sanitized = sanitizeManagerLeaseDocumentEdit(baseHtml, mergedHtml);
+  if (!sanitized.ok) {
+    return { ok: false, error: sanitized.error };
+  }
+
   const iso = new Date().toISOString();
   const version = (row.versionNumber ?? row.pdfVersion ?? 0) + 1;
   const saved = updateLeasePipelineRow(
     leaseId,
     {
-      generatedHtml: nextHtml,
+      generatedHtml: sanitized.html,
       // `nextHtml` was built from the RENDERED document, so every typed override is
       // already baked into these bytes. Keeping the map would re-apply them over the
       // manager's HTML on the next read, silently discarding this edit.

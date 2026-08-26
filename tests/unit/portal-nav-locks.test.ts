@@ -32,7 +32,7 @@ describe("portal nav lock kinds", () => {
       });
 
       it(`${kind}: free-tier sections are not locked at all`, () => {
-        for (const section of ["dashboard", "properties", "applications", "calendar", "profile", "payments"]) {
+        for (const section of ["dashboard", "properties", "applications", "tours", "profile", "payments"]) {
           expect(portalNavLockKind({ kind, section, subscriptionTier: "free" })).toBe("none");
         }
       });

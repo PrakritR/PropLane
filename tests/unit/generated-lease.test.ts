@@ -240,6 +240,21 @@ describe("generated-lease", () => {
     expect(html).toContain("1998-03-14");
   });
 
+  it("names the configured landlord legal name in the parties row instead of the building", () => {
+    const app = snapshotJordanLee();
+    const ctx = leaseContextFromApplication(app);
+    const withLandlord = {
+      ...ctx,
+      landlordLegalName: "Ambika Mago",
+      listingProperty: ctx.listingProperty
+        ? { ...ctx.listingProperty, buildingName: "5259 Brooklyn Ave NE", address: "5259 Brooklyn Ave NE, Seattle, WA" }
+        : ctx.listingProperty,
+    };
+    const html = generatedLeaseHtml(withLandlord);
+    expect(html).toContain("<strong>Ambika Mago</strong>");
+    expect(html).not.toContain("<strong>5259 Brooklyn Ave NE</strong>");
+  });
+
   it("renders San Francisco governing law when address is in SF", () => {
     const app = snapshotJordanLee();
     const ctx = leaseContextFromApplication(app);

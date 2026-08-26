@@ -31,7 +31,6 @@ export const proPortal: PortalDefinition = {
         { id: "vendors", label: "Vendors (soon)" },
       ],
     },
-    { section: "calendar", label: "Calendar", tabs: [] },
     { section: "task-list", label: "Task list", tabs: [] },
     {
       section: "communication",
@@ -91,14 +90,12 @@ export const proPortal: PortalDefinition = {
 export const MANAGER_PORTAL_SMOKE_PATHS = [
   { label: "Dashboard", path: "/portal/dashboard" },
   { label: "Properties", path: "/portal/properties/listed" },
-  { label: "Tours", path: "/portal/tours" },
-  { label: "Calendar", path: "/portal/calendar/availability" },
+  { label: "Tours", path: "/portal/tours/pending" },
   { label: "Applications", path: "/portal/applications/pending" },
   { label: "Leases", path: "/portal/leases" },
   { label: "Residents", path: "/portal/residents/current" },
   { label: "Payments", path: "/portal/payments" },
   { label: "Services", path: "/portal/services/requests" },
-  { label: "Calendar", path: "/portal/calendar/availability" },
   { label: "Task list", path: "/portal/task-list" },
   { label: "Communication", path: "/portal/communication/active" },
   { label: "Team", path: "/portal/relationships" },
