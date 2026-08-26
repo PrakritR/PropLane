@@ -21,7 +21,7 @@ export const PROPERTY_DETAIL_TAB_LABELS: Record<PropertyDetailTabId, string> = {
   lease: "Lease",
   tours: "Tours",
   calendar: "Calendar",
-  requests: "Requests",
+  requests: "Services",
   promotion: "Promotion",
 };
 
@@ -40,7 +40,7 @@ export const PROPERTY_DETAIL_TOP_TAB_LABELS = {
   calendar: "Calendar",
   application: "Application",
   lease: "Lease",
-  requests: "Requests",
+  requests: "Services",
   promotion: "Promotion",
 } as const;
 
