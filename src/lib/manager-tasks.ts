@@ -1,3 +1,4 @@
+import { normalizeAssignee, type WorkAssignee } from "@/lib/work-assignment";
 import {
   DEFAULT_EVENT_DURATION_MINUTES,
   replaceManagerTaskPlannedEvents,
@@ -22,6 +23,11 @@ export type ManagerTask = {
   end?: string;
   durationMinutes?: number;
   completed: boolean;
+  /**
+   * Who is doing this, when a manager has said. Tasks are staff work, so this is a TEAM member —
+   * `work-assignment.ts` is the one place that rule lives, and it does not offer vendors here.
+   */
+  assignee?: WorkAssignee;
   createdAt: string;
   updatedAt: string;
 };
@@ -34,6 +40,7 @@ export type ManagerTaskInput = {
   roomLabel?: string;
   start?: string;
   end?: string;
+  assignee?: WorkAssignee | null;
 };
 
 const localTasks = new Map<string, ManagerTask[]>();
@@ -81,6 +88,8 @@ function normalizeTask(raw: unknown): ManagerTask | null {
     end,
     durationMinutes,
     completed: row.completed === true,
+    // Unusable assignees normalize to undefined rather than a name nobody can act on.
+    assignee: normalizeAssignee(row.assignee) ?? undefined,
     createdAt: String(row.createdAt ?? new Date().toISOString()),
     updatedAt: String(row.updatedAt ?? new Date().toISOString()),
   };
