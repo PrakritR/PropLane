@@ -7,6 +7,7 @@ import {
   RESIDENT_DETAIL_HEADER_ACTION_BTN,
   RESIDENT_DETAIL_HEADER_ACTIONS_ROW,
 } from "@/components/portal/portal-metrics";
+import { PortalRecordShareLinkButton } from "@/components/portal/portal-record-share-link-button";
 import { PortalSectionActionRow } from "@/components/portal/portal-section-action-row";
 import { deliverPortalInboxMessage } from "@/lib/portal-message-delivery";
 import { buildLeaseReadyForResidentMessage } from "@/lib/resident-portal-login-copy";
@@ -520,6 +521,15 @@ export function ManagerLeasesPipelinePanel({
       </Button>
     ) : null;
 
+    const copyLinkButton = hasDocument ? (
+      <PortalRecordShareLinkButton
+        kind="lease"
+        recordId={row.id}
+        className={RESIDENT_DETAIL_HEADER_ACTION_BTN}
+        dataAttr="lease-copy-view-link"
+      />
+    ) : null;
+
     const sendToResidentButton = showSendToResident ? (
       // Disabled only while this row's send is in flight, never for a gate
       // reason. Disabling for a reason makes the click handler — the only thing
@@ -698,6 +708,22 @@ export function ManagerLeasesPipelinePanel({
               Download
             </DropdownMenuItem>
           ) : null}
+          {hasDocument ? (
+            <DropdownMenuItem
+              data-attr="lease-copy-view-link-menu"
+              onSelect={(e) => {
+                e.preventDefault();
+              }}
+              className="p-0 focus:bg-transparent"
+            >
+              <PortalRecordShareLinkButton
+                kind="lease"
+                recordId={row.id}
+                className="h-auto w-full justify-start rounded-none border-0 bg-transparent px-2 py-1.5 text-sm shadow-none hover:bg-accent"
+                dataAttr="lease-copy-view-link-menu-btn"
+              />
+            </DropdownMenuItem>
+          ) : null}
           {canEditDocument ? (
             <DropdownMenuItem
               data-attr="lease-upload"
@@ -766,12 +792,14 @@ export function ManagerLeasesPipelinePanel({
         <PortalSectionActionRow variant="header" className={RESIDENT_DETAIL_HEADER_ACTIONS_ROW}>
           <div className="flex max-w-full flex-nowrap items-center gap-1 md:hidden">
             {sendToResidentButton}
+            {copyLinkButton}
             {signButton}
             {editButton}
             {mobileOverflowMenu}
           </div>
           <div className="hidden max-w-full flex-nowrap items-center gap-1 md:flex">
             {sendToResidentButton}
+            {copyLinkButton}
             {signButton}
             {editButton}
             {downloadButton}

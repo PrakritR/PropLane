@@ -9,6 +9,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { PortalRecordShareLinkButton } from "@/components/portal/portal-record-share-link-button";
 import { PortalSectionActionRow } from "@/components/portal/portal-section-action-row";
 import { RESIDENT_DETAIL_HEADER_ACTION_BTN } from "@/components/portal/portal-metrics";
 import type { LeasePipelineRow } from "@/lib/lease-pipeline-storage";
@@ -171,6 +172,8 @@ type LeasePrimaryHeaderActionsProps = {
   signingReminderBusy?: boolean;
   onDelete?: () => void;
   onSendToResident?: () => void;
+  /** When set, shows a "Copy link" action for a public view URL. */
+  shareRecordId?: string;
   sendToResidentBusy?: boolean;
   sendToResidentDisabled?: boolean;
   onMoveToManagerReview?: () => void;
@@ -210,6 +213,7 @@ export function LeasePrimaryHeaderActions({
   signingReminderBusy = false,
   onDelete,
   onSendToResident,
+  shareRecordId,
   sendToResidentBusy = false,
   sendToResidentDisabled = false,
   onMoveToManagerReview,
@@ -310,6 +314,36 @@ export function LeasePrimaryHeaderActions({
             onClick={onSendToResident}
           >
             {sendToResidentBusy ? "Sending…" : "Send"}
+          </DropdownMenuItem>
+        ),
+      });
+    }
+
+    if (hasDocument && shareRecordId) {
+      actions.push({
+        id: "copy-link",
+        button: (
+          <PortalRecordShareLinkButton
+            kind="lease"
+            recordId={shareRecordId}
+            className={compactBtnClass}
+            dataAttr="lease-copy-view-link"
+          />
+        ),
+        menuItem: (
+          <DropdownMenuItem
+            data-attr="lease-copy-view-link"
+            onSelect={(e) => {
+              e.preventDefault();
+            }}
+            className="p-0 focus:bg-transparent"
+          >
+            <PortalRecordShareLinkButton
+              kind="lease"
+              recordId={shareRecordId}
+              className="h-auto w-full justify-start rounded-none border-0 bg-transparent px-2 py-1.5 text-sm shadow-none hover:bg-accent"
+              dataAttr="lease-copy-view-link-menu"
+            />
           </DropdownMenuItem>
         ),
       });
@@ -552,6 +586,7 @@ export function LeasePrimaryHeaderActions({
     sendToResidentBusy,
     sendToResidentDisabled,
     onSendToResident,
+    shareRecordId,
     moveToManagerReviewDataAttr,
     onMoveToManagerReview,
     signManagerDataAttr,
