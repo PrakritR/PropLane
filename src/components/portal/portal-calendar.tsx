@@ -12,8 +12,6 @@ import {
   PORTAL_HEADER_ACTION_BTN,
 } from "./portal-metrics";
 import { PortalCalendarPanels } from "./portal-calendar-panels";
-import { ManagerToursTablePanel } from "@/components/portal/manager-tours-table-panel";
-import { toManagerTourRows } from "@/lib/manager-tour-rows";
 import {
   ADMIN_AVAILABILITY_STORAGE_KEY,
   managerPropertyAvailabilityStorageKey,
@@ -355,32 +353,6 @@ export function PortalCalendar({
   const [bookingsRefreshSignal, setBookingsRefreshSignal] = useState(0);
   const [linkAirbnbModalOpen, setLinkAirbnbModalOpen] = useState(false);
 
-  /**
-   * Tour rows for the Tours hub's table, built from the same `buildScheduledTourMeetings` the grid
-   * draws — a tour visible in one view but not the other would read as lost data. Not limited to
-   * the anchored week: the table is the "who has a tour booked" list, not a week view.
-   */
-  const tourTableRows = useMemo(() => {
-    if (portal !== "manager" || !schedulingHub || toursHubTab !== "tours" || !userId) return [];
-    void calendarRefreshSignal;
-    const tourFilter = calendarScheduledTourFilter ?? {
-      viewerUserId: userId,
-      propertyId: null,
-      propertyIds: scopedCalendarPropertyIds,
-      peers: [],
-    };
-    return toManagerTourRows(buildScheduledTourMeetings(tourFilter, storageKey));
-  }, [
-    portal,
-    schedulingHub,
-    toursHubTab,
-    userId,
-    calendarScheduledTourFilter,
-    scopedCalendarPropertyIds,
-    storageKey,
-    calendarRefreshSignal,
-  ]);
-
   const calendarTabCounts = useMemo(() => {
     if (portal !== "manager" || !userId) {
       return { tours: 0, bookings: 0, services: serviceCalendarMeetings.length };
@@ -716,16 +688,6 @@ export function PortalCalendar({
                       </span>
                     </span>
                   </label>
-                ) : null}
-                {/*
-                  Who has a tour booked, and when — the question this tab is opened for. The grid
-                  below still answers "what does Wednesday look like"; it is kept because setting
-                  availability needs it.
-                */}
-                {schedulingHub && toursHubTab === "tours" ? (
-                  <div className="mb-4">
-                    <ManagerToursTablePanel rows={tourTableRows} />
-                  </div>
                 ) : null}
                 {propertiesLoading && managerProperties.length === 0 ? (
                   <p className="text-sm text-muted">Loading houses from the backend…</p>
