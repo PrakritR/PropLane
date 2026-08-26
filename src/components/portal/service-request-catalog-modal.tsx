@@ -20,8 +20,8 @@ type RequestsSaveTarget =
 export function ServiceRequestCatalogModal({
   open,
   onClose,
-  title = "Request types",
-  description = "Residents can request these add-ons from their portal. Add presets or create custom types for this property.",
+  title = "Service types",
+  description = "Residents can book these services from their portal. Add presets or create custom types for this property.",
   sub,
   saveTarget,
   managerUserId,

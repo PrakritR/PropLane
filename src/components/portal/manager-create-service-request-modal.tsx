@@ -278,7 +278,7 @@ export function ManagerCreateServiceRequestModal({
       return;
     }
     if (!offerId) {
-      showToast("Choose a request type.");
+      showToast("Choose a service type.");
       return;
     }
     if (isCustomOffer) {
@@ -287,7 +287,7 @@ export function ManagerCreateServiceRequestModal({
         return;
       }
     } else if (!selectedOffer) {
-      showToast("Choose a request type.");
+      showToast("Choose a service type.");
       return;
     }
     setBusy(true);
@@ -346,7 +346,7 @@ export function ManagerCreateServiceRequestModal({
       open={open}
       onClose={onClose}
       dismissBlocked={catalogModalOpen}
-      title="Add request"
+      title="Add service"
       footer={
         <ModalFooter>
           <Button
@@ -359,7 +359,7 @@ export function ManagerCreateServiceRequestModal({
               (isCustomOffer ? !customTitle.trim() : !selectedOffer)
             }
           >
-            {busy ? "Saving…" : "Add request"}
+            {busy ? "Saving…" : "Add service"}
           </Button>
         </ModalFooter>
       }
@@ -368,7 +368,7 @@ export function ManagerCreateServiceRequestModal({
         <p className="text-sm text-muted">
           {lockedResident
             ? "Log a service request for this resident. It appears in their portal under Services → Requests."
-            : "Log a request on behalf of a resident. Only offerings the property makes available appear below."}
+            : "Log a service on behalf of a resident. Only offerings the property makes available appear below."}
         </p>
 
         {lockedResident ? (
@@ -425,7 +425,7 @@ export function ManagerCreateServiceRequestModal({
         )}
 
         <label className="flex flex-col gap-1 text-xs font-medium text-muted">
-          Request type *
+          Service type *
           <Select
             value={offerId}
             onChange={(e) => {
@@ -440,7 +440,7 @@ export function ManagerCreateServiceRequestModal({
             <option value="">
               {!propertyId
                 ? "Choose a property first"
-                : "Select a request type"}
+                : "Select a service type"}
             </option>
             {offersForProperty.map((o) => (
               <option key={o.id} value={o.id}>
@@ -452,7 +452,7 @@ export function ManagerCreateServiceRequestModal({
           </Select>
           {propertyId && offersForProperty.length === 0 ? (
             <span className="text-[11px] font-normal normal-case text-muted">
-              No catalog offerings yet. Choose Custom or add a request type below.
+              No catalog offerings yet. Choose Custom or add a service type below.
             </span>
           ) : null}
         </label>
@@ -465,7 +465,7 @@ export function ManagerCreateServiceRequestModal({
             onClick={() => setCatalogModalOpen(true)}
             disabled={busy}
           >
-            Manage request types for this property
+            Manage service types for this property
           </button>
         ) : null}
 

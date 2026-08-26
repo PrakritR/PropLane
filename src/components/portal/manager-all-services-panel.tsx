@@ -305,7 +305,7 @@ export function ManagerAllServicesPanel({
           data-attr="edit-service-requests-open"
           onClick={() => setEditServiceRequestsOpen(true)}
           disabled={propertyOptions.length === 0}
-          title={propertyOptions.length === 0 ? "Add a property before editing its request types" : undefined}
+          title={propertyOptions.length === 0 ? "Add a property before editing its service types" : undefined}
         >
           Edit
         </Button>
@@ -450,7 +450,7 @@ export function ManagerAllServicesPanel({
           value: searchQuery,
           onChange: setSearchQuery,
           placeholder:
-            typeFilter === "work-orders" ? "Search maintenance requests" : "Search requests",
+            "Search services",
           dataAttr:
             typeFilter === "work-orders" ? "services-work-orders-search" : "services-requests-search",
         }}

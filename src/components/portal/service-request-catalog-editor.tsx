@@ -142,7 +142,7 @@ export function ServiceRequestCatalogEditor({
           ))
         ) : (
           <p className="px-1 py-2 text-sm text-muted">
-            No request types yet. Add a preset below or tap Add.
+            No service types yet. Add a preset below or tap Add.
           </p>
         )}
       </PortalPropertyDetailSection>

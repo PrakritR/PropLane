@@ -226,12 +226,12 @@ export function ManagerServicesPanel() {
 
       <Modal
         open={modalOpen}
-        title={editingOffer ? "Edit request option" : "Add request option"}
+        title={editingOffer ? "Edit service option" : "Add service option"}
         onClose={() => setModalOpen(false)}
         footer={
           <ModalFooter>
             <Button type="button" variant="primary" className="rounded-full" onClick={handleSave}>
-              {editingOffer ? "Save changes" : "Add request"}
+              {editingOffer ? "Save changes" : "Add service"}
             </Button>
           </ModalFooter>
         }

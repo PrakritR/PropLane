@@ -43,9 +43,9 @@ export function ManagerEditServiceRequestsModal({
   }, [editingPropertyId, managerUserId, refreshTick]);
 
   const editorTitle = useMemo(() => {
-    if (!editingPropertyId) return "Edit request types";
+    if (!editingPropertyId) return "Edit service types";
     const label = propertyOptions.find((o) => o.id === editingPropertyId)?.label ?? "Property";
-    return `Edit request types · ${label}`;
+    return `Edit service types · ${label}`;
   }, [editingPropertyId, propertyOptions]);
 
   const closeAll = () => {
@@ -61,7 +61,7 @@ export function ManagerEditServiceRequestsModal({
       return;
     }
     if (!managerUserId) {
-      showToast("Sign in to edit request types.");
+      showToast("Sign in to edit service types.");
       return;
     }
     const hit = resolveManagerListingSubmissionForPropertyId(managerUserId, id);
@@ -87,8 +87,8 @@ export function ManagerEditServiceRequestsModal({
     <>
       <Modal
         open={open && !editingPropertyId}
-        title="Edit request types"
-        description="Choose a property to edit its request types."
+        title="Edit service types"
+        description="Choose a property to edit its service types."
         onClose={closeAll}
         dense
         assistantStrip={false}

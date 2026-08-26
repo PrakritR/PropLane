@@ -350,7 +350,7 @@ export function ServiceRequestCard({
             data-attr="resident-service-request-edit"
             onClick={onEdit}
           >
-            Edit request
+            Edit service
           </Button>
         ) : null}
         <Button
@@ -479,7 +479,7 @@ export function WorkOrderDetail({
             data-attr="resident-work-order-edit"
             onClick={onEdit}
           >
-            Edit request
+            Edit service
           </Button>
           <Button
             type="button"
@@ -1633,7 +1633,7 @@ export function ResidentServicesPanel({
       {/* Request modal */}
       <Modal
         open={modalMode === "service"}
-        title="Add request"
+        title="Add service"
         onClose={() => { setModalMode("none"); resetService(); }}
         panelClassName="max-w-lg"
         footer={
@@ -1773,7 +1773,7 @@ export function ResidentServicesPanel({
       {/* Edit add-on service request modal */}
       <Modal
         open={editingRequest !== null}
-        title="Edit request"
+        title="Edit service"
         onClose={() => setEditingRequest(null)}
         panelClassName="max-w-lg"
         footer={

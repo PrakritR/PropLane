@@ -934,7 +934,7 @@ function ManagerPropertyInlineDetails({
           data-attr="manager-service-request-add-footer"
           onClick={() => requestAddHandlerRef.current?.()}
         >
-          Add request
+          Add service
         </Button>
       );
     }

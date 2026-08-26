@@ -440,7 +440,7 @@ export const ManagerVendorsPanel = forwardRef(function ManagerVendorsPanel(
       <>
         {modals}
         <PortalRecordDetailPage
-          pageTitle="Team"
+          pageTitle="Vendors"
           title={routeVendor.name}
           subtitle={routeVendor.trade || undefined}
           avatarName={routeVendor.name}
@@ -494,7 +494,7 @@ export const ManagerVendorsPanel = forwardRef(function ManagerVendorsPanel(
   if (embedded) {
     return (
       <ManagerPortalPageShell
-        title="Team"
+        title="Vendors"
         hideTitleOnMobileNav
         titleAside={
           <ManagerVendorsToolbar
@@ -514,7 +514,7 @@ export const ManagerVendorsPanel = forwardRef(function ManagerVendorsPanel(
 
   return (
     <ManagerPortalPageShell
-      title="Team"
+      title="Vendors"
       titleAside={
         <ManagerVendorsToolbar
           onCatalog={openCatalogForm}
