@@ -15,6 +15,8 @@ import {
 } from "@/lib/demo-admin-scheduling";
 import type { ManagerTourBucketId } from "@/lib/portal-detail-routes";
 import { clusterRowsByResident, type ResidentCluster } from "@/lib/resident-row-clustering";
+import type { ScheduledInboxMessageRecord } from "@/lib/scheduled-inbox-messages";
+import { summariseScheduledSends, type ScheduledSendSummary } from "@/lib/scheduled-send-summary";
 
 export type ManagerTourRowSource = "inquiry" | "planned";
 
@@ -204,6 +206,62 @@ export function clusterManagerTourListRows(rows: readonly ManagerTourRow[]): Man
       residentEmail: row.guestEmail,
     })),
     (row) => row.propertyTitle || null,
+  );
+}
+
+/** Upcoming tours soonest-first; past newest-first; pending by requested time. */
+export function sortManagerTourRowsForBucket(
+  rows: ManagerTourRow[],
+  bucket: ManagerTourBucketId,
+): ManagerTourRow[] {
+  const copy = [...rows];
+  if (bucket === "upcoming") {
+    copy.sort((a, b) => a.startMs - b.startMs);
+  } else if (bucket === "past") {
+    copy.sort((a, b) => b.startMs - a.startMs);
+  } else {
+    copy.sort((a, b) => a.startMs - b.startMs);
+  }
+  return copy;
+}
+
+export function sortManagerTourClustersForBucket(
+  clusters: ManagerTourListCluster[],
+  bucket: ManagerTourBucketId,
+): ManagerTourListCluster[] {
+  const clusterStart = (cluster: ManagerTourListCluster) =>
+    Math.min(...cluster.rows.map((row) => row.startMs));
+  const sorted = clusters.map((cluster) => ({
+    ...cluster,
+    rows: sortManagerTourRowsForBucket(cluster.rows, bucket),
+  }));
+  if (bucket === "upcoming" || bucket === "pending") {
+    sorted.sort((a, b) => clusterStart(a) - clusterStart(b));
+  } else {
+    sorted.sort((a, b) => clusterStart(b) - clusterStart(a));
+  }
+  return sorted;
+}
+
+export function tourReminderSummaryForCluster(
+  cluster: ManagerTourListCluster,
+  reminders: readonly ScheduledInboxMessageRecord[],
+): ScheduledSendSummary {
+  const plannedIds = new Set(
+    cluster.rows.filter((row) => row.source === "planned").map((row) => row.sourceId),
+  );
+  return summariseScheduledSends(
+    reminders.filter((row) => row.tourPlannedEventId && plannedIds.has(row.tourPlannedEventId)),
+  );
+}
+
+export function tourReminderSummaryForRow(
+  row: ManagerTourRow,
+  reminders: readonly ScheduledInboxMessageRecord[],
+): ScheduledSendSummary {
+  if (row.source !== "planned") return { count: 0, nextSendAt: null };
+  return summariseScheduledSends(
+    reminders.filter((message) => message.tourPlannedEventId === row.sourceId),
   );
 }
 

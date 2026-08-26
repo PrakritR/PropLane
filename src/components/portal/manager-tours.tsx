@@ -1,13 +1,11 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { ApplicationHouseholdCluster } from "@/components/portal/application-household-list";
-import { Badge } from "@/components/ui/badge";
+import { ApplicationFilterSortFields } from "@/components/portal/application-filter-sort-fields";
+import { ManagerToursGroupedTable } from "@/components/portal/manager-tours-grouped-table";
 import { Button } from "@/components/ui/button";
 import { BulkActionBar } from "@/components/ui/bulk-action-bar";
-import { DataList } from "@/components/ui/data-list";
 import { DestinationNav } from "@/components/ui/destination-nav";
-import { ApplicationFilterSortFields } from "@/components/portal/application-filter-sort-fields";
 import { ManagerPortalSettingsModal } from "@/components/portal/manager-portal-settings-modal";
 import {
   ManagerPortalPageShell,
@@ -28,6 +26,7 @@ import { ShareLeadLinkModal } from "@/components/portal/share-lead-link-modal";
 import { TourProposalsPanel } from "@/components/portal/tour-proposals-panel";
 import { useAppUi } from "@/components/providers/app-ui-provider";
 import { useManagerUserId } from "@/hooks/use-manager-user-id";
+import { useScheduledTourReminders } from "@/hooks/use-scheduled-tour-reminders";
 import {
   acceptPartnerInquiryFromServer,
   deletePartnerInquiryFromServer,
@@ -40,6 +39,7 @@ import {
   clusterManagerTourListRows,
   countManagerTourRowsByBucket,
   filterManagerTourRows,
+  sortManagerTourClustersForBucket,
   type ManagerTourRow,
 } from "@/lib/manager-tour-list";
 import { usePortalNavigate } from "@/lib/portal-nav-client";
@@ -140,10 +140,6 @@ function buildTourNotifyContext(row: ManagerTourRow) {
   });
 }
 
-function tourRowMeta(row: ManagerTourRow): string {
-  return [row.propertyTitle, row.roomLabel].filter(Boolean).join(" · ");
-}
-
 export function ManagerTours({
   bucket = "pending",
   basePath = "/portal",
@@ -156,6 +152,7 @@ export function ManagerTours({
   const navigate = usePortalNavigate();
   const { showToast } = useAppUi();
   const { userId, ready: authReady } = useManagerUserId();
+  const { reminders, reload: reloadReminders } = useScheduledTourReminders();
   const [tick, setTick] = useState(0);
   const [propertyTick, setPropertyTick] = useState(0);
   const [propertyFilters, setPropertyFilters] = useState<string[]>([]);
@@ -170,8 +167,9 @@ export function ManagerTours({
 
   const refresh = useCallback(async () => {
     await syncScheduleRecordsFromServer({ force: true });
+    await reloadReminders();
     setTick((n) => n + 1);
-  }, []);
+  }, [reloadReminders]);
 
   useEffect(() => {
     if (!authReady || !userId) return;
@@ -215,7 +213,11 @@ export function ManagerTours({
     [allRows, bucket, propertyFilters, searchQuery],
   );
 
-  const clusters = useMemo(() => clusterManagerTourListRows(rowsForBucket), [rowsForBucket]);
+  const clusters = useMemo(
+    () =>
+      sortManagerTourClustersForBucket(clusterManagerTourListRows(rowsForBucket), bucket),
+    [rowsForBucket, bucket],
+  );
 
   const selectedRows = useMemo(
     () => rowsForBucket.filter((row) => selectedIds.has(row.id)),
@@ -443,51 +445,14 @@ export function ManagerTours({
     [guestMessageBusy, guestMessagePreview, showToast],
   );
 
-  const renderTourDataList = (listRows: ManagerTourRow[]) => (
-    <DataList
-      hideColumnHeaders
-      selectable
-      rows={listRows.map((row) => ({
-        id: row.id,
-        data: row,
-        primary: row.whenLabel,
-        meta: tourRowMeta(row),
-        selected: selectedIds.has(row.id),
-        onSelectedChange: () => toggleSelected(row.id),
-        onClick: () => openTourDetail(row),
-      }))}
-      columns={[
-        { id: "when", header: "When", cell: (row) => row.whenLabel },
-        { id: "property", header: "Property", cell: (row) => tourRowMeta(row) },
-      ]}
-    />
-  );
-
   const renderGroupedTours = () => (
-    <div className="space-y-3" data-attr="tours-resident-groups">
-      {clusters.map((cluster) => (
-        <ApplicationHouseholdCluster
-          key={cluster.key}
-          header={
-            <>
-              <span className="truncate text-xs font-semibold text-foreground">{cluster.residentLabel}</span>
-              {cluster.residentEmail &&
-              cluster.residentEmail.toLowerCase() !== cluster.residentLabel.trim().toLowerCase() ? (
-                <span className="truncate text-xs text-muted">{cluster.residentEmail}</span>
-              ) : null}
-              {cluster.propertyLabel ? (
-                <span className="truncate text-xs text-muted">{cluster.propertyLabel}</span>
-              ) : null}
-              <Badge tone="info">
-                {cluster.rows.length === 1 ? "1 tour" : `${cluster.rows.length} tours`}
-              </Badge>
-            </>
-          }
-        >
-          {renderTourDataList(cluster.rows)}
-        </ApplicationHouseholdCluster>
-      ))}
-    </div>
+    <ManagerToursGroupedTable
+      clusters={clusters}
+      reminders={reminders}
+      selectedIds={selectedIds}
+      onToggleSelected={toggleSelected}
+      onRowClick={openTourDetail}
+    />
   );
 
   const renderDetailPanel = (row: ManagerTourRow) => (
