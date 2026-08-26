@@ -8,7 +8,6 @@ import { useAppUi } from "@/components/providers/app-ui-provider";
 import { ManagerPortalPageShell } from "@/components/portal/portal-metrics";
 import { PORTAL_LIST_PAGE_BODY } from "@/components/portal/portal-inbox-ui";
 import { PortalListAddRow, PORTAL_LIST_ADD_ICONS } from "@/components/portal/portal-list-add-row";
-import { PortalDataTableEmpty } from "@/components/portal/portal-data-table";
 import { useManagerUserId } from "@/hooks/use-manager-user-id";
 import {
   EVENT_DURATION_PRESET_MINUTES,
@@ -147,13 +146,11 @@ export function ManagerTaskList() {
   }
 
   return (
-    <ManagerPortalPageShell title="Task list" subtitle="Add tasks and they appear on your tour schedule automatically.">
+    <ManagerPortalPageShell title="Task list">
       <div className={PORTAL_LIST_PAGE_BODY}>
         {loading ? (
           <p className="text-sm text-muted">Loading…</p>
-        ) : tasks.length === 0 ? (
-          <PortalDataTableEmpty message="No tasks yet. Add one to block time on your schedule." />
-        ) : (
+        ) : tasks.length > 0 ? (
           <div className="space-y-6">
             {openTasks.length ? (
               <section className="space-y-2">
