@@ -213,9 +213,9 @@ export function PortalCalendar({
   const soleCalendarPropertyId = calendarEditingPropertyId;
 
   const availabilityStorageKeys = useMemo(() => {
-    if (portal !== "manager" || !userId || activeCalendarPropertyFilters.length === 0) return [];
-    return activeCalendarPropertyFilters.map((id) => managerPropertyAvailabilityStorageKey(userId, id));
-  }, [portal, userId, activeCalendarPropertyFilters]);
+    if (portal !== "manager" || !userId || scopedCalendarPropertyIds.length === 0) return [];
+    return scopedCalendarPropertyIds.map((id) => managerPropertyAvailabilityStorageKey(userId, id));
+  }, [portal, userId, scopedCalendarPropertyIds]);
 
   const shareableProperties = useMemo(() => {
     if (portal !== "manager") return [];
@@ -490,18 +490,14 @@ export function PortalCalendar({
     showScheduledWorkOnCalendar,
   ]);
 
-  const calendarPanelsReadOnly =
-    servicesOnlyView ||
-    bookingsView ||
-    (availabilityView && activeCalendarPropertyFilters.length !== 1);
-  const calendarStorageKey = availabilityView ? storageKey : null;
+  const calendarPanelsReadOnly = servicesOnlyView || bookingsView;
+  const calendarStorageKey =
+    availabilityView && activeCalendarPropertyFilters.length === 1 ? storageKey : null;
   const calendarUnavailableMessage = servicesOnlyView
     ? "No scheduled service visits yet. Vendor visits and your own assigned work appear here once a visit time is set."
     : bookingsView
       ? "No houses in your portfolio yet."
-      : activeCalendarPropertyFilters.length !== 1 && availabilityView
-        ? "Select one house in the filter to edit tour availability."
-        : "Select one house before creating tour windows.";
+      : "Add a property before setting tour availability.";
 
 
   const calendarFilterSheet =
@@ -695,9 +691,7 @@ export function PortalCalendar({
                     key={`${calendarStorageKey ?? "calendar-unavailable"}-avail-${scopedCalendarPropertyIds.join(",")}-${schedulingHub ? toursHubTab : calendarView}`}
             storageKey={calendarStorageKey}
             availabilityStorageKeys={
-              availabilityView && availabilityStorageKeys.length > 1
-                ? availabilityStorageKeys
-                : undefined
+              availabilityView && availabilityStorageKeys.length > 0 ? availabilityStorageKeys : undefined
             }
             calendarRefreshSignal={calendarRefreshSignal}
             tourScopeLabel={tourScopeLabel}

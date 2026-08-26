@@ -535,7 +535,7 @@ export function PortalCalendarPanels({
    * booking page, so a manager had no idea their calendar was open, let alone
    * which days. Shown as a distinct "default" state that can be removed.
    */
-  /** Availability edits need exactly one write target; the portfolio-wide view has none. */
+  /** Availability edits target every scoped house (filter empty = whole portfolio). */
   const canEditAvailability = !readOnly && writeStorageKeys.length > 0;
   const defaultOnlySlots = useMemo(() => {
     const out = new Set<string>();
@@ -2183,7 +2183,7 @@ export function PortalCalendarPanels({
           </div>
         </div>
 
-        {!vendorMode && !readOnly ? (
+        {!vendorMode && canEditAvailability ? (
           <PortalPageFooterActions pinned rowVariant="header">
             <div className="flex w-full min-w-0 flex-nowrap items-center justify-start gap-2">
               <Button

@@ -79,3 +79,12 @@ describe("nav icons", () => {
     expect(ICONS).not.toMatch(/^\s*bookings: Calendar,/m);
   });
 });
+
+describe("calendar portfolio scope", () => {
+  const scopeSrc = readFileSync(join(process.cwd(), "src/components/portal/portal-calendar.tsx"), "utf8");
+
+  it("writes availability for every scoped house, not only a single filter", () => {
+    expect(scopeSrc).toContain("scopedCalendarPropertyIds.map((id) => managerPropertyAvailabilityStorageKey");
+    expect(scopeSrc).not.toContain("activeCalendarPropertyFilters.length !== 1");
+  });
+});
