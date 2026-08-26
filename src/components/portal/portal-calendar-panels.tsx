@@ -1,6 +1,15 @@
 "use client";
 
-import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type MouseEvent } from "react";
+import {
+  Fragment,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type MouseEvent,
+  type ReactNode,
+} from "react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input, NativeSelect, Select } from "@/components/ui/input";
@@ -418,7 +427,21 @@ function FooterShell({ inline, children }: { inline: boolean; children: React.Re
       </PortalPageFooterActions>
     );
   }
-  return <div className="mt-3 border-t border-border pt-3">{children}</div>;
+  return <div className="mt-3 shrink-0 border-t border-border pt-3">{children}</div>;
+}
+
+function AvailabilityFooterDelegate({
+  footer,
+  onChange,
+}: {
+  footer: ReactNode | null;
+  onChange?: (footer: ReactNode | null) => void;
+}) {
+  useEffect(() => {
+    onChange?.(footer);
+    return () => onChange?.(null);
+  }, [footer, onChange]);
+  return null;
 }
 
 export function PortalCalendarPanels({
@@ -455,6 +478,17 @@ export function PortalCalendarPanels({
    * tab). Keeps the week toolbar sticky inside that one scroll surface.
    */
   flowScroll = false,
+  /**
+   * Fill a modal body (`scrollableContent={false}`) — grid scrolls inside the panel
+   * while toolbar + delegated footer stay pinned.
+   */
+  embeddedInModal = false,
+  /**
+   * Hoist availability footer actions into the parent modal's `footer` slot so they
+   * land below the assistant strip instead of inside the scroll area.
+   */
+  delegateFooterToModal = false,
+  onModalFooterChange,
 }: {
   storageKey: string | null;
   availabilityStorageKeys?: string[];
@@ -474,6 +508,9 @@ export function PortalCalendarPanels({
    */
   inlineFooter?: boolean;
   flowScroll?: boolean;
+  embeddedInModal?: boolean;
+  delegateFooterToModal?: boolean;
+  onModalFooterChange?: (footer: ReactNode | null) => void;
   otherProperties?: { id: string; name: string }[];
   onCopyWeekToHouses?: (propertyIds: string[], weekDateStrs: string[], scope: "week" | "entire") => void;
   scheduledTourFilter?: ScheduledTourFilter;
@@ -1911,6 +1948,7 @@ export function PortalCalendarPanels({
     const compactShellClass = cn(
       "portal-calendar-compact flex flex-col",
       flowScroll ? "portal-calendar-flow-scroll" : "min-h-0 flex-1",
+      embeddedInModal && "overflow-hidden",
       !bareSurface && "overflow-hidden rounded-2xl border border-border bg-card shadow-sm",
     );
     const compactToolbarClass = cn(
@@ -1925,6 +1963,7 @@ export function PortalCalendarPanels({
     const compactBodyClass = cn(
       "portal-calendar-compact-body",
       flowScroll ? "" : "min-h-0 flex-1",
+      embeddedInModal && "overflow-y-auto overscroll-contain [-webkit-overflow-scrolling:touch]",
       bareSurface
         ? flowScroll
           ? ""
@@ -1933,8 +1972,58 @@ export function PortalCalendarPanels({
     );
     const compactGridTopGap = flowScroll ? "mt-0" : "mt-2";
     const compactMobileTopGap = flowScroll ? "mt-0" : "mt-2 max-lg:mt-4";
+    const availabilityFooterActions =
+      !vendorMode && canEditAvailability ? (
+        <div className="flex w-full min-w-0 flex-wrap items-center justify-start gap-2">
+          <Button
+            type="button"
+            variant="outline"
+            className={PORTAL_DETAIL_BTN}
+            data-attr="calendar-copy-previous-week"
+            onClick={copyPreviousWeek}
+          >
+            Copy previous week
+          </Button>
+          <Button
+            type="button"
+            variant="outline"
+            className={PORTAL_DETAIL_BTN}
+            data-attr="calendar-create-block"
+            onClick={openBlockModal}
+          >
+            Block
+          </Button>
+          <Button
+            type="button"
+            variant="outline"
+            className={PORTAL_DETAIL_BTN}
+            data-attr="calendar-clear-week"
+            onClick={clearCurrentWeek}
+          >
+            Clear
+          </Button>
+          <Button
+            type="button"
+            variant="outline"
+            className={PORTAL_DETAIL_BTN}
+            data-attr="calendar-copy-to-houses"
+            disabled={!onCopyWeekToHouses || !otherProperties?.length}
+            title={!otherProperties?.length ? "Add another house to copy availability" : undefined}
+            onClick={() => {
+              setSelectedHouseIds(new Set());
+              setCopyToHousesScope("week");
+              setUpdateToHousesOpen(true);
+            }}
+          >
+            Copy to houses
+          </Button>
+        </div>
+      ) : null;
     return (
       <>
+        {delegateFooterToModal ? (
+          <AvailabilityFooterDelegate footer={availabilityFooterActions} onChange={onModalFooterChange} />
+        ) : null}
         <div className={compactShellClass}>
           <div className={compactToolbarClass}>
             <div className="flex w-full min-w-0 max-w-full flex-wrap items-center justify-center gap-1.5 sm:gap-2">
@@ -2208,53 +2297,8 @@ export function PortalCalendarPanels({
           </div>
         </div>
 
-        {!vendorMode && canEditAvailability ? (
-          <FooterShell inline={inlineFooter}>
-            <div className="flex w-full min-w-0 flex-wrap items-center justify-start gap-2">
-              <Button
-                type="button"
-                variant="outline"
-                className={PORTAL_DETAIL_BTN}
-                data-attr="calendar-copy-previous-week"
-                onClick={copyPreviousWeek}
-              >
-                Copy previous week
-              </Button>
-              <Button
-                type="button"
-                variant="outline"
-                className={PORTAL_DETAIL_BTN}
-                data-attr="calendar-create-block"
-                onClick={openBlockModal}
-              >
-                Block
-              </Button>
-              <Button
-                type="button"
-                variant="outline"
-                className={PORTAL_DETAIL_BTN}
-                data-attr="calendar-clear-week"
-                onClick={clearCurrentWeek}
-              >
-                Clear
-              </Button>
-              <Button
-                type="button"
-                variant="outline"
-                className={PORTAL_DETAIL_BTN}
-                data-attr="calendar-copy-to-houses"
-                disabled={!onCopyWeekToHouses || !otherProperties?.length}
-                title={!otherProperties?.length ? "Add another house to copy availability" : undefined}
-                onClick={() => {
-                  setSelectedHouseIds(new Set());
-                  setCopyToHousesScope("week");
-                  setUpdateToHousesOpen(true);
-                }}
-              >
-                Copy to houses
-              </Button>
-            </div>
-          </FooterShell>
+        {!vendorMode && canEditAvailability && !delegateFooterToModal ? (
+          <FooterShell inline={inlineFooter}>{availabilityFooterActions}</FooterShell>
         ) : null}
 
         <Modal

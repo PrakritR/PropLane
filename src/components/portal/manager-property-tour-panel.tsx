@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { ManagerToursGroupedTable } from "@/components/portal/manager-tours-grouped-table";
 import { PortalCalendarPanels } from "@/components/portal/portal-calendar-panels";
 import { PortalDataTableEmpty } from "@/components/portal/portal-data-table";
@@ -8,7 +8,7 @@ import { PortalListControlStack } from "@/components/portal/portal-list-control-
 import { PortalPropertyDetailSection } from "@/components/portal/portal-property-detail-section";
 import { ShareLeadLinkModal } from "@/components/portal/share-lead-link-modal";
 import { LocalDestinationNav } from "@/components/ui/destination-nav";
-import { Modal } from "@/components/ui/modal";
+import { Modal, ModalFooter } from "@/components/ui/modal";
 import { managerPropertyAvailabilityStorageKey, syncScheduleRecordsFromServer } from "@/lib/demo-admin-scheduling";
 import {
   isGoogleBusyIncompleteWarning,
@@ -61,6 +61,7 @@ export function ManagerPropertyTourPanel({
   const navigate = usePortalNavigate();
   const [sendTourOpen, setSendTourOpen] = useState(false);
   const [availabilityOpen, setAvailabilityOpen] = useState(false);
+  const [availabilityModalFooter, setAvailabilityModalFooter] = useState<ReactNode>(null);
   const [bucket, setBucket] = useState<ManagerTourBucketId>("pending");
   const [searchQuery, setSearchQuery] = useState("");
   const [tick, setTick] = useState(0);
@@ -230,36 +231,50 @@ export function ManagerPropertyTourPanel({
       <Modal
         open={availabilityOpen}
         title="Set availability"
-        onClose={() => setAvailabilityOpen(false)}
+        onClose={() => {
+          setAvailabilityOpen(false);
+          setAvailabilityModalFooter(null);
+        }}
+        scrollableContent={false}
         // A seven-day grid does not fit in max-w-3xl — Sunday was clipped off the right edge with
         // no way to scroll to it. Wider, and capped in height so the grid scrolls inside the panel
         // instead of the panel growing past the viewport.
         panelClassName="max-w-6xl"
+        footer={
+          availabilityModalFooter ? (
+            <ModalFooter className="justify-start">{availabilityModalFooter}</ModalFooter>
+          ) : undefined
+        }
       >
-        <p className="mb-3 text-xs text-muted">
-          Open slots prospects can book for {propertyLabel}. Paint the week grid or use Block for a recurring schedule.
-        </p>
-        <PortalCalendarPanels
-          inlineFooter
-          key={storageKey ?? "property-calendar-unavailable"}
-          storageKey={storageKey}
-          bareSurface
-          compactAvailability
-          defaultViewMode="week"
-          availabilityHeading="Your availability"
-          tourScopeLabel={propertyLabel}
-          unavailableMessage="Sign in to manage tour availability for this property."
-          externalMeetings={googleBusyMeetings}
-          scheduledTourFilter={
-            managerUserId
-              ? {
-                  viewerUserId: managerUserId,
-                  propertyId: listingId,
-                  peers: [],
-                }
-              : undefined
-          }
-        />
+        <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+          <p className="mb-3 shrink-0 text-xs text-muted">
+            Open slots prospects can book for {propertyLabel}. Paint the week grid or use Block for a recurring schedule.
+          </p>
+          <PortalCalendarPanels
+            inlineFooter
+            delegateFooterToModal
+            embeddedInModal
+            onModalFooterChange={setAvailabilityModalFooter}
+            key={storageKey ?? "property-calendar-unavailable"}
+            storageKey={storageKey}
+            bareSurface
+            compactAvailability
+            defaultViewMode="week"
+            availabilityHeading="Your availability"
+            tourScopeLabel={propertyLabel}
+            unavailableMessage="Sign in to manage tour availability for this property."
+            externalMeetings={googleBusyMeetings}
+            scheduledTourFilter={
+              managerUserId
+                ? {
+                    viewerUserId: managerUserId,
+                    propertyId: listingId,
+                    peers: [],
+                  }
+                : undefined
+            }
+          />
+        </div>
       </Modal>
 
       <ShareLeadLinkModal
