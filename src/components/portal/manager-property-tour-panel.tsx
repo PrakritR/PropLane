@@ -68,6 +68,9 @@ export function ManagerPropertyTourPanel({
 
   const openSendTour = useCallback(() => setSendTourOpen(true), []);
   const openAvailability = useCallback(() => setAvailabilityOpen(true), []);
+  const handleAvailabilityModalFooterChange = useCallback((footer: ReactNode | null) => {
+    setAvailabilityModalFooter(footer);
+  }, []);
 
   useEffect(() => {
     onRegisterSendTour?.(openSendTour);
@@ -254,7 +257,7 @@ export function ManagerPropertyTourPanel({
             inlineFooter
             delegateFooterToModal
             embeddedInModal
-            onModalFooterChange={setAvailabilityModalFooter}
+            onModalFooterChange={handleAvailabilityModalFooterChange}
             key={storageKey ?? "property-calendar-unavailable"}
             storageKey={storageKey}
             bareSurface

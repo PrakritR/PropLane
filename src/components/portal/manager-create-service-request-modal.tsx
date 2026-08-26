@@ -29,6 +29,13 @@ import { resolvePropertySaveTargetById } from "@/lib/manager-property-save-targe
 import { createServiceRequest, CUSTOM_SERVICE_REQUEST_OFFER_ID } from "@/lib/service-requests-storage";
 import { ServiceOfferingEditModal } from "@/components/portal/service-offering-edit-modal";
 import { ServiceRequestCatalogModal } from "@/components/portal/service-request-catalog-modal";
+import { WorkAssignmentPicker } from "@/components/portal/work-assignment-picker";
+import { useWorkAssignmentDirectory } from "@/hooks/use-work-assignment-directory";
+import {
+  createScheduledWorkTask,
+  scheduledTaskTitleForService,
+} from "@/lib/manager-scheduled-work-tasks";
+import type { WorkAssignee } from "@/lib/work-assignment";
 
 type PropertyOption = { propertyId: string; propertyLabel: string };
 
@@ -133,8 +140,10 @@ export function ManagerCreateServiceRequestModal({
   defaultResident?: ManagerServiceResidentOption | null;
 }) {
   const { showToast } = useAppUi();
+  const { teamMembers, vendors } = useWorkAssignmentDirectory({ managerUserId });
   const [tick, setTick] = useState(0);
   const [busy, setBusy] = useState(false);
+  const [assignee, setAssignee] = useState<WorkAssignee | null>(null);
   const [propertyId, setPropertyId] = useState("");
   const [residentEmail, setResidentEmail] = useState("");
   const [offerId, setOfferId] = useState("");
@@ -176,6 +185,7 @@ export function ManagerCreateServiceRequestModal({
       setCatalogModalOpen(false);
       setRequestPrice("");
       setRequestDeposit("");
+      setAssignee(null);
     });
   }, [open, defaultPropertyId, defaultResident]);
 
@@ -307,11 +317,19 @@ export function ManagerCreateServiceRequestModal({
           propertyId,
           returnByDate: "",
           notes: notes.trim(),
+          assignee: assignee ?? undefined,
         });
         if (!mirrored.ok) {
           showToast(mirrored.error || "Could not save request. Try again.");
           return;
         }
+        void createScheduledWorkTask(managerUserId, {
+          title: scheduledTaskTitleForService(customTitle.trim(), selectedResident.residentName),
+          propertyId,
+          propertyTitle: selectedResident.propertyLabel,
+          assignee: assignee ?? undefined,
+          notes: notes.trim() || undefined,
+        });
         showToast(`${customTitle.trim()} request created for ${selectedResident.residentName}.`);
       } else {
         const { mirrored } = await createServiceRequest({
@@ -326,11 +344,19 @@ export function ManagerCreateServiceRequestModal({
           propertyId,
           returnByDate: "",
           notes: notes.trim(),
+          assignee: assignee ?? undefined,
         });
         if (!mirrored.ok) {
           showToast(mirrored.error || "Could not save request. Try again.");
           return;
         }
+        void createScheduledWorkTask(managerUserId, {
+          title: scheduledTaskTitleForService(selectedOffer!.name, selectedResident.residentName),
+          propertyId,
+          propertyTitle: selectedResident.propertyLabel,
+          assignee: assignee ?? undefined,
+          notes: notes.trim() || undefined,
+        });
         showToast(`${selectedOffer!.name} request created for ${selectedResident.residentName}.`);
       }
       onSubmitted();
@@ -514,6 +540,17 @@ export function ManagerCreateServiceRequestModal({
             </label>
           </div>
         ) : null}
+
+        <WorkAssignmentPicker
+          kind="service"
+          value={assignee}
+          teamMembers={teamMembers}
+          vendors={vendors}
+          disabled={busy}
+          label="Assignee"
+          dataAttr="manager-service-request-assignee"
+          onChange={setAssignee}
+        />
 
         <label className="flex flex-col gap-1 text-xs font-medium text-muted">
           Notes (optional)

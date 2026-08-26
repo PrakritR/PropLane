@@ -24,8 +24,7 @@ export type ManagerTask = {
   durationMinutes?: number;
   completed: boolean;
   /**
-   * Who is doing this, when a manager has said. Tasks are staff work, so this is a TEAM member —
-   * `work-assignment.ts` is the one place that rule lives, and it does not offer vendors here.
+   * Who is doing this. Tasks may be assigned to a team member or a vendor.
    */
   assignee?: WorkAssignee;
   createdAt: string;
@@ -206,6 +205,7 @@ export async function createManagerTask(
     end,
     durationMinutes: start && end ? durationBetween(start, end) : undefined,
     completed: false,
+    assignee: normalizeAssignee(input.assignee) ?? undefined,
     createdAt: now,
     updatedAt: now,
   };
@@ -241,7 +241,7 @@ export async function updateManagerTask(
   patch: Partial<
     Pick<
       ManagerTask,
-      "title" | "notes" | "propertyId" | "propertyTitle" | "roomLabel" | "start" | "end" | "durationMinutes" | "completed"
+      "title" | "notes" | "propertyId" | "propertyTitle" | "roomLabel" | "start" | "end" | "durationMinutes" | "completed" | "assignee"
     >
   >,
 ): Promise<ManagerTask> {
@@ -267,6 +267,10 @@ export async function updateManagerTask(
     start,
     end,
     durationMinutes,
+    assignee:
+      patch.assignee !== undefined
+        ? normalizeAssignee(patch.assignee) ?? undefined
+        : current.assignee,
     updatedAt: new Date().toISOString(),
   };
 

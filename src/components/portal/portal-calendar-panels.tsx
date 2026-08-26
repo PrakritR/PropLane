@@ -20,6 +20,8 @@ import { PortalNotificationPreviewModal, type NotificationConfirmDraft } from "@
 import { TourReminderTourPanel } from "@/components/portal/tour-reminder-tour-panel";
 import { PORTAL_CALENDAR_FRAME, PortalSegmentedControl } from "./portal-metrics";
 import { useAppUi } from "@/components/providers/app-ui-provider";
+import { useManagerUserId } from "@/hooks/use-manager-user-id";
+import { useWorkAssignmentDirectory } from "@/hooks/use-work-assignment-directory";
 import { formatPacificDate } from "@/lib/pacific-time";
 import { formatTourContactPhoneDisplay } from "@/lib/tour-contact-quality";
 import { getPropertyById } from "@/lib/rental-application/data";
@@ -77,6 +79,10 @@ import {
   cancelPlannedTourFromServer,
   tourGuestNotificationFailed,
 } from "@/lib/tour-planned-change.client";
+import {
+  createScheduledWorkTask,
+  scheduledTaskTitleForTour,
+} from "@/lib/manager-scheduled-work-tasks";
 type CalendarMode = "day" | "week" | "month";
 type RecurrenceCadence = "once" | "weekly" | "biweekly" | "monthly";
 type DragSelection = {
@@ -431,16 +437,22 @@ function FooterShell({ inline, children }: { inline: boolean; children: React.Re
 }
 
 function AvailabilityFooterDelegate({
-  footer,
+  revisionKey,
+  renderFooter,
   onChange,
 }: {
-  footer: ReactNode | null;
+  /** Stable string — footer JSX is recreated every render; only re-sync when this changes. */
+  revisionKey: string;
+  renderFooter: () => ReactNode | null;
   onChange?: (footer: ReactNode | null) => void;
 }) {
+  const renderFooterRef = useRef(renderFooter);
+  renderFooterRef.current = renderFooter;
+
   useEffect(() => {
-    onChange?.(footer);
+    onChange?.(renderFooterRef.current());
     return () => onChange?.(null);
-  }, [footer, onChange]);
+  }, [revisionKey, onChange]);
   return null;
 }
 
@@ -551,6 +563,8 @@ export function PortalCalendarPanels({
   };
 }) {
   const { showToast } = useAppUi();
+  const { userId } = useManagerUserId();
+  const { teamMembers, vendors } = useWorkAssignmentDirectory({ managerUserId: userId });
   const writeStorageKeys = useMemo(() => {
     if (availabilityStorageKeys?.length) return availabilityStorageKeys;
     return storageKey ? [storageKey] : [];
@@ -862,12 +876,24 @@ export function PortalCalendarPanels({
       showToast(result.error ?? "Could not approve request.");
       return;
     }
+    if (userId && selectedBlock.meeting.kind === "tour") {
+      const meeting = selectedBlock.meeting;
+      void createScheduledWorkTask(userId, {
+        title: scheduledTaskTitleForTour(meeting.name || meeting.title),
+        start: meeting.startIso,
+        end: endIsoForDuration(meeting.startIso, selectedDurationMinutes),
+        propertyId: meeting.propertyId,
+        propertyTitle: meeting.propertyTitle,
+        roomLabel: meeting.roomLabel,
+        notes: meeting.email ? `Guest: ${meeting.email}` : undefined,
+      });
+    }
     setSelectedBlock(null);
     setMeetingRefresh((n) => n + 1);
     onMeetingsChanged?.();
     reloadAvailability();
     showToast("Request approved.");
-  }, [onMeetingsChanged, reloadAvailability, selectedBlock, selectedDurationMinutes, showToast]);
+  }, [onMeetingsChanged, reloadAvailability, selectedBlock, selectedDurationMinutes, showToast, userId]);
 
   const openTourConfirmPreview = useCallback(() => {
     if (selectedBlock?.kind !== "meeting" || selectedBlock.meeting.source !== "inquiry") return;
@@ -1013,10 +1039,23 @@ export function PortalCalendarPanels({
             notifyTenant: !skipMessage,
             subject: draft?.subject,
             body: draft?.body,
+            assignee: draft?.assignee ?? undefined,
           });
           if (!result.ok) {
             showToast(result.error ?? "Could not confirm tour.");
             return;
+          }
+          if (userId) {
+            void createScheduledWorkTask(userId, {
+              title: scheduledTaskTitleForTour(meeting.name || meeting.title),
+              start: meeting.startIso,
+              end: endIso,
+              propertyId: meeting.propertyId,
+              propertyTitle: meeting.propertyTitle,
+              roomLabel: meeting.roomLabel,
+              assignee: draft?.assignee ?? undefined,
+              notes: meeting.email ? `Guest: ${meeting.email}` : undefined,
+            });
           }
           setTourGuestNotifyPreview(null);
           setSelectedBlock(null);
@@ -1094,7 +1133,7 @@ export function PortalCalendarPanels({
         setTourNotifyPreviewBusy(false);
       }
     },
-    [onMeetingsChanged, reloadAvailability, showToast, tourGuestNotifyPreview, tourNotifyPreviewBusy],
+    [onMeetingsChanged, reloadAvailability, showToast, tourGuestNotifyPreview, tourNotifyPreviewBusy, userId],
   );
 
   const deleteSelectedMeeting = useCallback(async () => {
@@ -1902,6 +1941,9 @@ export function PortalCalendarPanels({
       }
       confirmBusy={tourNotifyPreviewBusy}
       confirmBusyLabel={TOUR_GUEST_NOTIFY_PREVIEW_COPY[tourGuestNotifyPreview.action].confirmBusyLabel}
+      assigneeKind={tourGuestNotifyPreview.action === "confirm" ? "tour" : undefined}
+      assigneeTeamMembers={tourGuestNotifyPreview.action === "confirm" ? teamMembers : undefined}
+      assigneeVendors={tourGuestNotifyPreview.action === "confirm" ? vendors : undefined}
       panelClassName="z-[90] max-w-xl"
       onConfirm={(skipMessage, _channels, draft) => void submitTourGuestNotifyPreview(skipMessage, _channels, draft)}
     />
@@ -2019,10 +2061,20 @@ export function PortalCalendarPanels({
           </Button>
         </div>
       ) : null;
+    const availabilityFooterRevisionKey = [
+      vendorMode ? "vendor" : "manager",
+      canEditAvailability ? "edit" : "readonly",
+      onCopyWeekToHouses ? "copy" : "nocopy",
+      otherProperties?.length ?? 0,
+    ].join(":");
     return (
       <>
         {delegateFooterToModal ? (
-          <AvailabilityFooterDelegate footer={availabilityFooterActions} onChange={onModalFooterChange} />
+          <AvailabilityFooterDelegate
+            revisionKey={availabilityFooterRevisionKey}
+            renderFooter={() => availabilityFooterActions}
+            onChange={onModalFooterChange}
+          />
         ) : null}
         <div className={compactShellClass}>
           <div className={compactToolbarClass}>

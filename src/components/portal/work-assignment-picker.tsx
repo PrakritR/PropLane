@@ -4,9 +4,9 @@
  * "Who is doing this" — one picker for services, tours and tasks.
  *
  * Which people it offers is decided by `assignableKindsFor` in `work-assignment.ts`, not here:
- * a vendor is an outside contractor who fixes things, so they can take SERVICE work but never a
- * tour or a staff task. Keeping that rule in the model rather than in each picker is what stops a
- * new surface from quietly offering a vendor a tour.
+ * a vendor can take staff TASK work but never a tour or an add-on service. Keeping that rule in
+ * the model rather than in each picker is what stops a new surface from quietly offering a vendor
+ * a tour.
  */
 import { useMemo } from "react";
 import {

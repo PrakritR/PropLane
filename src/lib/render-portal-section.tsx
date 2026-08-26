@@ -731,10 +731,21 @@ export async function renderPortalSection(
     }
 
     if (section === "task-list") {
-      if (tabParts?.length) notFound();
+      const TASK_TABS = ["in-progress", "completed"] as const;
+      if (!tabParts?.length) {
+        redirect(`${def.basePath}/task-list/in-progress`);
+      }
+      const taskTab = tabParts[0]!;
+      if (!TASK_TABS.includes(taskTab as (typeof TASK_TABS)[number])) {
+        redirect(`${def.basePath}/task-list/in-progress`);
+      }
+      if (tabParts.length > 1) notFound();
       const ManagerTaskList = await loadManagerTaskList();
       return subscriptionGated(
-        <ManagerTaskList />,
+        <ManagerTaskList
+          tabId={taskTab as "in-progress" | "completed"}
+          basePath={def.basePath}
+        />,
         kind,
         "task-list",
         managerOwnerSubscriptionTier,

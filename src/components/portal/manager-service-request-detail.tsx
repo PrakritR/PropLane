@@ -10,6 +10,7 @@ import {
 } from "@/components/portal/portal-data-table";
 import {
   PortalNotificationPreviewModal,
+  type NotificationConfirmDraft,
   type NotificationDeliveryChannels,
 } from "@/components/portal/portal-notification-preview-modal";
 import { ConfirmDeleteModal } from "@/components/portal/confirm-delete-modal";
@@ -26,6 +27,11 @@ import {
   updateServiceRequest,
   type ServiceRequest,
 } from "@/lib/service-requests-storage";
+import { useWorkAssignmentDirectory } from "@/hooks/use-work-assignment-directory";
+import {
+  createScheduledWorkTask,
+  scheduledTaskTitleForService,
+} from "@/lib/manager-scheduled-work-tasks";
 
 export type ManagerServiceRequestBucket = "pending" | "approved" | "denied";
 
@@ -69,6 +75,7 @@ export function ManagerServiceRequestDetail({
   allowDelete?: boolean;
 }) {
   const { showToast } = useAppUi();
+  const { teamMembers, vendors } = useWorkAssignmentDirectory({ managerUserId: req.managerUserId });
   const needsReturn = serviceRequestHasDeposit(req.deposit);
   const description = req.offerDescription?.trim() ?? "";
   const showDescription =
@@ -147,7 +154,7 @@ export function ManagerServiceRequestDetail({
   const applyDecision = async (
     skipMessage: boolean,
     channels?: NotificationDeliveryChannels,
-    draft?: { subject: string; body: string },
+    draft?: NotificationConfirmDraft,
   ) => {
     if (!decisionKind) return;
     const kind = decisionKind;
@@ -165,9 +172,18 @@ export function ManagerServiceRequestDetail({
             deposit: editDeposit.trim(),
           });
         }
-        approveServiceRequest(req.id, draft?.body);
+        approveServiceRequest(req.id, draft?.body, draft?.assignee);
         onUpdated();
         onApproved?.();
+        if (req.managerUserId) {
+          void createScheduledWorkTask(req.managerUserId, {
+            title: scheduledTaskTitleForService(req.offerName, req.residentName),
+            propertyId: req.propertyId,
+            propertyTitle: propertyLabel,
+            assignee: draft?.assignee ?? undefined,
+            notes: req.notes?.trim() || undefined,
+          });
+        }
       } else {
         denyServiceRequest(req.id, draft?.body);
         onUpdated();
@@ -371,6 +387,9 @@ export function ManagerServiceRequestDetail({
         confirmLabelWithoutMessage={decisionKind === "deny" ? "Deny only" : "Approve only"}
         confirmBusy={decisionBusy}
         confirmBusyLabel={decisionKind === "deny" ? "Denying…" : "Approving…"}
+        assigneeKind={decisionKind === "approve" ? "service" : undefined}
+        assigneeTeamMembers={decisionKind === "approve" ? teamMembers : undefined}
+        assigneeVendors={decisionKind === "approve" ? vendors : undefined}
         onConfirm={(skip, channels, draft) => void applyDecision(skip, channels, draft)}
       />
 

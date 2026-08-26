@@ -26,6 +26,7 @@ import { ShareLeadLinkModal } from "@/components/portal/share-lead-link-modal";
 import { TourProposalsPanel } from "@/components/portal/tour-proposals-panel";
 import { useAppUi } from "@/components/providers/app-ui-provider";
 import { useManagerUserId } from "@/hooks/use-manager-user-id";
+import { useWorkAssignmentDirectory } from "@/hooks/use-work-assignment-directory";
 import {
   acceptPartnerInquiryFromServer,
   deletePartnerInquiryFromServer,
@@ -50,6 +51,10 @@ import {
   type ManagerTourBucketId,
 } from "@/lib/portal-detail-routes";
 import { deliverPortalInboxMessage } from "@/lib/portal-message-delivery";
+import {
+  createScheduledWorkTask,
+  scheduledTaskTitleForTour,
+} from "@/lib/manager-scheduled-work-tasks";
 import { getPropertyById } from "@/lib/rental-application/data";
 import { cancelPlannedTourFromServer } from "@/lib/tour-planned-change.client";
 import {
@@ -151,6 +156,7 @@ export function ManagerTours({
   const navigate = usePortalNavigate();
   const { showToast } = useAppUi();
   const { userId, ready: authReady } = useManagerUserId();
+  const { teamMembers, vendors } = useWorkAssignmentDirectory({ managerUserId: userId });
   const [tick, setTick] = useState(0);
   const [propertyTick, setPropertyTick] = useState(0);
   const [propertyFilters, setPropertyFilters] = useState<string[]>([]);
@@ -369,10 +375,23 @@ export function ManagerTours({
             notifyTenant: !skipMessage,
             subject: draft?.subject,
             body: draft?.body,
+            assignee: draft?.assignee ?? undefined,
           });
           if (!result.ok) {
             showToast(result.error ?? "Could not confirm tour.");
             return;
+          }
+          if (userId) {
+            void createScheduledWorkTask(userId, {
+              title: scheduledTaskTitleForTour(preview.row.guestName),
+              start: preview.row.startIso,
+              end: preview.row.endIso,
+              propertyId: preview.row.propertyId,
+              propertyTitle: preview.row.propertyTitle,
+              roomLabel: preview.row.roomLabel,
+              assignee: draft?.assignee ?? undefined,
+              notes: preview.row.guestEmail ? `Guest: ${preview.row.guestEmail}` : undefined,
+            });
           }
           setNotifyPreview(null);
           setSelectedIds(new Set());
@@ -421,7 +440,7 @@ export function ManagerTours({
         setNotifyBusy(false);
       }
     },
-    [basePath, bucket, navigate, notifyBusy, notifyPreview, refresh, showToast, tourIdProp],
+    [basePath, bucket, navigate, notifyBusy, notifyPreview, refresh, showToast, tourIdProp, userId],
   );
 
   const submitGuestMessage = useCallback(
@@ -620,6 +639,9 @@ export function ManagerTours({
           }
           confirmBusy={notifyBusy}
           confirmBusyLabel={TOUR_NOTIFY_PREVIEW_COPY[notifyPreview.action].confirmBusyLabel}
+          assigneeKind={notifyPreview.action === "confirm" ? "tour" : undefined}
+          assigneeTeamMembers={notifyPreview.action === "confirm" ? teamMembers : undefined}
+          assigneeVendors={notifyPreview.action === "confirm" ? vendors : undefined}
           onConfirm={(skip, channels, draft) => void submitNotifyPreview(skip, channels, draft)}
         />
       ) : null}

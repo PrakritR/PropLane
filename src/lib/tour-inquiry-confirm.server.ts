@@ -15,6 +15,7 @@ import { formatPacificDateTime } from "@/lib/pacific-time";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { notifyTenantTourConfirmed } from "@/lib/tour-notification-delivery.server";
 import { isActivePlannedTourEvent } from "@/lib/tour-slot-math";
+import { canAssign, normalizeAssignee, type WorkAssignee } from "@/lib/work-assignment";
 
 type Db = ReturnType<typeof createSupabaseServiceRoleClient>;
 
@@ -144,6 +145,8 @@ export type ConfirmTourOptions = {
    * accept route leaves this off to preserve its existing override behavior.
    */
   guardDoubleBook?: boolean;
+  /** Team member assigned to show the tour. */
+  assignee?: WorkAssignee | null;
   /** Origin source for notification links; a prod-origin request is synthesized when absent. */
   req?: Request;
 };
@@ -179,6 +182,10 @@ export async function confirmTourInquiry(db: Db, opts: ConfirmTourOptions): Prom
   const requestedStart = opts.requestedStart?.trim() ?? "";
   const requestedEnd = opts.requestedEnd?.trim() ?? "";
   const instructions = opts.instructions?.trim() ?? "";
+  const assignee = normalizeAssignee(opts.assignee);
+  if (assignee && !canAssign(assignee.type, "tour")) {
+    return { ok: false, status: 400, error: "Invalid tour assignee." };
+  }
 
   const windows = windowsFromInquiry(row);
   const selectedWindow =
@@ -229,6 +236,7 @@ export async function confirmTourInquiry(db: Db, opts: ConfirmTourOptions): Prom
     attendeePhone: textField(row, "phone") || undefined,
     notes: textField(row, "notes") || undefined,
     instructions: instructions || undefined,
+    assignee: assignee ?? undefined,
   };
 
   const nextInquiries = inquiries.filter((candidate) => {

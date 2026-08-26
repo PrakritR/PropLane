@@ -30,7 +30,14 @@ export const proPortal: PortalDefinition = {
       // one. Vendors moved to Team, where the people are.
       tabs: [],
     },
-    { section: "task-list", label: "Task list", tabs: [] },
+    {
+      section: "task-list",
+      label: "Task list",
+      tabs: [
+        { id: "in-progress", label: "In progress" },
+        { id: "completed", label: "Completed" },
+      ],
+    },
     {
       // Availability + committed tours, service visits, and tasks on one grid.
       section: "calendar",

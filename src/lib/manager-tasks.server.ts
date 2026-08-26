@@ -5,6 +5,7 @@ import {
   normalizeManagerTasks,
   type ManagerTask,
 } from "@/lib/manager-tasks";
+import { normalizeAssignee } from "@/lib/work-assignment";
 
 function durationBetween(start: string, end: string): number {
   const ms = Date.parse(end) - Date.parse(start);
@@ -83,6 +84,7 @@ export async function createManagerTaskRow(
     end,
     durationMinutes: start && end ? durationBetween(start, end) : undefined,
     completed: false,
+    assignee: normalizeAssignee(body.assignee) ?? undefined,
     createdAt: now,
     updatedAt: now,
   };
@@ -124,6 +126,10 @@ export async function patchManagerTaskRow(
     end,
     durationMinutes,
     completed: patch.completed === true ? true : patch.completed === false ? false : current.completed,
+    assignee:
+      patch.assignee !== undefined
+        ? normalizeAssignee(patch.assignee) ?? undefined
+        : current.assignee,
     updatedAt: new Date().toISOString(),
   };
   const updated = tasks.map((row) => (row.id === taskId ? next : row));

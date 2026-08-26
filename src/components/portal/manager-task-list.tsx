@@ -2,13 +2,19 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
+import { DestinationNav } from "@/components/ui/destination-nav";
 import { Input, Select } from "@/components/ui/input";
+import { useShallowTabId } from "@/components/ui/tabs";
 import { Modal, ModalFooter } from "@/components/ui/modal";
 import { useAppUi } from "@/components/providers/app-ui-provider";
 import { ManagerPortalPageShell } from "@/components/portal/portal-metrics";
+import { PortalDataTableEmpty } from "@/components/portal/portal-data-table";
 import { PORTAL_LIST_PAGE_BODY } from "@/components/portal/portal-inbox-ui";
 import { PortalListAddRow, PORTAL_LIST_ADD_ICONS } from "@/components/portal/portal-list-add-row";
+import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
+import { WorkAssignmentPicker } from "@/components/portal/work-assignment-picker";
 import { useManagerUserId } from "@/hooks/use-manager-user-id";
+import { useWorkAssignmentDirectory } from "@/hooks/use-work-assignment-directory";
 import { formatRangeLabel, syncScheduleRecordsFromServer } from "@/lib/demo-admin-scheduling";
 import { syncPropertyPipelineFromServer } from "@/lib/demo-property-pipeline";
 import { buildManagerPropertyFilterOptions } from "@/lib/manager-portfolio-access";
@@ -21,8 +27,15 @@ import {
   updateManagerTask,
   type ManagerTask,
 } from "@/lib/manager-tasks";
+import {
+  MANAGER_TASK_LIST_TAB_LABELS,
+  MANAGER_TASK_LIST_TABS,
+  managerTaskListHref,
+  type ManagerTaskListTabId,
+} from "@/lib/portal-detail-routes";
 import { formatPacificDateTime } from "@/lib/pacific-time";
 import { getRoomOptionsForProperty } from "@/lib/rental-application/data";
+import type { WorkAssignee } from "@/lib/work-assignment";
 
 function combineLocalDateTime(date: string, time: string): string {
   const [y, m, d] = date.split("-").map(Number);
@@ -54,15 +67,24 @@ const EMPTY_FORM = {
   endTime: "",
 };
 
-export function ManagerTaskList() {
+export function ManagerTaskList({
+  tabId: serverTabId,
+  basePath = "/portal",
+}: {
+  tabId: ManagerTaskListTabId;
+  basePath?: string;
+}) {
+  const tabId = useShallowTabId(serverTabId, MANAGER_TASK_LIST_TABS);
   const { showToast } = useAppUi();
   const { userId, ready } = useManagerUserId();
+  const { teamMembers, vendors } = useWorkAssignmentDirectory({ managerUserId: userId });
   const [tasks, setTasks] = useState<ManagerTask[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [addOpen, setAddOpen] = useState(false);
   const [propertyTick, setPropertyTick] = useState(0);
   const [form, setForm] = useState(EMPTY_FORM);
+  const [assignee, setAssignee] = useState<WorkAssignee | null>(null);
 
   const propertyOptions = useMemo(
     () => buildManagerPropertyFilterOptions(userId),
@@ -108,10 +130,24 @@ export function ManagerTaskList() {
   useEffect(() => {
     if (!addOpen) return;
     setForm(EMPTY_FORM);
+    setAssignee(null);
   }, [addOpen]);
 
   const openTasks = useMemo(() => tasks.filter((task) => !task.completed), [tasks]);
   const doneTasks = useMemo(() => tasks.filter((task) => task.completed), [tasks]);
+  const visibleTasks = tabId === "completed" ? doneTasks : openTasks;
+
+  const tabItems = useMemo(
+    () =>
+      MANAGER_TASK_LIST_TABS.map((id) => ({
+        id,
+        label: MANAGER_TASK_LIST_TAB_LABELS[id],
+        href: managerTaskListHref(basePath, id),
+        count: id === "completed" ? doneTasks.length : openTasks.length,
+        dataAttr: `manager-task-list-tab-${id}`,
+      })),
+    [basePath, doneTasks.length, openTasks.length],
+  );
 
   async function handleCreate() {
     if (!userId) return;
@@ -132,6 +168,7 @@ export function ManagerTaskList() {
         roomLabel: form.roomLabel || undefined,
         start,
         end,
+        assignee,
       });
       reapplyManagerTasksToCalendar(userId);
       setAddOpen(false);
@@ -193,36 +230,45 @@ export function ManagerTaskList() {
 
   return (
     <ManagerPortalPageShell title="Task list">
+      <PortalListControlStack
+        className="mb-2"
+        destinationRow={
+          <DestinationNav
+            items={tabItems}
+            activeId={tabId}
+            ariaLabel="Task status"
+            itemLayout="equal"
+            denseEqualRow
+            className="max-w-none"
+          />
+        }
+      />
+
       <div className={PORTAL_LIST_PAGE_BODY}>
         {loading ? <p className="text-sm text-muted">Loading…</p> : null}
 
-        {!loading && tasks.length > 0 ? (
-          <div className="space-y-6">
-            {openTasks.length > 0 ? (
-              <section className="space-y-2">
-                <h2 className="text-xs font-bold uppercase tracking-[0.16em] text-muted">Open</h2>
-                <ul className="divide-y divide-border rounded-2xl border border-border bg-card">
-                  {openTasks.map((task) => renderTaskRow(task))}
-                </ul>
-              </section>
-            ) : null}
-            {doneTasks.length > 0 ? (
-              <section className="space-y-2">
-                <h2 className="text-xs font-bold uppercase tracking-[0.16em] text-muted">Completed</h2>
-                <ul className="divide-y divide-border rounded-2xl border border-border bg-card opacity-80">
-                  {doneTasks.map((task) => renderTaskRow(task, true))}
-                </ul>
-              </section>
-            ) : null}
-          </div>
+        {!loading && visibleTasks.length > 0 ? (
+          <ul
+            className={`divide-y divide-border rounded-2xl border border-border bg-card ${tabId === "completed" ? "opacity-80" : ""}`}
+          >
+            {visibleTasks.map((task) => renderTaskRow(task, tabId === "completed"))}
+          </ul>
         ) : null}
 
-        <PortalListAddRow
-          label="Add task"
-          icon={PORTAL_LIST_ADD_ICONS.request}
-          onClick={() => setAddOpen(true)}
-          dataAttr="manager-task-list-add"
-        />
+        {!loading && visibleTasks.length === 0 ? (
+          <PortalDataTableEmpty
+            message={tabId === "completed" ? "No completed tasks" : "No tasks in progress"}
+          />
+        ) : null}
+
+        {tabId === "in-progress" ? (
+          <PortalListAddRow
+            label="Add task"
+            icon={PORTAL_LIST_ADD_ICONS.request}
+            onClick={() => setAddOpen(true)}
+            dataAttr="manager-task-list-add"
+          />
+        ) : null}
       </div>
 
       <Modal open={addOpen} onClose={() => setAddOpen(false)} title="Add task" dense assistantStrip={false}>
@@ -233,6 +279,16 @@ export function ManagerTaskList() {
             onChange={(e) => setForm((current) => ({ ...current, title: e.target.value }))}
             placeholder="Inspect unit, meet vendor, follow up…"
             data-attr="manager-task-title-input"
+          />
+          <WorkAssignmentPicker
+            kind="task"
+            value={assignee}
+            teamMembers={teamMembers}
+            vendors={vendors}
+            disabled={saving}
+            label="Assignee"
+            dataAttr="manager-task-assignee"
+            onChange={setAssignee}
           />
           <label className="space-y-1 text-sm">
             <span className="font-medium text-foreground">Property (optional)</span>
