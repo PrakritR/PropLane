@@ -1,19 +1,16 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { HouseholdCharge } from "@/lib/household-charges";
-import { sendFromManagerWorkNumber } from "@/lib/proplane-sms-transport.server";
-import { resolveActiveManagerSendNumber } from "@/lib/sms/manager-number-provisioning.server";
+import { ensureApplicationScopedSmsConsent } from "@/lib/sms/application-consent.server";
+import { buildConversationKey } from "@/lib/sms-conversation-identity";
+import { dispatchOwnerSmsOutbox, enqueueOwnerSms } from "@/lib/sms/owner-sms-dispatcher.server";
 
 /**
  * Weekly recurring rent-reminder SMS, sent from each manager's own PropLane
- * number. Idempotent PER WEEK: a retry, redeploy, or duplicate cron tick can
- * never text a resident twice in the same ISO week because the dedup row is
- * CLAIMED atomically before the send.
+ * number. Idempotent PER WEEK through sms_outbox's owner + dedupe-key
+ * constraint, including retries and concurrent cron invocations.
  *
- * Gating (all inherited, one code path):
- * - Only managers whose own registration is approved AND number is active send
- *   (resolveActiveManagerSendNumber → null otherwise).
- * - The send goes through sendFromManagerWorkNumber with sendClass "automated",
- *   so it is consent-gated (opted-out numbers skipped) and quiet-hours-gated.
+ * Entitlement, registration, scoped automated consent, quiet hours, and the
+ * campaign segment budget are rechecked by the durable dispatcher.
  */
 
 const RENT_KINDS: ReadonlySet<HouseholdCharge["kind"]> = new Set([
@@ -62,31 +59,6 @@ export type WeeklyRentReminderResult = {
   errors: Array<{ residentKey: string; error: string }>;
 };
 
-/**
- * Atomically claim the per-week dedup row. Returns true only for the caller that
- * actually inserted it — a duplicate tick / retry gets false and does not send.
- */
-async function claimWeeklyReminder(
-  db: SupabaseClient,
-  id: string,
-  recipientEmail: string,
-  phone: string,
-): Promise<boolean> {
-  const { data } = await db
-    .from("portal_outbound_mail_records")
-    .upsert(
-      {
-        id,
-        recipient_email: recipientEmail || phone,
-        subject: "Weekly rent reminder (SMS)",
-        row_data: { id, to: phone, kind: "weekly_rent_sms", claimedAt: new Date().toISOString() },
-      },
-      { onConflict: "id", ignoreDuplicates: true },
-    )
-    .select("id");
-  return (data ?? []).length > 0;
-}
-
 export async function sendWeeklyRentReminders(
   db: SupabaseClient,
   opts?: { now?: Date; managerUserId?: string },
@@ -124,27 +96,20 @@ export async function sendWeeklyRentReminders(
     byManager.set(managerId, residents);
   }
 
+  const newlyQueuedOutboxIds: string[] = [];
   for (const [managerId, residents] of byManager) {
-    const sendNumber = await resolveActiveManagerSendNumber(db, managerId);
-    if (!sendNumber) {
-      result.skippedNoSendNumber += residents.size;
-      continue;
-    }
-
     for (const [residentKey, charge] of residents) {
       result.considered++;
 
       // Resolve a verified resident phone (never text an unverified number).
       let phone = "";
-      let recipientEmail = charge.residentEmail.trim().toLowerCase();
       if (charge.residentUserId) {
         const { data: prof } = await db
           .from("profiles")
-          .select("phone, phone_verified_at, email")
+          .select("phone, phone_verified_at")
           .eq("id", charge.residentUserId)
           .maybeSingle();
         if (prof?.phone_verified_at) phone = String(prof?.phone ?? "").trim();
-        recipientEmail = String(prof?.email ?? recipientEmail).trim().toLowerCase();
       }
       if (!phone) {
         result.skippedNoPhone++;
@@ -152,28 +117,65 @@ export async function sendWeeklyRentReminders(
       }
 
       const dedupId = weeklyRentReminderDedupId(weekKey, managerId, residentKey);
-      const claimed = await claimWeeklyReminder(db, dedupId, recipientEmail, phone);
-      if (!claimed) {
-        result.skippedAlreadySent++;
+      const conversationKey = buildConversationKey({
+        ownerManagerUserId: managerId,
+        role: "resident",
+        counterpartyUserId: charge.residentUserId,
+        counterpartyPhone: phone,
+      });
+      const consent = await ensureApplicationScopedSmsConsent(db, {
+        managerUserId: managerId,
+        recipientPhone: phone,
+        recipientEmail: charge.residentEmail,
+        recipientUserId: charge.residentUserId,
+        purpose: "weekly_rent_reminder",
+        sendClass: "automated",
+        conversationKey,
+        messagingServiceSid: process.env.TWILIO_MESSAGING_SERVICE_SID?.trim() ?? null,
+      });
+      if (!consent.ok || !consent.granted) {
+        result.failed++;
+        result.errors.push({
+          residentKey,
+          error: consent.ok ? "scoped_consent_missing" : consent.error,
+        });
         continue;
       }
-
-      const res = await sendFromManagerWorkNumber({
+      const res = await enqueueOwnerSms({
         managerUserId: managerId,
-        to: phone,
-        text: reminderBody(charge),
-        fromNumber: sendNumber,
-        residentUserId: charge.residentUserId,
-        source: "automated",
+        actorUserId: managerId,
+        recipientPhone: phone,
+        recipientUserId: charge.residentUserId,
+        recipientEmail: charge.residentEmail,
+        body: reminderBody(charge),
         sendClass: "automated",
-        counterpartyRole: "resident",
-      });
-      if (res.ok) {
-        result.sent++;
+        purpose: "weekly_rent_reminder",
+        conversationKey,
+        dedupeKey: dedupId,
+      }, db);
+      if (res.ok && res.deduplicated) {
+        result.skippedAlreadySent++;
+      } else if (res.ok) {
+        newlyQueuedOutboxIds.push(res.outboxId);
       } else {
-        result.failed++;
-        result.errors.push({ residentKey, error: res.error ?? "send_failed" });
+        if (res.error.includes("number_") || res.error.includes("runtime") || res.error.includes("provider_")) {
+          result.skippedNoSendNumber++;
+        } else {
+          result.failed++;
+          result.errors.push({ residentKey, error: res.error });
+        }
       }
+    }
+  }
+
+  if (newlyQueuedOutboxIds.length > 0) {
+    const workerId = `weekly-${weekKey}`;
+    // Dispatch only rows created by this run. A global claim could otherwise
+    // send unrelated manager traffic and report it as a weekly reminder.
+    for (const outboxId of newlyQueuedOutboxIds.slice(0, 50)) {
+      const dispatched = await dispatchOwnerSmsOutbox({ workerId, outboxId }, db);
+      result.sent += dispatched.submitted;
+      result.failed += dispatched.blocked + dispatched.unknown;
     }
   }
 

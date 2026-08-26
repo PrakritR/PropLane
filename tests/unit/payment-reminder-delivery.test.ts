@@ -8,7 +8,16 @@ vi.mock("@/lib/twilio", () => ({
   sendSms: vi.fn().mockResolvedValue({ sent: false }),
 }));
 
+vi.mock("@/lib/proplane-sms-transport.server", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/proplane-sms-transport.server")>();
+  return {
+    ...actual,
+    sendPropLaneSms: vi.fn().mockResolvedValue({ ok: true, channel: "twilio", sid: "SM-managed" }),
+  };
+});
+
 import { sendPushToUser } from "@/lib/push-notifications.server";
+import { sendPropLaneSms } from "@/lib/proplane-sms-transport.server";
 import { deliverPaymentReminder, reminderHtmlFromText } from "@/lib/payment-reminder-delivery";
 import type { HouseholdCharge } from "@/lib/household-charges";
 
@@ -35,6 +44,7 @@ function makeCharge(overrides: Partial<HouseholdCharge> = {}): HouseholdCharge {
 describe("deliverPaymentReminder", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.unstubAllEnvs();
     vi.stubGlobal(
       "fetch",
       vi.fn().mockResolvedValue({ ok: true, json: async () => ({}) }),
@@ -96,6 +106,62 @@ describe("deliverPaymentReminder", () => {
       body: "Your rent for July is due in 3 days.",
       url: "/resident/payments",
       data: { chargeId: "charge-1", slot: "3_days_before" },
+    });
+  });
+
+  it("routes the manager notification through the managed outbox", async () => {
+    vi.stubEnv("SMS_RUNTIME_ENABLED", "1");
+    const residentProfile = {
+      id: "user-res-1",
+      phone: null,
+      phone_verified_at: null,
+    };
+    const managerProfile = {
+      phone: "+12065550112",
+      sms_forward_inbound: true,
+    };
+    const upsert = vi.fn().mockResolvedValue({ error: null });
+    const profileEq = vi.fn().mockImplementation((column: string, value: string) => ({
+      maybeSingle: vi.fn().mockResolvedValue({
+        data: column === "email" ? residentProfile : value === "mgr-1" ? managerProfile : residentProfile,
+      }),
+    }));
+    const profileSelect = vi.fn().mockReturnValue({ eq: profileEq });
+    const from = vi.fn().mockImplementation((table: string) => {
+      if (table === "profiles") return { select: profileSelect };
+      if (table === "portal_inbox_thread_records" || table === "portal_outbound_mail_records") {
+        return { upsert };
+      }
+      return { select: profileSelect, upsert };
+    });
+
+    await deliverPaymentReminder({
+      db: { from } as never,
+      charge: makeCharge(),
+      managerId: "mgr-1",
+      dedupId: "payment_reminder_managed_test",
+      managerName: "Manager",
+      managerSmsFromNumber: "+12065550111",
+      apiKey: "",
+      from: "PropLane <test@example.com>",
+      subject: "Rent due in 3 days",
+      text: "Your rent for July is due in 3 days.",
+      html: "<p>test</p>",
+      slotLabel: "3_days_before",
+    });
+
+    expect(sendPropLaneSms).toHaveBeenCalledWith({
+      to: "+12065550112",
+      text: "(Rent due in 3 days) Reminder sent to resident@example.com.",
+      fromNumber: "+12065550111",
+      sendClass: "control",
+      purpose: "payment_reminder_manager_notification",
+      log: {
+        managerUserId: "mgr-1",
+        residentPhone: "+12065550112",
+        source: "automated",
+        counterpartyRole: "manager",
+      },
     });
   });
 

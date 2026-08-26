@@ -26,7 +26,9 @@ export async function GET(req: Request) {
   }
 
   const db = createSupabaseServiceRoleClient();
-  const result = await backfillManagerWorkNumbers(db, { limit: 10 });
+  // Inventory only. Number purchases are explicit owner actions in Settings;
+  // a scheduled job must never create recurring Twilio spend.
+  const result = await backfillManagerWorkNumbers(db, { limit: 10, dryRun: true });
   // Counts only. `result.numbers` pairs each manager id with their provisioned
   // work number — operator detail that a response body has no reason to carry,
   // and which this route used to hand back to whoever called it.

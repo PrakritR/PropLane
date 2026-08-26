@@ -52,11 +52,23 @@ vi.mock("@/components/portal/assistant-display-setting", () => ({
 vi.mock("@/components/portal/manager-api-keys-panel", () => ({
   ManagerApiKeysPanel: () => <div data-testid="pane-api-keys" />,
 }));
+vi.mock("@/components/portal/manager-messaging-settings-panel", () => ({
+  ManagerMessagingSettingsPanel: () => <div data-testid="pane-messaging" />,
+}));
 
 import { PortalProfileClient } from "@/components/portal/portal-profile-client";
 import { PortalSettingsExtras } from "@/components/portal/portal-settings-extras";
 
-const CATEGORIES = ["profile", "billing", "preferences", "security", "developer", "feedback", "account"] as const;
+const CATEGORIES = [
+  "profile",
+  "billing",
+  "messaging",
+  "preferences",
+  "security",
+  "developer",
+  "feedback",
+  "account",
+] as const;
 
 function goto(search: string) {
   window.history.replaceState(null, "", `/portal/profile${search}`);
@@ -124,6 +136,7 @@ describe("manager settings categories", () => {
   it.each([
     ["profile", () => screen.getByText("Personal information")],
     ["billing", () => screen.getByTestId("pane-manager-plan")],
+    ["messaging", () => screen.getByTestId("pane-messaging")],
     ["preferences", () => screen.getByText("Theme")],
     ["security", () => screen.getByTestId("pane-change-password")],
     ["developer", () => screen.getByTestId("pane-api-keys")],

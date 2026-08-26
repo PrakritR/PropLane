@@ -1,6 +1,28 @@
 /** Client-safe types for manager Communication → SMS. */
 
+import { formatSmsPhoneLabel } from "@/lib/phone-e164";
 import type { SmsCounterpartyRole } from "@/lib/sms-conversation-identity";
+
+/** Refresh any mounted Communication SMS readers after a contact mutation. */
+export const MANAGER_SMS_CONTACTS_CHANGED_EVENT = "axis:manager-sms-contacts-changed";
+
+/**
+ * Optional payload on {@link MANAGER_SMS_CONTACTS_CHANGED_EVENT}. When a brand-new
+ * phone contact is saved, the create path can seed an empty conversation so the
+ * thread opens before the SMS conversations refetch lands.
+ */
+export type ManagerSmsContactsChangedDetail = {
+  optimisticResident?: ManagerSmsResidentConversation;
+};
+
+export function dispatchManagerSmsContactsChanged(
+  detail?: ManagerSmsContactsChangedDetail,
+): void {
+  if (typeof window === "undefined") return;
+  window.dispatchEvent(
+    new CustomEvent(MANAGER_SMS_CONTACTS_CHANGED_EVENT, { detail: detail ?? {} }),
+  );
+}
 
 export type ManagerSmsMessageStorageTable =
   | "manager_sms_messages"
@@ -24,6 +46,10 @@ export type ManagerSmsResidentConversation = {
   residentUserId: string | null;
   residentEmail: string | null;
   name: string;
+  /** Verified application/profile/directory label. */
+  directoryName?: string | null;
+  /** Manager-authored display label; never identity or verification. */
+  savedContactName?: string | null;
   phone: string | null;
   propertyLabel: string | null;
   /** Approved resident vs pending applicant for a house. */
@@ -56,8 +82,9 @@ export type ManagerSmsResidentConversation = {
 
 /**
  * True when a label is really just a phone number (an unknown texter whose
- * `name` fell back to the phone). Used to keep raw `+1…` strings out of the
- * Communication UI — see {@link smsConversationDisplayName}.
+ * `name` fell back to the phone). Treated as "no real name" so
+ * {@link smsConversationDisplayName} can prefer a saved contact name, unit,
+ * email, or a readable phone label instead.
  */
 export function isPhoneLikeLabel(value: string | null | undefined): boolean {
   const t = value?.trim();
@@ -69,42 +96,37 @@ export function isPhoneLikeLabel(value: string | null | undefined): boolean {
 /** What {@link smsConversationDisplayName} and its subtitle read from a row. */
 export type SmsConversationLabelSource = Pick<
   ManagerSmsResidentConversation,
-  "name" | "propertyLabel" | "residentEmail"
+  "name" | "directoryName" | "savedContactName" | "propertyLabel" | "residentEmail"
 > &
   Partial<Pick<ManagerSmsResidentConversation, "phone">>;
 
 /**
- * A stable, non-raw handle for a conversation with no name, unit or email —
- * prospect/leasing threads, which would otherwise all collapse onto one shared
- * label and be indistinguishable from each other in the list. Only the last four
- * digits appear; the full `+1…` never reaches the UI.
- */
-function maskedTexterLabel(value: string | null | undefined): string | null {
-  const digits = value?.replace(/\D/g, "") ?? "";
-  if (digits.length < 4) return null;
-  return `Texter ····${digits.slice(-4)}`;
-}
-
-/**
- * A display name for an SMS conversation that never surfaces a raw phone number
- * in the UI. Until the Twilio number is production-ready the product shows the
- * resident's name (or their unit/email) instead of `+1…`. SMS threading still
- * keys on the phone/conversation key internally — this only affects the label.
+ * A display name for an SMS conversation in the manager Communication UI.
+ * Prefer a real person name, then a saved contact label, then unit/email, then
+ * the full phone (managers may see the number — it is not a secret on this
+ * surface). SMS threading still keys on the phone/conversation key internally.
  */
 export function smsConversationDisplayName(resident: SmsConversationLabelSource): string {
-  const name = resident.name?.trim();
-  if (name && !isPhoneLikeLabel(name)) return name;
+  const directoryName = (resident.directoryName ?? resident.name)?.trim();
+  if (directoryName && !isPhoneLikeLabel(directoryName)) return directoryName;
+  const savedName = resident.savedContactName?.trim();
+  if (savedName) return savedName;
   const property = resident.propertyLabel?.trim();
   if (property) return property;
   const email = resident.residentEmail?.trim();
   if (email) return email;
-  return maskedTexterLabel(resident.phone) ?? maskedTexterLabel(name) ?? "Unknown contact";
+  return (
+    formatSmsPhoneLabel(resident.phone) ??
+    formatSmsPhoneLabel(directoryName) ??
+    "Unknown contact"
+  );
 }
 
 /**
  * The secondary line under {@link smsConversationDisplayName}. It skips whatever
  * field the display name already consumed, so a thread whose name fell back to
- * the unit (or the email) does not print the same string twice.
+ * the unit (or the email) does not print the same string twice. When the title
+ * is a person name, the phone stays visible underneath.
  */
 export function smsConversationSubtitle(resident: SmsConversationLabelSource): string {
   const name = smsConversationDisplayName(resident);
@@ -112,6 +134,8 @@ export function smsConversationSubtitle(resident: SmsConversationLabelSource): s
   if (property && property !== name) return property;
   const email = resident.residentEmail?.trim();
   if (email && email !== name) return email;
+  const phone = formatSmsPhoneLabel(resident.phone);
+  if (phone && phone !== name) return phone;
   return "";
 }
 
@@ -175,6 +199,8 @@ export function normalizeManagerSmsConversationsPayload(
         residentUserId: resident?.residentUserId ?? null,
         residentEmail: resident?.residentEmail ?? null,
         name: resident?.name?.trim() || resident?.phone || resident?.residentEmail || "Resident",
+        directoryName: resident?.directoryName?.trim() || null,
+        savedContactName: resident?.savedContactName?.trim() || null,
         phone: resident?.phone ?? null,
         propertyLabel: resident?.propertyLabel ?? null,
         tenancyStatus: resident?.tenancyStatus === "applicant" ? ("applicant" as const) : ("resident" as const),
@@ -219,9 +245,9 @@ export function sortSmsConversationRows<
     resident: SmsConversationLabelSource & Pick<ManagerSmsResidentConversation, "phone">;
   },
 >(rows: T[], sort: ManagerSmsSortId): T[] {
-  // Order by the LABEL the row actually renders, not the raw `name` \u2014 a
-  // phone-like name displays as its unit or a masked handle, so sorting on the
-  // raw value makes the visible list look unsorted.
+  // Order by the LABEL the row actually renders, not the raw `name` — a
+  // phone-like name displays as its unit, email, or a formatted phone, so
+  // sorting on the raw value makes the visible list look unsorted.
   const label = (row: T) => smsConversationDisplayName(row.resident);
   return [...rows].sort((a, b) => {
     if (sort === "name") {

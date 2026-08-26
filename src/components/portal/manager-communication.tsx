@@ -14,6 +14,7 @@ import {
   type CommunicationComposeChannel,
 } from "@/components/portal/manager-communication-compose-modal";
 import { ManagerWorkNumberButton } from "@/components/portal/manager-work-number-button";
+import { ManagerSmsContactModal } from "@/components/portal/manager-sms-contact-modal";
 import { PortalCommunicationShell } from "@/components/portal/portal-communication-shell";
 import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
 import { ManagerPortalSettingsModal } from "@/components/portal/manager-portal-settings-modal";
@@ -34,6 +35,7 @@ import { PROPERTY_PIPELINE_EVENT } from "@/lib/demo-property-pipeline";
 import { MANAGER_APPLICATIONS_EVENT } from "@/lib/manager-applications-storage";
 import type { CommunicationListSort } from "@/lib/unified-inbox-merge";
 import {
+  dispatchManagerSmsContactsChanged,
   normalizeManagerSmsConversationsPayload,
   type ManagerSmsResidentConversation,
 } from "@/lib/manager-sms-messages";
@@ -56,13 +58,14 @@ const ROLE_OPTIONS: { value: CommunicationFilterRole; label: string }[] = [
   { value: "vendor", label: roleLabel("vendor") },
 ];
 
-function communicationFilterTouches(
+export function communicationFilterTouches(
   filters: CommunicationThreadFilters,
   listSort: CommunicationListSort,
 ): number {
   let n = 0;
   if (filters.propertyIds.length > 0) n += 1;
   if (filters.roles.length > 0) n += 1;
+  if (filters.contactIds.length > 0) n += 1;
   if (listSort !== "recent") n += 1;
   return n;
 }
@@ -73,8 +76,8 @@ export function ManagerCommunication({
   inboxTabId = "unopened",
   smsUiEnabled = false,
 }: {
-  /** Routed conversation list segment (Active / Archived). */
-  listSegment?: "active" | "archived";
+  /** Routed conversation list segment (Active / Unread / Archived). */
+  listSegment?: "active" | "unread" | "archived";
   /** Deep-linked thread id from `/communication/{segment}/{threadId}`. */
   threadId?: string;
   /** @deprecated Channel is always unified; kept for route compatibility. */
@@ -101,6 +104,7 @@ export function ManagerCommunication({
   const [composeOpen, setComposeOpen] = useState(false);
   const [composeChannel, setComposeChannel] = useState<CommunicationComposeChannel>("email");
   const [composeDraft, setComposeDraft] = useState<ManagerComposePrefill | null>(null);
+  const [contactOpen, setContactOpen] = useState(false);
   const [communicationSettingsOpen, setCommunicationSettingsOpen] = useState(false);
   const [smsRecipients, setSmsRecipients] = useState<ManagerSmsResidentConversation[]>([]);
   const [threadOpen, setThreadOpen] = useState(Boolean(threadId));
@@ -262,15 +266,34 @@ export function ManagerCommunication({
       variant="outline"
       className={`shrink-0 ${PORTAL_HEADER_PRIMARY_ACTION_BTN}`}
       data-attr="communication-new-message"
+      aria-label="New message"
       onClick={() => openCompose("email")}
     >
-      New message
+      <span className="sm:hidden" aria-hidden="true">
+        Message
+      </span>
+      <span className="hidden sm:inline">New message</span>
     </Button>
   );
 
   const communicationHeaderActions = (
     <>
       {smsUiEnabled ? <ManagerWorkNumberButton /> : null}
+      {smsUiEnabled ? (
+        <Button
+          type="button"
+          variant="outline"
+          className={`shrink-0 ${PORTAL_HEADER_PRIMARY_ACTION_BTN}`}
+          data-attr="communication-add-phone-contact"
+          aria-label="Add contact"
+          onClick={() => setContactOpen(true)}
+        >
+          <span className="sm:hidden" aria-hidden="true">
+            Contact
+          </span>
+          <span className="hidden sm:inline">Add contact</span>
+        </Button>
+      ) : null}
       <Button
         type="button"
         variant="outline"
@@ -289,6 +312,12 @@ export function ManagerCommunication({
       destinations={[
         { id: "active", label: "Active", href: `${commBase}/active`, dataAttr: "communication-segment-active" },
         {
+          id: "unread",
+          label: "Unread",
+          href: `${commBase}/unread`,
+          dataAttr: "communication-segment-unread",
+        },
+        {
           id: "archived",
           label: "Archived",
           href: `${commBase}/archived`,
@@ -297,10 +326,11 @@ export function ManagerCommunication({
       ]}
       activeDestinationId={listSegment}
       destinationAriaLabel="Conversation folders"
+      destinationNavSize="toolbar"
       search={{
         value: searchQuery,
         onChange: setSearchQuery,
-        placeholder: "Search residents or messages",
+        placeholder: "Search contacts or messages",
         dataAttr: "unified-inbox-search",
       }}
       activeFilterChips={<PortalActiveFilterChips chips={activeFilterChips} />}
@@ -332,6 +362,36 @@ export function ManagerCommunication({
         onStageOptimistic={(thread) => inboxRef.current?.stageOptimisticSentThread(thread)}
         onClearOptimistic={(threadId) => inboxRef.current?.clearPendingSend(threadId)}
         onSent={handleComposeSent}
+      />
+
+      <ManagerSmsContactModal
+        open={contactOpen}
+        onClose={() => setContactOpen(false)}
+        onSaved={(contact) => {
+          // Seed or rename immediately so selection resolves before the SMS
+          // conversations refetch returns — including when this number already
+          // had a sidebar thread under another role.
+          dispatchManagerSmsContactsChanged({
+            optimisticResident: {
+              residentUserId: null,
+              residentEmail: null,
+              name: contact.displayName,
+              directoryName: null,
+              savedContactName: contact.displayName,
+              phone: contact.phone,
+              propertyLabel: null,
+              counterpartyRole: contact.counterpartyRole,
+              conversationKey: contact.conversationKey,
+              memberKeys: [contact.conversationKey],
+              messages: [],
+            },
+          });
+          void loadSmsRecipients();
+          setActiveThreadId(contact.conversationKey);
+          selectCommunicationThreadUrl(
+            `${commBase}/active/${encodeURIComponent(contact.conversationKey)}`,
+          );
+        }}
       />
 
       <ManagerUnifiedInbox

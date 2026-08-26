@@ -811,6 +811,7 @@ export async function POST(req: Request) {
             text: smsText,
             fromNumber: smsFromNumber,
             linkKind: null,
+            sendClass: eventCategory ? "automated" : "transactional",
             openThread,
             mirrorToManager: Boolean(eventCategory),
           });

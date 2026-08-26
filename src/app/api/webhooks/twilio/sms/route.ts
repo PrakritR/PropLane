@@ -11,9 +11,10 @@ import twilio from "twilio";
 import { findVendorAgentSessionByPhone, runVendorAgentSessionTurn } from "@/lib/agent/vendor-agent.server";
 import { resolveAppOrigin } from "@/lib/app-url";
 import { rateLimit } from "@/lib/rate-limit";
-import { profilePhoneVariants, recordOptIn, recordOptOut } from "@/lib/sms-consent";
+import { normalizeConsentPhone, profilePhoneVariants } from "@/lib/sms-consent";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { normalizeE164 } from "@/lib/twilio";
+import { fetchTwilioMessageCreatedAt, twilioWebhookAuthToken } from "@/lib/twilio-client.server";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -30,17 +31,51 @@ function maskedPhone(phone: string): string {
   return `${phone.slice(0, 5)}***${phone.slice(-2)}`;
 }
 
+function timestampMillis(raw: unknown): number | null {
+  const value = raw ? Date.parse(String(raw)) : NaN;
+  return Number.isNaN(value) ? null : value;
+}
+
+async function controlKeywordIsCurrent(
+  db: ReturnType<typeof createSupabaseServiceRoleClient>,
+  phoneKey: string,
+  keyword: "STOP" | "START",
+  providerOccurredAt: string,
+): Promise<{ ok: true; current: boolean } | { ok: false }> {
+  const { data, error } = await db
+    .from("sms_consent")
+    .select("opted_in_at, opted_out_at")
+    .eq("phone", phoneKey)
+    .maybeSingle();
+  if (error || !data) return { ok: false };
+  const eventAt = Date.parse(providerOccurredAt);
+  const optedInAt = timestampMillis(data.opted_in_at);
+  const optedOutAt = timestampMillis(data.opted_out_at);
+  if (keyword === "STOP") {
+    return {
+      ok: true,
+      current: optedOutAt === eventAt && (optedInAt == null || optedOutAt >= optedInAt),
+    };
+  }
+  return {
+    ok: true,
+    current: optedInAt === eventAt && (optedOutAt == null || optedInAt > optedOutAt),
+  };
+}
+
 export async function POST(req: Request) {
   const raw = await req.text();
   const params = Object.fromEntries(new URLSearchParams(raw)) as Record<string, string>;
   const signature = req.headers.get("x-twilio-signature");
-  const authToken = process.env.TWILIO_AUTH_TOKEN?.trim();
+  const authToken = twilioWebhookAuthToken();
 
   // Signature over the exact URL Twilio was configured with. Only local dev
   // may run unsigned — any deployed environment fails closed (Checkr precedent).
   // Set TWILIO_WEBHOOK_URL when a proxy rewrites the request origin.
   if (!authToken || !signature) {
-    if (process.env.VERCEL) return new Response("Forbidden", { status: 403 });
+    if (process.env.VERCEL || process.env.NODE_ENV === "production") {
+      return new Response("Forbidden", { status: 403 });
+    }
   } else {
     const url = process.env.TWILIO_WEBHOOK_URL?.trim() || `${resolveAppOrigin(req)}/api/webhooks/twilio/sms`;
     if (!twilio.validateRequest(authToken, signature, url, params)) {
@@ -52,49 +87,80 @@ export async function POST(req: Request) {
   const body = String(params.Body ?? "").trim();
   if (!from || !body) return twiml();
 
+  const db = createSupabaseServiceRoleClient();
+  const keyword = body.toUpperCase().replace(/[.!?]/g, "").trim();
+
+  // Carrier controls must be durably ordered before ordinary traffic shedding.
+  // MessageSid provides replay identity; Twilio's immutable dateCreated provides
+  // event order when webhook deliveries and retries arrive out of order.
+  const controlKeyword = STOP_WORDS.has(keyword) ? "STOP" : START_WORDS.has(keyword) ? "START" : null;
+  if (controlKeyword) {
+    const messageSid = String(params.MessageSid ?? "").trim();
+    const phoneKey = normalizeConsentPhone(from);
+    if (!messageSid || !phoneKey) return new Response("Invalid control message", { status: 400 });
+    const providerOccurredAt = await fetchTwilioMessageCreatedAt(messageSid);
+    if (!providerOccurredAt) return new Response("Control message time unavailable", { status: 503 });
+    const { error: controlError } = await db.rpc("apply_sms_control_keyword", {
+      p_message_sid: messageSid,
+      p_recipient_phone_key: phoneKey,
+      p_keyword: controlKeyword,
+      p_provider_occurred_at: providerOccurredAt,
+      p_manager_user_id: null,
+      p_messaging_service_sid: null,
+    });
+    if (controlError) return new Response("Control receipt unavailable", { status: 503 });
+
+    // The RPC can return false for a replay or an event made stale by a newer
+    // control. Read the canonical ledger so a retry can finish auxiliary vendor
+    // updates, while a stale START/STOP can never mutate profiles or sessions.
+    const current = await controlKeywordIsCurrent(db, phoneKey, controlKeyword, providerOccurredAt);
+    if (!current.ok) return new Response("Control state unavailable", { status: 503 });
+    if (!current.current) return twiml();
+
+    if (controlKeyword === "STOP") {
+      const { data: sessions, error: sessionReadError } = await db
+        .from("agent_sessions")
+        .select("vendor_user_id")
+        .eq("kind", "vendor_work_order")
+        .eq("vendor_phone_e164", from);
+      if (sessionReadError) return new Response("Vendor control state unavailable", { status: 503 });
+      const vendorIds = [...new Set((sessions ?? []).map((s) => s.vendor_user_id as string | null).filter(Boolean))] as string[];
+      if (vendorIds.length > 0) {
+        const { error: profileError } = await db
+          .from("profiles")
+          .update({ sms_opt_out_at: providerOccurredAt })
+          .in("id", vendorIds);
+        if (profileError) return new Response("Vendor control state unavailable", { status: 503 });
+      }
+      const { error: unbindError } = await db
+        .from("agent_sessions")
+        .update({ vendor_phone_e164: null, updated_at: new Date().toISOString() })
+        .eq("kind", "vendor_work_order")
+        .eq("vendor_phone_e164", from);
+      if (unbindError) return new Response("Vendor control state unavailable", { status: 503 });
+      return twiml();
+    }
+
+    const { data: profs, error: profileReadError } = await db
+      .from("profiles")
+      .select("id")
+      .in("phone", profilePhoneVariants(from));
+    if (profileReadError) return new Response("Vendor control state unavailable", { status: 503 });
+    const ids = ((profs ?? []) as { id: string }[]).map((p) => p.id);
+    if (ids.length > 0) {
+      const { error: profileError } = await db
+        .from("profiles")
+        .update({ sms_opt_out_at: null, sms_consent_at: providerOccurredAt })
+        .in("id", ids);
+      if (profileError) return new Response("Vendor control state unavailable", { status: 503 });
+    }
+    return twiml();
+  }
+
   // Per-phone rate limit. Over-limit still gets a 200 — a non-2xx makes Twilio
   // retry, which would amplify a flood instead of shedding it.
   if (!rateLimit(`twilio-sms:${from}`, 10, 60_000).ok) {
     console.warn("twilio sms rate-limited", maskedPhone(from));
-    return twiml();
-  }
-
-  const db = createSupabaseServiceRoleClient();
-  const keyword = body.toUpperCase().replace(/[.!?]/g, "").trim();
-
-  if (STOP_WORDS.has(keyword)) {
-    // Also record the canonical phone-keyed ledger so this STOP blocks EVERY
-    // send rail (manager console, reminders), not just the vendor agent. The
-    // ledger + the profiles column are unified on read by `isPhoneOptedOut`.
-    await recordOptOut(db, from);
-    const { data: sessions } = await db
-      .from("agent_sessions")
-      .select("vendor_user_id")
-      .eq("kind", "vendor_work_order")
-      .eq("vendor_phone_e164", from);
-    const vendorIds = [...new Set((sessions ?? []).map((s) => s.vendor_user_id as string | null).filter(Boolean))] as string[];
-    if (vendorIds.length > 0) {
-      await db.from("profiles").update({ sms_opt_out_at: new Date().toISOString() }).in("id", vendorIds);
-    }
-    // Unbind the number instead of closing sessions: STOP ends the SMS channel,
-    // not the in-app conversation.
-    await db
-      .from("agent_sessions")
-      .update({ vendor_phone_e164: null, updated_at: new Date().toISOString() })
-      .eq("kind", "vendor_work_order")
-      .eq("vendor_phone_e164", from);
-    return twiml();
-  }
-
-  if (START_WORDS.has(keyword)) {
-    // Clear the ledger opt-out too, so re-opt-in is honored on every rail.
-    await recordOptIn(db, from);
-    const { data: profs } = await db.from("profiles").select("id").in("phone", profilePhoneVariants(from));
-    const ids = ((profs ?? []) as { id: string }[]).map((p) => p.id);
-    if (ids.length > 0) {
-      await db.from("profiles").update({ sms_opt_out_at: null }).in("id", ids);
-    }
-    // ponytail: sessions re-bind the number on the next dispatch; no back-bind here.
     return twiml();
   }
 

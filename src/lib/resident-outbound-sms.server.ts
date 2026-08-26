@@ -13,11 +13,16 @@ import {
   openClawResidentThread,
   type ClawThreadTopic,
 } from "@/lib/claw-resident-messaging.server";
-import { isClawTransportEnabled, sendPropLaneSms } from "@/lib/proplane-sms-transport.server";
+import {
+  isClawTransportEnabled,
+  sendPropLaneSms,
+  type SmsSendClass,
+} from "@/lib/proplane-sms-transport.server";
 import { isPhoneOptedOut } from "@/lib/sms-consent";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { normalizeE164 } from "@/lib/twilio";
 import { normalizeE164Us } from "@/lib/claw-messenger.server";
+import type { SmsCounterpartyRole } from "@/lib/sms-conversation-identity";
 
 export type ResidentOutboundSmsResult = {
   sent: boolean;
@@ -31,6 +36,7 @@ export type ResidentOutboundThreadOpts = {
   residentUserId?: string | null;
   residentEmail?: string | null;
   topic: ClawThreadTopic;
+  counterpartyRole?: SmsCounterpartyRole;
 };
 
 function trimSmsBody(text: string, max = 480): string {
@@ -107,6 +113,11 @@ export async function sendResidentOutboundSms(args: {
    * "From PropLane (sent to resident): …" copy. Default true.
    */
   mirrorToManager?: boolean;
+  /** Stable automation purpose used by the managed consent ledger. */
+  purpose?: string;
+  dedupeKey?: string;
+  /** Immediate user/lifecycle traffic is transactional; scheduled nudges are automated. */
+  sendClass?: SmsSendClass;
 }): Promise<ResidentOutboundSmsResult> {
   let text = args.text.trim();
   if (!text) return { sent: false, error: "empty_body" };
@@ -147,12 +158,17 @@ export async function sendResidentOutboundSms(args: {
     to: toNorm,
     text,
     fromNumber: args.fromNumber,
+    sendClass: args.sendClass ?? "automated",
+    purpose: args.purpose ?? "legacy_automated_message",
+    dedupeKey: args.dedupeKey,
     log: args.openThread?.managerUserId
       ? {
           managerUserId: args.openThread.managerUserId,
           residentUserId: args.openThread.residentUserId,
+          residentEmail: args.openThread.residentEmail,
           residentPhone: toNorm,
           source: "automated",
+          counterpartyRole: args.openThread.counterpartyRole,
         }
       : undefined,
   });

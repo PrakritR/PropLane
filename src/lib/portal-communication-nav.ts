@@ -1,6 +1,6 @@
 import { DEMO_NAVIGATE_EVENT, isDemoModeActive } from "@/lib/demo/demo-session";
 
-/** Parse `/…/communication/{active|archived}/{threadId}` from the current pathname. */
+/** Parse `/…/communication/{active|unread|archived}/{threadId}` from the current pathname. */
 export function parseCommunicationThreadId(pathname: string, commBase: string): string | undefined {
   const base = commBase.replace(/\/$/, "");
   const prefix = `${base}/`;
@@ -8,7 +8,7 @@ export function parseCommunicationThreadId(pathname: string, commBase: string): 
   const segments = pathname.slice(prefix.length).split("/").filter(Boolean);
   if (segments.length < 2) return undefined;
   const segment = segments[0];
-  if (segment !== "active" && segment !== "archived") return undefined;
+  if (segment !== "active" && segment !== "unread" && segment !== "archived") return undefined;
   const raw = segments[1]?.trim();
   if (!raw) return undefined;
   try {

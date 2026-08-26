@@ -1315,9 +1315,9 @@ export function ManagerResidents({
             sendAt: draft.scheduleAt,
             deliverViaEmail: viaEmail,
             deliverViaSms: viaSms,
+            senderPortal: "manager",
             recipientEmail: selected.email.trim().toLowerCase(),
             recipientName: selected.name.trim(),
-            senderPortal: "manager",
           }),
         });
         if (!res.ok) {
@@ -1520,6 +1520,7 @@ export function ManagerResidents({
           deliverToPortalInbox: true,
           deliverViaEmail: channels?.viaEmail !== false,
           deliverViaSms: channels?.viaSms === true,
+          senderPortal: "manager",
         }),
       });
 

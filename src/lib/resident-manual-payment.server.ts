@@ -33,6 +33,7 @@ export async function reportResidentManualPayment(
     userEmail: string;
     chargeIds: string[];
     channel: "zelle" | "venmo";
+    expectedManagerUserId?: string;
   },
 ): Promise<ResidentManualPaymentResult> {
   const { channel } = input;
@@ -73,6 +74,9 @@ export async function reportResidentManualPayment(
     }
 
     const managerUserId = (row.manager_user_id as string | null)?.trim() || charge.managerUserId?.trim() || "";
+    if (input.expectedManagerUserId && managerUserId !== input.expectedManagerUserId) {
+      return { ok: false, status: 403, error: "You do not have access to one of the selected charges." };
+    }
     if (managerUserId) managerIds.add(managerUserId);
 
     const patched: HouseholdCharge = {

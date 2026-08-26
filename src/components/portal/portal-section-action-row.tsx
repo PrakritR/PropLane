@@ -53,7 +53,7 @@ export function PortalPageTitleBand({
 }) {
   const headerActions = filter || actions ? (
     filter && actions ? (
-      <div className="flex shrink-0 flex-nowrap items-center gap-3 sm:gap-4">
+      <div className="flex min-w-0 flex-1 flex-nowrap items-center gap-3 sm:gap-4">
         <div className="shrink-0">{filter}</div>
         <PortalSectionActionRow variant="header" className="min-w-0 flex-1 gap-2 sm:gap-3">
           {actions}
@@ -229,7 +229,7 @@ export function PortalSectionActionRow({
     return (
       <div
         className={cn(
-          "flex min-w-0 flex-nowrap items-center gap-2 sm:gap-3",
+          "flex min-w-0 flex-nowrap items-center gap-2 overflow-x-auto overscroll-x-contain sm:gap-3 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden",
           "md:[&_button]:box-border md:[&_button]:h-10 md:[&_button]:min-h-0",
           "[&_button]:w-auto [&_button]:max-w-none [&_button]:shrink-0 [&_a]:w-auto",
           "max-lg:[&_button]:!w-auto",
@@ -237,6 +237,7 @@ export function PortalSectionActionRow({
         )}
         data-slot="portal-section-action-row"
         data-variant="header"
+        {...{ [HORIZONTAL_SCROLL_ATTR]: "" }}
       >
         {children}
       </div>

@@ -77,6 +77,7 @@ export async function notifyManagerFromAgent(
           log: null,
         });
       } catch {
+        if (process.env.SMS_RUNTIME_ENABLED?.trim() === "1") return;
         await sendSms(phone, `${args.subject}\nOpen PropLane to respond.`, from);
       }
     }

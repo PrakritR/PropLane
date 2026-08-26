@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -43,24 +43,49 @@ async function readApiError(res: Response, fallback: string): Promise<string> {
 export function PortalTextNotificationsBlock({
   dataAttrPrefix,
   demo = false,
+  title = "Text notifications",
+  description = "Verify your mobile number to get maintenance and message updates by text.",
+  onVerified,
 }: {
   /** Kebab prefix for data-attr hooks, e.g. "resident" / "vendor". */
   dataAttrPrefix: string;
   /** Demo sandbox: simulate the flow instead of hitting the real API. */
   demo?: boolean;
+  title?: string;
+  description?: string;
+  onVerified?: (settings: TextNotificationSettings) => void;
 }) {
   const { showToast } = useAppUi();
-  const [settings, setSettings] = useState<TextNotificationSettings | null>(null);
+  const [settings, setSettings] = useState<TextNotificationSettings | null>(() =>
+    demo ? { phone: null, phoneVerifiedAt: null, smsConfigured: true } : null,
+  );
   const [editingPhone, setEditingPhone] = useState(false);
   const [phoneInput, setPhoneInput] = useState("");
   const [codeInput, setCodeInput] = useState("");
   const [codeSent, setCodeSent] = useState(false);
-  const [busy, setBusy] = useState(false);
+  const [busy, setBusy] = useState<"send" | "verify" | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const finishVerification = useCallback(
+    (phone: string) => {
+      const next = {
+        ...(settings ?? SAFE_DEFAULTS),
+        phone,
+        phoneVerifiedAt: new Date().toISOString(),
+      };
+      setSettings(next);
+      setEditingPhone(false);
+      setCodeSent(false);
+      setCodeInput("");
+      setPhoneInput("");
+      setError(null);
+      onVerified?.(next);
+    },
+    [onVerified, settings],
+  );
 
   useEffect(() => {
     if (demo) {
-      // Simulated: SMS "configured" so the inputs are demoable, nothing verified.
-      setSettings({ phone: null, phoneVerifiedAt: null, smsConfigured: true });
       return;
     }
     let active = true;
@@ -78,13 +103,14 @@ export function PortalTextNotificationsBlock({
   }, [demo]);
 
   const sendCode = async () => {
+    setError(null);
     if (demo) {
       setCodeSent(true);
       setCodeInput("");
       showToast("Code sent (simulated in this demo).");
       return;
     }
-    setBusy(true);
+    setBusy("send");
     try {
       const res = await fetch("/api/manager/phone", {
         method: "POST",
@@ -93,34 +119,30 @@ export function PortalTextNotificationsBlock({
         body: JSON.stringify({ phone: phoneInput }),
       });
       if (!res.ok) {
-        showToast(await readApiError(res, "Could not send the code."));
+        const message = await readApiError(res, "Could not send the code.");
+        setError(message);
+        showToast(message);
         return;
       }
       setCodeSent(true);
       setCodeInput("");
       showToast("Code sent. Check your texts.");
     } catch {
+      setError("Network error. Check your connection and try again.");
       showToast("Network error.");
     } finally {
-      setBusy(false);
+      setBusy(null);
     }
   };
 
   const verifyCode = async () => {
+    setError(null);
     if (demo) {
-      setSettings((s) => ({
-        ...(s ?? SAFE_DEFAULTS),
-        phone: phoneInput,
-        phoneVerifiedAt: new Date().toISOString(),
-      }));
-      setEditingPhone(false);
-      setCodeSent(false);
-      setCodeInput("");
-      setPhoneInput("");
+      finishVerification(phoneInput);
       showToast("Phone verified (simulated in this demo).");
       return;
     }
-    setBusy(true);
+    setBusy("verify");
     try {
       const res = await fetch("/api/manager/phone", {
         method: "PUT",
@@ -129,24 +151,19 @@ export function PortalTextNotificationsBlock({
         body: JSON.stringify({ code: codeInput }),
       });
       if (!res.ok) {
-        showToast(await readApiError(res, "Could not verify the code."));
+        const message = await readApiError(res, "Could not verify the code.");
+        setError(message);
+        showToast(message);
         return;
       }
       const body = (await res.json()) as { ok?: boolean; phone?: string };
-      setSettings((s) => ({
-        ...(s ?? SAFE_DEFAULTS),
-        phone: body.phone ?? phoneInput,
-        phoneVerifiedAt: new Date().toISOString(),
-      }));
-      setEditingPhone(false);
-      setCodeSent(false);
-      setCodeInput("");
-      setPhoneInput("");
+      finishVerification(body.phone ?? phoneInput);
       showToast("Phone verified.");
     } catch {
+      setError("Network error. Check your connection and try again.");
       showToast("Network error.");
     } finally {
-      setBusy(false);
+      setBusy(null);
     }
   };
 
@@ -155,13 +172,16 @@ export function PortalTextNotificationsBlock({
 
   return (
     <PortalSettingsSection
-      title="Text notifications"
-      description="Verify your mobile number to get maintenance and message updates by text."
+      title={title}
+      description={description}
     >
       <PortalSettingsGroup>
         <PortalSettingsFormBody className="space-y-3">
       {settings === null ? (
-        <p className="text-sm text-muted">Loading…</p>
+        <div className="space-y-3 py-1" aria-label="Loading phone verification settings">
+          <div className="h-4 w-44 animate-pulse rounded bg-accent motion-reduce:animate-none" />
+          <div className="h-10 w-full max-w-80 animate-pulse rounded-lg bg-accent motion-reduce:animate-none" />
+        </div>
       ) : verified ? (
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="flex min-w-0 items-center gap-2">
@@ -172,12 +192,13 @@ export function PortalTextNotificationsBlock({
           <Button
             type="button"
             variant="outline"
-            className="h-8 min-h-0 shrink-0 px-3 text-xs"
+            className="h-10 min-h-10 shrink-0 rounded-full px-3 text-xs"
             data-attr={`${dataAttrPrefix}-text-notifications-change`}
             onClick={() => {
               setPhoneInput("");
               setCodeInput("");
               setCodeSent(false);
+              setError(null);
               setEditingPhone(true);
             }}
           >
@@ -200,19 +221,20 @@ export function PortalTextNotificationsBlock({
                 placeholder="(206) 555-0123"
                 inputMode="tel"
                 autoComplete="tel"
+                type="tel"
                 value={phoneInput}
                 onChange={(e) => setPhoneInput(e.target.value)}
-                disabled={busy || !smsConfigured}
+                disabled={busy !== null || !smsConfigured}
               />
               <Button
                 type="button"
                 variant="outline"
-                className="h-9 min-h-0 shrink-0 px-4 text-xs"
+                className="h-10 min-h-10 shrink-0 rounded-full px-4 text-xs"
                 data-attr={`${dataAttrPrefix}-text-notifications-send-code`}
-                disabled={busy || !smsConfigured || !phoneInput.trim()}
+                disabled={busy !== null || !smsConfigured || !phoneInput.trim()}
                 onClick={() => sendCode()}
               >
-                {busy && !codeSent ? "Sending…" : codeSent ? "Resend code" : "Send code"}
+                {busy === "send" ? "Sending…" : codeSent ? "Resend code" : "Send code"}
               </Button>
             </div>
           </div>
@@ -234,20 +256,25 @@ export function PortalTextNotificationsBlock({
                   maxLength={6}
                   value={codeInput}
                   onChange={(e) => setCodeInput(e.target.value.replace(/\D/g, ""))}
-                  disabled={busy}
+                  disabled={busy !== null}
                 />
                 <Button
                   type="button"
                   variant="primary"
-                  className="h-9 min-h-0 shrink-0 px-4 text-xs"
+                  className="h-10 min-h-10 shrink-0 rounded-full px-4 text-xs"
                   data-attr={`${dataAttrPrefix}-text-notifications-verify`}
-                  disabled={busy || codeInput.length !== 6}
+                  disabled={busy !== null || codeInput.length !== 6}
                   onClick={() => verifyCode()}
                 >
-                  {busy ? "Verifying…" : "Verify"}
+                  {busy === "verify" ? "Verifying…" : "Verify"}
                 </Button>
               </div>
             </div>
+          ) : null}
+          {error ? (
+            <p className="text-xs font-medium text-danger" role="alert">
+              {error}
+            </p>
           ) : null}
           {smsConfigured ? null : (
             <p className="text-xs text-muted">

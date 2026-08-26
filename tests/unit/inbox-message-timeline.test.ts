@@ -17,4 +17,13 @@ describe("buildInboxMessageTimeline", () => {
     expect(items[1]?.showMeta).toBe(true);
     expect(items[2]?.cluster).toBe("single");
   });
+
+  it("creates distinct rendered keys when malformed input repeats a message id", () => {
+    const items = buildInboxMessageTimeline([
+      { id: "merged:tour-root", author: "PropLane Tours", body: "Received", at: "9:00", direction: "inbound" },
+      { id: "merged:tour-root", author: "PropLane Tours", body: "Confirmed", at: "9:01", direction: "inbound" },
+    ]);
+
+    expect(items.map((item) => item.key)).toEqual(["merged:tour-root", "merged:tour-root#2"]);
+  });
 });

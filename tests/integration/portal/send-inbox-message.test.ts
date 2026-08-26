@@ -129,6 +129,13 @@ describe("POST /api/portal/send-inbox-message", () => {
   });
 
   it("manager → resident: creates sender Sent + recipient inbox record in correct scopes", async () => {
+    // Recipient-scope authorization has its own focused coverage. This test is
+    // for the post-authorization delivery contract, so keep the fixture on the
+    // allowed side of that boundary instead of accidentally depending on every
+    // relationship table queried by the scope resolver.
+    vi.spyOn(inboxRecipientScope, "filterRecipientsBySenderScope").mockImplementation(
+      async (_db, _sender, recipients) => ({ allowed: recipients, blocked: [] }),
+    );
     vi.mocked(createSupabaseServerClient).mockResolvedValue({
       auth: { getUser: vi.fn().mockResolvedValue({ data: { user: { id: "mgr_1", email: "mgr@example.com" } } }) },
     } as never);
@@ -179,6 +186,7 @@ describe("POST /api/portal/send-inbox-message", () => {
         subject: "Test message",
         text: "Hello resident",
         toEmails: "resident@example.com",
+        senderPortal: "manager",
         deliverToPortalInbox: true,
         deliverViaEmail: false,
       },

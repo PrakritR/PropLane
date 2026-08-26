@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { defineTool, defineWriteTool } from "../../registry";
 import type { ResidentAgentContext } from "../../resident-context";
+import { residentManagerIds } from "../../resident-context";
 import { writeAuditLog, updateAuditResult, auditDayBucket } from "../../audit";
 import { filterRecipientsBySenderScope } from "@/lib/inbox-recipient-scope";
 import { deliverPortalInboxMessage } from "@/lib/portal-inbox-delivery";
@@ -42,6 +43,10 @@ export const listMyInboxThreadsTool = defineTool({
   kind: "read",
   inputSchema: z.object({}).strict(),
   handler: async (ctx: ResidentAgentContext) => {
+    const activeManager = ctx.activeManagerId
+      ? (await linkedManagerContacts(ctx)).find((contact) => contact.id === ctx.activeManagerId) ?? null
+      : null;
+    if (ctx.activeManagerId && !activeManager) return { count: 0, threads: [] };
     const all: { row_data: unknown }[] = [];
     for (let from = 0; ; from += PAGE_SIZE) {
       let query = ctx.db
@@ -49,6 +54,7 @@ export const listMyInboxThreadsTool = defineTool({
         .select("row_data")
         .eq("scope", RESIDENT_INBOX_SCOPE);
       query = applyPortalInboxThreadScope(query, { id: ctx.userId, email: ctx.email, role: "resident" });
+      if (activeManager) query = query.eq("row_data->>email", activeManager.email);
       const { data, error } = await query.order("id", { ascending: true }).range(from, from + PAGE_SIZE - 1);
       if (error) throw new Error(error.message);
       const page = (data ?? []) as { row_data: unknown }[];
@@ -81,24 +87,26 @@ export const getMyScheduledMessagesTool = defineTool({
   kind: "read",
   inputSchema: z.object({}).strict(),
   handler: async (ctx: ResidentAgentContext) => {
-    const messages = await loadScheduledInboxMessagesForResident(ctx.db, ctx.userId);
+    const messages = await loadScheduledInboxMessagesForResident(ctx.db, ctx.userId, ctx.activeManagerId);
     return { count: messages.length, scheduledMessages: messages.map(summarizeScheduledMessage) };
   },
 });
 
 /**
  * Resolve which linked manager(s) a message targets. `recipientManagerId` is a
- * target id, re-verified against ctx.managerIds — never trusted to widen scope.
+ * target id, re-verified against the current surface's manager scope — never
+ * trusted to widen scope.
  */
 async function resolveMessageTargets(
   ctx: ResidentAgentContext,
   recipientManagerId: string | undefined,
 ): Promise<{ ok: true; targets: LinkedManagerContact[] } | { ok: false; error: string }> {
-  if (ctx.managerIds.length === 0) {
+  const managerIds = residentManagerIds(ctx);
+  if (managerIds.length === 0) {
     return { ok: false, error: "You are not linked to a property manager yet, so there is no one to message." };
   }
   const wanted = recipientManagerId?.trim();
-  if (wanted && !ctx.managerIds.includes(wanted)) {
+  if (wanted && !managerIds.includes(wanted)) {
     return { ok: false, error: "That manager is not linked to your account. Omit the recipient to message your own manager(s)." };
   }
   const contacts = await linkedManagerContacts(ctx);
@@ -294,8 +302,10 @@ export const cancelScheduledMessageTool = defineWriteTool({
     })
     .strict(),
   preview: async (ctx: ResidentAgentContext, input) => {
-    const own = (await loadScheduledInboxMessagesForResident(ctx.db, ctx.userId)).find(
-      (m) => m.id === input.messageId.trim(),
+    const own = (await loadScheduledInboxMessagesForResident(ctx.db, ctx.userId, ctx.activeManagerId)).find(
+      (m) =>
+        m.id === input.messageId.trim() &&
+        (!ctx.activeManagerId || m.managerUserId === ctx.activeManagerId),
     );
     if (!own) {
       throw new Error(`${input.messageId} is not one of your scheduled messages. Use get_my_scheduled_messages to get valid ids.`);
@@ -319,7 +329,9 @@ export const cancelScheduledMessageTool = defineWriteTool({
     const messageId = input.messageId.trim();
     // Re-resolve ownership at execute time; the storage helper additionally
     // pins the update to rows this resident scheduled.
-    const own = (await loadScheduledInboxMessagesForResident(ctx.db, ctx.userId)).find((m) => m.id === messageId);
+    const own = (await loadScheduledInboxMessagesForResident(ctx.db, ctx.userId, ctx.activeManagerId)).find(
+      (m) => m.id === messageId && (!ctx.activeManagerId || m.managerUserId === ctx.activeManagerId),
+    );
     if (!own) throw new Error(`${messageId} is not one of your scheduled messages.`);
     if (own.status !== "scheduled") {
       throw new Error(`That message is already ${own.status} and cannot be cancelled.`);
@@ -341,7 +353,7 @@ export const cancelScheduledMessageTool = defineWriteTool({
       await updateScheduledInboxMessageForResident(ctx.db, ctx.userId, messageId, {
         status: "cancelled",
         cancelledAt: new Date().toISOString(),
-      });
+      }, ctx.activeManagerId);
     } catch (e) {
       await updateAuditResult(ctx, dedupeKey, { failed: true }, { clearDedupeKey: true });
       throw new Error(e instanceof Error ? e.message : "Could not cancel the message.");

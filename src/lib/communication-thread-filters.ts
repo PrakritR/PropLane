@@ -1,5 +1,6 @@
 import type { InboxScopedContact } from "@/data/inbox-scoped-directory";
 import { PRIMARY_AXIS_ADMIN_EMAIL, PRIMARY_AXIS_ADMIN_LABEL } from "@/data/inbox-scoped-directory";
+import type { SmsCounterpartyRole } from "@/lib/sms-conversation-identity";
 
 export type CommunicationFilterRole = "resident" | "management" | "admin" | "vendor";
 
@@ -83,6 +84,8 @@ export function threadPassesCommunicationFilters(args: {
   propertyLabel?: string | null;
   /** SMS resident-only threads. */
   isResidentThread?: boolean;
+  /** Authoritative SMS thread role, when filtering an SMS conversation. */
+  counterpartyRole?: SmsCounterpartyRole;
 }): boolean {
   const { filters } = args;
   if (!communicationFiltersActive(filters)) return true;
@@ -108,10 +111,17 @@ export function threadPassesCommunicationFilters(args: {
     const roleOk = filters.roles.some((role) => {
       if (role === "admin") return isAdminThread;
       if (role === "resident") {
+        if (args.counterpartyRole) {
+          return args.counterpartyRole === "resident" || args.counterpartyRole === "applicant";
+        }
         if (args.isResidentThread) return true;
         return matchedContacts.some((c) => c.role === "resident");
       }
-      if (role === "vendor") return matchedContacts.some((c) => c.role === "vendor");
+      if (role === "vendor") {
+        if (args.counterpartyRole) return args.counterpartyRole === "vendor";
+        return matchedContacts.some((c) => c.role === "vendor");
+      }
+      if (args.counterpartyRole) return args.counterpartyRole === "manager";
       return matchedContacts.some((c) => c.role === "manager" && c.id !== "axis-admin");
     });
     if (!roleOk) return false;

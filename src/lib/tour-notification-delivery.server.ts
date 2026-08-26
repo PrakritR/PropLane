@@ -7,6 +7,8 @@ import { formatPacificDateTime } from "@/lib/pacific-time";
 import { appendResidentPropertyManagerInboxMessage, appendManagerPropertyLeadInboxMessage } from "@/lib/property-manager-inbox-thread.server";
 import { sendPropLaneSms } from "@/lib/proplane-sms-transport.server";
 import { sendResidentOutboundSms } from "@/lib/resident-outbound-sms.server";
+import { recordScopedSmsConsent } from "@/lib/sms-consent";
+import { buildConversationKey } from "@/lib/sms-conversation-identity";
 import { shouldSkipOutboundEmail } from "@/lib/portal-sandbox-accounts";
 import {
   resolveManagerRecipientProfiles,
@@ -355,9 +357,18 @@ export async function notifyManagerTourRequest(
 
 
 /** Text the tour guest via the resident SMS channel (Claw shared line). */
-async function textTourGuest(args: { guestPhone: string | null; smsConsent: boolean; text: string }): Promise<void> {
+async function textTourGuest(args: {
+  db: Db;
+  managerUserId: string;
+  guestEmail: string;
+  guestPhone: string | null;
+  smsConsent: boolean;
+  text: string;
+  purpose: string;
+  inquiryId: string | null;
+}): Promise<void> {
   const phone = (args.guestPhone ?? "").trim();
-  if (!phone) return;
+  if (!phone || !args.managerUserId) return;
   // Carrier compliance (A2P 10DLC / CTIA): a prospect is texted ONLY when they
   // explicitly opted in on the tours-contact form. Absence of a prior STOP is
   // NOT consent — the send-time opt-out ledger fails open (see
@@ -365,7 +376,37 @@ async function textTourGuest(args: { guestPhone: string | null; smsConsent: bool
   // lead is the load-bearing gate. This does not weaken STOP/HELP handling: a
   // later STOP still supersedes the recorded opt-in in the sms_consent ledger.
   if (args.smsConsent !== true) return;
-  await sendResidentOutboundSms({ to: phone, text: args.text }).catch(() => undefined);
+  const conversationKey = buildConversationKey({
+    ownerManagerUserId: args.managerUserId,
+    role: "prospect",
+    counterpartyPhone: phone,
+  });
+  const scoped = await recordScopedSmsConsent(args.db, phone, {
+    managerUserId: args.managerUserId,
+    messagingServiceSid: process.env.TWILIO_MESSAGING_SERVICE_SID?.trim() ?? null,
+    purpose: args.purpose,
+    sendClass: "transactional",
+    conversationKey,
+    eventType: "granted",
+    source: "tour_inquiry_opt_in",
+    wordingVersion: "tour-sms-consent-v1",
+    evidence: { inquiryId: args.inquiryId },
+  });
+  if (!scoped.ok) return;
+  await sendResidentOutboundSms({
+    to: phone,
+    text: args.text,
+    openThread: {
+      managerUserId: args.managerUserId,
+      residentEmail: args.guestEmail,
+      topic: "leasing",
+      counterpartyRole: "prospect",
+    },
+    purpose: args.purpose,
+    sendClass: "transactional",
+    dedupeKey: `${args.purpose}_${args.inquiryId ?? conversationKey}`,
+    mirrorToManager: false,
+  }).catch(() => undefined);
 }
 
 /** Read the explicit SMS opt-in flag persisted alongside a tour inquiry. */
@@ -425,8 +466,13 @@ export async function notifyTenantTourRequestReceived(
     ? ` Create your free account to track it: ${ctx.createAccountUrl.trim()}`
     : "";
   await textTourGuest({
+    db,
+    managerUserId: textField(inquiry as Record<string, unknown>, "managerUserId"),
+    guestEmail,
     guestPhone,
     smsConsent: inquirySmsConsent(inquiry),
+    purpose: "tour_request_received",
+    inquiryId: textField(inquiry as Record<string, unknown>, "id") || null,
     text: `PropLane: we received your tour request for ${ctx.propertyTitle}${
       ctx.tourStartIso ? ` (${formatTourTimeRange(ctx.tourStartIso, ctx.tourEndIso)})` : ""
     }. We'll text you here once it's confirmed.${accountPrompt} Details: ${listingLink}. Reply STOP to opt out, HELP for help.`,
@@ -489,8 +535,13 @@ export async function notifyTenantTourRequestRemoved(
 
   const listingLink = propertyId ? `${origin}/rent/listings/${propertyId}` : origin;
   await textTourGuest({
+    db,
+    managerUserId,
+    guestEmail,
     guestPhone: textField(row, "phone") || null,
     smsConsent: inquirySmsConsent(inquiry),
+    purpose: "tour_request_removed",
+    inquiryId: textField(row, "id") || null,
     text: `PropLane: your tour request for ${ctx.propertyTitle}${
       tourStartIso && tourEndIso ? ` (${formatTourTimeRange(tourStartIso, tourEndIso)})` : ""
     } was removed by the property team. Request another time: ${listingLink}. Reply STOP to opt out, HELP for help.`,
@@ -581,8 +632,13 @@ async function notifyTenantTourChanged(
 
   const listingLink = propertyId ? `${origin}/rent/listings/${propertyId}` : origin;
   await textTourGuest({
+    db,
+    managerUserId: input.window.managerUserId || textField(row, "managerUserId"),
+    guestEmail,
     guestPhone: textField(row, "phone") || null,
     smsConsent: inquirySmsConsent(inquiry),
+    purpose: canceled ? "tour_canceled" : "tour_rescheduled",
+    inquiryId: textField(row, "id") || null,
     text: canceled
       ? `PropLane: your tour of ${ctx.propertyTitle} on ${formatTourTimeRange(
           input.previousWindow?.start ?? input.window.start,
@@ -681,8 +737,13 @@ export async function notifyTenantTourConfirmed(
   const guestPhone = textField(inquiry as Record<string, unknown>, "phone") || null;
   const listingLink = propertyId ? `${origin}/rent/listings/${propertyId}` : origin;
   await textTourGuest({
+    db,
+    managerUserId: window.managerUserId,
+    guestEmail,
     guestPhone,
     smsConsent: inquirySmsConsent(inquiry),
+    purpose: "tour_confirmed",
+    inquiryId: textField(inquiry as Record<string, unknown>, "id") || null,
     text: `PropLane: your tour of ${ctx.propertyTitle} is confirmed${
       ctx.tourStartIso ? ` for ${formatTourTimeRange(ctx.tourStartIso, ctx.tourEndIso)}` : ""
     }.${instructions ? ` ${instructions.trim()}` : ""} Reply here with any questions. Details: ${listingLink}. Reply STOP to opt out, HELP for help.`,

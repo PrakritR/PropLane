@@ -18,6 +18,9 @@ const sendPropLaneSms = vi.fn(async () => ({ ok: true }));
 vi.mock("@/lib/proplane-sms-transport.server", () => ({
   sendPropLaneSms: (...args: unknown[]) => sendPropLaneSms(...(args as [])),
 }));
+vi.mock("@/lib/sms-consent", () => ({
+  recordScopedSmsConsent: vi.fn(async () => ({ ok: true })),
+}));
 
 import {
   notifyTenantTourConfirmed,
@@ -39,6 +42,8 @@ function makeDb() {
 const req = new Request("http://localhost:3100/api/public/partner-inquiries");
 
 const baseInquiry = {
+  id: "00000000-0000-4000-8000-000000000010",
+  managerUserId: "00000000-0000-4000-8000-000000000001",
   name: "Jordan Guest",
   email: "guest@example.com",
   phone: "+12065550100",
@@ -51,7 +56,7 @@ const baseInquiry = {
 const confirmWindow = {
   start: "2026-07-22T18:00:00.000Z",
   end: "2026-07-22T18:30:00.000Z",
-  managerUserId: "admin-1",
+  managerUserId: "00000000-0000-4000-8000-000000000001",
   adminLabel: "Jordan Lee",
 };
 

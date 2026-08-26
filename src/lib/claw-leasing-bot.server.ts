@@ -39,8 +39,13 @@ import {
   resolveMappedManagerContacts,
 } from "@/lib/claw-resident-messaging.server";
 import { buildManagerResidentBrief, runResidentSmsAction } from "@/lib/claw-resident-actions.server";
-import { sendFromManagerWorkNumber, sendPropLaneSms } from "@/lib/proplane-sms-transport.server";
-import type { SmsCounterpartyRole } from "@/lib/sms-conversation-identity";
+import {
+  sendFromManagerWorkNumber,
+  sendPropLaneSms,
+  type PropLaneSmsResult,
+} from "@/lib/proplane-sms-transport.server";
+import { buildConversationKey, type SmsCounterpartyRole } from "@/lib/sms-conversation-identity";
+import { recordScopedSmsConsent } from "@/lib/sms-consent";
 import { upsertManagerInboxNotice } from "@/lib/sms-inbox-notice.server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { normalizeE164 } from "@/lib/twilio";
@@ -191,13 +196,23 @@ async function replySms(args: {
   text: string;
   managerUserId?: string | null;
   workNumber?: string | null;
-}): Promise<{ ok: boolean; error?: string }> {
+  residentUserId?: string | null;
+  residentEmail?: string | null;
+  counterpartyRole?: SmsCounterpartyRole;
+  conversationKey?: string | null;
+  dedupeKey?: string | null;
+}): Promise<PropLaneSmsResult> {
   if (args.managerUserId) {
     return sendFromManagerWorkNumber({
       managerUserId: args.managerUserId,
       to: args.to,
       text: args.text,
       fromNumber: args.workNumber,
+      residentUserId: args.residentUserId,
+      residentEmail: args.residentEmail,
+      counterpartyRole: args.counterpartyRole,
+      conversationKey: args.conversationKey,
+      dedupeKey: args.dedupeKey,
     });
   }
   return sendPropLaneSms({ to: args.to, text: args.text, fromNumber: args.workNumber });
@@ -433,6 +448,8 @@ export type HandleClawInboundResult = {
   intent: LeasingIntent;
   replied: boolean;
   error?: string;
+  outboxId?: string;
+  durablyAccepted?: boolean;
 };
 
 /* In-memory idempotency for redelivered relay frames (gateway restarts, webhook
@@ -512,6 +529,28 @@ async function persistClawInboundSms(args: {
   if (!inboundLogStored) {
     console.error("claw inbound_sms_log insert failed", error.message);
   }
+  if (inboundLogStored) {
+    const role = args.counterpartyRole ?? (args.residentUserId ? "resident" : "prospect");
+    const conversationKey = buildConversationKey({
+      ownerManagerUserId: args.managerUserId,
+      role,
+      counterpartyUserId: args.residentUserId,
+      counterpartyPhone: args.residentPhone,
+    });
+    const scopedConsent = await recordScopedSmsConsent(db, args.residentPhone, {
+      managerUserId: args.managerUserId,
+      messagingServiceSid: process.env.TWILIO_MESSAGING_SERVICE_SID?.trim() ?? null,
+      purpose: "manager_conversation",
+      sendClass: "transactional",
+      conversationKey,
+      eventType: "granted",
+      source: "recipient_initiated_inbound",
+    });
+    if (!scopedConsent.ok) {
+      console.error("claw inbound scoped consent insert failed", scopedConsent.error);
+      return false;
+    }
+  }
   return managerMessageLogged && inboundLogStored;
 }
 
@@ -544,6 +583,17 @@ export async function handleClawLeasingInbound(args: {
   managerUserId?: string | null;
   /** E.164 work number to send replies From. */
   workNumber?: string | null;
+  /** The caller owns a distributed, leased MessageSid receipt. */
+  durablyClaimed?: boolean;
+  /** Persist the exact reply before any provider/outbox handoff. */
+  onPreparedReply?: (prepared: {
+    routeKind: "leasing_agent" | "leasing_template";
+    replyBody: string;
+    agentSessionId?: string | null;
+    inboundAgentMessageId?: string | null;
+    assistantAgentMessageId?: string | null;
+    turnTraceId?: string | null;
+  }) => Promise<boolean>;
 }): Promise<HandleClawInboundResult> {
   const from = normalizeE164Us(args.from) ?? normalizeE164(args.from);
   if (!from) return { ok: false, intent: "unknown", replied: false, error: "Invalid from phone." };
@@ -563,12 +613,14 @@ export async function handleClawLeasingInbound(args: {
     .map((id) => id?.trim() || "")
     .filter((id, index, ids) => Boolean(id) && ids.indexOf(id) === index);
   const messageId = args.messageId?.trim() || messageIds[0] || "";
-  if (messageId && !markInboundMessageSeen(messageId)) {
+  if (!args.durablyClaimed && messageId && !markInboundMessageSeen(messageId)) {
     return { ok: true, intent: "unknown", replied: false };
   }
-  const claimedMessageIds = messageId ? [messageId] : [];
-  for (const id of messageIds) {
-    if (id !== messageId && markInboundMessageSeen(id)) claimedMessageIds.push(id);
+  const claimedMessageIds = !args.durablyClaimed && messageId ? [messageId] : [];
+  if (!args.durablyClaimed) {
+    for (const id of messageIds) {
+      if (id !== messageId && markInboundMessageSeen(id)) claimedMessageIds.push(id);
+    }
   }
 
   const text = (args.text ?? "").trim();
@@ -693,13 +745,11 @@ export async function handleClawLeasingInbound(args: {
         return false;
       });
       if (!inboundLogged) {
-        // Best-effort: the inbound log powers the Communication → SMS mirror, it
-        // does not gate the resident reply. A persistent insert failure must not
-        // silence every reply on this conversation nor trigger gateway retries —
-        // log loudly and let the reply + manager forward proceed.
-        console.error("claw resident inbound log failed; replying anyway", {
+        console.error("claw resident inbound claim/consent failed; reply withheld", {
           managerUserId: thread.managerUserId,
         });
+        releaseInboundMessageClaims(claimedMessageIds);
+        return { ok: false, intent: "unknown", replied: false, error: "Inbound receipt unavailable." };
       }
 
       const action = await runResidentSmsAction({
@@ -718,6 +768,16 @@ export async function handleClawLeasingInbound(args: {
         text: action.residentReply,
         managerUserId: thread.managerUserId,
         workNumber,
+        residentUserId,
+        residentEmail: residentEmail || null,
+        counterpartyRole: "resident",
+        conversationKey: buildConversationKey({
+          ownerManagerUserId: thread.managerUserId,
+          role: "resident",
+          counterpartyUserId: residentUserId,
+          counterpartyPhone: from,
+        }),
+        dedupeKey: messageId ? `inbound_reply_${messageId}` : null,
       });
 
       const threadRef = thread;
@@ -820,12 +880,11 @@ export async function handleClawLeasingInbound(args: {
       return false;
     });
     if (!inboundLogged) {
-      // Best-effort: the inbound log powers the Communication → SMS mirror, it
-      // does not gate the prospect auto-reply. A persistent insert failure must
-      // not silence replies nor trigger gateway retries — log loudly and proceed.
-      console.error("claw leasing inbound log failed; replying anyway", {
+      console.error("claw leasing inbound claim/consent failed; reply withheld", {
         managerUserId: landlordId,
       });
+      releaseInboundMessageClaims(claimedMessageIds);
+      return { ok: false, intent, replied: false, error: "Inbound receipt unavailable." };
     }
   }
 
@@ -844,19 +903,36 @@ export async function handleClawLeasingInbound(args: {
         prospectPhoneE164: from,
         inboundText: text,
         workNumber,
+        inboundMessageSid: messageId,
         // Shared Claw line (no single scoped manager) fronts every manager, so
         // the agent must be able to look up ANY live listing on PropLane, not
         // just landlordId's. A per-manager Twilio number stays scoped.
         crossCatalog: !scopedManagerId,
       });
       if (agent?.reply) {
+        const prepared = args.onPreparedReply
+          ? await args.onPreparedReply({
+              routeKind: "leasing_agent",
+              replyBody: agent.reply,
+              agentSessionId: agent.sessionId,
+              inboundAgentMessageId: agent.inboundMessageId,
+              assistantAgentMessageId: agent.assistantMessageId,
+              turnTraceId: agent.traceId,
+            })
+          : true;
+        if (!prepared) {
+          releaseInboundMessageClaims(claimedMessageIds);
+          return { ok: false, intent, replied: false, error: "Reply preparation failed." };
+        }
         const send = await deliverLeasingSmsReply({
           landlordId,
           toPhone: from,
           text: agent.reply,
           workNumber,
+          inboundMessageSid: messageId,
+          traceId: agent.traceId,
         });
-        if (send.ok) {
+        if (send.ok || send.durablyAccepted) {
           const subjectLabel =
             intent === "tour" || intent === "tour_details"
               ? "Tour request"
@@ -905,7 +981,13 @@ export async function handleClawLeasingInbound(args: {
               ),
             ]);
           });
-          return { ok: true, intent, replied: true };
+          return {
+            ok: true,
+            intent,
+            replied: true,
+            outboxId: send.outboxId,
+            durablyAccepted: send.durablyAccepted,
+          };
         }
       }
     } catch (e) {
@@ -921,13 +1003,27 @@ export async function handleClawLeasingInbound(args: {
     bundleId,
     phone: from,
   });
+  const prepared = args.onPreparedReply
+    ? await args.onPreparedReply({ routeKind: "leasing_template", replyBody: reply })
+    : true;
+  if (!prepared) {
+    releaseInboundMessageClaims(claimedMessageIds);
+    return { ok: false, intent, replied: false, error: "Reply preparation failed." };
+  }
   const send = await replySms({
     to: from,
     text: reply,
     managerUserId: landlordId,
     workNumber,
+    counterpartyRole: "prospect",
+    conversationKey: buildConversationKey({
+      ownerManagerUserId: landlordId,
+      role: "prospect",
+      counterpartyPhone: from,
+    }),
+    dedupeKey: messageId ? `inbound_reply_${messageId}` : null,
   });
-  if (!send.ok) {
+  if (!send.ok && !send.durablyAccepted) {
     return { ok: false, intent, replied: false, error: send.error || "Send failed." };
   }
 
@@ -1000,5 +1096,11 @@ export async function handleClawLeasingInbound(args: {
     ]);
   });
 
-  return { ok: true, intent, replied: true };
+  return {
+    ok: true,
+    intent,
+    replied: true,
+    outboxId: send.outboxId,
+    durablyAccepted: send.durablyAccepted,
+  };
 }

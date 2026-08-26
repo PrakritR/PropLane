@@ -1,8 +1,9 @@
 import { NextResponse } from "next/server";
+import { randomUUID } from "node:crypto";
 import twilio from "twilio";
 import { handleClawLeasingInbound } from "@/lib/claw-leasing-bot.server";
 import { rateLimit } from "@/lib/rate-limit";
-import { recordOptIn, recordOptOut } from "@/lib/sms-consent";
+import { normalizeConsentPhone, readSmsSuppressionState } from "@/lib/sms-consent";
 import { isClawSharedLineBridgeEnabled } from "@/lib/claw-leasing-links";
 import {
   detectManagerSelfReply,
@@ -12,8 +13,22 @@ import {
 import { twilioMediaUrls } from "@/lib/sms-media.server";
 import { inboundLogIdentityFields } from "@/lib/manager-sms-messages.server";
 import { relayInboundSms } from "@/lib/sms-relay.server";
+import { resolveResidentSmsAgentContext } from "@/lib/tools/resident-sms-context";
+import {
+  deliverResidentSmsReply,
+  runResidentSmsAgentTurn,
+} from "@/lib/agent/resident-sms-agent.server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { normalizeE164 } from "@/lib/twilio";
+import { fetchTwilioMessageCreatedAt, twilioWebhookAuthToken } from "@/lib/twilio-client.server";
+import {
+  attachInboundOutbox,
+  finishInboundClaim,
+  loadInboundReplay,
+  prepareInboundReply,
+  type SmsInboundReplay,
+} from "@/lib/sms/inbound-replay.server";
+import { upsertManagerSmsContact } from "@/lib/sms/manager-sms-contacts.server";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -48,6 +63,32 @@ function phoneVariants(raw: string): string[] {
   ].filter(Boolean);
 }
 
+async function resolveOwnedWorkNumber(
+  db: ReturnType<typeof createSupabaseServiceRoleClient>,
+  toPhone: string,
+): Promise<{ managerId: string; messagingServiceSid: string } | null> {
+  const expectedServiceSid = process.env.TWILIO_MESSAGING_SERVICE_SID?.trim();
+  if (!expectedServiceSid) return null;
+  const { data, error } = await db
+    .from("manager_sms_numbers")
+    .select("manager_user_id, messaging_service_sid, provision_state, grace_expires_at, updated_at")
+    .in("phone_number", phoneVariants(toPhone))
+    .eq("messaging_service_sid", expectedServiceSid)
+    .order("updated_at", { ascending: false })
+    .limit(10);
+  if (error) return null;
+  const candidates = (data ?? []).filter((row) => {
+    const graceActive = row.grace_expires_at && Date.parse(String(row.grace_expires_at)) > Date.now();
+    return row.provision_state === "active" || row.provision_state === "provisioning" || graceActive;
+  });
+  // A recycled or duplicated assignment is unsafe to guess. Fail closed until
+  // the control plane has one authoritative current owner.
+  if (candidates.length !== 1) return null;
+  const row = candidates[0];
+  const managerId = String(row.manager_user_id ?? "").trim();
+  return managerId ? { managerId, messagingServiceSid: expectedServiceSid } : null;
+}
+
 /** Empty TwiML — replies are sent asynchronously via the Messaging API. */
 function twimlOk(reply?: string): NextResponse {
   const escaped = reply
@@ -65,15 +106,15 @@ function twimlOk(reply?: string): NextResponse {
 /**
  * Twilio inbound SMS webhook for manager work numbers.
  *
- * Any From phone is accepted (no allowlist). After relay-pool handling, the
- * message is routed through leasing bot / resident intents / manager agent
- * commands — same product logic as the former Claw gateway, Twilio-native.
+ * Any From phone is accepted (no allowlist). Managed-runtime messages route
+ * through the durable receipt claim and then leasing bot / resident intents /
+ * manager agent commands. The legacy relay pool is runtime-off only.
  *
  * Configure in Twilio: Messaging webhook → POST https://<host>/api/twilio/inbound
  * (must match TWILIO_WEBHOOK_URL when set, for signature validation).
  */
 export async function POST(req: Request) {
-  const authToken = process.env.TWILIO_AUTH_TOKEN?.trim();
+  const authToken = twilioWebhookAuthToken();
   if (!authToken) return NextResponse.json({ error: "SMS not configured." }, { status: 503 });
 
   const raw = await req.text();
@@ -95,69 +136,100 @@ export async function POST(req: Request) {
   const messageSid = String(params.MessageSid ?? "").trim() || null;
   if (!fromPhone || !toPhone) return twimlOk();
 
-  if (!rateLimit(`twilio-inbound:${fromPhone}`, 20, 60_000).ok) {
-    return twimlOk();
-  }
-
   const db = createSupabaseServiceRoleClient();
+  const ownedNumber = await resolveOwnedWorkNumber(db, toPhone);
 
-  // Compliance: handle STOP/START/HELP control keywords before any routing.
+  // Compliance controls run before traffic shedding so a legitimate STOP can
+  // never be discarded by the ordinary inbound rate limiter.
   const keyword = body.toUpperCase();
-  if (SMS_STOP_KEYWORDS.has(keyword)) {
-    await recordOptOut(db, fromPhone);
-    return twimlOk();
+  let controlKeyword: "STOP" | "START" | "HELP" | null = SMS_STOP_KEYWORDS.has(keyword)
+    ? "STOP"
+    : SMS_START_KEYWORDS.has(keyword)
+      ? "START"
+      : SMS_HELP_KEYWORDS.has(keyword)
+        ? "HELP"
+        : null;
+
+  // "YES" is both a carrier opt-in synonym and the natural way to approve an
+  // agent proposal by text. Compliance runs first, so without this the reply a
+  // resident sends to confirm a rent payment is silently eaten as an opt-in and
+  // the proposal is never confirmed.
+  //
+  // Precedence is resolved by STATE, not by guessing intent: opting in is only
+  // meaningful for a phone that is currently opted OUT, and a suppressed phone
+  // was never sent a proposal in the first place. So START keeps priority while
+  // suppressed, and otherwise the message falls through to the agent. STOP and
+  // HELP are never reinterpreted — those must work unconditionally.
+  if (controlKeyword === "START") {
+    const suppression = await readSmsSuppressionState(db, fromPhone);
+    // Unreadable suppression falls back to carrier handling: treating an
+    // unknown state as "not opted out" could swallow a genuine opt-in.
+    if (suppression.ok && !suppression.optedOut) controlKeyword = null;
   }
-  if (SMS_START_KEYWORDS.has(keyword)) {
-    await recordOptIn(db, fromPhone);
-    return twimlOk();
-  }
-  if (SMS_HELP_KEYWORDS.has(keyword)) {
+
+  if (controlKeyword) {
+    const phoneKey = normalizeConsentPhone(fromPhone);
+    if (!messageSid || !phoneKey) {
+      return NextResponse.json({ error: "Invalid control message." }, { status: 400 });
+    }
+    const providerOccurredAt = await fetchTwilioMessageCreatedAt(messageSid);
+    if (!providerOccurredAt) {
+      return NextResponse.json({ error: "Control message time unavailable." }, { status: 503 });
+    }
+    const { error: controlError } = await db.rpc("apply_sms_control_keyword", {
+      p_message_sid: messageSid,
+      p_recipient_phone_key: phoneKey,
+      p_keyword: controlKeyword,
+      p_provider_occurred_at: providerOccurredAt,
+      p_manager_user_id: ownedNumber?.managerId ?? null,
+      p_messaging_service_sid: ownedNumber?.messagingServiceSid ?? null,
+    });
+    if (controlError) {
+      // Non-2xx asks Twilio to retry; the RPC is atomic and MessageSid-unique.
+      return NextResponse.json({ error: "Control receipt unavailable." }, { status: 503 });
+    }
     return twimlOk();
   }
 
-  // Idempotency: Twilio retries on any non-2xx/timeout.
-  if (messageSid) {
-    const { data: seen } = await db
-      .from("inbound_sms_log")
-      .select("id")
-      .eq("message_sid", messageSid)
-      .limit(1);
-    if ((seen ?? []).length > 0) return twimlOk();
-  }
-
-  // Proxy-pair relay first (manager ↔ resident via pooled number).
-  const mediaUrls = twilioMediaUrls(params);
-  const relay = await relayInboundSms(db, { fromPhone, toPhone, body, messageSid, mediaUrls });
-  if (relay.handled) {
-    await db
-      .from("inbound_sms_log")
-      .insert({
-        manager_user_id: relay.managerUserId ?? null,
-        from_phone: fromPhone,
-        to_phone: toPhone,
-        matched_sender_user_id: relay.senderUserId ?? null,
-        body,
-        message_sid: messageSid,
-        // Proxy-pair relay is always a bound resident ↔ manager thread.
-        ...inboundLogIdentityFields({
-          managerUserId: relay.managerUserId ?? null,
-          counterpartyRole: "resident",
-          counterpartyUserId: relay.senderUserId ?? null,
-          fromPhone,
-        }),
-      })
-      .then(() => undefined, () => undefined);
-    return twimlOk(relay.reply);
+  // The legacy pooled proxy relay predates the durable inbound receipt state
+  // machine. It is deliberately excluded from the managed work-number launch:
+  // otherwise a crash between its relay legs could acknowledge a partially
+  // delivered message. Runtime-off installations retain the legacy behavior.
+  if (process.env.SMS_RUNTIME_ENABLED?.trim() !== "1") {
+    if (!rateLimit(`twilio-inbound:${fromPhone}`, 20, 60_000).ok) {
+      return twimlOk();
+    }
+    const mediaUrls = twilioMediaUrls(params);
+    const relay = await relayInboundSms(db, { fromPhone, toPhone, body, messageSid, mediaUrls });
+    if (relay.handled) {
+      await db
+        .from("inbound_sms_log")
+        .insert({
+          manager_user_id: relay.managerUserId ?? null,
+          from_phone: fromPhone,
+          to_phone: toPhone,
+          matched_sender_user_id: relay.senderUserId ?? null,
+          body,
+          message_sid: messageSid,
+          // Proxy-pair relay is always a bound resident ↔ manager thread.
+          ...inboundLogIdentityFields({
+            managerUserId: relay.managerUserId ?? null,
+            counterpartyRole: "resident",
+            counterpartyUserId: relay.senderUserId ?? null,
+            fromPhone,
+          }),
+        })
+        .then(() => undefined, () => undefined);
+      return twimlOk(relay.reply);
+    }
   }
 
   // Manager is whoever owns the work number that was texted.
-  const { data: managerRows } = await db
-    .from("profiles")
-    .select("id")
-    .in("sms_from_number", phoneVariants(toPhone))
-    .limit(1);
-  const managerId = String((managerRows ?? [])[0]?.id ?? "").trim();
+  const managerId = ownedNumber?.managerId ?? "";
   if (!managerId) {
+    if (!rateLimit(`twilio-inbound:${fromPhone}`, 20, 60_000).ok) {
+      return twimlOk();
+    }
     await db
       .from("inbound_sms_log")
       .insert({
@@ -171,8 +243,124 @@ export async function POST(req: Request) {
     return twimlOk();
   }
 
-  const workNumber = normalizeE164(toPhone) ?? toPhone;
+  if (!messageSid) {
+    return NextResponse.json({ error: "MessageSid is required." }, { status: 400 });
+  }
+  const inboundPhoneKey = normalizeConsentPhone(fromPhone);
+  if (!inboundPhoneKey) {
+    return NextResponse.json({ error: "Invalid sender phone." }, { status: 400 });
+  }
 
+  // Count a provider MessageSid against the abuse limit only before its first
+  // durable receipt exists. Twilio retries of a failed/leased message must not
+  // consume the sender's quota and then get acknowledged before replay can
+  // finish; that would turn a retry storm into silent message loss.
+  const replayBeforeClaim = await loadInboundReplay(db, messageSid);
+  if (!replayBeforeClaim.ok) {
+    return NextResponse.json({ error: "Inbound replay state unavailable." }, { status: 503 });
+  }
+  if (!replayBeforeClaim.receipt && !rateLimit(`twilio-inbound:${fromPhone}`, 20, 60_000).ok) {
+    return twimlOk();
+  }
+  const inboundWorkerId = `inbound-${randomUUID()}`;
+  const { data: inboundClaimed, error: inboundClaimError } = await db.rpc("claim_sms_inbound", {
+    p_message_sid: messageSid,
+    p_manager_user_id: managerId,
+    p_recipient_phone_key: inboundPhoneKey,
+    p_worker_id: inboundWorkerId,
+    p_lease_seconds: 120,
+  });
+  if (inboundClaimError) {
+    return NextResponse.json({ error: "Inbound receipt unavailable." }, { status: 503 });
+  }
+  if (inboundClaimed !== true) {
+    // `false` can mean either a completed replay OR another worker/failed
+    // completion still owns the lease. Acknowledging both would make Twilio
+    // stop retrying a message whose reply was never durably completed.
+    const { data: receipt, error: receiptError } = await db
+      .from("sms_inbound_receipts")
+      .select("status")
+      .eq("message_sid", messageSid)
+      .maybeSingle();
+    if (receiptError || receipt?.status !== "completed") {
+      return NextResponse.json({ error: "Inbound processing is still pending." }, { status: 503 });
+    }
+    return twimlOk();
+  }
+
+  const replay = await loadInboundReplay(db, messageSid);
+  if (!replay.ok) {
+    await finishInboundClaim(db, messageSid, inboundWorkerId, "retryable");
+    return NextResponse.json({ error: "Inbound replay state unavailable." }, { status: 503 });
+  }
+
+  /** Complete once a durable outbox row owns delivery; provider callbacks and
+   * the dispatcher handle the rest, so Twilio must not rerun the agent turn. */
+  const finishPreparedDelivery = async (
+    receipt: SmsInboundReplay,
+    delivered: { ok: boolean; error?: string; outboxId?: string; durablyAccepted?: boolean },
+  ): Promise<NextResponse> => {
+    const outboxId = receipt.outboxId ?? delivered.outboxId ?? null;
+    if (outboxId && !receipt.outboxId) {
+      const attached = await attachInboundOutbox(db, {
+        messageSid,
+        workerId: inboundWorkerId,
+        outboxId,
+      });
+      if (!attached) {
+        await finishInboundClaim(db, messageSid, inboundWorkerId, "retryable");
+        return NextResponse.json({ error: "Inbound outbox linkage unavailable." }, { status: 503 });
+      }
+    }
+    if (outboxId || delivered.durablyAccepted || delivered.ok) {
+      if (!(await finishInboundClaim(db, messageSid, inboundWorkerId, "completed"))) {
+        return NextResponse.json({ error: "Inbound completion unavailable." }, { status: 503 });
+      }
+      return twimlOk();
+    }
+    await finishInboundClaim(db, messageSid, inboundWorkerId, "retryable");
+    return NextResponse.json({ error: delivered.error ?? "Reply delivery failed." }, { status: 503 });
+  };
+
+  // A prior worker completed the model/tool phase and persisted the exact
+  // reply before transport. Re-send only that reply; never rerun the turn.
+  if (replay.receipt?.replyBody) {
+    if (replay.receipt.outboxId) {
+      return finishPreparedDelivery(replay.receipt, {
+        ok: true,
+        outboxId: replay.receipt.outboxId,
+        durablyAccepted: true,
+      });
+    }
+    if (replay.receipt.routeKind === "resident_agent" && replay.receipt.counterpartyUserId) {
+      const delivered = await deliverResidentSmsReply({
+        ownerManagerUserId: managerId,
+        residentUserId: replay.receipt.counterpartyUserId,
+        toPhone: fromPhone,
+        text: replay.receipt.replyBody,
+        workNumber: normalizeE164(toPhone) ?? toPhone,
+        inboundMessageSid: messageSid,
+        traceId: replay.receipt.turnTraceId,
+      });
+      return finishPreparedDelivery(replay.receipt, delivered);
+    }
+    if (replay.receipt.routeKind === "leasing_agent" || replay.receipt.routeKind === "leasing_template") {
+      const { deliverLeasingSmsReply } = await import("@/lib/agent/leasing-sms-agent.server");
+      const delivered = await deliverLeasingSmsReply({
+        landlordId: managerId,
+        toPhone: fromPhone,
+        text: replay.receipt.replyBody,
+        workNumber: normalizeE164(toPhone) ?? toPhone,
+        inboundMessageSid: messageSid,
+        traceId: replay.receipt.turnTraceId,
+      });
+      return finishPreparedDelivery(replay.receipt, delivered);
+    }
+    await finishInboundClaim(db, messageSid, inboundWorkerId, "retryable");
+    return NextResponse.json({ error: "Prepared inbound route unavailable." }, { status: 503 });
+  }
+
+  const workNumber = normalizeE164(toPhone) ?? toPhone;
   // Leg 2 — manager reply. If the sender is this manager's OWN verified cell
   // texting their own work number, route the text to their active resident
   // conversation instead of treating the manager as a resident.
@@ -182,6 +370,7 @@ export async function POST(req: Request) {
       managerUserId: managerId,
       workNumber: selfReply.workNumber,
       body,
+      messageSid,
     });
     await db
       .from("inbound_sms_log")
@@ -204,21 +393,151 @@ export async function POST(req: Request) {
             ? "No active resident conversation to reply to. Open PropLane to pick a recipient."
             : "Couldn't send that reply. Open PropLane to try again.";
     }
+    if (!(await finishInboundClaim(db, messageSid, inboundWorkerId, "completed"))) {
+      return NextResponse.json({ error: "Inbound completion unavailable." }, { status: 503 });
+    }
     return twimlOk(notice);
   }
 
+  // Resident fork. A texter is only handed the resident tool catalog when their
+  // phone is VERIFIED on a profile AND the owner of the work number they texted
+  // is one of that resident's managers — both enforced inside
+  // `resolveResidentSmsAgentContext`. Everyone else (prospects, unverified or
+  // recycled numbers, someone texting the wrong manager) falls through to the
+  // leasing agent below, which holds no personal data. That fall-through is why
+  // this fork cannot regress today's behaviour for anyone.
+  const residentIdentity = await resolveResidentSmsAgentContext(db, {
+    fromPhone,
+    ownerManagerUserId: managerId,
+  });
+  if (residentIdentity.ok) {
+    await upsertManagerSmsContact(db, {
+      managerUserId: managerId,
+      phone: fromPhone,
+      counterpartyRole: "resident",
+      lastInboundAt: new Date().toISOString(),
+    }).catch(() => ({ ok: false as const, error: "contact_upsert_failed" }));
+    const turn = await runResidentSmsAgentTurn(db, {
+      ctx: residentIdentity.ctx,
+      ownerManagerUserId: managerId,
+      residentPhoneE164: normalizeE164(fromPhone) ?? fromPhone,
+      inboundText: body,
+      inboundMessageSid: messageSid,
+    });
+    if (turn) {
+      const prepared = await prepareInboundReply(db, {
+        messageSid,
+        workerId: inboundWorkerId,
+        routeKind: "resident_agent",
+        counterpartyUserId: residentIdentity.ctx.userId,
+        agentSessionId: turn.sessionId,
+        inboundAgentMessageId: turn.inboundMessageId,
+        assistantAgentMessageId: turn.assistantMessageId,
+        pendingActionId: turn.pendingActionId,
+        turnTraceId: turn.traceId,
+        replyBody: turn.reply,
+      });
+      if (!prepared) {
+        await finishInboundClaim(db, messageSid, inboundWorkerId, "retryable");
+        return NextResponse.json({ error: "Reply preparation failed." }, { status: 503 });
+      }
+      const delivered = await deliverResidentSmsReply({
+        ownerManagerUserId: managerId,
+        residentUserId: residentIdentity.ctx.userId,
+        toPhone: fromPhone,
+        text: turn.reply,
+        workNumber,
+        inboundMessageSid: messageSid,
+        traceId: turn.traceId,
+      });
+      const finished = await finishPreparedDelivery(
+        {
+          status: "processing",
+          routeKind: "resident_agent",
+          counterpartyUserId: residentIdentity.ctx.userId,
+          agentSessionId: turn.sessionId,
+          inboundAgentMessageId: turn.inboundMessageId ?? null,
+          assistantAgentMessageId: turn.assistantMessageId ?? null,
+          pendingActionId: turn.pendingActionId ?? null,
+          turnTraceId: turn.traceId ?? null,
+          replyBody: turn.reply,
+          outboxId: null,
+        },
+        delivered,
+      );
+      if (finished.status !== 200) return finished;
+    }
+    await db
+      .from("inbound_sms_log")
+      .insert({
+        manager_user_id: managerId,
+        from_phone: fromPhone,
+        to_phone: toPhone,
+        matched_sender_user_id: residentIdentity.ctx.userId,
+        body,
+        message_sid: messageSid,
+        ...inboundLogIdentityFields({
+          managerUserId: managerId,
+          counterpartyRole: "resident",
+          counterpartyUserId: residentIdentity.ctx.userId,
+          fromPhone,
+        }),
+      })
+      .then(() => undefined, () => undefined);
+    if (turn) return twimlOk();
+    if (!(await finishInboundClaim(db, messageSid, inboundWorkerId, "completed"))) {
+      return NextResponse.json({ error: "Inbound completion unavailable." }, { status: 503 });
+    }
+    return twimlOk();
+  }
+
+  let handled;
   try {
-    await handleClawLeasingInbound({
+    await upsertManagerSmsContact(db, {
+      managerUserId: managerId,
+      phone: fromPhone,
+      counterpartyRole: "prospect",
+      lastInboundAt: new Date().toISOString(),
+    }).catch(() => ({ ok: false as const, error: "contact_upsert_failed" }));
+    handled = await handleClawLeasingInbound({
       from: fromPhone,
       text: body,
       messageId: messageSid,
       managerUserId: managerId,
       workNumber,
       service: "SMS",
+      durablyClaimed: true,
+      onPreparedReply: (prepared) =>
+        prepareInboundReply(db, {
+          messageSid,
+          workerId: inboundWorkerId,
+          routeKind: prepared.routeKind,
+          agentSessionId: prepared.agentSessionId,
+          inboundAgentMessageId: prepared.inboundAgentMessageId,
+          assistantAgentMessageId: prepared.assistantAgentMessageId,
+          turnTraceId: prepared.turnTraceId,
+          replyBody: prepared.replyBody,
+        }),
     });
   } catch (e) {
     console.error("twilio inbound leasing handler failed", managerId, e);
-    return twimlOk();
+    await finishInboundClaim(db, messageSid, inboundWorkerId, "retryable");
+    return NextResponse.json({ error: "Inbound processing failed." }, { status: 503 });
+  }
+  if (!handled.ok) {
+    await finishInboundClaim(db, messageSid, inboundWorkerId, "retryable");
+    return NextResponse.json({ error: handled.error ?? "Inbound processing failed." }, { status: 503 });
+  }
+  if (handled.outboxId) {
+    const attached = await attachInboundOutbox(db, {
+      messageSid,
+      workerId: inboundWorkerId,
+      outboxId: handled.outboxId,
+    });
+    if (!attached) {
+      await finishInboundClaim(db, messageSid, inboundWorkerId, "retryable");
+      return NextResponse.json({ error: "Inbound outbox linkage unavailable." }, { status: 503 });
+    }
   }
 
   // Leg 1 — forward the resident's text to the manager's own cell (labelled,
@@ -248,6 +567,10 @@ export async function POST(req: Request) {
       ...inboundLogIdentityFields({ managerUserId: managerId, fromPhone }),
     })
     .then(() => undefined, () => undefined);
+
+  if (!(await finishInboundClaim(db, messageSid, inboundWorkerId, "completed"))) {
+    return NextResponse.json({ error: "Inbound completion unavailable." }, { status: 503 });
+  }
 
   return twimlOk();
 }

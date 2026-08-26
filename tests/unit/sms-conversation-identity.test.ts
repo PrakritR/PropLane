@@ -26,6 +26,7 @@ function makeDb(canned: {
   relayThreads?: unknown[];
   relayMessages?: unknown[];
   relayBindings?: unknown[];
+  smsContacts?: unknown[];
 }) {
   const tableData: Record<string, unknown[]> = {
     manager_application_records: canned.managerApplications ?? [],
@@ -35,6 +36,7 @@ function makeDb(canned: {
     sms_relay_threads: canned.relayThreads ?? [],
     sms_relay_messages: canned.relayMessages ?? [],
     sms_relay_bindings: canned.relayBindings ?? [],
+    manager_sms_contacts: canned.smsContacts ?? [],
   };
   const from = (table: string) => {
     const builder: Record<string, unknown> = {};
@@ -87,6 +89,72 @@ describe("conversation identity helpers", () => {
 
 describe("fetchManagerSmsConversations — per-counterparty threading & tenant isolation", () => {
   beforeEach(() => vi.clearAllMocks());
+
+  it("returns a saved phone contact before any message exists", async () => {
+    const { fetchManagerSmsConversations } = await import("@/lib/manager-sms-messages.server");
+    const phone = "+14155550123";
+    const db = makeDb({
+      smsContacts: [
+        {
+          manager_user_id: M,
+          phone_e164: phone,
+          counterparty_role: "unknown",
+          display_name: "Jordan Lee",
+          last_inbound_at: null,
+        },
+      ],
+    });
+
+    const payload = await fetchManagerSmsConversations(db, M, { scopeManagerIdsOverride: [M] });
+
+    expect(payload.residents).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        conversationKey: `${M}:unknown:${phone}`,
+        ownerManagerUserId: M,
+        phone,
+        savedContactName: "Jordan Lee",
+        counterpartyRole: "unknown",
+        messages: [],
+      }),
+    ]));
+  });
+
+  it("decorates an unknown texter with the manager's private saved label", async () => {
+    const { fetchManagerSmsConversations } = await import("@/lib/manager-sms-messages.server");
+    const phone = "+14155550199";
+    const db = makeDb({
+      managerMessages: [
+        {
+          id: "m-prospect",
+          manager_user_id: M,
+          resident_user_id: null,
+          resident_phone: phone,
+          body: "Is unit 4 still available?",
+          from_phone: phone,
+          to_phone: "+12053690702",
+          message_sid: "SMprospect",
+          source: "work_number",
+          created_at: "2026-08-26T12:00:00Z",
+          direction: "inbound",
+          counterparty_role: "prospect",
+          conversation_key: `${M}:prospect:${phone}`,
+        },
+      ],
+      smsContacts: [
+        {
+          manager_user_id: M,
+          phone_e164: phone,
+          counterparty_role: "prospect",
+          display_name: "Jordan · Unit 4 inquiry",
+          last_inbound_at: "2026-08-26T12:00:00Z",
+        },
+      ],
+    });
+
+    const payload = await fetchManagerSmsConversations(db, M, { scopeManagerIdsOverride: [M] });
+    const prospect = payload.residents.find((row) => row.counterpartyRole === "prospect");
+    expect(prospect?.savedContactName).toBe("Jordan · Unit 4 inquiry");
+  });
 
   it("keeps two residents on ONE shared line in two separate threads", async () => {
     const { fetchManagerSmsConversations } = await import("@/lib/manager-sms-messages.server");

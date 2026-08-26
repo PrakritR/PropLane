@@ -1,4 +1,3 @@
-import twilio from "twilio";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import {
   clawLeasingAgentPhoneE164,
@@ -7,6 +6,7 @@ import {
   isPlaceholderManagerWorkNumber,
 } from "@/lib/claw-leasing-links";
 import { PRODUCTION_APP_ORIGIN, resolveEmailLinkBaseUrl } from "@/lib/app-url";
+import { createTwilioRestClient } from "@/lib/twilio-client.server";
 
 export type EnsureManagerSmsNumberResult =
   | { ok: true; number: string }
@@ -37,10 +37,10 @@ export type PurchaseTwilioNumberResult =
  */
 export async function purchaseManagerTwilioNumber(opts?: {
   areaCode?: string;
+  requestId?: string;
 }): Promise<PurchaseTwilioNumberResult> {
-  const accountSid = process.env.TWILIO_ACCOUNT_SID?.trim();
-  const authToken = process.env.TWILIO_AUTH_TOKEN?.trim();
-  if (!accountSid || !authToken) {
+  const client = createTwilioRestClient();
+  if (!client) {
     return { ok: false, error: "SMS is not configured (missing Twilio credentials)." };
   }
 
@@ -48,8 +48,6 @@ export async function purchaseManagerTwilioNumber(opts?: {
   const areaCode = areaCodeDigits && areaCodeDigits.length === 3 ? Number(areaCodeDigits) : undefined;
 
   try {
-    const client = twilio(accountSid, authToken);
-
     const available = await client.availablePhoneNumbers("US").local.list({
       ...(areaCode ? { areaCode } : {}),
       smsEnabled: true,
@@ -67,6 +65,7 @@ export async function purchaseManagerTwilioNumber(opts?: {
 
     const purchased = await client.incomingPhoneNumbers.create({
       phoneNumber: candidate,
+      ...(opts?.requestId ? { friendlyName: `proplane-manager-${opts.requestId}` } : {}),
       smsUrl: resolveInboundWebhookUrl(),
       smsMethod: "POST",
     });
@@ -75,13 +74,16 @@ export async function purchaseManagerTwilioNumber(opts?: {
 
     let messagingServiceSid: string | null = null;
     const svc = process.env.TWILIO_MESSAGING_SERVICE_SID?.trim();
-    if (svc && phoneNumberSid) {
-      try {
-        await client.messaging.v1.services(svc).phoneNumbers.create({ phoneNumberSid });
-        messagingServiceSid = svc;
-      } catch {
-        /* non-fatal: retriable from the Twilio console */
-      }
+    if (!svc || !phoneNumberSid) {
+      await client.incomingPhoneNumbers(phoneNumberSid).remove().catch(() => undefined);
+      return { ok: false, error: "Messaging Service attachment is not configured." };
+    }
+    try {
+      await client.messaging.v1.services(svc).phoneNumbers.create({ phoneNumberSid });
+      messagingServiceSid = svc;
+    } catch {
+      await client.incomingPhoneNumbers(phoneNumberSid).remove().catch(() => undefined);
+      return { ok: false, error: "Could not attach the work number to PropLane messaging." };
     }
 
     return { ok: true, number, sid: phoneNumberSid, messagingServiceSid };
@@ -90,17 +92,90 @@ export async function purchaseManagerTwilioNumber(opts?: {
   }
 }
 
-/** Release a purchased Twilio number (rollback-on-race / deliberate release). */
-export async function releaseTwilioNumber(sid: string | null | undefined): Promise<void> {
-  const s = String(sid ?? "").trim();
-  if (!s) return;
-  const accountSid = process.env.TWILIO_ACCOUNT_SID?.trim();
-  const authToken = process.env.TWILIO_AUTH_TOKEN?.trim();
-  if (!accountSid || !authToken) return;
+export type ReconciledTwilioNumber = {
+  number: string;
+  sid: string;
+  messagingServiceSid: string;
+};
+
+/** Read-only lookup for a purchase whose HTTP response may have been lost. */
+export async function findManagerTwilioNumberByRequestId(
+  requestId: string,
+): Promise<{ ok: true; number: ReconciledTwilioNumber | null } | { ok: false; error: string }> {
+  const id = requestId.trim();
+  const serviceSid = process.env.TWILIO_MESSAGING_SERVICE_SID?.trim();
+  const client = createTwilioRestClient();
+  if (!id || !serviceSid || !client) return { ok: false, error: "SMS provider reconciliation is not configured." };
   try {
-    await twilio(accountSid, authToken).incomingPhoneNumbers(s).remove();
+    const matches = await client.incomingPhoneNumbers.list({
+      friendlyName: `proplane-manager-${id}`,
+      limit: 2,
+    });
+    if (matches.length > 1) return { ok: false, error: "Provider request identity is ambiguous." };
+    const match = matches[0];
+    if (!match) return { ok: true, number: null };
+    const sid = String(match.sid ?? "").trim();
+    const number = String(match.phoneNumber ?? "").trim();
+    if (!sid || !number) return { ok: false, error: "Provider number identity is incomplete." };
+
+    const attached = await client.messaging.v1.services(serviceSid).phoneNumbers.list({ limit: 1000 });
+    if (!attached.some((item) => String(item.phoneNumber ?? "").trim() === number)) {
+      try {
+        await client.messaging.v1.services(serviceSid).phoneNumbers.create({ phoneNumberSid: sid });
+      } catch {
+        const recheck = await client.messaging.v1.services(serviceSid).phoneNumbers.list({ limit: 1000 });
+        if (!recheck.some((item) => String(item.phoneNumber ?? "").trim() === number)) {
+          return { ok: false, error: "Could not reconcile Messaging Service attachment." };
+        }
+      }
+    }
+    return { ok: true, number: { number, sid, messagingServiceSid: serviceSid } };
+  } catch (error) {
+    return { ok: false, error: error instanceof Error ? error.message : "Provider reconciliation failed." };
+  }
+}
+
+/** Read-only ownership check used before clearing a stale profile cache. */
+export async function twilioOwnsPhoneNumber(phone: string): Promise<boolean | null> {
+  const normalized = String(phone ?? "").trim();
+  const client = createTwilioRestClient();
+  if (!normalized || !client) return null;
+  try {
+    const matches = await client.incomingPhoneNumbers.list({ phoneNumber: normalized, limit: 2 });
+    return matches.some((item) => String(item.phoneNumber ?? "").trim() === normalized);
   } catch {
-    /* ignore — best effort */
+    return null;
+  }
+}
+
+/** One provider read for periodic sender-pool drift detection. */
+export async function listAttachedTwilioNumbers(): Promise<
+  { ok: true; phoneNumbers: Set<string> } | { ok: false; error: string }
+> {
+  const serviceSid = process.env.TWILIO_MESSAGING_SERVICE_SID?.trim();
+  const client = createTwilioRestClient();
+  if (!serviceSid || !client) return { ok: false, error: "SMS provider reconciliation is not configured." };
+  try {
+    const rows = await client.messaging.v1.services(serviceSid).phoneNumbers.list({ limit: 1000 });
+    return {
+      ok: true,
+      phoneNumbers: new Set(rows.map((row) => String(row.phoneNumber ?? "").trim()).filter(Boolean)),
+    };
+  } catch (error) {
+    return { ok: false, error: error instanceof Error ? error.message : "Could not read the sender pool." };
+  }
+}
+
+/** Release a purchased Twilio number (rollback-on-race / deliberate release). */
+export async function releaseTwilioNumber(sid: string | null | undefined): Promise<boolean> {
+  const s = String(sid ?? "").trim();
+  if (!s) return false;
+  const client = createTwilioRestClient();
+  if (!client) return false;
+  try {
+    return await client.incomingPhoneNumbers(s).remove();
+  } catch {
+    return false;
   }
 }
 

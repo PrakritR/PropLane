@@ -9,7 +9,7 @@
 //     A2P not cleared) the SMS endpoint is never fetched and no SMS row shows;
 //     when on, SMS rows join the same list. Transport is unaffected either way.
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { render, screen, cleanup, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, cleanup, waitFor } from "@testing-library/react";
 
 const EMAIL_INBOX = {
   id: "thr-2000000001",
@@ -113,6 +113,13 @@ vi.mock("@/lib/portal-inbox-storage", () => ({
 vi.mock("@/components/portal/manager-inbox", () => ({
   ManagerInbox: () => <div data-testid="embedded-email-thread" />,
 }));
+vi.mock("@/components/portal/manager-resident-detail-inbox", () => ({
+  ResidentDirectChatPane: ({ onSent }: { onSent: () => void }) => (
+    <button type="button" data-testid="direct-chat-sent" onClick={onSent}>
+      Sent
+    </button>
+  ),
+}));
 vi.mock("@/components/portal/manager-sms-panel", () => ({ ManagerSmsPanel: () => <div /> }));
 
 import { ManagerUnifiedInbox } from "@/components/portal/manager-unified-inbox";
@@ -137,10 +144,35 @@ describe("unified conversation inbox (no folder tabs)", () => {
     const archivedLink = screen.getByRole("link", { name: /Archived/ });
     expect(archivedLink.getAttribute("href")).toContain("/archived");
 
+    const unreadLink = screen.getByRole("link", { name: /Unread/ });
+    expect(unreadLink.getAttribute("href")).toContain("/unread");
+
+    cleanup();
+    render(<ManagerUnifiedInbox tabId="unopened" commBase="/portal/communication" listSegment="unread" />);
+    expect(screen.getByText("Dana Ramirez")).toBeTruthy();
+    expect(screen.queryByText("sam@example.com")).toBeNull();
+    expect(screen.queryByText("Old Flyer")).toBeNull();
+
     cleanup();
     render(<ManagerUnifiedInbox tabId="unopened" commBase="/portal/communication" listSegment="archived" />);
     expect(screen.getByText("Old Flyer")).toBeTruthy();
     expect(screen.queryByText("Dana Ramirez")).toBeNull();
+  });
+
+  it("keeps search scoped to Unread instead of leaking matching read threads", () => {
+    vi.stubGlobal("fetch", vi.fn(async () => new Response("{}", { status: 200 })));
+    render(
+      <ManagerUnifiedInbox
+        tabId="unopened"
+        commBase="/portal/communication"
+        listSegment="unread"
+        searchQuery="lease"
+        onSearchQueryChange={() => {}}
+      />,
+    );
+
+    expect(screen.queryByText("sam@example.com")).toBeNull();
+    expect(screen.getByText(/No messages match/)).toBeTruthy();
   });
 
   it("never fetches SMS and shows no SMS row when the SMS UI flag is off (default)", async () => {
@@ -154,12 +186,127 @@ describe("unified conversation inbox (no folder tabs)", () => {
     expect(calledSms).toBe(false);
   });
 
+  it("does not fetch SMS when a direct placeholder send refreshes with the UI hidden", async () => {
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({}), { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+    render(
+      <ManagerUnifiedInbox
+        tabId="unopened"
+        commBase="/portal/communication"
+        filterContacts={[
+          {
+            id: "new-resident",
+            name: "New Resident",
+            email: "new-resident@example.com",
+            role: "resident",
+            propertyId: "property-1",
+            propertyLabel: "Maple House",
+          },
+        ]}
+      />,
+    );
+
+    fireEvent.click(await screen.findByText("New Resident"));
+    fireEvent.click(await screen.findByTestId("direct-chat-sent"));
+
+    await waitFor(() => expect(fetchMock).not.toHaveBeenCalledWith(
+      "/api/manager/sms-conversations",
+      expect.anything(),
+    ));
+  });
+
   it("shows SMS conversations alongside email when the SMS UI flag is on", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify(SMS_PAYLOAD), { status: 200 })));
     render(<ManagerUnifiedInbox tabId="unopened" commBase="/portal/communication" smsUiEnabled />);
 
     await waitFor(() => expect(screen.getByText("Jordan Lee")).toBeTruthy());
     expect(screen.getByText("Dana Ramirez")).toBeTruthy();
+  });
+
+  it("shows a saved phone contact before the first message exists", async () => {
+    const contactPayload = {
+      ...SMS_PAYLOAD,
+      residents: [
+        {
+          residentUserId: null,
+          residentEmail: null,
+          name: "Jordan Contact",
+          savedContactName: "Jordan Contact",
+          phone: "+12065550123",
+          propertyLabel: null,
+          counterpartyRole: "unknown",
+          conversationKey: "owner:unknown:+12065550123",
+          messages: [],
+        },
+      ],
+    };
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify(contactPayload), { status: 200 })));
+    render(<ManagerUnifiedInbox tabId="unopened" commBase="/portal/communication" smsUiEnabled />);
+
+    await waitFor(() => expect(screen.getByText("Jordan Contact")).toBeTruthy());
+    expect(screen.getByText("No messages yet")).toBeTruthy();
+  });
+
+  it("opens a just-created contact from an optimistic seed before SMS refetch", async () => {
+    // Refetch stays empty forever — the only way the thread appears is the
+    // optimistic CustomEvent payload from contact create.
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response(JSON.stringify({ workNumber: "+12065550999", residents: [] }), { status: 200 })),
+    );
+    const { MANAGER_SMS_CONTACTS_CHANGED_EVENT } = await import("@/lib/manager-sms-messages");
+    render(
+      <ManagerUnifiedInbox
+        tabId="unopened"
+        commBase="/portal/communication"
+        smsUiEnabled
+        routeThreadId="owner:unknown:+12065550987"
+      />,
+    );
+
+    window.dispatchEvent(
+      new CustomEvent(MANAGER_SMS_CONTACTS_CHANGED_EVENT, {
+        detail: {
+          optimisticResident: {
+            residentUserId: null,
+            residentEmail: null,
+            name: "Fresh Contact",
+            directoryName: null,
+            savedContactName: "Fresh Contact",
+            phone: "+12065550987",
+            propertyLabel: null,
+            counterpartyRole: "unknown",
+            conversationKey: "owner:unknown:+12065550987",
+            memberKeys: ["owner:unknown:+12065550987"],
+            messages: [],
+          },
+        },
+      }),
+    );
+
+    await waitFor(() => expect(screen.getByText("Fresh Contact")).toBeTruthy());
+    // Selection must prefer the routed SMS contact over the first email row.
+    expect(screen.queryByTestId("embedded-email-thread")).toBeNull();
+  });
+
+  it("shows archived SMS conversations in the archived segment", async () => {
+    window.localStorage.setItem(
+      "axis_manager_sms_archived_v1",
+      JSON.stringify(["owner:resident:res-1"]),
+    );
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify(SMS_PAYLOAD), { status: 200 })));
+    render(
+      <ManagerUnifiedInbox
+        tabId="unopened"
+        commBase="/portal/communication"
+        listSegment="archived"
+        smsUiEnabled
+      />,
+    );
+
+    await waitFor(() => expect(screen.getByText("Jordan Lee")).toBeTruthy());
+    expect(screen.queryByText("Dana Ramirez")).toBeNull();
+    window.localStorage.removeItem("axis_manager_sms_archived_v1");
   });
 
   it("does not open a thread on mobile when re-tapping the Active segment", async () => {

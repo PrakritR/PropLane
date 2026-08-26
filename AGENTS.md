@@ -957,6 +957,86 @@ Two routing gotchas this exposed, both of which silently break a section without
   sub-tabs to a section wired into the demo, forward `tabId`/`basePath` there too or the demo
   always shows the first tab no matter which `TabNav` link is clicked.
 
+# Multi-agent collaboration (every host)
+
+This file is the **shared contract** for every coding agent that works in this
+repo - Cursor, Claude Code, Codex, Copilot, and anything else. Host-specific
+files (`CLAUDE.md`, `.cursor/rules/*`, Codex `AGENTS.md` loaders, skills,
+plugins, MCP servers) may add tooling or UI preferences. They must **never**
+weaken, replace, or fork the rules below.
+
+## Skills and plugins do not own policy
+
+- A new skill, plugin, MCP server, or slash-command is additive capability only.
+  It does not override ship-gate, security, branching, RLS, graphify query-first,
+  or any invariant in this file / `docs/agents/*`.
+- If a skill's workflow conflicts with this file, **this file wins**. Adapt the
+  skill around the invariant; do not invent a parallel process.
+- Do not create a second "source of truth" for the same concern (second ship
+  checklist, second SMS policy, second assistant framework, etc.). Extend the
+  existing doc or code path.
+- When spawning subagents, paste the constraints that matter for the task
+  (especially graphify query-first, landlord scoping, and "do not commit unless
+  asked"). Subagents inherit tools, not judgment - make the contract explicit.
+
+## Shared workspace, not private memory
+
+- Prefer durable, repo-visible artifacts: code, tests, `docs/agents/*`, PR/handoff
+  notes, and `graphify-out/` (local knowledge graph). Do not rely on one host's
+  chat history or plugin memory as the handoff to another host.
+- `graphify-out/` is gitignored and regenerated locally. After meaningful code
+  edits, refresh it (`graphify update .` or the post-commit hook) so the next
+  agent - on any host - sees the same map.
+- Dirty `graphify-out/` files after hooks/updates are expected and are **not** a
+  reason to skip the graph.
+
+## One orientation path for the codebase
+
+Before broad Grep/Glob/Read exploration of architecture or "what calls what":
+
+1. `graphify query "<question>"` (or `path` / `explain`) when `graphify-out/graph.json` exists
+2. Else `graphify-out/wiki/index.md` for community navigation
+3. Else `docs/agents/<area>.md` for feature invariants
+4. Only then raw search / file reads for the specific lines to change
+
+Host wiring (all optional helpers; the rules above still apply if missing):
+
+| Host | Install once per machine |
+| --- | --- |
+| Cursor | `graphify cursor install` → `.cursor/rules/graphify.mdc` |
+| Claude Code | `graphify claude install` → `CLAUDE.md` section + `.claude/` PreToolUse hooks |
+| Codex | `graphify codex install` → this file + local `.codex/hooks.json` |
+| Any / Agents | `graphify agents install` (idempotent on this file) |
+| Git freshness | `graphify hook install` (post-commit / post-checkout AST rebuild) |
+
+Noise filter: `.graphifyignore`. Package: `graphifyy` (CLI still named `graphify`).
+
+Graphify operating detail (kept outside the stock `## graphify` block below, because
+`graphify agents install` may refresh that block):
+- Prefer exact symbol/file labels for `graphify path`.
+- Literal match only - if a query returns nothing useful, expand terms against
+  graph vocabulary (no invented synonyms).
+- Trust EXTRACTED edges as facts; treat INFERRED edges as hypotheses to verify
+  in source.
+- After large merges/refactors: `graphify cluster-only .` and `graphify export wiki`.
+- Optional feedback: `graphify save-result` after useful answers, then
+  `graphify reflect`.
+- Host wiring installs (`graphify cursor|claude|codex|hook install`) are one-time
+  per machine; do not re-run `graphify agents install` just to refresh this file.
+
+## graphify
+
+This project has a knowledge graph at graphify-out/ with god nodes, community structure, and cross-file relationships.
+
+When the user types `/graphify`, use the installed graphify skill or instructions before doing anything else.
+
+Rules:
+- For codebase questions, first run `graphify query "<question>"` when graphify-out/graph.json exists. Use `graphify path "<A>" "<B>"` for relationships and `graphify explain "<concept>"` for focused concepts. These return a scoped subgraph, usually much smaller than GRAPH_REPORT.md or raw grep output.
+- Dirty graphify-out/ files are expected after hooks or incremental updates; dirty graph files are not a reason to skip graphify. Only skip graphify if the task is about stale or incorrect graph output, or the user explicitly says not to use it.
+- If graphify-out/wiki/index.md exists, use it for broad navigation instead of raw source browsing.
+- Read graphify-out/GRAPH_REPORT.md only for broad architecture review or when query/path/explain do not surface enough context.
+- After modifying code, run `graphify update .` to keep the graph current (AST-only, no API cost).
+
 ## Maintaining this file
 
 Keep this file for knowledge useful to almost every future agent session in this project.

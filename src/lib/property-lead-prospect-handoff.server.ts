@@ -1,5 +1,8 @@
 import { resolveEmailLinkBaseUrl } from "@/lib/app-url";
 import { sendResidentOutboundSms } from "@/lib/resident-outbound-sms.server";
+import { buildConversationKey } from "@/lib/sms-conversation-identity";
+import { recordScopedSmsConsent } from "@/lib/sms-consent";
+import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 
 async function deliverEmail(to: string[], subject: string, text: string): Promise<void> {
   const recipients = to.map((e) => e.trim().toLowerCase()).filter((e) => e.includes("@"));
@@ -35,6 +38,9 @@ function buildCreateAccountUrl(input: {
 
 /** Email (+ optional SMS) nudging a guest to create a resident account after a listing message. */
 export async function notifyProspectPropertyMessageHandoff(input: {
+  managerUserId: string;
+  propertyId: string;
+  messageFingerprint: string;
   name: string;
   email: string;
   phone?: string;
@@ -69,9 +75,37 @@ export async function notifyProspectPropertyMessageHandoff(input: {
 
   const phone = input.phone?.trim();
   if (input.smsConsent === true && phone) {
+    const conversationKey = buildConversationKey({
+      ownerManagerUserId: input.managerUserId,
+      role: "prospect",
+      counterpartyPhone: phone,
+    });
+    const db = createSupabaseServiceRoleClient();
+    const scoped = await recordScopedSmsConsent(db, phone, {
+      managerUserId: input.managerUserId,
+      messagingServiceSid: process.env.TWILIO_MESSAGING_SERVICE_SID?.trim() ?? null,
+      purpose: "property_lead_acknowledgement",
+      sendClass: "transactional",
+      conversationKey,
+      eventType: "granted",
+      source: "property_lead_opt_in",
+      wordingVersion: "property-lead-sms-consent-v1",
+      evidence: { propertyId: input.propertyId },
+    });
+    if (!scoped.ok) return;
     await sendResidentOutboundSms({
       to: phone,
       text: `PropLane: we received your message about ${input.propertyTitle}. Create your free account to read replies: ${createAccountUrl} Reply STOP to opt out, HELP for help.`,
+      openThread: {
+        managerUserId: input.managerUserId,
+        residentEmail: email,
+        topic: "leasing",
+        counterpartyRole: "prospect",
+      },
+      purpose: "property_lead_acknowledgement",
+      sendClass: "transactional",
+      dedupeKey: `property_lead_ack_${input.messageFingerprint}`,
+      mirrorToManager: false,
     }).catch(() => undefined);
   }
 }

@@ -30,6 +30,8 @@ export function PortalListControlStack({
   destinationInset = false,
   /** When false, destination tabs scroll with the list instead of sticking under the mobile nav. */
   stickyDestinations = true,
+  /** `toolbar` renders compact segment tabs (Communication Active / Unread / Archived). */
+  destinationNavSize = "default",
 }: {
   /** Typically {@link PortalFilterSortSheet} (mobile sheet; optional desktop inline pills or panel modal). */
   filterRow?: ReactNode;
@@ -51,6 +53,7 @@ export function PortalListControlStack({
   className?: string;
   destinationInset?: boolean;
   stickyDestinations?: boolean;
+  destinationNavSize?: "default" | "toolbar";
 }) {
   const showDestinations = Boolean(destinationRow) || (destinations && destinations.length > 0);
   const showFindRow = Boolean(filterRow || search);
@@ -96,9 +99,13 @@ export function PortalListControlStack({
                 items={destinations!}
                 activeId={activeDestinationId}
                 ariaLabel={destinationAriaLabel}
+                size={destinationNavSize}
                 className={cn(
-                  "max-lg:rounded-none max-lg:border-0 max-lg:border-b max-lg:border-border max-lg:bg-transparent",
-                  destinationInset ? "max-lg:gap-2.5 max-lg:p-1" : "max-lg:gap-2.5 max-lg:px-2.5 max-lg:py-0 sm:max-lg:px-4",
+                  destinationNavSize === "toolbar"
+                    ? "gap-0.5 rounded-xl border-0 bg-transparent p-0"
+                    : "max-lg:rounded-none max-lg:border-0 max-lg:border-b max-lg:border-border max-lg:bg-transparent",
+                  destinationNavSize !== "toolbar" &&
+                    (destinationInset ? "max-lg:gap-2.5 max-lg:p-1" : "max-lg:gap-2.5 max-lg:px-2.5 max-lg:py-0 sm:max-lg:px-4"),
                 )}
               />
             )}

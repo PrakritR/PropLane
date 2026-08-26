@@ -7,6 +7,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const {
   denyPendingAction,
+  peekPendingActionPortal,
   runConfirmedPendingActionForPortal,
   scoreActionApproval,
   traceAgentAction,
@@ -14,6 +15,7 @@ const {
   appendAgentMessages,
 } = vi.hoisted(() => ({
   denyPendingAction: vi.fn(),
+  peekPendingActionPortal: vi.fn(),
   runConfirmedPendingActionForPortal: vi.fn(),
   scoreActionApproval: vi.fn(),
   traceAgentAction: vi.fn(),
@@ -23,6 +25,7 @@ const {
 
 vi.mock("@/lib/tools/pending-actions", () => ({
   denyPendingAction,
+  peekPendingActionPortal,
 }));
 vi.mock("@/lib/tools/confirm-gate.server", () => ({
   runConfirmedPendingActionForPortal,
@@ -34,13 +37,18 @@ vi.mock("@/lib/observability/langfuse", () => ({
 vi.mock("@/lib/analytics/posthog", () => ({ track }));
 vi.mock("@/lib/agent/sessions", () => ({ appendAgentMessages }));
 
-import { handlePendingActionDecision } from "@/lib/agent/pending-action-decision";
+import { decidePendingAction, handlePendingActionDecision } from "@/lib/agent/pending-action-decision";
 
 const ctx = { userId: "user_a", landlordId: "user_a", db: {} as never };
 const registry = { get: vi.fn() } as never;
 
 beforeEach(() => {
   vi.clearAllMocks();
+  peekPendingActionPortal.mockResolvedValue({
+    state: "found",
+    portal: "manager",
+    toolName: "send_message",
+  });
   scoreActionApproval.mockResolvedValue(true);
   traceAgentAction.mockImplementation(async (_actor, _info, run) => run());
 });
@@ -114,6 +122,78 @@ describe("handlePendingActionDecision scoring", () => {
       actionId: "act-2",
       toolName: "send_message",
     });
+  });
+
+  it("uses the same scored decision service for an SMS resident denial", async () => {
+    peekPendingActionPortal.mockResolvedValue({
+      state: "found",
+      portal: "resident",
+      toolName: "report_maintenance_issue",
+    });
+    denyPendingAction.mockResolvedValue({
+      toolName: "report_maintenance_issue",
+      input: {},
+      portal: "resident",
+      sessionId: "resident-sms-session",
+      proposalTraceId: "lf-resident-sms-proposal",
+    });
+
+    const result = await decidePendingAction({
+      action: { kind: "deny", actionId: "resident-action-1" },
+      ctx,
+      registry,
+      portal: "resident",
+      traceMetadata: {
+        landlordId: "user_a",
+        role: "resident",
+        channel: "sms",
+        sessionId: "resident-sms-session",
+      },
+    });
+
+    expect(result).toEqual(expect.objectContaining({ kind: "denied", known: true }));
+    expect(traceAgentAction).toHaveBeenCalledWith(
+      {
+        userId: "user_a",
+        metadata: {
+          landlordId: "user_a",
+          role: "resident",
+          channel: "sms",
+          sessionId: "resident-sms-session",
+        },
+      },
+      expect.objectContaining({
+        decision: "cancel",
+        actionId: "resident-action-1",
+        proposalTraceId: "lf-resident-sms-proposal",
+      }),
+      expect.any(Function),
+    );
+    expect(scoreActionApproval).toHaveBeenCalledWith({
+      traceId: "lf-resident-sms-proposal",
+      approved: false,
+      actionId: "resident-action-1",
+      toolName: "report_maintenance_issue",
+    });
+  });
+
+  it("does not discard a proposal owned by another portal", async () => {
+    peekPendingActionPortal.mockResolvedValue({
+      state: "found",
+      portal: "resident",
+      toolName: "report_maintenance_issue",
+    });
+
+    const result = await decidePendingAction({
+      action: { kind: "deny", actionId: "resident-action-from-manager" },
+      ctx,
+      registry,
+      portal: "manager",
+    });
+
+    expect(result).toEqual(expect.objectContaining({ kind: "denied", known: false }));
+    expect(denyPendingAction).not.toHaveBeenCalled();
+    expect(scoreActionApproval).not.toHaveBeenCalled();
   });
 
   it("returns null for ordinary chat bodies", async () => {

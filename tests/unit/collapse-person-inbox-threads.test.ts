@@ -103,4 +103,28 @@ describe("collapsePersonInboxThreads", () => {
     ]);
     expect(new Set(timeline.map((m) => m.id)).size).toBe(timeline.length);
   });
+
+  it("deduplicates repeated merged roots from a previously collapsed thread", () => {
+    const id = "tour_inbox_1787367693325_nghn";
+    const rows = collapsePersonInboxThreads([
+      thread({
+        id,
+        folder: "inbox",
+        email: "guest@example.com",
+        body: "Your tour request was received.",
+        from: "PropLane Tours",
+        messages: [
+          { id: `merged:${id}-root`, from: "PropLane Tours", body: "Your tour was confirmed.", at: "Jan 2, 10:00 AM" },
+          { id: `merged:${id}-root`, from: "PropLane Tours", body: "Your tour was confirmed.", at: "Jan 2, 10:00 AM" },
+        ],
+      }),
+    ]);
+
+    const timeline = inboxThreadMessages(rows[0]!);
+    expect(timeline.map((message) => message.body)).toEqual([
+      "Your tour request was received.",
+      "Your tour was confirmed.",
+    ]);
+    expect(new Set(timeline.map((message) => message.id)).size).toBe(timeline.length);
+  });
 });

@@ -1,0 +1,20 @@
+# Keep the knowledge graph focused on product source + docs.
+# graphify already respects .gitignore; this file adds extra noise.
+
+# Local agent / browser automation scratch
+.playwright-cli/
+.playwright-mcp/
+.agents/skills/
+
+# Generated / vendor trees that may not be gitignored everywhere
+ios/Pods/
+ios/DerivedData/
+android/.gradle/
+android/app/build/
+**/__pycache__/
+**/*.min.js
+**/*.min.css
+
+# Graphify's own artifacts (if ever scanned from a parent)
+graphify-out/
+raw/
