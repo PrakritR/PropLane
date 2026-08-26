@@ -45,21 +45,41 @@ const TOUR_PLACEHOLDERS =
   "Placeholders: {guestName}, {propertyTitle}, {tourTime}, {managerName}, {instructions}";
 
 export function ApplicationsSettingsPanel({
+  automation,
   loading,
   saving,
   waiverCode,
+  onAutomationChange,
   onWaiverCodeChange,
   onSave,
 }: {
+  automation: ApplicationAutomationPreferences;
   loading: boolean;
   saving: boolean;
   waiverCode: string;
+  onAutomationChange: (next: ApplicationAutomationPreferences) => void;
   onWaiverCodeChange: (value: string) => void;
   onSave: () => void;
 }) {
   return (
     <div className="space-y-4">
-      <div className="space-y-2">
+      <label className="flex items-start gap-3">
+        <input
+          type="checkbox"
+          className="mt-0.5 h-4 w-4 shrink-0 accent-primary"
+          checked={automation.autoApproveApplications}
+          disabled={loading || saving}
+          data-attr="manager-application-automation-autoApproveApplications"
+          onChange={(e) => onAutomationChange({ ...automation, autoApproveApplications: e.target.checked })}
+        />
+        <span className="min-w-0">
+          <span className="block text-[13px] font-medium text-foreground">Auto-approve applications</span>
+          <span className="block text-xs text-muted">
+            Approve a submitted application without reviewing it first. Withdrawn applications are never approved.
+          </span>
+        </span>
+      </label>
+      <div className="space-y-2 border-t border-border pt-4">
         <p className="text-[13px] font-semibold text-foreground">Promo code</p>
         <Input
           aria-label="Promo code"
@@ -176,44 +196,12 @@ export function LeaseSettingsPanel({
   );
 }
 
-export function ResidentSettingsPanel({
-  automation,
-  loading,
-  saving,
-  onAutomationChange,
-  onSave,
-}: {
-  automation: ApplicationAutomationPreferences;
-  loading: boolean;
-  saving: boolean;
-  onAutomationChange: (next: ApplicationAutomationPreferences) => void;
-  onSave: () => void;
-}) {
+export function ResidentSettingsPanel() {
   return (
-    <div className="space-y-4">
-      <label className="flex items-start gap-3">
-        <input
-          type="checkbox"
-          className="mt-0.5 h-4 w-4 shrink-0 accent-primary"
-          checked={automation.autoApproveApplications}
-          disabled={loading || saving}
-          data-attr="manager-application-automation-autoApproveApplications"
-          onChange={(e) => onAutomationChange({ ...automation, autoApproveApplications: e.target.checked })}
-        />
-        <span className="min-w-0">
-          <span className="block text-[13px] font-medium text-foreground">Auto-approve applications</span>
-          <span className="block text-xs text-muted">
-            Approve a submitted application without reviewing it first. Withdrawn applications are never
-            approved.
-          </span>
-        </span>
-      </label>
-      <div className="flex justify-end border-t border-border pt-3">
-        <Button type="button" className="rounded-full px-4 text-[13px]" onClick={onSave} disabled={loading || saving}>
-          {saving ? "Saving…" : "Save"}
-        </Button>
-      </div>
-    </div>
+    <p className="text-sm text-muted">
+      Portfolio-wide payment reminder presets live under Payments settings. To customize reminders for one
+      household, open that resident and use Reminders on their Payments tab.
+    </p>
   );
 }
 
@@ -605,6 +593,7 @@ export function CommunicationSettingsPanel({ onSaved }: { onSaved?: () => void }
           paymentReminderDeliverViaSms: draft.paymentReminderDeliverViaSms,
           tourReminderDeliverViaEmail: draft.tourReminderDeliverViaEmail,
           tourReminderDeliverViaSms: draft.tourReminderDeliverViaSms,
+          inboxAiDraftAutoSend: draft.inboxAiDraftAutoSend,
         }),
       });
       if (!res.ok) throw new Error("Could not save communication settings.");
@@ -622,7 +611,23 @@ export function CommunicationSettingsPanel({ onSaved }: { onSaved?: () => void }
 
   return (
     <div className="space-y-5">
-      <div className="space-y-2">
+      <label className="flex items-start gap-3">
+        <input
+          type="checkbox"
+          className="mt-0.5 h-4 w-4 shrink-0 accent-primary"
+          checked={draft.inboxAiDraftAutoSend}
+          onChange={(e) => setDraft((prev) => ({ ...prev, inboxAiDraftAutoSend: e.target.checked }))}
+          data-attr="communication-inbox-ai-draft-auto-send"
+        />
+        <span className="min-w-0">
+          <span className="block text-[13px] font-medium text-foreground">Auto-send AI drafts</span>
+          <span className="block text-xs text-muted">
+            When PropLane AI finishes a draft reply, send it without waiting for Approve. The same toggle appears on
+            each draft card in your inbox.
+          </span>
+        </span>
+      </label>
+      <div className="space-y-2 border-t border-border pt-4">
         <p className="text-[13px] font-semibold text-foreground">Payment reminders</p>
         <ReminderSendViaField
           viaEmail={draft.paymentReminderDeliverViaEmail !== false}

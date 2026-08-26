@@ -85,6 +85,12 @@ describe("late-fee opt-in", () => {
     expect(normalizeManagerAutomationSettings({}).lateFeeNoticeEnabled).toBe(false);
   });
 
+  it("defaults inbox AI draft auto-send OFF", () => {
+    expect(DEFAULT_MANAGER_AUTOMATION_SETTINGS.inboxAiDraftAutoSend).toBe(false);
+    expect(normalizeManagerAutomationSettings({}).inboxAiDraftAutoSend).toBe(false);
+    expect(normalizeManagerAutomationSettings({ inboxAiDraftAutoSend: true }).inboxAiDraftAutoSend).toBe(true);
+  });
+
   it("legacy rows without the field stay OFF; explicit true opts in", () => {
     expect(
       normalizeManagerAutomationSettings({ preDueReminderDays: [3] }).lateFeeNoticeEnabled,

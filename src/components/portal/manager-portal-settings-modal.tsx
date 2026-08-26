@@ -112,7 +112,7 @@ export function ManagerPortalSettingsModal({
 
   useEffect(() => {
     if (!open) return;
-    if (tab === "applications" || tab === "lease" || tab === "resident") {
+    if (tab === "applications" || tab === "lease") {
       void loadApplications();
     }
   }, [open, tab, loadApplications]);
@@ -194,11 +194,18 @@ export function ManagerPortalSettingsModal({
 
       {tab === "applications" ? (
         <ApplicationsSettingsPanel
+          automation={automation}
           loading={loading}
           saving={saving}
           waiverCode={waiverCode}
+          onAutomationChange={setAutomation}
           onWaiverCodeChange={setWaiverCode}
-          onSave={() => void saveApplicationBundle({ waiverCode: waiverCode.trim() })}
+          onSave={() =>
+            void saveApplicationBundle({
+              waiverCode: waiverCode.trim(),
+              automation,
+            })
+          }
         />
       ) : null}
 
@@ -216,15 +223,7 @@ export function ManagerPortalSettingsModal({
         />
       ) : null}
 
-      {tab === "resident" ? (
-        <ResidentSettingsPanel
-          automation={automation}
-          loading={loading}
-          saving={saving}
-          onAutomationChange={setAutomation}
-          onSave={() => void saveApplicationBundle({ automation })}
-        />
-      ) : null}
+      {tab === "resident" ? <ResidentSettingsPanel /> : null}
 
       {tab === "payments" ? <PaymentsSettingsPanel /> : null}
 

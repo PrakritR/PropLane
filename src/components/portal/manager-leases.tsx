@@ -6,6 +6,7 @@ import { ManagerEditLeasesModal } from "@/components/portal/manager-edit-leases-
 import { ManagerAddLeaseModal } from "@/components/portal/manager-add-lease-modal";
 import { ManagerLeasesPipelinePanel } from "@/components/portal/manager-leases-pipeline-panel";
 import { ShareLeadLinkModal } from "@/components/portal/share-lead-link-modal";
+import { ManagerPortalSettingsModal } from "@/components/portal/manager-portal-settings-modal";
 import { ApplicationFilterSortFields } from "@/components/portal/application-filter-sort-fields";
 import { PortalFilterSortSheet, portalFilterActiveCount } from "@/components/portal/portal-filter-sort-sheet";
 import { PORTAL_PROPERTY_FILTER_SHEET_CLASS } from "@/components/portal/portal-filter-shell";
@@ -68,6 +69,7 @@ export function ManagerLeases({
   const [editLeasesOpen, setEditLeasesOpen] = useState(false);
   const [shareLeasesOpen, setShareLeasesOpen] = useState(false);
   const [addLeaseOpen, setAddLeaseOpen] = useState(false);
+  const [leaseSettingsOpen, setLeaseSettingsOpen] = useState(false);
 
   useEffect(() => {
     queueMicrotask(() => setClientReady(true));
@@ -269,6 +271,15 @@ export function ManagerLeases({
 
   const leasesHeaderActions = (
     <>
+      <Button
+        type="button"
+        variant="outline"
+        className={PORTAL_HEADER_ACTION_BTN_RESPONSIVE}
+        data-attr="leases-settings-open"
+        onClick={() => setLeaseSettingsOpen(true)}
+      >
+        Settings
+      </Button>
       {leasesAddButton}
       {leasesShareButton}
       {leasesEditButton}
@@ -301,6 +312,12 @@ export function ManagerLeases({
         managerUserId={userId}
         onSubmitted={() => setTick((n) => n + 1)}
         onOpenLease={openLeaseAfterAdd}
+      />
+      <ManagerPortalSettingsModal
+        open={leaseSettingsOpen}
+        onClose={() => setLeaseSettingsOpen(false)}
+        initialTab="lease"
+        scopedTitle="Leases"
       />
     </>
   );
