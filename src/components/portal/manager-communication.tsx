@@ -16,7 +16,8 @@ import {
 import { ManagerWorkNumberButton } from "@/components/portal/manager-work-number-button";
 import { PortalCommunicationShell } from "@/components/portal/portal-communication-shell";
 import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
-import { PORTAL_HEADER_PRIMARY_ACTION_BTN } from "@/components/portal/portal-metrics";
+import { ManagerPortalSettingsModal } from "@/components/portal/manager-portal-settings-modal";
+import { PORTAL_HEADER_ACTION_BTN, PORTAL_HEADER_PRIMARY_ACTION_BTN } from "@/components/portal/portal-metrics";
 import {
   axisAdminFilterContact,
   EMPTY_COMMUNICATION_THREAD_FILTERS,
@@ -100,6 +101,7 @@ export function ManagerCommunication({
   const [composeOpen, setComposeOpen] = useState(false);
   const [composeChannel, setComposeChannel] = useState<CommunicationComposeChannel>("email");
   const [composeDraft, setComposeDraft] = useState<ManagerComposePrefill | null>(null);
+  const [communicationSettingsOpen, setCommunicationSettingsOpen] = useState(false);
   const [smsRecipients, setSmsRecipients] = useState<ManagerSmsResidentConversation[]>([]);
   const [threadOpen, setThreadOpen] = useState(Boolean(threadId));
   const [threadSelected, setThreadSelected] = useState(Boolean(threadId));
@@ -269,6 +271,15 @@ export function ManagerCommunication({
   const communicationHeaderActions = (
     <>
       {smsUiEnabled ? <ManagerWorkNumberButton /> : null}
+      <Button
+        type="button"
+        variant="outline"
+        className={PORTAL_HEADER_ACTION_BTN}
+        data-attr="communication-settings-open"
+        onClick={() => setCommunicationSettingsOpen(true)}
+      >
+        Settings
+      </Button>
       {communicationNewMessageButton}
     </>
   );
@@ -341,6 +352,12 @@ export function ManagerCommunication({
         searchQuery={searchQuery}
         onSearchQueryChange={setSearchQuery}
         onAddConversation={() => openCompose("email")}
+      />
+      <ManagerPortalSettingsModal
+        open={communicationSettingsOpen}
+        onClose={() => setCommunicationSettingsOpen(false)}
+        initialTab="communication"
+        scopedTitle="Communication"
       />
     </PortalCommunicationShell>
   );

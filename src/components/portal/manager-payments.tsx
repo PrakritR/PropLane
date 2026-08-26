@@ -38,6 +38,7 @@ import { useManagerUserId } from "@/hooks/use-manager-user-id";
 import { isDemoModeActive } from "@/lib/demo/demo-session";
 import { ManagerAddPaymentModal } from "@/components/portal/manager-add-payment-modal";
 import { ManagerPaymentSetupModal } from "@/components/portal/manager-payment-setup-modal";
+import { ManagerPortalSettingsModal } from "@/components/portal/manager-portal-settings-modal";
 import { usePaidPortalBasePath } from "@/lib/portal-base-path-client";
 import {
   MANAGER_APPLICATIONS_EVENT,
@@ -255,6 +256,7 @@ export function ManagerPayments({
   const [applicationTick, setApplicationTick] = useState(0);
   const [propertyTick, setPropertyTick] = useState(0);
   const [reminderSettingsOpen, setReminderSettingsOpen] = useState(false);
+  const [paymentSettingsOpen, setPaymentSettingsOpen] = useState(false);
   const [paymentSetupOpen, setPaymentSetupOpen] = useState(false);
   const [checkingManualPayments, setCheckingManualPayments] = useState(false);
   const [listSort, setListSort] = useState<PaymentListSort>(DEFAULT_PAYMENT_LIST_SORT);
@@ -645,6 +647,29 @@ export function ManagerPayments({
       moreDataAttr="payments-more-actions"
       moreAriaLabel="More payment actions"
       actions={[
+        {
+          id: "settings",
+          keepPriority: 4,
+          node: (
+            <Button
+              type="button"
+              variant="outline"
+              className={PORTAL_HEADER_ACTION_BTN}
+              data-attr="payments-settings-open"
+              onClick={() => setPaymentSettingsOpen(true)}
+            >
+              Settings
+            </Button>
+          ),
+          menuItem: (
+            <DropdownMenuItem
+              data-attr="payments-settings-open-menu"
+              onSelect={() => setPaymentSettingsOpen(true)}
+            >
+              Settings
+            </DropdownMenuItem>
+          ),
+        },
         ...(direction === "incoming"
           ? [
               {
@@ -852,6 +877,12 @@ export function ManagerPayments({
           void reloadSchedule();
           setReminderSettingsOpen(false);
         }}
+      />
+      <ManagerPortalSettingsModal
+        open={paymentSettingsOpen}
+        onClose={() => setPaymentSettingsOpen(false)}
+        initialTab="payments"
+        scopedTitle="Payments"
       />
       <ManagerAddPaymentModal
         open={addOpen}
