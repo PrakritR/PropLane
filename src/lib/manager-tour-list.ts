@@ -63,7 +63,9 @@ function buildFilter(
 function inquiryRows(filter: ScheduledTourFilter): ManagerTourRow[] {
   return readPartnerInquiries()
     .filter((row) => row.kind === "tour")
-    .flatMap((row) => {
+    // Annotated because each branch below produces a different `bucket` literal, which TypeScript
+    // otherwise infers as mutually incompatible object types rather than one row union.
+    .flatMap((row): ManagerTourRow[] => {
       if (row.status === "pending") {
         if (!tourInquiryVisibleToViewer(row, filter)) return [];
         return getPartnerInquiryWindows(row).map((window, index) => {
@@ -89,7 +91,10 @@ function inquiryRows(filter: ScheduledTourFilter): ManagerTourRow[] {
             notes: row.notes,
             bucket: "pending" as const,
           };
-        });
+        })
+        // A window with an unparseable time yields null above; drop those so this branch has the
+        // same shape as the others.
+        .filter((row) => row !== null) as ManagerTourRow[];
       }
 
       if (row.status === "declined" && row.managerUserId === filter.viewerUserId) {

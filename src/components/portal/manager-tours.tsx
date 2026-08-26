@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Badge } from "@/components/ui/badge";
+import { clusterRowsByResident } from "@/lib/resident-row-clustering";
 import { Button } from "@/components/ui/button";
 import { DestinationNav } from "@/components/ui/destination-nav";
 import { ApplicationFilterSortFields } from "@/components/portal/application-filter-sort-fields";
@@ -309,7 +310,8 @@ export function ManagerTours({
               <table className={PORTAL_DATA_TABLE}>
                 <thead>
                   <tr className={PORTAL_TABLE_HEAD_ROW}>
-                    <th className={MANAGER_TABLE_TH}>Guest</th>
+                    {/* The guest is the group HEADER now, so this column carries the placement. */}
+                    <th className={MANAGER_TABLE_TH}>Room</th>
                     <th className={`${MANAGER_TABLE_TH} hidden md:table-cell`}>Property</th>
                     <th className={MANAGER_TABLE_TH}>When</th>
                     <th className={`${MANAGER_TABLE_TH} hidden sm:table-cell`}>Status</th>
@@ -317,16 +319,48 @@ export function ManagerTours({
                   </tr>
                 </thead>
                 <tbody>
-                  {rowsForBucket.map((row) => (
+                  {/*
+                    Grouped by guest, the same way Payments and Services are — a manager reads
+                    these tabs side by side, and one flat list beside grouped ones reads as a
+                    different product. The shared identity rule keeps the same person heading the
+                    same group everywhere.
+                  */}
+                  {clusterRowsByResident(
+                    rowsForBucket.map((row) => ({
+                      ...row,
+                      residentName: row.guestName,
+                      residentEmail: row.guestEmail,
+                    })),
+                    (row) => row.propertyTitle || null,
+                  ).flatMap((cluster) => [
+                    <tr key={`${cluster.key}-header`} className="bg-accent/20">
+                      <td className={PORTAL_TABLE_TD} colSpan={5}>
+                        <span className="text-xs font-semibold text-foreground">
+                          {cluster.residentLabel}
+                        </span>
+                        {cluster.residentEmail &&
+                        cluster.residentEmail.toLowerCase() !== cluster.residentLabel.trim().toLowerCase() ? (
+                          <span className="ml-2 text-xs text-muted">{cluster.residentEmail}</span>
+                        ) : null}
+                        {cluster.propertyLabel ? (
+                          <span className="ml-2 text-xs text-muted">{cluster.propertyLabel}</span>
+                        ) : null}
+                        <span className="ml-2 align-middle">
+                          <Badge tone="info">
+                            {cluster.rows.length === 1 ? "1 tour" : `${cluster.rows.length} tours`}
+                          </Badge>
+                        </span>
+                      </td>
+                    </tr>,
+                    ...cluster.rows.map((row) => (
                     <tr key={row.id} className="border-b border-border last:border-0">
                       <td className={PORTAL_TABLE_TD}>
-                        <div className="font-semibold text-foreground">{row.guestName}</div>
-                        {row.guestEmail ? <div className="text-xs text-muted">{row.guestEmail}</div> : null}
+                        <div className="font-semibold text-foreground">{row.roomLabel || "—"}</div>
                         <div className="mt-2 md:hidden">
                           <div className="text-xs text-muted">{rowSubtitle(row)}</div>
-                          <Badge tone={tourStatusTone(row)} className="mt-1">
-                            {row.statusLabel}
-                          </Badge>
+                          <div className="mt-1">
+                            <Badge tone={tourStatusTone(row)}>{row.statusLabel}</Badge>
+                          </div>
                         </div>
                       </td>
                       <td className={`${PORTAL_TABLE_TD} hidden md:table-cell`}>
@@ -379,7 +413,8 @@ export function ManagerTours({
                         </div>
                       </td>
                     </tr>
-                  ))}
+                    )),
+                  ])}
                 </tbody>
               </table>
             </div>
