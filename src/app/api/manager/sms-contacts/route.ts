@@ -101,11 +101,15 @@ export async function POST(req: Request) {
     counterpartyRole: SmsCounterpartyRole;
     conversationKey: string;
   }> = matches.length > 0
-    ? matches.map((row) => ({
-        managerUserId: String(row.ownerManagerUserId ?? auth.user.id).trim() || auth.user.id,
-        counterpartyRole: (row.counterpartyRole ?? "unknown") as SmsCounterpartyRole,
-        conversationKey: row.conversationKey,
-      }))
+    ? matches
+        // A stored row can carry no conversation key; renaming one would target nothing, so it
+        // is dropped rather than sent through as undefined.
+        .filter((row) => Boolean(row.conversationKey))
+        .map((row) => ({
+          managerUserId: String(row.ownerManagerUserId ?? auth.user.id).trim() || auth.user.id,
+          counterpartyRole: (row.counterpartyRole ?? "unknown") as SmsCounterpartyRole,
+          conversationKey: row.conversationKey as string,
+        }))
     : [{
         managerUserId: auth.user.id,
         counterpartyRole: "unknown",
