@@ -206,7 +206,9 @@ export type DemoMeeting = {
   propertyId?: string;
   roomLabel?: string;
   instructions?: string;
-  kind?: "partner" | "tour" | "service";
+  // "task" arrived with manager tasks, which are planned events like any other; without it here
+  // the meeting builder cannot pass a PlannedEvent straight through.
+  kind?: "partner" | "tour" | "service" | "task";
   hostLabel?: string;
   isPeerTour?: boolean;
   /** Personal Google Calendar busy time — title/details must not be shown in the UI. */

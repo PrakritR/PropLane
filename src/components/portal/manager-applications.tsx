@@ -1719,6 +1719,7 @@ export function ManagerApplications({
         open={applicationSettingsOpen}
         onClose={() => setApplicationSettingsOpen(false)}
         initialTab="applications"
+        scoped
       />
       <CheckrScreeningModal
         key={checkrScreeningRowId ?? "none"}

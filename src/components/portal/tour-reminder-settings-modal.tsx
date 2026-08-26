@@ -10,5 +10,5 @@ export function TourReminderSettingsModal({
   open: boolean;
   onClose: () => void;
 }) {
-  return <ManagerPortalSettingsModal open={open} onClose={onClose} initialTab="calendar" />;
+  return <ManagerPortalSettingsModal open={open} onClose={onClose} initialTab="calendar" scoped />;
 }

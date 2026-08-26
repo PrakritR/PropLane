@@ -39,10 +39,20 @@ export function ManagerPortalSettingsModal({
   open,
   onClose,
   initialTab = "applications",
+  scoped = false,
 }: {
   open: boolean;
   onClose: () => void;
   initialTab?: ManagerPortalSettingsTab;
+  /**
+   * Show ONLY `initialTab`'s settings, titled for that section.
+   *
+   * Settings opened from a section's own header should be that section's settings. Offering all
+   * six tabs there makes the manager re-find the one they were already standing in, and invites
+   * them to change Payments from inside Applications. The full switcher stays available from a
+   * global entry point, which is why this is opt-in rather than the default.
+   */
+  scoped?: boolean;
 }) {
   const { showToast } = useAppUi();
   const demo = isDemoModeActive();
@@ -149,24 +159,28 @@ export function ManagerPortalSettingsModal({
     <Modal
       open={open}
       onClose={onClose}
-      title="Settings"
+      title={scoped ? `${TABS.find((item) => item.id === tab)?.label ?? "Settings"} settings` : "Settings"}
       dense
       assistantStrip={false}
       panelClassName="max-w-lg p-3 sm:p-4"
     >
-      <div className="mb-4 flex flex-wrap gap-1.5">
-        {TABS.map((item) => (
-          <button
-            key={item.id}
-            type="button"
-            className={tab === item.id ? PORTAL_TOOLBAR_PILL_BUTTON_ACTIVE : PORTAL_TOOLBAR_PILL_BUTTON}
-            data-attr={`manager-settings-tab-${item.id}`}
-            onClick={() => setTab(item.id)}
-          >
-            {item.label}
-          </button>
-        ))}
-      </div>
+      {/* A scoped dialog is already ON its one section, so a switcher would only offer the manager
+          a way to wander out of it. */}
+      {scoped ? null : (
+        <div className="mb-4 flex flex-wrap gap-1.5">
+          {TABS.map((item) => (
+            <button
+              key={item.id}
+              type="button"
+              className={tab === item.id ? PORTAL_TOOLBAR_PILL_BUTTON_ACTIVE : PORTAL_TOOLBAR_PILL_BUTTON}
+              data-attr={`manager-settings-tab-${item.id}`}
+              onClick={() => setTab(item.id)}
+            >
+              {item.label}
+            </button>
+          ))}
+        </div>
+      )}
 
       {tab === "applications" ? (
         <ApplicationsSettingsPanel
