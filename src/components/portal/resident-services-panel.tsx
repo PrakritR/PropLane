@@ -1284,24 +1284,6 @@ export function ResidentServicesPanel({
   const servicesListChrome = (
     <PortalListControlStack
       className="mb-2 max-lg:mb-2"
-      destinations={[
-        {
-          id: "requests",
-          label: "Requests",
-          href: `${basePath}/services/requests`,
-          count: sortedRequests.length,
-          dataAttr: "resident-services-tab-requests",
-        },
-        {
-          id: "work-orders",
-          label: "Work orders",
-          href: `${basePath}/services/work-orders`,
-          count: myRows.length,
-          dataAttr: "resident-services-tab-work-orders",
-        },
-      ]}
-      activeDestinationId={activeTab}
-      destinationAriaLabel="Services"
       filterRow={
         activeTab === "requests" ? (
           <LocalDestinationNav
@@ -1357,8 +1339,16 @@ export function ResidentServicesPanel({
         </p>
       ) : null}
 
-      {activeTab === "requests" ? (
+      {/*
+        One Services screen. A resident thinks about "things happening at my place", not about
+        which of PropLane's two stores a row lives in — so both are shown here, each keeping its
+        own card, rather than hidden behind a Requests / Work orders switch.
+      */}
+      <>
         <div>
+          <p className="mb-2 px-1 text-xs font-semibold uppercase tracking-wide text-muted">
+            Add-on services
+          </p>
           {filteredRequests.length > 0 ? (
         <>
         <div className="space-y-2 lg:hidden">
@@ -1434,8 +1424,10 @@ export function ResidentServicesPanel({
           ) : null}
           <ResidentServicesRequestAddRow onRequest={openRequestService} disabled={!servicesUnlocked} />
         </div>
-      ) : (
-        <div>
+        <div className="mt-6">
+          <p className="mb-2 px-1 text-xs font-semibold uppercase tracking-wide text-muted">
+            Maintenance
+          </p>
           {rows.length > 0 ? (
             <>
             <div className="space-y-2 lg:hidden">
@@ -1521,7 +1513,7 @@ export function ResidentServicesPanel({
           ) : null}
           <ResidentServicesMaintenanceAddRow onReport={openMaintenanceReport} disabled={!servicesUnlocked} />
         </div>
-      )}
+      </>
 
       </div>
 
