@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  reinsertMissingDisclosureParagraphs,
   sanitizeLeaseDocumentHtml,
   sanitizeManagerLeaseDocumentEdit,
 } from "@/lib/lease-document-sanitizer";
@@ -60,5 +61,18 @@ describe("lease document HTML sanitizer", () => {
       ok: false,
       error: "Required disclosure clauses must remain in place and unchanged.",
     });
+  });
+
+  it("reinserts disclosure paragraphs deleted by the visual editor before sanitizing", () => {
+    const original =
+      '<html><body><h2>Term</h2><p>Month-to-month.</p><p data-disclosure-rule="fed-lead-paint">Lead paint disclosure.</p></body></html>';
+    const edited = '<html><body><h2>Term</h2><p>Month-to-month with edits.</p></body></html>';
+    const merged = reinsertMissingDisclosureParagraphs(original, edited);
+    const result = sanitizeManagerLeaseDocumentEdit(original, merged);
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.html).toContain('data-disclosure-rule="fed-lead-paint"');
+      expect(result.html).toContain("Lead paint disclosure.");
+    }
   });
 });

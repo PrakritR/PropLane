@@ -12,6 +12,7 @@ import {
 } from "@/components/ui/modal";
 import { MODAL_LARGE_PANEL_CLASS, MODAL_TALL_PANEL_CLASS } from "@/components/ui/modal-styles";
 import { LeaseHtmlDirectEditor } from "@/components/portal/lease-html-direct-editor";
+import { LeaseAiReviewAcknowledgment } from "@/components/portal/lease-ai-review-acknowledgment";
 import {
   PropertyLeaseDocumentNotice,
   propertyLeaseNeedsAssistantReview,
@@ -26,6 +27,7 @@ import {
   leaseAllowsManagerDocumentEdits,
   type LeasePipelineRow,
 } from "@/lib/lease-pipeline-storage";
+import { leaseUsesAiGeneratedHtml } from "@/lib/lease-templates/types";
 import { stripDisclosureReviewFromLeaseHtml } from "@/lib/property-lease-document-display";
 import { useManagerUserId } from "@/hooks/use-manager-user-id";
 import { cn } from "@/lib/utils";
@@ -47,6 +49,8 @@ export function ManagerPipelineLeaseEditModal({
   const [htmlOverride, setHtmlOverride] = useState("");
   const [saveReviewOpen, setSaveReviewOpen] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [reviewAcknowledged, setReviewAcknowledged] = useState(false);
+  const usesAiHtml = leaseUsesAiGeneratedHtml(row);
 
   const canEdit = leaseAllowsManagerDocumentEdits(row);
   const editableHtml = leaseDocumentHtmlForSectionEdit(row);
@@ -71,6 +75,7 @@ export function ManagerPipelineLeaseEditModal({
     const html = leaseDocumentHtmlForSectionEdit(row);
     setHtmlOverride(html ? stripDisclosureReviewFromLeaseHtml(html) : "");
     setSaveReviewOpen(false);
+    setReviewAcknowledged(false);
   }, [open, row.id, row.updatedAtIso, row.generatedHtml, row.managerSectionEdits]);
 
   const assistantContext = useMemo(() => buildLeasePacketEditAssistantContext(row), [row]);
@@ -105,6 +110,10 @@ export function ManagerPipelineLeaseEditModal({
   };
 
   const save = () => {
+    if (usesAiHtml && !reviewAcknowledged) {
+      showToast("Confirm that you have reviewed this AI-generated draft before saving.");
+      return;
+    }
     if (propertyLeaseNeedsAssistantReview(noticeHtml)) {
       setSaveReviewOpen(true);
       return;
@@ -133,7 +142,7 @@ export function ManagerPipelineLeaseEditModal({
               type="button"
               variant="primary"
               className="ml-auto rounded-full"
-              disabled={saving}
+              disabled={saving || (usesAiHtml && !reviewAcknowledged)}
               onClick={save}
               data-attr="resident-lease-edit-save"
             >
@@ -170,23 +179,18 @@ export function ManagerPipelineLeaseEditModal({
           <div className="grid min-h-0 grid-rows-[auto_minmax(0,1fr)] gap-1 overflow-hidden">
             <div className="flex flex-col gap-2">
               <PropertyLeaseDocumentNotice html={noticeHtml} />
+              {usesAiHtml ? (
+                <LeaseAiReviewAcknowledgment
+                  checked={reviewAcknowledged}
+                  onCheckedChange={setReviewAcknowledged}
+                />
+              ) : null}
               {saveReviewOpen ? (
                 <div className="rounded-xl border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-950">
                   <p className="font-semibold">Review before saving</p>
                   <p className="mt-1">
                     This lease still has items to fix. Ask PropLane Assistant in the panel below, then save when it
-                    looks right — or{" "}
-                    <button
-                      type="button"
-                      className="font-semibold underline"
-                      onClick={() => {
-                        setSaveReviewOpen(false);
-                        commitSave();
-                      }}
-                    >
-                      save anyway
-                    </button>
-                    .
+                    looks right.
                   </p>
                 </div>
               ) : null}

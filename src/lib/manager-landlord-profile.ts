@@ -128,11 +128,13 @@ export async function saveManagerLandlordProfile(
  * or empty cache costs a regenerate, never a wrong party on a signed document.
  */
 const LANDLORD_NAME_CACHE_KEY = "axis:landlord-legal-name";
+let memoryLandlordLegalName = "";
 
 export function cacheLandlordLegalName(name: string): void {
+  const clean = normalizeManagerLandlordProfile({ landlordLegalName: name }).landlordLegalName;
+  memoryLandlordLegalName = clean;
   if (typeof window === "undefined") return;
   try {
-    const clean = normalizeManagerLandlordProfile({ landlordLegalName: name }).landlordLegalName;
     if (clean) window.localStorage.setItem(LANDLORD_NAME_CACHE_KEY, clean);
     else window.localStorage.removeItem(LANDLORD_NAME_CACHE_KEY);
   } catch {
@@ -141,10 +143,30 @@ export function cacheLandlordLegalName(name: string): void {
 }
 
 export function cachedLandlordLegalName(): string {
+  if (typeof window !== "undefined") {
+    try {
+      const stored = window.localStorage.getItem(LANDLORD_NAME_CACHE_KEY)?.trim() ?? "";
+      if (stored) return stored;
+    } catch {
+      /* fall through */
+    }
+  }
+  return memoryLandlordLegalName;
+}
+
+/** Load the saved landlord legal name from the server and refresh the generator cache. */
+export async function fetchAndCacheLandlordLegalName(): Promise<string> {
   if (typeof window === "undefined") return "";
   try {
-    return window.localStorage.getItem(LANDLORD_NAME_CACHE_KEY)?.trim() ?? "";
+    const res = await fetch("/api/portal/manager-application-settings", { credentials: "include" });
+    if (!res.ok) return cachedLandlordLegalName();
+    const data = (await res.json().catch(() => ({}))) as {
+      landlord?: { landlordLegalName?: string } | null;
+    };
+    const saved = (data.landlord?.landlordLegalName ?? "").trim();
+    cacheLandlordLegalName(saved);
+    return saved;
   } catch {
-    return "";
+    return cachedLandlordLegalName();
   }
 }
