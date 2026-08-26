@@ -2,18 +2,16 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
+import { Input, Select } from "@/components/ui/input";
 import { Modal, ModalFooter } from "@/components/ui/modal";
 import { useAppUi } from "@/components/providers/app-ui-provider";
 import { ManagerPortalPageShell } from "@/components/portal/portal-metrics";
 import { PORTAL_LIST_PAGE_BODY } from "@/components/portal/portal-inbox-ui";
 import { PortalListAddRow, PORTAL_LIST_ADD_ICONS } from "@/components/portal/portal-list-add-row";
 import { useManagerUserId } from "@/hooks/use-manager-user-id";
-import {
-  EVENT_DURATION_PRESET_MINUTES,
-  syncScheduleRecordsFromServer,
-} from "@/lib/demo-admin-scheduling";
-import { formatPacificDateTime } from "@/lib/pacific-time";
+import { formatRangeLabel, syncScheduleRecordsFromServer } from "@/lib/demo-admin-scheduling";
+import { syncPropertyPipelineFromServer } from "@/lib/demo-property-pipeline";
+import { buildManagerPropertyFilterOptions } from "@/lib/manager-portfolio-access";
 import {
   MANAGER_TASKS_EVENT,
   createManagerTask,
@@ -22,23 +20,8 @@ import {
   updateManagerTask,
   type ManagerTask,
 } from "@/lib/manager-tasks";
-
-function toLocalDateInputValue(iso: string): string {
-  const date = new Date(iso);
-  if (Number.isNaN(date.getTime())) return "";
-  const y = date.getFullYear();
-  const m = String(date.getMonth() + 1).padStart(2, "0");
-  const d = String(date.getDate()).padStart(2, "0");
-  return `${y}-${m}-${d}`;
-}
-
-function toLocalTimeInputValue(iso: string): string {
-  const date = new Date(iso);
-  if (Number.isNaN(date.getTime())) return "09:00";
-  const h = String(date.getHours()).padStart(2, "0");
-  const min = String(date.getMinutes()).padStart(2, "0");
-  return `${h}:${min}`;
-}
+import { formatPacificDateTime } from "@/lib/pacific-time";
+import { getRoomOptionsForProperty } from "@/lib/rental-application/data";
 
 function combineLocalDateTime(date: string, time: string): string {
   const [y, m, d] = date.split("-").map(Number);
@@ -49,11 +32,26 @@ function combineLocalDateTime(date: string, time: string): string {
   return new Date(y, m - 1, d, h, min, 0, 0).toISOString();
 }
 
-function defaultScheduleDateTime(): { date: string; time: string } {
-  const next = new Date();
-  next.setHours(next.getHours() + 1, 0, 0, 0);
-  return { date: toLocalDateInputValue(next.toISOString()), time: toLocalTimeInputValue(next.toISOString()) };
+function formatTaskSchedule(task: ManagerTask): string {
+  if (task.start && task.end) return formatRangeLabel(task.start, task.end);
+  if (task.start) return formatPacificDateTime(task.start);
+  return "No schedule";
 }
+
+function taskLocationLabel(task: ManagerTask): string | null {
+  const parts = [task.propertyTitle, task.roomLabel].filter(Boolean);
+  return parts.length ? parts.join(" · ") : null;
+}
+
+const EMPTY_FORM = {
+  title: "",
+  notes: "",
+  propertyId: "",
+  roomLabel: "",
+  scheduleDate: "",
+  startTime: "",
+  endTime: "",
+};
 
 export function ManagerTaskList() {
   const { showToast } = useAppUi();
@@ -62,11 +60,18 @@ export function ManagerTaskList() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [addOpen, setAddOpen] = useState(false);
-  const [title, setTitle] = useState("");
-  const [notes, setNotes] = useState("");
-  const [scheduleDate, setScheduleDate] = useState(() => defaultScheduleDateTime().date);
-  const [scheduleTime, setScheduleTime] = useState(() => defaultScheduleDateTime().time);
-  const [durationMinutes, setDurationMinutes] = useState<number>(30);
+  const [propertyTick, setPropertyTick] = useState(0);
+  const [form, setForm] = useState(EMPTY_FORM);
+
+  const propertyOptions = useMemo(
+    () => buildManagerPropertyFilterOptions(userId),
+    [userId, propertyTick],
+  );
+
+  const roomOptions = useMemo(() => {
+    if (!form.propertyId) return [];
+    return getRoomOptionsForProperty(form.propertyId, { includeUnavailable: true }).filter((option) => option.value);
+  }, [form.propertyId]);
 
   const refresh = useCallback(async () => {
     if (!userId) return;
@@ -84,6 +89,7 @@ export function ManagerTaskList() {
 
   useEffect(() => {
     if (!ready || !userId) return;
+    void syncPropertyPipelineFromServer().then(() => setPropertyTick((n) => n + 1));
     void refresh();
   }, [ready, userId, refresh]);
 
@@ -96,6 +102,11 @@ export function ManagerTaskList() {
     return () => window.removeEventListener(MANAGER_TASKS_EVENT, onChange);
   }, [userId]);
 
+  useEffect(() => {
+    if (!addOpen) return;
+    setForm(EMPTY_FORM);
+  }, [addOpen]);
+
   const openTasks = useMemo(() => tasks.filter((task) => !task.completed), [tasks]);
   const doneTasks = useMemo(() => tasks.filter((task) => task.completed), [tasks]);
 
@@ -103,18 +114,26 @@ export function ManagerTaskList() {
     if (!userId) return;
     setSaving(true);
     try {
-      const start = combineLocalDateTime(scheduleDate, scheduleTime);
-      await createManagerTask(userId, { title, notes, start, durationMinutes });
+      const start =
+        form.scheduleDate && form.startTime
+          ? combineLocalDateTime(form.scheduleDate, form.startTime)
+          : undefined;
+      const end =
+        form.scheduleDate && form.endTime ? combineLocalDateTime(form.scheduleDate, form.endTime) : undefined;
+      const property = propertyOptions.find((option) => option.id === form.propertyId);
+      await createManagerTask(userId, {
+        title: form.title,
+        notes: form.notes,
+        propertyId: form.propertyId || undefined,
+        propertyTitle: property?.label,
+        roomLabel: form.roomLabel || undefined,
+        start,
+        end,
+      });
       await syncScheduleRecordsFromServer({ force: true });
       setAddOpen(false);
-      setTitle("");
-      setNotes("");
-      const defaults = defaultScheduleDateTime();
-      setScheduleDate(defaults.date);
-      setScheduleTime(defaults.time);
-      setDurationMinutes(30);
       await refresh();
-      showToast("Task added to your schedule.");
+      showToast(start && end ? "Task added to your calendar." : "Task added.");
     } catch (e) {
       showToast(e instanceof Error ? e.message : "Could not add task.");
     } finally {
@@ -145,6 +164,30 @@ export function ManagerTaskList() {
     }
   }
 
+  function renderTaskRow(task: ManagerTask, completed = false) {
+    const location = taskLocationLabel(task);
+    return (
+      <li key={task.id} className="flex items-start gap-3 px-4 py-3">
+        <input
+          type="checkbox"
+          className="mt-1"
+          checked={completed}
+          aria-label={`Mark ${task.title} ${completed ? "incomplete" : "complete"}`}
+          onChange={() => void toggleComplete(task)}
+        />
+        <div className="min-w-0 flex-1">
+          <p className={`font-semibold text-foreground ${completed ? "line-through" : ""}`}>{task.title}</p>
+          <p className="text-sm text-muted">{formatTaskSchedule(task)}</p>
+          {location ? <p className="text-xs text-muted">{location}</p> : null}
+          {task.notes ? <p className="mt-1 text-sm text-muted">{task.notes}</p> : null}
+        </div>
+        <Button type="button" variant="ghost" className="text-[13px]" onClick={() => void removeTask(task.id)}>
+          Delete
+        </Button>
+      </li>
+    );
+  }
+
   return (
     <ManagerPortalPageShell title="Task list">
       <div className={PORTAL_LIST_PAGE_BODY}>
@@ -156,26 +199,7 @@ export function ManagerTaskList() {
               <section className="space-y-2">
                 <h2 className="text-xs font-bold uppercase tracking-[0.16em] text-muted">Open</h2>
                 <ul className="divide-y divide-border rounded-2xl border border-border bg-card">
-                  {openTasks.map((task) => (
-                    <li key={task.id} className="flex items-start gap-3 px-4 py-3">
-                      <input
-                        type="checkbox"
-                        className="mt-1"
-                        checked={false}
-                        aria-label={`Mark ${task.title} complete`}
-                        onChange={() => void toggleComplete(task)}
-                      />
-                      <div className="min-w-0 flex-1">
-                        <p className="font-semibold text-foreground">{task.title}</p>
-                        <p className="text-sm text-muted">{formatPacificDateTime(task.start)}</p>
-                        {task.propertyTitle ? <p className="text-xs text-muted">{task.propertyTitle}</p> : null}
-                        {task.notes ? <p className="mt-1 text-sm text-muted">{task.notes}</p> : null}
-                      </div>
-                      <Button type="button" variant="ghost" className="text-[13px]" onClick={() => void removeTask(task.id)}>
-                        Delete
-                      </Button>
-                    </li>
-                  ))}
+                  {openTasks.map((task) => renderTaskRow(task))}
                 </ul>
               </section>
             ) : null}
@@ -183,24 +207,7 @@ export function ManagerTaskList() {
               <section className="space-y-2">
                 <h2 className="text-xs font-bold uppercase tracking-[0.16em] text-muted">Completed</h2>
                 <ul className="divide-y divide-border rounded-2xl border border-border bg-card opacity-80">
-                  {doneTasks.map((task) => (
-                    <li key={task.id} className="flex items-start gap-3 px-4 py-3">
-                      <input
-                        type="checkbox"
-                        className="mt-1"
-                        checked
-                        aria-label={`Mark ${task.title} incomplete`}
-                        onChange={() => void toggleComplete(task)}
-                      />
-                      <div className="min-w-0 flex-1">
-                        <p className="font-semibold text-foreground line-through">{task.title}</p>
-                        <p className="text-sm text-muted">{formatPacificDateTime(task.start)}</p>
-                      </div>
-                      <Button type="button" variant="ghost" className="text-[13px]" onClick={() => void removeTask(task.id)}>
-                        Delete
-                      </Button>
-                    </li>
-                  ))}
+                  {doneTasks.map((task) => renderTaskRow(task, true))}
                 </ul>
               </section>
             ) : null}
@@ -219,56 +226,97 @@ export function ManagerTaskList() {
         <div className="space-y-3">
           <Input
             aria-label="Task title"
-            value={title}
-            onChange={(e) => setTitle(e.target.value)}
+            value={form.title}
+            onChange={(e) => setForm((current) => ({ ...current, title: e.target.value }))}
             placeholder="Inspect unit, meet vendor, follow up…"
             data-attr="manager-task-title-input"
           />
-          <div className="grid gap-3 sm:grid-cols-2">
-            <label className="space-y-1 text-sm">
-              <span className="font-medium text-foreground">Date</span>
-              <Input type="date" value={scheduleDate} onChange={(e) => setScheduleDate(e.target.value)} />
-            </label>
-            <label className="space-y-1 text-sm">
-              <span className="font-medium text-foreground">Time</span>
-              <Input type="time" value={scheduleTime} onChange={(e) => setScheduleTime(e.target.value)} />
-            </label>
-          </div>
           <label className="space-y-1 text-sm">
-            <span className="font-medium text-foreground">Duration</span>
-            <select
-              className="h-10 w-full rounded-xl border border-border bg-card px-3 text-sm"
-              value={durationMinutes}
-              onChange={(e) => setDurationMinutes(Number(e.target.value))}
+            <span className="font-medium text-foreground">Property (optional)</span>
+            <Select
+              value={form.propertyId}
+              onChange={(e) =>
+                setForm((current) => ({
+                  ...current,
+                  propertyId: e.target.value,
+                  roomLabel: "",
+                }))
+              }
             >
-              {EVENT_DURATION_PRESET_MINUTES.map((minutes) => (
-                <option key={minutes} value={minutes}>
-                  {minutes} minutes
+              <option value="">No property</option>
+              {propertyOptions.map((option) => (
+                <option key={option.id} value={option.id}>
+                  {option.label}
                 </option>
               ))}
-            </select>
+            </Select>
           </label>
+          {form.propertyId ? (
+            <label className="space-y-1 text-sm">
+              <span className="font-medium text-foreground">Room (optional)</span>
+              <Select
+                value={form.roomLabel}
+                onChange={(e) => setForm((current) => ({ ...current, roomLabel: e.target.value }))}
+              >
+                <option value="">No room</option>
+                {roomOptions.map((option) => (
+                  <option key={option.value} value={option.label}>
+                    {option.label}
+                  </option>
+                ))}
+              </Select>
+            </label>
+          ) : null}
+          <label className="space-y-1 text-sm">
+            <span className="font-medium text-foreground">Date (optional)</span>
+            <Input
+              type="date"
+              value={form.scheduleDate}
+              onChange={(e) => setForm((current) => ({ ...current, scheduleDate: e.target.value }))}
+            />
+          </label>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <label className="space-y-1 text-sm">
+              <span className="font-medium text-foreground">Start time (optional)</span>
+              <Input
+                type="time"
+                value={form.startTime}
+                onChange={(e) => setForm((current) => ({ ...current, startTime: e.target.value }))}
+                disabled={!form.scheduleDate}
+              />
+            </label>
+            <label className="space-y-1 text-sm">
+              <span className="font-medium text-foreground">End time (optional)</span>
+              <Input
+                type="time"
+                value={form.endTime}
+                onChange={(e) => setForm((current) => ({ ...current, endTime: e.target.value }))}
+                disabled={!form.scheduleDate}
+              />
+            </label>
+          </div>
           <label className="space-y-1 text-sm">
             <span className="font-medium text-foreground">Notes (optional)</span>
             <textarea
               className="min-h-[80px] w-full rounded-xl border border-border bg-card px-3 py-2 text-sm"
-              value={notes}
-              onChange={(e) => setNotes(e.target.value)}
+              value={form.notes}
+              onChange={(e) => setForm((current) => ({ ...current, notes: e.target.value }))}
             />
           </label>
-          <p className="text-xs text-muted">Saving adds this block to your Tours schedule.</p>
+          <p className="text-xs text-muted">
+            {form.scheduleDate && form.startTime && form.endTime
+              ? "Saving blocks this time on your calendar."
+              : "Leave date and times blank to keep the task off your calendar."}
+          </p>
         </div>
         <ModalFooter>
-          <Button type="button" variant="outline" onClick={() => setAddOpen(false)}>
-            Cancel
-          </Button>
           <Button
             type="button"
             onClick={() => void handleCreate()}
-            disabled={saving || !title.trim()}
+            disabled={saving || !form.title.trim()}
             data-attr="manager-task-save"
           >
-            {saving ? "Saving…" : "Add to schedule"}
+            {saving ? "Saving…" : "Add task"}
           </Button>
         </ModalFooter>
       </Modal>
