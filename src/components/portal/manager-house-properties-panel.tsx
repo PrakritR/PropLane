@@ -1189,6 +1189,7 @@ function ManagerPropertyInlineDetails({
         open={portalSettingsOpen}
         onClose={() => setPortalSettingsOpen(false)}
         initialTab="calendar"
+        scoped
       />
     </div>
   );
