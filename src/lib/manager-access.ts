@@ -18,7 +18,7 @@ export const MANAGER_TIER_MONTHLY_USD: Record<ManagerSkuTier, number> = {
 };
 
 /**
- * Sections available on Free: listings, applications, calendar, payments.
+ * Sections available on Free: listings, applications, tours, payments.
  * Residents, leases, services, inbox, and co-managers require Pro+.
  */
 export const FREE_SUBSCRIPTION_SECTIONS = new Set([
@@ -26,7 +26,6 @@ export const FREE_SUBSCRIPTION_SECTIONS = new Set([
   "properties",
   "applications",
   "payments",
-  "calendar",
   "tours",
   "task-list",
   "profile",

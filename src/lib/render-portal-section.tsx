@@ -40,13 +40,13 @@ import { PortalWorkspaceClient } from "@/components/portal/portal-workspace-clie
 import {
   loadManagerAllServicesPanel,
   loadManagerTaskList,
+  loadManagerTours,
   loadManagerApplications,
   loadManagerDocumentsPanel,
   loadManagerFinancesPanel,
   loadManagerCommunication,
   loadManagerProperties,
   loadManagerResidents,
-  loadPortalCalendar,
   loadProAccountLinksPanel,
   loadResidentServicesPanel,
 } from "@/lib/portal-panel-imports";
@@ -64,7 +64,7 @@ import { MANAGER_PLAN_PORTAL_URL } from "@/lib/portals/manager-plan-path";
 import { RESIDENT_PAYMENTS_LEGACY_TABS } from "@/lib/portals/resident-sections";
 import { getProPortalRenderContext } from "@/lib/portals/pro-nav";
 import { buildPortalWorkspaceModel } from "@/lib/portal-workspace-model";
-import { legacyManagerPortalSectionPath, parseCalendarViewTab } from "@/lib/portal-detail-routes";
+import { legacyManagerPortalSectionPath } from "@/lib/portal-detail-routes";
 import type { PortalKind } from "@/lib/portal-types";
 import { notFound, redirect } from "next/navigation";
 import { DEFERRED_SECTIONS } from "@/lib/portals/nav-locks";
@@ -390,6 +390,10 @@ export async function renderPortalSection(
   // it's back to being the Services "vendors" tab (redundant otherwise).
   if ((kind === "manager" || kind === "pro") && section === "vendors") {
     redirect(`${def.basePath}/services/vendors`);
+  }
+
+  if ((kind === "manager" || kind === "pro") && section === "calendar") {
+    redirect(`${def.basePath}/tours/pending`);
   }
 
   const meta = findSection(def, section);
@@ -925,59 +929,27 @@ export async function renderPortalSection(
     }
 
     if (section === "tours") {
-      if (tabParts?.length) {
-        const segmentRaw = tabParts[0]!;
-        if (segmentRaw === "tours") {
-          redirect(`${def.basePath}/tours`);
-        }
-        const { TOURS_HUB_TABS } = await import("@/lib/portal-detail-routes");
-        if (!TOURS_HUB_TABS.includes(segmentRaw as (typeof TOURS_HUB_TABS)[number])) notFound();
-        if (tabParts.length > 1) notFound();
+      const { MANAGER_TOUR_BUCKETS, parseManagerTourBucket } = await import("@/lib/portal-detail-routes");
+      if (!tabParts?.length) {
+        redirect(`${def.basePath}/tours/pending`);
       }
-      const { parseToursHubTab } = await import("@/lib/portal-detail-routes");
-      const toursHubTab = tabParts?.length ? parseToursHubTab(tabParts[0]) : "tours";
-      const PortalCalendar = await loadPortalCalendar();
+      const segmentRaw = tabParts[0]!;
+      if (segmentRaw === "tours") {
+        redirect(`${def.basePath}/tours/pending`);
+      }
+      if (segmentRaw === "services" || segmentRaw === "service-orders") {
+        redirect(`${def.basePath}/services/requests`);
+      }
+      if (!MANAGER_TOUR_BUCKETS.includes(segmentRaw as (typeof MANAGER_TOUR_BUCKETS)[number])) {
+        notFound();
+      }
+      if (tabParts.length > 1) notFound();
+      const bucket = parseManagerTourBucket(segmentRaw);
+      const ManagerTours = await loadManagerTours();
       return subscriptionGated(
-        <PortalCalendar
-          portal="manager"
-          initialUserId={effectiveWorkspaceUserId}
-          schedulingHub
-          toursHubTab={toursHubTab}
-        />,
+        <ManagerTours bucket={bucket} basePath={def.basePath} />,
         kind,
         "tours",
-        managerOwnerSubscriptionTier,
-      );
-    }
-
-    if (section === "calendar") {
-      const CALENDAR_VIEWS = ["availability", "bookings", "schedule", "tours", "services", "all"] as const;
-      if (tabParts?.length) {
-        const viewRaw = tabParts[0]!;
-        if (viewRaw === "schedule") {
-          redirect(`${def.basePath}/calendar/availability`);
-        }
-        if (viewRaw === "all" || viewRaw === "tours") {
-          redirect(`${def.basePath}/calendar/availability`);
-        }
-        if (viewRaw === "services") {
-          redirect(`${def.basePath}/tours/services`);
-        }
-        if (!CALENDAR_VIEWS.includes(viewRaw as (typeof CALENDAR_VIEWS)[number])) notFound();
-        if (tabParts.length > 1) notFound();
-      } else if (kind === "pro") {
-        redirect(`${def.basePath}/calendar/availability`);
-      }
-      const calendarView = tabParts?.length ? parseCalendarViewTab(tabParts[0]) : undefined;
-      const PortalCalendar = await loadPortalCalendar();
-      return subscriptionGated(
-        <PortalCalendar
-          portal="manager"
-          initialUserId={effectiveWorkspaceUserId}
-          calendarView={calendarView}
-        />,
-        kind,
-        "calendar",
         managerOwnerSubscriptionTier,
       );
     }

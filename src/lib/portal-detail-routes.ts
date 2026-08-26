@@ -199,7 +199,28 @@ export function calendarViewHref(basePath: string, tab: CalendarViewTabId): stri
 }
 
 export function portfolioToursHref(basePath: string): string {
-  return `${basePath}/tours`;
+  return `${basePath}/tours/pending`;
+}
+
+/** Manager portfolio tour list buckets (table view). */
+export const MANAGER_TOUR_BUCKETS = ["pending", "upcoming", "past"] as const;
+export type ManagerTourBucketId = (typeof MANAGER_TOUR_BUCKETS)[number];
+
+export const MANAGER_TOUR_BUCKET_LABELS: Record<ManagerTourBucketId, string> = {
+  pending: "Pending",
+  upcoming: "Upcoming",
+  past: "Past",
+};
+
+export function parseManagerTourBucket(raw: string | undefined | null): ManagerTourBucketId {
+  if (raw && (MANAGER_TOUR_BUCKETS as readonly string[]).includes(raw)) {
+    return raw as ManagerTourBucketId;
+  }
+  return "pending";
+}
+
+export function managerTourListHref(basePath: string, bucket: ManagerTourBucketId = "pending"): string {
+  return `${basePath}/tours/${bucket}`;
 }
 
 export const TOURS_HUB_TABS = ["tours", "services"] as const;
