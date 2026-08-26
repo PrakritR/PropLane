@@ -42,7 +42,7 @@ import {
 import { stripLeaseAiDisclaimerFromHtml, stripLeaseAiReviewDisclaimer } from "@/lib/lease-templates/types";
 import { effectiveApplicationForRow, enrichApplicationForLease, readManagerApplicationRows, signedRentLabelForRow, writeManagerApplicationRows } from "@/lib/manager-applications-storage";
 import { getPropertyById, getRoomChoiceLabel, getBundleChoiceLabel } from "@/lib/rental-application/data";
-import { cachedLandlordLegalName } from "@/lib/manager-landlord-profile";
+import { cachedLandlordLegalName, LEASE_LANDLORD_PLACEHOLDER } from "@/lib/manager-landlord-profile";
 import { normalizeManagerListingSubmissionV1 } from "@/lib/manager-listing-submission";
 import { submissionWithLeaseTemplateById } from "@/lib/property-lease-template-sync";
 import type { RentalWizardFormState } from "@/lib/rental-application/types";
@@ -419,9 +419,6 @@ export function leaseApplicationApprovalBlocker(row: LeasePipelineRow): string |
  * The row's own state (no document, already finalized, already signed) is
  * checked by the callers, which know it without consulting anything else.
  */
-/** The literal the template emits when it has no landlord name to print. */
-export const LEASE_LANDLORD_PLACEHOLDER = "[LANDLORD ENTITY NAME]";
-
 export const LEASE_LANDLORD_NAME_REQUIRED_MESSAGE =
   "This lease still names \u201c[LANDLORD ENTITY NAME]\u201d as the landlord. Add your landlord legal name in Settings, then regenerate the lease before sending it.";
 
@@ -494,10 +491,17 @@ export function leaseSendGateBlockerAmong(row: LeasePipelineRow, apps: DemoAppli
     const next = leaseAllowsManagerDocumentEdits(row) ? "" : ` ${LEASE_MOVE_BACK_TO_REVIEW_MESSAGE}`;
     return `${UPLOADED_LEASE_REVIEW_REQUIRED_MESSAGE}${next}`;
   }
-  // Last, because it is the most mechanical to fix and the least likely: a lease that still
-  // names the placeholder as its landlord party must never reach a signature request.
-  const landlord = leaseLandlordNameBlocker(row);
-  if (landlord) return landlord;
+  // `leaseLandlordNameBlocker` is deliberately NOT wired in here yet.
+  //
+  // As a hard gate it is correct — a lease naming "[LANDLORD ENTITY NAME]" as a party should not
+  // reach a resident — but sending materializes pending edits, which REGENERATES the document. So
+  // until a manager fills the field in, the placeholder comes back on every send and they cannot
+  // send any lease at all. On the day this deploys that is every existing manager, with no warning
+  // and no hint about where to look.
+  //
+  // Turning it on is one line here, and should follow a decision about rollout: backfill the names
+  // first, or surface it as a warning for a period. The collection half is live, and the generator
+  // already uses the name whenever one is set.
   return null;
 }
 

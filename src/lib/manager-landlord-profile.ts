@@ -19,6 +19,9 @@
  */
 import type { SupabaseClient } from "@supabase/supabase-js";
 
+/** What the lease template prints when it has no landlord name to use. */
+export const LEASE_LANDLORD_PLACEHOLDER = "[LANDLORD ENTITY NAME]";
+
 export type ManagerLandlordProfile = {
   /** Legal name of the landlord party, or "" when the manager has not set one. */
   landlordLegalName: string;

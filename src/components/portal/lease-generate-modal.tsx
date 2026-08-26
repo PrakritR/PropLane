@@ -20,11 +20,13 @@ import {
 import { buildAiGeneratedLeaseHtml } from "@/lib/generated-lease";
 import { buildLeasePacketEditAssistantContext } from "@/lib/lease-assistant-context";
 import { saveLeaseDocumentHtml } from "@/lib/lease-section-edit.client";
-import { cachedLandlordLegalName } from "@/lib/manager-landlord-profile";
+import {
+  cachedLandlordLegalName,
+  LEASE_LANDLORD_PLACEHOLDER,
+} from "@/lib/manager-landlord-profile";
 import {
   generateLeaseHtmlForRow,
   getLeaseDocumentHtml,
-  LEASE_LANDLORD_PLACEHOLDER,
   leaseGenerationPreviewContextForRow,
   leaseApplicationSnapshotForRow,
   readLeasePipeline,
