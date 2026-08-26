@@ -48,6 +48,7 @@ export function PortalNotificationPreviewModal({
   body,
   intro,
   warning,
+  warningLead = "AI-generated draft.",
   footerNote,
   showSkipMessage = true,
   skipMessageLabel = "Don't message resident",
@@ -81,6 +82,8 @@ export function PortalNotificationPreviewModal({
   body: string;
   intro?: string;
   warning?: string;
+  /** Prefix before `warning` text. Omit for a plain warning with no lead-in label. */
+  warningLead?: string | null;
   footerNote?: string;
   showSkipMessage?: boolean;
   skipMessageLabel?: string;
@@ -203,7 +206,13 @@ export function PortalNotificationPreviewModal({
       <PortalMessageComposeModalBody>
         {warning ? (
           <p className={`${MODAL_WARNING_BOX_CLASS} py-1.5 text-xs`}>
-            <strong>AI-generated draft.</strong> {warning}
+            {warningLead ? (
+              <>
+                <strong>{warningLead}</strong> {warning}
+              </>
+            ) : (
+              warning
+            )}
           </p>
         ) : null}
         {intro ? <p className="text-sm leading-snug text-muted">{intro}</p> : null}

@@ -126,6 +126,19 @@ function syncLocalTasksToPlannedEvents(managerUserId: string, tasks: ManagerTask
   replaceManagerTaskPlannedEvents(managerUserId, events);
 }
 
+/** Re-merge this manager's task blocks after a server calendar sync overwrites planned events. */
+export function reapplyManagerTasksToCalendar(managerUserId: string): void {
+  syncLocalTasksToPlannedEvents(managerUserId, readLocalTasks(managerUserId));
+}
+
+/** Re-merge every cached manager task list after schedule sync. */
+export function reapplyAllManagerTasksToCalendar(): void {
+  if (!isBrowser()) return;
+  for (const [managerUserId, tasks] of localTasks) {
+    syncLocalTasksToPlannedEvents(managerUserId, tasks);
+  }
+}
+
 export function notifyManagerTasksChanged() {
   if (!isBrowser()) return;
   window.dispatchEvent(new Event(MANAGER_TASKS_EVENT));

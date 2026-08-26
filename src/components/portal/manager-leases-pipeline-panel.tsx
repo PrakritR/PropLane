@@ -44,6 +44,7 @@ import {
   managerSignLease,
   confirmUploadedLeaseParse,
   leaseNeedsUploadedLeaseReviewAction,
+  leaseLandlordNameWarning,
   leaseSendGateBlocker,
   leaseSendGateBlockerAmong,
   leaseGenerationSupportedForRow,
@@ -914,6 +915,10 @@ export function ManagerLeasesPipelinePanel({
         recipient={leaseSentPreview?.recipient ?? ""}
         subject={leaseSentPreview?.subject ?? ""}
         body={leaseSentPreview?.body ?? ""}
+        warning={
+          leaseSentPreview ? leaseLandlordNameWarning(leaseSentPreview.row) ?? undefined : undefined
+        }
+        warningLead={null}
         footerNote="The lease will be released to the resident portal after you confirm. This message is delivered to PropLane inbox and email."
         confirmLabel="Send lease & notification"
         confirmLabelWithoutMessage="Send lease only"

@@ -75,4 +75,12 @@ describe("lease document HTML sanitizer", () => {
       expect(result.html).toContain("Lead paint disclosure.");
     }
   });
+
+  it("does not expand $-sequences when reinserting disclosure paragraphs", () => {
+    const original =
+      '<html><body><p data-disclosure-rule="sample">Fee is $100 per $& incident.</p></body></html>';
+    const edited = "<html><body></body></html>";
+    const merged = reinsertMissingDisclosureParagraphs(original, edited);
+    expect(merged).toContain("Fee is $100 per $& incident.");
+  });
 });
