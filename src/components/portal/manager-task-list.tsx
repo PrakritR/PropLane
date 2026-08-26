@@ -205,7 +205,7 @@ export function ManagerTaskList() {
               </section>
             ) : null}
           </div>
-        )}
+        ) : null}
 
         <PortalListAddRow
           label="Add task"
