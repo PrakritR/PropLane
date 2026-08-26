@@ -48,6 +48,10 @@ export async function loadManagerDocumentsPanel() {
   return (await import("@/components/portal/manager-documents-panel")).ManagerDocumentsPanel;
 }
 
+export async function loadManagerVendorsPanel() {
+  return (await import("@/components/portal/manager-vendors-panel")).ManagerVendorsPanel;
+}
+
 export async function loadProAccountLinksPanel() {
   return (await import("@/components/portal/pro-account-links-panel")).ProAccountLinksPanel;
 }

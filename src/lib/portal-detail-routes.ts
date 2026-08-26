@@ -259,6 +259,34 @@ export function parseTeamLinkTab(raw: string | undefined | null): TeamLinkTabId 
   return "pending";
 }
 
+/**
+ * Routed tabs inside Team.
+ *
+ * Vendors moved here out of Services. They are PEOPLE a manager works with, which is what this
+ * section is about — under Services they sat beside the work those people do, and the tab was a
+ * permanent "(soon)" placeholder besides.
+ */
+export const TEAM_SECTION_TABS = ["managers", "vendors"] as const;
+export type TeamSectionTabId = (typeof TEAM_SECTION_TABS)[number];
+
+export const TEAM_SECTION_TAB_LABELS: Record<TeamSectionTabId, string> = {
+  managers: "Managers",
+  vendors: "Vendors",
+};
+
+export function parseTeamSectionTab(raw: string | undefined | null): TeamSectionTabId {
+  if (raw && (TEAM_SECTION_TABS as readonly string[]).includes(raw)) {
+    return raw as TeamSectionTabId;
+  }
+  // Anything unrecognised — including the pre-tab bare /relationships URL and its old
+  // owner/manager/pending/linked sub-paths — lands on Managers rather than 404ing.
+  return "managers";
+}
+
+export function teamSectionHref(basePath: string, tab: TeamSectionTabId): string {
+  return `${basePath}/relationships/${tab}`;
+}
+
 export function teamLinkHref(basePath: string, _tab?: TeamLinkTabId): string {
   return `${basePath}/relationships`;
 }
@@ -570,12 +598,15 @@ export function workOrderDetailHref(
   return `${basePath}/services/work-orders/${bucket}/${encodeURIComponent(workOrderId)}`;
 }
 
+// Vendors live under Team now. These builders point at the new home directly rather than leaning
+// on the compatibility redirect from /services/vendors — a link that redirects on every click
+// costs a round trip and briefly shows the wrong section as active.
 export function vendorListHref(basePath: string): string {
-  return `${basePath}/services/vendors`;
+  return `${basePath}/relationships/vendors`;
 }
 
 export function vendorDetailHref(basePath: string, vendorId: string): string {
-  return `${basePath}/services/vendors/${encodeURIComponent(vendorId)}`;
+  return `${basePath}/relationships/vendors/${encodeURIComponent(vendorId)}`;
 }
 
 /** Legacy promotion content filters — routes now redirect to the unified list. */

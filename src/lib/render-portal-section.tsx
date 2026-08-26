@@ -47,6 +47,7 @@ import {
   loadManagerCommunication,
   loadManagerProperties,
   loadManagerResidents,
+  loadManagerVendorsPanel,
   loadProAccountLinksPanel,
   loadResidentServicesPanel,
 } from "@/lib/portal-panel-imports";
@@ -506,13 +507,37 @@ export async function renderPortalSection(
     }
 
     if (kind === "pro" && section === "relationships") {
+      const { TEAM_SECTION_TABS, parseTeamSectionTab } = await import("@/lib/portal-detail-routes");
+      let teamTab: "managers" | "vendors" = "managers";
       if (tabParts?.length) {
         const teamTabRaw = tabParts[0]!;
+        // The pre-tab sub-paths land on Managers rather than 404ing, so an old bookmark still
+        // opens the team list it always did.
         if (teamTabRaw === "owner" || teamTabRaw === "manager" || teamTabRaw === "pending" || teamTabRaw === "linked") {
-          redirect(`${def.basePath}/${section}`);
+          redirect(`${def.basePath}/${section}/managers`);
         }
-        notFound();
+        if (!(TEAM_SECTION_TABS as readonly string[]).includes(teamTabRaw)) notFound();
+        if (tabParts.length > 1 && teamTabRaw !== "vendors") notFound();
+        teamTab = parseTeamSectionTab(teamTabRaw);
+      } else {
+        // Bare /relationships gets a canonical tabbed URL so the strip has something to mark active.
+        redirect(`${def.basePath}/${section}/managers`);
       }
+
+      if (teamTab === "vendors") {
+        const ManagerVendorsPanel = await loadManagerVendorsPanel();
+        return subscriptionGated(
+          <ManagerVendorsPanel
+            embedded
+            listBasePath={def.basePath}
+            vendorId={tabParts && tabParts.length > 1 ? decodeURIComponent(tabParts[1]!) : undefined}
+          />,
+          kind,
+          "relationships",
+          managerOwnerSubscriptionTier,
+        );
+      }
+
       const ProAccountLinksPanel = await loadProAccountLinksPanel();
       return subscriptionGated(
         <ProAccountLinksPanel userId={effectiveWorkspaceUserId!} />,
@@ -627,11 +652,16 @@ export async function renderPortalSection(
       if (servicesTab === "work-done") {
         redirect(`${def.basePath}/financials/expenses`);
       }
-      if (!["requests", "work-orders", "vendors"].includes(servicesTab)) notFound();
-
+      // Vendors moved to Team — they are people a manager works with, not work items. The old
+      // path still resolves so bookmarks and links in sent messages keep working, carrying any
+      // vendor id through to the detail.
       if (servicesTab === "vendors") {
-        if (tabParts.length > 2) notFound();
-      } else if (servicesTab === "requests") {
+        const vendorId = tabParts.length > 1 ? `/${encodeURIComponent(tabParts[1]!)}` : "";
+        redirect(`${def.basePath}/relationships/vendors${vendorId}`);
+      }
+      if (!["requests", "work-orders"].includes(servicesTab)) notFound();
+
+      if (servicesTab === "requests") {
         if (tabParts.length === 1) {
           redirect(`${def.basePath}/services/requests/pending`);
         }

@@ -190,9 +190,15 @@ describe("pro portal documents section", () => {
     ]);
   });
 
-  it("services tabs are requests, work orders, and vendors", () => {
+  it("services is one list, with vendors moved to Team", () => {
+    // Add-on services and work orders are presented as a single queue — a manager thinks of them
+    // as one pile of work — and Vendors moved to Team, where the people are, rather than sitting
+    // beside the work behind a permanent "(soon)" placeholder.
     const services = proPortal.sections.find((s) => s.section === "services");
-    expect(services?.tabs.map((t) => t.id)).toEqual(["requests", "work-orders", "vendors"]);
+    expect(services?.tabs.map((t) => t.id)).toEqual([]);
+
+    const team = proPortal.sections.find((s) => s.section === "relationships");
+    expect(team?.tabs.map((t) => t.id)).toEqual(["managers", "vendors"]);
   });
 
   it("locks documents and financials for free tier", () => {

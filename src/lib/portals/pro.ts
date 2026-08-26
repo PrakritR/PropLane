@@ -25,11 +25,10 @@ export const proPortal: PortalDefinition = {
     {
       section: "services",
       label: "Services",
-      tabs: [
-        { id: "requests", label: "Requests" },
-        { id: "work-orders", label: "Work orders" },
-        { id: "vendors", label: "Vendors (soon)" },
-      ],
+      // One list. Add-on services and maintenance work orders remain SEPARATE data models — see
+      // AGENTS.md — but a manager thinks of them as one queue of work, so they are presented as
+      // one. Vendors moved to Team, where the people are.
+      tabs: [],
     },
     { section: "task-list", label: "Task list", tabs: [] },
     {
@@ -40,7 +39,10 @@ export const proPortal: PortalDefinition = {
     {
       section: "relationships",
       label: "Team",
-      tabs: [],
+      tabs: [
+        { id: "managers", label: "Managers" },
+        { id: "vendors", label: "Vendors" },
+      ],
     },
     { section: "promotion", label: "Promotion", tabs: [] },
     {
