@@ -15,6 +15,7 @@ import {
   ResidentSettingsPanel,
 } from "@/components/portal/manager-portal-settings-panels";
 import type { ApplicationAutomationPreferences } from "@/lib/application-automation-preferences";
+import { CANONICAL_DEMO_MANAGER_NAME } from "@/lib/demo/demo-canonical-accounts";
 import { cacheLandlordLegalName } from "@/lib/manager-landlord-profile";
 import { PORTAL_TOOLBAR_PILL_BUTTON, PORTAL_TOOLBAR_PILL_BUTTON_ACTIVE } from "@/components/portal/portal-metrics";
 
@@ -39,7 +40,8 @@ export function ManagerPortalSettingsModal({
   open,
   onClose,
   initialTab = "applications",
-  scoped = false,
+  scoped = true,
+  scopedTitle,
 }: {
   open: boolean;
   onClose: () => void;
@@ -49,10 +51,12 @@ export function ManagerPortalSettingsModal({
    *
    * Settings opened from a section's own header should be that section's settings. Offering all
    * six tabs there makes the manager re-find the one they were already standing in, and invites
-   * them to change Payments from inside Applications. The full switcher stays available from a
-   * global entry point, which is why this is opt-in rather than the default.
+   * them to change Payments from inside Applications. Pass `scoped={false}` only for a deliberate
+   * global settings hub.
    */
   scoped?: boolean;
+  /** When scoped, overrides the default "{Tab label} settings" title (e.g. Tours → tour notice). */
+  scopedTitle?: string;
 }) {
   const { showToast } = useAppUi();
   const demo = isDemoModeActive();
@@ -73,6 +77,8 @@ export function ManagerPortalSettingsModal({
       setWaiverCode("WELCOME50");
       setFeeCents(5000);
       setAutomation(DEFAULT_APPLICATION_AUTOMATION);
+      setLandlordLegalName(CANONICAL_DEMO_MANAGER_NAME);
+      cacheLandlordLegalName(CANONICAL_DEMO_MANAGER_NAME);
       return;
     }
     setLoading(true);
@@ -159,7 +165,11 @@ export function ManagerPortalSettingsModal({
     <Modal
       open={open}
       onClose={onClose}
-      title={scoped ? `${TABS.find((item) => item.id === tab)?.label ?? "Settings"} settings` : "Settings"}
+      title={
+        scoped
+          ? `${scopedTitle ?? TABS.find((item) => item.id === tab)?.label ?? "Settings"} settings`
+          : "Settings"
+      }
       dense
       assistantStrip={false}
       panelClassName="max-w-lg p-3 sm:p-4"
@@ -231,5 +241,5 @@ export function ManagerApplicationSettingsModal({
   open: boolean;
   onClose: () => void;
 }) {
-  return <ManagerPortalSettingsModal open={open} onClose={onClose} initialTab="applications" />;
+  return <ManagerPortalSettingsModal open={open} onClose={onClose} initialTab="applications" scoped />;
 }

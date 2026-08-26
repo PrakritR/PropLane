@@ -17,6 +17,7 @@
  * column, so this needs no migration and cannot break on a production project whose columns lag
  * dev. Writes merge into the existing blob rather than replacing it.
  */
+import { isPortalSandboxEmail } from "@/lib/portal-sandbox-accounts";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 /** What the lease template prints when it has no landlord name to use. */
@@ -115,6 +116,27 @@ export async function saveManagerLandlordProfile(
   );
   if (error) throw error;
   return normalized;
+}
+
+/**
+ * Sandbox managers get an initial landlord legal name from signup `fullName` so
+ * lease generation works without a manual Settings pass. Production managers still
+ * set this explicitly; an existing saved name is never overwritten.
+ */
+export async function ensureSandboxManagerLandlordProfile(
+  db: SupabaseClient,
+  opts: { managerUserId: string; email: string; fullName?: string | null },
+): Promise<void> {
+  if (!isPortalSandboxEmail(opts.email)) return;
+  const validated = validateLandlordLegalName(opts.fullName);
+  if (!validated.ok || !validated.landlordLegalName) return;
+
+  const existing = await loadManagerLandlordProfile(db, opts.managerUserId);
+  if (existing.landlordLegalName) return;
+
+  await saveManagerLandlordProfile(db, opts.managerUserId, {
+    landlordLegalName: validated.landlordLegalName,
+  });
 }
 
 /* -------------------------------------------------------------------------- */

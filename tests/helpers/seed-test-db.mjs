@@ -117,6 +117,37 @@ async function must(promise, label) {
   return data;
 }
 
+async function ensureManagerLandlordProfile(managerUserId, legalName) {
+  const name = String(legalName ?? "").trim();
+  if (name.length < 2) return;
+  const { data: existing } = await supabase
+    .from("manager_automation_settings")
+    .select("row_data")
+    .eq("manager_user_id", managerUserId)
+    .maybeSingle();
+  const rowData =
+    existing?.row_data && typeof existing.row_data === "object" && !Array.isArray(existing.row_data)
+      ? { ...existing.row_data }
+      : {};
+  const profile =
+    rowData.landlordProfile && typeof rowData.landlordProfile === "object" && !Array.isArray(rowData.landlordProfile)
+      ? rowData.landlordProfile
+      : {};
+  if (String(profile.landlordLegalName ?? "").trim()) return;
+  rowData.landlordProfile = { landlordLegalName: name };
+  await must(
+    supabase.from("manager_automation_settings").upsert(
+      {
+        manager_user_id: managerUserId,
+        row_data: rowData,
+        updated_at: NOW.toISOString(),
+      },
+      { onConflict: "manager_user_id" },
+    ),
+    `manager_automation_settings(landlordProfile:${managerUserId})`,
+  );
+}
+
 const NOW = new Date();
 const isoDate = (d) => d.toISOString().slice(0, 10);
 const daysFromNow = (n) => new Date(NOW.getTime() + n * 86400000);
@@ -476,6 +507,7 @@ try {
   // hand-typed cus_test_* placeholder) so manager charges — e.g. applicant
   // screening (src/lib/screening/charge-manager.ts) — succeed in test mode.
   await ensureManagerStripeCustomer(stripe, supabase, { email: managerEmail, userId: managerUserId });
+  await ensureManagerLandlordProfile(managerUserId, CANONICAL_DEMO_MANAGER_NAME);
 
   // ── Second test manager (public browse catalog) ────────────────────────────
   const manager2Email = (process.env.E2E_MANAGER2_EMAIL?.trim() || "manager2@test.proplane.local").toLowerCase();
@@ -490,7 +522,11 @@ try {
       .maybeSingle();
     if (manager2Profile?.manager_id?.trim()) manager2Id = manager2Profile.manager_id.trim();
   }
-  const manager2UserId = await ensureUser(manager2Email, manager2Password, "manager", { managerId: manager2Id, onlyRole: true });
+  const manager2UserId = await ensureUser(manager2Email, manager2Password, "manager", {
+    managerId: manager2Id,
+    onlyRole: true,
+    fullName: "Test Manager 2",
+  });
 
   const { data: purchases2 } = await supabase
     .from("manager_purchases")
@@ -519,6 +555,7 @@ try {
     );
   }
   await ensureManagerStripeCustomer(stripe, supabase, { email: manager2Email, userId: manager2UserId });
+  await ensureManagerLandlordProfile(manager2UserId, "Test Manager 2");
 
   // ── Canonical demo / E2E resident + vendor (mirror /demo idle portfolio) ───
   const residentUserId = await ensureUser(residentEmail, residentPassword, "resident", {
@@ -561,6 +598,7 @@ try {
       `profile_roles(${everythingEmail}:${extraRole})`,
     );
   }
+  await ensureManagerLandlordProfile(everythingUserId, EVERYTHING_NAME);
 
   // Real phones for Claw Messenger two-way testing on localhost / test DB.
   // Manager personal cell (forward + replies): +1 510-309-8345

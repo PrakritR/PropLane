@@ -223,6 +223,14 @@ export function managerTourListHref(basePath: string, bucket: ManagerTourBucketI
   return `${basePath}/tours/${bucket}`;
 }
 
+export function managerTourDetailHref(
+  basePath: string,
+  bucket: ManagerTourBucketId,
+  tourId: string,
+): string {
+  return `${basePath}/tours/${bucket}/${encodeURIComponent(tourId)}`;
+}
+
 export const TOURS_HUB_TABS = ["tours", "services"] as const;
 export type ToursHubTabId = (typeof TOURS_HUB_TABS)[number];
 
