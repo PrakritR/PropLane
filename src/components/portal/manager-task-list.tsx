@@ -90,7 +90,9 @@ export function ManagerTaskList() {
 
   useEffect(() => {
     if (!ready || !userId) return;
-    void syncPropertyPipelineFromServer().then(() => setPropertyTick((n) => n + 1));
+    void syncPropertyPipelineFromServer()
+      .then(() => setPropertyTick((n) => n + 1))
+      .catch(() => undefined);
     void refresh();
   }, [ready, userId, refresh]);
 
@@ -192,11 +194,11 @@ export function ManagerTaskList() {
   return (
     <ManagerPortalPageShell title="Task list">
       <div className={PORTAL_LIST_PAGE_BODY}>
-        {loading ? (
-          <p className="text-sm text-muted">Loading…</p>
-        ) : tasks.length > 0 ? (
+        {loading ? <p className="text-sm text-muted">Loading…</p> : null}
+
+        {!loading && tasks.length > 0 ? (
           <div className="space-y-6">
-            {openTasks.length ? (
+            {openTasks.length > 0 ? (
               <section className="space-y-2">
                 <h2 className="text-xs font-bold uppercase tracking-[0.16em] text-muted">Open</h2>
                 <ul className="divide-y divide-border rounded-2xl border border-border bg-card">
@@ -204,7 +206,7 @@ export function ManagerTaskList() {
                 </ul>
               </section>
             ) : null}
-            {doneTasks.length ? (
+            {doneTasks.length > 0 ? (
               <section className="space-y-2">
                 <h2 className="text-xs font-bold uppercase tracking-[0.16em] text-muted">Completed</h2>
                 <ul className="divide-y divide-border rounded-2xl border border-border bg-card opacity-80">

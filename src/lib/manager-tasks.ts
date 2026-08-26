@@ -166,8 +166,14 @@ export function readManagerTasksLocal(managerUserId: string): ManagerTask[] {
 }
 
 export async function fetchManagerTasks(managerUserId: string): Promise<ManagerTask[]> {
+  if (!isBrowser()) return readManagerTasksLocal(managerUserId);
   if (isDemoModeActive()) return readManagerTasksLocal(managerUserId);
-  const res = await fetch("/api/portal/manager-tasks", { credentials: "include", cache: "no-store" });
+  let res: Response;
+  try {
+    res = await fetch("/api/portal/manager-tasks", { credentials: "include", cache: "no-store" });
+  } catch {
+    throw new Error("Could not load tasks. Check your connection and try again.");
+  }
   const data = (await res.json().catch(() => ({}))) as { tasks?: unknown; error?: string };
   if (!res.ok) throw new Error(data.error ?? "Could not load tasks.");
   const tasks = normalizeManagerTasks(data.tasks);
