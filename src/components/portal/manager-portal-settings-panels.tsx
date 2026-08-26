@@ -322,7 +322,6 @@ export function CalendarSettingsPanel({ onSaved }: { onSaved?: () => void }) {
         </label>
 
         <div className="space-y-3 border-t border-border pt-4">
-          <p className="text-[13px] font-semibold text-foreground">Tour reminders</p>
           <TourReminderTimingSelect
             minutesBeforeList={normalizeTourReminderMinutesBeforeList(
               automation.tourReminderMinutesBeforeList,

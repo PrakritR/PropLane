@@ -156,41 +156,16 @@ export function formatTourReminderTimingLabel(minutes: number): string {
   return `${hours}h ${remainder}m before tour`;
 }
 
-function sortTourReminderMinutes(minutes: number[]): number[] {
-  return normalizeTourReminderMinutesBeforeList(minutes);
+function formatTourReminderTimingTriggerLabel(minutes: number): string {
+  if (minutes < 60) return `${minutes} minutes`;
+  const hours = Math.floor(minutes / 60);
+  const remainder = minutes % 60;
+  if (remainder === 0) return `${hours} hour${hours === 1 ? "" : "s"}`;
+  return `${hours}h ${remainder}m`;
 }
 
-function TourReminderTimingChipRow({
-  minutes,
-  disabled,
-  onChange,
-}: {
-  minutes: number[];
-  disabled?: boolean;
-  onChange: (next: number[]) => void;
-}) {
-  const sorted = sortTourReminderMinutes(minutes);
-  if (!sorted.length) return null;
-  return (
-    <ul className="flex flex-wrap gap-1.5" aria-label="Selected reminder timings">
-      {sorted.map((value) => (
-        <li key={value}>
-          <button
-            type="button"
-            disabled={disabled}
-            className="inline-flex max-w-full items-center gap-1 rounded-full border border-primary/25 bg-primary/10 px-2.5 py-1 text-xs font-medium text-foreground transition hover:bg-primary/15 disabled:opacity-50"
-            onClick={() => onChange(minutes.filter((m) => m !== value))}
-            aria-label={`Remove ${formatTourReminderTimingLabel(value)}`}
-          >
-            <span className="truncate">{formatTourReminderTimingLabel(value)}</span>
-            <span className="text-muted" aria-hidden>
-              ×
-            </span>
-          </button>
-        </li>
-      ))}
-    </ul>
-  );
+function sortTourReminderMinutes(minutes: number[]): number[] {
+  return normalizeTourReminderMinutesBeforeList(minutes);
 }
 
 export function TourReminderTimingSelect({
@@ -205,7 +180,9 @@ export function TourReminderTimingSelect({
   const [customMinutesInput, setCustomMinutesInput] = useState("");
   const sorted = useMemo(() => sortTourReminderMinutes(minutesBeforeList), [minutesBeforeList]);
   const selectedTokens = sorted.map(String);
-  const hasSelection = sorted.length > 0;
+  const selectionTriggerLabel = sorted.length
+    ? sorted.map((minutes) => formatTourReminderTimingTriggerLabel(minutes)).join(", ")
+    : undefined;
 
   const presetOptions = TOUR_REMINDER_TIMING_PRESETS.map((minutes) => ({
     value: String(minutes),
@@ -233,23 +210,12 @@ export function TourReminderTimingSelect({
 
   return (
     <div className="space-y-2">
-      {hasSelection ? (
-        <>
-          <p className={REMINDER_FIELD_LABEL_CLASS}>Reminders</p>
-          <TourReminderTimingChipRow
-            minutes={sorted}
-            disabled={disabled}
-            onChange={(next) => onChangeMinutesList(next)}
-          />
-        </>
-      ) : null}
       <CheckboxMultiSelect
-        label="Reminder timing"
+        label="Reminders"
         labelClassName={REMINDER_FIELD_LABEL_CLASS}
-        hideLabel={hasSelection}
-        selectionTriggerLabel={hasSelection ? "Add or remove…" : undefined}
         options={options}
         selected={selectedTokens}
+        selectionTriggerLabel={selectionTriggerLabel}
         onChange={commitSelection}
         disabled={disabled}
         emptyLabel="Choose reminders…"
