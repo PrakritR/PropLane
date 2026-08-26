@@ -61,6 +61,8 @@ vi.mock("@/lib/portal-inbox-storage", () => ({
   deleteInboxThreadIds: () => Promise.resolve(true),
   inboxThreadSortMs: () => 1,
   formatInboxStamp: () => "Aug 26, 9:45 AM",
+  // Keep AI drafting off for this reply-refusal case.
+  inboxThreadManagerReplyPending: () => false,
   inboxThreadMessages: (thread: typeof BASE_THREAD) => [
     {
       id: `${thread.id}-root`,
