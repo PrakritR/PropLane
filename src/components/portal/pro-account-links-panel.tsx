@@ -1485,7 +1485,7 @@ export function ProAccountLinksPanel({ userId }: { userId: string }) {
 
   return (
     <ManagerPortalPageShell
-      title="Team"
+      title="Managers"
       titleInlineFilter={teamFilterSheet}
       titleAside={teamLinkButton}
       hideTitleOnMobileNav

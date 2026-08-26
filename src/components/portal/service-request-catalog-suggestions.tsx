@@ -52,7 +52,7 @@ export function ServiceRequestCatalogSuggestions({
     <div className="space-y-2" data-attr="service-request-catalog-suggestions">
       {missing.length > 0 ? (
         <>
-          <p className="text-xs font-bold uppercase tracking-[0.12em] text-muted">Other request types</p>
+          <p className="text-xs font-bold uppercase tracking-[0.12em] text-muted">Other service types</p>
           {missing.map((preset) => (
             <div key={preset.name} className={SERVICE_REQUEST_PRESET_ROW_CLASS}>
               <div className="min-w-0 flex-1 text-left">

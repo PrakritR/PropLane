@@ -31,7 +31,7 @@ export function ManagerPropertyRequestsPanel({
   managerUserId: string | null;
   onUpdated: () => void;
   showToast: (m: string) => void;
-  /** Parent header "Add request" — opens the custom request-type form. */
+  /** Parent header "Add service" — opens the custom service-type form. */
   onRegisterAddRequest?: (openAdd: (() => void) | null) => void;
 }) {
   const addHandlerRef = useRef<(() => void) | null>(null);
