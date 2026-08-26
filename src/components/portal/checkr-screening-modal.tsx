@@ -19,6 +19,7 @@ import { isScreeningTestModeActive } from "@/lib/screening/screening-test-mode";
 import { MANAGER_PLAN_PORTAL_URL } from "@/lib/portals/manager-plan-path";
 import { replaceManagerApplicationRowInCache } from "@/lib/manager-applications-storage";
 import { applicantDisplayName } from "@/lib/rental-application/applicant-name";
+import { BackgroundCheckCosignerNotice } from "@/components/portal/application-screening-panel";
 import type { DemoApplicantRow } from "@/data/demo-portal";
 
 const DEMO_SCREENING_RESOLVE_DELAY_MS = 1800;
@@ -96,6 +97,7 @@ export function CheckrScreeningModal({
   onClose,
   onUpdated,
   showPackagePickerInitially = false,
+  hasLinkedCosigner = false,
 }: {
   row: DemoApplicantRow | null;
   open: boolean;
@@ -103,6 +105,7 @@ export function CheckrScreeningModal({
   onUpdated?: () => void;
   /** When true, skip the completed summary and show package/payment immediately (e.g. Run again). */
   showPackagePickerInitially?: boolean;
+  hasLinkedCosigner?: boolean;
 }) {
   const { showToast } = useAppUi();
   const pathname = usePathname();
@@ -328,6 +331,9 @@ export function CheckrScreeningModal({
   return (
     <Modal open={open} onClose={onClose} title={modalTitle} panelClassName="max-w-4xl max-h-[min(92vh,56rem)] overflow-y-auto">
       <div className="space-y-5 text-sm">
+        {hasLinkedCosigner ? (
+          <BackgroundCheckCosignerNotice applicantName={applicantDisplayName(row)} />
+        ) : null}
         {!packagesLoaded ? (
           <p className="text-muted">Loading screening options…</p>
         ) : !screeningAllowed ? (

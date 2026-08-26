@@ -7,7 +7,7 @@ import { buildRentalApplyHref } from "@/lib/rental-application/apply-from-listin
 
 export const TOUR_REQUEST_MANAGER_SUBJECT = "New tour request — PropLane";
 
-export const TOUR_REQUEST_TENANT_SUBJECT = "We received your tour request — PropLane";
+export const TOUR_REQUEST_TENANT_SUBJECT = "Your tour request is pending confirmation — PropLane";
 
 export const TOUR_CONFIRMED_TENANT_SUBJECT = "Your PropLane tour is confirmed";
 
@@ -90,18 +90,18 @@ export function buildTourRequestTenantBody(ctx: TourNotificationContext): string
     "",
     "We received your tour request and sent it to the property manager for review.",
     "",
+    "Your tour is NOT confirmed yet. Please wait for a separate confirmation email before visiting the property.",
+    // Said plainly and before anything else, because a requested time reads like a booked one.
+    // A guest who travels to a property on an unconfirmed request finds nobody there, and the
+    // manager only hears about it as a complaint.
+    "Please do not go to the property until you receive a confirmation email from us. The manager still has to approve this time, and they may offer a different one.",
+    "",
     `Requested time: ${when}`,
     `Property: ${ctx.propertyTitle || "Property"}`,
   ];
   if (ctx.roomLabel?.trim()) lines.push(`Room: ${ctx.roomLabel.trim()}`);
   if (ctx.propertyAddress?.trim()) lines.push(`Address: ${ctx.propertyAddress.trim()}`);
   lines.push(
-    "",
-    "This tour is NOT confirmed yet.",
-    // Said plainly and before anything else, because a requested time reads like a booked one.
-    // A guest who travels to a property on an unconfirmed request finds nobody there, and the
-    // manager only hears about it as a complaint.
-    "Please do not go to the property until you receive a confirmation email from us. The manager still has to approve this time, and they may offer a different one.",
     "",
     "You will receive a separate confirmation email once the manager approves your tour time.",
   );

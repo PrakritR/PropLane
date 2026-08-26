@@ -6,7 +6,6 @@ export const PROPERTY_DETAIL_TABS = [
   "application",
   "lease",
   "tours",
-  "calendar",
   "requests",
   "promotion",
 ] as const;
@@ -20,7 +19,6 @@ export const PROPERTY_DETAIL_TAB_LABELS: Record<PropertyDetailTabId, string> = {
   application: "Application",
   lease: "Lease",
   tours: "Tours",
-  calendar: "Calendar",
   requests: "Requests",
   promotion: "Promotion",
 };
@@ -37,7 +35,6 @@ export type PropertyDetailSectionTabId = (typeof PROPERTY_DETAIL_SECTION_TABS)[n
 export const PROPERTY_DETAIL_TOP_TAB_LABELS = {
   details: "Details",
   tours: "Tours",
-  calendar: "Calendar",
   application: "Application",
   lease: "Lease",
   requests: "Requests",
@@ -49,14 +46,12 @@ export type PropertyDetailTopTabId = keyof typeof PROPERTY_DETAIL_TOP_TAB_LABELS
 export const PROPERTY_DETAIL_TOP_TAB_SHORT_LABELS: Partial<
   Record<PropertyDetailTopTabId, string>
 > = {
-  calendar: "Calendar",
   application: "Apply",
   promotion: "Promo",
 };
 
 export function propertyDetailTopNavId(tab: PropertyDetailTabId): PropertyDetailTopTabId {
   if (tab === "tours") return "tours";
-  if (tab === "calendar") return "calendar";
   if (tab === "application") return "application";
   if (tab === "lease") return "lease";
   if (tab === "requests") return "requests";
@@ -88,8 +83,7 @@ export const RESIDENT_DETAIL_TAB_SHORT_LABELS: Record<ResidentDetailTabId, strin
 };
 
 export function parsePropertyDetailTab(raw: string | undefined | null): PropertyDetailTabId {
-  if (raw === "tour-calendar") return "tours";
-  if (raw === "booking-calendars") return "calendar";
+  if (raw === "tour-calendar" || raw === "calendar" || raw === "booking-calendars") return "tours";
   if (raw && (PROPERTY_DETAIL_TABS as readonly string[]).includes(raw)) {
     return raw as PropertyDetailTabId;
   }

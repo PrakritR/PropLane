@@ -171,7 +171,7 @@ export function LeaseGenerateModal({
       return;
     }
     if (landlordNameMissing || draftShowsPlaceholder) {
-      showToast("Add your landlord legal name in Settings (Lease tab), then regenerate this lease.");
+      showToast("Add your full name in Settings → Profile, then regenerate this lease.");
       return;
     }
     commitGenerate();
@@ -261,7 +261,7 @@ export function LeaseGenerateModal({
             <div className="flex flex-col gap-2">
               {landlordNameMissing || draftShowsPlaceholder ? (
                 <p className="rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-900">
-                  Add your <strong>landlord legal name</strong> in Settings → Lease before generating. That name
+                  Add your <strong>full name</strong> in Settings → Profile before generating. That name
                   appears in the Parties section — PropLane will not use the property address as the landlord.
                 </p>
               ) : null}

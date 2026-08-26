@@ -63,7 +63,8 @@ import {
   type ResidentDetailTabId,
 } from "@/lib/portal-detail-routes";
 import { PortalRecordDetailPage } from "@/components/portal/portal-record-detail-page";
-import { PortalPersonRecordRow } from "@/components/portal/portal-record-row";
+import { ManagerResidentsGroupedTable } from "@/components/portal/manager-residents-grouped-table";
+import { clusterManagerResidentListRows } from "@/lib/manager-resident-list";
 import { PortalListAddRow, PORTAL_LIST_ADD_ICONS } from "@/components/portal/portal-list-add-row";
 import { PORTAL_LIST_PAGE_BODY } from "@/components/portal/portal-inbox-ui";
 import { LeaseDocumentPreview } from "@/components/portal/lease-document-preview";
@@ -212,11 +213,7 @@ import {
 } from "@/lib/existing-resident-welcome-email";
 import { LocalDestinationNav } from "@/components/ui/destination-nav";
 import { groupIdForRow, groupRowInputForRow } from "@/components/portal/application-group-section";
-import {
-  ApplicationCosignerSection,
-  ApplicationHouseholdCluster,
-} from "@/components/portal/application-household-list";
-import { groupHouseLabel, numberGroupsByHouse } from "@/lib/rental-application/group-house-label";
+import { ApplicationCosignerSection } from "@/components/portal/application-household-list";
 import { dedupeResidentsByEmail } from "@/lib/resident-directory-dedupe";
 import { ApplicationHoldingFeeModal } from "@/components/portal/application-holding-fee-box";
 import { ManagerPortalSettingsModal } from "@/components/portal/manager-portal-settings-modal";
@@ -308,14 +305,6 @@ type ActiveResident = {
 type ResidentsTabId = "current";
 
 const RESIDENTS_LIST_TAB: ResidentsTabId = "current";
-
-function shortDateLabel(iso: string): string {
-  const parts = iso.trim().split("-").map(Number);
-  if (parts.length < 3 || !parts[0] || !parts[1] || !parts[2]) return iso;
-  const d = new Date(parts[0], parts[1] - 1, parts[2]);
-  if (Number.isNaN(d.getTime())) return iso;
-  return d.toLocaleDateString("en-US", { month: "numeric", day: "numeric", year: "numeric" });
-}
 
 export function ManagerResidents({
   tabId: _tabId = "current",
@@ -1048,53 +1037,20 @@ export function ManagerResidents({
     });
   }, [residents, propertyFilters, searchQuery]);
 
-  /**
-   * "Group 1" per HOUSE, numbered over EVERY resident rather than the filtered
-   * list — a search or property filter must not renumber a household, and the
-   * number has to agree with the one Applications and Leases print.
-   */
-  const residentGroupNumbers = useMemo(
+  const residentListClusters = useMemo(
     () =>
-      numberGroupsByHouse(
-        residents.map((res) => ({ groupId: res.groupId, property: res.propertyLabel })),
+      clusterManagerResidentListRows(
+        filtered.map((res) => ({
+          id: res.id,
+          name: res.name,
+          email: res.email,
+          propertyLabel: res.propertyLabel,
+          roomLabel: res.roomLabel,
+          leaseStart: res.leaseStart,
+        })),
       ),
-    [residents],
+    [filtered],
   );
-
-  /**
-   * The visible list, with housemates collected under one header. Grouped rows are
-   * pulled together at the position of the group's FIRST row, so the surrounding
-   * sort order is otherwise preserved; ungrouped residents stay individual rows.
-   */
-  const residentListClusters = useMemo(() => {
-    type Cluster = { groupId: string; property: string | null; ordinal: number; rows: ActiveResident[] };
-    const out: Cluster[] = [];
-    const byGroup = new Map<string, Cluster>();
-    for (const res of filtered) {
-      // A group of one is not a household — render it as a plain row.
-      const grouped =
-        res.groupId && filtered.filter((other) => other.groupId === res.groupId).length > 1;
-      if (!grouped) {
-        out.push({ groupId: "", property: null, ordinal: 0, rows: [res] });
-        continue;
-      }
-      const existing = byGroup.get(res.groupId);
-      if (existing) {
-        existing.rows.push(res);
-        continue;
-      }
-      const numbering = residentGroupNumbers.get(res.groupId);
-      const cluster: Cluster = {
-        groupId: res.groupId,
-        property: numbering?.property ?? null,
-        ordinal: numbering?.ordinal ?? 1,
-        rows: [res],
-      };
-      byGroup.set(res.groupId, cluster);
-      out.push(cluster);
-    }
-    return out;
-  }, [filtered, residentGroupNumbers]);
 
   const activeResidentId = residentIdProp ? decodeURIComponent(residentIdProp) : null;
   const selected = useMemo(
@@ -3213,41 +3169,13 @@ export function ManagerResidents({
         </div>
       ) : (
         <div className={PORTAL_LIST_PAGE_BODY}>
-          {residentListClusters.map((cluster) => {
-            const renderResidentRow = (res: ActiveResident) => {
-              const housingLabel = [res.roomLabel, !propertyFilters.length ? res.propertyLabel : null]
-                .filter(Boolean)
-                .join(" · ");
-              return (
-                <PortalPersonRecordRow
-                  key={res.id}
-                  name={res.name || "—"}
-                  subtitle={housingLabel || undefined}
-                  preview={res.email || housingLabel || " "}
-                  meta={res.leaseStart ? shortDateLabel(res.leaseStart) : undefined}
-                  onOpen={() =>
-                    navigate(residentDetailHref(portalBase, residentsTab, res.id, resolvedDetailTab))
-                  }
-                  dataAttr="resident-list-row"
-                />
-              );
-            };
-
-            if (!cluster.groupId) return cluster.rows.map(renderResidentRow);
-
-            return (
-              <ApplicationHouseholdCluster
-                key={cluster.groupId}
-                header={
-                  <span className="truncate text-xs font-semibold text-foreground">
-                    {groupHouseLabel(cluster.property, cluster.ordinal)}
-                  </span>
-                }
-              >
-                {cluster.rows.map(renderResidentRow)}
-              </ApplicationHouseholdCluster>
-            );
-          })}
+          <ManagerResidentsGroupedTable
+            clusters={residentListClusters}
+            showPropertyInRows={propertyFilters.length > 0}
+            onOpenResident={(res) =>
+              navigate(residentDetailHref(portalBase, residentsTab, res.id, resolvedDetailTab))
+            }
+          />
           <div className="px-3 py-3 max-md:px-2.5">
             <PortalListAddRow
               label="Add"

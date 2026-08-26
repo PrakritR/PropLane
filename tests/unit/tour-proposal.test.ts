@@ -302,6 +302,32 @@ describe("loadManagerTourBlocks", () => {
     const excludingSelf = await loadManagerTourBlocks(makeDb(store), MANAGER, "inq_1");
     expect(excludingSelf).toHaveLength(0);
   });
+
+  it("ignores soft-canceled planned tours so freed slots stay bookable", async () => {
+    const w1 = futureWindow(2, 20);
+    const store: Record<string, Row[]> = {
+      portal_schedule_records: [
+        {
+          id: PLANNED_RECORD_ID,
+          row_data: {
+            payload: [
+              {
+                id: "ev_canceled",
+                kind: "tour",
+                managerUserId: MANAGER,
+                start: w1.start,
+                end: w1.end,
+                slotKey: w1.slotKey,
+                canceledAt: "2026-01-01T12:00:00.000Z",
+              },
+            ],
+          },
+        },
+      ],
+    };
+    const blocks = await loadManagerTourBlocks(makeDb(store), MANAGER);
+    expect(blocks).toHaveLength(0);
+  });
 });
 
 describe("proposeTourConfirmation → approve → book", () => {

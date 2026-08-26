@@ -11,6 +11,7 @@ import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { loadTourNoticeDaysByManager } from "@/lib/manager-tour-settings";
 import {
   DEFAULT_TOUR_HORIZON_DAYS,
+  isActivePlannedTourEvent,
   payloadSlots,
   resolveTourOfferingSlots,
   rowPayload,
@@ -507,6 +508,7 @@ export async function GET(req: Request) {
       const plannedEvents = Array.isArray(plannedPayload) ? plannedPayload.map(asObject).filter(Boolean) : [];
       for (const event of plannedEvents as Record<string, unknown>[]) {
         if (textField(event, "kind") !== "tour") continue;
+        if (!isActivePlannedTourEvent(event)) continue;
         const managerUserId = textField(event, "managerUserId");
         if (!managerUserId || !availabilityManagerIds.includes(managerUserId)) continue;
         const start = textField(event, "start");

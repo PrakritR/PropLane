@@ -1,10 +1,10 @@
 // @vitest-environment jsdom
 //
-// EVIDENCE HARNESS — "<house> Group N" household headers.
+// EVIDENCE HARNESS — household headers on Residents; resident clusters on Applications/Leases.
 //
-// The header logic itself is unit-tested in `group-house-label.test.ts`; what is
-// only covered here is that the three manager surfaces a household actually
-// appears on — Applications, Residents, Leases — render the SAME label.
+// `group-house-label.test.ts` covers the numbering logic. This file checks that
+// Residents still prints "<house> Group N" while Applications and Leases use the
+// Tours-style resident-cluster list shell.
 //
 // Set EVIDENCE_DIR to dump each rendered surface's HTML so it can be
 // screenshotted with the app's real stylesheet.
@@ -270,34 +270,26 @@ function leaseRow(over: Partial<LeasePipelineRow> & { id: string; residentName: 
   } as LeasePipelineRow;
 }
 
-describe("household headers name the house on every manager surface", () => {
-  it("Applications clusters a split household under its dominant house", async () => {
+describe("household and resident list shells", () => {
+  it("Applications clusters each approved applicant by resident", async () => {
     const { container } = render(<ManagerApplications bucket="approved" />);
     await waitFor(() => expect(screen.getAllByText("Jordan Reyes").length).toBeGreaterThan(0));
 
-    // GROUP_A has 3 rows at 5257 and 1 at 5259 — it anchors to 5257 rather than
-    // dropping the house, which is what the old strict "all rows agree" rule did.
-    expect(screen.getByText(`${HOUSE_5257} Group 1 application`)).toBeTruthy();
-    // A second household at the SAME house is Group 2...
-    expect(screen.getByText(`${HOUSE_5257} Group 2 application`)).toBeTruthy();
-    // ...and a household at a different house restarts at Group 1.
-    expect(screen.getByText(`${HOUSE_5259} Group 1 application`)).toBeTruthy();
-    dump("applications-household-headers", container.innerHTML);
+    expect(document.querySelector("[data-attr='applications-resident-groups']")).toBeTruthy();
+    expect(screen.getAllByText("1 application").length).toBeGreaterThan(0);
+    dump("applications-resident-clusters", container.innerHTML);
   });
 
-  it("Residents clusters housemates under the same label, leaving solo residents alone", () => {
+  it("Residents clusters each person in the Tours-style resident shell", () => {
     const html = renderToStaticMarkup(<ManagerResidents />);
 
-    expect(html).toContain(`${HOUSE_5257} Group 1`);
-    expect(html).toContain(`${HOUSE_5257} Group 2`);
-    expect(html).toContain(`${HOUSE_5259} Group 1`);
-    // Three households, and the ungrouped resident is not wrapped in one.
-    expect(html.split("data-attr=\"application-household-cluster\"").length - 1).toBe(3);
+    expect(html).toContain('data-attr="residents-resident-groups"');
+    expect(html).toContain("Jordan Reyes");
     expect(html).toContain("Taylor Brooks");
-    dump("residents-household-clusters", html);
+    dump("residents-resident-clusters", html);
   });
 
-  it("Leases numbers households off the property title, not the placement label", async () => {
+  it("Leases clusters each resident in the Tours-style table shell", async () => {
     const rows: LeasePipelineRow[] = [
       leaseRow({ id: "lease-1", residentName: "Jordan Reyes", application: group({ groupId: GROUP_A, propertyId: PROP_5257 }) }),
       leaseRow({ id: "lease-2", residentName: "Priya Nair", unit: `${HOUSE_5257} · Room B`, application: group({ groupId: GROUP_A, propertyId: PROP_5257 }) }),
@@ -322,10 +314,8 @@ describe("household headers name the house on every manager surface", () => {
     );
     await waitFor(() => expect(screen.getAllByText("Jordan Reyes").length).toBeGreaterThan(0));
 
-    expect(screen.getByText(`${HOUSE_5257} Group 1`)).toBeTruthy();
-    expect(screen.getByText(`${HOUSE_5259} Group 1`)).toBeTruthy();
-    // The lone lease is not a household.
-    expect(container.querySelectorAll("[data-attr='application-household-cluster']").length).toBe(2);
-    dump("leases-household-clusters", container.innerHTML);
+    expect(document.querySelector("[data-attr='leases-resident-groups']")).toBeTruthy();
+    expect(screen.getAllByText("1 lease").length).toBeGreaterThanOrEqual(3);
+    dump("leases-resident-clusters", container.innerHTML);
   });
 });

@@ -128,26 +128,8 @@ export function ManagerLeases({
     if (!clientReady) return [];
     void tick;
     const allRows = readLeasePipeline(userId);
-    const filtered = propertyFilters.length === 0
-      ? allRows
-      : allRows.filter((row) => propertyFilters.includes(row.application?.propertyId?.trim() ?? ""));
-
-    return [...filtered].sort((a, b) => {
-      if (propertyFilters.length === 0) {
-        const byResident = a.residentName.localeCompare(b.residentName, undefined, { sensitivity: "base" });
-        if (byResident !== 0) return byResident;
-      }
-
-      const byHouse = a.unit.localeCompare(b.unit, undefined, { sensitivity: "base" });
-      if (byHouse !== 0) return byHouse;
-
-      const byResident = a.residentName.localeCompare(b.residentName, undefined, { sensitivity: "base" });
-      if (byResident !== 0) return byResident;
-
-      const aTs = Date.parse(a.updatedAtIso || "");
-      const bTs = Date.parse(b.updatedAtIso || "");
-      return (Number.isFinite(bTs) ? bTs : 0) - (Number.isFinite(aTs) ? aTs : 0);
-    });
+    if (propertyFilters.length === 0) return allRows;
+    return allRows.filter((row) => propertyFilters.includes(row.application?.propertyId?.trim() ?? ""));
   }, [clientReady, tick, propertyFilters, userId]);
 
   const searchedRows = useMemo(() => {

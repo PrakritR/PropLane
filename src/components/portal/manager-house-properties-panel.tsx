@@ -22,7 +22,6 @@ import { ManagerPropertyRoomMoveInPanel } from "@/components/portal/manager-prop
 import { ManagerPropertyApplicationQuestionsPanel } from "@/components/portal/manager-property-application-questions-panel";
 import { ManagerPropertyLeasePanel } from "@/components/portal/manager-property-lease-panel";
 import { ManagerPropertyPromotionPanel } from "@/components/portal/manager-property-promotion-panel";
-import { ManagerPropertyCalendarPanel } from "@/components/portal/manager-property-calendar-panel";
 import { ManagerPropertyTourPanel } from "@/components/portal/manager-property-tour-panel";
 import { ConfirmDeleteModal } from "@/components/portal/confirm-delete-modal";
 import { ShareLeadLinkModal } from "@/components/portal/share-lead-link-modal";
@@ -42,8 +41,6 @@ import {
   propertyListHref,
   propertyDetailTopNavId,
   parsePropertyDetailTab,
-  parsePropertyCalendarSubTab,
-  type PropertyCalendarSubTabId,
   type PropertyDetailSectionTabId,
   type PropertyDetailTabId,
 } from "@/lib/portal-detail-routes";
@@ -183,7 +180,6 @@ function ManagerPropertyInlineDetails({
   propertiesBase,
   stage,
   detailTab: detailTabProp = "preview",
-  calendarSubTab: calendarSubTabProp = "bookings",
   onDetailHeaderActions,
 }: {
   bucket: AdminPropertyBucketIndex;
@@ -201,7 +197,6 @@ function ManagerPropertyInlineDetails({
   propertiesBase: string;
   stage: ManagerStageKey;
   detailTab?: PropertyDetailTabId;
-  calendarSubTab?: PropertyCalendarSubTabId;
   onDetailHeaderActions?: (key: string, actions: ReactNode) => void;
 }) {
   const mock = useMemo(() => (row ? resolveAdminPropertyRowPreview(row) : null), [row]);
@@ -217,7 +212,6 @@ function ManagerPropertyInlineDetails({
   const rich = useMemo(() => (previewProperty ? getListingRichContent(previewProperty) : null), [previewProperty]);
   const hasPreview = Boolean(previewProperty && rich);
   const detailTab = parsePropertyDetailTab(detailTabProp);
-  const calendarSubTab = parsePropertyCalendarSubTab(calendarSubTabProp);
   const listingId = row?.listingId;
   const stablePropertyId = row?.listingId?.trim() || row?.adminRefId?.trim() || null;
 
@@ -364,8 +358,12 @@ function ManagerPropertyInlineDetails({
   }, []);
 
   const tourSendHandlerRef = useRef<(() => void) | null>(null);
+  const tourAvailabilityHandlerRef = useRef<(() => void) | null>(null);
   const registerTourSendHandler = useCallback((handler: (() => void) | null) => {
     tourSendHandlerRef.current = handler;
+  }, []);
+  const registerTourAvailabilityHandler = useCallback((handler: (() => void) | null) => {
+    tourAvailabilityHandlerRef.current = handler;
   }, []);
 
   const promotionNewHandlerRef = useRef<(() => void) | null>(null);
@@ -629,7 +627,7 @@ function ManagerPropertyInlineDetails({
     bucket === 3 || bucket === 5
       ? ["preview"]
       : bucket === 2 && listingId
-        ? ["preview", "house-details", "move-in", "application", "lease", "tours", "calendar", "requests", "promotion"]
+        ? ["preview", "house-details", "move-in", "application", "lease", "tours", "requests", "promotion"]
         : ["preview", "house-details", "move-in", "application", "lease"];
   const activeDetailTab = availableTabs.includes(detailTab) ? detailTab : availableTabs[0]!;
   const detailSectionTabs = useMemo(
@@ -670,7 +668,6 @@ function ManagerPropertyInlineDetails({
       });
     }
     pushTopTab("tours", "tours");
-    pushTopTab("calendar", "calendar");
     pushTopTab("application", "application");
     pushTopTab("lease", "lease");
     pushTopTab("requests", "requests");
@@ -854,6 +851,28 @@ function ManagerPropertyInlineDetails({
         <PortalAdaptiveActionRow
           actions={[
             {
+              id: "set-availability",
+              node: (
+                <Button
+                  type="button"
+                  variant="outline"
+                  className={PORTAL_DETAIL_BTN}
+                  data-attr="property-set-availability-footer"
+                  onClick={() => tourAvailabilityHandlerRef.current?.()}
+                >
+                  Set availability
+                </Button>
+              ),
+              menuItem: (
+                <DropdownMenuItem
+                  data-attr="property-set-availability-footer-menu"
+                  onSelect={() => tourAvailabilityHandlerRef.current?.()}
+                >
+                  Set availability
+                </DropdownMenuItem>
+              ),
+            },
+            {
               id: "calendar-settings",
               node: (
                 <Button
@@ -1012,7 +1031,7 @@ function ManagerPropertyInlineDetails({
       <PortalPageScrollBody
         className={cn(
           "min-w-0 max-w-full",
-          activeDetailTab !== "calendar" && activeDetailTab !== "preview" && "pt-3",
+          activeDetailTab !== "preview" && "pt-3",
         )}
       >
       {isDetailsSection && activeDetailTab === "preview" ? (
@@ -1090,22 +1109,7 @@ function ManagerPropertyInlineDetails({
           propertyLabel={propertyShareLabel}
           showToast={showToast}
           onRegisterSendTour={registerTourSendHandler}
-        />
-      ) : null}
-
-      {activeDetailTab === "calendar" && bucket === 2 && listingId && stablePropertyId ? (
-        <ManagerPropertyCalendarPanel
-          propertiesBase={propertiesBase}
-          stage={stage}
-          propertyRouteKey={propertyRouteKey}
-          calendarSubTab={calendarSubTab}
-          listingId={listingId}
-          propertyId={stablePropertyId}
-          managerUserId={managerUserId}
-          propertyLabel={propertyShareLabel}
-          submission={managerSubmission}
-          showToast={showToast}
-          onRegisterSendTour={registerTourSendHandler}
+          onRegisterSetAvailability={registerTourAvailabilityHandler}
         />
       ) : null}
 
@@ -1205,7 +1209,6 @@ export function ManagerHousePropertiesPanel({
   propertiesBase,
   propertyKey: propertyKeyProp,
   detailTab: detailTabProp,
-  calendarSubTab: calendarSubTabProp,
   onAddProperty,
   addPropertyDisabled = false,
 }: {
@@ -1218,7 +1221,6 @@ export function ManagerHousePropertiesPanel({
   propertiesBase: string;
   propertyKey?: string;
   detailTab?: PropertyDetailTabId;
-  calendarSubTab?: PropertyCalendarSubTabId;
   onAddProperty?: () => void;
   addPropertyDisabled?: boolean;
 }) {
@@ -1347,7 +1349,6 @@ export function ManagerHousePropertiesPanel({
       propertiesBase={propertiesBase}
       stage={activeStage}
       detailTab={detailTabProp}
-      calendarSubTab={calendarSubTabProp}
       onDetailHeaderActions={propertyKeyProp ? handleDetailHeaderActions : undefined}
     />
   );

@@ -420,13 +420,13 @@ export function leaseApplicationApprovalBlocker(row: LeasePipelineRow): string |
  * checked by the callers, which know it without consulting anything else.
  */
 export const LEASE_LANDLORD_NAME_REQUIRED_MESSAGE =
-  "This lease still names \u201c[LANDLORD ENTITY NAME]\u201d as the landlord. Add your landlord legal name in Settings, then regenerate the lease before sending it.";
+  "This lease still names \u201c[LANDLORD ENTITY NAME]\u201d as the landlord. Add your full name in Settings \u2192 Profile, then regenerate the lease before sending it.";
 
 export const LEASE_LANDLORD_NAME_NOT_CONFIGURED_MESSAGE =
-  "Add your landlord legal name in Settings (Lease tab) before sending this lease.";
+  "Add your full name in Settings \u2192 Profile before sending this lease.";
 
 export const LEASE_LANDLORD_NAME_MISMATCH_MESSAGE =
-  "This lease names a different landlord than your Settings legal name. Regenerate the lease so the parties section matches.";
+  "This lease names a different landlord than your profile name. Regenerate the lease so the parties section matches.";
 
 /** Read the bold party name from the generated lease's Parties row. */
 export function leaseLandlordPartyNameFromHtml(html: string): string | null {

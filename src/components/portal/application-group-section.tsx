@@ -2,6 +2,9 @@
 
 import { Badge } from "@/components/ui/badge";
 import { PortalCollapsibleSection } from "@/components/portal/portal-collapsible-section";
+import {
+  ApplicationManagerPlacementCard,
+} from "@/components/portal/manager-application-readonly-review";
 import type { DemoApplicantRow } from "@/data/demo-portal";
 import {
   applicationHasGroup,
@@ -68,10 +71,14 @@ export function ApplicationGroupSection({
   group,
   bundleGroup,
   currentRowId,
+  assignedPropertyId,
+  assignedRoomChoice,
 }: {
   group: ApplicationGroup;
   bundleGroup?: BundleApplicationGroup | null;
   currentRowId: string;
+  assignedPropertyId?: string;
+  assignedRoomChoice?: string;
 }) {
   const progress = summarizeGroupProgress(group);
   const propertyId = bundleGroup?.propertyId ?? "";
@@ -88,10 +95,10 @@ export function ApplicationGroupSection({
     <PortalCollapsibleSection
       title={bundleLabel ? "Bundle group application" : "Group application"}
       defaultExpanded
+      collapsible={false}
       surfaceMuted={false}
       className="mt-4"
       contentClassName="p-4 pt-0"
-      toggleDataAttr="application-group-toggle"
       headerActions={<Badge tone={progress.tone}>{progress.label}</Badge>}
     >
       {bundleLabel ? (
@@ -150,6 +157,14 @@ export function ApplicationGroupSection({
           </li>
         ))}
       </ul>
+      {assignedPropertyId || assignedRoomChoice ? (
+        <div className="mt-3">
+          <ApplicationManagerPlacementCard
+            assignedPropertyId={assignedPropertyId}
+            assignedRoomChoice={assignedRoomChoice}
+          />
+        </div>
+      ) : null}
     </PortalCollapsibleSection>
   );
 }

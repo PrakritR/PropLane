@@ -43,6 +43,34 @@ function Row({ k, v }: { k: string; v: ReactNode }) {
   );
 }
 
+export function ApplicationManagerPlacementCard({
+  assignedPropertyId,
+  assignedRoomChoice,
+}: {
+  assignedPropertyId?: string;
+  assignedRoomChoice?: string;
+}) {
+  if (!assignedPropertyId && !assignedRoomChoice) return null;
+  const assignedProperty = assignedPropertyId ? getPropertyById(assignedPropertyId) : undefined;
+  return (
+    <ReviewSection title="Manager final placement">
+      <Row k="Assigned property" v={displayOrDash(assignedProperty?.title)} />
+      <Row k="Assigned room" v={displayOrDash(getRoomChoiceLabel(assignedRoomChoice ?? ""))} />
+    </ReviewSection>
+  );
+}
+
+export function ApplicationCosignerPlannedCard({ hasCosigner }: { hasCosigner?: string }) {
+  return (
+    <ReviewSection title="Co-signer">
+      <Row
+        k="Co-signer planned"
+        v={hasCosigner === "yes" ? "Yes" : hasCosigner === "no" ? "No" : "—"}
+      />
+    </ReviewSection>
+  );
+}
+
 /** Read-only review matching the rental application “Review” step (step 11). */
 export function ManagerApplicationReadonlyReview({
   partial,
@@ -54,21 +82,20 @@ export function ManagerApplicationReadonlyReview({
   assignedPropertyId?: string;
   assignedRoomChoice?: string;
   /** Hide roster-style sections when the parent already shows household cards above the toggle. */
-  omitSections?: Array<"group" | "cosigner">;
+  omitSections?: Array<"group" | "cosigner" | "placement">;
 }) {
   const form: RentalWizardFormState = { ...createInitialRentalWizardState(), ...partial };
   const omit = new Set(omitSections ?? []);
   const prop = getPropertyById(form.propertyId);
   const roomLabel = (id: string) => getRoomChoiceLabel(id);
-  const assignedProperty = assignedPropertyId ? getPropertyById(assignedPropertyId) : undefined;
 
   return (
     <div className="grid gap-3 xl:grid-cols-2">
-      {assignedPropertyId || assignedRoomChoice ? (
-        <ReviewSection title="Manager final placement">
-          <Row k="Assigned property" v={displayOrDash(assignedProperty?.title)} />
-          <Row k="Assigned room" v={displayOrDash(roomLabel(assignedRoomChoice ?? ""))} />
-        </ReviewSection>
+      {!omit.has("placement") && (assignedPropertyId || assignedRoomChoice) ? (
+        <ApplicationManagerPlacementCard
+          assignedPropertyId={assignedPropertyId}
+          assignedRoomChoice={assignedRoomChoice}
+        />
       ) : null}
       {!omit.has("group") ? (
       <ReviewSection title="Group application">
@@ -83,9 +110,7 @@ export function ManagerApplicationReadonlyReview({
       </ReviewSection>
       ) : null}
       {!omit.has("cosigner") ? (
-      <ReviewSection title="Co-signer">
-        <Row k="Co-signer planned" v={form.hasCosigner === "yes" ? "Yes" : form.hasCosigner === "no" ? "No" : "—"} />
-      </ReviewSection>
+      <ApplicationCosignerPlannedCard hasCosigner={form.hasCosigner} />
       ) : null}
       <ReviewSection title="Property information">
         <Row k="Property" v={displayOrDash(prop?.title)} />

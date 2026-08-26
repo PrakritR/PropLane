@@ -17,7 +17,7 @@ import {
   PORTAL_HEADER_ACTION_BTN,
   PORTAL_HEADER_PRIMARY_ACTION_BTN,
 } from "@/components/portal/portal-metrics";
-import { propertyListHref, type PropertyCalendarSubTabId, type PropertyDetailTabId } from "@/lib/portal-detail-routes";
+import { propertyListHref, type PropertyDetailTabId } from "@/lib/portal-detail-routes";
 import { useAppUi } from "@/components/providers/app-ui-provider";
 import { isDemoModeActive, resolveManagerScopeUserId } from "@/lib/demo/demo-session";
 import { isNativeRuntimeSync } from "@/lib/native/detect-native";
@@ -49,13 +49,11 @@ export function ManagerProperties({
   basePath = "/portal",
   propertyKey: propertyKeyProp,
   detailTab: detailTabProp,
-  calendarSubTab: calendarSubTabProp,
 }: {
   stage?: ManagerStageKey;
   basePath?: string;
   propertyKey?: string;
   detailTab?: PropertyDetailTabId;
-  calendarSubTab?: PropertyCalendarSubTabId;
 }) {
   const { showToast } = useAppUi();
   const router = useRouter();
@@ -263,7 +261,6 @@ export function ManagerProperties({
       propertiesBase={basePath}
       propertyKey={propertyKeyProp}
       detailTab={detailTabProp}
-      calendarSubTab={calendarSubTabProp}
       onAddProperty={tryOpenAdd}
       addPropertyDisabled={!skuLoaded}
     />

@@ -1,6 +1,6 @@
 "use client";
 
-import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import {
@@ -31,7 +31,6 @@ import { PortalActiveFilterChips } from "@/components/portal/portal-filter-chips
 import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
 import { PortalSectionActionRow } from "@/components/portal/portal-section-action-row";
 import { PortalRecordDetailPage } from "@/components/portal/portal-record-detail-page";
-import { PortalPersonRecordRow } from "@/components/portal/portal-record-row";
 import { PORTAL_LIST_PAGE_BODY } from "@/components/portal/portal-inbox-ui";
 import {
   PORTAL_DATA_TABLE_WRAP,
@@ -39,7 +38,6 @@ import {
   PortalTableDetailActions,
 } from "@/components/portal/portal-data-table";
 import { UploadedLeasePdfPreview } from "@/components/portal/uploaded-lease-pdf-preview";
-import { stripPropertyRoomCountSuffix } from "@/lib/portal-mobile-preview";
 import { PortalCollapsibleSection } from "@/components/portal/portal-collapsible-section";
 import { DestinationNav } from "@/components/ui/destination-nav";
 import { ApplicationReviewLauncherRow, type ApplicationReviewView } from "@/components/portal/application-review-launcher-row";
@@ -99,29 +97,22 @@ import {
 } from "@/lib/rental-application/in-progress-application";
 import { isWithdrawnApplicationRow } from "@/lib/rental-application/resident-application-list";
 import { applicantDisplayName, applicantSecondaryEmail } from "@/lib/rental-application/applicant-name";
-import { ApplicationGroupSection, groupIdForRow, groupRowInputForRow } from "@/components/portal/application-group-section";
-import { numberGroupsByHouse } from "@/lib/rental-application/group-house-label";
+import { ManagerApplicationsGroupedTable } from "@/components/portal/manager-applications-grouped-table";
 import {
-  ApplicationCosignerListRow,
-  ApplicationCosignerSection,
-  ApplicationHouseholdCluster,
-  ApplicationNestedListRow,
-  householdClusterHeaderForRows,
-} from "@/components/portal/application-household-list";
+  ApplicationGroupSection,
+  groupIdForRow,
+  groupRowInputForRow,
+} from "@/components/portal/application-group-section";
+import { ApplicationCosignerSection } from "@/components/portal/application-household-list";
 import { ManagerCosignerReadonlyReview } from "@/components/portal/manager-cosigner-readonly-review";
 import { useCosignerSubmissionsMap } from "@/hooks/use-cosigner-submissions-map";
 import {
-  applicationListSortBucket,
-  buildApplicationListClusters,
-  signerAppIdsForCosignerLookup,
-} from "@/lib/rental-application/application-list-grouping";
-import {
-  buildBundleApplicationGroups,
-} from "@/lib/bundle-group/bundle-group-application";
-import {
-  describeGroupBadge,
-  groupForRow,
-} from "@/lib/rental-application/application-groups";
+  clusterApplicationListRows,
+  sortApplicationClustersForBucket,
+} from "@/lib/manager-application-list";
+import { signerAppIdsForCosignerLookup } from "@/lib/rental-application/application-list-grouping";
+import { buildBundleApplicationGroups } from "@/lib/bundle-group/bundle-group-application";
+import { groupForRow } from "@/lib/rental-application/application-groups";
 import {
   APPLICATION_COMPLETION_REMINDER_SUBJECT,
   buildApplicationCompletionReminderBody,
@@ -481,20 +472,6 @@ export function ApplicationDocumentPreview({
   );
 }
 
-function displayRoomForRow(row: DemoApplicantRow): string {
-  const raw = row.assignedRoomChoice?.trim() || row.application?.roomChoice1?.trim() || "";
-  if (!raw) {
-    // Bundle applications carry no ranked room choice — show the bundle name.
-    const bundleId = row.application?.bundleId?.trim() || "";
-    const propertyId = row.application?.propertyId?.trim() || row.propertyId?.trim() || "";
-    const bundle = bundleId && propertyId ? getBundleChoiceLabel(propertyId, bundleId) : "";
-    return bundle.split(" · ")[0]?.trim() || "—";
-  }
-  // Return just the room name (first segment before " · ")
-  const full = getRoomChoiceLabel(raw);
-  return full.split(" · ")[0]?.trim() || full || "—";
-}
-
 const processedScreeningReturnSessions = new Set<string>();
 
 export function ManagerApplications({
@@ -723,19 +700,6 @@ export function ManagerApplications({
     [scopedRows],
   );
 
-  /**
-   * "Group 1" per HOUSE, derived from every scoped row rather than the current
-   * bucket — otherwise the same household would renumber as it moved between
-   * Pending and Approved, or between this tab and Residents / Leases.
-   */
-  const groupHouseNumbers = useMemo(
-    () =>
-      numberGroupsByHouse(
-        scopedRows.map((row) => ({ groupId: groupIdForRow(row), property: row.property ?? "" })),
-      ),
-    [scopedRows],
-  );
-
   const propertyFilteredRows = useMemo(
     () => applicationRowsForPropertyFilters(scopedRows, propertyFilters),
     [scopedRows, propertyFilters],
@@ -784,10 +748,9 @@ export function ManagerApplications({
     return searched;
   }, [propertyFilteredRows, bucket, searchQuery]);
 
-  const listSortBucket = applicationListSortBucket(bucket);
   const listClusters = useMemo(
-    () => buildApplicationListClusters(rowsForBucket, applicationGroups, listSortBucket),
-    [rowsForBucket, applicationGroups, listSortBucket],
+    () => sortApplicationClustersForBucket(clusterApplicationListRows(rowsForBucket), bucket),
+    [rowsForBucket, bucket],
   );
 
   const openDetailScreeningModal = useCallback((row: DemoApplicantRow, opts?: { showPackagePicker?: boolean }) => {
@@ -1284,6 +1247,7 @@ export function ManagerApplications({
         : undefined;
     const showPaidDepositNote = paidDepositCharge?.status === "paid";
     const group = groupForRow(applicationGroups, { groupId: groupIdForRow(row) });
+    const showHouseholdSections = applicationReviewView === "application";
     return (
     <>
       {showPaidDepositNote ? (
@@ -1294,18 +1258,25 @@ export function ManagerApplications({
           terms.
         </div>
       ) : null}
-      {cosignerSubmissions.length > 0 ? (
+      {showHouseholdSections && cosignerSubmissions.length > 0 ? (
         <ApplicationCosignerSection
           submissions={cosignerSubmissions}
           primaryApplicationAxisId={row.id}
+          hasCosigner={row.application?.hasCosigner}
           onOpenCosigner={(index) => {
             const href = `${applicationDetailHref(basePath, tabForRow(row), row.id)}?cosigner=${index}`;
             navigate(href);
           }}
         />
       ) : null}
-      {group ? (
-        <ApplicationGroupSection group={group} bundleGroup={group} currentRowId={row.id} />
+      {showHouseholdSections && group ? (
+        <ApplicationGroupSection
+          group={group}
+          bundleGroup={group}
+          currentRowId={row.id}
+          assignedPropertyId={row.assignedPropertyId}
+          assignedRoomChoice={row.assignedRoomChoice}
+        />
       ) : null}
 
       <ApplicationReviewLauncherRow
@@ -1317,9 +1288,10 @@ export function ManagerApplications({
         onActiveViewChange={setApplicationReviewView}
         onScreeningUpdated={handleScreeningFlowComplete}
         onOpenScreeningModal={(opts) => openDetailScreeningModal(row, opts)}
+        hasLinkedCosigner={cosignerSubmissions.length > 0}
         omitReviewSections={[
           ...(cosignerSubmissions.length > 0 ? (["cosigner"] as const) : []),
-          ...(group ? (["group"] as const) : []),
+          ...(group ? (["group", "placement"] as const) : []),
         ]}
       />
 
@@ -1589,6 +1561,13 @@ export function ManagerApplications({
               (detailRow?.id === checkrScreeningRowId ? detailRow : null)
             : null
         }
+        hasLinkedCosigner={
+          checkrScreeningRowId
+            ? (cosignerSubmissionsBySigner.get(
+                normalizeApplicationAxisId(checkrScreeningRowId).toUpperCase(),
+              ) ?? []).length > 0
+            : false
+        }
         open={checkrScreeningRowId !== null}
         showPackagePickerInitially={checkrScreeningShowPicker}
         onClose={() => {
@@ -1747,86 +1726,18 @@ export function ManagerApplications({
           />
         </div>
       ) : (
-        <div
-          className={`${PORTAL_LIST_PAGE_BODY} space-y-2 max-md:[&_.portal-inbox-row]:gap-3 max-md:[&_.portal-inbox-row]:px-3.5 max-md:[&_.portal-inbox-row]:py-3.5`}
-        >
-          {listClusters.map((cluster) => {
-            const renderApplicationListRow = (row: DemoApplicantRow, nestedInHousehold: boolean) => {
-              const room = displayRoomForRow(row);
-              const subtitle = [stripPropertyRoomCountSuffix(row.property || ""), room]
-                .filter((part) => part && part !== "—")
-                .join(" · ");
-              const group = groupForRow(applicationGroups, { groupId: groupIdForRow(row) });
-              const groupBadgeDescriptor = !nestedInHousehold && group ? describeGroupBadge(group) : null;
-              const groupBadge = groupBadgeDescriptor ? (
-                <span title={groupBadgeDescriptor.title}>
-                  <Badge tone={groupBadgeDescriptor.tone}>{groupBadgeDescriptor.label}</Badge>
-                </span>
-              ) : undefined;
-              const signerKey = normalizeApplicationAxisId(row.id).toUpperCase();
-              const cosignerRows = cosignerSubmissionsBySigner.get(signerKey) ?? [];
-
-              return (
-                <Fragment key={row.id}>
-                  <ApplicationNestedListRow nested={nestedInHousehold}>
-                    <PortalPersonRecordRow
-                      name={applicantDisplayName(row)}
-                      subtitle={subtitle || undefined}
-                      preview={applicantSecondaryEmail(row)}
-                      badge={groupBadge}
-                      trailing={
-                        showCompletionReminderForRow(row) ? (
-                          <Button
-                            type="button"
-                            variant="outline"
-                            className="h-8 shrink-0 whitespace-nowrap rounded-full px-3 text-[11px] font-semibold"
-                            data-attr="application-send-reminder"
-                            disabled={reminderPreviewBusyId !== null || reminderBusyId !== null}
-                            onClick={(event) => {
-                              event.stopPropagation();
-                              void openReminderPreview(row);
-                            }}
-                          >
-                            {reminderPreviewBusyId === row.id ? "Loading…" : "Send reminder"}
-                          </Button>
-                        ) : undefined
-                      }
-                      onOpen={() => navigate(applicationDetailHref(basePath, tabForRow(row), row.id))}
-                      dataAttr="application-list-row"
-                    />
-                  </ApplicationNestedListRow>
-                  {cosignerRows.map((sub, index) => (
-                    <ApplicationCosignerListRow
-                      key={`${row.id}-cosigner-${index}`}
-                      name={sub.fullName || "Co-signer"}
-                      subtitle={`Co-signer for ${applicantDisplayName(row)}`}
-                      preview={sub.email || undefined}
-                      onOpen={() =>
-                        navigate(`${applicationDetailHref(basePath, tabForRow(row), row.id)}?cosigner=${index}`)
-                      }
-                    />
-                  ))}
-                </Fragment>
-              );
-            };
-
-            if (cluster.kind === "single") {
-              return renderApplicationListRow(cluster.row, false);
+        <div className={PORTAL_LIST_PAGE_BODY}>
+          <ManagerApplicationsGroupedTable
+            clusters={listClusters}
+            cosignerSubmissionsBySigner={cosignerSubmissionsBySigner}
+            onOpenApplication={(row) => navigate(applicationDetailHref(basePath, tabForRow(row), row.id))}
+            onOpenCosigner={(row, index) =>
+              navigate(`${applicationDetailHref(basePath, tabForRow(row), row.id)}?cosigner=${index}`)
             }
-
-            return (
-              <ApplicationHouseholdCluster
-                key={cluster.groupId}
-                header={householdClusterHeaderForRows(
-                  cluster.group,
-                  cluster.rows,
-                  groupHouseNumbers.get(cluster.groupId.trim().toUpperCase())?.ordinal,
-                )}
-              >
-                {cluster.rows.map((row) => renderApplicationListRow(row, true))}
-              </ApplicationHouseholdCluster>
-            );
-          })}
+            showReminderForRow={showCompletionReminderForRow}
+            onSendReminder={(row) => void openReminderPreview(row)}
+            reminderBusyId={reminderPreviewBusyId ?? reminderBusyId}
+          />
           <div className={PORTAL_LIST_ADD_ROW_WRAP_CLASS}>
             <PortalListAddRow
               label="Add"

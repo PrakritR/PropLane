@@ -60,6 +60,7 @@ vi.mock("next/navigation", () => ({
 }));
 vi.mock("@/components/providers/app-ui-provider", () => ({ useAppUi: () => ({ showToast: () => {} }) }));
 vi.mock("@/components/portal/share-lead-link-modal", () => ({ ShareLeadLinkModal: () => null }));
+vi.mock("@/lib/portal-nav-client", () => ({ usePortalNavigate: () => () => {} }));
 
 vi.stubGlobal("fetch", async (input: RequestInfo | URL) => {
   const url = String(input);
@@ -105,25 +106,32 @@ function blockedSlots(root: HTMLElement): string[] {
 
 describe("F-CAL-6 — the per-property availability editor shows the same conflicts", () => {
   it("renders Google busy time on the grid a manager publishes availability on", async () => {
+    let openAvailabilityModal: (() => void) | null = null;
     const view = render(
       <ManagerPropertyTourPanel
         listingId="mgr-magnolia-2b-a1b2c3"
         managerUserId={MANAGER_ID}
         propertyLabel="The Magnolia · 2B"
         showToast={() => {}}
+        onRegisterSetAvailability={(fn) => {
+          openAvailabilityModal = fn;
+        }}
       />,
     );
-    // The busy overlay arrives with the events read.
-    const settled = await waitFor(() => expect(blockedSlots(view.container).length).toBeGreaterThan(0)).then(
+    await waitFor(() => expect(typeof openAvailabilityModal).toBe("function"));
+    openAvailabilityModal!();
+    // Modal portals outside the panel root — search the document for blocked cells.
+    const root = document.body;
+    const settled = await waitFor(() => expect(blockedSlots(root).length).toBeGreaterThan(0)).then(
       () => true,
       () => false,
     );
     captured.push({
       name: "f-cal-6-property-availability",
-      html: (view.container.firstElementChild as HTMLElement).innerHTML,
+      html: root.innerHTML,
     });
 
-    const blocked = blockedSlots(view.container);
+    const blocked = blockedSlots(root);
     // eslint-disable-next-line no-console
     console.log(
       `\nF-CAL-6 evidence — property availability grid: ${blocked.length} blocked half hours\n` +

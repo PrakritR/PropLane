@@ -1,21 +1,14 @@
 /**
- * The landlord's legal name — the party a lease actually names.
+ * The landlord's legal name on generated leases — derived from the manager's account
+ * profile (`profiles.full_name` in Settings → Profile).
  *
- * Every generated lease has a Parties section and a signature block, and until this existed
- * PropLane had nothing to put in them. The template fell back to the listing's BUILDING name —
- * which is a place, not a legal person — and then to the literal string `[LANDLORD ENTITY NAME]`,
- * which shipped verbatim onto documents residents were asked to sign.
+ * Every generated lease has a Parties section and a signature block. The template falls
+ * back to `[LANDLORD ENTITY NAME]` when no name is available, and `leaseLandlordNameBlocker`
+ * refuses to send that document.
  *
- * This is the landlord as they should appear on a contract: a person ("Jane Doe") or an entity
- * ("Doe Property Holdings LLC"). It is deliberately NOT derived from anything — not the building,
- * not the account's display name, not the sign-in email. A lease names its parties exactly, and a
- * guessed party is worse than an obviously missing one, so a blank here stays blank and
- * `leaseLandlordNameBlocker` stops the send instead.
- *
- * Stored on `manager_automation_settings.row_data.landlordProfile`, beside `applicationSettings`
- * and `applicationAutomation`, for the same reason: that table always has a `row_data` JSON
- * column, so this needs no migration and cannot break on a production project whose columns lag
- * dev. Writes merge into the existing blob rather than replacing it.
+ * A separate lease-settings field used to exist; it is gone. Account full name is the only
+ * manager-facing source. `row_data.landlordProfile` may still hold legacy values from older
+ * rows but is no longer written from the portal.
  */
 import { isPortalSandboxEmail } from "@/lib/portal-sandbox-accounts";
 import type { SupabaseClient } from "@supabase/supabase-js";
@@ -73,6 +66,25 @@ export function validateLandlordLegalName(raw: unknown): LandlordLegalNameValida
     return { ok: false, error: "The landlord name cannot contain < or >." };
   }
   return { ok: true, landlordLegalName: name };
+}
+
+/** Normalize the manager account's full name for lease party printing. */
+export function landlordLegalNameFromAccountFullName(fullName: string | null | undefined): string {
+  const validated = validateLandlordLegalName(fullName);
+  return validated.ok ? validated.landlordLegalName : "";
+}
+
+export async function loadManagerLandlordLegalNameFromProfile(
+  db: SupabaseClient,
+  managerUserId: string,
+): Promise<string> {
+  const { data, error } = await db
+    .from("profiles")
+    .select("full_name")
+    .eq("id", managerUserId)
+    .maybeSingle();
+  if (error) throw error;
+  return landlordLegalNameFromAccountFullName(data?.full_name);
 }
 
 export async function loadManagerLandlordProfile(
@@ -179,16 +191,14 @@ export function cachedLandlordLegalName(): string {
   return memoryLandlordLegalName;
 }
 
-/** Load the saved landlord legal name from the server and refresh the generator cache. */
+/** Load the account full name from the server and refresh the generator cache. */
 export async function fetchAndCacheLandlordLegalName(): Promise<string> {
   if (typeof window === "undefined") return "";
   try {
-    const res = await fetch("/api/portal/manager-application-settings", { credentials: "include" });
+    const res = await fetch("/api/profile", { credentials: "include", cache: "no-store" });
     if (!res.ok) return cachedLandlordLegalName();
-    const data = (await res.json().catch(() => ({}))) as {
-      landlord?: { landlordLegalName?: string } | null;
-    };
-    const saved = (data.landlord?.landlordLegalName ?? "").trim();
+    const data = (await res.json().catch(() => ({}))) as { fullName?: string | null };
+    const saved = landlordLegalNameFromAccountFullName(data.fullName);
     cacheLandlordLegalName(saved);
     return saved;
   } catch {

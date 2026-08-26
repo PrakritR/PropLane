@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { usePortalNavigate } from "@/lib/portal-nav-client";
 import { ApplicationHouseholdCluster } from "@/components/portal/application-household-list";
 import { Badge } from "@/components/ui/badge";
+import { DataList } from "@/components/ui/data-list";
 import { clusterRowsByResident } from "@/lib/resident-row-clustering";
 import { cn } from "@/lib/utils";
 import {
@@ -22,7 +23,6 @@ import {
 } from "@/components/portal/portal-metrics";
 import { PortalActiveFilterChips, type PortalActiveFilterChip } from "@/components/portal/portal-filter-chips";
 import { PortalRecordDetailPage } from "@/components/portal/portal-record-detail-page";
-import { PortalServiceRecordRow } from "@/components/portal/portal-record-row";
 import { INBOX_LIST_SCROLL } from "@/components/portal/portal-inbox-ui";
 import { useManagerUserId } from "@/hooks/use-manager-user-id";
 import {
@@ -574,24 +574,61 @@ export function ManagerAllServicesPanel({
                   </>
                 }
               >
-                {cluster.rows.map((req) => {
-                  const unit = resolveRequestUnit(req);
-                  // The resident is in the header now, so the row says what the header does not.
-                  const subtitle = [resolveRequestPropertyLabel(req), unit].filter(Boolean).join(" · ");
-                  return (
-                    <PortalServiceRecordRow
-                      key={req.id}
-                      title={req.offerName}
-                      subtitle={subtitle || undefined}
-                      statusLabel={reqBucket === "pending" ? "Pending" : reqBucket === "approved" ? "Approved" : "Denied"}
-                      statusTone={
-                        reqBucket === "approved" ? "success" : reqBucket === "denied" ? "danger" : "warning"
-                      }
-                      onOpen={() => navigate(serviceRequestDetailHref(basePath, reqBucket, req.id))}
-                      dataAttr="service-request-list-row"
-                    />
-                  );
-                })}
+                <DataList
+                  hideColumnHeaders
+                  selectable={false}
+                  rows={cluster.rows.map((req) => {
+                    const unit = resolveRequestUnit(req);
+                    const subtitle = [resolveRequestPropertyLabel(req), unit].filter(Boolean).join(" · ");
+                    const statusLabel =
+                      reqBucket === "pending" ? "Pending" : reqBucket === "approved" ? "Approved" : "Denied";
+                    const statusTone =
+                      reqBucket === "approved" ? "success" : reqBucket === "denied" ? "danger" : "warning";
+                    return {
+                      id: req.id,
+                      data: req,
+                      primary: req.offerName,
+                      meta: subtitle || undefined,
+                      trailing: (
+                        <Badge
+                          tone={
+                            statusTone === "success"
+                              ? "success"
+                              : statusTone === "danger"
+                                ? "danger"
+                                : "warning"
+                          }
+                        >
+                          {statusLabel}
+                        </Badge>
+                      ),
+                      onClick: () => navigate(serviceRequestDetailHref(basePath, reqBucket, req.id)),
+                    };
+                  })}
+                  columns={[
+                    {
+                      id: "request",
+                      header: "Request",
+                      cell: (req) => req.offerName,
+                    },
+                    {
+                      id: "property",
+                      header: "Property",
+                      cell: (req) => {
+                        const unit = resolveRequestUnit(req);
+                        return [resolveRequestPropertyLabel(req), unit].filter(Boolean).join(" · ") || "—";
+                      },
+                    },
+                    {
+                      id: "status",
+                      header: "Status",
+                      cell: (req) =>
+                        reqBucket === "pending" ? "Pending" : reqBucket === "approved" ? "Approved" : "Denied",
+                      headerClassName: "text-right",
+                      cellClassName: "text-right",
+                    },
+                  ]}
+                />
               </ApplicationHouseholdCluster>
             ))}
           </div>

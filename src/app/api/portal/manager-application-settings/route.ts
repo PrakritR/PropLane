@@ -17,10 +17,7 @@ import {
   type ApplicationAutomationPreferences,
 } from "@/lib/application-automation-preferences";
 import {
-  loadManagerLandlordProfile,
-  saveManagerLandlordProfile,
-  validateLandlordLegalName,
-  type ManagerLandlordProfile,
+  loadManagerLandlordLegalNameFromProfile,
 } from "@/lib/manager-landlord-profile";
 import { requireManagerRouteUser } from "@/lib/manager-route-guard.server";
 
@@ -32,7 +29,8 @@ export async function GET() {
     if (!ctx) return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
     const settings = await loadManagerApplicationSettings(ctx.db, ctx.userId);
     const automation = await loadApplicationAutomation(ctx.db, ctx.userId);
-    const landlord = await loadManagerLandlordProfile(ctx.db, ctx.userId);
+    const landlordLegalName = await loadManagerLandlordLegalNameFromProfile(ctx.db, ctx.userId);
+    const landlord = { landlordLegalName };
     // Non-persisted suggestion the modal pre-fills so the manager confirms an
     // explicit value the first time (never a silent bulk change to what their
     // existing listings charge).
@@ -67,27 +65,9 @@ export async function PATCH(req: Request) {
       automation = await saveApplicationAutomation(ctx.db, ctx.userId, body.automation);
     }
 
-    // The landlord legal name is REJECTED rather than coerced when malformed — it is printed as a
-    // contracting party on every generated lease, so a bad value must not be quietly stored.
-    let landlord: ManagerLandlordProfile | undefined;
-    if ("landlordLegalName" in body) {
-      const validated = validateLandlordLegalName(body.landlordLegalName);
-      if (!validated.ok) {
-        return NextResponse.json({ error: validated.error }, { status: 400 });
-      }
-      landlord = await saveManagerLandlordProfile(ctx.db, ctx.userId, {
-        landlordLegalName: validated.landlordLegalName,
-      });
-    }
-
-    // Neither of the above touches the fee. The fee branch below reads an ABSENT
-    // `applicationFeeCents` as "clear it", so a request that came here to save automation or the
-    // landlord name must not fall into it — that would silently zero the manager's application
-    // fee. A PATCH that mentions NONE of these still falls through, preserving the explicit
-    // "clear the fee" call the settings modal has always been able to make.
-    const handledNonFeeField = "automation" in body || "landlordLegalName" in body;
+    const handledNonFeeField = "automation" in body;
     if (handledNonFeeField && !("applicationFeeCents" in body) && !("waiverCode" in body)) {
-      return NextResponse.json({ automation, landlord });
+      return NextResponse.json({ automation });
     }
 
     // Only `applicationFeeCents` is writable for the fee. A `null` clears it
@@ -104,7 +84,7 @@ export async function PATCH(req: Request) {
     });
 
     if (!("waiverCode" in body)) {
-      return NextResponse.json({ settings: saved, automation, landlord });
+      return NextResponse.json({ settings: saved, automation });
     }
 
     const raw = body.waiverCode == null ? "" : String(body.waiverCode);
@@ -112,7 +92,7 @@ export async function PATCH(req: Request) {
     if (!result.ok) {
       return NextResponse.json({ error: result.error }, { status: 400 });
     }
-    return NextResponse.json({ settings: saved, automation, landlord, waiverCode: result.code?.code ?? null });
+    return NextResponse.json({ settings: saved, automation, waiverCode: result.code?.code ?? null });
   } catch (e) {
     const message = e instanceof Error ? e.message : "Failed";
     return NextResponse.json({ error: message }, { status: 500 });

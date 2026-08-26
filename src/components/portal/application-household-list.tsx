@@ -3,6 +3,7 @@
 import type { ReactNode } from "react";
 import { Badge } from "@/components/ui/badge";
 import { PortalCollapsibleSection } from "@/components/portal/portal-collapsible-section";
+import { ApplicationCosignerPlannedCard } from "@/components/portal/manager-application-readonly-review";
 import type { CosignerSubmission } from "@/lib/cosigner-submissions-storage";
 import { stripPropertyRoomCountSuffix } from "@/lib/portal-mobile-preview";
 import { describeGroupBadge, type ApplicationGroup } from "@/lib/rental-application/application-groups";
@@ -132,10 +133,12 @@ export function ApplicationCosignerSection({
   submissions,
   primaryApplicationAxisId,
   onOpenCosigner,
+  hasCosigner,
 }: {
   submissions: CosignerSubmission[];
   primaryApplicationAxisId: string;
   onOpenCosigner?: (index: number) => void;
+  hasCosigner?: string;
 }) {
   if (submissions.length === 0) return null;
 
@@ -143,10 +146,10 @@ export function ApplicationCosignerSection({
     <PortalCollapsibleSection
       title="Co-signer application"
       defaultExpanded
+      collapsible={false}
       surfaceMuted={false}
       className="mt-4"
       contentClassName="p-4 pt-0"
-      toggleDataAttr="application-cosigner-toggle"
       headerActions={<Badge tone="info">{submissions.length === 1 ? "1 co-signer" : `${submissions.length} co-signers`}</Badge>}
     >
       <ul className="divide-y divide-[var(--border)] rounded-2xl border border-border">
@@ -181,6 +184,9 @@ export function ApplicationCosignerSection({
         Linked to primary application{" "}
         <span className="font-mono text-foreground">{primaryApplicationAxisId.trim()}</span>
       </p>
+      <div className="mt-3">
+        <ApplicationCosignerPlannedCard hasCosigner={hasCosigner} />
+      </div>
     </PortalCollapsibleSection>
   );
 }

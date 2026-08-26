@@ -1855,16 +1855,7 @@ export function ProAccountLinksPanel({ userId }: { userId: string }) {
                 they co-manage and what they can do on each.
               </p>
               </div>
-              <div className="flex justify-start gap-2">
-                <Button
-                  type="button"
-                  variant="outline"
-                  className="rounded-full"
-                  disabled={lookupBusy}
-                  onClick={closeLinkModal}
-                >
-                  Cancel
-                </Button>
+              <div className="flex justify-end">
                 <Button
                   type="submit"
                   variant="primary"

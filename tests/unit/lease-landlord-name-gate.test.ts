@@ -6,7 +6,8 @@
  * literal placeholder, which shipped onto the Parties and signature blocks of documents residents
  * were asked to sign.
  *
- * The fix is two-sided and both halves matter: the manager can now set a landlord legal name, and
+ * The fix is two-sided and both halves matter: the manager's account full name is used as the
+ * landlord party, and the send gate refuses any lease still carrying the placeholder. Shipping the
  * the send gate refuses any lease still carrying the placeholder. Shipping the gate WITHOUT the
  * field would have blocked every send with no way out, which is why these assert the escape hatch
  * as carefully as the block.
@@ -20,6 +21,7 @@ import {
   LEASE_LANDLORD_PLACEHOLDER,
   MAX_LANDLORD_LEGAL_NAME_LENGTH,
   cacheLandlordLegalName,
+  landlordLegalNameFromAccountFullName,
   normalizeManagerLandlordProfile,
   validateLandlordLegalName,
 } from "@/lib/manager-landlord-profile";
@@ -48,7 +50,7 @@ describe("landlord-name send gate", () => {
     expect(blocker).toMatch(/regenerate/i);
   });
 
-  it("blocks when the manager has not configured a landlord legal name", () => {
+  it("blocks when the manager has not configured a profile name", () => {
     cacheLandlordLegalName("");
     expect(leaseLandlordNameBlocker(row({ generatedHtml: partiesHtml("5259 Brooklyn Ave NE") }))).toMatch(
       /Settings/i,
@@ -78,6 +80,12 @@ describe("landlord-name send gate", () => {
 });
 
 describe("landlord legal name validation", () => {
+  it("derives the lease landlord name from account full name", () => {
+    expect(landlordLegalNameFromAccountFullName("Jane Doe")).toBe("Jane Doe");
+    expect(landlordLegalNameFromAccountFullName("  Doe   Holdings   LLC ")).toBe("Doe Holdings LLC");
+    expect(landlordLegalNameFromAccountFullName("")).toBe("");
+  });
+
   it("accepts a person and an entity", () => {
     expect(validateLandlordLegalName("Jane Doe")).toEqual({ ok: true, landlordLegalName: "Jane Doe" });
     expect(validateLandlordLegalName("Doe Property Holdings LLC")).toEqual({
