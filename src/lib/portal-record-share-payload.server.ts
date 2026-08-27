@@ -106,7 +106,7 @@ export async function loadSharedApplicationPayload(
     managerUserId,
   });
 
-  const applicantName = row.name?.trim() || row.application?.fullName?.trim() || "Applicant";
+  const applicantName = row.name?.trim() || row.application?.fullLegalName?.trim() || "Applicant";
   const title = `${applicantName} · Application`;
   const propertyLabel = row.property?.trim() || "Application";
   const subtitle = `${propertyLabel} · ${row.bucket === "approved" ? "Approved" : row.bucket === "rejected" ? "Rejected" : "Pending"}`;

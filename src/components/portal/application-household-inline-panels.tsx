@@ -7,7 +7,7 @@ import { groupMemberStatusBadge } from "@/components/portal/application-group-se
 import type { CosignerSubmission } from "@/lib/cosigner-submissions-storage";
 import type { ApplicationGroup } from "@/lib/rental-application/application-groups";
 import { summarizeGroupProgress } from "@/lib/rental-application/application-groups";
-import { normalizeApplicationAxisId } from "@/lib/rental-application/axis-id";
+import { normalizeApplicationAxisId } from "@/lib/manager-applications-storage";
 
 function HouseholdPanelCard({
   title,
