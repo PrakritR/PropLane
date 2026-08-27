@@ -41,7 +41,7 @@ describe("ManagerTaskList", () => {
 
   it("renders the task list shell and add row", async () => {
     render(<ManagerTaskList tabId="in-progress" basePath="/portal" />);
-    expect(screen.getByRole("heading", { name: "Task list" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Tasks" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: /In progress/i })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: /Completed/i })).toBeInTheDocument();
     await waitFor(() => {

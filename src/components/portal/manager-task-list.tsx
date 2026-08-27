@@ -12,6 +12,7 @@ import { PortalDataTableEmpty } from "@/components/portal/portal-data-table";
 import { PORTAL_LIST_PAGE_BODY } from "@/components/portal/portal-inbox-ui";
 import { PortalListAddRow, PORTAL_LIST_ADD_ICONS } from "@/components/portal/portal-list-add-row";
 import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
+import { PortalPageFooterActions } from "@/components/portal/portal-section-action-row";
 import { WorkAssignmentPicker } from "@/components/portal/work-assignment-picker";
 import { useManagerUserId } from "@/hooks/use-manager-user-id";
 import { useWorkAssignmentDirectory } from "@/hooks/use-work-assignment-directory";
@@ -128,14 +129,34 @@ export function ManagerTaskList({
   }, [userId]);
 
   useEffect(() => {
-    if (!addOpen) return;
+    if (addOpen) return;
+    // Closing always drops the draft AND the edit target, so the next "Add task" is never
+    // pre-filled with the task that was last edited.
     setForm(EMPTY_FORM);
     setAssignee(null);
+    setEditingId(null);
   }, [addOpen]);
+
+  // Selection drives the footer action bar, exactly like Payments: ticking a row picks it, it does
+  // not complete it. Completion is an ACTION taken on the selection, so a mis-tap on a phone can be
+  // undone by unticking rather than having already written to the task.
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [editingId, setEditingId] = useState<string | null>(null);
 
   const openTasks = useMemo(() => tasks.filter((task) => !task.completed), [tasks]);
   const doneTasks = useMemo(() => tasks.filter((task) => task.completed), [tasks]);
   const visibleTasks = tabId === "completed" ? doneTasks : openTasks;
+
+  // A selection made under one tab means nothing under the other, and acting on a hidden row is
+  // how a manager completes something they cannot see.
+  useEffect(() => {
+    setSelectedIds([]);
+  }, [tabId]);
+
+  const selectedTasks = useMemo(
+    () => visibleTasks.filter((task) => selectedIds.includes(task.id)),
+    [visibleTasks, selectedIds],
+  );
 
   const tabItems = useMemo(
     () =>
@@ -160,7 +181,7 @@ export function ManagerTaskList({
       const end =
         form.scheduleDate && form.endTime ? combineLocalDateTime(form.scheduleDate, form.endTime) : undefined;
       const property = propertyOptions.find((option) => option.id === form.propertyId);
-      await createManagerTask(userId, {
+      const input = {
         title: form.title,
         notes: form.notes,
         propertyId: form.propertyId || undefined,
@@ -169,13 +190,23 @@ export function ManagerTaskList({
         start,
         end,
         assignee,
-      });
+      };
+      if (editingId) {
+        await updateManagerTask(userId, editingId, input);
+      } else {
+        await createManagerTask(userId, input);
+      }
       reapplyManagerTasksToCalendar(userId);
       setAddOpen(false);
+      setSelectedIds([]);
       await refresh();
-      showToast(start && end ? "Task added to your calendar." : "Task added.");
+      showToast(
+        editingId ? "Task updated." : start && end ? "Task added to your calendar." : "Task added.",
+      );
     } catch (e) {
-      showToast(e instanceof Error ? e.message : "Could not add task.");
+      showToast(
+        e instanceof Error ? e.message : editingId ? "Could not update task." : "Could not add task.",
+      );
     } finally {
       setSaving(false);
     }
@@ -204,6 +235,69 @@ export function ManagerTaskList({
     }
   }
 
+  /**
+   * Complete (or reopen) every selected task.
+   *
+   * Each write is independent, so one failure does not silently abandon the rest — the toast
+   * reports how many actually landed rather than claiming the whole selection succeeded.
+   */
+  async function bulkComplete(rows: ManagerTask[]) {
+    if (!userId || rows.length === 0) return;
+    const target = !rows[0]!.completed;
+    let done = 0;
+    for (const task of rows) {
+      try {
+        await updateManagerTask(userId, task.id, { completed: target });
+        done += 1;
+      } catch {
+        // Keep going; the count below is what the manager is told.
+      }
+    }
+    reapplyManagerTasksToCalendar(userId);
+    setSelectedIds([]);
+    await refresh();
+    showToast(
+      done === rows.length
+        ? target
+          ? `Marked ${done} completed.`
+          : `Reopened ${done}.`
+        : `Updated ${done} of ${rows.length}.`,
+    );
+  }
+
+  async function bulkDelete(rows: ManagerTask[]) {
+    if (!userId || rows.length === 0) return;
+    let done = 0;
+    for (const task of rows) {
+      try {
+        await deleteManagerTask(userId, task.id);
+        done += 1;
+      } catch {
+        // Same reasoning as bulkComplete: report what landed.
+      }
+    }
+    reapplyManagerTasksToCalendar(userId);
+    setSelectedIds([]);
+    await refresh();
+    showToast(done === rows.length ? `Removed ${done}.` : `Removed ${done} of ${rows.length}.`);
+  }
+
+  /** Open the shared form pre-filled from an existing task. */
+  function beginEdit(task: ManagerTask) {
+    setForm({
+      title: task.title,
+      notes: task.notes ?? "",
+      propertyId: task.propertyId ?? "",
+      roomLabel: task.roomLabel ?? "",
+      scheduleDate: localDatePart(task.start),
+      startTime: localTimePart(task.start),
+      endTime: localTimePart(task.end),
+    });
+    setAssignee(task.assignee ?? null);
+    setEditingId(task.id);
+    setAddOpen(true);
+  }
+
   function renderTaskRow(task: ManagerTask, completed = false) {
     const location = taskLocationLabel(task);
     return (
@@ -211,9 +305,13 @@ export function ManagerTaskList({
         <input
           type="checkbox"
           className="mt-1"
-          checked={completed}
-          aria-label={`Mark ${task.title} ${completed ? "incomplete" : "complete"}`}
-          onChange={() => void toggleComplete(task)}
+          checked={selectedIds.includes(task.id)}
+          aria-label={`Select ${task.title}`}
+          onChange={(event) =>
+            setSelectedIds((prev) =>
+              event.target.checked ? [...prev, task.id] : prev.filter((id) => id !== task.id),
+            )
+          }
         />
         <div className="min-w-0 flex-1">
           <p className={`font-semibold text-foreground ${completed ? "line-through" : ""}`}>{task.title}</p>
@@ -221,15 +319,12 @@ export function ManagerTaskList({
           {location ? <p className="text-xs text-muted">{location}</p> : null}
           {task.notes ? <p className="mt-1 text-sm text-muted">{task.notes}</p> : null}
         </div>
-        <Button type="button" variant="ghost" className="text-[13px]" onClick={() => void removeTask(task.id)}>
-          Delete
-        </Button>
       </li>
     );
   }
 
   return (
-    <ManagerPortalPageShell title="Task list">
+    <ManagerPortalPageShell title="Tasks">
       <PortalListControlStack
         className="mb-2"
         destinationRow={
@@ -271,7 +366,31 @@ export function ManagerTaskList({
         ) : null}
       </div>
 
-      <Modal open={addOpen} onClose={() => setAddOpen(false)} title="Add task" dense assistantStrip={false}>
+      {selectedTasks.length > 0 ? (
+        <PortalPageFooterActions pinned>
+          <Button type="button" variant="secondary" onClick={() => bulkComplete(selectedTasks)}>
+            {tabId === "completed" ? "Mark open" : "Mark completed"}
+          </Button>
+          {/* Edit acts on ONE task — a shared form cannot say which of several titles it is
+              writing, so the control is offered only when the answer is unambiguous. */}
+          {selectedTasks.length === 1 ? (
+            <Button type="button" variant="secondary" onClick={() => beginEdit(selectedTasks[0]!)}>
+              Edit
+            </Button>
+          ) : null}
+          <Button type="button" variant="ghost" className="text-danger" onClick={() => bulkDelete(selectedTasks)}>
+            Delete
+          </Button>
+        </PortalPageFooterActions>
+      ) : null}
+
+      <Modal
+        open={addOpen}
+        onClose={() => setAddOpen(false)}
+        title={editingId ? "Edit task" : "Add task"}
+        dense
+        assistantStrip={false}
+      >
         <div className="space-y-3">
           <Input
             aria-label="Task title"
@@ -381,4 +500,25 @@ export function ManagerTaskList({
       </Modal>
     </ManagerPortalPageShell>
   );
+}
+
+/**
+ * Split a stored ISO instant back into the `<input type=date>` / `<input type=time>` values the
+ * form uses. Read in LOCAL time to mirror `combineLocalDateTime`, which is what wrote it — parsing
+ * as UTC would shift an evening task onto the following day when the form reopened.
+ */
+function localDatePart(iso: string | undefined): string {
+  const date = iso ? new Date(iso) : null;
+  if (!date || Number.isNaN(date.getTime())) return "";
+  return `${date.getFullYear()}-${pad2(date.getMonth() + 1)}-${pad2(date.getDate())}`;
+}
+
+function localTimePart(iso: string | undefined): string {
+  const date = iso ? new Date(iso) : null;
+  if (!date || Number.isNaN(date.getTime())) return "";
+  return `${pad2(date.getHours())}:${pad2(date.getMinutes())}`;
+}
+
+function pad2(value: number): string {
+  return String(value).padStart(2, "0");
 }

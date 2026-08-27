@@ -241,9 +241,12 @@ export async function updateManagerTask(
   patch: Partial<
     Pick<
       ManagerTask,
-      "title" | "notes" | "propertyId" | "propertyTitle" | "roomLabel" | "start" | "end" | "durationMinutes" | "completed" | "assignee"
+      "title" | "notes" | "propertyId" | "propertyTitle" | "roomLabel" | "start" | "end" | "durationMinutes" | "completed"
     >
-  >,
+    // `assignee` is widened to accept null so an edit can UNASSIGN. `undefined` already means
+    // "leave it alone" for every field in this patch, so without null there is no way to express
+    // "take this off whoever has it" — the picker would be one-way.
+  > & { assignee?: WorkAssignee | null },
 ): Promise<ManagerTask> {
   if (!readLocalTasks(managerUserId).some((row) => row.id === taskId) && !isDemoModeActive()) {
     await fetchManagerTasks(managerUserId);

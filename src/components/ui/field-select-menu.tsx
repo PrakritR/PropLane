@@ -227,9 +227,16 @@ export function computePortalFilterDropdownRect(
   const openUp = preferOpenDown
     ? false
     : spaceBelow < panelHeightPx && spaceAbove > spaceBelow;
+  // The 120px floor exists so a menu is never a useless sliver — but it must not exceed the space
+  // that actually exists, or the menu runs past the viewport edge and its last rows become
+  // unreachable: the list cannot scroll to content that was laid out off-screen. Clamp to the
+  // larger side when neither fits, so the floor costs the user the shorter direction, not the
+  // bottom of the list.
+  const spaceFor = openUp ? spaceAbove - gap : spaceBelow - gap;
+  const roomiest = Math.max(spaceAbove - gap, spaceBelow - gap);
   const maxHeight = Math.min(
     panelHeightPx,
-    Math.max(120, openUp ? spaceAbove - gap : spaceBelow - gap),
+    Math.max(Math.min(120, roomiest), spaceFor),
   );
   const top = openUp
     ? Math.max(viewportPadding, rect.top - maxHeight - gap)
