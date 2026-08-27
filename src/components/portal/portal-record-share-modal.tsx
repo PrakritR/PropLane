@@ -4,7 +4,10 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Modal, ModalFooter } from "@/components/ui/modal";
-import { PortalNotificationPreviewModal } from "@/components/portal/portal-notification-preview-modal";
+import {
+  PortalNotificationPreviewModal,
+  type NotificationDeliveryChannels,
+} from "@/components/portal/portal-notification-preview-modal";
 import {
   portalMessageChannelsFromSelection,
   PortalMessageSendViaDropdown,
@@ -148,17 +151,19 @@ export function PortalRecordShareModal({
     showToast(ok ? "Link copied." : "Could not copy link.");
   };
 
-  const sendShare = async (channels: { viaEmail: boolean; viaSms: boolean }) => {
+  const sendShare = async (channels?: NotificationDeliveryChannels) => {
+    const deliverEmail = channels?.viaEmail ?? viaEmail;
+    const deliverSms = channels?.viaSms ?? viaSms;
     if (sendBusy || !recordId.trim()) return;
-    if (!channels.viaEmail && !channels.viaSms) {
+    if (!deliverEmail && !deliverSms) {
       showToast("Choose email and/or SMS.");
       return;
     }
-    if (channels.viaEmail && !recipientEmail.trim()) {
+    if (deliverEmail && !recipientEmail.trim()) {
       showToast("Enter an email address.");
       return;
     }
-    if (channels.viaSms && !recipientPhone.trim()) {
+    if (deliverSms && !recipientPhone.trim()) {
       showToast("Enter a phone number for SMS.");
       return;
     }
@@ -171,18 +176,31 @@ export function PortalRecordShareModal({
         body: JSON.stringify({
           kind,
           recordId: recordId.trim(),
-          viaEmail: channels.viaEmail,
-          viaSms: channels.viaSms,
+          viaEmail: deliverEmail,
+          viaSms: deliverSms,
           to: recipientEmail.trim(),
           phone: recipientPhone.trim(),
           recipientName: recipientName.trim() || undefined,
           note: note.trim() || undefined,
         }),
       });
-      const data = (await res.json()) as { ok?: boolean; error?: string; linkUrl?: string };
-      if (!res.ok) throw new Error(data.error ?? "Could not send.");
+      const data = (await res.json()) as {
+        ok?: boolean;
+        error?: string;
+        linkUrl?: string;
+        emailSent?: boolean;
+      };
+      if (!res.ok) {
+        if (data.emailSent) {
+          setSendVia(["sms"]);
+          setSendPreviewOpen(false);
+          showToast(`Email sent. ${data.error ?? "Could not send the text."}`);
+          return;
+        }
+        throw new Error(data.error ?? "Could not send.");
+      }
       if (data.linkUrl) setLinkUrl(data.linkUrl);
-      showToast(channels.viaEmail && channels.viaSms ? "Link sent via email and text." : channels.viaSms ? "Link sent via text." : "Link sent via email.");
+      showToast(deliverEmail && deliverSms ? "Link sent via email and text." : deliverSms ? "Link sent via text." : "Link sent via email.");
       setSendPreviewOpen(false);
       onClose();
     } catch (e) {

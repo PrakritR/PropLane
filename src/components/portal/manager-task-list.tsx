@@ -181,14 +181,15 @@ export function ManagerTaskList({
       const end =
         form.scheduleDate && form.endTime ? combineLocalDateTime(form.scheduleDate, form.endTime) : undefined;
       const property = propertyOptions.find((option) => option.id === form.propertyId);
+      const cleared = editingId ? "" : undefined;
       const input = {
         title: form.title,
         notes: form.notes,
-        propertyId: form.propertyId || undefined,
-        propertyTitle: property?.label,
-        roomLabel: form.roomLabel || undefined,
-        start,
-        end,
+        propertyId: form.propertyId || cleared,
+        propertyTitle: property?.label ?? cleared,
+        roomLabel: form.roomLabel || cleared,
+        start: start ?? cleared,
+        end: end ?? cleared,
         assignee,
       };
       if (editingId) {
@@ -209,29 +210,6 @@ export function ManagerTaskList({
       );
     } finally {
       setSaving(false);
-    }
-  }
-
-  async function toggleComplete(task: ManagerTask) {
-    if (!userId) return;
-    try {
-      await updateManagerTask(userId, task.id, { completed: !task.completed });
-      reapplyManagerTasksToCalendar(userId);
-      await refresh();
-    } catch (e) {
-      showToast(e instanceof Error ? e.message : "Could not update task.");
-    }
-  }
-
-  async function removeTask(taskId: string) {
-    if (!userId) return;
-    try {
-      await deleteManagerTask(userId, taskId);
-      reapplyManagerTasksToCalendar(userId);
-      await refresh();
-      showToast("Task removed.");
-    } catch (e) {
-      showToast(e instanceof Error ? e.message : "Could not delete task.");
     }
   }
 
@@ -494,7 +472,7 @@ export function ManagerTaskList({
             disabled={saving || !form.title.trim()}
             data-attr="manager-task-save"
           >
-            {saving ? "Saving…" : "Add task"}
+            {saving ? "Saving…" : editingId ? "Save task" : "Add task"}
           </Button>
         </ModalFooter>
       </Modal>

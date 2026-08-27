@@ -3,7 +3,10 @@ import { isAdminUser } from "@/lib/auth/admin-preview";
 import { managerCanAccessApplicationRecord } from "@/lib/auth/manager-application-access";
 import { managerCanAccessLeaseRecord } from "@/lib/auth/manager-lease-scope";
 import { resolveEmailLinkBaseUrl } from "@/lib/app-url";
-import { applicationIdVariants } from "@/lib/portal-record-share-payload.server";
+import {
+  applicationIdVariants,
+  pickApplicationRecordForShare,
+} from "@/lib/portal-record-share-payload.server";
 import {
   buildPortalRecordShareUrl,
   createPortalRecordShareLink,
@@ -53,10 +56,7 @@ async function authorizeRecordShareMint(
     .from("manager_application_records")
     .select("id, manager_user_id, property_id, assigned_property_id")
     .in("id", ids);
-  const trimmed = recordId.trim();
-  const record =
-    records?.find((row) => row.id === trimmed) ??
-    records?.sort((a, b) => String(a.id).localeCompare(String(b.id)))[0];
+  const record = pickApplicationRecordForShare(records, recordId);
   if (!record) return { allowed: false, canonicalRecordId: "", recordOwnerUserId: "" };
   const allowed = admin || (await managerCanAccessApplicationRecord(db, userId, record, { level: "edit" }));
   return {

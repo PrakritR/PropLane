@@ -257,7 +257,8 @@ export async function updateManagerTask(
   const start = patch.start !== undefined ? patch.start?.trim() || undefined : current.start;
   const end = patch.end !== undefined ? patch.end?.trim() || undefined : current.end;
   const durationMinutes =
-    patch.durationMinutes ?? (start && end ? durationBetween(start, end) : current.durationMinutes);
+    patch.durationMinutes ??
+    (start && end ? durationBetween(start, end) : start ? current.durationMinutes : undefined);
   const next: ManagerTask = {
     ...current,
     ...patch,

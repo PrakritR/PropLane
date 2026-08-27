@@ -3,7 +3,10 @@ import { isAdminUser } from "@/lib/auth/admin-preview";
 import { managerCanAccessApplicationRecord } from "@/lib/auth/manager-application-access";
 import { managerCanAccessLeaseRecord } from "@/lib/auth/manager-lease-scope";
 import { resolveEmailLinkBaseUrl } from "@/lib/app-url";
-import { applicationIdVariants } from "@/lib/portal-record-share-payload.server";
+import {
+  applicationIdVariants,
+  pickApplicationRecordForShare,
+} from "@/lib/portal-record-share-payload.server";
 import {
   buildPortalRecordShareUrl,
   createPortalRecordShareLink,
@@ -69,10 +72,8 @@ async function authorizeRecordShare(
   const { data: records } = await db
     .from("manager_application_records")
     .select("id, manager_user_id, property_id, assigned_property_id, row_data")
-    .in("id", ids)
-    .order("id", { ascending: true })
-    .limit(1);
-  const record = records?.[0];
+    .in("id", ids);
+  const record = pickApplicationRecordForShare(records, recordId);
   if (!record) return { ok: false, status: 404, error: "Application not found." };
   const allowed = admin || (await managerCanAccessApplicationRecord(db, userId, record, { level: "read" }));
   if (!allowed) return { ok: false, status: 403, error: "Not authorized." };
@@ -112,7 +113,7 @@ export async function POST(req: Request) {
     const viaEmail = body.viaEmail !== false;
     const to = typeof body.to === "string" ? body.to.trim().toLowerCase() : "";
     const phoneRaw = typeof body.phone === "string" ? body.phone.trim() : "";
-    const phone = phoneRaw ? normalizeE164(phoneRaw) : "";
+    const phone = phoneRaw ? normalizeE164(phoneRaw) ?? "" : "";
 
     if (!kind || !recordId || !RECORD_ID_PATTERN.test(recordId)) {
       return NextResponse.json({ error: "kind and recordId are required." }, { status: 400 });
@@ -154,6 +155,7 @@ export async function POST(req: Request) {
     const smsText = recordShareSmsText(messageParams);
 
     let emailId: string | null = null;
+    let emailSent = false;
     if (viaEmail) {
       const apiKey = process.env.RESEND_API_KEY?.trim();
       if (!apiKey) {
@@ -170,6 +172,7 @@ export async function POST(req: Request) {
         return NextResponse.json({ error: payload.message ?? "Could not send email." }, { status: 502 });
       }
       emailId = payload.id ?? null;
+      emailSent = true;
       await recordResidentProspectInboxMessage(db, {
         participantEmail: to,
         subject,
@@ -183,7 +186,7 @@ export async function POST(req: Request) {
       const workNumber = await resolveManagerWorkNumber(db, user.id);
       if (!workNumber) {
         return NextResponse.json(
-          { error: "No work number on this account yet. Finish SMS setup under Communication first.", emailSent: viaEmail && Boolean(emailId) },
+          { error: "No work number on this account yet. Finish SMS setup under Communication first.", emailSent },
           { status: 400 },
         );
       }
@@ -199,7 +202,7 @@ export async function POST(req: Request) {
         return NextResponse.json(
           {
             error: smsResult.error === "recipient_opted_out" ? "That number has opted out of texts." : "Could not send SMS.",
-            emailSent: viaEmail && Boolean(emailId),
+            emailSent,
           },
           { status: 502 },
         );

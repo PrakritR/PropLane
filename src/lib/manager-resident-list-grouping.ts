@@ -1,8 +1,4 @@
-import {
-  applicationHasGroup,
-  normalizeGroupId,
-  type ApplicationGroup,
-} from "@/lib/rental-application/application-groups";
+import { normalizeGroupId, type ApplicationGroup } from "@/lib/rental-application/application-groups";
 import { isMultiMemberHouseholdGroup } from "@/lib/rental-application/application-list-grouping";
 import {
   clusterRowsByResident,
@@ -42,19 +38,12 @@ export function buildResidentListClusters(
   groups: Map<string, ApplicationGroup>,
 ): ManagerResidentListCluster[] {
   const householdByGroup = new Map<string, ManagerResidentListRowWithGroup[]>();
-  const singles: ManagerResidentListRowWithGroup[] = [];
 
   for (const row of rows) {
     const gid = rowGroupId(row);
-    if (!gid) {
-      singles.push(row);
-      continue;
-    }
+    if (!gid) continue;
     const group = groups.get(gid) ?? null;
-    if (!isMultiMemberHouseholdGroup(group)) {
-      singles.push(row);
-      continue;
-    }
+    if (!isMultiMemberHouseholdGroup(group)) continue;
     const list = householdByGroup.get(gid);
     if (list) list.push(row);
     else householdByGroup.set(gid, [row]);
@@ -65,11 +54,11 @@ export function buildResidentListClusters(
 
   for (const row of rows) {
     const gid = rowGroupId(row);
-    const group = gid ? groups.get(gid) ?? null : null;
-    if (gid && isMultiMemberHouseholdGroup(group)) {
+    const householdRows = gid ? householdByGroup.get(gid) : undefined;
+    if (gid && householdRows) {
       if (emittedHouseholds.has(gid)) continue;
       emittedHouseholds.add(gid);
-      units.push({ kind: "household", groupId: gid, rows: householdByGroup.get(gid) ?? [row] });
+      units.push({ kind: "household", groupId: gid, rows: householdRows });
       continue;
     }
     units.push({ kind: "resident", rows: [row] });

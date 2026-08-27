@@ -4,6 +4,7 @@ import type { DemoApplicantRow } from "@/data/demo-portal";
 import { loadApplicationGroupMembersForDocument } from "@/lib/application-group-document.server";
 import { buildApplicationHtml } from "@/lib/manager-application-html";
 import { normalizeApplicationAxisId } from "@/lib/manager-applications-storage";
+import { isSafeLeasePdfDataUrl } from "@/lib/portal-record-share-pdf";
 import { getLeaseDocumentHtml, normalizeLeasePipelineRow, type LeasePipelineRow } from "@/lib/lease-pipeline-storage";
 import { stripDisclosureReviewFromLeaseHtml } from "@/lib/property-lease-document-display";
 import type { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
@@ -18,14 +19,32 @@ export function applicationIdVariants(id: string): string[] {
   return [...new Set([trimmed, normalized].filter(Boolean))].filter((value) => RECORD_ID_PATTERN.test(value));
 }
 
+export { isSafeLeasePdfDataUrl };
+
+/**
+ * Pick the row the caller actually named.
+ *
+ * `applicationIdVariants` deliberately queries both the raw id and its normalized `AXIS-…` form,
+ * so when BOTH exist as rows an ordering-based pick shares a different application than the one
+ * the manager asked for. Every caller resolves through this, so the mint, revoke, and send paths
+ * cannot pin different records for the same request.
+ */
+export function pickApplicationRecordForShare<T extends { id: string }>(
+  records: T[] | null | undefined,
+  recordId: string,
+): T | null {
+  if (!records?.length) return null;
+  const trimmed = recordId.trim();
+  return (
+    records.find((row) => String(row.id) === trimmed) ??
+    [...records].sort((a, b) => String(a.id).localeCompare(String(b.id)))[0] ??
+    null
+  );
+}
+
 export type ShareLinkAccessContext = {
   recordOwnerUserId: string;
 };
-
-export function isSafeLeasePdfDataUrl(dataUrl: string): boolean {
-  const trimmed = dataUrl.trim().toLowerCase();
-  return trimmed.startsWith("data:application/pdf;base64,");
-}
 
 export type SharedLeasePayload = {
   kind: "lease";
