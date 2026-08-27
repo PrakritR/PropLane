@@ -29,6 +29,12 @@ function mapShareLinkRow(raw: Record<string, unknown>): PortalRecordShareLinkRow
   };
 }
 
+function throwShareLinkDbError(error: { message: string; code?: string }): never {
+  const err = new Error(error.message) as Error & { code?: string };
+  err.code = error.code;
+  throw err;
+}
+
 function generateShareToken(): string {
   return randomBytes(24).toString("base64url");
 }
@@ -73,7 +79,7 @@ export async function createPortalRecordShareLink(
     .select("id, record_kind, record_id, share_token, expires_at, created_at, revoked_at, access_count")
     .single();
 
-  if (error) throw new Error(error.message);
+  if (error) throwShareLinkDbError(error);
   return mapShareLinkRow(data as Record<string, unknown>);
 }
 
@@ -136,6 +142,6 @@ export async function revokePortalRecordShareLinks(
     .is("revoked_at", null)
     .select("id");
 
-  if (error) throw new Error(error.message);
+  if (error) throwShareLinkDbError(error);
   return data?.length ?? 0;
 }

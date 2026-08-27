@@ -22,12 +22,22 @@ function parseKind(raw: unknown): PortalRecordShareKind | null {
 
 function shareLinkSetupError(error: unknown): NextResponse {
   const message = error instanceof Error ? error.message : "";
-  if (message.includes("portal_record_share_links")) {
+  const code =
+    error && typeof error === "object" && "code" in error ? String((error as { code?: string }).code ?? "") : "";
+  if (
+    message.includes("portal_record_share_links") ||
+    code === "PGRST205" ||
+    message.toLowerCase().includes("schema cache")
+  ) {
     return NextResponse.json(
-      { error: "Share links are not available yet. Apply the latest database migrations." },
+      {
+        error:
+          "Share links need a database update. Run npm run db:apply-sql for the portal_record_share_links migrations on the dev project.",
+      },
       { status: 503 },
     );
   }
+  console.error("[record-share-link] mint failed:", error);
   return NextResponse.json({ error: "Failed to create share link." }, { status: 500 });
 }
 

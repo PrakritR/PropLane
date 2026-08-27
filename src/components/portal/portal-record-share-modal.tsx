@@ -210,6 +210,7 @@ export function PortalRecordShareModal({
   return (
     <>
       <Modal
+        key={`${kind}-${recordId}`}
         open={open}
         onClose={onClose}
         title={`Share ${docLabel}`}
@@ -273,6 +274,8 @@ export function PortalRecordShareModal({
                   </label>
                   <Input
                     id="record-share-name"
+                    name="record-share-recipient-name"
+                    autoComplete="off"
                     value={recipientName}
                     onChange={(e) => setRecipientName(e.target.value)}
                     placeholder="Recipient name"
@@ -285,6 +288,8 @@ export function PortalRecordShareModal({
                     </label>
                     <Input
                       id="record-share-email"
+                      name="record-share-recipient-email"
+                      autoComplete="off"
                       type="email"
                       value={recipientEmail}
                       onChange={(e) => setRecipientEmail(e.target.value)}
@@ -298,6 +303,8 @@ export function PortalRecordShareModal({
                     </label>
                     <Input
                       id="record-share-phone"
+                      name="record-share-recipient-phone"
+                      autoComplete="off"
                       type="tel"
                       value={recipientPhone}
                       onChange={(e) => setRecipientPhone(e.target.value)}
@@ -313,6 +320,8 @@ export function PortalRecordShareModal({
                   </label>
                   <Input
                     id="record-share-phone-sms"
+                    name="record-share-recipient-phone-sms"
+                    autoComplete="off"
                     type="tel"
                     value={recipientPhone}
                     onChange={(e) => setRecipientPhone(e.target.value)}

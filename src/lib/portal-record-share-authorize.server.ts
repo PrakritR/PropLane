@@ -46,11 +46,16 @@ export async function resolveApplicationRecordOwnerUserId(
 
 export async function resolveLeaseRecordOwnerUserId(
   db: ServiceClient,
-  record: { manager_user_id?: string | null; property_id?: string | null },
+  record: { manager_user_id?: string | null; property_id?: string | null; row_data?: unknown },
 ): Promise<string | null> {
   const stamped = String(record.manager_user_id ?? "").trim();
   if (stamped) return stamped;
-  const propertyId = String(record.property_id ?? "").trim();
+
+  const rowData =
+    record.row_data && typeof record.row_data === "object"
+      ? (record.row_data as { propertyId?: string })
+      : null;
+  const propertyId = String(record.property_id ?? rowData?.propertyId ?? "").trim();
   if (!propertyId) return null;
   return propertyOwnerUserId(db, [propertyId]);
 }
