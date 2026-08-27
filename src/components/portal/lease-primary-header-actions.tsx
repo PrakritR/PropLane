@@ -329,8 +329,6 @@ export function LeasePrimaryHeaderActions({
             className={compactBtnClass}
             dataAttr="lease-share"
             recordTitle={row.residentName?.trim() || row.unit?.trim() || row.propertyId}
-            defaultRecipientName={row.residentName?.trim()}
-            defaultEmail={row.residentEmail?.trim()}
           />
         ),
         menuItem: (
@@ -340,8 +338,6 @@ export function LeasePrimaryHeaderActions({
             menuItem
             dataAttr="lease-share-menu"
             recordTitle={row.residentName?.trim() || row.unit?.trim() || row.propertyId}
-            defaultRecipientName={row.residentName?.trim()}
-            defaultEmail={row.residentEmail?.trim()}
           />
         ),
       });

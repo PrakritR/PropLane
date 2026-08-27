@@ -5,6 +5,10 @@ import { loadApplicationGroupMembersForDocument } from "@/lib/application-group-
 import { buildApplicationHtml } from "@/lib/manager-application-html";
 import { normalizeApplicationAxisId } from "@/lib/manager-applications-storage";
 import { getLeaseDocumentHtml, normalizeLeasePipelineRow, type LeasePipelineRow } from "@/lib/lease-pipeline-storage";
+import {
+  resolveApplicationRecordOwnerUserId,
+  resolveLeaseRecordOwnerUserId,
+} from "@/lib/portal-record-share-authorize.server";
 import { stripDisclosureReviewFromLeaseHtml } from "@/lib/property-lease-document-display";
 import type { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 
@@ -51,9 +55,11 @@ async function resolveApplicationRecordRow(db: ServiceClient, recordId: string, 
     .from("manager_application_records")
     .select("id, row_data, manager_user_id, property_id, assigned_property_id")
     .eq("id", trimmed)
-    .eq("manager_user_id", recordOwnerUserId)
     .maybeSingle();
   if (error || !record?.row_data) return null;
+
+  const ownerUserId = await resolveApplicationRecordOwnerUserId(db, record);
+  if (ownerUserId !== recordOwnerUserId) return null;
   return record;
 }
 
@@ -67,10 +73,11 @@ export async function loadSharedLeasePayload(
     .from("portal_lease_pipeline_records")
     .select("id, manager_user_id, property_id, row_data")
     .eq("id", recordId.trim())
-    .eq("manager_user_id", access.recordOwnerUserId)
     .maybeSingle();
   if (error || !data) return null;
-  if (String(data.manager_user_id) !== access.recordOwnerUserId) return null;
+
+  const ownerUserId = await resolveLeaseRecordOwnerUserId(db, data);
+  if (ownerUserId !== access.recordOwnerUserId) return null;
 
   const row = normalizeLeasePipelineRow(data.row_data) as LeasePipelineRow;
   const residentName = row.residentName?.trim() || row.residentEmail?.trim() || "Resident";

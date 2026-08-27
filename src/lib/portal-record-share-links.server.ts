@@ -55,13 +55,17 @@ export async function createPortalRecordShareLink(
   const expiresInDays = Number.isFinite(requestedDays) ? Math.min(90, Math.max(1, requestedDays)) : 14;
   const expiresAt = new Date(Date.now() + expiresInDays * 24 * 60 * 60 * 1000).toISOString();
   const shareToken = generateShareToken();
+  const managerUserId = input.managerUserId.trim();
+  if (!managerUserId) {
+    throw new Error("managerUserId is required for portal_record_share_links");
+  }
 
   const { data, error } = await db
     .from("portal_record_share_links")
     .insert({
       record_kind: input.recordKind,
       record_id: input.recordId.trim(),
-      manager_user_id: input.managerUserId,
+      manager_user_id: managerUserId,
       share_token: shareToken,
       expires_at: expiresAt,
       created_by: input.createdBy,

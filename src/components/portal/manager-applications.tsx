@@ -1177,9 +1177,6 @@ export function ManagerApplications({
         className={RESIDENT_DETAIL_HEADER_ACTION_BTN}
         dataAttr="application-share"
         recordTitle={row.name?.trim() || row.application?.fullLegalName?.trim() || row.property?.trim()}
-        defaultRecipientName={row.name?.trim() || row.application?.fullLegalName?.trim()}
-        defaultEmail={(row.email || row.application?.email || "").trim()}
-        defaultPhone={(row.application?.phone || "").trim()}
       />
     );
 
@@ -1242,9 +1239,6 @@ export function ManagerApplications({
             menuItem
             dataAttr="application-share-menu"
             recordTitle={row.name?.trim() || row.application?.fullLegalName?.trim() || row.property?.trim()}
-            defaultRecipientName={row.name?.trim() || row.application?.fullLegalName?.trim()}
-            defaultEmail={(row.email || row.application?.email || "").trim()}
-            defaultPhone={(row.application?.phone || "").trim()}
           />
           {canDownloadScreening ? (
             <DropdownMenuItem
