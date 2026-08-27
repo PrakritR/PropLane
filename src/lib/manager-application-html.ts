@@ -14,6 +14,7 @@ import {
   isInProgressApplicationRow,
 } from "@/lib/rental-application/in-progress-application";
 import type { ApplicationGroupMember } from "@/lib/rental-application/application-groups";
+import { applicationGroupMemberStatusLabel } from "@/lib/rental-application/application-groups";
 import { formatApplicationGroupMemberLine } from "@/lib/application-group-document";
 import { leaseCss } from "@/lib/lease-templates/types";
 
@@ -188,6 +189,12 @@ export type ApplicationHtmlOptions = {
    * they are already authorized to see the application they are screening.
    */
   redactIdentityDocuments?: boolean;
+  /**
+   * Unauthenticated public share link — only an allowlisted summary is rendered.
+   * Contact info, residence, employment, references, disclosures, cosigners, and
+   * manager-only fields are omitted entirely.
+   */
+  publicShare?: boolean;
 };
 
 /**
@@ -198,6 +205,71 @@ export type ApplicationHtmlOptions = {
  */
 /** What a redacted identity field shows — never blank, so the reader knows it was withheld. */
 const REDACTED_LABEL = "Withheld";
+
+function formatApplicationGroupMemberPublicLine(member: ApplicationGroupMember): string {
+  return [member.name, applicationGroupMemberStatusLabel(member.status)].filter(Boolean).join(" · ");
+}
+
+function buildPublicShareApplicationBody(
+  row: DemoApplicantRow,
+  options: ApplicationHtmlOptions,
+  applicantName: string,
+  axisId: string,
+  generatedLabel: string,
+  roomLabel: string,
+): string {
+  const app: Partial<RentalWizardFormState> = row.application ?? {};
+  const otherGroupMembers = (options.groupMembers ?? []).filter((m) => m.id !== row.id);
+
+  return `
+<h1>PROPLANE ${app.rentalType === "short_term" ? "SHORT-TERM STAY APPLICATION" : "RENTAL APPLICATION"}</h1>
+<p class="sub">PropLane · Shared application summary</p>
+<p class="generated">PropLane ID ${escapeHtml(axisId)} · ${escapeHtml(statusLabel(row))} · Generated ${escapeHtml(generatedLabel)}</p>
+
+${section("Application summary", [
+  { label: "Applicant", value: applicantName },
+  { label: "Property", value: clean(row.property) || "—" },
+  { label: "Room", value: roomLabel || clean(app.roomChoice1) || "—" },
+  { label: "Move-in date", value: formatLeaseDateLabel(app.leaseStart) || clean(app.leaseStart) || "—" },
+  { label: "Application status", value: statusLabel(row) },
+  { label: "Stage", value: applicationStageDisplayLabel(row) },
+])}
+
+${section("Property & room", [
+  { label: "Property", value: clean(row.property) },
+  { label: "Room", value: roomLabel || clean(app.roomChoice1) },
+  {
+    label: "Rental type",
+    value: app.rentalType === "short_term" ? "Short-term stay" : app.rentalType ? "Standard lease" : "",
+  },
+  { label: "Stay type / term", value: clean(app.leaseTerm) },
+  { label: "Move-in date", value: formatLeaseDateLabel(app.leaseStart) || clean(app.leaseStart) },
+  { label: "Lease end / move-out", value: formatLeaseDateLabel(app.leaseEnd) || clean(app.leaseEnd) },
+])}
+
+${section("Household", [
+  { label: "Applying as a group", value: yesNo(app.applyingAsGroup) },
+  { label: "Group role", value: groupRoleLabel(app.groupRole) },
+  { label: "Group size", value: app.groupRole === "joining" ? "" : clean(app.groupSize) },
+  { label: "Group ID", value: app.applyingAsGroup === "yes" ? clean(app.groupId) : "" },
+  { label: "Has co-signer", value: yesNo(app.hasCosigner) },
+])}
+
+${
+  otherGroupMembers.length > 0
+    ? section(
+        "Other group application members",
+        otherGroupMembers.map((member, index) => ({
+          label: `Member ${index + 1}`,
+          value: formatApplicationGroupMemberPublicLine(member),
+        })),
+      )
+    : ""
+}
+
+<p class="footnote">Shared via PropLane. This summary omits contact information, financial details, residence history, references, screening answers, and identity documents. PropLane · Confidential</p>
+`;
+}
 
 export function buildApplicationHtml(row: DemoApplicantRow, options: ApplicationHtmlOptions = {}): string {
   const redactId = (value: string) => (options.redactIdentityDocuments ? (value ? REDACTED_LABEL : "") : value);
@@ -230,7 +302,9 @@ export function buildApplicationHtml(row: DemoApplicantRow, options: Application
     .filter(Boolean)
     .join("  ");
 
-  const body = `
+  const body = options.publicShare
+    ? buildPublicShareApplicationBody(row, options, applicantName, axisId, generatedLabel, roomLabel)
+    : `
 <h1>PROPLANE ${app.rentalType === "short_term" ? "SHORT-TERM STAY APPLICATION" : "RENTAL APPLICATION"}</h1>
 <p class="sub">PropLane · Official application record</p>
 <p class="generated">PropLane ID ${escapeHtml(axisId)} · ${escapeHtml(statusLabel(row))} · Generated ${escapeHtml(generatedLabel)}</p>

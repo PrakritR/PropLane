@@ -72,7 +72,8 @@ export async function createPortalRecordShareLink(
 
 export type ResolvedPortalRecordShareLink = {
   link: PortalRecordShareLinkRow;
-  managerUserId: string;
+  recordOwnerUserId: string;
+  createdBy: string;
 };
 
 /** Resolve a public share token (no auth). */
@@ -85,13 +86,16 @@ export async function resolvePortalRecordShareToken(
 
   const { data: linkRow, error } = await db
     .from("portal_record_share_links")
-    .select("id, record_kind, record_id, share_token, expires_at, created_at, revoked_at, access_count, manager_user_id")
+    .select(
+      "id, record_kind, record_id, share_token, expires_at, created_at, revoked_at, access_count, manager_user_id, created_by",
+    )
     .eq("share_token", trimmed)
     .is("revoked_at", null)
     .maybeSingle();
 
   if (error || !linkRow) return null;
   if (new Date(String(linkRow.expires_at)).getTime() < Date.now()) return null;
+  if (!linkRow.created_by) return null;
 
   await db
     .from("portal_record_share_links")
@@ -103,6 +107,7 @@ export async function resolvePortalRecordShareToken(
 
   return {
     link: mapShareLinkRow(linkRow as Record<string, unknown>),
-    managerUserId: String(linkRow.manager_user_id),
+    recordOwnerUserId: String(linkRow.manager_user_id),
+    createdBy: String(linkRow.created_by),
   };
 }

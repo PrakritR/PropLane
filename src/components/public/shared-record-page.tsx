@@ -69,7 +69,7 @@ function SharedRecordView({ apiPath }: { apiPath: string }) {
       </p>
       <div className="mt-6 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
         {payload.contentType === "pdf" && payload.pdfDataUrl ? (
-          <iframe title={payload.title} src={payload.pdfDataUrl} className="h-[80vh] w-full" />
+          <iframe title={payload.title} src={payload.pdfDataUrl} className="h-[80vh] w-full" sandbox="" />
         ) : payload.html ? (
           <iframe title={payload.title} srcDoc={payload.html} className="h-[80vh] w-full" sandbox="" />
         ) : (

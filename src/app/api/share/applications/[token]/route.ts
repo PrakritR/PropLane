@@ -15,15 +15,17 @@ export async function GET(_req: Request, ctx: { params: Promise<{ token: string 
       return NextResponse.json({ error: "Link expired or invalid." }, { status: 404 });
     }
 
-    const payload = await loadSharedApplicationPayload(db, resolved.link.recordId, resolved.managerUserId);
+    const payload = await loadSharedApplicationPayload(db, resolved.link.recordId, {
+      recordOwnerUserId: resolved.recordOwnerUserId,
+      createdBy: resolved.createdBy,
+    });
     if (!payload) return NextResponse.json({ error: "Application not found." }, { status: 404 });
 
     return NextResponse.json(
       { ...payload, expiresAt: resolved.link.expiresAt },
       { headers: { "Cache-Control": "no-store" } },
     );
-  } catch (e) {
-    const message = e instanceof Error ? e.message : "Failed.";
-    return NextResponse.json({ error: message }, { status: 500 });
+  } catch {
+    return NextResponse.json({ error: "Could not load shared application." }, { status: 500 });
   }
 }

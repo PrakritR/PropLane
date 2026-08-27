@@ -1,7 +1,8 @@
 import "server-only";
 
 import type { DemoApplicantRow } from "@/data/demo-portal";
-import type { CosignerSubmission } from "@/lib/cosigner-submissions-storage";
+import { managerCanAccessApplicationRecord } from "@/lib/auth/manager-application-access";
+import { managerCanAccessLeaseRecord } from "@/lib/auth/manager-lease-scope";
 import { loadApplicationGroupMembersForDocument } from "@/lib/application-group-document.server";
 import { buildApplicationHtml } from "@/lib/manager-application-html";
 import { normalizeApplicationAxisId } from "@/lib/manager-applications-storage";
@@ -13,10 +14,20 @@ type ServiceClient = ReturnType<typeof createSupabaseServiceRoleClient>;
 
 const RECORD_ID_PATTERN = /^[A-Za-z0-9._-]+$/;
 
-function applicationIdVariants(id: string): string[] {
+export function applicationIdVariants(id: string): string[] {
   const trimmed = id.trim();
   const normalized = normalizeApplicationAxisId(trimmed);
   return [...new Set([trimmed, normalized].filter(Boolean))].filter((value) => RECORD_ID_PATTERN.test(value));
+}
+
+export type ShareLinkAccessContext = {
+  recordOwnerUserId: string;
+  createdBy: string;
+};
+
+export function isSafeLeasePdfDataUrl(dataUrl: string): boolean {
+  const trimmed = dataUrl.trim().toLowerCase();
+  return trimmed.startsWith("data:application/pdf;base64,");
 }
 
 export type SharedLeasePayload = {
@@ -35,18 +46,36 @@ export type SharedApplicationPayload = {
   html: string;
 };
 
+async function resolveApplicationRecordRow(db: ServiceClient, recordId: string) {
+  const ids = applicationIdVariants(recordId);
+  if (ids.length === 0) return null;
+
+  const { data: records, error } = await db
+    .from("manager_application_records")
+    .select("id, row_data, manager_user_id, property_id, assigned_property_id")
+    .in("id", ids)
+    .order("id", { ascending: true })
+    .limit(1);
+  if (error || !records?.[0]?.row_data) return null;
+  return records[0];
+}
+
 export async function loadSharedLeasePayload(
   db: ServiceClient,
   recordId: string,
-  managerUserId: string,
+  access: ShareLinkAccessContext,
 ): Promise<SharedLeasePayload | null> {
   if (!RECORD_ID_PATTERN.test(recordId.trim())) return null;
   const { data, error } = await db
     .from("portal_lease_pipeline_records")
-    .select("id, manager_user_id, row_data")
+    .select("id, manager_user_id, property_id, row_data")
     .eq("id", recordId.trim())
     .maybeSingle();
   if (error || !data) return null;
+  if (String(data.manager_user_id) !== access.recordOwnerUserId) return null;
+
+  const canRead = await managerCanAccessLeaseRecord(db, access.createdBy, data, "read");
+  if (!canRead) return null;
 
   const row = normalizeLeasePipelineRow(data.row_data) as LeasePipelineRow;
   const residentName = row.residentName?.trim() || row.residentEmail?.trim() || "Resident";
@@ -54,13 +83,14 @@ export async function loadSharedLeasePayload(
   const title = `${residentName} · ${propertyLabel}`;
   const subtitle = row.status ? `Lease · ${row.status}` : "Lease document";
 
-  if (row.managerUploadedPdf?.dataUrl) {
+  const uploadedPdf = row.managerUploadedPdf?.dataUrl;
+  if (uploadedPdf && isSafeLeasePdfDataUrl(uploadedPdf)) {
     return {
       kind: "lease",
       title,
       subtitle,
       contentType: "pdf",
-      pdfDataUrl: row.managerUploadedPdf.dataUrl,
+      pdfDataUrl: uploadedPdf,
     };
   }
 
@@ -78,32 +108,25 @@ export async function loadSharedLeasePayload(
 export async function loadSharedApplicationPayload(
   db: ServiceClient,
   recordId: string,
-  managerUserId: string,
+  access: ShareLinkAccessContext,
 ): Promise<SharedApplicationPayload | null> {
-  const ids = applicationIdVariants(recordId);
-  if (ids.length === 0) return null;
+  const record = await resolveApplicationRecordRow(db, recordId);
+  if (!record) return null;
+  if (String(record.manager_user_id) !== access.recordOwnerUserId) return null;
 
-  const { data: records, error } = await db
-    .from("manager_application_records")
-    .select("id, row_data, manager_user_id")
-    .in("id", ids)
-    .limit(1);
-  if (error || !records?.[0]?.row_data) return null;
-  const record = records[0];
+  const canRead = await managerCanAccessApplicationRecord(db, access.createdBy, record, { level: "read" });
+  if (!canRead) return null;
 
   const row = record.row_data as DemoApplicantRow;
-  const signerIds = [...new Set([...ids, ...ids.map((v) => v.toUpperCase())])];
+  const signerIds = [...new Set([record.id, record.id.toUpperCase()])];
   const { data: cosignerRows } = await db
     .from("cosigner_submission_records")
     .select("row_data, created_at")
     .in("signer_app_id", signerIds)
     .order("created_at", { ascending: true });
-  const cosignerSubmissions = (cosignerRows ?? [])
-    .map((r) => r.row_data)
-    .filter(Boolean) as CosignerSubmission[];
 
   const groupMembers = await loadApplicationGroupMembersForDocument(db, row, {
-    managerUserId,
+    managerUserId: access.recordOwnerUserId,
   });
 
   const applicantName = row.name?.trim() || row.application?.fullLegalName?.trim() || "Applicant";
@@ -115,13 +138,9 @@ export async function loadSharedApplicationPayload(
     kind: "application",
     title,
     subtitle,
-    // A share link authorizes nothing beyond possession of a URL, so identity documents
-    // (date of birth, driver's-licence number) are withheld here even though the manager's
-    // own copy of the same application shows them.
     html: buildApplicationHtml(row, {
-      cosignerSubmissions,
       groupMembers,
-      redactIdentityDocuments: true,
+      publicShare: true,
     }),
   };
 }

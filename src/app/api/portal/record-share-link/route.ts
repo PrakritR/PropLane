@@ -3,7 +3,7 @@ import { isAdminUser } from "@/lib/auth/admin-preview";
 import { managerCanAccessApplicationRecord } from "@/lib/auth/manager-application-access";
 import { managerCanAccessLeaseRecord } from "@/lib/auth/manager-lease-scope";
 import { resolveEmailLinkBaseUrl } from "@/lib/app-url";
-import { normalizeApplicationAxisId } from "@/lib/manager-applications-storage";
+import { applicationIdVariants } from "@/lib/portal-record-share-payload.server";
 import {
   buildPortalRecordShareUrl,
   createPortalRecordShareLink,
@@ -22,12 +22,6 @@ function appOrigin(): string {
 
 function parseKind(raw: unknown): PortalRecordShareKind | null {
   return raw === "lease" || raw === "application" ? raw : null;
-}
-
-function applicationIdVariants(id: string): string[] {
-  const trimmed = id.trim();
-  const normalized = normalizeApplicationAxisId(trimmed);
-  return [...new Set([trimmed, normalized].filter(Boolean))].filter((value) => RECORD_ID_PATTERN.test(value));
 }
 
 /** Mint a public view link for one lease or application (manager auth). */
@@ -52,37 +46,44 @@ export async function POST(req: Request) {
 
     const db = createSupabaseServiceRoleClient();
     const admin = await isAdminUser(user.id);
-    let allowed = admin;
+    let allowed = false;
+    let canonicalRecordId = recordId;
+    let recordOwnerUserId = "";
 
-    if (!allowed && kind === "lease") {
+    if (kind === "lease") {
       const { data: record } = await db
         .from("portal_lease_pipeline_records")
         .select("id, manager_user_id, property_id")
         .eq("id", recordId)
         .maybeSingle();
       if (!record) return NextResponse.json({ error: "Lease not found." }, { status: 404 });
-      allowed = await managerCanAccessLeaseRecord(db, user.id, record, "read");
+      canonicalRecordId = String(record.id);
+      recordOwnerUserId = String(record.manager_user_id);
+      allowed = admin || (await managerCanAccessLeaseRecord(db, user.id, record, "read"));
     }
 
-    if (!allowed && kind === "application") {
+    if (kind === "application") {
       const ids = applicationIdVariants(recordId);
       if (ids.length === 0) return NextResponse.json({ error: "Application not found." }, { status: 404 });
       const { data: records } = await db
         .from("manager_application_records")
         .select("id, manager_user_id, property_id, assigned_property_id")
         .in("id", ids)
+        .order("id", { ascending: true })
         .limit(1);
       const record = records?.[0];
       if (!record) return NextResponse.json({ error: "Application not found." }, { status: 404 });
-      allowed = await managerCanAccessApplicationRecord(db, user.id, record, { level: "read" });
+      canonicalRecordId = String(record.id);
+      recordOwnerUserId = String(record.manager_user_id);
+      allowed = admin || (await managerCanAccessApplicationRecord(db, user.id, record, { level: "read" }));
     }
 
     if (!allowed) return NextResponse.json({ error: "Not authorized." }, { status: 403 });
 
     const link = await createPortalRecordShareLink(db, {
       recordKind: kind,
-      recordId,
-      managerUserId: user.id,
+      recordId: canonicalRecordId,
+      managerUserId: recordOwnerUserId,
       createdBy: user.id,
       expiresInDays: body.expiresInDays,
     });
@@ -91,8 +92,7 @@ export async function POST(req: Request) {
     return NextResponse.json({
       link: { ...link, url: buildPortalRecordShareUrl(origin, kind, link.shareToken) },
     });
-  } catch (e) {
-    const message = e instanceof Error ? e.message : "Failed to create share link.";
-    return NextResponse.json({ error: message }, { status: 500 });
+  } catch {
+    return NextResponse.json({ error: "Failed to create share link." }, { status: 500 });
   }
 }
