@@ -81,7 +81,7 @@ function cosignerCriminalLabel(value: string | undefined): string {
 }
 
 /** One "Co-signer" section per submitted co-signer form, numbered when there is more than one. */
-function cosignerSections(submissions: CosignerSubmission[] | undefined): string {
+function cosignerSections(submissions: CosignerSubmission[] | undefined, redact = false): string {
   const list = Array.isArray(submissions) ? submissions : [];
   return list
     .map((sub, i) => {
@@ -97,8 +97,10 @@ function cosignerSections(submissions: CosignerSubmission[] | undefined): string
         { label: "Legal name", value: clean(sub.fullName) },
         { label: "Email", value: clean(sub.email) },
         { label: "Phone", value: clean(sub.phone) },
-        { label: "Date of birth", value: clean(sub.dob) },
-        { label: "ID number", value: clean(sub.dlNumber) },
+        // A co-signer's identity documents are withheld from a public share for the same reason
+        // the applicant's are — they never consented to an unauthenticated audience either.
+        { label: "Date of birth", value: redact && clean(sub.dob) ? REDACTED_LABEL : clean(sub.dob) },
+        { label: "ID number", value: redact && clean(sub.dlNumber) ? REDACTED_LABEL : clean(sub.dlNumber) },
         { label: "SSN", value: maskCosignerSsn(sub.ssn) },
         { label: "Address", value: address },
         { label: "Employment", value: sub.notEmployed ? "Not currently employed" : "" },
@@ -176,6 +178,16 @@ export type ApplicationHtmlOptions = {
   cosignerSubmissions?: CosignerSubmission[];
   /** Other applicants in the same group application (excludes this row when provided). */
   groupMembers?: ApplicationGroupMember[];
+  /**
+   * Redact the identity documents an unauthenticated reader must never receive.
+   *
+   * SSN is masked to last-4 on EVERY path, but date of birth and driver's-license/ID number
+   * still render in full, and a share link puts this document behind nothing but a URL. Full
+   * name + DOB + licence number + SSN last-4 is enough to open credit in someone's name, so the
+   * public share path withholds the two unmasked ones. The manager's own download is unaffected:
+   * they are already authorized to see the application they are screening.
+   */
+  redactIdentityDocuments?: boolean;
 };
 
 /**
@@ -184,7 +196,11 @@ export type ApplicationHtmlOptions = {
  * content of buildApplicationPdf; meant for an `srcDoc` iframe so managers can
  * read the application without the browser's PDF-viewer chrome.
  */
+/** What a redacted identity field shows — never blank, so the reader knows it was withheld. */
+const REDACTED_LABEL = "Withheld";
+
 export function buildApplicationHtml(row: DemoApplicantRow, options: ApplicationHtmlOptions = {}): string {
+  const redactId = (value: string) => (options.redactIdentityDocuments ? (value ? REDACTED_LABEL : "") : value);
   const app: Partial<RentalWizardFormState> = row.application ?? {};
   const applicantName = clean(app.fullLegalName) || applicantDisplayName(row);
   const axisId = clean(row.id) || "—";
@@ -231,9 +247,9 @@ ${section("Applicant details", [
   { label: "Full legal name", value: applicantName },
   { label: "Email", value: clean(app.email) || clean(row.email) },
   { label: "Phone", value: clean(app.phone) },
-  { label: "Date of birth", value: clean(app.dateOfBirth) },
+  { label: "Date of birth", value: redactId(clean(app.dateOfBirth)) },
   { label: "SSN", value: maskSsn(app.ssn) },
-  { label: "Driver's license", value: clean(app.driversLicense) },
+  { label: "Driver's license", value: redactId(clean(app.driversLicense)) },
   { label: "Application status", value: statusLabel(row) },
   { label: "Stage", value: applicationStageDisplayLabel(row) },
 ])}
@@ -282,7 +298,7 @@ ${
     : ""
 }
 
-${cosignerSections(options.cosignerSubmissions)}
+${cosignerSections(options.cosignerSubmissions, options.redactIdentityDocuments === true)}
 
 ${section("Current residence", [
   { label: "Address", value: currentAddress },

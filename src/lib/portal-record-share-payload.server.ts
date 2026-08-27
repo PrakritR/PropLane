@@ -115,6 +115,13 @@ export async function loadSharedApplicationPayload(
     kind: "application",
     title,
     subtitle,
-    html: buildApplicationHtml(row, { cosignerSubmissions, groupMembers }),
+    // A share link authorizes nothing beyond possession of a URL, so identity documents
+    // (date of birth, driver's-licence number) are withheld here even though the manager's
+    // own copy of the same application shows them.
+    html: buildApplicationHtml(row, {
+      cosignerSubmissions,
+      groupMembers,
+      redactIdentityDocuments: true,
+    }),
   };
 }
