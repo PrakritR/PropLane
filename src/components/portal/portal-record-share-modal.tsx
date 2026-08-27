@@ -33,9 +33,6 @@ type Props = {
   kind: RecordShareKind;
   recordId: string;
   recordTitle?: string;
-  defaultRecipientName?: string;
-  defaultEmail?: string;
-  defaultPhone?: string;
 };
 
 export function PortalRecordShareModal({
@@ -44,9 +41,6 @@ export function PortalRecordShareModal({
   kind,
   recordId,
   recordTitle,
-  defaultRecipientName = "",
-  defaultEmail = "",
-  defaultPhone = "",
 }: Props) {
   const { showToast } = useAppUi();
   const wasOpenRef = useRef(false);
@@ -72,16 +66,16 @@ export function PortalRecordShareModal({
     }
     if (wasOpenRef.current) return;
     wasOpenRef.current = true;
-    setRecipientName(defaultRecipientName);
-    setRecipientEmail(defaultEmail);
-    setRecipientPhone(defaultPhone);
+    setRecipientName("");
+    setRecipientEmail("");
+    setRecipientPhone("");
     setSendVia(["email"]);
     setNote("");
     setSendPreviewOpen(false);
     setSendBusy(false);
     setLinkUrl("");
     setLinkError("");
-  }, [open, defaultRecipientName, defaultEmail, defaultPhone]);
+  }, [open]);
 
   useEffect(() => {
     if (!open || !recordId.trim() || isDemoModeActive()) return;

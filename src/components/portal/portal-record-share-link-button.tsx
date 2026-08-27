@@ -22,9 +22,6 @@ type Props = {
   /** Render inside a dropdown menu instead of a standalone button. */
   menuItem?: boolean;
   recordTitle?: string;
-  defaultRecipientName?: string;
-  defaultEmail?: string;
-  defaultPhone?: string;
 };
 
 /**
@@ -44,9 +41,6 @@ export function PortalRecordShareLinkButton({
   disabled = false,
   menuItem = false,
   recordTitle,
-  defaultRecipientName,
-  defaultEmail,
-  defaultPhone,
 }: Props) {
   const { showToast } = useAppUi();
   const [open, setOpen] = useState(false);
@@ -92,9 +86,6 @@ export function PortalRecordShareLinkButton({
         kind={kind}
         recordId={recordId}
         recordTitle={recordTitle}
-        defaultRecipientName={defaultRecipientName}
-        defaultEmail={defaultEmail}
-        defaultPhone={defaultPhone}
       />
     </>
   );

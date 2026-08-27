@@ -528,8 +528,6 @@ export function ManagerLeasesPipelinePanel({
         className={RESIDENT_DETAIL_HEADER_ACTION_BTN}
         dataAttr="lease-share"
         recordTitle={row.residentName?.trim() || row.unit?.trim() || row.propertyId}
-        defaultRecipientName={row.residentName?.trim()}
-        defaultEmail={row.residentEmail?.trim()}
       />
     ) : null;
 
@@ -718,8 +716,6 @@ export function ManagerLeasesPipelinePanel({
               menuItem
               dataAttr="lease-share-menu"
               recordTitle={row.residentName?.trim() || row.unit?.trim() || row.propertyId}
-              defaultRecipientName={row.residentName?.trim()}
-              defaultEmail={row.residentEmail?.trim()}
             />
           ) : null}
           {canEditDocument ? (
