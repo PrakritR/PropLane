@@ -2,7 +2,6 @@
 
 import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
-import { isSafeLeasePdfDataUrl } from "@/lib/portal-record-share-pdf";
 
 type SharedRecordPayload = {
   title: string;
@@ -11,7 +10,6 @@ type SharedRecordPayload = {
   kind: "lease" | "application";
   contentType?: "html" | "pdf";
   html?: string;
-  pdfDataUrl?: string;
 };
 
 function SharedRecordView({ apiPath }: { apiPath: string }) {
@@ -69,10 +67,10 @@ function SharedRecordView({ apiPath }: { apiPath: string }) {
         {payload.subtitle} · Shared via PropLane · expires {expires}
       </p>
       <div className="mt-6 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
-        {payload.contentType === "pdf" && isSafeLeasePdfDataUrl(payload.pdfDataUrl) ? (
+        {payload.contentType === "pdf" ? (
           <iframe
             title={payload.title}
-            src={payload.pdfDataUrl}
+            src={apiPath.replace("{token}", encodeURIComponent(token)) + "/pdf"}
             className="h-[80vh] w-full"
             sandbox=""
           />

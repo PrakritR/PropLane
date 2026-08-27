@@ -113,7 +113,10 @@ export async function POST(req: Request) {
     const viaEmail = body.viaEmail !== false;
     const to = typeof body.to === "string" ? body.to.trim().toLowerCase() : "";
     const phoneRaw = typeof body.phone === "string" ? body.phone.trim() : "";
-    const phone = phoneRaw ? normalizeE164(phoneRaw) ?? "" : "";
+    // `normalizeE164` returns null for a number it cannot parse. Collapsing that to "" here is
+    // what lets the `viaSms && !phone` guard below reject it — otherwise an unparseable number
+    // slipped past as a non-empty value and reached the send.
+    const phone = (phoneRaw ? normalizeE164(phoneRaw) : "") ?? "";
 
     if (!kind || !recordId || !RECORD_ID_PATTERN.test(recordId)) {
       return NextResponse.json({ error: "kind and recordId are required." }, { status: 400 });

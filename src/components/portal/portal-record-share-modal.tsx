@@ -92,7 +92,10 @@ export function PortalRecordShareModal({
       method: "POST",
       credentials: "include",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ kind, recordId: recordId.trim(), expiresInDays: 14 }),
+      // 90 days is the server's own maximum, so the modal promises exactly what the mint route
+      // will do rather than a shorter figure it never applied. The link is unauthenticated for
+      // that whole quarter and there is no revoke path yet.
+      body: JSON.stringify({ kind, recordId: recordId.trim(), expiresInDays: 90 }),
     })
       .then(async (res) => {
         const data = (await res.json()) as { link?: { url?: string }; error?: string };
@@ -216,7 +219,7 @@ export function PortalRecordShareModal({
         open={open}
         onClose={onClose}
         title={`Share ${docLabel}`}
-        description={`Anyone with the link can view this ${docLabel} without signing in. Links expire in 14 days.`}
+        description={`Anyone with the link can view this ${docLabel} without signing in. Links expire in 90 days.`}
         panelClassName="max-w-lg"
         dense
         footer={
@@ -363,7 +366,9 @@ export function PortalRecordShareModal({
         confirmBusy={sendBusy}
         confirmBusyLabel="Sending…"
         onConfirm={(_skip, channels) => {
-          void sendShare(channels);
+          // The dialog omits `channels` when it has no channel UI to report; fall back to what
+          // this modal already resolved rather than sending with both switched off.
+          void sendShare(channels ?? { viaEmail, viaSms });
         }}
         panelClassName="max-w-lg"
       />

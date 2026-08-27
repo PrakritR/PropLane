@@ -27,7 +27,14 @@ type Props = {
   defaultPhone?: string;
 };
 
-/** Open a share modal with a public view link and optional email/SMS send. */
+/**
+ * Open a share modal with a public view link and optional email/SMS send.
+ *
+ * Links last 90 days — the server's own maximum, so the UI promises exactly what the mint route
+ * will do rather than a shorter figure it never applied. Note what that means before widening the
+ * ways a link can be sent: it is unauthenticated for a full quarter and there is no revoke path
+ * yet, so anyone it reaches, or anyone it is forwarded to, can open the record until it lapses.
+ */
 export function PortalRecordShareLinkButton({
   kind,
   recordId,

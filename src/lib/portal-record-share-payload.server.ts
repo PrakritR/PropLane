@@ -50,7 +50,17 @@ export type SharedLeasePayload = {
   subtitle: string;
   contentType: "html" | "pdf";
   html?: string;
-  pdfDataUrl?: string;
+  /**
+   * Deliberately NOT the PDF itself.
+   *
+   * The uploaded PDF used to travel inside this JSON as a base64 `data:` URL, uncacheable and
+   * ~33% larger than the bytes, re-sent in full on every single page load. A multi-MB lease
+   * shared with a handful of people is then a measurable egress cost on the free plan, paid over
+   * and over for a document that never changes.
+   *
+   * The viewer fetches the bytes from the token's own `/pdf` endpoint instead, which streams them
+   * binary and revalidates cheaply. `contentType` alone tells the page which branch to render.
+   */
 };
 
 export type SharedApplicationPayload = {
@@ -97,13 +107,7 @@ export async function loadSharedLeasePayload(
 
   const uploadedPdf = row.managerUploadedPdf?.dataUrl;
   if (uploadedPdf && isSafeLeasePdfDataUrl(uploadedPdf)) {
-    return {
-      kind: "lease",
-      title,
-      subtitle,
-      contentType: "pdf",
-      pdfDataUrl: uploadedPdf,
-    };
+    return { kind: "lease", title, subtitle, contentType: "pdf" };
   }
 
   const html = getLeaseDocumentHtml(row);
@@ -145,4 +149,43 @@ export async function loadSharedApplicationPayload(
       publicShare: true,
     }),
   };
+}
+
+/**
+ * The uploaded lease PDF's bytes, for the token-scoped `/pdf` endpoint.
+ *
+ * Re-runs the SAME ownership filter as `loadSharedLeasePayload` rather than trusting that the
+ * caller already did: this endpoint is separately reachable, so an authorization that lived only
+ * on the sibling route would not apply to it.
+ *
+ * Returns null unless the stored value is a `data:application/pdf;base64,` URL. That is an
+ * allowlist, not a sanitizer — `row_data` is writable by the row's own resident, so an
+ * unrecognised value is refused rather than decoded and served under a PDF content type.
+ */
+export async function loadSharedLeasePdfBytes(
+  db: ServiceClient,
+  recordId: string,
+  access: ShareLinkAccessContext,
+): Promise<Buffer | null> {
+  if (!RECORD_ID_PATTERN.test(recordId.trim())) return null;
+  const { data, error } = await db
+    .from("portal_lease_pipeline_records")
+    .select("id, manager_user_id, row_data")
+    .eq("id", recordId.trim())
+    .eq("manager_user_id", access.recordOwnerUserId)
+    .maybeSingle();
+  if (error || !data) return null;
+  if (String(data.manager_user_id) !== access.recordOwnerUserId) return null;
+
+  const row = normalizeLeasePipelineRow(data.row_data) as LeasePipelineRow;
+  const dataUrl = row.managerUploadedPdf?.dataUrl;
+  if (!dataUrl || !isSafeLeasePdfDataUrl(dataUrl)) return null;
+
+  const base64 = dataUrl.slice(dataUrl.indexOf(",") + 1);
+  try {
+    const bytes = Buffer.from(base64, "base64");
+    return bytes.length > 0 ? bytes : null;
+  } catch {
+    return null;
+  }
 }
