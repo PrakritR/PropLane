@@ -172,7 +172,7 @@ type LeasePrimaryHeaderActionsProps = {
   signingReminderBusy?: boolean;
   onDelete?: () => void;
   onSendToResident?: () => void;
-  /** When set, shows a "Copy link" action for a public view URL. */
+  /** When set, shows a Share action for a public view URL. */
   shareRecordId?: string;
   sendToResidentBusy?: boolean;
   sendToResidentDisabled?: boolean;
@@ -321,30 +321,28 @@ export function LeasePrimaryHeaderActions({
 
     if (hasDocument && shareRecordId) {
       actions.push({
-        id: "copy-link",
+        id: "share",
         button: (
           <PortalRecordShareLinkButton
             kind="lease"
             recordId={shareRecordId}
             className={compactBtnClass}
-            dataAttr="lease-copy-view-link"
+            dataAttr="lease-share"
+            recordTitle={row.residentName?.trim() || row.unit?.trim() || row.propertyId}
+            defaultRecipientName={row.residentName?.trim()}
+            defaultEmail={row.residentEmail?.trim()}
           />
         ),
         menuItem: (
-          <DropdownMenuItem
-            data-attr="lease-copy-view-link"
-            onSelect={(e) => {
-              e.preventDefault();
-            }}
-            className="p-0 focus:bg-transparent"
-          >
-            <PortalRecordShareLinkButton
-              kind="lease"
-              recordId={shareRecordId}
-              className="h-auto w-full justify-start rounded-none border-0 bg-transparent px-2 py-1.5 text-sm shadow-none hover:bg-accent"
-              dataAttr="lease-copy-view-link-menu"
-            />
-          </DropdownMenuItem>
+          <PortalRecordShareLinkButton
+            kind="lease"
+            recordId={shareRecordId}
+            menuItem
+            dataAttr="lease-share-menu"
+            recordTitle={row.residentName?.trim() || row.unit?.trim() || row.propertyId}
+            defaultRecipientName={row.residentName?.trim()}
+            defaultEmail={row.residentEmail?.trim()}
+          />
         ),
       });
     }
