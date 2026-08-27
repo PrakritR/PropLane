@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { buildApplicationHtml } from "@/lib/manager-application-html";
 import type { DemoApplicantRow } from "@/data/demo-portal";
 import { buildPortalRecordShareUrl } from "@/lib/portal-record-share-links.server";
-import { isSafeLeasePdfDataUrl } from "@/lib/portal-record-share-payload.server";
+import { isSafeLeasePdfDataUrl } from "@/lib/portal-record-share-pdf";
 
 describe("buildPortalRecordShareUrl", () => {
   it("builds lease and application public paths", () => {

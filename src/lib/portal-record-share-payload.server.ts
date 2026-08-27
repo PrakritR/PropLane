@@ -19,8 +19,6 @@ export function applicationIdVariants(id: string): string[] {
   return [...new Set([trimmed, normalized].filter(Boolean))].filter((value) => RECORD_ID_PATTERN.test(value));
 }
 
-export { isSafeLeasePdfDataUrl };
-
 /**
  * Pick the row the caller actually named.
  *

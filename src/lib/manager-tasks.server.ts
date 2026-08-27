@@ -109,7 +109,9 @@ export async function patchManagerTaskRow(
       ? Math.max(15, Math.round(patch.durationMinutes))
       : start && end
         ? durationBetween(start, end)
-        : current.durationMinutes;
+        : start
+          ? current.durationMinutes
+          : undefined;
   const next: ManagerTask = {
     ...current,
     title: typeof patch.title === "string" ? patch.title.trim() || current.title : current.title,

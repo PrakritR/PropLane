@@ -186,7 +186,7 @@ export function ManagerTaskList({
         title: form.title,
         notes: form.notes,
         propertyId: form.propertyId || cleared,
-        propertyTitle: property?.label ?? cleared,
+        propertyTitle: form.propertyId ? property?.label : cleared,
         roomLabel: form.roomLabel || cleared,
         start: start ?? cleared,
         end: end ?? cleared,
