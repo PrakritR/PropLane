@@ -6,6 +6,7 @@ import {
   createPortalRecordShareLink,
 } from "@/lib/portal-record-share-links.server";
 import {
+  type RecordShareKind,
   recordShareEmailBody,
   recordShareEmailHtml,
   recordShareSmsText,
@@ -42,13 +43,17 @@ export async function POST(req: Request) {
       note?: string;
     };
 
-    const kind = body.kind === "lease" || body.kind === "application" ? body.kind : null;
+    const kind: RecordShareKind | null =
+      body.kind === "lease" || body.kind === "application" ? body.kind : null;
     const recordId = typeof body.recordId === "string" ? body.recordId.trim() : "";
     const viaSms = body.viaSms === true;
     const viaEmail = body.viaEmail !== false;
     const to = typeof body.to === "string" ? body.to.trim().toLowerCase() : "";
     const phoneRaw = typeof body.phone === "string" ? body.phone.trim() : "";
-    const phone = phoneRaw ? normalizeE164(phoneRaw) : "";
+    // `normalizeE164` returns null for a number it cannot parse. Collapsing that to "" here is
+    // what lets the `viaSms && !phone` guard below reject it — otherwise an unparseable number
+    // slipped past as a non-empty value and reached the send.
+    const phone = (phoneRaw ? normalizeE164(phoneRaw) : "") ?? "";
 
     if (!kind || !recordId) {
       return NextResponse.json({ error: "kind and recordId are required." }, { status: 400 });
@@ -89,6 +94,7 @@ export async function POST(req: Request) {
     const smsText = recordShareSmsText(messageParams);
 
     let emailId: string | null = null;
+    let emailSent = false;
     if (viaEmail) {
       const apiKey = process.env.RESEND_API_KEY?.trim();
       if (!apiKey) {
@@ -105,6 +111,7 @@ export async function POST(req: Request) {
         return NextResponse.json({ error: payload.message ?? "Could not send email." }, { status: 502 });
       }
       emailId = payload.id ?? null;
+      emailSent = true;
       await recordResidentProspectInboxMessage(db, {
         participantEmail: to,
         subject,
@@ -118,7 +125,7 @@ export async function POST(req: Request) {
       const workNumber = await resolveManagerWorkNumber(db, user.id);
       if (!workNumber) {
         return NextResponse.json(
-          { error: "No work number on this account yet. Finish SMS setup under Communication first.", emailSent: viaEmail && Boolean(emailId) },
+          { error: "No work number on this account yet. Finish SMS setup under Communication first.", emailSent },
           { status: 400 },
         );
       }
@@ -134,7 +141,7 @@ export async function POST(req: Request) {
         return NextResponse.json(
           {
             error: smsResult.error === "recipient_opted_out" ? "That number has opted out of texts." : "Could not send SMS.",
-            emailSent: viaEmail && Boolean(emailId),
+            emailSent,
           },
           { status: 502 },
         );
