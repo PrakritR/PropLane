@@ -1325,13 +1325,12 @@ export function ManagerApplications({
     const showPaidDepositNote = paidDepositCharge?.status === "paid";
     const group = groupForRow(applicationGroups, { groupId: groupIdForRow(row) });
     const showHouseholdSections = applicationReviewView === "application";
-    const householdPanels =
-      showHouseholdSections &&
-      (cosignerSubmissions.length > 0 || group) ? (
+    const householdPanels = showHouseholdSections ? (
         <ApplicationHouseholdInlinePanels
           cosignerSubmissions={cosignerSubmissions}
-          primaryApplicationAxisId={row.id}
           hasCosigner={row.application?.hasCosigner}
+          applyingAsGroup={row.application?.applyingAsGroup}
+          groupId={groupIdForRow(row)}
           onOpenCosigner={(index) => {
             const href = `${applicationDetailHref(basePath, tabForRow(row), row.id)}?cosigner=${index}`;
             navigate(href);
@@ -1366,10 +1365,7 @@ export function ManagerApplications({
         onOpenScreeningModal={(opts) => openDetailScreeningModal(row, opts)}
         hasLinkedCosigner={cosignerSubmissions.length > 0}
         householdPanels={householdPanels}
-        omitReviewSections={[
-          ...(cosignerSubmissions.length > 0 ? (["cosigner"] as const) : []),
-          ...(group ? (["group", "placement"] as const) : []),
-        ]}
+        omitReviewSections={["cosigner", "group"]}
       />
 
     </>

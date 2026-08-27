@@ -2814,12 +2814,12 @@ export function ManagerResidents({
                                     }}
                                     hasLinkedCosigner={selectedApplicationCosigners.length > 0}
                                     householdPanels={
-                                      applicationReviewView === "application" &&
-                                      (selectedApplicationCosigners.length > 0 || selectedApplicationGroup) ? (
+                                      applicationReviewView === "application" ? (
                                         <ApplicationHouseholdInlinePanels
                                           cosignerSubmissions={selectedApplicationCosigners}
-                                          primaryApplicationAxisId={selectedApplicationRow.id}
                                           hasCosigner={selectedApplicationRow.application?.hasCosigner}
+                                          applyingAsGroup={selectedApplicationRow.application?.applyingAsGroup}
+                                          groupId={groupIdForRow(selectedApplicationRow)}
                                           onOpenCosigner={(index) => {
                                             navigate(
                                               `${residentDetailHref(portalBase, residentsTab, selected.id, "application")}?cosigner=${index}`,
@@ -2835,10 +2835,7 @@ export function ManagerResidents({
                                         />
                                       ) : null
                                     }
-                                    omitReviewSections={[
-                                      ...(selectedApplicationCosigners.length > 0 ? (["cosigner"] as const) : []),
-                                      ...(selectedApplicationGroup ? (["group", "placement"] as const) : []),
-                                    ]}
+                                    omitReviewSections={["cosigner", "group"]}
                                     className="min-h-0 flex-1"
                                   />
                                 </div>
