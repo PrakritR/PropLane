@@ -45,6 +45,10 @@ export async function loadSharedLeasePayload(
     .from("portal_lease_pipeline_records")
     .select("id, manager_user_id, row_data")
     .eq("id", recordId.trim())
+    // Bind the link to the manager it was minted for. Authorization was checked once at mint
+    // time; a record id is mutable text, so without this a deleted-and-recreated id under a
+    // different manager would let an old link serve that manager's record instead.
+    .eq("manager_user_id", managerUserId)
     .maybeSingle();
   if (error || !data) return null;
 
@@ -87,6 +91,10 @@ export async function loadSharedApplicationPayload(
     .from("manager_application_records")
     .select("id, row_data, manager_user_id")
     .in("id", ids)
+    // Same reasoning as the lease loader — and it matters more here, because `.in()` over several
+    // id variants with `.limit(1)` is UNORDERED: without this filter a variant colliding across
+    // managers could hand back whichever row the database happened to return first.
+    .eq("manager_user_id", managerUserId)
     .limit(1);
   if (error || !records?.[0]?.row_data) return null;
   const record = records[0];

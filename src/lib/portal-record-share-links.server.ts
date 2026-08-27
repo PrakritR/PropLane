@@ -49,7 +49,10 @@ export async function createPortalRecordShareLink(
     expiresInDays?: number;
   },
 ): Promise<PortalRecordShareLinkRow> {
-  const expiresInDays = Math.min(90, Math.max(1, input.expiresInDays ?? 14));
+  // Clamp only AFTER confirming it is a real number: NaN survives Math.min/Math.max unchanged,
+  // and `new Date(NaN).toISOString()` throws — an unhandled 500 from attacker-supplied JSON.
+  const requestedDays = Number(input.expiresInDays);
+  const expiresInDays = Number.isFinite(requestedDays) ? Math.min(90, Math.max(1, requestedDays)) : 14;
   const expiresAt = new Date(Date.now() + expiresInDays * 24 * 60 * 60 * 1000).toISOString();
   const shareToken = generateShareToken();
 
