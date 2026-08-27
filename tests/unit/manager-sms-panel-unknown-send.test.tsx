@@ -98,9 +98,10 @@ async function submitReplyOverBothChannels() {
   );
   const picker = await screen.findByLabelText("Send via");
   fireEvent.click(picker);
-  fireEvent.pointerDown(
-    await screen.findByRole("option", { name: /^Email$/i }),
-  );
+  const emailOption = await screen.findByRole("option", { name: /^Email$/i });
+  // A pick is pointerdown + pointerup at the same point; pointerdown alone is a scroll start.
+  fireEvent.pointerDown(emailOption, { pointerId: 1, clientX: 10, clientY: 10 });
+  fireEvent.pointerUp(emailOption, { pointerId: 1, clientX: 10, clientY: 10 });
   await waitFor(() => expect(picker.textContent).toContain("Email & SMS"));
   const input = await screen.findByPlaceholderText("Write a reply…");
   fireEvent.change(input, { target: { value: "Checking in" } });

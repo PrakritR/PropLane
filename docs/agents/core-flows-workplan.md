@@ -159,8 +159,9 @@ need controls a script cannot drive:
 
 - **Custom dropdowns are not `<select>`.** They are `[data-attr^=select-]` buttons opening
   `[role=option]` lists, and they ignore a programmatic `.click()` — the pick needs real pointer
-  events (`pointerdown` + `pointerup`), the same shape as the filter listbox in
-  `filter-field-lists.tsx`. Playwright's own `click` works; `element.click()` does not.
+  events (`pointerdown` + `pointerup`), because every option list picks through
+  `useFieldSelectListboxPointerPick` (`src/components/ui/field-select-listbox-pick.ts`).
+  Playwright's own `click` works; `element.click()` does not.
 - **Screening questions are radio groups**, not checkboxes — a checkbox-only sweep leaves
   Additional Details incomplete with no visible error.
 - **ID upload is a file input.** It cannot be set programmatically at all and needs a real

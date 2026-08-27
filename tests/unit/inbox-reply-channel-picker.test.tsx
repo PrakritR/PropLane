@@ -52,7 +52,10 @@ describe("InboxReplyChannelPicker", () => {
       />,
     );
     fireEvent.click(screen.getByLabelText("Send via"));
-    fireEvent.pointerDown(screen.getByRole("option", { name: /^SMS$/i }));
+    const smsOption = screen.getByRole("option", { name: /^SMS$/i });
+    // A pick is pointerdown + pointerup at the same point; pointerdown alone is a scroll start.
+    fireEvent.pointerDown(smsOption, { pointerId: 1, clientX: 10, clientY: 10 });
+    fireEvent.pointerUp(smsOption, { pointerId: 1, clientX: 10, clientY: 10 });
     expect(onSms).toHaveBeenCalledWith(true);
     expect(onEmail).toHaveBeenCalledWith(true);
   });

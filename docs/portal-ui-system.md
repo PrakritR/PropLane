@@ -220,6 +220,18 @@ or resize the panel.
   toolbar. Its height comes from `portalFilterPanelSizeClass(filterFieldCount)`
   — pass `filterFieldCount` (the number of filter rows you render, default 1) or
   a multi-field panel opens at single-field height.
+- **Picks are handled NATIVELY on the listbox, never by a React handler on the row.**
+  `useFieldSelectListboxPointerPick` (`src/components/ui/field-select-listbox-pick.ts`)
+  binds `pointerdown`/`pointerup` to the list element and reads the picked row's
+  `FIELD_SELECT_OPTION_VALUE_ATTR` (`data-field-select-option-value`); every option list —
+  `FilterCheckboxList`, `FilterSingleSelectList`, `CheckboxMultiSelect`, `FieldSingleSelect` —
+  goes through that one hook. A synthetic `onClick` / `onPointerDown` fails twice over: the
+  menu portals under `document.body`, outside the root React attaches its delegated listeners
+  to, so the handler never runs in production while jsdom tests still pass; and acting on
+  pointerdown turns the first frame of a scroll drag into a selection, which is why the hook
+  waits for a pointerup within `FIELD_SELECT_LISTBOX_PICK_SLOP_PX` of the press. The
+  pointerdown helpers in `field-select-portal-interaction.ts` are the superseded shape and
+  have no callers left. Coverage: `tests/unit/field-select-listbox-pick.test.tsx`.
 - **Every portal filter stays inside the page canvas automatically.**
   `PortalFilterSortSheet` constrains its desktop dropdown to the nearest
   `data-slot="portal-page-title-band"`, then the enclosing

@@ -28,8 +28,13 @@ export function applicationIdVariants(id: string): string[] {
  *
  * `applicationIdVariants` deliberately queries both the raw id and its normalized `AXIS-…` form,
  * so when BOTH exist as rows an ordering-based pick shares a different application than the one
- * the manager asked for. Every caller resolves through this, so the mint, revoke, and send paths
- * cannot pin different records for the same request.
+ * the manager asked for: prefer the exact id, and fall back to a deterministic order only when
+ * it is absent.
+ *
+ * NOTE: currently has no callers — `authorizePortalRecordShare`
+ * (`portal-record-share-authorize.server.ts`) now fronts the mint, revoke, and send paths and
+ * repeats this pick inline. Two copies of the rule is exactly how those paths drift apart again;
+ * route the authorizer through this function rather than adding a third copy.
  */
 export function pickApplicationRecordForShare<T extends { id: string }>(
   records: T[] | null | undefined,

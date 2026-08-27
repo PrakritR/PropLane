@@ -145,7 +145,11 @@ async function enableSmsChannel() {
   await waitFor(() => expect(document.querySelectorAll('[aria-label="Send via"]').length).toBeGreaterThan(0));
   const picker = document.querySelectorAll('[aria-label="Send via"]')[0] as HTMLElement;
   fireEvent.click(picker);
-  fireEvent.pointerDown(await screen.findByRole("option", { name: /^SMS$/i }));
+  const smsOption = await screen.findByRole("option", { name: /^SMS$/i });
+  // The listbox picks on pointerup (with a movement slop) so a scroll gesture is not a pick,
+  // so a tap here is pointerdown + pointerup at the same point, not pointerdown alone.
+  fireEvent.pointerDown(smsOption, { pointerId: 1, clientX: 10, clientY: 10 });
+  fireEvent.pointerUp(smsOption, { pointerId: 1, clientX: 10, clientY: 10 });
   await waitFor(() => expect(picker.textContent).toContain("Email & SMS"));
 }
 

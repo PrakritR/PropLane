@@ -5,17 +5,13 @@ import {
   createContext,
   useCallback,
   useContext,
-  useEffect,
   useLayoutEffect,
   useMemo,
-  useRef,
   useState,
   type ReactNode,
 } from "react";
 import { createPortal } from "react-dom";
-import {
-  deferAfterFieldSelectPick,
-} from "@/components/ui/field-select-portal-interaction";
+import { deferAfterFieldSelectPick } from "@/components/ui/field-select-portal-interaction";
 import {
   FIELD_SELECT_OPTION_VALUE_ATTR,
   useFieldSelectListboxPointerPick,

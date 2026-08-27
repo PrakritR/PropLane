@@ -53,6 +53,16 @@ either.
   `tests/unit/property-records-owner-not-reassignable.test.ts`,
   `tests/unit/property-records-delete-missing-row.test.ts`,
   `tests/unit/clear-property-housing-access-exact-id-match.test.ts`.
+- **Portal record share links resolve an OWNERLESS row's owner through the property
+  record.** A lease / application row whose own `manager_user_id` is blank still has to
+  name a portfolio for the share link to be stored and scoped under, so
+  `resolveLeaseRecordOwnerUserId` / `resolveApplicationRecordOwnerUserId`
+  (`src/lib/portal-record-share-authorize.server.ts`) fall back to
+  `manager_property_records.manager_user_id` for the row's property, and
+  `loadSharedLeasePayload` / the application payload re-derive the SAME answer and refuse
+  the read unless it matches the token's stored owner. Consequence of the drift above: if
+  that property later changes owner, outstanding share links for the record 404 ("Lease not
+  found.") rather than serving the previous owner's copy — the link has to be re-minted.
 - **The seed reclaims drifted owners before anything else reads ownership.**
   `tests/helpers/reclaim-canonical-property-owners.mjs` (called from
   `seed-test-db.mjs`, also runnable as `npm run test:seed:reclaim-properties`)

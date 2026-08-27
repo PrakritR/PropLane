@@ -45,9 +45,11 @@ export function fieldSelectEventTargetElement(target: EventTarget | null): Eleme
 }
 
 /**
- * Portaled field-select menus sit outside Radix/Vaul modal trees. Prefer
- * `useFieldSelectListboxPointerPick` (pointerup + slop) on the listbox so scrolling
- * is not mistaken for a pick. These handlers remain for legacy call sites.
+ * Portaled field-select menus sit outside Radix/Vaul modal trees, so a pick has to be
+ * handled natively rather than through React's delegated listeners. Every option list now
+ * does that through `useFieldSelectListboxPointerPick` (pointerup + slop), and this
+ * pointerdown helper has NO remaining call sites: picking on pointerdown reads the start of
+ * a scroll drag as a selection, which is the bug that hook exists to avoid. Do not reuse it.
  */
 export function handlePortaledFieldSelectOptionPointerDown(
   event: ReactPointerEvent,
@@ -59,7 +61,7 @@ export function handlePortaledFieldSelectOptionPointerDown(
   action();
 }
 
-/** Primary pick handler for portaled filter option rows (label / button). */
+/** Unused: click-time variant of the pointerdown helper above; same caveat applies. */
 export function handlePortaledFieldSelectOptionClick(
   event: ReactMouseEvent,
   action: () => void,
