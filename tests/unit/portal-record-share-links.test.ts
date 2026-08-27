@@ -38,6 +38,8 @@ describe("buildApplicationHtml publicShare", () => {
       monthlyIncome: "5000",
       evictionHistory: "yes",
       evictionDetails: "Sensitive detail",
+      applyingAsGroup: "yes",
+      groupId: "AXISGRP-TEST-12345",
     },
   } as DemoApplicantRow;
 
@@ -51,5 +53,6 @@ describe("buildApplicationHtml publicShare", () => {
     expect(html).not.toContain("5000");
     expect(html).not.toContain("Sensitive detail");
     expect(html).not.toContain("Prior eviction");
+    expect(html).not.toContain("AXISGRP-");
   });
 });

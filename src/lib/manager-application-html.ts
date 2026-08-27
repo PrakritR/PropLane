@@ -251,7 +251,6 @@ ${section("Household", [
   { label: "Applying as a group", value: yesNo(app.applyingAsGroup) },
   { label: "Group role", value: groupRoleLabel(app.groupRole) },
   { label: "Group size", value: app.groupRole === "joining" ? "" : clean(app.groupSize) },
-  { label: "Group ID", value: app.applyingAsGroup === "yes" ? clean(app.groupId) : "" },
   { label: "Has co-signer", value: yesNo(app.hasCosigner) },
 ])}
 

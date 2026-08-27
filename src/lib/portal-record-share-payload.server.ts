@@ -1,8 +1,6 @@
 import "server-only";
 
 import type { DemoApplicantRow } from "@/data/demo-portal";
-import { managerCanAccessApplicationRecord } from "@/lib/auth/manager-application-access";
-import { managerCanAccessLeaseRecord } from "@/lib/auth/manager-lease-scope";
 import { loadApplicationGroupMembersForDocument } from "@/lib/application-group-document.server";
 import { buildApplicationHtml } from "@/lib/manager-application-html";
 import { normalizeApplicationAxisId } from "@/lib/manager-applications-storage";
@@ -22,7 +20,6 @@ export function applicationIdVariants(id: string): string[] {
 
 export type ShareLinkAccessContext = {
   recordOwnerUserId: string;
-  createdBy: string;
 };
 
 export function isSafeLeasePdfDataUrl(dataUrl: string): boolean {
@@ -47,18 +44,17 @@ export type SharedApplicationPayload = {
 };
 
 async function resolveApplicationRecordRow(db: ServiceClient, recordId: string, recordOwnerUserId: string) {
-  const ids = applicationIdVariants(recordId);
-  if (ids.length === 0) return null;
+  const trimmed = recordId.trim();
+  if (!RECORD_ID_PATTERN.test(trimmed)) return null;
 
-  const { data: records, error } = await db
+  const { data: record, error } = await db
     .from("manager_application_records")
     .select("id, row_data, manager_user_id, property_id, assigned_property_id")
-    .in("id", ids)
+    .eq("id", trimmed)
     .eq("manager_user_id", recordOwnerUserId)
-    .order("id", { ascending: true })
-    .limit(1);
-  if (error || !records?.[0]?.row_data) return null;
-  return records[0];
+    .maybeSingle();
+  if (error || !record?.row_data) return null;
+  return record;
 }
 
 export async function loadSharedLeasePayload(
@@ -75,9 +71,6 @@ export async function loadSharedLeasePayload(
     .maybeSingle();
   if (error || !data) return null;
   if (String(data.manager_user_id) !== access.recordOwnerUserId) return null;
-
-  const canRead = await managerCanAccessLeaseRecord(db, access.createdBy, data, "read");
-  if (!canRead) return null;
 
   const row = normalizeLeasePipelineRow(data.row_data) as LeasePipelineRow;
   const residentName = row.residentName?.trim() || row.residentEmail?.trim() || "Resident";
@@ -115,16 +108,7 @@ export async function loadSharedApplicationPayload(
   const record = await resolveApplicationRecordRow(db, recordId, access.recordOwnerUserId);
   if (!record) return null;
 
-  const canRead = await managerCanAccessApplicationRecord(db, access.createdBy, record, { level: "read" });
-  if (!canRead) return null;
-
   const row = record.row_data as DemoApplicantRow;
-  const signerIds = [...new Set([record.id, record.id.toUpperCase()])];
-  const { data: cosignerRows } = await db
-    .from("cosigner_submission_records")
-    .select("row_data, created_at")
-    .in("signer_app_id", signerIds)
-    .order("created_at", { ascending: true });
 
   const groupMembers = await loadApplicationGroupMembersForDocument(db, row, {
     managerUserId: access.recordOwnerUserId,

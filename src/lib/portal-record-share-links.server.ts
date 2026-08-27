@@ -98,7 +98,6 @@ export async function resolvePortalRecordShareToken(
 
   if (error || !linkRow) return null;
   if (new Date(String(linkRow.expires_at)).getTime() < Date.now()) return null;
-  if (!linkRow.created_by) return null;
 
   await db
     .from("portal_record_share_links")
@@ -111,6 +110,28 @@ export async function resolvePortalRecordShareToken(
   return {
     link: mapShareLinkRow(linkRow as Record<string, unknown>),
     recordOwnerUserId: String(linkRow.manager_user_id),
-    createdBy: String(linkRow.created_by),
+    createdBy: linkRow.created_by ? String(linkRow.created_by) : "",
   };
+}
+
+/** Revoke all active share links for one record (manager auth). */
+export async function revokePortalRecordShareLinks(
+  db: SupabaseClient,
+  input: {
+    recordKind: PortalRecordShareKind;
+    recordId: string;
+    managerUserId: string;
+  },
+): Promise<number> {
+  const { data, error } = await db
+    .from("portal_record_share_links")
+    .update({ revoked_at: new Date().toISOString() })
+    .eq("record_kind", input.recordKind)
+    .eq("record_id", input.recordId.trim())
+    .eq("manager_user_id", input.managerUserId)
+    .is("revoked_at", null)
+    .select("id");
+
+  if (error) throw new Error(error.message);
+  return data?.length ?? 0;
 }

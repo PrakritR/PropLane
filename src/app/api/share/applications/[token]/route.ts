@@ -17,7 +17,6 @@ export async function GET(_req: Request, ctx: { params: Promise<{ token: string 
 
     const payload = await loadSharedApplicationPayload(db, resolved.link.recordId, {
       recordOwnerUserId: resolved.recordOwnerUserId,
-      createdBy: resolved.createdBy,
     });
     if (!payload) return NextResponse.json({ error: "Application not found." }, { status: 404 });
 
