@@ -30,9 +30,14 @@ export function useFieldSelectListboxPointerPick(
   onPick: (value: string, event: PointerEvent) => void,
 ) {
   const onPickRef = useRef(onPick);
-  onPickRef.current = onPick;
   const pressRef = useRef<{ id: number; x: number; y: number; value: string } | null>(null);
   const cleanupRef = useRef<(() => void) | null>(null);
+
+  // Written in an effect, never during render: the pick fires from a native pointerup, which
+  // always lands after the commit that refreshed this ref.
+  useEffect(() => {
+    onPickRef.current = onPick;
+  });
 
   useEffect(() => () => cleanupRef.current?.(), []);
 
