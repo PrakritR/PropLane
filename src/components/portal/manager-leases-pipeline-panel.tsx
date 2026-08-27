@@ -521,12 +521,15 @@ export function ManagerLeasesPipelinePanel({
       </Button>
     ) : null;
 
-    const copyLinkButton = hasDocument ? (
+    const shareButton = hasDocument ? (
       <PortalRecordShareLinkButton
         kind="lease"
         recordId={row.id}
         className={RESIDENT_DETAIL_HEADER_ACTION_BTN}
-        dataAttr="lease-copy-view-link"
+        dataAttr="lease-share"
+        recordTitle={row.residentName?.trim() || row.unit?.trim() || row.propertyId}
+        defaultRecipientName={row.residentName?.trim()}
+        defaultEmail={row.residentEmail?.trim()}
       />
     ) : null;
 
@@ -709,20 +712,15 @@ export function ManagerLeasesPipelinePanel({
             </DropdownMenuItem>
           ) : null}
           {hasDocument ? (
-            <DropdownMenuItem
-              data-attr="lease-copy-view-link-menu"
-              onSelect={(e) => {
-                e.preventDefault();
-              }}
-              className="p-0 focus:bg-transparent"
-            >
-              <PortalRecordShareLinkButton
-                kind="lease"
-                recordId={row.id}
-                className="h-auto w-full justify-start rounded-none border-0 bg-transparent px-2 py-1.5 text-sm shadow-none hover:bg-accent"
-                dataAttr="lease-copy-view-link-menu-btn"
-              />
-            </DropdownMenuItem>
+            <PortalRecordShareLinkButton
+              kind="lease"
+              recordId={row.id}
+              menuItem
+              dataAttr="lease-share-menu"
+              recordTitle={row.residentName?.trim() || row.unit?.trim() || row.propertyId}
+              defaultRecipientName={row.residentName?.trim()}
+              defaultEmail={row.residentEmail?.trim()}
+            />
           ) : null}
           {canEditDocument ? (
             <DropdownMenuItem
@@ -792,14 +790,14 @@ export function ManagerLeasesPipelinePanel({
         <PortalSectionActionRow variant="header" className={RESIDENT_DETAIL_HEADER_ACTIONS_ROW}>
           <div className="flex max-w-full flex-nowrap items-center gap-1 md:hidden">
             {sendToResidentButton}
-            {copyLinkButton}
+            {shareButton}
             {signButton}
             {editButton}
             {mobileOverflowMenu}
           </div>
           <div className="hidden max-w-full flex-nowrap items-center gap-1 md:flex">
             {sendToResidentButton}
-            {copyLinkButton}
+            {shareButton}
             {signButton}
             {editButton}
             {downloadButton}

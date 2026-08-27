@@ -1170,12 +1170,16 @@ export function ManagerApplications({
       </Button>
     ) : null;
 
-    const copyViewLinkButton = (
+    const shareButton = (
       <PortalRecordShareLinkButton
         kind="application"
         recordId={row.id}
         className={RESIDENT_DETAIL_HEADER_ACTION_BTN}
-        dataAttr="application-copy-view-link"
+        dataAttr="application-share"
+        recordTitle={row.name?.trim() || row.application?.fullLegalName?.trim() || row.property?.trim()}
+        defaultRecipientName={row.name?.trim() || row.application?.fullLegalName?.trim()}
+        defaultEmail={(row.email || row.application?.email || "").trim()}
+        defaultPhone={(row.application?.phone || "").trim()}
       />
     );
 
@@ -1232,18 +1236,16 @@ export function ManagerApplications({
           <DropdownMenuItem data-attr="application-pdf-download" onSelect={() => runApplicationPdfDownload(row, showToast)}>
             Download application
           </DropdownMenuItem>
-          <DropdownMenuItem
-            data-attr="application-copy-view-link-menu"
-            onSelect={(e) => e.preventDefault()}
-            className="p-0 focus:bg-transparent"
-          >
-            <PortalRecordShareLinkButton
-              kind="application"
-              recordId={row.id}
-              className="h-auto w-full justify-start rounded-none border-0 bg-transparent px-2 py-1.5 text-sm shadow-none hover:bg-accent"
-              dataAttr="application-copy-view-link-menu-btn"
-            />
-          </DropdownMenuItem>
+          <PortalRecordShareLinkButton
+            kind="application"
+            recordId={row.id}
+            menuItem
+            dataAttr="application-share-menu"
+            recordTitle={row.name?.trim() || row.application?.fullLegalName?.trim() || row.property?.trim()}
+            defaultRecipientName={row.name?.trim() || row.application?.fullLegalName?.trim()}
+            defaultEmail={(row.email || row.application?.email || "").trim()}
+            defaultPhone={(row.application?.phone || "").trim()}
+          />
           {canDownloadScreening ? (
             <DropdownMenuItem
               data-attr="screening-pdf-download"
@@ -1282,7 +1284,7 @@ export function ManagerApplications({
         <PortalSectionActionRow variant="header" className={RESIDENT_DETAIL_HEADER_ACTIONS_ROW}>
           <div className="flex w-full max-w-full flex-wrap items-center justify-end gap-1 md:hidden">
             {sendReminderButton}
-            {copyViewLinkButton}
+            {shareButton}
             {rejectButton}
             {approveButton}
             {runCheckButton}
@@ -1291,7 +1293,7 @@ export function ManagerApplications({
           </div>
           <div className="hidden max-w-full flex-nowrap items-center gap-1 md:flex">
             {sendReminderButton}
-            {copyViewLinkButton}
+            {shareButton}
             {rejectButton}
             {approveButton}
             {runCheckButton}

@@ -2,7 +2,12 @@
 
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
+import {
+  DropdownMenuItem,
+} from "@/components/ui/dropdown-menu";
+import { PortalRecordShareModal } from "@/components/portal/portal-record-share-modal";
 import { useAppUi } from "@/components/providers/app-ui-provider";
+import { isDemoModeActive } from "@/lib/demo/demo-session";
 import { cn } from "@/lib/utils";
 
 type PortalRecordShareKind = "lease" | "application";
@@ -14,61 +19,83 @@ type Props = {
   label?: string;
   dataAttr?: string;
   disabled?: boolean;
+  /** Render inside a dropdown menu instead of a standalone button. */
+  menuItem?: boolean;
+  recordTitle?: string;
+  defaultRecipientName?: string;
+  defaultEmail?: string;
+  defaultPhone?: string;
 };
 
 /**
- * Create a public view link and copy it to the clipboard.
+ * Open a share modal with a public view link and optional email/SMS send.
  *
- * 90 days is the server's own maximum, chosen deliberately: this is the ceiling the mint route
- * enforces, so the UI now promises exactly what the server will do rather than a shorter figure
- * it never applied. Note what that means — the link is unauthenticated for a full quarter and
- * there is no revoke path yet, so anyone it reaches, or anyone it is forwarded to, can open the
- * record until it expires on its own.
+ * Links last 90 days — the server's own maximum, so the UI promises exactly what the mint route
+ * will do rather than a shorter figure it never applied. Note what that means before widening the
+ * ways a link can be sent: it is unauthenticated for a full quarter and there is no revoke path
+ * yet, so anyone it reaches, or anyone it is forwarded to, can open the record until it lapses.
  */
 export function PortalRecordShareLinkButton({
   kind,
   recordId,
   className,
-  label = "Copy link",
+  label = "Share",
   dataAttr,
   disabled = false,
+  menuItem = false,
+  recordTitle,
+  defaultRecipientName,
+  defaultEmail,
+  defaultPhone,
 }: Props) {
   const { showToast } = useAppUi();
-  const [busy, setBusy] = useState(false);
+  const [open, setOpen] = useState(false);
 
-  const copyLink = async () => {
-    if (busy || disabled || !recordId.trim()) return;
-    setBusy(true);
-    try {
-      const res = await fetch("/api/portal/record-share-link", {
-        method: "POST",
-        credentials: "include",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ kind, recordId: recordId.trim(), expiresInDays: 90 }),
-      });
-      const data = (await res.json()) as { link?: { url?: string }; error?: string };
-      if (!res.ok) throw new Error(data.error ?? "Could not create link.");
-      const url = data.link?.url?.trim();
-      if (!url) throw new Error("No link returned.");
-      await navigator.clipboard.writeText(url);
-      showToast("View link copied (anyone with the link can open it · expires in 90 days).");
-    } catch (e) {
-      showToast(e instanceof Error ? e.message : "Could not copy link.");
-    } finally {
-      setBusy(false);
+  const openShare = () => {
+    if (disabled || !recordId.trim()) return;
+    if (isDemoModeActive()) {
+      showToast("Share is not available in the demo tour.");
+      return;
     }
+    setOpen(true);
   };
 
   return (
-    <Button
-      type="button"
-      variant="outline"
-      className={cn(className)}
-      data-attr={dataAttr}
-      disabled={disabled || busy}
-      onClick={() => void copyLink()}
-    >
-      {busy ? "Copying…" : label}
-    </Button>
+    <>
+      {menuItem ? (
+        <DropdownMenuItem
+          data-attr={dataAttr}
+          disabled={disabled}
+          onSelect={(e) => {
+            e.preventDefault();
+            openShare();
+          }}
+        >
+          {label}
+        </DropdownMenuItem>
+      ) : (
+        <Button
+          type="button"
+          variant="outline"
+          className={cn(className)}
+          data-attr={dataAttr}
+          disabled={disabled}
+          onClick={openShare}
+        >
+          {label}
+        </Button>
+      )}
+
+      <PortalRecordShareModal
+        open={open}
+        onClose={() => setOpen(false)}
+        kind={kind}
+        recordId={recordId}
+        recordTitle={recordTitle}
+        defaultRecipientName={defaultRecipientName}
+        defaultEmail={defaultEmail}
+        defaultPhone={defaultPhone}
+      />
+    </>
   );
 }
