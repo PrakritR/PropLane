@@ -178,7 +178,7 @@ export function ManagerPipelineLeaseEditModal({
         ) : (
           <div className="grid min-h-0 grid-rows-[auto_minmax(0,1fr)] gap-1 overflow-hidden">
             <div className="flex flex-col gap-2">
-              <PropertyLeaseDocumentNotice html={noticeHtml} />
+              <PropertyLeaseDocumentNotice html={noticeHtml} hideAiDraftBanner={usesAiHtml} />
               {usesAiHtml ? (
                 <LeaseAiReviewAcknowledgment
                   checked={reviewAcknowledged}

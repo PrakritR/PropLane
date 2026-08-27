@@ -14,10 +14,12 @@ import {
 } from "react";
 import { createPortal } from "react-dom";
 import {
-  armFilterSheetDismissGuardFromFieldPick,
   deferAfterFieldSelectPick,
-  fieldSelectEventTargetElement,
 } from "@/components/ui/field-select-portal-interaction";
+import {
+  FIELD_SELECT_OPTION_VALUE_ATTR,
+  useFieldSelectListboxPointerPick,
+} from "@/components/ui/field-select-listbox-pick";
 import { FIELD_SELECT_MENU_OPTION_CLASS } from "@/components/ui/field-select-styles";
 import {
   FIELD_SELECT_MENU_LIST_MAX_HEIGHT_PX,
@@ -185,76 +187,6 @@ export const PORTAL_FILTER_RAISED_SHEET_MIN_HEIGHT_PX =
   FILTER_MENU_CONTENT_PX + PORTAL_FILTER_SHEET_CHROME_PX + 12;
 
 type Option = { value: string; label: string };
-
-/** Pointer movement above this is a scroll gesture, not an option pick. */
-const FILTER_LISTBOX_PICK_SLOP_PX = 8;
-
-/**
- * Portaled filter menus often render under `document.body`, outside the Next.js root where
- * React 17+ attaches delegated listeners — synthetic `onClick` / `onPointerDown` on rows
- * never run in production even though jsdom tests pass. Handle picks on the listbox natively.
- * Uses pointerup + slop so `preventDefault` on pointerdown never blocks list scrolling.
- */
-function useFilterListboxPointerPick(
-  onPick: (value: string, event: PointerEvent) => void,
-) {
-  const listRef = useRef<HTMLDivElement>(null);
-  const onPickRef = useRef(onPick);
-  onPickRef.current = onPick;
-  const pressRef = useRef<{ id: number; x: number; y: number; value: string } | null>(null);
-
-  useEffect(() => {
-    const list = listRef.current;
-    if (!list) return;
-
-    const onPointerDown = (event: PointerEvent) => {
-      const element = fieldSelectEventTargetElement(event.target);
-      const row = element?.closest<HTMLElement>('[role="option"][data-filter-option-value]');
-      if (!row || !list.contains(row)) return;
-      const { filterOptionValue } = row.dataset;
-      if (filterOptionValue === undefined) return;
-      pressRef.current = {
-        id: event.pointerId,
-        x: event.clientX,
-        y: event.clientY,
-        value: filterOptionValue,
-      };
-    };
-
-    const clearPress = (pointerId?: number) => {
-      const press = pressRef.current;
-      if (!press) return;
-      if (pointerId !== undefined && press.id !== pointerId) return;
-      pressRef.current = null;
-    };
-
-    const onPointerUp = (event: PointerEvent) => {
-      const press = pressRef.current;
-      if (!press || press.id !== event.pointerId) return;
-      pressRef.current = null;
-      const dx = event.clientX - press.x;
-      const dy = event.clientY - press.y;
-      if (dx * dx + dy * dy > FILTER_LISTBOX_PICK_SLOP_PX * FILTER_LISTBOX_PICK_SLOP_PX) return;
-      armFilterSheetDismissGuardFromFieldPick();
-      onPickRef.current(press.value, event);
-    };
-
-    const onPointerCancel = (event: PointerEvent) => {
-      clearPress(event.pointerId);
-    };
-
-    list.addEventListener("pointerdown", onPointerDown);
-    list.addEventListener("pointerup", onPointerUp);
-    list.addEventListener("pointercancel", onPointerCancel);
-    return () => {
-      list.removeEventListener("pointerdown", onPointerDown);
-      list.removeEventListener("pointerup", onPointerUp);
-      list.removeEventListener("pointercancel", onPointerCancel);
-    };
-  }, []);
-
-  return listRef;
-}
 
 type FilterFieldsAccordionContextValue = {
   openId: string | null;
@@ -682,7 +614,7 @@ export function FilterCheckboxList({
     [onChange, selected],
   );
 
-  const listRef = useFilterListboxPointerPick((value) => {
+  const listRef = useFieldSelectListboxPointerPick((value) => {
     toggle(value);
   });
 
@@ -728,6 +660,7 @@ export function FilterCheckboxList({
                 role="option"
                 aria-selected={checked}
                 data-filter-option-value={opt.value}
+                {...{ [FIELD_SELECT_OPTION_VALUE_ATTR]: opt.value }}
                 className={cn(
                   "flex cursor-pointer items-center gap-2.5 px-3 py-2 text-sm",
                   FIELD_SELECT_MENU_OPTION_CLASS,
@@ -781,7 +714,7 @@ export function FilterSingleSelectList({
     return options.filter((opt) => fieldSelectMenuMatches(opt.label, query));
   }, [options, query]);
 
-  const listRef = useFilterListboxPointerPick((pickedValue) => {
+  const listRef = useFieldSelectListboxPointerPick((pickedValue) => {
     onChange(pickedValue);
     if (onPick) deferAfterFieldSelectPick(onPick);
   });
@@ -826,6 +759,7 @@ export function FilterSingleSelectList({
                 role="option"
                 aria-selected={active}
                 data-filter-option-value={opt.value}
+                {...{ [FIELD_SELECT_OPTION_VALUE_ATTR]: opt.value }}
                 className={cn(
                   "flex w-full items-center gap-2.5 px-3 py-2 text-left text-sm",
                   FIELD_SELECT_MENU_OPTION_CLASS,

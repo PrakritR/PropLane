@@ -14,8 +14,12 @@ import {
 } from "@/components/ui/field-select-styles";
 import {
   FIELD_SELECT_MENU_DATA_ATTR,
-  handlePortaledFieldSelectOptionPointerDown,
+  deferAfterFieldSelectPick,
 } from "@/components/ui/field-select-portal-interaction";
+import {
+  FIELD_SELECT_OPTION_VALUE_ATTR,
+  useFieldSelectListboxPointerPick,
+} from "@/components/ui/field-select-listbox-pick";
 import {
   FIELD_SELECT_MENU_SEARCH_PX,
   FIELD_SELECT_MENU_SHELL_CLASS,
@@ -156,6 +160,12 @@ export function CheckboxMultiSelect({
     return base.filter((o) => matchesQuery(o.label, query));
   }, [groups, options, query]);
 
+  const listRef = useFieldSelectListboxPointerPick((value) => {
+    const option = flatOptions.find((o) => o.value === value);
+    if (!option || option.disabled || disabled) return;
+    toggle(value);
+  });
+
   const renderCheckboxOption = (opt: CheckboxMultiSelectOption) => {
     const checked = selected.includes(opt.value);
     const optionDisabled = Boolean(disabled || opt.disabled);
@@ -165,13 +175,10 @@ export function CheckboxMultiSelect({
         role="option"
         aria-selected={checked}
         aria-disabled={optionDisabled || undefined}
+        {...{ [FIELD_SELECT_OPTION_VALUE_ATTR]: opt.value }}
         className={`flex items-start gap-2.5 px-3 py-2 text-sm ${FIELD_SELECT_MENU_OPTION_CLASS} ${
           optionDisabled ? "cursor-not-allowed opacity-50" : "cursor-pointer"
         }`}
-        onPointerDown={(event) => {
-          if (optionDisabled) return;
-          handlePortaledFieldSelectOptionPointerDown(event, () => toggle(opt.value));
-        }}
       >
         <input
           type="checkbox"
@@ -221,6 +228,7 @@ export function CheckboxMultiSelect({
           />
         ) : null}
         <div
+          ref={listRef}
           role="listbox"
           aria-multiselectable="true"
           aria-label={label}
@@ -229,6 +237,9 @@ export function CheckboxMultiSelect({
             touchAction: "pan-y",
             maxHeight: fieldSelectMenuListMaxHeightPx(menuRect.maxHeight, searchPx),
           }}
+          onWheel={(event) => event.stopPropagation()}
+          onTouchMove={(event) => event.stopPropagation()}
+          onTouchStart={(event) => event.stopPropagation()}
         >
           {flatOptions.length === 0 ? (
             <p className="field-dropdown-menu-option px-3 py-2 text-sm text-muted">{emptyMenuText}</p>
@@ -344,6 +355,13 @@ export function FieldSingleSelect({
     return options.filter((o) => matchesQuery(o.label, query));
   }, [options, query]);
 
+  const listRef = useFieldSelectListboxPointerPick((pickedValue) => {
+    const option = options.find((o) => o.value === pickedValue);
+    if (!option || option.disabled || disabled) return;
+    onChange(pickedValue);
+    deferAfterFieldSelectPick(() => setOpenAndReset(false));
+  });
+
   const menu =
     open && menuRect && isClient && portalHost ? (
       <div
@@ -374,6 +392,7 @@ export function FieldSingleSelect({
           />
         ) : null}
         <div
+          ref={listRef}
           role="listbox"
           aria-label={label}
           className={fitsWithoutScroll ? FIELD_SELECT_MENU_LISTBOX_FIT_CLASS : FIELD_SELECT_MENU_LISTBOX_SCROLL_CLASS}
@@ -385,25 +404,28 @@ export function FieldSingleSelect({
                   maxHeight: fieldSelectMenuListMaxHeightPx(menuRect.maxHeight, searchPx),
                 }
           }
+          onWheel={(event) => event.stopPropagation()}
+          onTouchMove={(event) => event.stopPropagation()}
+          onTouchStart={(event) => event.stopPropagation()}
         >
           {filteredOptions.length === 0 ? (
             <p className="field-dropdown-menu-option px-3 py-2 text-sm text-muted">No matches</p>
           ) : (
             filteredOptions.map((opt) => {
               const active = opt.value === value;
+              const optionDisabled = Boolean(disabled || opt.disabled);
               return (
                 <button
                   key={opt.value}
                   type="button"
                   role="option"
                   aria-selected={active}
-                  className={`flex w-full items-center gap-2.5 px-3 py-2 text-left text-sm ${FIELD_SELECT_MENU_OPTION_CLASS} text-foreground`}
-                  onPointerDown={(event) => {
-                    handlePortaledFieldSelectOptionPointerDown(event, () => {
-                      onChange(opt.value);
-                      setOpenAndReset(false);
-                    });
-                  }}
+                  aria-disabled={optionDisabled || undefined}
+                  disabled={optionDisabled}
+                  {...{ [FIELD_SELECT_OPTION_VALUE_ATTR]: opt.value }}
+                  className={`flex w-full items-center gap-2.5 px-3 py-2 text-left text-sm ${FIELD_SELECT_MENU_OPTION_CLASS} text-foreground ${
+                    optionDisabled ? "cursor-not-allowed opacity-50" : ""
+                  }`}
                 >
                   <span className="flex h-4 w-4 shrink-0 items-center justify-center text-primary" aria-hidden>
                     {active ? "✓" : ""}

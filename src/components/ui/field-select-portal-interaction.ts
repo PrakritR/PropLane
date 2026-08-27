@@ -45,9 +45,9 @@ export function fieldSelectEventTargetElement(target: EventTarget | null): Eleme
 }
 
 /**
- * Portaled field-select menus sit outside Radix/Vaul modal trees. Modal shells call
- * `preventDefault` on outside listbox pointerdown to avoid dismiss — that blocks native
- * checkbox clicks. Toggle selection on pointerdown instead.
+ * Portaled field-select menus sit outside Radix/Vaul modal trees. Prefer
+ * `useFieldSelectListboxPointerPick` (pointerup + slop) on the listbox so scrolling
+ * is not mistaken for a pick. These handlers remain for legacy call sites.
  */
 export function handlePortaledFieldSelectOptionPointerDown(
   event: ReactPointerEvent,
