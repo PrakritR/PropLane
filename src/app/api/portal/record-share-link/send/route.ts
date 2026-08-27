@@ -51,7 +51,7 @@ async function authorizeRecordShare(
       .eq("id", recordId)
       .maybeSingle();
     if (!record) return { ok: false, status: 404, error: "Lease not found." };
-    const allowed = admin || (await managerCanAccessLeaseRecord(db, userId, record, "read"));
+    const allowed = admin || (await managerCanAccessLeaseRecord(db, userId, record, "edit"));
     if (!allowed) return { ok: false, status: 403, error: "Not authorized." };
     const rowData = record.row_data as { residentName?: string; unit?: string; propertyId?: string } | null;
     const title =
@@ -75,7 +75,7 @@ async function authorizeRecordShare(
     .in("id", ids);
   const record = pickApplicationRecordForShare(records, recordId);
   if (!record) return { ok: false, status: 404, error: "Application not found." };
-  const allowed = admin || (await managerCanAccessApplicationRecord(db, userId, record, { level: "read" }));
+  const allowed = admin || (await managerCanAccessApplicationRecord(db, userId, record, { level: "edit" }));
   if (!allowed) return { ok: false, status: 403, error: "Not authorized." };
   const rowData = record.row_data as { name?: string; property?: string } | null;
   const title = rowData?.name?.trim() || rowData?.property?.trim() || "Application";
