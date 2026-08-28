@@ -74,6 +74,54 @@ export function resolveServiceFeePayer(tier: ManagerSkuTier, choice: ServiceFeeP
 }
 
 /**
+ * Every place a fee-payer choice can be recorded, in the order they override each other.
+ *
+ * `adminOverride` is PropLane staff acting on one manager's account; `propertyChoice` is that
+ * manager's per-property setting in Pricing; `managerChoice` is their account-wide default.
+ */
+export type ServiceFeePayerInputs = {
+  tier: ManagerSkuTier;
+  /** Set by PropLane staff in the admin portal. Absent means staff have not intervened. */
+  adminOverride?: ServiceFeePayer | null;
+  /** This property's Pricing setting. Absent means it follows the account default. */
+  propertyChoice?: ServiceFeePayer | null;
+  /** The manager's account-wide default. */
+  managerChoice?: ServiceFeePayer | null;
+};
+
+/**
+ * Who pays the processing fee on one payment.
+ *
+ * Precedence, most specific first:
+ *
+ *   1. **The admin override**, which alone can select `proplane` — PropLane absorbing Stripe's
+ *      cost so that NEITHER the resident nor the manager is charged. That is PropLane spending
+ *      its own money, so it is deliberately not something a manager can switch on for themselves.
+ *      It also ignores the plan floor below: staff choosing to absorb a free-tier manager's fees
+ *      is the whole point of the control.
+ *   2. **The property's own Pricing setting**, so a manager running one building where they
+ *      absorb fees and another where residents pay is expressible.
+ *   3. **The manager's account default**, which is what a new property inherits.
+ *   4. **`resident`**, the default when nothing is set.
+ *
+ * Steps 2-4 stay subject to the plan floor: a free-tier manager cannot shift the fee onto
+ * themselves, because absorbing fees is a paid capability. Only staff can override that.
+ *
+ * A `proplane` value arriving from a manager or property field is NOT honoured — it would let a
+ * manager stop paying by writing a value into their own record, which the settings UI never
+ * offers. It falls back to the plan rule instead of being treated as a choice.
+ */
+export function resolveServiceFeePayerFor(input: ServiceFeePayerInputs): ServiceFeePayer {
+  if (input.adminOverride) return normalizeServiceFeeChoice(input.adminOverride);
+
+  const chosen = input.propertyChoice ?? input.managerChoice ?? "resident";
+  const normalized = normalizeServiceFeeChoice(chosen);
+  // Only staff may direct the cost at PropLane; see above.
+  const manageable: ServiceFeePayer = normalized === "proplane" ? "resident" : normalized;
+  return resolveServiceFeePayer(input.tier, manageable);
+}
+
+/**
  * Stripe's actual per-method processing cost — the "service fee". This is a
  * pass-through of Stripe's price, never a PropLane markup:
  * - ACH/bank: 0.8% of the subtotal, capped at $5.00 (a cap, hence computed here
