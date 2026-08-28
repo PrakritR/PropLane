@@ -436,6 +436,16 @@ export type ManagerListingSubmissionV1 = {
   applicationFeeOtherInstructions?: string;
   /** When monthly rent and utilities are due each cycle. Default first of month. */
   rentDueDayMode?: "first_of_month" | "last_of_month";
+  /**
+   * Who pays the online payment processing fee for THIS property, overriding the manager's
+   * account-wide setting.
+   *
+   * Absent means "follow the account", which is different from any of the three payers — a
+   * property that has never been touched must keep inheriting when the manager changes their
+   * default, rather than being frozen at whatever the default happened to be when it was created.
+   * Still subject to the plan rule and to any staff override; see `resolveServiceFeePayerFor`.
+   */
+  serviceFeePayer?: "resident" | "manager" | "proplane" | null;
   /** Automatically assess a late fee after grace period on overdue rent/utilities. Default on. */
   lateFeeEnabled?: boolean;
   /** Days after due date before a late fee charge is created. Default 5. */
@@ -1585,6 +1595,12 @@ export function normalizeManagerListingSubmissionV1(sub: ManagerListingSubmissio
     allowMultiplePropertyApplications: sub.allowMultiplePropertyApplications === true,
     applicationFeeOnlyFirstApplication: sub.applicationFeeOnlyFirstApplication === true,
     rentDueDayMode: sub.rentDueDayMode === "last_of_month" ? "last_of_month" : "first_of_month",
+    // Null, not a default payer: absence means this property follows the manager's account
+    // setting, so an untouched property keeps tracking it rather than pinning today's value.
+    serviceFeePayer:
+      sub.serviceFeePayer === "resident" || sub.serviceFeePayer === "manager" || sub.serviceFeePayer === "proplane"
+        ? sub.serviceFeePayer
+        : null,
     lateFeeEnabled: sub.lateFeeEnabled !== false,
     lateFeeGraceDays: (() => {
       const n = Number(sub.lateFeeGraceDays ?? 5);
@@ -2125,6 +2141,7 @@ export function createDefaultListingSubmission(): ManagerListingSubmissionV1 {
     houseMoveInPhotoDataUrls: [],
     houseMoveInVideoDataUrl: null,
     rentDueDayMode: "first_of_month",
+    serviceFeePayer: null,
     lateFeeEnabled: true,
     lateFeeGraceDays: 5,
     lateFeeAmount: "50",

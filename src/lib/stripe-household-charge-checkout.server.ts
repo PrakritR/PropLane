@@ -55,6 +55,12 @@ export type LoadedHouseholdChargeForCheckout = {
   id: string;
   charge: HouseholdCharge;
   managerUserId: string;
+  /**
+   * This property's own processing-fee setting, or null to follow the manager's account.
+   * Carried out of the per-charge load so the batch can be checked for agreement before one
+   * total is billed.
+   */
+  propertyFeePayer?: "resident" | "manager" | "proplane" | null;
 };
 
 /**
@@ -127,7 +133,7 @@ export async function loadHouseholdChargesForCheckout(
       };
     }
 
-    loaded.push({ id, charge, managerUserId });
+    loaded.push({ id, charge, managerUserId, propertyFeePayer: listing?.serviceFeePayer ?? null });
   }
 
   const managerIds = [...new Set(loaded.map((row) => row.managerUserId))];
@@ -189,9 +195,23 @@ export async function createHouseholdChargeCheckout(
     // + Pro setting, so a plan change or a toggle flip takes effect on the very
     // next charge with no per-charge state.
     const managerSettings = await loadManagerManualPaymentSettings(db, managerUserId);
+    // One checkout session bills one total, so the batch must agree on who pays the fee. A batch
+    // spanning two properties with different settings is refused rather than resolved to one of
+    // them: either choice silently changes what this resident is charged.
+    const propertyChoices = [...new Set(loaded.map((row) => row.propertyFeePayer ?? "inherit"))];
+    if (propertyChoices.length > 1) {
+      return {
+        ok: false,
+        status: 422,
+        code: "MIXED_SERVICE_FEE_PAYERS",
+        error: "These charges are on properties with different processing-fee settings. Pay them separately.",
+      };
+    }
+
     const feePayer = resolveServiceFeePayerFor({
       tier: managerTier,
       adminOverride: managerSettings.adminServiceFeeOverride,
+      propertyChoice: loaded[0]?.propertyFeePayer ?? null,
       managerChoice: managerSettings.serviceFeePayer,
     });
     const stripe = getStripe();

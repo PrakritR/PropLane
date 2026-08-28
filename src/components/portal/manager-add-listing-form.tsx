@@ -3995,6 +3995,31 @@ export function ManagerAddListingForm({
                     </Select>
                   </GridField>
                   <GridField>
+                    <FieldLabel>Processing fee paid by</FieldLabel>
+                    <Select
+                      value={sub.serviceFeePayer ?? "inherit"}
+                      onChange={(e) =>
+                        setSub((s) => ({
+                          ...s,
+                          // "inherit" stores null so this property keeps FOLLOWING the account
+                          // setting. Storing today's account value instead would freeze it here,
+                          // and changing the account default later would appear to do nothing.
+                          serviceFeePayer:
+                            e.target.value === "resident" || e.target.value === "manager"
+                              ? e.target.value
+                              : null,
+                        }))
+                      }
+                    >
+                      <option value="inherit">Same as my account setting</option>
+                      <option value="resident">Resident pays</option>
+                      <option value="manager">I absorb it</option>
+                    </Select>
+                    <p className="mt-1 text-xs text-muted">
+                      Applies to this property only. Absorbing the fee needs a paid plan.
+                    </p>
+                  </GridField>
+                  <GridField>
                     <FieldLabel>Late fee grace (days)</FieldLabel>
                     <Input
                       inputMode="numeric"
