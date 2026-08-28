@@ -1460,7 +1460,7 @@ export function ResidentApplicationsPanel({
             <ManagerCosignerReadonlyReview
               sub={activeCosignerSubmission}
               onOpenSignerApplication={() =>
-                navigate(
+                router.push(
                   residentApplicationDetailHref(
                     basePath,
                     detailRow.bucket as ResidentApplicationBucketId,

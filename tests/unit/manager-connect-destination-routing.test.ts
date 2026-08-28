@@ -37,6 +37,9 @@ vi.mock("@/lib/household-charge-payment-eligibility", () => ({
 vi.mock("@/lib/payment-policy", () => ({
   axisPaymentsEnabledOnListing: vi.fn(() => true),
   resolveServiceFeePayer: vi.fn(() => "resident"),
+  // Production resolves through the precedence-aware form; a double that omits it makes the call
+  // undefined and the whole checkout fail for a reason unrelated to what this file tests.
+  resolveServiceFeePayerFor: vi.fn(() => "resident"),
 }));
 
 vi.mock("@/lib/manager-manual-payment-settings", () => ({

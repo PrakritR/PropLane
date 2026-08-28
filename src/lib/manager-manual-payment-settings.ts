@@ -24,6 +24,17 @@ export type ManagerManualPaymentSettings = {
    * the manager.
    */
   serviceFeePayer: ServiceFeePayer;
+  /**
+   * PropLane staff's override of who pays the service fee for this manager — the only place
+   * `proplane` (PropLane absorbing Stripe's cost, so neither party is charged) can be selected.
+   *
+   * Stored beside the manager's own settings but NOT owned by them: `saveManagerManualPaymentSettings`
+   * always preserves the stored value and discards whatever the caller supplied, because that
+   * function is reached from the manager's own settings route. Without that, a manager could stop
+   * paying fees by including one field in their own save. Staff write it through
+   * `saveAdminServiceFeeOverride`.
+   */
+  adminServiceFeeOverride?: ServiceFeePayer | null;
 };
 
 export type ManagerManualPaymentSettingsView = ManagerManualPaymentSettings & {
@@ -71,6 +82,12 @@ export function normalizeManagerManualPaymentSettings(raw: unknown): ManagerManu
     ...(paymentInboxToken ? { paymentInboxToken } : {}),
     receiptAutoMarkEnabled: row.receiptAutoMarkEnabled === false ? false : true,
     serviceFeePayer: normalizeServiceFeeChoice(row.serviceFeePayer),
+    // Absent means staff have not intervened, which is different from staff choosing `resident`.
+    // The key is OMITTED rather than set to null in that case, so an untouched manager's settings
+    // are byte-identical to what they were before this field existed.
+    ...(row.adminServiceFeeOverride == null
+      ? {}
+      : { adminServiceFeeOverride: normalizeServiceFeeChoice(row.adminServiceFeeOverride) }),
   };
 }
 
@@ -140,7 +157,16 @@ export async function saveManagerManualPaymentSettings(
   managerUserId: string,
   settings: ManagerManualPaymentSettings,
 ): Promise<ManagerManualPaymentSettings> {
-  const normalized = normalizeManagerManualPaymentSettings(settings);
+  // The staff override is deliberately NOT taken from the caller: this function is what the
+  // manager's own settings route writes through, so honouring an inbound value would let a
+  // manager hand their processing fees to PropLane by adding one field to their save.
+  const stored = await loadManagerManualPaymentSettings(db, managerUserId).catch(() => null);
+  const normalized: ManagerManualPaymentSettings = normalizeManagerManualPaymentSettings(settings);
+  // Drop whatever the caller supplied BEFORE restoring what is stored. Spreading the stored value
+  // over the caller's is not enough: when staff have set nothing there is nothing to spread, and
+  // the caller's own value would survive — which is precisely the hole this guards.
+  delete normalized.adminServiceFeeOverride;
+  if (stored?.adminServiceFeeOverride) normalized.adminServiceFeeOverride = stored.adminServiceFeeOverride;
   const mode = await resolveStorageMode(db);
 
   if (mode === "column") {
@@ -176,4 +202,57 @@ export async function saveManagerManualPaymentSettings(
   );
   if (error) throw error;
   return normalized;
+}
+
+/**
+ * Set (or clear) PropLane staff's fee-payer override for one manager.
+ *
+ * Separate from `saveManagerManualPaymentSettings` on purpose — that one is reached from the
+ * manager's own settings route and deliberately cannot write this field. Callers of THIS function
+ * must have already authorized the caller as staff; it does no authorization of its own, exactly
+ * like every other service-role writer here.
+ *
+ * Passing null clears the override, returning the manager to the plan-and-choice rule. That is
+ * different from setting it to `resident`, which pins the answer regardless of what the manager
+ * later chooses.
+ */
+export async function saveAdminServiceFeeOverride(
+  db: SupabaseClient,
+  managerUserId: string,
+  override: ServiceFeePayer | null,
+): Promise<ManagerManualPaymentSettings> {
+  const current = await loadManagerManualPaymentSettings(db, managerUserId);
+  const next: ManagerManualPaymentSettings = { ...current };
+  if (override == null) delete next.adminServiceFeeOverride;
+  else next.adminServiceFeeOverride = normalizeServiceFeeChoice(override);
+  const mode = await resolveStorageMode(db);
+
+  if (mode === "column") {
+    const { error } = await db.from("manager_automation_settings").upsert(
+      { manager_user_id: managerUserId, manual_payments: next, updated_at: new Date().toISOString() },
+      { onConflict: "manager_user_id" },
+    );
+    if (error) throw error;
+    return next;
+  }
+
+  const { data: existing } = await db
+    .from("manager_automation_settings")
+    .select("row_data")
+    .eq("manager_user_id", managerUserId)
+    .maybeSingle();
+  const rowData = (existing?.row_data && typeof existing.row_data === "object" ? existing.row_data : {}) as Record<
+    string,
+    unknown
+  >;
+  const { error } = await db.from("manager_automation_settings").upsert(
+    {
+      manager_user_id: managerUserId,
+      row_data: { ...rowData, manualPayments: next },
+      updated_at: new Date().toISOString(),
+    },
+    { onConflict: "manager_user_id" },
+  );
+  if (error) throw error;
+  return next;
 }
