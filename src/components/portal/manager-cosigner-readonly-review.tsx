@@ -1,9 +1,7 @@
 "use client";
 
-import type { ReactNode } from "react";
-import Link from "next/link";
 import type { CosignerSubmission } from "@/lib/cosigner-submissions-storage";
-import { buildPortalApplicationOpenHref } from "@/lib/manager-applications-storage";
+import { ReviewRow, ReviewSection } from "@/components/portal/manager-application-readonly-review";
 import { digitsOnly } from "@/lib/rental-application/masks";
 
 function displayOrDash(v: string | null | undefined) {
@@ -17,108 +15,107 @@ function maskSsn(ssn: string) {
   return `***-**-${d.slice(5)}`;
 }
 
-function ReviewSection({ title, children }: { title: string; children: ReactNode }) {
-  return (
-    <section className="overflow-hidden rounded-2xl border border-border bg-card shadow-sm">
-      <div className="border-b border-border bg-accent/30 px-4 py-3">
-        <h3 className="text-[0.8125rem] font-semibold text-muted">{title}</h3>
-      </div>
-      <dl className="divide-y divide-slate-100 text-sm">{children}</dl>
-    </section>
-  );
+function bankruptcyLabel(value: string | undefined): string {
+  if (value === "never") return "Never filed";
+  if (value === "past_discharged") return "Past (discharged)";
+  if (value === "current") return "Current / active";
+  return "—";
 }
 
-function Row({ k, v }: { k: string; v: ReactNode }) {
-  return (
-    <div className="flex flex-col gap-0.5 px-4 py-2.5 sm:flex-row sm:items-start sm:gap-4">
-      <dt className="w-full shrink-0 text-xs font-medium leading-5 text-muted sm:w-32">{k}</dt>
-      <dd className="min-w-0 flex-1 break-words leading-5 text-foreground">{v}</dd>
-    </div>
-  );
+function criminalLabel(value: string | undefined): string {
+  if (value === "no") return "No";
+  if (value === "yes") return "Yes";
+  return "—";
 }
 
 export function ManagerCosignerReadonlyReview({
   sub,
-  primaryApplicationAxisId,
+  onOpenSignerApplication,
 }: {
   sub: CosignerSubmission;
-  /** Primary applicant Axis ID — same row this co-signer submission is attached to in Applications. */
-  primaryApplicationAxisId: string;
+  /** Navigate to the primary applicant's application (same layout as the household co-signer link). */
+  onOpenSignerApplication?: () => void;
 }) {
-  const bankruptcyLabel =
-    sub.bankruptcy === "never" ? "Never filed" : sub.bankruptcy === "past_discharged" ? "Past (discharged)" : sub.bankruptcy === "current" ? "Current / active" : "—";
-  const criminalLabel = sub.criminal === "no" ? "No" : sub.criminal === "yes" ? "Yes" : "—";
+  const signerName = sub.signerFullName?.trim() || "";
+
+  const addressLine = [sub.address, [sub.city, sub.state, sub.zip].filter(Boolean).join(" ")]
+    .filter(Boolean)
+    .join(", ");
 
   return (
     <div className="space-y-3">
-      {primaryApplicationAxisId.trim() ? (
-        <div className="rounded-xl border px-4 py-3 portal-banner-info">
-          <Link
-            href={buildPortalApplicationOpenHref(primaryApplicationAxisId)}
-            className="text-sm font-semibold text-sky-900 underline-offset-4 hover:underline"
-          >
-            Open primary application in Property Portal
-          </Link>
-          <p className="mt-1 text-xs leading-relaxed text-muted">
-            Jumps to <span className="font-mono text-[11px] text-foreground">{primaryApplicationAxisId.trim()}</span> on the
-            Applications page.
-          </p>
-        </div>
-      ) : null}
-    <div className="grid gap-3 xl:grid-cols-2">
-      <ReviewSection title="Link to signer">
-        <Row k="Signer PropLane ID" v={displayOrDash(sub.signerAppId)} />
-        <Row k="Signer name" v={displayOrDash(sub.signerFullName)} />
-        <Row k="Submitted" v={sub.submittedAt ? new Date(sub.submittedAt).toLocaleString() : "—"} />
+      <ReviewSection title="Household" data-attr="cosigner-household-inline-panels">
+        <ReviewRow
+          k="Signer"
+          v={
+            signerName && onOpenSignerApplication ? (
+              <button
+                type="button"
+                className="text-left font-medium text-foreground underline-offset-2 hover:underline"
+                data-attr="cosigner-signer-application-link"
+                onClick={onOpenSignerApplication}
+              >
+                {signerName}
+              </button>
+            ) : (
+              displayOrDash(sub.signerFullName)
+            )
+          }
+        />
+        <ReviewRow
+          k="Submitted"
+          v={sub.submittedAt ? new Date(sub.submittedAt).toLocaleString() : "—"}
+        />
       </ReviewSection>
 
-      <ReviewSection title="Personal information">
-        <Row k="Legal name" v={displayOrDash(sub.fullName)} />
-        <Row k="Email" v={displayOrDash(sub.email)} />
-        <Row k="Phone" v={displayOrDash(sub.phone)} />
-        <Row k="Date of birth" v={displayOrDash(sub.dob)} />
-        {sub.dlNumber.trim() ? <Row k="ID number" v={displayOrDash(sub.dlNumber)} /> : null}
-        <Row k="SSN" v={maskSsn(sub.ssn)} />
-      </ReviewSection>
-
-      {[sub.address, sub.city, sub.state, sub.zip].some((v) => (v ?? "").trim()) ? (
-        <ReviewSection title="Address">
-          <Row
-            k="Current address"
-            v={displayOrDash([sub.address, [sub.city, sub.state, sub.zip].filter(Boolean).join(" ")].filter(Boolean).join(", "))}
-          />
+      <div className="grid gap-3 xl:grid-cols-2">
+        <ReviewSection title="Personal information">
+          <ReviewRow k="Legal name" v={displayOrDash(sub.fullName)} />
+          <ReviewRow k="Date of birth" v={displayOrDash(sub.dob)} />
+          <ReviewRow k="SSN" v={maskSsn(sub.ssn)} />
+          {sub.dlNumber.trim() ? <ReviewRow k="ID number" v={displayOrDash(sub.dlNumber)} /> : null}
+          <ReviewRow k="Phone" v={displayOrDash(sub.phone)} />
+          <ReviewRow k="Email" v={displayOrDash(sub.email)} />
         </ReviewSection>
-      ) : null}
 
-      <ReviewSection title="Employment">
-        <Row k="Not employed" v={sub.notEmployed ? "Yes" : "No"} />
-        {!sub.notEmployed ? (
-          <>
-            {sub.employerName.trim() ? <Row k="Employer" v={sub.employerName} /> : null}
-            {sub.jobTitle.trim() ? <Row k="Job title" v={sub.jobTitle} /> : null}
-            {sub.employerAddress.trim() ? <Row k="Employer address" v={sub.employerAddress} /> : null}
-            {[sub.supervisorName, sub.supervisorPhone].some((v) => v.trim()) ? (
-              <Row k="Supervisor" v={displayOrDash([sub.supervisorName, sub.supervisorPhone].filter(Boolean).join(" · "))} />
-            ) : null}
-            {sub.employmentStart.trim() ? <Row k="Employment start" v={sub.employmentStart} /> : null}
-            {sub.monthlyIncome.trim() ? <Row k="Monthly income" v={sub.monthlyIncome} /> : null}
-            {sub.annualIncome.trim() ? <Row k="Annual income" v={sub.annualIncome} /> : null}
-          </>
+        {addressLine.trim() ? (
+          <ReviewSection title="Address history">
+            <ReviewRow k="Current address" v={displayOrDash(addressLine)} />
+          </ReviewSection>
         ) : null}
-        {sub.otherIncome.trim() ? <Row k="Other income" v={sub.otherIncome} /> : null}
-      </ReviewSection>
 
-      <ReviewSection title="Background">
-        <Row k="Bankruptcy" v={bankruptcyLabel} />
-        <Row k="Criminal convictions" v={criminalLabel} />
-        <Row k="Credit consent" v={sub.consentCredit ? "Authorized" : "Not checked"} />
-      </ReviewSection>
+        <ReviewSection title="Employment">
+          <ReviewRow k="Not employed" v={sub.notEmployed ? "Yes" : "No"} />
+          {!sub.notEmployed ? (
+            <>
+              <ReviewRow k="Employer" v={displayOrDash(sub.employerName)} />
+              <ReviewRow k="Employer address" v={displayOrDash(sub.employerAddress)} />
+              {[sub.supervisorName, sub.supervisorPhone].some((v) => v.trim()) ? (
+                <ReviewRow
+                  k="Supervisor"
+                  v={displayOrDash([sub.supervisorName, sub.supervisorPhone].filter(Boolean).join(" · "))}
+                />
+              ) : null}
+              <ReviewRow k="Job title" v={displayOrDash(sub.jobTitle)} />
+              <ReviewRow k="Employment start" v={displayOrDash(sub.employmentStart)} />
+              <ReviewRow k="Monthly income" v={displayOrDash(sub.monthlyIncome)} />
+              <ReviewRow k="Annual income" v={displayOrDash(sub.annualIncome)} />
+            </>
+          ) : null}
+          <ReviewRow k="Other income" v={displayOrDash(sub.otherIncome)} />
+        </ReviewSection>
 
-      <ReviewSection title="Signature">
-        <Row k="Signature" v={displayOrDash(sub.signature)} />
-        <Row k="Date signed" v={displayOrDash(sub.dateSigned)} />
-      </ReviewSection>
-    </div>
+        <ReviewSection title="Background">
+          <ReviewRow k="Bankruptcy" v={bankruptcyLabel(sub.bankruptcy)} />
+          <ReviewRow k="Criminal convictions" v={criminalLabel(sub.criminal)} />
+          <ReviewRow k="Credit consent" v={sub.consentCredit ? "Authorized" : "Not checked"} />
+        </ReviewSection>
+
+        <ReviewSection title="Signature">
+          <ReviewRow k="Signature" v={displayOrDash(sub.signature)} />
+          <ReviewRow k="Date signed" v={displayOrDash(sub.dateSigned)} />
+        </ReviewSection>
+      </div>
     </div>
   );
 }

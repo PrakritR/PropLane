@@ -1459,7 +1459,15 @@ export function ResidentApplicationsPanel({
           {activeCosignerSubmission ? (
             <ManagerCosignerReadonlyReview
               sub={activeCosignerSubmission}
-              primaryApplicationAxisId={detailRow.id}
+              onOpenSignerApplication={() =>
+                navigate(
+                  residentApplicationDetailHref(
+                    basePath,
+                    detailRow.bucket as ResidentApplicationBucketId,
+                    detailRow.id,
+                  ),
+                )
+              }
             />
           ) : (
             renderApplicationDetailBody(detailRow)

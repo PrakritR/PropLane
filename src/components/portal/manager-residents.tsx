@@ -2795,7 +2795,11 @@ export function ManagerResidents({
                                 activeCosignerSubmission ? (
                                   <ManagerCosignerReadonlyReview
                                     sub={activeCosignerSubmission}
-                                    primaryApplicationAxisId={selectedApplicationRow.id}
+                                    onOpenSignerApplication={() =>
+                                      navigate(
+                                        residentDetailHref(portalBase, residentsTab, selected.id, "application"),
+                                      )
+                                    }
                                   />
                                 ) : (
                                 <div className="flex min-h-0 flex-1 flex-col gap-0">

@@ -5,6 +5,7 @@ import { ApplicationFilterSortFields } from "@/components/portal/application-fil
 import { ManagerToursGroupedTable } from "@/components/portal/manager-tours-grouped-table";
 import { Button } from "@/components/ui/button";
 import { BulkActionBar } from "@/components/ui/bulk-action-bar";
+import { Input } from "@/components/ui/input";
 import { DestinationNav } from "@/components/ui/destination-nav";
 import { ManagerPortalSettingsModal } from "@/components/portal/manager-portal-settings-modal";
 import {
@@ -56,15 +57,22 @@ import {
   scheduledTaskTitleForTour,
 } from "@/lib/manager-scheduled-work-tasks";
 import { getPropertyById } from "@/lib/rental-application/data";
-import { cancelPlannedTourFromServer } from "@/lib/tour-planned-change.client";
+import {
+  cancelPlannedTourFromServer,
+  proposePendingTourRescheduleFromServer,
+  reschedulePlannedTourFromServer,
+} from "@/lib/tour-planned-change.client";
 import {
   TOUR_CANCELED_TENANT_SUBJECT,
   TOUR_CONFIRMED_TENANT_SUBJECT,
   TOUR_REQUEST_REMOVED_TENANT_SUBJECT,
+  TOUR_RESCHEDULED_TENANT_SUBJECT,
   buildTourCanceledTenantBody,
   buildTourConfirmedTenantBody,
   buildTourNotificationContext,
   buildTourRequestRemovedTenantBody,
+  buildTourRescheduleConfirmRequestBody,
+  buildTourRescheduledTenantBody,
 } from "@/lib/tour-notifications";
 
 const TOUR_BUCKET_LABELS = MANAGER_TOUR_BUCKETS.map((id) => ({
@@ -74,13 +82,46 @@ const TOUR_BUCKET_LABELS = MANAGER_TOUR_BUCKETS.map((id) => ({
 
 const BULK_BAR_BTN = "h-9 min-h-0 shrink-0 whitespace-nowrap rounded-full px-3 text-[13px] sm:h-10 sm:px-4 sm:text-sm";
 
-type TourNotifyAction = "confirm" | "decline" | "cancel";
+function isPendingInquiry(row: ManagerTourRow): boolean {
+  return row.bucket === "pending" && row.source === "inquiry";
+}
+
+function isUpcomingPlanned(row: ManagerTourRow): boolean {
+  return row.bucket === "upcoming" && row.source === "planned";
+}
+
+function isoToDatetimeLocal(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+function datetimeLocalToIso(value: string): string {
+  const d = new Date(value);
+  return Number.isNaN(d.getTime()) ? "" : d.toISOString();
+}
+
+function tourEndIsoFromStart(startIso: string, row: ManagerTourRow): string {
+  const durationMs = Math.max(30 * 60 * 1000, Date.parse(row.endIso) - Date.parse(row.startIso));
+  return new Date(Date.parse(startIso) + durationMs).toISOString();
+}
+
+type TourRescheduleTimes = {
+  newStartIso: string;
+  newEndIso: string;
+  previousStartIso: string;
+  previousEndIso: string;
+};
+
+type TourNotifyAction = "confirm" | "decline" | "cancel" | "reschedule";
 
 type TourNotifyPreview = {
   action: TourNotifyAction;
-  row: ManagerTourRow;
+  rows: ManagerTourRow[];
   subject: string;
   body: string;
+  rowTimes?: Record<string, TourRescheduleTimes>;
 };
 
 type GuestMessagePreview = {
@@ -122,6 +163,14 @@ const TOUR_NOTIFY_PREVIEW_COPY: Record<
     confirmLabel: "Cancel tour & send notification",
     confirmLabelWithoutMessage: "Cancel tour only",
     confirmBusyLabel: "Cancelling…",
+  },
+  reschedule: {
+    title: "Reschedule tour",
+    intro: "Review the notification below. The guest will be asked to confirm the new time.",
+    skipMessageLabel: "Don't message guest",
+    confirmLabel: "Send & ask guest to confirm",
+    confirmLabelWithoutMessage: "Update time without messaging",
+    confirmBusyLabel: "Sending…",
   },
 };
 
@@ -168,6 +217,10 @@ export function ManagerTours({
   const [notifyBusy, setNotifyBusy] = useState(false);
   const [guestMessagePreview, setGuestMessagePreview] = useState<GuestMessagePreview | null>(null);
   const [guestMessageBusy, setGuestMessageBusy] = useState(false);
+  const [rescheduleTimePicker, setRescheduleTimePicker] = useState<{
+    rows: ManagerTourRow[];
+    startLocals: Record<string, string>;
+  } | null>(null);
 
   const refresh = useCallback(async () => {
     await syncScheduleRecordsFromServer({ force: true });
@@ -299,53 +352,134 @@ export function ManagerTours({
     [basePath, bucket, navigate],
   );
 
-  const openApprovePreview = useCallback((row: ManagerTourRow) => {
-    if (row.source !== "inquiry" || row.bucket !== "pending") return;
+  const openApprovePreview = useCallback((rows: ManagerTourRow[]) => {
+    const eligible = rows.filter(isPendingInquiry);
+    if (eligible.length === 0) return;
+    const row = eligible[0]!;
     const ctx = buildTourNotifyContext(row);
     setNotifyPreview({
       action: "confirm",
-      row,
+      rows: eligible,
       subject: TOUR_CONFIRMED_TENANT_SUBJECT,
       body: buildTourConfirmedTenantBody(ctx),
     });
   }, []);
 
-  const openDeclinePreview = useCallback((row: ManagerTourRow) => {
-    if (row.source !== "inquiry" || row.bucket !== "pending") return;
+  const openDeclinePreview = useCallback((rows: ManagerTourRow[]) => {
+    const eligible = rows.filter(isPendingInquiry);
+    if (eligible.length === 0) return;
+    const row = eligible[0]!;
     const ctx = buildTourNotifyContext(row);
     setNotifyPreview({
       action: "decline",
-      row,
+      rows: eligible,
       subject: TOUR_REQUEST_REMOVED_TENANT_SUBJECT,
       body: buildTourRequestRemovedTenantBody(ctx),
     });
   }, []);
 
-  const openCancelPreview = useCallback((row: ManagerTourRow) => {
-    if (row.source !== "planned" || row.bucket !== "upcoming") return;
+  const openCancelPreview = useCallback((rows: ManagerTourRow[]) => {
+    const eligible = rows.filter(isUpcomingPlanned);
+    if (eligible.length === 0) return;
+    const row = eligible[0]!;
     const ctx = buildTourNotifyContext(row);
     setNotifyPreview({
       action: "cancel",
-      row,
+      rows: eligible,
       subject: TOUR_CANCELED_TENANT_SUBJECT,
       body: buildTourCanceledTenantBody(ctx),
     });
   }, []);
 
   const openDeletePreview = useCallback(
-    (row: ManagerTourRow) => {
-      if (row.bucket === "pending" && row.source === "inquiry") {
-        openDeclinePreview(row);
+    (rows: ManagerTourRow[]) => {
+      if (rows.length === 0) return;
+      if (rows.every(isPendingInquiry)) {
+        openDeclinePreview(rows);
         return;
       }
-      if (row.bucket === "upcoming" && row.source === "planned") {
-        openCancelPreview(row);
+      if (rows.every(isUpcomingPlanned)) {
+        openCancelPreview(rows);
         return;
       }
-      showToast("This tour can't be deleted from here.");
+      showToast("These tours can't be deleted together.");
     },
     [openCancelPreview, openDeclinePreview, showToast],
   );
+
+  const openReschedulePreview = useCallback(
+    (rows: ManagerTourRow[]) => {
+      if (rows.length === 0) return;
+      if (!rows.every((row) => isPendingInquiry(row) || isUpcomingPlanned(row))) {
+        showToast("These tours can't be rescheduled from here.");
+        return;
+      }
+      const hasPending = rows.some(isPendingInquiry);
+      const hasUpcoming = rows.some(isUpcomingPlanned);
+      if (hasPending && hasUpcoming) {
+        showToast("Select only pending or only upcoming tours to reschedule together.");
+        return;
+      }
+      const startLocals: Record<string, string> = {};
+      for (const row of rows) {
+        startLocals[row.id] = isoToDatetimeLocal(row.startIso);
+      }
+      setRescheduleTimePicker({ rows, startLocals });
+    },
+    [showToast],
+  );
+
+  const buildRescheduleNotifyContext = useCallback((row: ManagerTourRow, times: TourRescheduleTimes) => {
+    const property = row.propertyId ? getPropertyById(row.propertyId) : undefined;
+    return buildTourNotificationContext({
+      origin: typeof window !== "undefined" ? window.location.origin : "",
+      guestName: row.guestName,
+      guestEmail: row.guestEmail,
+      guestPhone: row.guestPhone || null,
+      propertyId: row.propertyId || null,
+      propertyTitle: row.propertyTitle || property?.title || "Property",
+      propertyAddress: property?.address || null,
+      roomLabel: row.roomLabel || null,
+      tourStartIso: times.newStartIso,
+      tourEndIso: times.newEndIso,
+      notes: row.notes || null,
+      managerLabel: "Property Manager",
+      tourInquiryId: row.source === "inquiry" ? row.sourceId : null,
+    });
+  }, []);
+
+  const continueRescheduleFromPicker = useCallback(() => {
+    if (!rescheduleTimePicker) return;
+    const rowTimes: Record<string, TourRescheduleTimes> = {};
+    for (const row of rescheduleTimePicker.rows) {
+      const newStartIso = datetimeLocalToIso(rescheduleTimePicker.startLocals[row.id] ?? "");
+      if (!newStartIso) {
+        showToast(`Pick a valid new time for ${row.guestName}.`);
+        return;
+      }
+      rowTimes[row.id] = {
+        newStartIso,
+        newEndIso: tourEndIsoFromStart(newStartIso, row),
+        previousStartIso: row.startIso,
+        previousEndIso: row.endIso,
+      };
+    }
+    const previewRow = rescheduleTimePicker.rows[0]!;
+    const times = rowTimes[previewRow.id]!;
+    const previous = { startIso: times.previousStartIso, endIso: times.previousEndIso };
+    const ctx = buildRescheduleNotifyContext(previewRow, times);
+    const body = isPendingInquiry(previewRow)
+      ? buildTourRescheduleConfirmRequestBody(ctx, previous)
+      : buildTourRescheduledTenantBody(ctx, previous);
+    setRescheduleTimePicker(null);
+    setNotifyPreview({
+      action: "reschedule",
+      rows: rescheduleTimePicker.rows,
+      subject: TOUR_RESCHEDULED_TENANT_SUBJECT,
+      body,
+      rowTimes,
+    });
+  }, [buildRescheduleNotifyContext, rescheduleTimePicker, showToast]);
 
   const openGuestMessage = useCallback(
     (row: ManagerTourRow) => {
@@ -368,79 +502,183 @@ export function ManagerTours({
       const preview = notifyPreview;
       setNotifyBusy(true);
       try {
+        const subject = draft?.subject?.trim() || preview.subject;
+        const body = draft?.body?.trim() || preview.body;
+
         if (preview.action === "confirm") {
-          const result = await acceptPartnerInquiryFromServer(preview.row.sourceId, {
-            start: preview.row.startIso,
-            end: preview.row.endIso,
-            notifyTenant: !skipMessage,
-            subject: draft?.subject,
-            body: draft?.body,
-            assignee: draft?.assignee ?? undefined,
-          });
-          if (!result.ok) {
-            showToast(result.error ?? "Could not confirm tour.");
-            return;
-          }
-          if (userId) {
-            void createScheduledWorkTask(userId, {
-              title: scheduledTaskTitleForTour(preview.row.guestName),
-              start: preview.row.startIso,
-              end: preview.row.endIso,
-              propertyId: preview.row.propertyId,
-              propertyTitle: preview.row.propertyTitle,
-              roomLabel: preview.row.roomLabel,
+          for (const row of preview.rows) {
+            const result = await acceptPartnerInquiryFromServer(row.sourceId, {
+              start: row.startIso,
+              end: row.endIso,
+              notifyTenant: !skipMessage,
+              subject,
+              body,
               assignee: draft?.assignee ?? undefined,
-              notes: preview.row.guestEmail ? `Guest: ${preview.row.guestEmail}` : undefined,
             });
+            if (!result.ok) {
+              showToast(result.error ?? "Could not confirm tour.");
+              return;
+            }
+            if (userId) {
+              void createScheduledWorkTask(userId, {
+                title: scheduledTaskTitleForTour(row.guestName),
+                start: row.startIso,
+                end: row.endIso,
+                propertyId: row.propertyId,
+                propertyTitle: row.propertyTitle,
+                roomLabel: row.roomLabel,
+                assignee: draft?.assignee ?? undefined,
+                notes: row.guestEmail ? `Guest: ${row.guestEmail}` : undefined,
+              });
+            }
           }
           setNotifyPreview(null);
           setSelectedIds(new Set());
           await refresh();
           if (tourIdProp) navigate(managerTourListHref(basePath, bucket));
-          showToast(skipMessage ? "Tour confirmed." : "Tour confirmed and guest notified.");
+          const count = preview.rows.length;
+          showToast(
+            skipMessage
+              ? count === 1
+                ? "Tour confirmed."
+                : `${count} tours confirmed.`
+              : count === 1
+                ? "Tour confirmed and guest notified."
+                : `${count} tours confirmed and guests notified.`,
+          );
           return;
         }
 
         if (preview.action === "decline") {
-          const ok = await deletePartnerInquiryFromServer(preview.row.sourceId, {
-            notifyTenant: !skipMessage,
-            subject: draft?.subject,
-            body: draft?.body,
-          });
-          if (!ok) {
-            showToast("Could not decline tour request.");
-            return;
+          for (const row of preview.rows) {
+            const ok = await deletePartnerInquiryFromServer(row.sourceId, {
+              notifyTenant: !skipMessage,
+              subject,
+              body,
+            });
+            if (!ok) {
+              showToast("Could not decline tour request.");
+              return;
+            }
           }
           setNotifyPreview(null);
           setSelectedIds(new Set());
           await refresh();
           if (tourIdProp) navigate(managerTourListHref(basePath, bucket));
-          showToast(skipMessage ? "Tour request declined." : "Tour declined and guest notified.");
+          const count = preview.rows.length;
+          showToast(
+            skipMessage
+              ? count === 1
+                ? "Tour request declined."
+                : `${count} tour requests declined.`
+              : count === 1
+                ? "Tour declined and guest notified."
+                : `${count} tours declined and guests notified.`,
+          );
           return;
         }
 
         if (preview.action === "cancel") {
-          const result = await cancelPlannedTourFromServer({
-            plannedEventId: preview.row.sourceId,
-            notifyGuest: !skipMessage,
-            subject: draft?.subject,
-            body: draft?.body,
-          });
-          if (!result.ok) {
-            showToast(result.error ?? "Could not cancel tour.");
-            return;
+          for (const row of preview.rows) {
+            const result = await cancelPlannedTourFromServer({
+              plannedEventId: row.sourceId,
+              notifyGuest: !skipMessage,
+              subject,
+              body,
+            });
+            if (!result.ok) {
+              showToast(result.error ?? "Could not cancel tour.");
+              return;
+            }
           }
           setNotifyPreview(null);
           setSelectedIds(new Set());
           await refresh();
           if (tourIdProp) navigate(managerTourListHref(basePath, bucket));
-          showToast(skipMessage ? "Tour cancelled." : "Tour cancelled and guest notified.");
+          const count = preview.rows.length;
+          showToast(
+            skipMessage
+              ? count === 1
+                ? "Tour cancelled."
+                : `${count} tours cancelled.`
+              : count === 1
+                ? "Tour cancelled and guest notified."
+                : `${count} tours cancelled and guests notified.`,
+          );
+          return;
+        }
+
+        if (preview.action === "reschedule") {
+          const useSharedDraft = preview.rows.length === 1;
+          for (const row of preview.rows) {
+            const times = preview.rowTimes?.[row.id];
+            if (!times) continue;
+            if (isUpcomingPlanned(row)) {
+              const result = await reschedulePlannedTourFromServer({
+                plannedEventId: row.sourceId,
+                start: times.newStartIso,
+                end: times.newEndIso,
+                notifyGuest: !skipMessage,
+              });
+              if (!result.ok) {
+                showToast(result.error ?? "Could not reschedule tour.");
+                return;
+              }
+              continue;
+            }
+            if (isPendingInquiry(row)) {
+              const previous = { startIso: times.previousStartIso, endIso: times.previousEndIso };
+              const rowCtx = buildRescheduleNotifyContext(row, times);
+              const rowBody = useSharedDraft
+                ? body
+                : buildTourRescheduleConfirmRequestBody(rowCtx, previous);
+              const result = await proposePendingTourRescheduleFromServer({
+                inquiryId: row.sourceId,
+                previousStart: times.previousStartIso,
+                previousEnd: times.previousEndIso,
+                start: times.newStartIso,
+                end: times.newEndIso,
+                notifyGuest: !skipMessage,
+                subject: useSharedDraft ? subject : TOUR_RESCHEDULED_TENANT_SUBJECT,
+                body: rowBody,
+              });
+              if (!result.ok) {
+                showToast(result.error ?? "Could not propose the new tour time.");
+                return;
+              }
+            }
+          }
+          setNotifyPreview(null);
+          setSelectedIds(new Set());
+          await refresh();
+          if (tourIdProp) navigate(managerTourListHref(basePath, bucket));
+          const count = preview.rows.length;
+          showToast(
+            skipMessage
+              ? count === 1
+                ? "Tour updated."
+                : `${count} tours updated.`
+              : count === 1
+                ? "Reschedule notification sent."
+                : `Reschedule notifications sent for ${count} tours.`,
+          );
         }
       } finally {
         setNotifyBusy(false);
       }
     },
-    [basePath, bucket, navigate, notifyBusy, notifyPreview, refresh, showToast, tourIdProp, userId],
+    [
+      basePath,
+      bucket,
+      buildRescheduleNotifyContext,
+      navigate,
+      notifyBusy,
+      notifyPreview,
+      refresh,
+      showToast,
+      tourIdProp,
+      userId,
+    ],
   );
 
   const submitGuestMessage = useCallback(
@@ -524,6 +762,72 @@ export function ManagerTours({
     </div>
   );
 
+  const multiSelect = selectedRows.length > 1;
+  const canBulkDecline = selectedRows.length > 0 && selectedRows.every(isPendingInquiry);
+  const canBulkCancelPlanned = selectedRows.length > 0 && selectedRows.every(isUpcomingPlanned);
+  const canBulkConfirm = canBulkDecline;
+  const canBulkReschedule =
+    selectedRows.length > 0 && selectedRows.every((row) => isPendingInquiry(row) || isUpcomingPlanned(row));
+
+  const renderBulkActions = () => (
+    <div className="flex min-w-0 flex-wrap items-center justify-start gap-2">
+      {!multiSelect && singleSelectedRow?.guestEmail?.includes("@") ? (
+        <Button
+          type="button"
+          variant="outline"
+          className={BULK_BAR_BTN}
+          data-attr="tours-bulk-message"
+          onClick={() => openGuestMessage(singleSelectedRow)}
+        >
+          Message
+        </Button>
+      ) : null}
+      {canBulkDecline || canBulkCancelPlanned ? (
+        <Button
+          type="button"
+          variant="outline"
+          className={`${BULK_BAR_BTN} text-rose-800`}
+          data-attr="tours-bulk-delete"
+          onClick={() => openDeletePreview(selectedRows)}
+        >
+          {multiSelect ? "Cancel" : "Delete"}
+        </Button>
+      ) : null}
+      {canBulkReschedule ? (
+        <Button
+          type="button"
+          variant="outline"
+          className={BULK_BAR_BTN}
+          data-attr="tours-bulk-reschedule"
+          onClick={() => openReschedulePreview(selectedRows)}
+        >
+          Reschedule
+        </Button>
+      ) : null}
+      {canBulkConfirm ? (
+        <Button
+          type="button"
+          variant="primary"
+          className={BULK_BAR_BTN}
+          data-attr="tours-bulk-approve"
+          onClick={() => openApprovePreview(selectedRows)}
+        >
+          {multiSelect ? "Confirm" : "Approve"}
+        </Button>
+      ) : null}
+    </div>
+  );
+
+  const bulkActionBar =
+    selectedIds.size > 0 ? (
+      <BulkActionBar
+        count={selectedIds.size}
+        countLabel={(n) => `${n} tour${n === 1 ? "" : "s"} selected`}
+      >
+        {renderBulkActions()}
+      </BulkActionBar>
+    ) : null;
+
   const detailActions = detailRow ? (
     <>
       {detailRow.guestEmail?.includes("@") ? (
@@ -537,6 +841,17 @@ export function ManagerTours({
           Message
         </Button>
       ) : null}
+      {(isPendingInquiry(detailRow) || isUpcomingPlanned(detailRow)) ? (
+        <Button
+          type="button"
+          variant="outline"
+          className={BULK_BAR_BTN}
+          data-attr="tour-detail-reschedule"
+          onClick={() => openReschedulePreview([detailRow])}
+        >
+          Reschedule
+        </Button>
+      ) : null}
       {detailRow.bucket === "pending" && detailRow.source === "inquiry" ? (
         <>
           <Button
@@ -544,7 +859,7 @@ export function ManagerTours({
             variant="outline"
             className={`${BULK_BAR_BTN} text-rose-800`}
             data-attr="tour-detail-decline"
-            onClick={() => openDeclinePreview(detailRow)}
+            onClick={() => openDeclinePreview([detailRow])}
           >
             Decline
           </Button>
@@ -553,7 +868,7 @@ export function ManagerTours({
             variant="primary"
             className={BULK_BAR_BTN}
             data-attr="tour-detail-approve"
-            onClick={() => openApprovePreview(detailRow)}
+            onClick={() => openApprovePreview([detailRow])}
           >
             Approve
           </Button>
@@ -565,7 +880,7 @@ export function ManagerTours({
           variant="outline"
           className={`${BULK_BAR_BTN} text-rose-800`}
           data-attr="tour-detail-cancel"
-          onClick={() => openCancelPreview(detailRow)}
+          onClick={() => openCancelPreview([detailRow])}
         >
           Cancel tour
         </Button>
@@ -573,65 +888,87 @@ export function ManagerTours({
     </>
   ) : null;
 
-  const bulkActions = (
-    <div className="flex min-w-0 flex-wrap items-center justify-start gap-2">
-      {singleSelectedRow?.guestEmail?.includes("@") ? (
-        <Button
-          type="button"
-          variant="outline"
-          className={BULK_BAR_BTN}
-          data-attr="tours-bulk-message"
-          onClick={() => openGuestMessage(singleSelectedRow)}
-        >
-          Message
-        </Button>
-      ) : null}
-      {singleSelectedRow &&
-      ((singleSelectedRow.bucket === "pending" && singleSelectedRow.source === "inquiry") ||
-        (singleSelectedRow.bucket === "upcoming" && singleSelectedRow.source === "planned")) ? (
-        <Button
-          type="button"
-          variant="outline"
-          className={`${BULK_BAR_BTN} text-rose-800`}
-          data-attr="tours-bulk-delete"
-          onClick={() => openDeletePreview(singleSelectedRow)}
-        >
-          Delete
-        </Button>
-      ) : null}
-      {singleSelectedRow?.bucket === "pending" && singleSelectedRow.source === "inquiry" ? (
-        <Button
-          type="button"
-          variant="primary"
-          className={BULK_BAR_BTN}
-          data-attr="tours-bulk-approve"
-          onClick={() => openApprovePreview(singleSelectedRow)}
-        >
-          Approve
-        </Button>
-      ) : null}
-    </div>
-  );
+  const notifyPreviewRow = notifyPreview?.rows[0] ?? null;
 
   const modals = (
     <>
-      {notifyPreview ? (
+      {rescheduleTimePicker ? (
+        <div className="fixed inset-0 z-[80] flex items-end justify-center bg-black/40 p-4 sm:items-center">
+          <div
+            className="modal-panel w-full max-w-md rounded-3xl border border-border bg-card p-5 shadow-2xl"
+            role="dialog"
+            aria-labelledby="tour-reschedule-time-title"
+          >
+            <h2 id="tour-reschedule-time-title" className="text-lg font-semibold text-foreground">
+              {rescheduleTimePicker.rows.length === 1 ? "Pick a new tour time" : "Pick new tour times"}
+            </h2>
+            <p className="mt-1 text-sm text-muted">
+              Choose the proposed time for each tour. You will review the guest notification next.
+            </p>
+            <div className="mt-4 max-h-[min(50vh,20rem)] space-y-4 overflow-y-auto">
+              {rescheduleTimePicker.rows.map((row) => (
+                <label key={row.id} className="block text-xs font-medium text-muted">
+                  <span className="text-foreground">
+                    {row.guestName} · {row.propertyTitle}
+                  </span>
+                  <span className="mt-0.5 block font-normal">Current: {row.whenLabel}</span>
+                  <Input
+                    type="datetime-local"
+                    className="mt-1"
+                    value={rescheduleTimePicker.startLocals[row.id] ?? ""}
+                    onChange={(e) =>
+                      setRescheduleTimePicker((prev) =>
+                        prev
+                          ? {
+                              ...prev,
+                              startLocals: { ...prev.startLocals, [row.id]: e.target.value },
+                            }
+                          : prev,
+                      )
+                    }
+                    data-attr="tour-reschedule-datetime"
+                  />
+                </label>
+              ))}
+            </div>
+            <div className="mt-5 flex flex-wrap justify-end gap-2">
+              <Button type="button" variant="outline" className={BULK_BAR_BTN} onClick={() => setRescheduleTimePicker(null)}>
+                Cancel
+              </Button>
+              <Button
+                type="button"
+                variant="primary"
+                className={BULK_BAR_BTN}
+                data-attr="tour-reschedule-continue"
+                onClick={continueRescheduleFromPicker}
+              >
+                Continue
+              </Button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+      {notifyPreview && notifyPreviewRow ? (
         <PortalNotificationPreviewModal
           open
-          title={TOUR_NOTIFY_PREVIEW_COPY[notifyPreview.action].title}
+          title={
+            notifyPreview.rows.length > 1
+              ? `${TOUR_NOTIFY_PREVIEW_COPY[notifyPreview.action].title} (${notifyPreview.rows.length})`
+              : TOUR_NOTIFY_PREVIEW_COPY[notifyPreview.action].title
+          }
           onClose={() => {
             if (notifyBusy) return;
             setNotifyPreview(null);
           }}
-          recipient={notifyPreview.row.guestEmail}
-          recipientPhone={notifyPreview.row.guestPhone?.trim() || undefined}
+          recipient={notifyPreviewRow.guestEmail}
+          recipientPhone={notifyPreviewRow.guestPhone?.trim() || undefined}
           subject={notifyPreview.subject}
           body={notifyPreview.body}
           intro={TOUR_NOTIFY_PREVIEW_COPY[notifyPreview.action].intro}
           skipMessageLabel={TOUR_NOTIFY_PREVIEW_COPY[notifyPreview.action].skipMessageLabel}
           showChannelPicker
-          emailAvailable={Boolean(notifyPreview.row.guestEmail?.includes("@"))}
-          smsAvailable={Boolean(notifyPreview.row.guestPhone?.trim())}
+          emailAvailable={Boolean(notifyPreviewRow.guestEmail?.includes("@"))}
+          smsAvailable={Boolean(notifyPreviewRow.guestPhone?.trim())}
           defaultViaSms={false}
           confirmLabel={TOUR_NOTIFY_PREVIEW_COPY[notifyPreview.action].confirmLabel}
           confirmLabelWithoutMessage={
@@ -676,6 +1013,7 @@ export function ManagerTours({
     return (
       <>
         {modals}
+        {bulkActionBar}
         <PortalRecordDetailPage
           pageTitle="Tours"
           title={detailRow.guestName}
@@ -726,11 +1064,7 @@ export function ManagerTours({
       }
     >
       {modals}
-      {selectedIds.size > 0 ? (
-        <BulkActionBar count={selectedIds.size} hideCount>
-          {bulkActions}
-        </BulkActionBar>
-      ) : null}
+      {bulkActionBar}
 
       <PortalListControlStack
         className="mb-2"
