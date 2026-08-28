@@ -17,6 +17,8 @@ export const TOUR_REQUEST_REMOVED_TENANT_SUBJECT = "Your PropLane tour request w
 
 export const TOUR_RESCHEDULED_TENANT_SUBJECT = "Your PropLane tour has a new time";
 
+export const TOUR_PENDING_RESCHEDULE_TENANT_SUBJECT = "Your PropLane tour needs a new time";
+
 export type TourNotificationContext = {
   guestName: string;
   guestEmail: string;
@@ -217,6 +219,55 @@ export function buildTourRequestRemovedTenantBody(ctx: TourNotificationContext):
     "This tour is no longer scheduled. You are welcome to request another time on the listing page.",
     "",
     "Questions? Reply in your PropLane inbox and your property team will help.",
+    "",
+    "— PropLane",
+  );
+  return lines.join("\n");
+}
+
+/** Pending request — manager proposes a new time and asks the guest to confirm. */
+export function buildTourRescheduleConfirmRequestBody(
+  ctx: TourNotificationContext,
+  previous: { startIso: string; endIso: string },
+): string {
+  const greeting = ctx.guestName.trim() ? `Hi ${ctx.guestName.trim()},` : "Hi,";
+  const lines = [
+    greeting,
+    "",
+    "The property team proposed a new time for your tour.",
+    "",
+    `Proposed time: ${formatTourTimeRange(ctx.tourStartIso, ctx.tourEndIso)}`,
+    `Previous time: ${formatTourTimeRange(previous.startIso, previous.endIso)}`,
+    `Property: ${ctx.propertyTitle || "Property"}`,
+  ];
+  if (ctx.roomLabel?.trim()) lines.push(`Room: ${ctx.roomLabel.trim()}`);
+  if (ctx.propertyAddress?.trim()) lines.push(`Address: ${ctx.propertyAddress.trim()}`);
+  lines.push(
+    "",
+    "Please reply in your PropLane inbox to confirm this new time works for you. If it does not, we will find another slot.",
+    "",
+    "— PropLane",
+  );
+  return lines.join("\n");
+}
+
+/** @deprecated Use buildTourRescheduleConfirmRequestBody after picking a new time. */
+export function buildTourPendingRescheduleTenantBody(ctx: TourNotificationContext): string {
+  const greeting = ctx.guestName.trim() ? `Hi ${ctx.guestName.trim()},` : "Hi,";
+  const when = formatTourTimeRange(ctx.tourStartIso, ctx.tourEndIso);
+  const lines = [
+    greeting,
+    "",
+    "The property team needs to move your tour to a different time.",
+    "",
+    `Requested time: ${when}`,
+    `Property: ${ctx.propertyTitle || "Property"}`,
+  ];
+  if (ctx.roomLabel?.trim()) lines.push(`Room: ${ctx.roomLabel.trim()}`);
+  if (ctx.propertyAddress?.trim()) lines.push(`Address: ${ctx.propertyAddress.trim()}`);
+  lines.push(
+    "",
+    "Reply in your PropLane inbox with a few times that work for you and we will confirm the new slot.",
     "",
     "— PropLane",
   );

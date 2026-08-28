@@ -672,10 +672,12 @@ export async function notifyTenantTourRescheduled(
   req: Request,
   inquiry: TourInquiryPayload,
   input: {
-    window: { start: string; end: string; adminLabel?: string };
+    window: { start: string; end: string; managerUserId?: string; adminLabel?: string };
     previousWindow: { start: string; end: string };
     reason?: string | null;
     instructions?: string | null;
+    subject?: string;
+    body?: string;
   },
 ): Promise<{ ok: boolean; skipped?: boolean; error?: string }> {
   return notifyTenantTourChanged(db, req, inquiry, { kind: "rescheduled", ...input });

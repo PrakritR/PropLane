@@ -119,6 +119,15 @@ describe("BulkActionBar", () => {
     expect(screen.queryByText("2 selected")).toBeNull();
     expect(screen.getByRole("button", { name: "Message" })).toBeTruthy();
   });
+
+  it("uses a custom count label when provided", () => {
+    render(
+      <BulkActionBar count={3} countLabel={(n) => `${n} tours selected`}>
+        <button type="button">Confirm</button>
+      </BulkActionBar>,
+    );
+    expect(screen.getByText("3 tours selected")).toBeTruthy();
+  });
 });
 
 describe("PortalTabs", () => {

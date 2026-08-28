@@ -12,12 +12,15 @@ export function BulkActionBar({
   variant = "default",
   /** Hide the "{n} selected" label (tours bulk bar shows actions only). */
   hideCount = false,
+  /** Override the default "{count} selected" label. */
+  countLabel,
 }: {
   count: number;
   children: ReactNode;
   className?: string;
   variant?: "default" | "payments";
   hideCount?: boolean;
+  countLabel?: (count: number) => string;
 }) {
   useEffect(() => {
     if (count <= 0) return;
@@ -56,7 +59,7 @@ export function BulkActionBar({
         >
           {!hideCount ? (
             <p className="shrink-0 text-[10px] font-semibold tabular-nums text-foreground sm:text-[11px]">
-              {count} selected
+              {countLabel ? countLabel(count) : `${count} selected`}
             </p>
           ) : null}
           <div className={cn("relative min-w-0", hideCount ? undefined : "flex-1")}>{children}</div>

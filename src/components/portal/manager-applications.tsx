@@ -1722,7 +1722,9 @@ export function ManagerApplications({
               {activeCosignerSubmission ? (
                 <ManagerCosignerReadonlyReview
                   sub={activeCosignerSubmission}
-                  primaryApplicationAxisId={detailRow.id}
+                  onOpenSignerApplication={() =>
+                    navigate(applicationDetailHref(basePath, tabForRow(detailRow), detailRow.id))
+                  }
                 />
               ) : (
                 renderApplicationDetail(detailRow)
