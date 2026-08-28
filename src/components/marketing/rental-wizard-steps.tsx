@@ -11,7 +11,7 @@ import { GroupLeaderAppIdField } from "@/components/marketing/group-leader-app-i
 import { ApplicationFeeInlinePayment } from "@/components/marketing/application-fee-inline-payment";
 import { ApplicationPhotoField, IncomeProofPhotos } from "@/components/marketing/application-photo-field";
 import { SmsConsentCheckbox } from "@/components/marketing/sms-consent-checkbox";
-import { listingApplicationFeeChannels, resolveApplicationFeePayChannel, isAchApplicationFeeChannel } from "@/lib/rental-application/application-fee-channel";
+import { listingApplicationFeeChannels, resolveApplicationFeePayChannel, isAchApplicationFeeChannel, resolveApplicationFeeOtherInstructions } from "@/lib/rental-application/application-fee-channel";
 import {
   applicationFeeChargeLabel,
   applicationFeeReviewNote,
@@ -211,6 +211,10 @@ export type WizardStepsProps = {
    */
   photoSetupTokenRequired?: boolean;
   getPhotoSetupToken?: () => string | null;
+  /** Prior submitted application answers are available to copy into this form. */
+  savedAutofillAvailable?: boolean;
+  onApplySavedAutofill?: () => void;
+  managerFeeOther?: { enabled: boolean; instructions: string };
 };
 
 function displayOrDash(v: string | null | undefined) {
@@ -349,6 +353,9 @@ export function RentalWizardStepBody(p: WizardStepsProps) {
     applyReturnPath,
     onEnsureApplicationId,
     savedApplicationId = "",
+    savedAutofillAvailable = false,
+    onApplySavedAutofill,
+    managerFeeOther = { enabled: false, instructions: "" },
   } = p;
 
   const listingSub = (() => {
@@ -400,6 +407,25 @@ export function RentalWizardStepBody(p: WizardStepsProps) {
       </div>
     );
   })();
+
+  const autofillBanner =
+    savedAutofillAvailable && onApplySavedAutofill && step === 2 ? (
+      <div className="mb-5 rounded-2xl border border-primary/25 bg-primary/8 p-4 sm:p-5">
+        <p className="text-sm font-semibold text-foreground">Use information from a previous application</p>
+        <p className="mt-1 text-xs leading-relaxed text-muted">
+          We can fill in your contact, employment, and reference details. You&apos;ll still enter move-in dates, room
+          choices, and anything specific to this property.
+        </p>
+        <Button
+          type="button"
+          className="mt-3 rounded-full px-4 text-[13px]"
+          data-attr="rental-wizard-apply-saved-autofill"
+          onClick={onApplySavedAutofill}
+        >
+          Autofill from previous application
+        </Button>
+      </div>
+    ) : null;
 
   if (step === 1) {
     const showCosigner = showWizardField("hasCosigner");
@@ -1011,6 +1037,7 @@ export function RentalWizardStepBody(p: WizardStepsProps) {
   if (step === 2) {
     return (
       <div className="space-y-8">
+        {autofillBanner}
         <div>
           <StepIntro>
             Start with how we can reach you, then confirm your identity exactly as it appears on your ID. This section is
@@ -2105,8 +2132,9 @@ export function RentalWizardStepBody(p: WizardStepsProps) {
   if (step === 11) {
     const prop = form.propertyId ? getPropertyById(form.propertyId) : undefined;
     const sub = prop?.listingSubmission?.v === 1 ? prop.listingSubmission : undefined;
-    const channels = listingApplicationFeeChannels(sub);
-    const payChannel = resolveApplicationFeePayChannel(sub, form.applicationFeePayChannel);
+    const channels = listingApplicationFeeChannels(sub, managerFeeOther);
+    const payChannel = resolveApplicationFeePayChannel(sub, form.applicationFeePayChannel, managerFeeOther);
+    const otherInstructionsText = resolveApplicationFeeOtherInstructions(sub, managerFeeOther);
     // Headline application fee for the summary card, from the gate — which the
     // wizard derives from the SERVER's authoritative fee preview (manager-level
     // setting), never from the listing's grandfathered `applicationFee` text.
@@ -2126,7 +2154,7 @@ export function RentalWizardStepBody(p: WizardStepsProps) {
     const showChannelPick = feeStillDue && enabledChannels.length > 1;
     const showZelleInstructions = feeStillDue && payChannel === "zelle" && sub?.zelleContact?.trim();
     const showVenmoInstructions = feeStillDue && payChannel === "venmo" && sub?.venmoContact?.trim();
-    const showOtherInstructions = feeStillDue && payChannel === "other" && sub?.applicationFeeOtherInstructions?.trim();
+    const showOtherInstructions = feeStillDue && payChannel === "other" && otherInstructionsText;
     const singleChannelLabel =
       enabledChannels.length === 1
         ? enabledChannels[0] === "ach"
@@ -2336,7 +2364,7 @@ export function RentalWizardStepBody(p: WizardStepsProps) {
             {showOtherInstructions ? (
               <div className="rounded-xl border px-4 py-3 text-sm portal-banner-pending">
                 <p className="font-semibold">Payment instructions</p>
-                <p className="mt-2 whitespace-pre-wrap leading-relaxed">{sub!.applicationFeeOtherInstructions!.trim()}</p>
+                <p className="mt-2 whitespace-pre-wrap leading-relaxed">{otherInstructionsText}</p>
                 <p className="mt-2 leading-relaxed">
                   Follow the instructions above, then tap <span className="font-semibold">Check payment</span> below.
                 </p>

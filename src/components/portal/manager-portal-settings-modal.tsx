@@ -15,6 +15,8 @@ import {
   ResidentSettingsPanel,
 } from "@/components/portal/manager-portal-settings-panels";
 import type { ApplicationAutomationPreferences } from "@/lib/application-automation-preferences";
+import type { ApplicationFeeChargePolicy } from "@/lib/manager-application-settings";
+import { DEFAULT_MANAGER_APPLICATION_SETTINGS } from "@/lib/manager-application-settings";
 import { CANONICAL_DEMO_MANAGER_NAME } from "@/lib/demo/demo-canonical-accounts";
 import { cacheLandlordLegalName } from "@/lib/manager-landlord-profile";
 import { PORTAL_TOOLBAR_PILL_BUTTON, PORTAL_TOOLBAR_PILL_BUTTON_ACTIVE } from "@/components/portal/portal-metrics";
@@ -65,6 +67,11 @@ export function ManagerPortalSettingsModal({
   const [saving, setSaving] = useState(false);
   const [waiverCode, setWaiverCode] = useState("");
   const [feeCents, setFeeCents] = useState<number | null>(null);
+  const [chargePolicy, setChargePolicy] = useState<ApplicationFeeChargePolicy>(
+    DEFAULT_MANAGER_APPLICATION_SETTINGS.applicationFeeChargePolicy,
+  );
+  const [otherInstructionsEnabled, setOtherInstructionsEnabled] = useState(false);
+  const [otherInstructions, setOtherInstructions] = useState("");
   const [automation, setAutomation] = useState<ApplicationAutomationPreferences>(DEFAULT_APPLICATION_AUTOMATION);
 
   useEffect(() => {
@@ -75,6 +82,9 @@ export function ManagerPortalSettingsModal({
     if (demo) {
       setWaiverCode("WELCOME50");
       setFeeCents(5000);
+      setChargePolicy("first_only");
+      setOtherInstructionsEnabled(false);
+      setOtherInstructions("");
       setAutomation(DEFAULT_APPLICATION_AUTOMATION);
       cacheLandlordLegalName(CANONICAL_DEMO_MANAGER_NAME);
       return;
@@ -83,7 +93,12 @@ export function ManagerPortalSettingsModal({
     try {
       const res = await fetch("/api/portal/manager-application-settings", { credentials: "include" });
       const data = (await res.json().catch(() => ({}))) as {
-        settings?: { applicationFeeCents: number | null };
+        settings?: {
+          applicationFeeCents: number | null;
+          applicationFeeChargePolicy?: ApplicationFeeChargePolicy;
+          applicationFeeOtherEnabled?: boolean;
+          applicationFeeOtherInstructions?: string;
+        };
         automation?: unknown;
         waiverCode?: string | null;
         error?: string;
@@ -93,6 +108,9 @@ export function ManagerPortalSettingsModal({
         return;
       }
       setFeeCents(data.settings?.applicationFeeCents ?? null);
+      setChargePolicy(data.settings?.applicationFeeChargePolicy ?? "first_only");
+      setOtherInstructionsEnabled(Boolean(data.settings?.applicationFeeOtherEnabled));
+      setOtherInstructions((data.settings?.applicationFeeOtherInstructions ?? "").trim());
       setAutomation(normalizeApplicationAutomation(data.automation));
       setWaiverCode((data.waiverCode ?? "").trim());
     } catch {
@@ -125,6 +143,9 @@ export function ManagerPortalSettingsModal({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           applicationFeeCents: feeCents,
+          applicationFeeChargePolicy: chargePolicy,
+          applicationFeeOtherEnabled: otherInstructionsEnabled,
+          applicationFeeOtherInstructions: otherInstructions,
           waiverCode: patch.waiverCode ?? waiverCode.trim(),
           automation: patch.automation ?? automation,
         }),
@@ -182,6 +203,14 @@ export function ManagerPortalSettingsModal({
           loading={loading}
           saving={saving}
           waiverCode={waiverCode}
+          feeCents={feeCents}
+          onFeeCentsChange={setFeeCents}
+          chargePolicy={chargePolicy}
+          onChargePolicyChange={setChargePolicy}
+          otherInstructionsEnabled={otherInstructionsEnabled}
+          onOtherInstructionsEnabledChange={setOtherInstructionsEnabled}
+          otherInstructions={otherInstructions}
+          onOtherInstructionsChange={setOtherInstructions}
           onAutomationChange={setAutomation}
           onWaiverCodeChange={setWaiverCode}
           onSave={() =>

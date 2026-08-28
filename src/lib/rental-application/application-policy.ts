@@ -1,4 +1,5 @@
 import type { DemoApplicantRow } from "@/data/demo-portal";
+import type { ApplicationFeeChargePolicy } from "@/lib/manager-application-settings";
 import {
   readChargesForResident,
   findApplicationFeeCharge,
@@ -51,26 +52,26 @@ export function residentHasPaidApplicationFee(
 }
 
 /**
- * The application fee is a single account-level charge collected ONCE per
- * resident PER MANAGER, never re-charged per property. So a resident who
- * already submitted an application to — or already paid an application fee
- * billed by — this property's manager is waived on any of that manager's
- * listings; a first-timer with that manager pays, and history with a DIFFERENT
- * manager never waives another manager's fee. If the property's manager cannot
- * be resolved, the fee is charged. (This used to be gated on a per-listing
- * `applicationFeeOnlyFirstApplication` toggle, removed once the fee moved to
- * manager-level settings.)
+ * The application fee is collected per the manager's charge policy
+ * (`first_only` vs `every_time`). Under `first_only`, a resident who already
+ * submitted to — or already paid an application fee billed by — this property's
+ * manager is waived on any of that manager's listings. Under `every_time`, each
+ * application owes the fee unless a waiver code or an existing paid charge for
+ * THIS application applies. History with a DIFFERENT manager never waives
+ * another manager's fee.
  */
 export function shouldWaiveApplicationFeeForResident(input: {
   propertyId: string;
   residentEmail: string;
   residentUserId?: string | null;
+  chargePolicy?: ApplicationFeeChargePolicy;
 }): boolean {
   const pid = input.propertyId.trim();
   const email = normalizeEmail(input.residentEmail);
   if (!pid || !email) return false;
   const managerUserId = getPropertyById(pid)?.managerUserId?.trim() || null;
   if (!managerUserId) return false;
+  if (input.chargePolicy === "every_time") return false;
   return (
     residentHasPriorApplication(email, managerUserId) ||
     residentHasPaidApplicationFee(email, input.residentUserId, managerUserId)
@@ -81,6 +82,9 @@ export function residentApplicationFeeGate(input: {
   propertyId: string;
   residentEmail: string;
   residentUserId?: string | null;
+  chargePolicy?: ApplicationFeeChargePolicy;
+  /** When the server preview has already decided waiver, trust it over local rows. */
+  serverFeeWaived?: boolean | null;
   /**
    * SERVER-authoritative fee in cents from `/api/public/application-fee-preview`
    * (which applies the manager-level fee). When provided it overrides the
@@ -100,7 +104,15 @@ export function residentApplicationFeeGate(input: {
         ? `$${amount.toFixed(2)}`
         : "—"
       : listingFee.displayLabel;
-  const waived = shouldWaiveApplicationFeeForResident(input);
+  const waived =
+    input.serverFeeWaived === true ||
+    (input.serverFeeWaived !== false &&
+      shouldWaiveApplicationFeeForResident({
+        propertyId: pid,
+        residentEmail: email,
+        residentUserId: input.residentUserId,
+        chargePolicy: input.chargePolicy,
+      }));
   if (!pid || !email.includes("@") || amount <= 0 || waived) {
     return { needsFee: false, paid: true, displayLabel, amount, waived };
   }

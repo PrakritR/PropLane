@@ -11,10 +11,16 @@
  * client-sync pattern) so the wizard's several consumers share one request.
  */
 
+import type { ApplicationFeeChargePolicy } from "@/lib/manager-application-settings";
+
 export type ApplicationFeePreview = {
   applicationFeeCents: number;
   serviceFeeCents: number;
   totalCents: number;
+  chargePolicy?: ApplicationFeeChargePolicy;
+  repeatApplicantFeeWaived?: boolean;
+  applicationFeeOtherEnabled?: boolean;
+  applicationFeeOtherInstructions?: string;
 };
 
 const PREVIEW_TTL_MS = 60_000;
@@ -36,13 +42,17 @@ export async function fetchApplicationFeePreview(input: {
   propertyId: string;
   managerUserId: string;
   rentalType?: "standard" | "short_term";
+  residentEmail?: string;
+  residentUserId?: string | null;
 }): Promise<ApplicationFeePreview | null> {
   const propertyId = input.propertyId.trim();
   const managerUserId = input.managerUserId.trim();
   if (!propertyId || !managerUserId) return null;
 
   const rentalType = input.rentalType === "short_term" ? "short_term" : "standard";
-  const key = `${keyFor(propertyId, managerUserId)}::${rentalType}`;
+  const residentEmail = input.residentEmail?.trim() ?? "";
+  const residentKey = residentEmail.includes("@") ? `::${residentEmail.toLowerCase()}` : "";
+  const key = `${keyFor(propertyId, managerUserId)}::${rentalType}${residentKey}`;
   const hit = cache.get(key);
   if (hit && Date.now() - hit.at < PREVIEW_TTL_MS) return hit.value;
 
@@ -58,18 +68,28 @@ export async function fetchApplicationFeePreview(input: {
           propertyId,
           managerUserId,
           rentalType: rentalType === "short_term" ? "short_term" : undefined,
+          residentEmail: residentEmail.includes("@") ? residentEmail : undefined,
+          residentUserId: input.residentUserId ?? undefined,
         }),
       });
       const data = (await res.json().catch(() => ({}))) as {
         applicationFeeCents?: number;
         serviceFeeCents?: number;
         totalCents?: number;
+        chargePolicy?: ApplicationFeeChargePolicy;
+        repeatApplicantFeeWaived?: boolean;
+        applicationFeeOtherEnabled?: boolean;
+        applicationFeeOtherInstructions?: string;
       };
       if (!res.ok || typeof data.applicationFeeCents !== "number") return null;
       const value: ApplicationFeePreview = {
         applicationFeeCents: data.applicationFeeCents,
         serviceFeeCents: typeof data.serviceFeeCents === "number" ? data.serviceFeeCents : 0,
         totalCents: typeof data.totalCents === "number" ? data.totalCents : data.applicationFeeCents,
+        chargePolicy: data.chargePolicy,
+        repeatApplicantFeeWaived: data.repeatApplicantFeeWaived,
+        applicationFeeOtherEnabled: data.applicationFeeOtherEnabled,
+        applicationFeeOtherInstructions: data.applicationFeeOtherInstructions,
       };
       cache.set(key, { at: Date.now(), value });
       return value;

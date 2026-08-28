@@ -85,6 +85,28 @@ describe("application-policy", () => {
     expect(gate.waived).toBe(true);
   });
 
+  it("does not waive the fee when the manager charges every application", () => {
+    vi.mocked(readManagerApplicationRows).mockReturnValue([
+      {
+        id: "AXIS-1",
+        email: "a@test.com",
+        bucket: "approved",
+        name: "A",
+        property: "P",
+        propertyId: "prop-a",
+        managerUserId: "mgr-1",
+        stage: "Approved",
+      },
+    ]);
+    expect(
+      shouldWaiveApplicationFeeForResident({
+        propertyId: "prop-b",
+        residentEmail: "a@test.com",
+        chargePolicy: "every_time",
+      }),
+    ).toBe(false);
+  });
+
   it("does not waive the fee when the prior application is under a DIFFERENT manager", () => {
     vi.mocked(readManagerApplicationRows).mockReturnValue([
       {

@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { resolveApplicationFeeItemization, resolveApplicationFeeProperty } from "@/lib/application-fee-checkout.server";
 import { previewApplicationFeeWaiverCode } from "@/lib/application-fee-waiver";
+import { loadManagerApplicationSettings } from "@/lib/manager-application-settings";
+import { shouldWaiveApplicationFeeForResidentServer } from "@/lib/rental-application/application-policy.server";
 import { clientIpFrom, rateLimit } from "@/lib/rate-limit";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 
@@ -15,6 +17,9 @@ type Body = {
   waiverCode?: string;
   /** "manual" (Zelle/Venmo/other) never carries a Stripe service fee; defaults to "card". */
   channel?: "card" | "manual";
+  /** When present, resolves repeat-applicant fee waiver server-side. */
+  residentEmail?: string;
+  residentUserId?: string;
 };
 
 /**
@@ -55,14 +60,33 @@ export async function POST(req: Request) {
     const channel = body.channel === "manual" ? "manual" : "card";
     const itemization = await resolveApplicationFeeItemization(db, managerUserId, resolved.value.applicationFeeCents, channel);
 
+    const managerSettings = await loadManagerApplicationSettings(db, managerUserId);
+
     const waiverCode = typeof body.waiverCode === "string" ? body.waiverCode.trim() : "";
     const waiver = waiverCode ? await previewApplicationFeeWaiverCode(db, managerUserId, waiverCode) : null;
+
+    const residentEmail = typeof body.residentEmail === "string" ? body.residentEmail.trim() : "";
+    let repeatApplicantFeeWaived: boolean | undefined;
+    if (residentEmail.includes("@")) {
+      repeatApplicantFeeWaived = await shouldWaiveApplicationFeeForResidentServer(db, {
+        managerUserId,
+        residentEmail,
+        residentUserId: typeof body.residentUserId === "string" ? body.residentUserId : null,
+        chargePolicy: managerSettings.applicationFeeChargePolicy,
+      });
+    }
 
     return NextResponse.json({
       applicationFeeCents: itemization.applicationFeeCents,
       serviceFeeCents: itemization.serviceFeeCents,
       totalCents: itemization.totalCents,
       feePayer: itemization.feePayer,
+      chargePolicy: managerSettings.applicationFeeChargePolicy,
+      repeatApplicantFeeWaived,
+      applicationFeeOtherEnabled: managerSettings.applicationFeeOtherEnabled,
+      applicationFeeOtherInstructions: managerSettings.applicationFeeOtherEnabled
+        ? managerSettings.applicationFeeOtherInstructions
+        : "",
       waiver: waiver ? { valid: waiver.ok, error: waiver.ok ? undefined : waiver.error } : undefined,
     });
   } catch (e) {

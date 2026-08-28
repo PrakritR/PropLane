@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
+import { Input, Textarea } from "@/components/ui/input";
 import { FieldSingleSelect } from "@/components/ui/checkbox-multi-select";
 import { useAppUi } from "@/components/providers/app-ui-provider";
 import { isDemoModeActive } from "@/lib/demo/demo-session";
@@ -11,6 +11,11 @@ import {
   normalizeApplicationAutomation,
   type ApplicationAutomationPreferences,
 } from "@/lib/application-automation-preferences";
+import type { ApplicationFeeChargePolicy } from "@/lib/manager-application-settings";
+import {
+  MAX_MANAGER_APPLICATION_FEE_CENTS,
+  MIN_MANAGER_APPLICATION_FEE_CENTS,
+} from "@/lib/manager-application-settings";
 import {
   DEFAULT_MANAGER_AUTOMATION_SETTINGS,
   PAYMENT_AUTOMATION_SETTINGS_EVENT,
@@ -49,6 +54,14 @@ export function ApplicationsSettingsPanel({
   loading,
   saving,
   waiverCode,
+  feeCents,
+  onFeeCentsChange,
+  chargePolicy,
+  onChargePolicyChange,
+  otherInstructionsEnabled,
+  onOtherInstructionsEnabledChange,
+  otherInstructions,
+  onOtherInstructionsChange,
   onAutomationChange,
   onWaiverCodeChange,
   onSave,
@@ -57,6 +70,14 @@ export function ApplicationsSettingsPanel({
   loading: boolean;
   saving: boolean;
   waiverCode: string;
+  feeCents: number | null;
+  onFeeCentsChange: (cents: number | null) => void;
+  chargePolicy: ApplicationFeeChargePolicy;
+  onChargePolicyChange: (policy: ApplicationFeeChargePolicy) => void;
+  otherInstructionsEnabled: boolean;
+  onOtherInstructionsEnabledChange: (enabled: boolean) => void;
+  otherInstructions: string;
+  onOtherInstructionsChange: (value: string) => void;
   onAutomationChange: (next: ApplicationAutomationPreferences) => void;
   onWaiverCodeChange: (value: string) => void;
   onSave: () => void;
@@ -93,6 +114,102 @@ export function ApplicationsSettingsPanel({
           Auto-approve is on. New submissions are approved without a manual review step.
         </p>
       ) : null}
+      <div className="space-y-3 border-t border-border pt-4">
+        <p className="text-[13px] font-semibold text-foreground">Application fee</p>
+        <p className="text-xs text-muted">
+          Applies to every listing unless a listing sets its own fee. Enter dollars — use 0 for free applications.
+        </p>
+        <div className="flex items-center gap-2">
+          <span className="text-sm text-muted">$</span>
+          <Input
+            aria-label="Application fee amount"
+            type="number"
+            min={0}
+            step={1}
+            disabled={loading || saving}
+            data-attr="manager-application-fee-amount-input"
+            className="max-w-[8rem]"
+            value={feeCents == null ? "" : String(feeCents / 100)}
+            onChange={(e) => {
+              const raw = e.target.value.trim();
+              if (!raw) {
+                onFeeCentsChange(null);
+                return;
+              }
+              const dollars = Number.parseFloat(raw);
+              if (!Number.isFinite(dollars) || dollars < 0) return;
+              if (dollars === 0) {
+                onFeeCentsChange(0);
+                return;
+              }
+              const cents = Math.round(dollars * 100);
+              if (cents < MIN_MANAGER_APPLICATION_FEE_CENTS || cents > MAX_MANAGER_APPLICATION_FEE_CENTS) return;
+              onFeeCentsChange(cents);
+            }}
+            placeholder="50"
+          />
+        </div>
+        <fieldset className="space-y-2">
+          <legend className="text-xs font-medium text-foreground">Repeat applicants</legend>
+          <label className="flex items-start gap-2 text-sm">
+            <input
+              type="radio"
+              name="application-fee-charge-policy"
+              className="mt-1"
+              checked={chargePolicy === "first_only"}
+              disabled={loading || saving}
+              onChange={() => onChargePolicyChange("first_only")}
+            />
+            <span>
+              <span className="font-medium text-foreground">First application only</span>
+              <span className="mt-0.5 block text-xs text-muted">
+                Waive the fee when someone already applied to or paid you — any of your properties.
+              </span>
+            </span>
+          </label>
+          <label className="flex items-start gap-2 text-sm">
+            <input
+              type="radio"
+              name="application-fee-charge-policy"
+              className="mt-1"
+              checked={chargePolicy === "every_time"}
+              disabled={loading || saving}
+              onChange={() => onChargePolicyChange("every_time")}
+            />
+            <span>
+              <span className="font-medium text-foreground">Every application</span>
+              <span className="mt-0.5 block text-xs text-muted">Charge the fee again for each new application.</span>
+            </span>
+          </label>
+        </fieldset>
+        <label className="flex items-start gap-3">
+          <input
+            type="checkbox"
+            className="mt-0.5 h-4 w-4 shrink-0 accent-primary"
+            checked={otherInstructionsEnabled}
+            disabled={loading || saving}
+            data-attr="manager-application-fee-other-enabled"
+            onChange={(e) => onOtherInstructionsEnabledChange(e.target.checked)}
+          />
+          <span className="min-w-0 text-sm">
+            <span className="block font-medium text-foreground">Custom payment instructions</span>
+            <span className="block text-xs text-muted">
+              Show applicants case-by-case directions (Zelle, Venmo, cash, etc.) on the fee step.
+            </span>
+          </span>
+        </label>
+        {otherInstructionsEnabled ? (
+          <Textarea
+            aria-label="Custom application fee payment instructions"
+            value={otherInstructions}
+            onChange={(e) => onOtherInstructionsChange(e.target.value)}
+            disabled={loading || saving}
+            rows={4}
+            placeholder="Example: Send $50 via Zelle to payments@yourcompany.com — include your full name in the memo."
+            data-attr="manager-application-fee-other-instructions"
+          />
+        ) : null}
+      </div>
       <div className="space-y-2 border-t border-border pt-4">
         <p className="text-[13px] font-semibold text-foreground">Promo code</p>
         <Input
