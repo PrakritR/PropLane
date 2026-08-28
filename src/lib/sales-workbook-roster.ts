@@ -36,7 +36,15 @@ export type RosterRoom = {
   leaseEndIso: string;
   /** True when the sheet said "month to month" rather than giving an end date. */
   monthToMonth: boolean;
-  doorCode: string;
+  /**
+   * The room's move-in code (door/lockbox).
+   *
+   * Read POSITIONALLY, from the column immediately left of the room label, because the header
+   * above it is unreliable — on two tabs it is blank, and on one it carries a stray "Parcel #"
+   * label left over from the block above. The code is what a resident needs to get in the door,
+   * so reading the wrong column here is worse than reading nothing.
+   */
+  moveInCode: string;
 };
 
 export type RosterIssue = {
@@ -151,6 +159,25 @@ export function readPhoneCell(raw: string): string {
  */
 export function isShortTermName(raw: string): boolean {
   return lower(raw).startsWith("airbnb");
+}
+
+/**
+ * A move-in code, as typed on a keypad.
+ *
+ * Excel stores a long all-digit code as a NUMBER, so it comes back as "7.820341022E9" — expanded
+ * here to the digits someone would actually press. A code that still reads as text is returned
+ * verbatim, because leading zeros are significant ("0497" is not 497) and numeric parsing would
+ * silently eat them.
+ */
+export function readMoveInCode(raw: string): string {
+  const value = norm(raw);
+  if (!value) return "";
+  if (/^\d+$/.test(value)) return value;
+  if (/^\d+(\.\d+)?[Ee]\+?\d+$/.test(value)) {
+    const expanded = Number(value);
+    if (Number.isFinite(expanded) && Number.isInteger(expanded)) return String(BigInt(expanded));
+  }
+  return value;
 }
 
 /** Normalize "Room 1" / "Room2" / "Room 10" to a number, or null when it is not a room row. */
@@ -296,7 +323,7 @@ export function readSalesWorkbookRoster(rows: string[][]): RosterReadResult {
       leaseStartIso: start.iso,
       leaseEndIso: end.iso,
       monthToMonth: end.monthToMonth,
-      doorCode: at(row, "door code"),
+      moveInCode: readMoveInCode(norm(row[header.roomCol - 1])),
     });
   }
 

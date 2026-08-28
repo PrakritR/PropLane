@@ -16,6 +16,7 @@ import {
   readDateCell,
   readMoneyCell,
   readPhoneCell,
+  readMoveInCode,
   readRoomNumber,
   readSalesWorkbookRoster,
 } from "@/lib/sales-workbook-roster";
@@ -108,6 +109,25 @@ describe("who is actually a resident", () => {
   });
 });
 
+describe("move-in codes", () => {
+  it("expands the scientific notation Excel stores a long numeric code as", () => {
+    // These are keypad codes, not quantities — "7.820341022E9" is nine digits someone presses.
+    expect(readMoveInCode("7.820341022E9")).toBe("7820341022");
+    expect(readMoveInCode("3.28236213E9")).toBe("3282362130");
+  });
+
+  it("keeps a leading zero, which numeric parsing would eat", () => {
+    // "0497" is not 497 — the keypad cares.
+    expect(readMoveInCode("0497")).toBe("0497");
+    expect(readMoveInCode("0831979973")).toBe("0831979973");
+  });
+
+  it("passes an ordinary code through unchanged", () => {
+    expect(readMoveInCode("7528")).toBe("7528");
+    expect(readMoveInCode("")).toBe("");
+  });
+});
+
 describe("room labels", () => {
   it("accepts the spacings the sheet mixes", () => {
     expect(readRoomNumber("Room 1")).toBe(1);
@@ -156,7 +176,7 @@ describe("reading a tab", () => {
     expect(room1.monthlyRent).toBe(725);
     expect(room1.monthlyUtilities).toBe(150);
     expect(room1.leaseEndIso).toBe("2026-12-31");
-    expect(room1.doorCode).toBe("8916566666");
+    expect(room1.moveInCode).toBe("8916566666");
   });
 
   it("keeps a short-term room out of the resident set without dropping the room", () => {
@@ -174,6 +194,19 @@ describe("reading a tab", () => {
   it("carries month-to-month through rather than inventing an end date", () => {
     expect(rooms[2]!.monthToMonth).toBe(true);
     expect(rooms[2]!.leaseEndIso).toBe("");
+  });
+
+  it("reads the move-in code from the column left of the room, not from a header", () => {
+    // On two tabs that column has no header at all, and on one it sits under a stray "Parcel #"
+    // label belonging to the block above. The code is what gets a resident through the door, so
+    // reading the wrong column is worse than reading nothing.
+    const tab: string[][] = [
+      ["", "Parcel #", "", "Name", "Rent"],
+      ["", "7528", "Room 1", "Fekadu", "1100"],
+      ["", "5223", "Room2", "Tarif", "1100"],
+    ];
+    const { rooms } = readSalesWorkbookRoster(tab);
+    expect(rooms.map((r) => r.moveInCode)).toEqual(["7528", "5223"]);
   });
 
   it("does not borrow the ledger's Deposit when the roster has none of its own", () => {
