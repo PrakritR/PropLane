@@ -21,6 +21,7 @@ import {
   calendarViewHref,
   bookingsHref,
   teamLinkHref,
+  teamMemberDetailHref,
   applicationDetailHref,
   applicationListHref,
   leaseDetailHref,
@@ -78,6 +79,7 @@ describe("portal-detail-routes", () => {
     expect(calendarViewHref("/portal", "bookings")).toBe("/portal/bookings");
     expect(bookingsHref("/portal")).toBe("/portal/bookings");
     expect(teamLinkHref("/portal", "linked")).toBe("/portal/relationships");
+    expect(teamMemberDetailHref("/portal", "invite-abc")).toBe("/portal/relationships/invite-abc");
   });
 
   it("parses calendar and team routed tabs", () => {

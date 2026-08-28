@@ -274,6 +274,10 @@ export function teamLinkHref(basePath: string, _tab?: TeamLinkTabId): string {
   return `${basePath}/relationships`;
 }
 
+export function teamMemberDetailHref(basePath: string, linkId: string): string {
+  return `${basePath}/relationships/${encodeURIComponent(linkId)}`;
+}
+
 /** Manager applications list buckets (Appendix D5). */
 export const APPLICATION_BUCKETS = ["incomplete", "pending", "approved", "rejected"] as const;
 export type ApplicationBucketId = (typeof APPLICATION_BUCKETS)[number];

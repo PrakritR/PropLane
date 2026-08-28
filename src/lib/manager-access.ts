@@ -76,6 +76,12 @@ export function isBusinessSkuTier(tier: string | null | undefined): boolean {
   return normalizeManagerSkuTier(tier) === "business";
 }
 
+/** Co-manager invites require Pro or Business (including signup trial). */
+export function managerPlanAllowsCoManagerInvites(tier: string | null | undefined): boolean {
+  const normalized = normalizeManagerSkuTier(tier);
+  return normalized === "pro" || normalized === "business";
+}
+
 /** Max properties allowed for this tier; `null` = legacy / uncapped in UI. */
 export function maxPropertiesForManagerTier(tier: string | null | undefined): number | null {
   const n = normalizeManagerSkuTier(tier);

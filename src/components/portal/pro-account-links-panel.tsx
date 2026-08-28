@@ -1,6 +1,6 @@
 "use client";
 
-import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Modal } from "@/components/ui/modal";
 import { PortalActiveFilterChips } from "@/components/portal/portal-filter-chips";
@@ -10,23 +10,12 @@ import { ApplicationFilterSortFields } from "@/components/portal/application-fil
 import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
 import {
   ManagerPortalPageShell,
-  MANAGER_TABLE_TH,
-  PORTAL_HEADER_ACTION_BTN,
   PORTAL_HEADER_PRIMARY_ACTION_BTN,
 } from "@/components/portal/portal-metrics";
 import {
-  PORTAL_DATA_TABLE_SCROLL,
-  PORTAL_DATA_TABLE_WRAP,
   PortalDataTableEmpty,
-  PORTAL_TABLE_DETAIL_CELL,
-  PORTAL_TABLE_DETAIL_ROW,
-  PORTAL_TABLE_HEAD_ROW,
-  PORTAL_TABLE_TR_EXPANDABLE,
-  PORTAL_TABLE_TD,
-  PortalMobileSummaryCard,
-  PortalTableInlineExpand,
   PORTAL_DETAIL_BTN,
-  createPortalRowExpandClick,
+  PortalTableDetailActions,
 } from "@/components/portal/portal-data-table";
 import { PortalCollapsibleSection } from "@/components/portal/portal-collapsible-section";
 import {
@@ -34,6 +23,9 @@ import {
   PORTAL_LIST_ADD_ICONS,
   PORTAL_LIST_ADD_ROW_WRAP_CLASS,
 } from "@/components/portal/portal-list-add-row";
+import { PORTAL_LIST_PAGE_BODY } from "@/components/portal/portal-inbox-ui";
+import { PortalRecordDetailPage } from "@/components/portal/portal-record-detail-page";
+import { PortalPersonRecordRow } from "@/components/portal/portal-record-row";
 import { useAppUi } from "@/components/providers/app-ui-provider";
 import type { AccountLinkInviteDto } from "@/lib/account-links";
 import {
@@ -71,7 +63,7 @@ import {
   syncProRelationshipsFromServer,
   type ProRelationshipRecord,
 } from "@/lib/pro-relationships";
-import { maxAccountLinksForTier, normalizeManagerSkuTier } from "@/lib/manager-access";
+import { maxAccountLinksForTier, managerPlanAllowsCoManagerInvites, normalizeManagerSkuTier } from "@/lib/manager-access";
 import {
   listOutgoingCoManagerLinks,
   listOutgoingCoManagersForProperty,
@@ -86,26 +78,35 @@ import {
 import { syncLeasePipelineFromServer } from "@/lib/lease-pipeline-storage";
 import { syncHouseholdChargesFromServer } from "@/lib/household-charges";
 import { Input, Select } from "@/components/ui/input";
+import { usePaidPortalBasePath } from "@/lib/portal-base-path-client";
+import { teamLinkHref, teamMemberDetailHref } from "@/lib/portal-detail-routes";
+import { usePortalNavigate } from "@/lib/portal-nav-client";
 
 const TEAM_MEMBER_ROLE_LABEL = "Team";
 
 const CO_MANAGER_ROLE_BADGE =
   "inline-flex rounded-full px-2.5 py-0.5 text-[11px] font-semibold border border-border bg-accent/40 text-foreground ring-1 ring-[color-mix(in_srgb,currentColor_25%,transparent)]";
 
-const LINKED_COUNT_TRIGGER =
-  "inline-flex items-center gap-1 rounded-full text-xs font-semibold text-foreground transition hover:text-primary";
-
 const PENDING_ROLE_BADGE =
   "inline-flex rounded-full px-2.5 py-0.5 text-[11px] font-semibold portal-badge-pending ring-1 ring-[color-mix(in_srgb,currentColor_25%,transparent)]";
 
-const TEAM_SECTION_LABEL =
-  "text-[10px] font-semibold uppercase tracking-[0.14em] text-muted";
-
-const TEAM_INCOMING_PENDING_SURFACE =
-  "rounded-2xl border border-primary/30 bg-primary/[0.05] p-1 shadow-[var(--shadow-sm)]";
-
-const TEAM_PENDING_ACTIONS =
-  "flex flex-wrap items-center gap-2";
+type TeamListEntry = {
+  id: string;
+  name: string;
+  axisId: string;
+  statusLabel: string;
+  preview: string;
+  kind: "remote";
+  invite: AccountLinkInviteDto;
+} | {
+  id: string;
+  name: string;
+  axisId: string;
+  statusLabel: string;
+  preview: string;
+  kind: "local";
+  row: ProRelationshipRecord;
+};
 
 type InviteDraft = {
   assignedPropertyIds: string[];
@@ -136,22 +137,19 @@ function resolvePropertyLabel(id: string, fallback: string): string {
   return resolvePropertyLabelForId(id, fallback);
 }
 
-function TeamAssignedPropertySummary({ propertyIds, max = 3 }: { propertyIds: string[]; max?: number }) {
-  if (propertyIds.length === 0) {
-    return <span className="text-xs text-muted">No properties in this invite</span>;
-  }
-  const shown = propertyIds.slice(0, max);
-  const rest = propertyIds.length - shown.length;
-  return (
-    <ul className="space-y-0.5">
-      {shown.map((pid) => (
-        <li key={pid} className="text-xs text-foreground">
-          {resolvePropertyLabel(pid, pid)}
-        </li>
-      ))}
-      {rest > 0 ? <li className="text-xs text-muted">+{rest} more</li> : null}
-    </ul>
-  );
+function teamPropertyPreview(propertyIds: string[]): string {
+  if (propertyIds.length === 0) return "No properties assigned";
+  const labels = propertyIds.slice(0, 2).map((id) => resolvePropertyLabel(id, id));
+  const rest = propertyIds.length - labels.length;
+  if (rest > 0) return `${labels.join(" · ")} · +${rest} more`;
+  return labels.join(" · ");
+}
+
+function teamInviteStatusLabel(inv: AccountLinkInviteDto): string {
+  if (inv.status === "pending" && inv.direction === "incoming") return "Needs approval";
+  if (inv.status === "pending" && inv.direction === "outgoing") return "Invite sent";
+  if (inv.direction === "incoming") return "Linked to you";
+  return TEAM_MEMBER_ROLE_LABEL;
 }
 
 type GrantLevels = { read?: boolean; edit?: boolean; delete?: boolean };
@@ -347,8 +345,11 @@ function AddPropertyToCoManager({
   );
 }
 
-export function ProAccountLinksPanel({ userId }: { userId: string }) {
+export function ProAccountLinksPanel({ userId, linkId: linkIdProp }: { userId: string; linkId?: string }) {
   const { showToast } = useAppUi();
+  const navigate = usePortalNavigate();
+  const portalBase = usePaidPortalBasePath();
+  const routeLinkId = linkIdProp?.trim() || null;
 
   const [localTick, setLocalTick] = useState(0);
   const refreshLocal = useCallback(() => setLocalTick((n) => n + 1), []);
@@ -369,7 +370,6 @@ export function ProAccountLinksPanel({ userId }: { userId: string }) {
   const loadRemoteInvitesRef = useRef<() => void>(() => {});
   const [inviteDrafts, setInviteDrafts] = useState<Record<string, InviteDraft>>({});
   const saveTimersRef = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
-  const [expandedLinkId, setExpandedLinkId] = useState<string | null>(null);
   const [addPropertySelect, setAddPropertySelect] = useState<Record<string, string>>({});
   const [linkedPropertiesPopup, setLinkedPropertiesPopup] = useState<{
     label: string;
@@ -636,6 +636,52 @@ export function ProAccountLinksPanel({ userId }: { userId: string }) {
   const linkCap = maxAccountLinksForTier(skuTier);
   const participantUsedCount = remoteInvites.filter((i) => i.status === "pending" || i.status === "accepted").length;
   const atLinkCap = linkCap != null && (useRemote ? participantUsedCount >= linkCap : localRows.length >= linkCap);
+  const planAllowsInvites = skuTier != null && managerPlanAllowsCoManagerInvites(skuTier);
+  const linkAccountBlocked = atLinkCap || (skuTier != null && !planAllowsInvites);
+
+  const navigateToList = useCallback(() => {
+    navigate(teamLinkHref(portalBase));
+  }, [navigate, portalBase]);
+
+  const openTeamDetail = useCallback(
+    (id: string) => {
+      navigate(teamMemberDetailHref(portalBase, id));
+    },
+    [navigate, portalBase],
+  );
+
+  const teamEntries = useMemo((): TeamListEntry[] => {
+    if (useRemote) {
+      const invites = [
+        ...visibleIncomingPending,
+        ...visibleOutgoingPending,
+        ...visibleActiveRemote,
+      ];
+      return invites.map((inv) => ({
+        id: inv.id,
+        name: inv.linkedDisplayName ?? inv.linkedAxisId,
+        axisId: inv.linkedAxisId,
+        statusLabel: teamInviteStatusLabel(inv),
+        preview: teamPropertyPreview(inv.assignedPropertyIds),
+        kind: "remote" as const,
+        invite: inv,
+      }));
+    }
+    return visibleLocalRows.map((row) => ({
+      id: row.id,
+      name: row.linkedDisplayName ?? row.linkedAxisId,
+      axisId: row.linkedAxisId,
+      statusLabel: TEAM_MEMBER_ROLE_LABEL,
+      preview: teamPropertyPreview(row.assignedPropertyIds),
+      kind: "local" as const,
+      row,
+    }));
+  }, [useRemote, visibleIncomingPending, visibleOutgoingPending, visibleActiveRemote, visibleLocalRows]);
+
+  const routeEntry = useMemo(() => {
+    if (!routeLinkId) return null;
+    return teamEntries.find((entry) => entry.id === routeLinkId) ?? null;
+  }, [routeLinkId, teamEntries]);
 
   const tierShort =
     skuTier === "free"
@@ -714,6 +760,10 @@ export function ProAccountLinksPanel({ userId }: { userId: string }) {
   };
 
   const openLinkModal = () => {
+    if (skuTier != null && !managerPlanAllowsCoManagerInvites(skuTier)) {
+      showToast("Upgrade to Pro or Business before linking co-managers.");
+      return;
+    }
     resetLinkDraft();
     setLinkModalOpen(true);
   };
@@ -737,6 +787,10 @@ export function ProAccountLinksPanel({ userId }: { userId: string }) {
   };
 
   const saveNewLink = async () => {
+    if (skuTier != null && !managerPlanAllowsCoManagerInvites(skuTier)) {
+      showToast("Upgrade to Pro or Business before linking co-managers.");
+      return;
+    }
     if (linkCap != null && atLinkCap) {
       showToast(`${tierShort ?? "Your plan"}: ${linkCap} link${linkCap === 1 ? "" : "s"} max.`);
       return;
@@ -1090,7 +1144,7 @@ export function ProAccountLinksPanel({ userId }: { userId: string }) {
 
   const removeLink = async (id: string) => {
     if (useRemote && remoteLoaded) {
-      await patchInvite(id, { action: "revoke" }, "Link removed.");
+      const ok = await patchInvite(id, { action: "revoke" }, "Link removed.");
       writeProRelationships(userId, readProRelationships(userId).filter((row) => row.id !== id));
       setInviteDrafts((d) => {
         const next = { ...d };
@@ -1099,24 +1153,28 @@ export function ProAccountLinksPanel({ userId }: { userId: string }) {
       });
       await loadRemoteInvites();
       refreshLocal();
+      if (ok && routeLinkId === id) navigateToList();
       return;
     }
     const all = readProRelationships(userId).filter((r) => r.id !== id);
     writeProRelationships(userId, all);
     refreshLocal();
     showToast("Link removed.");
+    if (routeLinkId === id) navigateToList();
   };
 
   const respondInvite = async (id: string, action: "accept" | "reject") => {
-    await patchInvite(
+    const ok = await patchInvite(
       id,
       { action },
       action === "accept" ? "Invite accepted. Link is active." : "Invite declined.",
     );
+    if (ok && routeLinkId === id) navigateToList();
   };
 
   const cancelInvite = async (id: string) => {
-    await patchInvite(id, { action: "cancel" }, "Invite withdrawn.");
+    const ok = await patchInvite(id, { action: "cancel" }, "Invite withdrawn.");
+    if (ok && routeLinkId === id) navigateToList();
   };
 
   const outgoingCoManagerLinks = useMemo(
@@ -1319,39 +1377,115 @@ export function ProAccountLinksPanel({ userId }: { userId: string }) {
     .filter(([, v]) => v)
     .map(([k]) => k);
 
-  const renderPendingApproveActions = (inv: AccountLinkInviteDto) => (
-    <div className={TEAM_PENDING_ACTIONS}>
-      <Button
-        type="button"
-        variant="primary"
-        className={`${PORTAL_HEADER_ACTION_BTN} min-h-0 px-4 py-1.5 text-xs`}
-        onClick={() => respondInvite(inv.id, "accept")}
-        data-attr="co-manager-approve-invite"
-      >
-        Approve
-      </Button>
-      <Button
-        type="button"
-        variant="outline"
-        className="min-h-0 rounded-full px-4 py-1.5 text-xs"
-        onClick={() => respondInvite(inv.id, "reject")}
-        data-attr="co-manager-decline-invite"
-      >
-        Decline
-      </Button>
-    </div>
-  );
+  const teamDangerBtnClass = `${PORTAL_DETAIL_BTN} border-rose-200 text-rose-800 hover:bg-[var(--status-overdue-bg)] portal-danger-outline`;
 
-  const renderPendingWithdrawAction = (inv: AccountLinkInviteDto) => (
+  const renderDetailHeaderActions = (entry: TeamListEntry) => {
+    if (entry.kind === "remote") {
+      const inv = entry.invite;
+      if (inv.status === "pending" && inv.direction === "incoming") {
+        return (
+          <PortalTableDetailActions>
+            <Button
+              type="button"
+              variant="primary"
+              className={PORTAL_DETAIL_BTN}
+              onClick={() => void respondInvite(inv.id, "accept")}
+              data-attr="co-manager-approve-invite"
+            >
+              Approve
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              className={PORTAL_DETAIL_BTN}
+              onClick={() => void respondInvite(inv.id, "reject")}
+              data-attr="co-manager-decline-invite"
+            >
+              Decline
+            </Button>
+          </PortalTableDetailActions>
+        );
+      }
+      if (inv.status === "pending" && inv.direction === "outgoing") {
+        return (
+          <PortalTableDetailActions>
+            <Button
+              type="button"
+              variant="outline"
+              className={PORTAL_DETAIL_BTN}
+              onClick={() => void cancelInvite(inv.id)}
+              data-attr="co-manager-withdraw-invite"
+            >
+              Withdraw invite
+            </Button>
+          </PortalTableDetailActions>
+        );
+      }
+      const readOnly = inv.direction === "incoming";
+      return (
+        <PortalTableDetailActions>
+          <Button
+            type="button"
+            variant="outline"
+            className={teamDangerBtnClass}
+            onClick={() => void removeLink(inv.id)}
+            data-attr="co-manager-remove-link"
+          >
+            {readOnly ? "Leave team link" : "Remove team link"}
+          </Button>
+        </PortalTableDetailActions>
+      );
+    }
+    return (
+      <PortalTableDetailActions>
+        <Button
+          type="button"
+          variant="outline"
+          className={teamDangerBtnClass}
+          onClick={() => void removeLink(entry.row.id)}
+          data-attr="co-manager-remove-link"
+        >
+          Remove team link
+        </Button>
+      </PortalTableDetailActions>
+    );
+  };
+
+  const renderTeamStatusBadge = (statusLabel: string) => {
+    if (statusLabel === "Needs approval" || statusLabel === "Invite sent") {
+      return <span className={PENDING_ROLE_BADGE}>{statusLabel}</span>;
+    }
+    return <span className={CO_MANAGER_ROLE_BADGE}>{statusLabel}</span>;
+  };
+
+  const teamLinkButton = (
     <Button
       type="button"
-      variant="outline"
-      className="min-h-0 rounded-full px-4 py-1.5 text-xs"
-      onClick={() => cancelInvite(inv.id)}
-      data-attr="co-manager-withdraw-invite"
+      variant="primary"
+      className={`shrink-0 ${PORTAL_HEADER_PRIMARY_ACTION_BTN}`}
+      disabled={linkAccountBlocked}
+      onClick={openLinkModal}
+      title={
+        skuTier != null && !planAllowsInvites
+          ? "Upgrade to Pro or Business to link team accounts."
+          : atLinkCap
+            ? "Remove a link or upgrade your plan to add another."
+            : undefined
+      }
+      data-attr="co-manager-link-account"
     >
-      Withdraw invite
+      Link account
     </Button>
+  );
+
+  const teamListAddRow = (
+    <PortalListAddRow
+      label="Link account"
+      icon={PORTAL_LIST_ADD_ICONS.team}
+      onClick={openLinkModal}
+      disabled={linkAccountBlocked}
+      dataAttr="co-manager-list-add"
+    />
   );
 
   const renderInviteDetail = (inv: AccountLinkInviteDto) => {
@@ -1385,19 +1519,6 @@ export function ProAccountLinksPanel({ userId }: { userId: string }) {
             renderPropertyPermissionsSection(pid, draft, inv, readOnly),
           )
         )}
-
-        {/* Either side of an active co-manager link can remove it. */}
-        <div className="mt-5 border-t border-border pt-4">
-          <Button
-            type="button"
-            variant="outline"
-            className={`${PORTAL_DETAIL_BTN} border-rose-200 text-rose-800 hover:bg-[var(--status-overdue-bg)] portal-danger-outline`}
-            onClick={() => removeLink(inv.id)}
-            data-attr="co-manager-remove-link"
-          >
-            {readOnly ? "Leave this team link" : "Remove team link"}
-          </Button>
-        </div>
       </>
     );
   };
@@ -1425,6 +1546,11 @@ export function ProAccountLinksPanel({ userId }: { userId: string }) {
     </>
   );
 
+  const renderDetailBody = (entry: TeamListEntry) => {
+    if (entry.kind === "remote") return renderInviteDetail(entry.invite);
+    return renderLocalRowDetail(entry.row);
+  };
+
   const teamFilterSheet = (
     <PortalFilterSortSheet
       activeCount={portalFilterActiveCount([teamPropertyFilters])}
@@ -1445,30 +1571,6 @@ export function ProAccountLinksPanel({ userId }: { userId: string }) {
     </PortalFilterSortSheet>
   );
 
-  const teamLinkButton = (
-    <Button
-      type="button"
-      variant="primary"
-      className={`shrink-0 ${PORTAL_HEADER_PRIMARY_ACTION_BTN}`}
-      disabled={atLinkCap}
-      onClick={openLinkModal}
-      title={atLinkCap ? "Remove a link or upgrade your plan to add another." : undefined}
-      data-attr="co-manager-link-account"
-    >
-      Link account
-    </Button>
-  );
-
-  const teamListAddRow = (
-    <PortalListAddRow
-      label="Link account"
-      icon={PORTAL_LIST_ADD_ICONS.team}
-      onClick={openLinkModal}
-      disabled={atLinkCap}
-      dataAttr="co-manager-list-add"
-    />
-  );
-
   const teamActiveFilterChips = teamPropertyFilters.length > 0 ? (
     <div className="mb-3">
       <PortalActiveFilterChips
@@ -1483,339 +1585,8 @@ export function ProAccountLinksPanel({ userId }: { userId: string }) {
     </div>
   ) : null;
 
-  return (
-    <ManagerPortalPageShell
-      title="Managers"
-      titleInlineFilter={teamFilterSheet}
-      titleAside={teamLinkButton}
-      hideTitleOnMobileNav
-      compactFilterRow
-    >
-      <PortalListControlStack
-        className="mb-2"
-        
-      />
-      {teamActiveFilterChips}
-      <div className="space-y-4" data-attr="co-manager-unified-view">
-        {loadError ? (
-          <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border px-4 py-3 text-sm portal-banner-danger">
-            <span className="text-[var(--status-overdue-fg)]">
-              Couldn&apos;t load your linked accounts. Your access hasn&apos;t changed; this is a
-              temporary load error.
-            </span>
-            <Button
-              type="button"
-              variant="secondary"
-              onClick={() => {
-                loadRetriedRef.current = false;
-                setLoadError(false);
-                void loadRemoteInvites();
-              }}
-              data-attr="co-manager-retry-load"
-            >
-              Retry
-            </Button>
-          </div>
-        ) : null}
-
-        {inviteeAtCap ? (
-          <p className="text-xs font-medium text-[var(--status-overdue-fg)]">
-            That account is already at its link limit and cannot accept new links.
-          </p>
-        ) : null}
-
-        {!hasCoManagerLinks ? (
-          <div className={PORTAL_LIST_ADD_ROW_WRAP_CLASS}>{teamListAddRow}</div>
-        ) : !hasVisibleTeamRows ? (
-          <PortalDataTableEmpty
-            icon="team"
-            message="No team members match this property filter. Try All properties or pick another listing."
-          />
-        ) : (
-          <>
-            <div className="space-y-4 lg:hidden">
-              {visibleIncomingPending.length > 0 ? (
-                <div className="space-y-2">
-                  <p className={TEAM_SECTION_LABEL}>Needs your approval</p>
-                  {visibleIncomingPending.map((inv) => (
-                    <div key={`pending-in-${inv.id}`} className={TEAM_INCOMING_PENDING_SURFACE}>
-                      <PortalMobileSummaryCard
-                        title={inv.linkedDisplayName ?? inv.linkedAxisId}
-                        subtitle={inv.linkedAxisId}
-                        badge={<span className={PENDING_ROLE_BADGE}>Needs approval</span>}
-                      >
-                        <div className="mt-2 space-y-3 border-t border-primary/15 pt-3">
-                          <TeamAssignedPropertySummary propertyIds={inv.assignedPropertyIds} />
-                          {renderPendingApproveActions(inv)}
-                        </div>
-                      </PortalMobileSummaryCard>
-                    </div>
-                  ))}
-                </div>
-              ) : null}
-
-              {useRemote
-                ? visibleActiveRemote.map((inv) => {
-                    const draft = getInviteDraft(inv);
-                    const readOnly = inv.direction === "incoming";
-                    const expanded = expandedLinkId === inv.id;
-                    return (
-                      <PortalMobileSummaryCard
-                        key={inv.id}
-                        title={inv.linkedDisplayName ?? inv.linkedAxisId}
-                        subtitle={readOnly ? "Linked to you" : TEAM_MEMBER_ROLE_LABEL}
-                        trailing={
-                          <button
-                            type="button"
-                            className={LINKED_COUNT_TRIGGER}
-                            data-attr="co-manager-linked-properties"
-                            onClick={() =>
-                              setLinkedPropertiesPopup({
-                                label: inv.linkedDisplayName ?? inv.linkedAxisId,
-                                propertyIds: draft.assignedPropertyIds,
-                              })
-                            }
-                          >
-                            <span className="tabular-nums">{draft.assignedPropertyIds.length}</span>
-                            <span>linked</span>
-                          </button>
-                        }
-                        badge={
-                          <span className={CO_MANAGER_ROLE_BADGE}>{readOnly ? "Linked to you" : TEAM_MEMBER_ROLE_LABEL}</span>
-                        }
-                        expanded={expanded}
-                        onClick={() => setExpandedLinkId((cur) => (cur === inv.id ? null : inv.id))}
-                      >
-                        {expanded ? renderInviteDetail(inv) : null}
-                      </PortalMobileSummaryCard>
-                    );
-                  })
-                : visibleLocalRows.map((r) => {
-                    const expanded = expandedLinkId === r.id;
-                    return (
-                      <PortalMobileSummaryCard
-                        key={r.id}
-                        title={r.linkedDisplayName ?? r.linkedAxisId}
-                        subtitle={TEAM_MEMBER_ROLE_LABEL}
-                        trailing={
-                          <button
-                            type="button"
-                            className={LINKED_COUNT_TRIGGER}
-                            data-attr="co-manager-linked-properties"
-                            onClick={() =>
-                              setLinkedPropertiesPopup({
-                                label: r.linkedDisplayName ?? r.linkedAxisId,
-                                propertyIds: r.assignedPropertyIds,
-                              })
-                            }
-                          >
-                            <span className="tabular-nums">{r.assignedPropertyIds.length}</span>
-                            <span>linked</span>
-                          </button>
-                        }
-                        badge={<span className={CO_MANAGER_ROLE_BADGE}>{TEAM_MEMBER_ROLE_LABEL}</span>}
-                        expanded={expanded}
-                        onClick={() => setExpandedLinkId((cur) => (cur === r.id ? null : r.id))}
-                      >
-                        {expanded ? renderLocalRowDetail(r) : null}
-                      </PortalMobileSummaryCard>
-                    );
-                  })}
-
-              {visibleOutgoingPending.length > 0 ? (
-                <div className="space-y-2">
-                  <p className={TEAM_SECTION_LABEL}>Invites you sent</p>
-                  {visibleOutgoingPending.map((inv) => (
-                    <PortalMobileSummaryCard
-                      key={`pending-out-${inv.id}`}
-                      title={inv.linkedDisplayName ?? inv.linkedAxisId}
-                      subtitle={inv.linkedAxisId}
-                      badge={<span className={PENDING_ROLE_BADGE}>Invite sent</span>}
-                    >
-                      <div className="mt-2 space-y-3 border-t border-border pt-3">
-                        <TeamAssignedPropertySummary propertyIds={inv.assignedPropertyIds} />
-                        {renderPendingWithdrawAction(inv)}
-                      </div>
-                    </PortalMobileSummaryCard>
-                  ))}
-                </div>
-              ) : null}
-
-            </div>
-            <div className={`${PORTAL_DATA_TABLE_WRAP} hidden lg:block`}>
-              <div className={PORTAL_DATA_TABLE_SCROLL}>
-                <table className="w-full table-fixed border-collapse text-left text-sm">
-                  <thead>
-                    <tr className={PORTAL_TABLE_HEAD_ROW}>
-                      <th className={`${MANAGER_TABLE_TH} text-left`}>Team member</th>
-                      <th className={`${MANAGER_TABLE_TH} text-left`}>Status</th>
-                      <th className={`${MANAGER_TABLE_TH} text-left`}>Properties</th>
-                      <th className={`${MANAGER_TABLE_TH} text-left`}>Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {visibleIncomingPending.length > 0 ? (
-                      <tr className="border-b border-border bg-accent/25">
-                        <td colSpan={4} className="px-4 py-2.5">
-                          <p className={TEAM_SECTION_LABEL}>Needs your approval</p>
-                        </td>
-                      </tr>
-                    ) : null}
-                    {useRemote
-                      ? visibleIncomingPending.map((inv) => (
-                          <tr key={`pending-in-${inv.id}`} className="border-b border-border/80 bg-primary/[0.03]">
-                            <td className={PORTAL_TABLE_TD}>
-                              <p className="font-medium text-foreground">{inv.linkedDisplayName ?? inv.linkedAxisId}</p>
-                              <p className="mt-0.5 font-mono text-xs text-muted">{inv.linkedAxisId}</p>
-                            </td>
-                            <td className={PORTAL_TABLE_TD}>
-                              <span className={PENDING_ROLE_BADGE}>Needs approval</span>
-                            </td>
-                            <td className={PORTAL_TABLE_TD}>
-                              <TeamAssignedPropertySummary propertyIds={inv.assignedPropertyIds} />
-                            </td>
-                            <td className={PORTAL_TABLE_TD}>{renderPendingApproveActions(inv)}</td>
-                          </tr>
-                        ))
-                      : null}
-
-                    {useRemote
-                      ? visibleActiveRemote.map((inv) => {
-                          const draft = getInviteDraft(inv);
-                          const readOnly = inv.direction === "incoming";
-                          return (
-                            <Fragment key={inv.id}>
-                              <tr
-                                className={PORTAL_TABLE_TR_EXPANDABLE}
-                                onClick={createPortalRowExpandClick(() => {
-                                  setExpandedLinkId((cur) => (cur === inv.id ? null : inv.id));
-                                })}
-                                aria-expanded={expandedLinkId === inv.id}
-                              >
-                                <td className={PORTAL_TABLE_TD}>
-                                  <PortalTableInlineExpand
-                                    expanded={expandedLinkId === inv.id}
-                                    className="font-medium text-foreground"
-                                  >
-                                    {inv.linkedDisplayName ?? inv.linkedAxisId}
-                                  </PortalTableInlineExpand>
-                                  <p className="mt-0.5 font-mono text-xs text-muted">{inv.linkedAxisId}</p>
-                                </td>
-                                <td className={PORTAL_TABLE_TD}>
-                                  <span className={CO_MANAGER_ROLE_BADGE}>
-                                    {readOnly ? "Linked to you" : TEAM_MEMBER_ROLE_LABEL}
-                                  </span>
-                                </td>
-                                <td className={PORTAL_TABLE_TD}>
-                                  <button
-                                    type="button"
-                                    className={LINKED_COUNT_TRIGGER}
-                                    data-attr="co-manager-linked-properties"
-                                    onClick={() =>
-                                      setLinkedPropertiesPopup({
-                                        label: inv.linkedDisplayName ?? inv.linkedAxisId,
-                                        propertyIds: draft.assignedPropertyIds,
-                                      })
-                                    }
-                                  >
-                                    <span className="tabular-nums">{draft.assignedPropertyIds.length}</span>
-                                    <span>linked</span>
-                                  </button>
-                                </td>
-                                <td className={PORTAL_TABLE_TD} />
-                              </tr>
-                              {expandedLinkId === inv.id ? (
-                                <tr className={PORTAL_TABLE_DETAIL_ROW}>
-                                  <td colSpan={4} className={PORTAL_TABLE_DETAIL_CELL}>
-                                    {renderInviteDetail(inv)}
-                                  </td>
-                                </tr>
-                              ) : null}
-                            </Fragment>
-                          );
-                        })
-                      : visibleLocalRows.map((r) => {
-                          return (
-                            <Fragment key={r.id}>
-                              <tr
-                                className={PORTAL_TABLE_TR_EXPANDABLE}
-                                onClick={createPortalRowExpandClick(() =>
-                                  setExpandedLinkId((cur) => (cur === r.id ? null : r.id)),
-                                )}
-                                aria-expanded={expandedLinkId === r.id}
-                              >
-                                <td className={PORTAL_TABLE_TD}>
-                                  <PortalTableInlineExpand
-                                    expanded={expandedLinkId === r.id}
-                                    className="font-medium text-foreground"
-                                  >
-                                    {r.linkedDisplayName ?? r.linkedAxisId}
-                                  </PortalTableInlineExpand>
-                                  <p className="mt-0.5 font-mono text-xs text-muted">{r.linkedAxisId}</p>
-                                </td>
-                                <td className={PORTAL_TABLE_TD}>
-                                  <span className={CO_MANAGER_ROLE_BADGE}>{TEAM_MEMBER_ROLE_LABEL}</span>
-                                </td>
-                                <td className={PORTAL_TABLE_TD}>
-                                  <button
-                                    type="button"
-                                    className={LINKED_COUNT_TRIGGER}
-                                    data-attr="co-manager-linked-properties"
-                                    onClick={() =>
-                                      setLinkedPropertiesPopup({
-                                        label: r.linkedDisplayName ?? r.linkedAxisId,
-                                        propertyIds: r.assignedPropertyIds,
-                                      })
-                                    }
-                                  >
-                                    <span className="tabular-nums">{r.assignedPropertyIds.length}</span>
-                                    <span>linked</span>
-                                  </button>
-                                </td>
-                                <td className={PORTAL_TABLE_TD} />
-                              </tr>
-                              {expandedLinkId === r.id ? (
-                                <tr className={PORTAL_TABLE_DETAIL_ROW}>
-                                  <td colSpan={4} className={PORTAL_TABLE_DETAIL_CELL}>
-                                    {renderLocalRowDetail(r)}
-                                  </td>
-                                </tr>
-                              ) : null}
-                            </Fragment>
-                          );
-                        })}
-
-                    {visibleOutgoingPending.length > 0 ? (
-                      <tr className="border-b border-border bg-accent/25">
-                        <td colSpan={4} className="px-4 py-2.5">
-                          <p className={TEAM_SECTION_LABEL}>Invites you sent</p>
-                        </td>
-                      </tr>
-                    ) : null}
-                    {useRemote
-                      ? visibleOutgoingPending.map((inv) => (
-                          <tr key={`pending-out-${inv.id}`}>
-                            <td className={PORTAL_TABLE_TD}>
-                              <p className="font-medium text-foreground">{inv.linkedDisplayName ?? inv.linkedAxisId}</p>
-                              <p className="mt-0.5 font-mono text-xs text-muted">{inv.linkedAxisId}</p>
-                            </td>
-                            <td className={PORTAL_TABLE_TD}>
-                              <span className={PENDING_ROLE_BADGE}>Invite sent</span>
-                            </td>
-                            <td className={PORTAL_TABLE_TD}>
-                              <TeamAssignedPropertySummary propertyIds={inv.assignedPropertyIds} />
-                            </td>
-                            <td className={PORTAL_TABLE_TD}>{renderPendingWithdrawAction(inv)}</td>
-                          </tr>
-                        ))
-                      : null}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          </>
-        )}
-
+  const teamModals = (
+    <>
         <Modal
           open={linkModalOpen}
           title={draftAxisId ? "Assign properties & permissions" : "Link account"}
@@ -1860,7 +1631,7 @@ export function ProAccountLinksPanel({ userId }: { userId: string }) {
                   variant="primary"
                   className="rounded-full"
                   loading={lookupBusy}
-                  disabled={lookupBusy || atLinkCap}
+                  disabled={lookupBusy || linkAccountBlocked}
                 >
                   {lookupBusy ? "Checking…" : "Continue"}
                 </Button>
@@ -1932,7 +1703,7 @@ export function ProAccountLinksPanel({ userId }: { userId: string }) {
                   type="button"
                   variant="primary"
                   className="rounded-full"
-                  disabled={atLinkCap}
+                  disabled={linkAccountBlocked}
                   onClick={() => saveNewLink()}
                 >
                   {useRemote ? "Send invite" : "Save link (local)"}
@@ -2018,7 +1789,120 @@ export function ProAccountLinksPanel({ userId }: { userId: string }) {
             </div>
           </div>
         ) : null}
+    </>
+  );
+
+  const teamListAlerts = (
+    <>
+      {loadError ? (
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border px-4 py-3 text-sm portal-banner-danger">
+          <span className="text-[var(--status-overdue-fg)]">
+            Couldn&apos;t load your linked accounts. Your access hasn&apos;t changed; this is a
+            temporary load error.
+          </span>
+          <Button
+            type="button"
+            variant="secondary"
+            onClick={() => {
+              loadRetriedRef.current = false;
+              setLoadError(false);
+              void loadRemoteInvites();
+            }}
+            data-attr="co-manager-retry-load"
+          >
+            Retry
+          </Button>
+        </div>
+      ) : null}
+
+      {skuTier != null && !planAllowsInvites ? (
+        <p className="rounded-xl portal-banner-danger px-4 py-3 text-xs font-medium text-[var(--status-overdue-fg)]">
+          Upgrade to Pro or Business to link team accounts. Free plans cannot send or accept co-manager invites.
+        </p>
+      ) : null}
+
+      {inviteeAtCap ? (
+        <p className="text-xs font-medium text-[var(--status-overdue-fg)]">
+          That account is already at its link limit and cannot accept new links.
+        </p>
+      ) : null}
+    </>
+  );
+
+  const teamListBody =
+    !hasCoManagerLinks ? (
+      <div className={PORTAL_LIST_ADD_ROW_WRAP_CLASS}>{teamListAddRow}</div>
+    ) : !hasVisibleTeamRows ? (
+      <PortalDataTableEmpty
+        icon="team"
+        message="No team members match this property filter. Try All properties or pick another listing."
+      />
+    ) : (
+      <div className={PORTAL_LIST_PAGE_BODY} data-attr="co-manager-unified-view">
+        {teamEntries.map((entry) => (
+          <PortalPersonRecordRow
+            key={entry.id}
+            name={entry.name}
+            subtitle={entry.axisId}
+            preview={entry.preview}
+            meta={entry.statusLabel}
+            badge={renderTeamStatusBadge(entry.statusLabel)}
+            onOpen={() => openTeamDetail(entry.id)}
+            dataAttr="team-list-row"
+          />
+        ))}
+        <div className={PORTAL_LIST_ADD_ROW_WRAP_CLASS}>{teamListAddRow}</div>
       </div>
+    );
+
+  if (routeLinkId) {
+    if (!routeEntry) {
+      return (
+        <>
+          {teamModals}
+          <ManagerPortalPageShell title="Managers" titleInlineFilter={teamFilterSheet} hideTitleOnMobileNav compactFilterRow>
+            <PortalDataTableEmpty icon="team" message="Team member not found." />
+          </ManagerPortalPageShell>
+        </>
+      );
+    }
+    return (
+      <>
+        {teamModals}
+        <PortalRecordDetailPage
+          pageTitle="Managers"
+          title={routeEntry.name}
+          subtitle={routeEntry.axisId}
+          avatarName={routeEntry.name}
+          backHref={teamLinkHref(portalBase)}
+          backLabel="Back to managers"
+          hideBackText
+          bareHeader
+          dataAttrBack="team-detail-back"
+          inlineActions
+          actions={renderDetailHeaderActions(routeEntry)}
+        >
+          {renderDetailBody(routeEntry)}
+        </PortalRecordDetailPage>
+      </>
+    );
+  }
+
+  return (
+    <ManagerPortalPageShell
+      title="Managers"
+      titleInlineFilter={teamFilterSheet}
+      titleAside={teamLinkButton}
+      hideTitleOnMobileNav
+      compactFilterRow
+    >
+      <PortalListControlStack className="mb-2" />
+      {teamActiveFilterChips}
+      <div className="space-y-4">
+        {teamListAlerts}
+        {teamListBody}
+      </div>
+      {teamModals}
     </ManagerPortalPageShell>
   );
 }

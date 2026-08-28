@@ -7,6 +7,7 @@ import {
   type AccountLinksPayload,
 } from "@/lib/account-links";
 import { findPropertyIdsNotOwnedByManager } from "@/lib/auth/co-manager-invite-scope";
+import { managerPlanAllowsCoManagerInvites } from "@/lib/co-manager-plan-access.server";
 import { normalizePropertyCoManagerPermissions, flatCoManagerPermissionsFromProperty, type CoManagerPermissions, type PropertyCoManagerPermissions } from "@/lib/co-manager-permissions";
 import { maxAccountLinksForTier } from "@/lib/manager-access";
 import { getManagerPurchaseSku } from "@/lib/manager-access-server";
@@ -345,7 +346,15 @@ export async function POST(req: Request) {
       );
     }
 
-    const { tier: inviterTier } = await getManagerPurchaseSku(user.id);
+    const { tier: inviterTier, billing: inviterBilling } = await getManagerPurchaseSku(user.id);
+    if (!managerPlanAllowsCoManagerInvites({ tier: inviterTier })) {
+      return NextResponse.json(
+        { error: "Upgrade to Pro or Business before linking co-managers." },
+        { status: 403 },
+      );
+    }
+    void inviterBilling;
+
     const inviterLinkCap = maxAccountLinksForTier(inviterTier);
     if (inviterLinkCap != null) {
       const { count: used, error: capErr } = await countParticipantLinks(svc, user.id, tabKind);
@@ -373,7 +382,17 @@ export async function POST(req: Request) {
       }
     }
 
-    const { tier: inviteeTier } = await getManagerPurchaseSku(inviteeProfile.id);
+    const { tier: inviteeTier, billing: inviteeBilling } = await getManagerPurchaseSku(inviteeProfile.id);
+    if (!managerPlanAllowsCoManagerInvites({ tier: inviteeTier })) {
+      return NextResponse.json(
+        {
+          error: "That account must upgrade to Pro or Business before they can join as a co-manager.",
+        },
+        { status: 403 },
+      );
+    }
+    void inviteeBilling;
+
     const inviteeLinkCap = maxAccountLinksForTier(inviteeTier);
     if (inviteeLinkCap != null) {
       const { count: inviteeUsed, error: inviteeCapErr } = await countParticipantLinks(svc, inviteeProfile.id, tabKind);

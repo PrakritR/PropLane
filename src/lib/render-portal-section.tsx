@@ -543,13 +543,18 @@ export async function renderPortalSection(
     if (kind === "pro" && section === "relationships") {
       if (tabParts?.length) {
         const teamTabRaw = tabParts[0]!;
-        // Vendors left this section; every other legacy sub-path lands on the team list rather
-        // than 404ing, because those URLs are in bookmarks.
         if (teamTabRaw === "vendors") {
           const vendorId = tabParts.length > 1 ? `/${encodeURIComponent(tabParts[1]!)}` : "";
           redirect(`${def.basePath}/vendors${vendorId}`);
         }
-        redirect(`${def.basePath}/${section}`);
+        const linkId = decodeURIComponent(teamTabRaw);
+        const ProAccountLinksPanel = await loadProAccountLinksPanel();
+        return subscriptionGated(
+          <ProAccountLinksPanel userId={effectiveWorkspaceUserId!} linkId={linkId} />,
+          kind,
+          "relationships",
+          managerOwnerSubscriptionTier,
+        );
       }
       const ProAccountLinksPanel = await loadProAccountLinksPanel();
       return subscriptionGated(
