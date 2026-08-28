@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { requireVendorApiAccess } from "@/lib/auth/vendor-api-access";
+import { resolveVendorPortalUserId } from "@/lib/auth/vendor-api-access";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { loadVendorAssignedTasks, patchVendorAssignedTask } from "@/lib/vendor-tasks.server";
 
@@ -17,13 +17,16 @@ function routeError(e: unknown, fallback: string): string {
 
 export async function GET() {
   try {
-    const access = await requireVendorApiAccess();
-    if (!access.ok) {
-      return NextResponse.json({ error: "Unauthorized." }, { status: access.status });
+    const auth = await resolveVendorPortalUserId();
+    if (!auth.ok) {
+      return NextResponse.json(
+        { error: auth.status === 401 ? "Unauthorized." : "Forbidden." },
+        { status: auth.status },
+      );
     }
 
     const db = createSupabaseServiceRoleClient();
-    const tasks = await loadVendorAssignedTasks(db, access.actor.userId);
+    const tasks = await loadVendorAssignedTasks(db, auth.userId);
     return NextResponse.json({ tasks });
   } catch (e) {
     return NextResponse.json({ error: routeError(e, "Could not load tasks.") }, { status: 500 });
@@ -32,9 +35,12 @@ export async function GET() {
 
 export async function PATCH(req: Request) {
   try {
-    const access = await requireVendorApiAccess();
-    if (!access.ok) {
-      return NextResponse.json({ error: "Unauthorized." }, { status: access.status });
+    const auth = await resolveVendorPortalUserId();
+    if (!auth.ok) {
+      return NextResponse.json(
+        { error: auth.status === 401 ? "Unauthorized." : "Forbidden." },
+        { status: auth.status },
+      );
     }
 
     const body = (await req.json().catch(() => null)) as Record<string, unknown> | null;
@@ -43,7 +49,7 @@ export async function PATCH(req: Request) {
     const completed = body?.completed === true;
 
     const db = createSupabaseServiceRoleClient();
-    const task = await patchVendorAssignedTask(db, access.actor.userId, {
+    const task = await patchVendorAssignedTask(db, auth.userId, {
       managerUserId,
       taskId,
       completed,

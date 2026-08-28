@@ -289,6 +289,8 @@ export async function reschedulePlannedTour(
     reason?: string | null;
     instructions?: string | null;
     notifyGuest: boolean;
+    notificationSubject?: string;
+    notificationBody?: string;
     req?: Request;
   },
 ): Promise<PlannedTourChangeResult> {
@@ -349,6 +351,8 @@ export async function reschedulePlannedTour(
       previousWindow: previous,
       reason: opts.reason,
       instructions: instructions || textField(event, "instructions") || null,
+      subject: opts.notificationSubject,
+      body: opts.notificationBody,
     });
   }
 

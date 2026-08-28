@@ -510,15 +510,19 @@ export function ManagerTours({
       try {
         const subject = draft?.subject?.trim() || preview.subject;
         const body = draft?.body?.trim() || preview.body;
+        const useSharedDraft = preview.rows.length === 1;
 
         if (preview.action === "confirm") {
           for (const row of preview.rows) {
+            const rowCtx = buildTourNotifyContext(row);
+            const rowSubject = useSharedDraft ? subject : TOUR_CONFIRMED_TENANT_SUBJECT;
+            const rowBody = useSharedDraft ? body : buildTourConfirmedTenantBody(rowCtx);
             const result = await acceptPartnerInquiryFromServer(row.sourceId, {
               start: row.startIso,
               end: row.endIso,
               notifyTenant: !skipMessage,
-              subject,
-              body,
+              subject: rowSubject,
+              body: rowBody,
               assignee: draft?.assignee ?? undefined,
             });
             if (!result.ok) {
@@ -557,10 +561,13 @@ export function ManagerTours({
 
         if (preview.action === "decline") {
           for (const row of preview.rows) {
+            const rowCtx = buildTourNotifyContext(row);
+            const rowSubject = useSharedDraft ? subject : TOUR_REQUEST_REMOVED_TENANT_SUBJECT;
+            const rowBody = useSharedDraft ? body : buildTourRequestRemovedTenantBody(rowCtx);
             const ok = await deletePartnerInquiryFromServer(row.sourceId, {
               notifyTenant: !skipMessage,
-              subject,
-              body,
+              subject: rowSubject,
+              body: rowBody,
             });
             if (!ok) {
               showToast("Could not decline tour request.");
@@ -586,11 +593,14 @@ export function ManagerTours({
 
         if (preview.action === "cancel") {
           for (const row of preview.rows) {
+            const rowCtx = buildTourNotifyContext(row);
+            const rowSubject = useSharedDraft ? subject : TOUR_CANCELED_TENANT_SUBJECT;
+            const rowBody = useSharedDraft ? body : buildTourCanceledTenantBody(rowCtx);
             const result = await cancelPlannedTourFromServer({
               plannedEventId: row.sourceId,
               notifyGuest: !skipMessage,
-              subject,
-              body,
+              subject: rowSubject,
+              body: rowBody,
             });
             if (!result.ok) {
               showToast(result.error ?? "Could not cancel tour.");
@@ -615,16 +625,25 @@ export function ManagerTours({
         }
 
         if (preview.action === "reschedule") {
-          const useSharedDraft = preview.rows.length === 1;
           for (const row of preview.rows) {
             const times = preview.rowTimes?.[row.id];
             if (!times) continue;
             if (isUpcomingPlanned(row)) {
+              const rowCtx = buildRescheduleNotifyContext(row, times);
+              const rowSubject = useSharedDraft ? subject : TOUR_RESCHEDULED_TENANT_SUBJECT;
+              const rowBody = useSharedDraft
+                ? body
+                : buildTourRescheduledTenantBody(rowCtx, {
+                    startIso: times.previousStartIso,
+                    endIso: times.previousEndIso,
+                  });
               const result = await reschedulePlannedTourFromServer({
                 plannedEventId: row.sourceId,
                 start: times.newStartIso,
                 end: times.newEndIso,
                 notifyGuest: !skipMessage,
+                subject: rowSubject,
+                body: rowBody,
               });
               if (!result.ok) {
                 showToast(result.error ?? "Could not reschedule tour.");

@@ -94,6 +94,8 @@ export function reschedulePlannedTourFromServer(input: {
   end: string;
   reason?: string;
   notifyGuest?: boolean;
+  subject?: string;
+  body?: string;
 }): Promise<ChangeResult> {
   return postTourChange("/api/portal-tour-inquiries/reschedule", {
     id: input.plannedEventId,
@@ -101,5 +103,8 @@ export function reschedulePlannedTourFromServer(input: {
     end: input.end,
     reason: input.reason,
     notifyGuest: input.notifyGuest !== false,
+    subject: input.subject,
+    body: input.body,
+    messageBody: input.body,
   });
 }

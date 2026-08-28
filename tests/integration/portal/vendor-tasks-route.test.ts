@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { jsonRequest, parseJsonResponse } from "../../helpers/api-request";
 
 vi.mock("@/lib/auth/vendor-api-access", () => ({
-  requireVendorApiAccess: vi.fn(),
+  resolveVendorPortalUserId: vi.fn(),
 }));
 
 vi.mock("@/lib/supabase/service", () => ({
@@ -14,7 +14,7 @@ vi.mock("@/lib/vendor-tasks.server", () => ({
   patchVendorAssignedTask: vi.fn(),
 }));
 
-import { requireVendorApiAccess } from "@/lib/auth/vendor-api-access";
+import { resolveVendorPortalUserId } from "@/lib/auth/vendor-api-access";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { loadVendorAssignedTasks, patchVendorAssignedTask } from "@/lib/vendor-tasks.server";
 import { GET, PATCH } from "@/app/api/vendor/tasks/route";
@@ -34,17 +34,7 @@ describe("/api/vendor/tasks", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.mocked(createSupabaseServiceRoleClient).mockReturnValue({} as never);
-    vi.mocked(requireVendorApiAccess).mockResolvedValue({
-      ok: true,
-      actor: {
-        userId: "vendor-user-1",
-        email: "vendor@example.com",
-        fullName: "Pat Vendor",
-        admin: false,
-        roles: ["vendor"],
-        effectiveRole: "vendor",
-      },
-    });
+    vi.mocked(resolveVendorPortalUserId).mockResolvedValue({ ok: true, userId: "vendor-user-1" });
     vi.mocked(loadVendorAssignedTasks).mockResolvedValue([TASK]);
     vi.mocked(patchVendorAssignedTask).mockResolvedValue({ ...TASK, completed: true });
   });
@@ -57,7 +47,7 @@ describe("/api/vendor/tasks", () => {
   });
 
   it("GET returns 401 when unauthenticated", async () => {
-    vi.mocked(requireVendorApiAccess).mockResolvedValue({ ok: false, status: 401 });
+    vi.mocked(resolveVendorPortalUserId).mockResolvedValue({ ok: false, status: 401 });
     const { status } = await parseJsonResponse(await GET());
     expect(status).toBe(401);
   });
