@@ -80,6 +80,17 @@ function isPaidRow(row: DemoManagerPaymentLedgerRow): boolean {
   return row.statusLabel === "Paid" || row.balanceDue === "$0.00";
 }
 
+/**
+ * A paid security deposit is the only thing PropLane can send back.
+ *
+ * Rent is the manager's income; a deposit was never their money. The route re-checks all of this
+ * server-side — this only decides whether to OFFER the button, so a manager is not shown an
+ * action that will always be refused.
+ */
+function isReturnableDepositRow(row: DemoManagerPaymentLedgerRow): boolean {
+  return row.chargeKind === "security_deposit" && isPaidRow(row) && Boolean(row.householdChargeId);
+}
+
 function isRemindableRow(row: DemoManagerPaymentLedgerRow): boolean {
   return !isPaidRow(row) && Boolean(row.householdChargeId || row.id);
 }
@@ -203,6 +214,7 @@ export function ManagerPaymentsLedgerPanel({
   onAddPayment?: () => void;
 }) {
   const { showToast } = useAppUi();
+  const [returningDepositId, setReturningDepositId] = useState<string | null>(null);
   const navigate = usePortalNavigate();
   const [editingRowId, setEditingRowId] = useState<string | null>(null);
   const [editAmountDraft, setEditAmountDraft] = useState("");
@@ -1024,6 +1036,65 @@ export function ManagerPaymentsLedgerPanel({
         menuItem: (
           <DropdownMenuItem data-attr="payments-mark-selected-paid" onSelect={markSelectedAsPaid}>
             Mark as paid
+          </DropdownMenuItem>
+        ),
+      });
+    }
+
+    const returnableDeposits = selectedRows.filter(isReturnableDepositRow);
+    if (returnableDeposits.length === 1) {
+      const row = returnableDeposits[0]!;
+      const returnDeposit = async () => {
+        // One deposit at a time and confirmed first: this sends real money and Stripe will not
+        // un-refund it. A bulk version would make a mis-click expensive in a way no undo covers.
+        if (!window.confirm(`Return the security deposit to ${row.residentName}? This cannot be undone.`)) {
+          return;
+        }
+        setReturningDepositId(row.householdChargeId ?? row.id);
+        try {
+          const res = await fetch("/api/portal/deposit-return", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            // Only the id — the server re-reads the amount, what was already returned, and the
+            // payment to refund against, because each of those decides how much money moves.
+            body: JSON.stringify({ chargeId: row.householdChargeId }),
+          });
+          const data = (await res.json().catch(() => ({}))) as { error?: string; remainingCents?: number };
+          if (!res.ok) {
+            showToast(data.error || "Could not return the deposit.");
+            return;
+          }
+          showToast(
+            data.remainingCents
+              ? "Deposit partially returned."
+              : `Deposit returned to ${row.residentName}.`,
+          );
+          setSelectedIds(new Set());
+          onRowsChanged?.();
+        } catch {
+          showToast("Could not return the deposit.");
+        } finally {
+          setReturningDepositId(null);
+        }
+      };
+      actions.push({
+        id: "return-deposit",
+        keepPriority: 5,
+        node: (
+          <Button
+            type="button"
+            variant="outline"
+            className={PAYMENTS_BULK_BAR_BTN}
+            disabled={Boolean(returningDepositId)}
+            data-attr="payments-return-deposit"
+            onClick={() => returnDeposit()}
+          >
+            {returningDepositId ? "Returning…" : "Return deposit"}
+          </Button>
+        ),
+        menuItem: (
+          <DropdownMenuItem data-attr="payments-return-deposit" onSelect={() => void returnDeposit()}>
+            Return deposit
           </DropdownMenuItem>
         ),
       });
