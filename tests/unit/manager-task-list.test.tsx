@@ -35,6 +35,19 @@ vi.mock("@/lib/manager-tasks", () => ({
   deleteManagerTask: vi.fn(),
   reapplyManagerTasksToCalendar: vi.fn(),
 }));
+vi.mock("@/lib/service-requests-storage", () => ({
+  SERVICE_REQUESTS_EVENT: "axis:service-requests",
+  syncServiceRequestsFromServer: () => Promise.resolve([]),
+}));
+vi.mock("@/lib/manager-task-display", () => ({
+  compactTaskLocationLabel: () => null,
+  serviceRequestLocationLabel: () => null,
+  serviceRequestsAssignedToViewer: () => [],
+  taskNotesPreview: (notes: string) => ({ preview: notes, truncated: false }),
+}));
+vi.mock("@/components/portal/manager-task-form-modal", () => ({
+  ManagerTaskFormModal: () => null,
+}));
 
 describe("ManagerTaskList", () => {
   afterEach(() => cleanup());

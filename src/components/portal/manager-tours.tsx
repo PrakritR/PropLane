@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { ApplicationFilterSortFields } from "@/components/portal/application-filter-sort-fields";
+import { ManagerAddScheduledTourModal } from "@/components/portal/manager-add-scheduled-tour-modal";
 import { ManagerToursGroupedTable } from "@/components/portal/manager-tours-grouped-table";
 import { Button } from "@/components/ui/button";
 import { BulkActionBar } from "@/components/ui/bulk-action-bar";
@@ -16,7 +17,11 @@ import { PortalActiveFilterChips } from "@/components/portal/portal-filter-chips
 import { PortalFilterSortSheet } from "@/components/portal/portal-filter-sort-sheet";
 import { PORTAL_PROPERTY_FILTER_SHEET_CLASS } from "@/components/portal/portal-filter-shell";
 import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
-import { PortalDataTableEmpty } from "@/components/portal/portal-data-table";
+import {
+  PortalListAddRow,
+  PORTAL_LIST_ADD_ICONS,
+  PORTAL_LIST_ADD_ROW_WRAP_CLASS,
+} from "@/components/portal/portal-list-add-row";
 import { PORTAL_LIST_PAGE_BODY } from "@/components/portal/portal-inbox-ui";
 import {
   PortalNotificationPreviewModal,
@@ -211,6 +216,7 @@ export function ManagerTours({
   const [propertyFilters, setPropertyFilters] = useState<string[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
   const [shareTourOpen, setShareTourOpen] = useState(false);
+  const [addTourOpen, setAddTourOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
   const [notifyPreview, setNotifyPreview] = useState<TourNotifyPreview | null>(null);
@@ -1100,17 +1106,30 @@ export function ManagerTours({
         {!authReady ? (
           <p className="text-sm text-muted">Loading tours…</p>
         ) : rowsForBucket.length === 0 ? (
-          <PortalDataTableEmpty
-            message={
-              bucket === "pending"
-                ? "No pending tour requests"
-                : bucket === "upcoming"
-                  ? "No upcoming tours"
-                  : "No past tours"
-            }
-          />
+          <div className={PORTAL_LIST_ADD_ROW_WRAP_CLASS}>
+            <PortalListAddRow
+              label="Add"
+              ariaLabel="Schedule tour"
+              icon={PORTAL_LIST_ADD_ICONS.application}
+              onClick={() => setAddTourOpen(true)}
+              disabled={propertyOptions.length === 0}
+              dataAttr="tours-list-add"
+            />
+          </div>
         ) : (
-          renderGroupedTours()
+          <>
+            {renderGroupedTours()}
+            <div className={PORTAL_LIST_ADD_ROW_WRAP_CLASS}>
+              <PortalListAddRow
+                label="Add"
+                ariaLabel="Schedule tour"
+                icon={PORTAL_LIST_ADD_ICONS.application}
+                onClick={() => setAddTourOpen(true)}
+                disabled={propertyOptions.length === 0}
+                dataAttr="tours-list-add"
+              />
+            </div>
+          </>
         )}
       </div>
 
@@ -1119,6 +1138,18 @@ export function ManagerTours({
         onClose={() => setShareTourOpen(false)}
         kind="tour"
         properties={propertyOptions}
+      />
+      <ManagerAddScheduledTourModal
+        open={addTourOpen}
+        onClose={() => setAddTourOpen(false)}
+        managerUserId={userId ?? ""}
+        propertyTick={propertyTick}
+        onSaved={() => {
+          void refresh();
+          if (bucket !== "upcoming") {
+            navigate(managerTourListHref(basePath, "upcoming"));
+          }
+        }}
       />
       <ManagerPortalSettingsModal
         open={settingsOpen}

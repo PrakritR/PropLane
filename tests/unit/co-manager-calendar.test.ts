@@ -10,6 +10,7 @@ import {
 import {
   listPropertyCalendarPeers,
   managerHadAvailabilityAtSlot,
+  plannedTaskVisibleToViewer,
   plannedTourVisibleToViewer,
   tourInquiryVisibleToViewer,
   type ScheduledTourFilter,
@@ -151,5 +152,35 @@ describe("co-manager-calendar", () => {
 
     expect(managerHadAvailabilityAtSlot("owner-1", "prop-1", event.start)).toBe(true);
     expect(plannedTourVisibleToViewer(event, filter)).toBe(true);
+  });
+
+  it("scopes manager tasks to the selected property filter", () => {
+    const filter: ScheduledTourFilter = {
+      viewerUserId: "owner-1",
+      propertyId: "prop-1",
+      propertyIds: ["prop-1"],
+      peers: [],
+    };
+    const inScope = {
+      id: "task-1",
+      title: "Task · Turnover",
+      start: sharedStart,
+      end: "2026-06-30T21:30:00.000Z",
+      kind: "task",
+      managerUserId: "owner-1",
+      propertyId: "prop-1",
+    } satisfies PlannedEvent;
+    const otherHouse = { ...inScope, id: "task-2", propertyId: "prop-2" };
+    const otherManager = { ...inScope, id: "task-3", managerUserId: "cm-1" };
+
+    expect(plannedTaskVisibleToViewer(inScope, filter)).toBe(true);
+    expect(plannedTaskVisibleToViewer(otherHouse, filter)).toBe(false);
+    expect(plannedTaskVisibleToViewer(otherManager, filter)).toBe(false);
+    expect(
+      plannedTaskVisibleToViewer(
+        { ...inScope, id: "task-4", propertyId: undefined },
+        filter,
+      ),
+    ).toBe(true);
   });
 });
