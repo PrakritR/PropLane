@@ -683,7 +683,6 @@ function RentalApplicationWizardInner({
         managerUserId,
         rentalType: form.rentalType,
         residentEmail: email,
-        residentUserId: feeStepUserId,
       }).then((preview) => {
         if (cancelled) return;
         if (!preview) {
@@ -1872,7 +1871,6 @@ function RentalApplicationWizardInner({
             managerUserId: managerUserIdForFee,
             rentalType: form.rentalType,
             residentEmail: emailTrim,
-            residentUserId,
           });
           if (!feePreview) {
             const msg = "We couldn't confirm the application fee. Check your connection and try again.";

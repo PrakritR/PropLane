@@ -39,6 +39,23 @@ vi.mock("@/lib/application-fee-waiver", () => ({
   previewApplicationFeeWaiverCode: vi.fn(),
 }));
 
+vi.mock("@/lib/manager-application-settings", () => ({
+  loadManagerApplicationSettings: vi.fn().mockResolvedValue({
+    applicationFeeChargePolicy: "first_only",
+    applicationFeeOtherEnabled: false,
+    applicationFeeOtherInstructions: "",
+  }),
+}));
+
+vi.mock("@/lib/rental-application/application-policy.server", () => ({
+  shouldWaiveApplicationFeeForResidentServer: vi.fn().mockResolvedValue(true),
+}));
+
+const getUser = vi.fn().mockResolvedValue({ data: { user: null } });
+vi.mock("@/lib/supabase/server", () => ({
+  createSupabaseServerClient: async () => ({ auth: { getUser } }) as unknown as SupabaseClient,
+}));
+
 vi.mock("@/lib/application-fee-checkout.server", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/application-fee-checkout.server")>();
   return {
@@ -49,6 +66,7 @@ vi.mock("@/lib/application-fee-checkout.server", async (importOriginal) => {
 
 import { resolveApplicationFeeProperty } from "@/lib/application-fee-checkout.server";
 import { previewApplicationFeeWaiverCode } from "@/lib/application-fee-waiver";
+import { shouldWaiveApplicationFeeForResidentServer } from "@/lib/rental-application/application-policy.server";
 
 function post(body: unknown) {
   return new Request("http://localhost/api/public/application-fee-preview", {
@@ -74,6 +92,8 @@ describe("POST /api/public/application-fee-preview", () => {
   beforeEach(() => {
     vi.mocked(resolveApplicationFeeProperty).mockReset();
     vi.mocked(previewApplicationFeeWaiverCode).mockReset();
+    vi.mocked(shouldWaiveApplicationFeeForResidentServer).mockClear().mockResolvedValue(true);
+    getUser.mockReset().mockResolvedValue({ data: { user: null } });
   });
 
   it("previews the application fee only — no deposit line", async () => {
@@ -134,6 +154,60 @@ describe("POST /api/public/application-fee-preview", () => {
 
     expect(res.status).toBe(200);
     expect(json.waiver).toEqual({ valid: false, error: "That code isn't valid." });
+  });
+
+  // The waiver is true only when that address already applied to THIS manager,
+  // so answering it for an unauthenticated caller would turn a public route
+  // into an oracle for "has <person> applied to <landlord>".
+  it("never reports the repeat-applicant waiver to an anonymous caller", async () => {
+    vi.mocked(resolveApplicationFeeProperty).mockResolvedValue(resolvedListing());
+    const { POST } = await import("@/app/api/public/application-fee-preview/route");
+
+    const res = await POST(
+      post({ propertyId: "prop_1", managerUserId: "mgr_A", channel: "manual", residentEmail: "rent@example.com" }),
+    );
+    const json = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(json.repeatApplicantFeeWaived).toBeUndefined();
+    expect(shouldWaiveApplicationFeeForResidentServer).not.toHaveBeenCalled();
+  });
+
+  it("never reports the waiver for an address the session does not own", async () => {
+    vi.mocked(resolveApplicationFeeProperty).mockResolvedValue(resolvedListing());
+    getUser.mockResolvedValue({ data: { user: { id: "user_1", email: "someone@example.com" } } });
+    const { POST } = await import("@/app/api/public/application-fee-preview/route");
+
+    const res = await POST(
+      post({ propertyId: "prop_1", managerUserId: "mgr_A", channel: "manual", residentEmail: "victim@example.com" }),
+    );
+    const json = await res.json();
+
+    expect(json.repeatApplicantFeeWaived).toBeUndefined();
+    expect(shouldWaiveApplicationFeeForResidentServer).not.toHaveBeenCalled();
+  });
+
+  it("resolves the waiver for the signed-in owner of the address, from the session id", async () => {
+    vi.mocked(resolveApplicationFeeProperty).mockResolvedValue(resolvedListing());
+    getUser.mockResolvedValue({ data: { user: { id: "user_1", email: "Rent@Example.com" } } });
+    const { POST } = await import("@/app/api/public/application-fee-preview/route");
+
+    const res = await POST(
+      post({
+        propertyId: "prop_1",
+        managerUserId: "mgr_A",
+        channel: "manual",
+        residentEmail: "rent@example.com",
+        residentUserId: "spoofed_user",
+      }),
+    );
+    const json = await res.json();
+
+    expect(json.repeatApplicantFeeWaived).toBe(true);
+    expect(shouldWaiveApplicationFeeForResidentServer).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ residentEmail: "rent@example.com", residentUserId: "user_1" }),
+    );
   });
 
   it("requires propertyId and managerUserId", async () => {

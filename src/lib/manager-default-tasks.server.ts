@@ -97,7 +97,7 @@ export async function createReviewApplicationTask(
 ): Promise<ManagerTask | null> {
   const automation = await loadTaskAutomation(db, managerUserId);
   const submittedAt =
-    row.application?.submittedAt?.trim() ||
+    (row.application as { submittedAt?: string } | undefined)?.submittedAt?.trim() ||
     (row as { submittedAt?: string }).submittedAt?.trim() ||
     new Date().toISOString();
   const name = row.name?.trim() || "Applicant";

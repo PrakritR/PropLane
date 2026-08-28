@@ -4,6 +4,7 @@ import { previewApplicationFeeWaiverCode } from "@/lib/application-fee-waiver";
 import { loadManagerApplicationSettings } from "@/lib/manager-application-settings";
 import { shouldWaiveApplicationFeeForResidentServer } from "@/lib/rental-application/application-policy.server";
 import { clientIpFrom, rateLimit } from "@/lib/rate-limit";
+import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 
 export const runtime = "nodejs";
@@ -17,10 +18,28 @@ type Body = {
   waiverCode?: string;
   /** "manual" (Zelle/Venmo/other) never carries a Stripe service fee; defaults to "card". */
   channel?: "card" | "manual";
-  /** When present, resolves repeat-applicant fee waiver server-side. */
+  /**
+   * Only honored for a signed-in caller whose own session email matches it —
+   * the repeat-applicant waiver reveals that this address has applied to this
+   * manager before, which an anonymous caller must never be able to probe.
+   */
   residentEmail?: string;
-  residentUserId?: string;
 };
+
+/** The signed-in caller, or null when the request carries no session. */
+async function sessionApplicant(): Promise<{ email: string; userId: string } | null> {
+  try {
+    const supabase = await createSupabaseServerClient();
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+    const email = user?.email?.trim().toLowerCase() ?? "";
+    if (!user?.id || !email) return null;
+    return { email, userId: user.id };
+  } catch {
+    return null;
+  }
+}
 
 /**
  * Read-only itemization the applicant sees BEFORE paying: application fee,
@@ -65,15 +84,18 @@ export async function POST(req: Request) {
     const waiverCode = typeof body.waiverCode === "string" ? body.waiverCode.trim() : "";
     const waiver = waiverCode ? await previewApplicationFeeWaiverCode(db, managerUserId, waiverCode) : null;
 
-    const residentEmail = typeof body.residentEmail === "string" ? body.residentEmail.trim() : "";
+    const residentEmail = typeof body.residentEmail === "string" ? body.residentEmail.trim().toLowerCase() : "";
     let repeatApplicantFeeWaived: boolean | undefined;
     if (residentEmail.includes("@")) {
-      repeatApplicantFeeWaived = await shouldWaiveApplicationFeeForResidentServer(db, {
-        managerUserId,
-        residentEmail,
-        residentUserId: typeof body.residentUserId === "string" ? body.residentUserId : null,
-        chargePolicy: managerSettings.applicationFeeChargePolicy,
-      });
+      const applicant = await sessionApplicant();
+      if (applicant && applicant.email === residentEmail) {
+        repeatApplicantFeeWaived = await shouldWaiveApplicationFeeForResidentServer(db, {
+          managerUserId,
+          residentEmail: applicant.email,
+          residentUserId: applicant.userId,
+          chargePolicy: managerSettings.applicationFeeChargePolicy,
+        });
+      }
     }
 
     return NextResponse.json({

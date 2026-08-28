@@ -42,8 +42,12 @@ export async function fetchApplicationFeePreview(input: {
   propertyId: string;
   managerUserId: string;
   rentalType?: "standard" | "short_term";
+  /**
+   * Only the signed-in caller's own address earns a repeat-applicant waiver —
+   * the route ignores it for anyone else and resolves the resident id from the
+   * session, never from the browser.
+   */
   residentEmail?: string;
-  residentUserId?: string | null;
 }): Promise<ApplicationFeePreview | null> {
   const propertyId = input.propertyId.trim();
   const managerUserId = input.managerUserId.trim();
@@ -69,7 +73,6 @@ export async function fetchApplicationFeePreview(input: {
           managerUserId,
           rentalType: rentalType === "short_term" ? "short_term" : undefined,
           residentEmail: residentEmail.includes("@") ? residentEmail : undefined,
-          residentUserId: input.residentUserId ?? undefined,
         }),
       });
       const data = (await res.json().catch(() => ({}))) as {
