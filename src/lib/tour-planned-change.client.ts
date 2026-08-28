@@ -65,6 +65,29 @@ export function cancelPlannedTourFromServer(input: {
   });
 }
 
+export function proposePendingTourRescheduleFromServer(input: {
+  inquiryId: string;
+  previousStart: string;
+  previousEnd: string;
+  start: string;
+  end: string;
+  notifyGuest?: boolean;
+  subject?: string;
+  body?: string;
+}): Promise<ChangeResult> {
+  return postTourChange("/api/portal-tour-inquiries/propose-reschedule", {
+    id: input.inquiryId,
+    previousStart: input.previousStart,
+    previousEnd: input.previousEnd,
+    start: input.start,
+    end: input.end,
+    notifyGuest: input.notifyGuest !== false,
+    subject: input.subject,
+    body: input.body,
+    messageBody: input.body,
+  });
+}
+
 export function reschedulePlannedTourFromServer(input: {
   plannedEventId: string;
   start: string;
