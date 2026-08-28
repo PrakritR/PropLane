@@ -6,12 +6,19 @@
  * This is the money-path source of truth the apply wizard must derive its
  * gate (needsFee), displayed amount, AND booked charge from — the per-listing
  * `applicationFee` the browser catalog carries is only the grandfathered
- * fallback and can disagree with what checkout actually charges. Cached per
- * (propertyId, managerUserId) with a TTL + in-flight guard (the shared
- * client-sync pattern) so the wizard's several consumers share one request.
+ * fallback and can disagree with what checkout actually charges. Cached with a
+ * TTL + in-flight guard (the shared client-sync pattern) so the wizard's
+ * several consumers share one request.
+ *
+ * The cache key carries the VIEWER's id as well as the listing, because
+ * `repeatApplicantFeeWaived` is resolved from the caller's session — a
+ * signed-out answer served back to the same device after sign-in would charge a
+ * genuine repeat applicant the fee they are owed a waiver on.
  */
 
 import type { ApplicationFeeChargePolicy } from "@/lib/manager-application-settings";
+import { createSupabaseBrowserClient } from "@/lib/supabase/browser";
+import { safeBrowserGetSession } from "@/lib/supabase/safe-browser-session";
 
 export type ApplicationFeePreview = {
   applicationFeeCents: number;
@@ -30,6 +37,17 @@ const inFlight = new Map<string, Promise<ApplicationFeePreview | null>>();
 
 function keyFor(propertyId: string, managerUserId: string): string {
   return `${propertyId.trim()}::${managerUserId.trim()}`;
+}
+
+/** Local-only session read — this identifies a cache bucket, never authorizes. */
+async function viewerCacheId(): Promise<string> {
+  if (typeof window === "undefined") return "anon";
+  try {
+    const { session } = await safeBrowserGetSession(createSupabaseBrowserClient());
+    return session?.user?.id ?? "anon";
+  } catch {
+    return "anon";
+  }
 }
 
 /**
@@ -56,7 +74,8 @@ export async function fetchApplicationFeePreview(input: {
   const rentalType = input.rentalType === "short_term" ? "short_term" : "standard";
   const residentEmail = input.residentEmail?.trim() ?? "";
   const residentKey = residentEmail.includes("@") ? `::${residentEmail.toLowerCase()}` : "";
-  const key = `${keyFor(propertyId, managerUserId)}::${rentalType}${residentKey}`;
+  const viewerId = await viewerCacheId();
+  const key = `${keyFor(propertyId, managerUserId)}::${rentalType}::${viewerId}${residentKey}`;
   const hit = cache.get(key);
   if (hit && Date.now() - hit.at < PREVIEW_TTL_MS) return hit.value;
 
