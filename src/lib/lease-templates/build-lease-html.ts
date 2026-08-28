@@ -314,6 +314,9 @@ type ProrateOptions = {
    */
   utilitiesOnly?: boolean;
   utilitiesAmount?: number;
+  /** When the ledger snapshot is available, use its prorated amounts so the document matches payments. */
+  ledgerProratedRent?: number;
+  ledgerProratedUtilities?: number;
 };
 
 /** Cross-reference placeholders, resolved once every section has claimed its number. */
@@ -343,7 +346,10 @@ function proratedBlock(
     // the whole term rather than from the lease start to month end.
     const span = utilitiesOnly ? intraMonthStaySpan(leaseStartStr, leaseEndStr) : null;
     const day = start.getDate();
-    if (!span && day === 1) return "";
+    const hasLedgerProration =
+      (prorate?.ledgerProratedRent != null && prorate.ledgerProratedRent > 0) ||
+      (prorate?.ledgerProratedUtilities != null && prorate.ledgerProratedUtilities > 0);
+    if (!span && day === 1 && !hasLedgerProration) return "";
     const dim = span ? span.daysInMonth : new Date(start.getFullYear(), start.getMonth() + 1, 0).getDate();
     const remaining = span ? span.billableDays : dim - day + 1;
     const useManual = prorate?.method === "daily_rate" && prorate.dailyRentRate && prorate.dailyRentRate > 0;
@@ -362,7 +368,18 @@ function proratedBlock(
     const proratedUtils = useManualUtils
       ? Math.round(prorate!.dailyUtilitiesRate! * remaining * 100) / 100
       : utils ? Math.round((utils / dim) * remaining * 100) / 100 : null;
-    const total = proratedRent + (proratedUtils ?? 0);
+    let finalProratedRent = proratedRent;
+    let finalProratedUtils = proratedUtils;
+    if (prorate?.ledgerProratedRent != null || prorate?.ledgerProratedUtilities != null) {
+      finalProratedRent = utilitiesOnly ? 0 : (prorate.ledgerProratedRent ?? 0);
+      finalProratedUtils =
+        prorate.ledgerProratedUtilities != null && prorate.ledgerProratedUtilities > 0
+          ? prorate.ledgerProratedUtilities
+          : utilitiesOnly
+            ? (prorate.ledgerProratedUtilities ?? 0)
+            : proratedUtils;
+    }
+    const total = finalProratedRent + (finalProratedUtils ?? 0);
     // The header must describe the figure actually printed in the column: a room with no
     // dailyUtilitiesRate shows its MONTHLY estimate even in utilities-only mode.
     const rateCol = (utilitiesOnly ? useManualUtils : useManual) ? "Daily rate" : "Monthly rate";
@@ -386,8 +403,8 @@ function proratedBlock(
 <p>${intro}</p>
 <table>
   <tr><th>Item</th><th>${rateCol}</th><th>${utilitiesOnly ? "Days billed" : "Days remaining"}</th><th>Prorated amount</th></tr>
-  ${utilitiesOnly ? "" : `<tr><td>Rent</td><td>${rentRateDisplay}</td><td>${remaining} / ${dim}</td><td>${fmtUsd(proratedRent)}</td></tr>`}
-  ${proratedUtils != null && utilRateDisplay != null ? `<tr><td>Utilities estimate</td><td>${utilRateDisplay}</td><td>${remaining} / ${dim}</td><td>${fmtUsd(proratedUtils)}</td></tr>` : ""}
+  ${utilitiesOnly ? "" : `<tr><td>Rent</td><td>${rentRateDisplay}</td><td>${remaining} / ${dim}</td><td>${fmtUsd(finalProratedRent)}</td></tr>`}
+  ${finalProratedUtils != null && (utilitiesOnly ? finalProratedUtils > 0 : utilRateDisplay != null) ? `<tr><td>Utilities estimate</td><td>${utilRateDisplay ?? (finalProratedUtils > 0 ? fmtUsd(finalProratedUtils) : "—")}</td><td>${remaining} / ${dim}</td><td>${fmtUsd(finalProratedUtils)}</td></tr>` : ""}
   <tr class="total-row"><td colspan="3"><strong>${utilitiesOnly ? "Prorated utilities due" : "Prorated total due first month"}</strong></td><td><strong>${fmtUsd(total)}</strong></td></tr>
 </table>
 ${closing}
@@ -395,6 +412,27 @@ ${closing}
   } catch {
     return "";
   }
+}
+
+function resolveLongTermFeeAmount(
+  raw: string | undefined | null,
+  normalized: string | undefined,
+  configDefault: number | undefined,
+): number | null {
+  if (typeof raw === "string" && raw.trim()) {
+    const parsed = parseAmount(normalized ?? raw);
+    return parsed != null && parsed > 0 ? parsed : null;
+  }
+  return configDefault != null && configDefault > 0 ? configDefault : null;
+}
+
+function resolveLongTermLeaseUpFeePercent(
+  raw: number | undefined,
+  rawWasProvided: boolean,
+  configDefault: number | undefined,
+): number | undefined {
+  if (rawWasProvided) return raw;
+  return configDefault;
 }
 
 /** Full HTML document suitable for download and "Print to PDF". */
@@ -766,9 +804,21 @@ export function buildLeaseHtml(ctx: LeaseGenerationContext, config: LeaseJurisdi
   const bathroomArrangement = propertyTemplatePreview
     ? ""
     : bathroomArrangementLeaseParagraph(subNorm, specificRoom?.id);
-  const longTermBreakLeaseFee = parseAmount(subNorm?.longTermBreakLeaseFee);
-  const longTermLeaseUpFeePercent = subNorm?.longTermLeaseUpFeePercent;
-  const longTermHoldoverDailyRate = parseAmount(subNorm?.longTermHoldoverDailyRate);
+  const longTermBreakLeaseFee = resolveLongTermFeeAmount(
+    sub?.longTermBreakLeaseFee,
+    subNorm?.longTermBreakLeaseFee,
+    config.defaultLongTermBreakLeaseFeeUsd,
+  );
+  const longTermLeaseUpFeePercent = resolveLongTermLeaseUpFeePercent(
+    subNorm?.longTermLeaseUpFeePercent,
+    sub?.longTermLeaseUpFeePercent !== undefined,
+    config.defaultLongTermLeaseUpFeePercent,
+  );
+  const longTermHoldoverDailyRate = resolveLongTermFeeAmount(
+    sub?.longTermHoldoverDailyRate,
+    subNorm?.longTermHoldoverDailyRate,
+    config.defaultLongTermHoldoverDailyUsd,
+  );
   const longTermReturnedPaymentFee = parseAmount(subNorm?.longTermReturnedPaymentFee);
   const longTermDepositLaborRate = parseAmount(subNorm?.longTermDepositLaborRate);
   const longTermDepositReissueFee = parseAmount(subNorm?.longTermDepositReissueFee);
@@ -782,6 +832,23 @@ export function buildLeaseHtml(ctx: LeaseGenerationContext, config: LeaseJurisdi
   const hasConfiguredHoldover = !isMonthToMonthLease(a) && longTermHoldoverDailyRate != null && longTermHoldoverDailyRate > 0;
   const hasConfiguredEarlyTerminationTerm =
     (longTermBreakLeaseFee != null && longTermBreakLeaseFee > 0) || longTermLeaseUpFeePercent != null;
+  const washingtonStyleEntry = config.landlordEntryStatuteRef?.includes("RCW") === true;
+  const governingLawLabel = config.governingLawParagraph.includes("Washington")
+    ? "Washington law"
+    : "applicable law";
+  const terminationFeeExhibitRows = [
+    longTermBreakLeaseFee != null && longTermBreakLeaseFee > 0
+      ? `  <tr><td>Break lease fee</td><td class="amount">${fmtUsd(longTermBreakLeaseFee)}</td><td>If early termination</td></tr>`
+      : "",
+    longTermLeaseUpFeePercent != null
+      ? `  <tr><td>Lease-up fee (up to)</td><td class="amount">${longTermLeaseUpFeePercent}% of one month&apos;s rent</td><td>If early termination</td></tr>`
+      : "",
+    hasConfiguredHoldover
+      ? `  <tr><td>Holdover after lease end</td><td class="amount">${fmtUsd(longTermHoldoverDailyRate)}</td><td>Per day</td></tr>`
+      : "",
+  ]
+    .filter(Boolean)
+    .join("\n");
   const petPolicy = propertyTemplatePreview
     ? "Pet policy is specified when a resident is placed at this property."
     : (room?.petFriendly ?? list?.petFriendly)
@@ -809,6 +876,8 @@ export function buildLeaseHtml(ctx: LeaseGenerationContext, config: LeaseJurisdi
     dailyUtilitiesRate: specificRoom?.dailyUtilitiesRate,
     utilitiesOnly: isDailyBasis,
     utilitiesAmount: utilitiesNum ?? 0,
+    ledgerProratedRent: leaseBilling?.proratedRent,
+    ledgerProratedUtilities: leaseBilling?.proratedUtilities,
   });
 
   if (stay.stayKind === "short") {
@@ -974,27 +1043,42 @@ ${holdingCreditApplies ? `<p>${HOLDING_DEPOSIT_CREDIT_NOTE}</p>` : ""}
 <p>${requirements}</p>
 ${houseRules ? `<p>${houseRules}</p>` : ""}
 
-<h2>7. No Right to Remain After Check-Out</h2>
-<p>Guest must vacate the room and property by the check-out date and time. If Guest refuses to leave, Guest may be treated as a trespasser to the fullest extent permitted by law.</p>
+<h2>7. Entry</h2>
+${
+  washingtonStyleEntry
+    ? `<p>Landlord may enter the private room after providing notice required under Washington law for inspections, repairs, maintenance, or showing the room.</p>
+<p>Landlord may enter immediately without prior notice during emergencies involving health, safety, or protection of property.</p>
+<p>Landlord and authorized representatives may access shared/common areas at any time for purposes including maintenance, inspections, cleaning, repairs, safety checks, or management of the property. Residents do not have exclusive possession of shared areas.</p>`
+    : `<p>Landlord or Landlord&apos;s authorized agents may enter the private room after providing reasonable advance written notice for inspections, repairs, maintenance, or showings, as required by applicable law.</p>
+<p>Landlord may enter immediately without prior notice during emergencies involving health, safety, or protection of property.</p>
+<p>Landlord and authorized representatives may access shared/common areas at any time for maintenance, inspections, cleaning, repairs, safety checks, or management of the property. Guests do not have exclusive possession of shared areas.</p>`
+}
 
-<h2>8. Revocation of Permission</h2>
+<h2>8. No Right to Remain After Check-Out</h2>
+<p>Guest must vacate the room and property by the check-out date and time. If Guest refuses to leave, Guest may be treated as a trespasser to the fullest extent permitted by law.${
+  hasConfiguredHoldover
+    ? ` Any continued occupancy after check-out shall be charged <strong>${fmtUsd(longTermHoldoverDailyRate)} per day</strong>.`
+    : ""
+}</p>
+
+<h2>9. Revocation of Permission</h2>
 <p>Guest occupies the room by permission of the Owner/Host, not under a tenancy. To the extent permitted by applicable law, Owner/Host may revoke that permission for conduct that endangers persons or property, violates the house rules, or breaches this agreement, and Guest must then leave the property.</p>
 <p>If Guest does not leave after permission is revoked or after the check-out time, Owner/Host may contact law enforcement to remove Guest, to the fullest extent permitted by applicable law. Nothing in this section waives any right Guest may have under law that applies to this stay.</p>
 
-<h2>9. Damages and Liability</h2>
+<h2>10. Damages and Liability</h2>
 <p>Guest is responsible for any loss or damage to the room, shared areas, furnishings, or the property caused by Guest or by anyone Guest permits on the property, beyond ordinary wear from the agreed use. To the extent permitted by applicable law, Owner/Host may recover the cost of repair, replacement, or cleaning.</p>
 <p>Guest is responsible for insuring Guest's own belongings. To the extent permitted by applicable law, Owner/Host is not liable for loss, theft, or damage to Guest's personal property except to the extent caused by Owner/Host's own negligence or as otherwise required by law. Nothing in this section waives any right Guest may have under law that applies to this stay.</p>
 
-<h2>10. Shared Residence</h2>
+<h2>11. Shared Residence</h2>
 <p>Owner/Host lives on or controls the property. Guest is renting a room only and receives only temporary shared-area access as approved by Owner/Host.</p>
 
-<h2>11. No Mail / No Residency</h2>
+<h2>12. No Mail / No Residency</h2>
 <p>Guest may not receive mail, declare residency, or claim tenancy at the property. Guest may not use the property address for government ID, voter registration, banking, employment, delivery accounts, or similar residency purposes.</p>
 
-<h2>12. Condition of Room</h2>
+<h2>13. Condition of Room</h2>
 <p>Guest agrees to leave the room and shared areas in clean, undamaged condition. Owner/Host may deduct unpaid amounts, cleaning costs, missing items, or damage beyond ordinary use from the deposit.</p>
 
-<h2>13. Electronic Signature</h2>
+<h2>14. Electronic Signature</h2>
 <p>Owner/Host and Guest each sign this agreement <strong>once</strong> through the PropLane portal. The <strong>Electronic Signature Certificate</strong> at the end of the signed document is the official record of both signatures. No handwritten signature blocks appear here.</p>
 ${customTermsAddendumHtml(subNorm, "Additional Provisions from Owner/Host", propertyTemplatePreview)}
 </body></html>`;
@@ -1081,20 +1165,19 @@ ${premisesBaseDisclosureHtml}
 ${premisesDisclosureHtml}
 
 <h2>${nextSection()}. Lease Term</h2>
-<p>The initial term is <strong>${leaseTerm}</strong>, beginning <strong>${leaseStart}</strong> and ending <strong>${leaseEnd}</strong>. ${leaseTermsBody}</p>
 ${
   isMonthToMonthLease(a)
-    ? "<p>This tenancy is month-to-month and continues under the agreed terms until lawfully ended.</p>"
-    : hasConfiguredHoldover
-      ? "<p>At the conclusion of the initial term, this fixed-term lease ends and does not convert to a month-to-month tenancy.</p>"
-      : `<p>At the conclusion of the initial term, the tenancy shall convert to a month-to-month tenancy under the same terms unless either party provides written notice to terminate ${config.monthToMonthTerminationNotice ?? "within the period required by applicable law"}.</p>`
+    ? `<p>The initial term is <strong>${leaseTerm}</strong>, beginning <strong>${leaseStart}</strong> and ending <strong>${leaseEnd}</strong>. ${leaseTermsBody}</p>
+<p>This tenancy is month-to-month and continues under the agreed terms until lawfully ended.</p>`
+    : `<p>This is a fixed-term lease beginning <strong>${leaseStart}</strong> and ending <strong>${leaseEnd}</strong> (${leaseTerm}). ${leaseTermsBody}</p>
+<p>This Agreement automatically terminates at the end of the lease term and does not convert to a month-to-month tenancy unless both parties agree in writing.</p>
+<p>Resident agrees to vacate the Premises no later than <strong>12:00 PM</strong> on the final day of the lease term.${
+      hasConfiguredHoldover
+        ? ` Any continued occupancy after termination shall be charged <strong>${fmtUsd(longTermHoldoverDailyRate)} per day</strong>.`
+        : ""
+    }</p>`
 }
 <p>Landlord will use commercially reasonable efforts to deliver possession on the commencement date. If possession is delayed by a prior occupant, casualty, government order, or another event outside Landlord's reasonable control, rent will abate until possession is delivered and either party may exercise any remedy required by applicable law.</p>
-${
-  hasConfiguredHoldover
-    ? `<p><strong>Holdover:</strong> This fixed-term lease does not convert to a month-to-month tenancy after expiration. Continued occupancy after the end of the term is charged at <strong>${fmtUsd(longTermHoldoverDailyRate)} per day</strong>, to the extent permitted by applicable law.</p>`
-    : ""
-}
 
 <h2>${nextSection("rent")}. Rent</h2>
 <table>
@@ -1203,9 +1286,16 @@ ${houseRulesDisclosureHtml}
 <h3>Alterations:</h3>
 <p>Resident shall not paint, drill, install fixtures, or make any alterations without prior written approval. Unauthorized alterations must be restored at Resident's expense at move-out.</p>
 
-<h2>${nextSection()}. Landlord Entry (${config.landlordEntryStatuteRef})</h2>
-<p>Landlord or Landlord's authorized agents may enter the Premises after providing at least <strong>24 hours' advance written notice</strong> (email to Resident's address of record shall suffice) for the purpose of inspections, repairs, improvements, or showing to prospective tenants or buyers. Entry shall be at reasonable times unless agreed otherwise.</p>
+<h2>${nextSection()}. Entry (${config.landlordEntryStatuteRef})</h2>
+${
+  washingtonStyleEntry
+    ? `<p>Landlord may enter the private room after providing notice required under Washington law for inspections, repairs, maintenance, or showing the room.</p>
+<p>Landlord may enter immediately without prior notice during emergencies involving health, safety, or protection of property.</p>
+<p>Landlord and authorized representatives may access shared/common areas at any time for purposes including maintenance, inspections, cleaning, repairs, safety checks, or management of the property. Residents do not have exclusive possession of shared areas.</p>`
+    : `<p>Landlord or Landlord's authorized agents may enter the private room after providing at least <strong>24 hours' advance written notice</strong> (email to Resident's address of record shall suffice) for the purpose of inspections, repairs, improvements, or showing to prospective tenants or buyers. Entry shall be at reasonable times unless agreed otherwise.</p>
 <p>In case of <strong>emergency</strong> (fire, flood, gas leak, or other imminent hazard), Landlord may enter without notice. After an emergency entry, Landlord shall provide written notice to Resident as soon as reasonably practicable.</p>
+<p>Landlord and authorized representatives may access shared/common areas at any time for maintenance, inspections, cleaning, repairs, safety checks, or management of the property. Residents do not have exclusive possession of shared areas.</p>`
+}
 
 <h2>${nextSection()}. Assignment &amp; Subletting</h2>
 <p>Resident may not assign this lease, sublet the room, or accommodate any occupant not authorized in Section ${sectionRefs.useOccupancy} without prior written consent of Landlord. Consent shall not be unreasonably withheld where Resident provides a qualified replacement tenant. Any unauthorized subletting, including short-term rentals, constitutes material breach.</p>
@@ -1228,7 +1318,19 @@ ${defaultDisclosureHtml}
 <h2>${nextSection()}. Early Termination</h2>
 ${
   hasConfiguredEarlyTerminationTerm
-    ? `<p>If Resident terminates the lease before the end of the initial term, Resident remains responsible for lawful obligations until a replacement resident takes possession or the lease ends, whichever occurs first${config.earlyTerminationStatuteRef ? `, subject to ${escapeHtml(config.earlyTerminationStatuteRef)}` : ""}. ${longTermBreakLeaseFee != null && longTermBreakLeaseFee > 0 ? `A break-lease fee of <strong>${fmtUsd(longTermBreakLeaseFee)}</strong> may be charged.` : ""} ${longTermLeaseUpFeePercent != null ? `A prorated lease-up fee of up to <strong>${longTermLeaseUpFeePercent}% of one month's rent</strong> may be charged.` : ""} Actual re-renting costs may also be charged to the extent permitted by law.</p>`
+    ? `<p>If Resident vacates prior to lease expiration or without proper notice, Resident shall be liable for:</p>
+<ul>
+  ${longTermBreakLeaseFee != null && longTermBreakLeaseFee > 0 ? `<li>A break lease fee of <strong>${fmtUsd(longTermBreakLeaseFee)}</strong></li>` : ""}
+  ${longTermLeaseUpFeePercent != null ? `<li>A prorated lease-up fee of up to <strong>${longTermLeaseUpFeePercent}% of one month&apos;s rent</strong></li>` : ""}
+  <li>Ongoing rent, utilities, and recurring charges until a replacement resident takes possession or the lease term ends (whichever occurs first)${
+      config.earlyTerminationStatuteRef ? `, in accordance with ${escapeHtml(config.earlyTerminationStatuteRef)}` : ""
+    }</li>
+  <li>Any difference between the replacement rent and the rent under this Agreement</li>
+  <li>All actual re-renting costs, including court costs and reasonable attorneys&apos; fees</li>
+</ul>
+<p>If Resident breaks the lease without Landlord&apos;s written consent, Resident shall also be liable for actual damages and unpaid obligations permitted by ${escapeHtml(
+        governingLawLabel,
+      )}, including unpaid rent through the earlier of the lease end date or the date a replacement resident takes possession.</p>`
     : "<p>Any early termination is governed by applicable law and a written agreement between the parties.</p>"
 }
 
@@ -1278,6 +1380,7 @@ ${longTermDisputeVenue ? `<p>Venue for a dispute arising from this Agreement is 
   <tr><td>Move-in fee</td><td class="amount">${moveInFee}</td><td>One-time (non-refundable)</td></tr>
   ${showOtherSigningCost ? `<tr><td>${otherCostLabel}</td><td class="amount">${otherCostAmount}</td><td>One-time</td></tr>` : ""}
 ${customFeeExhibitRows}
+${terminationFeeExhibitRows}
   <tr class="total-row"><td><strong>Total due at signing</strong></td><td class="amount"><strong>${paySigning}</strong></td><td>At signing</td></tr>
 </table>
 ${paySigningIncludesNote ? `<p class="fee-note">Due at signing includes: ${paySigningIncludesNote}.</p>` : ""}

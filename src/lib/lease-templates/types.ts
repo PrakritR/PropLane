@@ -105,6 +105,10 @@ export type LeaseJurisdictionTemplateConfig = {
   monthToMonthTerminationNotice?: string;
   depositReturnWindow?: string;
   minimumHeatTemperature?: string;
+  /** Platform defaults for fixed-term termination fees (Washington standard terms). */
+  defaultLongTermBreakLeaseFeeUsd?: number;
+  defaultLongTermHoldoverDailyUsd?: number;
+  defaultLongTermLeaseUpFeePercent?: number;
 };
 
 /**
@@ -123,6 +127,10 @@ export const WASHINGTON_LEASE_CONFIG: LeaseJurisdictionTemplateConfig = {
   residentMaintenanceStatuteRef: "RCW 59.18.130",
   landlordMaintenanceStatuteRef: "RCW 59.18.060",
   defaultNoticeStatuteRef: "RCW 59.12.030",
+  earlyTerminationStatuteRef: "RCW 59.18.310",
+  defaultLongTermBreakLeaseFeeUsd: 900,
+  defaultLongTermHoldoverDailyUsd: 45,
+  defaultLongTermLeaseUpFeePercent: 100,
   monthToMonthTerminationNotice: "at least 20 days before the end of any monthly rental period",
   depositReturnWindow: "Within 30 days after termination of the tenancy and vacancy of the Premises",
   minimumHeatTemperature: "68°F",
