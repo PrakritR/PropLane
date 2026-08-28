@@ -180,7 +180,10 @@ export function VendorCalendarPanel() {
     const visits = rows
       .filter((r) => r.scheduledAtIso && r.bucket !== "completed")
       .map(vendorMeetingFromRow)
-      .filter((meeting): meeting is DemoMeeting => meeting !== null);
+      // A hand-written predicate here asserted `meeting is DemoMeeting`, which TypeScript rejects:
+      // the `satisfies`-checked object literal is NARROWER than DemoMeeting, so the wider type is
+      // not assignable back to the parameter. A plain null check narrows correctly on its own.
+      .filter((meeting) => meeting !== null);
     const work = availabilityRules
       .filter((rule): rule is Extract<VendorAvailabilityRule, { kind: "event" }> => rule.kind === "event")
       .map(vendorWorkMeetingFromRule);
@@ -211,7 +214,10 @@ export function VendorCalendarPanel() {
           propertyTitle: slot.propertyTitle,
         } satisfies DemoMeeting;
       })
-      .filter((meeting): meeting is DemoMeeting => meeting !== null);
+      // A hand-written predicate here asserted `meeting is DemoMeeting`, which TypeScript rejects:
+      // the `satisfies`-checked object literal is NARROWER than DemoMeeting, so the wider type is
+      // not assignable back to the parameter. A plain null check narrows correctly on its own.
+      .filter((meeting) => meeting !== null);
     return [...tasks, ...work, ...visits];
   }, [assignedTasks, availabilityRules, rows]);
 

@@ -10,6 +10,11 @@ import {
 } from "@/lib/manager-vendors-storage";
 import type { VendorAssignedTask } from "@/lib/vendor-tasks.server";
 
+// Client components import the task shape from this module rather than reaching into the server
+// one. A type-only re-export is erased at compile time, so it carries no server code into the
+// client bundle — but without it every such import fails to resolve.
+export type { VendorAssignedTask };
+
 export const VENDOR_TASKS_EVENT = "vendor-tasks-changed";
 
 function normalizeVendorAssignedTasks(raw: unknown): VendorAssignedTask[] {
