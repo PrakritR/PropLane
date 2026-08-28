@@ -289,6 +289,7 @@ export function VendorDocumentsPanel({
   return (
     <ManagerPortalPageShell
       title="Documents"
+      hideTitleOnMobileNav
       filterRow={
         <ManagerPortalFilterRow>
           <TabNav items={tabItems} activeId={tabId} />

@@ -695,6 +695,46 @@ export async function deletePlannedEventFromServer(id: string): Promise<boolean>
   return writeJsonToServer(PLANNED_KEY, readPlannedEvents());
 }
 
+/** Manager-entered tour that skips the public inquiry flow. */
+export function appendManualPlannedTourLocal(
+  managerUserId: string,
+  input: {
+    propertyId: string;
+    propertyTitle?: string;
+    roomLabel?: string;
+    guestName: string;
+    guestEmail?: string;
+    guestPhone?: string;
+    start: string;
+    end: string;
+    notes?: string;
+    assignee?: import("@/lib/work-assignment").WorkAssignee;
+  },
+): PlannedEvent {
+  const guestName = input.guestName.trim();
+  const event: PlannedEvent = {
+    id: crypto.randomUUID(),
+    title: `Tour · ${guestName || "Guest"}`,
+    start: input.start,
+    end: input.end,
+    kind: "tour",
+    managerUserId,
+    propertyId: input.propertyId,
+    propertyTitle: input.propertyTitle,
+    roomLabel: input.roomLabel,
+    adminUserId: managerUserId,
+    attendeeName: guestName || undefined,
+    attendeeEmail: input.guestEmail?.trim() || undefined,
+    attendeePhone: input.guestPhone?.trim() || undefined,
+    notes: input.notes?.trim() || undefined,
+    assignee: input.assignee,
+  };
+  const rows = readPlannedEventsRaw();
+  rows.push(event);
+  writeJson(PLANNED_KEY, rows);
+  return event;
+}
+
 /**
  * Demo seed: load calendar data (confirmed events, pending tour requests, and
  * per-storage-key availability slot sets) into the local store without the

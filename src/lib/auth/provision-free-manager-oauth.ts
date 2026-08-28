@@ -23,7 +23,7 @@ export async function provisionFreeManagerFromOAuth(
 ): Promise<{ provisioned: boolean; managerId?: string }> {
   if (!isGoogleOrGmailAccount(user)) return { provisioned: false };
 
-  const result = await ensureFreeManagerPortalAccess(supabase, user);
+  const result = await ensureFreeManagerPortalAccess(supabase, user, { trialForNewManager: false });
   if (result.status === "skipped") return { provisioned: false };
   return { provisioned: result.provisioned, managerId: result.managerId };
 }

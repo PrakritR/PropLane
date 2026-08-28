@@ -32,7 +32,7 @@ export const proPortal: PortalDefinition = {
     },
     {
       section: "task-list",
-      label: "Task list",
+      label: "Tasks",
       tabs: [
         { id: "in-progress", label: "In progress" },
         { id: "completed", label: "Completed" },
@@ -121,7 +121,7 @@ export const MANAGER_PORTAL_SMOKE_PATHS = [
   { label: "Residents", path: "/portal/residents/current" },
   { label: "Payments", path: "/portal/payments" },
   { label: "Services", path: "/portal/services/requests" },
-  { label: "Task list", path: "/portal/task-list" },
+  { label: "Tasks", path: "/portal/task-list" },
   { label: "Communication", path: "/portal/communication/active" },
   { label: "Calendar", path: "/portal/calendar" },
   { label: "Bookings", path: "/portal/bookings" },

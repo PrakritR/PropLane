@@ -479,6 +479,7 @@ export function VendorPaymentsPanel() {
   return (
     <ManagerPortalPageShell
       title="Payments"
+      hideTitleOnMobileNav
       titleAside={
         <Button
           type="button"

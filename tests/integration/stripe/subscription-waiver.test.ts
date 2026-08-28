@@ -11,7 +11,13 @@ vi.mock("@/lib/manager-access-server", () => ({
   getManagerPurchaseSku: vi.fn(async () => ({ stripeSubscriptionId: null })),
   setManagerPurchaseTier: vi.fn(async () => ({ ok: true })),
 }));
-vi.mock("@/lib/server-env", () => ({ getPaymentWaiverCode: vi.fn(() => "FREE100") }));
+vi.mock("@/lib/server-env", () => ({
+  BUILTIN_PAYMENT_WAIVER_CODE: "FREE100",
+  getPaymentWaiverCode: vi.fn(() => "FREE100"),
+  normalizePaymentWaiverCode: (code: string) => code.trim().toUpperCase().replace(/[^A-Z0-9]/g, ""),
+  paymentWaiverCodeMatches: (promo: string) =>
+    promo.trim().toUpperCase().replace(/[^A-Z0-9]/g, "") === "FREE100",
+}));
 vi.mock("@/lib/analytics/posthog", () => ({ track: vi.fn() }));
 vi.mock("@/lib/stripe", () => ({ getStripe: vi.fn(() => { throw new Error("Stripe must not be called"); }) }));
 vi.mock("@/lib/manager-stripe-subscription-sync", () => ({ reconcileManagerPurchaseWithStripe: vi.fn() }));

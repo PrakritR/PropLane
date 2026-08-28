@@ -4,6 +4,7 @@ import {
   managerScreeningAllowedForTier,
   managerSectionAllowedForTier,
   managerSectionLockedForTier,
+  managerPlanAllowsCoManagerInvites,
   managerTierPropertyLimitReached,
   maxAccountLinksForTier,
   maxPropertiesForManagerTier,
@@ -34,6 +35,13 @@ describe("manager-access", () => {
     expect(maxAccountLinksForTier("free")).toBe(1);
     expect(maxAccountLinksForTier("pro")).toBe(2);
     expect(maxAccountLinksForTier("business")).toBe(20);
+  });
+
+  it("requires Pro or Business for co-manager invites", () => {
+    expect(managerPlanAllowsCoManagerInvites("free")).toBe(false);
+    expect(managerPlanAllowsCoManagerInvites("pro")).toBe(true);
+    expect(managerPlanAllowsCoManagerInvites("business")).toBe(true);
+    expect(managerPlanAllowsCoManagerInvites(null)).toBe(false);
   });
 
   it("gates free-tier sections", () => {

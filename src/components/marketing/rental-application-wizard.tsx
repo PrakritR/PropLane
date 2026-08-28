@@ -24,6 +24,11 @@ import {
   removePendingApplicationFeeCharge,
 } from "@/lib/household-charges";
 import { fetchApplicationFeePreview } from "@/lib/rental-application/application-fee-preview-client";
+import {
+  latestAutofillProfileFromLocalRows,
+  mergeAutofillIntoWizardState,
+  type ResidentApplicationAutofillProfile,
+} from "@/lib/rental-application/resident-application-autofill";
 import { createSupabaseBrowserClient } from "@/lib/supabase/browser";
 import {
   getBundleOptionsForProperty,
@@ -442,7 +447,18 @@ function RentalApplicationWizardInner({
    * `null` = not resolved yet, which the gate treats as "fee unknown, hold
    * the applicant", never as free.
    */
-  const [serverFee, setServerFee] = useState<{ propertyId: string; cents: number } | null>(null);
+  const [serverFee, setServerFee] = useState<{
+    propertyId: string;
+    cents: number;
+    chargePolicy?: "first_only" | "every_time";
+    repeatApplicantFeeWaived?: boolean;
+    applicationFeeOtherEnabled?: boolean;
+    applicationFeeOtherInstructions?: string;
+  } | null>(null);
+  const [savedAutofillProfile, setSavedAutofillProfile] = useState<Partial<ResidentApplicationAutofillProfile> | null>(
+    null,
+  );
+  const [autofillApplied, setAutofillApplied] = useState(false);
   const [waiverCodeBusy, setWaiverCodeBusy] = useState(false);
   const [waiverCodeError, setWaiverCodeError] = useState<string | null>(null);
   /** True when the most recent background autosave of THIS application failed. */
@@ -633,7 +649,6 @@ function RentalApplicationWizardInner({
   }, []);
 
   useEffect(() => {
-    if (step !== 11) return;
     let cancelled = false;
     void (async () => {
       try {
@@ -649,29 +664,40 @@ function RentalApplicationWizardInner({
     return () => {
       cancelled = true;
     };
-  }, [step]);
+  }, []);
 
-  // Resolve the server's effective fee once the applicant reaches the review
-  // or fee step (re-runs as catalogs arrive via extrasTick, since the
-  // listing's managerUserId may not be resolvable on a cold browser).
+  // Resolve the server's effective fee once property + applicant email are known
+  // (re-runs as catalogs arrive via extrasTick).
   useEffect(() => {
-    if ((step !== 10 && step !== 11) || isDemoModeActive()) return;
+    if (isDemoModeActive()) return;
     const pid = form.propertyId.trim();
-    if (!pid) return;
+    const email = form.email.trim();
+    if (!pid || !email.includes("@")) return;
     const managerUserId = getPropertyById(pid)?.managerUserId?.trim() ?? "";
     if (!managerUserId) return;
     let cancelled = false;
     let retryTimer: number | undefined;
     const load = () => {
-      void fetchApplicationFeePreview({ propertyId: pid, managerUserId, rentalType: form.rentalType }).then((preview) => {
+      void fetchApplicationFeePreview({
+        propertyId: pid,
+        managerUserId,
+        rentalType: form.rentalType,
+        residentEmail: email,
+        residentUserId: feeStepUserId,
+      }).then((preview) => {
         if (cancelled) return;
         if (!preview) {
-          // Transient failure — keep the gate closed (fee unknown) and retry
-          // rather than leaving the applicant stuck on "Confirming…".
           retryTimer = window.setTimeout(load, 4000);
           return;
         }
-        setServerFee({ propertyId: pid, cents: preview.applicationFeeCents });
+        setServerFee({
+          propertyId: pid,
+          cents: preview.applicationFeeCents,
+          chargePolicy: preview.chargePolicy,
+          repeatApplicantFeeWaived: preview.repeatApplicantFeeWaived,
+          applicationFeeOtherEnabled: preview.applicationFeeOtherEnabled,
+          applicationFeeOtherInstructions: preview.applicationFeeOtherInstructions,
+        });
       });
     };
     load();
@@ -679,7 +705,56 @@ function RentalApplicationWizardInner({
       cancelled = true;
       if (retryTimer !== undefined) window.clearTimeout(retryTimer);
     };
-  }, [step, form.propertyId, form.rentalType, extrasTick]);
+  }, [form.propertyId, form.email, form.rentalType, feeStepUserId, extrasTick]);
+
+  useEffect(() => {
+    if (templatePreview || isDemoModeActive()) return;
+    let cancelled = false;
+    const load = async () => {
+      const email = (sessionEmail ?? form.email).trim();
+      const local = email.includes("@") ? latestAutofillProfileFromLocalRows(email) : null;
+      try {
+        const res = await fetch("/api/portal/resident-application-autofill", { credentials: "include" });
+        if (cancelled) return;
+        if (res.ok) {
+          const data = (await res.json()) as { profile?: Partial<ResidentApplicationAutofillProfile> | null };
+          setSavedAutofillProfile(data.profile ?? local);
+          return;
+        }
+      } catch {
+        /* fall through to local */
+      }
+      if (!cancelled) setSavedAutofillProfile(local);
+    };
+    void load();
+    return () => {
+      cancelled = true;
+    };
+  }, [sessionEmail, form.email, templatePreview]);
+
+  const managerFeeOther = useMemo(() => {
+    const pid = form.propertyId.trim();
+    if (!serverFee || serverFee.propertyId !== pid) {
+      return { enabled: false, instructions: "" };
+    }
+    return {
+      enabled: Boolean(serverFee.applicationFeeOtherEnabled),
+      instructions: serverFee.applicationFeeOtherInstructions?.trim() ?? "",
+    };
+  }, [serverFee, form.propertyId]);
+
+  const handleApplySavedAutofill = useCallback(() => {
+    if (!savedAutofillProfile) return;
+    setForm((prev) => {
+      const next = mergeAutofillIntoWizardState(prev, savedAutofillProfile);
+      saveRentalWizardDraft(next);
+      return next;
+    });
+    setAutofillApplied(true);
+    showToast(
+      "Filled in from your previous application. You still need to enter move-in dates and property choices for this application.",
+    );
+  }, [savedAutofillProfile, showToast]);
 
   const propertyOptions = useMemo(() => {
     void extrasTick;
@@ -1164,7 +1239,7 @@ function RentalApplicationWizardInner({
     const pid = form.propertyId.trim();
     const prop = pid ? getPropertyById(pid) : undefined;
     const sub = prop?.listingSubmission?.v === 1 ? prop.listingSubmission : undefined;
-    const next = resolveApplicationFeePayChannel(sub, form.applicationFeePayChannel);
+    const next = resolveApplicationFeePayChannel(sub, form.applicationFeePayChannel, managerFeeOther);
     if (next !== form.applicationFeePayChannel) {
       queueMicrotask(() => patchForm({ applicationFeePayChannel: next }));
     }
@@ -1232,6 +1307,11 @@ function RentalApplicationWizardInner({
       residentEmail: email,
       residentUserId: feeStepUserId,
       serverFeeCents,
+      chargePolicy: serverFee?.propertyId === pid ? serverFee.chargePolicy : undefined,
+      serverFeeWaived:
+        serverFee?.propertyId === pid && serverFee.repeatApplicantFeeWaived != null
+          ? serverFee.repeatApplicantFeeWaived
+          : undefined,
     });
     // A manager waiver code redeemed server-side (`applicationFeeWaived`) fully
     // satisfies the fee: no charge, no Stripe session, nothing owed.
@@ -1271,7 +1351,7 @@ function RentalApplicationWizardInner({
     const emailTrim = form.email.trim();
     const prop = pid ? getPropertyById(pid) : undefined;
     const sub = prop?.listingSubmission?.v === 1 ? prop.listingSubmission : undefined;
-    const payChannel = resolveApplicationFeePayChannel(sub, form.applicationFeePayChannel);
+    const payChannel = resolveApplicationFeePayChannel(sub, form.applicationFeePayChannel, managerFeeOther);
     if (!pid || !emailTrim.includes("@")) {
       setApplicationFeeCheckError("Enter your email and property before checking payment.");
       return;
@@ -1616,7 +1696,7 @@ function RentalApplicationWizardInner({
     if (!applicationFeeGate.needsFee) return submitting ? "Submitting…" : "Submit application";
     const prop = form.propertyId.trim() ? getPropertyById(form.propertyId.trim()) : undefined;
     const sub = prop?.listingSubmission?.v === 1 ? prop.listingSubmission : undefined;
-    const payChannel = resolveApplicationFeePayChannel(sub, form.applicationFeePayChannel);
+    const payChannel = resolveApplicationFeePayChannel(sub, form.applicationFeePayChannel, managerFeeOther);
     if (isAchApplicationFeeChannel(payChannel)) {
       // Card fee is paid inline above; the button only submits once it's paid.
       return applicationFeeGate.paid ? (submitting ? "Submitting…" : "Submit application") : "Complete payment above";
@@ -1778,32 +1858,45 @@ function RentalApplicationWizardInner({
         const emailTrim = form.email.trim();
         const prop = pid ? getPropertyById(pid) : undefined;
         const sub = prop?.listingSubmission?.v === 1 ? prop.listingSubmission : undefined;
-        const payChannel = resolveApplicationFeePayChannel(sub, form.applicationFeePayChannel);
+        const payChannel = resolveApplicationFeePayChannel(sub, form.applicationFeePayChannel, managerFeeOther);
         // The submit decision derives from the SERVER's effective fee (same
         // resolver checkout uses), never the browser catalog alone. If the
         // server can't answer right now, fail closed — never submit fee-free
         // on a guess.
         const managerUserIdForFee = prop?.managerUserId?.trim() ?? "";
         let serverFeeCents: number | null = null;
+        let feePreview: Awaited<ReturnType<typeof fetchApplicationFeePreview>> = null;
         if (managerUserIdForFee && !form.applicationFeeWaived) {
-          const preview = await fetchApplicationFeePreview({
+          feePreview = await fetchApplicationFeePreview({
             propertyId: pid,
             managerUserId: managerUserIdForFee,
             rentalType: form.rentalType,
+            residentEmail: emailTrim,
+            residentUserId,
           });
-          if (!preview) {
+          if (!feePreview) {
             const msg = "We couldn't confirm the application fee. Check your connection and try again.";
             setApplicationFeeCheckError(msg);
             showToast(msg);
             return;
           }
-          serverFeeCents = preview.applicationFeeCents;
+          serverFeeCents = feePreview.applicationFeeCents;
+          setServerFee({
+            propertyId: pid,
+            cents: feePreview.applicationFeeCents,
+            chargePolicy: feePreview.chargePolicy,
+            repeatApplicantFeeWaived: feePreview.repeatApplicantFeeWaived,
+            applicationFeeOtherEnabled: feePreview.applicationFeeOtherEnabled,
+            applicationFeeOtherInstructions: feePreview.applicationFeeOtherInstructions,
+          });
         }
         const feeGate = residentApplicationFeeGate({
           propertyId: pid,
           residentEmail: emailTrim,
           residentUserId,
           serverFeeCents,
+          chargePolicy: feePreview?.chargePolicy,
+          serverFeeWaived: feePreview?.repeatApplicantFeeWaived,
         });
         // A redeemed manager waiver code fully covers the fee — submit directly.
         const needsFee = feeGate.needsFee && !form.applicationFeeWaived;
@@ -2139,6 +2232,9 @@ function RentalApplicationWizardInner({
                 savedApplicationId={applicationAxisId}
                 photoSetupTokenRequired={mode !== "portal" && !sessionEmail?.includes("@")}
                 getPhotoSetupToken={() => getApplicationSetupToken(ensureApplicationId())}
+                savedAutofillAvailable={Boolean(savedAutofillProfile) && !autofillApplied}
+                onApplySavedAutofill={handleApplySavedAutofill}
+                managerFeeOther={managerFeeOther}
               />
             </div>
 

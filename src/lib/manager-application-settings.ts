@@ -22,13 +22,27 @@ import type { SupabaseClient } from "@supabase/supabase-js";
  * `row_data` JSON column that table always has — so this needs NO schema
  * migration and cannot break on a production project whose columns lag dev.
  */
+/** When to collect the manager-level application fee from repeat applicants. */
+export type ApplicationFeeChargePolicy = "first_only" | "every_time";
+
 export type ManagerApplicationSettings = {
   /** Whole-account application fee in cents. `null` = not configured. */
   applicationFeeCents: number | null;
+  /**
+   * `first_only` — waive the fee when the resident already submitted to or paid
+   * this manager (default). `every_time` — charge on every new application.
+   */
+  applicationFeeChargePolicy: ApplicationFeeChargePolicy;
+  /** Optional custom payment instructions (Zelle/Venmo/cash, etc.). */
+  applicationFeeOtherEnabled: boolean;
+  applicationFeeOtherInstructions: string;
 };
 
 export const DEFAULT_MANAGER_APPLICATION_SETTINGS: ManagerApplicationSettings = {
   applicationFeeCents: null,
+  applicationFeeChargePolicy: "first_only",
+  applicationFeeOtherEnabled: false,
+  applicationFeeOtherInstructions: "",
 };
 
 /** Legacy per-listing fallback used when no manager-level value and no listing value exists. */
@@ -49,22 +63,33 @@ export const MAX_MANAGER_APPLICATION_FEE_CENTS = 100_000;
 
 const ROW_DATA_KEY = "applicationSettings";
 
+function normalizeApplicationFeeChargePolicy(raw: unknown): ApplicationFeeChargePolicy {
+  return raw === "every_time" ? "every_time" : "first_only";
+}
+
 export function normalizeManagerApplicationSettings(raw: unknown): ManagerApplicationSettings {
   const row = (raw && typeof raw === "object" && !Array.isArray(raw) ? raw : {}) as Record<string, unknown>;
   const rawFee = row.applicationFeeCents;
-  if (typeof rawFee !== "number" || !Number.isFinite(rawFee)) {
-    return { applicationFeeCents: null };
+  let applicationFeeCents: number | null = null;
+  if (typeof rawFee === "number" && Number.isFinite(rawFee)) {
+    const cents = Math.round(rawFee);
+    if (cents === 0) {
+      applicationFeeCents = 0;
+    } else if (cents >= MIN_MANAGER_APPLICATION_FEE_CENTS) {
+      applicationFeeCents =
+        cents > MAX_MANAGER_APPLICATION_FEE_CENTS ? MAX_MANAGER_APPLICATION_FEE_CENTS : cents;
+    }
   }
-  const cents = Math.round(rawFee);
-  if (cents === 0) return { applicationFeeCents: 0 };
-  // A stored value below the chargeable minimum (including a negative) reads
-  // as unconfigured — the grandfathered listing fallback — never as "free":
-  // silently zeroing a fee the manager believes they charge is the exact
-  // revenue-loss bug this module exists to close. Writes can no longer store
-  // such a value; this guards only legacy rows.
-  if (cents < MIN_MANAGER_APPLICATION_FEE_CENTS) return { applicationFeeCents: null };
-  if (cents > MAX_MANAGER_APPLICATION_FEE_CENTS) return { applicationFeeCents: MAX_MANAGER_APPLICATION_FEE_CENTS };
-  return { applicationFeeCents: cents };
+  const instructions =
+    typeof row.applicationFeeOtherInstructions === "string" ? row.applicationFeeOtherInstructions.trim() : "";
+  const applicationFeeOtherEnabled =
+    row.applicationFeeOtherEnabled === true && instructions.length > 0;
+  return {
+    applicationFeeCents,
+    applicationFeeChargePolicy: normalizeApplicationFeeChargePolicy(row.applicationFeeChargePolicy),
+    applicationFeeOtherEnabled,
+    applicationFeeOtherInstructions: instructions,
+  };
 }
 
 export type ManagerApplicationFeeValidation =

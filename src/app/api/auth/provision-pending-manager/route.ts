@@ -23,11 +23,10 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Sign in with Google first." }, { status: 401 });
     }
 
-    // Manager OAuth registration ("Create account → Manager → Google") opts a
-    // genuinely-new account onto a 14-day Pro trial; the pricing free-select /
-    // paid pre-step caller posts no body and stays free.
+    // New managers default to a 14-day Pro trial. Callers that must commit Free
+    // immediately (pricing free-select, admin backfill) post `{ trial: false }`.
     const body = (await request.json().catch(() => null)) as { trial?: unknown } | null;
-    const trialForNewManager = body?.trial === true;
+    const trialForNewManager = body?.trial !== false;
 
     const service = createSupabaseServiceRoleClient();
     const result = await ensureFreeManagerPortalAccess(service, user, { trialForNewManager });

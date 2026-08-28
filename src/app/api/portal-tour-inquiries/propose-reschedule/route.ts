@@ -153,6 +153,8 @@ export async function POST(req: Request) {
 
     let guestNotification: { ok: boolean; skipped?: boolean; error?: string } | null = null;
 
+    const previousRowData = inquiryRecord?.row_data;
+
     const { error: writeError } = await db.from("portal_schedule_records").upsert(
       {
         id: INQUIRIES_RECORD_ID,
@@ -185,6 +187,19 @@ export async function POST(req: Request) {
         body: customBody || undefined,
       });
       if (!guestNotification.ok && !guestNotification.skipped) {
+        if (previousRowData) {
+          await db.from("portal_schedule_records").upsert(
+            {
+              id: INQUIRIES_RECORD_ID,
+              manager_user_id: null,
+              property_id: null,
+              record_type: INQUIRIES_RECORD_ID,
+              row_data: previousRowData,
+              updated_at: new Date().toISOString(),
+            },
+            { onConflict: "id" },
+          );
+        }
         return NextResponse.json(
           { error: guestNotification.error ?? "Could not notify the guest about the new time." },
           { status: 500 },

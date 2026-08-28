@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { ApplicationFilterSortFields } from "@/components/portal/application-filter-sort-fields";
+import { ManagerAddScheduledTourModal } from "@/components/portal/manager-add-scheduled-tour-modal";
 import { ManagerToursGroupedTable } from "@/components/portal/manager-tours-grouped-table";
 import { Button } from "@/components/ui/button";
 import { BulkActionBar } from "@/components/ui/bulk-action-bar";
@@ -16,7 +17,11 @@ import { PortalActiveFilterChips } from "@/components/portal/portal-filter-chips
 import { PortalFilterSortSheet } from "@/components/portal/portal-filter-sort-sheet";
 import { PORTAL_PROPERTY_FILTER_SHEET_CLASS } from "@/components/portal/portal-filter-shell";
 import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
-import { PortalDataTableEmpty } from "@/components/portal/portal-data-table";
+import {
+  PortalListAddRow,
+  PORTAL_LIST_ADD_ICONS,
+  PORTAL_LIST_ADD_ROW_WRAP_CLASS,
+} from "@/components/portal/portal-list-add-row";
 import { PORTAL_LIST_PAGE_BODY } from "@/components/portal/portal-inbox-ui";
 import {
   PortalNotificationPreviewModal,
@@ -211,6 +216,7 @@ export function ManagerTours({
   const [propertyFilters, setPropertyFilters] = useState<string[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
   const [shareTourOpen, setShareTourOpen] = useState(false);
+  const [addTourOpen, setAddTourOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
   const [notifyPreview, setNotifyPreview] = useState<TourNotifyPreview | null>(null);
@@ -504,15 +510,19 @@ export function ManagerTours({
       try {
         const subject = draft?.subject?.trim() || preview.subject;
         const body = draft?.body?.trim() || preview.body;
+        const useSharedDraft = preview.rows.length === 1;
 
         if (preview.action === "confirm") {
           for (const row of preview.rows) {
+            const rowCtx = buildTourNotifyContext(row);
+            const rowSubject = useSharedDraft ? subject : TOUR_CONFIRMED_TENANT_SUBJECT;
+            const rowBody = useSharedDraft ? body : buildTourConfirmedTenantBody(rowCtx);
             const result = await acceptPartnerInquiryFromServer(row.sourceId, {
               start: row.startIso,
               end: row.endIso,
               notifyTenant: !skipMessage,
-              subject,
-              body,
+              subject: rowSubject,
+              body: rowBody,
               assignee: draft?.assignee ?? undefined,
             });
             if (!result.ok) {
@@ -551,10 +561,13 @@ export function ManagerTours({
 
         if (preview.action === "decline") {
           for (const row of preview.rows) {
+            const rowCtx = buildTourNotifyContext(row);
+            const rowSubject = useSharedDraft ? subject : TOUR_REQUEST_REMOVED_TENANT_SUBJECT;
+            const rowBody = useSharedDraft ? body : buildTourRequestRemovedTenantBody(rowCtx);
             const ok = await deletePartnerInquiryFromServer(row.sourceId, {
               notifyTenant: !skipMessage,
-              subject,
-              body,
+              subject: rowSubject,
+              body: rowBody,
             });
             if (!ok) {
               showToast("Could not decline tour request.");
@@ -580,11 +593,14 @@ export function ManagerTours({
 
         if (preview.action === "cancel") {
           for (const row of preview.rows) {
+            const rowCtx = buildTourNotifyContext(row);
+            const rowSubject = useSharedDraft ? subject : TOUR_CANCELED_TENANT_SUBJECT;
+            const rowBody = useSharedDraft ? body : buildTourCanceledTenantBody(rowCtx);
             const result = await cancelPlannedTourFromServer({
               plannedEventId: row.sourceId,
               notifyGuest: !skipMessage,
-              subject,
-              body,
+              subject: rowSubject,
+              body: rowBody,
             });
             if (!result.ok) {
               showToast(result.error ?? "Could not cancel tour.");
@@ -609,16 +625,25 @@ export function ManagerTours({
         }
 
         if (preview.action === "reschedule") {
-          const useSharedDraft = preview.rows.length === 1;
           for (const row of preview.rows) {
             const times = preview.rowTimes?.[row.id];
             if (!times) continue;
             if (isUpcomingPlanned(row)) {
+              const rowCtx = buildRescheduleNotifyContext(row, times);
+              const rowSubject = useSharedDraft ? subject : TOUR_RESCHEDULED_TENANT_SUBJECT;
+              const rowBody = useSharedDraft
+                ? body
+                : buildTourRescheduledTenantBody(rowCtx, {
+                    startIso: times.previousStartIso,
+                    endIso: times.previousEndIso,
+                  });
               const result = await reschedulePlannedTourFromServer({
                 plannedEventId: row.sourceId,
                 start: times.newStartIso,
                 end: times.newEndIso,
                 notifyGuest: !skipMessage,
+                subject: rowSubject,
+                body: rowBody,
               });
               if (!result.ok) {
                 showToast(result.error ?? "Could not reschedule tour.");
@@ -1100,17 +1125,30 @@ export function ManagerTours({
         {!authReady ? (
           <p className="text-sm text-muted">Loading tours…</p>
         ) : rowsForBucket.length === 0 ? (
-          <PortalDataTableEmpty
-            message={
-              bucket === "pending"
-                ? "No pending tour requests"
-                : bucket === "upcoming"
-                  ? "No upcoming tours"
-                  : "No past tours"
-            }
-          />
+          <div className={PORTAL_LIST_ADD_ROW_WRAP_CLASS}>
+            <PortalListAddRow
+              label="Add"
+              ariaLabel="Schedule tour"
+              icon={PORTAL_LIST_ADD_ICONS.application}
+              onClick={() => setAddTourOpen(true)}
+              disabled={propertyOptions.length === 0}
+              dataAttr="tours-list-add"
+            />
+          </div>
         ) : (
-          renderGroupedTours()
+          <>
+            {renderGroupedTours()}
+            <div className={PORTAL_LIST_ADD_ROW_WRAP_CLASS}>
+              <PortalListAddRow
+                label="Add"
+                ariaLabel="Schedule tour"
+                icon={PORTAL_LIST_ADD_ICONS.application}
+                onClick={() => setAddTourOpen(true)}
+                disabled={propertyOptions.length === 0}
+                dataAttr="tours-list-add"
+              />
+            </div>
+          </>
         )}
       </div>
 
@@ -1119,6 +1157,18 @@ export function ManagerTours({
         onClose={() => setShareTourOpen(false)}
         kind="tour"
         properties={propertyOptions}
+      />
+      <ManagerAddScheduledTourModal
+        open={addTourOpen}
+        onClose={() => setAddTourOpen(false)}
+        managerUserId={userId ?? ""}
+        propertyTick={propertyTick}
+        onSaved={() => {
+          void refresh();
+          if (bucket !== "upcoming") {
+            navigate(managerTourListHref(basePath, "upcoming"));
+          }
+        }}
       />
       <ManagerPortalSettingsModal
         open={settingsOpen}

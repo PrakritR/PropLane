@@ -33,6 +33,14 @@ import {
   syncPersistedInboxFromServer,
   VENDOR_INBOX_STORAGE_KEY,
 } from "@/lib/portal-inbox-storage";
+import { usePortalSession } from "@/hooks/use-portal-session";
+import { formatRangeLabel } from "@/lib/demo-admin-scheduling";
+import { compactTaskLocationLabel } from "@/lib/manager-task-display";
+import {
+  fetchVendorAssignedTasks,
+  VENDOR_TASKS_EVENT,
+  type VendorAssignedTask,
+} from "@/lib/vendor-tasks.client";
 
 const BASE = "/vendor";
 
@@ -119,7 +127,6 @@ function AttentionGroup<T>({
   badge,
   dataAttr,
   items,
-  emptyMessage,
   keyForItem,
   renderRow,
 }: {
@@ -129,12 +136,13 @@ function AttentionGroup<T>({
   badge?: ReactNode;
   dataAttr?: string;
   items: T[];
-  emptyMessage: string;
   keyForItem: (item: T) => string;
   renderRow: (item: T) => ReactNode;
 }) {
   const { visible, overflow } = usePortalPreviewSlice(items);
   const { isNative } = useIsNativeApp();
+
+  if (items.length === 0) return null;
 
   return (
     <div className="space-y-2 [html[data-native]_&]:space-y-1.5">
@@ -145,9 +153,7 @@ function AttentionGroup<T>({
         badge={badge}
         dataAttr={dataAttr}
       />
-      {items.length === 0 ? (
-        <p className="text-sm text-muted [html[data-native]_&]:text-xs">{emptyMessage}</p>
-      ) : (
+      {items.length === 0 ? null : (
         <>
           <div className="divide-y divide-border overflow-hidden rounded-lg border border-border bg-card">
             {visible.map((item) => (
@@ -187,10 +193,18 @@ function propertyLabel(row: DemoManagerWorkOrderRow): string {
   return unit && unit !== "—" ? `${row.propertyName} · ${unit}` : row.propertyName;
 }
 
-/** Vendor Home — Linear KPI stat row + a "Needs attention" block across Services, Calendar, Payments, and Inbox. */
+function taskScheduleLabel(task: VendorAssignedTask): string {
+  if (task.start && task.end) return formatRangeLabel(task.start, task.end);
+  if (task.start) return fmt(task.start);
+  return "No schedule";
+}
+
+/** Vendor Home — KPI row + Needs attention across Services, Tasks, Calendar, Payments, and Communication. */
 export function VendorDashboard({ displayName }: { displayName: string }) {
   const router = useRouter();
+  const { userId } = usePortalSession();
   const [tick, setTick] = useState(0);
+  const [assignedTasks, setAssignedTasks] = useState<VendorAssignedTask[]>([]);
   const bump = () => setTick((n) => n + 1);
   const [paymentsConnected, setPaymentsConnected] = useState(false);
   const [needsContact, setNeedsContact] = useState(false);
@@ -218,13 +232,25 @@ export function VendorDashboard({ displayName }: { displayName: string }) {
     ]).then(bump);
     window.addEventListener(MANAGER_WORK_ORDERS_EVENT, bump);
     window.addEventListener(PORTAL_INBOX_CHANGED_EVENT, bump);
+    window.addEventListener(VENDOR_TASKS_EVENT, bump);
     window.addEventListener("storage", bump);
     return () => {
       window.removeEventListener(MANAGER_WORK_ORDERS_EVENT, bump);
       window.removeEventListener(PORTAL_INBOX_CHANGED_EVENT, bump);
+      window.removeEventListener(VENDOR_TASKS_EVENT, bump);
       window.removeEventListener("storage", bump);
     };
   }, []);
+
+  useEffect(() => {
+    if (!userId) {
+      setAssignedTasks([]);
+      return;
+    }
+    void fetchVendorAssignedTasks(userId)
+      .then(setAssignedTasks)
+      .catch(() => setAssignedTasks([]));
+  }, [userId, tick]);
 
   useEffect(() => {
     if (isDemoModeActive()) {
@@ -287,13 +313,19 @@ export function VendorDashboard({ displayName }: { displayName: string }) {
 
   const { openWorkOrders, upcomingVisits, quotesPending, pendingPayouts, inboxThreads } = data;
 
+  const openTasks = useMemo(
+    () => assignedTasks.filter((task) => !task.completed),
+    [assignedTasks],
+  );
+
   const payoutItems = paymentsConnected ? pendingPayouts : [];
-  const payoutsEmptyMessage = paymentsConnected
-    ? "No payouts pending."
-    : "Link your bank under Payments to receive payouts for completed work.";
 
   const openCount =
-    quotesPending.length + upcomingVisits.length + payoutItems.length + inboxThreads.length;
+    quotesPending.length +
+    upcomingVisits.length +
+    payoutItems.length +
+    inboxThreads.length +
+    openTasks.length;
 
   return (
     <ManagerPortalPageShell
@@ -388,16 +420,25 @@ export function VendorDashboard({ displayName }: { displayName: string }) {
               dataAttr="vendor-dashboard-kpi-payouts"
             />
             <PortalDashboardKpiTile
+              label="Tasks"
+              value={openTasks.length}
+              tone={openTasks.length > 0 ? "brand" : "neutral"}
+              emphasis={openTasks.length > 0}
+              href={`${BASE}/task-list/in-progress`}
+              dataAttr="vendor-dashboard-kpi-tasks"
+            />
+            <PortalDashboardKpiTile
               label="Unread messages"
               value={inboxThreads.length}
               tone={inboxThreads.length > 0 ? "brand" : "neutral"}
               emphasis={inboxThreads.length > 0}
-              href={`${BASE}/inbox/unopened`}
+              href={`${BASE}/communication/active`}
               dataAttr="vendor-dashboard-kpi-inbox"
             />
         </PortalDashboardKpiRow>
 
-        {/* Needs attention — dense issue rows grouped under tiny uppercase labels. */}
+        {/* Needs attention — only groups with items render (no empty-state boxes). */}
+        {openCount > 0 ? (
         <div className="space-y-4 [html[data-native]_&]:space-y-3">
           <div className="flex items-center gap-2">
             <span aria-hidden className="text-primary">
@@ -426,7 +467,6 @@ export function VendorDashboard({ displayName }: { displayName: string }) {
               ) : null
             }
             items={quotesPending}
-            emptyMessage="No offers awaiting your quote."
             keyForItem={(row) => row.id}
             renderRow={(row: DemoManagerWorkOrderRow) => (
               <IssueRow
@@ -446,7 +486,6 @@ export function VendorDashboard({ displayName }: { displayName: string }) {
             linkLabel="Calendar →"
             dataAttr="vendor-dashboard-calendar-link"
             items={upcomingVisits}
-            emptyMessage="No upcoming visits yet."
             keyForItem={(row) => row.id}
             renderRow={(row: DemoManagerWorkOrderRow) => {
               const scheduled = row.bucket === "scheduled";
@@ -482,7 +521,6 @@ export function VendorDashboard({ displayName }: { displayName: string }) {
               ) : null
             }
             items={payoutItems}
-            emptyMessage={payoutsEmptyMessage}
             keyForItem={(row) => row.id}
             renderRow={(row: DemoManagerWorkOrderRow) => (
               <IssueRow
@@ -498,16 +536,42 @@ export function VendorDashboard({ displayName }: { displayName: string }) {
           />
 
           <AttentionGroup
+            title="Tasks"
+            href={`${BASE}/task-list/in-progress`}
+            linkLabel="Tasks →"
+            dataAttr="vendor-dashboard-tasks-link"
+            badge={
+              openTasks.length > 0 ? (
+                <span className="inline-flex items-center gap-1.5 text-[11px] font-semibold tabular-nums text-[var(--status-pending-fg)]">
+                  <span aria-hidden className="size-1.5 rounded-full bg-current" />
+                  {openTasks.length} open
+                </span>
+              ) : null
+            }
+            items={openTasks}
+            keyForItem={(task) => `${task.managerUserId}:${task.id}`}
+            renderRow={(task) => (
+              <IssueRow
+                href={`${BASE}/task-list/in-progress`}
+                dot={DOT_PENDING}
+                title={task.title}
+                subtitle={compactTaskLocationLabel(task) ?? undefined}
+                meta={taskScheduleLabel(task)}
+                dataAttr="vendor-dashboard-attention-task"
+              />
+            )}
+          />
+
+          <AttentionGroup
             title="Communication"
-            href={`${BASE}/inbox/unopened`}
+            href={`${BASE}/communication/active`}
             linkLabel="Communication →"
             dataAttr="vendor-dashboard-messages-inbox-link"
             items={inboxThreads}
-            emptyMessage="No unread messages. Communication is clear."
             keyForItem={(thread) => thread.id}
             renderRow={(thread) => (
               <IssueRow
-                href={`${BASE}/inbox/unopened`}
+                href={`${BASE}/communication/active`}
                 dot={DOT_INFO}
                 title={thread.from || "Unknown sender"}
                 subtitle={thread.subject || thread.preview || "—"}
@@ -517,6 +581,7 @@ export function VendorDashboard({ displayName }: { displayName: string }) {
             )}
           />
         </div>
+        ) : null}
       </div>
     </ManagerPortalPageShell>
   );

@@ -970,7 +970,7 @@ export function VendorSettingsPanel() {
   }
 
   return (
-    <ManagerPortalPageShell title="Settings" subtitle="Manage your business profile, capabilities, and account preferences.">
+    <ManagerPortalPageShell title="Settings" hideTitleOnMobileNav subtitle="Manage your business profile, capabilities, and account preferences.">
       <PortalSettingsSections>
         {unlinked ? (
           <p className="rounded-lg border px-4 py-3 text-sm portal-banner-pending" data-attr="vendor-settings-unlinked-banner">

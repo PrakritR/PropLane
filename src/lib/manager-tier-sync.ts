@@ -98,6 +98,12 @@ export async function syncManagerPurchaseTierState(userId: string): Promise<void
 
   await revokeUnauthorizedManagerPaidTier(uid);
   await applyExpiredManagerPurchaseDowngrade(uid);
+  try {
+    const { disconnectCoManagerLinksForPlanDowngrade } = await import("@/lib/co-manager-plan-reconcile.server");
+    await disconnectCoManagerLinksForPlanDowngrade(uid);
+  } catch {
+    /* non-blocking */
+  }
 }
 
 export { resolveEffectiveManagerTier };

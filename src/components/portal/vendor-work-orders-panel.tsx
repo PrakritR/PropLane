@@ -730,6 +730,7 @@ export function VendorWorkOrdersPanel() {
   return (
     <ManagerPortalPageShell
       title="Services"
+      hideTitleOnMobileNav
       filterRow={
         <ManagerPortalStatusPills tabs={tabs} activeId={tab} onChange={(id) => setTab(id as VendorWorkOrderTab)} />
       }

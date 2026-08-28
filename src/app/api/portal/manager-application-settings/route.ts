@@ -7,8 +7,11 @@ import {
 } from "@/lib/application-fee-waiver";
 import {
   loadManagerApplicationSettings,
+  normalizeManagerApplicationSettings,
   saveManagerApplicationSettings,
   validateManagerApplicationFeeCents,
+  type ApplicationFeeChargePolicy,
+  type ManagerApplicationSettings,
 } from "@/lib/manager-application-settings";
 import { suggestedManagerApplicationFeeCents } from "@/lib/manager-application-settings.server";
 import {
@@ -65,23 +68,46 @@ export async function PATCH(req: Request) {
       automation = await saveApplicationAutomation(ctx.db, ctx.userId, body.automation);
     }
 
-    const handledNonFeeField = "automation" in body;
-    if (handledNonFeeField && !("applicationFeeCents" in body) && !("waiverCode" in body)) {
+    const feePatchRequested =
+      "applicationFeeCents" in body ||
+      "applicationFeeChargePolicy" in body ||
+      "applicationFeeOtherEnabled" in body ||
+      "applicationFeeOtherInstructions" in body ||
+      "waiverCode" in body;
+    if (!feePatchRequested) {
       return NextResponse.json({ automation });
     }
 
-    // Only `applicationFeeCents` is writable for the fee. A `null` clears it
-    // back to the legacy/listing fallback; a number sets the whole-account fee.
-    // Invalid input is rejected rather than coerced.
+    const existing = await loadManagerApplicationSettings(ctx.db, ctx.userId);
+
     const validated = validateManagerApplicationFeeCents(
-      "applicationFeeCents" in body ? body.applicationFeeCents : null,
+      "applicationFeeCents" in body ? body.applicationFeeCents : existing.applicationFeeCents,
     );
     if (!validated.ok) {
       return NextResponse.json({ error: validated.error }, { status: 400 });
     }
-    const saved = await saveManagerApplicationSettings(ctx.db, ctx.userId, {
+
+    const rawPolicy = body.applicationFeeChargePolicy;
+    const applicationFeeChargePolicy: ApplicationFeeChargePolicy =
+      rawPolicy === "every_time" ? "every_time" : rawPolicy === "first_only" ? "first_only" : existing.applicationFeeChargePolicy;
+
+    const instructionsRaw =
+      "applicationFeeOtherInstructions" in body
+        ? String(body.applicationFeeOtherInstructions ?? "").trim()
+        : existing.applicationFeeOtherInstructions;
+    const instructions = instructionsRaw.slice(0, 4000);
+    const applicationFeeOtherEnabled =
+      "applicationFeeOtherEnabled" in body
+        ? body.applicationFeeOtherEnabled === true && instructions.length > 0
+        : existing.applicationFeeOtherEnabled && instructions.length > 0;
+
+    const nextSettings: ManagerApplicationSettings = normalizeManagerApplicationSettings({
       applicationFeeCents: validated.applicationFeeCents,
+      applicationFeeChargePolicy,
+      applicationFeeOtherEnabled,
+      applicationFeeOtherInstructions: instructions,
     });
+    const saved = await saveManagerApplicationSettings(ctx.db, ctx.userId, nextSettings);
 
     if (!("waiverCode" in body)) {
       return NextResponse.json({ settings: saved, automation });

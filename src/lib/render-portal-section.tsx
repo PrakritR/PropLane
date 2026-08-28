@@ -30,6 +30,7 @@ import { PortalBugFeedbackPanel } from "@/components/portal/portal-bug-feedback-
 import { VendorDashboard } from "@/components/portal/vendor-dashboard";
 import { VendorWorkOrdersPanel } from "@/components/portal/vendor-work-orders-panel";
 import { VendorCalendarPanel } from "@/components/portal/vendor-calendar-panel";
+import { VendorTaskList } from "@/components/portal/vendor-task-list";
 import { VendorFinancesPanel } from "@/components/portal/vendor-finances-panel";
 import { VendorPaymentsPanel } from "@/components/portal/vendor-payments-panel";
 import { VendorDocumentsPanel } from "@/components/portal/vendor-documents-panel";
@@ -543,13 +544,18 @@ export async function renderPortalSection(
     if (kind === "pro" && section === "relationships") {
       if (tabParts?.length) {
         const teamTabRaw = tabParts[0]!;
-        // Vendors left this section; every other legacy sub-path lands on the team list rather
-        // than 404ing, because those URLs are in bookmarks.
         if (teamTabRaw === "vendors") {
           const vendorId = tabParts.length > 1 ? `/${encodeURIComponent(tabParts[1]!)}` : "";
           redirect(`${def.basePath}/vendors${vendorId}`);
         }
-        redirect(`${def.basePath}/${section}`);
+        const linkId = decodeURIComponent(teamTabRaw);
+        const ProAccountLinksPanel = await loadProAccountLinksPanel();
+        return subscriptionGated(
+          <ProAccountLinksPanel userId={effectiveWorkspaceUserId!} linkId={linkId} />,
+          kind,
+          "relationships",
+          managerOwnerSubscriptionTier,
+        );
       }
       const ProAccountLinksPanel = await loadProAccountLinksPanel();
       return subscriptionGated(
@@ -1249,6 +1255,19 @@ export async function renderPortalSection(
   if (kind === "vendor" && section === "work-orders") {
     if (tabParts?.length) notFound();
     return <VendorWorkOrdersPanel />;
+  }
+
+  if (kind === "vendor" && section === "task-list") {
+    const TASK_TABS = ["in-progress", "completed"] as const;
+    if (!tabParts?.length) {
+      redirect(`${def.basePath}/task-list/in-progress`);
+    }
+    const taskTab = tabParts[0]!;
+    if (!TASK_TABS.includes(taskTab as (typeof TASK_TABS)[number])) {
+      redirect(`${def.basePath}/task-list/in-progress`);
+    }
+    if (tabParts.length > 1) notFound();
+    return <VendorTaskList tabId={taskTab as "in-progress" | "completed"} basePath={def.basePath} />;
   }
 
   if (kind === "vendor" && section === "calendar") {

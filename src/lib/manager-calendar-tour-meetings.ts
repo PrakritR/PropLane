@@ -5,6 +5,7 @@ import {
   MEETING_PENDING_COLOR,
 } from "@/components/portal/portal-calendar-panels";
 import {
+  plannedTaskVisibleToViewer,
   plannedTourVisibleToViewer,
   tourInquiryVisibleToViewer,
   type ScheduledTourFilter,
@@ -50,7 +51,8 @@ export function buildScheduledTourMeetings(
     ? readPlannedEvents()
         .filter((event) => {
           if (event.kind === "task") {
-            return scheduledTourFilter?.viewerUserId === event.managerUserId;
+            if (!scheduledTourFilter) return false;
+            return plannedTaskVisibleToViewer(event, scheduledTourFilter);
           }
           if (showAdminMeetings) return event.kind !== "tour";
           if (!scheduledTourFilter) return false;
@@ -86,6 +88,7 @@ export function buildScheduledTourMeetings(
             roomLabel: event.roomLabel,
             instructions: event.instructions,
             kind: event.kind,
+            sourceTaskId: event.sourceTaskId,
             hostLabel: hostPeer?.label,
             isPeerTour,
           } satisfies DemoMeeting;

@@ -24,11 +24,15 @@ const setPrimaryApplicationFeeWaiverCode = vi.fn();
 vi.mock("@/lib/manager-route-guard.server", () => ({
   requireManagerRouteUser: () => requireManagerRouteUser(),
 }));
-vi.mock("@/lib/manager-application-settings", () => ({
-  loadManagerApplicationSettings: (...a: unknown[]) => loadManagerApplicationSettings(...a),
-  saveManagerApplicationSettings: (...a: unknown[]) => saveManagerApplicationSettings(...a),
-  validateManagerApplicationFeeCents: (...a: unknown[]) => validateManagerApplicationFeeCents(...a),
-}));
+vi.mock("@/lib/manager-application-settings", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/manager-application-settings")>();
+  return {
+    ...actual,
+    loadManagerApplicationSettings: (...a: unknown[]) => loadManagerApplicationSettings(...a),
+    saveManagerApplicationSettings: (...a: unknown[]) => saveManagerApplicationSettings(...a),
+    validateManagerApplicationFeeCents: (...a: unknown[]) => validateManagerApplicationFeeCents(...a),
+  };
+});
 vi.mock("@/lib/manager-application-settings.server", () => ({
   suggestedManagerApplicationFeeCents: (...a: unknown[]) => suggestedManagerApplicationFeeCents(...a),
 }));
@@ -66,8 +70,18 @@ beforeEach(() => {
   saveApplicationAutomation.mockResolvedValue(AUTOMATION);
   loadApplicationAutomation.mockResolvedValue(AUTOMATION);
   loadManagerLandlordLegalNameFromProfile.mockResolvedValue("Doe Holdings LLC");
-  loadManagerApplicationSettings.mockResolvedValue({ applicationFeeCents: 5000 });
-  saveManagerApplicationSettings.mockResolvedValue({ applicationFeeCents: 5000 });
+  loadManagerApplicationSettings.mockResolvedValue({
+    applicationFeeCents: 5000,
+    applicationFeeChargePolicy: "first_only",
+    applicationFeeOtherEnabled: false,
+    applicationFeeOtherInstructions: "",
+  });
+  saveManagerApplicationSettings.mockResolvedValue({
+    applicationFeeCents: 5000,
+    applicationFeeChargePolicy: "first_only",
+    applicationFeeOtherEnabled: false,
+    applicationFeeOtherInstructions: "",
+  });
   validateManagerApplicationFeeCents.mockReturnValue({ ok: true, applicationFeeCents: 5000 });
   suggestedManagerApplicationFeeCents.mockResolvedValue(null);
   listApplicationFeeWaiverCodes.mockResolvedValue([]);
@@ -92,19 +106,16 @@ describe("PATCH automation", () => {
     expect(saveApplicationAutomation).toHaveBeenCalled();
     expect(saveManagerApplicationSettings).toHaveBeenCalledWith({}, "mgr-1", {
       applicationFeeCents: 5000,
+      applicationFeeChargePolicy: "first_only",
+      applicationFeeOtherEnabled: false,
+      applicationFeeOtherInstructions: "",
     });
   });
 
-  it("still clears the fee for a fee-only PATCH that omits the value", async () => {
-    // Pre-existing behaviour the settings modal relies on — automation must not have changed it.
-    validateManagerApplicationFeeCents.mockReturnValue({ ok: true, applicationFeeCents: null });
-    saveManagerApplicationSettings.mockResolvedValue({ applicationFeeCents: null });
-
+  it("ignores an empty PATCH without touching stored fee settings", async () => {
     await route.PATCH(patch({}));
 
-    expect(saveManagerApplicationSettings).toHaveBeenCalledWith({}, "mgr-1", {
-      applicationFeeCents: null,
-    });
+    expect(saveManagerApplicationSettings).not.toHaveBeenCalled();
   });
 
   it("refuses an unauthenticated caller before writing anything", async () => {

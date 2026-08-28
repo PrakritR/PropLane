@@ -1,10 +1,11 @@
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 import {
   DEFAULT_MANAGER_APPLICATION_SETTINGS,
   LEGACY_DEFAULT_APPLICATION_FEE_CENTS,
   effectiveApplicationFeeCents,
+  loadManagerApplicationSettings,
   normalizeManagerApplicationSettings,
   validateManagerApplicationFeeCents,
 } from "@/lib/manager-application-settings";
@@ -28,8 +29,12 @@ vi.mock("@/lib/manager-application-settings", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/manager-application-settings")>();
   return {
     ...actual,
+    loadManagerApplicationSettings: vi.fn(
+      async (...args: Parameters<typeof actual.loadManagerApplicationSettings>) =>
+        actual.loadManagerApplicationSettings(...args),
+    ),
     saveManagerApplicationSettings: vi.fn(
-      async (_db: SupabaseClient, _userId: string, settings: { applicationFeeCents: number | null }) =>
+      async (_db: SupabaseClient, _userId: string, settings: Parameters<typeof actual.normalizeManagerApplicationSettings>[0]) =>
         actual.normalizeManagerApplicationSettings(settings),
     ),
   };
@@ -40,22 +45,38 @@ import { PATCH } from "@/app/api/portal/manager-application-settings/route";
 
 describe("normalizeManagerApplicationSettings", () => {
   it("keeps a valid cents value", () => {
-    expect(normalizeManagerApplicationSettings({ applicationFeeCents: 7500 })).toEqual({ applicationFeeCents: 7500 });
+    expect(normalizeManagerApplicationSettings({ applicationFeeCents: 7500 })).toEqual({
+      ...DEFAULT_MANAGER_APPLICATION_SETTINGS,
+      applicationFeeCents: 7500,
+    });
   });
   it("treats a missing/non-number value as unconfigured (null)", () => {
     expect(normalizeManagerApplicationSettings({})).toEqual(DEFAULT_MANAGER_APPLICATION_SETTINGS);
-    expect(normalizeManagerApplicationSettings({ applicationFeeCents: "50" })).toEqual({ applicationFeeCents: null });
-    expect(normalizeManagerApplicationSettings(null)).toEqual({ applicationFeeCents: null });
+    expect(normalizeManagerApplicationSettings({ applicationFeeCents: "50" })).toEqual({
+      ...DEFAULT_MANAGER_APPLICATION_SETTINGS,
+      applicationFeeCents: null,
+    });
+    expect(normalizeManagerApplicationSettings(null)).toEqual(DEFAULT_MANAGER_APPLICATION_SETTINGS);
   });
   it("preserves an explicit 0 (free applications) distinct from null", () => {
-    expect(normalizeManagerApplicationSettings({ applicationFeeCents: 0 })).toEqual({ applicationFeeCents: 0 });
+    expect(normalizeManagerApplicationSettings({ applicationFeeCents: 0 })).toEqual({
+      ...DEFAULT_MANAGER_APPLICATION_SETTINGS,
+      applicationFeeCents: 0,
+    });
   });
   it("treats a stored un-chargeable value (negative or non-zero sub-$1) as unconfigured, never free", () => {
-    expect(normalizeManagerApplicationSettings({ applicationFeeCents: -5 })).toEqual({ applicationFeeCents: null });
-    expect(normalizeManagerApplicationSettings({ applicationFeeCents: 50 })).toEqual({ applicationFeeCents: null });
+    expect(normalizeManagerApplicationSettings({ applicationFeeCents: -5 })).toEqual({
+      ...DEFAULT_MANAGER_APPLICATION_SETTINGS,
+      applicationFeeCents: null,
+    });
+    expect(normalizeManagerApplicationSettings({ applicationFeeCents: 50 })).toEqual({
+      ...DEFAULT_MANAGER_APPLICATION_SETTINGS,
+      applicationFeeCents: null,
+    });
   });
   it("clamps an over-cap value", () => {
     expect(normalizeManagerApplicationSettings({ applicationFeeCents: 5_000_000 })).toEqual({
+      ...DEFAULT_MANAGER_APPLICATION_SETTINGS,
       applicationFeeCents: 100_000,
     });
   });
@@ -99,6 +120,10 @@ function patchRequest(body: unknown): Request {
 }
 
 describe("PATCH /api/portal/manager-application-settings — invalid fees 400, never save as free", () => {
+  beforeEach(() => {
+    vi.mocked(loadManagerApplicationSettings).mockResolvedValue(DEFAULT_MANAGER_APPLICATION_SETTINGS);
+  });
+
   it("rejects a non-zero sub-$1 fee with 400", async () => {
     const res = await PATCH(patchRequest({ applicationFeeCents: 50 }));
     expect(res.status).toBe(400);
@@ -113,19 +138,19 @@ describe("PATCH /api/portal/manager-application-settings — invalid fees 400, n
     const res = await PATCH(patchRequest({ applicationFeeCents: 0 }));
     expect(res.status).toBe(200);
     const data = (await res.json()) as { settings?: { applicationFeeCents: number | null } };
-    expect(data.settings).toEqual({ applicationFeeCents: 0 });
+    expect(data.settings).toEqual({ ...DEFAULT_MANAGER_APPLICATION_SETTINGS, applicationFeeCents: 0 });
   });
   it("accepts a valid >= $1 fee", async () => {
     const res = await PATCH(patchRequest({ applicationFeeCents: 7500 }));
     expect(res.status).toBe(200);
     const data = (await res.json()) as { settings?: { applicationFeeCents: number | null } };
-    expect(data.settings).toEqual({ applicationFeeCents: 7500 });
+    expect(data.settings).toEqual({ ...DEFAULT_MANAGER_APPLICATION_SETTINGS, applicationFeeCents: 7500 });
   });
   it("clears the setting when applicationFeeCents is null", async () => {
     const res = await PATCH(patchRequest({ applicationFeeCents: null }));
     expect(res.status).toBe(200);
     const data = (await res.json()) as { settings?: { applicationFeeCents: number | null } };
-    expect(data.settings).toEqual({ applicationFeeCents: null });
+    expect(data.settings).toEqual({ ...DEFAULT_MANAGER_APPLICATION_SETTINGS, applicationFeeCents: null });
   });
 });
 
@@ -184,6 +209,13 @@ function makeDb(opts: { listingFee: string; managerFeeCents: number | null }): S
 }
 
 describe("resolveApplicationFeeProperty — the listing's own fee is authoritative (option B)", () => {
+  beforeEach(async () => {
+    const actual = await vi.importActual<typeof import("@/lib/manager-application-settings")>(
+      "@/lib/manager-application-settings",
+    );
+    vi.mocked(loadManagerApplicationSettings).mockImplementation(actual.loadManagerApplicationSettings);
+  });
+
   it("charges the LISTING's fee, not the account-wide fee, when the listing sets one", async () => {
     const db = makeDb({ listingFee: "$30", managerFeeCents: 7500 });
     const res = await resolveApplicationFeeProperty(db, { propertyId: "prop_1", managerUserId: "mgr_A" });

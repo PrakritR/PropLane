@@ -178,6 +178,14 @@ export function tourInquiryVisibleToViewer(row: PartnerInquiry, filter: Schedule
   return row.managerUserId === filter.viewerUserId;
 }
 
+/** Manager task blocks: owner only, scoped to the calendar's selected house(s). */
+export function plannedTaskVisibleToViewer(event: PlannedEvent, filter: ScheduledTourFilter): boolean {
+  if (event.kind !== "task") return false;
+  if (event.managerUserId !== filter.viewerUserId) return false;
+  if (!event.propertyId?.trim()) return true;
+  return eventMatchesScheduledTourProperty(event.propertyId, filter);
+}
+
 /** Confirmed tours: assigned host always; co-manager peers only if they were available at booking time. */
 export function plannedTourVisibleToViewer(event: PlannedEvent, filter: ScheduledTourFilter): boolean {
   if (event.kind !== "tour") return false;

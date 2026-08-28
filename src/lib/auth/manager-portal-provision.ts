@@ -49,22 +49,22 @@ async function isResidentOnlyAccount(supabase: SupabaseClient, userId: string): 
  * Ensures a brand-new or incomplete auth user has a manager portal account.
  * Idempotent — safe on every OAuth callback and pricing return.
  *
- * `trialForNewManager` (opt-in) upgrades the default for a GENUINELY NEW account
- * — one with no `manager_purchases` row for this user or email — from free to a
- * 14-day Pro trial (no card, no Stripe; `tier: "pro"`, `billing: "trial"`, which
- * the existing date-based expiry in `manager-tier-expiry.ts` /
+ * `trialForNewManager` controls the default for a GENUINELY NEW account — one with
+ * no `manager_purchases` row for this user or email. When true (the default), the
+ * account gets a 14-day Pro trial (no card, no Stripe; `tier: "pro"`,
+ * `billing: "trial"`, which `manager-tier-expiry.ts` /
  * `applyExpiredManagerPurchaseDowngrade` downgrades back to free after
  * `MANAGER_SUBSCRIPTION_TRIAL_DAYS`). Only the new-account branch honors it, so a
- * second sign-in / any already-provisioned account returns unchanged. The manager
- * OAuth registration path passes `true`; every other caller (pricing free-select,
- * paid pre-step, admin backfill) leaves it false and provisions free exactly as
- * before.
+ * second sign-in / any already-provisioned account returns unchanged. Callers that
+ * must commit Free immediately (pricing free-select, admin backfill) pass
+ * `trialForNewManager: false`.
  */
 export async function ensureFreeManagerPortalAccess(
   supabase: SupabaseClient,
   user: User,
   opts?: { trialForNewManager?: boolean },
 ): Promise<EnsureFreeManagerResult> {
+  const trialForNewManager = opts?.trialForNewManager !== false;
   const email = user.email?.trim().toLowerCase() ?? "";
   if (!email) return { status: "skipped", reason: "no_email" };
   if (isPrimaryAdminEmail(email)) return { status: "skipped", reason: "primary_admin" };
@@ -130,7 +130,7 @@ export async function ensureFreeManagerPortalAccess(
     });
     await finalizePendingManagerFreeTier(
       supabase,
-      opts?.trialForNewManager
+      trialForNewManager
         ? { userId: user.id, email, tier: "pro", billing: "trial", fullName }
         : { userId: user.id, email, tier: "free", billing: "monthly", fullName },
     );

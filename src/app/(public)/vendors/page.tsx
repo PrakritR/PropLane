@@ -45,7 +45,7 @@ const PERKS = [
   },
 ] as const;
 
-const VENDOR_SIGNUP_HREF = "/auth/create-account?mode=create&role=vendor";
+const VENDOR_SIGNUP_HREF = "/auth/vendor-register";
 
 export default function VendorsPage() {
   return (

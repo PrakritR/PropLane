@@ -22,11 +22,21 @@ export async function POST(req: Request) {
       reason?: unknown;
       instructions?: unknown;
       notifyGuest?: unknown;
+      subject?: unknown;
+      body?: unknown;
+      messageBody?: unknown;
     };
     const id = typeof body.id === "string" ? body.id.trim() : "";
     if (!id) return NextResponse.json({ error: "id required" }, { status: 400 });
 
     const db = createSupabaseServiceRoleClient();
+    const customSubject = typeof body.subject === "string" ? body.subject.trim() : "";
+    const customBody =
+      typeof body.messageBody === "string"
+        ? body.messageBody.trim()
+        : typeof body.body === "string"
+          ? body.body.trim()
+          : "";
     const result = await reschedulePlannedTour(db, {
       plannedEventId: id,
       actorUserId: user.id,
@@ -36,6 +46,8 @@ export async function POST(req: Request) {
       reason: typeof body.reason === "string" ? body.reason.trim() : null,
       instructions: typeof body.instructions === "string" ? body.instructions.trim() : null,
       notifyGuest: body.notifyGuest !== false,
+      notificationSubject: customSubject || undefined,
+      notificationBody: customBody || undefined,
       req,
     });
 

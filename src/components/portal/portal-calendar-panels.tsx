@@ -83,6 +83,13 @@ import {
   createScheduledWorkTask,
   scheduledTaskTitleForTour,
 } from "@/lib/manager-scheduled-work-tasks";
+import { ManagerTaskFormModal } from "@/components/portal/manager-task-form-modal";
+import { deleteManagerTask } from "@/lib/manager-tasks";
+import {
+  compactTaskPropertyLabel,
+  compactTaskRoomLabel,
+  taskNotesPreview,
+} from "@/lib/manager-task-display";
 type CalendarMode = "day" | "week" | "month";
 type RecurrenceCadence = "once" | "weekly" | "biweekly" | "monthly";
 type DragSelection = {
@@ -224,6 +231,8 @@ export type DemoMeeting = {
   // "task" arrived with manager tasks, which are planned events like any other; without it here
   // the meeting builder cannot pass a PlannedEvent straight through.
   kind?: "partner" | "tour" | "service" | "task";
+  /** Present on manager task blocks — links back to the task list row. */
+  sourceTaskId?: string;
   hostLabel?: string;
   isPeerTour?: boolean;
   /** Personal Google Calendar busy time — title/details must not be shown in the UI. */
@@ -653,6 +662,9 @@ export function PortalCalendarPanels({
   const [tourActionBusy, setTourActionBusy] = useState(false);
   const [meetingRefresh, setMeetingRefresh] = useState(0);
   const [saveStatus, setSaveStatus] = useState<"idle" | "saving" | "saved" | "error">("idle");
+  const [taskFormOpen, setTaskFormOpen] = useState(false);
+  const [taskEditId, setTaskEditId] = useState<string | null>(null);
+  const [taskNotesExpanded, setTaskNotesExpanded] = useState(false);
 
   useEffect(() => {
     if (writeStorageKeys.length === 0) return;
@@ -1149,11 +1161,21 @@ export function PortalCalendarPanels({
       ok = true;
     } else if (meeting.source === "planned") {
       const planned = readPlannedEvents().find((event) => event.id === meeting.sourceId);
-      if (planned?.googleCalendarEventId?.trim()) {
-        await deleteProplaneGoogleTourFromServer(planned.googleCalendarEventId);
-        onGoogleCalendarRefresh?.();
+      if (planned?.kind === "task" && planned.sourceTaskId && userId) {
+        try {
+          await deleteManagerTask(userId, planned.sourceTaskId);
+          ok = true;
+        } catch (e) {
+          showToast(e instanceof Error ? e.message : "Could not delete task.");
+          return;
+        }
+      } else {
+        if (planned?.googleCalendarEventId?.trim()) {
+          await deleteProplaneGoogleTourFromServer(planned.googleCalendarEventId);
+          onGoogleCalendarRefresh?.();
+        }
+        ok = await deletePlannedEventFromServer(meeting.sourceId);
       }
-      ok = await deletePlannedEventFromServer(meeting.sourceId);
     } else {
       ok = await deletePartnerInquiryFromServer(meeting.sourceId, { notifyTenant: false });
     }
@@ -1164,11 +1186,17 @@ export function PortalCalendarPanels({
       onMeetingsChanged?.();
       reloadAvailability();
       if (isPropPlaneGoogleTourMeeting(meeting)) onGoogleCalendarRefresh?.();
-      showToast(meeting.source === "inquiry" ? "Tour request removed and guest notified." : "Event deleted.");
+      showToast(
+        meeting.kind === "task"
+          ? "Task removed."
+          : meeting.source === "inquiry"
+            ? "Tour request removed and guest notified."
+            : "Event deleted.",
+      );
     } else {
       showToast("Could not delete this event.");
     }
-  }, [onGoogleCalendarRefresh, onMeetingsChanged, reloadAvailability, selectedBlock, showToast]);
+  }, [onGoogleCalendarRefresh, onMeetingsChanged, reloadAvailability, selectedBlock, showToast, userId]);
 
   const prevRefreshSig = useRef<number | undefined>(undefined);
   useEffect(() => {
@@ -1575,14 +1603,25 @@ export function PortalCalendarPanels({
     selectedBlock.meeting.kind === "tour" &&
     selectedBlock.meeting.source === "inquiry";
 
+  const selectedIsManagerTask =
+    selectedBlock?.kind === "meeting" &&
+    selectedBlock.meeting.kind === "task" &&
+    Boolean(selectedBlock.meeting.sourceTaskId);
+
+  useEffect(() => {
+    setTaskNotesExpanded(false);
+  }, [selectedBlock?.kind === "meeting" ? selectedBlock.meeting.id : null]);
+
   /** Matches the un-armed button, so arming never renames the action. */
   const selectedDeleteLabel =
-    selectedBlock?.kind === "meeting" &&
-    (selectedBlock.meeting.source === "planned" || isPropPlaneGoogleTourMeeting(selectedBlock.meeting))
-      ? "Delete event"
-      : selectedBlock?.kind === "meeting" && selectedBlock.meeting.kind === "tour"
-        ? "Delete tour"
-        : "Delete request";
+    selectedBlock?.kind === "meeting" && selectedBlock.meeting.kind === "task"
+      ? "Delete task"
+      : selectedBlock?.kind === "meeting" &&
+          (selectedBlock.meeting.source === "planned" || isPropPlaneGoogleTourMeeting(selectedBlock.meeting))
+        ? "Delete event"
+        : selectedBlock?.kind === "meeting" && selectedBlock.meeting.kind === "tour"
+          ? "Delete tour"
+          : "Delete request";
 
   const selectedKeepLabel = selectedIsGuestFacingTour
     ? "Keep tour"
@@ -1677,8 +1716,15 @@ export function PortalCalendarPanels({
               <div>
                 <p className="text-xs font-bold uppercase tracking-[0.14em] text-muted">Property</p>
                 <p className="mt-1 break-words font-medium text-foreground">
-                  {selectedBlock.meeting.propertyTitle}
-                  {selectedBlock.meeting.roomLabel ? ` · ${selectedBlock.meeting.roomLabel}` : ""}
+                  {[
+                    compactTaskPropertyLabel(
+                      selectedBlock.meeting.propertyId,
+                      selectedBlock.meeting.propertyTitle,
+                    ),
+                    compactTaskRoomLabel(selectedBlock.meeting.roomLabel),
+                  ]
+                    .filter(Boolean)
+                    .join(" · ")}
                 </p>
               </div>
             ) : null}
@@ -1687,7 +1733,26 @@ export function PortalCalendarPanels({
           {selectedBlock.meeting.notes ? (
             <div className="rounded-2xl border border-border bg-card px-4 py-3 text-sm">
               <p className="text-xs font-bold uppercase tracking-[0.14em] text-muted">Notes</p>
-              <p className="mt-1.5 whitespace-pre-wrap text-muted">{selectedBlock.meeting.notes}</p>
+              {(() => {
+                const { preview, truncated } = taskNotesPreview(selectedBlock.meeting.notes);
+                const showFull = !truncated || taskNotesExpanded;
+                return (
+                  <>
+                    <p className={`mt-1.5 whitespace-pre-wrap text-muted ${showFull ? "" : "line-clamp-4"}`}>
+                      {showFull ? selectedBlock.meeting.notes : preview}
+                    </p>
+                    {truncated ? (
+                      <button
+                        type="button"
+                        className="mt-2 text-xs font-semibold text-primary"
+                        onClick={() => setTaskNotesExpanded((open) => !open)}
+                      >
+                        {taskNotesExpanded ? "Show less" : "Show full checklist"}
+                      </button>
+                    ) : null}
+                  </>
+                );
+              })()}
             </div>
           ) : null}
 
@@ -1827,6 +1892,20 @@ export function PortalCalendarPanels({
               </>
             ) : (
               <>
+            {selectedIsManagerTask ? (
+              <Button
+                type="button"
+                variant="outline"
+                className="h-9 shrink-0 whitespace-nowrap rounded-full px-4 text-xs sm:h-10 sm:px-5 sm:text-sm"
+                data-attr="calendar-task-edit"
+                onClick={() => {
+                  setTaskEditId(selectedBlock.meeting.sourceTaskId ?? null);
+                  setTaskFormOpen(true);
+                }}
+              >
+                Edit task
+              </Button>
+            ) : null}
             {selectedBlock.meeting.email?.trim() && !pendingTourAction ? (
               <Button
                 type="button"
@@ -2956,6 +3035,24 @@ export function PortalCalendarPanels({
         </div>
       </Modal>
       {selectedBlockModal}
+      {userId ? (
+        <ManagerTaskFormModal
+          open={taskFormOpen}
+          onClose={() => {
+            setTaskFormOpen(false);
+            setTaskEditId(null);
+          }}
+          managerUserId={userId}
+          editingId={taskEditId}
+          onSaved={() => {
+            showToast("Task updated.");
+            setSelectedBlock(null);
+            setMeetingRefresh((n) => n + 1);
+            onMeetingsChanged?.();
+            reloadAvailability();
+          }}
+        />
+      ) : null}
       {tourGuestNotifyPreviewModal}
       {guestMessageModal}
     </>
