@@ -15,6 +15,11 @@ import {
   vendorAvailabilityStorageKey,
 } from "@/lib/demo-admin-scheduling";
 import {
+  fetchVendorAssignedTasks,
+  vendorTaskToMeeting,
+  VENDOR_TASKS_EVENT,
+} from "@/lib/vendor-tasks.client";
+import {
   DEFAULT_FLEXIBLE_TIMING_RANK,
   fetchVendorAvailability,
   fetchVendorFlexiblePreferences,
@@ -42,6 +47,8 @@ function propertyLabel(row: DemoManagerWorkOrderRow): string {
 const VENDOR_VISIT_DEFAULT_DURATION_MINUTES = 60;
 const VENDOR_WORK_COLOR =
   "bg-violet-500/25 text-violet-950 ring-violet-400/35 [html[data-theme=dark]_&]:bg-violet-500/20 [html[data-theme=dark]_&]:text-violet-100";
+const VENDOR_TASK_COLOR =
+  "bg-sky-500/25 text-sky-950 ring-sky-400/35 [html[data-theme=dark]_&]:bg-sky-500/20 [html[data-theme=dark]_&]:text-sky-100";
 let demoAvailabilityRuleCounter = 0;
 
 function vendorWorkMeetingFromRule(rule: Extract<VendorAvailabilityRule, { kind: "event" }>): DemoMeeting {
@@ -121,6 +128,7 @@ export function VendorCalendarPanel() {
   const [workSaving, setWorkSaving] = useState(false);
   const [prefsSaving, setPrefsSaving] = useState(false);
   const [calendarRefreshSignal, setCalendarRefreshSignal] = useState(0);
+  const [assignedTasks, setAssignedTasks] = useState<Awaited<ReturnType<typeof fetchVendorAssignedTasks>>>([]);
 
   const storageKey = useMemo(() => (userId ? vendorAvailabilityStorageKey(userId) : null), [userId]);
   const flexibleWeekdays = useMemo(() => flexibleWeekdaysFromRules(availabilityRules), [availabilityRules]);
@@ -132,6 +140,16 @@ export function VendorCalendarPanel() {
     setPreferences(prefs);
     if (userId) writeVendorFlexiblePreferencesToStorage(userId, prefs);
   }, [demo, userId]);
+
+  useEffect(() => {
+    if (!userId) return;
+    const loadTasks = () => {
+      void fetchVendorAssignedTasks(userId).then(setAssignedTasks).catch(() => undefined);
+    };
+    loadTasks();
+    window.addEventListener(VENDOR_TASKS_EVENT, loadTasks);
+    return () => window.removeEventListener(VENDOR_TASKS_EVENT, loadTasks);
+  }, [userId]);
 
   useEffect(() => {
     const sync = () => setRows(readVendorWorkOrderRows());
@@ -166,8 +184,36 @@ export function VendorCalendarPanel() {
     const work = availabilityRules
       .filter((rule): rule is Extract<VendorAvailabilityRule, { kind: "event" }> => rule.kind === "event")
       .map(vendorWorkMeetingFromRule);
-    return [...work, ...visits];
-  }, [availabilityRules, rows]);
+    const tasks = assignedTasks
+      .map((task) => {
+        const slot = vendorTaskToMeeting(task);
+        if (!slot) return null;
+        const start = new Date(slot.startIso);
+        const end = new Date(slot.endIso);
+        if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return null;
+        const durationMinutes = Math.max(
+          SLOT_DURATION_MINUTES,
+          Math.round((end.getTime() - start.getTime()) / 60_000),
+        );
+        return {
+          id: slot.id,
+          source: "external" as const,
+          sourceId: task.id,
+          startIso: slot.startIso,
+          endIso: slot.endIso,
+          dateStr: toLocalDateStr(start),
+          startSlot: Math.max(0, Math.floor((start.getHours() * 60 + start.getMinutes()) / SLOT_DURATION_MINUTES)),
+          span: Math.max(1, Math.ceil(durationMinutes / SLOT_DURATION_MINUTES)),
+          durationMinutes,
+          title: slot.title,
+          color: VENDOR_TASK_COLOR,
+          statusLabel: "Task",
+          propertyTitle: slot.propertyTitle,
+        } satisfies DemoMeeting;
+      })
+      .filter((meeting): meeting is DemoMeeting => meeting !== null);
+    return [...tasks, ...work, ...visits];
+  }, [assignedTasks, availabilityRules, rows]);
 
   const openWorkDraft = useCallback((draft: VendorWorkEventDraft) => {
     setWorkDraft(draft);
@@ -329,7 +375,7 @@ export function VendorCalendarPanel() {
 
   if (!demo && !ready) {
     return (
-      <ManagerPortalPageShell title="Calendar">
+      <ManagerPortalPageShell title="Calendar" hideTitleOnMobileNav>
         <p className="text-sm text-muted">Loading calendar…</p>
       </ManagerPortalPageShell>
     );
@@ -337,19 +383,15 @@ export function VendorCalendarPanel() {
 
   if (!demo && !userId) {
     return (
-      <ManagerPortalPageShell title="Calendar">
+      <ManagerPortalPageShell title="Calendar" hideTitleOnMobileNav>
         <p className="text-sm text-muted">Sign in to manage your availability.</p>
       </ManagerPortalPageShell>
     );
   }
 
   return (
-    <ManagerPortalPageShell title="Calendar">
-      <div className="space-y-4">
-        <p className="text-sm text-muted">
-          Drag on the grid to open visit times, click an empty slot or use Add work to log personal jobs, and mark a day flexible when managers can auto-schedule around tenant requests.
-        </p>
-        <PortalCalendarPanels
+    <ManagerPortalPageShell title="Calendar" hideTitleOnMobileNav>
+      <PortalCalendarPanels
           storageKey={storageKey}
           readOnly={false}
           compactAvailability
@@ -383,7 +425,6 @@ export function VendorCalendarPanel() {
             },
           }}
         />
-      </div>
       <VendorFlexibleSettingsModal
         open={flexModalOpen}
         preferences={preferences}

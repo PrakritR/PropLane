@@ -518,6 +518,7 @@ function VendorInvoicesView({ tabItems, tabId }: { tabItems: { id: string; label
   return (
     <ManagerPortalPageShell
       title="Finances"
+      hideTitleOnMobileNav
       titleAside={
         <Button variant="primary" onClick={() => setModalOpen(true)} data-attr="vendor-invoice-new">
           Submit invoice
@@ -671,7 +672,7 @@ export function VendorFinancesPanel({
 
   if (tabId !== "income") {
     return (
-      <ManagerPortalPageShell title="Finances">
+      <ManagerPortalPageShell title="Finances" hideTitleOnMobileNav>
         <PortalDataTableEmpty message="This finances view is not available." icon="finance" />
       </ManagerPortalPageShell>
     );
@@ -680,6 +681,7 @@ export function VendorFinancesPanel({
   return (
     <ManagerPortalPageShell
       title="Finances"
+      hideTitleOnMobileNav
       filterRow={
         <ManagerPortalFilterRow>
           <TabNav activeId={tabId} items={financeTabItems} />
