@@ -1,6 +1,5 @@
 import { normalizeE164 } from "@/lib/twilio";
 import { findAuthUserIdByEmail } from "@/lib/auth/find-auth-user-id-by-email";
-import { MANAGER_PRICING_ENTRY_PATH } from "@/lib/auth/manager-pricing-entry-path";
 import {
   findManagerPurchaseForAccount,
   isManagerOnboardingComplete,
@@ -25,8 +24,8 @@ type Body = {
 };
 
 /**
- * Creates a new manager account (pending tier selection) for email/password signup.
- * User must pick Free / Pro / Business on the manager plan screen before portal access.
+ * Creates a new manager account for email/password signup. Every new manager gets a
+ * 14-day Pro trial (no card) unless the client sends an explicit `tier` (e.g. free).
  */
 export async function POST(req: Request) {
   try {
@@ -125,16 +124,13 @@ export async function POST(req: Request) {
     // Notifications text this number automatically (STOP always honored).
     await supabase.from("profiles").update({ phone }).eq("id", userId);
 
-    if (isManagerSignupTrialTier(tierRaw)) {
-      await completeManagerSignupTrial(supabase, { userId, email, fullName, tier: tierRaw });
-      return NextResponse.json({
-        ok: true,
-        managerId,
-        redirectTo: await resolveManagerPortalEntryPath(supabase, userId),
-      });
-    }
-
-    return NextResponse.json({ ok: true, managerId, redirectTo: MANAGER_PRICING_ENTRY_PATH });
+    const trialTier = isManagerSignupTrialTier(tierRaw) ? tierRaw : "pro";
+    await completeManagerSignupTrial(supabase, { userId, email, fullName, tier: trialTier });
+    return NextResponse.json({
+      ok: true,
+      managerId,
+      redirectTo: await resolveManagerPortalEntryPath(supabase, userId),
+    });
   } catch (e) {
     const message = e instanceof Error ? e.message : "Could not create manager account.";
     const status = message.includes("already exists") ? 409 : 500;

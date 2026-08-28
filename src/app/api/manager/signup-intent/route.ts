@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { completeFreeManagerTierForUser } from "@/lib/auth/manager-pricing-selection";
 import { generateManagerId } from "@/lib/manager-id";
 import { newAxisIntentSessionId } from "@/lib/manager-signup-intent";
-import { getPaymentWaiverCode } from "@/lib/server-env";
+import { paymentWaiverCodeMatches } from "@/lib/server-env";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 
@@ -50,9 +50,8 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "tier and billing are required." }, { status: 400 });
     }
 
-    const waiverCode = getPaymentWaiverCode();
     const skipStripeForFree = tierRaw === "free";
-    const skipStripeForPromo = Boolean(waiverCode) && promo === waiverCode!.trim().toUpperCase();
+    const skipStripeForPromo = paymentWaiverCodeMatches(promo);
 
     if (!skipStripeForFree && !skipStripeForPromo) {
       return NextResponse.json(

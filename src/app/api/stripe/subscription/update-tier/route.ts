@@ -10,7 +10,7 @@ import {
 } from "@/lib/stripe-price-ids";
 import { META_SCHEDULED_BILLING, META_SCHEDULED_TIER } from "@/lib/stripe-subscription-metadata";
 import { track } from "@/lib/analytics/posthog";
-import { getPaymentWaiverCode } from "@/lib/server-env";
+import { getPaymentWaiverCode, normalizePaymentWaiverCode, paymentWaiverCodeMatches } from "@/lib/server-env";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { getStripe } from "@/lib/stripe";
@@ -89,10 +89,10 @@ export async function POST(req: Request) {
       billingBody === "monthly" || billingBody === "annual" ? billingBody : null;
 
     // Payment-waiver promo code (same validation as signup-intent / pricing-oauth-continue).
-    const promo = typeof body?.promo === "string" ? body.promo.trim().toUpperCase() : "";
-    const waiverCode = getPaymentWaiverCode();
-    const waiverValid = promo !== "" && waiverCode != null && promo === waiverCode.trim().toUpperCase();
-    if (promo && !waiverValid) {
+    const promo = typeof body?.promo === "string" ? body.promo : "";
+    const waiverValid = paymentWaiverCodeMatches(promo);
+    const promoStored = waiverValid ? normalizePaymentWaiverCode(getPaymentWaiverCode()) : "";
+    if (promo.trim() && !waiverValid) {
       return NextResponse.json(
         { error: "That promo code isn't valid.", code: "INVALID_PROMO" },
         { status: 400 },
@@ -114,7 +114,7 @@ export async function POST(req: Request) {
       if (waiverValid) {
         const billing: StripeBilling = billingRequested ?? "monthly";
         const result = await setManagerPurchaseTier(user.id, targetTier, {
-          waiver: { promoCode: promo, billing },
+          waiver: { promoCode: promoStored, billing },
         });
         if (!result.ok) {
           return NextResponse.json({ error: result.error }, { status: 400 });

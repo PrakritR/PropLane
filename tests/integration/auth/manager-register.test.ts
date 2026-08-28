@@ -131,7 +131,7 @@ describe("POST /api/auth/manager-register", () => {
     expect(data.redirectTo).toBe("/portal/dashboard");
   });
 
-  it("grants trial tier and redirects new managers to optional Google setup", async () => {
+  it("grants a Pro trial and redirects new managers to optional Google setup", async () => {
     vi.mocked(resolveManagerPortalEntryPath).mockResolvedValue("/auth/connect-google-services");
     vi.mocked(findManagerPurchaseForAccount).mockResolvedValue(null);
     vi.mocked(isManagerOnboardingComplete).mockReturnValue(false);
@@ -181,6 +181,59 @@ describe("POST /api/auth/manager-register", () => {
       userId: "user-new",
       email: "trial@example.com",
       fullName: "Trial Manager",
+      tier: "pro",
+    });
+  });
+
+  it("defaults to a Pro trial when tier is omitted", async () => {
+    vi.mocked(resolveManagerPortalEntryPath).mockResolvedValue("/auth/connect-google-services");
+    vi.mocked(findManagerPurchaseForAccount).mockResolvedValue(null);
+    vi.mocked(isManagerOnboardingComplete).mockReturnValue(false);
+    vi.mocked(provisionPendingManagerAccount).mockResolvedValue({ managerId: "MGR-PENDING-02" });
+
+    vi.mocked(createSupabaseServiceRoleClient).mockReturnValue({
+      auth: {
+        admin: {
+          createUser: vi.fn().mockResolvedValue({
+            data: { user: { id: "user-new-2" } },
+            error: null,
+          }),
+        },
+      },
+      from: vi.fn().mockReturnValue({
+        select: vi.fn().mockReturnThis(),
+        upsert: vi.fn().mockResolvedValue({ error: null }),
+        update: vi.fn().mockReturnValue({
+          eq: vi.fn().mockResolvedValue({ error: null }),
+        }),
+      }),
+    } as never);
+
+    const req = jsonRequest("http://localhost/api/auth/manager-register", {
+      method: "POST",
+      body: {
+        email: "new@example.com",
+        password: "password123",
+        fullName: "New Manager",
+        phone: "+12065550123",
+      },
+    });
+
+    const res = await managerRegister(req);
+    const { status, data } = await parseJsonResponse<{
+      ok?: boolean;
+      managerId?: string;
+      redirectTo?: string;
+    }>(res);
+
+    expect(status).toBe(200);
+    expect(data.ok).toBe(true);
+    expect(data.managerId).toBe("MGR-PENDING-02");
+    expect(data.redirectTo).toBe("/auth/connect-google-services");
+    expect(completeManagerSignupTrial).toHaveBeenCalledWith(expect.anything(), {
+      userId: "user-new-2",
+      email: "new@example.com",
+      fullName: "New Manager",
       tier: "pro",
     });
   });

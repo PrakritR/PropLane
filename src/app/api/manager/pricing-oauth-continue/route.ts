@@ -7,7 +7,7 @@ import {
 import { completeManagerSignupTrial, isManagerSignupTrialTier } from "@/lib/auth/manager-signup-trial";
 import { createManagerCheckoutSession } from "@/lib/stripe/manager-checkout";
 import { getStripe } from "@/lib/stripe";
-import { getPaymentWaiverCode } from "@/lib/server-env";
+import { paymentWaiverCodeMatches } from "@/lib/server-env";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { MANAGER_GOOGLE_SERVICES_PATH } from "@/lib/auth/manager-google-services";
@@ -126,8 +126,7 @@ export async function POST(req: Request) {
       managerId = prepared.managerId;
     }
 
-    const waiverCode = getPaymentWaiverCode();
-    const skipStripeForPromo = waiverCode != null && promo === waiverCode.trim().toUpperCase();
+    const skipStripeForPromo = paymentWaiverCodeMatches(promo);
 
     if (skipStripeForPromo) {
       const { managerId: finalizedId } = await completeFreeManagerTierForUser(supabase, {

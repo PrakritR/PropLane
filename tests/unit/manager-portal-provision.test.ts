@@ -110,14 +110,12 @@ describe("ensureFreeManagerPortalAccess", () => {
     );
   });
 
-  it("provisions a genuinely new account onto a 14-day Pro trial when opted in", async () => {
+  it("provisions a genuinely new account onto a 14-day Pro trial by default", async () => {
     const { ensureFreeManagerPortalAccess } = await import("@/lib/auth/manager-portal-provision");
     // No manager_purchases row for this user or email → genuinely new.
     findManagerPurchaseForAccount.mockResolvedValue(null);
 
-    const result = await ensureFreeManagerPortalAccess(mockSupabase() as never, testUser(), {
-      trialForNewManager: true,
-    });
+    const result = await ensureFreeManagerPortalAccess(mockSupabase() as never, testUser());
 
     expect(result).toEqual({ status: "portal_ready", managerId: "AXIS-NEW", provisioned: true });
     expect(finalizePendingManagerFreeTier).toHaveBeenCalledTimes(1);
@@ -127,11 +125,13 @@ describe("ensureFreeManagerPortalAccess", () => {
     );
   });
 
-  it("provisions a genuinely new account as free when NOT opted into the trial", async () => {
+  it("provisions a genuinely new account as free when trial is opted out", async () => {
     const { ensureFreeManagerPortalAccess } = await import("@/lib/auth/manager-portal-provision");
     findManagerPurchaseForAccount.mockResolvedValue(null);
 
-    const result = await ensureFreeManagerPortalAccess(mockSupabase() as never, testUser());
+    const result = await ensureFreeManagerPortalAccess(mockSupabase() as never, testUser(), {
+      trialForNewManager: false,
+    });
 
     expect(result).toEqual({ status: "portal_ready", managerId: "AXIS-NEW", provisioned: true });
     expect(finalizePendingManagerFreeTier).toHaveBeenCalledWith(

@@ -42,6 +42,8 @@ export async function ensurePartnerPricingFreeAccount(): Promise<{ ok: true } | 
     const res = await fetch("/api/auth/provision-pending-manager", {
       method: "POST",
       credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ trial: false }),
     });
     const body = (await res.json()) as { error?: string; skipped?: boolean };
     if (!res.ok) {

@@ -1,5 +1,5 @@
 import { describe, expect, it, beforeEach, afterEach } from "vitest";
-import { assertNonProdDatabase, getAdminRegisterKey, getPaymentWaiverCode } from "@/lib/server-env";
+import { assertNonProdDatabase, getAdminRegisterKey, getPaymentWaiverCode, paymentWaiverCodeMatches } from "@/lib/server-env";
 import { isValidAdminRegisterKey } from "@/lib/auth/admin-register-key";
 
 describe("server-env and admin-register-key", () => {
@@ -20,8 +20,15 @@ describe("server-env and admin-register-key", () => {
   it("uses dev defaults for admin and waiver keys", () => {
     expect(getAdminRegisterKey()).toBe("prakrit-admin-register");
     expect(getPaymentWaiverCode()).toBe("FREE100");
+    expect(paymentWaiverCodeMatches("free 100")).toBe(true);
     expect(isValidAdminRegisterKey("prakrit-admin-register")).toBe(true);
     expect(isValidAdminRegisterKey("wrong")).toBe(false);
+  });
+
+  it("keeps FREE100 available in production when env is unset", () => {
+    process.env.VERCEL_ENV = "production";
+    expect(getPaymentWaiverCode()).toBe("FREE100");
+    expect(paymentWaiverCodeMatches("FREE100")).toBe(true);
   });
 
   it("respects explicit env overrides", () => {

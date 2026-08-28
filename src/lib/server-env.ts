@@ -24,15 +24,30 @@ export function getAdminRegisterKey(): string | null {
 }
 
 /**
- * Payment-waiver code that bypasses Stripe checkout. In production this must be
- * set via the server-only AXIS_PAYMENT_WAIVER_CODE env var; if unset, the
- * waiver is disabled (fail closed). In dev it falls back to a well-known
- * default for convenience.
+ * Built-in payment-waiver promo. Grants lifetime paid-tier access (no Stripe
+ * subscription) when validated server-side. Override only via
+ * `AXIS_PAYMENT_WAIVER_CODE` when a different comp code is needed.
  */
-export function getPaymentWaiverCode(): string | null {
+export const BUILTIN_PAYMENT_WAIVER_CODE = "FREE100";
+
+/**
+ * Payment-waiver code that bypasses Stripe checkout. Defaults to FREE100 in every
+ * environment; set `AXIS_PAYMENT_WAIVER_CODE` to substitute a different code.
+ */
+export function getPaymentWaiverCode(): string {
   const fromEnv = process.env.AXIS_PAYMENT_WAIVER_CODE?.trim();
-  if (fromEnv) return fromEnv;
-  return isProductionRuntime() ? null : "FREE100";
+  return fromEnv || BUILTIN_PAYMENT_WAIVER_CODE;
+}
+
+/** Normalize user input (`free100`, `FREE 100`) for comparison. */
+export function normalizePaymentWaiverCode(code: string): string {
+  return code.trim().toUpperCase().replace(/[^A-Z0-9]/g, "");
+}
+
+export function paymentWaiverCodeMatches(promo: string): boolean {
+  const normalized = normalizePaymentWaiverCode(promo);
+  if (!normalized) return false;
+  return normalized === normalizePaymentWaiverCode(getPaymentWaiverCode());
 }
 
 /**

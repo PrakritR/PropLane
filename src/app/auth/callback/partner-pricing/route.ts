@@ -33,7 +33,9 @@ export async function GET(request: NextRequest) {
       if (tier === "free") {
         // The user explicitly chose the Free manager plan — provision so the account
         // is ready the moment they choose to open the portal.
-        const provisioned = await ensureFreeManagerPortalAccess(service, user);
+        const provisioned = await ensureFreeManagerPortalAccess(service, user, {
+          trialForNewManager: false,
+        });
         if (provisioned.status !== "portal_ready") {
           console.warn("Free manager provisioning skipped on partner-pricing callback:", provisioned.reason);
           return createAccountPath({ tier, billing });
