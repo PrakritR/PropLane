@@ -48,7 +48,14 @@ import {
 function formatTaskSchedule(task: ManagerTask): string {
   if (task.start && task.end) return formatRangeLabel(task.start, task.end);
   if (task.start) return formatPacificDateTime(task.start);
-  return "No schedule";
+  if (task.dueDate) return `Due ${formatPacificDateTime(task.dueDate)}`;
+  return "No schedule or due date";
+}
+
+function formatTaskAssignee(task: ManagerTask): string | null {
+  const name = task.assignee?.name?.trim();
+  if (!name) return task.assignee ? "Assigned" : null;
+  return `Assigned to ${name}`;
 }
 
 type TaskListRow =
@@ -57,7 +64,7 @@ type TaskListRow =
 
 function rowSortKey(row: TaskListRow): string {
   if (row.kind === "task") {
-    return row.task.start ?? row.task.createdAt;
+    return row.task.start ?? row.task.dueDate ?? row.task.createdAt;
   }
   return row.request.requestedAt;
 }
@@ -250,6 +257,7 @@ export function ManagerTaskList({
 
   function renderTaskRow(task: ManagerTask, completed = false) {
     const location = compactTaskLocationLabel(task);
+    const assigneeLabel = formatTaskAssignee(task);
     return (
       <li key={task.id} className="flex items-start gap-3 px-4 py-3">
         <input
@@ -257,18 +265,25 @@ export function ManagerTaskList({
           className="mt-1"
           checked={selectedIds.includes(task.id)}
           aria-label={`Select ${task.title}`}
+          onClick={(event) => event.stopPropagation()}
           onChange={(event) =>
             setSelectedIds((prev) =>
               event.target.checked ? [...prev, task.id] : prev.filter((id) => id !== task.id),
             )
           }
         />
-        <div className="min-w-0 flex-1">
+        <button
+          type="button"
+          className="min-w-0 flex-1 text-left"
+          data-attr="manager-task-row-open"
+          onClick={() => beginEdit(task)}
+        >
           <p className={`font-semibold text-foreground ${completed ? "line-through" : ""}`}>{task.title}</p>
           <p className="text-sm text-muted">{formatTaskSchedule(task)}</p>
+          {assigneeLabel ? <p className="text-xs text-muted">{assigneeLabel}</p> : null}
           {location ? <p className="text-xs text-muted">{location}</p> : null}
           {task.notes ? <TaskNotesSnippet notes={task.notes} /> : null}
-        </div>
+        </button>
       </li>
     );
   }
@@ -336,6 +351,12 @@ export function ManagerTaskList({
 
       <div className={PORTAL_LIST_PAGE_BODY}>
         {loading ? <p className="text-sm text-muted">Loading…</p> : null}
+
+        {!loading && visibleRows.length === 0 ? (
+          <p className="text-sm text-muted">
+            {tabId === "completed" ? "No completed tasks yet." : "No open tasks. Add one or they will appear when applications are submitted."}
+          </p>
+        ) : null}
 
         {!loading && visibleRows.length > 0 ? (
           <ul

@@ -30,7 +30,8 @@ import { isDemoModeActive } from "@/lib/demo/demo-session";
 function formatTaskSchedule(task: VendorAssignedTask): string {
   if (task.start && task.end) return formatRangeLabel(task.start, task.end);
   if (task.start) return formatPacificDateTime(task.start);
-  return "No schedule";
+  if (task.dueDate) return `Due ${formatPacificDateTime(task.dueDate)}`;
+  return "No schedule or due date";
 }
 
 function TaskNotesSnippet({ notes }: { notes: string }) {
@@ -185,6 +186,11 @@ export function VendorTaskList({
 
       <div className={PORTAL_LIST_PAGE_BODY}>
         {loading ? <p className="text-sm text-muted">Loading…</p> : null}
+        {!loading && visibleTasks.length === 0 ? (
+          <p className="text-sm text-muted">
+            {tabId === "completed" ? "No completed tasks yet." : "No tasks assigned to you right now."}
+          </p>
+        ) : null}
         {!loading && visibleTasks.length > 0 ? (
           <ul
             className={`divide-y divide-border rounded-2xl border border-border bg-card ${tabId === "completed" ? "opacity-80" : ""}`}

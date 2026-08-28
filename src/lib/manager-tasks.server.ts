@@ -69,9 +69,12 @@ export async function createManagerTaskRow(
   if (!title) throw new Error("Title is required.");
   const start = String(body.start ?? "").trim() || undefined;
   const end = String(body.end ?? "").trim() || undefined;
+  const dueDate = String(body.dueDate ?? "").trim() || undefined;
   if (start && end && Date.parse(end) <= Date.parse(start)) {
     throw new Error("End time must be after start time.");
   }
+  const assignee = normalizeAssignee(body.assignee) ?? undefined;
+  if (!assignee) throw new Error("Assignee is required.");
   const now = new Date().toISOString();
   const task: ManagerTask = {
     id: String(body.id ?? crypto.randomUUID()),
@@ -82,9 +85,15 @@ export async function createManagerTaskRow(
     roomLabel: typeof body.roomLabel === "string" ? body.roomLabel.trim() || undefined : undefined,
     start,
     end,
+    dueDate: start && end ? undefined : dueDate,
     durationMinutes: start && end ? durationBetween(start, end) : undefined,
     completed: false,
-    assignee: normalizeAssignee(body.assignee) ?? undefined,
+    assignee,
+    templateKey: typeof body.templateKey === "string" ? body.templateKey.trim() || undefined : undefined,
+    sourceId: typeof body.sourceId === "string" ? body.sourceId.trim() || undefined : undefined,
+    dedupKey: typeof body.dedupKey === "string" ? body.dedupKey.trim() || undefined : undefined,
+    reminderSentAt:
+      typeof body.reminderSentAt === "string" ? body.reminderSentAt.trim() || undefined : undefined,
     createdAt: now,
     updatedAt: now,
   };
@@ -102,8 +111,26 @@ export async function patchManagerTaskRow(
   const tasks = await readTasksRecord(db, managerUserId);
   const current = tasks.find((row) => row.id === taskId);
   if (!current) throw new Error("Task not found.");
-  const start = typeof patch.start === "string" ? patch.start.trim() || undefined : current.start;
-  const end = typeof patch.end === "string" ? patch.end.trim() || undefined : current.end;
+  const start =
+    patch.start !== undefined
+      ? typeof patch.start === "string"
+        ? patch.start.trim() || undefined
+        : undefined
+      : current.start;
+  const end =
+    patch.end !== undefined
+      ? typeof patch.end === "string"
+        ? patch.end.trim() || undefined
+        : undefined
+      : current.end;
+  const dueDate =
+    patch.dueDate !== undefined
+      ? typeof patch.dueDate === "string"
+        ? patch.dueDate.trim() || undefined
+        : undefined
+      : start && end
+        ? undefined
+        : current.dueDate;
   const durationMinutes =
     typeof patch.durationMinutes === "number" && Number.isFinite(patch.durationMinutes)
       ? Math.max(15, Math.round(patch.durationMinutes))
@@ -112,6 +139,11 @@ export async function patchManagerTaskRow(
         : start
           ? current.durationMinutes
           : undefined;
+  const assignee =
+    patch.assignee !== undefined
+      ? normalizeAssignee(patch.assignee) ?? undefined
+      : current.assignee;
+  if (patch.assignee !== undefined && !assignee) throw new Error("Assignee is required.");
   const next: ManagerTask = {
     ...current,
     title: typeof patch.title === "string" ? patch.title.trim() || current.title : current.title,
@@ -126,12 +158,10 @@ export async function patchManagerTaskRow(
       typeof patch.roomLabel === "string" ? patch.roomLabel.trim() || undefined : current.roomLabel,
     start,
     end,
+    dueDate: start && end ? undefined : dueDate,
     durationMinutes,
     completed: patch.completed === true ? true : patch.completed === false ? false : current.completed,
-    assignee:
-      patch.assignee !== undefined
-        ? normalizeAssignee(patch.assignee) ?? undefined
-        : current.assignee,
+    assignee,
     updatedAt: new Date().toISOString(),
   };
   const updated = tasks.map((row) => (row.id === taskId ? next : row));

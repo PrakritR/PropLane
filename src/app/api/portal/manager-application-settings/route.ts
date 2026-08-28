@@ -17,6 +17,12 @@ import {
   type ApplicationAutomationPreferences,
 } from "@/lib/application-automation-preferences";
 import {
+  loadTaskAutomation,
+  normalizeTaskAutomation,
+  saveTaskAutomation,
+  type TaskAutomationPreferences,
+} from "@/lib/task-automation-preferences";
+import {
   loadManagerLandlordLegalNameFromProfile,
 } from "@/lib/manager-landlord-profile";
 import { requireManagerRouteUser } from "@/lib/manager-route-guard.server";
@@ -29,6 +35,7 @@ export async function GET() {
     if (!ctx) return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
     const settings = await loadManagerApplicationSettings(ctx.db, ctx.userId);
     const automation = await loadApplicationAutomation(ctx.db, ctx.userId);
+    const taskAutomation = await loadTaskAutomation(ctx.db, ctx.userId);
     const landlordLegalName = await loadManagerLandlordLegalNameFromProfile(ctx.db, ctx.userId);
     const landlord = { landlordLegalName };
     // Non-persisted suggestion the modal pre-fills so the manager confirms an
@@ -40,6 +47,7 @@ export async function GET() {
     return NextResponse.json({
       settings,
       automation,
+      taskAutomation,
       landlord,
       suggestedFeeCents,
       waiverCode: primary?.code ?? null,
@@ -65,9 +73,14 @@ export async function PATCH(req: Request) {
       automation = await saveApplicationAutomation(ctx.db, ctx.userId, body.automation);
     }
 
-    const handledNonFeeField = "automation" in body;
+    let taskAutomation: TaskAutomationPreferences | undefined;
+    if ("taskAutomation" in body) {
+      taskAutomation = await saveTaskAutomation(ctx.db, ctx.userId, body.taskAutomation);
+    }
+
+    const handledNonFeeField = "automation" in body || "taskAutomation" in body;
     if (handledNonFeeField && !("applicationFeeCents" in body) && !("waiverCode" in body)) {
-      return NextResponse.json({ automation });
+      return NextResponse.json({ automation, taskAutomation });
     }
 
     // Only `applicationFeeCents` is writable for the fee. A `null` clears it
@@ -84,7 +97,7 @@ export async function PATCH(req: Request) {
     });
 
     if (!("waiverCode" in body)) {
-      return NextResponse.json({ settings: saved, automation });
+      return NextResponse.json({ settings: saved, automation, taskAutomation });
     }
 
     const raw = body.waiverCode == null ? "" : String(body.waiverCode);

@@ -49,6 +49,7 @@ const EMPTY_FORM = {
   propertyId: "",
   roomLabel: "",
   scheduleDate: "",
+  dueDate: "",
   startTime: "",
   endTime: "",
 };
@@ -92,6 +93,16 @@ export function ManagerTaskFormModal({
       setSelectedRoomValue("");
       return;
     }
+    if (!editingId && teamMembers.length > 0) {
+      const self = teamMembers.find((m) => m.userId === managerUserId) ?? teamMembers[0];
+      if (self) {
+        setAssignee({
+          type: "team",
+          id: self.userId,
+          name: self.name?.trim() || self.email?.trim() || "You",
+        });
+      }
+    }
     if (!editingId) return;
     let cancelled = false;
     void fetchManagerTasks(managerUserId).then((tasks) => {
@@ -104,6 +115,7 @@ export function ManagerTaskFormModal({
         propertyId: task.propertyId ?? "",
         roomLabel: task.roomLabel ?? "",
         scheduleDate: localDatePart(task.start),
+        dueDate: localDatePart(task.dueDate),
         startTime: localTimePart(task.start),
         endTime: localTimePart(task.end),
       });
@@ -116,9 +128,13 @@ export function ManagerTaskFormModal({
     return () => {
       cancelled = true;
     };
-  }, [open, editingId, managerUserId]);
+  }, [open, editingId, managerUserId, teamMembers]);
 
   async function handleSave() {
+    if (!assignee) {
+      showToast("Choose who this task is assigned to.");
+      return;
+    }
     setSaving(true);
     try {
       const start =
@@ -127,6 +143,10 @@ export function ManagerTaskFormModal({
           : undefined;
       const end =
         form.scheduleDate && form.endTime ? combineLocalDateTime(form.scheduleDate, form.endTime) : undefined;
+      const dueDate =
+        !start && !end && form.dueDate
+          ? combineLocalDateTime(form.dueDate, "23:59")
+          : undefined;
       const property = propertyOptions.find((option) => option.id === form.propertyId);
       const roomOption = roomOptions.find((option) => option.value === selectedRoomValue);
       const roomLabel = roomOption
@@ -143,6 +163,7 @@ export function ManagerTaskFormModal({
         roomLabel: roomLabel || cleared,
         start: start ?? cleared,
         end: end ?? cleared,
+        dueDate: dueDate ?? (editingId && !start && !end ? cleared : undefined),
         assignee,
       };
       if (editingId) {
@@ -232,13 +253,30 @@ export function ManagerTaskFormModal({
           </label>
         ) : null}
         <label className="space-y-1 text-sm">
-          <span className="font-medium text-foreground">Date (optional)</span>
+          <span className="font-medium text-foreground">Schedule date (optional)</span>
           <Input
             type="date"
             value={form.scheduleDate}
-            onChange={(e) => setForm((current) => ({ ...current, scheduleDate: e.target.value }))}
+            onChange={(e) =>
+              setForm((current) => ({
+                ...current,
+                scheduleDate: e.target.value,
+                dueDate: e.target.value ? "" : current.dueDate,
+              }))
+            }
           />
         </label>
+        {!form.scheduleDate ? (
+          <label className="space-y-1 text-sm">
+            <span className="font-medium text-foreground">Due date</span>
+            <Input
+              type="date"
+              value={form.dueDate}
+              onChange={(e) => setForm((current) => ({ ...current, dueDate: e.target.value }))}
+              data-attr="manager-task-due-date"
+            />
+          </label>
+        ) : null}
         <div className="grid gap-3 sm:grid-cols-2">
           <label className="space-y-1 text-sm">
             <span className="font-medium text-foreground">Start time (optional)</span>
@@ -270,14 +308,16 @@ export function ManagerTaskFormModal({
         <p className="text-xs text-muted">
           {form.scheduleDate && form.startTime && form.endTime
             ? "Saving blocks this time on your calendar."
-            : "Leave date and times blank to keep the task off your calendar."}
+            : form.dueDate
+              ? "Due date appears on your calendar as a reminder block."
+              : "Add a schedule or due date to show this task on your calendar."}
         </p>
       </div>
       <ModalFooter>
         <Button
           type="button"
           onClick={() => void handleSave()}
-          disabled={saving || !form.title.trim()}
+          disabled={saving || !form.title.trim() || !assignee}
           data-attr="manager-task-save"
         >
           {saving ? "Saving…" : editingId ? "Save task" : "Add task"}

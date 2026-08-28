@@ -13,6 +13,7 @@ import {
   notifyManagerApplicationSubmitted,
   shouldNotifyManagerOfApplicationSubmit,
 } from "@/lib/application-submitted-notification.server";
+import { syncApplicationLifecycleTasks } from "@/lib/manager-default-tasks.server";
 import { purgeApplicationPortalData } from "@/lib/auth/purge-portal-account-data";
 import { isWithdrawnApplicationRow } from "@/lib/rental-application/resident-application-list";
 import { residentOwnsApplicationRow } from "@/lib/rental-application/resident-application-ownership";
@@ -688,8 +689,10 @@ export async function POST(req: Request) {
           guarded.row,
           (stored?.row_data ?? null) as DemoApplicantRow | null,
         );
+        const previousRow = (stored?.row_data ?? null) as DemoApplicantRow | null;
         await persistNormalizedRow(db, anchored.id, anchored);
         await revokeMaterializedApplicationConsentAfterWrite(db, stored, anchored);
+        void syncApplicationLifecycleTasks(db, previousRow, anchored).catch(() => undefined);
         if (anchored.bucket === "pending" && anchored.application?.consentCredit) {
           void tryAutoOrderScreening(db, anchored);
         }
@@ -846,6 +849,7 @@ export async function POST(req: Request) {
       if (shouldNotifyManagerOfApplicationSubmit(previousRow, row)) {
         void notifyManagerApplicationSubmitted(db, row).catch(() => undefined);
       }
+      void syncApplicationLifecycleTasks(db, previousRow, row).catch(() => undefined);
       if (row.bucket === "pending" && row.application?.consentCredit) {
         void tryAutoOrderScreening(db, row);
       }
@@ -984,6 +988,7 @@ export async function POST(req: Request) {
     if (shouldNotifyManagerOfApplicationSubmit(previousRow, row)) {
       void notifyManagerApplicationSubmitted(db, row).catch(() => undefined);
     }
+    void syncApplicationLifecycleTasks(db, previousRow, row).catch(() => undefined);
     if (row.bucket === "pending" && row.application?.consentCredit) {
       void tryAutoOrderScreening(db, row);
     }

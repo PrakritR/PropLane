@@ -32,6 +32,12 @@ import {
   ReminderSendViaField,
   TourReminderTimingSelect,
 } from "@/components/portal/reminder-settings-shared";
+import { TaskAutomationSettingsFields } from "@/components/portal/task-automation-settings-fields";
+import type { WorkAssignmentTeamMember } from "@/hooks/use-work-assignment-directory";
+import {
+  DEFAULT_TASK_AUTOMATION,
+  type TaskAutomationPreferences,
+} from "@/lib/task-automation-preferences";
 
 const TOUR_PREVIEW_CONTEXT = {
   guestName: "Alex Prospect",
@@ -46,18 +52,24 @@ const TOUR_PLACEHOLDERS =
 
 export function ApplicationsSettingsPanel({
   automation,
+  taskAutomation,
+  teamMembers,
   loading,
   saving,
   waiverCode,
   onAutomationChange,
+  onTaskAutomationChange,
   onWaiverCodeChange,
   onSave,
 }: {
   automation: ApplicationAutomationPreferences;
+  taskAutomation: TaskAutomationPreferences;
+  teamMembers: WorkAssignmentTeamMember[];
   loading: boolean;
   saving: boolean;
   waiverCode: string;
   onAutomationChange: (next: ApplicationAutomationPreferences) => void;
+  onTaskAutomationChange: (next: TaskAutomationPreferences) => void;
   onWaiverCodeChange: (value: string) => void;
   onSave: () => void;
 }) {
@@ -106,6 +118,14 @@ export function ApplicationsSettingsPanel({
         />
         <p className="text-xs text-muted">Applicants entering this code apply for free. Leave empty to turn it off.</p>
       </div>
+      <TaskAutomationSettingsFields
+        templateKeys={["review_application"]}
+        taskAutomation={taskAutomation}
+        teamMembers={teamMembers}
+        loading={loading}
+        saving={saving}
+        onChange={onTaskAutomationChange}
+      />
       <div className="flex justify-end border-t border-border pt-3">
         <Button
           type="button"
@@ -123,15 +143,21 @@ export function ApplicationsSettingsPanel({
 
 export function LeaseSettingsPanel({
   automation,
+  taskAutomation,
+  teamMembers,
   loading,
   saving,
   onAutomationChange,
+  onTaskAutomationChange,
   onSave,
 }: {
   automation: ApplicationAutomationPreferences;
+  taskAutomation: TaskAutomationPreferences;
+  teamMembers: WorkAssignmentTeamMember[];
   loading: boolean;
   saving: boolean;
   onAutomationChange: (next: ApplicationAutomationPreferences) => void;
+  onTaskAutomationChange: (next: TaskAutomationPreferences) => void;
   onSave: () => void;
 }) {
   return (
@@ -170,6 +196,14 @@ export function LeaseSettingsPanel({
           </span>
         </label>
       ))}
+      <TaskAutomationSettingsFields
+        templateKeys={["review_and_send_lease", "collect_rent"]}
+        taskAutomation={taskAutomation}
+        teamMembers={teamMembers}
+        loading={loading}
+        saving={saving}
+        onChange={onTaskAutomationChange}
+      />
       <div className="flex justify-end border-t border-border pt-3">
         <Button type="button" className="rounded-full px-4 text-[13px]" onClick={onSave} disabled={loading || saving}>
           {saving ? "Saving…" : "Save"}
@@ -655,4 +689,4 @@ export function CommunicationSettingsPanel({ onSaved }: { onSaved?: () => void }
   );
 }
 
-export { DEFAULT_APPLICATION_AUTOMATION, normalizeApplicationAutomation };
+export { DEFAULT_APPLICATION_AUTOMATION, normalizeApplicationAutomation, DEFAULT_TASK_AUTOMATION };
