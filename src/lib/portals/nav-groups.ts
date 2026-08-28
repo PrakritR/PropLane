@@ -59,7 +59,7 @@ const RESIDENT_GROUPS: NavGroupConfig[] = [
 
 const VENDOR_GROUPS: NavGroupConfig[] = [
   { id: "home", label: null, sections: ["dashboard"] },
-  { id: "work", label: "Work", sections: ["work-orders", "calendar"] },
+  { id: "work", label: "Work", sections: ["work-orders", "task-list", "calendar"] },
   { id: "operations", label: "Operations", sections: ["communication"] },
   { id: "finances", label: "Finances", sections: ["financials", "payments", "documents"] },
 ];
