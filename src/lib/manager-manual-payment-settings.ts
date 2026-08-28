@@ -82,10 +82,12 @@ export function normalizeManagerManualPaymentSettings(raw: unknown): ManagerManu
     ...(paymentInboxToken ? { paymentInboxToken } : {}),
     receiptAutoMarkEnabled: row.receiptAutoMarkEnabled === false ? false : true,
     serviceFeePayer: normalizeServiceFeeChoice(row.serviceFeePayer),
-    // Absent means staff have not intervened, which is different from staff choosing `resident` —
-    // so this stays null rather than being normalized into a value.
-    adminServiceFeeOverride:
-      row.adminServiceFeeOverride == null ? null : normalizeServiceFeeChoice(row.adminServiceFeeOverride),
+    // Absent means staff have not intervened, which is different from staff choosing `resident`.
+    // The key is OMITTED rather than set to null in that case, so an untouched manager's settings
+    // are byte-identical to what they were before this field existed.
+    ...(row.adminServiceFeeOverride == null
+      ? {}
+      : { adminServiceFeeOverride: normalizeServiceFeeChoice(row.adminServiceFeeOverride) }),
   };
 }
 
@@ -159,10 +161,12 @@ export async function saveManagerManualPaymentSettings(
   // manager's own settings route writes through, so honouring an inbound value would let a
   // manager hand their processing fees to PropLane by adding one field to their save.
   const stored = await loadManagerManualPaymentSettings(db, managerUserId).catch(() => null);
-  const normalized: ManagerManualPaymentSettings = {
-    ...normalizeManagerManualPaymentSettings(settings),
-    adminServiceFeeOverride: stored?.adminServiceFeeOverride ?? null,
-  };
+  const normalized: ManagerManualPaymentSettings = normalizeManagerManualPaymentSettings(settings);
+  // Drop whatever the caller supplied BEFORE restoring what is stored. Spreading the stored value
+  // over the caller's is not enough: when staff have set nothing there is nothing to spread, and
+  // the caller's own value would survive — which is precisely the hole this guards.
+  delete normalized.adminServiceFeeOverride;
+  if (stored?.adminServiceFeeOverride) normalized.adminServiceFeeOverride = stored.adminServiceFeeOverride;
   const mode = await resolveStorageMode(db);
 
   if (mode === "column") {
@@ -218,10 +222,9 @@ export async function saveAdminServiceFeeOverride(
   override: ServiceFeePayer | null,
 ): Promise<ManagerManualPaymentSettings> {
   const current = await loadManagerManualPaymentSettings(db, managerUserId);
-  const next: ManagerManualPaymentSettings = {
-    ...current,
-    adminServiceFeeOverride: override == null ? null : normalizeServiceFeeChoice(override),
-  };
+  const next: ManagerManualPaymentSettings = { ...current };
+  if (override == null) delete next.adminServiceFeeOverride;
+  else next.adminServiceFeeOverride = normalizeServiceFeeChoice(override);
   const mode = await resolveStorageMode(db);
 
   if (mode === "column") {

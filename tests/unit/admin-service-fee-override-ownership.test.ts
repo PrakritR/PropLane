@@ -56,7 +56,7 @@ describe("the manager's own save", () => {
     });
 
     const after = await loadManagerManualPaymentSettings(db, "mgr-1");
-    expect(after.adminServiceFeeOverride).toBeNull();
+    expect(after.adminServiceFeeOverride ?? null).toBeNull();
   });
 
   it("cannot clear an override staff already set", async () => {
@@ -104,7 +104,7 @@ describe("the staff writer", () => {
     // they later choose. Collapsing the two would quietly freeze every cleared manager.
     await saveAdminServiceFeeOverride(db, "mgr-1", "proplane");
     await saveAdminServiceFeeOverride(db, "mgr-1", null);
-    expect((await loadManagerManualPaymentSettings(db, "mgr-1")).adminServiceFeeOverride).toBeNull();
+    expect((await loadManagerManualPaymentSettings(db, "mgr-1")).adminServiceFeeOverride ?? null).toBeNull();
   });
 
   it("leaves the manager's own choice untouched", async () => {
