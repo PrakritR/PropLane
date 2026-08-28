@@ -55,11 +55,17 @@ describe("the plan floor", () => {
 });
 
 describe("what a manager cannot do to themselves", () => {
-  it("ignores a proplane value written into a manager or property field", () => {
-    // The settings UI never offers it. Honouring it would let a manager stop paying fees by
-    // writing one word into their own record — PropLane would silently pick up the bill.
-    expect(payer({ managerChoice: "proplane" as ServiceFeePayer })).toBe("resident");
-    expect(payer({ propertyChoice: "proplane" as ServiceFeePayer })).toBe("resident");
+  it("ignores a proplane value below Business, where it is not on offer", () => {
+    // On Free and Pro the settings UI never offers it, so honouring it would let a manager stop
+    // paying fees by writing one word into their own record.
+    expect(resolveServiceFeePayerFor({ tier: "pro", managerChoice: "proplane" })).toBe("resident");
+    expect(resolveServiceFeePayerFor({ tier: "free", propertyChoice: "proplane" })).toBe("resident");
+  });
+
+  it("honours it on Business, where PropLane absorbing the fee is part of the plan", () => {
+    // This is an entitlement the manager bought, not a manager helping themselves.
+    expect(resolveServiceFeePayerFor({ tier: "business", managerChoice: "proplane" })).toBe("proplane");
+    expect(resolveServiceFeePayerFor({ tier: "business", propertyChoice: "proplane" })).toBe("proplane");
   });
 
   it("still honours proplane from staff, who are the ones spending PropLane's money", () => {
@@ -67,8 +73,6 @@ describe("what a manager cannot do to themselves", () => {
   });
 
   it("falls back to the plan rule rather than to whatever was written", () => {
-    // A manager who set "manager" and then had "proplane" written in should land on their own
-    // legitimate choice's rule, not be handed the platform's wallet.
     expect(payer({ managerChoice: "proplane" as ServiceFeePayer, propertyChoice: null })).toBe("resident");
   });
 });

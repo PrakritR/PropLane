@@ -11,7 +11,7 @@ import { loadManagerManualPaymentSettings } from "@/lib/manager-manual-payment-s
 import { parseMoneyAmount } from "@/lib/parse-money";
 import {
   residentServiceFeeBreakdown,
-  resolveServiceFeePayer,
+  resolveServiceFeePayerFor,
   type ServiceFeePayer,
 } from "@/lib/payment-policy";
 import { listingApplicationFeeChannels } from "@/lib/rental-application/application-fee-channel";
@@ -166,7 +166,11 @@ export async function resolveApplicationFeeItemization(
   const { tier: managerTierRaw } = await getManagerPurchaseSku(managerUserId);
   const managerTier = normalizeManagerSkuTier(managerTierRaw) ?? "free";
   const managerSettings = await loadManagerManualPaymentSettings(db, managerUserId);
-  const feePayer = resolveServiceFeePayer(managerTier, managerSettings.serviceFeePayer);
+  const feePayer = resolveServiceFeePayerFor({
+    tier: managerTier,
+    adminOverride: managerSettings.adminServiceFeeOverride,
+    managerChoice: managerSettings.serviceFeePayer,
+  });
   const fee =
     channel === "manual" || applicationFeeCents <= 0
       ? { residentAddedFeeCents: 0, totalCents: Math.max(0, applicationFeeCents) }

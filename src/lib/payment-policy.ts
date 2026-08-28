@@ -107,17 +107,21 @@ export type ServiceFeePayerInputs = {
  * Steps 2-4 stay subject to the plan floor: a free-tier manager cannot shift the fee onto
  * themselves, because absorbing fees is a paid capability. Only staff can override that.
  *
- * A `proplane` value arriving from a manager or property field is NOT honoured — it would let a
- * manager stop paying by writing a value into their own record, which the settings UI never
- * offers. It falls back to the plan rule instead of being treated as a choice.
+ * `proplane` from a MANAGER or PROPERTY field is honoured only on Business, where PropLane
+ * absorbing the fee is a plan entitlement the manager is entitled to select. On Free and Pro it is
+ * discarded and the plan rule applies: there, it would let a manager stop paying by writing a
+ * value the settings UI never offers them into their own record, with PropLane picking up the
+ * bill. Staff can still direct it at PropLane on any plan.
  */
 export function resolveServiceFeePayerFor(input: ServiceFeePayerInputs): ServiceFeePayer {
   if (input.adminOverride) return normalizeServiceFeeChoice(input.adminOverride);
 
   const chosen = input.propertyChoice ?? input.managerChoice ?? "resident";
   const normalized = normalizeServiceFeeChoice(chosen);
-  // Only staff may direct the cost at PropLane; see above.
-  const manageable: ServiceFeePayer = normalized === "proplane" ? "resident" : normalized;
+  // Business includes PropLane absorbing the fee, so the choice is theirs to make. Below that it
+  // is not on offer, and a value that appears anyway is discarded rather than honoured.
+  const manageable: ServiceFeePayer =
+    normalized === "proplane" && input.tier !== "business" ? "resident" : normalized;
   return resolveServiceFeePayer(input.tier, manageable);
 }
 

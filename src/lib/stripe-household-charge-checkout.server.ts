@@ -9,7 +9,7 @@ import { getManagerPurchaseSku } from "@/lib/manager-access-server";
 import { loadManagerManualPaymentSettings } from "@/lib/manager-manual-payment-settings";
 import {
   axisPaymentsEnabledOnListing,
-  resolveServiceFeePayer,
+  resolveServiceFeePayerFor,
   type ResidentAxisPaymentMethod,
 } from "@/lib/payment-policy";
 import { getStripe } from "@/lib/stripe";
@@ -189,7 +189,11 @@ export async function createHouseholdChargeCheckout(
     // + Pro setting, so a plan change or a toggle flip takes effect on the very
     // next charge with no per-charge state.
     const managerSettings = await loadManagerManualPaymentSettings(db, managerUserId);
-    const feePayer = resolveServiceFeePayer(managerTier, managerSettings.serviceFeePayer);
+    const feePayer = resolveServiceFeePayerFor({
+      tier: managerTier,
+      adminOverride: managerSettings.adminServiceFeeOverride,
+      managerChoice: managerSettings.serviceFeePayer,
+    });
     const stripe = getStripe();
     const connect = await resolveAndValidateManagerConnectForPayments(stripe, db, managerUserId);
     if (!connect.ok) {
