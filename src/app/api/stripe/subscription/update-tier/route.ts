@@ -91,7 +91,7 @@ export async function POST(req: Request) {
     // Payment-waiver promo code (same validation as signup-intent / pricing-oauth-continue).
     const promo = typeof body?.promo === "string" ? body.promo : "";
     const waiverValid = paymentWaiverCodeMatches(promo);
-    const promoStored = waiverValid ? normalizePaymentWaiverCode(getPaymentWaiverCode()) : "";
+    const promoStored = waiverValid ? normalizePaymentWaiverCode(getPaymentWaiverCode() ?? "") : "";
     if (promo.trim() && !waiverValid) {
       return NextResponse.json(
         { error: "That promo code isn't valid.", code: "INVALID_PROMO" },

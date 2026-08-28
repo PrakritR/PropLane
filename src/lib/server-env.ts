@@ -31,12 +31,21 @@ export function getAdminRegisterKey(): string | null {
 export const BUILTIN_PAYMENT_WAIVER_CODE = "FREE100";
 
 /**
- * Payment-waiver code that bypasses Stripe checkout. Defaults to FREE100 in every
- * environment; set `AXIS_PAYMENT_WAIVER_CODE` to substitute a different code.
+ * Payment-waiver code that bypasses Stripe checkout, or null when no waiver is available.
+ *
+ * The built-in code is a CONVENIENCE FOR DEVELOPMENT and must never be live in production: it is
+ * a fixed string sitting in a public repo, and `paymentWaiverCodeMatches` compares
+ * case-insensitively and ignores punctuation, so anyone typing "free100" would be handed
+ * paid-tier access with no Stripe checkout. Production therefore requires
+ * `AXIS_PAYMENT_WAIVER_CODE` to be set explicitly, and grants no waiver at all without it.
+ *
+ * Same shape as `getAdminRegisterKey` directly above, and for the same reason: a comp code is a
+ * credential, and a credential that ships in the source is not one.
  */
-export function getPaymentWaiverCode(): string {
+export function getPaymentWaiverCode(): string | null {
   const fromEnv = process.env.AXIS_PAYMENT_WAIVER_CODE?.trim();
-  return fromEnv || BUILTIN_PAYMENT_WAIVER_CODE;
+  if (fromEnv) return fromEnv;
+  return isProductionRuntime() ? null : BUILTIN_PAYMENT_WAIVER_CODE;
 }
 
 /** Normalize user input (`free100`, `FREE 100`) for comparison. */
@@ -47,7 +56,11 @@ export function normalizePaymentWaiverCode(code: string): string {
 export function paymentWaiverCodeMatches(promo: string): boolean {
   const normalized = normalizePaymentWaiverCode(promo);
   if (!normalized) return false;
-  return normalized === normalizePaymentWaiverCode(getPaymentWaiverCode());
+  // No configured waiver means NO code matches — never fall back to the built-in here, or
+  // production would accept it through this path regardless of what the getter decided.
+  const active = getPaymentWaiverCode();
+  if (!active) return false;
+  return normalized === normalizePaymentWaiverCode(active);
 }
 
 /**

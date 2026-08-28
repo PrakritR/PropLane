@@ -25,10 +25,15 @@ describe("server-env and admin-register-key", () => {
     expect(isValidAdminRegisterKey("wrong")).toBe(false);
   });
 
-  it("keeps FREE100 available in production when env is unset", () => {
+  it("offers NO waiver in production when env is unset", () => {
+    // This test previously asserted the opposite — that FREE100 stayed live in production. That
+    // is a paid-tier bypass anyone could use: the code sits in a public repo and the comparison
+    // ignores case and punctuation. The built-in is a development convenience; production must
+    // require an explicitly configured code, matching `getAdminRegisterKey` beside it.
+    // Fuller coverage in `payment-waiver-code-production.test.ts`.
     process.env.VERCEL_ENV = "production";
-    expect(getPaymentWaiverCode()).toBe("FREE100");
-    expect(paymentWaiverCodeMatches("FREE100")).toBe(true);
+    expect(getPaymentWaiverCode()).toBeNull();
+    expect(paymentWaiverCodeMatches("FREE100")).toBe(false);
   });
 
   it("respects explicit env overrides", () => {
