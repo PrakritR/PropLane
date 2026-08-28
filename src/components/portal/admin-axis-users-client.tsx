@@ -119,6 +119,31 @@ function RolePill({ kind }: { kind: AccountKind }) {
   );
 }
 
+/**
+ * Staff's fee-payer choices. "inherit" is the absence of an override, not a fourth payer — it
+ * hands the manager back to their own setting and their plan's rule.
+ */
+type FeeOverrideValue = "inherit" | "resident" | "manager" | "proplane";
+
+const FEE_OVERRIDE_LABELS: Record<Exclude<FeeOverrideValue, "inherit">, string> = {
+  resident: "the resident",
+  manager: "the manager",
+  proplane: "PropLane",
+};
+
+const FEE_OVERRIDE_OPTIONS: { value: FeeOverrideValue; label: string }[] = [
+  { value: "inherit", label: "Manager's own setting" },
+  { value: "resident", label: "Always resident" },
+  { value: "manager", label: "Always manager" },
+  { value: "proplane", label: "PropLane absorbs" },
+];
+
+const FEE_PAYER_LABELS: Record<string, string> = {
+  resident: "the resident",
+  manager: "the manager",
+  proplane: "PropLane",
+};
+
 function TierBadge({ tier }: { tier: string }) {
   const colors: Record<string, string> = {
     pro: "portal-badge-info border",
@@ -151,6 +176,64 @@ function ManagerDetailContent({
   useEffect(() => {
     queueMicrotask(() => setPlan(normalizeManagerPlan(row.tier)));
   }, [row.tier]);
+
+  // Who pays this manager's processing fees. Loaded per row rather than on the accounts list,
+  // because it needs the manager's settings AND their plan — two reads each — and the list route
+  // already pages every manager. This editor renders for one expanded row at a time.
+  const [feeOverride, setFeeOverride] = useState<FeeOverrideValue>("inherit");
+  const [effectivePayer, setEffectivePayer] = useState<string>("");
+  const [feeBusy, setFeeBusy] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        const res = await fetch(`/api/admin/manager-service-fee?managerUserId=${encodeURIComponent(row.id)}`);
+        if (!res.ok || cancelled) return;
+        const data = (await res.json()) as { adminOverride?: string | null; effectivePayer?: string };
+        if (cancelled) return;
+        setFeeOverride((data.adminOverride as FeeOverrideValue) ?? "inherit");
+        setEffectivePayer(data.effectivePayer ?? "");
+      } catch {
+        // Leave the control showing "inherit"; saving still works and re-reads the truth.
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [row.id]);
+
+  const saveFeeOverride = async (next: FeeOverrideValue) => {
+    setFeeBusy(true);
+    const previous = feeOverride;
+    setFeeOverride(next);
+    try {
+      const res = await fetch("/api/admin/manager-service-fee", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        // "inherit" is sent as null, which CLEARS the override and returns this manager to the
+        // plan-and-choice rule — a different act from pinning "resident".
+        body: JSON.stringify({ managerUserId: row.id, adminOverride: next === "inherit" ? null : next }),
+      });
+      const data = (await res.json().catch(() => ({}))) as { error?: string; effectivePayer?: string };
+      if (!res.ok) {
+        setFeeOverride(previous);
+        showToast(data.error || "Could not update processing fees.");
+        return;
+      }
+      setEffectivePayer(data.effectivePayer ?? "");
+      showToast(
+        next === "inherit"
+          ? "Processing fees follow the manager's own setting again."
+          : `Processing fees now charged to ${FEE_OVERRIDE_LABELS[next]}.`,
+      );
+    } catch {
+      setFeeOverride(previous);
+      showToast("Could not update processing fees.");
+    } finally {
+      setFeeBusy(false);
+    }
+  };
 
   const savePlan = async () => {
     if (!planDirty) return;
@@ -238,6 +321,31 @@ function ManagerDetailContent({
             </option>
           ))}
         </Select>
+      </div>
+
+      <div className="flex items-center gap-2">
+        <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-muted">Processing fees</p>
+        <Select
+          className="h-9 min-h-0 w-auto min-w-[11rem] rounded-full px-3 py-1.5 text-sm"
+          value={feeOverride}
+          onChange={(e) => void saveFeeOverride(e.target.value as FeeOverrideValue)}
+          disabled={feeBusy}
+          aria-label="Who pays this manager's processing fees"
+        >
+          {FEE_OVERRIDE_OPTIONS.map((opt) => (
+            <option key={opt.value} value={opt.value}>
+              {opt.label}
+            </option>
+          ))}
+        </Select>
+        {/* The NET answer, which can differ from the selection above: a free-tier manager who
+            chose to absorb fees still cannot, and showing only the selection would disagree with
+            what the resident is actually charged. */}
+        {effectivePayer ? (
+          <span className="text-xs text-muted">
+            Currently paid by {FEE_PAYER_LABELS[effectivePayer] ?? effectivePayer}
+          </span>
+        ) : null}
       </div>
 
       <div className="flex flex-wrap items-center gap-2">
