@@ -17,16 +17,25 @@ export type ManagerTask = {
   propertyId?: string;
   propertyTitle?: string;
   roomLabel?: string;
-  /** ISO start; when omitted the task stays off the calendar. */
+  /** ISO start; when omitted the task stays off the calendar unless dueDate is set. */
   start?: string;
   /** ISO end; calendar blocks require both start and end. */
   end?: string;
+  /** Due date for unscheduled tasks (ISO). Shown on calendar as a due marker. */
+  dueDate?: string;
   durationMinutes?: number;
   completed: boolean;
   /**
    * Who is doing this. Tasks may be assigned to a team member or a vendor.
    */
   assignee?: WorkAssignee;
+  /** Auto-created task template key, when set. */
+  templateKey?: string;
+  /** Application id, lease id, etc. — paired with templateKey for dedup. */
+  sourceId?: string;
+  dedupKey?: string;
+  /** Last due-date reminder email sent (ISO). */
+  reminderSentAt?: string;
   createdAt: string;
   updatedAt: string;
 };
@@ -39,6 +48,7 @@ export type ManagerTaskInput = {
   roomLabel?: string;
   start?: string;
   end?: string;
+  dueDate?: string;
   assignee?: WorkAssignee | null;
 };
 
@@ -70,6 +80,7 @@ function normalizeTask(raw: unknown): ManagerTask | null {
   if (!id || !title) return null;
   const start = String(row.start ?? "").trim() || undefined;
   const end = String(row.end ?? "").trim() || undefined;
+  const dueDate = String(row.dueDate ?? "").trim() || undefined;
   const durationMinutes =
     start && end
       ? durationBetween(start, end)
@@ -85,10 +96,16 @@ function normalizeTask(raw: unknown): ManagerTask | null {
     roomLabel: typeof row.roomLabel === "string" ? row.roomLabel.trim() || undefined : undefined,
     start,
     end,
+    dueDate,
     durationMinutes,
     completed: row.completed === true,
     // Unusable assignees normalize to undefined rather than a name nobody can act on.
     assignee: normalizeAssignee(row.assignee) ?? undefined,
+    templateKey: typeof row.templateKey === "string" ? row.templateKey.trim() || undefined : undefined,
+    sourceId: typeof row.sourceId === "string" ? row.sourceId.trim() || undefined : undefined,
+    dedupKey: typeof row.dedupKey === "string" ? row.dedupKey.trim() || undefined : undefined,
+    reminderSentAt:
+      typeof row.reminderSentAt === "string" ? row.reminderSentAt.trim() || undefined : undefined,
     createdAt: String(row.createdAt ?? new Date().toISOString()),
     updatedAt: String(row.updatedAt ?? new Date().toISOString()),
   };
@@ -107,13 +124,31 @@ function writeLocalTasks(managerUserId: string, tasks: ManagerTask[]) {
   localTasks.set(managerUserId, tasks);
 }
 
+function dueDateToCalendarWindow(dueDateIso: string): { start: string; end: string } | null {
+  const due = new Date(dueDateIso);
+  if (Number.isNaN(due.getTime())) return null;
+  const start = new Date(due.getFullYear(), due.getMonth(), due.getDate(), 9, 0, 0, 0);
+  const end = new Date(due.getFullYear(), due.getMonth(), due.getDate(), 9, 30, 0, 0);
+  return { start: start.toISOString(), end: end.toISOString() };
+}
+
 function taskToPlannedEvent(task: ManagerTask, managerUserId: string): PlannedEvent | null {
-  if (!task.start || !task.end) return null;
+  let start = task.start;
+  let end = task.end;
+  let titlePrefix = "Task";
+  if (!start || !end) {
+    if (!task.dueDate) return null;
+    const window = dueDateToCalendarWindow(task.dueDate);
+    if (!window) return null;
+    start = window.start;
+    end = window.end;
+    titlePrefix = "Due";
+  }
   return {
     id: plannedEventIdForTask(task.id),
-    title: `Task · ${task.title}`,
-    start: task.start,
-    end: task.end,
+    title: `${titlePrefix} · ${task.title}`,
+    start,
+    end,
     kind: "task",
     managerUserId,
     sourceTaskId: task.id,
@@ -122,6 +157,7 @@ function taskToPlannedEvent(task: ManagerTask, managerUserId: string): PlannedEv
     roomLabel: task.roomLabel,
     notes: task.notes,
     adminUserId: managerUserId,
+    assignee: task.assignee,
   };
 }
 
@@ -155,11 +191,11 @@ export function notifyManagerTasksChanged() {
 
 export function readManagerTasksLocal(managerUserId: string): ManagerTask[] {
   return readLocalTasks(managerUserId).sort((a, b) => {
-    const aStart = a.start ?? "";
-    const bStart = b.start ?? "";
-    if (aStart && bStart) return aStart.localeCompare(bStart);
-    if (aStart) return -1;
-    if (bStart) return 1;
+    const aKey = a.start ?? a.dueDate ?? "";
+    const bKey = b.start ?? b.dueDate ?? "";
+    if (aKey && bKey) return aKey.localeCompare(bKey);
+    if (aKey) return -1;
+    if (bKey) return 1;
     return b.createdAt.localeCompare(a.createdAt);
   });
 }
@@ -190,9 +226,12 @@ export async function createManagerTask(
   if (!title) throw new Error("Title is required.");
   const start = input.start?.trim() || undefined;
   const end = input.end?.trim() || undefined;
+  const dueDate = input.dueDate?.trim() || undefined;
   if (start && end && Date.parse(end) <= Date.parse(start)) {
     throw new Error("End time must be after start time.");
   }
+  const assignee = normalizeAssignee(input.assignee) ?? undefined;
+  if (!assignee) throw new Error("Assignee is required.");
   const now = new Date().toISOString();
   const task: ManagerTask = {
     id: crypto.randomUUID(),
@@ -203,9 +242,10 @@ export async function createManagerTask(
     roomLabel: input.roomLabel?.trim() || undefined,
     start,
     end,
+    dueDate: start && end ? undefined : dueDate,
     durationMinutes: start && end ? durationBetween(start, end) : undefined,
     completed: false,
-    assignee: normalizeAssignee(input.assignee) ?? undefined,
+    assignee,
     createdAt: now,
     updatedAt: now,
   };
@@ -241,7 +281,16 @@ export async function updateManagerTask(
   patch: Partial<
     Pick<
       ManagerTask,
-      "title" | "notes" | "propertyId" | "propertyTitle" | "roomLabel" | "start" | "end" | "durationMinutes" | "completed"
+      | "title"
+      | "notes"
+      | "propertyId"
+      | "propertyTitle"
+      | "roomLabel"
+      | "start"
+      | "end"
+      | "dueDate"
+      | "durationMinutes"
+      | "completed"
     >
     // `assignee` is widened to accept null so an edit can UNASSIGN. `undefined` already means
     // "leave it alone" for every field in this patch, so without null there is no way to express
@@ -256,9 +305,18 @@ export async function updateManagerTask(
 
   const start = patch.start !== undefined ? patch.start?.trim() || undefined : current.start;
   const end = patch.end !== undefined ? patch.end?.trim() || undefined : current.end;
+  const dueDate =
+    patch.dueDate !== undefined
+      ? patch.dueDate?.trim() || undefined
+      : start && end
+        ? undefined
+        : current.dueDate;
   const durationMinutes =
     patch.durationMinutes ??
     (start && end ? durationBetween(start, end) : start ? current.durationMinutes : undefined);
+  const assignee =
+    patch.assignee !== undefined ? normalizeAssignee(patch.assignee) ?? undefined : current.assignee;
+  if (patch.assignee !== undefined && !assignee) throw new Error("Assignee is required.");
   const next: ManagerTask = {
     ...current,
     ...patch,
@@ -270,11 +328,9 @@ export async function updateManagerTask(
     roomLabel: patch.roomLabel !== undefined ? patch.roomLabel?.trim() || undefined : current.roomLabel,
     start,
     end,
+    dueDate: start && end ? undefined : dueDate,
     durationMinutes,
-    assignee:
-      patch.assignee !== undefined
-        ? normalizeAssignee(patch.assignee) ?? undefined
-        : current.assignee,
+    assignee,
     updatedAt: new Date().toISOString(),
   };
 

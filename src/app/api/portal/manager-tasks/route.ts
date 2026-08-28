@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { requireManagerRouteUser } from "@/lib/manager-route-guard.server";
+import { processDueTaskReminders } from "@/lib/manager-default-tasks.server";
 import {
   createManagerTaskRow,
   deleteManagerTaskRow,
@@ -14,6 +15,7 @@ const USER_FACING_TASK_ERRORS = new Set([
   "End time must be after start time.",
   "Task not found.",
   "id required.",
+  "Assignee is required.",
 ]);
 
 function taskRouteError(e: unknown, fallback: string): string {
@@ -25,6 +27,7 @@ export async function GET() {
   try {
     const ctx = await requireManagerRouteUser();
     if (!ctx) return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
+    void processDueTaskReminders(ctx.db, ctx.userId).catch(() => undefined);
     const tasks = await loadManagerTasks(ctx.db, ctx.userId);
     return NextResponse.json({ tasks });
   } catch {

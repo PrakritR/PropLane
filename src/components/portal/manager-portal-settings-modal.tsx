@@ -9,6 +9,7 @@ import {
   CalendarSettingsPanel,
   CommunicationSettingsPanel,
   DEFAULT_APPLICATION_AUTOMATION,
+  DEFAULT_TASK_AUTOMATION,
   LeaseSettingsPanel,
   normalizeApplicationAutomation,
   PaymentsSettingsPanel,
@@ -17,6 +18,12 @@ import {
 import type { ApplicationAutomationPreferences } from "@/lib/application-automation-preferences";
 import type { ApplicationFeeChargePolicy } from "@/lib/manager-application-settings";
 import { DEFAULT_MANAGER_APPLICATION_SETTINGS } from "@/lib/manager-application-settings";
+import {
+  normalizeTaskAutomation,
+  type TaskAutomationPreferences,
+} from "@/lib/task-automation-preferences";
+import { useWorkAssignmentDirectory } from "@/hooks/use-work-assignment-directory";
+import { useManagerUserId } from "@/hooks/use-manager-user-id";
 import { CANONICAL_DEMO_MANAGER_NAME } from "@/lib/demo/demo-canonical-accounts";
 import { cacheLandlordLegalName } from "@/lib/manager-landlord-profile";
 import { PORTAL_TOOLBAR_PILL_BUTTON, PORTAL_TOOLBAR_PILL_BUTTON_ACTIVE } from "@/components/portal/portal-metrics";
@@ -62,6 +69,8 @@ export function ManagerPortalSettingsModal({
 }) {
   const { showToast } = useAppUi();
   const demo = isDemoModeActive();
+  const { userId: managerUserId } = useManagerUserId();
+  const { teamMembers } = useWorkAssignmentDirectory({ managerUserId, managerName: undefined });
   const [tab, setTab] = useState<ManagerPortalSettingsTab>(initialTab);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -73,6 +82,7 @@ export function ManagerPortalSettingsModal({
   const [otherInstructionsEnabled, setOtherInstructionsEnabled] = useState(false);
   const [otherInstructions, setOtherInstructions] = useState("");
   const [automation, setAutomation] = useState<ApplicationAutomationPreferences>(DEFAULT_APPLICATION_AUTOMATION);
+  const [taskAutomation, setTaskAutomation] = useState<TaskAutomationPreferences>(DEFAULT_TASK_AUTOMATION);
 
   useEffect(() => {
     if (open) setTab(initialTab);
@@ -86,6 +96,7 @@ export function ManagerPortalSettingsModal({
       setOtherInstructionsEnabled(false);
       setOtherInstructions("");
       setAutomation(DEFAULT_APPLICATION_AUTOMATION);
+      setTaskAutomation(DEFAULT_TASK_AUTOMATION);
       cacheLandlordLegalName(CANONICAL_DEMO_MANAGER_NAME);
       return;
     }
@@ -100,6 +111,7 @@ export function ManagerPortalSettingsModal({
           applicationFeeOtherInstructions?: string;
         };
         automation?: unknown;
+        taskAutomation?: unknown;
         waiverCode?: string | null;
         error?: string;
       };
@@ -112,6 +124,7 @@ export function ManagerPortalSettingsModal({
       setOtherInstructionsEnabled(Boolean(data.settings?.applicationFeeOtherEnabled));
       setOtherInstructions((data.settings?.applicationFeeOtherInstructions ?? "").trim());
       setAutomation(normalizeApplicationAutomation(data.automation));
+      setTaskAutomation(normalizeTaskAutomation(data.taskAutomation));
       setWaiverCode((data.waiverCode ?? "").trim());
     } catch {
       showToast("Could not load settings.");
@@ -130,6 +143,7 @@ export function ManagerPortalSettingsModal({
   async function saveApplicationBundle(patch: {
     waiverCode?: string;
     automation?: ApplicationAutomationPreferences;
+    taskAutomation?: TaskAutomationPreferences;
   }) {
     if (demo) {
       showToast("Settings saved (demo).");
@@ -148,6 +162,7 @@ export function ManagerPortalSettingsModal({
           applicationFeeOtherInstructions: otherInstructions,
           waiverCode: patch.waiverCode ?? waiverCode.trim(),
           automation: patch.automation ?? automation,
+          taskAutomation: patch.taskAutomation ?? taskAutomation,
         }),
       });
       const data = (await res.json().catch(() => ({}))) as {
@@ -158,6 +173,7 @@ export function ManagerPortalSettingsModal({
         return;
       }
       if (patch.automation) setAutomation(patch.automation);
+      if (patch.taskAutomation) setTaskAutomation(patch.taskAutomation);
       showToast("Settings saved.");
     } catch {
       showToast("Could not save settings.");
@@ -200,6 +216,8 @@ export function ManagerPortalSettingsModal({
       {tab === "applications" ? (
         <ApplicationsSettingsPanel
           automation={automation}
+          taskAutomation={taskAutomation}
+          teamMembers={teamMembers}
           loading={loading}
           saving={saving}
           waiverCode={waiverCode}
@@ -212,11 +230,13 @@ export function ManagerPortalSettingsModal({
           otherInstructions={otherInstructions}
           onOtherInstructionsChange={setOtherInstructions}
           onAutomationChange={setAutomation}
+          onTaskAutomationChange={setTaskAutomation}
           onWaiverCodeChange={setWaiverCode}
           onSave={() =>
             void saveApplicationBundle({
               waiverCode: waiverCode.trim(),
               automation,
+              taskAutomation,
             })
           }
         />
@@ -227,10 +247,13 @@ export function ManagerPortalSettingsModal({
       {tab === "lease" ? (
         <LeaseSettingsPanel
           automation={automation}
+          taskAutomation={taskAutomation}
+          teamMembers={teamMembers}
           loading={loading}
           saving={saving}
           onAutomationChange={setAutomation}
-          onSave={() => void saveApplicationBundle({ automation })}
+          onTaskAutomationChange={setTaskAutomation}
+          onSave={() => void saveApplicationBundle({ automation, taskAutomation })}
         />
       ) : null}
 

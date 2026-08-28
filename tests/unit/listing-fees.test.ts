@@ -23,6 +23,13 @@ import {
 } from "@/lib/rental-application/listing-fees-display";
 
 describe("listing fees migration", () => {
+  it("builds termination fee rows from legacy scalar fields", () => {
+    const sub = createDefaultListingSubmission();
+    const fees = listingFeesFromLegacyScalars(sub);
+    expect(fees.find((f) => f.presetId === "break_lease_fee")?.amount).toBe("900");
+    expect(fees.find((f) => f.presetId === "holdover_daily")?.amount).toBe("45");
+  });
+
   it("builds preset rows from legacy scalar fields", () => {
     const sub = createDefaultListingSubmission();
     sub.securityDeposit = "900";

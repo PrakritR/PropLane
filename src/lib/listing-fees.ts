@@ -32,7 +32,9 @@ export type ListingFeePresetId =
   | "custom_lease_surcharge"
   | "short_term_nightly"
   | "short_term_deposit"
-  | "short_term_move_in";
+  | "short_term_move_in"
+  | "break_lease_fee"
+  | "holdover_daily";
 
 export type ListingFeeRow = ManagerCustomFeeRow & {
   cadence?: ListingFeeCadence;
@@ -128,14 +130,28 @@ export const LISTING_FEE_PRESETS: readonly ListingFeePresetMeta[] = [
     shortTermOnly: true,
     shortTermSection: true,
   },
+  {
+    presetId: "break_lease_fee",
+    defaultLabel: "Break lease fee",
+    cadence: "one-time",
+    requiredInWizard: false,
+  },
+  {
+    presetId: "holdover_daily",
+    defaultLabel: "Holdover (per day)",
+    cadence: "one-time",
+    requiredInWizard: false,
+  },
 ] as const;
+
+const TERMINATION_ONLY_PRESET_IDS = new Set<ListingFeePresetId>(["break_lease_fee", "holdover_daily"]);
 
 const PRESET_BY_ID = new Map<ListingFeePresetId, ListingFeePresetMeta>(
   LISTING_FEE_PRESETS.map((p) => [p.presetId, p]),
 );
 
 export const CORE_LISTING_FEE_PRESET_IDS: ListingFeePresetId[] = LISTING_FEE_PRESETS.filter(
-  (p) => !p.shortTermSection,
+  (p) => !p.shortTermSection && !TERMINATION_ONLY_PRESET_IDS.has(p.presetId),
 ).map((p) => p.presetId);
 
 export function listingFeeWizardFieldKey(feeId: string): string {
@@ -254,6 +270,8 @@ export function legacyListingAmountsFromFees(fees: ListingFeeRow[]): Pick<
   | "shortTermDailyCost"
   | "shortTermDeposit"
   | "shortTermMoveInFee"
+  | "longTermBreakLeaseFee"
+  | "longTermHoldoverDailyRate"
 > {
   const holding = feeAmountForPreset(fees, "holding_deposit");
   return {
@@ -268,6 +286,8 @@ export function legacyListingAmountsFromFees(fees: ListingFeeRow[]): Pick<
     shortTermDailyCost: feeAmountForPreset(fees, "short_term_nightly"),
     shortTermDeposit: feeAmountForPreset(fees, "short_term_deposit"),
     shortTermMoveInFee: feeAmountForPreset(fees, "short_term_move_in"),
+    longTermBreakLeaseFee: feeAmountForPreset(fees, "break_lease_fee"),
+    longTermHoldoverDailyRate: feeAmountForPreset(fees, "holdover_daily"),
   };
 }
 
@@ -287,6 +307,8 @@ export function listingFeesFromLegacyScalars(
     | "shortTermDeposit"
     | "shortTermMoveInFee"
     | "paymentAtSigningIncludes"
+    | "longTermBreakLeaseFee"
+    | "longTermHoldoverDailyRate"
   >,
 ): ListingFeeRow[] {
   const dueSecurity = sub.paymentAtSigningIncludes?.includes("security_deposit") ?? true;
@@ -335,7 +357,17 @@ export function listingFeesFromLegacyScalars(
     return normalizeListingFeeRow(next);
   });
 
-  return [...core, ...shortTerm];
+  const termination: ListingFeeRow[] = [];
+  const breakAmt = (sub.longTermBreakLeaseFee ?? "").replace(/^\$/, "").trim();
+  if (isListingFeeAmountFilled(breakAmt)) {
+    termination.push(normalizeListingFeeRow(presetListingFeeRow("break_lease_fee", breakAmt)));
+  }
+  const holdoverAmt = (sub.longTermHoldoverDailyRate ?? "").replace(/^\$/, "").trim();
+  if (isListingFeeAmountFilled(holdoverAmt)) {
+    termination.push(normalizeListingFeeRow(presetListingFeeRow("holdover_daily", holdoverAmt)));
+  }
+
+  return [...core, ...shortTerm, ...termination];
 }
 
 export function submissionUsesUnifiedListingFees(customFees: ManagerCustomFeeRow[] | undefined): boolean {
@@ -364,6 +396,8 @@ export function resolveListingFees(
     | "shortTermMoveInFee"
     | "paymentAtSigningIncludes"
     | "shortTermRentalsAllowed"
+    | "longTermBreakLeaseFee"
+    | "longTermHoldoverDailyRate"
   >,
 ): ListingFeeRow[] {
   const fromLegacy = listingFeesFromLegacyScalars(sub);

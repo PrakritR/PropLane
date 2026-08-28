@@ -20,6 +20,12 @@ import {
   type ApplicationAutomationPreferences,
 } from "@/lib/application-automation-preferences";
 import {
+  loadTaskAutomation,
+  normalizeTaskAutomation,
+  saveTaskAutomation,
+  type TaskAutomationPreferences,
+} from "@/lib/task-automation-preferences";
+import {
   loadManagerLandlordLegalNameFromProfile,
 } from "@/lib/manager-landlord-profile";
 import { requireManagerRouteUser } from "@/lib/manager-route-guard.server";
@@ -32,6 +38,7 @@ export async function GET() {
     if (!ctx) return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
     const settings = await loadManagerApplicationSettings(ctx.db, ctx.userId);
     const automation = await loadApplicationAutomation(ctx.db, ctx.userId);
+    const taskAutomation = await loadTaskAutomation(ctx.db, ctx.userId);
     const landlordLegalName = await loadManagerLandlordLegalNameFromProfile(ctx.db, ctx.userId);
     const landlord = { landlordLegalName };
     // Non-persisted suggestion the modal pre-fills so the manager confirms an
@@ -43,6 +50,7 @@ export async function GET() {
     return NextResponse.json({
       settings,
       automation,
+      taskAutomation,
       landlord,
       suggestedFeeCents,
       waiverCode: primary?.code ?? null,
@@ -68,6 +76,11 @@ export async function PATCH(req: Request) {
       automation = await saveApplicationAutomation(ctx.db, ctx.userId, body.automation);
     }
 
+    let taskAutomation: TaskAutomationPreferences | undefined;
+    if ("taskAutomation" in body) {
+      taskAutomation = await saveTaskAutomation(ctx.db, ctx.userId, body.taskAutomation);
+    }
+
     const feePatchRequested =
       "applicationFeeCents" in body ||
       "applicationFeeChargePolicy" in body ||
@@ -75,7 +88,7 @@ export async function PATCH(req: Request) {
       "applicationFeeOtherInstructions" in body ||
       "waiverCode" in body;
     if (!feePatchRequested) {
-      return NextResponse.json({ automation });
+      return NextResponse.json({ automation, taskAutomation });
     }
 
     const existing = await loadManagerApplicationSettings(ctx.db, ctx.userId);
@@ -110,7 +123,7 @@ export async function PATCH(req: Request) {
     const saved = await saveManagerApplicationSettings(ctx.db, ctx.userId, nextSettings);
 
     if (!("waiverCode" in body)) {
-      return NextResponse.json({ settings: saved, automation });
+      return NextResponse.json({ settings: saved, automation, taskAutomation });
     }
 
     const raw = body.waiverCode == null ? "" : String(body.waiverCode);
@@ -118,7 +131,7 @@ export async function PATCH(req: Request) {
     if (!result.ok) {
       return NextResponse.json({ error: result.error }, { status: 400 });
     }
-    return NextResponse.json({ settings: saved, automation, waiverCode: result.code?.code ?? null });
+    return NextResponse.json({ settings: saved, automation, taskAutomation, waiverCode: result.code?.code ?? null });
   } catch (e) {
     const message = e instanceof Error ? e.message : "Failed";
     return NextResponse.json({ error: message }, { status: 500 });

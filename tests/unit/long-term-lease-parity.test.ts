@@ -103,7 +103,7 @@ describe("long-term lease parity", () => {
       "10. House Rules",
       "11. Pets",
       "12. Maintenance & Repairs",
-      "13. Landlord Entry (RCW 59.18.150)",
+      "13. Entry (RCW 59.18.150)",
       "14. Assignment & Subletting",
       "15. Move-Out & Surrender",
       "16. Renter's Insurance",
@@ -132,7 +132,11 @@ describe("long-term lease parity", () => {
 
     expect(first).toContain("$900.00");
     expect(first).toContain("$45.00 per day");
-    expect(first).not.toContain("shall convert to a month-to-month tenancy");
+    expect(first).toContain("12:00 PM");
+    expect(first).toContain("does not convert to a month-to-month tenancy unless both parties agree in writing");
+    expect(first).toContain("Residents do not have exclusive possession of shared areas");
+    expect(first).toContain("Break lease fee");
+    expect(first).toContain("Holdover after lease end");
     expect(first).toContain("$60.00 per hour");
     expect(first).toContain("$30.00");
     expect(first).toContain("Hall bath is shared with Room 6.");
@@ -166,11 +170,11 @@ describe("long-term lease parity", () => {
         longTermDisputeVenue: undefined,
         longTermProfessionalCleaningRequired: undefined,
       }),
-      SEATTLE_LEASE_CONFIG,
+      CALIFORNIA_LEASE_CONFIG,
     );
 
     expect(html).not.toContain("Holdover:");
-    expect(html).not.toContain("break-lease fee");
+    expect(html).not.toContain("Break lease fee");
     expect(html).not.toContain("lease-up fee");
     expect(html).not.toContain("stop-payment or reissuance fee");
     expect(html).not.toContain("Trash rules:");
@@ -227,6 +231,23 @@ describe("long-term lease parity", () => {
     expect(html).not.toContain("subject to California");
     expect(html).not.toContain("RCW");
     expect(html).not.toContain("State of Washington");
+  });
+
+  it("matches the lease summary first partial month payment to the prorated section total", () => {
+    const ctx = longTermContext();
+    ctx.application = {
+      ...ctx.application,
+      leaseStart: "2026-09-15",
+      leaseEnd: "2027-08-31",
+    };
+    ctx.leaseBilling = {
+      ...ctx.leaseBilling!,
+      proratedRent: 550,
+      proratedUtilities: 116.67,
+    };
+    const html = buildLeaseHtml(ctx, SEATTLE_LEASE_CONFIG);
+    expect(html).toContain("Prorated total due first month</strong></td><td><strong>$666.67</strong>");
+    expect(html).toContain("First partial month payment</th><td class=\"amount\">$666.67");
   });
 
   it("leaves short-term agreements byte-identical when only long-term terms change", () => {
