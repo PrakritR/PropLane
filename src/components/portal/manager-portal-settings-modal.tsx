@@ -53,6 +53,7 @@ export function ManagerPortalSettingsModal({
   initialTab = "applications",
   scoped = true,
   scopedTitle,
+  onCalendarSettingsSaved,
 }: {
   open: boolean;
   onClose: () => void;
@@ -68,6 +69,8 @@ export function ManagerPortalSettingsModal({
   scoped?: boolean;
   /** When scoped, overrides the default "{Tab label} settings" title (e.g. Tours → tour notice). */
   scopedTitle?: string;
+  /** Called after Calendar settings save so the availability grid can pick up new defaults. */
+  onCalendarSettingsSaved?: () => void;
 }) {
   const { showToast } = useAppUi();
   const demo = isDemoModeActive();
@@ -285,7 +288,9 @@ export function ManagerPortalSettingsModal({
         />
       ) : null}
 
-      {tab === "calendar" ? <CalendarSettingsPanel onFooterReady={setPanelFooter} /> : null}
+      {tab === "calendar" ? (
+        <CalendarSettingsPanel onFooterReady={setPanelFooter} onSaved={onCalendarSettingsSaved} />
+      ) : null}
 
       {tab === "lease" ? (
         <LeaseSettingsPanel
