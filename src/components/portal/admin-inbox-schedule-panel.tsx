@@ -179,7 +179,6 @@ export function AdminInboxSchedulePanel({
         title="Edit scheduled message"
         description="Update when this message will be delivered and what it says."
         panelClassName="max-w-lg"
-        assistantStrip={false}
       >
         {editMessage ? (
           <ScheduleInboxComposeForm

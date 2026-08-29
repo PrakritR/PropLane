@@ -179,7 +179,7 @@ export function ManagerApplicationFeeWaiverCodesModal({ open, onClose }: { open:
   }
 
   return (
-    <Modal open={open} title="Application fee waiver codes" onClose={onClose} assistantStrip={false}>
+    <Modal open={open} title="Application fee waiver codes" onClose={onClose} assistantContext="Application fee waiver codes">
       <div className="space-y-4">
         <p className="text-xs text-muted">
           An applicant who enters a valid code pays no application fee — nothing is charged, not even $0. Codes are

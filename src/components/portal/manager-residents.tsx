@@ -3522,6 +3522,7 @@ export function ManagerResidents({
           resetAddResidentForm();
           setAddResidentOpen(false);
         }}
+        assistantContext="Add resident"
         footer={
           <ModalFooter>
             <Button type="button" variant="primary" className="rounded-full" onClick={reviewManualResident} disabled={arSaving}>
@@ -3805,7 +3806,7 @@ export function ManagerResidents({
         open={editResidentOpen}
         title="Edit resident"
         onClose={() => setEditResidentOpen(false)}
-        assistantStrip={false}
+        assistantContext="Edit resident"
         scrollableContent
         footer={
           <ModalFooter>

@@ -1861,7 +1861,6 @@ export function InboxScheduledCard({
         onClose={closeModal}
         title="Scheduled message"
         dense
-        assistantStrip={false}
         fullScreenMobile={false}
         panelClassName="max-w-lg p-3 sm:p-4"
         dataAttr="inbox-scheduled-detail-modal"
@@ -1961,10 +1960,15 @@ export function InboxScheduledThreadList({
         onClose={() => setListOpen(false)}
         title="Scheduled messages"
         dense
-        assistantStrip={false}
         fullScreenMobile={false}
         panelClassName="max-w-lg p-3 sm:p-4"
         dataAttr="inbox-scheduled-list-modal"
+        assistantContext="Scheduled messages"
+        footer={
+          footerAction ? (
+            <ModalFooter>{footerAction}</ModalFooter>
+          ) : undefined
+        }
       >
         <p className="text-xs font-semibold text-muted">Scheduled messages</p>
         <ul className="mt-2 max-h-[min(70vh,28rem)] space-y-1.5 overflow-y-auto overscroll-contain pr-0.5 [-webkit-overflow-scrolling:touch]">
@@ -1981,16 +1985,12 @@ export function InboxScheduledThreadList({
             );
           })}
         </ul>
-        {footerAction ? (
-          <div className="mt-3 flex justify-end border-t border-border pt-3">{footerAction}</div>
-        ) : null}
       </Modal>
       <Modal
         open={detailOpen}
         onClose={() => setDetailOpen(false)}
         title="Scheduled message"
         dense
-        assistantStrip={false}
         fullScreenMobile={false}
         panelClassName="max-w-lg p-3 sm:p-4"
         dataAttr="inbox-scheduled-detail-modal"

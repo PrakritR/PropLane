@@ -1,7 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
-import { Modal } from "@/components/ui/modal";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { Modal, ModalFooter } from "@/components/ui/modal";
 import { useAppUi } from "@/components/providers/app-ui-provider";
 import { isDemoModeActive } from "@/lib/demo/demo-session";
 import {
@@ -14,6 +14,8 @@ import {
   normalizeApplicationAutomation,
   PaymentsSettingsPanel,
   ResidentSettingsPanel,
+  SettingsPanelModalSaveButton,
+  type ManagerSettingsPanelFooter,
 } from "@/components/portal/manager-portal-settings-panels";
 import type { ApplicationAutomationPreferences } from "@/lib/application-automation-preferences";
 import type { ApplicationFeeChargePolicy } from "@/lib/manager-application-settings";
@@ -83,10 +85,15 @@ export function ManagerPortalSettingsModal({
   const [otherInstructions, setOtherInstructions] = useState("");
   const [automation, setAutomation] = useState<ApplicationAutomationPreferences>(DEFAULT_APPLICATION_AUTOMATION);
   const [taskAutomation, setTaskAutomation] = useState<TaskAutomationPreferences>(DEFAULT_TASK_AUTOMATION);
+  const [panelFooter, setPanelFooter] = useState<ManagerSettingsPanelFooter | null>(null);
 
   useEffect(() => {
     if (open) setTab(initialTab);
   }, [open, initialTab]);
+
+  useEffect(() => {
+    setPanelFooter(null);
+  }, [tab]);
 
   const loadApplications = useCallback(async () => {
     if (demo) {
@@ -182,6 +189,31 @@ export function ManagerPortalSettingsModal({
     }
   }
 
+  const modalFooter = useMemo((): ManagerSettingsPanelFooter | null => {
+    if (tab === "applications") {
+      return {
+        saving,
+        disabled: loading,
+        onSave: () =>
+          void saveApplicationBundle({
+            waiverCode: waiverCode.trim(),
+            automation,
+            taskAutomation,
+          }),
+        dataAttr: "manager-application-fee-save",
+      };
+    }
+    if (tab === "lease") {
+      return {
+        saving,
+        disabled: loading,
+        onSave: () => void saveApplicationBundle({ automation, taskAutomation }),
+      };
+    }
+    if (tab === "resident") return null;
+    return panelFooter;
+  }, [automation, loading, panelFooter, saving, tab, taskAutomation, waiverCode]);
+
   return (
     <Modal
       open={open}
@@ -192,8 +224,19 @@ export function ManagerPortalSettingsModal({
           : "Settings"
       }
       dense
-      assistantStrip={false}
+      assistantContext={
+        scoped
+          ? `${scopedTitle ?? TABS.find((item) => item.id === tab)?.label ?? "Settings"} settings`
+          : "Portal settings"
+      }
       panelClassName="max-w-lg p-3 sm:p-4"
+      footer={
+        modalFooter ? (
+          <ModalFooter>
+            <SettingsPanelModalSaveButton {...modalFooter} />
+          </ModalFooter>
+        ) : undefined
+      }
     >
       {/* A scoped dialog is already ON its one section, so a switcher would only offer the manager
           a way to wander out of it. */}
@@ -242,7 +285,7 @@ export function ManagerPortalSettingsModal({
         />
       ) : null}
 
-      {tab === "calendar" ? <CalendarSettingsPanel /> : null}
+      {tab === "calendar" ? <CalendarSettingsPanel onFooterReady={setPanelFooter} /> : null}
 
       {tab === "lease" ? (
         <LeaseSettingsPanel
@@ -259,9 +302,9 @@ export function ManagerPortalSettingsModal({
 
       {tab === "resident" ? <ResidentSettingsPanel /> : null}
 
-      {tab === "payments" ? <PaymentsSettingsPanel /> : null}
+      {tab === "payments" ? <PaymentsSettingsPanel onFooterReady={setPanelFooter} /> : null}
 
-      {tab === "communication" ? <CommunicationSettingsPanel /> : null}
+      {tab === "communication" ? <CommunicationSettingsPanel onFooterReady={setPanelFooter} /> : null}
     </Modal>
   );
 }

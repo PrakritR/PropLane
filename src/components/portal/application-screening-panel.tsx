@@ -562,7 +562,6 @@ export function ApplicationScreeningPanel({
           panelClassName="flex max-h-[min(92vh,52rem)] w-[min(56rem,calc(100vw-2rem))] flex-col overflow-hidden"
           scrollableContent
           dense
-          assistantStrip={false}
         >
           <BackgroundCheckReportFrame row={{ ...row, backgroundCheck: bg }} demo={demo} bareCanvas />
         </Modal>

@@ -574,7 +574,6 @@ export function ManagerInboxSchedulePanel({
         title="Scheduled message"
         description="View and manage this scheduled send."
         panelClassName="max-w-lg"
-        assistantStrip={false}
       >
         {editingRow ? <div key={editingRowId}>{renderRowEditPanel(editingRow)}</div> : null}
       </Modal>

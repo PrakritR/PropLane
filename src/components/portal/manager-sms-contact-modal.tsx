@@ -113,7 +113,6 @@ export function ManagerSmsContactModal({
       title="Add phone contact"
       description="Save a number in Communication before the first message."
       panelClassName="max-w-md"
-      assistantStrip={false}
       dataAttr="sms-contact-create-modal"
       footer={
         <ModalFooter>

@@ -3,6 +3,7 @@ import { DEFAULT_EVENT_DURATION_MINUTES } from "@/lib/demo-admin-scheduling";
 import {
   managerTasksStorageKey,
   normalizeManagerTasks,
+  normalizeTaskType,
   type ManagerTask,
 } from "@/lib/manager-tasks";
 import { normalizeAssignee } from "@/lib/work-assignment";
@@ -89,6 +90,10 @@ export async function createManagerTaskRow(
     durationMinutes: start && end ? durationBetween(start, end) : undefined,
     completed: false,
     assignee,
+    taskType: normalizeTaskType(body.taskType) ?? "general",
+    linkedTourId: typeof body.linkedTourId === "string" ? body.linkedTourId.trim() || undefined : undefined,
+    linkedWorkOrderId:
+      typeof body.linkedWorkOrderId === "string" ? body.linkedWorkOrderId.trim() || undefined : undefined,
     templateKey: typeof body.templateKey === "string" ? body.templateKey.trim() || undefined : undefined,
     sourceId: typeof body.sourceId === "string" ? body.sourceId.trim() || undefined : undefined,
     dedupKey: typeof body.dedupKey === "string" ? body.dedupKey.trim() || undefined : undefined,
@@ -162,6 +167,18 @@ export async function patchManagerTaskRow(
     durationMinutes,
     completed: patch.completed === true ? true : patch.completed === false ? false : current.completed,
     assignee,
+    taskType:
+      patch.taskType !== undefined
+        ? (normalizeTaskType(patch.taskType) ?? current.taskType)
+        : current.taskType,
+    linkedTourId:
+      typeof patch.linkedTourId === "string"
+        ? patch.linkedTourId.trim() || undefined
+        : current.linkedTourId,
+    linkedWorkOrderId:
+      typeof patch.linkedWorkOrderId === "string"
+        ? patch.linkedWorkOrderId.trim() || undefined
+        : current.linkedWorkOrderId,
     updatedAt: new Date().toISOString(),
   };
   const updated = tasks.map((row) => (row.id === taskId ? next : row));

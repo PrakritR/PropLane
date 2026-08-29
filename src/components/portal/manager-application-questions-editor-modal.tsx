@@ -424,7 +424,6 @@ export function ManagerApplicationQuestionsEditorModal({
         }
         presentation="dialog"
         dense
-        assistantStrip={false}
         panelClassName="flex max-h-[min(90vh,56rem)] w-full max-w-4xl flex-col"
         footer={
           <ModalFooter className="w-full">

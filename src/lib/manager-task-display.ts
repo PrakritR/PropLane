@@ -1,6 +1,7 @@
 import { getPropertyById } from "@/lib/rental-application/data";
 import { moduleRowVisibleToPortalUser } from "@/lib/manager-portfolio-access";
 import type { ManagerTask } from "@/lib/manager-tasks";
+import { inferManagerTaskType } from "@/lib/manager-tasks";
 import {
   readAllServiceRequests,
   type ServiceRequest,
@@ -75,19 +76,34 @@ export function serviceRequestLocationLabel(req: ServiceRequest): string | null 
   return parts.length ? parts.join(" · ") : null;
 }
 
-/** In-list filter pills on the manager Tasks page (same shape as Services Open / Scheduled / …). */
-export const MANAGER_TASK_LIST_FILTERS = ["all", "open", "scheduled", "services"] as const;
+/** In-list filter pills on the manager Tasks page. */
+export const MANAGER_TASK_LIST_FILTERS = [
+  "all",
+  "service_orders",
+  "tours",
+  "general_tasks",
+  "house_tasks",
+] as const;
 export type ManagerTaskListFilterId = (typeof MANAGER_TASK_LIST_FILTERS)[number];
 
 export const MANAGER_TASK_LIST_FILTER_LABELS: Record<ManagerTaskListFilterId, string> = {
   all: "All",
-  open: "Open",
-  scheduled: "Scheduled",
-  services: "Service orders",
+  service_orders: "Service orders",
+  tours: "Tours",
+  general_tasks: "General tasks",
+  house_tasks: "House tasks",
 };
 
 export function managerTaskIsScheduled(task: Pick<ManagerTask, "start" | "end">): boolean {
   return Boolean(task.start?.trim() && task.end?.trim());
+}
+
+function taskMatchesTypeFilter(task: ManagerTask, filter: Exclude<ManagerTaskListFilterId, "all" | "service_orders">): boolean {
+  const type = inferManagerTaskType(task);
+  if (filter === "tours") return type === "tour";
+  if (filter === "house_tasks") return type === "house";
+  if (filter === "general_tasks") return type === "general" || type === "work_order";
+  return true;
 }
 
 export function countTaskListFilterBuckets(input: {
@@ -106,15 +122,20 @@ export function countTaskListFilterBuckets(input: {
       ? []
       : input.services.filter((req) => input.matchesProperty(req.propertyId));
 
-  const openTasks = taskRows.filter((task) => !managerTaskIsScheduled(task)).length;
-  const scheduledTasks = taskRows.filter((task) => managerTaskIsScheduled(task)).length;
+  const tours = taskRows.filter((task) => inferManagerTaskType(task) === "tour").length;
+  const houseTasks = taskRows.filter((task) => inferManagerTaskType(task) === "house").length;
+  const generalTasks = taskRows.filter((task) => {
+    const type = inferManagerTaskType(task);
+    return type === "general" || type === "work_order";
+  }).length;
   const services = serviceRows.length;
 
   return {
     all: taskRows.length + services,
-    open: openTasks,
-    scheduled: scheduledTasks,
-    services,
+    service_orders: services,
+    tours,
+    general_tasks: generalTasks,
+    house_tasks: houseTasks,
   };
 }
 
@@ -125,8 +146,7 @@ export function taskListRowMatchesFilter(
   filter: ManagerTaskListFilterId,
 ): boolean {
   if (filter === "all") return true;
-  if (row.kind === "service") return filter === "services";
-  if (filter === "services") return false;
-  if (filter === "scheduled") return managerTaskIsScheduled(row.task);
-  return !managerTaskIsScheduled(row.task);
+  if (row.kind === "service") return filter === "service_orders";
+  if (filter === "service_orders") return false;
+  return taskMatchesTypeFilter(row.task, filter);
 }

@@ -121,7 +121,6 @@ export function ReminderMessageUpdateModal({
       onClose={onClose}
       title="Update message"
       dense
-      assistantStrip={false}
       panelClassName="max-w-lg p-3 sm:p-4"
     >
       <div className="space-y-3">
