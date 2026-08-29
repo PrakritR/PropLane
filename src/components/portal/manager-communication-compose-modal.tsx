@@ -142,12 +142,22 @@ function peopleForCategory(
  * Shared New message for Communication Email + SMS.
  * Same To / Which people / Other fields; choose Email and/or SMS at the bottom.
  */
+
+/**
+ * A default parameter of `[]` builds a NEW array on every render, so any memo
+ * or effect keyed on it re-runs forever — that is exactly how this modal hit
+ * "Maximum update depth exceeded" when opened from a caller that omits the
+ * prop. One frozen module-level empty keeps the identity stable instead.
+ */
+const NO_LIVE_CONTACTS: InboxScopedContact[] = [];
+const NO_SMS_RECIPIENTS: ManagerSmsResidentConversation[] = [];
+
 export function ManagerCommunicationComposeModal({
   open,
   onClose,
   initialChannel = "email",
-  liveContacts = [],
-  smsRecipients = [],
+  liveContacts = NO_LIVE_CONTACTS,
+  smsRecipients = NO_SMS_RECIPIENTS,
   smsUiEnabled = false,
   senderName = "Property manager",
   senderEmail = "manager@example.com",
@@ -299,16 +309,30 @@ export function ManagerCommunicationComposeModal({
     });
   }, [open, initialChannel, smsUiEnabled, initialDraft, channelsFor]);
 
+  // Each of these prunes a selection when its source list changes. They MUST
+  // return the previous array when nothing was removed: `filter` always builds
+  // a new array, and returning one unconditionally re-renders, which re-runs
+  // the effect if its dependency is not identity-stable — an infinite loop.
+  // Handing back `prev` lets React bail out on `Object.is`.
   useEffect(() => {
-    setSelectedCategories((prev) => prev.filter((c) => categoryOptions.includes(c)));
+    setSelectedCategories((prev) => {
+      const next = prev.filter((c) => categoryOptions.includes(c));
+      return next.length === prev.length ? prev : next;
+    });
   }, [categoryOptions]);
 
   useEffect(() => {
-    setSelectedKeys((prev) => mergeAdminComposePersonKey(directoryCategories, prev));
+    setSelectedKeys((prev) => {
+      const next = mergeAdminComposePersonKey(directoryCategories, prev);
+      return next.length === prev.length && next.every((k, i) => k === prev[i]) ? prev : next;
+    });
   }, [directoryCategories]);
 
   useEffect(() => {
-    setSelectedKeys((prev) => prev.filter((key) => validPersonKeys.has(key)));
+    setSelectedKeys((prev) => {
+      const next = prev.filter((key) => validPersonKeys.has(key));
+      return next.length === prev.length ? prev : next;
+    });
   }, [validPersonKeys]);
 
   useEffect(() => {

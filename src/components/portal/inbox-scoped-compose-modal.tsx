@@ -125,6 +125,14 @@ function peopleForCategory(
 /**
  * New message compose: two multi-select dropdowns (sections + people) with checkboxes.
  */
+
+/**
+ * A default parameter of `[]` is a NEW array every render, which re-runs every
+ * memo and effect keyed on it. Paired with the pruning effects below that is an
+ * infinite update loop. One module-level empty keeps the identity stable.
+ */
+const NO_LIVE_CONTACTS: InboxScopedContact[] = [];
+
 export function ScopedInboxComposeModal({
   open,
   onClose,
@@ -133,7 +141,7 @@ export function ScopedInboxComposeModal({
   title = "New message",
   senderName = "Portal user",
   senderEmail = "portal-user@example.com",
-  liveContacts = [],
+  liveContacts = NO_LIVE_CONTACTS,
   initialDraft = null,
   initialScheduleLater = false,
 }: {
@@ -285,16 +293,28 @@ export function ScopedInboxComposeModal({
     setSelectedKeys([`id:${hit.id}` as PersonKey]);
   }, [open, initialDraft, contacts]);
 
+  // Return `prev` when nothing was pruned. `filter` always allocates, and
+  // setting a fresh array unconditionally re-renders, which re-runs the effect
+  // whenever its dependency is not identity-stable — an infinite loop.
   useEffect(() => {
-    setSelectedCategories((prev) => prev.filter((c) => categoryOptions.includes(c)));
+    setSelectedCategories((prev) => {
+      const next = prev.filter((c) => categoryOptions.includes(c));
+      return next.length === prev.length ? prev : next;
+    });
   }, [categoryOptions]);
 
   useEffect(() => {
-    setSelectedKeys((prev) => mergeAdminComposePersonKey(selectedCategories, prev));
+    setSelectedKeys((prev) => {
+      const next = mergeAdminComposePersonKey(selectedCategories, prev);
+      return next.length === prev.length && next.every((k, i) => k === prev[i]) ? prev : next;
+    });
   }, [selectedCategories]);
 
   useEffect(() => {
-    setSelectedKeys((prev) => prev.filter((key) => validPersonKeys.has(key)));
+    setSelectedKeys((prev) => {
+      const next = prev.filter((key) => validPersonKeys.has(key));
+      return next.length === prev.length ? prev : next;
+    });
   }, [validPersonKeys]);
 
   const onCategoriesChange = (next: string[]) => {
