@@ -371,15 +371,6 @@ function ManagerPropertyInlineDetails({
     leaseAddHandlerRef.current = handler;
   }, []);
 
-  const tourSendHandlerRef = useRef<(() => void) | null>(null);
-  const tourAvailabilityHandlerRef = useRef<(() => void) | null>(null);
-  const registerTourSendHandler = useCallback((handler: (() => void) | null) => {
-    tourSendHandlerRef.current = handler;
-  }, []);
-  const registerTourAvailabilityHandler = useCallback((handler: (() => void) | null) => {
-    tourAvailabilityHandlerRef.current = handler;
-  }, []);
-
   const promotionNewHandlerRef = useRef<(() => void) | null>(null);
   const registerPromotionNewHandler = useCallback((handler: (() => void) | null) => {
     promotionNewHandlerRef.current = handler;
@@ -855,83 +846,6 @@ function ManagerPropertyInlineDetails({
         />
       );
     }
-    if (activeDetailTab === "tours" && bucket === 2 && listingId) {
-      return (
-        <PortalAdaptiveActionRow
-          actions={[
-            {
-              id: "set-availability",
-              node: (
-                <Button
-                  type="button"
-                  variant="outline"
-                  className={PORTAL_DETAIL_BTN}
-                  data-attr="property-set-availability-footer"
-                  onClick={() => tourAvailabilityHandlerRef.current?.()}
-                >
-                  Set availability
-                </Button>
-              ),
-              menuItem: (
-                <DropdownMenuItem
-                  data-attr="property-set-availability-footer-menu"
-                  onSelect={() => tourAvailabilityHandlerRef.current?.()}
-                >
-                  Set availability
-                </DropdownMenuItem>
-              ),
-            },
-            {
-              id: "calendar-settings",
-              node: (
-                <Button
-                  type="button"
-                  variant="outline"
-                  className={PORTAL_DETAIL_BTN}
-                  data-attr="property-calendar-settings"
-                  onClick={() => setPortalSettingsOpen(true)}
-                >
-                  Settings
-                </Button>
-              ),
-              menuItem: (
-                <DropdownMenuItem
-                  data-attr="property-calendar-settings-menu"
-                  onSelect={() => setPortalSettingsOpen(true)}
-                >
-                  Settings
-                </DropdownMenuItem>
-              ),
-            },
-            {
-              id: "send-tour",
-              node: (
-                <Button
-                  type="button"
-                  variant="primary"
-                  className={PORTAL_DETAIL_BTN}
-                  data-attr="listing-send-tour-link-footer"
-                  onClick={() => tourSendHandlerRef.current?.()}
-                >
-                  Send tour link
-                </Button>
-              ),
-              menuItem: (
-                <DropdownMenuItem
-                  data-attr="listing-send-tour-link-footer-menu"
-                  onSelect={() => tourSendHandlerRef.current?.()}
-                >
-                  Send tour link
-                </DropdownMenuItem>
-              ),
-            },
-          ]}
-          moreAriaLabel="More tour actions"
-          moreDataAttr="property-tours-footer-more"
-          gapPx={8}
-        />
-      );
-    }
     if (activeDetailTab === "requests" && bucket === 2 && stablePropertyId) {
       return (
         <Button
@@ -1115,8 +1029,6 @@ function ManagerPropertyInlineDetails({
           managerUserId={managerUserId}
           propertyLabel={propertyShareLabel}
           showToast={showToast}
-          onRegisterSendTour={registerTourSendHandler}
-          onRegisterSetAvailability={registerTourAvailabilityHandler}
         />
       ) : null}
 

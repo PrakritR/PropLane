@@ -58,13 +58,11 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-/** Availability grid lives in the Set availability modal — open it like the footer button. */
+/** Availability grid is inline on the Tours tab — no modal step. */
 async function renderPropertyToursPanel(options: {
   managerUserId: string | null;
   showToast?: (message: string) => void;
-  openAvailability?: boolean;
 }) {
-  let openAvailabilityModal: (() => void) | null = null;
   const { ManagerPropertyTourPanel } = await import("@/components/portal/manager-property-tour-panel");
   render(
     <ManagerPropertyTourPanel
@@ -72,15 +70,10 @@ async function renderPropertyToursPanel(options: {
       managerUserId={options.managerUserId}
       propertyLabel="Ballard House"
       showToast={options.showToast ?? (() => {})}
-      onRegisterSetAvailability={(fn) => {
-        openAvailabilityModal = fn;
-      }}
     />,
   );
-  const shouldOpen = options.openAvailability ?? Boolean(options.managerUserId);
-  if (shouldOpen) {
-    await waitFor(() => expect(typeof openAvailabilityModal).toBe("function"));
-    openAvailabilityModal!();
+  if (options.managerUserId) {
+    await waitFor(() => expect(capturedProps.length).toBeGreaterThan(0));
   }
 }
 
@@ -144,9 +137,9 @@ describe("property availability calendar shows the same conflicts (F-CAL-6)", ()
   it("asks Google for nothing when there is no signed-in manager", async () => {
     const fetchMock = vi.fn(async () => ({ ok: true, json: async () => ({ meetings: [] }) }));
     vi.stubGlobal("fetch", fetchMock);
-    await renderPropertyToursPanel({ managerUserId: null, openAvailability: false });
+    await renderPropertyToursPanel({ managerUserId: null });
     expect(fetchMock).not.toHaveBeenCalled();
-    expect(capturedProps).toHaveLength(0);
+    expect(capturedProps.at(-1)?.storageKey).toBeNull();
   });
 });
 

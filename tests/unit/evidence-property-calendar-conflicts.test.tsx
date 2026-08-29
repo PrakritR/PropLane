@@ -106,21 +106,14 @@ function blockedSlots(root: HTMLElement): string[] {
 
 describe("F-CAL-6 — the per-property availability editor shows the same conflicts", () => {
   it("renders Google busy time on the grid a manager publishes availability on", async () => {
-    let openAvailabilityModal: (() => void) | null = null;
-    const view = render(
+    render(
       <ManagerPropertyTourPanel
         listingId="mgr-magnolia-2b-a1b2c3"
         managerUserId={MANAGER_ID}
         propertyLabel="The Magnolia · 2B"
         showToast={() => {}}
-        onRegisterSetAvailability={(fn) => {
-          openAvailabilityModal = fn;
-        }}
       />,
     );
-    await waitFor(() => expect(typeof openAvailabilityModal).toBe("function"));
-    openAvailabilityModal!();
-    // Modal portals outside the panel root — search the document for blocked cells.
     const root = document.body;
     const settled = await waitFor(() => expect(blockedSlots(root).length).toBeGreaterThan(0)).then(
       () => true,
