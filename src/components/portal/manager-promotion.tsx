@@ -6,6 +6,7 @@ import {
   ManagerPortalPageShell,
   PORTAL_HEADER_PRIMARY_ACTION_BTN,
 } from "@/components/portal/portal-metrics";
+import { ApplicationHouseholdCluster } from "@/components/portal/application-household-list";
 import { PortalListGroupFilterFields } from "@/components/portal/portal-list-group-filter-fields";
 import { PortalFilterSortSheet, portalFilterActiveCount } from "@/components/portal/portal-filter-sort-sheet";
 import { PORTAL_PROPERTY_FILTER_SHEET_CLASS } from "@/components/portal/portal-filter-shell";

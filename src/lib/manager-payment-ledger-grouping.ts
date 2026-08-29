@@ -40,6 +40,20 @@ export function clusterManagerPaymentLedgerRows(
   return clusterManagerPaymentLedgerRowsByMode(rows, "resident");
 }
 
+// Mirrors the overloads on `clusterPortalListRows`: a literal mode resolves to
+// the single cluster shape it produces, so callers need no cast.
+export function clusterManagerPaymentLedgerRowsByMode(
+  rows: DemoManagerPaymentLedgerRow[],
+  mode: "resident",
+): ManagerPaymentResidentCluster[];
+export function clusterManagerPaymentLedgerRowsByMode(
+  rows: DemoManagerPaymentLedgerRow[],
+  mode: "house",
+): ManagerPaymentPropertyCluster[];
+export function clusterManagerPaymentLedgerRowsByMode(
+  rows: DemoManagerPaymentLedgerRow[],
+  mode: PortalListGroupMode,
+): ManagerPaymentResidentCluster[] | ManagerPaymentPropertyCluster[];
 export function clusterManagerPaymentLedgerRowsByMode(
   rows: DemoManagerPaymentLedgerRow[],
   mode: PortalListGroupMode,
