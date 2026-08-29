@@ -26,9 +26,21 @@ export function getAdminRegisterKey(): string | null {
 /**
  * Built-in payment-waiver promo. Grants lifetime paid-tier access (no Stripe
  * subscription) when validated server-side. Override only via
- * `AXIS_PAYMENT_WAIVER_CODE` when a different comp code is needed.
+ * `PROPLANE_PAYMENT_WAIVER_CODE` when a different comp code is needed.
  */
 export const BUILTIN_PAYMENT_WAIVER_CODE = "FREE100";
+
+/** Server-only env var for the active payment-waiver code (`PROPLANE_PAYMENT_WAIVER_CODE`). */
+export const PAYMENT_WAIVER_CODE_ENV = "PROPLANE_PAYMENT_WAIVER_CODE";
+
+/** @deprecated Use `PROPLANE_PAYMENT_WAIVER_CODE`. Read only when the new name is unset. */
+const LEGACY_PAYMENT_WAIVER_CODE_ENV = "AXIS_PAYMENT_WAIVER_CODE";
+
+function readPaymentWaiverCodeFromEnv(): string {
+  const primary = process.env[PAYMENT_WAIVER_CODE_ENV]?.trim();
+  if (primary) return primary;
+  return process.env[LEGACY_PAYMENT_WAIVER_CODE_ENV]?.trim() ?? "";
+}
 
 /**
  * Payment-waiver code that bypasses Stripe checkout, or null when no waiver is available.
@@ -37,13 +49,13 @@ export const BUILTIN_PAYMENT_WAIVER_CODE = "FREE100";
  * a fixed string sitting in a public repo, and `paymentWaiverCodeMatches` compares
  * case-insensitively and ignores punctuation, so anyone typing "free100" would be handed
  * paid-tier access with no Stripe checkout. Production therefore requires
- * `AXIS_PAYMENT_WAIVER_CODE` to be set explicitly, and grants no waiver at all without it.
+ * `PROPLANE_PAYMENT_WAIVER_CODE` to be set explicitly, and grants no waiver at all without it.
  *
  * Same shape as `getAdminRegisterKey` directly above, and for the same reason: a comp code is a
  * credential, and a credential that ships in the source is not one.
  */
 export function getPaymentWaiverCode(): string | null {
-  const fromEnv = process.env.AXIS_PAYMENT_WAIVER_CODE?.trim();
+  const fromEnv = readPaymentWaiverCodeFromEnv();
   if (fromEnv) return fromEnv;
   return isProductionRuntime() ? null : BUILTIN_PAYMENT_WAIVER_CODE;
 }

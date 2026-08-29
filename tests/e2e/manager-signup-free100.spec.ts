@@ -13,7 +13,7 @@ test.describe("Manager FREE100 signup", () => {
     // The pricing CTAs no longer sign up inline. "Choose <tier>" opens
     // create-account with the tier pre-selected (manager-start-page.tsx →
     // createAccountPath). The FREE100 waiver is no longer a signup-form field —
-    // it is applied server-side (AXIS_PAYMENT_WAIVER_CODE) — so this verifies the
+    // it is applied server-side (PROPLANE_PAYMENT_WAIVER_CODE) — so this verifies the
     // pro-signup ENTRY flow that a real manager takes, with current selectors.
     await page.goto("/partner/pricing");
 
