@@ -19,6 +19,7 @@ import {
 import {
   DEFAULT_MANAGER_AUTOMATION_SETTINGS,
   PAYMENT_AUTOMATION_SETTINGS_EVENT,
+  normalizeManagerAutomationSettings,
   normalizeTourReminderMinutesBeforeList,
   type ManagerAutomationSettings,
 } from "@/lib/payment-automation-settings";
@@ -75,6 +76,50 @@ const TOUR_PREVIEW_CONTEXT = {
 
 const TOUR_PLACEHOLDERS =
   "Placeholders: {guestName}, {propertyTitle}, {tourTime}, {managerName}, {instructions}";
+
+export type ManagerSettingsPanelFooter = {
+  saving: boolean;
+  disabled?: boolean;
+  onSave: () => void;
+  dataAttr?: string;
+};
+
+export function SettingsPanelModalSaveButton({
+  saving,
+  disabled,
+  onSave,
+  dataAttr,
+}: ManagerSettingsPanelFooter) {
+  return (
+    <Button
+      type="button"
+      className="rounded-full px-4 text-[13px]"
+      onClick={onSave}
+      disabled={disabled || saving}
+      data-attr={dataAttr}
+    >
+      {saving ? "Saving…" : "Save"}
+    </Button>
+  );
+}
+
+function useReportSettingsPanelFooter(
+  onFooterReady: ((footer: ManagerSettingsPanelFooter | null) => void) | undefined,
+  footer: ManagerSettingsPanelFooter | null,
+) {
+  const saving = footer?.saving ?? false;
+  const disabled = footer?.disabled;
+  const dataAttr = footer?.dataAttr;
+  const onSave = footer?.onSave;
+  useEffect(() => {
+    if (!footer) {
+      onFooterReady?.(null);
+      return;
+    }
+    onFooterReady?.(footer);
+    return () => onFooterReady?.(null);
+  }, [dataAttr, disabled, footer, onFooterReady, onSave, saving]);
+}
 
 export function ApplicationsSettingsPanel({
   automation,
@@ -264,17 +309,6 @@ export function ApplicationsSettingsPanel({
         saving={saving}
         onChange={onTaskAutomationChange}
       />
-      <div className="flex justify-end border-t border-border pt-3">
-        <Button
-          type="button"
-          className="rounded-full px-4 text-[13px]"
-          onClick={onSave}
-          disabled={loading || saving}
-          data-attr="manager-application-fee-save"
-        >
-          {saving ? "Saving…" : "Save"}
-        </Button>
-      </div>
     </div>
   );
 }
@@ -342,11 +376,6 @@ export function LeaseSettingsPanel({
         saving={saving}
         onChange={onTaskAutomationChange}
       />
-      <div className="flex justify-end border-t border-border pt-3">
-        <Button type="button" className="rounded-full px-4 text-[13px]" onClick={onSave} disabled={loading || saving}>
-          {saving ? "Saving…" : "Save"}
-        </Button>
-      </div>
     </div>
   );
 }
@@ -360,7 +389,13 @@ export function ResidentSettingsPanel() {
   );
 }
 
-export function CalendarSettingsPanel({ onSaved }: { onSaved?: () => void }) {
+export function CalendarSettingsPanel({
+  onSaved,
+  onFooterReady,
+}: {
+  onSaved?: () => void;
+  onFooterReady?: (footer: ManagerSettingsPanelFooter | null) => void;
+}) {
   const { showToast } = useAppUi();
   const demo = isDemoModeActive();
   const [loading, setLoading] = useState(true);
@@ -406,7 +441,7 @@ export function CalendarSettingsPanel({ onSaved }: { onSaved?: () => void }) {
     [automation.templates.tourReminder],
   );
 
-  const save = async () => {
+  const save = useCallback(async () => {
     const minutesBeforeList = normalizeTourReminderMinutesBeforeList(
       automation.tourReminderMinutesBeforeList,
       automation.tourReminderMinutesBefore,
@@ -457,7 +492,25 @@ export function CalendarSettingsPanel({ onSaved }: { onSaved?: () => void }) {
     } finally {
       setSaving(false);
     }
-  };
+  }, [automation, demo, onSaved, showToast, tourSettings]);
+
+  const triggerSave = useCallback(() => {
+    void save();
+  }, [save]);
+
+  const footerState = useMemo(
+    (): ManagerSettingsPanelFooter | null =>
+      loading
+        ? null
+        : {
+            saving,
+            onSave: triggerSave,
+            dataAttr: "manager-calendar-settings-save",
+          },
+    [loading, saving, triggerSave],
+  );
+
+  useReportSettingsPanelFooter(onFooterReady, footerState);
 
   if (loading) return <p className="text-sm text-muted">Loading…</p>;
 
@@ -586,18 +639,6 @@ export function CalendarSettingsPanel({ onSaved }: { onSaved?: () => void }) {
             dataAttr="tour-reminder-update-message"
           />
         </div>
-
-        <div className="flex justify-end border-t border-border pt-3">
-          <Button
-            type="button"
-            className="rounded-full px-4 text-[13px]"
-            onClick={() => void save()}
-            disabled={saving}
-            data-attr="manager-calendar-settings-save"
-          >
-            {saving ? "Saving…" : "Save"}
-          </Button>
-        </div>
       </div>
 
       <ReminderMessageUpdateModal
@@ -617,7 +658,13 @@ export function CalendarSettingsPanel({ onSaved }: { onSaved?: () => void }) {
   );
 }
 
-export function PaymentsSettingsPanel({ onSaved }: { onSaved?: () => void }) {
+export function PaymentsSettingsPanel({
+  onSaved,
+  onFooterReady,
+}: {
+  onSaved?: () => void;
+  onFooterReady?: (footer: ManagerSettingsPanelFooter | null) => void;
+}) {
   const { showToast } = useAppUi();
   const demo = isDemoModeActive();
   const [loading, setLoading] = useState(true);
@@ -638,8 +685,9 @@ export function PaymentsSettingsPanel({ onSaved }: { onSaved?: () => void }) {
         if (!res.ok) throw new Error("Could not load payment settings.");
         const body = (await res.json()) as { settings: ManagerAutomationSettings };
         if (!cancelled) {
-          setDraft(body.settings);
-          setPresetId(detectReminderPreset(body.settings));
+          const settings = normalizeManagerAutomationSettings(body.settings);
+          setDraft(settings);
+          setPresetId(detectReminderPreset(settings));
         }
       } catch (e) {
         showToast(e instanceof Error ? e.message : "Could not load payment settings.");
@@ -652,7 +700,7 @@ export function PaymentsSettingsPanel({ onSaved }: { onSaved?: () => void }) {
     };
   }, [demo, showToast]);
 
-  const save = async () => {
+  const save = useCallback(async () => {
     setSaving(true);
     try {
       if (demo) {
@@ -683,7 +731,25 @@ export function PaymentsSettingsPanel({ onSaved }: { onSaved?: () => void }) {
     } finally {
       setSaving(false);
     }
-  };
+  }, [demo, draft, onSaved, showToast]);
+
+  const triggerSave = useCallback(() => {
+    void save();
+  }, [save]);
+
+  const footerState = useMemo(
+    (): ManagerSettingsPanelFooter | null =>
+      loading
+        ? null
+        : {
+            saving,
+            onSave: triggerSave,
+            dataAttr: "manager-payments-settings-save",
+          },
+    [loading, saving, triggerSave],
+  );
+
+  useReportSettingsPanelFooter(onFooterReady, footerState);
 
   if (loading) return <p className="text-sm text-muted">Loading…</p>;
 
@@ -732,22 +798,42 @@ export function PaymentsSettingsPanel({ onSaved }: { onSaved?: () => void }) {
           Notify residents when a late fee is assessed ({draft.lateFeeNoticeDaysAfterDue} days after due)
         </span>
       </label>
-      <div className="flex justify-end border-t border-border pt-3">
-        <Button type="button" className="rounded-full px-4 text-[13px]" onClick={() => void save()} disabled={saving}>
-          {saving ? "Saving…" : "Save"}
-        </Button>
-      </div>
     </div>
   );
 }
 
-export function CommunicationSettingsPanel({ onSaved }: { onSaved?: () => void }) {
+export function CommunicationSettingsPanel({
+  onSaved,
+  onFooterReady,
+}: {
+  onSaved?: () => void;
+  onFooterReady?: (footer: ManagerSettingsPanelFooter | null) => void;
+}) {
   const { showToast } = useAppUi();
   const demo = isDemoModeActive();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [draft, setDraft] = useState<ManagerAutomationSettings>(DEFAULT_MANAGER_AUTOMATION_SETTINGS);
   const [smsSetup, setSmsSetup] = useState<{ phone: string | null; canSend: boolean } | null>(null);
+  const [activeSendViaSectionId, setActiveSendViaSectionId] = useState<
+    (typeof MANAGER_COMMUNICATION_SEND_VIA_SECTIONS)[number]["id"]
+  >(MANAGER_COMMUNICATION_SEND_VIA_SECTIONS[0].id);
+
+  const activeSendViaSection = useMemo(
+    () =>
+      MANAGER_COMMUNICATION_SEND_VIA_SECTIONS.find((section) => section.id === activeSendViaSectionId) ??
+      MANAGER_COMMUNICATION_SEND_VIA_SECTIONS[0],
+    [activeSendViaSectionId],
+  );
+
+  const sendViaSectionOptions = useMemo(
+    () =>
+      MANAGER_COMMUNICATION_SEND_VIA_SECTIONS.map((section) => ({
+        value: section.id,
+        label: section.label,
+      })),
+    [],
+  );
 
   const anySmsEnabled = useMemo(
     () =>
@@ -769,7 +855,7 @@ export function CommunicationSettingsPanel({ onSaved }: { onSaved?: () => void }
         const res = await fetch("/api/portal/automation-settings", { credentials: "include", cache: "no-store" });
         if (!res.ok) throw new Error("Could not load communication settings.");
         const body = (await res.json()) as { settings: ManagerAutomationSettings };
-        if (!cancelled) setDraft(body.settings);
+        if (!cancelled) setDraft(normalizeManagerAutomationSettings(body.settings));
       } catch (e) {
         showToast(e instanceof Error ? e.message : "Could not load communication settings.");
       } finally {
@@ -804,7 +890,7 @@ export function CommunicationSettingsPanel({ onSaved }: { onSaved?: () => void }
     };
   }, [anySmsEnabled, demo]);
 
-  const save = async () => {
+  const save = useCallback(async () => {
     for (const section of MANAGER_COMMUNICATION_SEND_VIA_SECTIONS) {
       const channels = deliverViaFromManagerSettings(draft, section.kind);
       if (!channels.viaEmail && !channels.viaSms) {
@@ -850,7 +936,25 @@ export function CommunicationSettingsPanel({ onSaved }: { onSaved?: () => void }
     } finally {
       setSaving(false);
     }
-  };
+  }, [demo, draft, onSaved, showToast]);
+
+  const triggerSave = useCallback(() => {
+    void save();
+  }, [save]);
+
+  const footerState = useMemo(
+    (): ManagerSettingsPanelFooter | null =>
+      loading
+        ? null
+        : {
+            saving,
+            onSave: triggerSave,
+            dataAttr: "communication-settings-save",
+          },
+    [loading, saving, triggerSave],
+  );
+
+  useReportSettingsPanelFooter(onFooterReady, footerState);
 
   if (loading) return <p className="text-sm text-muted">Loading…</p>;
 
@@ -894,39 +998,35 @@ export function CommunicationSettingsPanel({ onSaved }: { onSaved?: () => void }
         canSend={smsSetup?.canSend === true}
         className="rounded-xl border border-border bg-accent/30 px-3 py-2.5"
       />
-      {MANAGER_COMMUNICATION_SEND_VIA_SECTIONS.map((section, index) => {
-        const channels = deliverViaFromManagerSettings(draft, section.kind);
-        return (
-          <div
-            key={section.id}
-            className={`space-y-2 ${index === 0 ? "border-t border-border pt-4" : "border-t border-border pt-4"}`}
-          >
-            <div>
-              <p className="text-[13px] font-semibold text-foreground">{section.label}</p>
-              <p className="mt-0.5 text-xs text-muted">{section.description}</p>
-            </div>
-            <ReminderSendViaField
-              viaEmail={channels.viaEmail}
-              viaSms={channels.viaSms}
-              smsLabel={
-                section.kind === "payment_reminder"
-                  ? "SMS (when resident opted in)"
-                  : section.kind === "tour_reminder"
-                    ? "SMS (when guest opted in)"
-                    : "SMS"
-              }
-              onChange={({ viaEmail, viaSms }) =>
-                setDraft((prev) => patchDeliverViaForKind(prev, section.kind, { viaEmail, viaSms }))
-              }
-              dataAttr={`communication-${section.id}-send-via`}
-            />
-          </div>
-        );
-      })}
-      <div className="flex justify-end border-t border-border pt-3">
-        <Button type="button" className="rounded-full px-4 text-[13px]" onClick={() => void save()} disabled={saving}>
-          {saving ? "Saving…" : "Save"}
-        </Button>
+      <div className="space-y-3 border-t border-border pt-4">
+        <FieldSingleSelect
+          label="Send via for"
+          value={activeSendViaSection.id}
+          options={sendViaSectionOptions}
+          onChange={(value) => {
+            const match = MANAGER_COMMUNICATION_SEND_VIA_SECTIONS.find((section) => section.id === value);
+            if (match) setActiveSendViaSectionId(match.id);
+          }}
+          dataAttr="communication-send-via-category"
+        />
+        <div>
+          <p className="text-xs text-muted">{activeSendViaSection.description}</p>
+        </div>
+        <ReminderSendViaField
+          viaEmail={deliverViaFromManagerSettings(draft, activeSendViaSection.kind).viaEmail}
+          viaSms={deliverViaFromManagerSettings(draft, activeSendViaSection.kind).viaSms}
+          smsLabel={
+            activeSendViaSection.kind === "payment_reminder"
+              ? "SMS (when resident opted in)"
+              : activeSendViaSection.kind === "tour_reminder"
+                ? "SMS (when guest opted in)"
+                : "SMS"
+          }
+          onChange={({ viaEmail, viaSms }) =>
+            setDraft((prev) => patchDeliverViaForKind(prev, activeSendViaSection.kind, { viaEmail, viaSms }))
+          }
+          dataAttr={`communication-${activeSendViaSection.id}-send-via`}
+        />
       </div>
     </div>
   );

@@ -10,6 +10,16 @@ import { emitAdminUi } from "@/lib/demo-admin-ui";
 export const MANAGER_TASKS_RECORD_PREFIX = "axis_manager_tasks_v1_";
 export const MANAGER_TASKS_EVENT = "manager-tasks-changed";
 
+export const MANAGER_TASK_TYPES = ["general", "house", "tour", "work_order"] as const;
+export type ManagerTaskType = (typeof MANAGER_TASK_TYPES)[number];
+
+export const MANAGER_TASK_TYPE_LABELS: Record<ManagerTaskType, string> = {
+  general: "General task",
+  house: "House task",
+  tour: "Tour",
+  work_order: "Work order",
+};
+
 export type ManagerTask = {
   id: string;
   title: string;
@@ -29,6 +39,12 @@ export type ManagerTask = {
    * Who is doing this. Tasks may be assigned to a team member or a vendor.
    */
   assignee?: WorkAssignee;
+  /** Distinguishes general, house, tour, and work-order rows in the task list. */
+  taskType?: ManagerTaskType;
+  /** Planned tour event id when taskType is tour. */
+  linkedTourId?: string;
+  /** Work order row id when taskType is work_order. */
+  linkedWorkOrderId?: string;
   /** Auto-created task template key, when set. */
   templateKey?: string;
   /** Application id, lease id, etc. — paired with templateKey for dedup. */
@@ -50,7 +66,28 @@ export type ManagerTaskInput = {
   end?: string;
   dueDate?: string;
   assignee?: WorkAssignee | null;
+  taskType?: ManagerTaskType;
+  linkedTourId?: string;
+  linkedWorkOrderId?: string;
 };
+
+export function normalizeTaskType(raw: unknown): ManagerTaskType | undefined {
+  if (typeof raw !== "string") return undefined;
+  const value = raw.trim() as ManagerTaskType;
+  return MANAGER_TASK_TYPES.includes(value) ? value : undefined;
+}
+
+/** Infer task type for legacy rows missing taskType. */
+export function inferManagerTaskType(
+  task: Pick<ManagerTask, "taskType" | "title" | "propertyId" | "roomLabel" | "linkedTourId" | "linkedWorkOrderId">,
+): ManagerTaskType {
+  const explicit = normalizeTaskType(task.taskType);
+  if (explicit) return explicit;
+  if (task.linkedTourId || task.title.trim().startsWith("Tour ·")) return "tour";
+  if (task.linkedWorkOrderId || task.title.trim().startsWith("Work order ·")) return "work_order";
+  if (task.propertyId?.trim() && task.roomLabel?.trim()) return "house";
+  return "general";
+}
 
 const localTasks = new Map<string, ManagerTask[]>();
 
@@ -101,6 +138,10 @@ function normalizeTask(raw: unknown): ManagerTask | null {
     completed: row.completed === true,
     // Unusable assignees normalize to undefined rather than a name nobody can act on.
     assignee: normalizeAssignee(row.assignee) ?? undefined,
+    taskType: normalizeTaskType(row.taskType),
+    linkedTourId: typeof row.linkedTourId === "string" ? row.linkedTourId.trim() || undefined : undefined,
+    linkedWorkOrderId:
+      typeof row.linkedWorkOrderId === "string" ? row.linkedWorkOrderId.trim() || undefined : undefined,
     templateKey: typeof row.templateKey === "string" ? row.templateKey.trim() || undefined : undefined,
     sourceId: typeof row.sourceId === "string" ? row.sourceId.trim() || undefined : undefined,
     dedupKey: typeof row.dedupKey === "string" ? row.dedupKey.trim() || undefined : undefined,
@@ -246,6 +287,9 @@ export async function createManagerTask(
     durationMinutes: start && end ? durationBetween(start, end) : undefined,
     completed: false,
     assignee,
+    taskType: normalizeTaskType(input.taskType) ?? "general",
+    linkedTourId: input.linkedTourId?.trim() || undefined,
+    linkedWorkOrderId: input.linkedWorkOrderId?.trim() || undefined,
     createdAt: now,
     updatedAt: now,
   };

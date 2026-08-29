@@ -278,7 +278,6 @@ export function ApplicationQuestionEditModal({
       onClose={onClose}
       presentation="dialog"
       dense
-      assistantStrip={false}
       panelClassName="max-w-xl"
       stackClassName="fixed inset-0 z-[80] overflow-y-auto overscroll-contain"
       footer={

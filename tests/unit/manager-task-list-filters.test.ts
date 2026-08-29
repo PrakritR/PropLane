@@ -27,37 +27,49 @@ describe("managerTaskIsScheduled", () => {
 });
 
 describe("taskListRowMatchesFilter", () => {
-  it("routes service rows to the services pill only", () => {
+  it("routes service rows to the service orders pill only", () => {
     const serviceRow = {
       kind: "service" as const,
       request: { id: "s1", propertyId: "p1" } as ServiceRequest,
     };
     expect(taskListRowMatchesFilter(serviceRow, "all")).toBe(true);
-    expect(taskListRowMatchesFilter(serviceRow, "services")).toBe(true);
-    expect(taskListRowMatchesFilter(serviceRow, "open")).toBe(false);
+    expect(taskListRowMatchesFilter(serviceRow, "service_orders")).toBe(true);
+    expect(taskListRowMatchesFilter(serviceRow, "tours")).toBe(false);
   });
 
-  it("splits scheduled vs open tasks", () => {
-    const scheduled = { kind: "task" as const, task: baseTask({ id: "a", start: "a", end: "b" }) };
-    const open = { kind: "task" as const, task: baseTask({ id: "b", dueDate: "2026-08-02T12:00:00.000Z" }) };
-    expect(taskListRowMatchesFilter(scheduled, "scheduled")).toBe(true);
-    expect(taskListRowMatchesFilter(scheduled, "open")).toBe(false);
-    expect(taskListRowMatchesFilter(open, "open")).toBe(true);
-    expect(taskListRowMatchesFilter(open, "scheduled")).toBe(false);
+  it("splits tasks by type", () => {
+    const tour = { kind: "task" as const, task: baseTask({ id: "a", taskType: "tour" }) };
+    const house = {
+      kind: "task" as const,
+      task: baseTask({ id: "b", taskType: "house", propertyId: "p1", roomLabel: "Room A" }),
+    };
+    const general = { kind: "task" as const, task: baseTask({ id: "c", taskType: "general" }) };
+    expect(taskListRowMatchesFilter(tour, "tours")).toBe(true);
+    expect(taskListRowMatchesFilter(tour, "house_tasks")).toBe(false);
+    expect(taskListRowMatchesFilter(house, "house_tasks")).toBe(true);
+    expect(taskListRowMatchesFilter(general, "general_tasks")).toBe(true);
+    expect(taskListRowMatchesFilter(general, "tours")).toBe(false);
   });
 });
 
 describe("countTaskListFilterBuckets", () => {
-  it("counts open, scheduled, and service orders separately", () => {
+  it("counts tours, house tasks, general tasks, and service orders separately", () => {
     const counts = countTaskListFilterBuckets({
       tabId: "in-progress",
       matchesProperty: () => true,
       tasks: [
-        baseTask({ id: "open", dueDate: "2026-08-02T12:00:00.000Z" }),
-        baseTask({ id: "sched", start: "a", end: "b" }),
+        baseTask({ id: "general", taskType: "general" }),
+        baseTask({ id: "house", taskType: "house", propertyId: "p1", roomLabel: "A" }),
+        baseTask({ id: "tour", taskType: "tour" }),
       ],
       services: [{ id: "s1", propertyId: "p1", requestedAt: "2026-08-01T12:00:00.000Z" } as ServiceRequest],
     });
-    expect(counts).toEqual({ all: 3, open: 1, scheduled: 1, services: 1 });
+    expect(counts).toEqual({
+      all: 4,
+      service_orders: 1,
+      tours: 1,
+      general_tasks: 1,
+      house_tasks: 1,
+    });
   });
 });

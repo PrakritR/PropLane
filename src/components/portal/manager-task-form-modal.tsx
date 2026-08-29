@@ -11,8 +11,12 @@ import { compactTaskPropertyLabel } from "@/lib/manager-task-display";
 import {
   createManagerTask,
   fetchManagerTasks,
+  inferManagerTaskType,
+  MANAGER_TASK_TYPE_LABELS,
+  MANAGER_TASK_TYPES,
   reapplyManagerTasksToCalendar,
   updateManagerTask,
+  type ManagerTaskType,
 } from "@/lib/manager-tasks";
 import { buildManagerPropertyFilterOptions } from "@/lib/manager-portfolio-access";
 import { getRoomOptionsForProperty } from "@/lib/rental-application/data";
@@ -60,6 +64,8 @@ export function ManagerTaskFormModal({
   managerUserId,
   editingId,
   propertyTick = 0,
+  initialTaskType = "general",
+  onRouteSpecialized,
   onSaved,
 }: {
   open: boolean;
@@ -67,6 +73,8 @@ export function ManagerTaskFormModal({
   managerUserId: string;
   editingId?: string | null;
   propertyTick?: number;
+  initialTaskType?: Extract<ManagerTaskType, "general" | "house">;
+  onRouteSpecialized?: (type: Extract<ManagerTaskType, "tour" | "work_order">) => void;
   onSaved?: () => void;
 }) {
   const { showToast } = useAppUi();
@@ -75,6 +83,9 @@ export function ManagerTaskFormModal({
   const [form, setForm] = useState(EMPTY_FORM);
   const [assignee, setAssignee] = useState<WorkAssignee | null>(null);
   const [selectedRoomValue, setSelectedRoomValue] = useState("");
+  const [taskType, setTaskType] = useState<ManagerTaskType>("general");
+
+  const isHouseTask = taskType === "house";
 
   const propertyOptions = useMemo(
     () => buildManagerPropertyFilterOptions(managerUserId),
@@ -91,7 +102,11 @@ export function ManagerTaskFormModal({
       setForm(EMPTY_FORM);
       setAssignee(null);
       setSelectedRoomValue("");
+      setTaskType("general");
       return;
+    }
+    if (!editingId) {
+      setTaskType(initialTaskType);
     }
     if (!editingId && teamMembers.length > 0) {
       const self = teamMembers.find((m) => m.userId === managerUserId) ?? teamMembers[0];
@@ -120,6 +135,7 @@ export function ManagerTaskFormModal({
         endTime: localTimePart(task.end),
       });
       setAssignee(task.assignee ?? null);
+      setTaskType(inferManagerTaskType(task));
       const match = getRoomOptionsForProperty(task.propertyId ?? "", { includeUnavailable: true }).find(
         (option) => roomNameFromOptionLabel(option.label) === (task.roomLabel?.split(" · ")[0]?.trim() ?? task.roomLabel),
       );
@@ -128,11 +144,34 @@ export function ManagerTaskFormModal({
     return () => {
       cancelled = true;
     };
-  }, [open, editingId, managerUserId, teamMembers]);
+  }, [open, editingId, initialTaskType, managerUserId, teamMembers]);
+
+  function handleTaskTypeChange(next: ManagerTaskType) {
+    if (!editingId && (next === "tour" || next === "work_order")) {
+      onRouteSpecialized?.(next);
+      return;
+    }
+    setTaskType(next);
+    if (next === "house") {
+      return;
+    }
+    if (next === "general") {
+      setForm((current) => ({ ...current, propertyId: "", roomLabel: "" }));
+      setSelectedRoomValue("");
+    }
+  }
 
   async function handleSave() {
     if (!assignee) {
       showToast("Choose who this task is assigned to.");
+      return;
+    }
+    if (isHouseTask && !form.propertyId) {
+      showToast("Pick a house for this task.");
+      return;
+    }
+    if (isHouseTask && !selectedRoomValue && !form.roomLabel.trim()) {
+      showToast("Pick a room for this house task.");
       return;
     }
     setSaving(true);
@@ -165,6 +204,7 @@ export function ManagerTaskFormModal({
         end: end ?? cleared,
         dueDate: dueDate ?? (editingId && !start && !end ? cleared : undefined),
         assignee,
+        taskType: editingId ? undefined : isHouseTask ? "house" : "general",
       };
       if (editingId) {
         await updateManagerTask(managerUserId, editingId, input);
@@ -187,9 +227,39 @@ export function ManagerTaskFormModal({
       onClose={onClose}
       title={editingId ? "Edit task" : "Add task"}
       dense
-      assistantStrip={false}
+      assistantContext={editingId ? "Edit task" : "Add task"}
+      footer={
+        <ModalFooter>
+          <Button
+            type="button"
+            onClick={() => void handleSave()}
+            disabled={saving || !form.title.trim() || !assignee}
+            data-attr="manager-task-save"
+          >
+            {saving ? "Saving…" : editingId ? "Save task" : "Add task"}
+          </Button>
+        </ModalFooter>
+      }
     >
       <div className="space-y-3">
+        <label className="space-y-1 text-sm">
+          <span className="font-medium text-foreground">Task type</span>
+          {editingId ? (
+            <p className="text-sm text-muted">{MANAGER_TASK_TYPE_LABELS[taskType]}</p>
+          ) : (
+            <Select
+              value={taskType}
+              onChange={(e) => handleTaskTypeChange(e.target.value as ManagerTaskType)}
+              data-attr="manager-task-type"
+            >
+              {MANAGER_TASK_TYPES.map((type) => (
+                <option key={type} value={type}>
+                  {MANAGER_TASK_TYPE_LABELS[type]}
+                </option>
+              ))}
+            </Select>
+          )}
+        </label>
         <Input
           aria-label="Task title"
           value={form.title}
@@ -208,7 +278,9 @@ export function ManagerTaskFormModal({
           onChange={setAssignee}
         />
         <label className="space-y-1 text-sm">
-          <span className="font-medium text-foreground">Property (optional)</span>
+          <span className="font-medium text-foreground">
+            Property{isHouseTask ? "" : " (optional)"}
+          </span>
           <Select
             value={form.propertyId}
             onChange={(e) => {
@@ -220,7 +292,7 @@ export function ManagerTaskFormModal({
               setSelectedRoomValue("");
             }}
           >
-            <option value="">No property</option>
+            <option value="">{isHouseTask ? "Select house" : "No property"}</option>
             {propertyOptions.map((option) => (
               <option key={option.id} value={option.id}>
                 {option.label}
@@ -230,7 +302,9 @@ export function ManagerTaskFormModal({
         </label>
         {form.propertyId ? (
           <label className="space-y-1 text-sm">
-            <span className="font-medium text-foreground">Room (optional)</span>
+            <span className="font-medium text-foreground">
+              Room{isHouseTask ? "" : " (optional)"}
+            </span>
             <Select
               value={selectedRoomValue}
               onChange={(e) => {
@@ -243,7 +317,7 @@ export function ManagerTaskFormModal({
                 }));
               }}
             >
-              <option value="">No room</option>
+              <option value="">{isHouseTask ? "Select room" : "No room"}</option>
               {roomOptions.map((option) => (
                 <option key={option.value} value={option.value}>
                   {option.label}
@@ -313,16 +387,6 @@ export function ManagerTaskFormModal({
               : "Add a schedule or due date to show this task on your calendar."}
         </p>
       </div>
-      <ModalFooter>
-        <Button
-          type="button"
-          onClick={() => void handleSave()}
-          disabled={saving || !form.title.trim() || !assignee}
-          data-attr="manager-task-save"
-        >
-          {saving ? "Saving…" : editingId ? "Save task" : "Add task"}
-        </Button>
-      </ModalFooter>
     </Modal>
   );
 }

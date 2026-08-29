@@ -231,7 +231,6 @@ export function TourReminderTourPanel({
         onClose={() => setEditingReminder(null)}
         title="Scheduled message"
         dense
-        assistantStrip={false}
         panelClassName="max-w-lg p-3 sm:p-4"
       >
         {editingReminder ? (

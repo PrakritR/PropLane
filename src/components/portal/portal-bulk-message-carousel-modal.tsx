@@ -233,7 +233,6 @@ export function PortalBulkMessageCarouselModal({
       title={title}
       onClose={onClose}
       dense
-      assistantStrip={false}
       fullScreenMobile={false}
       footer={footer}
       panelClassName={PORTAL_MESSAGE_COMPOSE_MODAL_PANEL_CLASS}

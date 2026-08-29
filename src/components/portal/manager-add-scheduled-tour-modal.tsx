@@ -165,6 +165,8 @@ export function ManagerAddScheduledTourModal({
           propertyTitle: property?.label,
           roomLabel,
           assignee,
+          taskType: "tour",
+          linkedTourId: String(result.plannedEvent.id ?? ""),
           notes: form.guestEmail.trim() ? `Guest: ${form.guestEmail.trim()}` : undefined,
         });
       }
@@ -180,7 +182,21 @@ export function ManagerAddScheduledTourModal({
   }
 
   return (
-    <Modal open={open} onClose={onClose} title="Schedule tour" dense assistantStrip={false}>
+    <Modal open={open} onClose={onClose} title="Schedule tour" dense assistantContext="Schedule tour" footer={
+      <ModalFooter>
+        <Button type="button" variant="outline" onClick={onClose} disabled={saving}>
+          Cancel
+        </Button>
+        <Button
+          type="button"
+          onClick={() => void handleSave()}
+          disabled={saving || !form.propertyId || !form.guestName.trim()}
+          data-attr="manual-tour-save"
+        >
+          {saving ? "Scheduling…" : "Schedule tour"}
+        </Button>
+      </ModalFooter>
+    }>
       <div className={PORTAL_MODAL_FORM_GRID_CLASS}>
         <div className={cn(PORTAL_MODAL_FORM_FIELD_CLASS, PORTAL_MODAL_FORM_FULL_ROW_CLASS)}>
           <label className={MODAL_FIELD_LABEL_CLASS} htmlFor="manual-tour-property">
@@ -327,19 +343,6 @@ export function ManagerAddScheduledTourModal({
           />
         </div>
       </div>
-      <ModalFooter>
-        <Button type="button" variant="outline" onClick={onClose} disabled={saving}>
-          Cancel
-        </Button>
-        <Button
-          type="button"
-          onClick={() => void handleSave()}
-          disabled={saving || !form.propertyId || !form.guestName.trim()}
-          data-attr="manual-tour-save"
-        >
-          {saving ? "Scheduling…" : "Schedule tour"}
-        </Button>
-      </ModalFooter>
     </Modal>
   );
 }

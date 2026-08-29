@@ -143,6 +143,7 @@ export function ManagerCreateWorkOrderModal({
   open,
   onClose,
   onSubmitted,
+  onWorkOrderCreated,
   managerUserId,
   defaultPropertyId,
   defaultResident,
@@ -150,6 +151,14 @@ export function ManagerCreateWorkOrderModal({
   open: boolean;
   onClose: () => void;
   onSubmitted: (bucket: ManagerWorkOrderBucket) => void;
+  /** When set (e.g. Tasks add flow), creates a linked task list row. */
+  onWorkOrderCreated?: (workOrder: {
+    id: string;
+    title: string;
+    propertyId: string;
+    propertyTitle: string;
+    roomLabel?: string;
+  }) => void;
   managerUserId: string | null;
   defaultPropertyId?: string;
   /** When set, the work order is created for this resident (property + resident fields locked). */
@@ -328,6 +337,14 @@ export function ManagerCreateWorkOrderModal({
 
       writeManagerWorkOrderRows([row, ...readManagerWorkOrderRows()]);
 
+      onWorkOrderCreated?.({
+        id,
+        title: title.trim(),
+        propertyId,
+        propertyTitle: selectedProperty.propertyLabel,
+        roomLabel: selectedResident.roomLabel || undefined,
+      });
+
       const notify = await deliverPortalInboxMessage({
         eventCategory: "maintenance",
         fromName: "Property Manager",
@@ -439,6 +456,14 @@ export function ManagerCreateWorkOrderModal({
 
       writeManagerWorkOrderRows([row, ...readManagerWorkOrderRows()]);
 
+      onWorkOrderCreated?.({
+        id,
+        title: title.trim(),
+        propertyId,
+        propertyTitle: selectedProperty.propertyLabel,
+        roomLabel: selectedResident.roomLabel || undefined,
+      });
+
       showToast(
         amt > 0 && paymentStatus === "paid"
           ? "Work order logged and payment recorded as paid."
@@ -468,7 +493,7 @@ export function ManagerCreateWorkOrderModal({
       onClose={onClose}
       title="Create work order"
       panelClassName="max-w-lg"
-      assistantStrip={false}
+      assistantContext="Create work order"
       footer={
         <ModalFooter>
           <Button

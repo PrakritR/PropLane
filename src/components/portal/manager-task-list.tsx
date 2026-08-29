@@ -3,11 +3,13 @@
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
-import { DestinationNav, LocalDestinationNav } from "@/components/ui/destination-nav";
+import { DestinationNav } from "@/components/ui/destination-nav";
 import { Select } from "@/components/ui/input";
 import { useShallowTabId } from "@/components/ui/tabs";
 import { useAppUi } from "@/components/providers/app-ui-provider";
-import { ManagerPortalPageShell } from "@/components/portal/portal-metrics";
+import { ManagerAddScheduledTourModal } from "@/components/portal/manager-add-scheduled-tour-modal";
+import { ManagerCreateWorkOrderModal } from "@/components/portal/manager-create-work-order-modal";
+import { ManagerPortalFilterRow, ManagerPortalPageShell, ManagerPortalStatusPills } from "@/components/portal/portal-metrics";
 import { PORTAL_LIST_PAGE_BODY } from "@/components/portal/portal-inbox-ui";
 import { PortalListAddRow, PORTAL_LIST_ADD_ICONS } from "@/components/portal/portal-list-add-row";
 import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
@@ -29,13 +31,18 @@ import {
   type ManagerTaskListFilterId,
 } from "@/lib/manager-task-display";
 import {
+  createManagerTask,
+  inferManagerTaskType,
+  MANAGER_TASK_TYPE_LABELS,
   MANAGER_TASKS_EVENT,
   deleteManagerTask,
   fetchManagerTasks,
   reapplyManagerTasksToCalendar,
   updateManagerTask,
   type ManagerTask,
+  type ManagerTaskType,
 } from "@/lib/manager-tasks";
+import { scheduledTaskTitleForWorkOrder } from "@/lib/manager-scheduled-work-tasks";
 import {
   MANAGER_TASK_LIST_TAB_LABELS,
   MANAGER_TASK_LIST_TABS,
@@ -116,6 +123,9 @@ export function ManagerTaskList({
   const [assignedServices, setAssignedServices] = useState<ServiceRequest[]>([]);
   const [loading, setLoading] = useState(true);
   const [addOpen, setAddOpen] = useState(false);
+  const [addTaskType, setAddTaskType] = useState<Extract<ManagerTaskType, "general" | "house">>("general");
+  const [tourModalOpen, setTourModalOpen] = useState(false);
+  const [workOrderModalOpen, setWorkOrderModalOpen] = useState(false);
   const [propertyTick, setPropertyTick] = useState(0);
   const [propertyFilterId, setPropertyFilterId] = useState("");
   const [listFilter, setListFilter] = useState<ManagerTaskListFilterId>("all");
@@ -205,10 +215,23 @@ export function ManagerTaskList({
   }, [tabId, propertyFilterId, listFilter]);
 
   useEffect(() => {
-    if (tabId === "completed" && listFilter === "services") {
+    if (tabId === "completed" && listFilter === "service_orders") {
       setListFilter("all");
     }
   }, [listFilter, tabId]);
+
+  const filterPills = useMemo(
+    () =>
+      MANAGER_TASK_LIST_FILTERS.filter(
+        (id) => tabId === "in-progress" || id !== "service_orders",
+      ).map((id) => ({
+        id,
+        label: MANAGER_TASK_LIST_FILTER_LABELS[id],
+        count: filterCounts[id],
+        dataAttr: `manager-task-filter-${id}`,
+      })),
+    [filterCounts, tabId],
+  );
 
   const selectedTaskRows = useMemo(
     () =>
@@ -283,6 +306,8 @@ export function ManagerTaskList({
   function renderTaskRow(task: ManagerTask, completed = false) {
     const location = compactTaskLocationLabel(task);
     const assigneeLabel = formatTaskAssignee(task);
+    const taskType = inferManagerTaskType(task);
+    const typeLabel = MANAGER_TASK_TYPE_LABELS[taskType];
     return (
       <li key={task.id} className="flex items-start gap-3 px-4 py-3">
         <input
@@ -303,7 +328,14 @@ export function ManagerTaskList({
           data-attr="manager-task-row-open"
           onClick={() => beginEdit(task)}
         >
-          <p className={`font-semibold text-foreground ${completed ? "line-through" : ""}`}>{task.title}</p>
+          <div className="flex flex-wrap items-center gap-2">
+            <p className={`font-semibold text-foreground ${completed ? "line-through" : ""}`}>{task.title}</p>
+            {taskType !== "general" ? (
+              <span className="rounded-full border border-border bg-accent/40 px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-muted">
+                {typeLabel}
+              </span>
+            ) : null}
+          </div>
           <p className="text-sm text-muted">{formatTaskSchedule(task)}</p>
           {assigneeLabel ? <p className="text-xs text-muted">{assigneeLabel}</p> : null}
           {location ? <p className="text-xs text-muted">{location}</p> : null}
@@ -343,49 +375,76 @@ export function ManagerTaskList({
     );
   }
 
+  async function linkWorkOrderTask(workOrder: {
+    id: string;
+    title: string;
+    propertyId: string;
+    propertyTitle: string;
+    roomLabel?: string;
+  }) {
+    if (!userId) return;
+    try {
+      const selfAssignee = {
+        type: "team" as const,
+        id: userId,
+        name: "You",
+      };
+      await createManagerTask(userId, {
+        title: scheduledTaskTitleForWorkOrder(workOrder.title),
+        propertyId: workOrder.propertyId,
+        propertyTitle: workOrder.propertyTitle,
+        roomLabel: workOrder.roomLabel,
+        assignee: selfAssignee,
+        taskType: "work_order",
+        linkedWorkOrderId: workOrder.id,
+      });
+      reapplyManagerTasksToCalendar(userId);
+    } catch {
+      // Supplementary — work order already saved.
+    }
+  }
+
   return (
     <ManagerPortalPageShell title="Tasks" hideTitleOnMobileNav>
       <PortalListControlStack
         className="mb-2"
         destinationRow={
-          <div className="flex w-full min-w-0 flex-col gap-2">
-            <DestinationNav
-              items={tabItems}
-              activeId={tabId}
-              ariaLabel="Task status"
-              itemLayout="equal"
-              denseEqualRow
-              className="max-w-none"
-            />
-            <LocalDestinationNav
-              items={MANAGER_TASK_LIST_FILTERS.filter(
-                (id) => tabId === "in-progress" || id !== "services",
-              ).map((id) => ({
-                id,
-                label: MANAGER_TASK_LIST_FILTER_LABELS[id],
-                count: filterCounts[id],
-                dataAttr: `manager-task-filter-${id}`,
-              }))}
-              activeId={listFilter}
-              onChange={(id) => setListFilter(id as ManagerTaskListFilterId)}
-              ariaLabel="Task filters"
-            />
-          </div>
+          <DestinationNav
+            items={tabItems}
+            activeId={tabId}
+            ariaLabel="Task status"
+            itemLayout="equal"
+            denseEqualRow
+            className="max-w-none"
+          />
         }
         filterRow={
-          propertyOptions.length > 1 ? (
-            <label className="flex min-w-0 flex-col gap-1 text-sm sm:max-w-xs">
-              <span className="font-medium text-foreground">House</span>
-              <Select value={propertyFilterId} onChange={(e) => setPropertyFilterId(e.target.value)}>
-                <option value="">All houses</option>
-                {propertyOptions.map((option) => (
-                  <option key={option.id} value={option.id}>
-                    {option.label}
-                  </option>
-                ))}
-              </Select>
-            </label>
-          ) : null
+          <ManagerPortalFilterRow className="w-full items-end gap-3">
+            <div className="min-w-0 flex-1">
+              <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-muted">Filters</p>
+              <ManagerPortalStatusPills
+                tabs={filterPills}
+                activeId={listFilter}
+                onChange={(id) => setListFilter(id as ManagerTaskListFilterId)}
+                mobileSelect={false}
+                compact
+                selectAriaLabel="Task filters"
+              />
+            </div>
+            {propertyOptions.length > 1 ? (
+              <label className="flex min-w-0 flex-col gap-1 text-sm sm:max-w-xs">
+                <span className="font-medium text-foreground">House</span>
+                <Select value={propertyFilterId} onChange={(e) => setPropertyFilterId(e.target.value)}>
+                  <option value="">All houses</option>
+                  {propertyOptions.map((option) => (
+                    <option key={option.id} value={option.id}>
+                      {option.label}
+                    </option>
+                  ))}
+                </Select>
+              </label>
+            ) : null}
+          </ManagerPortalFilterRow>
         }
       />
 
@@ -422,6 +481,7 @@ export function ManagerTaskList({
             icon={PORTAL_LIST_ADD_ICONS.request}
             onClick={() => {
               setEditingId(null);
+              setAddTaskType("general");
               setAddOpen(true);
             }}
             dataAttr="manager-task-list-add"
@@ -451,21 +511,50 @@ export function ManagerTaskList({
       ) : null}
 
       {userId ? (
-        <ManagerTaskFormModal
-          open={addOpen}
-          onClose={() => {
-            setAddOpen(false);
-            setEditingId(null);
-          }}
-          managerUserId={userId}
-          editingId={editingId}
-          propertyTick={propertyTick}
-          onSaved={async () => {
-            setSelectedIds([]);
-            await refresh();
-            showToast(editingId ? "Task updated." : "Task saved.");
-          }}
-        />
+        <>
+          <ManagerTaskFormModal
+            open={addOpen}
+            onClose={() => {
+              setAddOpen(false);
+              setEditingId(null);
+            }}
+            managerUserId={userId}
+            editingId={editingId}
+            initialTaskType={addTaskType}
+            propertyTick={propertyTick}
+            onRouteSpecialized={(type) => {
+              setAddOpen(false);
+              if (type === "tour") setTourModalOpen(true);
+              else setWorkOrderModalOpen(true);
+            }}
+            onSaved={async () => {
+              setSelectedIds([]);
+              await refresh();
+              showToast(editingId ? "Task updated." : "Task saved.");
+            }}
+          />
+          <ManagerAddScheduledTourModal
+            open={tourModalOpen}
+            onClose={() => setTourModalOpen(false)}
+            managerUserId={userId}
+            propertyTick={propertyTick}
+            onSaved={async () => {
+              await refresh();
+            }}
+          />
+          <ManagerCreateWorkOrderModal
+            open={workOrderModalOpen}
+            onClose={() => setWorkOrderModalOpen(false)}
+            managerUserId={userId}
+            onSubmitted={async () => {
+              await refresh();
+              showToast("Work order created.");
+            }}
+            onWorkOrderCreated={(workOrder) => {
+              void linkWorkOrderTask(workOrder);
+            }}
+          />
+        </>
       ) : null}
     </ManagerPortalPageShell>
   );

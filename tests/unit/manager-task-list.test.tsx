@@ -29,8 +29,15 @@ vi.mock("@/lib/manager-portfolio-access", () => ({
 }));
 vi.mock("@/lib/manager-tasks", () => ({
   MANAGER_TASKS_EVENT: "manager-tasks-changed",
+  MANAGER_TASK_TYPE_LABELS: {
+    general: "General task",
+    house: "House task",
+    tour: "Tour",
+    work_order: "Work order",
+  },
   fetchManagerTasks: () => Promise.resolve([]),
   createManagerTask: vi.fn(),
+  inferManagerTaskType: () => "general",
   updateManagerTask: vi.fn(),
   deleteManagerTask: vi.fn(),
   reapplyManagerTasksToCalendar: vi.fn(),
@@ -52,6 +59,15 @@ vi.mock("@/lib/manager-task-display", async (importOriginal) => {
 vi.mock("@/components/portal/manager-task-form-modal", () => ({
   ManagerTaskFormModal: () => null,
 }));
+vi.mock("@/components/portal/manager-add-scheduled-tour-modal", () => ({
+  ManagerAddScheduledTourModal: () => null,
+}));
+vi.mock("@/components/portal/manager-create-work-order-modal", () => ({
+  ManagerCreateWorkOrderModal: () => null,
+}));
+vi.mock("@/lib/manager-scheduled-work-tasks", () => ({
+  scheduledTaskTitleForWorkOrder: (title: string) => title,
+}));
 
 describe("ManagerTaskList", () => {
   afterEach(() => cleanup());
@@ -65,8 +81,9 @@ describe("ManagerTaskList", () => {
       expect(screen.getByRole("button", { name: "Add task" })).toBeInTheDocument();
     });
     expect(screen.getByRole("button", { name: /^All\b/i })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /^Open\b/i })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /^Scheduled\b/i })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /^Service orders\b/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /^Tours\b/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /^General tasks\b/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /^House tasks\b/i })).toBeInTheDocument();
   });
 });

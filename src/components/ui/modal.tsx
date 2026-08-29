@@ -295,11 +295,16 @@ function ModalPanelInner({
   ClosePrimitive: ComponentType<ModalClosePrimitiveProps>;
 }) {
   const bodyFillsPanel = scrollableContent || Boolean(footer);
+  /** Side-by-side chat needs the middle band to grow; a short form + footer should not. */
+  const assistantSideLayout = showAssistantStrip && assistantExpanded;
+  const middleGrows = bodyFillsPanel && (assistantSideLayout || !scrollableContent);
+  const bodyScrollFillsMiddle =
+    bodyFillsPanel && scrollableContent && (assistantSideLayout || !footer);
   return (
     <div
       className={cn(
         "flex h-full min-h-0 flex-col overflow-hidden",
-        bodyFillsPanel ? "flex-1" : "shrink-0",
+        middleGrows ? "flex-1" : "shrink-0",
       )}
     >
       {/* Title + close: fixed chrome a portaled field menu must never cover. A modal that
@@ -340,28 +345,28 @@ function ModalPanelInner({
       </div>
       <div
         className={cn(
-          bodyFillsPanel ? "flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden" : "flex shrink-0 flex-col",
-          showAssistantStrip && assistantExpanded ? "@2xl:flex-row" : undefined,
+          bodyFillsPanel
+            ? cn("flex min-h-0 min-w-0 flex-col overflow-hidden", middleGrows ? "flex-1" : "shrink-0")
+            : "flex shrink-0 flex-col",
+          assistantSideLayout ? "@2xl:flex-row" : undefined,
         )}
       >
         <div
           className={cn(
             bodyFillsPanel
               ? scrollableContent
-                ? "min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto overscroll-contain [-webkit-overflow-scrolling:touch]"
+                ? cn(
+                    "min-h-0 min-w-0 overflow-x-hidden overflow-y-auto overscroll-contain [-webkit-overflow-scrolling:touch]",
+                    bodyScrollFillsMiddle
+                      ? "flex min-h-0 flex-1 flex-col"
+                      : "shrink-0 max-h-[min(60vh,calc(min(92dvh,56rem)-11rem))]",
+                  )
                 : "flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden"
               : "min-w-0 shrink-0 flex-col",
-            footer && bodyFillsPanel && scrollableContent && "flex flex-col",
             dense ? "pt-2" : "pt-4",
           )}
         >
-          {scrollableContent && footer ? (
-            <div className="min-h-0 flex-1 space-y-3 overflow-y-auto overflow-x-hidden overscroll-contain pr-0.5 [-webkit-overflow-scrolling:touch]">
-              {children}
-            </div>
-          ) : (
-            children
-          )}
+          {children}
         </div>
         {showAssistantStrip ? (
           <ModalAssistantStrip

@@ -373,7 +373,6 @@ export function ChargeRemindersModal({
       onClose={() => setEditingMessage(null)}
       title="Scheduled message"
       dense
-      assistantStrip={false}
       panelClassName="max-w-lg p-3 sm:p-4"
     >
       {editingMessage && editingScheduled ? (

@@ -107,7 +107,6 @@ export function ManagerEditApplicationModal({
         description="Choose which properties' rental applications you want to edit. When you select multiple, the same questions apply to all."
         onClose={closeAll}
         dense
-        assistantStrip={false}
         panelClassName="max-w-md"
         footer={
           <ModalFooter>
@@ -172,6 +171,7 @@ export function ManagerEditApplicationModal({
           }
           onClose={onEditorClose}
           panelClassName="max-w-4xl"
+          assistantContext="Edit application"
         >
           <ManagerPropertyApplicationQuestionsPanel
             sub={syncedSub}

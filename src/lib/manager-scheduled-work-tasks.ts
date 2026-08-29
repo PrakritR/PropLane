@@ -22,3 +22,8 @@ export function scheduledTaskTitleForService(offerName: string, residentName?: s
   const resident = residentName?.trim();
   return resident ? `${offer} · ${resident}` : offer;
 }
+
+export function scheduledTaskTitleForWorkOrder(title: string): string {
+  const label = title.trim() || "Work order";
+  return label.startsWith("Work order ·") ? label : `Work order · ${label}`;
+}

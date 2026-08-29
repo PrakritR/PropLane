@@ -185,7 +185,6 @@ export function PortalComposeScheduledMessagesSection({
         onClose={() => setEditing(null)}
         title="Scheduled message"
         dense
-        assistantStrip={false}
         fullScreenMobile={false}
         panelClassName="max-w-lg p-3 sm:p-4"
         dataAttr="compose-scheduled-detail-modal"

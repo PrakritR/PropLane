@@ -55,7 +55,6 @@ export function ServiceRequestCatalogModal({
       onClose={onClose}
       dismissBlocked={nestedEditOpen}
       dense
-      assistantStrip={false}
       panelClassName="max-w-2xl"
       dataAttr="service-request-catalog-modal"
     >

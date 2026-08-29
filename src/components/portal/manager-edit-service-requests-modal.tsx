@@ -91,7 +91,6 @@ export function ManagerEditServiceRequestsModal({
         description="Choose a property to edit its service types."
         onClose={closeAll}
         dense
-        assistantStrip={false}
         panelClassName="max-w-md"
         footer={
           <ModalFooter>

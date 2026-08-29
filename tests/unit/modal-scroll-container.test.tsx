@@ -53,8 +53,8 @@ describe("Modal scroll container", () => {
     const body = modalBody();
     expect(body.className).toContain("overflow-y-auto");
     expect(body.className).not.toContain("overflow-hidden");
-    // Children that pin an inner scroll region still need the flex column chain.
-    expect(body.className).toContain("flex-col");
+    // Short forms with a footer should not stretch the scroll band to fill the panel.
+    expect(body.className).not.toContain("flex-1");
   });
 
   it("body scrolls without a footer too", () => {

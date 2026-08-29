@@ -638,7 +638,6 @@ export function ManagerMessagingSettingsPanel({
       title="Tell your residents?"
       description="Move day-to-day texts onto your new PropLane number."
       panelClassName="max-w-lg"
-      assistantStrip={false}
       dataAttr="messaging-announce-residents-modal"
       footer={
         <ModalFooter>

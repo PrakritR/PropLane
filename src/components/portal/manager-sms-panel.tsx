@@ -1131,7 +1131,6 @@ export const ManagerSmsPanel = forwardRef<
         title={active?.resident.savedContactName ? "Edit contact name" : "Add contact name"}
         description="This label is private to your PropLane workspace and does not verify the texter's identity."
         dense
-        assistantStrip={false}
         panelClassName="max-w-md"
         footer={
           <ModalFooter>
