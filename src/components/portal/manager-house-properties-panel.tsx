@@ -162,6 +162,17 @@ function managerPropertyRowTitle(row: AdminPropertyRow, bucket: AdminPropertyBuc
   return row.buildingName.trim() || (bucket === 5 ? "Untitled draft" : "Untitled property");
 }
 
+function propertyRowDeleteFromQueueAllowed(
+  managerUserId: string | null,
+  entry: { sourceBucket: AdminPropertyBucketIndex; row: AdminPropertyRow; linked: boolean },
+): boolean {
+  if (entry.sourceBucket !== 3) return false;
+  if (!entry.linked) return true;
+  const stablePropertyId = entry.row.listingId?.trim() || entry.row.adminRefId.trim() || null;
+  if (!managerUserId || !stablePropertyId) return false;
+  return hasLinkedPropertyModuleLevel(managerUserId, stablePropertyId, "properties", "delete");
+}
+
 export function managerStageFromParam(raw: string | null): ManagerStageKey {
   return MANAGER_STAGES.some((stage) => stage.key === raw) ? (raw as ManagerStageKey) : "listed";
 }
@@ -1233,6 +1244,10 @@ export function ManagerHousePropertiesPanel({
   const [tick, setTick] = useState(0);
   const [detailHeaderActions, setDetailHeaderActions] = useState<ReactNode>(null);
   const { selectedIds, setSelectedIds, toggleSelected } = usePortalRowSelection(activeStage);
+  const [pendingBulkDestructive, setPendingBulkDestructive] = useState<"unlist" | "delete-queue" | null>(
+    null,
+  );
+  const [bulkDestructiveBusy, setBulkDestructiveBusy] = useState(false);
   const detailHeaderKeyRef = useRef<string | null>(null);
   const handlePropertyUpdated = useCallback(() => setTick((t) => t + 1), []);
   const handleAfterUnlist = useCallback(
@@ -1323,10 +1338,27 @@ export function ManagerHousePropertiesPanel({
     [rows, selectedIds],
   );
 
+  const canBulkEdit = selectedPropertyEntries.length === 1;
+
   const canBulkShareProperties =
-    Boolean(onSendToProspect) &&
+    Boolean(onSendToProspect) && activeStage === "listed" && canBulkEdit;
+
+  const canBulkUnlist =
     activeStage === "listed" &&
-    selectedPropertyEntries.length > 0;
+    selectedPropertyEntries.length > 0 &&
+    selectedPropertyEntries.every(
+      ({ sourceBucket, row }) => sourceBucket === 2 && Boolean(row.listingId?.trim()),
+    );
+
+  const canBulkRelist =
+    activeStage === "unlisted" &&
+    selectedPropertyEntries.length > 0 &&
+    selectedPropertyEntries.every(({ sourceBucket }) => sourceBucket === 3);
+
+  const canBulkDeleteQueue =
+    activeStage === "unlisted" &&
+    selectedPropertyEntries.length > 0 &&
+    selectedPropertyEntries.every((entry) => propertyRowDeleteFromQueueAllowed(managerUserId, entry));
 
   const canBulkDeleteDrafts =
     activeStage === "drafts" &&
@@ -1335,6 +1367,153 @@ export function ManagerHousePropertiesPanel({
 
   const propertyKeyFromRow = (row: AdminPropertyRow) =>
     row.listingId?.trim() || row.adminRefId.trim();
+
+  const openSelectedPropertyDetail = useCallback(() => {
+    const first = selectedPropertyEntries[0];
+    if (!first) return;
+    router.push(
+      propertyDetailHref(
+        propertiesBase,
+        activeStage,
+        propertyKeyFromRow(first.row),
+        detailTabProp ?? "preview",
+      ),
+      { scroll: false },
+    );
+    setSelectedIds(new Set());
+  }, [
+    activeStage,
+    detailTabProp,
+    propertiesBase,
+    router,
+    selectedPropertyEntries,
+    setSelectedIds,
+  ]);
+
+  const runBulkRelist = useCallback(() => {
+    if (!canBulkRelist) return;
+    if (!skuLoaded) {
+      showToast("Loading subscription…");
+      return;
+    }
+    if (managerTierPropertyLimitReached(skuTier, propCount)) {
+      showToast(managerPropertyLimitMessage(skuTier, { omitUpgradeCta: isNativeRuntimeSync() }));
+      return;
+    }
+    deferCatalogMutation(() => {
+      let relisted = 0;
+      for (const { row } of selectedPropertyEntries) {
+        const id = listAdminRow(row, managerUserId);
+        if (id) relisted += 1;
+      }
+      setSelectedIds(new Set());
+      if (relisted === 0) {
+        showToast("Could not relist.");
+        return;
+      }
+      handlePropertyUpdated();
+      showToast(
+        relisted === 1 ? "Listing is live again." : `${relisted} properties relisted.`,
+      );
+    });
+  }, [
+    canBulkRelist,
+    handlePropertyUpdated,
+    managerUserId,
+    propCount,
+    selectedPropertyEntries,
+    setSelectedIds,
+    showToast,
+    skuLoaded,
+    skuTier,
+  ]);
+
+  const confirmBulkDestructive = useCallback(() => {
+    if (!pendingBulkDestructive || selectedPropertyEntries.length === 0) return;
+    const action = pendingBulkDestructive;
+    setBulkDestructiveBusy(true);
+    deferCatalogMutation(() => {
+      if (action === "delete-queue") {
+        let removed = 0;
+        for (const { row } of selectedPropertyEntries) {
+          if (deleteUnlistedManagerProperty(row.adminRefId, managerUserId)) removed += 1;
+        }
+        setBulkDestructiveBusy(false);
+        setPendingBulkDestructive(null);
+        setSelectedIds(new Set());
+        if (removed === 0) {
+          showToast("Action could not be completed.");
+          return;
+        }
+        handlePropertyUpdated();
+        showToast(
+          removed === 1 ? "Removed from queue." : `${removed} properties removed from queue.`,
+        );
+        return;
+      }
+      if (action === "unlist") {
+        let unlisted = 0;
+        let lastPropertyKey: string | null = null;
+        for (const { row } of selectedPropertyEntries) {
+          const listingId = row.listingId?.trim();
+          if (!listingId) continue;
+          if (unlistManagerListing(listingId, managerUserId)) {
+            unlisted += 1;
+            lastPropertyKey = listingId || row.adminRefId.trim();
+          }
+        }
+        setBulkDestructiveBusy(false);
+        setPendingBulkDestructive(null);
+        setSelectedIds(new Set());
+        if (unlisted === 0) {
+          showToast("Could not unlist.");
+          return;
+        }
+        handlePropertyUpdated();
+        showToast(unlisted === 1 ? "Listing unlisted." : `${unlisted} listings unlisted.`);
+        if (lastPropertyKey && unlisted === 1) {
+          handleAfterUnlist(lastPropertyKey);
+        } else if (unlisted > 1) {
+          onStageChange("unlisted");
+          router.push(propertyListHref(propertiesBase, "unlisted"), { scroll: false });
+        }
+      }
+    });
+  }, [
+    handleAfterUnlist,
+    handlePropertyUpdated,
+    managerUserId,
+    onStageChange,
+    pendingBulkDestructive,
+    propertiesBase,
+    router,
+    selectedPropertyEntries,
+    setSelectedIds,
+    showToast,
+  ]);
+
+  const bulkDestructiveModalCopy =
+    pendingBulkDestructive === "delete-queue"
+      ? {
+          title: "Delete from queue",
+          description:
+            selectedPropertyEntries.length === 1
+              ? `Remove ${managerPropertyRowTitle(selectedPropertyEntries[0]!.row, selectedPropertyEntries[0]!.sourceBucket)} from your unlisted queue permanently?`
+              : `Remove ${selectedPropertyEntries.length} properties from your unlisted queue permanently?`,
+          confirmLabel: "Delete from queue",
+          dataAttr: "properties-bulk-delete-queue-confirm",
+        }
+      : pendingBulkDestructive === "unlist"
+        ? {
+            title: selectedPropertyEntries.length === 1 ? "Unlist property" : "Unlist properties",
+            description:
+              selectedPropertyEntries.length === 1
+                ? `Unlist ${managerPropertyRowTitle(selectedPropertyEntries[0]!.row, selectedPropertyEntries[0]!.sourceBucket)}? It will be removed from the public listing and moved to your unlisted queue.`
+                : `Unlist ${selectedPropertyEntries.length} properties? They will be removed from public listings and moved to your unlisted queue.`,
+            confirmLabel: "Unlist",
+            dataAttr: "properties-bulk-unlist-confirm",
+          }
+        : null;
 
   const routePropertyEntry = useMemo(() => {
     if (!propertyKeyProp) return null;
@@ -1468,6 +1647,17 @@ export function ManagerHousePropertiesPanel({
       {selectedIds.size > 0 ? (
         <BulkActionBar count={selectedIds.size} hideCount variant="payments">
           <div className="flex min-w-0 flex-wrap items-center justify-start gap-2">
+            {canBulkEdit ? (
+              <Button
+                type="button"
+                variant="outline"
+                className={PORTAL_BULK_BAR_BTN}
+                data-attr="properties-bulk-edit"
+                onClick={openSelectedPropertyDetail}
+              >
+                Edit
+              </Button>
+            ) : null}
             {canBulkShareProperties ? (
               <Button
                 type="button"
@@ -1482,6 +1672,39 @@ export function ManagerHousePropertiesPanel({
                 }}
               >
                 Share
+              </Button>
+            ) : null}
+            {canBulkUnlist ? (
+              <Button
+                type="button"
+                variant="outline"
+                className={PORTAL_BULK_BAR_BTN}
+                data-attr="properties-bulk-unlist"
+                onClick={() => setPendingBulkDestructive("unlist")}
+              >
+                Unlist
+              </Button>
+            ) : null}
+            {canBulkRelist ? (
+              <Button
+                type="button"
+                variant="outline"
+                className={PORTAL_BULK_BAR_BTN}
+                data-attr="properties-bulk-relist"
+                onClick={runBulkRelist}
+              >
+                Relist
+              </Button>
+            ) : null}
+            {canBulkDeleteQueue ? (
+              <Button
+                type="button"
+                variant="outline"
+                className={`${PORTAL_BULK_BAR_BTN} text-rose-800`}
+                data-attr="properties-bulk-delete-queue"
+                onClick={() => setPendingBulkDestructive("delete-queue")}
+              >
+                Delete
               </Button>
             ) : null}
             {canBulkDeleteDrafts ? (
@@ -1517,6 +1740,21 @@ export function ManagerHousePropertiesPanel({
             ) : null}
           </div>
         </BulkActionBar>
+      ) : null}
+      {bulkDestructiveModalCopy ? (
+        <ConfirmDeleteModal
+          open={pendingBulkDestructive !== null}
+          title={bulkDestructiveModalCopy.title}
+          description={bulkDestructiveModalCopy.description}
+          confirmLabel={bulkDestructiveModalCopy.confirmLabel}
+          dataAttr={bulkDestructiveModalCopy.dataAttr}
+          busy={bulkDestructiveBusy}
+          onClose={() => {
+            if (bulkDestructiveBusy) return;
+            setPendingBulkDestructive(null);
+          }}
+          onConfirm={confirmBulkDestructive}
+        />
       ) : null}
     </>
   );
