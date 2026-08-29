@@ -118,6 +118,9 @@ describe("ManagerPaymentsLedgerPanel", () => {
   });
 
   it("shows compact reminder copy on grouped charge rows", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-08-01T12:00:00.000Z"));
+    try {
     const { container } = render(
       <ManagerPaymentsLedgerPanel
         rows={[sampleRow({ id: "hc_rem", householdChargeId: "hc_rem" })]}
@@ -171,6 +174,9 @@ describe("ManagerPaymentsLedgerPanel", () => {
     expect(mobileRow?.textContent).toContain("(+1 more)");
     expect(mobileRow?.textContent).not.toContain("Reminders scheduled:");
     expect(mobileRow?.textContent).not.toContain("The Magnolia");
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("uses resident-style DataList cards when embedded in a resident profile", () => {
