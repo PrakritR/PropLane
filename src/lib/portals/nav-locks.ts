@@ -42,8 +42,19 @@ export function portalNavLockKind(params: {
   /** The viewer's own plan for manager/pro; the linked MANAGER's plan for a resident. */
   subscriptionTier: "free" | "paid" | null | undefined;
   residentNavStage?: ResidentPortalNavStage | null;
+  /**
+   * This co-manager's link does not grant the module. Locked, never removed:
+   * a section that vanishes from one account's sidebar and not another's reads
+   * as a broken build rather than a permission, and it leaves the person with
+   * nothing to ask their primary manager for.
+   */
+  coManagerRestricted?: boolean;
 }): PortalNavLockKind {
-  const { kind, section, subscriptionTier, residentNavStage } = params;
+  const { kind, section, subscriptionTier, residentNavStage, coManagerRestricted } = params;
+
+  // A co-manager has nothing to buy — the grant belongs to their primary
+  // manager — so this behaves like a resident lock rather than an upsell.
+  if (coManagerRestricted) return "inert";
 
   // Checked before tier and stage: a deferred section is locked for a paid manager and a
   // fully-approved resident alike, which neither of those rules would do on its own.

@@ -136,3 +136,54 @@ describe("portal nav lock kinds", () => {
     }
   });
 });
+
+describe("co-manager restricted sections", () => {
+  it("locks rather than removes a section the link does not grant", () => {
+    // Two manager accounts must show the SAME sidebar. A section that vanishes
+    // from one and not the other reads as a broken build, and leaves the person
+    // nothing to recognise or ask their primary manager about.
+    expect(
+      portalNavLockKind({
+        kind: "manager",
+        section: "vendors",
+        subscriptionTier: "paid",
+        coManagerRestricted: true,
+      }),
+    ).toBe("inert");
+  });
+
+  it("is inert, not upsell — a co-manager has nothing to buy", () => {
+    // The grant belongs to their primary manager, so sending them to a paywall
+    // would be a dead end.
+    expect(
+      portalNavLockNavigable({
+        kind: "manager",
+        section: "tours",
+        subscriptionTier: "free",
+        coManagerRestricted: true,
+      }),
+    ).toBe(false);
+  });
+
+  it("leaves an unrestricted section alone", () => {
+    expect(
+      portalNavLockKind({
+        kind: "manager",
+        section: "vendors",
+        subscriptionTier: "paid",
+        coManagerRestricted: false,
+      }),
+    ).toBe("none");
+  });
+
+  it("still offers the upgrade path for a free-tier lock that is not co-manager", () => {
+    const kind = portalNavLockKind({
+      kind: "manager",
+      section: "residents",
+      subscriptionTier: "free",
+    });
+    // Free-tier manager locks stay navigable: that row is the only entry point
+    // to the upgrade page.
+    if (kind !== "none") expect(kind).toBe("upsell");
+  });
+});
