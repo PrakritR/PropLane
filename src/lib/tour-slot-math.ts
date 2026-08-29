@@ -382,7 +382,9 @@ export function addExplicitTourSlotKeys(
 ): string[] {
   const key = `${dateStr}:${slotIdx}`;
   const next = new Set(publishedSlots);
-  const hasExplicitOnDate = publishedSlots.some((slot) => slot.startsWith(`${dateStr}:`));
+  const hasExplicitOnDate = publishedSlots.some(
+    (slot) => slot.startsWith(`${dateStr}:`) && slotIsBookable(slot, now),
+  );
   if (!hasExplicitOnDate) {
     for (const defaultKey of defaultTourSlotKeysForDate(dateStr, defaultConfig)) {
       if (slotIsBookable(defaultKey, now)) next.add(defaultKey);

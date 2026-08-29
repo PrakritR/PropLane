@@ -650,8 +650,8 @@ export function PortalCalendarPanels({
   // same React batch on a fast click, so finishDragSelection would otherwise
   // read a stale `null` and the click would silently do nothing.
   const dragSelectionRef = useRef<DragSelection | null>(null);
-  // Suppress the click that follows a multi-slot drag — finishDragSelection already opened the block modal.
-  const skipNextSlotClickRef = useRef(false);
+  // Suppress the click on cells that just finished a multi-slot drag (modal path).
+  const lastMultiDragRef = useRef<DragSelection | null>(null);
   const [mobileDayIndex, setMobileDayIndex] = useState(0);
   const [visibleStartSlot, setVisibleStartSlot] = useState(DEFAULT_VISIBLE_START_SLOT);
   const [visibleEndSlotExclusive, setVisibleEndSlotExclusive] = useState(DEFAULT_VISIBLE_END_SLOT_EXCLUSIVE);
@@ -1507,18 +1507,29 @@ export function PortalCalendarPanels({
     dragSelectionRef.current = null;
     setDragSelection(null);
     if (span > 1) {
-      skipNextSlotClickRef.current = true;
+      lastMultiDragRef.current = pending;
       prefillBlockModal(pending);
-      window.setTimeout(() => {
-        skipNextSlotClickRef.current = false;
-      }, 0);
+    } else {
+      lastMultiDragRef.current = null;
     }
   }, [prefillBlockModal]);
 
   const cancelDragSelection = useCallback(() => {
     dragSelectionRef.current = null;
+    lastMultiDragRef.current = null;
     setDragSelection(null);
   }, []);
+
+  /** Open the recurring-block modal prefilled with a single slot (vendor / keyboard path). */
+  const openBlockModalForSlot = useCallback(
+    (dateStr: string, weekday: number, slotIdx: number) => {
+      dragSelectionRef.current = null;
+      lastMultiDragRef.current = null;
+      setDragSelection(null);
+      prefillBlockModal({ dateStr, weekday, startSlot: slotIdx, endSlotExclusive: slotIdx + 1 });
+    },
+    [prefillBlockModal],
+  );
 
   const isSlotInDragSelection = useCallback(
     (dateStr: string, slotIdx: number) =>
@@ -2277,11 +2288,27 @@ export function PortalCalendarPanels({
                       return;
                     }
                     if (!readOnly && !meeting && !active && !coManagerOpen) {
-                      if (skipNextSlotClickRef.current) {
-                        skipNextSlotClickRef.current = false;
+                      const drag = lastMultiDragRef.current;
+                      if (
+                        drag &&
+                        drag.dateStr === ds &&
+                        slotIdx >= drag.startSlot &&
+                        slotIdx < drag.endSlotExclusive
+                      ) {
+                        lastMultiDragRef.current = null;
                         return;
                       }
-                      if (canEditAvailability) addAvailabilitySlot(ds, slotIdx);
+                      if (canEditAvailability) {
+                        if (vendorMode) {
+                          openBlockModalForSlot(
+                            ds,
+                            mondayBasedDayIndex(new Date(`${ds}T12:00:00`)),
+                            slotIdx,
+                          );
+                        } else {
+                          addAvailabilitySlot(ds, slotIdx);
+                        }
+                      }
                       return;
                     }
                     openSlotDetails(ds, slotIdx, e.currentTarget, meeting);
