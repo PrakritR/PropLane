@@ -166,7 +166,7 @@ export function ManagerAddScheduledTourModal({
           roomLabel,
           assignee,
           taskType: "tour",
-          linkedTourId: String(result.plannedEvent.id ?? ""),
+          linkedTourId: String(result.plannedEvent?.id ?? ""),
           notes: form.guestEmail.trim() ? `Guest: ${form.guestEmail.trim()}` : undefined,
         });
       }

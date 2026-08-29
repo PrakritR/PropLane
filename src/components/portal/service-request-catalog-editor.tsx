@@ -125,6 +125,10 @@ export function ServiceRequestCatalogEditor({
   );
 
   const bulkDeleteOffers = () => {
+    // The component returns null without a save target, so this cannot run
+    // unguarded in practice — but the early return lives below this callback,
+    // so the narrowing is not visible here.
+    if (!saveTarget) return;
     if (selectedOffers.length === 0) return;
     if (
       !window.confirm(

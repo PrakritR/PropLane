@@ -229,7 +229,7 @@ export function ManagerTaskList({
   }, [tabId, propertyFilterId, listFilter]);
 
   useEffect(() => {
-    if (tabId === "completed" && listFilter === "services") {
+    if (tabId === "completed" && listFilter === "service_orders") {
       setListFilter("all");
     }
   }, [listFilter, tabId]);
