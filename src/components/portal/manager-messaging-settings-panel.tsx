@@ -278,7 +278,11 @@ export function ManagerMessagingSettingsPanel({
           const alreadyAnnounced =
             typeof window !== "undefined" &&
             window.localStorage.getItem(seenKey) === "1";
-          if (!alreadyAnnounced) openAnnounceModal(assignedPhone, body.canSend);
+          // Only invite the broadcast once the number can actually carry a
+          // reply. See `announceReady` below for why an unusable number must
+          // never be advertised to residents.
+          if (!alreadyAnnounced && body.canSend)
+            openAnnounceModal(assignedPhone, body.canSend);
           showToast(
             body.canSend
               ? "Messaging number ready."
@@ -431,6 +435,22 @@ export function ManagerMessagingSettingsPanel({
   const phoneNumber = status.number?.phoneNumber ?? null;
   const isCoManager = status.workspaceRole === "co_manager";
   const unverifiedEntitlement = entitlementIsUnverified(status);
+  /**
+   * Whether it is safe to tell every resident "text me at this number".
+   *
+   * A stored number is not proof we own it. A record written while one Twilio
+   * account was configured keeps reading as an active, carrier-registered work
+   * number after the credentials move to a different account — that shipped,
+   * and the number in the record resolved to nothing we control. Broadcasting
+   * it would have pointed a whole portfolio of residents at a stranger's
+   * phone, and an email plus SMS blast is not recallable.
+   *
+   * `canSend` is the one signal that the number is genuinely operational here:
+   * it requires the plan, the send runtime, and a sendable provisioned number.
+   * Require it before offering the broadcast, so an unusable number — or one
+   * belonging to another account — is never advertised to residents.
+   */
+  const announceReady = Boolean(phoneNumber) && status.canSend;
   // An unchecked plan must stay actionable before a number exists - otherwise
   // the one account that sees "not checked yet" (a new one, with no number) is
   // the one account with no control that resolves it.
@@ -628,7 +648,7 @@ export function ManagerMessagingSettingsPanel({
             </div>
           ) : null}
 
-          {phoneNumber ? (
+          {announceReady ? (
             <Button
               type="button"
               variant="outline"

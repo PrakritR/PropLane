@@ -153,6 +153,10 @@ describe("ManagerMessagingSettingsPanel", () => {
     const assigned: ManagerMessagingNumberStatus = {
       ...readyToRequest,
       canRequest: false,
+      // The broadcast is only offered for a number that can actually send —
+      // an unusable one may not even belong to this Twilio account.
+      canSend: true,
+      sendingAvailable: true,
       number: {
         state: "active",
         registrationState: "approved",
@@ -232,6 +236,61 @@ describe("ManagerMessagingSettingsPanel", () => {
 
     expect(await screen.findByText("Approval in progress")).toBeTruthy();
     expect(screen.queryByText("Texting turned off")).toBeNull();
+  });
+
+  it("never offers a resident broadcast for a number that cannot send", async () => {
+    // A record can name a number this Twilio account does not own — that
+    // shipped. Broadcasting it would point every resident at a stranger.
+    const assignedButUnusable: ManagerMessagingNumberStatus = {
+      ...pausedStatus,
+      canSend: false,
+      sendingAvailable: false,
+      number: {
+        state: "active",
+        registrationState: "approved",
+        carrierRegistrationState: "registered",
+        attachmentState: "attached",
+        phoneNumber: "+15645652487",
+        lastError: null,
+      },
+    };
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => Response.json(assignedButUnusable)),
+    );
+    render(<ManagerMessagingSettingsPanel />);
+
+    expect(await screen.findByText("+1 (564) 565-2487")).toBeTruthy();
+    expect(
+      screen.queryByRole("button", { name: "Tell residents about this number" }),
+    ).toBeNull();
+  });
+
+  it("offers the resident broadcast once the number can actually send", async () => {
+    const usable: ManagerMessagingNumberStatus = {
+      ...pausedStatus,
+      canSend: true,
+      sendingAvailable: true,
+      number: {
+        state: "active",
+        registrationState: "approved",
+        carrierRegistrationState: "registered",
+        attachmentState: "attached",
+        phoneNumber: "+18559168031",
+        lastError: null,
+      },
+    };
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => Response.json(usable)),
+    );
+    render(<ManagerMessagingSettingsPanel />);
+
+    expect(
+      await screen.findByRole("button", {
+        name: "Tell residents about this number",
+      }),
+    ).toBeTruthy();
   });
 
   it("refreshes eligibility for an assigned number without requesting another number", async () => {
