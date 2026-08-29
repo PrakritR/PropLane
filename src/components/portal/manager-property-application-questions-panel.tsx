@@ -4,7 +4,8 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { RentalApplicationWizard } from "@/components/marketing/rental-application-wizard";
 import { CosignerApplyFlow } from "@/app/(public)/rent/apply/cosigner-flow";
 import { Button } from "@/components/ui/button";
-import { Modal } from "@/components/ui/modal";
+import { BulkActionBar } from "@/components/ui/bulk-action-bar";
+import { Modal, ModalFooter } from "@/components/ui/modal";
 import { ManagerApplicationQuestionsEditorModal } from "@/components/portal/manager-application-questions-editor-modal";
 import {
   PORTAL_LIST_ADD_ICONS,
@@ -39,6 +40,8 @@ import {
 import { PropertyTemplatePresetList } from "@/components/portal/property-template-preset-list";
 import { formatApplicationLeaseTermsLabel } from "@/lib/property-lease-template-sync";
 import { normalizePropertyApplicationTemplateLabel } from "@/lib/property-application-template-sync";
+import { usePortalRowSelection } from "@/hooks/use-portal-row-selection";
+import { PORTAL_BULK_BAR_BTN } from "@/lib/portal-bulk-bar";
 
 type QuestionsSaveTarget =
   | { mode: "pending"; saveId: string }
@@ -99,6 +102,7 @@ export function ManagerPropertyApplicationQuestionsPanel({
 
   const syncedSub = useMemo(() => syncPropertyApplicationTemplatesFromListing(sub), [sub]);
   const templates = useMemo(() => readPropertyApplicationTemplates(syncedSub), [syncedSub]);
+  const { selectedIds, toggleSelected, clearSelection } = usePortalRowSelection(templates.length);
 
   const bulkPropertyIds = propertyIds?.filter((id) => id.trim()) ?? [];
 
@@ -317,6 +321,40 @@ export function ManagerPropertyApplicationQuestionsPanel({
     setEditingTemplate(null);
   };
 
+  const selectedTemplates = useMemo(
+    () => templates.filter((template) => selectedIds.has(template.id)),
+    [selectedIds, templates],
+  );
+
+  const bulkDeleteTemplates = () => {
+    if (selectedTemplates.length === 0) return;
+    if (
+      !window.confirm(
+        `Delete ${selectedTemplates.length} application template${selectedTemplates.length === 1 ? "" : "s"}?`,
+      )
+    ) {
+      return;
+    }
+    let next = templates;
+    for (const template of selectedTemplates) {
+      next = removePropertyApplicationTemplate(next, template.id);
+    }
+    const persisted = persistRemoval(next);
+    if (!persisted) {
+      showToast("Could not delete application.");
+      return;
+    }
+    clearSelection();
+    setEditorOpen(false);
+    setPreviewOpen(false);
+    setEditingTemplate(null);
+    setPreviewTemplate(null);
+    onUpdated();
+    showToast(
+      selectedTemplates.length === 1 ? "Application deleted." : `${selectedTemplates.length} applications deleted.`,
+    );
+  };
+
   if (!managerUserId || (!saveTarget && bulkPropertyIds.length === 0)) return null;
 
   const editorTitle = editorMode === "add" ? "Add application" : "Edit application";
@@ -326,34 +364,35 @@ export function ManagerPropertyApplicationQuestionsPanel({
       <PortalPropertyDetailSection contentClassName="space-y-0">
         {templates.map((template) => (
           <div key={template.id} className={PORTAL_PROPERTY_DETAIL_LIST_ROW_CLASS}>
-            <div className="min-w-0 flex-1">
-              <p className="text-sm font-semibold text-foreground">
-                {normalizePropertyApplicationTemplateLabel(template.label)}
-              </p>
-              {formatApplicationLeaseTermsLabel(template.applicationLeaseTerms) ? (
-                <p className="mt-0.5 text-xs text-muted">
-                  Applicants: {formatApplicationLeaseTermsLabel(template.applicationLeaseTerms)}
+            <label className="flex min-w-0 flex-1 cursor-pointer items-start gap-3">
+              <input
+                type="checkbox"
+                className="mt-0.5 h-4 w-4 shrink-0 accent-primary"
+                checked={selectedIds.has(template.id)}
+                data-attr={`application-select-${template.id}`}
+                onChange={() => toggleSelected(template.id)}
+                onClick={(e) => e.stopPropagation()}
+              />
+              <div className="min-w-0 flex-1">
+                <p className="text-sm font-semibold text-foreground">
+                  {normalizePropertyApplicationTemplateLabel(template.label)}
                 </p>
-              ) : null}
-            </div>
+                {formatApplicationLeaseTermsLabel(template.applicationLeaseTerms) ? (
+                  <p className="mt-0.5 text-xs text-muted">
+                    Applicants: {formatApplicationLeaseTermsLabel(template.applicationLeaseTerms)}
+                  </p>
+                ) : null}
+              </div>
+            </label>
             <div className="flex shrink-0 flex-nowrap items-center gap-2">
               <Button
                 type="button"
                 variant="outline"
                 className={PORTAL_PROPERTY_DETAIL_ACTION_BUTTON_CLASS}
-                data-attr={`application-view-${template.id}`}
+                data-attr={`application-edit-view-${template.id}`}
                 onClick={() => openApplicationPreview(template)}
               >
-                View
-              </Button>
-              <Button
-                type="button"
-                variant="outline"
-                className={PORTAL_PROPERTY_DETAIL_ACTION_BUTTON_CLASS}
-                data-attr={`application-edit-${template.id}`}
-                onClick={() => openEditApplication(template)}
-              >
-                Edit
+                Edit view
               </Button>
             </div>
           </div>
@@ -427,8 +466,8 @@ export function ManagerPropertyApplicationQuestionsPanel({
         }}
         title={
           previewTemplate
-            ? `View · ${normalizePropertyApplicationTemplateLabel(previewTemplate.label)}`
-            : "View"
+            ? `Edit view · ${normalizePropertyApplicationTemplateLabel(previewTemplate.label)}`
+            : "Edit view"
         }
         presentation="dialog"
         dense
@@ -436,6 +475,26 @@ export function ManagerPropertyApplicationQuestionsPanel({
         stackClassName="fixed inset-0 z-[80] overflow-y-auto overscroll-contain"
         panelClassName="flex max-h-[min(90vh,56rem)] w-full max-w-5xl flex-col"
         dataAttr="property-application-preview"
+        footer={
+          previewTemplate ? (
+            <ModalFooter>
+              <Button
+                type="button"
+                variant="primary"
+                className="ml-auto rounded-full"
+                data-attr="property-application-preview-edit"
+                onClick={() => {
+                  const template = previewTemplate;
+                  setPreviewOpen(false);
+                  setPreviewTemplate(null);
+                  openEditApplication(template);
+                }}
+              >
+                Edit application
+              </Button>
+            </ModalFooter>
+          ) : null
+        }
       >
         {previewOpen && previewTemplate && previewPropertyId ? (
           <div className="mx-auto w-full max-w-5xl">
@@ -472,6 +531,33 @@ export function ManagerPropertyApplicationQuestionsPanel({
           </div>
         ) : null}
       </Modal>
+
+      {selectedIds.size > 0 ? (
+        <BulkActionBar count={selectedIds.size} hideCount variant="payments">
+          <div className="flex min-w-0 flex-wrap items-center justify-start gap-2">
+            {selectedIds.size === 1 && selectedTemplates[0] ? (
+              <Button
+                type="button"
+                variant="outline"
+                className={PORTAL_BULK_BAR_BTN}
+                data-attr="property-application-bulk-edit-view"
+                onClick={() => openApplicationPreview(selectedTemplates[0]!)}
+              >
+                Edit view
+              </Button>
+            ) : null}
+            <Button
+              type="button"
+              variant="outline"
+              className={`${PORTAL_BULK_BAR_BTN} text-rose-800`}
+              data-attr="property-application-bulk-delete"
+              onClick={bulkDeleteTemplates}
+            >
+              Delete
+            </Button>
+          </div>
+        </BulkActionBar>
+      ) : null}
     </>
   );
 }

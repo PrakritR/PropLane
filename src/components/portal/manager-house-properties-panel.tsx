@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
+import { BulkActionBar } from "@/components/ui/bulk-action-bar";
 import {
   DropdownMenuItem,
 } from "@/components/ui/dropdown-menu";
@@ -55,6 +56,7 @@ import {
 import { PortalDataTableEmpty } from "@/components/portal/portal-data-table";
 import { PORTAL_LIST_PAGE_BODY } from "@/components/portal/portal-inbox-ui";
 import { useManagerUserId } from "@/hooks/use-manager-user-id";
+import { usePortalRowSelection } from "@/hooks/use-portal-row-selection";
 import { useListingContactSmsPhone } from "@/hooks/use-listing-contact-sms-phone";
 import { isDemoModeActive, resolveManagerScopeUserId } from "@/lib/demo/demo-session";
 import {
@@ -85,6 +87,7 @@ import {
 import { isServerSyncOriginatedEvent } from "@/lib/property-pipeline-events";
 import { managerPropertyLimitMessage, managerTierPropertyLimitReached } from "@/lib/manager-access";
 import { isNativeRuntimeSync } from "@/lib/native/detect-native";
+import { PORTAL_BULK_BAR_BTN } from "@/lib/portal-bulk-bar";
 
 function propertyIdIsLinked(pid: string, linkedIds: Set<string>): boolean {
   if (!pid) return false;
@@ -1229,6 +1232,7 @@ export function ManagerHousePropertiesPanel({
   const scopeUserId = resolveManagerScopeUserId(managerUserId);
   const [tick, setTick] = useState(0);
   const [detailHeaderActions, setDetailHeaderActions] = useState<ReactNode>(null);
+  const { selectedIds, setSelectedIds, toggleSelected } = usePortalRowSelection(activeStage);
   const detailHeaderKeyRef = useRef<string | null>(null);
   const handlePropertyUpdated = useCallback(() => setTick((t) => t + 1), []);
   const handleAfterUnlist = useCallback(
@@ -1311,6 +1315,23 @@ export function ManagerHousePropertiesPanel({
     );
     return [...mapped].sort((a, b) => compareAdminPropertyRowsForDisplay(a.row, b.row));
   }, [tick, scopeUserId, activeStage]);
+
+  const propertyRowKey = (row: AdminPropertyRow) => row.adminRefId + (row.listingId ?? "");
+
+  const selectedPropertyEntries = useMemo(
+    () => rows.filter((entry) => selectedIds.has(propertyRowKey(entry.row))),
+    [rows, selectedIds],
+  );
+
+  const canBulkShareProperties =
+    Boolean(onSendToProspect) &&
+    activeStage === "listed" &&
+    selectedPropertyEntries.length > 0;
+
+  const canBulkDeleteDrafts =
+    activeStage === "drafts" &&
+    selectedPropertyEntries.length > 0 &&
+    selectedPropertyEntries.every(({ sourceBucket }) => sourceBucket === 5);
 
   const propertyKeyFromRow = (row: AdminPropertyRow) =>
     row.listingId?.trim() || row.adminRefId.trim();
@@ -1412,6 +1433,8 @@ export function ManagerHousePropertiesPanel({
                 title={managerPropertyRowTitle(row, sourceBucket)}
                 address={address}
                 summary={summary}
+                checked={selectedIds.has(rowKey)}
+                onSelectedChange={() => toggleSelected(rowKey)}
                 onOpen={() => {
                   const routeKey = propertyKeyFromRow(row);
                   router.push(
@@ -1442,6 +1465,59 @@ export function ManagerHousePropertiesPanel({
           ) : null}
         </div>
       )}
+      {selectedIds.size > 0 ? (
+        <BulkActionBar count={selectedIds.size} hideCount variant="payments">
+          <div className="flex min-w-0 flex-wrap items-center justify-start gap-2">
+            {canBulkShareProperties ? (
+              <Button
+                type="button"
+                variant="outline"
+                className={PORTAL_BULK_BAR_BTN}
+                data-attr="properties-bulk-share"
+                onClick={() => {
+                  const first = selectedPropertyEntries[0];
+                  if (!first || !onSendToProspect) return;
+                  onSendToProspect(propertyKeyFromRow(first.row));
+                  setSelectedIds(new Set());
+                }}
+              >
+                Share
+              </Button>
+            ) : null}
+            {canBulkDeleteDrafts ? (
+              <Button
+                type="button"
+                variant="outline"
+                className={`${PORTAL_BULK_BAR_BTN} text-rose-800`}
+                data-attr="properties-bulk-delete-draft"
+                onClick={() => {
+                  if (
+                    !window.confirm(
+                      `Delete ${selectedPropertyEntries.length} draft${selectedPropertyEntries.length === 1 ? "" : "s"}?`,
+                    )
+                  ) {
+                    return;
+                  }
+                  void (async () => {
+                    for (const { row } of selectedPropertyEntries) {
+                      await deleteManagerPropertyDraft(row.adminRefId, scopeUserId ?? undefined);
+                    }
+                    setSelectedIds(new Set());
+                    handlePropertyUpdated();
+                    showToast(
+                      selectedPropertyEntries.length === 1
+                        ? "Draft deleted."
+                        : `${selectedPropertyEntries.length} drafts deleted.`,
+                    );
+                  })();
+                }}
+              >
+                Delete draft
+              </Button>
+            ) : null}
+          </div>
+        </BulkActionBar>
+      ) : null}
     </>
   );
 }

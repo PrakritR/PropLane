@@ -47,7 +47,9 @@ import {
 } from "@/lib/short-term-stay-pricing";
 import { Input } from "@/components/ui/input";
 import {
-  PortalBulkPaymentReminderPreviewModal,
+  PortalBulkMessageReadonlyCarouselModal,
+} from "@/components/portal/portal-bulk-message-carousel-modal";
+import {
   PortalNotificationPreviewModal,
   type BulkPaymentReminderPreviewItem,
 } from "@/components/portal/portal-notification-preview-modal";
@@ -1460,16 +1462,33 @@ export function ManagerPaymentsLedgerPanel({
       />
     )}
     {bulkReminderPreview && bulkReminderPreview.length > 0 ? (
-      <PortalBulkPaymentReminderPreviewModal
+      <PortalBulkMessageReadonlyCarouselModal
         open
-        items={bulkReminderPreview}
+        title={
+          bulkReminderPreview.length === 1
+            ? "Send payment reminder"
+            : `Send ${bulkReminderPreview.length} payment reminders`
+        }
+        intro="Review each message below. Reminders are saved to PropLane inbox and sent by email when an address is on file."
+        items={bulkReminderPreview.map((item) => ({
+          id: item.id,
+          label: item.chargeLabel,
+          recipient: item.recipient,
+          subject: item.subject,
+          body: item.body,
+        }))}
+        confirmLabel={
+          bulkReminderPreview.length === 1
+            ? "Send reminder"
+            : `Send ${bulkReminderPreview.length} reminders`
+        }
         onClose={() => setBulkReminderPreview(null)}
         confirmBusy={sendingReminderId === "bulk"}
         onConfirm={() => void doSendBulkReminders()}
       />
     ) : null}
     {selectedIds.size > 0 && !(embeddedInResident && onEmbeddedBulkActions) ? (
-      <BulkActionBar count={selectedIds.size} variant="payments">
+      <BulkActionBar count={selectedIds.size} hideCount variant="payments">
         {bulkSelectionActions}
       </BulkActionBar>
     ) : null}

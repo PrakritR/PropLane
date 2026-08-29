@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
-import { DestinationNav } from "@/components/ui/destination-nav";
+import { DestinationNav, LocalDestinationNav } from "@/components/ui/destination-nav";
 import { Select } from "@/components/ui/input";
 import { useShallowTabId } from "@/components/ui/tabs";
 import { useAppUi } from "@/components/providers/app-ui-provider";
@@ -19,9 +19,14 @@ import { syncPropertyPipelineFromServer } from "@/lib/demo-property-pipeline";
 import { buildManagerPropertyFilterOptions } from "@/lib/manager-portfolio-access";
 import {
   compactTaskLocationLabel,
+  countTaskListFilterBuckets,
+  MANAGER_TASK_LIST_FILTER_LABELS,
+  MANAGER_TASK_LIST_FILTERS,
   serviceRequestLocationLabel,
   serviceRequestsAssignedToViewer,
+  taskListRowMatchesFilter,
   taskNotesPreview,
+  type ManagerTaskListFilterId,
 } from "@/lib/manager-task-display";
 import {
   MANAGER_TASKS_EVENT,
@@ -113,6 +118,7 @@ export function ManagerTaskList({
   const [addOpen, setAddOpen] = useState(false);
   const [propertyTick, setPropertyTick] = useState(0);
   const [propertyFilterId, setPropertyFilterId] = useState("");
+  const [listFilter, setListFilter] = useState<ManagerTaskListFilterId>("all");
 
   const propertyOptions = useMemo(
     () => buildManagerPropertyFilterOptions(userId),
@@ -178,12 +184,31 @@ export function ManagerTaskList({
         : assignedServices
             .filter((req) => matchesProperty(req.propertyId))
             .map((request) => ({ kind: "service", id: `service-${request.id}`, request }));
-    return [...taskRows, ...serviceRows].sort((a, b) => rowSortKey(b).localeCompare(rowSortKey(a)));
-  }, [assignedServices, doneTasks, matchesProperty, openTasks, tabId]);
+    return [...taskRows, ...serviceRows]
+      .filter((row) => taskListRowMatchesFilter(row, listFilter))
+      .sort((a, b) => rowSortKey(b).localeCompare(rowSortKey(a)));
+  }, [assignedServices, doneTasks, listFilter, matchesProperty, openTasks, tabId]);
+
+  const filterCounts = useMemo(
+    () =>
+      countTaskListFilterBuckets({
+        tasks,
+        services: assignedServices,
+        tabId,
+        matchesProperty,
+      }),
+    [assignedServices, matchesProperty, tabId, tasks],
+  );
 
   useEffect(() => {
     setSelectedIds([]);
-  }, [tabId, propertyFilterId]);
+  }, [tabId, propertyFilterId, listFilter]);
+
+  useEffect(() => {
+    if (tabId === "completed" && listFilter === "services") {
+      setListFilter("all");
+    }
+  }, [listFilter, tabId]);
 
   const selectedTaskRows = useMemo(
     () =>
@@ -323,14 +348,29 @@ export function ManagerTaskList({
       <PortalListControlStack
         className="mb-2"
         destinationRow={
-          <DestinationNav
-            items={tabItems}
-            activeId={tabId}
-            ariaLabel="Task status"
-            itemLayout="equal"
-            denseEqualRow
-            className="max-w-none"
-          />
+          <div className="flex w-full min-w-0 flex-col gap-2">
+            <DestinationNav
+              items={tabItems}
+              activeId={tabId}
+              ariaLabel="Task status"
+              itemLayout="equal"
+              denseEqualRow
+              className="max-w-none"
+            />
+            <LocalDestinationNav
+              items={MANAGER_TASK_LIST_FILTERS.filter(
+                (id) => tabId === "in-progress" || id !== "services",
+              ).map((id) => ({
+                id,
+                label: MANAGER_TASK_LIST_FILTER_LABELS[id],
+                count: filterCounts[id],
+                dataAttr: `manager-task-filter-${id}`,
+              }))}
+              activeId={listFilter}
+              onChange={(id) => setListFilter(id as ManagerTaskListFilterId)}
+              ariaLabel="Task filters"
+            />
+          </div>
         }
         filterRow={
           propertyOptions.length > 1 ? (
@@ -354,7 +394,13 @@ export function ManagerTaskList({
 
         {!loading && visibleRows.length === 0 ? (
           <p className="text-sm text-muted">
-            {tabId === "completed" ? "No completed tasks yet." : "No open tasks. Add one or they will appear when applications are submitted."}
+            {tabId === "completed"
+              ? listFilter === "all"
+                ? "No completed tasks yet."
+                : `No completed tasks in ${MANAGER_TASK_LIST_FILTER_LABELS[listFilter].toLowerCase()}.`
+              : listFilter === "all"
+                ? "No open tasks. Add one or they will appear when applications are submitted."
+                : `No ${MANAGER_TASK_LIST_FILTER_LABELS[listFilter].toLowerCase()} tasks.`}
           </p>
         ) : null}
 

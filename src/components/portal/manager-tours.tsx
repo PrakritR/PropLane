@@ -6,6 +6,7 @@ import { ManagerAddScheduledTourModal } from "@/components/portal/manager-add-sc
 import { ManagerToursGroupedTable } from "@/components/portal/manager-tours-grouped-table";
 import { Button } from "@/components/ui/button";
 import { BulkActionBar } from "@/components/ui/bulk-action-bar";
+import { PortalBulkMessageCarouselModal } from "@/components/portal/portal-bulk-message-carousel-modal";
 import { Input } from "@/components/ui/input";
 import { DestinationNav } from "@/components/ui/destination-nav";
 import { ManagerPortalSettingsModal } from "@/components/portal/manager-portal-settings-modal";
@@ -32,6 +33,7 @@ import { ShareLeadLinkModal } from "@/components/portal/share-lead-link-modal";
 import { TourProposalsPanel } from "@/components/portal/tour-proposals-panel";
 import { useAppUi } from "@/components/providers/app-ui-provider";
 import { useManagerUserId } from "@/hooks/use-manager-user-id";
+import { usePortalRowSelection } from "@/hooks/use-portal-row-selection";
 import { useWorkAssignmentDirectory } from "@/hooks/use-work-assignment-directory";
 import {
   acceptPartnerInquiryFromServer,
@@ -79,13 +81,14 @@ import {
   buildTourRescheduleConfirmRequestBody,
   buildTourRescheduledTenantBody,
 } from "@/lib/tour-notifications";
+import { PORTAL_BULK_BAR_BTN } from "@/lib/portal-bulk-bar";
 
 const TOUR_BUCKET_LABELS = MANAGER_TOUR_BUCKETS.map((id) => ({
   id,
   label: MANAGER_TOUR_BUCKET_LABELS[id],
 }));
 
-const BULK_BAR_BTN = "h-9 min-h-0 shrink-0 whitespace-nowrap rounded-full px-3 text-[13px] sm:h-10 sm:px-4 sm:text-sm";
+const BULK_BAR_BTN = PORTAL_BULK_BAR_BTN;
 
 function isPendingInquiry(row: ManagerTourRow): boolean {
   return row.bucket === "pending" && row.source === "inquiry";
@@ -198,6 +201,58 @@ function buildTourNotifyContext(row: ManagerTourRow) {
   });
 }
 
+function tourNotifyMessageForRow(
+  preview: TourNotifyPreview,
+  row: ManagerTourRow,
+  buildRescheduleCtx: (row: ManagerTourRow, times: TourRescheduleTimes) => ReturnType<typeof buildTourNotificationContext>,
+): { subject: string; body: string } {
+  const ctx = buildTourNotifyContext(row);
+  if (preview.action === "confirm") {
+    return { subject: TOUR_CONFIRMED_TENANT_SUBJECT, body: buildTourConfirmedTenantBody(ctx) };
+  }
+  if (preview.action === "decline") {
+    return { subject: TOUR_REQUEST_REMOVED_TENANT_SUBJECT, body: buildTourRequestRemovedTenantBody(ctx) };
+  }
+  if (preview.action === "cancel") {
+    return { subject: TOUR_CANCELED_TENANT_SUBJECT, body: buildTourCanceledTenantBody(ctx) };
+  }
+  const times = preview.rowTimes?.[row.id];
+  if (!times) {
+    return { subject: preview.subject, body: preview.body };
+  }
+  const rescheduleCtx = buildRescheduleCtx(row, times);
+  const previous = { startIso: times.previousStartIso, endIso: times.previousEndIso };
+  if (isUpcomingPlanned(row)) {
+    return {
+      subject: TOUR_RESCHEDULED_TENANT_SUBJECT,
+      body: buildTourRescheduledTenantBody(rescheduleCtx, previous),
+    };
+  }
+  return {
+    subject: TOUR_RESCHEDULED_TENANT_SUBJECT,
+    body: buildTourRescheduleConfirmRequestBody(rescheduleCtx, previous),
+  };
+}
+
+function buildTourNotifyCarouselItems(
+  preview: TourNotifyPreview,
+  buildRescheduleCtx: (row: ManagerTourRow, times: TourRescheduleTimes) => ReturnType<typeof buildTourNotificationContext>,
+) {
+  return preview.rows.map((row) => {
+    const { subject, body } = tourNotifyMessageForRow(preview, row, buildRescheduleCtx);
+    return {
+      id: row.id,
+      label: `${row.guestName} · ${row.whenLabel}`,
+      recipient: row.guestEmail,
+      recipientPhone: row.guestPhone?.trim() || undefined,
+      subject,
+      body,
+      emailAvailable: Boolean(row.guestEmail?.includes("@")),
+      smsAvailable: Boolean(row.guestPhone?.trim()),
+    };
+  });
+}
+
 export function ManagerTours({
   bucket = "pending",
   basePath = "/portal",
@@ -218,7 +273,7 @@ export function ManagerTours({
   const [shareTourOpen, setShareTourOpen] = useState(false);
   const [addTourOpen, setAddTourOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
+  const { selectedIds, setSelectedIds, toggleSelected } = usePortalRowSelection(bucket);
   const [notifyPreview, setNotifyPreview] = useState<TourNotifyPreview | null>(null);
   const [notifyBusy, setNotifyBusy] = useState(false);
   const [guestMessagePreview, setGuestMessagePreview] = useState<GuestMessagePreview | null>(null);
@@ -244,10 +299,6 @@ export function ManagerTours({
     window.addEventListener("storage", onStorage);
     return () => window.removeEventListener("storage", onStorage);
   }, []);
-
-  useEffect(() => {
-    setSelectedIds(new Set());
-  }, [bucket]);
 
   const propertyOptions = useMemo(
     () => buildManagerPropertyFilterOptions(userId),
@@ -341,15 +392,6 @@ export function ManagerTours({
         ]}
       />
     ) : null;
-
-  const toggleSelected = useCallback((id: string) => {
-    setSelectedIds((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
-  }, []);
 
   const openTourDetail = useCallback(
     (row: ManagerTourRow) => {
@@ -503,20 +545,48 @@ export function ManagerTours({
   );
 
   const submitNotifyPreview = useCallback(
-    async (skipMessage: boolean, _channels?: unknown, draft?: NotificationConfirmDraft) => {
+    async (
+      skipMessage: boolean,
+      _channels?: unknown,
+      draft?: NotificationConfirmDraft,
+      opts?: {
+        scope?: "all" | "single";
+        singleId?: string;
+        drafts?: Record<string, { subject: string; body: string }>;
+      },
+    ) => {
       if (!notifyPreview || notifyBusy) return;
       const preview = notifyPreview;
+      const scope = opts?.scope ?? "all";
+      const targetRows =
+        scope === "single" && opts?.singleId
+          ? preview.rows.filter((row) => row.id === opts.singleId)
+          : preview.rows;
+      if (targetRows.length === 0) return;
+
       setNotifyBusy(true);
       try {
         const subject = draft?.subject?.trim() || preview.subject;
         const body = draft?.body?.trim() || preview.body;
-        const useSharedDraft = preview.rows.length === 1;
+        const useSharedDraft = targetRows.length === 1 && !opts?.drafts;
+
+        const resolveRowMessage = (row: ManagerTourRow) => {
+          const fromCarousel = opts?.drafts?.[row.id];
+          if (fromCarousel) {
+            return {
+              subject: fromCarousel.subject.trim(),
+              body: fromCarousel.body.trim(),
+            };
+          }
+          if (useSharedDraft) {
+            return { subject, body };
+          }
+          return tourNotifyMessageForRow(preview, row, buildRescheduleNotifyContext);
+        };
 
         if (preview.action === "confirm") {
-          for (const row of preview.rows) {
-            const rowCtx = buildTourNotifyContext(row);
-            const rowSubject = useSharedDraft ? subject : TOUR_CONFIRMED_TENANT_SUBJECT;
-            const rowBody = useSharedDraft ? body : buildTourConfirmedTenantBody(rowCtx);
+          for (const row of targetRows) {
+            const { subject: rowSubject, body: rowBody } = resolveRowMessage(row);
             const result = await acceptPartnerInquiryFromServer(row.sourceId, {
               start: row.startIso,
               end: row.endIso,
@@ -543,10 +613,18 @@ export function ManagerTours({
             }
           }
           setNotifyPreview(null);
-          setSelectedIds(new Set());
+          if (scope === "all") {
+            setSelectedIds(new Set());
+          } else if (opts?.singleId) {
+            setSelectedIds((prev) => {
+              const next = new Set(prev);
+              next.delete(opts.singleId!);
+              return next;
+            });
+          }
           await refresh();
           if (tourIdProp) navigate(managerTourListHref(basePath, bucket));
-          const count = preview.rows.length;
+          const count = targetRows.length;
           showToast(
             skipMessage
               ? count === 1
@@ -560,10 +638,8 @@ export function ManagerTours({
         }
 
         if (preview.action === "decline") {
-          for (const row of preview.rows) {
-            const rowCtx = buildTourNotifyContext(row);
-            const rowSubject = useSharedDraft ? subject : TOUR_REQUEST_REMOVED_TENANT_SUBJECT;
-            const rowBody = useSharedDraft ? body : buildTourRequestRemovedTenantBody(rowCtx);
+          for (const row of targetRows) {
+            const { subject: rowSubject, body: rowBody } = resolveRowMessage(row);
             const ok = await deletePartnerInquiryFromServer(row.sourceId, {
               notifyTenant: !skipMessage,
               subject: rowSubject,
@@ -575,10 +651,18 @@ export function ManagerTours({
             }
           }
           setNotifyPreview(null);
-          setSelectedIds(new Set());
+          if (scope === "all") {
+            setSelectedIds(new Set());
+          } else if (opts?.singleId) {
+            setSelectedIds((prev) => {
+              const next = new Set(prev);
+              next.delete(opts.singleId!);
+              return next;
+            });
+          }
           await refresh();
           if (tourIdProp) navigate(managerTourListHref(basePath, bucket));
-          const count = preview.rows.length;
+          const count = targetRows.length;
           showToast(
             skipMessage
               ? count === 1
@@ -592,10 +676,8 @@ export function ManagerTours({
         }
 
         if (preview.action === "cancel") {
-          for (const row of preview.rows) {
-            const rowCtx = buildTourNotifyContext(row);
-            const rowSubject = useSharedDraft ? subject : TOUR_CANCELED_TENANT_SUBJECT;
-            const rowBody = useSharedDraft ? body : buildTourCanceledTenantBody(rowCtx);
+          for (const row of targetRows) {
+            const { subject: rowSubject, body: rowBody } = resolveRowMessage(row);
             const result = await cancelPlannedTourFromServer({
               plannedEventId: row.sourceId,
               notifyGuest: !skipMessage,
@@ -608,10 +690,18 @@ export function ManagerTours({
             }
           }
           setNotifyPreview(null);
-          setSelectedIds(new Set());
+          if (scope === "all") {
+            setSelectedIds(new Set());
+          } else if (opts?.singleId) {
+            setSelectedIds((prev) => {
+              const next = new Set(prev);
+              next.delete(opts.singleId!);
+              return next;
+            });
+          }
           await refresh();
           if (tourIdProp) navigate(managerTourListHref(basePath, bucket));
-          const count = preview.rows.length;
+          const count = targetRows.length;
           showToast(
             skipMessage
               ? count === 1
@@ -625,18 +715,11 @@ export function ManagerTours({
         }
 
         if (preview.action === "reschedule") {
-          for (const row of preview.rows) {
+          for (const row of targetRows) {
             const times = preview.rowTimes?.[row.id];
             if (!times) continue;
+            const { subject: rowSubject, body: rowBody } = resolveRowMessage(row);
             if (isUpcomingPlanned(row)) {
-              const rowCtx = buildRescheduleNotifyContext(row, times);
-              const rowSubject = useSharedDraft ? subject : TOUR_RESCHEDULED_TENANT_SUBJECT;
-              const rowBody = useSharedDraft
-                ? body
-                : buildTourRescheduledTenantBody(rowCtx, {
-                    startIso: times.previousStartIso,
-                    endIso: times.previousEndIso,
-                  });
               const result = await reschedulePlannedTourFromServer({
                 plannedEventId: row.sourceId,
                 start: times.newStartIso,
@@ -652,11 +735,6 @@ export function ManagerTours({
               continue;
             }
             if (isPendingInquiry(row)) {
-              const previous = { startIso: times.previousStartIso, endIso: times.previousEndIso };
-              const rowCtx = buildRescheduleNotifyContext(row, times);
-              const rowBody = useSharedDraft
-                ? body
-                : buildTourRescheduleConfirmRequestBody(rowCtx, previous);
               const result = await proposePendingTourRescheduleFromServer({
                 inquiryId: row.sourceId,
                 previousStart: times.previousStartIso,
@@ -664,7 +742,7 @@ export function ManagerTours({
                 start: times.newStartIso,
                 end: times.newEndIso,
                 notifyGuest: !skipMessage,
-                subject: useSharedDraft ? subject : TOUR_RESCHEDULED_TENANT_SUBJECT,
+                subject: rowSubject,
                 body: rowBody,
               });
               if (!result.ok) {
@@ -674,10 +752,18 @@ export function ManagerTours({
             }
           }
           setNotifyPreview(null);
-          setSelectedIds(new Set());
+          if (scope === "all") {
+            setSelectedIds(new Set());
+          } else if (opts?.singleId) {
+            setSelectedIds((prev) => {
+              const next = new Set(prev);
+              next.delete(opts.singleId!);
+              return next;
+            });
+          }
           await refresh();
           if (tourIdProp) navigate(managerTourListHref(basePath, bucket));
-          const count = preview.rows.length;
+          const count = targetRows.length;
           showToast(
             skipMessage
               ? count === 1
@@ -845,10 +931,7 @@ export function ManagerTours({
 
   const bulkActionBar =
     selectedIds.size > 0 ? (
-      <BulkActionBar
-        count={selectedIds.size}
-        countLabel={(n) => `${n} tour${n === 1 ? "" : "s"} selected`}
-      >
+      <BulkActionBar count={selectedIds.size} hideCount variant="payments">
         {renderBulkActions()}
       </BulkActionBar>
     ) : null;
@@ -974,6 +1057,37 @@ export function ManagerTours({
         </div>
       ) : null}
       {notifyPreview && notifyPreviewRow ? (
+        notifyPreview.rows.length > 1 ? (
+          <PortalBulkMessageCarouselModal
+            open
+            title={
+              notifyPreview.rows.length > 1
+                ? `${TOUR_NOTIFY_PREVIEW_COPY[notifyPreview.action].title} (${notifyPreview.rows.length})`
+                : TOUR_NOTIFY_PREVIEW_COPY[notifyPreview.action].title
+            }
+            intro={TOUR_NOTIFY_PREVIEW_COPY[notifyPreview.action].intro}
+            items={buildTourNotifyCarouselItems(notifyPreview, buildRescheduleNotifyContext)}
+            confirmLabel={TOUR_NOTIFY_PREVIEW_COPY[notifyPreview.action].confirmLabel}
+            confirmLabelSingle={TOUR_NOTIFY_PREVIEW_COPY[notifyPreview.action].confirmLabel}
+            confirmLabelWithoutMessage={
+              TOUR_NOTIFY_PREVIEW_COPY[notifyPreview.action].confirmLabelWithoutMessage
+            }
+            skipMessageLabel={TOUR_NOTIFY_PREVIEW_COPY[notifyPreview.action].skipMessageLabel}
+            confirmBusy={notifyBusy}
+            confirmBusyLabel={TOUR_NOTIFY_PREVIEW_COPY[notifyPreview.action].confirmBusyLabel}
+            onClose={() => {
+              if (notifyBusy) return;
+              setNotifyPreview(null);
+            }}
+            onConfirm={(scope, { skipMessage, channels, drafts, singleId }) =>
+              void submitNotifyPreview(skipMessage, channels, undefined, {
+                scope,
+                singleId,
+                drafts,
+              })
+            }
+          />
+        ) : (
         <PortalNotificationPreviewModal
           open
           title={
@@ -1006,6 +1120,7 @@ export function ManagerTours({
           assigneeVendors={notifyPreview.action === "confirm" ? vendors : undefined}
           onConfirm={(skip, channels, draft) => void submitNotifyPreview(skip, channels, draft)}
         />
+        )
       ) : null}
       {guestMessagePreview ? (
         <PortalNotificationPreviewModal

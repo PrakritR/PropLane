@@ -8,7 +8,12 @@ import { googleEventBlocksTours } from "@/lib/google-calendar/busy";
 import { publicSchedulingHostLabel } from "@/lib/public-host-label";
 import { clientIpFrom, rateLimit } from "@/lib/rate-limit";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
-import { loadTourNoticeDaysByManager } from "@/lib/manager-tour-settings";
+import {
+  DEFAULT_MANAGER_TOUR_SETTINGS,
+  loadTourNoticeDaysByManager,
+  loadTourSettingsByManager,
+  managerTourSettingsToDefaultAvailability,
+} from "@/lib/manager-tour-settings";
 import {
   DEFAULT_TOUR_HORIZON_DAYS,
   isActivePlannedTourEvent,
@@ -464,6 +469,7 @@ export async function GET(req: Request) {
     const defaultGridManagerIds = [
       ...new Set(matchingPropertyRecords.map(({ managerUserId }) => managerUserId)),
     ].filter(Boolean);
+    const { settingsByManager } = await loadTourSettingsByManager(db, defaultGridManagerIds);
     const publishedSlotsByManager = new Map<string, string[]>();
     for (const offering of publishedOfferings) {
       const existing = publishedSlotsByManager.get(offering.managerUserId) ?? [];
@@ -472,7 +478,13 @@ export async function GET(req: Request) {
     const offerings: Offering[] = defaultGridManagerIds.map((managerUserId) => ({
       managerUserId,
       propertyId: [...(propertyIdsByManager.get(managerUserId) ?? [])][0] ?? propertyId,
-      slots: resolveTourOfferingSlots(publishedSlotsByManager.get(managerUserId) ?? []),
+      slots: resolveTourOfferingSlots(
+        publishedSlotsByManager.get(managerUserId) ?? [],
+        Date.now(),
+        managerTourSettingsToDefaultAvailability(
+          settingsByManager.get(managerUserId) ?? DEFAULT_MANAGER_TOUR_SETTINGS,
+        ),
+      ),
     }));
 
     const availabilityManagerIds = [...new Set(offerings.map((offering) => offering.managerUserId))];

@@ -74,3 +74,59 @@ export function serviceRequestLocationLabel(req: ServiceRequest): string | null 
   const parts = [property, resident].filter(Boolean);
   return parts.length ? parts.join(" · ") : null;
 }
+
+/** In-list filter pills on the manager Tasks page (same shape as Services Open / Scheduled / …). */
+export const MANAGER_TASK_LIST_FILTERS = ["all", "open", "scheduled", "services"] as const;
+export type ManagerTaskListFilterId = (typeof MANAGER_TASK_LIST_FILTERS)[number];
+
+export const MANAGER_TASK_LIST_FILTER_LABELS: Record<ManagerTaskListFilterId, string> = {
+  all: "All",
+  open: "Open",
+  scheduled: "Scheduled",
+  services: "Service orders",
+};
+
+export function managerTaskIsScheduled(task: Pick<ManagerTask, "start" | "end">): boolean {
+  return Boolean(task.start?.trim() && task.end?.trim());
+}
+
+export function countTaskListFilterBuckets(input: {
+  tasks: ManagerTask[];
+  services: ServiceRequest[];
+  tabId: "in-progress" | "completed";
+  matchesProperty: (propertyId?: string) => boolean;
+}): Record<ManagerTaskListFilterId, number> {
+  const taskRows = (input.tabId === "completed"
+    ? input.tasks.filter((task) => task.completed)
+    : input.tasks.filter((task) => !task.completed)
+  ).filter((task) => input.matchesProperty(task.propertyId));
+
+  const serviceRows =
+    input.tabId === "completed"
+      ? []
+      : input.services.filter((req) => input.matchesProperty(req.propertyId));
+
+  const openTasks = taskRows.filter((task) => !managerTaskIsScheduled(task)).length;
+  const scheduledTasks = taskRows.filter((task) => managerTaskIsScheduled(task)).length;
+  const services = serviceRows.length;
+
+  return {
+    all: taskRows.length + services,
+    open: openTasks,
+    scheduled: scheduledTasks,
+    services,
+  };
+}
+
+export function taskListRowMatchesFilter(
+  row:
+    | { kind: "task"; task: ManagerTask }
+    | { kind: "service"; request: ServiceRequest },
+  filter: ManagerTaskListFilterId,
+): boolean {
+  if (filter === "all") return true;
+  if (row.kind === "service") return filter === "services";
+  if (filter === "services") return false;
+  if (filter === "scheduled") return managerTaskIsScheduled(row.task);
+  return !managerTaskIsScheduled(row.task);
+}
