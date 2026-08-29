@@ -9,6 +9,8 @@ import { DestinationNav } from "@/components/ui/destination-nav";
 import { useShallowTabId } from "@/components/ui/tabs";
 import { useAppUi } from "@/components/providers/app-ui-provider";
 import { ManagerTaskFilterFields } from "@/components/portal/manager-task-filter-fields";
+import { ApplicationHouseholdCluster } from "@/components/portal/application-household-list";
+import { Badge } from "@/components/ui/badge";
 import { ManagerPortalPageShell } from "@/components/portal/portal-metrics";
 import { PortalFilterSortSheet, portalFilterActiveCount } from "@/components/portal/portal-filter-sort-sheet";
 import { PORTAL_PROPERTY_FILTER_SHEET_CLASS } from "@/components/portal/portal-filter-shell";
@@ -60,6 +62,14 @@ import {
   type ServiceRequest,
 } from "@/lib/service-requests-storage";
 import { cn } from "@/lib/utils";
+import {
+  clusterPortalListRows,
+  DEFAULT_PORTAL_LIST_GROUP_MODE,
+  isPropertyClusterList,
+  portalListGroupModeActiveCount,
+  type PortalListGroupMode,
+} from "@/lib/portal-list-grouping";
+import type { ResidentIdentityFields, PropertyClusterFields } from "@/lib/resident-row-clustering";
 
 /** Match payments bulk bar — compact outline pills in one horizontal row on mobile. */
 const TASK_BULK_BAR_BTN =
@@ -81,6 +91,30 @@ function formatTaskAssignee(task: ManagerTask): string | null {
 type TaskListRow =
   | { kind: "task"; id: string; task: ManagerTask }
   | { kind: "service"; id: string; request: ServiceRequest };
+
+type TaskListClusterRow = TaskListRow & ResidentIdentityFields & PropertyClusterFields;
+
+function taskListRowClusterFields(
+  row: TaskListRow,
+  propertyLabelForId: (propertyId?: string) => string,
+): TaskListClusterRow {
+  if (row.kind === "task") {
+    return {
+      ...row,
+      residentName: row.task.assignee?.name ?? "",
+      residentEmail: row.task.assignee?.email ?? "",
+      propertyId: row.task.propertyId,
+      propertyLabel: row.task.propertyTitle ?? propertyLabelForId(row.task.propertyId),
+    };
+  }
+  return {
+    ...row,
+    residentName: row.request.residentName,
+    residentEmail: row.request.residentEmail,
+    propertyId: row.request.propertyId,
+    propertyLabel: propertyLabelForId(row.request.propertyId),
+  };
+}
 
 function rowSortKey(row: TaskListRow): string {
   if (row.kind === "task") {
@@ -174,6 +208,7 @@ export function ManagerTaskList({
   const [composeDraft, setComposeDraft] = useState<ManagerComposePrefill | null>(null);
   const [propertyTick, setPropertyTick] = useState(0);
   const [propertyFilterId, setPropertyFilterId] = useState("");
+  const [groupMode, setGroupMode] = useState<PortalListGroupMode>(DEFAULT_PORTAL_LIST_GROUP_MODE);
   const [listFilter, setListFilter] = useState<ManagerTaskListFilterId>("all");
 
   const propertyOptions = useMemo(
@@ -230,6 +265,12 @@ export function ManagerTaskList({
     [propertyFilterId],
   );
 
+  const propertyLabelForId = useCallback(
+    (propertyId?: string) =>
+      propertyId ? (propertyOptions.find((option) => option.id === propertyId)?.label ?? "") : "",
+    [propertyOptions],
+  );
+
   const visibleRows = useMemo((): TaskListRow[] => {
     const taskRows: TaskListRow[] = (tabId === "completed" ? doneTasks : openTasks)
       .filter((task) => matchesProperty(task.propertyId))
@@ -245,12 +286,16 @@ export function ManagerTaskList({
       .sort((a, b) => rowSortKey(b).localeCompare(rowSortKey(a)));
   }, [assignedServices, doneTasks, listFilter, matchesProperty, openTasks, tabId]);
 
-  const taskFilterActiveCount = portalFilterActiveCount([
-    listFilter !== "all" ? listFilter : "",
-    propertyFilterId,
-  ]);
+  const taskClusters = useMemo(() => {
+    const clusterRows = visibleRows.map((row) => taskListRowClusterFields(row, propertyLabelForId));
+    return clusterPortalListRows(clusterRows, groupMode, (row) => row.propertyLabel);
+  }, [visibleRows, groupMode, propertyLabelForId]);
 
-  const taskFilterFieldCount = propertyOptions.length > 1 ? 2 : 1;
+  const taskFilterActiveCount =
+    portalFilterActiveCount([listFilter !== "all" ? listFilter : "", propertyFilterId]) +
+    portalListGroupModeActiveCount(groupMode);
+
+  const taskFilterFieldCount = (propertyOptions.length > 1 ? 1 : 0) + 2;
 
   const tasksFilterSheet = (
     <PortalFilterSortSheet
@@ -263,6 +308,7 @@ export function ManagerTaskList({
       onReset={() => {
         setListFilter("all");
         setPropertyFilterId("");
+        setGroupMode(DEFAULT_PORTAL_LIST_GROUP_MODE);
       }}
       dataAttr="tasks-filter-sheet-open"
     >
@@ -273,13 +319,15 @@ export function ManagerTaskList({
         propertyOptions={propertyOptions}
         propertyFilterId={propertyFilterId}
         onPropertyFilterIdChange={setPropertyFilterId}
+        groupMode={groupMode}
+        onGroupModeChange={setGroupMode}
       />
     </PortalFilterSortSheet>
   );
 
   useEffect(() => {
     setSelectedIds([]);
-  }, [tabId, propertyFilterId, listFilter]);
+  }, [tabId, propertyFilterId, listFilter, groupMode]);
 
   useEffect(() => {
     if (tabId === "completed" && listFilter === "service_orders") {
@@ -488,9 +536,21 @@ export function ManagerTaskList({
   function renderServiceRow(request: ServiceRequest) {
     const location = serviceRequestLocationLabel(request);
     const bucket = serviceRequestBucket(request);
+    const rowId = `service-${request.id}`;
     return (
-      <li key={`service-${request.id}`} className="flex items-start gap-3 px-4 py-3">
-        <span className="mt-1 inline-block h-4 w-4 shrink-0" aria-hidden />
+      <li key={rowId} className="flex items-start gap-3 px-4 py-3">
+        <input
+          type="checkbox"
+          className="mt-1 h-4 w-4 shrink-0 accent-primary"
+          checked={selectedIds.includes(rowId)}
+          aria-label={`Select ${request.offerName}`}
+          onClick={(event) => event.stopPropagation()}
+          onChange={(event) =>
+            setSelectedIds((prev) =>
+              event.target.checked ? [...prev, rowId] : prev.filter((id) => id !== rowId),
+            )
+          }
+        />
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
             <p className="font-semibold text-foreground">{request.offerName}</p>
@@ -540,15 +600,65 @@ export function ManagerTaskList({
         {loading ? <p className="text-sm text-muted">Loading…</p> : null}
 
         {!loading && visibleRows.length > 0 ? (
-          <ul
-            className={`divide-y divide-border rounded-2xl border border-border bg-card ${tabId === "completed" ? "opacity-80" : ""}`}
+          <div
+            className={`space-y-3 ${tabId === "completed" ? "opacity-80" : ""}`}
+            data-attr="manager-task-groups"
           >
-            {visibleRows.map((row) =>
-              row.kind === "task"
-                ? renderTaskRow(row.task, tabId === "completed")
-                : renderServiceRow(row.request),
-            )}
-          </ul>
+            {isPropertyClusterList(groupMode, taskClusters)
+              ? taskClusters.map((cluster) => (
+                  <ApplicationHouseholdCluster
+                    key={cluster.key}
+                    header={
+                      <>
+                        <span className="truncate text-xs font-semibold text-foreground">
+                          {cluster.propertyLabel}
+                        </span>
+                        <Badge tone="info">
+                          {cluster.rows.length === 1 ? "1 item" : `${cluster.rows.length} items`}
+                        </Badge>
+                      </>
+                    }
+                  >
+                    <ul className="divide-y divide-border">
+                      {cluster.rows.map((row) =>
+                        row.kind === "task"
+                          ? renderTaskRow(row.task, tabId === "completed")
+                          : renderServiceRow(row.request),
+                      )}
+                    </ul>
+                  </ApplicationHouseholdCluster>
+                ))
+              : taskClusters.map((cluster) => (
+                  <ApplicationHouseholdCluster
+                    key={cluster.key}
+                    header={
+                      <>
+                        <span className="truncate text-xs font-semibold text-foreground">
+                          {cluster.residentLabel}
+                        </span>
+                        {cluster.residentEmail &&
+                        cluster.residentEmail.toLowerCase() !== cluster.residentLabel.trim().toLowerCase() ? (
+                          <span className="truncate text-xs text-muted">{cluster.residentEmail}</span>
+                        ) : null}
+                        {cluster.propertyLabel ? (
+                          <span className="truncate text-xs text-muted">{cluster.propertyLabel}</span>
+                        ) : null}
+                        <Badge tone="info">
+                          {cluster.rows.length === 1 ? "1 item" : `${cluster.rows.length} items`}
+                        </Badge>
+                      </>
+                    }
+                  >
+                    <ul className="divide-y divide-border">
+                      {cluster.rows.map((row) =>
+                        row.kind === "task"
+                          ? renderTaskRow(row.task, tabId === "completed")
+                          : renderServiceRow(row.request),
+                      )}
+                    </ul>
+                  </ApplicationHouseholdCluster>
+                ))}
+          </div>
         ) : null}
 
         {tabId === "in-progress" ? (

@@ -29,6 +29,7 @@ export type UnifiedServiceRow = {
   state: ServiceRowState;
   residentName: string;
   residentEmail: string;
+  propertyId: string;
   propertyLabel: string;
   unitLabel: string;
   /** ISO of when this is scheduled to happen, when the model knows. */
@@ -95,6 +96,7 @@ type MaintenanceInput = {
   bucket?: string | null;
   residentName?: string | null;
   residentEmail?: string | null;
+  propertyId?: string | null;
   propertyName?: string | null;
   unit?: string | null;
   scheduledAtIso?: string | null;
@@ -124,6 +126,7 @@ export function buildUnifiedServiceRows(input: {
       state: addOnState(req.status),
       residentName: req.residentName?.trim() ?? "",
       residentEmail: req.residentEmail?.trim() ?? "",
+      propertyId: req.propertyId?.trim() ?? "",
       propertyLabel: input.propertyLabelForRequest?.(req.propertyId ?? "")?.trim() ?? "",
       unitLabel: "",
       scheduledIso: req.approvedAt?.trim() ?? "",
@@ -141,6 +144,7 @@ export function buildUnifiedServiceRows(input: {
       state: maintenanceState(wo.bucket),
       residentName: wo.residentName?.trim() ?? "",
       residentEmail: wo.residentEmail?.trim() ?? "",
+      propertyId: wo.propertyId?.trim() ?? "",
       propertyLabel: wo.propertyName?.trim() ?? "",
       unitLabel: wo.unit?.trim() ?? "",
       scheduledIso: wo.scheduledAtIso?.trim() ?? "",

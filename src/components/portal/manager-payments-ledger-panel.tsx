@@ -28,8 +28,12 @@ import {
 import type { DemoManagerPaymentLedgerRow, ManagerPaymentBucket, ManagerPaymentDirection } from "@/data/demo-portal";
 import { PortalRecordDetailPage } from "@/components/portal/portal-record-detail-page";
 import {
-  clusterManagerPaymentLedgerRows,
+import {
+  clusterManagerPaymentLedgerRowsByMode,
+  type ManagerPaymentPropertyCluster,
+  type ManagerPaymentResidentCluster,
 } from "@/lib/manager-payment-ledger-grouping";
+import { isPropertyClusterList, type PortalListGroupMode } from "@/lib/portal-list-grouping";
 import { paymentDetailHref, paymentListHref } from "@/lib/portal-detail-routes";
 import { formatPacificDateTime } from "@/lib/pacific-time";
 import { RESIDENT_DETAIL_HEADER_ACTION_BTN } from "@/components/portal/portal-metrics";
@@ -195,6 +199,7 @@ export function ManagerPaymentsLedgerPanel({
   onEmbeddedDetailActions,
   onEmbeddedBulkActions,
   onAddPayment,
+  groupMode = "resident",
 }: {
   rows: DemoManagerPaymentLedgerRow[];
   managerUserId: string | null;
@@ -214,6 +219,7 @@ export function ManagerPaymentsLedgerPanel({
   onEmbeddedBulkActions?: (actions: ReactNode | null) => void;
   /** Dashed footer row — opens the add-charge / add-payment flow. */
   onAddPayment?: () => void;
+  groupMode?: PortalListGroupMode;
 }) {
   const { showToast } = useAppUi();
   const [returningDepositId, setReturningDepositId] = useState<string | null>(null);
@@ -238,9 +244,12 @@ export function ManagerPaymentsLedgerPanel({
   );
   const showSelection = rows.length > 0;
   const rowIdsKey = useMemo(() => rows.map((row) => row.id).join(","), [rows]);
-  const residentClusters = useMemo(
-    () => (embeddedInResident ? [] : clusterManagerPaymentLedgerRows(rows)),
-    [embeddedInResident, rows],
+  const ledgerClusters = useMemo(
+    () =>
+      embeddedInResident
+        ? []
+        : clusterManagerPaymentLedgerRowsByMode(rows, groupMode),
+    [embeddedInResident, groupMode, rows],
   );
   const detailRow = useMemo(() => {
     if (!paymentIdProp) return null;
@@ -1395,47 +1404,63 @@ export function ManagerPaymentsLedgerPanel({
   );
 
   const renderManagerGroupedLedger = () => (
-    <div className="space-y-3" data-attr="payments-resident-groups">
-      {residentClusters.map((cluster) => (
-        <ApplicationHouseholdCluster
-          key={cluster.key}
-          header={
-            <>
-              <span className="truncate text-xs font-semibold text-foreground">{cluster.residentLabel}</span>
-              {cluster.residentEmail &&
-              cluster.residentEmail.toLowerCase() !== cluster.residentLabel.trim().toLowerCase() ? (
-                <span className="truncate text-xs text-muted">{cluster.residentEmail}</span>
-              ) : null}
-              {cluster.propertyLabel ? (
-                <span className="truncate text-xs text-muted">{cluster.propertyLabel}</span>
-              ) : null}
-              <Badge tone="info">
-                {cluster.rows.length === 1 ? "1 charge" : `${cluster.rows.length} charges`}
-              </Badge>
-              {/*
-                What is QUEUED, beside what is due. Without it a manager cannot tell "I should
-                chase this" from "a reminder goes out tomorrow, leave it alone" — and chases a
-                resident PropLane is already chasing.
-              */}
-              {(() => {
-                const chargeIds = new Set(cluster.rows.map((row) => row.householdChargeId));
-                const label = scheduledSendBadgeLabel(
-                  summariseScheduledSends(
-                    scheduledMessages.filter((message) => chargeIds.has(message.chargeId)),
-                  ),
-                );
-                return label ? (
-                  <Badge tone="pending">
-                    <span data-attr="payments-cluster-scheduled">{label}</span>
+    <div
+      className="space-y-3"
+      data-attr={groupMode === "house" ? "payments-house-groups" : "payments-resident-groups"}
+    >
+      {isPropertyClusterList(groupMode, ledgerClusters)
+        ? (ledgerClusters as ManagerPaymentPropertyCluster[]).map((cluster) => (
+            <ApplicationHouseholdCluster
+              key={cluster.key}
+              header={
+                <>
+                  <span className="truncate text-xs font-semibold text-foreground">
+                    {cluster.propertyLabel}
+                  </span>
+                  <Badge tone="info">
+                    {cluster.rows.length === 1 ? "1 charge" : `${cluster.rows.length} charges`}
                   </Badge>
-                ) : null;
-              })()}
-            </>
-          }
-        >
-          {renderChargeDataList(cluster.rows, { omitPropertyInMeta: true })}
-        </ApplicationHouseholdCluster>
-      ))}
+                </>
+              }
+            >
+              {renderChargeDataList(cluster.rows, { omitPropertyInMeta: true })}
+            </ApplicationHouseholdCluster>
+          ))
+        : (ledgerClusters as ManagerPaymentResidentCluster[]).map((cluster) => (
+            <ApplicationHouseholdCluster
+              key={cluster.key}
+              header={
+                <>
+                  <span className="truncate text-xs font-semibold text-foreground">{cluster.residentLabel}</span>
+                  {cluster.residentEmail &&
+                  cluster.residentEmail.toLowerCase() !== cluster.residentLabel.trim().toLowerCase() ? (
+                    <span className="truncate text-xs text-muted">{cluster.residentEmail}</span>
+                  ) : null}
+                  {cluster.propertyLabel ? (
+                    <span className="truncate text-xs text-muted">{cluster.propertyLabel}</span>
+                  ) : null}
+                  <Badge tone="info">
+                    {cluster.rows.length === 1 ? "1 charge" : `${cluster.rows.length} charges`}
+                  </Badge>
+                  {(() => {
+                    const chargeIds = new Set(cluster.rows.map((row) => row.householdChargeId));
+                    const label = scheduledSendBadgeLabel(
+                      summariseScheduledSends(
+                        scheduledMessages.filter((message) => chargeIds.has(message.chargeId)),
+                      ),
+                    );
+                    return label ? (
+                      <Badge tone="pending">
+                        <span data-attr="payments-cluster-scheduled">{label}</span>
+                      </Badge>
+                    ) : null;
+                  })()}
+                </>
+              }
+            >
+              {renderChargeDataList(cluster.rows, { omitPropertyInMeta: true })}
+            </ApplicationHouseholdCluster>
+          ))}
     </div>
   );
 

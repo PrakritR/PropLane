@@ -5,10 +5,15 @@ import { Badge } from "@/components/ui/badge";
 import { DataList } from "@/components/ui/data-list";
 import {
   type ManagerTourListCluster,
+  type ManagerTourPropertyCluster,
   type ManagerTourRow,
 } from "@/lib/manager-tour-list";
+import { isPropertyClusterList, type PortalListGroupMode } from "@/lib/portal-list-grouping";
 
-function tourLocationMeta(row: ManagerTourRow, showPropertyColumn: boolean): string {
+function tourLocationMeta(row: ManagerTourRow, showPropertyColumn: boolean, groupMode: PortalListGroupMode): string {
+  if (groupMode === "house") {
+    return [row.guestName, row.roomLabel].filter(Boolean).join(" · ") || "—";
+  }
   if (!showPropertyColumn) {
     return row.roomLabel?.trim() || "—";
   }
@@ -17,13 +22,15 @@ function tourLocationMeta(row: ManagerTourRow, showPropertyColumn: boolean): str
 
 export function ManagerToursGroupedTable({
   clusters,
+  groupMode,
   selectedIds,
   onToggleSelected,
   onRowClick,
   showPropertyColumn = true,
   selectable = true,
 }: {
-  clusters: ManagerTourListCluster[];
+  clusters: ManagerTourListCluster[] | ManagerTourPropertyCluster[];
+  groupMode: PortalListGroupMode;
   selectedIds: Set<string>;
   onToggleSelected: (id: string) => void;
   onRowClick: (row: ManagerTourRow) => void;
@@ -31,7 +38,8 @@ export function ManagerToursGroupedTable({
   showPropertyColumn?: boolean;
   selectable?: boolean;
 }) {
-  const locationHeader = showPropertyColumn ? "Property" : "Room";
+  const locationHeader =
+    groupMode === "house" ? "Guest" : showPropertyColumn ? "Property" : "Room";
 
   const renderTourDataList = (listRows: ManagerTourRow[]) => (
     <DataList
@@ -41,7 +49,7 @@ export function ManagerToursGroupedTable({
         id: row.id,
         data: row,
         primary: row.whenLabel,
-        meta: tourLocationMeta(row, showPropertyColumn),
+        meta: tourLocationMeta(row, showPropertyColumn, groupMode),
         selected: selectedIds.has(row.id),
         onSelectedChange: () => onToggleSelected(row.id),
         onClick: () => onRowClick(row),
@@ -51,15 +59,41 @@ export function ManagerToursGroupedTable({
         {
           id: "location",
           header: locationHeader,
-          cell: (row) => tourLocationMeta(row, showPropertyColumn),
+          cell: (row) => tourLocationMeta(row, showPropertyColumn, groupMode),
         },
       ]}
     />
   );
 
+  const dataAttr = groupMode === "house" ? "tours-house-groups" : "tours-resident-groups";
+
+  if (isPropertyClusterList(groupMode, clusters)) {
+    return (
+      <div className="space-y-3" data-attr={dataAttr}>
+        {clusters.map((cluster) => (
+          <ApplicationHouseholdCluster
+            key={cluster.key}
+            header={
+              <>
+                <span className="truncate text-xs font-semibold text-foreground">
+                  {cluster.propertyLabel}
+                </span>
+                <Badge tone="info">
+                  {cluster.rows.length === 1 ? "1 tour" : `${cluster.rows.length} tours`}
+                </Badge>
+              </>
+            }
+          >
+            {renderTourDataList(cluster.rows)}
+          </ApplicationHouseholdCluster>
+        ))}
+      </div>
+    );
+  }
+
   return (
-    <div className="space-y-3" data-attr="tours-resident-groups">
-      {clusters.map((cluster) => (
+    <div className="space-y-3" data-attr={dataAttr}>
+      {(clusters as ManagerTourListCluster[]).map((cluster) => (
         <ApplicationHouseholdCluster
           key={cluster.key}
           header={

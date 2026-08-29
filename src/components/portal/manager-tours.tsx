@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { ApplicationFilterSortFields } from "@/components/portal/application-filter-sort-fields";
+import { PortalListGroupFilterFields } from "@/components/portal/portal-list-group-filter-fields";
 import { ManagerAddScheduledTourModal } from "@/components/portal/manager-add-scheduled-tour-modal";
 import { ManagerToursGroupedTable } from "@/components/portal/manager-tours-grouped-table";
 import { Button } from "@/components/ui/button";
@@ -44,12 +44,20 @@ import { syncPropertyPipelineFromServer } from "@/lib/demo-property-pipeline";
 import { buildManagerPropertyFilterOptions } from "@/lib/manager-portfolio-access";
 import {
   buildManagerTourRows,
-  clusterManagerTourListRows,
+  clusterManagerTourListRowsByMode,
   countManagerTourRowsByBucket,
   filterManagerTourRows,
   sortManagerTourClustersForBucket,
+  sortManagerTourPropertyClustersForBucket,
   type ManagerTourRow,
 } from "@/lib/manager-tour-list";
+import {
+  DEFAULT_PORTAL_LIST_GROUP_MODE,
+  isPropertyClusterList,
+  portalListGroupModeActiveCount,
+  PORTAL_LIST_GROUP_MODE_LABELS,
+  type PortalListGroupMode,
+} from "@/lib/portal-list-grouping";
 import { usePortalNavigate } from "@/lib/portal-nav-client";
 import {
   MANAGER_TOUR_BUCKET_LABELS,
@@ -269,11 +277,12 @@ export function ManagerTours({
   const [tick, setTick] = useState(0);
   const [propertyTick, setPropertyTick] = useState(0);
   const [propertyFilters, setPropertyFilters] = useState<string[]>([]);
+  const [groupMode, setGroupMode] = useState<PortalListGroupMode>(DEFAULT_PORTAL_LIST_GROUP_MODE);
   const [searchQuery, setSearchQuery] = useState("");
   const [shareTourOpen, setShareTourOpen] = useState(false);
   const [addTourOpen, setAddTourOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const { selectedIds, setSelectedIds, toggleSelected } = usePortalRowSelection(bucket);
+  const { selectedIds, setSelectedIds, toggleSelected } = usePortalRowSelection(`${bucket}:${groupMode}`);
   const [notifyPreview, setNotifyPreview] = useState<TourNotifyPreview | null>(null);
   const [notifyBusy, setNotifyBusy] = useState(false);
   const [guestMessagePreview, setGuestMessagePreview] = useState<GuestMessagePreview | null>(null);
@@ -326,11 +335,13 @@ export function ManagerTours({
     [allRows, bucket, propertyFilters, searchQuery],
   );
 
-  const clusters = useMemo(
-    () =>
-      sortManagerTourClustersForBucket(clusterManagerTourListRows(rowsForBucket), bucket),
-    [rowsForBucket, bucket],
-  );
+  const clusters = useMemo(() => {
+    const grouped = clusterManagerTourListRowsByMode(rowsForBucket, groupMode);
+    if (isPropertyClusterList(groupMode, grouped)) {
+      return sortManagerTourPropertyClustersForBucket(grouped, bucket);
+    }
+    return sortManagerTourClustersForBucket(grouped, bucket);
+  }, [rowsForBucket, bucket, groupMode]);
 
   const selectedRows = useMemo(
     () => rowsForBucket.filter((row) => selectedIds.has(row.id)),
@@ -355,40 +366,60 @@ export function ManagerTours({
     [counts],
   );
 
-  const filterTouchCount = propertyFilters.length > 0 ? 1 : 0;
+  const filterTouchCount =
+    (propertyFilters.length > 0 ? 1 : 0) + portalListGroupModeActiveCount(groupMode);
 
   const filterSheet = (
     <PortalFilterSortSheet
       activeCount={filterTouchCount}
       compactPanel
-      filterFieldCount={1}
+      filterFieldCount={propertyOptions.length > 1 ? 2 : 1}
       mobileFlushBody
       constrainDropdownToTitleBand
       className={PORTAL_PROPERTY_FILTER_SHEET_CLASS}
-      onReset={() => setPropertyFilters([])}
+      onReset={() => {
+        setPropertyFilters([]);
+        setGroupMode(DEFAULT_PORTAL_LIST_GROUP_MODE);
+      }}
       dataAttr="tours-filter-sheet-open"
     >
-      <ApplicationFilterSortFields
+      <PortalListGroupFilterFields
+        groupMode={groupMode}
+        onGroupModeChange={setGroupMode}
         propertyOptions={propertyOptions}
         propertyFilters={propertyFilters}
         onPropertyFiltersChange={setPropertyFilters}
-        dataAttr="tours-filter-property"
+        propertyDataAttr="tours-filter-property"
+        groupModeDataAttr="tours-filter-group-mode"
       />
     </PortalFilterSortSheet>
   );
 
   const activeFilterChips =
-    propertyFilters.length > 0 ? (
+    propertyFilters.length > 0 || groupMode !== DEFAULT_PORTAL_LIST_GROUP_MODE ? (
       <PortalActiveFilterChips
         chips={[
-          {
-            id: "property",
-            label:
-              propertyFilters.length === 1
-                ? `Property: ${propertyLabelById.get(propertyFilters[0]!) ?? propertyFilters[0]}`
-                : `${propertyFilters.length} properties`,
-            onRemove: () => setPropertyFilters([]),
-          },
+          ...(groupMode !== DEFAULT_PORTAL_LIST_GROUP_MODE
+            ? [
+                {
+                  id: "group-mode",
+                  label: PORTAL_LIST_GROUP_MODE_LABELS[groupMode],
+                  onRemove: () => setGroupMode(DEFAULT_PORTAL_LIST_GROUP_MODE),
+                },
+              ]
+            : []),
+          ...(propertyFilters.length > 0
+            ? [
+                {
+                  id: "property",
+                  label:
+                    propertyFilters.length === 1
+                      ? `Property: ${propertyLabelById.get(propertyFilters[0]!) ?? propertyFilters[0]}`
+                      : `${propertyFilters.length} properties`,
+                  onRemove: () => setPropertyFilters([]),
+                },
+              ]
+            : []),
         ]}
       />
     ) : null;
@@ -828,6 +859,7 @@ export function ManagerTours({
   const renderGroupedTours = () => (
     <ManagerToursGroupedTable
       clusters={clusters}
+      groupMode={groupMode}
       selectedIds={selectedIds}
       onToggleSelected={toggleSelected}
       onRowClick={openTourDetail}

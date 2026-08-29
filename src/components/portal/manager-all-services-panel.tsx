@@ -20,8 +20,21 @@ const SERVICE_STATE_TABS: { id: ServiceRowState; label: string }[] = [
 ];
 import { ApplicationHouseholdCluster } from "@/components/portal/application-household-list";
 import { Badge } from "@/components/ui/badge";
-import { DataList } from "@/components/ui/data-list";
-import { clusterRowsByResident } from "@/lib/resident-row-clustering";
+import { BulkActionBar } from "@/components/ui/bulk-action-bar";
+import { PortalListGroupFilterFields } from "@/components/portal/portal-list-group-filter-fields";
+import {
+  PortalAdaptiveActionRow,
+  type PortalAdaptiveAction,
+} from "@/components/portal/portal-adaptive-action-row";
+import {
+  clusterPortalListRows,
+  isPropertyClusterList,
+  portalListGroupModeActiveCount,
+  PORTAL_LIST_GROUP_MODE_LABELS,
+  DEFAULT_PORTAL_LIST_GROUP_MODE,
+  type PortalListGroupMode,
+} from "@/lib/portal-list-grouping";
+import { PORTAL_BULK_BAR_BTN } from "@/lib/portal-bulk-bar";
 import { cn } from "@/lib/utils";
 import {
   serviceRequestDetailHref,
@@ -29,7 +42,6 @@ import {
 } from "@/lib/portal-detail-routes";
 import { PortalFilterSortSheet, portalFilterActiveCount } from "@/components/portal/portal-filter-sort-sheet";
 import { PORTAL_PROPERTY_FILTER_SHEET_CLASS } from "@/components/portal/portal-filter-shell";
-import { ApplicationFilterSortFields } from "@/components/portal/application-filter-sort-fields";
 import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
 import {
   ManagerPortalPageShell,
@@ -50,11 +62,13 @@ import {
   readManagerWorkOrderRows,
   syncManagerWorkOrdersFromServer,
   MANAGER_WORK_ORDERS_EVENT,
+  deleteManagerWorkOrderRow,
 } from "@/lib/manager-work-orders-storage";
 import {
   readAllServiceRequests,
   syncServiceRequestsFromServer,
   SERVICE_REQUESTS_EVENT,
+  deleteServiceRequest,
   type ServiceRequest,
 } from "@/lib/service-requests-storage";
 import type { DemoManagerWorkOrderRow, ManagerWorkOrderBucket } from "@/data/demo-portal";
@@ -69,6 +83,7 @@ import { ManagerEditServiceRequestsModal } from "@/components/portal/manager-edi
 import { ManagerCreateWorkOrderModal } from "@/components/portal/manager-create-work-order-modal";
 import { useAppUi } from "@/components/providers/app-ui-provider";
 import { Button } from "@/components/ui/button";
+import { usePortalRowSelection } from "@/hooks/use-portal-row-selection";
 import { useShallowTabId } from "@/components/ui/tabs";
 import {
   PORTAL_LIST_ADD_ICONS,
@@ -81,6 +96,16 @@ type FilterType = "requests" | "work-orders";
 type RequestBucket = ManagerServiceRequestBucket;
 
 const SERVICES_TAB_IDS = ["requests", "work-orders"] as const;
+
+function unifiedServiceRowKey(row: { kind: string; id: string }): string {
+  return `${row.kind}::${row.id}`;
+}
+
+function parseUnifiedServiceRowKey(key: string): { kind: string; id: string } | null {
+  const splitAt = key.indexOf("::");
+  if (splitAt <= 0) return null;
+  return { kind: key.slice(0, splitAt), id: key.slice(splitAt + 2) };
+}
 
 export function ManagerAllServicesPanel({
   tabId: serverTabId,
@@ -105,6 +130,7 @@ export function ManagerAllServicesPanel({
   const [propertyTick, setPropertyTick] = useState(0);
   const [dataTick, setDataTick] = useState(0);
   const [propertyFilters, setPropertyFilters] = useState<string[]>([]);
+  const [groupMode, setGroupMode] = useState<PortalListGroupMode>(DEFAULT_PORTAL_LIST_GROUP_MODE);
   const [searchQuery, setSearchQuery] = useState("");
   const [woBucket, setWoBucket] = useState<ManagerWorkOrderBucket>(workOrderBucketProp);
   const [prevWoBucketProp, setPrevWoBucketProp] = useState(workOrderBucketProp);
@@ -246,30 +272,46 @@ export function ManagerAllServicesPanel({
     return `${propertyFilters.length} properties`;
   }, [propertyFilters, filterPropertyOptions]);
 
-  const resetServicesFilters = () => setPropertyFilters([]);
+  const resetServicesFilters = () => {
+    setPropertyFilters([]);
+    setGroupMode(DEFAULT_PORTAL_LIST_GROUP_MODE);
+  };
+
+  const servicesFilterActiveCount =
+    portalFilterActiveCount([propertyFilters]) + portalListGroupModeActiveCount(groupMode);
 
   const servicesFilterSheet = (
     <PortalFilterSortSheet
-        activeCount={portalFilterActiveCount([propertyFilters])}
+        activeCount={servicesFilterActiveCount}
         compactPanel
-        filterFieldCount={1}
+        filterFieldCount={filterPropertyOptions.length > 1 ? 2 : 1}
         constrainDropdownToTitleBand
         mobileFlushBody
         className={PORTAL_PROPERTY_FILTER_SHEET_CLASS}
         onReset={resetServicesFilters}
         dataAttr="services-filter-sheet-open"
       >
-        <ApplicationFilterSortFields
+        <PortalListGroupFilterFields
+          groupMode={groupMode}
+          onGroupModeChange={setGroupMode}
           propertyOptions={filterPropertyOptions}
           propertyFilters={propertyFilters}
           onPropertyFiltersChange={setPropertyFilters}
-          dataAttr="services-filter-property"
+          propertyDataAttr="services-filter-property"
+          groupModeDataAttr="services-filter-group-mode"
         />
       </PortalFilterSortSheet>
   );
 
   const activeFilterChips = useMemo((): PortalActiveFilterChip[] => {
     const chips: PortalActiveFilterChip[] = [];
+    if (groupMode !== DEFAULT_PORTAL_LIST_GROUP_MODE) {
+      chips.push({
+        id: "group-mode",
+        label: PORTAL_LIST_GROUP_MODE_LABELS[groupMode],
+        onRemove: () => setGroupMode(DEFAULT_PORTAL_LIST_GROUP_MODE),
+      });
+    }
     if (propertyFilters.length > 0) {
       chips.push({
         id: "property",
@@ -280,7 +322,7 @@ export function ManagerAllServicesPanel({
       });
     }
     return chips;
-  }, [propertyFilters, propertyFilterLabel]);
+  }, [groupMode, propertyFilters, propertyFilterLabel]);
 
   const renderRequestDetail = (req: ServiceRequest) => {
     return (
@@ -354,6 +396,77 @@ export function ManagerAllServicesPanel({
     () => unifiedRows.filter((row) => row.state === serviceState),
     [unifiedRows, serviceState],
   );
+  const { selectedIds, toggleSelected, clearSelection } = usePortalRowSelection(
+    `${serviceState}:${groupMode}`,
+  );
+  const serviceClusters = useMemo(
+    () => clusterPortalListRows(visibleUnifiedRows, groupMode, (row) => row.propertyLabel),
+    [visibleUnifiedRows, groupMode],
+  );
+
+  const bulkDeleteSelected = () => {
+    let deleted = 0;
+    for (const key of selectedIds) {
+      const parsed = parseUnifiedServiceRowKey(key);
+      if (!parsed) continue;
+      if (parsed.kind === "add-on") {
+        deleteServiceRequest(parsed.id);
+        deleted += 1;
+      } else if (parsed.kind === "maintenance") {
+        if (deleteManagerWorkOrderRow(parsed.id)) deleted += 1;
+      }
+    }
+    clearSelection();
+    setDataTick((t) => t + 1);
+    showToast(deleted === 1 ? "Service deleted." : `${deleted} services deleted.`);
+  };
+
+  const bulkSelectionActions: PortalAdaptiveAction[] = [
+    {
+      id: "delete",
+      label: "Delete",
+      onClick: bulkDeleteSelected,
+      dataAttr: "services-bulk-delete",
+      className: `${PORTAL_BULK_BAR_BTN} text-rose-800`,
+    },
+  ];
+
+  const renderServiceRow = (row: (typeof visibleUnifiedRows)[number], omitPropertyInSubtitle: boolean) => {
+    const rowKey = unifiedServiceRowKey(row);
+    const subtitleParts = [
+      row.kind === "add-on" ? "Add-on service" : "Maintenance",
+      omitPropertyInSubtitle ? null : row.propertyLabel,
+      groupMode === "house" ? row.residentName || row.residentEmail : null,
+      row.unitLabel,
+    ].filter(Boolean);
+    return (
+      <PortalServiceRecordRow
+        key={rowKey}
+        title={row.title}
+        subtitle={subtitleParts.join(" · ") || undefined}
+        statusLabel={row.statusLabel}
+        statusTone={
+          row.state === "done"
+            ? "success"
+            : row.state === "declined"
+              ? "danger"
+              : row.state === "scheduled"
+                ? "neutral"
+                : "warning"
+        }
+        checked={selectedIds.has(rowKey)}
+        onSelectedChange={() => toggleSelected(rowKey)}
+        onOpen={() =>
+          navigate(
+            row.kind === "add-on"
+              ? serviceRequestDetailHref(basePath, reqBucket, row.id)
+              : `${basePath}/services/work-orders/${woBucket}/${encodeURIComponent(row.id)}`,
+          )
+        }
+        dataAttr={row.kind === "add-on" ? "service-request-list-row" : "work-order-list-row"}
+      />
+    );
+  };
 
   // One row of state pills over the merged list. The Requests / Work orders type nav is gone —
   // that split is now just the `kind` carried on each row.
@@ -473,62 +586,48 @@ export function ManagerAllServicesPanel({
             order detail — so the merge stays presentational and the stores never mix.
           */}
           <div className={cn(INBOX_LIST_SCROLL, "space-y-3")} data-attr="services-resident-groups">
-            {clusterRowsByResident(visibleUnifiedRows).map((cluster) => (
-              <ApplicationHouseholdCluster
-                key={cluster.key}
-                header={
-                  <>
-                    <span className="truncate text-xs font-semibold text-foreground">
-                      {cluster.residentLabel}
-                    </span>
-                    {cluster.residentEmail &&
-                    cluster.residentEmail.toLowerCase() !== cluster.residentLabel.trim().toLowerCase() ? (
-                      <span className="truncate text-xs text-muted">{cluster.residentEmail}</span>
-                    ) : null}
-                    {cluster.propertyLabel ? (
-                      <span className="truncate text-xs text-muted">{cluster.propertyLabel}</span>
-                    ) : null}
-                    <Badge tone="info">
-                      {cluster.rows.length === 1 ? "1 item" : `${cluster.rows.length} items`}
-                    </Badge>
-                  </>
-                }
-              >
-                {cluster.rows.map((row) => (
-                  <PortalServiceRecordRow
-                    key={`${row.kind}-${row.id}`}
-                    title={row.title}
-                    subtitle={
-                      [
-                        row.kind === "add-on" ? "Add-on service" : "Maintenance",
-                        row.propertyLabel,
-                        row.unitLabel,
-                      ]
-                        .filter(Boolean)
-                        .join(" \u00b7 ") || undefined
+            {isPropertyClusterList(groupMode, serviceClusters)
+              ? serviceClusters.map((cluster) => (
+                  <ApplicationHouseholdCluster
+                    key={cluster.key}
+                    header={
+                      <>
+                        <span className="truncate text-xs font-semibold text-foreground">
+                          {cluster.propertyLabel}
+                        </span>
+                        <Badge tone="info">
+                          {cluster.rows.length === 1 ? "1 item" : `${cluster.rows.length} items`}
+                        </Badge>
+                      </>
                     }
-                    statusLabel={row.statusLabel}
-                    statusTone={
-                      row.state === "done"
-                        ? "success"
-                        : row.state === "declined"
-                          ? "danger"
-                          : row.state === "scheduled"
-                            ? "neutral"
-                            : "warning"
+                  >
+                    {cluster.rows.map((row) => renderServiceRow(row, true))}
+                  </ApplicationHouseholdCluster>
+                ))
+              : serviceClusters.map((cluster) => (
+                  <ApplicationHouseholdCluster
+                    key={cluster.key}
+                    header={
+                      <>
+                        <span className="truncate text-xs font-semibold text-foreground">
+                          {cluster.residentLabel}
+                        </span>
+                        {cluster.residentEmail &&
+                        cluster.residentEmail.toLowerCase() !== cluster.residentLabel.trim().toLowerCase() ? (
+                          <span className="truncate text-xs text-muted">{cluster.residentEmail}</span>
+                        ) : null}
+                        {cluster.propertyLabel ? (
+                          <span className="truncate text-xs text-muted">{cluster.propertyLabel}</span>
+                        ) : null}
+                        <Badge tone="info">
+                          {cluster.rows.length === 1 ? "1 item" : `${cluster.rows.length} items`}
+                        </Badge>
+                      </>
                     }
-                    onOpen={() =>
-                      navigate(
-                        row.kind === "add-on"
-                          ? serviceRequestDetailHref(basePath, reqBucket, row.id)
-                          : `${basePath}/services/work-orders/${woBucket}/${encodeURIComponent(row.id)}`,
-                      )
-                    }
-                    dataAttr={row.kind === "add-on" ? "service-request-list-row" : "work-order-list-row"}
-                  />
+                  >
+                    {cluster.rows.map((row) => renderServiceRow(row, true))}
+                  </ApplicationHouseholdCluster>
                 ))}
-              </ApplicationHouseholdCluster>
-            ))}
           </div>
           <div className={PORTAL_LIST_ADD_ROW_WRAP_CLASS}>
             <PortalListAddRow
@@ -571,6 +670,12 @@ export function ManagerAllServicesPanel({
           setWoBucket(bucket);
         }}
       />
+
+      {selectedIds.size > 0 ? (
+        <BulkActionBar count={selectedIds.size} hideCount variant="payments">
+          <PortalAdaptiveActionRow actions={bulkSelectionActions} />
+        </BulkActionBar>
+      ) : null}
     </ManagerPortalPageShell>
   );
 }

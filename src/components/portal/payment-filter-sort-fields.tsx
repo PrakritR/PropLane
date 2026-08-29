@@ -9,6 +9,12 @@ import {
   filterSingleSelectSummary,
 } from "@/components/portal/filter-field-lists";
 import { usePortalFilterDraft } from "@/lib/portal-filter-draft";
+import {
+  DEFAULT_PORTAL_LIST_GROUP_MODE,
+  PORTAL_LIST_GROUP_MODE_LABELS,
+  PORTAL_LIST_GROUP_MODES,
+  type PortalListGroupMode,
+} from "@/lib/portal-list-grouping";
 
 export type PaymentListSort = "dueSoon" | "dueLatest" | "amountDesc" | "amountAsc" | "resident";
 
@@ -24,6 +30,8 @@ export function PaymentFilterSortFields({
   onListSortChange,
   sortOptions,
   defaultListSort = "dueSoon",
+  groupMode,
+  onGroupModeChange,
 }: {
   propertyOptions: { id: string; label: string }[];
   propertyFilters: string[];
@@ -36,6 +44,8 @@ export function PaymentFilterSortFields({
   onListSortChange: (next: PaymentListSort) => void;
   sortOptions: { value: PaymentListSort; label: string }[];
   defaultListSort?: PaymentListSort;
+  groupMode: PortalListGroupMode;
+  onGroupModeChange: (next: PortalListGroupMode) => void;
 }) {
   const [draftPropertyFilters, setDraftPropertyFilters] = usePortalFilterDraft(
     propertyFilters,
@@ -52,13 +62,41 @@ export function PaymentFilterSortFields({
     onListSortChange,
     defaultListSort,
   );
+  const [draftGroupMode, setDraftGroupMode] = usePortalFilterDraft(
+    groupMode,
+    onGroupModeChange,
+    DEFAULT_PORTAL_LIST_GROUP_MODE,
+  );
 
   const propertyListOptions = propertyOptions.map((option) => ({ value: option.id, label: option.label }));
   const residentListOptions = residentOptions.map((option) => ({ value: option.id, label: option.label }));
   const sortListOptions = sortOptions.map((opt) => ({ value: opt.value, label: opt.label }));
+  const groupModeOptions = PORTAL_LIST_GROUP_MODES.map((mode) => ({
+    value: mode,
+    label: PORTAL_LIST_GROUP_MODE_LABELS[mode],
+  }));
 
   return (
     <FilterFieldsAccordion>
+      <FilterCollapsibleSection
+        sectionId="group-mode"
+        label="Group by"
+        summary={filterSingleSelectSummary(
+          draftGroupMode,
+          groupModeOptions,
+          PORTAL_LIST_GROUP_MODE_LABELS[DEFAULT_PORTAL_LIST_GROUP_MODE],
+        )}
+        empty={draftGroupMode === DEFAULT_PORTAL_LIST_GROUP_MODE}
+        menuOptionCount={groupModeOptions.length}
+        dataAttr="payments-filter-group-mode-trigger"
+      >
+        <FilterSingleSelectList
+          options={groupModeOptions}
+          value={draftGroupMode}
+          onChange={(value) => setDraftGroupMode(value as PortalListGroupMode)}
+          dataAttr="payments-filter-group-mode"
+        />
+      </FilterCollapsibleSection>
       {propertyOptions.length > 0 ? (
         <FilterCollapsibleSection
           sectionId="property"

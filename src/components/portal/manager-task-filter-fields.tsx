@@ -1,6 +1,6 @@
 "use client";
 
-import { ApplicationFilterSortFields } from "@/components/portal/application-filter-sort-fields";
+import { PortalListGroupFilterFields } from "@/components/portal/portal-list-group-filter-fields";
 import {
   FilterCollapsibleSection,
   FilterFieldsAccordion,
@@ -13,6 +13,7 @@ import {
   MANAGER_TASK_LIST_FILTERS,
   type ManagerTaskListFilterId,
 } from "@/lib/manager-task-display";
+import type { PortalListGroupMode } from "@/lib/portal-list-grouping";
 import type { ManagerTaskListTabId } from "@/lib/portal-detail-routes";
 import { usePortalFilterDraft } from "@/lib/portal-filter-draft";
 
@@ -68,6 +69,8 @@ export function ManagerTaskFilterFields({
   propertyOptions,
   propertyFilterId,
   onPropertyFilterIdChange,
+  groupMode,
+  onGroupModeChange,
 }: {
   listFilter: ManagerTaskListFilterId;
   onListFilterChange: (next: ManagerTaskListFilterId) => void;
@@ -75,6 +78,8 @@ export function ManagerTaskFilterFields({
   propertyOptions: { id: string; label: string }[];
   propertyFilterId: string;
   onPropertyFilterIdChange: (next: string) => void;
+  groupMode: PortalListGroupMode;
+  onGroupModeChange: (next: PortalListGroupMode) => void;
 }) {
   const propertyFilters = propertyFilterId ? [propertyFilterId] : [];
 
@@ -85,16 +90,17 @@ export function ManagerTaskFilterFields({
         onListFilterChange={onListFilterChange}
         tabId={tabId}
       />
-      {propertyOptions.length > 1 ? (
-        <ApplicationFilterSortFields
-          propertyOptions={propertyOptions}
-          propertyFilters={propertyFilters}
-          onPropertyFiltersChange={(next) => onPropertyFilterIdChange(next[0] ?? "")}
-          allLabel="All houses"
-          dataAttr="tasks-filter-property"
-          selectionMode="single"
-        />
-      ) : null}
+      <PortalListGroupFilterFields
+        groupMode={groupMode}
+        onGroupModeChange={onGroupModeChange}
+        propertyOptions={propertyOptions}
+        propertyFilters={propertyFilters}
+        onPropertyFiltersChange={(next) => onPropertyFilterIdChange(next[0] ?? "")}
+        propertyAllLabel="All houses"
+        propertyDataAttr="tasks-filter-property"
+        groupModeDataAttr="tasks-filter-group-mode"
+        showPropertyFilter={propertyOptions.length > 1}
+      />
     </FilterFieldsAccordion>
   );
 }

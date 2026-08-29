@@ -106,6 +106,8 @@ export function PortalServiceRecordRow({
   statusLabel,
   statusTone = "neutral",
   selected = false,
+  checked = false,
+  onSelectedChange,
   onOpen,
   dataAttr,
 }: {
@@ -114,6 +116,8 @@ export function PortalServiceRecordRow({
   statusLabel?: string;
   statusTone?: "neutral" | "warning" | "success" | "danger";
   selected?: boolean;
+  checked?: boolean;
+  onSelectedChange?: (selected: boolean) => void;
   onOpen: () => void;
   dataAttr?: string;
 }) {
@@ -126,30 +130,48 @@ export function PortalServiceRecordRow({
           ? "bg-[var(--status-overdue-bg)] text-[var(--status-overdue-fg)]"
           : "bg-accent/60 text-muted";
 
+  const selectable = Boolean(onSelectedChange);
+  const highlighted = selected || checked;
+
   return (
-    <button
-      type="button"
-      data-attr={dataAttr}
-      onClick={onOpen}
-      className={`portal-service-row flex w-full items-center gap-3 border-b border-border/50 px-3 py-3 text-left transition-colors max-md:px-2.5 max-md:py-2.5 ${
-        selected
+    <div
+      className={`portal-service-row flex w-full items-center gap-3 border-b border-border/50 px-3 py-3 transition-colors max-md:px-2.5 max-md:py-2.5 ${
+        highlighted
           ? "border-l-[3px] border-l-primary bg-primary/[0.06]"
           : "border-l-[3px] border-l-transparent hover:bg-foreground/[0.03]"
       }`}
     >
-      <InboxAvatar name={title} className="h-9 w-9 shrink-0 text-[11px]" />
-      <div className="min-w-0 flex-1">
-        <div className="flex items-baseline justify-between gap-2">
-          <p className="truncate text-sm font-medium text-foreground">{title}</p>
-          {statusLabel ? (
-            <span className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${toneClass}`}>
-              {statusLabel}
-            </span>
-          ) : null}
+      {selectable ? (
+        <input
+          type="checkbox"
+          className="h-4 w-4 shrink-0 rounded border-border accent-primary"
+          checked={checked}
+          onChange={(e) => onSelectedChange?.(e.target.checked)}
+          onClick={(e) => e.stopPropagation()}
+          data-portal-row-ignore
+          aria-label={`Select ${title}`}
+        />
+      ) : null}
+      <button
+        type="button"
+        data-attr={dataAttr}
+        onClick={onOpen}
+        className="flex min-w-0 flex-1 items-center gap-3 text-left"
+      >
+        <InboxAvatar name={title} className="h-9 w-9 shrink-0 text-[11px]" />
+        <div className="min-w-0 flex-1">
+          <div className="flex items-baseline justify-between gap-2">
+            <p className="truncate text-sm font-medium text-foreground">{title}</p>
+            {statusLabel ? (
+              <span className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${toneClass}`}>
+                {statusLabel}
+              </span>
+            ) : null}
+          </div>
+          {subtitle ? <p className="mt-0.5 truncate text-xs text-muted">{subtitle}</p> : null}
         </div>
-        {subtitle ? <p className="mt-0.5 truncate text-xs text-muted">{subtitle}</p> : null}
-      </div>
-      <ChevronRight className="h-5 w-5 shrink-0 text-muted" aria-hidden />
-    </button>
+        <ChevronRight className="h-5 w-5 shrink-0 text-muted" aria-hidden />
+      </button>
+    </div>
   );
 }

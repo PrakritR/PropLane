@@ -28,6 +28,21 @@ export type ResidentCluster<T> = {
   rows: T[];
 };
 
+/** Which dimension a manager list groups its rows under. */
+export type PortalListGroupMode = "resident" | "house";
+
+export type PropertyClusterFields = {
+  id: string;
+  propertyId?: string | null;
+  propertyLabel?: string | null;
+};
+
+export type PropertyCluster<T> = {
+  key: string;
+  propertyLabel: string;
+  rows: T[];
+};
+
 /** Header text for a resident group — their name, else their email, else an em dash. */
 export function residentClusterLabel(row: ResidentIdentityFields): string {
   const name = row.residentName?.trim();
@@ -87,6 +102,54 @@ export function clusterRowsByResident<T extends ResidentIdentityFields>(
       residentLabel: residentClusterLabel(row),
       residentEmail: row.residentEmail?.trim() || undefined,
       propertyLabel: sharedLabel([row]),
+      rows: [row],
+    };
+    byKey.set(key, cluster);
+    out.push(cluster);
+  }
+
+  return out;
+}
+
+/** Header text for a property group — the house label, else an em dash. */
+export function propertyClusterLabel(row: PropertyClusterFields): string {
+  const label = row.propertyLabel?.trim();
+  if (label) return label;
+  return "—";
+}
+
+/**
+ * Grouping key for a house cluster. Prefixed by kind so a property id cannot collide with a row id.
+ */
+export function propertyClusterKey(row: PropertyClusterFields): string {
+  const id = row.propertyId?.trim();
+  if (id) return `property:${id}`;
+  const label = row.propertyLabel?.trim().toLowerCase();
+  if (label) return `label:${label}`;
+  return `row:${row.id}`;
+}
+
+/**
+ * Group rows under one property header, preserving the incoming order.
+ *
+ * Rows with no property each stay alone rather than merging with strangers.
+ */
+export function clusterRowsByProperty<T extends PropertyClusterFields>(
+  rows: readonly T[],
+): PropertyCluster<T>[] {
+  const out: PropertyCluster<T>[] = [];
+  const byKey = new Map<string, PropertyCluster<T>>();
+
+  for (const row of rows) {
+    const key = propertyClusterKey(row);
+    const existing = byKey.get(key);
+    if (existing) {
+      existing.rows.push(row);
+      continue;
+    }
+    const cluster: PropertyCluster<T> = {
+      key,
+      propertyLabel: propertyClusterLabel(row),
       rows: [row],
     };
     byKey.set(key, cluster);
