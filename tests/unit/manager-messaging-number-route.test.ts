@@ -30,6 +30,7 @@ function dbFor(input?: {
   mode?: string;
   allowlisted?: boolean;
   coManager?: boolean;
+  entitlementRow?: boolean;
 }) {
   return createMemoryDb({
     sms_runtime_config: [
@@ -40,6 +41,9 @@ function dbFor(input?: {
       },
     ],
     manager_sms_numbers: [],
+    sms_manager_entitlements: input?.entitlementRow
+      ? [{ manager_user_id: MANAGER, tier: "free", eligible: false }]
+      : [],
     profiles: [
       {
         id: MANAGER,
@@ -204,6 +208,28 @@ describe("manager messaging-number route", () => {
       MANAGER,
     );
     expect(mocks.provisionManagerNumber).not.toHaveBeenCalled();
+  });
+
+  it("refuses a numberless check once a plan snapshot exists", async () => {
+    // `plan_unreadable` is sticky, so a reason-keyed gate would never close and
+    // every press would re-hit billing. A stored snapshot closes it for good.
+    const db = dbFor({ entitlementRow: true });
+    mocks.requireManagerRouteUser.mockResolvedValue({ db, userId: MANAGER });
+    mocks.getStoredManagerSmsEntitlement.mockResolvedValue({
+      eligible: false,
+      reason: "plan_unreadable",
+    });
+
+    const response = await POST(
+      new Request("https://prop-lane.test/api/manager/messaging-number", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ action: "refresh_eligibility" }),
+      }),
+    );
+
+    expect(response.status).toBe(409);
+    expect(mocks.reconcileManagerSmsEntitlement).not.toHaveBeenCalled();
   });
 
   it("refreshes an unresolved plan even before a number exists", async () => {

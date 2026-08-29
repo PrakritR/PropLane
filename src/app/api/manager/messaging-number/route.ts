@@ -57,6 +57,25 @@ async function isPureCoManager(
   return (incoming ?? []).length > 0;
 }
 
+/**
+ * Whether this manager has ANY stored entitlement snapshot. Distinguishes "we
+ * have never checked this account" from "the check failed" - both of which
+ * `getStoredManagerSmsEntitlement` collapses into `plan_unreadable`.
+ * Fails closed (reports a row) so a read error never opens a billing re-read.
+ */
+async function hasStoredEntitlementRow(
+  db: SupabaseClient,
+  userId: string,
+): Promise<boolean> {
+  const { data, error } = await db
+    .from("sms_manager_entitlements")
+    .select("manager_user_id")
+    .eq("manager_user_id", userId)
+    .maybeSingle();
+  if (error) return true;
+  return Boolean(data);
+}
+
 async function buildStatus(
   db: SupabaseClient,
   userId: string,
@@ -274,16 +293,21 @@ export async function POST(req: Request) {
 
   if (action === "refresh_eligibility") {
     const current = await buildStatus(actor.db, actor.userId);
-    // A manager with no number may still refresh when their plan has never been
-    // resolved - a new account has no stored entitlement row, which reads back
-    // as `plan_unreadable`, and this action is the only thing that settles it.
-    // A manager whose plan IS known still needs a number first, so status
-    // checks cannot become a free Stripe ping.
-    const entitlementUnresolved =
+    // A manager with no number may still check ONCE, when their plan has never
+    // been reconciled at all: a new account has no `sms_manager_entitlements`
+    // row, which reads back as `plan_unreadable`, and this action is the only
+    // thing that settles it.
+    //
+    // The gate keys on the ABSENCE OF THE ROW, not on the reason, because
+    // `plan_unreadable` is sticky - every failing purchase read returns it - so
+    // a reason-keyed gate would be opened by exactly the condition it can never
+    // close, and each press would re-hit billing. Reconciling writes a row on
+    // every resolved outcome (free included), so the first successful check
+    // closes this permanently and status checks cannot become a billing ping.
+    const neverReconciled =
       !current.entitlement.eligible &&
-      (current.entitlement.reason === "plan_unreadable" ||
-        current.entitlement.reason === "legacy_unknown");
-    if (!current.number?.phoneNumber && !entitlementUnresolved) {
+      !(await hasStoredEntitlementRow(actor.db, actor.userId));
+    if (!current.number?.phoneNumber && !neverReconciled) {
       return NextResponse.json(
         {
           ...publicStatus(current),
