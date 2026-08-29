@@ -3,6 +3,8 @@
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
+import { BulkActionBar } from "@/components/ui/bulk-action-bar";
+import { DropdownMenuItem } from "@/components/ui/dropdown-menu";
 import { DestinationNav } from "@/components/ui/destination-nav";
 import { useShallowTabId } from "@/components/ui/tabs";
 import { useAppUi } from "@/components/providers/app-ui-provider";
@@ -13,7 +15,10 @@ import { PORTAL_PROPERTY_FILTER_SHEET_CLASS } from "@/components/portal/portal-f
 import { PORTAL_LIST_PAGE_BODY } from "@/components/portal/portal-inbox-ui";
 import { PortalListAddRow, PORTAL_LIST_ADD_ICONS } from "@/components/portal/portal-list-add-row";
 import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
-import { PortalPageFooterActions } from "@/components/portal/portal-section-action-row";
+import {
+  PortalAdaptiveActionRow,
+  type PortalAdaptiveAction,
+} from "@/components/portal/portal-adaptive-action-row";
 import { ManagerTaskFormModal } from "@/components/portal/manager-task-form-modal";
 import { ManagerCommunicationComposeModal } from "@/components/portal/manager-communication-compose-modal";
 import { useManagerUserId } from "@/hooks/use-manager-user-id";
@@ -50,6 +55,11 @@ import {
   syncServiceRequestsFromServer,
   type ServiceRequest,
 } from "@/lib/service-requests-storage";
+import { cn } from "@/lib/utils";
+
+/** Match payments bulk bar — compact outline pills in one horizontal row on mobile. */
+const TASK_BULK_BAR_BTN =
+  "h-8 min-h-0 shrink-0 whitespace-nowrap rounded-full border-border px-2.5 text-[10px] font-semibold sm:px-3 sm:text-[11px] !shadow-none hover:!translate-y-0 [html[data-theme=dark]_&]:portal-outline-control";
 
 function formatTaskSchedule(task: ManagerTask): string {
   if (task.start && task.end) return formatRangeLabel(task.start, task.end);
@@ -243,6 +253,11 @@ export function ManagerTaskList({
     [visibleRows, selectedIds],
   );
 
+  const selectedTasks = useMemo(
+    () => selectedTaskRows.map((row) => row.task),
+    [selectedTaskRows],
+  );
+
   const tabItems = useMemo(
     () =>
       MANAGER_TASK_LIST_TABS.map((id) => ({
@@ -303,6 +318,92 @@ export function ManagerTaskList({
     setEditingId(task.id);
     setAddOpen(true);
   }
+
+  const bulkSelectionActions = useMemo(() => {
+    if (selectedTasks.length === 0) return null;
+
+    const completeLabel = tabId === "completed" ? "Mark open" : "Mark completed";
+    const completeTasks = () => void bulkComplete(selectedTasks);
+    const deleteTasks = () => void bulkDelete(selectedTasks);
+
+    const actions: PortalAdaptiveAction[] = [
+      {
+        id: "complete",
+        keepPriority: 5,
+        node: (
+          <Button
+            type="button"
+            variant="outline"
+            className={TASK_BULK_BAR_BTN}
+            data-attr="manager-task-mark-completed"
+            onClick={completeTasks}
+          >
+            {completeLabel}
+          </Button>
+        ),
+        menuItem: (
+          <DropdownMenuItem data-attr="manager-task-mark-completed" onSelect={completeTasks}>
+            {completeLabel}
+          </DropdownMenuItem>
+        ),
+      },
+    ];
+
+    if (selectedTasks.length === 1) {
+      const task = selectedTasks[0]!;
+      const editTask = () => beginEdit(task);
+      actions.push({
+        id: "edit",
+        keepPriority: 4,
+        node: (
+          <Button
+            type="button"
+            variant="outline"
+            className={TASK_BULK_BAR_BTN}
+            data-attr="manager-task-edit-selected"
+            onClick={editTask}
+          >
+            Edit
+          </Button>
+        ),
+        menuItem: (
+          <DropdownMenuItem data-attr="manager-task-edit-selected" onSelect={editTask}>
+            Edit
+          </DropdownMenuItem>
+        ),
+      });
+    }
+
+    actions.push({
+      id: "delete",
+      keepPriority: 0,
+      node: (
+        <Button
+          type="button"
+          variant="outline"
+          className={cn(TASK_BULK_BAR_BTN, "text-danger")}
+          data-attr="manager-task-delete-selected"
+          onClick={deleteTasks}
+        >
+          Delete
+        </Button>
+      ),
+      menuItem: (
+        <DropdownMenuItem data-attr="manager-task-delete-selected" onSelect={deleteTasks}>
+          Delete
+        </DropdownMenuItem>
+      ),
+    });
+
+    return (
+      <PortalAdaptiveActionRow
+        actions={actions}
+        moreAriaLabel="More task actions"
+        moreDataAttr="manager-task-bulk-more-actions"
+        gapPx={4}
+      />
+    );
+  }, [selectedTasks, tabId]);
 
   function renderTaskRow(task: ManagerTask, completed = false) {
     const location = compactTaskLocationLabel(task);
@@ -416,25 +517,10 @@ export function ManagerTaskList({
         ) : null}
       </div>
 
-      {selectedTaskRows.length > 0 ? (
-        <PortalPageFooterActions pinned>
-          <Button type="button" variant="secondary" onClick={() => bulkComplete(selectedTaskRows.map((row) => row.task))}>
-            {tabId === "completed" ? "Mark open" : "Mark completed"}
-          </Button>
-          {selectedTaskRows.length === 1 ? (
-            <Button type="button" variant="secondary" onClick={() => beginEdit(selectedTaskRows[0]!.task)}>
-              Edit
-            </Button>
-          ) : null}
-          <Button
-            type="button"
-            variant="ghost"
-            className="text-danger"
-            onClick={() => bulkDelete(selectedTaskRows.map((row) => row.task))}
-          >
-            Delete
-          </Button>
-        </PortalPageFooterActions>
+      {selectedTasks.length > 0 ? (
+        <BulkActionBar count={selectedTasks.length} hideCount variant="payments">
+          {bulkSelectionActions}
+        </BulkActionBar>
       ) : null}
 
       {userId ? (
