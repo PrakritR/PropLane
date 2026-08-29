@@ -14,6 +14,7 @@ import {
 } from "@/components/portal/portal-list-add-row";
 import {
   PORTAL_PROPERTY_DETAIL_ACTION_BUTTON_CLASS,
+  PORTAL_PROPERTY_DETAIL_LIST_ROW_ACTIONS_CLASS,
   PORTAL_PROPERTY_DETAIL_LIST_ROW_CLASS,
   PortalPropertyDetailSection,
 } from "@/components/portal/portal-property-detail-section";
@@ -384,15 +385,24 @@ export function ManagerPropertyApplicationQuestionsPanel({
                 ) : null}
               </div>
             </label>
-            <div className="flex shrink-0 flex-nowrap items-center gap-2">
+            <div className={PORTAL_PROPERTY_DETAIL_LIST_ROW_ACTIONS_CLASS}>
               <Button
                 type="button"
                 variant="outline"
                 className={PORTAL_PROPERTY_DETAIL_ACTION_BUTTON_CLASS}
-                data-attr={`application-edit-view-${template.id}`}
+                data-attr={`application-view-${template.id}`}
                 onClick={() => openApplicationPreview(template)}
               >
-                Edit view
+                View
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                className={PORTAL_PROPERTY_DETAIL_ACTION_BUTTON_CLASS}
+                data-attr={`application-edit-${template.id}`}
+                onClick={() => openEditApplication(template)}
+              >
+                Edit
               </Button>
             </div>
           </div>
@@ -466,8 +476,8 @@ export function ManagerPropertyApplicationQuestionsPanel({
         }}
         title={
           previewTemplate
-            ? `Edit view · ${normalizePropertyApplicationTemplateLabel(previewTemplate.label)}`
-            : "Edit view"
+            ? `View · ${normalizePropertyApplicationTemplateLabel(previewTemplate.label)}`
+            : "View"
         }
         presentation="dialog"
         dense
@@ -536,15 +546,26 @@ export function ManagerPropertyApplicationQuestionsPanel({
         <BulkActionBar count={selectedIds.size} hideCount variant="payments">
           <div className="flex min-w-0 flex-wrap items-center justify-start gap-2">
             {selectedIds.size === 1 && selectedTemplates[0] ? (
-              <Button
-                type="button"
-                variant="outline"
-                className={PORTAL_BULK_BAR_BTN}
-                data-attr="property-application-bulk-edit-view"
-                onClick={() => openApplicationPreview(selectedTemplates[0]!)}
-              >
-                Edit view
-              </Button>
+              <>
+                <Button
+                  type="button"
+                  variant="outline"
+                  className={PORTAL_BULK_BAR_BTN}
+                  data-attr="property-application-bulk-view"
+                  onClick={() => openApplicationPreview(selectedTemplates[0]!)}
+                >
+                  View
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  className={PORTAL_BULK_BAR_BTN}
+                  data-attr="property-application-bulk-edit"
+                  onClick={() => openEditApplication(selectedTemplates[0]!)}
+                >
+                  Edit
+                </Button>
+              </>
             ) : null}
             <Button
               type="button"

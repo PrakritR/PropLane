@@ -12,6 +12,7 @@ import {
 } from "@/components/portal/portal-list-add-row";
 import {
   PORTAL_PROPERTY_DETAIL_ACTION_BUTTON_CLASS,
+  PORTAL_PROPERTY_DETAIL_LIST_ROW_ACTIONS_CLASS,
   PORTAL_PROPERTY_DETAIL_LIST_ROW_CLASS,
   PortalPropertyDetailSection,
 } from "@/components/portal/portal-property-detail-section";
@@ -431,15 +432,24 @@ export function ManagerPropertyLeasePanel({
                   ) : null}
                 </div>
               </label>
-              <div className="flex shrink-0 flex-nowrap items-center gap-2">
+              <div className={PORTAL_PROPERTY_DETAIL_LIST_ROW_ACTIONS_CLASS}>
                 <Button
                   type="button"
                   variant="outline"
                   className={PORTAL_PROPERTY_DETAIL_ACTION_BUTTON_CLASS}
-                  data-attr={`property-lease-edit-view-${template.id}`}
+                  data-attr={`property-lease-view-${template.id}`}
                   onClick={() => openLeasePreview(template)}
                 >
-                  Edit view
+                  View
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  className={PORTAL_PROPERTY_DETAIL_ACTION_BUTTON_CLASS}
+                  data-attr={`property-lease-edit-${template.id}`}
+                  onClick={() => openEdit(template.id)}
+                >
+                  Edit
                 </Button>
               </div>
             </div>
@@ -472,9 +482,7 @@ export function ManagerPropertyLeasePanel({
           setPreviewOpen(false);
           setPreviewTemplate(null);
         }}
-        title={
-          previewTemplate ? `Edit view · ${previewTemplate.label}` : "Edit view"
-        }
+        title={previewTemplate ? `View · ${previewTemplate.label}` : "View"}
         presentation="dialog"
         dense
         assistantStrip={false}
@@ -557,15 +565,26 @@ export function ManagerPropertyLeasePanel({
         <BulkActionBar count={selectedIds.size} hideCount variant="payments">
           <div className="flex min-w-0 flex-wrap items-center justify-start gap-2">
             {selectedIds.size === 1 && selectedTemplates[0] ? (
-              <Button
-                type="button"
-                variant="outline"
-                className={PORTAL_BULK_BAR_BTN}
-                data-attr="property-lease-bulk-edit-view"
-                onClick={() => openLeasePreview(selectedTemplates[0]!)}
-              >
-                Edit view
-              </Button>
+              <>
+                <Button
+                  type="button"
+                  variant="outline"
+                  className={PORTAL_BULK_BAR_BTN}
+                  data-attr="property-lease-bulk-view"
+                  onClick={() => openLeasePreview(selectedTemplates[0]!)}
+                >
+                  View
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  className={PORTAL_BULK_BAR_BTN}
+                  data-attr="property-lease-bulk-edit"
+                  onClick={() => openEdit(selectedTemplates[0]!.id)}
+                >
+                  Edit
+                </Button>
+              </>
             ) : null}
             <Button
               type="button"
