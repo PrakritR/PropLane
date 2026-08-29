@@ -57,6 +57,11 @@ function ApplicationFilterSortFieldsBody({
 }) {
   const closeFieldMenu = useFilterAccordionClose();
   const options = propertyOptions.map((option) => ({ value: option.id, label: option.label }));
+  const [draftPropertyFilters, setDraftPropertyFilters] = usePortalFilterDraft(
+    propertyFilters,
+    onPropertyFiltersChange,
+    [],
+  );
 
   if (selectionMode === "single") {
     const summary = filterSingleSelectSummary(
@@ -84,11 +89,6 @@ function ApplicationFilterSortFieldsBody({
     );
   }
 
-  const [draftPropertyFilters, setDraftPropertyFilters] = usePortalFilterDraft(
-    propertyFilters,
-    onPropertyFiltersChange,
-    [],
-  );
   const summary = filterMultiSelectSummary(draftPropertyFilters, options, allLabel);
 
   return (

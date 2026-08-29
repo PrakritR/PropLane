@@ -1252,15 +1252,91 @@ export function ProAccountLinksPanel({ userId, linkId: linkIdProp }: { userId: s
 
   const bulkRemoveDetailProperties = async () => {
     if (!routeEntry || selectedDetailPropertyIds.size === 0) return;
-    for (const propertyId of selectedDetailPropertyIds) {
-      if (routeEntry.kind === "remote") {
-        await removePropertyFromLink(
-          routeEntry.invite,
-          propertyId,
+    const removeSet = new Set(
+      [...selectedDetailPropertyIds]
+        .map((pid) => {
+          if (routeEntry.kind === "remote") {
+            return resolveAssignedPropertyId(pid, getInviteDraft(routeEntry.invite).assignedPropertyIds);
+          }
+          return resolveAssignedPropertyId(pid, routeEntry.row.assignedPropertyIds);
+        })
+        .filter((id): id is string => Boolean(id)),
+    );
+    if (removeSet.size === 0) return;
+
+    if (routeEntry.kind === "remote") {
+      const inv = routeEntry.invite;
+      const draft = getInviteDraft(inv);
+      const nextAssigned = draft.assignedPropertyIds.filter((id) => !removeSet.has(id));
+      if (nextAssigned.length === 0) {
+        await removeLink(inv.id);
+        clearDetailPropertySelection();
+        return;
+      }
+      const nextPerms = normalizePropertyCoManagerPermissions(draft.propertyCoManagerPermissions, nextAssigned);
+      if (useRemote && remoteLoaded) {
+        setRemoteInvites((prev) =>
+          prev.map((row) =>
+            row.id === inv.id
+              ? { ...row, assignedPropertyIds: nextAssigned, propertyCoManagerPermissions: nextPerms }
+              : row,
+          ),
+        );
+        setInviteDrafts((d) => ({
+          ...d,
+          [inv.id]: { assignedPropertyIds: nextAssigned, propertyCoManagerPermissions: nextPerms },
+        }));
+        const nextInvites = remoteInvites.map((row) =>
+          row.id === inv.id
+            ? { ...row, assignedPropertyIds: nextAssigned, propertyCoManagerPermissions: nextPerms }
+            : row,
+        );
+        seedAccountLinksCache(nextInvites);
+        writeProRelationships(userId, proRelationshipRowsFromInvites(nextInvites.filter((i) => i.status === "accepted")));
+        scheduleInviteSave(inv.id, { assignedPropertyIds: nextAssigned, propertyCoManagerPermissions: nextPerms });
+        showToast(
+          removeSet.size === 1 ? "Property removed from this team member." : `${removeSet.size} properties removed.`,
         );
       } else {
-        removePropertyFromLocalRow(routeEntry.row.id, propertyId);
+        const all = readProRelationships(userId);
+        const next = all.map((r) =>
+          r.id === inv.id
+            ? { ...r, assignedPropertyIds: nextAssigned, propertyCoManagerPermissions: nextPerms }
+            : r,
+        );
+        writeProRelationships(userId, next);
+        refreshLocal();
+        showToast(
+          removeSet.size === 1 ? "Property removed from this team member." : `${removeSet.size} properties removed.`,
+        );
       }
+    } else {
+      const row = routeEntry.row;
+      const nextAssigned = row.assignedPropertyIds.filter((id) => !removeSet.has(id));
+      const all = readProRelationships(userId);
+      if (nextAssigned.length === 0) {
+        writeProRelationships(
+          userId,
+          all.filter((rel) => rel.id !== row.id),
+        );
+        refreshLocal();
+        showToast(`${removeSet.size} propert${removeSet.size === 1 ? "y" : "ies"} removed from this team member.`);
+        clearDetailPropertySelection();
+        return;
+      }
+      const nextPerms = normalizePropertyCoManagerPermissions(row.propertyCoManagerPermissions ?? {}, nextAssigned);
+      writeProRelationships(
+        userId,
+        all.map((rel) =>
+          rel.id === row.id
+            ? { ...rel, assignedPropertyIds: nextAssigned, propertyCoManagerPermissions: nextPerms }
+            : rel,
+        ),
+      );
+      refreshLocal();
+      showToast(
+        removeSet.size === 1 ? "Property removed from this team member." : `${removeSet.size} properties removed.`,
+      );
     }
     clearDetailPropertySelection();
   };

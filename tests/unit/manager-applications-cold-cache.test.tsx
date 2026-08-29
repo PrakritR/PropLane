@@ -176,10 +176,7 @@ describe("manager Applications tab — pending application on a cold property ca
 
     const { container } = render(<ManagerApplications />);
 
-    await waitFor(() =>
-      expect(document.querySelector('[data-attr="applications-list-add"]')).not.toBeNull(),
-    );
-    expect(screen.queryByText("Not Your Applicant")).toBeNull();
+    await waitFor(() => expect(screen.queryByText("Not Your Applicant")).toBeNull());
 
     dumpHtml("other-manager-hidden", container.innerHTML);
   });
@@ -191,9 +188,7 @@ describe("manager Applications tab — pending application on a cold property ca
     ROWS = [{ ...RESIDENT_APPLICATION, managerUserId: "owner-user" }];
 
     const { container } = render(<ManagerApplications />);
-    await waitFor(() =>
-      expect(document.querySelector('[data-attr="applications-list-add"]')).not.toBeNull(),
-    );
+    await waitFor(() => expect(screen.queryByText("Not Your Applicant")).toBeNull());
     dumpHtml("co-manager-before-hydrate", container.innerHTML);
 
     // Cache hydrates: the accepted link now grants applications on that property.

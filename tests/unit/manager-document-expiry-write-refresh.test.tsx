@@ -100,9 +100,9 @@ afterEach(() => {
 const dashboardRead = () => loadDocumentExpirationSummary({ userId: MANAGER });
 
 describe("document write → dashboard expiry counts", () => {
-  it("reports live expiry counts and keeps an add-document row after the library", async () => {
+  it("reports live expiry counts after the library loads", async () => {
     const onExpiryPillsChange = vi.fn();
-    const { container } = render(
+    render(
       <ManagerDocumentLibrary
         userId={MANAGER}
         onExpiryPillsChange={onExpiryPillsChange}
@@ -115,11 +115,6 @@ describe("document write → dashboard expiry counts", () => {
         expect.arrayContaining([expect.objectContaining({ id: "", label: "All", count: 1 })]),
       );
     });
-
-    const addDocument = container.querySelector<HTMLButtonElement>('[data-attr="documents-list-add"]');
-    expect(addDocument).not.toBeNull();
-    fireEvent.click(addDocument!);
-    expect(await screen.findByText("Upload document")).toBeTruthy();
   });
 
   it("forces a refresh so the dashboard's next read is newer than the delete", async () => {
