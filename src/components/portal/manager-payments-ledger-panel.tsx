@@ -28,7 +28,6 @@ import {
 import type { DemoManagerPaymentLedgerRow, ManagerPaymentBucket, ManagerPaymentDirection } from "@/data/demo-portal";
 import { PortalRecordDetailPage } from "@/components/portal/portal-record-detail-page";
 import {
-import {
   clusterManagerPaymentLedgerRowsByMode,
   type ManagerPaymentPropertyCluster,
   type ManagerPaymentResidentCluster,
