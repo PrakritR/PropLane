@@ -520,7 +520,9 @@ export async function POST(req: Request) {
           .from("manager_property_records")
           .select("id, property_data, row_data")
           .in("id", assignedPropertyIds);
-        const labels = (props ?? []).map((p) => labelFromManagerPropertyRecordRow(p));
+        const labels = (props ?? []).map((p: { id?: string; property_data?: unknown; row_data?: unknown }) =>
+          labelFromManagerPropertyRecordRow(p),
+        );
         await notifyCoManagerInviteSent({
           inviterUserId: user.id,
           inviteeUserId: inviteeProfile.id,
