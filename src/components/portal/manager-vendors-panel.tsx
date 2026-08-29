@@ -12,7 +12,11 @@ import { usePortalRowSelection } from "@/hooks/use-portal-row-selection";
 import { BulkActionBar } from "@/components/ui/bulk-action-bar";
 import { DropdownMenuItem } from "@/components/ui/dropdown-menu";
 import { PortalAdaptiveActionRow } from "@/components/portal/portal-adaptive-action-row";
-import { PortalEmptyState } from "@/components/portal/portal-empty-state";
+import {
+  PortalListAddRow,
+  PORTAL_LIST_ADD_ICONS,
+  PORTAL_LIST_ADD_ROW_WRAP_CLASS,
+} from "@/components/portal/portal-list-add-row";
 import { PORTAL_BULK_BAR_BTN } from "@/lib/portal-bulk-bar";
 import type { PortalAdaptiveAction } from "@/lib/portal-adaptive-actions";
 import { collectLinkedOwnerIdsForModule } from "@/lib/manager-portfolio-access";
@@ -456,9 +460,21 @@ export const ManagerVendorsPanel = forwardRef(function ManagerVendorsPanel(
     );
   }
 
+  const vendorListAddRow = (
+    <div className={PORTAL_LIST_ADD_ROW_WRAP_CLASS}>
+      <PortalListAddRow
+        label="Add"
+        ariaLabel="Add vendor"
+        icon={PORTAL_LIST_ADD_ICONS.vendor}
+        onClick={() => openAddVendorForm()}
+        dataAttr="vendors-list-add"
+      />
+    </div>
+  );
+
   const listBody =
     vendors.length === 0 ? (
-      <PortalEmptyState icon="vendor" title="No vendors yet. Add one to get started." />
+      vendorListAddRow
     ) : (
       <div className={PORTAL_LIST_PAGE_BODY}>
         {vendors.map((row) => (
@@ -474,6 +490,7 @@ export const ManagerVendorsPanel = forwardRef(function ManagerVendorsPanel(
             dataAttr="vendor-list-row"
           />
         ))}
+        {vendorListAddRow}
       </div>
     );
 

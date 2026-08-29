@@ -22,6 +22,11 @@ import {
   syncPropertyLeaseTemplatesFromListing,
 } from "@/lib/property-lease-template-sync";
 import { PropertyLeaseTemplateSuggestions } from "@/components/portal/property-lease-template-suggestions";
+import {
+  PORTAL_LIST_ADD_ROW_WRAP_CLASS,
+  PortalListAddRow,
+  PORTAL_LIST_ADD_ICONS,
+} from "@/components/portal/portal-list-add-row";
 import type { PropertyLeaseListingSeedKey } from "@/lib/property-lease-templates";
 import {
   propertyLeaseSourceFromTemplate,
@@ -385,6 +390,16 @@ export function ManagerPropertyLeasePanel({
           <PropertyLeaseTemplateSuggestions seeds={availableSeeds} onAddSeed={addSeedTemplate} />
         </div>
       ) : null}
+
+      <div className={PORTAL_LIST_ADD_ROW_WRAP_CLASS}>
+        <PortalListAddRow
+          label="Add"
+          ariaLabel="Add lease"
+          icon={PORTAL_LIST_ADD_ICONS.lease}
+          onClick={openAdd}
+          dataAttr="property-lease-add"
+        />
+      </div>
 
       <PropertyLeaseFormModal
         open={formOpen}

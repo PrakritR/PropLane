@@ -10,12 +10,13 @@ import { useShallowTabId } from "@/components/ui/tabs";
 import { useAppUi } from "@/components/providers/app-ui-provider";
 import { PortalEmptyState } from "@/components/portal/portal-empty-state";
 import { ManagerTaskFilterFields } from "@/components/portal/manager-task-filter-fields";
-import { ApplicationHouseholdCluster } from "@/components/portal/application-household-list";
+import { ApplicationHouseholdCluster, PortalListClusterSelectCheckbox } from "@/components/portal/application-household-list";
 import { Badge } from "@/components/ui/badge";
 import { ManagerPortalPageShell, PORTAL_HEADER_PRIMARY_ACTION_BTN_RESPONSIVE } from "@/components/portal/portal-metrics";
 import { PortalFilterSortSheet, portalFilterActiveCount } from "@/components/portal/portal-filter-sort-sheet";
 import { PORTAL_PROPERTY_FILTER_SHEET_CLASS } from "@/components/portal/portal-filter-shell";
 import { PORTAL_LIST_PAGE_BODY } from "@/components/portal/portal-inbox-ui";
+import { PortalListAddRow, PORTAL_LIST_ADD_ICONS } from "@/components/portal/portal-list-add-row";
 import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
 import {
   PortalAdaptiveActionRow,
@@ -190,6 +191,10 @@ function ManagerTaskPriorityBadge({ priority }: { priority?: ManagerTaskPriority
       {MANAGER_TASK_PRIORITY_LABELS[priority]}
     </span>
   );
+}
+
+function taskListRowId(row: TaskListRow): string {
+  return row.kind === "task" ? row.task.id : row.id;
 }
 
 export function ManagerTaskList({
@@ -411,6 +416,25 @@ export function ManagerTaskList({
     setAddOpen(true);
   }
 
+  const selectedIdSet = useMemo(() => new Set(selectedIds), [selectedIds]);
+
+  const toggleClusterSelection = useCallback((ids: readonly string[]) => {
+    setSelectedIds((prev) => {
+      const allSelected = ids.length > 0 && ids.every((id) => prev.includes(id));
+      if (allSelected) return prev.filter((id) => !ids.includes(id));
+      return [...new Set([...prev, ...ids])];
+    });
+  }, []);
+
+  const renderClusterHeaderCheckbox = (rows: TaskListClusterRow[], label: string) => (
+    <PortalListClusterSelectCheckbox
+      ids={rows.map((row) => taskListRowId(row))}
+      selectedIds={selectedIdSet}
+      onToggleCluster={toggleClusterSelection}
+      ariaLabel={`Select all ${label}`}
+    />
+  );
+
   const bulkSelectionActions = useMemo(() => {
     if (selectedTasks.length === 0) return null;
 
@@ -625,6 +649,10 @@ export function ManagerTaskList({
               ? taskClusters.map((cluster) => (
                   <ApplicationHouseholdCluster
                     key={cluster.key}
+                    headerLeading={renderClusterHeaderCheckbox(
+                      cluster.rows,
+                      cluster.propertyLabel || "items",
+                    )}
                     header={
                       <>
                         <span className="truncate text-xs font-semibold text-foreground">
@@ -648,6 +676,10 @@ export function ManagerTaskList({
               : taskClusters.map((cluster) => (
                   <ApplicationHouseholdCluster
                     key={cluster.key}
+                    headerLeading={renderClusterHeaderCheckbox(
+                      cluster.rows,
+                      cluster.residentLabel || "items",
+                    )}
                     header={
                       <>
                         <span className="truncate text-xs font-semibold text-foreground">
@@ -678,14 +710,19 @@ export function ManagerTaskList({
           </div>
         ) : null}
 
-        {!loading && visibleRows.length === 0 ? (
-          <PortalEmptyState
-            icon="work-order"
-            title={
-              tabId === "completed"
-                ? "Nothing completed yet."
-                : "No tasks in progress. Add one to get started."
-            }
+        {!loading && visibleRows.length === 0 && tabId === "completed" ? (
+          <PortalEmptyState icon="work-order" title="Nothing completed yet." />
+        ) : null}
+
+        {tabId === "in-progress" ? (
+          <PortalListAddRow
+            label="Add task"
+            icon={PORTAL_LIST_ADD_ICONS.request}
+            onClick={() => {
+              setEditingId(null);
+              setAddOpen(true);
+            }}
+            dataAttr="manager-task-list-add"
           />
         ) : null}
       </div>

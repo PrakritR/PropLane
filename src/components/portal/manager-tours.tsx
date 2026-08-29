@@ -1,7 +1,12 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { PortalEmptyState } from "@/components/portal/portal-empty-state";
+import {
+  PortalListAddRow,
+  PORTAL_LIST_ADD_ICONS,
+  PORTAL_LIST_ADD_ROW_WRAP_CLASS,
+} from "@/components/portal/portal-list-add-row";
+import { togglePortalListClusterSelection } from "@/components/portal/application-household-list";
 import { PortalListGroupFilterFields } from "@/components/portal/portal-list-group-filter-fields";
 import { ManagerAddScheduledTourModal } from "@/components/portal/manager-add-scheduled-tour-modal";
 import { ManagerToursGroupedTable } from "@/components/portal/manager-tours-grouped-table";
@@ -836,12 +841,18 @@ export function ManagerTours({
     [guestMessageBusy, guestMessagePreview, showToast],
   );
 
+  const toggleClusterSelection = useCallback(
+    (ids: readonly string[]) => togglePortalListClusterSelection(setSelectedIds, ids),
+    [setSelectedIds],
+  );
+
   const renderGroupedTours = () => (
     <ManagerToursGroupedTable
       clusters={clusters}
       groupMode={groupMode}
       selectedIds={selectedIds}
       onToggleSelected={toggleSelected}
+      onToggleCluster={toggleClusterSelection}
       onRowClick={openTourDetail}
     />
   );
@@ -1252,9 +1263,30 @@ export function ManagerTours({
         {!authReady ? (
           <p className="text-sm text-muted">Loading tours…</p>
         ) : rowsForBucket.length === 0 ? (
-          <PortalEmptyState icon="application" title="No tours in this view yet." />
+          <div className={PORTAL_LIST_ADD_ROW_WRAP_CLASS}>
+            <PortalListAddRow
+              label="Add"
+              ariaLabel="Schedule tour"
+              icon={PORTAL_LIST_ADD_ICONS.application}
+              onClick={() => setAddTourOpen(true)}
+              disabled={propertyOptions.length === 0}
+              dataAttr="tours-list-add"
+            />
+          </div>
         ) : (
-          renderGroupedTours()
+          <>
+            {renderGroupedTours()}
+            <div className={PORTAL_LIST_ADD_ROW_WRAP_CLASS}>
+              <PortalListAddRow
+                label="Add"
+                ariaLabel="Schedule tour"
+                icon={PORTAL_LIST_ADD_ICONS.application}
+                onClick={() => setAddTourOpen(true)}
+                disabled={propertyOptions.length === 0}
+                dataAttr="tours-list-add"
+              />
+            </div>
+          </>
         )}
       </div>
 

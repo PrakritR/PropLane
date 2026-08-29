@@ -1,6 +1,6 @@
 "use client";
 
-import type { ReactNode } from "react";
+import type { Dispatch, ReactNode, SetStateAction } from "react";
 import { Badge } from "@/components/ui/badge";
 import { PortalCollapsibleSection } from "@/components/portal/portal-collapsible-section";
 import { ApplicationCosignerPlannedCard } from "@/components/portal/manager-application-readonly-review";
@@ -9,11 +9,59 @@ import { stripPropertyRoomCountSuffix } from "@/lib/portal-mobile-preview";
 import { describeGroupBadge, type ApplicationGroup } from "@/lib/rental-application/application-groups";
 import { dominantPropertyLabel, groupHouseLabel } from "@/lib/rental-application/group-house-label";
 
+/** Select or clear every row id in a grouped list cluster. */
+export function togglePortalListClusterSelection(
+  setSelectedIds: Dispatch<SetStateAction<Set<string>>>,
+  ids: readonly string[],
+) {
+  setSelectedIds((prev) => {
+    const allSelected = ids.length > 0 && ids.every((id) => prev.has(id));
+    const next = new Set(prev);
+    for (const id of ids) {
+      if (allSelected) next.delete(id);
+      else next.add(id);
+    }
+    return next;
+  });
+}
+
+export function PortalListClusterSelectCheckbox({
+  ids,
+  selectedIds,
+  onToggleCluster,
+  ariaLabel,
+}: {
+  ids: readonly string[];
+  selectedIds: Set<string>;
+  onToggleCluster: (ids: readonly string[]) => void;
+  ariaLabel: string;
+}) {
+  const selectedCount = ids.filter((id) => selectedIds.has(id)).length;
+  const allSelected = ids.length > 0 && selectedCount === ids.length;
+  const indeterminate = selectedCount > 0 && !allSelected;
+
+  return (
+    <input
+      type="checkbox"
+      className="h-4 w-4 shrink-0 accent-primary"
+      checked={allSelected}
+      ref={(el) => {
+        if (el) el.indeterminate = indeterminate;
+      }}
+      aria-label={ariaLabel}
+      onClick={(event) => event.stopPropagation()}
+      onChange={() => onToggleCluster(ids)}
+    />
+  );
+}
+
 export function ApplicationHouseholdCluster({
   header,
+  headerLeading,
   children,
 }: {
   header?: ReactNode;
+  headerLeading?: ReactNode;
   children: ReactNode;
 }) {
   return (
@@ -21,8 +69,11 @@ export function ApplicationHouseholdCluster({
       className="overflow-hidden rounded-2xl border border-border/80 bg-accent/10"
       data-attr="application-household-cluster"
     >
-      {header ? (
-        <div className="flex flex-wrap items-center gap-2 border-b border-border/60 px-3 py-2">{header}</div>
+      {header || headerLeading ? (
+        <div className="flex flex-wrap items-center gap-2 border-b border-border/60 px-3 py-2">
+          {headerLeading ? <div className="shrink-0">{headerLeading}</div> : null}
+          {header}
+        </div>
       ) : null}
       <div className="divide-y divide-border/50">{children}</div>
     </div>

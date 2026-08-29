@@ -1,6 +1,6 @@
 "use client";
 
-import { ApplicationHouseholdCluster } from "@/components/portal/application-household-list";
+import { ApplicationHouseholdCluster, PortalListClusterSelectCheckbox } from "@/components/portal/application-household-list";
 import { Badge } from "@/components/ui/badge";
 import { DataList } from "@/components/ui/data-list";
 import {
@@ -25,6 +25,7 @@ export function ManagerToursGroupedTable({
   groupMode,
   selectedIds,
   onToggleSelected,
+  onToggleCluster,
   onRowClick,
   showPropertyColumn = true,
   selectable = true,
@@ -33,6 +34,7 @@ export function ManagerToursGroupedTable({
   groupMode: PortalListGroupMode;
   selectedIds: Set<string>;
   onToggleSelected: (id: string) => void;
+  onToggleCluster?: (ids: readonly string[]) => void;
   onRowClick: (row: ManagerTourRow) => void;
   /** Hide the property column when the list is scoped to one listing. */
   showPropertyColumn?: boolean;
@@ -65,6 +67,16 @@ export function ManagerToursGroupedTable({
     />
   );
 
+  const renderClusterCheckbox = (rows: ManagerTourRow[], label: string) =>
+    onToggleCluster && selectable ? (
+      <PortalListClusterSelectCheckbox
+        ids={rows.map((row) => row.id)}
+        selectedIds={selectedIds}
+        onToggleCluster={onToggleCluster}
+        ariaLabel={`Select all ${label}`}
+      />
+    ) : null;
+
   const dataAttr = groupMode === "house" ? "tours-house-groups" : "tours-resident-groups";
 
   if (isPropertyClusterList(groupMode, clusters)) {
@@ -73,6 +85,7 @@ export function ManagerToursGroupedTable({
         {clusters.map((cluster) => (
           <ApplicationHouseholdCluster
             key={cluster.key}
+            headerLeading={renderClusterCheckbox(cluster.rows, cluster.propertyLabel)}
             header={
               <>
                 <span className="truncate text-xs font-semibold text-foreground">
@@ -96,6 +109,7 @@ export function ManagerToursGroupedTable({
       {(clusters as ManagerTourListCluster[]).map((cluster) => (
         <ApplicationHouseholdCluster
           key={cluster.key}
+          headerLeading={renderClusterCheckbox(cluster.rows, cluster.residentLabel)}
           header={
             <>
               <span className="truncate text-xs font-semibold text-foreground">

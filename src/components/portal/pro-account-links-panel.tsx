@@ -20,6 +20,11 @@ import {
   PortalTableDetailActions,
 } from "@/components/portal/portal-data-table";
 import { ApplicationHouseholdCluster } from "@/components/portal/application-household-list";
+import {
+  PortalListAddRow,
+  PORTAL_LIST_ADD_ICONS,
+  PORTAL_LIST_ADD_ROW_WRAP_CLASS,
+} from "@/components/portal/portal-list-add-row";
 import { PORTAL_LIST_PAGE_BODY, INBOX_LIST_SCROLL } from "@/components/portal/portal-inbox-ui";
 import { PortalRecordDetailPage } from "@/components/portal/portal-record-detail-page";
 import { useAppUi } from "@/components/providers/app-ui-provider";
@@ -1582,6 +1587,16 @@ export function ProAccountLinksPanel({ userId, linkId: linkIdProp }: { userId: s
     );
   };
 
+  const teamListAddRow = (
+    <PortalListAddRow
+      label="Link account"
+      icon={PORTAL_LIST_ADD_ICONS.team}
+      onClick={openLinkModal}
+      disabled={linkAccountBlocked}
+      dataAttr="co-manager-list-add"
+    />
+  );
+
   const teamLinkButton = (
     <Button
       type="button"
@@ -1942,7 +1957,7 @@ export function ProAccountLinksPanel({ userId, linkId: linkIdProp }: { userId: s
         message="No team members match this property filter. Try All properties or pick another listing."
       />
     ) : (
-      <PortalDataTableEmpty icon="team" message="No team members linked yet." />
+      <div className={PORTAL_LIST_ADD_ROW_WRAP_CLASS}>{teamListAddRow}</div>
     )
   ) : (
     <div className={PORTAL_LIST_PAGE_BODY} data-attr="co-manager-unified-view">
@@ -1962,6 +1977,7 @@ export function ProAccountLinksPanel({ userId, linkId: linkIdProp }: { userId: s
           columns={[{ id: "member", header: "Member", cell: (entry: TeamListEntry) => entry.name }]}
         />
       </div>
+      <div className={PORTAL_LIST_ADD_ROW_WRAP_CLASS}>{teamListAddRow}</div>
     </div>
   );
 

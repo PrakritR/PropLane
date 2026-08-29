@@ -29,6 +29,11 @@ import {
   syncPropertyApplicationTemplatesFromListing,
 } from "@/lib/property-application-template-sync";
 import { PropertyTemplatePresetList } from "@/components/portal/property-template-preset-list";
+import {
+  PORTAL_LIST_ADD_ROW_WRAP_CLASS,
+  PortalListAddRow,
+  PORTAL_LIST_ADD_ICONS,
+} from "@/components/portal/portal-list-add-row";
 import { formatApplicationLeaseTermsLabel } from "@/lib/property-lease-template-sync";
 import { normalizePropertyApplicationTemplateLabel } from "@/lib/property-application-template-sync";
 import { usePortalRowSelection } from "@/hooks/use-portal-row-selection";
@@ -376,6 +381,16 @@ export function ManagerPropertyApplicationQuestionsPanel({
           />
         </div>
       ) : null}
+
+      <div className={PORTAL_LIST_ADD_ROW_WRAP_CLASS}>
+        <PortalListAddRow
+          label="Add"
+          ariaLabel="Add application"
+          icon={PORTAL_LIST_ADD_ICONS.application}
+          onClick={openAdd}
+          dataAttr="property-application-add"
+        />
+      </div>
 
       {editorOpen ? (
         <ManagerApplicationQuestionsEditorModal
