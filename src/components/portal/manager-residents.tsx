@@ -7,6 +7,7 @@ import { usePortalNavigate } from "@/lib/portal-nav-client";
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useSearchParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
+import { BulkActionBar } from "@/components/ui/bulk-action-bar";
 import { SegmentedThree } from "@/components/ui/segmented-control";
 import { PortalDetailDestinationNav } from "@/components/portal/portal-detail-destination-nav";
 import { PortalPageChrome, PortalPageScrollBody } from "@/lib/portal-page-chrome-layout";
@@ -63,8 +64,11 @@ import {
   parseResidentDetailTab,
   type ResidentDetailTabId,
 } from "@/lib/portal-detail-routes";
+import { PORTAL_BULK_BAR_BTN } from "@/lib/portal-bulk-bar";
 import { PortalRecordDetailPage } from "@/components/portal/portal-record-detail-page";
 import { ManagerResidentsGroupedTable } from "@/components/portal/manager-residents-grouped-table";
+import { ManagerResidentToursPanel } from "@/components/portal/manager-resident-tours-panel";
+import { buildManagerTourRows } from "@/lib/manager-tour-list";
 import { buildResidentListClusters } from "@/lib/manager-resident-list-grouping";
 import { PortalListAddRow, PORTAL_LIST_ADD_ICONS } from "@/components/portal/portal-list-add-row";
 import { PORTAL_LIST_PAGE_BODY } from "@/components/portal/portal-inbox-ui";
@@ -83,6 +87,7 @@ import {
 } from "@/lib/resident-document-import.client";
 import type { ParsedResidentDocument } from "@/lib/resident-document-import/types";
 import { useManagerUserId } from "@/hooks/use-manager-user-id";
+import { usePortalRowSelection } from "@/hooks/use-portal-row-selection";
 import { usePaidPortalBasePath } from "@/lib/portal-base-path-client";
 import {
   HOUSEHOLD_CHARGES_EVENT,
@@ -1040,6 +1045,16 @@ export function ManagerResidents({
     });
   }, [residents, propertyFilters, searchQuery]);
 
+  const { selectedIds, setSelectedIds, toggleSelected } = usePortalRowSelection(
+    `${residentsTab}:${propertyFilters.join(",")}`,
+  );
+  const selectedResidentRows = useMemo(
+    () => filtered.filter((resident) => selectedIds.has(resident.id)),
+    [filtered, selectedIds],
+  );
+  const singleSelectedResident =
+    selectedResidentRows.length === 1 ? selectedResidentRows[0]! : null;
+
   const applicationGroups = useMemo(() => {
     void hcTick;
     return buildApplicationGroups(readManagerApplicationRows().map(groupRowInputForRow));
@@ -1233,13 +1248,24 @@ export function ManagerResidents({
     return collectLinkedPropertyIdsForModule(userId, "leases").has(pid);
   }, [selected, userId, hcTick]);
 
+  const residentTourRows = useMemo(() => {
+    if (!userId || !selected?.email?.trim()) return [];
+    const email = selected.email.trim().toLowerCase();
+    return buildManagerTourRows({ viewerUserId: userId, propertyIds: [] }).filter(
+      (row) => row.guestEmail?.trim().toLowerCase() === email,
+    );
+  }, [selected?.email, userId]);
+
+  const showResidentTours = residentTourRows.length > 0;
+
   const residentDetailTabsAvailable = useMemo((): ResidentDetailTabId[] => {
     const tabs: ResidentDetailTabId[] = [];
     if (showResidentApplication) tabs.push("application");
     if (showResidentLease) tabs.push("lease");
+    if (showResidentTours) tabs.push("tours");
     tabs.push("payments", "services", "communication");
     return tabs;
-  }, [showResidentApplication, showResidentLease]);
+  }, [showResidentApplication, showResidentLease, showResidentTours]);
 
   const resolvedDetailTab = residentDetailTabsAvailable.includes(activeDetailTab)
     ? activeDetailTab
@@ -2722,6 +2748,7 @@ export function ManagerResidents({
                                   [
                                     showResidentApplication ? "application" : null,
                                     showResidentLease ? "lease" : null,
+                                    showResidentTours ? "tours" : null,
                                     "payments",
                                     "services",
                                     "communication",
@@ -2847,6 +2874,16 @@ export function ManagerResidents({
                               ) : (
                                 <p className="text-sm text-muted">No application on file for this resident.</p>
                               )}
+                            </ResidentDetailTabPanel>
+                            </div>
+                            ) : showResidentTours && resolvedDetailTab === "tours" ? (
+                            <div className="flex min-h-0 flex-1 flex-col">
+                            <ResidentDetailTabPanel fill>
+                              <ManagerResidentToursPanel
+                                managerUserId={userId}
+                                residentEmail={selected.email}
+                                residentName={selected.name}
+                              />
                             </ResidentDetailTabPanel>
                             </div>
                             ) : (
@@ -3215,6 +3252,8 @@ export function ManagerResidents({
           <ManagerResidentsGroupedTable
             clusters={residentListClusters}
             showPropertyInRows={propertyFilters.length > 0}
+            selectedIds={selectedIds}
+            onToggleSelected={toggleSelected}
             onOpenResident={(res) =>
               navigate(residentDetailHref(portalBase, residentsTab, res.id, resolvedDetailTab))
             }
@@ -3232,6 +3271,28 @@ export function ManagerResidents({
 
       </ManagerPortalPageShell>
       )}
+      {selectedIds.size > 0 && !residentIdProp ? (
+        <BulkActionBar count={selectedIds.size} hideCount variant="payments">
+          <div className="flex min-w-0 flex-wrap items-center justify-start gap-2">
+            {singleSelectedResident ? (
+              <Button
+                type="button"
+                variant="outline"
+                className={PORTAL_BULK_BAR_BTN}
+                data-attr="residents-bulk-message"
+                onClick={() => {
+                  navigate(
+                    residentDetailHref(portalBase, residentsTab, singleSelectedResident.id, "communication"),
+                  );
+                  setSelectedIds(new Set());
+                }}
+              >
+                Message
+              </Button>
+            ) : null}
+          </div>
+        </BulkActionBar>
+      ) : null}
 
       <ReminderSettingsModal
         open={residentReminderSettingsOpen}

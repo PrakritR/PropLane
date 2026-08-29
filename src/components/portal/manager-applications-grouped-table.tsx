@@ -26,11 +26,17 @@ export function ManagerApplicationsGroupedTable({
   cosignerSubmissionsBySigner,
   onOpenApplication,
   onOpenCosigner,
+  selectedIds,
+  onToggleSelected,
+  selectable = true,
 }: {
   clusters: ApplicationListCluster[];
   cosignerSubmissionsBySigner: Map<string, CosignerSubmission[]>;
   onOpenApplication: (row: DemoApplicantRow) => void;
   onOpenCosigner: (row: DemoApplicantRow, index: number) => void;
+  selectedIds?: Set<string>;
+  onToggleSelected?: (id: string) => void;
+  selectable?: boolean;
 }) {
   return (
     <div className="space-y-3" data-attr="applications-resident-groups">
@@ -80,6 +86,11 @@ export function ManagerApplicationsGroupedTable({
                       data: entry,
                       primary: applicationSubmittedLabel(entry.row),
                       meta: applicationPropertyMeta(entry.row),
+                      selected: selectedIds?.has(entry.row.id),
+                      onSelectedChange:
+                        selectable && onToggleSelected
+                          ? () => onToggleSelected(entry.row.id)
+                          : undefined,
                       onClick: () => onOpenApplication(entry.row),
                     }
                   : {
@@ -93,7 +104,7 @@ export function ManagerApplicationsGroupedTable({
               const inner = (
                 <DataList
                   hideColumnHeaders
-                  selectable={false}
+                  selectable={selectable && Boolean(onToggleSelected)}
                   rows={[rowContent]}
                   columns={[
                     {

@@ -61,8 +61,10 @@ import {
 import { mondayBasedDayIndex, resolveBlockBaseDates } from "@/lib/portal/availability-block";
 import {
   defaultTourSlotKeysForDate,
+  resolveDefaultTourAvailabilityConfig,
   resolveTourOfferingSlots,
   slotIsBookable,
+  type DefaultTourAvailabilityConfig,
 } from "@/lib/tour-slot-math";
 import { cn } from "@/lib/utils";
 import { HORIZONTAL_SCROLL_ATTR, PORTAL_HORIZONTAL_SCROLL_ROW_CLASS } from "@/lib/horizontal-scroll";
@@ -510,6 +512,7 @@ export function PortalCalendarPanels({
    */
   delegateFooterToModal = false,
   onModalFooterChange,
+  defaultTourAvailability,
 }: {
   storageKey: string | null;
   availabilityStorageKeys?: string[];
@@ -532,6 +535,8 @@ export function PortalCalendarPanels({
   embeddedInModal?: boolean;
   delegateFooterToModal?: boolean;
   onModalFooterChange?: (footer: ReactNode | null) => void;
+  /** Manager default 9–5 (or customized in Calendar settings) when no week is published. */
+  defaultTourAvailability?: DefaultTourAvailabilityConfig;
   otherProperties?: { id: string; name: string }[];
   onCopyWeekToHouses?: (propertyIds: string[], weekDateStrs: string[], scope: "week" | "entire") => void;
   scheduledTourFilter?: ScheduledTourFilter;
@@ -609,10 +614,19 @@ export function PortalCalendarPanels({
   const [activeSlots, setActiveSlots] = useState<Set<string>>(() =>
     writeStorageKeys.length > 0 ? unionAvailabilityForStorageKeys(writeStorageKeys) : new Set(),
   );
+  const resolvedDefaultTourAvailability = useMemo(
+    () => resolveDefaultTourAvailabilityConfig(defaultTourAvailability),
+    [defaultTourAvailability],
+  );
   /** Painted availability plus the 9-5 default on days with no published windows. */
   const offeredSlots = useMemo(
-    () => new Set(resolveTourOfferingSlots([...activeSlots]).filter((slot) => slotIsBookable(slot))),
-    [activeSlots],
+    () =>
+      new Set(
+        resolveTourOfferingSlots([...activeSlots], Date.now(), resolvedDefaultTourAvailability).filter((slot) =>
+          slotIsBookable(slot),
+        ),
+      ),
+    [activeSlots, resolvedDefaultTourAvailability],
   );
   /**
    * Windows a prospect can book that the manager never painted — the implicit
@@ -842,14 +856,14 @@ export function PortalCalendarPanels({
       const removedKey = dateSlotKey(dateStr, slotIdx);
       mutateAvailability((current) => {
         const next = new Set(current);
-        for (const key of defaultTourSlotKeysForDate(dateStr)) {
+        for (const key of defaultTourSlotKeysForDate(dateStr, resolvedDefaultTourAvailability)) {
           if (key !== removedKey && slotIsBookable(key)) next.add(key);
         }
         next.delete(removedKey);
         return next;
       });
     },
-    [mutateAvailability],
+    [mutateAvailability, resolvedDefaultTourAvailability],
   );
 
   const deleteAvailabilitySlot = useCallback(() => {
@@ -1476,9 +1490,10 @@ export function PortalCalendarPanels({
   const finishDragSelection = useCallback(() => {
     const pending = dragSelectionRef.current;
     if (!pending) return;
+    const span = pending.endSlotExclusive - pending.startSlot;
     dragSelectionRef.current = null;
-    prefillBlockModal(pending);
     setDragSelection(null);
+    if (span > 1) prefillBlockModal(pending);
   }, [prefillBlockModal]);
 
   const cancelDragSelection = useCallback(() => {
@@ -2112,7 +2127,7 @@ export function PortalCalendarPanels({
             data-attr="calendar-create-block"
             onClick={openBlockModal}
           >
-            Block
+            Add availability
           </Button>
           <Button
             type="button"
@@ -2252,12 +2267,12 @@ export function PortalCalendarPanels({
                       if (canEditAvailability) removeDefaultSlot(ds, slotIdx);
                       return;
                     }
-                    // Keyboard activation (Enter / Space) fires click without any
-                    // mousedown/mouseup, so the drag-select path never runs. Open the
-                    // block modal directly for an empty slot so the grid is usable
-                    // without a mouse.
-                    if (!readOnly && !meeting && !active && !coManagerOpen && e.detail === 0) {
-                      openBlockModalForSlot(ds, mondayBasedDayIndex(new Date(`${ds}T12:00:00`)), slotIdx);
+                    if (!readOnly && !meeting && !active && !coManagerOpen) {
+                      openBlockModalForSlot(
+                        ds,
+                        mondayBasedDayIndex(new Date(`${ds}T12:00:00`)),
+                        slotIdx,
+                      );
                       return;
                     }
                     openSlotDetails(ds, slotIdx, e.currentTarget, meeting);
@@ -2304,6 +2319,8 @@ export function PortalCalendarPanels({
                     "Open"
                   ) : coManagerOpen ? (
                     `${coManagerOverlay!.label}`
+                  ) : defaultOpen ? (
+                    "Open"
                   ) : (
                     readOnly ? "" : "Add"
                   )}

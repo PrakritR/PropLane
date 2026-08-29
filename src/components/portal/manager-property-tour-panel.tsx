@@ -10,6 +10,12 @@ import { ShareLeadLinkModal } from "@/components/portal/share-lead-link-modal";
 import { LocalDestinationNav } from "@/components/ui/destination-nav";
 import { Modal, ModalFooter } from "@/components/ui/modal";
 import { managerPropertyAvailabilityStorageKey, syncScheduleRecordsFromServer } from "@/lib/demo-admin-scheduling";
+import { isDemoModeActive } from "@/lib/demo/demo-session";
+import {
+  DEFAULT_MANAGER_TOUR_SETTINGS,
+  managerTourSettingsToDefaultAvailability,
+  type ManagerTourSettings,
+} from "@/lib/manager-tour-settings";
 import {
   isGoogleBusyIncompleteWarning,
   useGoogleCalendarBusyMeetings,
@@ -65,6 +71,33 @@ export function ManagerPropertyTourPanel({
   const [bucket, setBucket] = useState<ManagerTourBucketId>("pending");
   const [searchQuery, setSearchQuery] = useState("");
   const [tick, setTick] = useState(0);
+  const [tourSettings, setTourSettings] = useState<ManagerTourSettings>(DEFAULT_MANAGER_TOUR_SETTINGS);
+
+  const loadTourSettings = useCallback(async () => {
+    if (!managerUserId || isDemoModeActive()) {
+      setTourSettings(DEFAULT_MANAGER_TOUR_SETTINGS);
+      return;
+    }
+    try {
+      const res = await fetch("/api/portal/manager-tour-settings", {
+        credentials: "include",
+        cache: "no-store",
+      });
+      const body = (await res.json().catch(() => ({}))) as { settings?: ManagerTourSettings };
+      if (res.ok && body.settings) setTourSettings(body.settings);
+    } catch {
+      /* keep prior */
+    }
+  }, [managerUserId]);
+
+  useEffect(() => {
+    void loadTourSettings();
+  }, [loadTourSettings]);
+
+  const defaultTourAvailability = useMemo(
+    () => managerTourSettingsToDefaultAvailability(tourSettings),
+    [tourSettings],
+  );
 
   const openSendTour = useCallback(() => setSendTourOpen(true), []);
   const openAvailability = useCallback(() => setAvailabilityOpen(true), []);
@@ -251,7 +284,8 @@ export function ManagerPropertyTourPanel({
       >
         <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
           <p className="mb-3 shrink-0 text-xs text-muted">
-            Open slots prospects can book for {propertyLabel}. Paint the week grid or use Block for a recurring schedule.
+            Tour availability for this property. Click an empty slot or drag across a range, then confirm in
+            the schedule dialog. Use Add availability for a recurring block.
           </p>
           <PortalCalendarPanels
             inlineFooter
@@ -263,7 +297,8 @@ export function ManagerPropertyTourPanel({
             bareSurface
             compactAvailability
             defaultViewMode="week"
-            availabilityHeading="Your availability"
+            availabilityHeading="Tour availability"
+            defaultTourAvailability={defaultTourAvailability}
             tourScopeLabel={propertyLabel}
             unavailableMessage="Sign in to manage tour availability for this property."
             externalMeetings={googleBusyMeetings}

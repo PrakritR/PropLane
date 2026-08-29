@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { Button } from "@/components/ui/button";
+import { BulkActionBar } from "@/components/ui/bulk-action-bar";
 import { Modal, ModalFooter } from "@/components/ui/modal";
 import { PropertyLeaseFormModal } from "@/components/portal/property-lease-form-modal";
 import {
@@ -45,6 +46,8 @@ import {
   documentModeFromLease,
   propertyLeaseDocumentModeLabel,
 } from "@/lib/property-lease-source";
+import { usePortalRowSelection } from "@/hooks/use-portal-row-selection";
+import { PORTAL_BULK_BAR_BTN } from "@/lib/portal-bulk-bar";
 
 type LeaseSaveTarget =
   | { mode: "pending"; saveId: string }
@@ -116,6 +119,7 @@ export function ManagerPropertyLeasePanel({
   const syncedSub = useMemo(() => syncPropertyLeaseTemplatesFromListing(sub), [sub]);
   const templates = useMemo(() => readPropertyLeaseTemplates(syncedSub), [syncedSub]);
   const availableSeeds = useMemo(() => availableLeaseTemplateSeeds(syncedSub), [syncedSub]);
+  const { selectedIds, toggleSelected, clearSelection } = usePortalRowSelection(templates.length);
 
   const bulkPropertyIds = useMemo(
     () => propertyIds?.filter((id) => id.trim()) ?? [],
@@ -336,6 +340,48 @@ export function ManagerPropertyLeasePanel({
     showToast("Lease deleted.");
   };
 
+  const selectedTemplates = useMemo(
+    () => templates.filter((template) => selectedIds.has(template.id)),
+    [selectedIds, templates],
+  );
+
+  const bulkDeleteTemplates = () => {
+    if (selectedTemplates.length === 0) return;
+    if (
+      !window.confirm(
+        `Delete ${selectedTemplates.length} lease template${selectedTemplates.length === 1 ? "" : "s"}?`,
+      )
+    ) {
+      return;
+    }
+    if (bulkPropertyIds.length > 0) {
+      for (const template of selectedTemplates) {
+        if (!deleteTemplateAcrossProperties(template)) return;
+      }
+      clearSelection();
+      onUpdated();
+      showToast(
+        selectedTemplates.length === 1
+          ? "Lease deleted."
+          : `${selectedTemplates.length} leases deleted.`,
+      );
+      return;
+    }
+    let next = templates;
+    for (const template of selectedTemplates) {
+      next = removePropertyLeaseTemplate(next, template.id);
+    }
+    if (!persistTemplates(next)) {
+      showToast("Could not delete lease.");
+      return;
+    }
+    clearSelection();
+    onUpdated();
+    showToast(
+      selectedTemplates.length === 1 ? "Lease deleted." : `${selectedTemplates.length} leases deleted.`,
+    );
+  };
+
   if (!managerUserId || (!saveTarget && bulkPropertyIds.length === 0)) return null;
 
   const editingTemplate = templates.find((t) => t.id === editingTemplateId) ?? null;
@@ -346,33 +392,34 @@ export function ManagerPropertyLeasePanel({
           {sectionActions}
           {templates.map((template) => (
             <div key={template.id} className={PORTAL_PROPERTY_DETAIL_LIST_ROW_CLASS}>
-              <div className="min-w-0 flex-1">
-                <p className="text-sm font-semibold text-foreground">{template.label}</p>
-                <p className="mt-0.5 text-xs text-muted">{leaseDocumentSummary(template)}</p>
-                {formatApplicationLeaseTermsLabel(template.applicationLeaseTerms) ? (
-                  <p className="mt-0.5 text-xs text-muted">
-                    Applicants: {formatApplicationLeaseTermsLabel(template.applicationLeaseTerms)}
-                  </p>
-                ) : null}
-              </div>
+              <label className="flex min-w-0 flex-1 cursor-pointer items-start gap-3">
+                <input
+                  type="checkbox"
+                  className="mt-0.5 h-4 w-4 shrink-0 accent-primary"
+                  checked={selectedIds.has(template.id)}
+                  data-attr={`property-lease-select-${template.id}`}
+                  onChange={() => toggleSelected(template.id)}
+                  onClick={(e) => e.stopPropagation()}
+                />
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm font-semibold text-foreground">{template.label}</p>
+                  <p className="mt-0.5 text-xs text-muted">{leaseDocumentSummary(template)}</p>
+                  {formatApplicationLeaseTermsLabel(template.applicationLeaseTerms) ? (
+                    <p className="mt-0.5 text-xs text-muted">
+                      Applicants: {formatApplicationLeaseTermsLabel(template.applicationLeaseTerms)}
+                    </p>
+                  ) : null}
+                </div>
+              </label>
               <div className="flex shrink-0 flex-nowrap items-center gap-2">
                 <Button
                   type="button"
                   variant="outline"
                   className={PORTAL_PROPERTY_DETAIL_ACTION_BUTTON_CLASS}
-                  data-attr={`property-lease-view-${template.id}`}
+                  data-attr={`property-lease-edit-view-${template.id}`}
                   onClick={() => openLeasePreview(template)}
                 >
-                  View
-                </Button>
-                <Button
-                  type="button"
-                  variant="outline"
-                  className={PORTAL_PROPERTY_DETAIL_ACTION_BUTTON_CLASS}
-                  data-attr={`property-lease-edit-${template.id}`}
-                  onClick={() => openEdit(template.id)}
-                >
-                  Edit
+                  Edit view
                 </Button>
               </div>
             </div>
@@ -406,7 +453,7 @@ export function ManagerPropertyLeasePanel({
           setPreviewTemplate(null);
         }}
         title={
-          previewTemplate ? `View · ${previewTemplate.label}` : "View"
+          previewTemplate ? `Edit view · ${previewTemplate.label}` : "Edit view"
         }
         presentation="dialog"
         dense
@@ -485,6 +532,33 @@ export function ManagerPropertyLeasePanel({
         }}
         showToast={showToast}
       />
+
+      {selectedIds.size > 0 ? (
+        <BulkActionBar count={selectedIds.size} hideCount variant="payments">
+          <div className="flex min-w-0 flex-wrap items-center justify-start gap-2">
+            {selectedIds.size === 1 && selectedTemplates[0] ? (
+              <Button
+                type="button"
+                variant="outline"
+                className={PORTAL_BULK_BAR_BTN}
+                data-attr="property-lease-bulk-edit-view"
+                onClick={() => openLeasePreview(selectedTemplates[0]!)}
+              >
+                Edit view
+              </Button>
+            ) : null}
+            <Button
+              type="button"
+              variant="outline"
+              className={`${PORTAL_BULK_BAR_BTN} text-rose-800`}
+              data-attr="property-lease-bulk-delete"
+              onClick={bulkDeleteTemplates}
+            >
+              Delete
+            </Button>
+          </div>
+        </BulkActionBar>
+      ) : null}
     </>
   );
 }

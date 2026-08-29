@@ -61,13 +61,21 @@ export function propertyDetailTopNavId(tab: PropertyDetailTabId): PropertyDetail
 }
 
 /** Routed detail tabs for manager resident profile (Appendix C2). */
-export const RESIDENT_DETAIL_TABS = ["application", "lease", "payments", "services", "communication"] as const;
+export const RESIDENT_DETAIL_TABS = [
+  "application",
+  "lease",
+  "tours",
+  "payments",
+  "services",
+  "communication",
+] as const;
 
 export type ResidentDetailTabId = (typeof RESIDENT_DETAIL_TABS)[number];
 
 export const RESIDENT_DETAIL_TAB_LABELS: Record<ResidentDetailTabId, string> = {
   application: "Application",
   lease: "Lease",
+  tours: "Tours",
   payments: "Payments",
   services: "Services",
   communication: "Communication",
@@ -77,6 +85,7 @@ export const RESIDENT_DETAIL_TAB_LABELS: Record<ResidentDetailTabId, string> = {
 export const RESIDENT_DETAIL_TAB_SHORT_LABELS: Record<ResidentDetailTabId, string> = {
   application: "Apply",
   lease: "Lease",
+  tours: "Tours",
   payments: "Pay",
   services: "Svc",
   communication: "Comms",

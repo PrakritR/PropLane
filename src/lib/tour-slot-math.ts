@@ -244,6 +244,36 @@ export const DEFAULT_TOUR_END_SLOT_EXCLUSIVE = 34;
  */
 export const DEFAULT_TOUR_HORIZON_DAYS = 21;
 
+export type DefaultTourAvailabilityConfig = {
+  startSlot: number;
+  endSlotExclusive: number;
+  horizonDays: number;
+};
+
+export function resolveDefaultTourAvailabilityConfig(
+  partial?: Partial<DefaultTourAvailabilityConfig>,
+): DefaultTourAvailabilityConfig {
+  const startSlot = Math.max(
+    0,
+    Math.min(
+      47,
+      typeof partial?.startSlot === "number" && Number.isFinite(partial.startSlot)
+        ? Math.trunc(partial.startSlot)
+        : DEFAULT_TOUR_START_SLOT,
+    ),
+  );
+  const endRaw =
+    typeof partial?.endSlotExclusive === "number" && Number.isFinite(partial.endSlotExclusive)
+      ? Math.trunc(partial.endSlotExclusive)
+      : DEFAULT_TOUR_END_SLOT_EXCLUSIVE;
+  const endSlotExclusive = Math.max(startSlot + 1, Math.min(48, endRaw));
+  const horizonDays =
+    typeof partial?.horizonDays === "number" && Number.isFinite(partial.horizonDays)
+      ? Math.max(7, Math.min(60, Math.trunc(partial.horizonDays)))
+      : DEFAULT_TOUR_HORIZON_DAYS;
+  return { startSlot, endSlotExclusive, horizonDays };
+}
+
 /** `YYYY-MM-DD` for an instant, on the tour calendar's wall clock. */
 export function tourCalendarDateStr(ms: number, timeZone: string = TOUR_CALENDAR_TIME_ZONE): string {
   const parts = new Intl.DateTimeFormat("en-CA", {
@@ -291,14 +321,14 @@ export function shouldOfferDefaultTourGrid(publishedFutureSlots: readonly string
 export function resolveTourOfferingSlots(
   publishedSlots: readonly string[],
   now: number = Date.now(),
-  days: number = DEFAULT_TOUR_HORIZON_DAYS,
+  defaultConfig: DefaultTourAvailabilityConfig = resolveDefaultTourAvailabilityConfig(),
 ): string[] {
   const bookablePublished = publishedSlots.filter((slot) => slotIsBookable(slot, now));
   const datesWithPublished = new Set(
     bookablePublished.map((slot) => slot.split(":")[0]).filter((date): date is string => Boolean(date)),
   );
   const merged = new Set<string>(bookablePublished);
-  for (const key of buildDefaultTourSlotKeys(now, days)) {
+  for (const key of buildDefaultTourSlotKeys(now, defaultConfig.horizonDays, defaultConfig)) {
     const date = key.split(":")[0];
     if (date && !datesWithPublished.has(date)) merged.add(key);
   }
@@ -324,10 +354,13 @@ export function resolveTourOfferingSlots(
  * has to write the rest of that day back explicitly — otherwise dropping one
  * slot would silently close the whole day to prospects.
  */
-export function defaultTourSlotKeysForDate(dateStr: string): string[] {
+export function defaultTourSlotKeysForDate(
+  dateStr: string,
+  defaultConfig: DefaultTourAvailabilityConfig = resolveDefaultTourAvailabilityConfig(),
+): string[] {
   const keys: string[] = [];
   if (!/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) return keys;
-  for (let slot = DEFAULT_TOUR_START_SLOT; slot < DEFAULT_TOUR_END_SLOT_EXCLUSIVE; slot += 1) {
+  for (let slot = defaultConfig.startSlot; slot < defaultConfig.endSlotExclusive; slot += 1) {
     keys.push(`${dateStr}:${slot}`);
   }
   return keys;
@@ -336,7 +369,12 @@ export function defaultTourSlotKeysForDate(dateStr: string): string[] {
 export function buildDefaultTourSlotKeys(
   now: number = Date.now(),
   days: number = DEFAULT_TOUR_HORIZON_DAYS,
+  defaultConfig?: Partial<DefaultTourAvailabilityConfig>,
 ): string[] {
+  const resolved = resolveDefaultTourAvailabilityConfig({
+    ...defaultConfig,
+    horizonDays: days,
+  });
   const keys: string[] = [];
   const dayMs = 24 * 60 * 60 * 1000;
   const [year, month, day] = tourCalendarDateStr(now).split("-").map(Number);
@@ -345,9 +383,9 @@ export function buildDefaultTourSlotKeys(
   // (a 23- or 25-hour day) can never skip or repeat a calendar date. Today is
   // included; its already-past windows drop out at `slotIsBookable`.
   const noonToday = zonedWallTimeMs(year, month, day, 12 * 60);
-  for (let offset = 0; offset < days; offset += 1) {
+  for (let offset = 0; offset < resolved.horizonDays; offset += 1) {
     const dateStr = tourCalendarDateStr(noonToday + offset * dayMs);
-    for (let slot = DEFAULT_TOUR_START_SLOT; slot < DEFAULT_TOUR_END_SLOT_EXCLUSIVE; slot += 1) {
+    for (let slot = resolved.startSlot; slot < resolved.endSlotExclusive; slot += 1) {
       keys.push(`${dateStr}:${slot}`);
     }
   }

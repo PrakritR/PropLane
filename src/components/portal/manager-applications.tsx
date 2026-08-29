@@ -3,6 +3,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
+import { BulkActionBar } from "@/components/ui/bulk-action-bar";
+import { PortalBulkMessageCarouselModal } from "@/components/portal/portal-bulk-message-carousel-modal";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -17,6 +19,7 @@ import { PortalNotificationPreviewModal } from "@/components/portal/portal-notif
 import { ShareLeadLinkModal } from "@/components/portal/share-lead-link-modal";
 import { useAppUi } from "@/components/providers/app-ui-provider";
 import { useManagerUserId } from "@/hooks/use-manager-user-id";
+import { usePortalRowSelection } from "@/hooks/use-portal-row-selection";
 import {
   ManagerPortalPageShell,
   PORTAL_HEADER_ACTION_BTN,
@@ -148,6 +151,15 @@ import {
   portalPropertyFilterIdsEqual,
   sanitizePortalPropertyFilterIds,
 } from "@/lib/portal-property-list-filters";
+import { PORTAL_BULK_BAR_BTN } from "@/lib/portal-bulk-bar";
+
+function isApprovableApplicationRow(row: DemoApplicantRow): boolean {
+  return (
+    row.bucket === "pending" &&
+    !isWithdrawnApplicationRow(row) &&
+    !isInProgressApplicationRow(row)
+  );
+}
 
 function applicationRowPropertyId(row: DemoApplicantRow): string {
   return row.assignedPropertyId?.trim() || row.propertyId?.trim() || row.application?.propertyId?.trim() || "";
@@ -513,6 +525,9 @@ export function ManagerApplications({
     typeof window === "undefined" ? 0 : hasCachedPropertyPipeline() ? 1 : 0,
   );
   const [approvePreviewRow, setApprovePreviewRow] = useState<DemoApplicantRow | null>(null);
+  const [bulkApproveRows, setBulkApproveRows] = useState<DemoApplicantRow[] | null>(null);
+  const [bulkApproveBusy, setBulkApproveBusy] = useState(false);
+  const { selectedIds, setSelectedIds, toggleSelected } = usePortalRowSelection(bucket);
   const [approveBusyId, setApproveBusyId] = useState<string | null>(null);
   const [reminderBusyId, setReminderBusyId] = useState<string | null>(null);
   const [reminderPreviewBusyId, setReminderPreviewBusyId] = useState<string | null>(null);
@@ -763,6 +778,95 @@ export function ManagerApplications({
       bucket,
     );
   }, [rowsForBucket, bucket, applicationGroups]);
+
+  const selectedApplicationRows = useMemo(
+    () => rowsForBucket.filter((row) => selectedIds.has(row.id)),
+    [rowsForBucket, selectedIds],
+  );
+
+  const canBulkApprove =
+    selectedApplicationRows.length > 0 && selectedApplicationRows.every(isApprovableApplicationRow);
+  const canBulkReject =
+    selectedApplicationRows.length > 0 &&
+    selectedApplicationRows.every((row) => row.bucket === "pending" && !isWithdrawnApplicationRow(row));
+
+  const runBulkApprove = useCallback(
+    async (
+      rows: DemoApplicantRow[],
+      skipWelcomeEmail: boolean,
+    ) => {
+      if (rows.length === 0 || bulkApproveBusy) return;
+      setBulkApproveBusy(true);
+      try {
+        for (const row of rows) {
+          const result = await transitionApplicationBucket(row.id, "approved", {
+            userId: userId ?? null,
+            skipWelcomeEmail,
+            automation: applicationAutomation,
+          });
+          if (!result) return;
+          if (result.blocked) {
+            showToast(result.message ?? "That change could not be saved.");
+            return;
+          }
+        }
+        setRows(readManagerApplicationRows());
+        setBulkApproveRows(null);
+        setApprovePreviewRow(null);
+        setSelectedIds((prev) => {
+          const next = new Set(prev);
+          for (const row of rows) next.delete(row.id);
+          return next;
+        });
+        showToast(
+          rows.length === 1
+            ? skipWelcomeEmail
+              ? "Application approved (no setup email sent)."
+              : "Application approved."
+            : `${rows.length} applications approved.`,
+        );
+      } finally {
+        setBulkApproveBusy(false);
+        setApproveBusyId(null);
+      }
+    },
+    [applicationAutomation, bulkApproveBusy, setSelectedIds, showToast, userId],
+  );
+
+  const runBulkReject = useCallback(async () => {
+    if (!canBulkReject || bulkApproveBusy) return;
+    if (!window.confirm(`Reject ${selectedApplicationRows.length} application(s)?`)) return;
+    setBulkApproveBusy(true);
+    try {
+      for (const row of selectedApplicationRows) {
+        const result = await transitionApplicationBucket(row.id, "rejected", {
+          userId: userId ?? null,
+          automation: applicationAutomation,
+        });
+        if (!result || result.blocked) {
+          showToast(result?.message ?? "Could not reject an application.");
+          return;
+        }
+      }
+      setRows(readManagerApplicationRows());
+      setSelectedIds(new Set());
+      showToast(
+        selectedApplicationRows.length === 1
+          ? "Application rejected."
+          : `${selectedApplicationRows.length} applications rejected.`,
+      );
+    } finally {
+      setBulkApproveBusy(false);
+    }
+  }, [
+    applicationAutomation,
+    bulkApproveBusy,
+    canBulkReject,
+    selectedApplicationRows,
+    setSelectedIds,
+    showToast,
+    userId,
+  ]);
 
   const openDetailScreeningModal = useCallback((row: DemoApplicantRow, opts?: { showPackagePicker?: boolean }) => {
     setCheckrScreeningShowPicker(Boolean(opts?.showPackagePicker));
@@ -1534,7 +1638,7 @@ export function ManagerApplications({
   const applicationModals = (
     <>
       <PortalNotificationPreviewModal
-        open={approvePreviewRow !== null}
+        open={approvePreviewRow !== null && !bulkApproveRows}
         title="Approve application: account setup email"
         onClose={() => setApprovePreviewRow(null)}
         recipient={approvePreviewRow?.email ?? ""}
@@ -1565,6 +1669,46 @@ export function ManagerApplications({
           void setRowBucket(row.id, "approved", { skipWelcomeEmail: skipMessage }).finally(() => setApproveBusyId(null));
         }}
       />
+      {bulkApproveRows && bulkApproveRows.length > 0 ? (
+        <PortalBulkMessageCarouselModal
+          open
+          title={
+            bulkApproveRows.length > 1
+              ? `Approve applications (${bulkApproveRows.length})`
+              : "Approve application: account setup email"
+          }
+          intro="Approving updates application status and can send each applicant their PropLane resident account setup email."
+          items={bulkApproveRows.map((row) => ({
+            id: row.id,
+            label: applicantDisplayName(row),
+            recipient: row.email ?? "",
+            subject: RESIDENT_WELCOME_EMAIL_SUBJECT,
+            body: buildResidentWelcomeEmailBody({
+              residentName: row.name || undefined,
+              axisId: row.id,
+              signupUrl: residentAccountCreationUrl("", row.id),
+            }),
+            emailAvailable: Boolean(row.email?.includes("@")),
+          }))}
+          confirmLabel="Approve & send setup email"
+          confirmLabelSingle="Approve & send this one"
+          confirmLabelWithoutMessage="Approve only"
+          skipMessageLabel="Don't send setup email"
+          confirmBusy={bulkApproveBusy}
+          confirmBusyLabel="Approving…"
+          onClose={() => {
+            if (bulkApproveBusy) return;
+            setBulkApproveRows(null);
+          }}
+          onConfirm={(scope, { skipMessage, drafts, singleId }) => {
+            const targets =
+              scope === "single" && singleId
+                ? bulkApproveRows.filter((row) => row.id === singleId)
+                : bulkApproveRows;
+            void runBulkApprove(targets, skipMessage);
+          }}
+        />
+      ) : null}
       <PortalNotificationPreviewModal
         open={reminderPreview !== null}
         title="Send application reminder"
@@ -1820,6 +1964,8 @@ export function ManagerApplications({
           <ManagerApplicationsGroupedTable
             clusters={listClusters}
             cosignerSubmissionsBySigner={cosignerSubmissionsBySigner}
+            selectedIds={selectedIds}
+            onToggleSelected={toggleSelected}
             onOpenApplication={(row) => navigate(applicationDetailHref(basePath, tabForRow(row), row.id))}
             onOpenCosigner={(row, index) =>
               navigate(`${applicationDetailHref(basePath, tabForRow(row), row.id)}?cosigner=${index}`)
@@ -1838,6 +1984,36 @@ export function ManagerApplications({
       )}
       </div>
     </ManagerPortalPageShell>
+      {selectedIds.size > 0 ? (
+        <BulkActionBar count={selectedIds.size} hideCount variant="payments">
+          <div className="flex min-w-0 flex-wrap items-center justify-start gap-2">
+            {canBulkApprove ? (
+              <Button
+                type="button"
+                variant="primary"
+                className={PORTAL_BULK_BAR_BTN}
+                data-attr="applications-bulk-approve"
+                disabled={bulkApproveBusy}
+                onClick={() => setBulkApproveRows(selectedApplicationRows.filter(isApprovableApplicationRow))}
+              >
+                Approve
+              </Button>
+            ) : null}
+            {canBulkReject ? (
+              <Button
+                type="button"
+                variant="outline"
+                className={`${PORTAL_BULK_BAR_BTN} text-rose-800`}
+                data-attr="applications-bulk-reject"
+                disabled={bulkApproveBusy}
+                onClick={() => void runBulkReject()}
+              >
+                Reject
+              </Button>
+            ) : null}
+          </div>
+        </BulkActionBar>
+      ) : null}
       {applicationModals}
     </>
   );

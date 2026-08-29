@@ -39,12 +39,16 @@ vi.mock("@/lib/service-requests-storage", () => ({
   SERVICE_REQUESTS_EVENT: "axis:service-requests",
   syncServiceRequestsFromServer: () => Promise.resolve([]),
 }));
-vi.mock("@/lib/manager-task-display", () => ({
-  compactTaskLocationLabel: () => null,
-  serviceRequestLocationLabel: () => null,
-  serviceRequestsAssignedToViewer: () => [],
-  taskNotesPreview: (notes: string) => ({ preview: notes, truncated: false }),
-}));
+vi.mock("@/lib/manager-task-display", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/manager-task-display")>();
+  return {
+    ...actual,
+    compactTaskLocationLabel: () => null,
+    serviceRequestLocationLabel: () => null,
+    serviceRequestsAssignedToViewer: () => [],
+    taskNotesPreview: (notes: string) => ({ preview: notes, truncated: false }),
+  };
+});
 vi.mock("@/components/portal/manager-task-form-modal", () => ({
   ManagerTaskFormModal: () => null,
 }));
@@ -60,5 +64,9 @@ describe("ManagerTaskList", () => {
     await waitFor(() => {
       expect(screen.getByRole("button", { name: "Add task" })).toBeInTheDocument();
     });
+    expect(screen.getByRole("button", { name: /^All\b/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /^Open\b/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /^Scheduled\b/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /^Service orders\b/i })).toBeInTheDocument();
   });
 });

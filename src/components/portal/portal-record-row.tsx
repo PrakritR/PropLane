@@ -49,6 +49,8 @@ export function PortalPropertyRecordRow({
   summary,
   badge,
   selected = false,
+  checked = false,
+  onSelectedChange,
   onOpen,
   dataAttr,
 }: {
@@ -57,27 +59,43 @@ export function PortalPropertyRecordRow({
   summary?: string;
   badge?: ReactNode;
   selected?: boolean;
+  checked?: boolean;
+  onSelectedChange?: (selected: boolean) => void;
   onOpen: () => void;
   dataAttr?: string;
 }) {
+  const selectable = Boolean(onSelectedChange);
   return (
-    <button
-      type="button"
-      data-attr={dataAttr}
-      onClick={onOpen}
-      className={`portal-property-row flex w-full items-stretch border-b border-border/50 px-3 py-3 text-left transition-colors max-md:px-2.5 max-md:py-2.5 ${
-        selected
+    <div
+      className={`portal-property-row flex w-full items-stretch border-b border-border/50 px-3 py-3 transition-colors max-md:px-2.5 max-md:py-2.5 ${
+        selected || checked
           ? "border-l-[3px] border-l-primary bg-primary/[0.06]"
           : "border-l-[3px] border-l-transparent hover:bg-foreground/[0.03]"
       }`}
     >
-      <div className="flex min-w-0 flex-1 flex-col gap-1">
+      {selectable ? (
+        <input
+          type="checkbox"
+          className="mr-3 mt-1 h-4 w-4 shrink-0 rounded border-border"
+          checked={checked}
+          onChange={(e) => onSelectedChange?.(e.target.checked)}
+          onClick={(e) => e.stopPropagation()}
+          data-portal-row-ignore
+          aria-label={`Select ${title}`}
+        />
+      ) : null}
+      <button
+        type="button"
+        data-attr={dataAttr}
+        onClick={onOpen}
+        className="flex min-w-0 flex-1 flex-col gap-1 text-left"
+      >
         <p className="truncate text-sm font-semibold text-foreground">{title}</p>
         <p className="text-xs leading-relaxed text-muted">{address}</p>
         {summary ? <p className="text-xs text-muted">{summary}</p> : null}
         {badge ? <div className="mt-0.5">{badge}</div> : null}
-      </div>
-    </button>
+      </button>
+    </div>
   );
 }
 

@@ -2,6 +2,8 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
+import { BulkActionBar } from "@/components/ui/bulk-action-bar";
+import { PortalBulkMessageCarouselModal } from "@/components/portal/portal-bulk-message-carousel-modal";
 import { useAppUi } from "@/components/providers/app-ui-provider";
 import {
   RESIDENT_DETAIL_HEADER_ACTION_BTN,
@@ -36,6 +38,8 @@ import { LeaseAmendMoveOutModal, LeaseRenewModal } from "@/components/portal/lea
 import { applySignedLeaseRenewal } from "@/lib/lease-renewal-payments";
 import { LeaseSigningModal } from "@/components/portal/lease-signing-modal";
 import { PortalNotificationPreviewModal } from "@/components/portal/portal-notification-preview-modal";
+import { usePortalRowSelection } from "@/hooks/use-portal-row-selection";
+import { PORTAL_BULK_BAR_BTN } from "@/lib/portal-bulk-bar";
 import {
   appendLeaseThreadMessage,
   deleteLeasePipelineRow,
@@ -116,6 +120,8 @@ export function ManagerLeasesPipelinePanel({
   const [editLeaseRowId, setEditLeaseRowId] = useState<string | null>(null);
   const [generateLeaseRow, setGenerateLeaseRow] = useState<LeasePipelineRow | null>(null);
   const [importReviewRowId, setImportReviewRowId] = useState<string | null>(null);
+  const [bulkLeaseSendRows, setBulkLeaseSendRows] = useState<LeasePipelineRow[] | null>(null);
+  const { selectedIds, setSelectedIds, toggleSelected } = usePortalRowSelection(tab);
 
   const handleAmendLeaseSuccess = useCallback(async () => {
     await syncLeasePipelineFromServer(managerUserId, { force: true });
@@ -266,6 +272,106 @@ export function ManagerLeasesPipelinePanel({
     () => sortManagerLeaseClustersForBucket(clusterManagerLeaseListRows(bucketRows), tab),
     [bucketRows, tab],
   );
+
+  const selectedLeaseRows = useMemo(
+    () => bucketRows.filter((row) => selectedIds.has(row.id)),
+    [bucketRows, selectedIds],
+  );
+
+  const leaseRowSendBlockedReason = useCallback(
+    (row: LeasePipelineRow) => {
+      const residentEmail = row.residentEmail.trim().toLowerCase();
+      if (!residentEmail || !residentAccountEmails.has(residentEmail)) {
+        return "Resident must create their PropLane resident account before you can send the lease.";
+      }
+      if (!row.generatedHtml && !row.managerUploadedPdf?.dataUrl) {
+        return "Generate or upload a lease document first.";
+      }
+      return leaseSendGateBlocker(row);
+    },
+    [residentAccountEmails],
+  );
+
+  const canBulkSendLeases =
+    tab === "manager" &&
+    selectedLeaseRows.length > 0 &&
+    selectedLeaseRows.every(
+      (row) =>
+        (row.status === "Manager Review" || row.status === "Draft") && !leaseRowSendBlockedReason(row),
+    );
+
+  const openBulkSendLeasePreview = useCallback(() => {
+    if (!canBulkSendLeases) {
+      showToast("Selected leases can't be sent together. Each needs a document, resident account, and no review blockers.");
+      return;
+    }
+    setBulkLeaseSendRows(selectedLeaseRows);
+  }, [canBulkSendLeases, selectedLeaseRows, showToast]);
+
+  const confirmBulkSendLeases = useCallback(
+    async (
+      scope: "all" | "single",
+      skipMessage: boolean,
+      drafts: Record<string, { subject: string; body: string }>,
+      singleId?: string,
+    ) => {
+      if (!bulkLeaseSendRows || sendingToResidentRowId) return;
+      const targets =
+        scope === "single" && singleId
+          ? bulkLeaseSendRows.filter((row) => row.id === singleId)
+          : bulkLeaseSendRows;
+      if (targets.length === 0) return;
+
+      for (const row of targets) {
+        setSendingToResidentRowId(row.id);
+        try {
+          const result = await sendLeaseToResident(row.id, managerUserId);
+          if (!result.ok) {
+            showToast(result.error ?? "Could not send lease.");
+            return;
+          }
+          appendLeaseThreadMessage(
+            row.id,
+            "manager",
+            "Sent lease to resident for review and signature.",
+            managerUserId,
+          );
+          if (!skipMessage) {
+            const unit = row.unit.trim() || "your unit";
+            const draft = drafts[row.id];
+            await notifyResidentLeaseReady(row, undefined, {
+              subject: draft?.subject ?? `Your lease for ${unit} is ready to sign`,
+              text: draft?.body ?? leaseSentToResidentBody(row),
+            });
+          }
+        } finally {
+          setSendingToResidentRowId(null);
+        }
+      }
+
+      setBulkLeaseSendRows(null);
+      if (scope === "all") {
+        setSelectedIds(new Set());
+      } else if (singleId) {
+        setSelectedIds((prev) => {
+          const next = new Set(prev);
+          next.delete(singleId);
+          return next;
+        });
+      }
+      showToast(
+        skipMessage
+          ? targets.length === 1
+            ? "Lease sent to resident portal (no notification sent)."
+            : `${targets.length} leases sent (no notifications).`
+          : targets.length === 1
+            ? "Lease sent to resident portal with notification."
+            : `${targets.length} leases sent to residents.`,
+      );
+    },
+    [bulkLeaseSendRows, managerUserId, sendingToResidentRowId, setSelectedIds, showToast],
+  );
+
   const detailRow = useMemo(() => {
     if (!leaseIdProp) return null;
     const decoded = decodeURIComponent(leaseIdProp);
@@ -888,6 +994,41 @@ export function ManagerLeasesPipelinePanel({
         confirmBusyLabel="Sending…"
         onConfirm={(skipMessage, channels, draft) => void confirmSendLeaseToResident(skipMessage, channels, draft)}
       />
+      {bulkLeaseSendRows && bulkLeaseSendRows.length > 0 ? (
+        <PortalBulkMessageCarouselModal
+          open
+          title={
+            bulkLeaseSendRows.length > 1
+              ? `Send leases to residents (${bulkLeaseSendRows.length})`
+              : "Send lease to resident · preview"
+          }
+          intro="The lease will be released to each resident portal after you confirm. Messages go to PropLane inbox and email."
+          items={bulkLeaseSendRows.map((row) => {
+            const unit = row.unit.trim() || "your unit";
+            return {
+              id: row.id,
+              label: `${row.residentName} · ${row.unit}`,
+              recipient: row.residentEmail.trim(),
+              subject: `Your lease for ${unit} is ready to sign`,
+              body: leaseSentToResidentBody(row),
+              emailAvailable: Boolean(row.residentEmail.includes("@")),
+            };
+          })}
+          confirmLabel="Send lease & notification"
+          confirmLabelSingle="Send this lease"
+          confirmLabelWithoutMessage="Send lease only"
+          skipMessageLabel="Don't send notification"
+          confirmBusy={Boolean(sendingToResidentRowId)}
+          confirmBusyLabel="Sending…"
+          onClose={() => {
+            if (sendingToResidentRowId) return;
+            setBulkLeaseSendRows(null);
+          }}
+          onConfirm={(scope, { skipMessage, drafts, singleId }) =>
+            void confirmBulkSendLeases(scope, skipMessage, drafts, singleId)
+          }
+        />
+      ) : null}
       <PortalNotificationPreviewModal
         open={leaseReminderPreview !== null}
         title="Lease signing reminder · preview"
@@ -1041,7 +1182,12 @@ export function ManagerLeasesPipelinePanel({
     <>
       {leaseModals}
       <div className={INBOX_LIST_SCROLL}>
-        <ManagerLeasesGroupedTable clusters={leaseClusters} onOpenLease={openLeaseDetail} />
+        <ManagerLeasesGroupedTable
+          clusters={leaseClusters}
+          selectedIds={selectedIds}
+          onToggleSelected={toggleSelected}
+          onOpenLease={openLeaseDetail}
+        />
         {onAddLease ? (
           <div className="px-3 py-3 max-md:px-2.5">
             <PortalListAddRow
@@ -1053,6 +1199,24 @@ export function ManagerLeasesPipelinePanel({
           </div>
         ) : null}
       </div>
+      {selectedIds.size > 0 ? (
+        <BulkActionBar count={selectedIds.size} hideCount variant="payments">
+          <div className="flex min-w-0 flex-wrap items-center justify-start gap-2">
+            {canBulkSendLeases ? (
+              <Button
+                type="button"
+                variant="primary"
+                className={PORTAL_BULK_BAR_BTN}
+                data-attr="leases-bulk-send"
+                disabled={Boolean(sendingToResidentRowId)}
+                onClick={openBulkSendLeasePreview}
+              >
+                Send
+              </Button>
+            ) : null}
+          </div>
+        </BulkActionBar>
+      ) : null}
     </>
   );
 }

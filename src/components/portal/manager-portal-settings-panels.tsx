@@ -30,7 +30,21 @@ import {
 } from "@/lib/payment-reminder-presets";
 import { DEFAULT_MANAGER_TOUR_SETTINGS, type ManagerTourSettings } from "@/lib/manager-tour-settings";
 import { TOUR_NOTICE_DAY_SELECT_OPTIONS } from "@/lib/tour-notice-labels";
+import { formatAvailabilitySlotLabel } from "@/lib/demo-admin-scheduling";
+import { DEFAULT_TOUR_HORIZON_DAYS } from "@/lib/tour-slot-math";
 import { fillTourReminderTemplate } from "@/lib/tour-reminder";
+
+const DEFAULT_TOUR_SLOT_SELECT_OPTIONS = Array.from({ length: 49 }, (_, slot) => ({
+  value: String(slot),
+  label: formatAvailabilitySlotLabel(slot),
+}));
+
+const DEFAULT_TOUR_HORIZON_SELECT_OPTIONS = [
+  { value: "7", label: "7 days ahead" },
+  { value: "14", label: "14 days ahead" },
+  { value: String(DEFAULT_TOUR_HORIZON_DAYS), label: "21 days ahead (default)" },
+  { value: "30", label: "30 days ahead" },
+];
 import {
   ReminderMessagePreviewCard,
   ReminderMessageUpdateModal,
@@ -458,6 +472,63 @@ export function CalendarSettingsPanel({ onSaved }: { onSaved?: () => void }) {
               }))
             }
             dataAttr="manager-tour-notice-days"
+          />
+        </div>
+
+        <div className="space-y-3 border-t border-border pt-4">
+          <p className="text-sm font-semibold text-foreground">Default tour availability</p>
+          <p className="text-xs text-muted">
+            Used when no week is painted on the calendar — prospects can book within these hours (Pacific
+            time).
+          </p>
+          <FieldSingleSelect
+            label="Default open from"
+            value={String(tourSettings.defaultTourStartSlot ?? DEFAULT_MANAGER_TOUR_SETTINGS.defaultTourStartSlot)}
+            options={DEFAULT_TOUR_SLOT_SELECT_OPTIONS}
+            onChange={(value) => {
+              const start = Number.parseInt(value, 10);
+              setTourSettings((prev) => ({
+                ...prev,
+                defaultTourStartSlot: start,
+                defaultTourEndSlotExclusive: Math.max(
+                  start + 1,
+                  prev.defaultTourEndSlotExclusive ?? DEFAULT_MANAGER_TOUR_SETTINGS.defaultTourEndSlotExclusive!,
+                ),
+              }));
+            }}
+            dataAttr="manager-tour-default-start"
+          />
+          <FieldSingleSelect
+            label="Default open until"
+            value={String(
+              tourSettings.defaultTourEndSlotExclusive ?? DEFAULT_MANAGER_TOUR_SETTINGS.defaultTourEndSlotExclusive,
+            )}
+            options={DEFAULT_TOUR_SLOT_SELECT_OPTIONS.filter(
+              (opt) =>
+                Number.parseInt(opt.value, 10) >
+                (tourSettings.defaultTourStartSlot ?? DEFAULT_MANAGER_TOUR_SETTINGS.defaultTourStartSlot!),
+            )}
+            onChange={(value) =>
+              setTourSettings((prev) => ({
+                ...prev,
+                defaultTourEndSlotExclusive: Number.parseInt(value, 10),
+              }))
+            }
+            dataAttr="manager-tour-default-end"
+          />
+          <FieldSingleSelect
+            label="Offer default through"
+            value={String(
+              tourSettings.defaultTourHorizonDays ?? DEFAULT_MANAGER_TOUR_SETTINGS.defaultTourHorizonDays,
+            )}
+            options={DEFAULT_TOUR_HORIZON_SELECT_OPTIONS}
+            onChange={(value) =>
+              setTourSettings((prev) => ({
+                ...prev,
+                defaultTourHorizonDays: Number.parseInt(value, 10) || DEFAULT_TOUR_HORIZON_DAYS,
+              }))
+            }
+            dataAttr="manager-tour-default-horizon"
           />
         </div>
 

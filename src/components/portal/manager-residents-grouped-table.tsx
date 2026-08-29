@@ -41,10 +41,16 @@ export function ManagerResidentsGroupedTable({
   clusters,
   showPropertyInRows,
   onOpenResident,
+  selectedIds,
+  onToggleSelected,
+  selectable = true,
 }: {
   clusters: ManagerResidentListCluster[];
   showPropertyInRows: boolean;
   onOpenResident: (row: ManagerResidentListRow) => void;
+  selectedIds?: Set<string>;
+  onToggleSelected?: (id: string) => void;
+  selectable?: boolean;
 }) {
   return (
     <div className="space-y-3" data-attr="residents-resident-groups">
@@ -55,12 +61,15 @@ export function ManagerResidentsGroupedTable({
             <ApplicationHouseholdCluster key={residentCluster.key} header={residentIdentityHeader(cluster)}>
               <DataList
                 hideColumnHeaders
-                selectable={false}
+                selectable={selectable && Boolean(onToggleSelected)}
                 rows={residentCluster.rows.map((row) => ({
                   id: row.id,
                   data: row,
                   primary: residentHousingMeta(row, showPropertyInRows),
                   meta: row.email && row.email !== residentCluster.residentEmail ? row.email : undefined,
+                  selected: selectedIds?.has(row.id),
+                  onSelectedChange:
+                    selectable && onToggleSelected ? () => onToggleSelected(row.id) : undefined,
                   trailing: row.leaseStart ? (
                     <span className="text-sm tabular-nums text-muted">{shortDateLabel(row.leaseStart)}</span>
                   ) : undefined,
@@ -94,13 +103,16 @@ export function ManagerResidentsGroupedTable({
               <ApplicationNestedListRow key={row.id} nested>
                 <DataList
                   hideColumnHeaders
-                  selectable={false}
+                  selectable={selectable && Boolean(onToggleSelected)}
                   rows={[
                     {
                       id: row.id,
                       data: row,
                       primary: residentHousingMeta(row, showPropertyInRows),
                       meta: row.email || undefined,
+                      selected: selectedIds?.has(row.id),
+                      onSelectedChange:
+                        selectable && onToggleSelected ? () => onToggleSelected(row.id) : undefined,
                       trailing: row.leaseStart ? (
                         <span className="text-sm tabular-nums text-muted">{shortDateLabel(row.leaseStart)}</span>
                       ) : undefined,

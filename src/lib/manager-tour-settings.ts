@@ -12,22 +12,71 @@
  * merge into the existing blob rather than replacing it.
  */
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { DEFAULT_TOUR_NOTICE_DAYS, normalizeTourNoticeDays } from "@/lib/tour-slot-math";
+import {
+  DEFAULT_TOUR_END_SLOT_EXCLUSIVE,
+  DEFAULT_TOUR_HORIZON_DAYS,
+  DEFAULT_TOUR_NOTICE_DAYS,
+  DEFAULT_TOUR_START_SLOT,
+  normalizeTourNoticeDays,
+  type DefaultTourAvailabilityConfig,
+  resolveDefaultTourAvailabilityConfig,
+} from "@/lib/tour-slot-math";
 
 export type ManagerTourSettings = {
   /** Whole calendar days of notice required before a tour. 0 = same-day allowed. */
   tourNoticeDays: number;
+  /** First default bookable window (30-min slot index). Absent = 9:00 am Pacific. */
+  defaultTourStartSlot?: number;
+  /** End of default windows (exclusive slot index). Absent = 5:00 pm Pacific. */
+  defaultTourEndSlotExclusive?: number;
+  /** How many days ahead the implicit default grid is offered when nothing is published. */
+  defaultTourHorizonDays?: number;
 };
 
 export const DEFAULT_MANAGER_TOUR_SETTINGS: ManagerTourSettings = {
   tourNoticeDays: DEFAULT_TOUR_NOTICE_DAYS,
+  defaultTourStartSlot: DEFAULT_TOUR_START_SLOT,
+  defaultTourEndSlotExclusive: DEFAULT_TOUR_END_SLOT_EXCLUSIVE,
+  defaultTourHorizonDays: DEFAULT_TOUR_HORIZON_DAYS,
 };
+
+export function managerTourSettingsToDefaultAvailability(
+  settings: ManagerTourSettings,
+): DefaultTourAvailabilityConfig {
+  return resolveDefaultTourAvailabilityConfig({
+    startSlot: settings.defaultTourStartSlot,
+    endSlotExclusive: settings.defaultTourEndSlotExclusive,
+    horizonDays: settings.defaultTourHorizonDays,
+  });
+}
 
 const ROW_DATA_KEY = "tourSettings";
 
+function normalizeSlotIndex(raw: unknown, fallback: number): number {
+  const n = typeof raw === "number" ? raw : Number.parseInt(String(raw ?? ""), 10);
+  if (!Number.isFinite(n)) return fallback;
+  return Math.max(0, Math.min(48, Math.trunc(n)));
+}
+
+function normalizeHorizonDays(raw: unknown): number {
+  const n = typeof raw === "number" ? raw : Number.parseInt(String(raw ?? ""), 10);
+  if (!Number.isFinite(n)) return DEFAULT_TOUR_HORIZON_DAYS;
+  return Math.max(7, Math.min(60, Math.trunc(n)));
+}
+
 export function normalizeManagerTourSettings(raw: unknown): ManagerTourSettings {
   const row = (raw && typeof raw === "object" && !Array.isArray(raw) ? raw : {}) as Record<string, unknown>;
-  return { tourNoticeDays: normalizeTourNoticeDays(row.tourNoticeDays) };
+  const startSlot = normalizeSlotIndex(row.defaultTourStartSlot, DEFAULT_TOUR_START_SLOT);
+  const endSlotExclusive = normalizeSlotIndex(
+    row.defaultTourEndSlotExclusive,
+    DEFAULT_TOUR_END_SLOT_EXCLUSIVE,
+  );
+  return {
+    tourNoticeDays: normalizeTourNoticeDays(row.tourNoticeDays),
+    defaultTourStartSlot: startSlot,
+    defaultTourEndSlotExclusive: Math.max(startSlot + 1, endSlotExclusive),
+    defaultTourHorizonDays: normalizeHorizonDays(row.defaultTourHorizonDays),
+  };
 }
 
 export async function loadManagerTourSettings(
@@ -52,6 +101,32 @@ export async function loadManagerTourSettings(
  * omitted: the caller uses this to filter slots, and a missing entry would read as "no notice"
  * anyway. Callers that must not fail open should check `ok`.
  */
+export async function loadTourSettingsByManager(
+  db: SupabaseClient,
+  managerUserIds: readonly string[],
+): Promise<{ ok: boolean; settingsByManager: Map<string, ManagerTourSettings> }> {
+  const settingsByManager = new Map<string, ManagerTourSettings>();
+  const ids = [...new Set(managerUserIds.filter((id) => id?.trim()))];
+  if (ids.length === 0) return { ok: true, settingsByManager };
+  try {
+    const { data, error } = await db
+      .from("manager_automation_settings")
+      .select("manager_user_id, row_data")
+      .in("manager_user_id", ids);
+    if (error) return { ok: false, settingsByManager };
+    for (const row of (data ?? []) as { manager_user_id?: string | null; row_data?: unknown }[]) {
+      if (!row.manager_user_id) continue;
+      settingsByManager.set(
+        row.manager_user_id,
+        normalizeManagerTourSettings((row.row_data as Record<string, unknown> | null)?.[ROW_DATA_KEY]),
+      );
+    }
+    return { ok: true, settingsByManager };
+  } catch {
+    return { ok: false, settingsByManager };
+  }
+}
+
 export async function loadTourNoticeDaysByManager(
   db: SupabaseClient,
   managerUserIds: readonly string[],

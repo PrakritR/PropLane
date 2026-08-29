@@ -13,9 +13,15 @@ import {
 export function ManagerLeasesGroupedTable({
   clusters,
   onOpenLease,
+  selectedIds,
+  onToggleSelected,
+  selectable = true,
 }: {
   clusters: ManagerLeaseListCluster[];
   onOpenLease: (row: LeasePipelineRow) => void;
+  selectedIds?: Set<string>;
+  onToggleSelected?: (id: string) => void;
+  selectable?: boolean;
 }) {
   return (
     <div className="space-y-3" data-attr="leases-resident-groups">
@@ -42,12 +48,15 @@ export function ManagerLeasesGroupedTable({
         >
           <DataList
             hideColumnHeaders
-            selectable={false}
+            selectable={selectable && Boolean(onToggleSelected)}
             rows={cluster.rows.map((row) => ({
               id: row.id,
               data: row,
               primary: leaseUpdatedLabel(row),
               meta: leaseUnitMeta(row),
+              selected: selectedIds?.has(row.id),
+              onSelectedChange:
+                selectable && onToggleSelected ? () => onToggleSelected(row.id) : undefined,
               onClick: () => onOpenLease(row),
             }))}
             columns={[
