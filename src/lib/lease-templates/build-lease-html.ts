@@ -1168,7 +1168,7 @@ ${premisesDisclosureHtml}
 ${
   isMonthToMonthLease(a)
     ? `<p>The initial term is <strong>${leaseTerm}</strong>, beginning <strong>${leaseStart}</strong> and ending <strong>${leaseEnd}</strong>. ${leaseTermsBody}</p>
-<p>This tenancy is month-to-month and continues under the agreed terms until lawfully ended.</p>`
+<p>This tenancy is month-to-month and continues under the agreed terms until lawfully ended. Either party may provide written notice to terminate ${config.monthToMonthTerminationNotice ?? "within the period required by applicable law"}.</p>`
     : `<p>This is a fixed-term lease beginning <strong>${leaseStart}</strong> and ending <strong>${leaseEnd}</strong> (${leaseTerm}). ${leaseTermsBody}</p>
 <p>This Agreement automatically terminates at the end of the lease term and does not convert to a month-to-month tenancy unless both parties agree in writing.</p>
 <p>Resident agrees to vacate the Premises no later than <strong>12:00 PM</strong> on the final day of the lease term.${

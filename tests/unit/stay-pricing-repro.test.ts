@@ -628,4 +628,28 @@ describe("stay pricing: statewide leases do not carry another state's numeric te
     expect(html).toContain("does not convert to a month-to-month tenancy");
     expect(html).not.toContain("20 days before the end of any monthly rental period");
   });
+
+  it("a Washington MONTH-TO-MONTH lease states its termination notice period", () => {
+    // The notice governs an ongoing month-to-month tenancy, so the tenancy that
+    // still has one must print it — a month-to-month lease silent about how it
+    // may be ended is worse than either wording.
+    const propertyId = "prop-wa-mtm";
+    const property = seedListing(propertyId, room({ monthlyRent: 1200 }));
+    cachePublicExtraListings(
+      [{ ...property, address: "1500 Pike St, Seattle, WA", zip: "98101", neighborhood: "Belltown" }],
+      { silent: true },
+    );
+    const html = leaseHtml(application(propertyId, { leaseTerm: "Month-to-Month", leaseEnd: "" }));
+    expect(html).toContain("State of Washington");
+    expect(html).toContain("at least 20 days before the end of any monthly rental period");
+  });
+
+  it("a California MONTH-TO-MONTH lease asserts no unsourced notice period", () => {
+    const propertyId = "prop-ca-mtm";
+    seedListing(propertyId, room({ monthlyRent: 1200 }));
+    const html = leaseHtml(application(propertyId, { leaseTerm: "Month-to-Month", leaseEnd: "" }));
+    expect(html).toContain("State of California");
+    expect(html).not.toContain("20 days before the end of any monthly rental period");
+    expect(html).toContain("written notice to terminate within the period required by applicable law");
+  });
 });
