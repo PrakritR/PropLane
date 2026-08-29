@@ -36,11 +36,15 @@ import {
 } from "@/lib/manager-task-display";
 import {
   MANAGER_TASKS_EVENT,
+  MANAGER_TASK_PRIORITY_LABELS,
+  MANAGER_TASK_URGENCY_LABELS,
   deleteManagerTask,
   fetchManagerTasks,
+  inferManagerTaskUrgency,
   reapplyManagerTasksToCalendar,
   updateManagerTask,
   type ManagerTask,
+  type ManagerTaskPriority,
 } from "@/lib/manager-tasks";
 import {
   MANAGER_TASK_LIST_TAB_LABELS,
@@ -110,6 +114,45 @@ function TaskNotesSnippet({ notes }: { notes: string }) {
         </button>
       ) : null}
     </div>
+  );
+}
+
+/**
+ * Timing and priority read at a glance on the list, not only inside the edit
+ * modal — the point of recording them is that someone scanning the queue can
+ * tell what must happen now from what merely has a date.
+ */
+function ManagerTaskUrgencyBadge({ task }: { task: ManagerTask }) {
+  const urgency = inferManagerTaskUrgency(task);
+  // A scheduled task already prints its slot on the next line, so a badge
+  // saying "Scheduled" would just repeat it.
+  if (urgency === "scheduled") return null;
+  const urgent = urgency === "urgent";
+  return (
+    <span
+      className={`rounded-full border px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide ${
+        urgent ? "border-danger/30 bg-danger/10 text-danger" : "border-border bg-accent/40 text-muted"
+      }`}
+      data-attr={`manager-task-urgency-${urgency}`}
+    >
+      {MANAGER_TASK_URGENCY_LABELS[urgency]}
+    </span>
+  );
+}
+
+function ManagerTaskPriorityBadge({ priority }: { priority?: ManagerTaskPriority }) {
+  // Medium is the default, so badging it adds noise to every row without
+  // telling the reader anything.
+  if (!priority || priority === "medium") return null;
+  return (
+    <span
+      className={`rounded-full border px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide ${
+        priority === "high" ? "border-danger/30 text-danger" : "border-border text-muted"
+      }`}
+      data-attr={`manager-task-priority-${priority}`}
+    >
+      {MANAGER_TASK_PRIORITY_LABELS[priority]}
+    </span>
   );
 }
 
@@ -428,7 +471,11 @@ export function ManagerTaskList({
           data-attr="manager-task-row-open"
           onClick={() => beginEdit(task)}
         >
-          <p className={`font-semibold text-foreground ${completed ? "line-through" : ""}`}>{task.title}</p>
+          <div className="flex flex-wrap items-center gap-2">
+            <p className={`font-semibold text-foreground ${completed ? "line-through" : ""}`}>{task.title}</p>
+            <ManagerTaskUrgencyBadge task={task} />
+            <ManagerTaskPriorityBadge priority={task.priority} />
+          </div>
           <p className="text-sm text-muted">{formatTaskSchedule(task)}</p>
           {assigneeLabel ? <p className="text-xs text-muted">{assigneeLabel}</p> : null}
           {location ? <p className="text-xs text-muted">{location}</p> : null}

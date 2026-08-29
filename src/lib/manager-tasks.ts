@@ -20,6 +20,64 @@ export const MANAGER_TASK_TYPE_LABELS: Record<ManagerTaskType, string> = {
   work_order: "Work order",
 };
 
+/**
+ * How a task is timed, which is a different question from what it is about.
+ *
+ * - `scheduled` occupies a slot: it has a start and an end and lands on the
+ *   calendar as a block.
+ * - `deadline` has only a time to finish by. No slot is reserved; the calendar
+ *   shows a due marker.
+ * - `urgent` needs doing now. It has neither a slot nor a date to wait for.
+ *
+ * Kept separate from `priority` on purpose: how soon something must happen and
+ * how much it matters are independent. A low-priority task can still carry a
+ * hard deadline, and an urgent task is not automatically high priority.
+ */
+export const MANAGER_TASK_URGENCIES = ["scheduled", "urgent", "deadline"] as const;
+export type ManagerTaskUrgency = (typeof MANAGER_TASK_URGENCIES)[number];
+
+export const MANAGER_TASK_URGENCY_LABELS: Record<ManagerTaskUrgency, string> = {
+  scheduled: "Scheduled",
+  urgent: "Urgent",
+  deadline: "Deadline",
+};
+
+export const MANAGER_TASK_PRIORITIES = ["high", "medium", "low"] as const;
+export type ManagerTaskPriority = (typeof MANAGER_TASK_PRIORITIES)[number];
+
+export const MANAGER_TASK_PRIORITY_LABELS: Record<ManagerTaskPriority, string> = {
+  high: "High",
+  medium: "Medium",
+  low: "Low",
+};
+
+export function normalizeTaskUrgency(raw: unknown): ManagerTaskUrgency | undefined {
+  if (typeof raw !== "string") return undefined;
+  const value = raw.trim().toLowerCase() as ManagerTaskUrgency;
+  return MANAGER_TASK_URGENCIES.includes(value) ? value : undefined;
+}
+
+export function normalizeTaskPriority(raw: unknown): ManagerTaskPriority | undefined {
+  if (typeof raw !== "string") return undefined;
+  const value = raw.trim().toLowerCase() as ManagerTaskPriority;
+  return MANAGER_TASK_PRIORITIES.includes(value) ? value : undefined;
+}
+
+/**
+ * Urgency for a row saved before the field existed. Read it from the dates the
+ * task already carries rather than defaulting everything to "scheduled", which
+ * would claim a calendar slot that was never reserved.
+ */
+export function inferManagerTaskUrgency(
+  task: Pick<ManagerTask, "urgency" | "start" | "end" | "dueDate">,
+): ManagerTaskUrgency {
+  const explicit = normalizeTaskUrgency(task.urgency);
+  if (explicit) return explicit;
+  if (task.start?.trim() && task.end?.trim()) return "scheduled";
+  if (task.dueDate?.trim()) return "deadline";
+  return "urgent";
+}
+
 export type ManagerTask = {
   id: string;
   title: string;
@@ -41,6 +99,10 @@ export type ManagerTask = {
   assignee?: WorkAssignee;
   /** Distinguishes general, house, tour, and work-order rows in the task list. */
   taskType?: ManagerTaskType;
+  /** How the task is timed: a booked slot, a finish-by date, or do-it-now. */
+  urgency?: ManagerTaskUrgency;
+  /** How much the task matters, independent of when it must happen. */
+  priority?: ManagerTaskPriority;
   /** Planned tour event id when taskType is tour. */
   linkedTourId?: string;
   /** Work order row id when taskType is work_order. */
@@ -67,6 +129,8 @@ export type ManagerTaskInput = {
   dueDate?: string;
   assignee?: WorkAssignee | null;
   taskType?: ManagerTaskType;
+  urgency?: ManagerTaskUrgency;
+  priority?: ManagerTaskPriority;
   linkedTourId?: string;
   linkedWorkOrderId?: string;
 };
@@ -139,6 +203,8 @@ function normalizeTask(raw: unknown): ManagerTask | null {
     // Unusable assignees normalize to undefined rather than a name nobody can act on.
     assignee: normalizeAssignee(row.assignee) ?? undefined,
     taskType: normalizeTaskType(row.taskType),
+    urgency: normalizeTaskUrgency(row.urgency),
+    priority: normalizeTaskPriority(row.priority),
     linkedTourId: typeof row.linkedTourId === "string" ? row.linkedTourId.trim() || undefined : undefined,
     linkedWorkOrderId:
       typeof row.linkedWorkOrderId === "string" ? row.linkedWorkOrderId.trim() || undefined : undefined,
@@ -288,6 +354,8 @@ export async function createManagerTask(
     completed: false,
     assignee,
     taskType: normalizeTaskType(input.taskType) ?? "general",
+    urgency: normalizeTaskUrgency(input.urgency),
+    priority: normalizeTaskPriority(input.priority),
     linkedTourId: input.linkedTourId?.trim() || undefined,
     linkedWorkOrderId: input.linkedWorkOrderId?.trim() || undefined,
     createdAt: now,
@@ -335,6 +403,8 @@ export async function updateManagerTask(
       | "dueDate"
       | "durationMinutes"
       | "completed"
+      | "urgency"
+      | "priority"
     >
     // `assignee` is widened to accept null so an edit can UNASSIGN. `undefined` already means
     // "leave it alone" for every field in this patch, so without null there is no way to express
@@ -370,6 +440,10 @@ export async function updateManagerTask(
     propertyTitle:
       patch.propertyTitle !== undefined ? patch.propertyTitle?.trim() || undefined : current.propertyTitle,
     roomLabel: patch.roomLabel !== undefined ? patch.roomLabel?.trim() || undefined : current.roomLabel,
+    urgency:
+      patch.urgency !== undefined ? normalizeTaskUrgency(patch.urgency) : current.urgency,
+    priority:
+      patch.priority !== undefined ? normalizeTaskPriority(patch.priority) : current.priority,
     start,
     end,
     dueDate: start && end ? undefined : dueDate,

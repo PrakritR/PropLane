@@ -30,8 +30,15 @@ import {
 import {
   createManagerTask,
   fetchManagerTasks,
+  inferManagerTaskUrgency,
+  MANAGER_TASK_PRIORITIES,
+  MANAGER_TASK_PRIORITY_LABELS,
+  MANAGER_TASK_URGENCIES,
+  MANAGER_TASK_URGENCY_LABELS,
   reapplyManagerTasksToCalendar,
   updateManagerTask,
+  type ManagerTaskPriority,
+  type ManagerTaskUrgency,
 } from "@/lib/manager-tasks";
 import { scheduledTaskTitleForTour } from "@/lib/manager-scheduled-work-tasks";
 import { buildManagerPropertyFilterOptions } from "@/lib/manager-portfolio-access";
@@ -98,6 +105,9 @@ function defaultTourScheduleFields(): { scheduleDate: string; startTime: string 
 
 const EMPTY_FORM = {
   taskKind: "general" as ManagerTaskFormKind,
+  // A new task is a booked slot by default, matching the schedule fields below.
+  urgency: "scheduled" as ManagerTaskUrgency,
+  priority: "medium" as ManagerTaskPriority,
   title: "",
   notes: "",
   propertyId: "",
@@ -171,7 +181,9 @@ export function ManagerTaskFormModal({
     form.taskKind === "house" || form.taskKind === "tour" || form.taskKind === "work-order";
   const isTour = form.taskKind === "tour";
   const isWorkOrder = form.taskKind === "work-order";
-  const showDueDate = !form.scheduleDate && !isTour;
+  // A due date belongs to the deadline timing only: a scheduled task has a slot
+  // instead, and an urgent one is deliberately dateless.
+  const showDueDate = form.urgency === "deadline" && !isTour;
 
   useEffect(() => {
     if (!open) {
@@ -208,6 +220,10 @@ export function ManagerTaskFormModal({
         dueDate: localDatePart(task.dueDate),
         startTime: localTimePart(task.start),
         endTime: localTimePart(task.end),
+        // Rows saved before these fields existed carry no urgency; read it off
+        // the dates they already have rather than assuming a reserved slot.
+        urgency: inferManagerTaskUrgency(task),
+        priority: task.priority ?? "medium",
       });
       setAssignee(task.assignee ?? null);
       const match = getRoomOptionsForProperty(task.propertyId ?? "", { includeUnavailable: true }).find(
@@ -364,6 +380,8 @@ export function ManagerTaskFormModal({
         end: end ?? cleared,
         dueDate: dueDate ?? (editingId && !start && !end ? cleared : undefined),
         assignee,
+        urgency: form.urgency,
+        priority: form.priority,
       };
 
       if (editingId) {
@@ -676,6 +694,69 @@ export function ManagerTaskFormModal({
         ) : (
           <>
             <div className={PORTAL_MODAL_FORM_FIELD_CLASS}>
+              <label className={MODAL_FIELD_LABEL_CLASS} htmlFor="manager-task-urgency">
+                Timing
+              </label>
+              <Select
+                id="manager-task-urgency"
+                value={form.urgency}
+                onChange={(e) =>
+                  setForm((current) => {
+                    const urgency = e.target.value as ManagerTaskUrgency;
+                    // Each timing means a different set of dates. Clear the ones
+                    // the new choice does not use, so a task cannot claim a
+                    // calendar slot it no longer has, or keep a stale due date.
+                    if (urgency === "urgent") {
+                      return { ...current, urgency, scheduleDate: "", dueDate: "", startTime: "", endTime: "" };
+                    }
+                    if (urgency === "deadline") {
+                      return { ...current, urgency, scheduleDate: "", startTime: "", endTime: "" };
+                    }
+                    return { ...current, urgency, dueDate: "" };
+                  })
+                }
+                data-attr="manager-task-urgency"
+              >
+                {MANAGER_TASK_URGENCIES.map((value) => (
+                  <option key={value} value={value}>
+                    {MANAGER_TASK_URGENCY_LABELS[value]}
+                  </option>
+                ))}
+              </Select>
+              <p className="mt-1 text-xs text-muted">
+                {form.urgency === "scheduled"
+                  ? "Books a slot on the calendar."
+                  : form.urgency === "deadline"
+                    ? "Just a time to finish by — no slot is reserved."
+                    : "Needs doing now. No date is set."}
+              </p>
+            </div>
+
+            <div className={PORTAL_MODAL_FORM_FIELD_CLASS}>
+              <label className={MODAL_FIELD_LABEL_CLASS} htmlFor="manager-task-priority">
+                Priority
+              </label>
+              <Select
+                id="manager-task-priority"
+                value={form.priority}
+                onChange={(e) =>
+                  setForm((current) => ({
+                    ...current,
+                    priority: e.target.value as ManagerTaskPriority,
+                  }))
+                }
+                data-attr="manager-task-priority"
+              >
+                {MANAGER_TASK_PRIORITIES.map((value) => (
+                  <option key={value} value={value}>
+                    {MANAGER_TASK_PRIORITY_LABELS[value]}
+                  </option>
+                ))}
+              </Select>
+            </div>
+
+            {form.urgency === "scheduled" ? (
+            <div className={PORTAL_MODAL_FORM_FIELD_CLASS}>
               <label className={MODAL_FIELD_LABEL_CLASS} htmlFor="manager-task-schedule-date">
                 Schedule date (optional)
               </label>
@@ -693,6 +774,7 @@ export function ManagerTaskFormModal({
                 data-attr="manager-task-schedule-date"
               />
             </div>
+            ) : null}
 
             {showDueDate ? (
               <div className={PORTAL_MODAL_FORM_FIELD_CLASS}>
@@ -709,6 +791,7 @@ export function ManagerTaskFormModal({
               </div>
             ) : null}
 
+            {form.urgency === "scheduled" ? (
             <div className="grid gap-4 sm:col-span-2 sm:grid-cols-2">
               <div className={PORTAL_MODAL_FORM_FIELD_CLASS}>
                 <label className={MODAL_FIELD_LABEL_CLASS} htmlFor="manager-task-start-time">
@@ -737,6 +820,7 @@ export function ManagerTaskFormModal({
                 />
               </div>
             </div>
+            ) : null}
           </>
         )}
 
