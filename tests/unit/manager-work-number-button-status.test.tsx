@@ -15,6 +15,7 @@ const status: ManagerMessagingNumberStatus = {
   workspaceRole: "primary",
   provisioningAvailable: false,
   sendingAvailable: false,
+  planTier: "paid",
   entitlement: { eligible: true, tier: "pro", source: "stripe" },
   number: null,
   canRequest: false,
@@ -40,6 +41,63 @@ describe("ManagerWorkNumberButton", () => {
       "/api/manager/messaging-number",
       expect.objectContaining({ cache: "no-store", credentials: "include" }),
     );
+  });
+
+  it("shows a greyed, non-actionable upsell with a tooltip for free plans", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => Response.json({ ...status, planTier: "free" })),
+    );
+    render(<ManagerWorkNumberButton />);
+
+    const button = await screen.findByRole("button", {
+      name: "Subscribe to Pro to unlock SMS",
+    });
+    expect(button).toBeDisabled();
+    expect(button.getAttribute("title")).toBe("Subscribe to Pro to unlock SMS");
+    // A free plan never gets a setup link.
+    expect(screen.queryByRole("link")).toBeNull();
+  });
+
+  it("renders nothing once a work number is assigned", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        Response.json({
+          ...status,
+          number: {
+            state: "active",
+            registrationState: "approved",
+            carrierRegistrationState: "registered",
+            attachmentState: "attached",
+            phoneNumber: "+12065551234",
+            lastError: null,
+          },
+        }),
+      ),
+    );
+    const { container } = render(<ManagerWorkNumberButton />);
+
+    await waitFor(() =>
+      expect(container.querySelector("a,button")).toBeNull(),
+    );
+  });
+
+  it("does not show the free upsell to a co-manager (no billing control)", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        Response.json({
+          ...status,
+          planTier: "free",
+          workspaceRole: "co_manager",
+        }),
+      ),
+    );
+    render(<ManagerWorkNumberButton />);
+
+    const link = await screen.findByRole("link", { name: "View messaging" });
+    expect(link.getAttribute("href")).toBe("/portal/profile?tab=messaging");
   });
 
   it("links co-managers to honest read-only messaging details", async () => {

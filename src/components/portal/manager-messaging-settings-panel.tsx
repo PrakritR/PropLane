@@ -75,24 +75,31 @@ function entitlementIsUnverified(
   );
 }
 
-function entitlementMessage(
+/**
+ * The upsell/billing line shown above "View plans". Only a genuinely FREE plan,
+ * or a paid plan whose subscription has lapsed, warrants it. A paid manager
+ * whose entitlement simply hasn't been reconciled yet (`legacy_unknown` /
+ * `plan_unreadable` — the state of every paid account before its first number
+ * request) must NOT see a free-tier prompt; it falls through to the request
+ * flow, where POST performs the authoritative Stripe/Apple reconciliation.
+ */
+function messagingUpsellMessage(
   status: ManagerMessagingNumberStatus,
 ): string | null {
+  if (status.planTier === "free") {
+    return "A dedicated number is included with an active paid Pro or Business plan.";
+  }
   if (status.entitlement.eligible) return null;
   switch (status.entitlement.reason) {
-    case "free":
-      return "A dedicated number is included with an active paid Pro or Business plan.";
     case "trialing":
       return "Dedicated messaging becomes available after your paid subscription begins.";
     case "past_due":
       return "Update your billing details to restore messaging eligibility.";
     case "canceled":
       return "Restart a paid Pro or Business plan to request a messaging number.";
-    case "legacy_unknown":
-    case "plan_unreadable":
-      // Not necessarily a failure - a new account simply has never been checked
-      // against billing. "Check eligibility" below is what settles it.
-      return "Your messaging eligibility hasn't been checked against your plan yet.";
+    default:
+      // free / legacy_unknown / plan_unreadable on a paid-or-unknown plan.
+      return null;
   }
 }
 
@@ -339,7 +346,6 @@ export function ManagerMessagingSettingsPanel({
       });
       if (!result.ok) {
         setError(result.error ?? "Could not notify residents.");
-        showToast(result.error ?? "Could not notify residents.");
         return;
       }
       track("work_number_announce_sent", {
@@ -358,7 +364,6 @@ export function ManagerMessagingSettingsPanel({
       );
     } catch {
       setError("Could not notify residents.");
-      showToast("Could not notify residents.");
     } finally {
       setAnnounceBusy(false);
     }
@@ -431,7 +436,7 @@ export function ManagerMessagingSettingsPanel({
     );
   }
 
-  const planMessage = entitlementMessage(status);
+  const planMessage = messagingUpsellMessage(status);
   const phoneNumber = status.number?.phoneNumber ?? null;
   const isCoManager = status.workspaceRole === "co_manager";
   const unverifiedEntitlement = entitlementIsUnverified(status);

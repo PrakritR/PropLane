@@ -24,6 +24,30 @@ export function twilioWebhookAuthToken(): string | null {
 }
 
 /**
+ * Pull the structured fields off a Twilio `RestException` for logging. The SDK
+ * puts the API response body's `message` / `code` / `more_info` / HTTP `status`
+ * on the thrown error; logging only `code` (as this codebase used to) leaves an
+ * undocumented code like 8021 unidentifiable. `more_info` is a Twilio doc URL,
+ * and neither field is a secret, so both are safe to log. Falls back to the
+ * stringified value for non-Twilio throwables.
+ */
+export function twilioErrorFields(e: unknown): {
+  status?: number;
+  code?: string;
+  message?: string;
+  moreInfo?: string;
+} {
+  if (typeof e !== "object" || e === null) return { message: String(e) };
+  const err = e as Record<string, unknown>;
+  return {
+    status: typeof err.status === "number" ? err.status : undefined,
+    code: err.code != null ? String(err.code) : undefined,
+    message: typeof err.message === "string" ? err.message : undefined,
+    moreInfo: typeof err.moreInfo === "string" ? err.moreInfo : undefined,
+  };
+}
+
+/**
  * Resolve Twilio's immutable creation time for an inbound message. Webhook
  * delivery time is not message order: a retry can arrive after a newer STOP.
  * Control-keyword handling therefore uses this provider-grounded timestamp.

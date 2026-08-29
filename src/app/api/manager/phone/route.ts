@@ -3,7 +3,7 @@ import { NextResponse } from "next/server";
 import { managerContactSmsPhoneForPublicCta } from "@/lib/claw-leasing-links";
 import { scheduleManagerMessagingReady } from "@/lib/proplane-sms-transport.server";
 import { sendSms } from "@/lib/twilio";
-import { createTwilioRestClient } from "@/lib/twilio-client.server";
+import { createTwilioRestClient, twilioErrorFields } from "@/lib/twilio-client.server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 
@@ -280,7 +280,16 @@ export async function POST(req: Request) {
       return NextResponse.json({ ok: true });
     } catch (e) {
       const detail = twilioFailureDetail(e);
-      console.error("Twilio Verify send failed", { userId: user.id, ...detail });
+      // Log the FULL Twilio error (message + more_info URL + HTTP status), not
+      // just the code — an undocumented code like 8021 is meaningless alone, and
+      // the message names the real cause (e.g. a Verify Service SID that belongs
+      // to a different Twilio account than the API key). `serviceSid` is a
+      // resource id, not a secret, and pins which service was called.
+      console.error("Twilio Verify send failed", {
+        userId: user.id,
+        serviceSid: verifyServiceSid(),
+        ...twilioErrorFields(e),
+      });
       await rollBackFailedSend(db, user.id, priorVerification);
       return NextResponse.json(
         {

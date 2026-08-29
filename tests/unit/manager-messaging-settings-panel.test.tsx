@@ -24,6 +24,7 @@ const pausedStatus: ManagerMessagingNumberStatus = {
   workspaceRole: "primary",
   provisioningAvailable: false,
   sendingAvailable: false,
+  planTier: "paid",
   entitlement: { eligible: true, tier: "pro", source: "stripe" },
   number: null,
   canRequest: false,
@@ -328,6 +329,7 @@ describe("ManagerMessagingSettingsPanel", () => {
     // is a dead end: no number to request, nothing to buy, nothing to retry.
     const unchecked: ManagerMessagingNumberStatus = {
       ...pausedStatus,
+      planTier: "unknown",
       entitlement: { eligible: false, reason: "plan_unreadable" },
       number: null,
     };
@@ -337,6 +339,9 @@ describe("ManagerMessagingSettingsPanel", () => {
       .mockResolvedValueOnce(
         Response.json({
           ...unchecked,
+          // Once reconciled, the plan class settles — here to a confirmed free
+          // plan, which is what the upsell copy keys off under plan-tier gating.
+          planTier: "free",
           entitlement: { eligible: false, reason: "free" },
         }),
       );
@@ -359,18 +364,46 @@ describe("ManagerMessagingSettingsPanel", () => {
     expect(screen.getByRole("link", { name: "View plans" })).toBeTruthy();
   });
 
-  it("gives ineligible managers a direct path to billing", async () => {
-    const ineligible: ManagerMessagingNumberStatus = {
+  it("gives free-plan managers a direct path to billing", async () => {
+    const freePlan: ManagerMessagingNumberStatus = {
       ...pausedStatus,
+      planTier: "free",
       entitlement: { eligible: false, reason: "free" },
     };
     vi.stubGlobal(
       "fetch",
-      vi.fn(async () => Response.json(ineligible)),
+      vi.fn(async () => Response.json(freePlan)),
     );
     render(<ManagerMessagingSettingsPanel />);
 
     const link = await screen.findByRole("link", { name: "View plans" });
     expect(link.getAttribute("href")).toBe("/portal/profile?tab=billing");
+  });
+
+  it("never shows a paid manager the free-tier upsell while entitlement is unreconciled", async () => {
+    // The reported bug: a Business account whose sms_manager_entitlements row
+    // has not been written yet resolves to `plan_unreadable`. The upsell must
+    // NOT appear — the panel falls through to the request/rollout flow.
+    const paidUnreconciled: ManagerMessagingNumberStatus = {
+      ...pausedStatus,
+      planTier: "paid",
+      entitlement: { eligible: false, reason: "plan_unreadable" },
+    };
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => Response.json(paidUnreconciled)),
+    );
+    render(<ManagerMessagingSettingsPanel />);
+
+    // Rollout copy proves the panel resolved to the non-upsell branch.
+    await screen.findByText("Dedicated number setup is in a limited rollout.", {
+      exact: false,
+    });
+    expect(screen.queryByRole("link", { name: "View plans" })).toBeNull();
+    expect(
+      screen.queryByText("We could not verify your messaging eligibility.", {
+        exact: false,
+      }),
+    ).toBeNull();
   });
 });

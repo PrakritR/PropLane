@@ -18,7 +18,11 @@ import { ManagerSmsContactModal } from "@/components/portal/manager-sms-contact-
 import { PortalCommunicationShell } from "@/components/portal/portal-communication-shell";
 import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
 import { ManagerPortalSettingsModal } from "@/components/portal/manager-portal-settings-modal";
-import { PORTAL_HEADER_ACTION_BTN, PORTAL_HEADER_PRIMARY_ACTION_BTN } from "@/components/portal/portal-metrics";
+import {
+  PORTAL_HEADER_ACTION_BTN,
+  PORTAL_HEADER_PRIMARY_ACTION_BTN,
+  PORTAL_COMMAND_PRIMARY_ACTION_STYLE,
+} from "@/components/portal/portal-metrics";
 import {
   axisAdminFilterContact,
   EMPTY_COMMUNICATION_THREAD_FILTERS,
@@ -263,8 +267,8 @@ export function ManagerCommunication({
   const communicationNewMessageButton = (
     <Button
       type="button"
-      variant="outline"
       className={`shrink-0 ${PORTAL_HEADER_PRIMARY_ACTION_BTN}`}
+      style={PORTAL_COMMAND_PRIMARY_ACTION_STYLE}
       data-attr="communication-new-message"
       aria-label="New message"
       onClick={() => openCompose("email")}
@@ -278,7 +282,11 @@ export function ManagerCommunication({
 
   const communicationHeaderActions = (
     <>
-      {smsUiEnabled ? <ManagerWorkNumberButton /> : null}
+      {/* Plan-gated setup CTA: shown regardless of the SMS-inbox A2P flag so a
+          paid manager can begin work-number setup (and a free manager sees the
+          upsell) before the inbox surface is switched on. It self-hides once a
+          number is assigned. */}
+      <ManagerWorkNumberButton />
       {smsUiEnabled ? (
         <Button
           type="button"
