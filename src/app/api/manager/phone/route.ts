@@ -91,6 +91,35 @@ async function rollBackFailedSend(
   }
 }
 
+/**
+ * Pull the operator-actionable part of a Twilio REST failure.
+ *
+ * The SDK surfaces `code` most readily, so a dead credential logged as bare
+ * `code: 8021` and nothing else - unreadable without looking the number up.
+ * That number means "required permission twilio/verify/service/read is
+ * missing": a restricted API key with no Verify scope, which NO retry can fix.
+ * Telling the person "try again shortly" for that is a lie that loops forever,
+ * so a 401/403 is reported as a setup fault instead, and the log carries
+ * Twilio's own sentence. Never returned to the client - it names account ids.
+ */
+function twilioFailureDetail(e: unknown): {
+  code?: string;
+  status?: number;
+  message?: string;
+  misconfigured: boolean;
+} {
+  const err = (typeof e === "object" && e ? e : {}) as Record<string, unknown>;
+  const status = typeof err.status === "number" ? err.status : undefined;
+  return {
+    code: err.code === undefined ? undefined : String(err.code),
+    status,
+    message: typeof err.message === "string" ? err.message : undefined,
+    // 401/403 is a credential or permission fault an operator must fix, never
+    // a transient condition the caller can retry past.
+    misconfigured: status === 401 || status === 403,
+  };
+}
+
 async function requireUser() {
   const supabase = await createSupabaseServerClient();
   const {
@@ -250,14 +279,16 @@ export async function POST(req: Request) {
       await client.verify.v2.services(verifyServiceSid()!).verifications.create({ to: phone, channel: "sms" });
       return NextResponse.json({ ok: true });
     } catch (e) {
-      console.error("Twilio Verify send failed", {
-        userId: user.id,
-        code: typeof e === "object" && e && "code" in e ? String(e.code) : undefined,
-      });
+      const detail = twilioFailureDetail(e);
+      console.error("Twilio Verify send failed", { userId: user.id, ...detail });
       await rollBackFailedSend(db, user.id, priorVerification);
       return NextResponse.json(
-        { error: "Could not send verification code. Try again shortly." },
-        { status: 502 },
+        {
+          error: detail.misconfigured
+            ? "Text verification is not set up on this deployment yet. The details are in the server log for an operator."
+            : "Could not send verification code. Try again shortly.",
+        },
+        { status: detail.misconfigured ? 503 : 502 },
       );
     }
   }
