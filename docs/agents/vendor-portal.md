@@ -15,18 +15,22 @@ auth flow (`portal-access.ts`, `set-active-portal`, `resolve-oauth-portal-access
 extended in lockstep — when adding a 5th role, grep for `"resident" ===` /
 `"manager" ===` literal chains rather than assuming one canonical `isAuthRole`.
 
-**Portal registry.** `src/lib/portals/vendor.ts` defines 5 sections: Home
-(`dashboard`), Services (section key stays `work-orders`, relabeled from "Work
-Orders" as part of the mobile-nav-m1 overhaul), Calendar, Inbox, Profile.
+**Portal registry.** `src/lib/portals/vendor.ts` is the section list — read it
+rather than a copy here. Two naming notes that outlive any list: Services keeps
+the section key `work-orders` (relabeled from "Work Orders" in the mobile-nav-m1
+overhaul), and Tasks is `task-list`, the vendor's view of manager tasks assigned
+to them (`VendorTaskList`, `GET/PATCH /api/vendor/tasks`, tabs
+`in-progress`/`completed`, a bare `/vendor/task-list` redirecting to the first).
 Routes live at `src/app/vendor/layout.tsx` +
 `src/app/vendor/[section]/[[...tab]]/page.tsx`, copied from the resident
 portal shell. Render handlers are in `render-portal-section.tsx` under
 `kind === "vendor"` blocks (after the resident blocks, before the generic
-tabbed-workspace fallback). Native bottom bar primary set
-(`NATIVE_BOTTOM_NAV_VENDOR_PRIMARY` in `src/lib/native/portal-bottom-nav.ts`)
-is Services/Calendar/Inbox (3 tabs, no "More" tab) — Dashboard and Profile are
-reached via the shared `PortalMobileNavBar` (back arrow + top-right profile
-menu), which every portal's mobile/native layout renders now.
+tabbed-workspace fallback). The native bottom bar's primary set is
+`NATIVE_BOTTOM_NAV_VENDOR_PRIMARY` and its full order is
+`NATIVE_BOTTOM_NAV_VENDOR_ORDER` (`src/lib/native/portal-bottom-nav.ts`), which
+must stay in sync with the registry — Dashboard and Settings are reached via the
+shared `PortalMobileNavBar` (back arrow + top-right profile menu), which every
+portal's mobile/native layout renders now.
 
 **Invite → signup linking.** A manager's "Send invite" (Vendors — reachable at
 `/portal/relationships/vendors`, the `ManagerVendorsPanel` component under the

@@ -98,6 +98,23 @@ Phase 3 excludes non-income accounts properly.
 
 **Deploy:** `npm run db:push` for `security_deposit_ledger` + bank tables before sub-ledger writes succeed.
 
+**Returning a deposit from the ledger panel** is a second, narrower path beside
+`dispose`: `POST /api/portal/deposit-return` refunds the resident's original
+Stripe charge in full or in part. `src/lib/deposit-return.ts` holds the whole
+decision and touches neither Stripe nor the database — it refuses anything that
+is not a paid, settled `security_deposit` with a Stripe charge id and remaining
+balance, so a cash/Zelle deposit or an unsettled ACH debit is turned away rather
+than guessed at. The route re-reads ownership, the amount already returned, and
+the charge id server-side; the client supplies only the charge id and an optional
+amount.
+
+**That route deliberately writes NO ledger entry**, which is the one documented
+exception to "post next to the DB write": Stripe's `charge.refunded` webhook
+already reverses the deposit liability, and it fires whether the refund came from
+this button or from the Stripe dashboard, so it is the only place that can be
+correct for both. Writing here too would double-count every return. Coverage:
+`tests/unit/deposit-return.test.ts`, `tests/unit/deposit-return-route.test.ts`.
+
 # Financials Phase 5: AP bills, budgets, owner statements
 
 **Schema** — `supabase/migrations/20260712120000_manager_bills_ap.sql`: `manager_bills`, `manager_budgets`, `manager_property_owners`, `manager_reserve_policies`, `manager_owner_distributions`; `vendor_invoices.bill_id` FK to `manager_bills`.

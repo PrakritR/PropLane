@@ -40,6 +40,26 @@ and silently revokes C while the co-manager card still lists the property —
 already-accepted forged link is not re-checked at use, so the invite table must
 be audited per environment before release.
 
+**Co-manager linking is a PAID capability, on both sides.**
+`POST /api/pro/account-links` refuses with 403 unless the inviter AND the invitee
+are each on Pro or Business (`managerPlanAllowsCoManagerInvites`, which counts the
+signup trial). That is checked before the per-tier link cap, so a Free account
+gets "upgrade" rather than "at your limit".
+
+When a manager drops to Free, access must not outlive the plan:
+`disconnectCoManagerLinksForPlanDowngrade`
+(`co-manager-plan-reconcile.server.ts`) cancels every `manager` link they
+participate in — inviter or invitee — and deletes the matching relationship rows.
+It is called from `syncManagerPurchaseTierState`, i.e. on ordinary portal reads,
+and wrapped in a `try`/`catch` so a failure never blocks the read. Because
+revocation is irreversible it runs ONLY on a tier positively read as free:
+`getManagerPurchaseSku` reports `tier: null` both for "no committed SKU" and for
+a failed read, so `readFailed` and an unresolvable tier are no-ops, never a
+downgrade. Same reasoning as the property cap in
+[`plan-entitlements.md`](plan-entitlements.md) — a plan that cannot be read is
+never treated as Free. Coverage: `tests/unit/co-manager-plan-reconcile.test.ts`,
+`tests/unit/manager-access.test.ts`.
+
 **Server scoping** — `src/lib/auth/co-manager-module-scope.ts`:
 `linkedPropertyIdsForModule` (property-keyed tables),
 `linkedOwnerScopeForModule` (owner-keyed tables like the vendor directory),

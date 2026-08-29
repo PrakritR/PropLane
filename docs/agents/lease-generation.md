@@ -1116,6 +1116,15 @@ consumes `stay` too. When `stay.basis === "daily"`:
 - a month-to-month surcharge is NOT folded into the rate (that would print a daily rate $25 too
   high); it stays its own monthly line.
 
+**When a billing snapshot exists, the prorated block PRINTS the ledger's own
+numbers.** `proratedBlock` still computes days-remaining × rate for the table's
+rate and day columns, but `ledgerProratedRent` / `ledgerProratedUtilities` (from
+`ctx.leaseBilling`) override the amounts and the total when present — so the
+document cannot quote a first-month figure the ledger will not charge, which is
+the same rule as `resolveStayPricing`. It also makes the section render for a
+lease starting on the 1st, which the day-based math alone would have suppressed:
+a snapshot with a prorated amount means there IS something to disclose.
+
 **The deposit keys on `rentalType`, not on the resolved `stayKind`.** That asymmetry is
 deliberate and load-bearing: only an explicit short-term application is charged
 `sub.shortTermDeposit`; a daily-priced room on a standard application is charged
@@ -1367,6 +1376,18 @@ That asymmetry is the same rule as the lodger statute: a wrong number on an exec
 worse than no number. Do not populate a jurisdiction's field without a source verified for
 THAT jurisdiction.
 
+**The Entry section has a Washington variant, selected by the CITATION string.**
+`washingtonStyleEntry` is `config.landlordEntryStatuteRef?.includes("RCW")` — WA
+and Seattle print "notice required under Washington law" rather than the generic
+"at least 24 hours' advance written notice", because the fixed 24-hour figure is
+a WA-specific number that was being asserted everywhere. Both variants state
+emergency entry and that shared/common areas carry no exclusive possession. The
+heading is "Entry", not "Landlord Entry", in both the long form and the
+short-term document. Deriving the variant from a citation substring is
+deliberate shorthand, not a general jurisdiction switch: a future config that
+cites an RCW for some other reason would inherit the WA wording, so give the
+variant its own config flag before adding one.
+
 `SEATTLE_LEASE_CONFIG` now derives from `WASHINGTON_LEASE_CONFIG` and
 `SAN_FRANCISCO_LEASE_CONFIG` from `CALIFORNIA_LEASE_CONFIG` (spread + override), so a
 state-level statute or term is written once. Duplicating them meant a citation update had to
@@ -1526,14 +1547,14 @@ fee, and charge snapshot inputs used by the new unit coverage.
 | Lease Summary | Already present for branded Seattle leases with billing data. P9 adds Landlord and reads rent, utilities, total monthly payment, and payment due at signing from the billing snapshot. First partial month is one combined ledger-derived amount. |
 | Parties, premises, lease term, rent, deposits, returned payments, utilities, occupancy, shared spaces, rules, pets, maintenance, entry, assignment, insurance, default, early termination, payment order, notices, lead paint, governing law, attorney fees, application, schedule, signature, Addenda A-E | Already present, with stable tested order. |
 | Delivery of possession | Added. It states delayed-possession rent abatement and defers remedies to applicable law. The reference's fourteen-day termination interval is deliberately not copied. |
-| Early termination economics | Added only when the listing configures a break-lease fee or lease-up percentage. Continuing liability remains until replacement possession or end of term. |
-| Holdover | Added only when the listing configures a daily rate. It explicitly says the fixed term does not convert to month-to-month. |
+| Early termination economics | Rendered when a break-lease fee or lease-up percentage resolves — from the listing, else from the jurisdiction default (see below). It itemizes the fee, the lease-up percentage, continuing liability until replacement possession or end of term, any re-rent shortfall, and actual re-renting costs. |
+| Holdover | The fixed-term Lease Term section now states unconditionally that the lease terminates at the end of the term and does not convert to month-to-month, with a 12:00 PM vacate time. A per-day holdover charge is appended only when a daily rate resolves. A month-to-month lease instead prints `monthToMonthTerminationNotice`. |
 | Deposit labor and reissue fees | The deduction categories were present. Labor and reissue amounts now render only from optional listing fields. |
 | Move-in condition | Existing Addendum A supplies the area-by-area report. P9 removes the unrelated five-day default and makes a signed report supersede the baseline acknowledgement. |
 | Utility usage, trash, cleaning access | Existing usage language is retained. Trash fee is listing-configured; cleaning and access responsibilities are now explicit. |
 | Bathroom sharing, quiet hours, guest cap | Bathroom wording now derives from the room-to-bathroom listing assignment. Quiet hours and guest cap render only when configured. |
 | Safety devices and fire safety | Maintenance now includes smoke alarms, CO alarms, egress, and water-heater controls. Citations are optional config fields and are unset pending verification. |
-| Keys and access devices | Already present in Landlord Entry. |
+| Keys and access devices | Already present in the Entry section (titled "Landlord Entry" before the WA rewrite below). |
 | Move-out and professional cleaning | Added only when the listing requires it. It requires a paid invoice and limits any deduction to a documented invoice and applicable law. |
 | Venue | Renders only from the optional listing venue field. |
 
@@ -1541,13 +1562,14 @@ fee, and charge snapshot inputs used by the new unit coverage.
 
 All fields below live on `ManagerListingSubmissionV1`. Empty, invalid, or absent values
 normalize to `undefined`. The builder omits the associated term rather than printing a
-zero, a default amount, or a term borrowed from another listing.
+zero or a term borrowed from another listing — with one exception, the three termination
+fields, which now fall back to a platform default (see below the table).
 
 | Field | Renders when set | Unset behavior |
 | --- | --- | --- |
-| `longTermBreakLeaseFee` | fixed early-termination fee | fee sentence absent |
-| `longTermLeaseUpFeePercent` | percentage lease-up fee | fee sentence absent |
-| `longTermHoldoverDailyRate` | daily holdover rate and no-conversion statement | whole holdover clause absent |
+| `longTermBreakLeaseFee` | fixed early-termination fee | **jurisdiction default** (WA `$900`), else absent |
+| `longTermLeaseUpFeePercent` | percentage lease-up fee | **jurisdiction default** (WA `100%`), else absent |
+| `longTermHoldoverDailyRate` | per-day holdover charge | **jurisdiction default** (WA `$45`), else absent — the no-conversion statement renders either way |
 | `longTermReturnedPaymentFee` | returned-payment fee | fee sentence absent; general actual-cost language remains |
 | `longTermDepositLaborRate` | manager labor rate in deposit deductions | generic documented-cost language |
 | `longTermDepositReissueFee` | stop-payment or refund reissue fee | sentence absent |
@@ -1557,6 +1579,20 @@ zero, a default amount, or a term borrowed from another listing.
 | `longTermDisputeVenue` | venue sentence | sentence absent |
 | `longTermProfessionalCleaningRequired` | professional-cleaning move-out section | whole move-out section absent |
 
+**The three termination fields above are no longer omit-when-unset.** They now fall
+back to platform defaults on two levels: `createDefaultListingSubmission` seeds a
+new listing with `$900` / `100%` / `$45`, and
+`WASHINGTON_LEASE_CONFIG` supplies the same figures as
+`defaultLongTermBreakLeaseFeeUsd` / `defaultLongTermLeaseUpFeePercent` /
+`defaultLongTermHoldoverDailyUsd` for any listing that carries none
+(`resolveLongTermFeeAmount` in `build-lease-html.ts`). These are commercial
+defaults for this operator, NOT statutory figures, and no other jurisdiction sets
+them — a California lease still omits the terms entirely. An explicit listing
+value always wins, and a listing value of `0`/blank is treated as "not set", so
+it inherits the default rather than printing a zero. The fees also render as rows
+in the Exhibit fee table. When you add a jurisdiction, do not copy these numbers
+into it; they are one operator's terms, not a state rule.
+
 `lateFeeAmount` and `lateFeeEnabled` already existed. The long form uses the listing's
 configured late fee when supplied and omits the late-fee paragraph when it is disabled.
 The existing `monthToMonthSurcharge` is not rendered because the billing snapshot and
@@ -1564,12 +1600,18 @@ household-charge ledger do not charge it.
 
 ### Citations added in the template config
 
-P9 adds optional config slots only: `returnedPaymentStatuteRef`,
+P9 added optional config slots only: `returnedPaymentStatuteRef`,
 `earlyTerminationStatuteRef`, `smokeAlarmStatuteRef`, and
-`carbonMonoxideAlarmStatuteRef`. No new citation value was populated. The reference PDF
-is a source for this manager's commercial terms, not verification for a state statute.
+`carbonMonoxideAlarmStatuteRef`. The reference PDF is a source for this manager's
+commercial terms, not verification for a state statute, so P9 populated none of them.
 The regression test proves an unset citation still renders the returned-payment clause
 without a Washington citation.
+
+**One has since been populated:** `WASHINGTON_LEASE_CONFIG.earlyTerminationStatuteRef`
+is now `RCW 59.18.310`, and the WA early-termination clause cites it. The other three
+slots remain unset for every jurisdiction. Nothing else changed about the rule — a
+citation is populated from a verified official source for THAT jurisdiction or not at
+all, and California still cites nothing.
 
 ### Deliberately deferred clauses
 
@@ -1577,9 +1619,10 @@ without a Washington citation.
   deadline, detailed liability cap and indemnity, crime, package, parking, bike-storage
   allocation, and the complete lettered maintenance list are not default platform terms.
   They need manager-controlled data and legal review before they can be emitted.
-- The reference's Washington citations for late possession, early termination, smoke
-  alarms, CO alarms, and cure procedures were not added or inferred. A verified official
-  source is required before populating a jurisdiction config.
+- The reference's Washington citations for late possession, smoke alarms, CO alarms, and
+  cure procedures were not added or inferred. A verified official source is required
+  before populating a jurisdiction config. (Early termination is the one that has since
+  been populated — see "Citations added in the template config" above.)
 - The disclosure rules engine owns lead-paint disclosure content. P9 does not add a second
   disclosure or change its trigger.
 - These optional fields have a normalization and generation path, but the manager listing

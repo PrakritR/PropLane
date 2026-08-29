@@ -97,4 +97,27 @@ Cancel/reschedule of a CONFIRMED tour go through
 emailed them "your tour is confirmed". A client-side store rewrite reaches
 nobody. Those routes write server-side, so the caller must
 `syncScheduleRecordsFromServer({ force: true })` afterwards or the grid and the
-view-tab counts keep showing the pre-change tour until a manual reload.
+view-tab counts keep showing the pre-change tour until a manual reload. Both
+routes accept an optional `subject` + `messageBody` so the manager can replace
+the default notification copy; unset falls back to the builders in
+`tour-notifications.ts`.
+
+A PENDING request is moved with a different route:
+`POST /api/portal-tour-inquiries/propose-reschedule` rewrites the requested
+window and emails the guest a *proposal* to confirm
+(`buildTourRescheduleConfirmRequestBody`) — nothing is booked, and the inquiry
+stays `pending`. It refuses anything that is not a pending `tour` the caller
+owns, and refuses with 409 when `previousStart`/`previousEnd` no longer match the
+stored window, so two managers editing the same request cannot silently overwrite
+each other.
+
+**A manager can also book a tour with no inquiry behind it.**
+`POST /api/portal/manual-tour` → `createManualPlannedTour`
+(`manual-planned-tour.server.ts`) writes a planned event directly for a walk-in
+or phone booking. It authorizes the property through
+`getShareablePropertyForUser` / direct ownership / admin / an accepted co-manager
+assignment, refuses a slot an active planned tour already occupies, validates the
+assignee with `canAssign`, and syncs to Google Calendar. This is the one booking
+path that is NOT the proposal gate above — it is the manager entering something
+that already happened offline, so there is nobody to propose to. The demo branch
+(`manual-planned-tour.client.ts`) writes locally and never calls the route.

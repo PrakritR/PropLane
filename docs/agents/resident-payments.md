@@ -11,8 +11,15 @@ absorbs" model):
 | Manager plan | Who pays the service fee |
 | --- | --- |
 | **Free** | The **resident** — added on top of what they pay. Always. |
-| **Pro** | The **manager chooses** — resident, manager, or PropLane. Default **resident**. |
+| **Pro** | The **manager chooses** — resident or manager. Default **resident**. |
 | **Business** | The **manager chooses** — resident, manager, or PropLane. Defaults to **PropLane** for existing Business accounts (migrated on first Payment setup open). |
+
+`proplane` (PropLane absorbing Stripe's cost so neither party is charged) is a
+**Business** entitlement. Arriving from a manager- or property-writable field on
+Free or Pro it is discarded and read as `resident`, because the settings UI never
+offers it there — honouring it would let a manager stop paying fees by writing
+one word into their own record. Staff can still direct it at PropLane on any
+plan; see the override below.
 
 **The money still lands in the manager's own connected account.** Every resident
 payment stays a Connect **destination charge** on the PLATFORM account
@@ -32,6 +39,12 @@ moves, via `application_fee_amount`:
 - `resolveServiceFeePayer(tier, proChoice)` — the plan rule above. `tier` is the
   normalized SKU tier (`normalizeManagerSkuTier(...) ?? "free"`), so a
   legacy/unknown tier resolves to `resident`.
+- `resolveServiceFeePayerFor({ tier, adminOverride, propertyChoice, managerChoice })`
+  — the ONE resolver the money paths call. Precedence, most specific first:
+  **staff override → the property's own Pricing setting → the manager's account
+  default → `resident`**. Steps 2-4 stay subject to the plan rule above; the
+  staff override deliberately ignores it, because staff absorbing a free-tier
+  manager's fees is the whole point of that control.
 - `residentServiceFeeBreakdown(subtotal, method, feePayer)` — how the fee lands
   (resident total, retained `application_fee_amount`, manager payout). The
   checkout builder and every disclosure derive from this, holding the invariant
@@ -47,7 +60,33 @@ effect on the next charge with no per-charge state. A resident learns their
 manager's fee-payer for pre-checkout disclosure via
 `GET /api/portal/resident-service-fee`
 (`getManagerServiceFeePayerByManagerId`, scoped to their own
-`profiles.manager_id`).
+`profiles.manager_id`) — that disclosure read still resolves from plan + account
+choice ALONE, so it does not yet reflect the property choice or the staff
+override that checkout applies.
+
+The **property choice** is `serviceFeePayer` on `ManagerListingSubmissionV1`,
+edited in the listing wizard's Pricing step. `null` means "follow the account",
+which is NOT the same as any of the three payers — an untouched property must
+keep tracking the account default rather than being frozen at whatever it was
+when the property was created. One checkout session bills one total, so
+`createHouseholdChargeCheckout` REFUSES a batch spanning properties that disagree
+(422 `MIXED_SERVICE_FEE_PAYERS`) rather than picking one; either choice would
+silently change what the resident is charged.
+
+The **staff override** is `adminServiceFeeOverride` on the same
+`ManagerManualPaymentSettings` row, but it is not the manager's to write:
+`saveManagerManualPaymentSettings` (which the manager's own settings route calls)
+drops whatever the caller supplied and restores the stored value, and staff write
+it through `saveAdminServiceFeeOverride` behind `GET/PATCH
+/api/admin/manager-service-fee`, which is where the admin check lives. `null`
+CLEARS the override back to the plan-and-choice rule; pinning `resident` is a
+different act that fixes the answer whatever the manager later chooses.
+Application-fee checkout reads the override and the account default (there is no
+per-property application fee). Coverage:
+`tests/unit/service-fee-payer-precedence.test.ts`,
+`tests/unit/property-service-fee-payer.test.ts`,
+`tests/unit/admin-service-fee-override-ownership.test.ts`,
+`tests/unit/admin-manager-service-fee-route.test.ts`.
 
 **The rental application fee follows the SAME plan-based rule** (captain
 decision, 2026-07-26, superseding the earlier "out of scope, always face
@@ -72,12 +111,30 @@ path is still supported for callers that ask for it.
 `/api/public/application-fee-waiver`) can waive the application fee entirely**
 — a redeemed code skips Stripe altogether (no $0 charge, no session).
 
-**The fee is also collected only ONCE per resident PER MANAGER** (captain
-decision, 2026-07-27): `shouldWaiveApplicationFeeForResident`
+**How often the fee is collected is the manager's `applicationFeeChargePolicy`**
+(`first_only`, the default, or `every_time`; on the same manager-level
+Application settings row as the fee itself). Under `first_only` — the original
+"ONCE per resident PER MANAGER" rule (captain decision, 2026-07-27) —
+`shouldWaiveApplicationFeeForResident`
 (`src/lib/rental-application/application-policy.ts`) waives a repeat applicant
 — one who already submitted an application to, or already paid an application
 fee billed by, this property's manager — on any of that manager's listings.
-First-timers pay; history with a DIFFERENT manager never waives. This replaced
+Under `every_time` nothing is waived on history. First-timers pay; history with
+a DIFFERENT manager never waives either way.
+
+The waiver is decided **server-side**:
+`shouldWaiveApplicationFeeForResidentServer`
+(`application-policy.server.ts`) is the authority, and
+`POST /api/public/application-fee-preview` resolves the resident from the
+SESSION, never from the browser — the client-side `application-policy.ts` copy
+reads the local catalog and is a display path only. The preview client caches on
+the VIEWER's id as well as the listing (`repeat-applicant` is per-person, so a
+signed-out answer replayed after sign-in would charge a genuine repeat applicant
+a fee they are owed a waiver on). Coverage:
+`tests/unit/application-fee-preview-route.test.ts`,
+`tests/unit/application-fee-preview-cache.test.ts`.
+
+The manager-level policy replaced
 the per-listing `applicationFeeOnlyFirstApplication` toggle (now inert on
 `ManagerListingSubmissionV1`, kept only so stored submissions normalize); its
 sibling `allowMultiplePropertyApplications` is likewise inert —
@@ -92,7 +149,12 @@ manager-level value lives on `manager_automation_settings.row_data.applicationSe
 (`src/lib/manager-application-settings.ts`, `GET/PATCH
 /api/portal/manager-application-settings`) and is surfaced under the manager's
 **Applications** section ("Application fee" → `ManagerApplicationSettingsModal`,
-alongside the fee-waiver codes so fee + waiver live together). Source-of-truth
+alongside the fee-waiver codes so fee + waiver live together). The same row also
+carries `applicationFeeChargePolicy` (above) and an optional manager-level
+pay-by-other channel (`applicationFeeOtherEnabled` /
+`applicationFeeOtherInstructions`); a listing that still sets its own legacy
+`applicationFeeOther*` fields wins over it
+(`resolveApplicationFeeOtherInstructions`). Source-of-truth
 rule (`effectiveApplicationFeeCents`): a configured manager-level fee is
 authoritative for EVERY listing (including an explicit `0` = free); until the
 manager saves one it is `null` and the resolver GRANDFATHERS each listing's

@@ -3,7 +3,7 @@
  */
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { DemoApplicantRow } from "@/data/demo-portal";
-import { createManagerTaskRow, loadManagerTasks, saveManagerTasks } from "@/lib/manager-tasks.server";
+import { loadManagerTasks, saveManagerTasks } from "@/lib/manager-tasks.server";
 import type { ManagerTask } from "@/lib/manager-tasks";
 import {
   DEFAULT_TASK_TEMPLATE_LABELS,
