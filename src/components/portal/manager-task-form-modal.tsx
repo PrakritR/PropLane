@@ -3,20 +3,59 @@
 import { useEffect, useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input, Select } from "@/components/ui/input";
-import { Modal, ModalFooter } from "@/components/ui/modal";
+import {
+  Modal,
+  ModalFooter,
+  MODAL_FIELD_LABEL_CLASS,
+  PORTAL_MODAL_FORM_FIELD_CLASS,
+  PORTAL_MODAL_FORM_FULL_ROW_CLASS,
+  PORTAL_MODAL_FORM_GRID_CLASS,
+} from "@/components/ui/modal";
 import { WorkAssignmentPicker } from "@/components/portal/work-assignment-picker";
 import { useAppUi } from "@/components/providers/app-ui-provider";
 import { useWorkAssignmentDirectory } from "@/hooks/use-work-assignment-directory";
+import type { ManagerComposePrefill } from "@/lib/manager-compose-prefill";
 import { compactTaskPropertyLabel } from "@/lib/manager-task-display";
+import {
+  buildManagerTaskComposePrefill,
+  buildManagerTaskResidentOptions,
+  createManagerTourFromTaskForm,
+  createManagerWorkOrderFromTaskForm,
+  ensureManagerTaskResidentDirectory,
+  MANAGER_TASK_FORM_KIND_LABELS,
+  MANAGER_TASK_FORM_KINDS,
+  residentsForManagerTaskProperty,
+  type ManagerTaskFormKind,
+} from "@/lib/manager-task-form-support";
 import {
   createManagerTask,
   fetchManagerTasks,
   reapplyManagerTasksToCalendar,
   updateManagerTask,
 } from "@/lib/manager-tasks";
+import { scheduledTaskTitleForTour } from "@/lib/manager-scheduled-work-tasks";
 import { buildManagerPropertyFilterOptions } from "@/lib/manager-portfolio-access";
+import { formatRangeLabel } from "@/lib/demo-admin-scheduling";
 import { getRoomOptionsForProperty } from "@/lib/rental-application/data";
+import type { ResidentMaintenanceCategoryLabel } from "@/lib/work-order-taxonomy";
 import type { WorkAssignee } from "@/lib/work-assignment";
+import { cn } from "@/lib/utils";
+
+const TOUR_DURATION_OPTIONS = [
+  { value: "30", label: "30 minutes" },
+  { value: "45", label: "45 minutes" },
+  { value: "60", label: "1 hour" },
+  { value: "90", label: "1.5 hours" },
+];
+
+const WORK_ORDER_CATEGORY_OPTIONS: ResidentMaintenanceCategoryLabel[] = [
+  "Plumbing",
+  "Electrical",
+  "HVAC",
+  "Appliance",
+  "Access / Locks",
+  "General",
+];
 
 function combineLocalDateTime(date: string, time: string): string {
   const [y, m, d] = date.split("-").map(Number);
@@ -43,7 +82,22 @@ function roomNameFromOptionLabel(label: string): string {
   return label.split(" · ")[0]?.trim() || label.trim();
 }
 
+function defaultTourScheduleFields(): { scheduleDate: string; startTime: string } {
+  const d = new Date();
+  d.setMinutes(Math.ceil(d.getMinutes() / 15) * 15, 0, 0);
+  const hour = d.getHours();
+  if (hour >= 17 || hour < 9) {
+    if (hour >= 17) d.setDate(d.getDate() + 1);
+    d.setHours(10, 0, 0, 0);
+  }
+  return {
+    scheduleDate: `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`,
+    startTime: `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`,
+  };
+}
+
 const EMPTY_FORM = {
+  taskKind: "general" as ManagerTaskFormKind,
   title: "",
   notes: "",
   propertyId: "",
@@ -52,6 +106,12 @@ const EMPTY_FORM = {
   dueDate: "",
   startTime: "",
   endTime: "",
+  durationMinutes: "60",
+  guestName: "",
+  guestEmail: "",
+  guestPhone: "",
+  residentEmail: "",
+  workOrderCategory: "General" as ResidentMaintenanceCategoryLabel,
 };
 
 export function ManagerTaskFormModal({
@@ -67,7 +127,7 @@ export function ManagerTaskFormModal({
   managerUserId: string;
   editingId?: string | null;
   propertyTick?: number;
-  onSaved?: () => void;
+  onSaved?: (composePrefill?: ManagerComposePrefill | null) => void;
 }) {
   const { showToast } = useAppUi();
   const { teamMembers, vendors } = useWorkAssignmentDirectory({ managerUserId });
@@ -75,16 +135,43 @@ export function ManagerTaskFormModal({
   const [form, setForm] = useState(EMPTY_FORM);
   const [assignee, setAssignee] = useState<WorkAssignee | null>(null);
   const [selectedRoomValue, setSelectedRoomValue] = useState("");
+  const [residentTick, setResidentTick] = useState(0);
 
   const propertyOptions = useMemo(
     () => buildManagerPropertyFilterOptions(managerUserId),
     [managerUserId, propertyTick],
   );
 
+  const residentOptions = useMemo(() => {
+    void residentTick;
+    return buildManagerTaskResidentOptions(managerUserId);
+  }, [managerUserId, residentTick]);
+
+  const selectedProperty = useMemo(
+    () => propertyOptions.find((option) => option.id === form.propertyId) ?? null,
+    [form.propertyId, propertyOptions],
+  );
+
+  const residentsForProperty = useMemo(
+    () =>
+      residentsForManagerTaskProperty(
+        residentOptions,
+        form.propertyId,
+        selectedProperty?.label ?? "",
+      ),
+    [form.propertyId, residentOptions, selectedProperty?.label],
+  );
+
   const roomOptions = useMemo(() => {
     if (!form.propertyId) return [];
     return getRoomOptionsForProperty(form.propertyId, { includeUnavailable: true }).filter((option) => option.value);
   }, [form.propertyId]);
+
+  const propertyRequired =
+    form.taskKind === "house" || form.taskKind === "tour" || form.taskKind === "work-order";
+  const isTour = form.taskKind === "tour";
+  const isWorkOrder = form.taskKind === "work-order";
+  const showDueDate = !form.scheduleDate && !isTour;
 
   useEffect(() => {
     if (!open) {
@@ -93,6 +180,7 @@ export function ManagerTaskFormModal({
       setSelectedRoomValue("");
       return;
     }
+    void ensureManagerTaskResidentDirectory().then(() => setResidentTick((n) => n + 1));
     if (!editingId && teamMembers.length > 0) {
       const self = teamMembers.find((m) => m.userId === managerUserId) ?? teamMembers[0];
       if (self) {
@@ -110,6 +198,8 @@ export function ManagerTaskFormModal({
       const task = tasks.find((row) => row.id === editingId);
       if (!task) return;
       setForm({
+        ...EMPTY_FORM,
+        taskKind: task.propertyId ? "house" : "general",
         title: task.title,
         notes: task.notes ?? "",
         propertyId: task.propertyId ?? "",
@@ -121,7 +211,9 @@ export function ManagerTaskFormModal({
       });
       setAssignee(task.assignee ?? null);
       const match = getRoomOptionsForProperty(task.propertyId ?? "", { includeUnavailable: true }).find(
-        (option) => roomNameFromOptionLabel(option.label) === (task.roomLabel?.split(" · ")[0]?.trim() ?? task.roomLabel),
+        (option) =>
+          roomNameFromOptionLabel(option.label) ===
+          (task.roomLabel?.split(" · ")[0]?.trim() ?? task.roomLabel),
       );
       setSelectedRoomValue(match?.value ?? "");
     });
@@ -130,31 +222,138 @@ export function ManagerTaskFormModal({
     };
   }, [open, editingId, managerUserId, teamMembers]);
 
+  function updateTaskKind(nextKind: ManagerTaskFormKind) {
+    setForm((current) => {
+      const next = { ...current, taskKind: nextKind };
+      if (nextKind === "tour" && !current.scheduleDate) {
+        Object.assign(next, defaultTourScheduleFields());
+      }
+      if (nextKind === "work-order" && current.residentEmail) {
+        const resident = residentOptions.find((row) => row.residentEmail === current.residentEmail);
+        if (resident?.propertyId) next.propertyId = resident.propertyId;
+      }
+      return next;
+    });
+  }
+
   async function handleSave() {
     if (!assignee) {
       showToast("Choose who this task is assigned to.");
       return;
     }
+    if (propertyRequired && !form.propertyId) {
+      showToast("Choose a property.");
+      return;
+    }
+    if (isTour) {
+      if (!form.guestName.trim()) {
+        showToast("Guest name is required for a tour.");
+        return;
+      }
+      if (!form.scheduleDate || !form.startTime) {
+        showToast("Pick a schedule date and start time for the tour.");
+        return;
+      }
+    }
+    if (isWorkOrder) {
+      if (!form.residentEmail) {
+        showToast("Choose a resident for the work order.");
+        return;
+      }
+    }
+
     setSaving(true);
     try {
       const start =
         form.scheduleDate && form.startTime
           ? combineLocalDateTime(form.scheduleDate, form.startTime)
           : undefined;
-      const end =
-        form.scheduleDate && form.endTime ? combineLocalDateTime(form.scheduleDate, form.endTime) : undefined;
-      const dueDate =
-        !start && !end && form.dueDate
-          ? combineLocalDateTime(form.dueDate, "23:59")
+      let end =
+        form.scheduleDate && form.endTime
+          ? combineLocalDateTime(form.scheduleDate, form.endTime)
           : undefined;
+      if (isTour && start && !end) {
+        const durationMs = Math.max(15, Number(form.durationMinutes) || 60) * 60 * 1000;
+        end = new Date(Date.parse(start) + durationMs).toISOString();
+      }
+      const dueDate =
+        !start && !end && form.dueDate ? combineLocalDateTime(form.dueDate, "23:59") : undefined;
       const property = propertyOptions.find((option) => option.id === form.propertyId);
       const roomOption = roomOptions.find((option) => option.value === selectedRoomValue);
       const roomLabel = roomOption
         ? roomNameFromOptionLabel(roomOption.label)
         : form.roomLabel.trim() || undefined;
       const cleared = editingId ? "" : undefined;
+
+      const taskTitle = isTour
+        ? scheduledTaskTitleForTour(form.guestName.trim() || form.title.trim())
+        : form.title.trim();
+
+      if (!taskTitle) {
+        showToast(isTour ? "Add a guest name or title." : "Add a task title.");
+        return;
+      }
+
+      let composePrefill: ManagerComposePrefill | null = null;
+      const scheduleLabel =
+        start && end ? formatRangeLabel(start, end) : start ? formatRangeLabel(start, start) : undefined;
+
+      if (!editingId && isWorkOrder) {
+        const resident = residentsForProperty.find((row) => row.residentEmail === form.residentEmail);
+        if (!resident) {
+          showToast("Choose a resident for this property.");
+          return;
+        }
+        createManagerWorkOrderFromTaskForm({
+          managerUserId,
+          title: taskTitle,
+          notes: form.notes,
+          categoryLabel: form.workOrderCategory,
+          propertyId: form.propertyId,
+          propertyLabel: selectedProperty?.label ?? resident.propertyLabel,
+          resident,
+        });
+        composePrefill = buildManagerTaskComposePrefill({
+          kind: "work-order",
+          title: taskTitle,
+          notes: form.notes,
+          propertyLabel: selectedProperty?.label,
+          recipientEmail: resident.residentEmail,
+          recipientName: resident.residentName,
+        });
+      }
+
+      if (!editingId && isTour) {
+        const tourResult = await createManagerTourFromTaskForm({
+          managerUserId,
+          propertyId: form.propertyId,
+          propertyLabel: selectedProperty?.label,
+          roomLabel,
+          guestName: form.guestName.trim(),
+          guestEmail: form.guestEmail.trim() || undefined,
+          guestPhone: form.guestPhone.trim() || undefined,
+          start: start!,
+          end: end!,
+          notes: form.notes.trim() || undefined,
+          assignee,
+        });
+        if (!tourResult.ok) {
+          showToast(tourResult.error);
+          return;
+        }
+        composePrefill = buildManagerTaskComposePrefill({
+          kind: "tour",
+          title: taskTitle,
+          notes: form.notes,
+          propertyLabel: selectedProperty?.label,
+          scheduleLabel,
+          recipientEmail: form.guestEmail.trim() || undefined,
+          recipientName: form.guestName.trim(),
+        });
+      }
+
       const input = {
-        title: form.title,
+        title: taskTitle,
         notes: form.notes,
         propertyId: form.propertyId || cleared,
         propertyTitle: form.propertyId
@@ -166,20 +365,29 @@ export function ManagerTaskFormModal({
         dueDate: dueDate ?? (editingId && !start && !end ? cleared : undefined),
         assignee,
       };
+
       if (editingId) {
         await updateManagerTask(managerUserId, editingId, input);
       } else {
         await createManagerTask(managerUserId, input);
       }
+
       reapplyManagerTasksToCalendar(managerUserId);
       onClose();
-      onSaved?.();
+      onSaved?.(composePrefill);
     } catch (e) {
       showToast(e instanceof Error ? e.message : "Could not save task.");
     } finally {
       setSaving(false);
     }
   }
+
+  const canSave =
+    Boolean(assignee) &&
+    Boolean(form.title.trim() || (isTour && form.guestName.trim())) &&
+    (!propertyRequired || Boolean(form.propertyId)) &&
+    (!isTour || Boolean(form.scheduleDate && form.startTime)) &&
+    (!isWorkOrder || Boolean(form.residentEmail));
 
   return (
     <Modal
@@ -189,49 +397,196 @@ export function ManagerTaskFormModal({
       dense
       assistantStrip={false}
     >
-      <div className="space-y-3">
-        <Input
-          aria-label="Task title"
-          value={form.title}
-          onChange={(e) => setForm((current) => ({ ...current, title: e.target.value }))}
-          placeholder="Inspect unit, meet vendor, follow up…"
-          data-attr="manager-task-title-input"
-        />
-        <WorkAssignmentPicker
-          kind="task"
-          value={assignee}
-          teamMembers={teamMembers}
-          vendors={vendors}
-          disabled={saving}
-          label="Assignee"
-          dataAttr="manager-task-assignee"
-          onChange={setAssignee}
-        />
-        <label className="space-y-1 text-sm">
-          <span className="font-medium text-foreground">Property (optional)</span>
+      <div className={PORTAL_MODAL_FORM_GRID_CLASS}>
+        {!editingId ? (
+          <div className={cn(PORTAL_MODAL_FORM_FIELD_CLASS, PORTAL_MODAL_FORM_FULL_ROW_CLASS)}>
+            <label className={MODAL_FIELD_LABEL_CLASS} htmlFor="manager-task-kind">
+              Task type
+            </label>
+            <Select
+              id="manager-task-kind"
+              value={form.taskKind}
+              onChange={(e) => updateTaskKind(e.target.value as ManagerTaskFormKind)}
+              data-attr="manager-task-kind"
+            >
+              {MANAGER_TASK_FORM_KINDS.map((kind) => (
+                <option key={kind} value={kind}>
+                  {MANAGER_TASK_FORM_KIND_LABELS[kind]}
+                </option>
+              ))}
+            </Select>
+          </div>
+        ) : null}
+
+        {isTour ? (
+          <>
+            <div className={PORTAL_MODAL_FORM_FIELD_CLASS}>
+              <label className={MODAL_FIELD_LABEL_CLASS} htmlFor="manager-task-guest-name">
+                Guest name
+              </label>
+              <Input
+                id="manager-task-guest-name"
+                value={form.guestName}
+                onChange={(e) => setForm((current) => ({ ...current, guestName: e.target.value }))}
+                placeholder="Jane Smith"
+                data-attr="manager-task-guest-name"
+              />
+            </div>
+            <div className={PORTAL_MODAL_FORM_FIELD_CLASS}>
+              <label className={MODAL_FIELD_LABEL_CLASS} htmlFor="manager-task-guest-email">
+                Guest email (optional)
+              </label>
+              <Input
+                id="manager-task-guest-email"
+                type="email"
+                value={form.guestEmail}
+                onChange={(e) => setForm((current) => ({ ...current, guestEmail: e.target.value }))}
+                placeholder="jane@example.com"
+                data-attr="manager-task-guest-email"
+              />
+            </div>
+            <div className={cn(PORTAL_MODAL_FORM_FIELD_CLASS, PORTAL_MODAL_FORM_FULL_ROW_CLASS)}>
+              <label className={MODAL_FIELD_LABEL_CLASS} htmlFor="manager-task-guest-phone">
+                Guest phone (optional)
+              </label>
+              <Input
+                id="manager-task-guest-phone"
+                type="tel"
+                value={form.guestPhone}
+                onChange={(e) => setForm((current) => ({ ...current, guestPhone: e.target.value }))}
+                placeholder="(555) 555-0100"
+                data-attr="manager-task-guest-phone"
+              />
+            </div>
+          </>
+        ) : (
+          <div className={cn(PORTAL_MODAL_FORM_FIELD_CLASS, PORTAL_MODAL_FORM_FULL_ROW_CLASS)}>
+            <label className={MODAL_FIELD_LABEL_CLASS} htmlFor="manager-task-title">
+              {isWorkOrder ? "Work order title" : "Description"}
+            </label>
+            <Input
+              id="manager-task-title"
+              aria-label="Task title"
+              value={form.title}
+              onChange={(e) => setForm((current) => ({ ...current, title: e.target.value }))}
+              placeholder={
+                isWorkOrder ? "Leaky faucet in kitchen" : "Inspect unit, meet vendor, follow up…"
+              }
+              data-attr="manager-task-title-input"
+            />
+          </div>
+        )}
+
+        <div className={cn(PORTAL_MODAL_FORM_FIELD_CLASS, PORTAL_MODAL_FORM_FULL_ROW_CLASS)}>
+          <WorkAssignmentPicker
+            kind="task"
+            value={assignee}
+            teamMembers={teamMembers}
+            vendors={vendors}
+            disabled={saving}
+            label="Assignee"
+            dataAttr="manager-task-assignee"
+            onChange={setAssignee}
+          />
+        </div>
+
+        <div className={cn(PORTAL_MODAL_FORM_FIELD_CLASS, PORTAL_MODAL_FORM_FULL_ROW_CLASS)}>
+          <label className={MODAL_FIELD_LABEL_CLASS} htmlFor="manager-task-property">
+            Property{propertyRequired ? "" : " (optional)"}
+          </label>
           <Select
+            id="manager-task-property"
             value={form.propertyId}
             onChange={(e) => {
+              const propertyId = e.target.value;
               setForm((current) => ({
                 ...current,
-                propertyId: e.target.value,
+                propertyId,
                 roomLabel: "",
+                residentEmail:
+                  current.residentEmail &&
+                  residentsForManagerTaskProperty(
+                    residentOptions,
+                    propertyId,
+                    propertyOptions.find((option) => option.id === propertyId)?.label ?? "",
+                  ).some((row) => row.residentEmail === current.residentEmail)
+                    ? current.residentEmail
+                    : "",
               }));
               setSelectedRoomValue("");
             }}
+            data-attr="manager-task-property"
           >
-            <option value="">No property</option>
+            <option value="">{propertyRequired ? "Select property" : "No property"}</option>
             {propertyOptions.map((option) => (
               <option key={option.id} value={option.id}>
                 {option.label}
               </option>
             ))}
           </Select>
-        </label>
-        {form.propertyId ? (
-          <label className="space-y-1 text-sm">
-            <span className="font-medium text-foreground">Room (optional)</span>
+        </div>
+
+        {isWorkOrder ? (
+          <div className={cn(PORTAL_MODAL_FORM_FIELD_CLASS, PORTAL_MODAL_FORM_FULL_ROW_CLASS)}>
+            <label className={MODAL_FIELD_LABEL_CLASS} htmlFor="manager-task-resident">
+              Resident
+            </label>
             <Select
+              id="manager-task-resident"
+              value={form.residentEmail}
+              onChange={(e) => {
+                const residentEmail = e.target.value;
+                const resident = residentsForProperty.find((row) => row.residentEmail === residentEmail);
+                setForm((current) => ({
+                  ...current,
+                  residentEmail,
+                  propertyId: resident?.propertyId || current.propertyId,
+                }));
+              }}
+              data-attr="manager-task-resident"
+            >
+              <option value="">Select resident</option>
+              {residentsForProperty.map((resident) => (
+                <option key={resident.residentEmail} value={resident.residentEmail}>
+                  {resident.residentName} · {resident.propertyLabel}
+                </option>
+              ))}
+            </Select>
+          </div>
+        ) : null}
+
+        {isWorkOrder ? (
+          <div className={cn(PORTAL_MODAL_FORM_FIELD_CLASS, PORTAL_MODAL_FORM_FULL_ROW_CLASS)}>
+            <label className={MODAL_FIELD_LABEL_CLASS} htmlFor="manager-task-work-order-category">
+              Category
+            </label>
+            <Select
+              id="manager-task-work-order-category"
+              value={form.workOrderCategory}
+              onChange={(e) =>
+                setForm((current) => ({
+                  ...current,
+                  workOrderCategory: e.target.value as ResidentMaintenanceCategoryLabel,
+                }))
+              }
+              data-attr="manager-task-work-order-category"
+            >
+              {WORK_ORDER_CATEGORY_OPTIONS.map((option) => (
+                <option key={option} value={option}>
+                  {option}
+                </option>
+              ))}
+            </Select>
+          </div>
+        ) : null}
+
+        {form.propertyId ? (
+          <div className={cn(PORTAL_MODAL_FORM_FIELD_CLASS, PORTAL_MODAL_FORM_FULL_ROW_CLASS)}>
+            <label className={MODAL_FIELD_LABEL_CLASS} htmlFor="manager-task-room">
+              Room (optional)
+            </label>
+            <Select
+              id="manager-task-room"
               value={selectedRoomValue}
               onChange={(e) => {
                 const value = e.target.value;
@@ -242,6 +597,7 @@ export function ManagerTaskFormModal({
                   roomLabel: option ? roomNameFromOptionLabel(option.label) : "",
                 }));
               }}
+              data-attr="manager-task-room"
             >
               <option value="">No room</option>
               {roomOptions.map((option) => (
@@ -250,74 +606,161 @@ export function ManagerTaskFormModal({
                 </option>
               ))}
             </Select>
-          </label>
+          </div>
         ) : null}
-        <label className="space-y-1 text-sm">
-          <span className="font-medium text-foreground">Schedule date (optional)</span>
-          <Input
-            type="date"
-            value={form.scheduleDate}
-            onChange={(e) =>
-              setForm((current) => ({
-                ...current,
-                scheduleDate: e.target.value,
-                dueDate: e.target.value ? "" : current.dueDate,
-              }))
-            }
-          />
-        </label>
-        {!form.scheduleDate ? (
-          <label className="space-y-1 text-sm">
-            <span className="font-medium text-foreground">Due date</span>
-            <Input
-              type="date"
-              value={form.dueDate}
-              onChange={(e) => setForm((current) => ({ ...current, dueDate: e.target.value }))}
-              data-attr="manager-task-due-date"
-            />
+
+        {isTour ? (
+          <>
+            <div className={PORTAL_MODAL_FORM_FIELD_CLASS}>
+              <label className={MODAL_FIELD_LABEL_CLASS} htmlFor="manager-task-schedule-date">
+                Schedule date
+              </label>
+              <Input
+                id="manager-task-schedule-date"
+                type="date"
+                value={form.scheduleDate}
+                onChange={(e) =>
+                  setForm((current) => ({
+                    ...current,
+                    scheduleDate: e.target.value,
+                  }))
+                }
+                data-attr="manager-task-schedule-date"
+              />
+            </div>
+            <div className={PORTAL_MODAL_FORM_FIELD_CLASS}>
+              <label className={MODAL_FIELD_LABEL_CLASS} htmlFor="manager-task-tour-start-time">
+                Start time
+              </label>
+              <Input
+                id="manager-task-tour-start-time"
+                type="time"
+                value={form.startTime}
+                onChange={(e) => setForm((current) => ({ ...current, startTime: e.target.value }))}
+                disabled={!form.scheduleDate}
+                data-attr="manager-task-tour-start-time"
+              />
+            </div>
+            <div className={PORTAL_MODAL_FORM_FIELD_CLASS}>
+              <label className={MODAL_FIELD_LABEL_CLASS} htmlFor="manager-task-duration">
+                Duration
+              </label>
+              <Select
+                id="manager-task-duration"
+                value={form.durationMinutes}
+                onChange={(e) =>
+                  setForm((current) => ({ ...current, durationMinutes: e.target.value }))
+                }
+                data-attr="manager-task-duration"
+              >
+                {TOUR_DURATION_OPTIONS.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </Select>
+            </div>
+          </>
+        ) : (
+          <>
+            <div className={PORTAL_MODAL_FORM_FIELD_CLASS}>
+              <label className={MODAL_FIELD_LABEL_CLASS} htmlFor="manager-task-schedule-date">
+                Schedule date (optional)
+              </label>
+              <Input
+                id="manager-task-schedule-date"
+                type="date"
+                value={form.scheduleDate}
+                onChange={(e) =>
+                  setForm((current) => ({
+                    ...current,
+                    scheduleDate: e.target.value,
+                    dueDate: e.target.value ? "" : current.dueDate,
+                  }))
+                }
+                data-attr="manager-task-schedule-date"
+              />
+            </div>
+
+            {showDueDate ? (
+              <div className={PORTAL_MODAL_FORM_FIELD_CLASS}>
+                <label className={MODAL_FIELD_LABEL_CLASS} htmlFor="manager-task-due-date">
+                  Due date
+                </label>
+                <Input
+                  id="manager-task-due-date"
+                  type="date"
+                  value={form.dueDate}
+                  onChange={(e) => setForm((current) => ({ ...current, dueDate: e.target.value }))}
+                  data-attr="manager-task-due-date"
+                />
+              </div>
+            ) : null}
+
+            <div className="grid gap-4 sm:col-span-2 sm:grid-cols-2">
+              <div className={PORTAL_MODAL_FORM_FIELD_CLASS}>
+                <label className={MODAL_FIELD_LABEL_CLASS} htmlFor="manager-task-start-time">
+                  Start time (optional)
+                </label>
+                <Input
+                  id="manager-task-start-time"
+                  type="time"
+                  value={form.startTime}
+                  onChange={(e) => setForm((current) => ({ ...current, startTime: e.target.value }))}
+                  disabled={!form.scheduleDate}
+                  data-attr="manager-task-start-time"
+                />
+              </div>
+              <div className={PORTAL_MODAL_FORM_FIELD_CLASS}>
+                <label className={MODAL_FIELD_LABEL_CLASS} htmlFor="manager-task-end-time">
+                  End time (optional)
+                </label>
+                <Input
+                  id="manager-task-end-time"
+                  type="time"
+                  value={form.endTime}
+                  onChange={(e) => setForm((current) => ({ ...current, endTime: e.target.value }))}
+                  disabled={!form.scheduleDate}
+                  data-attr="manager-task-end-time"
+                />
+              </div>
+            </div>
+          </>
+        )}
+
+        <div className={cn(PORTAL_MODAL_FORM_FIELD_CLASS, PORTAL_MODAL_FORM_FULL_ROW_CLASS)}>
+          <label className={MODAL_FIELD_LABEL_CLASS} htmlFor="manager-task-notes">
+            Notes (optional)
           </label>
-        ) : null}
-        <div className="grid gap-3 sm:grid-cols-2">
-          <label className="space-y-1 text-sm">
-            <span className="font-medium text-foreground">Start time (optional)</span>
-            <Input
-              type="time"
-              value={form.startTime}
-              onChange={(e) => setForm((current) => ({ ...current, startTime: e.target.value }))}
-              disabled={!form.scheduleDate}
-            />
-          </label>
-          <label className="space-y-1 text-sm">
-            <span className="font-medium text-foreground">End time (optional)</span>
-            <Input
-              type="time"
-              value={form.endTime}
-              onChange={(e) => setForm((current) => ({ ...current, endTime: e.target.value }))}
-              disabled={!form.scheduleDate}
-            />
-          </label>
-        </div>
-        <label className="space-y-1 text-sm">
-          <span className="font-medium text-foreground">Notes (optional)</span>
           <textarea
-            className="min-h-[80px] w-full rounded-xl border border-border bg-card px-3 py-2 text-sm"
+            id="manager-task-notes"
+            className="min-h-[88px] w-full rounded-xl border border-border bg-card px-3 py-2 text-sm"
             value={form.notes}
             onChange={(e) => setForm((current) => ({ ...current, notes: e.target.value }))}
+            data-attr="manager-task-notes"
           />
-        </label>
-        <p className="text-xs text-muted">
-          {form.scheduleDate && form.startTime && form.endTime
-            ? "Saving blocks this time on your calendar."
-            : form.dueDate
-              ? "Due date appears on your calendar as a reminder block."
-              : "Add a schedule or due date to show this task on your calendar."}
+        </div>
+
+        <p className={cn("text-xs text-muted", PORTAL_MODAL_FORM_FULL_ROW_CLASS)}>
+          {isTour
+            ? "Saving schedules the tour and adds it to your task list and calendar."
+            : isWorkOrder
+              ? "Saving creates the work order and a linked task on your calendar when scheduled."
+              : form.scheduleDate && form.startTime && form.endTime
+                ? "Saving blocks this time on your calendar."
+                : form.dueDate
+                  ? "Due date appears on your calendar as a reminder block."
+                  : "Add a schedule or due date to show this task on your calendar."}
+          {!editingId && (isTour || isWorkOrder)
+            ? " You can notify the guest or resident on the next screen."
+            : null}
         </p>
       </div>
       <ModalFooter>
         <Button
           type="button"
           onClick={() => void handleSave()}
-          disabled={saving || !form.title.trim() || !assignee}
+          disabled={saving || !canSave}
           data-attr="manager-task-save"
         >
           {saving ? "Saving…" : editingId ? "Save task" : "Add task"}
