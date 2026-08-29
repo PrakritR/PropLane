@@ -54,6 +54,32 @@ describe("POST /api/stripe/subscription/update-tier payment waiver", () => {
     expect(getStripe).not.toHaveBeenCalled();
   });
 
+  it("activates Business with FREE100 for lifetime comp access (no Stripe)", async () => {
+    const response = await updateTier(jsonRequest("http://localhost/api/stripe/subscription/update-tier", {
+      method: "POST",
+      body: { tier: "business", billing: "monthly", promo: "FREE100" },
+    }));
+    const { status, data } = await parseJsonResponse<{
+      ok?: boolean;
+      waiverApplied?: boolean;
+      tier?: string;
+      billing?: string;
+      message?: string;
+    }>(response);
+
+    expect(status).toBe(200);
+    expect(data).toEqual(expect.objectContaining({
+      ok: true,
+      waiverApplied: true,
+      tier: "business",
+      billing: "monthly",
+    }));
+    expect(setManagerPurchaseTier).toHaveBeenCalledWith("manager-1", "business", {
+      waiver: { promoCode: "FREE100", billing: "monthly" },
+    });
+    expect(getStripe).not.toHaveBeenCalled();
+  });
+
   it("rejects an unrecognized code without changing the plan", async () => {
     const response = await updateTier(jsonRequest("http://localhost/api/stripe/subscription/update-tier", {
       method: "POST",
