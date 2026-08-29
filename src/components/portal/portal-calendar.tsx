@@ -585,7 +585,7 @@ export function PortalCalendar({
     ) : null;
 
   const calendarSettingsButton =
-    portal === "manager" && schedulingHub && availabilityView ? (
+    portal === "manager" && availabilityView ? (
       <Button
         type="button"
         variant="outline"
@@ -851,6 +851,8 @@ export function PortalCalendar({
         onClose={() => setCalendarSettingsOpen(false)}
         initialTab="calendar"
         scoped
+        scopedTitle="Calendar settings"
+        onCalendarSettingsSaved={() => void loadTourSettings()}
       />
     </>
   );

@@ -649,6 +649,8 @@ export function PortalCalendarPanels({
   // same React batch on a fast click, so finishDragSelection would otherwise
   // read a stale `null` and the click would silently do nothing.
   const dragSelectionRef = useRef<DragSelection | null>(null);
+  // Suppress the click that follows a multi-slot drag — finishDragSelection already opened the block modal.
+  const skipNextSlotClickRef = useRef(false);
   const [mobileDayIndex, setMobileDayIndex] = useState(0);
   const [visibleStartSlot, setVisibleStartSlot] = useState(DEFAULT_VISIBLE_START_SLOT);
   const [visibleEndSlotExclusive, setVisibleEndSlotExclusive] = useState(DEFAULT_VISIBLE_END_SLOT_EXCLUSIVE);
@@ -864,6 +866,19 @@ export function PortalCalendarPanels({
       });
     },
     [mutateAvailability, resolvedDefaultTourAvailability],
+  );
+
+  /** Paint one slot without opening the recurring-block modal. */
+  const addAvailabilitySlot = useCallback(
+    (dateStr: string, slotIdx: number) => {
+      const key = dateSlotKey(dateStr, slotIdx);
+      mutateAvailability((current) => {
+        const next = new Set(current);
+        next.add(key);
+        return next;
+      });
+    },
+    [mutateAvailability],
   );
 
   const deleteAvailabilitySlot = useCallback(() => {
@@ -1493,23 +1508,16 @@ export function PortalCalendarPanels({
     const span = pending.endSlotExclusive - pending.startSlot;
     dragSelectionRef.current = null;
     setDragSelection(null);
-    if (span > 1) prefillBlockModal(pending);
+    if (span > 1) {
+      skipNextSlotClickRef.current = true;
+      prefillBlockModal(pending);
+    }
   }, [prefillBlockModal]);
 
   const cancelDragSelection = useCallback(() => {
     dragSelectionRef.current = null;
     setDragSelection(null);
   }, []);
-
-  /** Open the recurring-block modal prefilled with a single slot (keyboard path). */
-  const openBlockModalForSlot = useCallback(
-    (dateStr: string, weekday: number, slotIdx: number) => {
-      dragSelectionRef.current = null;
-      setDragSelection(null);
-      prefillBlockModal({ dateStr, weekday, startSlot: slotIdx, endSlotExclusive: slotIdx + 1 });
-    },
-    [prefillBlockModal],
-  );
 
   const isSlotInDragSelection = useCallback(
     (dateStr: string, slotIdx: number) =>
@@ -2268,11 +2276,11 @@ export function PortalCalendarPanels({
                       return;
                     }
                     if (!readOnly && !meeting && !active && !coManagerOpen) {
-                      openBlockModalForSlot(
-                        ds,
-                        mondayBasedDayIndex(new Date(`${ds}T12:00:00`)),
-                        slotIdx,
-                      );
+                      if (skipNextSlotClickRef.current) {
+                        skipNextSlotClickRef.current = false;
+                        return;
+                      }
+                      if (canEditAvailability) addAvailabilitySlot(ds, slotIdx);
                       return;
                     }
                     openSlotDetails(ds, slotIdx, e.currentTarget, meeting);
@@ -2302,7 +2310,11 @@ export function PortalCalendarPanels({
                       ? canEditAvailability
                         ? `Open for tours by default. Remove ${formatAvailabilitySlotLabel(slotIdx)} on ${ds}`
                         : `Open for tours by default at ${formatAvailabilitySlotLabel(slotIdx)} on ${ds}. Select one house to edit availability.`
-                      : `${meeting || active || coManagerOpen ? "Open details for" : "Select"} ${formatAvailabilitySlotLabel(slotIdx)} on ${ds}`
+                      : meeting || active || coManagerOpen
+                        ? `Open details for ${formatAvailabilitySlotLabel(slotIdx)} on ${ds}`
+                        : canEditAvailability
+                          ? `Add ${formatAvailabilitySlotLabel(slotIdx)} on ${ds}`
+                          : `Select ${formatAvailabilitySlotLabel(slotIdx)} on ${ds}`
                   }
                 >
                   {meeting ? (
