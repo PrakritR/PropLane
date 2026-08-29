@@ -8,6 +8,7 @@ import { DropdownMenuItem } from "@/components/ui/dropdown-menu";
 import { DestinationNav } from "@/components/ui/destination-nav";
 import { useShallowTabId } from "@/components/ui/tabs";
 import { useAppUi } from "@/components/providers/app-ui-provider";
+import { PortalEmptyState } from "@/components/portal/portal-empty-state";
 import { ManagerTaskFilterFields } from "@/components/portal/manager-task-filter-fields";
 import { ApplicationHouseholdCluster } from "@/components/portal/application-household-list";
 import { Badge } from "@/components/ui/badge";
@@ -675,6 +676,17 @@ export function ManagerTaskList({
                   </ApplicationHouseholdCluster>
                 ))}
           </div>
+        ) : null}
+
+        {!loading && visibleRows.length === 0 ? (
+          <PortalEmptyState
+            icon="work-order"
+            title={
+              tabId === "completed"
+                ? "Nothing completed yet."
+                : "No tasks in progress. Add one to get started."
+            }
+          />
         ) : null}
       </div>
 

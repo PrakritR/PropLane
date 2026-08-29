@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { usePortalNavigate } from "@/lib/portal-nav-client";
+import { PortalEmptyState } from "@/components/portal/portal-empty-state";
 import { PortalServiceRecordRow } from "@/components/portal/portal-record-row";
 import { LocalDestinationNav } from "@/components/ui/destination-nav";
 import {
@@ -559,7 +560,9 @@ export function ManagerAllServicesPanel({
         }}
         activeFilterChips={<PortalActiveFilterChips chips={activeFilterChips} />}
       />
-      {visibleUnifiedRows.length === 0 ? null : (
+      {visibleUnifiedRows.length === 0 ? (
+        <PortalEmptyState icon="service" title="No services in this view yet." />
+      ) : (
         <div>
           {/*
             One list over both stores, grouped by resident the way Payments and Tours are. Each row

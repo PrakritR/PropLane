@@ -12,6 +12,8 @@ export function PortalPersonRecordRow({
   meta,
   badge,
   selected = false,
+  checked = false,
+  onSelectedChange,
   onOpen,
   dataAttr,
   trailing,
@@ -22,10 +24,16 @@ export function PortalPersonRecordRow({
   meta?: string;
   badge?: ReactNode;
   selected?: boolean;
+  /** Multi-select state. Pass `onSelectedChange` to show the checkbox at all. */
+  checked?: boolean;
+  onSelectedChange?: (selected: boolean) => void;
   onOpen: () => void;
   dataAttr?: string;
   trailing?: ReactNode;
 }) {
+  // Opt-in, mirroring PortalPropertyRecordRow: a list that does not pass a
+  // handler keeps exactly the layout it had before.
+  const selectable = Boolean(onSelectedChange);
   return (
     <div data-attr={dataAttr}>
       <InboxConversationRow
@@ -33,9 +41,22 @@ export function PortalPersonRecordRow({
         subtitle={subtitle}
         preview={preview ?? subtitle ?? ""}
         time={meta ?? ""}
-        selected={selected}
+        selected={selected || checked}
         onOpen={onOpen}
         trailing={trailing}
+        leading={
+          selectable ? (
+            <input
+              type="checkbox"
+              className="ml-3 mr-1 mt-1 h-4 w-4 shrink-0 self-start rounded border-border"
+              checked={checked}
+              onChange={(e) => onSelectedChange?.(e.target.checked)}
+              onClick={(e) => e.stopPropagation()}
+              data-portal-row-ignore
+              aria-label={`Select ${name}`}
+            />
+          ) : undefined
+        }
       />
       {badge ? <div className="px-3 pb-2 -mt-1 max-md:px-2.5">{badge}</div> : null}
     </div>

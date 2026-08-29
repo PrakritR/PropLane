@@ -8,6 +8,13 @@ import {
 import { Button } from "@/components/ui/button";
 import { useAppUi } from "@/components/providers/app-ui-provider";
 import { useManagerUserId } from "@/hooks/use-manager-user-id";
+import { usePortalRowSelection } from "@/hooks/use-portal-row-selection";
+import { BulkActionBar } from "@/components/ui/bulk-action-bar";
+import { DropdownMenuItem } from "@/components/ui/dropdown-menu";
+import { PortalAdaptiveActionRow } from "@/components/portal/portal-adaptive-action-row";
+import { PortalEmptyState } from "@/components/portal/portal-empty-state";
+import { PORTAL_BULK_BAR_BTN } from "@/lib/portal-bulk-bar";
+import type { PortalAdaptiveAction } from "@/lib/portal-adaptive-actions";
 import { collectLinkedOwnerIdsForModule } from "@/lib/manager-portfolio-access";
 import {
   MANAGER_VENDORS_EVENT,
@@ -119,6 +126,7 @@ export const ManagerVendorsPanel = forwardRef(function ManagerVendorsPanel(
   const basePath = listBasePath ?? portalBase;
   const { userId, ready: authReady } = useManagerUserId();
   const [tick, setTick] = useState(0);
+  const { selectedIds, toggleSelected, clearSelection } = usePortalRowSelection();
   const [showCatalog, setShowCatalog] = useState(false);
   const [showDefaults, setShowDefaults] = useState(false);
   const [defaultsTrade, setDefaultsTrade] = useState<string | undefined>(undefined);
@@ -449,7 +457,9 @@ export const ManagerVendorsPanel = forwardRef(function ManagerVendorsPanel(
   }
 
   const listBody =
-    vendors.length === 0 ? null : (
+    vendors.length === 0 ? (
+      <PortalEmptyState icon="vendor" title="No vendors yet. Add one to get started." />
+    ) : (
       <div className={PORTAL_LIST_PAGE_BODY}>
         {vendors.map((row) => (
           <PortalPersonRecordRow
@@ -458,6 +468,8 @@ export const ManagerVendorsPanel = forwardRef(function ManagerVendorsPanel(
             subtitle={row.trade || undefined}
             preview={vendorRowPreview(row)}
             meta={vendorRowMeta(row)}
+            checked={selectedIds.has(row.id)}
+            onSelectedChange={() => toggleSelected(row.id)}
             onOpen={() => openVendorDetail(row)}
             dataAttr="vendor-list-row"
           />
@@ -465,10 +477,80 @@ export const ManagerVendorsPanel = forwardRef(function ManagerVendorsPanel(
       </div>
     );
 
+  const selectedVendors = vendors.filter((row) => selectedIds.has(row.id));
+
+  // Same shape as every other manager list: checkbox selection raises a bar at
+  // the bottom-left. Edit is single-selection only because the form edits one
+  // record; delete is the bulk action.
+  const bulkSelectionActions: PortalAdaptiveAction[] = [];
+  if (selectedVendors.length === 1) {
+    const only = selectedVendors[0]!;
+    const editOne = () => {
+      openEditVendorForm(only);
+      clearSelection();
+    };
+    bulkSelectionActions.push({
+      id: "edit",
+      keepPriority: 4,
+      node: (
+        <Button
+          type="button"
+          variant="outline"
+          className={PORTAL_BULK_BAR_BTN}
+          data-attr="vendor-bulk-edit"
+          onClick={editOne}
+        >
+          Edit
+        </Button>
+      ),
+      menuItem: (
+        <DropdownMenuItem data-attr="vendor-bulk-edit" onSelect={editOne}>
+          Edit
+        </DropdownMenuItem>
+      ),
+    });
+  }
+  if (selectedVendors.length > 0) {
+    const removeSelected = () => {
+      const count = selectedVendors.length;
+      if (
+        !window.confirm(`Remove ${count} vendor${count === 1 ? "" : "s"}?`)
+      ) {
+        return;
+      }
+      for (const row of selectedVendors) removeVendor(row.id);
+      clearSelection();
+    };
+    bulkSelectionActions.push({
+      id: "delete",
+      node: (
+        <Button
+          type="button"
+          variant="outline"
+          className={`${PORTAL_BULK_BAR_BTN} text-rose-800`}
+          data-attr="vendor-bulk-delete"
+          onClick={removeSelected}
+        >
+          Remove
+        </Button>
+      ),
+      menuItem: (
+        <DropdownMenuItem data-attr="vendor-bulk-delete" onSelect={removeSelected}>
+          Remove
+        </DropdownMenuItem>
+      ),
+    });
+  }
+
   const body = (
     <>
       {modals}
       {listBody}
+      {selectedVendors.length > 0 ? (
+        <BulkActionBar count={selectedVendors.length} hideCount variant="payments">
+          <PortalAdaptiveActionRow actions={bulkSelectionActions} />
+        </BulkActionBar>
+      ) : null}
     </>
   );
 

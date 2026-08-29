@@ -11,6 +11,7 @@ import {
   PortalAdaptiveActionRow,
   type PortalAdaptiveAction,
 } from "@/components/portal/portal-adaptive-action-row";
+import { PortalEmptyState } from "@/components/portal/portal-empty-state";
 import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
 import { PortalDetailDestinationNav } from "@/components/portal/portal-detail-destination-nav";
 import type { MockProperty } from "@/data/types";
@@ -1487,7 +1488,9 @@ export function ManagerHousePropertiesPanel({
 
   return (
     <>
-      {rows.length === 0 ? null : (
+      {rows.length === 0 ? (
+        <PortalEmptyState icon="default" title="No properties in this view yet." />
+      ) : (
         <div className={PORTAL_LIST_PAGE_BODY}>
           {rows.map(({ sourceBucket, row }) => {
             const rowKey = row.adminRefId + (row.listingId ?? "");
