@@ -585,11 +585,14 @@ export async function renderPortalSection(
       if (residentsTab !== "current") notFound();
       const residentId = tabParts.length >= 2 ? decodeURIComponent(tabParts[1]!) : undefined;
       const residentDetailTab = tabParts.length >= 3 ? tabParts[2]! : undefined;
+      const residentDetailItemId =
+        tabParts.length >= 4 ? decodeURIComponent(tabParts[3]!) : undefined;
       const residentPaymentId =
-        residentDetailTab === "payments" && tabParts.length >= 4
-          ? decodeURIComponent(tabParts[3]!)
-          : undefined;
-      if (tabParts.length > (residentPaymentId ? 4 : 3)) notFound();
+        residentDetailTab === "payments" ? residentDetailItemId : undefined;
+      const residentTourId = residentDetailTab === "tours" ? residentDetailItemId : undefined;
+      const residentServiceItemId =
+        residentDetailTab === "services" ? residentDetailItemId : undefined;
+      if (tabParts.length > 4) notFound();
       const ManagerResidents = await loadManagerResidents();
       return subscriptionGated(
         <ManagerResidents
@@ -597,6 +600,8 @@ export async function renderPortalSection(
           residentId={residentId}
           detailTab={residentDetailTab as import("@/lib/portal-detail-routes").ResidentDetailTabId | undefined}
           paymentId={residentPaymentId}
+          tourId={residentTourId}
+          serviceItemId={residentServiceItemId}
           smsUiEnabled={isSmsCommUiEnabled()}
         />,
         kind,

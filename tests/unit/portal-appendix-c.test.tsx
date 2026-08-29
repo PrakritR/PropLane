@@ -18,6 +18,8 @@ import {
   PROPERTY_DETAIL_TAB_LABELS,
   propertyDetailHref,
   residentDetailHref,
+  managerResidentItemDetailHref,
+  residentPaymentDetailHref,
   calendarViewHref,
   bookingsHref,
   teamLinkHref,
@@ -74,6 +76,12 @@ describe("portal-detail-routes", () => {
     );
     expect(residentDetailHref("/portal", "current", "res-1", "lease")).toBe(
       "/portal/residents/current/res-1/lease",
+    );
+    expect(
+      managerResidentItemDetailHref("/portal", "current", "res-1", "payments", "hc-1"),
+    ).toBe("/portal/residents/current/res-1/payments/hc-1");
+    expect(residentPaymentDetailHref("/portal", "current", "res-1", "hc-1")).toBe(
+      "/portal/residents/current/res-1/payments/hc-1",
     );
     expect(calendarViewHref("/portal", "availability")).toBe("/portal/calendar");
     expect(calendarViewHref("/portal", "bookings")).toBe("/portal/bookings");

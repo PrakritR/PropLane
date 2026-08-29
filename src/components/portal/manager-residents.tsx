@@ -4,7 +4,7 @@ import { isDemoModeActive } from "@/lib/demo/demo-session";
 import { cn } from "@/lib/utils";
 import { useCommunicationSurfaceChrome } from "@/hooks/use-communication-surface-chrome";
 import { usePortalNavigate } from "@/lib/portal-nav-client";
-import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useSearchParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { BulkActionBar } from "@/components/ui/bulk-action-bar";
@@ -36,11 +36,7 @@ import {
   ResidentDocumentsDetailFooter,
   PORTAL_TABLE_TD,
   PORTAL_TABLE_TR_EXPANDABLE,
-  PORTAL_TABLE_EXPAND_TH,
-  PORTAL_TABLE_DETAIL_CELL,
-  PORTAL_TABLE_DETAIL_ROW,
   PORTAL_TABLE_HEAD_ROW,
-  PortalTableExpandCell,
   createPortalRowExpandClick,
 } from "@/components/portal/portal-data-table";
 import { ManagerPaymentsLedgerPanel } from "@/components/portal/manager-payments-ledger-panel";
@@ -59,6 +55,7 @@ import { PortalPageFooterActions, PortalSectionActionRow } from "@/components/po
 import {
   RESIDENT_DETAIL_TAB_LABELS,
   RESIDENT_DETAIL_TAB_SHORT_LABELS,
+  managerResidentItemDetailHref,
   residentDetailHref,
   residentPaymentDetailHref,
   parseResidentDetailTab,
@@ -94,6 +91,7 @@ import {
   HOUSEHOLD_CHARGES_SESSION_KEY,
   compareDueDateMs,
   householdChargeToLedgerRow,
+  publicChargeIdForUrl,
   readChargesForManagerResident,
   recordApprovedApplicationCharges,
   removeAllApplicationCharges,
@@ -344,12 +342,16 @@ export function ManagerResidents({
   residentId: residentIdProp,
   detailTab: detailTabProp,
   paymentId: paymentIdProp,
+  tourId: tourIdProp,
+  serviceItemId: serviceItemIdProp,
   smsUiEnabled = false,
 }: {
   tabId?: ResidentsTabId;
   residentId?: string;
   detailTab?: ResidentDetailTabId;
   paymentId?: string;
+  tourId?: string;
+  serviceItemId?: string;
   smsUiEnabled?: boolean;
 }) {
   const { showToast } = useAppUi();
@@ -429,7 +431,6 @@ export function ManagerResidents({
   // Services tab — unified add-on services + maintenance
   const [residentServicesBucket, setResidentServicesBucket] =
     useState<ResidentUnifiedServicesBucket>("pending");
-  const [svcExpandedId, setSvcExpandedId] = useState<string | null>(null);
 
   const activeDetailTab = parseResidentDetailTab(detailTabProp);
   const [applicationEditOpen, setApplicationEditOpen] = useState(false);
@@ -1113,7 +1114,6 @@ export function ManagerResidents({
     if (activeResidentId) {
       setChargeBucket("pending");
       setResidentServicesBucket("pending");
-      setSvcExpandedId(null);
       setApplicationReviewView("application");
     }
   }
@@ -1370,6 +1370,21 @@ export function ManagerResidents({
     residentServiceRequests.length === 0 && residentWorkOrders.length === 0;
   const residentServicesBucketEmpty =
     residentFilteredServiceRequests.length === 0 && residentFilteredWorkOrders.length === 0;
+
+  const residentServiceDetailItem = useMemo(() => {
+    if (!serviceItemIdProp) return null;
+    if (serviceItemIdProp.startsWith("request-")) {
+      const id = serviceItemIdProp.slice("request-".length);
+      const req = residentServiceRequests.find((row) => row.id === id);
+      return req ? ({ kind: "request" as const, req } as const) : null;
+    }
+    if (serviceItemIdProp.startsWith("work-order-")) {
+      const id = serviceItemIdProp.slice("work-order-".length);
+      const row = residentWorkOrders.find((entry) => entry.id === id);
+      return row ? ({ kind: "work-order" as const, row } as const) : null;
+    }
+    return null;
+  }, [residentServiceRequests, residentWorkOrders, serviceItemIdProp]);
 
   async function sendResidentMessage(
     channels?: { viaEmail?: boolean; viaSms?: boolean },
@@ -2783,6 +2798,31 @@ export function ManagerResidents({
     ? residentDetailHref(portalBase, residentsTab, selected.id, "payments")
     : undefined;
 
+  const residentToursListHref = selected
+    ? residentDetailHref(portalBase, residentsTab, selected.id, "tours")
+    : undefined;
+
+  const residentServicesListHref = selected
+    ? residentDetailHref(portalBase, residentsTab, selected.id, "services")
+    : undefined;
+
+  const residentDetailItemBackHref =
+    paymentIdProp && residentPaymentsListHref
+      ? residentPaymentsListHref
+      : tourIdProp && residentToursListHref
+        ? residentToursListHref
+        : serviceItemIdProp && residentServicesListHref
+          ? residentServicesListHref
+          : `${portalBase}/residents/${residentsTab}`;
+
+  const residentDetailItemBackLabel = paymentIdProp
+    ? "Back to payments"
+    : tourIdProp
+      ? "Back to tours"
+      : serviceItemIdProp
+        ? "Back to services"
+        : "Back to residents";
+
   const residentDetailPanel =
     selected ? (
                           <div className="flex min-h-0 flex-1 flex-col gap-0">
@@ -2959,6 +2999,19 @@ export function ManagerResidents({
                                 managerUserId={userId}
                                 residentEmail={selected.email}
                                 residentName={selected.name}
+                                tourId={tourIdProp}
+                                buildTourDetailHref={
+                                  selected
+                                    ? (row) =>
+                                        managerResidentItemDetailHref(
+                                          portalBase,
+                                          residentsTab,
+                                          selected.id,
+                                          "tours",
+                                          row.id,
+                                        )
+                                    : undefined
+                                }
                               />
                             </ResidentDetailTabPanel>
                             </div>
@@ -2994,7 +3047,13 @@ export function ManagerResidents({
                                 embeddedInResident
                                 buildPaymentDetailHref={
                                   selected
-                                    ? (row) => residentPaymentDetailHref(portalBase, residentsTab, selected.id, row.id)
+                                    ? (row) =>
+                                        residentPaymentDetailHref(
+                                          portalBase,
+                                          residentsTab,
+                                          selected.id,
+                                          publicChargeIdForUrl(row.id),
+                                        )
                                     : undefined
                                 }
                                 onEmbeddedDetailActions={handleEmbeddedPaymentFooterActions}
@@ -3006,6 +3065,40 @@ export function ManagerResidents({
 
                             {resolvedDetailTab === "services" ? (
                             <ResidentDetailTabPanel>
+                              {serviceItemIdProp && residentServiceDetailItem ? (
+                                residentServiceDetailItem.kind === "request" ? (
+                                  <ManagerServiceRequestDetail
+                                    req={residentServiceDetailItem.req}
+                                    propertyLabel={selected.propertyLabel || "—"}
+                                    onUpdated={() => setSrTick((n) => n + 1)}
+                                    onApproved={() => setResidentServicesBucket("scheduled")}
+                                    onDenied={() => setResidentServicesBucket("completed")}
+                                    onCollapsed={() => {
+                                      if (residentServicesListHref) navigate(residentServicesListHref);
+                                    }}
+                                  />
+                                ) : (
+                                  <div className="space-y-2 px-3 py-2 text-sm text-muted sm:px-4">
+                                    {residentServiceDetailItem.row.description?.trim() ? (
+                                      <p className="text-foreground">
+                                        {residentServiceDetailItem.row.description.trim()}
+                                      </p>
+                                    ) : null}
+                                    {residentServiceDetailItem.row.scheduled?.trim() ? (
+                                      <p>Scheduled: {residentServiceDetailItem.row.scheduled}</p>
+                                    ) : null}
+                                    {residentServiceDetailItem.row.priority?.trim() ? (
+                                      <p>Priority: {residentServiceDetailItem.row.priority}</p>
+                                    ) : null}
+                                    {residentServiceDetailItem.row.cost?.trim() ? (
+                                      <p>Cost: {residentServiceDetailItem.row.cost}</p>
+                                    ) : null}
+                                  </div>
+                                )
+                              ) : serviceItemIdProp ? (
+                                <PortalDataTableEmpty message="Service not found." icon="service" />
+                              ) : (
+                              <>
                               <div className="mb-3">
                                 <LocalDestinationNav
                                   items={(
@@ -3042,93 +3135,75 @@ export function ManagerResidents({
                                           <th className={`${MANAGER_TABLE_TH} text-left`}>Item</th>
                                           <th className={`${MANAGER_TABLE_TH} text-left`}>Status</th>
                                           <th className={`${MANAGER_TABLE_TH} hidden text-left sm:table-cell`}>Charges</th>
-                                          <th className={PORTAL_TABLE_EXPAND_TH}>
-                                            <span className="sr-only">Expand</span>
-                                          </th>
                                         </tr>
                                       </thead>
                                       <tbody>
                                         {residentFilteredServiceRequests.map((req) => {
                                           const rowId = `request-${req.id}`;
                                           return (
-                                            <Fragment key={rowId}>
-                                              <tr
-                                                className={PORTAL_TABLE_TR_EXPANDABLE}
-                                                onClick={createPortalRowExpandClick(() =>
-                                                  setSvcExpandedId((c) => (c === rowId ? null : rowId)),
-                                                )}
-                                                aria-expanded={svcExpandedId === rowId}
-                                              >
-                                                <td className={`${PORTAL_TABLE_TD} min-w-0 font-medium text-foreground`}>
-                                                  <span className="break-words">{req.offerName}</span>
-                                                </td>
-                                                <td className={PORTAL_TABLE_TD}>
-                                                  <ServiceStatusBadge status={req.status} />
-                                                </td>
-                                                <td className={`${PORTAL_TABLE_TD} hidden sm:table-cell`}>
-                                                  {managerServiceRequestPricingSummary(req)}
-                                                </td>
-                                                <PortalTableExpandCell expanded={svcExpandedId === rowId} />
-                                              </tr>
-                                              {svcExpandedId === rowId ? (
-                                                <tr className={PORTAL_TABLE_DETAIL_ROW}>
-                                                  <td colSpan={4} className={PORTAL_TABLE_DETAIL_CELL}>
-                                                    <ManagerServiceRequestDetail
-                                                      req={req}
-                                                      propertyLabel={selected.propertyLabel || "—"}
-                                                      onUpdated={() => setSrTick((n) => n + 1)}
-                                                      onApproved={() => setResidentServicesBucket("scheduled")}
-                                                      onDenied={() => setResidentServicesBucket("completed")}
-                                                      onCollapsed={() => setSvcExpandedId(null)}
-                                                    />
-                                                  </td>
-                                                </tr>
-                                              ) : null}
-                                            </Fragment>
+                                            <tr
+                                              key={rowId}
+                                              className={cn(PORTAL_TABLE_TR_EXPANDABLE, "cursor-pointer")}
+                                              onClick={createPortalRowExpandClick(() =>
+                                                navigate(
+                                                  managerResidentItemDetailHref(
+                                                    portalBase,
+                                                    residentsTab,
+                                                    selected.id,
+                                                    "services",
+                                                    rowId,
+                                                  ),
+                                                ),
+                                              )}
+                                            >
+                                              <td className={`${PORTAL_TABLE_TD} min-w-0 font-medium text-foreground`}>
+                                                <span className="break-words">{req.offerName}</span>
+                                              </td>
+                                              <td className={PORTAL_TABLE_TD}>
+                                                <ServiceStatusBadge status={req.status} />
+                                              </td>
+                                              <td className={`${PORTAL_TABLE_TD} hidden sm:table-cell`}>
+                                                {managerServiceRequestPricingSummary(req)}
+                                              </td>
+                                            </tr>
                                           );
                                         })}
                                         {residentFilteredWorkOrders.map((row) => {
                                           const rowId = `work-order-${row.id}`;
                                           return (
-                                            <Fragment key={rowId}>
-                                              <tr
-                                                className={PORTAL_TABLE_TR_EXPANDABLE}
-                                                onClick={createPortalRowExpandClick(() =>
-                                                  setSvcExpandedId((c) => (c === rowId ? null : rowId)),
-                                                )}
-                                                aria-expanded={svcExpandedId === rowId}
-                                              >
-                                                <td className={`${PORTAL_TABLE_TD} min-w-0 font-medium text-foreground`}>
-                                                  <span className="break-words">{row.title}</span>
-                                                </td>
-                                                <td className={PORTAL_TABLE_TD}>
-                                                  <span className="text-sm text-foreground">{row.status}</span>
-                                                </td>
-                                                <td className={`${PORTAL_TABLE_TD} hidden sm:table-cell`}>
-                                                  {row.cost?.trim() || "—"}
-                                                </td>
-                                                <PortalTableExpandCell expanded={svcExpandedId === rowId} />
-                                              </tr>
-                                              {svcExpandedId === rowId ? (
-                                                <tr className={PORTAL_TABLE_DETAIL_ROW}>
-                                                  <td colSpan={4} className={PORTAL_TABLE_DETAIL_CELL}>
-                                                    <div className="space-y-2 text-sm text-muted">
-                                                      {row.description?.trim() ? (
-                                                        <p className="text-foreground">{row.description.trim()}</p>
-                                                      ) : null}
-                                                      {row.scheduled?.trim() ? <p>Scheduled: {row.scheduled}</p> : null}
-                                                      {row.priority?.trim() ? <p>Priority: {row.priority}</p> : null}
-                                                    </div>
-                                                  </td>
-                                                </tr>
-                                              ) : null}
-                                            </Fragment>
+                                            <tr
+                                              key={rowId}
+                                              className={cn(PORTAL_TABLE_TR_EXPANDABLE, "cursor-pointer")}
+                                              onClick={createPortalRowExpandClick(() =>
+                                                navigate(
+                                                  managerResidentItemDetailHref(
+                                                    portalBase,
+                                                    residentsTab,
+                                                    selected.id,
+                                                    "services",
+                                                    rowId,
+                                                  ),
+                                                ),
+                                              )}
+                                            >
+                                              <td className={`${PORTAL_TABLE_TD} min-w-0 font-medium text-foreground`}>
+                                                <span className="break-words">{row.title}</span>
+                                              </td>
+                                              <td className={PORTAL_TABLE_TD}>
+                                                <span className="text-sm text-foreground">{row.status}</span>
+                                              </td>
+                                              <td className={`${PORTAL_TABLE_TD} hidden sm:table-cell`}>
+                                                {row.cost?.trim() || "—"}
+                                              </td>
+                                            </tr>
                                           );
                                         })}
                                       </tbody>
                                     </table>
                                   </div>
                                 </div>
+                              )}
+                              </>
                               )}
                             </ResidentDetailTabPanel>
                             ) : null}
@@ -3265,12 +3340,8 @@ export function ManagerResidents({
           title={selected.name || "Resident"}
           subtitle={selected.email || undefined}
           avatarName={selected.name || selected.email}
-          backHref={
-            paymentIdProp && residentPaymentsListHref
-              ? residentPaymentsListHref
-              : `${portalBase}/residents/${residentsTab}`
-          }
-          backLabel={paymentIdProp ? "Back to payments" : "Back to residents"}
+          backHref={residentDetailItemBackHref}
+          backLabel={residentDetailItemBackLabel}
           hideBackText
           bareHeader
           dataAttrBack="resident-detail-back"

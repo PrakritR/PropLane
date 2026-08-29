@@ -158,13 +158,24 @@ export function residentDetailHref(
 ): string {
   return `${basePath}/residents/${residentsTab}/${encodeURIComponent(residentId)}/${tab}`;
 }
+/** One list item under a manager resident profile tab (payments, tours, services). */
+export function managerResidentItemDetailHref(
+  basePath: string,
+  residentsTab: string,
+  residentId: string,
+  tab: Extract<ResidentDetailTabId, "payments" | "tours" | "services">,
+  itemId: string,
+): string {
+  return `${basePath}/residents/${residentsTab}/${encodeURIComponent(residentId)}/${tab}/${encodeURIComponent(itemId)}`;
+}
+
 export function residentPaymentDetailHref(
   basePath: string,
   residentsTab: string,
   residentId: string,
   paymentId: string,
 ): string {
-  return `${basePath}/residents/${residentsTab}/${encodeURIComponent(residentId)}/payments/${encodeURIComponent(paymentId)}`;
+  return managerResidentItemDetailHref(basePath, residentsTab, residentId, "payments", paymentId);
 }
 
 
