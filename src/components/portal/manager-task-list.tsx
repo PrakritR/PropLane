@@ -3,25 +3,26 @@
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
-import { DestinationNav, LocalDestinationNav } from "@/components/ui/destination-nav";
-import { Select } from "@/components/ui/input";
+import { DestinationNav } from "@/components/ui/destination-nav";
 import { useShallowTabId } from "@/components/ui/tabs";
 import { useAppUi } from "@/components/providers/app-ui-provider";
+import { ManagerTaskFilterFields } from "@/components/portal/manager-task-filter-fields";
 import { ManagerPortalPageShell } from "@/components/portal/portal-metrics";
+import { PortalFilterSortSheet, portalFilterActiveCount } from "@/components/portal/portal-filter-sort-sheet";
+import { PORTAL_PROPERTY_FILTER_SHEET_CLASS } from "@/components/portal/portal-filter-shell";
 import { PORTAL_LIST_PAGE_BODY } from "@/components/portal/portal-inbox-ui";
 import { PortalListAddRow, PORTAL_LIST_ADD_ICONS } from "@/components/portal/portal-list-add-row";
 import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
 import { PortalPageFooterActions } from "@/components/portal/portal-section-action-row";
 import { ManagerTaskFormModal } from "@/components/portal/manager-task-form-modal";
+import { ManagerCommunicationComposeModal } from "@/components/portal/manager-communication-compose-modal";
 import { useManagerUserId } from "@/hooks/use-manager-user-id";
+import type { ManagerComposePrefill } from "@/lib/manager-compose-prefill";
 import { formatRangeLabel, syncScheduleRecordsFromServer } from "@/lib/demo-admin-scheduling";
 import { syncPropertyPipelineFromServer } from "@/lib/demo-property-pipeline";
 import { buildManagerPropertyFilterOptions } from "@/lib/manager-portfolio-access";
 import {
   compactTaskLocationLabel,
-  countTaskListFilterBuckets,
-  MANAGER_TASK_LIST_FILTER_LABELS,
-  MANAGER_TASK_LIST_FILTERS,
   serviceRequestLocationLabel,
   serviceRequestsAssignedToViewer,
   taskListRowMatchesFilter,
@@ -111,11 +112,13 @@ export function ManagerTaskList({
 }) {
   const tabId = useShallowTabId(serverTabId, MANAGER_TASK_LIST_TABS);
   const { showToast } = useAppUi();
-  const { userId, ready } = useManagerUserId();
+  const { userId, email: managerEmail, ready } = useManagerUserId();
   const [tasks, setTasks] = useState<ManagerTask[]>([]);
   const [assignedServices, setAssignedServices] = useState<ServiceRequest[]>([]);
   const [loading, setLoading] = useState(true);
   const [addOpen, setAddOpen] = useState(false);
+  const [composeOpen, setComposeOpen] = useState(false);
+  const [composeDraft, setComposeDraft] = useState<ManagerComposePrefill | null>(null);
   const [propertyTick, setPropertyTick] = useState(0);
   const [propertyFilterId, setPropertyFilterId] = useState("");
   const [listFilter, setListFilter] = useState<ManagerTaskListFilterId>("all");
@@ -189,15 +192,36 @@ export function ManagerTaskList({
       .sort((a, b) => rowSortKey(b).localeCompare(rowSortKey(a)));
   }, [assignedServices, doneTasks, listFilter, matchesProperty, openTasks, tabId]);
 
-  const filterCounts = useMemo(
-    () =>
-      countTaskListFilterBuckets({
-        tasks,
-        services: assignedServices,
-        tabId,
-        matchesProperty,
-      }),
-    [assignedServices, matchesProperty, tabId, tasks],
+  const taskFilterActiveCount = portalFilterActiveCount([
+    listFilter !== "all" ? listFilter : "",
+    propertyFilterId,
+  ]);
+
+  const taskFilterFieldCount = propertyOptions.length > 1 ? 2 : 1;
+
+  const tasksFilterSheet = (
+    <PortalFilterSortSheet
+      activeCount={taskFilterActiveCount}
+      compactPanel
+      filterFieldCount={taskFilterFieldCount}
+      constrainDropdownToTitleBand
+      mobileFlushBody
+      className={PORTAL_PROPERTY_FILTER_SHEET_CLASS}
+      onReset={() => {
+        setListFilter("all");
+        setPropertyFilterId("");
+      }}
+      dataAttr="tasks-filter-sheet-open"
+    >
+      <ManagerTaskFilterFields
+        listFilter={listFilter}
+        onListFilterChange={setListFilter}
+        tabId={tabId}
+        propertyOptions={propertyOptions}
+        propertyFilterId={propertyFilterId}
+        onPropertyFilterIdChange={setPropertyFilterId}
+      />
+    </PortalFilterSortSheet>
   );
 
   useEffect(() => {
@@ -344,65 +368,28 @@ export function ManagerTaskList({
   }
 
   return (
-    <ManagerPortalPageShell title="Tasks" hideTitleOnMobileNav>
+    <ManagerPortalPageShell
+      title="Tasks"
+      hideTitleOnMobileNav
+      titleInlineFilter={tasksFilterSheet}
+      compactFilterRow
+    >
       <PortalListControlStack
         className="mb-2"
         destinationRow={
-          <div className="flex w-full min-w-0 flex-col gap-2">
-            <DestinationNav
-              items={tabItems}
-              activeId={tabId}
-              ariaLabel="Task status"
-              itemLayout="equal"
-              denseEqualRow
-              className="max-w-none"
-            />
-            <LocalDestinationNav
-              items={MANAGER_TASK_LIST_FILTERS.filter(
-                (id) => tabId === "in-progress" || id !== "services",
-              ).map((id) => ({
-                id,
-                label: MANAGER_TASK_LIST_FILTER_LABELS[id],
-                count: filterCounts[id],
-                dataAttr: `manager-task-filter-${id}`,
-              }))}
-              activeId={listFilter}
-              onChange={(id) => setListFilter(id as ManagerTaskListFilterId)}
-              ariaLabel="Task filters"
-            />
-          </div>
-        }
-        filterRow={
-          propertyOptions.length > 1 ? (
-            <label className="flex min-w-0 flex-col gap-1 text-sm sm:max-w-xs">
-              <span className="font-medium text-foreground">House</span>
-              <Select value={propertyFilterId} onChange={(e) => setPropertyFilterId(e.target.value)}>
-                <option value="">All houses</option>
-                {propertyOptions.map((option) => (
-                  <option key={option.id} value={option.id}>
-                    {option.label}
-                  </option>
-                ))}
-              </Select>
-            </label>
-          ) : null
+          <DestinationNav
+            items={tabItems}
+            activeId={tabId}
+            ariaLabel="Task status"
+            itemLayout="equal"
+            denseEqualRow
+            className="max-w-none"
+          />
         }
       />
 
       <div className={PORTAL_LIST_PAGE_BODY}>
         {loading ? <p className="text-sm text-muted">Loading…</p> : null}
-
-        {!loading && visibleRows.length === 0 ? (
-          <p className="text-sm text-muted">
-            {tabId === "completed"
-              ? listFilter === "all"
-                ? "No completed tasks yet."
-                : `No completed tasks in ${MANAGER_TASK_LIST_FILTER_LABELS[listFilter].toLowerCase()}.`
-              : listFilter === "all"
-                ? "No open tasks. Add one or they will appear when applications are submitted."
-                : `No ${MANAGER_TASK_LIST_FILTER_LABELS[listFilter].toLowerCase()} tasks.`}
-          </p>
-        ) : null}
 
         {!loading && visibleRows.length > 0 ? (
           <ul
@@ -460,13 +447,33 @@ export function ManagerTaskList({
           managerUserId={userId}
           editingId={editingId}
           propertyTick={propertyTick}
-          onSaved={async () => {
+          onSaved={async (prefill) => {
             setSelectedIds([]);
             await refresh();
             showToast(editingId ? "Task updated." : "Task saved.");
+            if (prefill) {
+              setComposeDraft(prefill);
+              setComposeOpen(true);
+            }
           }}
         />
       ) : null}
+
+      <ManagerCommunicationComposeModal
+        open={composeOpen}
+        onClose={() => {
+          setComposeOpen(false);
+          setComposeDraft(null);
+        }}
+        initialDraft={composeDraft}
+        senderEmail={managerEmail ?? "manager@example.com"}
+        smsUiEnabled={false}
+        onSent={() => {
+          setComposeOpen(false);
+          setComposeDraft(null);
+          showToast("Message sent.");
+        }}
+      />
     </ManagerPortalPageShell>
   );
 }

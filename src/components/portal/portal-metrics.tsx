@@ -626,8 +626,8 @@ export function ManagerPortalPageShell({
 }) {
   const useInlineTitleBand = Boolean(
     hideTitleOnMobileNav &&
-      titleAside != null &&
       !filterRow &&
+      (titleAside != null || titleInlineFilter != null) &&
       (!titleTrailing || titleInlineFilter !== undefined),
   );
   const tightChrome = useInlineTitleBand || compactFilterRow;

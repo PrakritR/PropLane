@@ -64,9 +64,7 @@ describe("ManagerTaskList", () => {
     await waitFor(() => {
       expect(screen.getByRole("button", { name: "Add task" })).toBeInTheDocument();
     });
-    expect(screen.getByRole("button", { name: /^All\b/i })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /^Open\b/i })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /^Scheduled\b/i })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /^Service orders\b/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /^Filter\b/i })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /^All\b/i })).not.toBeInTheDocument();
   });
 });
