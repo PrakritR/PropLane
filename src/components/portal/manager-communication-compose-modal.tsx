@@ -18,6 +18,8 @@ import {
   portalMessageChannelsFromSelection,
   portalMessageFieldLabel,
 } from "@/components/portal/portal-message-compose-fields";
+import { useManagerCommunicationDeliverVia } from "@/hooks/use-manager-communication-deliver-via";
+import { portalMessageSelectionFromDeliverVia } from "@/lib/manager-communication-deliver-via";
 import { useAppUi } from "@/components/providers/app-ui-provider";
 import { isDemoModeActive } from "@/lib/demo/demo-session";
 import { mergeInboxScopedContacts } from "@/lib/manager-inbox-contacts";
@@ -193,6 +195,7 @@ export function ManagerCommunicationComposeModal({
   const [sendAt, setSendAt] = useState(defaultPortalMessageScheduleAt);
   const [sending, setSending] = useState(false);
   const smsAttemptRef = useRef<ManualSmsAttempt | null>(null);
+  const { channelsFor } = useManagerCommunicationDeliverVia();
 
   const { viaEmail, viaSms } = portalMessageChannelsFromSelection(sendVia);
 
@@ -282,19 +285,19 @@ export function ManagerCommunicationComposeModal({
         setBody("");
       }
       setSendVia(
-        defaultPortalMessageChannelSelection(
-          true,
-          smsUiEnabled,
-          initialChannel !== "sms",
-          initialChannel === "sms",
-        ),
+        initialDraft?.recipientEmail && initialChannel === "sms"
+          ? defaultPortalMessageChannelSelection(true, smsUiEnabled, false, true)
+          : portalMessageSelectionFromDeliverVia(
+              channelsFor("inbox_default"),
+              smsUiEnabled,
+            ),
       );
       setScheduleLater(false);
       setSendAt(defaultPortalMessageScheduleAt());
       setSending(false);
       smsAttemptRef.current = null;
     });
-  }, [open, initialChannel, smsUiEnabled, initialDraft]);
+  }, [open, initialChannel, smsUiEnabled, initialDraft, channelsFor]);
 
   useEffect(() => {
     setSelectedCategories((prev) => prev.filter((c) => categoryOptions.includes(c)));

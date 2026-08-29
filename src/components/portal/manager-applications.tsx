@@ -1659,6 +1659,8 @@ export function ManagerApplications({
         }
         confirmLabel="Approve & send setup email"
         confirmLabelWithoutMessage="Approve only"
+        deliverViaKind="applications"
+        smsAvailable
         confirmBusy={approvePreviewRow !== null && approveBusyId === approvePreviewRow.id}
         confirmBusyLabel="Approving…"
         onConfirm={(skipMessage) => {
@@ -1721,6 +1723,7 @@ export function ManagerApplications({
         showChannelPicker
         emailAvailable
         smsAvailable
+        deliverViaKind="applications"
         confirmLabel="Send reminder"
         confirmBusy={reminderBusyId !== null}
         confirmBusyLabel="Sending…"

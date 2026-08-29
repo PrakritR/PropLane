@@ -1453,8 +1453,7 @@ export function ManagerPaymentsLedgerPanel({
         showChannelPicker
         emailAvailable={Boolean(reminderPreview.row.residentEmail?.includes("@"))}
         smsAvailable
-        defaultViaEmail={Boolean(reminderPreview.row.residentEmail?.includes("@"))}
-        defaultViaSms={false}
+        deliverViaKind="payment_reminder"
         confirmLabel="Send reminder"
         confirmBusy={sendingReminderId === reminderPreview.row.id}
         confirmBusyLabel="Sending…"
