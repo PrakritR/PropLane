@@ -364,10 +364,6 @@ export function ProAccountLinksPanel({ userId, linkId: linkIdProp }: { userId: s
   const [loadError, setLoadError] = useState(false);
   const loadInFlightRef = useRef(false);
   const loadRetriedRef = useRef(false);
-  // Latest loadRemoteInvites, so the soft-retry can re-invoke it without a
-  // forward self-reference during declaration (react-hooks). Kept current by the
-  // effect below; the callback is stable (memoized on [showToast]).
-  const loadRemoteInvitesRef = useRef<() => void>(() => {});
   const [inviteDrafts, setInviteDrafts] = useState<Record<string, InviteDraft>>({});
   const saveTimersRef = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
   const [addPropertySelect, setAddPropertySelect] = useState<Record<string, string>>({});
@@ -383,7 +379,10 @@ export function ProAccountLinksPanel({ userId, linkId: linkIdProp }: { userId: s
   const [transferPermissions, setTransferPermissions] = useState<CoManagerPermissions>(EMPTY_CO_MANAGER_PERMISSIONS);
   const [transferBusy, setTransferBusy] = useState(false);
 
-  const loadRemoteInvites = useCallback(async () => {
+  // Named function expression so the soft-retry below can re-invoke this exact
+  // load directly. It must NOT hop through a ref: a ref captured this deep in the
+  // handler chain is read during render by the React Compiler (react-hooks/refs).
+  const loadRemoteInvites = useCallback(async function runLoadRemoteInvites(): Promise<void> {
     // In-flight guard: the initial-load effect and the post-purge refresh can
     // both fire; without this the auto-retry below could also stack.
     if (loadInFlightRef.current) return;
@@ -394,7 +393,7 @@ export function ProAccountLinksPanel({ userId, linkId: linkIdProp }: { userId: s
       setUseRemote(true);
       if (!loadRetriedRef.current) {
         loadRetriedRef.current = true;
-        window.setTimeout(() => void loadRemoteInvitesRef.current(), 1200);
+        window.setTimeout(() => void runLoadRemoteInvites(), 1200);
         return true; // retry scheduled
       }
       setLoadError(true);
@@ -451,10 +450,6 @@ export function ProAccountLinksPanel({ userId, linkId: linkIdProp }: { userId: s
       loadInFlightRef.current = false;
     }
   }, [showToast, userId]);
-
-  useEffect(() => {
-    loadRemoteInvitesRef.current = loadRemoteInvites;
-  }, [loadRemoteInvites]);
 
   useEffect(() => {
     const id = window.setTimeout(() => void loadRemoteInvites(), 0);
