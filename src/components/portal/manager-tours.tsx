@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { PortalEmptyState } from "@/components/portal/portal-empty-state";
 import { PortalListGroupFilterFields } from "@/components/portal/portal-list-group-filter-fields";
 import { ManagerAddScheduledTourModal } from "@/components/portal/manager-add-scheduled-tour-modal";
 import { ManagerToursGroupedTable } from "@/components/portal/manager-tours-grouped-table";
@@ -1250,7 +1251,9 @@ export function ManagerTours({
 
         {!authReady ? (
           <p className="text-sm text-muted">Loading tours…</p>
-        ) : rowsForBucket.length === 0 ? null : (
+        ) : rowsForBucket.length === 0 ? (
+          <PortalEmptyState icon="application" title="No tours in this view yet." />
+        ) : (
           renderGroupedTours()
         )}
       </div>
