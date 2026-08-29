@@ -26,7 +26,7 @@ import {
   propertyLeaseTemplateDraftFromTemplate,
   resolvePropertyLeaseEditHtml,
 } from "@/lib/property-lease-edit";
-import type { PropertyLeasePreviewHint } from "@/lib/property-lease-preview";
+import { buildPropertyLeasePreview, type PropertyLeasePreviewHint } from "@/lib/property-lease-preview";
 import {
   addLeaseTemplateFromSeed,
   availableLeaseTemplateSeeds,
@@ -281,6 +281,26 @@ export function ManagerPropertyLeasePanel({
     return stripDisclosureReviewFromLeaseHtml(html);
   }, [previewTemplate, syncedSub, propertyHint, demoMode]);
 
+  /**
+   * Why there is no rendered document, in the preview's own words.
+   *
+   * `buildPropertyLeasePreview` has five outcomes that produce no HTML but DO explain themselves —
+   * an unsupported jurisdiction, an unconfigured custom format, empty custom comments, and so on.
+   * The modal used to render only the HTML, so every one of them collapsed into "No preview yet —
+   * open Edit to upload or configure this lease", which is wrong for a configured PropLane default
+   * and sends the manager to an upload screen they do not need. Most often the real answer is that
+   * the property has no state on record, so no jurisdiction could be resolved.
+   */
+  const previewNotice = useMemo(() => {
+    if (!previewTemplate || previewHtml) return "";
+    const result = buildPropertyLeasePreview(syncedSub, {
+      hint: propertyHint,
+      demo: demoMode,
+      templateKind: previewTemplate.kind,
+    });
+    return result.plainText?.trim() ?? "";
+  }, [previewTemplate, previewHtml, syncedSub, propertyHint, demoMode]);
+
   const deleteTemplateAcrossProperties = (target: PropertyLeaseTemplate) => {
     if (!managerUserId) return false;
     let saved = 0;
@@ -493,7 +513,7 @@ export function ManagerPropertyLeasePanel({
               />
             ) : (
               <p className="rounded-xl border border-border bg-accent/20 px-3 py-2.5 text-sm text-muted">
-                No preview yet — open Edit to upload or configure this lease.
+                {previewNotice || "No preview yet — open Edit to upload or configure this lease."}
               </p>
             )}
           </div>
