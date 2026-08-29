@@ -28,6 +28,10 @@ function rowTitle(asset: PromotionAsset, indexWithinKind: number): string {
   return stored.trim() || promotionAssetListTitle(asset, indexWithinKind);
 }
 
+function promotionAssetCanEdit(asset: PromotionAsset, onEdit?: (asset: PromotionAsset) => void): boolean {
+  return Boolean(onEdit) && (asset.kind === "flyer" || asset.kind === "text");
+}
+
 export function PromotionAssetStack({
   assets,
   onView,
@@ -39,7 +43,7 @@ export function PromotionAssetStack({
   onToggleSelected,
 }: {
   assets: PromotionAsset[];
-  onView: (asset: PromotionAsset) => void;
+  onView?: (asset: PromotionAsset) => void;
   onEdit?: (asset: PromotionAsset) => void;
   emptyMessage?: string;
   /** When false (property Promotion tab), the property name is omitted from the subtitle. */
@@ -59,7 +63,7 @@ export function PromotionAssetStack({
   const rows = assets.map((asset) => {
         const indexWithinKind = kindIndices.get(asset.id) ?? 0;
         const title = rowTitle(asset, indexWithinKind);
-        const canEdit = Boolean(onEdit) && (asset.kind === "flyer" || asset.kind === "text");
+        const canEdit = promotionAssetCanEdit(asset, onEdit);
         const subtitleParts = [
           showPropertyLabel ? asset.propertyLabel : null,
           promotionKindLabel(asset.kind),
@@ -90,27 +94,22 @@ export function PromotionAssetStack({
         return (
           <div key={asset.id} className={PORTAL_PROPERTY_DETAIL_LIST_ROW_CLASS}>
             <div className="min-w-0 flex-1">
-              <button
-                type="button"
-                className="min-w-0 text-left text-sm font-semibold text-foreground hover:underline"
-                data-attr="promotion-row"
-                onClick={() => onView(asset)}
-              >
-                {title}
-              </button>
+              {onView && asset.kind === "upload" ? (
+                <button
+                  type="button"
+                  className="min-w-0 text-left text-sm font-semibold text-foreground hover:underline"
+                  data-attr="promotion-row"
+                  onClick={() => onView(asset)}
+                >
+                  {title}
+                </button>
+              ) : (
+                <p className="text-sm font-semibold text-foreground">{title}</p>
+              )}
               <p className="mt-0.5 text-xs text-muted">{subtitleParts.join(" · ")}</p>
             </div>
-            <div className="flex shrink-0 flex-nowrap items-center gap-2">
-              <Button
-                type="button"
-                variant="outline"
-                className={PORTAL_PROPERTY_DETAIL_ACTION_BUTTON_CLASS}
-                data-attr={`promotion-row-view-${asset.id}`}
-                onClick={() => onView(asset)}
-              >
-                View
-              </Button>
-              {canEdit ? (
+            {canEdit ? (
+              <div className="flex shrink-0 flex-nowrap items-center gap-2">
                 <Button
                   type="button"
                   variant="outline"
@@ -120,8 +119,8 @@ export function PromotionAssetStack({
                 >
                   Edit
                 </Button>
-              ) : null}
-            </div>
+              </div>
+            ) : null}
           </div>
         );
       });
@@ -132,3 +131,5 @@ export function PromotionAssetStack({
 
   return <div className="divide-y divide-border rounded-xl border border-border bg-card">{rows}</div>;
 }
+
+export { promotionAssetCanEdit };

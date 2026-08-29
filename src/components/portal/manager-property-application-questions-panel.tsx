@@ -1,11 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { RentalApplicationWizard } from "@/components/marketing/rental-application-wizard";
-import { CosignerApplyFlow } from "@/app/(public)/rent/apply/cosigner-flow";
 import { Button } from "@/components/ui/button";
 import { BulkActionBar } from "@/components/ui/bulk-action-bar";
-import { Modal, ModalFooter } from "@/components/ui/modal";
 import { ManagerApplicationQuestionsEditorModal } from "@/components/portal/manager-application-questions-editor-modal";
 import {
   PORTAL_LIST_ADD_ICONS,
@@ -13,8 +10,6 @@ import {
   PortalListAddRow,
 } from "@/components/portal/portal-list-add-row";
 import {
-  PORTAL_PROPERTY_DETAIL_ACTION_BUTTON_CLASS,
-  PORTAL_PROPERTY_DETAIL_LIST_ROW_ACTIONS_CLASS,
   PORTAL_PROPERTY_DETAIL_LIST_ROW_CLASS,
   PortalPropertyDetailSection,
 } from "@/components/portal/portal-property-detail-section";
@@ -98,25 +93,11 @@ export function ManagerPropertyApplicationQuestionsPanel({
   const [editorOpen, setEditorOpen] = useState(false);
   const [editorMode, setEditorMode] = useState<"add" | "edit">("edit");
   const [editingTemplate, setEditingTemplate] = useState<PropertyApplicationTemplate | null>(null);
-  const [previewOpen, setPreviewOpen] = useState(false);
-  const [previewTemplate, setPreviewTemplate] = useState<PropertyApplicationTemplate | null>(null);
-
   const syncedSub = useMemo(() => syncPropertyApplicationTemplatesFromListing(sub), [sub]);
   const templates = useMemo(() => readPropertyApplicationTemplates(syncedSub), [syncedSub]);
   const { selectedIds, toggleSelected, clearSelection } = usePortalRowSelection(templates.length);
 
   const bulkPropertyIds = propertyIds?.filter((id) => id.trim()) ?? [];
-
-  const previewPropertyId = useMemo(
-    () =>
-      resolveApplicationPreviewPropertyId({
-        listingId,
-        saveTarget,
-        managerUserId,
-        bulkPropertyIds,
-      }),
-    [bulkPropertyIds, listingId, managerUserId, saveTarget],
-  );
 
   const persistSubmission = useCallback(
     (merged: ManagerListingSubmissionV1, opts: { message: string }) => {
@@ -287,15 +268,6 @@ export function ManagerPropertyApplicationQuestionsPanel({
     return () => onRegisterAddApplication?.(null);
   }, [onRegisterAddApplication, openAdd]);
 
-  const openApplicationPreview = (template: PropertyApplicationTemplate) => {
-    if (!previewPropertyId) {
-      showToast("Could not load this property to preview the application.");
-      return;
-    }
-    setPreviewTemplate(template);
-    setPreviewOpen(true);
-  };
-
   const openEditApplication = (template: PropertyApplicationTemplate) => {
     setEditorMode("edit");
     setEditingTemplate(template);
@@ -310,9 +282,7 @@ export function ManagerPropertyApplicationQuestionsPanel({
       return;
     }
     setEditorOpen(false);
-    setPreviewOpen(false);
     setEditingTemplate(null);
-    setPreviewTemplate(null);
     onUpdated();
     showToast("Application deleted.");
   };
@@ -347,9 +317,7 @@ export function ManagerPropertyApplicationQuestionsPanel({
     }
     clearSelection();
     setEditorOpen(false);
-    setPreviewOpen(false);
     setEditingTemplate(null);
-    setPreviewTemplate(null);
     onUpdated();
     showToast(
       selectedTemplates.length === 1 ? "Application deleted." : `${selectedTemplates.length} applications deleted.`,
@@ -385,26 +353,6 @@ export function ManagerPropertyApplicationQuestionsPanel({
                 ) : null}
               </div>
             </label>
-            <div className={PORTAL_PROPERTY_DETAIL_LIST_ROW_ACTIONS_CLASS}>
-              <Button
-                type="button"
-                variant="outline"
-                className={PORTAL_PROPERTY_DETAIL_ACTION_BUTTON_CLASS}
-                data-attr={`application-view-${template.id}`}
-                onClick={() => openApplicationPreview(template)}
-              >
-                View
-              </Button>
-              <Button
-                type="button"
-                variant="outline"
-                className={PORTAL_PROPERTY_DETAIL_ACTION_BUTTON_CLASS}
-                data-attr={`application-edit-${template.id}`}
-                onClick={() => openEditApplication(template)}
-              >
-                Edit
-              </Button>
-            </div>
           </div>
         ))}
       </PortalPropertyDetailSection>
@@ -468,104 +416,19 @@ export function ManagerPropertyApplicationQuestionsPanel({
         />
       ) : null}
 
-      <Modal
-        open={previewOpen}
-        onClose={() => {
-          setPreviewOpen(false);
-          setPreviewTemplate(null);
-        }}
-        title={
-          previewTemplate
-            ? `View · ${normalizePropertyApplicationTemplateLabel(previewTemplate.label)}`
-            : "View"
-        }
-        presentation="dialog"
-        dense
-        assistantStrip={false}
-        stackClassName="fixed inset-0 z-[80] overflow-y-auto overscroll-contain"
-        panelClassName="flex max-h-[min(90vh,56rem)] w-full max-w-5xl flex-col"
-        dataAttr="property-application-preview"
-        footer={
-          previewTemplate ? (
-            <ModalFooter>
-              <Button
-                type="button"
-                variant="primary"
-                className="ml-auto rounded-full"
-                data-attr="property-application-preview-edit"
-                onClick={() => {
-                  const template = previewTemplate;
-                  setPreviewOpen(false);
-                  setPreviewTemplate(null);
-                  openEditApplication(template);
-                }}
-              >
-                Edit application
-              </Button>
-            </ModalFooter>
-          ) : null
-        }
-      >
-        {previewOpen && previewTemplate && previewPropertyId ? (
-          <div className="mx-auto w-full max-w-5xl">
-            {previewTemplate.formVariant === "cosigner" ? (
-              <CosignerApplyFlow
-                key={previewTemplate.id}
-                embedded
-                previewMode
-                showToast={showToast}
-                onBack={() => {
-                  setPreviewOpen(false);
-                  setPreviewTemplate(null);
-                }}
-                onDone={() => {
-                  setPreviewOpen(false);
-                  setPreviewTemplate(null);
-                }}
-              />
-            ) : (
-              <RentalApplicationWizard
-                key={`${previewPropertyId}-${previewTemplate.id}`}
-                showToast={showToast}
-                mode="manager"
-                layout="embedded"
-                linkedPropertyId={previewPropertyId}
-                linkedRentalType={previewTemplate.kind === "short-term" ? "short_term" : "standard"}
-                templatePreview
-                onManagerCancel={() => {
-                  setPreviewOpen(false);
-                  setPreviewTemplate(null);
-                }}
-              />
-            )}
-          </div>
-        ) : null}
-      </Modal>
-
       {selectedIds.size > 0 ? (
         <BulkActionBar count={selectedIds.size} hideCount variant="payments">
           <div className="flex min-w-0 flex-wrap items-center justify-start gap-2">
             {selectedIds.size === 1 && selectedTemplates[0] ? (
-              <>
-                <Button
-                  type="button"
-                  variant="outline"
-                  className={PORTAL_BULK_BAR_BTN}
-                  data-attr="property-application-bulk-view"
-                  onClick={() => openApplicationPreview(selectedTemplates[0]!)}
-                >
-                  View
-                </Button>
-                <Button
-                  type="button"
-                  variant="outline"
-                  className={PORTAL_BULK_BAR_BTN}
-                  data-attr="property-application-bulk-edit"
-                  onClick={() => openEditApplication(selectedTemplates[0]!)}
-                >
-                  Edit
-                </Button>
-              </>
+              <Button
+                type="button"
+                variant="outline"
+                className={PORTAL_BULK_BAR_BTN}
+                data-attr="property-application-bulk-edit"
+                onClick={() => openEditApplication(selectedTemplates[0]!)}
+              >
+                Edit
+              </Button>
             ) : null}
             <Button
               type="button"

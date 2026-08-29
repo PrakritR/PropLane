@@ -3,7 +3,6 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { Button } from "@/components/ui/button";
 import { BulkActionBar } from "@/components/ui/bulk-action-bar";
-import { Modal, ModalFooter } from "@/components/ui/modal";
 import { PropertyLeaseFormModal } from "@/components/portal/property-lease-form-modal";
 import {
   PORTAL_LIST_ADD_ROW_WRAP_CLASS,
@@ -11,8 +10,6 @@ import {
   PORTAL_LIST_ADD_ICONS,
 } from "@/components/portal/portal-list-add-row";
 import {
-  PORTAL_PROPERTY_DETAIL_ACTION_BUTTON_CLASS,
-  PORTAL_PROPERTY_DETAIL_LIST_ROW_ACTIONS_CLASS,
   PORTAL_PROPERTY_DETAIL_LIST_ROW_CLASS,
   PortalPropertyDetailSection,
 } from "@/components/portal/portal-property-detail-section";
@@ -22,12 +19,7 @@ import {
   resolveManagerListingSubmissionForPropertyId,
 } from "@/lib/manager-property-save-target";
 import { syncPropertyPipelineFromServer } from "@/lib/demo-property-pipeline";
-import { stripDisclosureReviewFromLeaseHtml } from "@/lib/property-lease-document-display";
-import {
-  propertyLeaseTemplateDraftFromTemplate,
-  resolvePropertyLeaseEditHtml,
-} from "@/lib/property-lease-edit";
-import { buildPropertyLeasePreview, type PropertyLeasePreviewHint } from "@/lib/property-lease-preview";
+import type { PropertyLeasePreviewHint } from "@/lib/property-lease-preview";
 import {
   addLeaseTemplateFromSeed,
   availableLeaseTemplateSeeds,
@@ -114,8 +106,6 @@ export function ManagerPropertyLeasePanel({
   const [formOpen, setFormOpen] = useState(false);
   const [formMode, setFormMode] = useState<"add" | "edit">("add");
   const [editingTemplateId, setEditingTemplateId] = useState<string | null>(null);
-  const [previewOpen, setPreviewOpen] = useState(false);
-  const [previewTemplate, setPreviewTemplate] = useState<PropertyLeaseTemplate | null>(null);
 
   const syncedSub = useMemo(() => syncPropertyLeaseTemplatesFromListing(sub), [sub]);
   const templates = useMemo(() => readPropertyLeaseTemplates(syncedSub), [syncedSub]);
@@ -261,47 +251,6 @@ export function ManagerPropertyLeasePanel({
     setFormOpen(true);
   };
 
-  const openLeasePreview = (template: PropertyLeaseTemplate) => {
-    setPreviewTemplate(template);
-    setPreviewOpen(true);
-  };
-
-  const previewHtml = useMemo(() => {
-    if (!previewTemplate) return "";
-    const override = previewTemplate.leaseTemplateHtmlOverride?.trim();
-    if (override) return stripDisclosureReviewFromLeaseHtml(override);
-    const source = propertyLeaseSourceFromTemplate(previewTemplate);
-    const html = resolvePropertyLeaseEditHtml({
-      sub: syncedSub,
-      draft: propertyLeaseTemplateDraftFromTemplate(previewTemplate),
-      source,
-      templateKind: previewTemplate.kind,
-      hint: propertyHint,
-      demo: demoMode,
-    });
-    return stripDisclosureReviewFromLeaseHtml(html);
-  }, [previewTemplate, syncedSub, propertyHint, demoMode]);
-
-  /**
-   * Why there is no rendered document, in the preview's own words.
-   *
-   * `buildPropertyLeasePreview` has five outcomes that produce no HTML but DO explain themselves —
-   * an unsupported jurisdiction, an unconfigured custom format, empty custom comments, and so on.
-   * The modal used to render only the HTML, so every one of them collapsed into "No preview yet —
-   * open Edit to upload or configure this lease", which is wrong for a configured PropLane default
-   * and sends the manager to an upload screen they do not need. Most often the real answer is that
-   * the property has no state on record, so no jurisdiction could be resolved.
-   */
-  const previewNotice = useMemo(() => {
-    if (!previewTemplate || previewHtml) return "";
-    const result = buildPropertyLeasePreview(syncedSub, {
-      hint: propertyHint,
-      demo: demoMode,
-      templateKind: previewTemplate.kind,
-    });
-    return result.plainText?.trim() ?? "";
-  }, [previewTemplate, previewHtml, syncedSub, propertyHint, demoMode]);
-
   const deleteTemplateAcrossProperties = (target: PropertyLeaseTemplate) => {
     if (!managerUserId) return false;
     let saved = 0;
@@ -432,26 +381,6 @@ export function ManagerPropertyLeasePanel({
                   ) : null}
                 </div>
               </label>
-              <div className={PORTAL_PROPERTY_DETAIL_LIST_ROW_ACTIONS_CLASS}>
-                <Button
-                  type="button"
-                  variant="outline"
-                  className={PORTAL_PROPERTY_DETAIL_ACTION_BUTTON_CLASS}
-                  data-attr={`property-lease-view-${template.id}`}
-                  onClick={() => openLeasePreview(template)}
-                >
-                  View
-                </Button>
-                <Button
-                  type="button"
-                  variant="outline"
-                  className={PORTAL_PROPERTY_DETAIL_ACTION_BUTTON_CLASS}
-                  data-attr={`property-lease-edit-${template.id}`}
-                  onClick={() => openEdit(template.id)}
-                >
-                  Edit
-                </Button>
-              </div>
             </div>
           ))}
       </PortalPropertyDetailSection>
@@ -475,58 +404,6 @@ export function ManagerPropertyLeasePanel({
           dataAttr="property-lease-add"
         />
       </div>
-
-      <Modal
-        open={previewOpen}
-        onClose={() => {
-          setPreviewOpen(false);
-          setPreviewTemplate(null);
-        }}
-        title={previewTemplate ? `View · ${previewTemplate.label}` : "View"}
-        presentation="dialog"
-        dense
-        assistantStrip={false}
-        stackClassName="fixed inset-0 z-[80] overflow-y-auto overscroll-contain"
-        panelClassName="flex max-h-[min(90vh,56rem)] w-full max-w-5xl flex-col"
-        dataAttr="property-lease-preview"
-        footer={
-          previewTemplate ? (
-            <ModalFooter>
-              <Button
-                type="button"
-                variant="primary"
-                className="ml-auto rounded-full"
-                data-attr="property-lease-preview-edit"
-                onClick={() => {
-                  const templateId = previewTemplate.id;
-                  setPreviewOpen(false);
-                  setPreviewTemplate(null);
-                  openEdit(templateId);
-                }}
-              >
-                Edit lease
-              </Button>
-            </ModalFooter>
-          ) : null
-        }
-      >
-        {previewOpen && previewTemplate ? (
-          <div className="mx-auto w-full max-w-5xl min-h-0 flex-1">
-            {previewHtml ? (
-              <iframe
-                title={`Lease preview · ${previewTemplate.label}`}
-                srcDoc={previewHtml}
-                sandbox="allow-same-origin"
-                className="h-[min(72vh,52rem)] w-full rounded-xl border border-border bg-card"
-              />
-            ) : (
-              <p className="rounded-xl border border-border bg-accent/20 px-3 py-2.5 text-sm text-muted">
-                {previewNotice || "No preview yet — open Edit to upload or configure this lease."}
-              </p>
-            )}
-          </div>
-        ) : null}
-      </Modal>
 
       <PropertyLeaseFormModal
         open={formOpen}
@@ -565,26 +442,15 @@ export function ManagerPropertyLeasePanel({
         <BulkActionBar count={selectedIds.size} hideCount variant="payments">
           <div className="flex min-w-0 flex-wrap items-center justify-start gap-2">
             {selectedIds.size === 1 && selectedTemplates[0] ? (
-              <>
-                <Button
-                  type="button"
-                  variant="outline"
-                  className={PORTAL_BULK_BAR_BTN}
-                  data-attr="property-lease-bulk-view"
-                  onClick={() => openLeasePreview(selectedTemplates[0]!)}
-                >
-                  View
-                </Button>
-                <Button
-                  type="button"
-                  variant="outline"
-                  className={PORTAL_BULK_BAR_BTN}
-                  data-attr="property-lease-bulk-edit"
-                  onClick={() => openEdit(selectedTemplates[0]!.id)}
-                >
-                  Edit
-                </Button>
-              </>
+              <Button
+                type="button"
+                variant="outline"
+                className={PORTAL_BULK_BAR_BTN}
+                data-attr="property-lease-bulk-edit"
+                onClick={() => openEdit(selectedTemplates[0]!.id)}
+              >
+                Edit
+              </Button>
             ) : null}
             <Button
               type="button"

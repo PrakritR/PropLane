@@ -63,8 +63,18 @@ function writePanel(name: string, caption: string, body: string) {
  */
 function leaseRowLabels(container: HTMLElement): string[] {
   return Array.from(
-    container.querySelectorAll<HTMLButtonElement>('button[data-attr^="property-lease-edit-"]'),
-  ).map((button) => button.parentElement?.parentElement?.querySelector("p")?.textContent?.trim() ?? "");
+    container.querySelectorAll<HTMLLabelElement>("label:has(input[data-attr^=\"property-lease-select-\"])"),
+  ).map((label) => label.querySelector("p")?.textContent?.trim() ?? "");
+}
+
+function selectLeaseRowByLabel(container: HTMLElement, label: string) {
+  const row = Array.from(
+    container.querySelectorAll<HTMLLabelElement>("label:has(input[data-attr^=\"property-lease-select-\"])"),
+  ).find((el) => el.querySelector("p")?.textContent?.trim() === label);
+  if (!row) throw new Error(`lease row not found: ${label}`);
+  const checkbox = row.querySelector<HTMLInputElement>("input[type=\"checkbox\"]");
+  if (!checkbox) throw new Error(`lease checkbox not found: ${label}`);
+  fireEvent.click(checkbox);
 }
 
 /** Panel + a live `sub` so a Delete inside the modal really updates the list. */
@@ -92,7 +102,7 @@ describe("evidence · lease templates are opt-in", () => {
     // A. brand-new property — sync must not conjure the old four rows
     const fresh = syncPropertyLeaseTemplatesFromListing(createDefaultListingSubmission());
     const a = render(<Harness initial={fresh} />);
-    expect(a.container.querySelectorAll('[data-attr^="property-lease-edit-"]')).toHaveLength(0);
+    expect(a.container.querySelectorAll('[data-attr^="property-lease-select-"]')).toHaveLength(0);
     writePanel(
       "lease-a-empty",
       "A · New property → Lease tab. No lease formats are auto-created; the manager adds one explicitly.",
@@ -113,12 +123,10 @@ describe("evidence · lease templates are opt-in", () => {
       b.container.innerHTML,
     );
 
-    // C. delete Short-term through the real Edit → Delete flow, then re-sync
-    const shortRow = Array.from(
-      document.querySelectorAll<HTMLButtonElement>('button[data-attr^="property-lease-edit-"]'),
-    ).at(-1)!;
+    // C. delete Short-term through bulk Edit → Delete flow, then re-sync
+    selectLeaseRowByLabel(b.container, "Short-term lease");
     await act(async () => {
-      fireEvent.click(shortRow);
+      fireEvent.click(document.querySelector<HTMLButtonElement>('[data-attr="property-lease-bulk-edit"]')!);
     });
     const del = document.querySelector<HTMLButtonElement>('button[data-attr="property-lease-delete"]')!;
     await act(async () => {

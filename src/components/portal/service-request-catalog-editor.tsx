@@ -201,6 +201,17 @@ export function ServiceRequestCatalogEditor({
       {selectedIds.size > 0 ? (
         <BulkActionBar count={selectedIds.size} hideCount variant="payments">
           <div className="flex min-w-0 flex-wrap items-center justify-start gap-2">
+            {selectedIds.size === 1 && selectedOffers[0] ? (
+              <Button
+                type="button"
+                variant="outline"
+                className={PORTAL_BULK_BAR_BTN}
+                data-attr="catalog-request-bulk-edit"
+                onClick={() => openEdit(selectedOffers[0]!, false)}
+              >
+                Edit
+              </Button>
+            ) : null}
             <Button
               type="button"
               variant="outline"

@@ -12,7 +12,7 @@ import {
 import {
   PortalPropertyDetailSection,
 } from "@/components/portal/portal-property-detail-section";
-import { PromotionAssetStack } from "@/components/portal/promotion-asset-list";
+import { PromotionAssetStack, promotionAssetCanEdit } from "@/components/portal/promotion-asset-list";
 import { PromotionAssetViewModal } from "@/components/portal/promotion-asset-view-modal";
 import {
   EMPTY_DRAFT,
@@ -20,6 +20,7 @@ import {
   draftInputs,
   draftWithPropertyKey,
   promotionTextIdentityFromDraft,
+  CUSTOM_PROPERTY_KEY,
   type PromotionDraft,
 } from "@/components/portal/promotion-form";
 import { PromotionNewModal } from "@/components/portal/promotion-new-modal";
@@ -47,6 +48,10 @@ import {
 import {
   FLYER_IMAGE_LIMIT,
   PROMOTION_TEMPLATE_DEFAULT,
+  normalizePromotionTemplate,
+  PROMOTION_TONE_OPTIONS,
+  readFlyerEntries,
+  type FlyerEntry,
   type ManagerPromotionRow,
 } from "@/lib/promotion-flyer";
 import {
@@ -76,6 +81,37 @@ function promotionEntryId(asset: PromotionAsset): string | null {
   if (asset.kind === "text") return asset.textEntry?.id ?? null;
   if (asset.kind === "upload") return asset.uploadEntry?.id ?? null;
   return null;
+}
+
+function flyerEntryToDraft(
+  row: ManagerPromotionRow,
+  entry: FlyerEntry,
+  listings: ReturnType<typeof buildManagerPromotionPropertyOptions>,
+): PromotionDraft {
+  return {
+    propertyKey:
+      row.propertyId && listings.some((l) => l.id === row.propertyId)
+        ? row.propertyId
+        : CUSTOM_PROPERTY_KEY,
+    propertyLabel: row.propertyLabel,
+    address: entry.inputs.address ?? "",
+    title: entry.title,
+    headline: entry.inputs.headline,
+    sellingPoints: entry.inputs.sellingPoints,
+    customDetails: entry.inputs.customDetails,
+    price: entry.inputs.price,
+    promo: entry.inputs.promo,
+    cta: entry.inputs.cta,
+    contact: entry.inputs.contact,
+    schedulingUrl: entry.inputs.schedulingUrl ?? "",
+    includeSchedulingLink: entry.inputs.includeSchedulingLink ?? true,
+    theme: entry.theme,
+    flyerSize: entry.flyerSize,
+    template: normalizePromotionTemplate(entry.template),
+    tone: entry.inputs.tone || PROMOTION_TONE_OPTIONS[0]!,
+    aiPrompt: "",
+    images: entry.inputs.images ?? [],
+  };
 }
 
 export function ManagerPropertyPromotionPanel({
@@ -209,6 +245,32 @@ export function ManagerPropertyPromotionPanel({
     setPreviewOpen(false);
     setPreviewAssetId(null);
   }, []);
+
+  const openEditFlyer = useCallback(
+    (row: ManagerPromotionRow, entryId: string) => {
+      const entry = readFlyerEntries(row).find((e) => e.id === entryId) ?? null;
+      if (!entry) return;
+      setDraft(flyerEntryToDraft(row, entry, listings));
+      setEditingRowId(row.id);
+      setEditingEntryId(entryId);
+      setShowForm(true);
+    },
+    [listings],
+  );
+
+  const openEditAsset = useCallback(
+    (asset: PromotionAsset) => {
+      closePreview();
+      if (asset.kind === "flyer" && asset.flyerEntry) {
+        openEditFlyer(asset.row, asset.flyerEntry.id);
+        return;
+      }
+      if (asset.kind === "text" && asset.textEntry) {
+        setTextModalAssetId(asset.id);
+      }
+    },
+    [closePreview, openEditFlyer],
+  );
 
   // Closes every promotion compose surface — the unified new modal, the
   // edit-flyer modal and the standalone text modal — so no caller can leave one
@@ -555,6 +617,7 @@ export function ManagerPropertyPromotionPanel({
             selectedIds={selectedIds}
             onToggleSelected={toggleSelected}
             onView={openViewAsset}
+            onEdit={openEditAsset}
           />
         )}
       </PortalPropertyDetailSection>
@@ -663,6 +726,17 @@ export function ManagerPropertyPromotionPanel({
       {selectedIds.size > 0 ? (
         <BulkActionBar count={selectedIds.size} hideCount variant="payments">
           <div className="flex min-w-0 flex-wrap items-center justify-start gap-2">
+            {selectedIds.size === 1 && selectedAssets[0] && promotionAssetCanEdit(selectedAssets[0], openEditAsset) ? (
+              <Button
+                type="button"
+                variant="outline"
+                className={PORTAL_BULK_BAR_BTN}
+                data-attr="property-promotion-bulk-edit"
+                onClick={() => openEditAsset(selectedAssets[0]!)}
+              >
+                Edit
+              </Button>
+            ) : null}
             <Button
               type="button"
               variant="outline"
