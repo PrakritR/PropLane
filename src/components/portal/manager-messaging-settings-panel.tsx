@@ -12,6 +12,20 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Modal, ModalFooter } from "@/components/ui/modal";
+import {
+  PORTAL_MESSAGE_COMPOSE_TWO_COL_CLASS,
+  PortalMessageBodyField,
+  PortalMessageComposeModalBody,
+  PortalMessageSendViaDropdown,
+  PortalMessageSubjectField,
+  portalMessageChannelsFromSelection,
+} from "@/components/portal/portal-message-compose-fields";
+import { ManagerMessagingOutboundDefaults } from "@/components/portal/manager-messaging-outbound-defaults";
+import { ManagerSmsWorkNumberHint } from "@/components/portal/manager-sms-work-number-hint";
+import { useManagerCommunicationDeliverVia } from "@/hooks/use-manager-communication-deliver-via";
+import {
+  portalMessageSelectionFromDeliverVia,
+} from "@/lib/manager-communication-deliver-via";
 import { copyTextToClipboard } from "@/lib/manager-property-links";
 import { deliverPortalInboxMessage } from "@/lib/portal-message-delivery";
 import { track } from "@/lib/analytics/track-client";
@@ -135,6 +149,10 @@ export function ManagerMessagingSettingsPanel({
   const [areaCode, setAreaCode] = useState("");
   const [announceOpen, setAnnounceOpen] = useState(false);
   const [announceBusy, setAnnounceBusy] = useState(false);
+  const [announceSubject, setAnnounceSubject] = useState("");
+  const [announceBody, setAnnounceBody] = useState("");
+  const [announceSendVia, setAnnounceSendVia] = useState<string[]>(["email"]);
+  const { channelsFor } = useManagerCommunicationDeliverVia();
 
   const load = useCallback(async (signal?: AbortSignal) => {
     setLoading(true);
@@ -187,6 +205,31 @@ export function ManagerMessagingSettingsPanel({
     return () => window.clearInterval(interval);
   }, [load, numberInProgress]);
 
+  const dismissAnnounce = useCallback((phone: string | null) => {
+    if (phone) {
+      try {
+        window.localStorage.setItem(announceStorageKey(phone), "1");
+      } catch {
+        /* ignore quota */
+      }
+    }
+    setAnnounceOpen(false);
+  }, []);
+
+  const openAnnounceModal = useCallback(
+    (phone: string, canSend: boolean) => {
+      const copy = buildWorkNumberResidentAnnounceCopy(phone);
+      const messageDefaults = channelsFor("messages");
+      setAnnounceSubject(copy.subject);
+      setAnnounceBody(copy.text);
+      setAnnounceSendVia(
+        portalMessageSelectionFromDeliverVia(messageDefaults, canSend),
+      );
+      setAnnounceOpen(true);
+    },
+    [channelsFor],
+  );
+
   const postAction = useCallback(
     async (action: "request_number" | "refresh_eligibility") => {
       setError(null);
@@ -217,7 +260,7 @@ export function ManagerMessagingSettingsPanel({
           const alreadyAnnounced =
             typeof window !== "undefined" &&
             window.localStorage.getItem(seenKey) === "1";
-          if (!alreadyAnnounced) setAnnounceOpen(true);
+          if (!alreadyAnnounced) openAnnounceModal(assignedPhone, body.canSend);
           showToast(
             body.canSend
               ? "Messaging number ready."
@@ -236,34 +279,40 @@ export function ManagerMessagingSettingsPanel({
         setPendingAction(null);
       }
     },
-    [areaCode, showToast],
+    [areaCode, openAnnounceModal, showToast],
   );
 
-  const dismissAnnounce = useCallback((phone: string | null) => {
-    if (phone) {
-      try {
-        window.localStorage.setItem(announceStorageKey(phone), "1");
-      } catch {
-        /* ignore quota */
-      }
-    }
-    setAnnounceOpen(false);
-  }, []);
+  const announceChannels = portalMessageChannelsFromSelection(announceSendVia);
+  const announceSmsBlocked = announceChannels.viaSms && !status?.canSend;
 
   const sendResidentAnnounce = useCallback(async () => {
     const phone = status?.number?.phoneNumber?.trim();
     if (!phone) return;
+    const subject = announceSubject.trim();
+    const body = announceBody.trim();
+    if (!subject || !body) {
+      setError("Subject and message are required.");
+      showToast("Subject and message are required.");
+      return;
+    }
+    if (!announceChannels.viaEmail && !announceChannels.viaSms) {
+      showToast("Choose at least one channel under Send via.");
+      return;
+    }
+    if (announceSmsBlocked) {
+      showToast("Finish work number setup before sending SMS.");
+      return;
+    }
     setAnnounceBusy(true);
     setError(null);
     try {
-      const copy = buildWorkNumberResidentAnnounceCopy(phone);
       const result = await deliverPortalInboxMessage({
         fromName: "Property Manager",
         toBroadcast: ["resident"],
-        subject: copy.subject,
-        text: copy.text,
-        deliverViaEmail: true,
-        deliverViaSms: true,
+        subject,
+        text: body,
+        deliverViaEmail: announceChannels.viaEmail,
+        deliverViaSms: announceChannels.viaSms,
         eventCategory: "messages",
       });
       if (!result.ok) {
@@ -271,7 +320,14 @@ export function ManagerMessagingSettingsPanel({
         showToast(result.error ?? "Could not notify residents.");
         return;
       }
-      track("work_number_announce_sent", { channel: "email_sms" });
+      track("work_number_announce_sent", {
+        channel:
+          announceChannels.viaEmail && announceChannels.viaSms
+            ? "email_sms"
+            : announceChannels.viaSms
+              ? "sms"
+              : "email",
+      });
       dismissAnnounce(phone);
       showToast(
         result.skipped
@@ -284,7 +340,16 @@ export function ManagerMessagingSettingsPanel({
     } finally {
       setAnnounceBusy(false);
     }
-  }, [dismissAnnounce, showToast, status?.number?.phoneNumber]);
+  }, [
+    announceBody,
+    announceChannels.viaEmail,
+    announceChannels.viaSms,
+    announceSmsBlocked,
+    announceSubject,
+    dismissAnnounce,
+    showToast,
+    status?.number?.phoneNumber,
+  ]);
 
   const copyNumber = useCallback(async () => {
     const phone = status?.number?.phoneNumber?.trim();
@@ -379,6 +444,10 @@ export function ManagerMessagingSettingsPanel({
 
   return (
     <>
+    <ManagerMessagingOutboundDefaults
+      workNumber={phoneNumber}
+      canSendSms={status.canSend}
+    />
     <PortalSettingsSection
       title="Work number"
       description="Request and manage the dedicated number residents and prospects use to reach your workspace."
@@ -540,7 +609,7 @@ export function ManagerMessagingSettingsPanel({
               variant="outline"
               className="min-h-10 rounded-full px-4 text-xs"
               disabled={announceBusy}
-              onClick={() => setAnnounceOpen(true)}
+              onClick={() => phoneNumber && openAnnounceModal(phoneNumber, status.canSend)}
               data-attr="messaging-announce-residents-open"
             >
               Tell residents about this number
@@ -568,7 +637,7 @@ export function ManagerMessagingSettingsPanel({
       onClose={() => dismissAnnounce(phoneNumber)}
       title="Tell your residents?"
       description="Move day-to-day texts onto your new PropLane number."
-      panelClassName="max-w-md"
+      panelClassName="max-w-lg"
       assistantStrip={false}
       dataAttr="messaging-announce-residents-modal"
       footer={
@@ -585,7 +654,7 @@ export function ManagerMessagingSettingsPanel({
           <Button
             type="button"
             variant="primary"
-            disabled={announceBusy || !phoneNumber}
+            disabled={announceBusy || !phoneNumber || announceSmsBlocked}
             aria-busy={announceBusy}
             onClick={() => sendResidentAnnounce()}
             data-attr="messaging-announce-residents-send"
@@ -595,24 +664,45 @@ export function ManagerMessagingSettingsPanel({
         </ModalFooter>
       }
     >
-      <div className="space-y-3 text-sm leading-relaxed text-muted">
-        <p>
-          Want to send a message to all your residents to text this new number
-          now?
+      <PortalMessageComposeModalBody>
+        <p className="text-sm leading-relaxed text-muted">
+          Want to send a message to all your residents to text this new number now?
         </p>
-        {phoneNumber ? (
-          <p className="rounded-xl border border-border bg-accent/40 px-3 py-2 text-foreground">
-            Please text me at this new number:{" "}
-            <span className="font-medium">
-              {formatManagerMessagingPhone(phoneNumber)}
-            </span>
-          </p>
+        <div className={PORTAL_MESSAGE_COMPOSE_TWO_COL_CLASS}>
+          <PortalMessageSubjectField
+            id="work-number-announce-subject"
+            value={announceSubject}
+            onChange={setAnnounceSubject}
+            disabled={announceBusy}
+            dataAttr="messaging-announce-subject"
+          />
+          <PortalMessageSendViaDropdown
+            selected={announceSendVia}
+            onChange={setAnnounceSendVia}
+            smsAvailable={status?.canSend === true}
+            disabled={announceBusy}
+            footerNote="We'll email and text every resident in your portfolio. Numbers without SMS consent still get the email and portal inbox copy."
+            dataAttr="messaging-announce-send-via"
+          />
+        </div>
+        <PortalMessageBodyField
+          id="work-number-announce-body"
+          value={announceBody}
+          onChange={setAnnounceBody}
+          disabled={announceBusy}
+          minHeightClass="min-h-[8rem]"
+          dataAttr="messaging-announce-body"
+        />
+        {announceChannels.viaSms && phoneNumber ? (
+          <ManagerSmsWorkNumberHint show phone={phoneNumber} canSend={status?.canSend === true} />
+        ) : announceSmsBlocked ? (
+          <ManagerSmsWorkNumberHint
+            show
+            phone={phoneNumber}
+            canSend={false}
+          />
         ) : null}
-        <p>
-          We&apos;ll email and text every resident in your portfolio. Numbers
-          without SMS consent still get the email and portal inbox copy.
-        </p>
-      </div>
+      </PortalMessageComposeModalBody>
     </Modal>
     </>
   );

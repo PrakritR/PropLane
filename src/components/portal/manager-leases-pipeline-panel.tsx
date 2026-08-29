@@ -993,6 +993,8 @@ export function ManagerLeasesPipelinePanel({
         confirmBusy={Boolean(leaseSentPreview && sendingToResidentRowId === leaseSentPreview.row.id)}
         confirmBusyLabel="Sending…"
         onConfirm={(skipMessage, channels, draft) => void confirmSendLeaseToResident(skipMessage, channels, draft)}
+        deliverViaKind="leases"
+        smsAvailable
       />
       {bulkLeaseSendRows && bulkLeaseSendRows.length > 0 ? (
         <PortalBulkMessageCarouselModal

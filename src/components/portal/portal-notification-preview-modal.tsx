@@ -7,8 +7,14 @@ import { PortalComposeScheduledMessagesSection } from "@/components/portal/porta
 import { WorkAssignmentPicker } from "@/components/portal/work-assignment-picker";
 import { cn } from "@/lib/utils";
 import type { AssignableWorkKind, WorkAssignee } from "@/lib/work-assignment";
+import { useManagerCommunicationDeliverVia } from "@/hooks/use-manager-communication-deliver-via";
+import { ManagerSmsWorkNumberHint } from "@/components/portal/manager-sms-work-number-hint";
 import {
-  defaultPortalMessageChannelSelection,
+  portalMessageSelectionFromDeliverVia,
+  type ManagerDeliverViaKind,
+} from "@/lib/manager-communication-deliver-via";
+import type { ManagerMessagingNumberStatus } from "@/lib/sms/manager-messaging-number";
+import {
   defaultPortalMessageScheduleAt,
   PORTAL_MESSAGE_COMPOSE_MODAL_PANEL_CLASS,
   PORTAL_MESSAGE_COMPOSE_TWO_COL_CLASS,
@@ -60,6 +66,7 @@ export function PortalNotificationPreviewModal({
   smsAvailable = true,
   defaultViaEmail = true,
   defaultViaSms = true,
+  deliverViaKind,
   editableBody = true,
   editableSubject = true,
   recipientPhone,
@@ -99,6 +106,8 @@ export function PortalNotificationPreviewModal({
   smsAvailable?: boolean;
   defaultViaEmail?: boolean;
   defaultViaSms?: boolean;
+  /** When set, pre-selects Send via from saved Communication settings for this category. */
+  deliverViaKind?: ManagerDeliverViaKind;
   editableBody?: boolean;
   editableSubject?: boolean;
   recipientPhone?: string;
@@ -134,6 +143,10 @@ export function PortalNotificationPreviewModal({
   const [draftSubject, setDraftSubject] = useState(subject);
   const [draftBody, setDraftBody] = useState(body);
   const [draftAssignee, setDraftAssignee] = useState<WorkAssignee | null>(null);
+  const { channelsFor } = useManagerCommunicationDeliverVia();
+  const [smsSetup, setSmsSetup] = useState<{ phone: string | null; canSend: boolean } | null>(
+    null,
+  );
 
   const showAssigneePicker = Boolean(assigneeKind && assigneeTeamMembers);
 
@@ -149,14 +162,54 @@ export function PortalNotificationPreviewModal({
     if (!open) return;
     queueMicrotask(() => {
       setSkipMessage(false);
-      setSendVia(defaultPortalMessageChannelSelection(emailAvailable, smsAvailable, defaultViaEmail, defaultViaSms));
+      const saved = deliverViaKind
+        ? channelsFor(deliverViaKind)
+        : { viaEmail: defaultViaEmail, viaSms: defaultViaSms };
+      setSendVia(
+        portalMessageSelectionFromDeliverVia(saved, smsAvailable),
+      );
       setScheduleLater(initialScheduleLater);
       setSendAt(defaultPortalMessageScheduleAt());
       setDraftSubject(subject);
       setDraftBody(body);
       setDraftAssignee(null);
     });
-  }, [open, recipient, subject, body, emailAvailable, smsAvailable, defaultViaEmail, defaultViaSms, initialScheduleLater]);
+  }, [
+    open,
+    recipient,
+    subject,
+    body,
+    emailAvailable,
+    smsAvailable,
+    defaultViaEmail,
+    defaultViaSms,
+    deliverViaKind,
+    channelsFor,
+    initialScheduleLater,
+  ]);
+
+  useEffect(() => {
+    if (!open) {
+      setSmsSetup(null);
+      return;
+    }
+    let active = true;
+    void fetch("/api/manager/messaging-number", { credentials: "include", cache: "no-store" })
+      .then(async (res) => (res.ok ? ((await res.json()) as ManagerMessagingNumberStatus) : null))
+      .then((status) => {
+        if (!active || !status) return;
+        setSmsSetup({
+          phone: status.number?.phoneNumber?.trim() || null,
+          canSend: status.canSend,
+        });
+      })
+      .catch(() => {
+        if (active) setSmsSetup(null);
+      });
+    return () => {
+      active = false;
+    };
+  }, [open]);
 
   const confirmDraft = useMemo(
     (): NotificationConfirmDraft => ({
@@ -174,11 +227,12 @@ export function PortalNotificationPreviewModal({
     : confirmLabel;
 
   const { viaEmail, viaSms } = portalMessageChannelsFromSelection(sendVia);
+  const smsBlocked = viaSms && smsSetup !== null && !smsSetup.canSend;
 
   const channelsOk =
     !showChannelPicker ||
     skipMessage ||
-    sendVia.some((value) => sendViaOptions.some((option) => option.value === value));
+    (!smsBlocked && sendVia.some((value) => sendViaOptions.some((option) => option.value === value)));
 
   const messageReady = skipMessage || (draftSubject.trim().length > 0 && draftBody.trim().length > 0);
 
@@ -198,7 +252,7 @@ export function PortalNotificationPreviewModal({
         variant="primary"
         className="rounded-full"
         data-attr="portal-notification-confirm"
-        disabled={confirmBusy || !channelsOk || !messageReady}
+        disabled={confirmBusy || !channelsOk || !messageReady || smsBlocked}
         onClick={() => onConfirm(skipMessage, portalMessageChannelsFromSelection(sendVia), confirmDraft)}
       >
         {confirmBusy ? confirmBusyLabel : effectiveConfirmLabel}
@@ -251,12 +305,18 @@ export function PortalNotificationPreviewModal({
               selected={sendVia}
               onChange={setSendVia}
               emailAvailable={emailAvailable}
-              smsAvailable={smsAvailable}
+              smsAvailable={smsAvailable && smsSetup?.canSend !== false}
               footerNote={footerNote?.trim() || PORTAL_MESSAGE_DEFAULT_FOOTER_NOTE}
               dataAttr="portal-notification-send-via"
             />
           ) : null}
         </div>
+
+        <ManagerSmsWorkNumberHint
+          show={Boolean(showChannelPicker && !skipMessage && viaSms)}
+          phone={smsSetup?.phone ?? null}
+          canSend={smsSetup?.canSend === true}
+        />
 
         {showChannelPicker && !skipMessage && !channelsOk ? (
           <p className="text-xs font-medium text-red-600">Choose at least one channel.</p>

@@ -13,6 +13,7 @@ import {
 } from "@/components/portal/inbox-thread-assistant-strip";
 import { usePaidPortalBasePath } from "@/lib/portal-base-path-client";
 import { useInboxAiDraftAutoSend } from "@/hooks/use-inbox-ai-draft-auto-send";
+import { useManagerCommunicationDeliverVia } from "@/hooks/use-manager-communication-deliver-via";
 import { appendPortalMessageToAdminInbox } from "@/lib/demo-admin-partner-inbox";
 import {
   MANAGER_INBOX_STORAGE_KEY,
@@ -983,6 +984,7 @@ export const ManagerInbox = forwardRef<
   const [aiDraftViaSms, setAiDraftViaSms] = useState(false);
   const [approvingDraft, setApprovingDraft] = useState(false);
   const { enabled: aiAutoSend, setEnabled: setAiAutoSend } = useInboxAiDraftAutoSend();
+  const { channelsFor } = useManagerCommunicationDeliverVia();
   const autoSentDraftRef = useRef<string | null>(null);
   const [draftErrors, setDraftErrors] = useState<Record<string, string>>({});
   const [discardedDraftIds, setDiscardedDraftIds] = useState<Set<string>>(() => new Set());
@@ -1003,13 +1005,25 @@ export const ManagerInbox = forwardRef<
   // A fresh draft per conversation.
   useEffect(() => {
     setReplyDraft("");
-    setReplyViaEmail(true);
-    setReplyViaSms(false);
     setReplyAttachments((prev) => {
       prev.forEach(revokeInboxAttachmentPreview);
       return [];
     });
   }, [expandedId]);
+
+  const activeSmsAvailable = useMemo(() => {
+    if (!smsUiEnabled || !activeThread?.email) return false;
+    const norm = activeThread.email.trim().toLowerCase();
+    return smsRecipients.some((r) => r.residentEmail?.trim().toLowerCase() === norm && r.phone?.trim());
+  }, [activeThread, smsRecipients, smsUiEnabled]);
+
+  useEffect(() => {
+    const defaults = channelsFor("inbox_default");
+    setReplyViaEmail(defaults.viaEmail || !activeSmsAvailable);
+    setReplyViaSms(defaults.viaSms && activeSmsAvailable);
+    setAiDraftViaEmail(defaults.viaEmail || !activeSmsAvailable);
+    setAiDraftViaSms(defaults.viaSms && activeSmsAvailable);
+  }, [expandedId, channelsFor, activeSmsAvailable]);
 
   const activeIsSent = activeThread?.folder === "sent";
   const activeFolder = activeThread
@@ -1309,12 +1323,6 @@ export const ManagerInbox = forwardRef<
       void requestInboxAiDraft(thread.id);
     }
   }, [discardedDraftIds, inboxSynced, local, requestInboxAiDraft]);
-
-  const activeSmsAvailable = useMemo(() => {
-    if (!smsUiEnabled || !activeThread?.email) return false;
-    const norm = activeThread.email.trim().toLowerCase();
-    return smsRecipients.some((r) => r.residentEmail?.trim().toLowerCase() === norm && r.phone?.trim());
-  }, [activeThread, smsRecipients, smsUiEnabled]);
 
   const smsRecipientEmails = useMemo(() => {
     if (!smsUiEnabled) return new Set<string>();

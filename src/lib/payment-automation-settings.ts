@@ -39,6 +39,18 @@ export type ManagerAutomationSettings = {
   tourReminderDeliverViaSms: boolean;
   paymentReminderDeliverViaEmail: boolean;
   paymentReminderDeliverViaSms: boolean;
+  /** Default channels for manual inbox compose and thread replies. */
+  inboxDefaultDeliverViaEmail: boolean;
+  inboxDefaultDeliverViaSms: boolean;
+  /** Automated sends tagged with the matching notification category. */
+  messagesDeliverViaEmail: boolean;
+  messagesDeliverViaSms: boolean;
+  leasesDeliverViaEmail: boolean;
+  leasesDeliverViaSms: boolean;
+  applicationsDeliverViaEmail: boolean;
+  applicationsDeliverViaSms: boolean;
+  maintenanceDeliverViaEmail: boolean;
+  maintenanceDeliverViaSms: boolean;
   /**
    * Opt-in (default OFF): when PropLane AI finishes a draft reply, send it without
    * waiting for Approve — same checkbox as on the draft card in Communication.
@@ -117,6 +129,16 @@ export const DEFAULT_MANAGER_AUTOMATION_SETTINGS: ManagerAutomationSettings = {
   tourReminderDeliverViaSms: false,
   paymentReminderDeliverViaEmail: true,
   paymentReminderDeliverViaSms: false,
+  inboxDefaultDeliverViaEmail: true,
+  inboxDefaultDeliverViaSms: false,
+  messagesDeliverViaEmail: true,
+  messagesDeliverViaSms: false,
+  leasesDeliverViaEmail: true,
+  leasesDeliverViaSms: false,
+  applicationsDeliverViaEmail: true,
+  applicationsDeliverViaSms: false,
+  maintenanceDeliverViaEmail: true,
+  maintenanceDeliverViaSms: false,
   inboxAiDraftAutoSend: false,
   templates: {
     preDue: {
@@ -317,6 +339,16 @@ export function normalizeManagerAutomationSettings(raw: unknown): ManagerAutomat
     tourReminderDeliverViaSms: row.tourReminderDeliverViaSms === true,
     paymentReminderDeliverViaEmail: row.paymentReminderDeliverViaEmail !== false,
     paymentReminderDeliverViaSms: row.paymentReminderDeliverViaSms === true,
+    inboxDefaultDeliverViaEmail: row.inboxDefaultDeliverViaEmail !== false,
+    inboxDefaultDeliverViaSms: row.inboxDefaultDeliverViaSms === true,
+    messagesDeliverViaEmail: row.messagesDeliverViaEmail !== false,
+    messagesDeliverViaSms: row.messagesDeliverViaSms === true,
+    leasesDeliverViaEmail: row.leasesDeliverViaEmail !== false,
+    leasesDeliverViaSms: row.leasesDeliverViaSms === true,
+    applicationsDeliverViaEmail: row.applicationsDeliverViaEmail !== false,
+    applicationsDeliverViaSms: row.applicationsDeliverViaSms === true,
+    maintenanceDeliverViaEmail: row.maintenanceDeliverViaEmail !== false,
+    maintenanceDeliverViaSms: row.maintenanceDeliverViaSms === true,
     inboxAiDraftAutoSend: row.inboxAiDraftAutoSend === true,
     templates: {
       preDue: normalizeTemplate(templatesRaw.preDue, base.templates.preDue),

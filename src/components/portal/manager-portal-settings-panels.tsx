@@ -23,6 +23,13 @@ import {
   type ManagerAutomationSettings,
 } from "@/lib/payment-automation-settings";
 import {
+  MANAGER_COMMUNICATION_SEND_VIA_SECTIONS,
+  deliverViaFromManagerSettings,
+  patchDeliverViaForKind,
+} from "@/lib/manager-communication-deliver-via";
+import { ManagerSmsWorkNumberHint } from "@/components/portal/manager-sms-work-number-hint";
+import type { ManagerMessagingNumberStatus } from "@/lib/sms/manager-messaging-number";
+import {
   PAYMENT_REMINDER_PRESETS,
   applyReminderPreset,
   detectReminderPreset,
@@ -740,6 +747,15 @@ export function CommunicationSettingsPanel({ onSaved }: { onSaved?: () => void }
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [draft, setDraft] = useState<ManagerAutomationSettings>(DEFAULT_MANAGER_AUTOMATION_SETTINGS);
+  const [smsSetup, setSmsSetup] = useState<{ phone: string | null; canSend: boolean } | null>(null);
+
+  const anySmsEnabled = useMemo(
+    () =>
+      MANAGER_COMMUNICATION_SEND_VIA_SECTIONS.some(
+        (section) => deliverViaFromManagerSettings(draft, section.kind).viaSms,
+      ),
+    [draft],
+  );
 
   useEffect(() => {
     let cancelled = false;
@@ -765,10 +781,36 @@ export function CommunicationSettingsPanel({ onSaved }: { onSaved?: () => void }
     };
   }, [demo, showToast]);
 
-  const save = async () => {
-    if (!draft.paymentReminderDeliverViaEmail && !draft.paymentReminderDeliverViaSms) {
-      showToast("Choose at least one channel for payment reminders.");
+  useEffect(() => {
+    if (!anySmsEnabled || demo) {
+      setSmsSetup(null);
       return;
+    }
+    let cancelled = false;
+    void fetch("/api/manager/messaging-number", { credentials: "include", cache: "no-store" })
+      .then(async (res) => (res.ok ? ((await res.json()) as ManagerMessagingNumberStatus) : null))
+      .then((status) => {
+        if (cancelled || !status) return;
+        setSmsSetup({
+          phone: status.number?.phoneNumber?.trim() || null,
+          canSend: status.canSend,
+        });
+      })
+      .catch(() => {
+        if (!cancelled) setSmsSetup(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [anySmsEnabled, demo]);
+
+  const save = async () => {
+    for (const section of MANAGER_COMMUNICATION_SEND_VIA_SECTIONS) {
+      const channels = deliverViaFromManagerSettings(draft, section.kind);
+      if (!channels.viaEmail && !channels.viaSms) {
+        showToast(`Choose at least one channel under ${section.label}.`);
+        return;
+      }
     }
     setSaving(true);
     try {
@@ -782,6 +824,16 @@ export function CommunicationSettingsPanel({ onSaved }: { onSaved?: () => void }
         credentials: "include",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
+          inboxDefaultDeliverViaEmail: draft.inboxDefaultDeliverViaEmail,
+          inboxDefaultDeliverViaSms: draft.inboxDefaultDeliverViaSms,
+          messagesDeliverViaEmail: draft.messagesDeliverViaEmail,
+          messagesDeliverViaSms: draft.messagesDeliverViaSms,
+          leasesDeliverViaEmail: draft.leasesDeliverViaEmail,
+          leasesDeliverViaSms: draft.leasesDeliverViaSms,
+          applicationsDeliverViaEmail: draft.applicationsDeliverViaEmail,
+          applicationsDeliverViaSms: draft.applicationsDeliverViaSms,
+          maintenanceDeliverViaEmail: draft.maintenanceDeliverViaEmail,
+          maintenanceDeliverViaSms: draft.maintenanceDeliverViaSms,
           paymentReminderDeliverViaEmail: draft.paymentReminderDeliverViaEmail,
           paymentReminderDeliverViaSms: draft.paymentReminderDeliverViaSms,
           tourReminderDeliverViaEmail: draft.tourReminderDeliverViaEmail,
@@ -836,38 +888,41 @@ export function CommunicationSettingsPanel({ onSaved }: { onSaved?: () => void }
           Auto-send is on. Review each thread carefully — AI drafts send without a second confirmation.
         </p>
       ) : null}
-      <div className="space-y-2 border-t border-border pt-4">
-        <p className="text-[13px] font-semibold text-foreground">Payment reminders</p>
-        <ReminderSendViaField
-          viaEmail={draft.paymentReminderDeliverViaEmail !== false}
-          viaSms={draft.paymentReminderDeliverViaSms === true}
-          smsLabel="SMS (when resident opted in)"
-          onChange={({ viaEmail, viaSms }) =>
-            setDraft((prev) => ({
-              ...prev,
-              paymentReminderDeliverViaEmail: viaEmail,
-              paymentReminderDeliverViaSms: viaSms,
-            }))
-          }
-          dataAttr="payment-reminder-send-via"
-        />
-      </div>
-      <div className="space-y-2 border-t border-border pt-4">
-        <p className="text-[13px] font-semibold text-foreground">Tour reminders</p>
-        <ReminderSendViaField
-          viaEmail={draft.tourReminderDeliverViaEmail !== false}
-          viaSms={draft.tourReminderDeliverViaSms === true}
-          smsLabel="SMS (when guest opted in)"
-          onChange={({ viaEmail, viaSms }) =>
-            setDraft((prev) => ({
-              ...prev,
-              tourReminderDeliverViaEmail: viaEmail,
-              tourReminderDeliverViaSms: viaSms,
-            }))
-          }
-          dataAttr="communication-tour-reminder-send-via"
-        />
-      </div>
+      <ManagerSmsWorkNumberHint
+        show={anySmsEnabled}
+        phone={smsSetup?.phone ?? null}
+        canSend={smsSetup?.canSend === true}
+        className="rounded-xl border border-border bg-accent/30 px-3 py-2.5"
+      />
+      {MANAGER_COMMUNICATION_SEND_VIA_SECTIONS.map((section, index) => {
+        const channels = deliverViaFromManagerSettings(draft, section.kind);
+        return (
+          <div
+            key={section.id}
+            className={`space-y-2 ${index === 0 ? "border-t border-border pt-4" : "border-t border-border pt-4"}`}
+          >
+            <div>
+              <p className="text-[13px] font-semibold text-foreground">{section.label}</p>
+              <p className="mt-0.5 text-xs text-muted">{section.description}</p>
+            </div>
+            <ReminderSendViaField
+              viaEmail={channels.viaEmail}
+              viaSms={channels.viaSms}
+              smsLabel={
+                section.kind === "payment_reminder"
+                  ? "SMS (when resident opted in)"
+                  : section.kind === "tour_reminder"
+                    ? "SMS (when guest opted in)"
+                    : "SMS"
+              }
+              onChange={({ viaEmail, viaSms }) =>
+                setDraft((prev) => patchDeliverViaForKind(prev, section.kind, { viaEmail, viaSms }))
+              }
+              dataAttr={`communication-${section.id}-send-via`}
+            />
+          </div>
+        );
+      })}
       <div className="flex justify-end border-t border-border pt-3">
         <Button type="button" className="rounded-full px-4 text-[13px]" onClick={() => void save()} disabled={saving}>
           {saving ? "Saving…" : "Save"}

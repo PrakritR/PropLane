@@ -7,6 +7,7 @@ import {
   render,
   screen,
   waitFor,
+  within,
 } from "@testing-library/react";
 
 const showToast = vi.fn();
@@ -167,12 +168,14 @@ describe("ManagerMessagingSettingsPanel", () => {
     render(<ManagerMessagingSettingsPanel />);
 
     fireEvent.click(await screen.findByRole("button", { name: "Request work number" }));
-    expect(await screen.findByRole("dialog")).toBeTruthy();
+    const dialog = await screen.findByRole("dialog");
     expect(
-      screen.getByText("Want to send a message to all your residents to text this new number now?"),
+      within(dialog).getByText("Want to send a message to all your residents to text this new number now?"),
     ).toBeTruthy();
-    expect(screen.getByText(/Please text me at this new number:/)).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Notify all residents" })).toBeTruthy();
+    expect(within(dialog).getByLabelText("Subject")).toBeTruthy();
+    expect(within(dialog).getByLabelText("Message")).toBeTruthy();
+    expect(within(dialog).getByLabelText("Send via")).toBeTruthy();
+    expect(within(dialog).getByRole("button", { name: "Notify all residents" })).toBeTruthy();
   });
 
   it("refreshes eligibility for an assigned number without requesting another number", async () => {
