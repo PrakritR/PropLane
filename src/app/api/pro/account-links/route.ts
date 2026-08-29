@@ -235,11 +235,14 @@ export async function POST(req: Request) {
       payoutPercentForManager?: number;
       coManagerPermissions?: unknown;
       propertyCoManagerPermissions?: unknown;
+      /** When true, the client already delivered (or will deliver) the invite message. */
+      skipInviteNotification?: boolean;
     } | null;
 
     const inviteeAxisId = body?.inviteeAxisId?.trim() ?? "";
     const tabKind = "manager" satisfies AccountLinkTabKind;
     void body?.tabKind;
+    const skipInviteNotification = body?.skipInviteNotification === true;
     const assignedPropertyIds = asStringArray(body?.assignedPropertyIds);
     const payoutPercentForManager = Math.min(
       100,
@@ -513,29 +516,31 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Failed to create invite." }, { status: 500 });
     }
 
-    void (async () => {
-      try {
-        const { notifyCoManagerInviteSent } = await import("@/lib/co-manager-notification.server");
-        const { data: props } = await svc
-          .from("manager_property_records")
-          .select("id, property_data, row_data")
-          .in("id", assignedPropertyIds);
-        const labels = (props ?? []).map((p: { id?: string; property_data?: unknown; row_data?: unknown }) =>
-          labelFromManagerPropertyRecordRow(p),
-        );
-        await notifyCoManagerInviteSent({
-          inviterUserId: user.id,
-          inviteeUserId: inviteeProfile.id,
-          inviterName:
-            (inviterProfile as { full_name?: string | null }).full_name?.trim() ||
-            (inviterProfile as { email?: string | null }).email ||
-            "A manager",
-          propertyLabels: labels.length > 0 ? labels : assignedPropertyIds,
-        });
-      } catch {
-        /* notification failure should not block invite */
-      }
-    })();
+    if (!skipInviteNotification) {
+      void (async () => {
+        try {
+          const { notifyCoManagerInviteSent } = await import("@/lib/co-manager-notification.server");
+          const { data: props } = await svc
+            .from("manager_property_records")
+            .select("id, property_data, row_data")
+            .in("id", assignedPropertyIds);
+          const labels = (props ?? []).map((p: { id?: string; property_data?: unknown; row_data?: unknown }) =>
+            labelFromManagerPropertyRecordRow(p),
+          );
+          await notifyCoManagerInviteSent({
+            inviterUserId: user.id,
+            inviteeUserId: inviteeProfile.id,
+            inviterName:
+              (inviterProfile as { full_name?: string | null }).full_name?.trim() ||
+              (inviterProfile as { email?: string | null }).email ||
+              "A manager",
+            propertyLabels: labels.length > 0 ? labels : assignedPropertyIds,
+          });
+        } catch {
+          /* notification failure should not block invite */
+        }
+      })();
+    }
 
     return NextResponse.json({ ok: true, invite: serializeInvite(row, user.id) });
   } catch (e) {

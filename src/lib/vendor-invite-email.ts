@@ -16,6 +16,29 @@ export function vendorInviteSubject(managerName: string): string {
   return `Sign up for PropLane — vendor invite from ${name}`;
 }
 
+export function vendorRemovedSubject(managerName: string): string {
+  const name = managerName.trim() || "A property manager";
+  return `Vendor roster update from ${name}`;
+}
+
+export function buildVendorRemovedEmailBody(params: {
+  vendorName?: string;
+  managerName: string;
+}): string {
+  const greeting = params.vendorName?.trim() ? `Hi ${params.vendorName.trim()},` : "Hi,";
+  const managerName = params.managerName.trim() || "A property manager";
+  const lines = [
+    greeting,
+    "",
+    `${managerName} removed you from their vendor roster on PropLane.`,
+    "",
+    "You will no longer receive new work orders from this manager through PropLane. If you have questions, reply to this message.",
+    "",
+    "— PropLane",
+  ];
+  return lines.join("\n");
+}
+
 export function buildVendorInviteEmailBody(params: {
   vendorName?: string;
   managerName: string;

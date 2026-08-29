@@ -13,6 +13,7 @@ export type PortalMessageDeliveryResult = {
 export async function deliverPortalInboxMessage(input: {
   fromName?: string;
   toEmails?: string[];
+  toUserIds?: string[];
   /** Resolve recipients from the sender's own relationships instead of explicit emails (e.g. a resident messaging "their manager"). */
   toBroadcast?: ("management" | "resident")[];
   subject: string;
@@ -25,8 +26,9 @@ export async function deliverPortalInboxMessage(input: {
   deliverViaSms?: boolean;
 }): Promise<PortalMessageDeliveryResult> {
   const toEmails = (input.toEmails ?? []).map((e) => e.trim()).filter((e) => e.includes("@"));
-  if (toEmails.length === 0 && !input.toBroadcast?.length) {
-    return { ok: false, error: "A valid recipient email is required." };
+  const toUserIds = (input.toUserIds ?? []).map((id) => id.trim()).filter(Boolean);
+  if (toEmails.length === 0 && toUserIds.length === 0 && !input.toBroadcast?.length) {
+    return { ok: false, error: "A valid recipient email or user id is required." };
   }
   try {
     const res = await fetch("/api/portal/send-inbox-message", {
@@ -36,6 +38,7 @@ export async function deliverPortalInboxMessage(input: {
       body: JSON.stringify({
         fromName: input.fromName ?? "Property Manager",
         toEmails,
+        toUserIds,
         toBroadcast: input.toBroadcast,
         subject: input.subject.trim(),
         senderPortal: "manager",

@@ -13,6 +13,15 @@ export type ManagerVendorInvitePreview = {
   body: string;
 };
 
+export type ManagerVendorRemovalPreview = {
+  vendorId: string;
+  name: string;
+  email: string;
+  phone: string;
+  subject: string;
+  body: string;
+};
+
 export async function fetchManagerVendorInviteDraft(input: {
   vendorId: string;
   vendorName: string;
@@ -58,11 +67,53 @@ export async function fetchManagerVendorInviteDraft(input: {
   }
 }
 
-export async function deliverManagerVendorInvite(
-  preview: ManagerVendorInvitePreview,
+export async function fetchManagerVendorRemovalDraft(input: {
+  vendorId: string;
+  vendorName: string;
+  vendorEmail?: string;
+  vendorPhone?: string;
+}): Promise<{ ok: true; preview: ManagerVendorRemovalPreview } | { ok: false; error: string }> {
+  try {
+    const res = await fetch("/api/portal/vendor-removal-draft", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      credentials: "include",
+      body: JSON.stringify({
+        vendorId: input.vendorId,
+        vendorName: input.vendorName,
+      }),
+    });
+    const data = (await res.json().catch(() => ({}))) as {
+      ok?: boolean;
+      subject?: string;
+      body?: string;
+      error?: string;
+    };
+    if (!res.ok || !data.subject?.trim() || !data.body?.trim()) {
+      return { ok: false, error: data.error ?? "Could not prepare the vendor removal message." };
+    }
+    return {
+      ok: true,
+      preview: {
+        vendorId: input.vendorId,
+        name: input.vendorName,
+        email: input.vendorEmail?.trim() ?? "",
+        phone: input.vendorPhone?.trim() ?? "",
+        subject: data.subject,
+        body: data.body,
+      },
+    };
+  } catch {
+    return { ok: false, error: "Could not prepare the vendor removal message." };
+  }
+}
+
+export async function deliverManagerDirectoryMessage(
+  preview: Pick<ManagerVendorInvitePreview, "name" | "email" | "subject" | "body">,
   skipMessage: boolean,
   channels?: NotificationDeliveryChannels,
   messageDraft?: NotificationConfirmDraft,
+  opts?: { toUserIds?: string[] },
 ): Promise<{ ok: boolean; message: string }> {
   if (skipMessage) {
     return { ok: true, message: "" };
@@ -91,14 +142,15 @@ export async function deliverManagerVendorInvite(
     });
     const data = (await response.json().catch(() => ({}))) as { error?: string };
     if (!response.ok) {
-      return { ok: false, message: data.error ?? "The invite could not be scheduled." };
+      return { ok: false, message: data.error ?? "The message could not be scheduled." };
     }
-    return { ok: true, message: `Portal invite scheduled for ${preview.email}.` };
+    return { ok: true, message: `Message scheduled for ${preview.name.trim() || preview.email || "recipient"}.` };
   }
 
   const notice = await deliverPortalInboxMessage({
     eventCategory: "messages",
-    toEmails: [preview.email],
+    toEmails: preview.email ? [preview.email] : undefined,
+    toUserIds: opts?.toUserIds,
     subject,
     text: body,
     deliverViaEmail: viaEmail,
@@ -108,12 +160,34 @@ export async function deliverManagerVendorInvite(
     return {
       ok: true,
       message: notice.skipped
-        ? `Invite saved to PropLane inbox for ${preview.email}.`
-        : `Portal invite sent to ${preview.email}.`,
+        ? "Message saved to PropLane inbox."
+        : `Message sent to ${preview.name.trim() || preview.email || "recipient"}.`,
     };
   }
   return {
     ok: false,
-    message: notice.error ? `Invite failed: ${notice.error}` : "The invite could not be sent.",
+    message: notice.error ? `Message failed: ${notice.error}` : "The message could not be sent.",
   };
+}
+
+export async function deliverManagerVendorInvite(
+  preview: ManagerVendorInvitePreview,
+  skipMessage: boolean,
+  channels?: NotificationDeliveryChannels,
+  messageDraft?: NotificationConfirmDraft,
+): Promise<{ ok: boolean; message: string }> {
+  const result = await deliverManagerDirectoryMessage(preview, skipMessage, channels, messageDraft);
+  if (!result.ok) return result;
+  if (!skipMessage && result.message) {
+    if (result.message.startsWith("Message sent")) {
+      return { ok: true, message: `Portal invite sent to ${preview.email}.` };
+    }
+    if (result.message.startsWith("Message scheduled")) {
+      return { ok: true, message: `Portal invite scheduled for ${preview.email}.` };
+    }
+    if (result.message.startsWith("Message saved")) {
+      return { ok: true, message: `Invite saved to PropLane inbox for ${preview.email}.` };
+    }
+  }
+  return result;
 }

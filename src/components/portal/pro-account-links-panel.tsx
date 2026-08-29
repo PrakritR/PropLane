@@ -37,6 +37,7 @@ import {
   EMPTY_CO_MANAGER_PERMISSIONS,
   normalizeCoManagerPermissions,
   normalizePropertyCoManagerPermissions,
+  flatCoManagerPermissionsFromProperty,
   permissionsForProperty,
   type CoManagerBulkPreset,
   type CoManagerPermissionId,
@@ -83,6 +84,36 @@ import { Input, Select } from "@/components/ui/input";
 import { usePaidPortalBasePath } from "@/lib/portal-base-path-client";
 import { teamLinkHref, teamMemberDetailHref } from "@/lib/portal-detail-routes";
 import { usePortalNavigate } from "@/lib/portal-nav-client";
+import { useManagerUserId } from "@/hooks/use-manager-user-id";
+import {
+  PortalNotificationPreviewModal,
+  type NotificationConfirmDraft,
+  type NotificationDeliveryChannels,
+} from "@/components/portal/portal-notification-preview-modal";
+import {
+  PortalBulkMessageCarouselModal,
+  type BulkMessageCarouselItem,
+} from "@/components/portal/portal-bulk-message-carousel-modal";
+import { deliverManagerDirectoryMessage } from "@/lib/manager-vendor-invite-client";
+import {
+  buildCoManagerInviteBody,
+  buildCoManagerInviteWithdrawnBody,
+  buildCoManagerLinkRemovedBody,
+  coManagerInviteSubject,
+  coManagerInviteWithdrawnSubject,
+  coManagerLinkRemovedSubject,
+} from "@/lib/co-manager-link-email";
+
+type TeamRemovePreviewItem = BulkMessageCarouselItem & {
+  entry: TeamListEntry;
+};
+
+type LinkInvitePreview = {
+  subject: string;
+  body: string;
+  recipientName: string;
+  recipientUserId: string;
+};
 
 const TEAM_MEMBER_ROLE_LABEL = "Team";
 
@@ -336,6 +367,8 @@ function AddPropertyToCoManager({
 }
 
 export function ProAccountLinksPanel({ userId, linkId: linkIdProp }: { userId: string; linkId?: string }) {
+  const { email: managerEmail } = useManagerUserId();
+  const managerDisplayName = managerEmail?.trim() || "Your property manager";
   const { showToast } = useAppUi();
   const navigate = usePortalNavigate();
   const portalBase = usePaidPortalBasePath();
@@ -603,6 +636,10 @@ export function ProAccountLinksPanel({ userId, linkId: linkIdProp }: { userId: s
 
   const [axisInput, setAxisInput] = useState("");
   const [linkModalOpen, setLinkModalOpen] = useState(false);
+  const [linkInvitePreview, setLinkInvitePreview] = useState<LinkInvitePreview | null>(null);
+  const [linkInviteBusy, setLinkInviteBusy] = useState(false);
+  const [teamRemovePreview, setTeamRemovePreview] = useState<TeamRemovePreviewItem[] | null>(null);
+  const [teamRemoveBusy, setTeamRemoveBusy] = useState(false);
   const [lookupBusy, setLookupBusy] = useState(false);
   const [draftAxisId, setDraftAxisId] = useState<string | null>(null);
   const [draftName, setDraftName] = useState<string | null>(null);
@@ -812,7 +849,7 @@ export function ProAccountLinksPanel({ userId, linkId: linkIdProp }: { userId: s
     });
   };
 
-  const saveNewLink = async () => {
+  const saveNewLink = () => {
     if (skuTier != null && !managerPlanAllowsCoManagerInvites(skuTier)) {
       showToast("Upgrade to Pro or Business before linking co-managers.");
       return;
@@ -832,64 +869,119 @@ export function ProAccountLinksPanel({ userId, linkId: linkIdProp }: { userId: s
       showToast("Select at least one property for this invite.");
       return;
     }
+    const propertyLabels = ids.map((id) => teamPropertyLabel(id));
+    setLinkInvitePreview({
+      subject: coManagerInviteSubject(managerDisplayName),
+      body: buildCoManagerInviteBody({ inviterName: managerDisplayName, propertyLabels }),
+      recipientName: draftName ?? draftAxisId,
+      recipientUserId: draftUserId,
+    });
+    setLinkModalOpen(false);
+  };
+
+  const confirmLinkInvite = async (
+    skipMessage: boolean,
+    channels?: NotificationDeliveryChannels,
+    messageDraft?: NotificationConfirmDraft,
+  ) => {
+    if (!linkInvitePreview || linkInviteBusy) return;
+    if (!draftAxisId || !draftUserId) {
+      showToast(`Verify a ${AXIS_ID_LABEL} first.`);
+      return;
+    }
+    const ids = Object.entries(selectedProps)
+      .filter(([, v]) => v)
+      .map(([k]) => k);
+    if (ids.length === 0) {
+      showToast("Select at least one property for this invite.");
+      return;
+    }
 
     const payout = 15;
     const propertyCoManagerPermissions = normalizePropertyCoManagerPermissions(propertyPermissionsDraft, ids);
 
-    if (useRemote && remoteLoaded) {
-      try {
-        const res = await fetch("/api/pro/account-links", {
-          method: "POST",
-          credentials: "include",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            inviteeAxisId: draftAxisId,
-            tabKind: "manager",
-            assignedPropertyIds: ids,
-            payoutPercentForManager: payout,
-            propertyCoManagerPermissions,
-          }),
-        });
-        const data = (await res.json()) as { error?: string; migrationRequired?: boolean };
-        if (!res.ok) {
-          setInviteeAtCap(Boolean(data.error?.includes("Invitee needs to upgrade")));
-          showToast(data.error ?? "Could not send invite.");
+    setLinkInviteBusy(true);
+    try {
+      if (!skipMessage) {
+        const result = await deliverManagerDirectoryMessage(
+          {
+            name: linkInvitePreview.recipientName,
+            email: "",
+            subject: linkInvitePreview.subject,
+            body: linkInvitePreview.body,
+          },
+          false,
+          channels,
+          messageDraft,
+          { toUserIds: [linkInvitePreview.recipientUserId] },
+        );
+        if (!result.ok) {
+          showToast(result.message);
           return;
         }
-        await loadRemoteInvites();
-        resetLinkDraft();
-        setLinkModalOpen(false);
-        showToast("Invite sent. Waiting for their approval.");
-        return;
-      } catch {
-        showToast("Network error.");
+      }
+
+      if (useRemote && remoteLoaded) {
+        try {
+          const res = await fetch("/api/pro/account-links", {
+            method: "POST",
+            credentials: "include",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              inviteeAxisId: draftAxisId,
+              tabKind: "manager",
+              assignedPropertyIds: ids,
+              payoutPercentForManager: payout,
+              propertyCoManagerPermissions,
+              skipInviteNotification: true,
+            }),
+          });
+          const data = (await res.json()) as { error?: string; migrationRequired?: boolean };
+          if (!res.ok) {
+            setInviteeAtCap(Boolean(data.error?.includes("Invitee needs to upgrade")));
+            showToast(data.error ?? "Could not send invite.");
+            return;
+          }
+          await loadRemoteInvites();
+          resetLinkDraft();
+          setLinkInvitePreview(null);
+          showToast(
+            skipMessage ? "Invite sent. Waiting for their approval." : "Invite sent and team member notified.",
+          );
+          return;
+        } catch {
+          showToast("Network error.");
+          return;
+        }
+      }
+
+      const all = readProRelationships(userId);
+      const dupe = all.some((r) => r.linkedAxisId === draftAxisId);
+      if (dupe) {
+        showToast("You already have a link with this account.");
         return;
       }
+      const row: ProRelationshipRecord = {
+        id: generateRelationshipId(),
+        linkedAxisId: draftAxisId,
+        linkedDisplayName: draftName ?? undefined,
+        linkedUserId: draftUserId,
+        linkDirection: "outgoing",
+        perspective: "manager_tab",
+        payoutPercentForManager: payout,
+        assignedPropertyIds: ids,
+        coManagerPermissions: flatCoManagerPermissionsFromProperty(propertyCoManagerPermissions),
+        propertyCoManagerPermissions,
+        createdAt: new Date().toISOString(),
+      };
+      writeProRelationships(userId, [...readProRelationships(userId), row]);
+      refreshLocal();
+      resetLinkDraft();
+      setLinkInvitePreview(null);
+      showToast(skipMessage ? "Link saved locally." : "Link saved and team member notified.");
+    } finally {
+      setLinkInviteBusy(false);
     }
-
-    const all = readProRelationships(userId);
-    const dupe = all.some((r) => r.linkedAxisId === draftAxisId);
-    if (dupe) {
-      showToast("You already have a link with this account.");
-      return;
-    }
-    const flatPerms = ids.length === 1 ? propertyCoManagerPermissions[ids[0]] : undefined;
-    const row: ProRelationshipRecord = {
-      id: generateRelationshipId(),
-      linkedAxisId: draftAxisId,
-      linkedDisplayName: draftName ?? draftAxisId,
-      perspective: "manager_tab",
-      payoutPercentForManager: payout,
-      assignedPropertyIds: ids,
-      coManagerPermissions: flatPerms,
-      propertyCoManagerPermissions,
-      createdAt: new Date().toISOString(),
-    };
-    writeProRelationships(userId, [...all, row]);
-    resetLinkDraft();
-    setLinkModalOpen(false);
-    refreshLocal();
-    showToast("Link saved locally (invite sync requires database migration).");
   };
 
   const patchInvite = async (
@@ -1493,24 +1585,129 @@ export function ProAccountLinksPanel({ userId, linkId: linkIdProp }: { userId: s
     .filter(([, v]) => v)
     .map(([k]) => k);
 
-  const bulkRemoveSelected = async () => {
-    const selected = teamEntries.filter((entry) => selectedIds.has(entry.id));
-    if (selected.length === 0) return;
-    for (const entry of selected) {
-      if (entry.kind === "remote") {
-        const inv = entry.invite;
-        if (inv.status === "pending" && inv.direction === "incoming") {
-          await respondInvite(inv.id, "reject");
-        } else if (inv.status === "pending" && inv.direction === "outgoing") {
-          await cancelInvite(inv.id);
-        } else {
-          await removeLink(inv.id);
-        }
+  const buildTeamRemovePreviewItem = useCallback(
+    (entry: TeamListEntry): TeamRemovePreviewItem => {
+      const propertyLabels =
+        entry.kind === "remote"
+          ? entry.invite.assignedPropertyIds.map((id) => teamPropertyLabel(id))
+          : entry.row.assignedPropertyIds.map((id) => teamPropertyLabel(id));
+      const linkedUserId =
+        entry.kind === "remote" ? entry.invite.linkedUserId : entry.row.linkedUserId?.trim() ?? "";
+      const isOutgoingPending =
+        entry.kind === "remote" &&
+        entry.invite.status === "pending" &&
+        entry.invite.direction === "outgoing";
+      const subject = isOutgoingPending
+        ? coManagerInviteWithdrawnSubject(managerDisplayName)
+        : coManagerLinkRemovedSubject(managerDisplayName);
+      const body = isOutgoingPending
+        ? buildCoManagerInviteWithdrawnBody({ actorName: managerDisplayName })
+        : buildCoManagerLinkRemovedBody({ actorName: managerDisplayName, propertyLabels });
+      return {
+        id: entry.id,
+        label: entry.name,
+        recipient: entry.name,
+        subject,
+        body,
+        emailAvailable: Boolean(linkedUserId),
+        smsAvailable: false,
+        entry,
+      };
+    },
+    [managerDisplayName, teamPropertyLabel],
+  );
+
+  const executeTeamRemoveEntry = async (entry: TeamListEntry) => {
+    if (entry.kind === "remote") {
+      const inv = entry.invite;
+      if (inv.status === "pending" && inv.direction === "incoming") {
+        await respondInvite(inv.id, "reject");
+      } else if (inv.status === "pending" && inv.direction === "outgoing") {
+        await cancelInvite(inv.id);
       } else {
-        await removeLink(entry.row.id);
+        await removeLink(inv.id);
       }
+    } else {
+      await removeLink(entry.row.id);
     }
-    clearSelection();
+  };
+
+  const openTeamRemovePreview = (entries: TeamListEntry[]) => {
+    if (entries.length === 0) return;
+    setTeamRemovePreview(entries.map(buildTeamRemovePreviewItem));
+  };
+
+  const confirmTeamRemove = async (
+    skipMessage: boolean,
+    channels?: NotificationDeliveryChannels,
+    messageDraft?: NotificationConfirmDraft,
+    opts?: {
+      scope?: "all" | "single";
+      singleId?: string;
+      drafts?: Record<string, { subject: string; body: string }>;
+    },
+  ) => {
+    if (!teamRemovePreview || teamRemoveBusy) return;
+    const scope = opts?.scope ?? "all";
+    const targetItems =
+      scope === "single" && opts?.singleId
+        ? teamRemovePreview.filter((item) => item.id === opts.singleId)
+        : teamRemovePreview;
+    if (targetItems.length === 0) return;
+
+    setTeamRemoveBusy(true);
+    try {
+      for (const item of targetItems) {
+        const linkedUserId =
+          item.entry.kind === "remote"
+            ? item.entry.invite.linkedUserId
+            : item.entry.row.linkedUserId?.trim() ?? "";
+        const fromCarousel = opts?.drafts?.[item.id];
+        const rowDraft = fromCarousel
+          ? { subject: fromCarousel.subject, body: fromCarousel.body }
+          : messageDraft;
+        if (!skipMessage && linkedUserId) {
+          const preview = {
+            name: item.label,
+            email: "",
+            subject: rowDraft?.subject?.trim() || item.subject,
+            body: rowDraft?.body?.trim() || item.body,
+          };
+          const result = await deliverManagerDirectoryMessage(preview, false, channels, rowDraft, {
+            toUserIds: [linkedUserId],
+          });
+          if (!result.ok) {
+            showToast(result.message);
+            return;
+          }
+        }
+        await executeTeamRemoveEntry(item.entry);
+      }
+      setTeamRemovePreview(null);
+      if (scope === "all") {
+        clearSelection();
+        clearDetailPropertySelection();
+      } else if (opts?.singleId) {
+        toggleSelected(opts.singleId);
+      }
+      const count = targetItems.length;
+      showToast(
+        skipMessage
+          ? count === 1
+            ? "Team link removed."
+            : `${count} team links removed.`
+          : count === 1
+            ? "Team link removed and team member notified."
+            : `${count} team links removed and team members notified.`,
+      );
+    } finally {
+      setTeamRemoveBusy(false);
+    }
+  };
+
+  const bulkRemoveSelected = () => {
+    const selected = teamEntries.filter((entry) => selectedIds.has(entry.id));
+    openTeamRemovePreview(selected);
   };
 
   const teamDangerBtnClass = `${PORTAL_DETAIL_BTN} border-rose-200 text-rose-800 hover:bg-[var(--status-overdue-bg)] portal-danger-outline`;
@@ -1564,7 +1761,7 @@ export function ProAccountLinksPanel({ userId, linkId: linkIdProp }: { userId: s
             type="button"
             variant="outline"
             className={teamDangerBtnClass}
-            onClick={() => void removeLink(inv.id)}
+            onClick={() => openTeamRemovePreview([entry])}
             data-attr="co-manager-remove-link"
           >
             {readOnly ? "Leave team link" : "Remove team link"}
@@ -1578,7 +1775,7 @@ export function ProAccountLinksPanel({ userId, linkId: linkIdProp }: { userId: s
           type="button"
           variant="outline"
           className={teamDangerBtnClass}
-          onClick={() => void removeLink(entry.row.id)}
+          onClick={() => openTeamRemovePreview([entry])}
           data-attr="co-manager-remove-link"
         >
           Remove team link
@@ -1910,6 +2107,76 @@ export function ProAccountLinksPanel({ userId, linkId: linkIdProp }: { userId: s
             </div>
           </div>
         ) : null}
+
+      <PortalNotificationPreviewModal
+        open={linkInvitePreview !== null}
+        title="Link account — notification preview"
+        onClose={() => setLinkInvitePreview(null)}
+        recipient={linkInvitePreview?.recipientName ?? ""}
+        subject={linkInvitePreview?.subject ?? ""}
+        body={linkInvitePreview?.body ?? ""}
+        intro="Review the co-manager invite message before sending it."
+        showChannelPicker
+        showSchedule
+        emailAvailable={Boolean(linkInvitePreview?.recipientUserId)}
+        smsAvailable={false}
+        defaultViaSms={false}
+        confirmLabel={useRemote ? "Send invite" : "Save link & send message"}
+        confirmLabelWithoutMessage={useRemote ? "Send invite only" : "Save link only"}
+        skipMessageLabel="Don't message team member"
+        confirmBusy={linkInviteBusy}
+        confirmBusyLabel="Sending…"
+        cancelLabel="Back"
+        onConfirm={(skipMessage, channels, messageDraft) =>
+          void confirmLinkInvite(skipMessage, channels, messageDraft)
+        }
+      />
+      {teamRemovePreview && teamRemovePreview.length === 1 ? (
+        <PortalNotificationPreviewModal
+          open
+          title="Remove team link — notification preview"
+          onClose={() => setTeamRemovePreview(null)}
+          recipient={teamRemovePreview[0]!.recipient}
+          subject={teamRemovePreview[0]!.subject}
+          body={teamRemovePreview[0]!.body}
+          intro="Review the message before removing this team link."
+          showChannelPicker
+          emailAvailable={teamRemovePreview[0]!.emailAvailable}
+          smsAvailable={false}
+          defaultViaSms={false}
+          confirmLabel="Remove & send message"
+          confirmLabelWithoutMessage="Remove only"
+          skipMessageLabel="Don't message team member"
+          confirmBusy={teamRemoveBusy}
+          confirmBusyLabel="Removing…"
+          cancelLabel="Cancel"
+          onConfirm={(skipMessage, channels, messageDraft) =>
+            void confirmTeamRemove(skipMessage, channels, messageDraft)
+          }
+        />
+      ) : null}
+      {teamRemovePreview && teamRemovePreview.length > 1 ? (
+        <PortalBulkMessageCarouselModal
+          open
+          title={`Remove team links — notification preview (${teamRemovePreview.length})`}
+          intro="Review the message for each team member before removing these links."
+          items={teamRemovePreview}
+          confirmLabel="Remove all & send"
+          confirmLabelSingle="Remove & send"
+          confirmLabelWithoutMessage="Remove without messaging"
+          skipMessageLabel="Don't message team members"
+          confirmBusy={teamRemoveBusy}
+          confirmBusyLabel="Removing…"
+          onClose={() => setTeamRemovePreview(null)}
+          onConfirm={(scope, { skipMessage, channels, drafts, singleId }) =>
+            void confirmTeamRemove(skipMessage, channels, undefined, {
+              scope,
+              singleId,
+              drafts,
+            })
+          }
+        />
+      ) : null}
     </>
   );
 
@@ -2048,7 +2315,8 @@ export function ProAccountLinksPanel({ userId, linkId: linkIdProp }: { userId: s
             variant="outline"
             className={`${PORTAL_BULK_BAR_BTN} text-rose-800`}
             data-attr="team-bulk-remove"
-            onClick={() => void bulkRemoveSelected()}
+            disabled={teamRemoveBusy}
+            onClick={() => bulkRemoveSelected()}
           >
             Remove
           </Button>

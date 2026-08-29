@@ -30,9 +30,12 @@ import {
   type ManagerVendorRow,
 } from "@/lib/manager-vendors-storage";
 import {
+  deliverManagerDirectoryMessage,
   deliverManagerVendorInvite,
   fetchManagerVendorInviteDraft,
+  fetchManagerVendorRemovalDraft,
   type ManagerVendorInvitePreview,
+  type ManagerVendorRemovalPreview,
 } from "@/lib/manager-vendor-invite-client";
 import { ManagerVendorCatalogModal } from "@/components/portal/manager-vendor-catalog-modal";
 import { ManagerVendorDefaultsModal } from "@/components/portal/manager-vendor-defaults-modal";
@@ -42,6 +45,7 @@ import {
   type NotificationConfirmDraft,
   type NotificationDeliveryChannels,
 } from "@/components/portal/portal-notification-preview-modal";
+import { PortalBulkMessageCarouselModal, type BulkMessageCarouselItem } from "@/components/portal/portal-bulk-message-carousel-modal";
 import { ManagerVendorDetail, type VendorDetailEditDraft } from "@/components/portal/manager-vendor-detail";
 import { usePaidPortalBasePath } from "@/lib/portal-base-path-client";
 import { vendorDetailHref, vendorListHref } from "@/lib/portal-detail-routes";
@@ -136,6 +140,8 @@ export const ManagerVendorsPanel = forwardRef(function ManagerVendorsPanel(
   const [defaultsTrade, setDefaultsTrade] = useState<string | undefined>(undefined);
   const [invitePreview, setInvitePreview] = useState<ManagerVendorInvitePreview | null>(null);
   const [invitePreviewBusy, setInvitePreviewBusy] = useState(false);
+  const [removePreview, setRemovePreview] = useState<ManagerVendorRemovalPreview[] | null>(null);
+  const [removePreviewBusy, setRemovePreviewBusy] = useState(false);
   const [vendorFormOpen, setVendorFormOpen] = useState(false);
   const [vendorFormMode, setVendorFormMode] = useState<"add" | "edit">("add");
   const [editingVendor, setEditingVendor] = useState<ManagerVendorRow | null>(null);
@@ -216,11 +222,105 @@ export const ManagerVendorsPanel = forwardRef(function ManagerVendorsPanel(
     [openCatalogForm, openDefaultsForm, openAddVendorForm],
   );
 
-  function removeVendor(id: string) {
-    if (!deleteManagerVendorRow(id, userId)) return;
+  function deleteVendorQuiet(id: string): boolean {
+    if (!deleteManagerVendorRow(id, userId)) return false;
     if (routeVendorId === id) navigateToList();
-    showToast("Vendor removed.");
+    return true;
   }
+
+  const openVendorRemovePreview = useCallback(
+    async (rows: ManagerVendorRow[]) => {
+      if (rows.length === 0) return;
+      setRemovePreviewBusy(true);
+      try {
+        const results = await Promise.all(
+          rows.map(async (row) => {
+            const result = await fetchManagerVendorRemovalDraft({
+              vendorId: row.id,
+              vendorName: row.name,
+              vendorEmail: row.email,
+              vendorPhone: row.phone,
+            });
+            return { row, result };
+          }),
+        );
+        const failed = results.find((entry) => !entry.result.ok);
+        if (failed && !failed.result.ok) {
+          showToast(failed.result.error);
+          return;
+        }
+        const previews = results
+          .map((entry) => (entry.result.ok ? entry.result.preview : null))
+          .filter(Boolean) as ManagerVendorRemovalPreview[];
+        if (previews.length === 0) return;
+        setRemovePreview(previews);
+      } finally {
+        setRemovePreviewBusy(false);
+      }
+    },
+    [showToast],
+  );
+
+  const confirmVendorRemove = useCallback(
+    async (
+      skipMessage: boolean,
+      channels?: NotificationDeliveryChannels,
+      messageDraft?: NotificationConfirmDraft,
+      opts?: {
+        scope?: "all" | "single";
+        singleId?: string;
+        drafts?: Record<string, { subject: string; body: string }>;
+      },
+    ) => {
+      if (!removePreview || removePreviewBusy) return;
+      const scope = opts?.scope ?? "all";
+      const targetPreviews =
+        scope === "single" && opts?.singleId
+          ? removePreview.filter((preview) => preview.vendorId === opts.singleId)
+          : removePreview;
+      if (targetPreviews.length === 0) return;
+
+      setRemovePreviewBusy(true);
+      try {
+        for (const preview of targetPreviews) {
+          const fromCarousel = opts?.drafts?.[preview.vendorId];
+          const rowDraft = fromCarousel
+            ? { subject: fromCarousel.subject, body: fromCarousel.body }
+            : messageDraft;
+          if (!skipMessage) {
+            const result = await deliverManagerDirectoryMessage(preview, false, channels, rowDraft);
+            if (!result.ok) {
+              showToast(result.message);
+              return;
+            }
+          }
+          if (!deleteVendorQuiet(preview.vendorId)) {
+            showToast("Could not remove vendor.");
+            return;
+          }
+        }
+        setRemovePreview(null);
+        if (scope === "all") {
+          clearSelection();
+        } else if (opts?.singleId) {
+          toggleSelected(opts.singleId);
+        }
+        const count = targetPreviews.length;
+        showToast(
+          skipMessage
+            ? count === 1
+              ? "Vendor removed."
+              : `${count} vendors removed.`
+            : count === 1
+              ? "Vendor removed and notified."
+              : `${count} vendors removed and notified.`,
+        );
+      } finally {
+        setRemovePreviewBusy(false);
+      }
+    },
+    [clearSelection, removePreview, removePreviewBusy, showToast, toggleSelected, userId],
+  );
 
   const openVendorInvitePreview = useCallback(
     async (row: ManagerVendorRow) => {
@@ -362,7 +462,7 @@ export const ManagerVendorsPanel = forwardRef(function ManagerVendorsPanel(
         type="button"
         variant="outline"
         className={vendorDangerBtnClass}
-        onClick={() => removeVendor(row.id)}
+        onClick={() => void openVendorRemovePreview([row])}
         data-attr="vendor-remove"
       >
         Remove
@@ -420,6 +520,65 @@ export const ManagerVendorsPanel = forwardRef(function ManagerVendorsPanel(
         cancelLabel="Cancel"
         onConfirm={(skipMessage, channels, messageDraft) => void confirmVendorInvite(skipMessage, channels, messageDraft)}
       />
+      {removePreview && removePreview.length === 1 ? (
+        <PortalNotificationPreviewModal
+          open
+          title="Remove vendor — notification preview"
+          onClose={() => setRemovePreview(null)}
+          recipient={removePreview[0]!.email}
+          recipientPhone={removePreview[0]!.phone}
+          subject={removePreview[0]!.subject}
+          body={removePreview[0]!.body}
+          intro="Review the message before removing this vendor from your roster."
+          showChannelPicker
+          showSchedule
+          emailAvailable={Boolean(removePreview[0]!.email?.includes("@"))}
+          smsAvailable={Boolean(removePreview[0]!.phone?.trim())}
+          defaultViaSms={false}
+          confirmLabel="Remove & send message"
+          confirmLabelWithoutMessage="Remove only"
+          skipMessageLabel="Don't message vendor"
+          confirmBusy={removePreviewBusy}
+          confirmBusyLabel="Removing…"
+          cancelLabel="Cancel"
+          onConfirm={(skipMessage, channels, messageDraft) =>
+            void confirmVendorRemove(skipMessage, channels, messageDraft)
+          }
+        />
+      ) : null}
+      {removePreview && removePreview.length > 1 ? (
+        <PortalBulkMessageCarouselModal
+          open
+          title={`Remove vendors — notification preview (${removePreview.length})`}
+          intro="Review the message for each vendor before removing them from your roster."
+          items={removePreview.map(
+            (preview): BulkMessageCarouselItem => ({
+              id: preview.vendorId,
+              label: preview.name,
+              recipient: preview.email || preview.name,
+              recipientPhone: preview.phone,
+              subject: preview.subject,
+              body: preview.body,
+              emailAvailable: Boolean(preview.email?.includes("@")),
+              smsAvailable: Boolean(preview.phone?.trim()),
+            }),
+          )}
+          confirmLabel="Remove all & send"
+          confirmLabelSingle="Remove & send"
+          confirmLabelWithoutMessage="Remove without messaging"
+          skipMessageLabel="Don't message vendors"
+          confirmBusy={removePreviewBusy}
+          confirmBusyLabel="Removing…"
+          onClose={() => setRemovePreview(null)}
+          onConfirm={(scope, { skipMessage, channels, drafts, singleId }) =>
+            void confirmVendorRemove(skipMessage, channels, undefined, {
+              scope,
+              singleId,
+              drafts,
+            })
+          }
+        />
+      ) : null}
     </>
   );
 
@@ -529,14 +688,7 @@ export const ManagerVendorsPanel = forwardRef(function ManagerVendorsPanel(
   }
   if (selectedVendors.length > 0) {
     const removeSelected = () => {
-      const count = selectedVendors.length;
-      if (
-        !window.confirm(`Remove ${count} vendor${count === 1 ? "" : "s"}?`)
-      ) {
-        return;
-      }
-      for (const row of selectedVendors) removeVendor(row.id);
-      clearSelection();
+      void openVendorRemovePreview(selectedVendors);
     };
     bulkSelectionActions.push({
       id: "delete",
@@ -546,6 +698,7 @@ export const ManagerVendorsPanel = forwardRef(function ManagerVendorsPanel(
           variant="outline"
           className={`${PORTAL_BULK_BAR_BTN} text-rose-800`}
           data-attr="vendor-bulk-delete"
+          disabled={removePreviewBusy}
           onClick={removeSelected}
         >
           Remove

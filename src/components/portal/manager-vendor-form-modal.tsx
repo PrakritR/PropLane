@@ -11,9 +11,12 @@ import {
 } from "@/components/portal/portal-notification-preview-modal";
 import { useManagerUserId } from "@/hooks/use-manager-user-id";
 import {
+  deliverManagerDirectoryMessage,
   deliverManagerVendorInvite,
   fetchManagerVendorInviteDraft,
+  fetchManagerVendorRemovalDraft,
   type ManagerVendorInvitePreview,
+  type ManagerVendorRemovalPreview,
 } from "@/lib/manager-vendor-invite-client";
 import {
   deleteManagerVendorRow,
@@ -226,6 +229,7 @@ export function ManagerVendorFormModal({
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [invitePreview, setInvitePreview] = useState<VendorInvitePreview | null>(null);
+  const [removePreview, setRemovePreview] = useState<ManagerVendorRemovalPreview | null>(null);
   const [createdVendorId, setCreatedVendorId] = useState<string | null>(null);
 
   useEffect(() => {
@@ -241,6 +245,7 @@ export function ManagerVendorFormModal({
     setError(null);
     setSaving(false);
     setInvitePreview(null);
+    setRemovePreview(null);
     setCreatedVendorId(null);
   }, [open, mode, vendor, initialTrade]);
 
@@ -303,13 +308,60 @@ export function ManagerVendorFormModal({
   };
 
   const addOnly = async () => {
-    const row = buildRow();
-    if (!row) return;
+    await openInvitePreview();
+  };
+
+  const openRemovePreview = async () => {
+    if (mode !== "edit" || !vendor) return;
     setSaving(true);
-    await persistRow(row);
-    setSaving(false);
-    showToast("Vendor added.");
-    onClose();
+    setError(null);
+    try {
+      const result = await fetchManagerVendorRemovalDraft({
+        vendorId: vendor.id,
+        vendorName: vendor.name,
+        vendorEmail: vendor.email,
+        vendorPhone: vendor.phone,
+      });
+      if (!result.ok) {
+        showToast(result.error);
+        return;
+      }
+      setRemovePreview(result.preview);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const confirmVendorRemove = async (
+    skipMessage: boolean,
+    channels?: NotificationDeliveryChannels,
+    messageDraft?: NotificationConfirmDraft,
+  ) => {
+    if (!removePreview || !vendor || saving) return;
+    setSaving(true);
+    try {
+      if (!skipMessage) {
+        const result = await deliverManagerDirectoryMessage(removePreview, false, channels, messageDraft);
+        if (!result.ok) {
+          showToast(result.message);
+          return;
+        }
+      }
+      if (!deleteManagerVendorRow(vendor.id, userId)) {
+        showToast("Could not remove vendor.");
+        return;
+      }
+      setRemovePreview(null);
+      showToast(skipMessage ? "Vendor removed." : "Vendor removed and notified.");
+      onClose();
+      onDeleted?.();
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const remove = () => {
+    void openRemovePreview();
   };
 
   const openInvitePreview = async () => {
@@ -374,24 +426,12 @@ export function ManagerVendorFormModal({
     }
   };
 
-  const remove = () => {
-    if (mode !== "edit" || !vendor) return;
-    if (!window.confirm(`Remove ${vendor.name} from your vendors? This cannot be undone.`)) return;
-    if (!deleteManagerVendorRow(vendor.id, userId)) {
-      showToast("Could not remove vendor.");
-      return;
-    }
-    showToast("Vendor removed.");
-    onClose();
-    onDeleted?.();
-  };
-
   const title = mode === "edit" ? "Edit vendor" : "Add vendor";
 
   return (
     <>
       <Modal
-        open={open && invitePreview === null}
+        open={open && invitePreview === null && removePreview === null}
         title={title}
         onClose={onClose}
         panelClassName="max-w-lg"
@@ -410,28 +450,16 @@ export function ManagerVendorFormModal({
               </Button>
             ) : null}
             {mode === "add" ? (
-              <>
-                <Button
-                  type="button"
-                  variant="outline"
-                  className="rounded-full"
-                  disabled={saving}
-                  onClick={() => void addOnly()}
-                  data-attr="vendor-form-add"
-                >
-                  {saving ? "Saving…" : "Add"}
-                </Button>
-                <Button
-                  type="button"
-                  variant="primary"
-                  className="ml-auto rounded-full"
-                  disabled={saving}
-                  onClick={() => void openInvitePreview()}
-                  data-attr="vendor-form-preview-invite"
-                >
-                  {saving ? "Saving…" : "Preview invite"}
-                </Button>
-              </>
+              <Button
+                type="button"
+                variant="primary"
+                className="ml-auto rounded-full"
+                disabled={saving}
+                onClick={() => void addOnly()}
+                data-attr="vendor-form-preview-invite"
+              >
+                {saving ? "Saving…" : "Review & add vendor"}
+              </Button>
             ) : (
               <Button
                 type="button"
@@ -450,8 +478,7 @@ export function ManagerVendorFormModal({
         <div className="space-y-4">
           {mode === "add" ? (
             <p className="text-xs text-muted">
-              Add a vendor to your directory. Use <span className="font-medium text-foreground">Preview invite</span> to
-              review the PropLane vendor portal signup message before it goes out.
+              Add a vendor to your directory, then review the PropLane vendor portal signup message before it goes out.
             </p>
           ) : null}
           {onBrowseCatalog ? (
@@ -496,6 +523,28 @@ export function ManagerVendorFormModal({
         confirmBusyLabel="Adding…"
         cancelLabel="Back"
         onConfirm={(skipMessage, channels, messageDraft) => void confirmVendorInvite(skipMessage, channels, messageDraft)}
+      />
+      <PortalNotificationPreviewModal
+        open={removePreview !== null}
+        title="Remove vendor — notification preview"
+        onClose={() => setRemovePreview(null)}
+        recipient={removePreview?.email ?? ""}
+        recipientPhone={removePreview?.phone ?? ""}
+        subject={removePreview?.subject ?? ""}
+        body={removePreview?.body ?? ""}
+        intro="Review the message before removing this vendor from your roster."
+        showChannelPicker
+        showSchedule
+        emailAvailable={Boolean(removePreview?.email?.includes("@"))}
+        smsAvailable={Boolean(removePreview?.phone?.trim())}
+        defaultViaSms={false}
+        confirmLabel="Remove & send message"
+        confirmLabelWithoutMessage="Remove only"
+        skipMessageLabel="Don't message vendor"
+        confirmBusy={saving}
+        confirmBusyLabel="Removing…"
+        cancelLabel="Cancel"
+        onConfirm={(skipMessage, channels, messageDraft) => void confirmVendorRemove(skipMessage, channels, messageDraft)}
       />
     </>
   );
