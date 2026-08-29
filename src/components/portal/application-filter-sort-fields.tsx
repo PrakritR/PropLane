@@ -56,36 +56,40 @@ function ApplicationFilterSortFieldsBody({
   selectionMode: "single" | "multi";
 }) {
   const closeFieldMenu = useFilterAccordionClose();
+  const options = propertyOptions.map((option) => ({ value: option.id, label: option.label }));
+
+  if (selectionMode === "single") {
+    const summary = filterSingleSelectSummary(
+      propertyFilters[0] ?? "",
+      [{ value: "", label: allLabel }, ...options],
+      allLabel,
+    );
+    return (
+      <FilterCollapsibleSection
+        sectionId="property"
+        label="Property"
+        summary={summary}
+        empty={propertyFilters.length === 0}
+        menuOptionCount={options.length + 1}
+        dataAttr={`${dataAttr}-trigger`}
+      >
+        <FilterSingleSelectList
+          options={[{ value: "", label: allLabel }, ...options]}
+          value={propertyFilters[0] ?? ""}
+          onChange={(next) => onPropertyFiltersChange(next ? [next] : [])}
+          onPick={closeFieldMenu}
+          dataAttr={dataAttr}
+        />
+      </FilterCollapsibleSection>
+    );
+  }
+
   const [draftPropertyFilters, setDraftPropertyFilters] = usePortalFilterDraft(
     propertyFilters,
     onPropertyFiltersChange,
     [],
   );
-
-  const options = propertyOptions.map((option) => ({ value: option.id, label: option.label }));
-  const summary =
-    selectionMode === "single"
-      ? filterSingleSelectSummary(draftPropertyFilters[0] ?? "", [{ value: "", label: allLabel }, ...options], allLabel)
-      : filterMultiSelectSummary(draftPropertyFilters, options, allLabel);
-
-  const propertyField =
-    selectionMode === "single" ? (
-      <FilterSingleSelectList
-        options={[{ value: "", label: allLabel }, ...options]}
-        value={draftPropertyFilters[0] ?? ""}
-        onChange={(next) => setDraftPropertyFilters(next ? [next] : [])}
-        onPick={closeFieldMenu}
-        dataAttr={dataAttr}
-      />
-    ) : (
-      <FilterCheckboxList
-        options={options}
-        selected={draftPropertyFilters}
-        onChange={setDraftPropertyFilters}
-        emptyMenuText="No properties"
-        dataAttr={dataAttr}
-      />
-    );
+  const summary = filterMultiSelectSummary(draftPropertyFilters, options, allLabel);
 
   return (
     <FilterCollapsibleSection
@@ -93,10 +97,16 @@ function ApplicationFilterSortFieldsBody({
       label="Property"
       summary={summary}
       empty={draftPropertyFilters.length === 0}
-      menuOptionCount={selectionMode === "single" ? options.length + 1 : options.length}
+      menuOptionCount={options.length}
       dataAttr={`${dataAttr}-trigger`}
     >
-      {propertyField}
+      <FilterCheckboxList
+        options={options}
+        selected={draftPropertyFilters}
+        onChange={setDraftPropertyFilters}
+        emptyMenuText="No properties"
+        dataAttr={dataAttr}
+      />
     </FilterCollapsibleSection>
   );
 }

@@ -67,7 +67,6 @@ import { ManagerResidentsGroupedTable } from "@/components/portal/manager-reside
 import { ManagerResidentToursPanel } from "@/components/portal/manager-resident-tours-panel";
 import { buildManagerTourRows } from "@/lib/manager-tour-list";
 import { buildResidentListClusters } from "@/lib/manager-resident-list-grouping";
-import { PortalListAddRow, PORTAL_LIST_ADD_ICONS } from "@/components/portal/portal-list-add-row";
 import { PORTAL_LIST_PAGE_BODY } from "@/components/portal/portal-inbox-ui";
 import { LeaseDocumentPreview } from "@/components/portal/lease-document-preview";
 import { LeasePrimaryHeaderActions } from "@/components/portal/lease-primary-header-actions";
@@ -3379,24 +3378,16 @@ export function ManagerResidents({
         }}
       />
       {filtered.length === 0 ? (
-        <div className="space-y-3 px-3 py-2">
-          {residents.length > 0 ? (
-            <PortalDataTableEmpty
-              icon="residents"
-              message={
-                searchQuery.trim()
-                  ? "No residents match your search."
-                  : "No residents match this filter."
-              }
-            />
-          ) : null}
-          <PortalListAddRow
-            label="Add"
-            icon={PORTAL_LIST_ADD_ICONS.resident}
-            onClick={() => setAddResidentOpen(true)}
-            dataAttr="residents-list-add"
+        residents.length > 0 ? (
+          <PortalDataTableEmpty
+            icon="residents"
+            message={
+              searchQuery.trim()
+                ? "No residents match your search."
+                : "No residents match this filter."
+            }
           />
-        </div>
+        ) : null
       ) : (
         <div className={PORTAL_LIST_PAGE_BODY}>
           <ManagerResidentsGroupedTable
@@ -3408,14 +3399,6 @@ export function ManagerResidents({
               navigate(residentDetailHref(portalBase, residentsTab, res.id, resolvedDetailTab))
             }
           />
-          <div className="px-3 py-3 max-md:px-2.5">
-            <PortalListAddRow
-              label="Add"
-              icon={PORTAL_LIST_ADD_ICONS.resident}
-              onClick={() => setAddResidentOpen(true)}
-              dataAttr="residents-list-add"
-            />
-          </div>
         </div>
       )}
 

@@ -99,12 +99,10 @@ export function PortalPropertyRecordRow({
   );
 }
 
-/** Generic service / work-order row with optional status chip. */
+/** Generic service / work-order list row. */
 export function PortalServiceRecordRow({
   title,
   subtitle,
-  statusLabel,
-  statusTone = "neutral",
   selected = false,
   checked = false,
   onSelectedChange,
@@ -113,23 +111,12 @@ export function PortalServiceRecordRow({
 }: {
   title: string;
   subtitle?: string;
-  statusLabel?: string;
-  statusTone?: "neutral" | "warning" | "success" | "danger";
   selected?: boolean;
   checked?: boolean;
   onSelectedChange?: (selected: boolean) => void;
   onOpen: () => void;
   dataAttr?: string;
 }) {
-  const toneClass =
-    statusTone === "warning"
-      ? "bg-[var(--status-pending-bg)] text-[var(--status-pending-fg)]"
-      : statusTone === "success"
-        ? "bg-[var(--status-confirmed-bg)] text-[var(--status-confirmed-fg)]"
-        : statusTone === "danger"
-          ? "bg-[var(--status-overdue-bg)] text-[var(--status-overdue-fg)]"
-          : "bg-accent/60 text-muted";
-
   const selectable = Boolean(onSelectedChange);
   const highlighted = selected || checked;
 
@@ -160,17 +147,9 @@ export function PortalServiceRecordRow({
       >
         <InboxAvatar name={title} className="h-9 w-9 shrink-0 text-[11px]" />
         <div className="min-w-0 flex-1">
-          <div className="flex items-baseline justify-between gap-2">
-            <p className="truncate text-sm font-medium text-foreground">{title}</p>
-            {statusLabel ? (
-              <span className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${toneClass}`}>
-                {statusLabel}
-              </span>
-            ) : null}
-          </div>
+          <p className="truncate text-sm font-medium text-foreground">{title}</p>
           {subtitle ? <p className="mt-0.5 truncate text-xs text-muted">{subtitle}</p> : null}
         </div>
-        <ChevronRight className="h-5 w-5 shrink-0 text-muted" aria-hidden />
       </button>
     </div>
   );

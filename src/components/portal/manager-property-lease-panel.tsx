@@ -5,11 +5,6 @@ import { Button } from "@/components/ui/button";
 import { BulkActionBar } from "@/components/ui/bulk-action-bar";
 import { PropertyLeaseFormModal } from "@/components/portal/property-lease-form-modal";
 import {
-  PORTAL_LIST_ADD_ROW_WRAP_CLASS,
-  PortalListAddRow,
-  PORTAL_LIST_ADD_ICONS,
-} from "@/components/portal/portal-list-add-row";
-import {
   PORTAL_PROPERTY_DETAIL_LIST_ROW_CLASS,
   PortalPropertyDetailSection,
 } from "@/components/portal/portal-property-detail-section";
@@ -385,25 +380,11 @@ export function ManagerPropertyLeasePanel({
           ))}
       </PortalPropertyDetailSection>
 
-      {/*
-        Same shape as the Requests and Application tabs: the PropLane defaults
-        this property does not carry yet, then one shared dashed Add row for a
-        custom one. The presets are the only route back to a default once a
-        manager has deleted it, because lease templates are opt-in.
-      */}
-      <div className={PORTAL_LIST_ADD_ROW_WRAP_CLASS}>
-        {availableSeeds.length > 0 ? (
-          <div className="mb-3">
-            <PropertyLeaseTemplateSuggestions seeds={availableSeeds} onAddSeed={addSeedTemplate} />
-          </div>
-        ) : null}
-        <PortalListAddRow
-          label="Add"
-          icon={PORTAL_LIST_ADD_ICONS.lease}
-          onClick={openAdd}
-          dataAttr="property-lease-add"
-        />
-      </div>
+      {availableSeeds.length > 0 ? (
+        <div className="px-3 py-4 max-md:px-2.5 sm:py-5">
+          <PropertyLeaseTemplateSuggestions seeds={availableSeeds} onAddSeed={addSeedTemplate} />
+        </div>
+      ) : null}
 
       <PropertyLeaseFormModal
         open={formOpen}

@@ -2,11 +2,6 @@
 
 import { useCallback, useRef, useState } from "react";
 import { Modal } from "@/components/ui/modal";
-import {
-  PORTAL_LIST_ADD_ICONS,
-  PORTAL_LIST_ADD_ROW_WRAP_CLASS,
-  PortalListAddRow,
-} from "@/components/portal/portal-list-add-row";
 import { ServiceRequestCatalogEditor } from "@/components/portal/service-request-catalog-editor";
 import { type ManagerListingSubmissionV1 } from "@/lib/manager-listing-submission";
 import type { ManagerPropertySaveTarget } from "@/lib/manager-property-save-target";
@@ -68,14 +63,6 @@ export function ServiceRequestCatalogModal({
         onRegisterAddCustom={registerAddHandler}
         onNestedModalOpenChange={setNestedEditOpen}
       />
-      <div className={PORTAL_LIST_ADD_ROW_WRAP_CLASS}>
-        <PortalListAddRow
-          label="Add"
-          icon={PORTAL_LIST_ADD_ICONS.request}
-          onClick={() => addHandlerRef.current?.()}
-          dataAttr="service-request-catalog-add"
-        />
-      </div>
     </Modal>
   );
 }

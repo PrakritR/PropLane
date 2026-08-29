@@ -90,8 +90,8 @@ export const MANAGER_TASK_LIST_FILTER_LABELS: Record<ManagerTaskListFilterId, st
   all: "All",
   service_orders: "Service orders",
   tours: "Tours",
-  general_tasks: "General tasks",
-  house_tasks: "House tasks",
+  general_tasks: "General services",
+  house_tasks: "House services",
 };
 
 export function managerTaskIsScheduled(task: Pick<ManagerTask, "start" | "end">): boolean {

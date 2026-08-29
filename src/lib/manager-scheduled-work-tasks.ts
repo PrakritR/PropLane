@@ -24,6 +24,6 @@ export function scheduledTaskTitleForService(offerName: string, residentName?: s
 }
 
 export function scheduledTaskTitleForWorkOrder(title: string): string {
-  const label = title.trim() || "Work order";
-  return label.startsWith("Work order ·") ? label : `Work order · ${label}`;
+  const label = title.trim() || "Service";
+  return label.startsWith("Service ·") || label.startsWith("Work order ·") ? label : `Service · ${label}`;
 }

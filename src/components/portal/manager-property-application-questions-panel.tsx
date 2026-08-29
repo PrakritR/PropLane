@@ -5,11 +5,6 @@ import { Button } from "@/components/ui/button";
 import { BulkActionBar } from "@/components/ui/bulk-action-bar";
 import { ManagerApplicationQuestionsEditorModal } from "@/components/portal/manager-application-questions-editor-modal";
 import {
-  PORTAL_LIST_ADD_ICONS,
-  PORTAL_LIST_ADD_ROW_WRAP_CLASS,
-  PortalListAddRow,
-} from "@/components/portal/portal-list-add-row";
-import {
   PORTAL_PROPERTY_DETAIL_LIST_ROW_CLASS,
   PortalPropertyDetailSection,
 } from "@/components/portal/portal-property-detail-section";
@@ -357,38 +352,30 @@ export function ManagerPropertyApplicationQuestionsPanel({
         ))}
       </PortalPropertyDetailSection>
 
-      {/* PropLane defaults first, then the shared Add row — same as Lease and Requests. */}
-      <div className={PORTAL_LIST_ADD_ROW_WRAP_CLASS}>
-        {availableSeeds.length > 0 ? (
-          <div className="mb-3">
-            <PropertyTemplatePresetList
-              title="Add an application"
-              dataAttr="property-application-template-suggestions"
-              addDataAttrPrefix="property-application-seed-add"
-              presets={availableSeeds.map((seed) => ({
-                key: seed.seedKey,
-                label: seed.label,
-                subtitle:
-                  [
-                    "PropLane default application",
-                    formatApplicationLeaseTermsLabel(seed.applicationLeaseTerms)
-                      ? `Applicants: ${formatApplicationLeaseTermsLabel(seed.applicationLeaseTerms)}`
-                      : null,
-                  ]
-                    .filter(Boolean)
-                    .join(" · "),
-              }))}
-              onAdd={addSeedTemplate}
-            />
-          </div>
-        ) : null}
-        <PortalListAddRow
-          label="Add"
-          icon={PORTAL_LIST_ADD_ICONS.application}
-          onClick={openAdd}
-          dataAttr="property-application-add"
-        />
-      </div>
+      {/* PropLane defaults first — same as Lease and Requests. */}
+      {availableSeeds.length > 0 ? (
+        <div className="px-3 py-4 max-md:px-2.5 sm:py-5">
+          <PropertyTemplatePresetList
+            title="Add an application"
+            dataAttr="property-application-template-suggestions"
+            addDataAttrPrefix="property-application-seed-add"
+            presets={availableSeeds.map((seed) => ({
+              key: seed.seedKey,
+              label: seed.label,
+              subtitle:
+                [
+                  "PropLane default application",
+                  formatApplicationLeaseTermsLabel(seed.applicationLeaseTerms)
+                    ? `Applicants: ${formatApplicationLeaseTermsLabel(seed.applicationLeaseTerms)}`
+                    : null,
+                ]
+                  .filter(Boolean)
+                  .join(" · "),
+            }))}
+            onAdd={addSeedTemplate}
+          />
+        </div>
+      ) : null}
 
       {editorOpen ? (
         <ManagerApplicationQuestionsEditorModal

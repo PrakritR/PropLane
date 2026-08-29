@@ -35,11 +35,6 @@ import { ManagerVendorDetail, type VendorDetailEditDraft } from "@/components/po
 import { usePaidPortalBasePath } from "@/lib/portal-base-path-client";
 import { vendorDetailHref, vendorListHref } from "@/lib/portal-detail-routes";
 import { usePortalNavigate } from "@/lib/portal-nav-client";
-import {
-  PORTAL_LIST_ADD_ICONS,
-  PORTAL_LIST_ADD_ROW_WRAP_CLASS,
-  PortalListAddRow,
-} from "@/components/portal/portal-list-add-row";
 import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
 import { PortalDataTableEmpty, PORTAL_DETAIL_BTN, PortalTableDetailActions } from "@/components/portal/portal-data-table";
 import { PortalRecordDetailPage } from "@/components/portal/portal-record-detail-page";
@@ -363,17 +358,6 @@ export const ManagerVendorsPanel = forwardRef(function ManagerVendorsPanel(
     </PortalTableDetailActions>
   );
 
-  const vendorListAddRow = (
-    <div className={PORTAL_LIST_ADD_ROW_WRAP_CLASS}>
-      <PortalListAddRow
-        label="Add"
-        icon={PORTAL_LIST_ADD_ICONS.vendor}
-        onClick={() => openAddVendorForm()}
-        dataAttr="vendors-list-add"
-      />
-    </div>
-  );
-
   const modals = (
     <>
       <ManagerVendorFormModal
@@ -465,9 +449,7 @@ export const ManagerVendorsPanel = forwardRef(function ManagerVendorsPanel(
   }
 
   const listBody =
-    vendors.length === 0 ? (
-      vendorListAddRow
-    ) : (
+    vendors.length === 0 ? null : (
       <div className={PORTAL_LIST_PAGE_BODY}>
         {vendors.map((row) => (
           <PortalPersonRecordRow
@@ -480,7 +462,6 @@ export const ManagerVendorsPanel = forwardRef(function ManagerVendorsPanel(
             dataAttr="vendor-list-row"
           />
         ))}
-        {vendorListAddRow}
       </div>
     );
 

@@ -1938,7 +1938,7 @@ export function PortalCalendarPanels({
                   setTaskFormOpen(true);
                 }}
               >
-                Edit task
+                Edit service
               </Button>
             ) : null}
             {selectedBlock.meeting.email?.trim() && !pendingTourAction ? (

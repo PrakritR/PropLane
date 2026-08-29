@@ -6,7 +6,6 @@ import { ResidentInboxPanel, type ResidentInboxPanelHandle } from "@/components/
 import { RoleSmsPanel } from "@/components/portal/role-sms-panel";
 import {
   INBOX_LIST_SCROLL,
-  InboxConversationListAddRow,
   InboxConversationRow,
   InboxTwoPane,
   PortalInboxEmptyState,
@@ -227,8 +226,6 @@ function ResidentUnifiedInbox({
             <div className="p-4">
               <PortalInboxEmptyState title="No unread conversations." />
             </div>
-          ) : onAddConversation ? (
-            <InboxConversationListAddRow onClick={onAddConversation} dataAttr="resident-communication-add-conversation" />
           ) : null
         ) : (
           merged.map((row) => (

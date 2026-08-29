@@ -55,11 +55,6 @@ import {
   createPortalRowExpandClick,
 } from "@/components/portal/portal-data-table";
 import { useAppUi } from "@/components/providers/app-ui-provider";
-import {
-  PORTAL_LIST_ADD_ICONS,
-  PORTAL_LIST_ADD_ROW_WRAP_CLASS,
-  PortalListAddRow,
-} from "@/components/portal/portal-list-add-row";
 import type { TabItem } from "@/components/ui/tabs";
 import type { InboxThreadMessage } from "@/lib/portal-inbox-storage";
 import {
@@ -94,26 +89,6 @@ export function InboxEmptyIcon({ className }: { className?: string }) {
 
 export function PortalInboxEmptyState({ title }: { title: string; hint?: ReactNode }) {
   return <PortalEmptyState title={title} icon="inbox" />;
-}
-
-/** Dashed add row for an empty Communication conversation list (replaces “No conversations yet.”). */
-export function InboxConversationListAddRow({
-  onClick,
-  dataAttr = "communication-add-conversation",
-}: {
-  onClick: () => void;
-  dataAttr?: string;
-}) {
-  return (
-    <div className={PORTAL_LIST_ADD_ROW_WRAP_CLASS}>
-      <PortalListAddRow
-        label="Add conversation"
-        icon={PORTAL_LIST_ADD_ICONS.conversation}
-        onClick={onClick}
-        dataAttr={dataAttr}
-      />
-    </div>
-  );
 }
 
 /**

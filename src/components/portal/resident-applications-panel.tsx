@@ -17,7 +17,6 @@ import {
 import { LocalDestinationNav } from "@/components/ui/destination-nav";
 import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
 import { PortalSectionActionRow } from "@/components/portal/portal-section-action-row";
-import { PortalListAddRow, PORTAL_LIST_ADD_ICONS } from "@/components/portal/portal-list-add-row";
 import { PortalPropertyRecordRow } from "@/components/portal/portal-record-row";
 import { PortalRecordDetailPage } from "@/components/portal/portal-record-detail-page";
 import { DataList } from "@/components/ui/data-list";
@@ -1312,19 +1311,6 @@ export function ResidentApplicationsPanel({
                 </ApplicationHouseholdCluster>
               );
             })}
-          </div>
-        ) : null}
-
-        {sessionReady && canOpenPropertyPicker ? (
-          <div className="px-3 pb-4 pt-1 max-md:px-2.5 lg:pb-5">
-            <PortalListAddRow
-              label="Add"
-              hint="Apply to another property"
-              icon={PORTAL_LIST_ADD_ICONS.application}
-              onClick={openPropertyPicker}
-              dataAttr="resident-applications-add"
-              className="min-h-[7.5rem] py-8 max-lg:min-h-[7rem] max-lg:py-7 sm:min-h-[8rem] sm:py-9"
-            />
           </div>
         ) : null}
 

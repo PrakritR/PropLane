@@ -48,11 +48,6 @@ import {
 import { ManagerPropertyRequestsPanel } from "@/components/portal/manager-property-requests-panel";
 import { PropertyResidentOnboardWizard } from "@/components/portal/property-resident-onboard-wizard";
 import { PortalPropertyRecordRow } from "@/components/portal/portal-record-row";
-import {
-  PortalListAddRow,
-  PORTAL_LIST_ADD_ICONS,
-  PORTAL_LIST_ADD_ROW_WRAP_CLASS,
-} from "@/components/portal/portal-list-add-row";
 import { PortalDataTableEmpty } from "@/components/portal/portal-data-table";
 import { PORTAL_LIST_PAGE_BODY } from "@/components/portal/portal-inbox-ui";
 import { useManagerUserId } from "@/hooks/use-manager-user-id";
@@ -1492,20 +1487,7 @@ export function ManagerHousePropertiesPanel({
 
   return (
     <>
-      {rows.length === 0 ? (
-        onAddProperty ? (
-          <div className={`${PORTAL_LIST_ADD_ROW_WRAP_CLASS} pt-5 sm:pt-6`}>
-            <PortalListAddRow
-              label="Add"
-              ariaLabel="Add property"
-              icon={PORTAL_LIST_ADD_ICONS.property}
-              onClick={onAddProperty}
-              disabled={addPropertyDisabled}
-              dataAttr="properties-list-add"
-            />
-          </div>
-        ) : null
-      ) : (
+      {rows.length === 0 ? null : (
         <div className={PORTAL_LIST_PAGE_BODY}>
           {rows.map(({ sourceBucket, row }) => {
             const rowKey = row.adminRefId + (row.listingId ?? "");
@@ -1535,18 +1517,6 @@ export function ManagerHousePropertiesPanel({
               />
             );
           })}
-          {onAddProperty ? (
-            <div className={PORTAL_LIST_ADD_ROW_WRAP_CLASS}>
-              <PortalListAddRow
-                label="Add"
-                ariaLabel="Add property"
-                icon={PORTAL_LIST_ADD_ICONS.property}
-                onClick={onAddProperty}
-                disabled={addPropertyDisabled}
-                dataAttr="properties-list-add"
-              />
-            </div>
-          ) : null}
         </div>
       )}
       {selectedIds.size > 0 ? (

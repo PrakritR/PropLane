@@ -254,7 +254,7 @@ export function ManagerTaskFormModal({
 
   async function handleSave() {
     if (!assignee) {
-      showToast("Choose who this task is assigned to.");
+      showToast("Choose who this service is assigned to.");
       return;
     }
     if (propertyRequired && !form.propertyId) {
@@ -273,7 +273,7 @@ export function ManagerTaskFormModal({
     }
     if (isWorkOrder) {
       if (!form.residentEmail) {
-        showToast("Choose a resident for the work order.");
+        showToast("Choose a resident for the service.");
         return;
       }
     }
@@ -306,7 +306,7 @@ export function ManagerTaskFormModal({
         : form.title.trim();
 
       if (!taskTitle) {
-        showToast(isTour ? "Add a guest name or title." : "Add a task title.");
+        showToast(isTour ? "Add a guest name or title." : "Add a service title.");
         return;
       }
 
@@ -394,7 +394,7 @@ export function ManagerTaskFormModal({
       onClose();
       onSaved?.(composePrefill);
     } catch (e) {
-      showToast(e instanceof Error ? e.message : "Could not save task.");
+      showToast(e instanceof Error ? e.message : "Could not save service.");
     } finally {
       setSaving(false);
     }
@@ -411,9 +411,9 @@ export function ManagerTaskFormModal({
     <Modal
       open={open}
       onClose={onClose}
-      title={editingId ? "Edit task" : "Add task"}
+      title={editingId ? "Edit service" : "Add service"}
       dense
-      assistantContext={editingId ? "Edit task" : "Add task"}
+      assistantContext={editingId ? "Edit service" : "Add service"}
       footer={
         <ModalFooter>
           <Button
@@ -422,7 +422,7 @@ export function ManagerTaskFormModal({
             disabled={saving || !canSave}
             data-attr="manager-task-save"
           >
-            {saving ? "Saving…" : editingId ? "Save task" : "Add task"}
+            {saving ? "Saving…" : editingId ? "Save service" : "Add service"}
           </Button>
         </ModalFooter>
       }
@@ -431,7 +431,7 @@ export function ManagerTaskFormModal({
         {!editingId ? (
           <div className={cn(PORTAL_MODAL_FORM_FIELD_CLASS, PORTAL_MODAL_FORM_FULL_ROW_CLASS)}>
             <label className={MODAL_FIELD_LABEL_CLASS} htmlFor="manager-task-kind">
-              Task type
+              Service type
             </label>
             <Select
               id="manager-task-kind"
@@ -492,11 +492,11 @@ export function ManagerTaskFormModal({
         ) : (
           <div className={cn(PORTAL_MODAL_FORM_FIELD_CLASS, PORTAL_MODAL_FORM_FULL_ROW_CLASS)}>
             <label className={MODAL_FIELD_LABEL_CLASS} htmlFor="manager-task-title">
-              {isWorkOrder ? "Work order title" : "Description"}
+              {isWorkOrder ? "Service title" : "Description"}
             </label>
             <Input
               id="manager-task-title"
-              aria-label="Task title"
+              aria-label="Service title"
               value={form.title}
               onChange={(e) => setForm((current) => ({ ...current, title: e.target.value }))}
               placeholder={
@@ -839,14 +839,14 @@ export function ManagerTaskFormModal({
 
         <p className={cn("text-xs text-muted", PORTAL_MODAL_FORM_FULL_ROW_CLASS)}>
           {isTour
-            ? "Saving schedules the tour and adds it to your task list and calendar."
+            ? "Saving schedules the tour and adds it to your service list and calendar."
             : isWorkOrder
-              ? "Saving creates the work order and a linked task on your calendar when scheduled."
+              ? "Saving creates the service and a linked calendar entry when scheduled."
               : form.scheduleDate && form.startTime && form.endTime
                 ? "Saving blocks this time on your calendar."
                 : form.dueDate
                   ? "Due date appears on your calendar as a reminder block."
-                  : "Add a schedule or due date to show this task on your calendar."}
+                  : "Add a schedule or due date to show this service on your calendar."}
           {!editingId && (isTour || isWorkOrder)
             ? " You can notify the guest or resident on the next screen."
             : null}

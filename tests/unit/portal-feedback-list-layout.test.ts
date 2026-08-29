@@ -8,10 +8,8 @@ const source = readFileSync(
 );
 
 describe("feedback list layout", () => {
-  it("uses the shared list add row instead of a desktop feedback table", () => {
-    expect(source).toContain("<PortalListAddRow");
-    expect(source).toContain('label="Add feedback"');
-    expect(source).toContain('dataAttr="feedback-add"');
+  it("does not use a dashed list add row or desktop feedback table", () => {
+    expect(source).not.toContain("<PortalListAddRow");
     expect(source).not.toContain("<table");
   });
 });

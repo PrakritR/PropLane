@@ -29,8 +29,6 @@ import {
 import {
   clusterPortalListRows,
   isPropertyClusterList,
-  portalListGroupModeActiveCount,
-  PORTAL_LIST_GROUP_MODE_LABELS,
   DEFAULT_PORTAL_LIST_GROUP_MODE,
   type PortalListGroupMode,
 } from "@/lib/portal-list-grouping";
@@ -85,11 +83,6 @@ import { useAppUi } from "@/components/providers/app-ui-provider";
 import { Button } from "@/components/ui/button";
 import { usePortalRowSelection } from "@/hooks/use-portal-row-selection";
 import { useShallowTabId } from "@/components/ui/tabs";
-import {
-  PORTAL_LIST_ADD_ICONS,
-  PORTAL_LIST_ADD_ROW_WRAP_CLASS,
-  PortalListAddRow,
-} from "@/components/portal/portal-list-add-row";
 
 type FilterType = "requests" | "work-orders";
 
@@ -277,8 +270,7 @@ export function ManagerAllServicesPanel({
     setGroupMode(DEFAULT_PORTAL_LIST_GROUP_MODE);
   };
 
-  const servicesFilterActiveCount =
-    portalFilterActiveCount([propertyFilters]) + portalListGroupModeActiveCount(groupMode);
+  const servicesFilterActiveCount = portalFilterActiveCount([propertyFilters]);
 
   const servicesFilterSheet = (
     <PortalFilterSortSheet
@@ -304,25 +296,17 @@ export function ManagerAllServicesPanel({
   );
 
   const activeFilterChips = useMemo((): PortalActiveFilterChip[] => {
-    const chips: PortalActiveFilterChip[] = [];
-    if (groupMode !== DEFAULT_PORTAL_LIST_GROUP_MODE) {
-      chips.push({
-        id: "group-mode",
-        label: PORTAL_LIST_GROUP_MODE_LABELS[groupMode],
-        onRemove: () => setGroupMode(DEFAULT_PORTAL_LIST_GROUP_MODE),
-      });
-    }
-    if (propertyFilters.length > 0) {
-      chips.push({
+    if (propertyFilters.length === 0) return [];
+    return [
+      {
         id: "property",
         label: `Property: ${propertyFilterLabel}`,
         onRemove: () => {
           setPropertyFilters([]);
         },
-      });
-    }
-    return chips;
-  }, [groupMode, propertyFilters, propertyFilterLabel]);
+      },
+    ];
+  }, [propertyFilters, propertyFilterLabel]);
 
   const renderRequestDetail = (req: ServiceRequest) => {
     return (
@@ -444,16 +428,6 @@ export function ManagerAllServicesPanel({
         key={rowKey}
         title={row.title}
         subtitle={subtitleParts.join(" · ") || undefined}
-        statusLabel={row.statusLabel}
-        statusTone={
-          row.state === "done"
-            ? "success"
-            : row.state === "declined"
-              ? "danger"
-              : row.state === "scheduled"
-                ? "neutral"
-                : "warning"
-        }
         checked={selectedIds.has(rowKey)}
         onSelectedChange={() => toggleSelected(rowKey)}
         onOpen={() =>
@@ -569,16 +543,7 @@ export function ManagerAllServicesPanel({
         }}
         activeFilterChips={<PortalActiveFilterChips chips={activeFilterChips} />}
       />
-      {visibleUnifiedRows.length === 0 ? (
-        <div className={PORTAL_LIST_ADD_ROW_WRAP_CLASS}>
-          <PortalListAddRow
-            label="Add"
-            icon={PORTAL_LIST_ADD_ICONS.request}
-            onClick={() => setAddRequestOpen(true)}
-            dataAttr="services-requests-list-add"
-          />
-        </div>
-      ) : (
+      {visibleUnifiedRows.length === 0 ? null : (
         <div>
           {/*
             One list over both stores, grouped by resident the way Payments and Tours are. Each row
@@ -628,14 +593,6 @@ export function ManagerAllServicesPanel({
                     {cluster.rows.map((row) => renderServiceRow(row, true))}
                   </ApplicationHouseholdCluster>
                 ))}
-          </div>
-          <div className={PORTAL_LIST_ADD_ROW_WRAP_CLASS}>
-            <PortalListAddRow
-              label="Add"
-              icon={PORTAL_LIST_ADD_ICONS.request}
-              onClick={() => setAddRequestOpen(true)}
-              dataAttr="services-requests-list-add"
-            />
           </div>
         </div>
       )}

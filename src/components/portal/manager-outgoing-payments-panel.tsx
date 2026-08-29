@@ -11,11 +11,6 @@ import {
 } from "@/components/portal/portal-data-table";
 import { PortalRecordDetailPage } from "@/components/portal/portal-record-detail-page";
 import { PORTAL_LIST_PAGE_BODY } from "@/components/portal/portal-inbox-ui";
-import {
-  PortalListAddRow,
-  PORTAL_LIST_ADD_ICONS,
-  PORTAL_LIST_ADD_ROW_WRAP_CLASS,
-} from "@/components/portal/portal-list-add-row";
 import { PortalPersonRecordRow } from "@/components/portal/portal-record-row";
 import type { DemoManagerOutgoingPaymentRow, DemoManagerWorkOrderRow, ManagerPaymentBucket } from "@/data/demo-portal";
 import { isDemoModeActive } from "@/lib/demo/demo-session";
@@ -186,18 +181,6 @@ export function ManagerOutgoingPaymentsPanel({
   };
 
   if (rows.length === 0) {
-    if (onAddPayment) {
-      return (
-        <div className={`${PORTAL_LIST_ADD_ROW_WRAP_CLASS} pt-5 sm:pt-6`}>
-          <PortalListAddRow
-            label="Add"
-            icon={PORTAL_LIST_ADD_ICONS.payment}
-            onClick={onAddPayment}
-            dataAttr="payments-list-add"
-          />
-        </div>
-      );
-    }
     return <PortalDataTableEmpty message="No outgoing payments in this bucket yet." icon="payment" />;
   }
 
@@ -233,16 +216,6 @@ export function ManagerOutgoingPaymentsPanel({
           dataAttr="outgoing-payment-list-row"
         />
       ))}
-      {onAddPayment ? (
-        <div className={PORTAL_LIST_ADD_ROW_WRAP_CLASS}>
-          <PortalListAddRow
-            label="Add"
-            icon={PORTAL_LIST_ADD_ICONS.payment}
-            onClick={onAddPayment}
-            dataAttr="payments-list-add"
-          />
-        </div>
-      ) : null}
     </div>
   );
 }

@@ -14,8 +14,6 @@ import {
   PORTAL_LIST_GROUP_MODES,
   type PortalListGroupMode,
 } from "@/lib/portal-list-grouping";
-import { usePortalFilterDraft } from "@/lib/portal-filter-draft";
-
 const GROUP_MODE_OPTIONS = PORTAL_LIST_GROUP_MODES.map((mode) => ({
   value: mode,
   label: PORTAL_LIST_GROUP_MODE_LABELS[mode],
@@ -31,13 +29,8 @@ function GroupModeFilterFields({
   dataAttr?: string;
 }) {
   const closeFieldMenu = useFilterAccordionClose();
-  const [draftMode, setDraftMode] = usePortalFilterDraft(
-    groupMode,
-    onGroupModeChange,
-    DEFAULT_PORTAL_LIST_GROUP_MODE,
-  );
   const summary = filterSingleSelectSummary(
-    draftMode,
+    groupMode,
     GROUP_MODE_OPTIONS,
     PORTAL_LIST_GROUP_MODE_LABELS[DEFAULT_PORTAL_LIST_GROUP_MODE],
   );
@@ -47,14 +40,14 @@ function GroupModeFilterFields({
       sectionId="group-mode"
       label="Group by"
       summary={summary}
-      empty={draftMode === DEFAULT_PORTAL_LIST_GROUP_MODE}
+      empty={groupMode === DEFAULT_PORTAL_LIST_GROUP_MODE}
       menuOptionCount={GROUP_MODE_OPTIONS.length}
       dataAttr={`${dataAttr}-trigger`}
     >
       <FilterSingleSelectList
         options={GROUP_MODE_OPTIONS}
-        value={draftMode}
-        onChange={(next) => setDraftMode(next as PortalListGroupMode)}
+        value={groupMode}
+        onChange={(next) => onGroupModeChange(next as PortalListGroupMode)}
         onPick={closeFieldMenu}
         dataAttr={dataAttr}
       />

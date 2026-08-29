@@ -1,7 +1,9 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { BulkActionBar } from "@/components/ui/bulk-action-bar";
 import { Button } from "@/components/ui/button";
+import { DataList } from "@/components/ui/data-list";
 import { Modal } from "@/components/ui/modal";
 import { PortalActiveFilterChips } from "@/components/portal/portal-filter-chips";
 import { PortalFilterSortSheet, portalFilterActiveCount } from "@/components/portal/portal-filter-sort-sheet";
@@ -17,16 +19,12 @@ import {
   PORTAL_DETAIL_BTN,
   PortalTableDetailActions,
 } from "@/components/portal/portal-data-table";
-import { PortalCollapsibleSection } from "@/components/portal/portal-collapsible-section";
-import {
-  PortalListAddRow,
-  PORTAL_LIST_ADD_ICONS,
-  PORTAL_LIST_ADD_ROW_WRAP_CLASS,
-} from "@/components/portal/portal-list-add-row";
-import { PORTAL_LIST_PAGE_BODY } from "@/components/portal/portal-inbox-ui";
+import { ApplicationHouseholdCluster } from "@/components/portal/application-household-list";
+import { PORTAL_LIST_PAGE_BODY, INBOX_LIST_SCROLL } from "@/components/portal/portal-inbox-ui";
 import { PortalRecordDetailPage } from "@/components/portal/portal-record-detail-page";
-import { PortalPersonRecordRow } from "@/components/portal/portal-record-row";
 import { useAppUi } from "@/components/providers/app-ui-provider";
+import { usePortalRowSelection } from "@/hooks/use-portal-row-selection";
+import { PORTAL_BULK_BAR_BTN } from "@/lib/portal-bulk-bar";
 import type { AccountLinkInviteDto } from "@/lib/account-links";
 import {
   buildAllModulesGrant,
@@ -35,7 +33,6 @@ import {
   normalizeCoManagerPermissions,
   normalizePropertyCoManagerPermissions,
   permissionsForProperty,
-  summarizePropertyCoManagerPermissions,
   type CoManagerBulkPreset,
   type CoManagerPermissionId,
   type CoManagerPermissions,
@@ -84,12 +81,6 @@ import { usePortalNavigate } from "@/lib/portal-nav-client";
 
 const TEAM_MEMBER_ROLE_LABEL = "Team";
 
-const CO_MANAGER_ROLE_BADGE =
-  "inline-flex rounded-full px-2.5 py-0.5 text-[11px] font-semibold border border-border bg-accent/40 text-foreground ring-1 ring-[color-mix(in_srgb,currentColor_25%,transparent)]";
-
-const PENDING_ROLE_BADGE =
-  "inline-flex rounded-full px-2.5 py-0.5 text-[11px] font-semibold portal-badge-pending ring-1 ring-[color-mix(in_srgb,currentColor_25%,transparent)]";
-
 type TeamListEntry = {
   id: string;
   name: string;
@@ -137,9 +128,9 @@ function resolvePropertyLabel(id: string, fallback: string): string {
   return resolvePropertyLabelForId(id, fallback);
 }
 
-function teamPropertyPreview(propertyIds: string[]): string {
+function teamPropertyPreview(propertyIds: string[], labelFor: (id: string) => string): string {
   if (propertyIds.length === 0) return "No properties assigned";
-  const labels = propertyIds.slice(0, 2).map((id) => resolvePropertyLabel(id, id));
+  const labels = propertyIds.slice(0, 2).map((id) => labelFor(id));
   const rest = propertyIds.length - labels.length;
   if (rest > 0) return `${labels.join(" · ")} · +${rest} more`;
   return labels.join(" · ");
@@ -304,17 +295,13 @@ function AddPropertyToCoManager({
   linkId,
   assignedPropertyIds,
   propertyOptions,
-  selectedPropertyId,
-  onSelect,
-  onAdd,
+  onAddProperty,
   disabled,
 }: {
   linkId: string;
   assignedPropertyIds: string[];
   propertyOptions: { id: string; label: string }[];
-  selectedPropertyId: string;
-  onSelect: (linkId: string, propertyId: string) => void;
-  onAdd: () => void;
+  onAddProperty: (linkId: string, propertyId: string) => void;
   disabled?: boolean;
 }) {
   const unassigned = propertyOptions.filter((option) => !assignedPropertyIds.includes(option.id));
@@ -322,25 +309,23 @@ function AddPropertyToCoManager({
     return null;
   }
   return (
-    <div className="flex flex-wrap items-end gap-2">
-      <label className="min-w-[12rem] flex-1 text-xs font-semibold text-muted">
-        Add property
-        <Select
-            value={selectedPropertyId}
+    <div className="space-y-2">
+      <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-muted">Add property access</p>
+      <div className="flex flex-wrap gap-2">
+        {unassigned.map((option) => (
+          <Button
+            key={option.id}
+            type="button"
+            variant="outline"
+            className="rounded-full text-xs"
             disabled={disabled}
-            onChange={(e) => onSelect(linkId, e.target.value)}
+            onClick={() => onAddProperty(linkId, option.id)}
+            data-attr="co-manager-add-property"
           >
-            <option value="">Select property…</option>
-            {unassigned.map((option) => (
-              <option key={option.id} value={option.id}>
-                {option.label}
-              </option>
-            ))}
-          </Select>
-        </label>
-      <Button type="button" variant="outline" className="rounded-full text-xs" disabled={disabled || !selectedPropertyId} onClick={onAdd}>
-        Add property
-      </Button>
+            + {option.label}
+          </Button>
+        ))}
+      </div>
     </div>
   );
 }
@@ -366,7 +351,6 @@ export function ProAccountLinksPanel({ userId, linkId: linkIdProp }: { userId: s
   const loadRetriedRef = useRef(false);
   const [inviteDrafts, setInviteDrafts] = useState<Record<string, InviteDraft>>({});
   const saveTimersRef = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
-  const [addPropertySelect, setAddPropertySelect] = useState<Record<string, string>>({});
   const [linkedPropertiesPopup, setLinkedPropertiesPopup] = useState<{
     label: string;
     propertyIds: string[];
@@ -592,6 +576,24 @@ export function ProAccountLinksPanel({ userId, linkId: linkIdProp }: { userId: s
     }));
   }, [userId, localTick]);
 
+  const teamPropertyLabelById = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const option of propertyOptions) map.set(option.id, option.label);
+    for (const property of coManagedProperties) map.set(property.id, property.label);
+    for (const inv of remoteInvites) {
+      for (const [id, label] of Object.entries(inv.assignedPropertyLabels ?? {})) {
+        if (id.trim() && label.trim()) map.set(id, label.trim());
+      }
+    }
+    return map;
+  }, [propertyOptions, coManagedProperties, remoteInvites]);
+
+  const teamPropertyLabel = useCallback(
+    (propertyId: string) =>
+      teamPropertyLabelById.get(propertyId) ?? resolvePropertyLabel(propertyId, propertyId),
+    [teamPropertyLabelById],
+  );
+
   const managedPropertyCount = ownedProperties.length + coManagedProperties.length;
 
   const [axisInput, setAxisInput] = useState("");
@@ -638,13 +640,6 @@ export function ProAccountLinksPanel({ userId, linkId: linkIdProp }: { userId: s
     navigate(teamLinkHref(portalBase));
   }, [navigate, portalBase]);
 
-  const openTeamDetail = useCallback(
-    (id: string) => {
-      navigate(teamMemberDetailHref(portalBase, id));
-    },
-    [navigate, portalBase],
-  );
-
   const teamEntries = useMemo((): TeamListEntry[] => {
     if (useRemote) {
       const invites = [
@@ -657,7 +652,7 @@ export function ProAccountLinksPanel({ userId, linkId: linkIdProp }: { userId: s
         name: inv.linkedDisplayName ?? inv.linkedAxisId,
         axisId: inv.linkedAxisId,
         statusLabel: teamInviteStatusLabel(inv),
-        preview: teamPropertyPreview(inv.assignedPropertyIds),
+        preview: teamPropertyPreview(inv.assignedPropertyIds, teamPropertyLabel),
         kind: "remote" as const,
         invite: inv,
       }));
@@ -667,16 +662,47 @@ export function ProAccountLinksPanel({ userId, linkId: linkIdProp }: { userId: s
       name: row.linkedDisplayName ?? row.linkedAxisId,
       axisId: row.linkedAxisId,
       statusLabel: TEAM_MEMBER_ROLE_LABEL,
-      preview: teamPropertyPreview(row.assignedPropertyIds),
+      preview: teamPropertyPreview(row.assignedPropertyIds, teamPropertyLabel),
       kind: "local" as const,
       row,
     }));
-  }, [useRemote, visibleIncomingPending, visibleOutgoingPending, visibleActiveRemote, visibleLocalRows]);
+  }, [
+    useRemote,
+    visibleIncomingPending,
+    visibleOutgoingPending,
+    visibleActiveRemote,
+    visibleLocalRows,
+    teamPropertyLabel,
+  ]);
+
+  const openTeamDetail = useCallback(
+    (id: string) => {
+      navigate(teamMemberDetailHref(portalBase, id));
+    },
+    [navigate, portalBase],
+  );
+
+  const { selectedIds, toggleSelected, clearSelection } = usePortalRowSelection(
+    teamPropertyFilters.join(","),
+  );
 
   const routeEntry = useMemo(() => {
     if (!routeLinkId) return null;
     return teamEntries.find((entry) => entry.id === routeLinkId) ?? null;
   }, [routeLinkId, teamEntries]);
+
+  const detailPropertySelectionKey = routeLinkId ? `${routeLinkId}-properties` : "team-detail-idle";
+  const {
+    selectedIds: selectedDetailPropertyIds,
+    toggleSelected: toggleDetailProperty,
+    clearSelection: clearDetailPropertySelection,
+  } = usePortalRowSelection(detailPropertySelectionKey);
+
+  const detailPropertiesEditable = useMemo(() => {
+    if (!routeEntry) return false;
+    if (routeEntry.kind === "local") return true;
+    return routeEntry.invite.direction === "outgoing";
+  }, [routeEntry]);
 
   const tierShort =
     skuTier === "free"
@@ -950,7 +976,6 @@ export function ProAccountLinksPanel({ userId, linkId: linkIdProp }: { userId: s
     }
     const nextAssigned = [...draft.assignedPropertyIds, propId];
     applyAssignedPropertyChange(inv.id, nextAssigned, draft, useRemote && remoteLoaded);
-    setAddPropertySelect((prev) => ({ ...prev, [inv.id]: "" }));
     showToast("Property added.");
   };
 
@@ -1003,7 +1028,6 @@ export function ProAccountLinksPanel({ userId, linkId: linkIdProp }: { userId: s
     }
     const nextAssigned = [...row.assignedPropertyIds, propId];
     applyAssignedPropertyChange(rowId, nextAssigned, inviteDraftFromRelationship(row), false);
-    setAddPropertySelect((prev) => ({ ...prev, [rowId]: "" }));
     showToast("Property added.");
   };
 
@@ -1226,91 +1250,114 @@ export function ProAccountLinksPanel({ userId, linkId: linkIdProp }: { userId: s
     );
   };
 
+  const bulkRemoveDetailProperties = async () => {
+    if (!routeEntry || selectedDetailPropertyIds.size === 0) return;
+    for (const propertyId of selectedDetailPropertyIds) {
+      if (routeEntry.kind === "remote") {
+        await removePropertyFromLink(
+          routeEntry.invite,
+          propertyId,
+        );
+      } else {
+        removePropertyFromLocalRow(routeEntry.row.id, propertyId);
+      }
+    }
+    clearDetailPropertySelection();
+  };
+
+  const renderTeamPropertyAccessCard = (
+    propertyId: string,
+    perms: CoManagerPermissions,
+    link: CoManagerPropertyLink,
+    readOnly: boolean,
+    onChange: (next: CoManagerPermissions) => void,
+  ) => {
+    const label = teamPropertyLabel(propertyId);
+    const showSelection = detailPropertiesEditable && !readOnly;
+    return (
+      <ApplicationHouseholdCluster
+        key={propertyId}
+        header={
+          <>
+            {showSelection ? (
+              <input
+                type="checkbox"
+                checked={selectedDetailPropertyIds.has(propertyId)}
+                onChange={() => toggleDetailProperty(propertyId)}
+                className="h-4 w-4 shrink-0 rounded border-border text-primary"
+                aria-label={`Select ${label}`}
+                data-attr="team-property-select"
+              />
+            ) : null}
+            <span className="min-w-0 truncate text-xs font-semibold text-foreground">{label}</span>
+          </>
+        }
+      >
+        <div className="space-y-3 px-3 py-3">
+          {!readOnly ? (
+            <div className="flex flex-wrap gap-2">{renderCoManagerPropertyActions(propertyId, link, readOnly)}</div>
+          ) : null}
+          <CoManagerPermissionsEditor value={perms} onChange={onChange} disabled={readOnly} />
+        </div>
+      </ApplicationHouseholdCluster>
+    );
+  };
+
   const renderPropertyPermissionsSection = (
     propertyId: string,
     draft: InviteDraft,
     inv: AccountLinkInviteDto,
     readOnly: boolean,
   ) => {
-    const label = resolvePropertyLabel(propertyId, propertyId);
     const perms = permissionsForProperty(draft.propertyCoManagerPermissions, propertyId);
-    return (
-      <PortalCollapsibleSection
-        key={propertyId}
-        title={label}
-        subtitle={summarizePropertyCoManagerPermissions({ [propertyId]: perms })}
-        defaultExpanded={false}
-        surfaceMuted={false}
-        className="mt-4 first:mt-0"
-        toggleDataAttr="co-manager-property-toggle"
-        headerActions={renderCoManagerPropertyActions(propertyId, {
-          id: inv.id,
-          linkedAxisId: inv.linkedAxisId,
-          linkedDisplayName: inv.linkedDisplayName,
-          linkedUserId: inv.linkedUserId,
-          assignedPropertyIds: draft.assignedPropertyIds,
-          propertyCoManagerPermissions: draft.propertyCoManagerPermissions,
-        }, readOnly)}
-      >
-        <div className="px-4 pb-4">
-          {readOnly ? (
-            <p className="text-xs text-muted">{summarizePropertyCoManagerPermissions({ [propertyId]: perms })}</p>
-          ) : (
-            <CoManagerPermissionsEditor
-              value={perms}
-              onChange={(next) => updatePropertyPermissions(inv, propertyId, next)}
-            />
-          )}
-        </div>
-      </PortalCollapsibleSection>
+    return renderTeamPropertyAccessCard(
+      propertyId,
+      perms,
+      {
+        id: inv.id,
+        linkedAxisId: inv.linkedAxisId,
+        linkedDisplayName: inv.linkedDisplayName,
+        linkedUserId: inv.linkedUserId,
+        assignedPropertyIds: draft.assignedPropertyIds,
+        propertyCoManagerPermissions: draft.propertyCoManagerPermissions,
+      },
+      readOnly,
+      readOnly ? () => {} : (next) => updatePropertyPermissions(inv, propertyId, next),
     );
   };
 
   const renderLocalPropertyPermissionsSection = (propertyId: string, row: ProRelationshipRecord) => {
-    const label = resolvePropertyLabel(propertyId, propertyId);
     const perms = normalizeCoManagerPermissions(
       row.propertyCoManagerPermissions?.[propertyId] ?? row.coManagerPermissions,
     );
-    return (
-      <PortalCollapsibleSection
-        key={propertyId}
-        title={label}
-        subtitle={summarizePropertyCoManagerPermissions({ [propertyId]: perms })}
-        defaultExpanded={false}
-        surfaceMuted={false}
-        className="mt-4 first:mt-0"
-        toggleDataAttr="co-manager-property-toggle"
-        headerActions={renderCoManagerPropertyActions(propertyId, {
-          id: row.id,
-          linkedAxisId: row.linkedAxisId,
-          linkedDisplayName: row.linkedDisplayName,
-          linkedUserId: row.linkedUserId,
-          assignedPropertyIds: row.assignedPropertyIds,
-          propertyCoManagerPermissions: row.propertyCoManagerPermissions ?? {},
-        }, false)}
-      >
-        <div className="px-4 pb-4">
-          <CoManagerPermissionsEditor
-            value={perms}
-            onChange={(next) => {
-              const all = readProRelationships(userId);
-              const updated = all.map((rel) =>
-                rel.id === row.id
-                  ? {
-                      ...rel,
-                      propertyCoManagerPermissions: {
-                        ...(rel.propertyCoManagerPermissions ?? {}),
-                        [propertyId]: next,
-                      },
-                    }
-                  : rel,
-              );
-              writeProRelationships(userId, updated);
-              refreshLocal();
-            }}
-          />
-        </div>
-      </PortalCollapsibleSection>
+    return renderTeamPropertyAccessCard(
+      propertyId,
+      perms,
+      {
+        id: row.id,
+        linkedAxisId: row.linkedAxisId,
+        linkedDisplayName: row.linkedDisplayName,
+        linkedUserId: row.linkedUserId,
+        assignedPropertyIds: row.assignedPropertyIds,
+        propertyCoManagerPermissions: row.propertyCoManagerPermissions ?? {},
+      },
+      false,
+      (next) => {
+        const all = readProRelationships(userId);
+        const updated = all.map((rel) =>
+          rel.id === row.id
+            ? {
+                ...rel,
+                propertyCoManagerPermissions: {
+                  ...(rel.propertyCoManagerPermissions ?? {}),
+                  [propertyId]: next,
+                },
+              }
+            : rel,
+        );
+        writeProRelationships(userId, updated);
+        refreshLocal();
+      },
     );
   };
 
@@ -1372,6 +1419,26 @@ export function ProAccountLinksPanel({ userId, linkId: linkIdProp }: { userId: s
     .filter(([, v]) => v)
     .map(([k]) => k);
 
+  const bulkRemoveSelected = async () => {
+    const selected = teamEntries.filter((entry) => selectedIds.has(entry.id));
+    if (selected.length === 0) return;
+    for (const entry of selected) {
+      if (entry.kind === "remote") {
+        const inv = entry.invite;
+        if (inv.status === "pending" && inv.direction === "incoming") {
+          await respondInvite(inv.id, "reject");
+        } else if (inv.status === "pending" && inv.direction === "outgoing") {
+          await cancelInvite(inv.id);
+        } else {
+          await removeLink(inv.id);
+        }
+      } else {
+        await removeLink(entry.row.id);
+      }
+    }
+    clearSelection();
+  };
+
   const teamDangerBtnClass = `${PORTAL_DETAIL_BTN} border-rose-200 text-rose-800 hover:bg-[var(--status-overdue-bg)] portal-danger-outline`;
 
   const renderDetailHeaderActions = (entry: TeamListEntry) => {
@@ -1385,9 +1452,9 @@ export function ProAccountLinksPanel({ userId, linkId: linkIdProp }: { userId: s
               variant="primary"
               className={PORTAL_DETAIL_BTN}
               onClick={() => void respondInvite(inv.id, "accept")}
-              data-attr="co-manager-approve-invite"
+              data-attr="co-manager-accept-invite"
             >
-              Approve
+              Accept
             </Button>
             <Button
               type="button"
@@ -1446,13 +1513,6 @@ export function ProAccountLinksPanel({ userId, linkId: linkIdProp }: { userId: s
     );
   };
 
-  const renderTeamStatusBadge = (statusLabel: string) => {
-    if (statusLabel === "Needs approval" || statusLabel === "Invite sent") {
-      return <span className={PENDING_ROLE_BADGE}>{statusLabel}</span>;
-    }
-    return <span className={CO_MANAGER_ROLE_BADGE}>{statusLabel}</span>;
-  };
-
   const teamLinkButton = (
     <Button
       type="button"
@@ -1473,72 +1533,54 @@ export function ProAccountLinksPanel({ userId, linkId: linkIdProp }: { userId: s
     </Button>
   );
 
-  const teamListAddRow = (
-    <PortalListAddRow
-      label="Link account"
-      icon={PORTAL_LIST_ADD_ICONS.team}
-      onClick={openLinkModal}
-      disabled={linkAccountBlocked}
-      dataAttr="co-manager-list-add"
-    />
-  );
-
   const renderInviteDetail = (inv: AccountLinkInviteDto) => {
     const draft = getInviteDraft(inv);
     const readOnly = inv.direction === "incoming";
     return (
-      <>
+      <div className="space-y-4" data-attr="team-member-property-access">
         {!readOnly ? (
-          <div className="mt-4">
-            <AddPropertyToCoManager
-              linkId={inv.id}
-              assignedPropertyIds={draft.assignedPropertyIds}
-              propertyOptions={propertyOptions}
-              selectedPropertyId={addPropertySelect[inv.id] ?? ""}
-              onSelect={(id, propertyId) =>
-                setAddPropertySelect((prev) => ({ ...prev, [id]: propertyId }))
-              }
-              onAdd={() => addPropertyToInvite(inv, addPropertySelect[inv.id] ?? "")}
-            />
-          </div>
+          <AddPropertyToCoManager
+            linkId={inv.id}
+            assignedPropertyIds={draft.assignedPropertyIds}
+            propertyOptions={propertyOptions}
+            onAddProperty={(id, propertyId) => void addPropertyToInvite(inv, propertyId)}
+          />
         ) : (
-          <p className="mt-4 text-[10px] font-semibold uppercase tracking-[0.14em] text-muted">
+          <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-muted">
             Properties they granted you
           </p>
         )}
 
         {draft.assignedPropertyIds.length === 0 ? (
-          <p className="mt-4 text-sm text-muted">No properties in this link yet.</p>
+          <p className="text-sm text-muted">No properties in this link yet.</p>
         ) : (
-          draft.assignedPropertyIds.map((pid) =>
-            renderPropertyPermissionsSection(pid, draft, inv, readOnly),
-          )
+          <div className="space-y-3">
+            {draft.assignedPropertyIds.map((pid) =>
+              renderPropertyPermissionsSection(pid, draft, inv, readOnly),
+            )}
+          </div>
         )}
-      </>
+      </div>
     );
   };
 
   const renderLocalRowDetail = (r: ProRelationshipRecord) => (
-    <>
-      <div className="mt-4">
-        <AddPropertyToCoManager
-          linkId={r.id}
-          assignedPropertyIds={r.assignedPropertyIds}
-          propertyOptions={propertyOptions}
-          selectedPropertyId={addPropertySelect[r.id] ?? ""}
-          onSelect={(id, propertyId) =>
-            setAddPropertySelect((prev) => ({ ...prev, [id]: propertyId }))
-          }
-          onAdd={() => addPropertyToLocalRow(r.id, addPropertySelect[r.id] ?? "")}
-        />
-      </div>
+    <div className="space-y-4" data-attr="team-member-property-access">
+      <AddPropertyToCoManager
+        linkId={r.id}
+        assignedPropertyIds={r.assignedPropertyIds}
+        propertyOptions={propertyOptions}
+        onAddProperty={(id, propertyId) => addPropertyToLocalRow(id, propertyId)}
+      />
 
       {r.assignedPropertyIds.length === 0 ? (
-        <p className="mt-4 text-sm text-muted">No properties in this link yet.</p>
+        <p className="text-sm text-muted">No properties in this link yet.</p>
       ) : (
-        r.assignedPropertyIds.map((pid) => renderLocalPropertyPermissionsSection(pid, r))
+        <div className="space-y-3">
+          {r.assignedPropertyIds.map((pid) => renderLocalPropertyPermissionsSection(pid, r))}
+        </div>
       )}
-    </>
+    </div>
   );
 
   const renderDetailBody = (entry: TeamListEntry) => {
@@ -1676,7 +1718,7 @@ export function ProAccountLinksPanel({ userId, linkId: linkIdProp }: { userId: s
                   <p className="text-xs font-semibold uppercase tracking-wide text-muted">Per-property permissions</p>
                   {selectedPropIds.map((pid) => (
                     <div key={pid} className="rounded-xl border border-border bg-accent/25 p-4">
-                      <p className="text-sm font-semibold text-foreground">{resolvePropertyLabel(pid, pid)}</p>
+                      <p className="text-sm font-semibold text-foreground">{teamPropertyLabel(pid)}</p>
                       <div className="mt-3">
                         <CoManagerPermissionsEditor
                           value={normalizeCoManagerPermissions(propertyPermissionsDraft[pid])}
@@ -1720,7 +1762,7 @@ export function ProAccountLinksPanel({ userId, linkId: linkIdProp }: { userId: s
                   key={pid}
                   className="rounded-xl border border-border bg-accent/25 px-3 py-2 text-sm text-foreground"
                 >
-                  {resolvePropertyLabel(pid, pid)}
+                  {teamPropertyLabel(pid)}
                 </li>
               ))}
             </ul>
@@ -1736,7 +1778,7 @@ export function ProAccountLinksPanel({ userId, linkId: linkIdProp }: { userId: s
               <p className="mt-2 text-sm text-muted">
                 Promote a team member to main manager of{" "}
                 <span className="font-medium text-foreground">
-                  {resolvePropertyLabel(transferPropertyId, transferPropertyId)}
+                  {teamPropertyLabel(transferPropertyId)}
                 </span>
                 . Choose the permissions you keep as a team member.
               </p>
@@ -1824,31 +1866,35 @@ export function ProAccountLinksPanel({ userId, linkId: linkIdProp }: { userId: s
     </>
   );
 
-  const teamListBody =
-    !hasCoManagerLinks ? (
-      <div className={PORTAL_LIST_ADD_ROW_WRAP_CLASS}>{teamListAddRow}</div>
-    ) : !hasVisibleTeamRows ? (
+  const teamListBody = !hasVisibleTeamRows ? (
+    hasCoManagerLinks ? (
       <PortalDataTableEmpty
         icon="team"
         message="No team members match this property filter. Try All properties or pick another listing."
       />
     ) : (
-      <div className={PORTAL_LIST_PAGE_BODY} data-attr="co-manager-unified-view">
-        {teamEntries.map((entry) => (
-          <PortalPersonRecordRow
-            key={entry.id}
-            name={entry.name}
-            subtitle={entry.axisId}
-            preview={entry.preview}
-            meta={entry.statusLabel}
-            badge={renderTeamStatusBadge(entry.statusLabel)}
-            onOpen={() => openTeamDetail(entry.id)}
-            dataAttr="team-list-row"
-          />
-        ))}
-        <div className={PORTAL_LIST_ADD_ROW_WRAP_CLASS}>{teamListAddRow}</div>
+      <PortalDataTableEmpty icon="team" message="No team members linked yet." />
+    )
+  ) : (
+    <div className={PORTAL_LIST_PAGE_BODY} data-attr="co-manager-unified-view">
+      <div className={INBOX_LIST_SCROLL}>
+        <DataList
+          hideColumnHeaders
+          selectable
+          rows={teamEntries.map((entry) => ({
+            id: entry.id,
+            data: entry,
+            primary: entry.name,
+            meta: `${entry.axisId} · ${entry.preview}`,
+            selected: selectedIds.has(entry.id),
+            onSelectedChange: () => toggleSelected(entry.id),
+            onClick: () => openTeamDetail(entry.id),
+          }))}
+          columns={[{ id: "member", header: "Member", cell: (entry: TeamListEntry) => entry.name }]}
+        />
       </div>
-    );
+    </div>
+  );
 
   if (routeLinkId) {
     if (!routeEntry) {
@@ -1879,6 +1925,19 @@ export function ProAccountLinksPanel({ userId, linkId: linkIdProp }: { userId: s
         >
           {renderDetailBody(routeEntry)}
         </PortalRecordDetailPage>
+        {detailPropertiesEditable && selectedDetailPropertyIds.size > 0 ? (
+          <BulkActionBar count={selectedDetailPropertyIds.size} hideCount variant="payments">
+            <Button
+              type="button"
+              variant="outline"
+              className={`${PORTAL_BULK_BAR_BTN} text-rose-800`}
+              data-attr="team-detail-bulk-remove-access"
+              onClick={() => void bulkRemoveDetailProperties()}
+            >
+              Remove access
+            </Button>
+          </BulkActionBar>
+        ) : null}
       </>
     );
   }
@@ -1897,6 +1956,19 @@ export function ProAccountLinksPanel({ userId, linkId: linkIdProp }: { userId: s
         {teamListAlerts}
         {teamListBody}
       </div>
+      {selectedIds.size > 0 ? (
+        <BulkActionBar count={selectedIds.size} hideCount variant="payments">
+          <Button
+            type="button"
+            variant="outline"
+            className={`${PORTAL_BULK_BAR_BTN} text-rose-800`}
+            data-attr="team-bulk-remove"
+            onClick={() => void bulkRemoveSelected()}
+          >
+            Remove
+          </Button>
+        </BulkActionBar>
+      ) : null}
       {teamModals}
     </ManagerPortalPageShell>
   );

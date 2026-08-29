@@ -13,7 +13,7 @@ import { maxAccountLinksForTier } from "@/lib/manager-access";
 import { getManagerPurchaseSku } from "@/lib/manager-access-server";
 import { isCrossSandboxPortalPair, CROSS_SANDBOX_PORTAL_PAIR_ERROR } from "@/lib/portal-sandbox-accounts";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
-import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
+import { labelFromManagerPropertyRecordRow } from "@/lib/co-manager-property-label";
 
 export const runtime = "nodejs";
 
@@ -48,13 +48,22 @@ export function readPropertyPermissionsFromRow(
   return normalizePropertyCoManagerPermissions(raw, assigned);
 }
 
-export function serializeInvite(row: InviteRow, viewerId: string): AccountLinkInviteDto {
+export function serializeInvite(
+  row: InviteRow,
+  viewerId: string,
+  propertyLabelsById: Record<string, string> = {},
+): AccountLinkInviteDto {
   const out = row.inviter_user_id === viewerId;
   const linkedAxisId = out ? row.invitee_axis_id : row.inviter_axis_id;
   const linkedDisplayName = out ? row.invitee_display_name : row.inviter_display_name;
   const linkedUserId = out ? row.invitee_user_id : row.inviter_user_id;
   const assignedPropertyIds = asStringArray(row.assigned_property_ids);
   const propertyCoManagerPermissions = readPropertyPermissionsFromRow(row);
+  const assignedPropertyLabels: Record<string, string> = {};
+  for (const id of assignedPropertyIds) {
+    const label = propertyLabelsById[id]?.trim();
+    if (label) assignedPropertyLabels[id] = label;
+  }
   return {
     id: row.id,
     tabKind: "manager",
@@ -74,6 +83,7 @@ export function serializeInvite(row: InviteRow, viewerId: string): AccountLinkIn
     linkedDisplayName,
     linkedUserId,
     assignedPropertyIds,
+    assignedPropertyLabels: Object.keys(assignedPropertyLabels).length > 0 ? assignedPropertyLabels : undefined,
     payoutPercentForManager: Number(row.payout_percent_for_manager),
     coManagerPermissions: flatCoManagerPermissionsFromProperty(propertyCoManagerPermissions),
     propertyCoManagerPermissions,
@@ -161,6 +171,21 @@ export async function GET(): Promise<NextResponse<AccountLinksPayload | { error:
 
     const rows = ((data ?? []) as unknown) as InviteRow[];
     const db = createSupabaseServiceRoleClient();
+    const allAssignedPropertyIds = [
+      ...new Set(rows.flatMap((row) => asStringArray(row.assigned_property_ids))),
+    ];
+    const propertyLabelsById: Record<string, string> = {};
+    if (allAssignedPropertyIds.length > 0) {
+      const { data: props } = await db
+        .from("manager_property_records")
+        .select("id, property_data, row_data")
+        .in("id", allAssignedPropertyIds);
+      for (const prop of props ?? []) {
+        const id = String(prop.id ?? "").trim();
+        if (!id) continue;
+        propertyLabelsById[id] = labelFromManagerPropertyRecordRow(prop);
+      }
+    }
     const { data: viewerProfile } = await db.from("profiles").select("email").eq("id", user.id).maybeSingle();
     const viewerEmail = String(viewerProfile?.email ?? user.email ?? "").trim();
     const participantIds = [
@@ -184,7 +209,7 @@ export async function GET(): Promise<NextResponse<AccountLinksPayload | { error:
         const otherEmail = emailByUserId.get(String(otherUserId ?? "").trim()) ?? "";
         return !isCrossSandboxPortalPair(viewerEmail, otherEmail);
       })
-      .map((r) => serializeInvite(r, user.id));
+      .map((r) => serializeInvite(r, user.id, propertyLabelsById));
     return NextResponse.json({ invites });
   } catch (e) {
     const message = e instanceof Error ? e.message : "Failed";
@@ -494,12 +519,7 @@ export async function POST(req: Request) {
           .from("manager_property_records")
           .select("id, property_data, row_data")
           .in("id", assignedPropertyIds);
-        const labels = (props ?? []).map((p) => {
-          const pd = (p.property_data ?? p.row_data ?? {}) as Record<string, unknown>;
-          const building = String(pd.buildingName ?? pd.title ?? "").trim();
-          const unit = String(pd.unitLabel ?? "").trim();
-          return [building, unit].filter(Boolean).join(" · ") || p.id;
-        });
+        const labels = (props ?? []).map((p) => labelFromManagerPropertyRecordRow(p));
         await notifyCoManagerInviteSent({
           inviterUserId: user.id,
           inviteeUserId: inviteeProfile.id,

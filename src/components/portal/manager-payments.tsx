@@ -14,8 +14,6 @@ import { PortalActiveFilterChips, type PortalActiveFilterChip } from "@/componen
 import { PaymentFilterSortFields } from "@/components/portal/payment-filter-sort-fields";
 import {
   DEFAULT_PORTAL_LIST_GROUP_MODE,
-  PORTAL_LIST_GROUP_MODE_LABELS,
-  portalListGroupModeActiveCount,
   type PortalListGroupMode,
 } from "@/lib/portal-list-grouping";
 import { useAppUi } from "@/components/providers/app-ui-provider";
@@ -102,7 +100,6 @@ function paymentFilterTouches(
   if (propertyFilters.length > 0) count += 1;
   if (residentFilters.length > 0) count += 1;
   if (listSort !== DEFAULT_PAYMENT_LIST_SORT) count += 1;
-  count += portalListGroupModeActiveCount(groupMode);
   return count;
 }
 
@@ -812,15 +809,8 @@ export function ManagerPayments({
         onRemove: () => setListSort(DEFAULT_PAYMENT_LIST_SORT),
       });
     }
-    if (groupMode !== DEFAULT_PORTAL_LIST_GROUP_MODE) {
-      chips.push({
-        id: "group-mode",
-        label: PORTAL_LIST_GROUP_MODE_LABELS[groupMode],
-        onRemove: () => setGroupMode(DEFAULT_PORTAL_LIST_GROUP_MODE),
-      });
-    }
     return chips;
-  }, [propertyFilters, residentFilters, listSort, groupMode, sortOptions, propertyLabelById, residentOptions]);
+  }, [propertyFilters, residentFilters, listSort, sortOptions, propertyLabelById, residentOptions]);
 
   const directionNav = (
     <DestinationNav

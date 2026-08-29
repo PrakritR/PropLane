@@ -192,7 +192,7 @@ describe("ManagerPaymentsLedgerPanel", () => {
     expect(container.querySelector('[data-attr="payment-list-row"]')).toBeNull();
   });
 
-  it("renders PortalListAddRow for add charge on the main ledger list", () => {
+  it("does not render a dashed list add row on the main ledger list", () => {
     render(
       <ManagerPaymentsLedgerPanel
         rows={[sampleRow()]}
@@ -203,13 +203,11 @@ describe("ManagerPaymentsLedgerPanel", () => {
       />,
     );
 
-    expect(screen.getByRole("button", { name: /Add charge/i })).toBeTruthy();
-    expect(screen.getByRole("button", { name: /Add charge/i }).getAttribute("data-attr")).toBe(
-      "payments-list-add",
-    );
+    expect(screen.queryByRole("button", { name: /Add charge/i })).toBeNull();
+    expect(screen.queryByTestId("payments-list-add")).toBeNull();
   });
 
-  it("renders PortalListAddRow with Add payment label when embedded in resident", () => {
+  it("does not render a dashed list add row when embedded in resident", () => {
     render(
       <ManagerPaymentsLedgerPanel
         rows={[sampleRow()]}
@@ -220,7 +218,7 @@ describe("ManagerPaymentsLedgerPanel", () => {
       />,
     );
 
-    expect(screen.getByRole("button", { name: /Add payment/i })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /Add payment/i })).toBeNull();
   });
 
   it("opens embedded charge detail via DataList row click", () => {

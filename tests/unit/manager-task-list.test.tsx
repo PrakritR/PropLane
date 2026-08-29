@@ -62,7 +62,7 @@ describe("ManagerTaskList", () => {
     expect(screen.getByRole("link", { name: /In progress/i })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: /Completed/i })).toBeInTheDocument();
     await waitFor(() => {
-      expect(screen.getByRole("button", { name: "Add task" })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Add service" })).toBeInTheDocument();
     });
     expect(screen.getByRole("button", { name: /^Filter\b/i })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /^All\b/i })).not.toBeInTheDocument();

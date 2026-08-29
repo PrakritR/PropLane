@@ -14,10 +14,10 @@ export const MANAGER_TASK_TYPES = ["general", "house", "tour", "work_order"] as 
 export type ManagerTaskType = (typeof MANAGER_TASK_TYPES)[number];
 
 export const MANAGER_TASK_TYPE_LABELS: Record<ManagerTaskType, string> = {
-  general: "General task",
-  house: "House task",
+  general: "General service",
+  house: "House service",
   tour: "Tour",
-  work_order: "Work order",
+  work_order: "Service",
 };
 
 /**
@@ -148,7 +148,8 @@ export function inferManagerTaskType(
   const explicit = normalizeTaskType(task.taskType);
   if (explicit) return explicit;
   if (task.linkedTourId || task.title.trim().startsWith("Tour ·")) return "tour";
-  if (task.linkedWorkOrderId || task.title.trim().startsWith("Work order ·")) return "work_order";
+  if (task.linkedWorkOrderId || task.title.trim().startsWith("Service ·") || task.title.trim().startsWith("Work order ·"))
+    return "work_order";
   if (task.propertyId?.trim() && task.roomLabel?.trim()) return "house";
   return "general";
 }

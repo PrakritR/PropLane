@@ -1,7 +1,6 @@
 "use client";
 
 import Image from "next/image";
-import { ClipboardList, Wrench } from "lucide-react";
 import { Fragment, useEffect, useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input, Textarea } from "@/components/ui/input";
@@ -15,7 +14,6 @@ import {
   PORTAL_INLINE_UNLOCK_NOTICE_CLASS,
   PORTAL_INLINE_UNLOCK_NOTICE_STACKED_CLASS,
 } from "@/components/portal/portal-metrics";
-import { PortalListAddRow, PORTAL_LIST_ADD_ROW_WRAP_CLASS } from "@/components/portal/portal-list-add-row";
 import { LocalDestinationNav } from "@/components/ui/destination-nav";
 import {
   PORTAL_DATA_TABLE,
@@ -503,46 +501,6 @@ export function WorkOrderDetail({
         }}
       />
     </>
-  );
-}
-
-function ResidentServicesRequestAddRow({
-  onRequest,
-  disabled = false,
-}: {
-  onRequest: () => void;
-  disabled?: boolean;
-}) {
-  return (
-    <div className={PORTAL_LIST_ADD_ROW_WRAP_CLASS}>
-      <PortalListAddRow
-        label="Add"
-        icon={ClipboardList}
-        onClick={onRequest}
-        disabled={disabled}
-        dataAttr="resident-services-request-add"
-      />
-    </div>
-  );
-}
-
-function ResidentServicesMaintenanceAddRow({
-  onReport,
-  disabled = false,
-}: {
-  onReport: () => void;
-  disabled?: boolean;
-}) {
-  return (
-    <div className={PORTAL_LIST_ADD_ROW_WRAP_CLASS}>
-      <PortalListAddRow
-        label="Add"
-        icon={Wrench}
-        onClick={onReport}
-        disabled={disabled}
-        dataAttr="resident-services-maintenance-add"
-      />
-    </div>
   );
 }
 
@@ -1370,7 +1328,6 @@ export function ResidentServicesPanel({
           ) : sortedRequests.length > 0 ? (
             <p className="mb-2 px-1 text-center text-sm text-muted">No requests in this status yet.</p>
           ) : null}
-          <ResidentServicesRequestAddRow onRequest={openRequestService} disabled={!servicesUnlocked} />
         </div>
         <div className="mt-6">
           <p className="mb-2 px-1 text-xs font-semibold uppercase tracking-wide text-muted">
@@ -1474,7 +1431,6 @@ export function ResidentServicesPanel({
           ) : myRows.length > 0 ? (
             <p className="mb-2 px-1 text-center text-sm text-muted">No work orders in this status yet.</p>
           ) : null}
-          <ResidentServicesMaintenanceAddRow onReport={openMaintenanceReport} disabled={!servicesUnlocked} />
         </div>
       </>
 

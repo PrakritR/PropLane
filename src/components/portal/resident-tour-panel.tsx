@@ -8,7 +8,6 @@ import { ManagerPortalPageShell, PORTAL_HEADER_PRIMARY_ACTION_BTN } from "@/comp
 import { PortalRecordDetailPage } from "@/components/portal/portal-record-detail-page";
 import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
 import { PortalSectionActionRow } from "@/components/portal/portal-section-action-row";
-import { PortalListAddRow, PORTAL_LIST_ADD_ROW_WRAP_CLASS } from "@/components/portal/portal-list-add-row";
 import { PortalPropertyRecordRow } from "@/components/portal/portal-record-row";
 import { PortalEmptyState } from "@/components/portal/portal-empty-state";
 import { ResidentScheduleTourModal } from "@/components/portal/resident-schedule-tour-modal";
@@ -193,20 +192,6 @@ function TourDetailBody({
   );
 }
 
-function ResidentScheduleTourAddRow({ onSchedule }: { onSchedule: () => void }) {
-  return (
-    <div className={PORTAL_LIST_ADD_ROW_WRAP_CLASS}>
-      <PortalListAddRow
-        label="Schedule tour"
-        hint="Browse homes"
-        icon={Calendar}
-        onClick={onSchedule}
-        dataAttr="resident-tour-schedule-add"
-      />
-    </div>
-  );
-}
-
 export function ResidentTourPanel({
   basePath = "/resident",
   bucket: bucketProp = "pending",
@@ -360,8 +345,6 @@ export function ResidentTourPanel({
     />
   );
 
-  const scheduleTourAddRow = <ResidentScheduleTourAddRow onSchedule={openScheduleTour} />;
-
   const renderTourList = () => (
     <>
       <PortalListControlStack className="mb-2 max-lg:mb-2" destinationRow={filterRow} />
@@ -422,7 +405,6 @@ export function ResidentTourPanel({
               })}
             </div>
           ) : null}
-          {scheduleTourAddRow}
         </>
       )}
     </>

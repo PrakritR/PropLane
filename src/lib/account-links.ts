@@ -22,6 +22,8 @@ export type AccountLinkInviteDto = {
   /** The other workspace's auth user id (for ownership transfer, etc.). */
   linkedUserId: string;
   assignedPropertyIds: string[];
+  /** Resolved from `manager_property_records` when the invite payload is loaded. */
+  assignedPropertyLabels?: Record<string, string>;
   payoutPercentForManager: number;
   /** Merged flat permissions across all assigned properties (nav gating). */
   coManagerPermissions: CoManagerPermissions;

@@ -10,7 +10,6 @@ import { ManagerSmsPanel, type ManagerSmsPanelHandle } from "@/components/portal
 import { DestinationNav } from "@/components/ui/destination-nav";
 import {
   INBOX_LIST_SCROLL,
-  InboxConversationListAddRow,
   InboxConversationRow,
   InboxThreadEmpty,
   InboxTwoPane,
@@ -653,8 +652,6 @@ export function ManagerUnifiedInbox({
             <div className="p-4">
               <PortalInboxEmptyState title="No unread conversations." />
             </div>
-          ) : onAddConversation ? (
-            <InboxConversationListAddRow onClick={onAddConversation} />
           ) : null
         ) : (
           mergedRows.map((row) => (

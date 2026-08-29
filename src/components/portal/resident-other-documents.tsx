@@ -7,9 +7,6 @@ import { Modal, MODAL_FIELD_LABEL_CLASS, ModalFooter } from "@/components/ui/mod
 import { useAppUi } from "@/components/providers/app-ui-provider";
 import { useNativeCamera } from "@/lib/native/use-native-camera";
 import type { ManagerDocumentDTO } from "@/lib/documents/manager-documents";
-import { PortalListAddRow,
-  PORTAL_LIST_ADD_ROW_WRAP_CLASS,
-} from "@/components/portal/portal-list-add-row";
 import { PortalPageFooterActions } from "@/components/portal/portal-section-action-row";
 import { PORTAL_DATA_TABLE, PORTAL_DATA_TABLE_SCROLL,
   PORTAL_DATA_TABLE_WRAP,
@@ -559,16 +556,7 @@ export function ResidentOtherDocumentsTable({
         </div>
       );
     }
-    return onAdd ? (
-      <div className={PORTAL_LIST_ADD_ROW_WRAP_CLASS}>
-        <PortalListAddRow
-          label="Add document"
-          bare
-          onClick={onAdd}
-          dataAttr="resident-documents-add"
-        />
-      </div>
-    ) : null;
+    return null;
   }
 
   const sourceBadge = (row: CombinedDocRow) =>
@@ -730,16 +718,6 @@ export function ResidentOtherDocumentsTable({
           </table>
         </div>
       </div>
-      {onAdd ? (
-        <div className={PORTAL_LIST_ADD_ROW_WRAP_CLASS}>
-          <PortalListAddRow
-            label="Add document"
-            bare
-            onClick={onAdd}
-            dataAttr="resident-documents-add"
-          />
-        </div>
-      ) : null}
       {selectedFooterActions ? (
         <PortalPageFooterActions pinned rowVariant="header">
           <ResidentDocumentsDetailFooter>{selectedFooterActions}</ResidentDocumentsDetailFooter>

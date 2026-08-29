@@ -15,7 +15,6 @@ import { deliverPortalInboxMessage } from "@/lib/portal-message-delivery";
 import { buildLeaseReadyForResidentMessage } from "@/lib/resident-portal-login-copy";
 import { PortalRecordDetailPage } from "@/components/portal/portal-record-detail-page";
 import { ManagerLeasesGroupedTable } from "@/components/portal/manager-leases-grouped-table";
-import { PortalListAddRow, PORTAL_LIST_ADD_ICONS } from "@/components/portal/portal-list-add-row";
 import { INBOX_LIST_SCROLL } from "@/components/portal/portal-inbox-ui";
 import { leaseDetailHref, leaseListHref } from "@/lib/portal-detail-routes";
 import { usePortalNavigate } from "@/lib/portal-nav-client";
@@ -1163,21 +1162,7 @@ export function ManagerLeasesPipelinePanel({
   }
 
   if (bucketRows.length === 0) {
-    return (
-      <>
-        {leaseModals}
-        {onAddLease ? (
-          <div className="px-3 py-3 max-md:px-2.5">
-            <PortalListAddRow
-              label="Add"
-              icon={PORTAL_LIST_ADD_ICONS.lease}
-              onClick={onAddLease}
-              dataAttr="leases-list-add"
-            />
-          </div>
-        ) : null}
-      </>
-    );
+    return <>{leaseModals}</>;
   }
 
   return (
@@ -1190,16 +1175,6 @@ export function ManagerLeasesPipelinePanel({
           onToggleSelected={toggleSelected}
           onOpenLease={openLeaseDetail}
         />
-        {onAddLease ? (
-          <div className="px-3 py-3 max-md:px-2.5">
-            <PortalListAddRow
-              label="Add"
-              icon={PORTAL_LIST_ADD_ICONS.lease}
-              onClick={onAddLease}
-              dataAttr="leases-list-add"
-            />
-          </div>
-        ) : null}
       </div>
       {selectedIds.size > 0 ? (
         <BulkActionBar count={selectedIds.size} hideCount variant="payments">

@@ -47,10 +47,6 @@ import { PortalRecordDetailPage } from "@/components/portal/portal-record-detail
 import { workOrderDetailHref, workOrderListHref } from "@/lib/portal-detail-routes";
 import { PortalServiceRecordRow } from "@/components/portal/portal-record-row";
 import { INBOX_LIST_SCROLL } from "@/components/portal/portal-inbox-ui";
-import {
-  PORTAL_LIST_ADD_ROW_WRAP_CLASS,
-  PortalListAddRow,
-} from "@/components/portal/portal-list-add-row";
 import { usePortalNavigate } from "@/lib/portal-nav-client";
 
 function priorityClass(p: string) {
@@ -1156,18 +1152,6 @@ export function ManagerWorkOrdersPanel({
   }
 
   if (rows.length === 0) {
-    if (listAddAction) {
-      return (
-        <div className={PORTAL_LIST_ADD_ROW_WRAP_CLASS}>
-          <PortalListAddRow
-            label={listAddAction.label ?? "Add"}
-            icon={listAddAction.icon ?? Wrench}
-            onClick={listAddAction.onClick}
-            dataAttr={listAddAction.dataAttr}
-          />
-        </div>
-      );
-    }
     return (
       <PortalDataTableEmpty
         icon="work-order"
@@ -1181,34 +1165,17 @@ export function ManagerWorkOrdersPanel({
       <div className={INBOX_LIST_SCROLL}>
         {rows.map((row) => {
           const subtitle = [row.propertyName, row.unit].filter(Boolean).join(" · ");
-          const statusLabel =
-            bucket === "open" ? "Open" : bucket === "scheduled" ? "Scheduled" : "Completed";
-          const statusTone =
-            bucket === "completed" ? "success" : bucket === "scheduled" ? "warning" : "neutral";
           return (
             <PortalServiceRecordRow
               key={row.id}
               title={row.title}
               subtitle={subtitle || undefined}
-              statusLabel={statusLabel}
-              statusTone={statusTone}
               onOpen={() => openWorkOrderDetail(row)}
               dataAttr="work-order-list-row"
             />
           );
         })}
       </div>
-
-      {listAddAction ? (
-        <div className={PORTAL_LIST_ADD_ROW_WRAP_CLASS}>
-          <PortalListAddRow
-            label={listAddAction.label ?? "Add"}
-            icon={listAddAction.icon ?? Wrench}
-            onClick={listAddAction.onClick}
-            dataAttr={listAddAction.dataAttr}
-          />
-        </div>
-      ) : null}
 
       <Modal
         open={Boolean(completeRow)}

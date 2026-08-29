@@ -24,10 +24,10 @@ export const MANAGER_TASK_FORM_KINDS = ["general", "house", "tour", "work-order"
 export type ManagerTaskFormKind = (typeof MANAGER_TASK_FORM_KINDS)[number];
 
 export const MANAGER_TASK_FORM_KIND_LABELS: Record<ManagerTaskFormKind, string> = {
-  general: "General task",
-  house: "House task",
+  general: "General service",
+  house: "House service",
   tour: "Tour",
-  "work-order": "Work order",
+  "work-order": "Service",
 };
 
 export type ManagerTaskResidentOption = {

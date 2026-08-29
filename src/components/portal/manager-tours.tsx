@@ -18,11 +18,6 @@ import { PortalActiveFilterChips } from "@/components/portal/portal-filter-chips
 import { PortalFilterSortSheet } from "@/components/portal/portal-filter-sort-sheet";
 import { PORTAL_PROPERTY_FILTER_SHEET_CLASS } from "@/components/portal/portal-filter-shell";
 import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
-import {
-  PortalListAddRow,
-  PORTAL_LIST_ADD_ICONS,
-  PORTAL_LIST_ADD_ROW_WRAP_CLASS,
-} from "@/components/portal/portal-list-add-row";
 import { PORTAL_LIST_PAGE_BODY } from "@/components/portal/portal-inbox-ui";
 import {
   PortalNotificationPreviewModal,
@@ -54,8 +49,6 @@ import {
 import {
   DEFAULT_PORTAL_LIST_GROUP_MODE,
   isPropertyClusterList,
-  portalListGroupModeActiveCount,
-  PORTAL_LIST_GROUP_MODE_LABELS,
   type PortalListGroupMode,
 } from "@/lib/portal-list-grouping";
 import { usePortalNavigate } from "@/lib/portal-nav-client";
@@ -366,8 +359,7 @@ export function ManagerTours({
     [counts],
   );
 
-  const filterTouchCount =
-    (propertyFilters.length > 0 ? 1 : 0) + portalListGroupModeActiveCount(groupMode);
+  const filterTouchCount = propertyFilters.length > 0 ? 1 : 0;
 
   const filterSheet = (
     <PortalFilterSortSheet
@@ -396,30 +388,17 @@ export function ManagerTours({
   );
 
   const activeFilterChips =
-    propertyFilters.length > 0 || groupMode !== DEFAULT_PORTAL_LIST_GROUP_MODE ? (
+    propertyFilters.length > 0 ? (
       <PortalActiveFilterChips
         chips={[
-          ...(groupMode !== DEFAULT_PORTAL_LIST_GROUP_MODE
-            ? [
-                {
-                  id: "group-mode",
-                  label: PORTAL_LIST_GROUP_MODE_LABELS[groupMode],
-                  onRemove: () => setGroupMode(DEFAULT_PORTAL_LIST_GROUP_MODE),
-                },
-              ]
-            : []),
-          ...(propertyFilters.length > 0
-            ? [
-                {
-                  id: "property",
-                  label:
-                    propertyFilters.length === 1
-                      ? `Property: ${propertyLabelById.get(propertyFilters[0]!) ?? propertyFilters[0]}`
-                      : `${propertyFilters.length} properties`,
-                  onRemove: () => setPropertyFilters([]),
-                },
-              ]
-            : []),
+          {
+            id: "property",
+            label:
+              propertyFilters.length === 1
+                ? `Property: ${propertyLabelById.get(propertyFilters[0]!) ?? propertyFilters[0]}`
+                : `${propertyFilters.length} properties`,
+            onRemove: () => setPropertyFilters([]),
+          },
         ]}
       />
     ) : null;
@@ -1271,31 +1250,8 @@ export function ManagerTours({
 
         {!authReady ? (
           <p className="text-sm text-muted">Loading tours…</p>
-        ) : rowsForBucket.length === 0 ? (
-          <div className={PORTAL_LIST_ADD_ROW_WRAP_CLASS}>
-            <PortalListAddRow
-              label="Add"
-              ariaLabel="Schedule tour"
-              icon={PORTAL_LIST_ADD_ICONS.application}
-              onClick={() => setAddTourOpen(true)}
-              disabled={propertyOptions.length === 0}
-              dataAttr="tours-list-add"
-            />
-          </div>
-        ) : (
-          <>
-            {renderGroupedTours()}
-            <div className={PORTAL_LIST_ADD_ROW_WRAP_CLASS}>
-              <PortalListAddRow
-                label="Add"
-                ariaLabel="Schedule tour"
-                icon={PORTAL_LIST_ADD_ICONS.application}
-                onClick={() => setAddTourOpen(true)}
-                disabled={propertyOptions.length === 0}
-                dataAttr="tours-list-add"
-              />
-            </div>
-          </>
+        ) : rowsForBucket.length === 0 ? null : (
+          renderGroupedTours()
         )}
       </div>
 

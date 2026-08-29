@@ -11,11 +11,10 @@ import { useAppUi } from "@/components/providers/app-ui-provider";
 import { ManagerTaskFilterFields } from "@/components/portal/manager-task-filter-fields";
 import { ApplicationHouseholdCluster } from "@/components/portal/application-household-list";
 import { Badge } from "@/components/ui/badge";
-import { ManagerPortalPageShell } from "@/components/portal/portal-metrics";
+import { ManagerPortalPageShell, PORTAL_HEADER_PRIMARY_ACTION_BTN_RESPONSIVE } from "@/components/portal/portal-metrics";
 import { PortalFilterSortSheet, portalFilterActiveCount } from "@/components/portal/portal-filter-sort-sheet";
 import { PORTAL_PROPERTY_FILTER_SHEET_CLASS } from "@/components/portal/portal-filter-shell";
 import { PORTAL_LIST_PAGE_BODY } from "@/components/portal/portal-inbox-ui";
-import { PortalListAddRow, PORTAL_LIST_ADD_ICONS } from "@/components/portal/portal-list-add-row";
 import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
 import {
   PortalAdaptiveActionRow,
@@ -66,7 +65,6 @@ import {
   clusterPortalListRows,
   DEFAULT_PORTAL_LIST_GROUP_MODE,
   isPropertyClusterList,
-  portalListGroupModeActiveCount,
   type PortalListGroupMode,
 } from "@/lib/portal-list-grouping";
 import type { ResidentIdentityFields, PropertyClusterFields } from "@/lib/resident-row-clustering";
@@ -292,8 +290,7 @@ export function ManagerTaskList({
   }, [visibleRows, groupMode, propertyLabelForId]);
 
   const taskFilterActiveCount =
-    portalFilterActiveCount([listFilter !== "all" ? listFilter : "", propertyFilterId]) +
-    portalListGroupModeActiveCount(groupMode);
+    portalFilterActiveCount([listFilter !== "all" ? listFilter : "", propertyFilterId]);
 
   const taskFilterFieldCount = (propertyOptions.length > 1 ? 1 : 0) + 2;
 
@@ -580,6 +577,22 @@ export function ManagerTaskList({
       title="Tasks"
       hideTitleOnMobileNav
       titleInlineFilter={tasksFilterSheet}
+      titleAside={
+        tabId === "in-progress" ? (
+          <Button
+            type="button"
+            variant="outline"
+            className={PORTAL_HEADER_PRIMARY_ACTION_BTN_RESPONSIVE}
+            data-attr="manager-task-list-add"
+            onClick={() => {
+              setEditingId(null);
+              setAddOpen(true);
+            }}
+          >
+            Add service
+          </Button>
+        ) : undefined
+      }
       compactFilterRow
     >
       <PortalListControlStack
@@ -660,18 +673,6 @@ export function ManagerTaskList({
                 ))}
           </div>
         ) : null}
-
-        {tabId === "in-progress" ? (
-          <PortalListAddRow
-            label="Add task"
-            icon={PORTAL_LIST_ADD_ICONS.request}
-            onClick={() => {
-              setEditingId(null);
-              setAddOpen(true);
-            }}
-            dataAttr="manager-task-list-add"
-          />
-        ) : null}
       </div>
 
       {selectedTasks.length > 0 ? (
@@ -693,7 +694,7 @@ export function ManagerTaskList({
           onSaved={async (prefill) => {
             setSelectedIds([]);
             await refresh();
-            showToast(editingId ? "Task updated." : "Task saved.");
+            showToast(editingId ? "Service updated." : "Service saved.");
             if (prefill) {
               setComposeDraft(prefill);
               setComposeOpen(true);
