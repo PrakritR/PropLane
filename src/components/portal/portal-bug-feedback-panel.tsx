@@ -1,9 +1,14 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { MessageSquarePlus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useAppUi } from "@/components/providers/app-ui-provider";
 import { ManagerPortalPageShell } from "@/components/portal/portal-metrics";
+import {
+  PORTAL_LIST_ADD_ROW_WRAP_CLASS,
+  PortalListAddRow,
+} from "@/components/portal/portal-list-add-row";
 import {
   PortalSettingsGroup,
   PortalSettingsSection,
@@ -173,9 +178,22 @@ export function PortalBugFeedbackPanel({
     </div>
   ) : null;
 
+  const addFeedbackRow = (
+    <div className={PORTAL_LIST_ADD_ROW_WRAP_CLASS}>
+      <PortalListAddRow
+        label="Add feedback"
+        hint="Share an idea or report an issue"
+        icon={MessageSquarePlus}
+        onClick={() => setSubmitOpen(true)}
+        dataAttr="feedback-add"
+      />
+    </div>
+  );
+
   const body = (
     <div className="space-y-2">
       {feedbackCards}
+      {addFeedbackRow}
     </div>
   );
 

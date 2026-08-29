@@ -5,6 +5,11 @@ import { Button } from "@/components/ui/button";
 import { BulkActionBar } from "@/components/ui/bulk-action-bar";
 import { Modal, ModalFooter } from "@/components/ui/modal";
 import {
+  PORTAL_LIST_ADD_ICONS,
+  PORTAL_LIST_ADD_ROW_WRAP_CLASS,
+  PortalListAddRow,
+} from "@/components/portal/portal-list-add-row";
+import {
   PortalPropertyDetailSection,
 } from "@/components/portal/portal-property-detail-section";
 import { PromotionAssetStack, promotionAssetCanEdit } from "@/components/portal/promotion-asset-list";
@@ -622,6 +627,15 @@ export function ManagerPropertyPromotionPanel({
           propertyId={propertyId}
           promotionRow={promotionRow}
           onAddPreset={addPromotionPreset}
+        />
+      </div>
+
+      <div className={PORTAL_LIST_ADD_ROW_WRAP_CLASS}>
+        <PortalListAddRow
+          label="Add"
+          icon={PORTAL_LIST_ADD_ICONS.promotion}
+          onClick={openNewPromotion}
+          dataAttr="manager-property-new-promotion"
         />
       </div>
 

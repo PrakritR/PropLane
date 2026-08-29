@@ -68,6 +68,11 @@ import { ManagerResidentToursPanel } from "@/components/portal/manager-resident-
 import { buildManagerTourRows } from "@/lib/manager-tour-list";
 import { buildResidentListClusters } from "@/lib/manager-resident-list-grouping";
 import { PORTAL_LIST_PAGE_BODY } from "@/components/portal/portal-inbox-ui";
+import {
+  PortalListAddRow,
+  PORTAL_LIST_ADD_ICONS,
+  PORTAL_LIST_ADD_ROW_WRAP_CLASS,
+} from "@/components/portal/portal-list-add-row";
 import { LeaseDocumentPreview } from "@/components/portal/lease-document-preview";
 import { LeasePrimaryHeaderActions } from "@/components/portal/lease-primary-header-actions";
 import { LeaseGenerateModal } from "@/components/portal/lease-generate-modal";
@@ -3378,16 +3383,27 @@ export function ManagerResidents({
         }}
       />
       {filtered.length === 0 ? (
-        residents.length > 0 ? (
-          <PortalDataTableEmpty
-            icon="residents"
-            message={
-              searchQuery.trim()
-                ? "No residents match your search."
-                : "No residents match this filter."
-            }
-          />
-        ) : null
+        <>
+          {residents.length > 0 ? (
+            <PortalDataTableEmpty
+              icon="residents"
+              message={
+                searchQuery.trim()
+                  ? "No residents match your search."
+                  : "No residents match this filter."
+              }
+            />
+          ) : null}
+          <div className={PORTAL_LIST_ADD_ROW_WRAP_CLASS}>
+            <PortalListAddRow
+              label="Add"
+              ariaLabel="Add resident"
+              icon={PORTAL_LIST_ADD_ICONS.resident}
+              onClick={() => setAddResidentOpen(true)}
+              dataAttr="residents-list-add"
+            />
+          </div>
+        </>
       ) : (
         <div className={PORTAL_LIST_PAGE_BODY}>
           <ManagerResidentsGroupedTable
@@ -3399,6 +3415,15 @@ export function ManagerResidents({
               navigate(residentDetailHref(portalBase, residentsTab, res.id, resolvedDetailTab))
             }
           />
+          <div className={PORTAL_LIST_ADD_ROW_WRAP_CLASS}>
+            <PortalListAddRow
+              label="Add"
+              ariaLabel="Add resident"
+              icon={PORTAL_LIST_ADD_ICONS.resident}
+              onClick={() => setAddResidentOpen(true)}
+              dataAttr="residents-list-add"
+            />
+          </div>
         </div>
       )}
 

@@ -31,6 +31,11 @@ import {
 import { isDemoModeActive } from "@/lib/demo/demo-session";
 import { PortalDataTableEmpty } from "@/components/portal/portal-data-table";
 import { PORTAL_LIST_PAGE_BODY } from "@/components/portal/portal-inbox-ui";
+import {
+  PortalListAddRow,
+  PORTAL_LIST_ADD_ICONS,
+  PORTAL_LIST_ADD_ROW_WRAP_CLASS,
+} from "@/components/portal/portal-list-add-row";
 import { PromotionAssetStack, promotionAssetCanEdit } from "@/components/portal/promotion-asset-list";
 import {
   PromotionFlyerAssetDetail,
@@ -902,6 +907,15 @@ export function ManagerPromotion({
     </Button>
   );
 
+  const promotionListAddRow = (
+    <PortalListAddRow
+      label="Add"
+      icon={PORTAL_LIST_ADD_ICONS.promotion}
+      onClick={() => openNewPromotion()}
+      dataAttr="promotion-list-add"
+    />
+  );
+
   return (
     <ManagerPortalPageShell
       title="Promotion"
@@ -912,9 +926,12 @@ export function ManagerPromotion({
     >
       <div data-attr="promotion-content-direct">
         {propertyScopedAssets.length === 0 ? (
-          assets.length > 0 ? (
-            <PortalDataTableEmpty icon="data" message="No promotions match these filters." />
-          ) : null
+          <div className="space-y-3">
+            {assets.length > 0 ? (
+              <PortalDataTableEmpty icon="data" message="No promotions match these filters." />
+            ) : null}
+            <div className={PORTAL_LIST_ADD_ROW_WRAP_CLASS}>{promotionListAddRow}</div>
+          </div>
         ) : (
           <div className={PORTAL_LIST_PAGE_BODY}>
             {groupMode === "house" ? (
@@ -952,6 +969,7 @@ export function ManagerPromotion({
                 onToggleSelected={toggleSelected}
               />
             )}
+            <div className={PORTAL_LIST_ADD_ROW_WRAP_CLASS}>{promotionListAddRow}</div>
           </div>
         )}
       </div>

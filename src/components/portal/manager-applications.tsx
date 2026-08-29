@@ -50,6 +50,11 @@ import { downloadBackgroundCheckForApplication } from "@/components/portal/appli
 import { ApplicationHoldingFeeModal } from "@/components/portal/application-holding-fee-box";
 import { ManagerEditApplicationModal } from "@/components/portal/manager-edit-application-modal";
 import { ManagerApplicationOnBehalfModal } from "@/components/portal/manager-application-on-behalf-modal";
+import {
+  PortalListAddRow,
+  PORTAL_LIST_ADD_ICONS,
+  PORTAL_LIST_ADD_ROW_WRAP_CLASS,
+} from "@/components/portal/portal-list-add-row";
 import { CheckrScreeningModal } from "@/components/portal/checkr-screening-modal";
 import { ManagerScreeningSettingsButton, ManagerScreeningSettingsModal } from "@/components/portal/manager-screening-settings";
 import { ManagerPortalSettingsModal } from "@/components/portal/manager-portal-settings-modal";
@@ -1947,7 +1952,18 @@ export function ManagerApplications({
         <div className={PORTAL_DATA_TABLE_WRAP}>
           <ListSkeleton rows={5} showLeading={false} />
         </div>
-      ) : rowsForBucket.length === 0 ? null : (
+      ) : rowsForBucket.length === 0 ? (
+        <div className={PORTAL_LIST_ADD_ROW_WRAP_CLASS}>
+          <PortalListAddRow
+            label="Add"
+            ariaLabel="Add application"
+            icon={PORTAL_LIST_ADD_ICONS.application}
+            onClick={openAddApplication}
+            disabled={propertyOptions.length === 0}
+            dataAttr="applications-list-add"
+          />
+        </div>
+      ) : (
         <div className={PORTAL_LIST_PAGE_BODY}>
           <ManagerApplicationsGroupedTable
             clusters={listClusters}
@@ -1959,6 +1975,16 @@ export function ManagerApplications({
               navigate(`${applicationDetailHref(basePath, tabForRow(row), row.id)}?cosigner=${index}`)
             }
           />
+          <div className={PORTAL_LIST_ADD_ROW_WRAP_CLASS}>
+            <PortalListAddRow
+              label="Add"
+              ariaLabel="Add application"
+              icon={PORTAL_LIST_ADD_ICONS.application}
+              onClick={openAddApplication}
+              disabled={propertyOptions.length === 0}
+              dataAttr="applications-list-add"
+            />
+          </div>
         </div>
       )}
       </div>

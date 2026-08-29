@@ -36,6 +36,11 @@ import {
 } from "@/components/portal/manager-owner-distributions-panel";
 import { ManagerSecurityDepositsPanel } from "@/components/portal/manager-security-deposits-panel";
 import {
+  PortalListAddRow,
+  PORTAL_LIST_ADD_ICONS,
+  PORTAL_LIST_ADD_ROW_WRAP_CLASS,
+} from "@/components/portal/portal-list-add-row";
+import {
   ReportExportButtons,
   type ReportFilterState,
 } from "@/components/portal/reports/report-filter-bar";
@@ -972,6 +977,16 @@ export function ManagerFinancesPanel({
       </Button>
     ) : null;
 
+  const financesListAddRow =
+    tabId === "income" || tabId === "expenses" ? (
+      <PortalListAddRow
+        label="Add"
+        icon={PORTAL_LIST_ADD_ICONS.payment}
+        onClick={tabId === "income" ? openAddIncome : openAddExpense}
+        dataAttr={tabId === "income" ? "finances-list-add-income" : "finances-list-add-expense"}
+      />
+    ) : null;
+
   const financesDestinationRow = (
     <FinanceDestinationNav tabId={tabId} tabItems={financeTabItems} />
   );
@@ -1126,7 +1141,7 @@ export function ManagerFinancesPanel({
             {filteredReport.rows.length === 0 ? (
               report && report.rows.length > 0 ? (
                 <PortalDataTableEmpty message="No finance entries match your search or filters." icon="finance" />
-              ) : (
+              ) : financesListAddRow ? null : (
                 <PortalDataTableEmpty message="No finance entries yet." icon="finance" />
               )
             ) : (
@@ -1138,9 +1153,19 @@ export function ManagerFinancesPanel({
                 onTaxStatusChange={tabId === "expenses" ? (id, d) => void updateExpenseTaxStatus(id, d) : undefined}
               />
             )}
+            {financesListAddRow ? (
+              <div className={`${PORTAL_LIST_ADD_ROW_WRAP_CLASS} ${filteredReport && filteredReport.rows.length > 0 ? "pt-5 sm:pt-6" : ""}`}>
+                {financesListAddRow}
+              </div>
+            ) : null}
           </div>
         ) : (
-          <PortalDataTableEmpty message="No finance entries yet." icon="finance" />
+          <div className="space-y-3">
+            <PortalDataTableEmpty message="No finance entries yet." icon="finance" />
+            {financesListAddRow ? (
+              <div className={`${PORTAL_LIST_ADD_ROW_WRAP_CLASS} pt-5 sm:pt-6`}>{financesListAddRow}</div>
+            ) : null}
+          </div>
         )}
       </div>
       )}

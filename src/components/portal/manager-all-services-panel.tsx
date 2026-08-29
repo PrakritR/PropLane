@@ -3,7 +3,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { usePortalNavigate } from "@/lib/portal-nav-client";
-import { PortalEmptyState } from "@/components/portal/portal-empty-state";
 import { PortalServiceRecordRow } from "@/components/portal/portal-record-row";
 import { LocalDestinationNav } from "@/components/ui/destination-nav";
 import {
@@ -85,6 +84,12 @@ import { Button } from "@/components/ui/button";
 import { DropdownMenuItem } from "@/components/ui/dropdown-menu";
 import { usePortalRowSelection } from "@/hooks/use-portal-row-selection";
 import { useShallowTabId } from "@/components/ui/tabs";
+import { Wrench } from "lucide-react";
+import {
+  PORTAL_LIST_ADD_ICONS,
+  PORTAL_LIST_ADD_ROW_WRAP_CLASS,
+  PortalListAddRow,
+} from "@/components/portal/portal-list-add-row";
 
 type FilterType = "requests" | "work-orders";
 
@@ -508,6 +513,10 @@ export function ManagerAllServicesPanel({
           workOrderId={workOrderIdProp}
           listBasePath={basePath}
           onAfterSchedule={() => router.push(`${basePath}/services/work-orders/scheduled`)}
+          listAddAction={{
+            onClick: () => setAddWorkOrderOpen(true),
+            dataAttr: "services-work-orders-list-add",
+          }}
         />
         <ManagerCreateWorkOrderModal
           open={addWorkOrderOpen}
@@ -522,6 +531,19 @@ export function ManagerAllServicesPanel({
       </>
     );
   }
+
+  const servicesListAddRow = (
+    <PortalListAddRow
+      label="Add"
+      icon={typeFilter === "work-orders" ? Wrench : PORTAL_LIST_ADD_ICONS.request}
+      onClick={() =>
+        typeFilter === "work-orders" ? setAddWorkOrderOpen(true) : setAddRequestOpen(true)
+      }
+      dataAttr={
+        typeFilter === "work-orders" ? "services-work-orders-list-add" : "services-requests-list-add"
+      }
+    />
+  );
 
   const servicesListDestinations = (
     <div className="flex w-full min-w-0 flex-col gap-2">
@@ -561,7 +583,7 @@ export function ManagerAllServicesPanel({
         activeFilterChips={<PortalActiveFilterChips chips={activeFilterChips} />}
       />
       {visibleUnifiedRows.length === 0 ? (
-        <PortalEmptyState icon="service" title="No services in this view yet." />
+        <div className={PORTAL_LIST_ADD_ROW_WRAP_CLASS}>{servicesListAddRow}</div>
       ) : (
         <div>
           {/*
@@ -613,6 +635,7 @@ export function ManagerAllServicesPanel({
                   </ApplicationHouseholdCluster>
                 ))}
           </div>
+          <div className={PORTAL_LIST_ADD_ROW_WRAP_CLASS}>{servicesListAddRow}</div>
         </div>
       )}
 
