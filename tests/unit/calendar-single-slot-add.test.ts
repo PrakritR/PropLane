@@ -1,12 +1,12 @@
 /**
- * Clicking Add on the manager availability grid should paint exactly one slot.
- * The recurring-block modal stays for toolbar / multi-slot drag; single-cell Add
- * is a direct write.
+ * Single-cell Add on the manager calendar must paint only the clicked slot
+ * without silently dropping that day's implicit default band.
  */
 import { beforeAll, describe, expect, it } from "vitest";
 import {
   DEFAULT_TOUR_END_SLOT_EXCLUSIVE,
   DEFAULT_TOUR_START_SLOT,
+  addExplicitTourSlotKeys,
   resolveTourOfferingSlots,
 } from "@/lib/tour-slot-math";
 
@@ -14,30 +14,27 @@ beforeAll(() => {
   process.env.TZ = "UTC";
 });
 
-function addSingleSlot(painted: string[], dateStr: string, slotIdx: number): string[] {
-  const key = `${dateStr}:${slotIdx}`;
-  if (painted.includes(key)) return painted;
-  return [...painted, key];
-}
-
-describe("single-slot availability add", () => {
+describe("addExplicitTourSlotKeys", () => {
   const date = "2026-08-20";
   const now = Date.parse("2026-08-18T12:00:00Z");
-  const targetSlot = DEFAULT_TOUR_START_SLOT + 2;
+  // 6:00 PM Pacific — outside the 9-5 default band, renders as empty Add cells.
+  const eveningSlot = 36;
 
-  it("adds only the clicked slot on an otherwise-default day", () => {
-    const painted = addSingleSlot([], date, targetSlot);
+  it("keeps the 9-5 default when adding an evening slot on a default-only day", () => {
+    const painted = addExplicitTourSlotKeys([], date, eveningSlot, undefined, now);
     const offered = new Set(resolveTourOfferingSlots(painted, now));
-    const daySlots = [...offered].filter((key) => key.startsWith(`${date}:`));
 
-    expect(daySlots).toEqual([`${date}:${targetSlot}`]);
-    expect(offered.has(`${date}:${DEFAULT_TOUR_START_SLOT}`)).toBe(false);
-    expect(offered.has(`${date}:${DEFAULT_TOUR_END_SLOT_EXCLUSIVE - 1}`)).toBe(false);
+    expect(offered.has(`${date}:${eveningSlot}`)).toBe(true);
+    expect(offered.has(`${date}:${DEFAULT_TOUR_START_SLOT}`)).toBe(true);
+    expect(offered.has(`${date}:${DEFAULT_TOUR_END_SLOT_EXCLUSIVE - 1}`)).toBe(true);
   });
 
-  it("does not materialize the rest of the default band", () => {
-    const painted = addSingleSlot([], date, targetSlot);
-    const offered = resolveTourOfferingSlots(painted, now).filter((key) => key.startsWith(`${date}:`));
-    expect(offered.length).toBe(1);
+  it("adds only one more slot when the day already has explicit availability", () => {
+    const painted = [`${date}:${DEFAULT_TOUR_START_SLOT + 5}`];
+    const next = addExplicitTourSlotKeys(painted, date, DEFAULT_TOUR_START_SLOT + 6, undefined, now);
+
+    expect(next).toContain(`${date}:${DEFAULT_TOUR_START_SLOT + 5}`);
+    expect(next).toContain(`${date}:${DEFAULT_TOUR_START_SLOT + 6}`);
+    expect(next.filter((key) => key.startsWith(`${date}:`)).length).toBe(2);
   });
 });

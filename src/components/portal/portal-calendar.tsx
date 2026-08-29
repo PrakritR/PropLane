@@ -851,7 +851,7 @@ export function PortalCalendar({
         onClose={() => setCalendarSettingsOpen(false)}
         initialTab="calendar"
         scoped
-        scopedTitle="Calendar settings"
+        scopedTitle="Calendar"
         onCalendarSettingsSaved={() => void loadTourSettings()}
       />
     </>

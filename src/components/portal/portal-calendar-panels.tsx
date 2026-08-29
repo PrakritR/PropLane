@@ -60,6 +60,7 @@ import {
 } from "@/lib/demo-admin-scheduling";
 import { mondayBasedDayIndex, resolveBlockBaseDates } from "@/lib/portal/availability-block";
 import {
+  addExplicitTourSlotKeys,
   defaultTourSlotKeysForDate,
   resolveDefaultTourAvailabilityConfig,
   resolveTourOfferingSlots,
@@ -871,14 +872,11 @@ export function PortalCalendarPanels({
   /** Paint one slot without opening the recurring-block modal. */
   const addAvailabilitySlot = useCallback(
     (dateStr: string, slotIdx: number) => {
-      const key = dateSlotKey(dateStr, slotIdx);
-      mutateAvailability((current) => {
-        const next = new Set(current);
-        next.add(key);
-        return next;
-      });
+      mutateAvailability((current) =>
+        new Set(addExplicitTourSlotKeys([...current], dateStr, slotIdx, resolvedDefaultTourAvailability)),
+      );
     },
-    [mutateAvailability],
+    [mutateAvailability, resolvedDefaultTourAvailability],
   );
 
   const deleteAvailabilitySlot = useCallback(() => {
@@ -1511,6 +1509,9 @@ export function PortalCalendarPanels({
     if (span > 1) {
       skipNextSlotClickRef.current = true;
       prefillBlockModal(pending);
+      window.setTimeout(() => {
+        skipNextSlotClickRef.current = false;
+      }, 0);
     }
   }, [prefillBlockModal]);
 

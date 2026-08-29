@@ -366,6 +366,32 @@ export function defaultTourSlotKeysForDate(
   return keys;
 }
 
+/**
+ * Paint one explicit slot from the manager calendar.
+ *
+ * The first explicit slot on a day that was still on the implicit default must
+ * materialize that default band first — otherwise `resolveTourOfferingSlots`
+ * drops the whole 9-5 window when a single out-of-band slot (e.g. 6 PM) is added.
+ */
+export function addExplicitTourSlotKeys(
+  publishedSlots: readonly string[],
+  dateStr: string,
+  slotIdx: number,
+  defaultConfig: DefaultTourAvailabilityConfig = resolveDefaultTourAvailabilityConfig(),
+  now: number = Date.now(),
+): string[] {
+  const key = `${dateStr}:${slotIdx}`;
+  const next = new Set(publishedSlots);
+  const hasExplicitOnDate = publishedSlots.some((slot) => slot.startsWith(`${dateStr}:`));
+  if (!hasExplicitOnDate) {
+    for (const defaultKey of defaultTourSlotKeysForDate(dateStr, defaultConfig)) {
+      if (slotIsBookable(defaultKey, now)) next.add(defaultKey);
+    }
+  }
+  next.add(key);
+  return [...next];
+}
+
 export function buildDefaultTourSlotKeys(
   now: number = Date.now(),
   days: number = DEFAULT_TOUR_HORIZON_DAYS,
