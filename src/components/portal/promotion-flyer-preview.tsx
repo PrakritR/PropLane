@@ -167,7 +167,6 @@ export function PromotionFlyerPreview({
       open
       onClose={onClose}
       title={promotion.title || "Flyer preview"}
-      assistantStrip={false}
       scrollableContent={false}
       panelClassName={cn(MODAL_LARGE_PANEL_CLASS, "bg-slate-950 text-white")}
       footer={

@@ -146,7 +146,6 @@ export function PromotionAssetViewModal({
       title={title}
       presentation="dialog"
       dense
-      assistantStrip={false}
       panelClassName="flex max-h-[min(90vh,56rem)] w-full max-w-5xl flex-col"
       dataAttr={dataAttr}
       footer={open && asset ? <PromotionAssetViewFooter asset={asset} showToast={showToast} /> : undefined}

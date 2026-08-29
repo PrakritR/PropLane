@@ -15,7 +15,7 @@ import {
 import { createPortal } from "react-dom";
 import { SlidersHorizontal, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Modal, MODAL_HEADER_CLOSE_CLASS } from "@/components/ui/modal";
+import { Modal, MODAL_HEADER_CLOSE_CLASS, ModalFooter } from "@/components/ui/modal";
 import { VaulBottomSheet } from "@/components/ui/vaul-bottom-sheet";
 import {
   PORTAL_FILTER_PANEL_SIZE_CLASS,
@@ -73,6 +73,23 @@ function FilterResetLink({ onReset }: { onReset: () => void }) {
     >
       Reset
     </button>
+  );
+}
+
+function FilterSheetFooter({
+  onReset,
+  onSave,
+}: {
+  onReset: () => void;
+  onSave: () => void;
+}) {
+  return (
+    <ModalFooter className="w-full justify-between">
+      <FilterResetLink onReset={onReset} />
+      <Button type="button" variant="primary" className="rounded-full" onClick={onSave} data-attr="portal-filter-save">
+        Save
+      </Button>
+    </ModalFooter>
   );
 }
 
@@ -405,6 +422,11 @@ export function PortalFilterSortSheet({
     </div>
   );
 
+  const filterFooter = (save: () => void) =>
+    mobileFooter ? (typeof mobileFooter === "function" ? mobileFooter(save) : mobileFooter) : (
+      <FilterSheetFooter onReset={handleReset} onSave={save} />
+    );
+
   return (
     <PortalFilterDeferProvider controllerRef={deferControllerRef}>
       <>
@@ -476,13 +498,8 @@ export function PortalFilterSortSheet({
               ? "max-h-[min(92dvh,calc(100dvh-var(--portal-native-bottom-nav-inset,0px)-0.5rem))]"
               : undefined
           }
-          footer={
-            mobileFooter
-              ? typeof mobileFooter === "function"
-                ? mobileFooter(close)
-                : mobileFooter
-              : undefined
-          }
+          assistantContext="Filter"
+          footer={filterFooter(close)}
         >
           <FilterSheetScrollLockContext.Provider value={setFilterMenuOpen}>
             <div
@@ -515,14 +532,8 @@ export function PortalFilterSortSheet({
           )}
           dense
           scrollableContent
-          assistantStrip={false}
-          footer={
-            compactPanel ? (
-              <div className="flex w-full justify-end">
-                <FilterResetLink onReset={handleReset} />
-              </div>
-            ) : undefined
-          }
+          assistantContext="Filter"
+          footer={<FilterSheetFooter onReset={handleReset} onSave={close} />}
         >
           <FilterSheetScrollLockContext.Provider value={setFilterMenuOpen}>
             {fields}

@@ -395,7 +395,19 @@ export function ManagerTaskFormModal({
       onClose={onClose}
       title={editingId ? "Edit task" : "Add task"}
       dense
-      assistantStrip={false}
+      assistantContext={editingId ? "Edit task" : "Add task"}
+      footer={
+        <ModalFooter>
+          <Button
+            type="button"
+            onClick={() => void handleSave()}
+            disabled={saving || !canSave}
+            data-attr="manager-task-save"
+          >
+            {saving ? "Saving…" : editingId ? "Save task" : "Add task"}
+          </Button>
+        </ModalFooter>
+      }
     >
       <div className={PORTAL_MODAL_FORM_GRID_CLASS}>
         {!editingId ? (
@@ -756,16 +768,6 @@ export function ManagerTaskFormModal({
             : null}
         </p>
       </div>
-      <ModalFooter>
-        <Button
-          type="button"
-          onClick={() => void handleSave()}
-          disabled={saving || !canSave}
-          data-attr="manager-task-save"
-        >
-          {saving ? "Saving…" : editingId ? "Save task" : "Add task"}
-        </Button>
-      </ModalFooter>
     </Modal>
   );
 }

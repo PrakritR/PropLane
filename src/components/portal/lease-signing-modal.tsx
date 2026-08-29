@@ -97,7 +97,7 @@ export function LeaseSigningModal({
       title="Sign lease agreement"
       description={`${row.unit} · ${row.residentName}`}
       onClose={onClose}
-      assistantStrip={false}
+      assistantContext="Sign lease"
       panelClassName={MODAL_LARGE_PANEL_CLASS}
       footer={
         signed ? undefined : (

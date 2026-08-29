@@ -163,7 +163,7 @@ function ChannelPaymentSetupModal({
   const stepCountWord = hasForwardingStep ? "Five" : "Four";
 
   return (
-    <Modal open={open} title={`Link ${label}`} onClose={onClose} dense assistantStrip={false}>
+    <Modal open={open} title={`Link ${label}`} onClose={onClose} dense assistantContext={`Link ${label}`}>
       <div className="space-y-4">
         <p className="text-sm text-muted">
           {stepCountWord} quick steps so residents can pay you with {label} and we auto-match receipts.
@@ -637,7 +637,7 @@ export function ManagerPaymentSetupModal({
         description="The Zelle destination you save next is shown only to residents and applicants for these properties."
         onClose={onClose}
         dense
-        assistantStrip={false}
+        assistantContext="Payment setup"
         panelClassName="max-w-md"
         footer={
           <ModalFooter>
@@ -685,7 +685,7 @@ export function ManagerPaymentSetupModal({
         </div>
       </Modal>
 
-      <Modal open={open && propertySelectionComplete} title="Payment setup" onClose={onClose} assistantStrip={false}>
+      <Modal open={open && propertySelectionComplete} title="Payment setup" onClose={onClose} assistantContext="Payment setup">
         <div className="space-y-3">
           {loading ? <p className="text-sm text-muted">Loading…</p> : null}
           <HubRow

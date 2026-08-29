@@ -294,12 +294,14 @@ function ModalPanelInner({
   DescriptionPrimitive: ComponentType<ModalDescriptionPrimitiveProps>;
   ClosePrimitive: ComponentType<ModalClosePrimitiveProps>;
 }) {
-  const bodyFillsPanel = scrollableContent || Boolean(footer);
-  /** Side-by-side chat needs the middle band to grow; a short form + footer should not. */
+  const pinActionsToBottom = Boolean(footer);
+  const bodyFillsPanel = scrollableContent || pinActionsToBottom;
+  /** Side-by-side chat needs the middle band to grow; footer modals fill the panel so actions sit on the bottom edge. */
   const assistantSideLayout = showAssistantStrip && assistantExpanded;
-  const middleGrows = bodyFillsPanel && (assistantSideLayout || !scrollableContent);
+  const middleGrows =
+    bodyFillsPanel && (assistantSideLayout || !scrollableContent || pinActionsToBottom);
   const bodyScrollFillsMiddle =
-    bodyFillsPanel && scrollableContent && (assistantSideLayout || !footer);
+    bodyFillsPanel && scrollableContent && (assistantSideLayout || pinActionsToBottom);
   return (
     <div
       className={cn(

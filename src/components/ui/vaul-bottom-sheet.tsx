@@ -1,9 +1,12 @@
 "use client";
 
 import type { CSSProperties, ReactNode } from "react";
+import { useLayoutEffect, useRef, useState } from "react";
 import { Drawer } from "vaul";
 import { X } from "lucide-react";
 import { MODAL_HEADER_CLOSE_CLASS } from "@/components/ui/modal";
+import { ModalAssistantStrip } from "@/components/portal/modal-assistant-strip";
+import { usePortalAssistantConfig } from "@/lib/axis-assistant/portal-assistant-context";
 import { isPortaledFieldSelectMenuTarget } from "@/components/ui/field-select-portal-interaction";
 import { cn } from "@/lib/utils";
 
@@ -99,6 +102,8 @@ export function VaulBottomSheet({
    * only the header ✕ (or an explicit `onOpenChange(false)` from the caller) closes it.
    */
   dismissible = true,
+  assistantStrip,
+  assistantContext,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -115,7 +120,24 @@ export function VaulBottomSheet({
   fillViewport?: boolean;
   minHeightPx?: number;
   dismissible?: boolean;
+  /** Pass `false` to hide the in-sheet assistant (e.g. payment flows). */
+  assistantStrip?: boolean;
+  assistantContext?: string;
 }) {
+  const portalAssistant = usePortalAssistantConfig();
+  const showAssistantStrip = assistantStrip !== false && portalAssistant != null;
+  const assistantHint =
+    assistantContext?.trim() ||
+    (typeof title === "string" ? title.trim() : "") ||
+    "Portal sheet";
+  const [assistantConversationInstance, setAssistantConversationInstance] = useState(1);
+  const wasOpenRef = useRef(false);
+  useLayoutEffect(() => {
+    if (open && !wasOpenRef.current) {
+      setAssistantConversationInstance((n) => n + 1);
+    }
+    wasOpenRef.current = open;
+  }, [open]);
   const contentHugging = !fullScreen && !fillViewport;
   const elevated = autoElevate && !fullScreen;
   const bottomAnchoredMaxHeight =
@@ -234,6 +256,14 @@ export function VaulBottomSheet({
             >
               {children}
             </div>
+            {showAssistantStrip ? (
+              <ModalAssistantStrip
+                contextHint={assistantHint}
+                storageScopeKey={assistantHint}
+                conversationInstance={assistantConversationInstance}
+                className="shrink-0 px-4"
+              />
+            ) : null}
             {footer ? (
               <div className="shrink-0 border-t border-border bg-background px-4 py-3 pb-[max(0.75rem,env(safe-area-inset-bottom,0px))]">
                 {footer}

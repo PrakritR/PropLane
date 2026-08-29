@@ -53,8 +53,10 @@ describe("Modal scroll container", () => {
     const body = modalBody();
     expect(body.className).toContain("overflow-y-auto");
     expect(body.className).not.toContain("overflow-hidden");
-    // Short forms with a footer should not stretch the scroll band to fill the panel.
-    expect(body.className).not.toContain("flex-1");
+    // Footer modals grow the scroll band so assistant + actions pin to the panel bottom.
+    expect(body.className).toContain("flex-1");
+    const panelInner = screen.getByRole("dialog").children[0] as HTMLElement;
+    expect(panelInner.className).toContain("flex-1");
   });
 
   it("body scrolls without a footer too", () => {

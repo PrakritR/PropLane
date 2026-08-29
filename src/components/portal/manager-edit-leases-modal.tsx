@@ -112,6 +112,7 @@ export function ManagerEditLeasesModal({
         onClose={closeAll}
         dense
         panelClassName="max-w-md"
+        assistantContext="Edit lease settings"
         footer={
           <ModalFooter>
             <Button
