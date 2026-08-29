@@ -14,6 +14,7 @@ const status: ManagerMessagingNumberStatus = {
   mode: "paused",
   workspaceRole: "primary",
   provisioningAvailable: false,
+  sendingAvailable: false,
   entitlement: { eligible: true, tier: "pro", source: "stripe" },
   number: null,
   canRequest: false,

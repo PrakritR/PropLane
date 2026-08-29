@@ -82,9 +82,27 @@ function entitlementMessage(
   }
 }
 
+/**
+ * A number that is provisioned and carrier-registered but still cannot send
+ * because this deployment's texting runtime is off. Reporting that as
+ * "Approval in progress" sends the manager to Twilio to chase an approval that
+ * already happened, when the switch is on our side.
+ */
+function blockedOnDeploymentSending(
+  status: ManagerMessagingNumberStatus,
+): boolean {
+  return (
+    !status.canSend &&
+    !status.sendingAvailable &&
+    status.number?.state === "active" &&
+    !status.number.setupNeedsAttention
+  );
+}
+
 function numberStatusLabel(status: ManagerMessagingNumberStatus): string {
   if (status.canSend) return "Ready to send";
   if (status.number?.setupNeedsAttention) return "Setup needs attention";
+  if (blockedOnDeploymentSending(status)) return "Texting turned off";
   switch (status.number?.state) {
     case "active":
       return "Approval in progress";
@@ -442,6 +460,13 @@ export function ManagerMessagingSettingsPanel({
               Setup requires PropLane review, so sending remains off. Your
               existing provider request is preserved and no additional number
               will be purchased automatically.
+            </p>
+          ) : blockedOnDeploymentSending(status) ? (
+            <p className="text-sm leading-relaxed text-muted">
+              Your number is registered and assigned, but texting is switched
+              off for this workspace, so nothing sends or replies yet. Carrier
+              approval is already done — this is a PropLane setting, not
+              something to chase with the carrier.
             </p>
           ) : requestPending ? (
             <p className="text-sm leading-relaxed text-muted">

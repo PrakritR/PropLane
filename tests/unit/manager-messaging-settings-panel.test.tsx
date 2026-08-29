@@ -22,6 +22,7 @@ const pausedStatus: ManagerMessagingNumberStatus = {
   mode: "paused",
   workspaceRole: "primary",
   provisioningAvailable: false,
+  sendingAvailable: false,
   entitlement: { eligible: true, tier: "pro", source: "stripe" },
   number: null,
   canRequest: false,
@@ -145,6 +146,7 @@ describe("ManagerMessagingSettingsPanel", () => {
       ...pausedStatus,
       mode: "automatic",
       provisioningAvailable: true,
+      sendingAvailable: false,
       canRequest: true,
     };
     const assigned: ManagerMessagingNumberStatus = {
@@ -173,6 +175,60 @@ describe("ManagerMessagingSettingsPanel", () => {
     ).toBeTruthy();
     expect(screen.getByText(/Please text me at this new number:/)).toBeTruthy();
     expect(screen.getByRole("button", { name: "Notify all residents" })).toBeTruthy();
+  });
+
+  it("does not blame the carrier when texting is off for the deployment", async () => {
+    // Registered + active + eligible, yet unsendable purely because this
+    // deployment's texting runtime is off. Calling that "Approval in progress"
+    // sends the manager to chase an approval Twilio already granted.
+    const registeredButOff: ManagerMessagingNumberStatus = {
+      ...pausedStatus,
+      sendingAvailable: false,
+      canSend: false,
+      number: {
+        state: "active",
+        registrationState: "approved",
+        carrierRegistrationState: "registered",
+        attachmentState: "attached",
+        phoneNumber: "+15645652487",
+        lastError: null,
+      },
+    };
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => Response.json(registeredButOff)),
+    );
+    render(<ManagerMessagingSettingsPanel />);
+
+    expect(await screen.findByText("Texting turned off")).toBeTruthy();
+    expect(screen.queryByText("Approval in progress")).toBeNull();
+    expect(
+      screen.getByText(/texting is switched\s+off for this workspace/i),
+    ).toBeTruthy();
+  });
+
+  it("still reports carrier approval while the number is genuinely pending", async () => {
+    const stillPending: ManagerMessagingNumberStatus = {
+      ...pausedStatus,
+      sendingAvailable: true,
+      canSend: false,
+      number: {
+        state: "active",
+        registrationState: "pending",
+        carrierRegistrationState: "pending",
+        attachmentState: "attached",
+        phoneNumber: "+15645652487",
+        lastError: null,
+      },
+    };
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => Response.json(stillPending)),
+    );
+    render(<ManagerMessagingSettingsPanel />);
+
+    expect(await screen.findByText("Approval in progress")).toBeTruthy();
+    expect(screen.queryByText("Texting turned off")).toBeNull();
   });
 
   it("refreshes eligibility for an assigned number without requesting another number", async () => {

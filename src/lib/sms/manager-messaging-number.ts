@@ -37,6 +37,14 @@ export type ManagerMessagingNumberStatus = {
   mode: ManagerMessagingRuntimeMode;
   workspaceRole: ManagerMessagingWorkspaceRole;
   provisioningAvailable: boolean;
+  /**
+   * Whether THIS DEPLOYMENT can send at all, independent of the manager's
+   * number or plan. A registered, active number still sends nothing when the
+   * texting runtime is off, and reporting that as carrier "approval in
+   * progress" points the manager at Twilio for a switch only an operator here
+   * can flip.
+   */
+  sendingAvailable: boolean;
   entitlement: ManagerMessagingEntitlement;
   number: ManagerMessagingNumber | null;
   canRequest: boolean;

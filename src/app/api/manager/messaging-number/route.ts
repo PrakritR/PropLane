@@ -184,6 +184,7 @@ async function buildStatus(
     mode,
     workspaceRole: pureCoManager ? "co_manager" : "primary",
     provisioningAvailable: provisioningEnvEnabled && modeAllowsManager,
+    sendingAvailable: sendEnvEnabled && modeAllowsManager,
     entitlement,
     number,
     // A missing/stale entitlement row must not deadlock a genuinely paid
@@ -223,6 +224,7 @@ function publicStatus(
     mode: status.mode,
     workspaceRole: status.workspaceRole,
     provisioningAvailable: status.provisioningAvailable,
+    sendingAvailable: status.sendingAvailable,
     entitlement: status.entitlement,
     number: status.number,
     canRequest: status.canRequest,
