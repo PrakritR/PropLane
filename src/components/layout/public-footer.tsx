@@ -151,6 +151,13 @@ export function PublicFooter({ compact = false }: { compact?: boolean }) {
               <Link href="/tos" className="transition-colors hover:text-primary">
                 Terms of Service
               </Link>
+              {/* Carrier reviewers crawl the public site for the messaging
+                  program's terms before approving A2P / toll-free traffic; an
+                  unlinked page reads to them as absent, which is one of the
+                  rejection reasons on file. Keep these discoverable. */}
+              <Link href="/sms-terms" className="transition-colors hover:text-primary">
+                SMS Terms
+              </Link>
               <Link href="/support" className="transition-colors hover:text-primary">
                 Support
               </Link>
@@ -230,6 +237,9 @@ export function PublicFooter({ compact = false }: { compact?: boolean }) {
             </Link>
             <Link href="/tos" className="transition-colors hover:text-primary">
               Terms of Service
+            </Link>
+            <Link href="/sms-terms" className="transition-colors hover:text-primary">
+              SMS Terms
             </Link>
             <Link href="/support" className="transition-colors hover:text-primary">
               Support
