@@ -1110,12 +1110,7 @@ export function ProAccountLinksPanel({ userId, linkId: linkIdProp }: { userId: s
     const assignedId = row ? resolveAssignedPropertyId(propId, row.assignedPropertyIds) : null;
     if (!row || !assignedId) return;
     if (row.assignedPropertyIds.length === 1) {
-      writeProRelationships(
-        userId,
-        all.filter((r) => r.id !== rowId),
-      );
-      refreshLocal();
-      showToast("Link removed.");
+      void removeLink(rowId);
       return;
     }
     const nextAssigned = row.assignedPropertyIds.filter((id) => id !== assignedId);
@@ -1318,13 +1313,7 @@ export function ProAccountLinksPanel({ userId, linkId: linkIdProp }: { userId: s
       const nextAssigned = row.assignedPropertyIds.filter((id) => !removeSet.has(id));
       const all = readProRelationships(userId);
       if (nextAssigned.length === 0) {
-        writeProRelationships(
-          userId,
-          all.filter((rel) => rel.id !== row.id),
-        );
-        refreshLocal();
-        showToast("Link removed.");
-        navigateToList();
+        await removeLink(row.id);
         clearDetailPropertySelection();
         return;
       }
