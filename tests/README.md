@@ -26,7 +26,7 @@ The server is declared in [`.cursor/mcp.json`](../.cursor/mcp.json) as
 
 Use a **dedicated Supabase test project** — never production credentials. See [`.env.test.example`](../.env.test.example).
 
-For manager E2E signup, set `AXIS_PAYMENT_WAIVER_CODE=FREE100` to skip Stripe checkout.
+For manager E2E signup, set `PROPLANE_PAYMENT_WAIVER_CODE=FREE100` to skip Stripe checkout.
 
 For manager/resident/admin portal E2E tests, run `npm run test:seed` then set `E2E_TESTS_ENABLED=1` in `.env.test`.
 
@@ -68,7 +68,7 @@ Configure these in your repository settings for CI:
 | `TEST_SUPABASE_ANON_KEY` | Test anon key |
 | `TEST_SUPABASE_SERVICE_ROLE_KEY` | Test service role key |
 | `TEST_AXIS_ADMIN_REGISTER_KEY` | Admin bootstrap key |
-| `TEST_AXIS_PAYMENT_WAIVER_CODE` | `FREE100` |
+| `TEST_PROPLANE_PAYMENT_WAIVER_CODE` (or legacy `TEST_AXIS_PAYMENT_WAIVER_CODE`) | `FREE100` |
 | `STRIPE_SECRET_KEY` | Stripe test mode key |
 | `STRIPE_WEBHOOK_SECRET` | Stripe test webhook secret |
 | `CRON_SECRET` | Cron route auth |

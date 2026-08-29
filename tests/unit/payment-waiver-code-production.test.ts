@@ -20,6 +20,7 @@ async function load() {
 }
 
 beforeEach(() => {
+  delete process.env.PROPLANE_PAYMENT_WAIVER_CODE;
   delete process.env.AXIS_PAYMENT_WAIVER_CODE;
   delete process.env.VERCEL_ENV;
 });
@@ -49,7 +50,7 @@ describe("in production", () => {
 
   it("honours a code that was configured deliberately", async () => {
     // Comping an account stays possible — it just has to be an explicit act.
-    process.env.AXIS_PAYMENT_WAIVER_CODE = "PARTNER2026";
+    process.env.PROPLANE_PAYMENT_WAIVER_CODE = "PARTNER2026";
     const { getPaymentWaiverCode, paymentWaiverCodeMatches } = await load();
     expect(getPaymentWaiverCode()).toBe("PARTNER2026");
     expect(paymentWaiverCodeMatches("partner2026")).toBe(true);
@@ -66,7 +67,7 @@ describe("outside production", () => {
   });
 
   it("still lets an explicit code override the built-in", async () => {
-    process.env.AXIS_PAYMENT_WAIVER_CODE = "STAGING1";
+    process.env.PROPLANE_PAYMENT_WAIVER_CODE = "STAGING1";
     const { getPaymentWaiverCode } = await load();
     expect(getPaymentWaiverCode()).toBe("STAGING1");
   });

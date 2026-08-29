@@ -8,6 +8,7 @@ describe("server-env and admin-register-key", () => {
   beforeEach(() => {
     process.env = { ...originalEnv, NODE_ENV: "test", VERCEL_ENV: undefined };
     delete process.env.AXIS_ADMIN_REGISTER_KEY;
+    delete process.env.PROPLANE_PAYMENT_WAIVER_CODE;
     delete process.env.AXIS_PAYMENT_WAIVER_CODE;
     delete process.env.AXIS_PROD_SUPABASE_REF;
     delete process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -37,8 +38,14 @@ describe("server-env and admin-register-key", () => {
   });
 
   it("respects explicit env overrides", () => {
-    process.env.AXIS_PAYMENT_WAIVER_CODE = "CUSTOM100";
+    process.env.PROPLANE_PAYMENT_WAIVER_CODE = "CUSTOM100";
     expect(getPaymentWaiverCode()).toBe("CUSTOM100");
+  });
+
+  it("falls back to the legacy AXIS_PAYMENT_WAIVER_CODE name when the new name is unset", () => {
+    process.env.AXIS_PAYMENT_WAIVER_CODE = "LEGACY100";
+    expect(getPaymentWaiverCode()).toBe("LEGACY100");
+    expect(paymentWaiverCodeMatches("legacy100")).toBe(true);
   });
 });
 

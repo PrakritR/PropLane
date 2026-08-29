@@ -206,6 +206,6 @@ Restart `npm run dev` after changes.
 - [ ] Create Stripe prices and webhook; set Stripe env vars.
 - [ ] Set `NEXT_PUBLIC_APP_URL` to production origin.
 - [ ] Set a strong random `AXIS_ADMIN_REGISTER_KEY` in production (admin registration is disabled if unset). Remove any legacy `NEXT_PUBLIC_AXIS_ADMIN_REGISTER_KEY` and rotate the previously exposed key.
-- [ ] Set `AXIS_PAYMENT_WAIVER_CODE=FREE100` (or another comp code) in production when lifetime waiver promos should work; production grants no waiver when unset.
+- [ ] Set `PROPLANE_PAYMENT_WAIVER_CODE=FREE100` (or another comp code) in production when lifetime waiver promos should work; production grants no waiver when unset.
 - [ ] Decide email confirmation policy for Auth.
 - [ ] Replace empty portal UI with real queries when backends are ready.
