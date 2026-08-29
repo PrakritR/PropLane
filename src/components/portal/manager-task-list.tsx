@@ -102,7 +102,10 @@ function taskListRowClusterFields(
     return {
       ...row,
       residentName: row.task.assignee?.name ?? "",
-      residentEmail: row.task.assignee?.email ?? "",
+      // A WorkAssignee is a type/id/name snapshot and carries no email, so the
+      // cluster key falls back to the assignee's name — which is the intended
+      // grouping here ("who is this on") rather than a resident identity.
+      residentEmail: "",
       propertyId: row.task.propertyId,
       propertyLabel: row.task.propertyTitle ?? propertyLabelForId(row.task.propertyId),
     };

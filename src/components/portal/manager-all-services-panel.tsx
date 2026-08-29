@@ -83,6 +83,7 @@ import { ManagerEditServiceRequestsModal } from "@/components/portal/manager-edi
 import { ManagerCreateWorkOrderModal } from "@/components/portal/manager-create-work-order-modal";
 import { useAppUi } from "@/components/providers/app-ui-provider";
 import { Button } from "@/components/ui/button";
+import { DropdownMenuItem } from "@/components/ui/dropdown-menu";
 import { usePortalRowSelection } from "@/hooks/use-portal-row-selection";
 import { useShallowTabId } from "@/components/ui/tabs";
 import {
@@ -421,13 +422,28 @@ export function ManagerAllServicesPanel({
     showToast(deleted === 1 ? "Service deleted." : `${deleted} services deleted.`);
   };
 
+  // PortalAdaptiveAction carries the rendered nodes, not a label/onClick pair:
+  // the row needs both an inline control and a menu item so it can tuck the
+  // action into the … menu when horizontal space runs out.
   const bulkSelectionActions: PortalAdaptiveAction[] = [
     {
       id: "delete",
-      label: "Delete",
-      onClick: bulkDeleteSelected,
-      dataAttr: "services-bulk-delete",
-      className: `${PORTAL_BULK_BAR_BTN} text-rose-800`,
+      node: (
+        <Button
+          type="button"
+          variant="outline"
+          className={`${PORTAL_BULK_BAR_BTN} text-rose-800`}
+          data-attr="services-bulk-delete"
+          onClick={bulkDeleteSelected}
+        >
+          Delete
+        </Button>
+      ),
+      menuItem: (
+        <DropdownMenuItem data-attr="services-bulk-delete" onSelect={bulkDeleteSelected}>
+          Delete
+        </DropdownMenuItem>
+      ),
     },
   ];
 
