@@ -8,13 +8,18 @@
  */
 import type { DemoManagerPaymentLedgerRow } from "@/data/demo-portal";
 import {
-  clusterRowsByResident,
+  clusterPortalListRows,
+  type PortalListGroupMode,
+} from "@/lib/portal-list-grouping";
+import {
   residentClusterKey,
   residentClusterLabel,
+  type PropertyCluster,
   type ResidentCluster,
 } from "@/lib/resident-row-clustering";
 
 export type ManagerPaymentResidentCluster = ResidentCluster<DemoManagerPaymentLedgerRow>;
+export type ManagerPaymentPropertyCluster = PropertyCluster<DemoManagerPaymentLedgerRow>;
 
 export function paymentLedgerResidentLabel(
   row: Pick<DemoManagerPaymentLedgerRow, "residentName" | "residentEmail">,
@@ -32,5 +37,19 @@ export function residentPaymentLedgerGroupKey(
 export function clusterManagerPaymentLedgerRows(
   rows: DemoManagerPaymentLedgerRow[],
 ): ManagerPaymentResidentCluster[] {
-  return clusterRowsByResident(rows, (row) => row.propertyName);
+  return clusterManagerPaymentLedgerRowsByMode(rows, "resident");
+}
+
+export function clusterManagerPaymentLedgerRowsByMode(
+  rows: DemoManagerPaymentLedgerRow[],
+  mode: PortalListGroupMode,
+): ManagerPaymentResidentCluster[] | ManagerPaymentPropertyCluster[] {
+  return clusterPortalListRows(
+    rows.map((row) => ({
+      ...row,
+      propertyLabel: row.propertyName,
+    })),
+    mode,
+    (row) => row.propertyName,
+  );
 }

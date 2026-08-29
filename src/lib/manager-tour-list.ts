@@ -14,7 +14,11 @@ import {
   type PlannedEvent,
 } from "@/lib/demo-admin-scheduling";
 import type { ManagerTourBucketId } from "@/lib/portal-detail-routes";
-import { clusterRowsByResident, type ResidentCluster } from "@/lib/resident-row-clustering";
+import {
+  type PropertyCluster,
+  type ResidentCluster,
+} from "@/lib/resident-row-clustering";
+import { clusterPortalListRows, type PortalListGroupMode } from "@/lib/portal-list-grouping";
 import type { ScheduledInboxMessageRecord } from "@/lib/scheduled-inbox-messages";
 import { summariseScheduledSends, type ScheduledSendSummary } from "@/lib/scheduled-send-summary";
 
@@ -197,17 +201,27 @@ export function countManagerTourRowsByBucket(rows: ManagerTourRow[]): Record<Man
 }
 
 export type ManagerTourListCluster = ResidentCluster<ManagerTourRow>;
+export type ManagerTourPropertyCluster = PropertyCluster<ManagerTourRow>;
 
-/** Group tour rows by guest, matching the Payments resident-cluster shell. */
+function tourRowsForClustering(rows: readonly ManagerTourRow[]) {
+  return rows.map((row) => ({
+    ...row,
+    residentName: row.guestName,
+    residentEmail: row.guestEmail,
+    propertyLabel: row.propertyTitle,
+  }));
+}
+
+/** Group tour rows by guest or house, matching the Payments list shell. */
 export function clusterManagerTourListRows(rows: readonly ManagerTourRow[]): ManagerTourListCluster[] {
-  return clusterRowsByResident(
-    rows.map((row) => ({
-      ...row,
-      residentName: row.guestName,
-      residentEmail: row.guestEmail,
-    })),
-    (row) => row.propertyTitle || null,
-  );
+  return clusterManagerTourListRowsByMode(rows, "resident") as ManagerTourListCluster[];
+}
+
+export function clusterManagerTourListRowsByMode(
+  rows: readonly ManagerTourRow[],
+  mode: PortalListGroupMode,
+): ManagerTourListCluster[] | ManagerTourPropertyCluster[] {
+  return clusterPortalListRows(tourRowsForClustering(rows), mode, (row) => row.propertyTitle || null);
 }
 
 /** Upcoming tours soonest-first; past newest-first; pending by requested time. */
@@ -229,6 +243,28 @@ export function sortManagerTourClustersForBucket(
   bucket: ManagerTourBucketId,
 ): ManagerTourListCluster[] {
   const clusterSortKey = (cluster: ManagerTourListCluster) => {
+    if (!cluster.rows.length) return bucket === "past" ? -Infinity : Infinity;
+    const times = cluster.rows.map((row) => row.startMs);
+    return bucket === "past" ? Math.max(...times) : Math.min(...times);
+  };
+  const clusterStart = new Map(clusters.map((cluster) => [cluster.key, clusterSortKey(cluster)]));
+  const sorted = clusters.map((cluster) => ({
+    ...cluster,
+    rows: sortManagerTourRowsForBucket(cluster.rows, bucket),
+  }));
+  if (bucket === "upcoming" || bucket === "pending") {
+    sorted.sort((a, b) => (clusterStart.get(a.key) ?? Infinity) - (clusterStart.get(b.key) ?? Infinity));
+  } else {
+    sorted.sort((a, b) => (clusterStart.get(b.key) ?? -Infinity) - (clusterStart.get(a.key) ?? -Infinity));
+  }
+  return sorted;
+}
+
+export function sortManagerTourPropertyClustersForBucket(
+  clusters: ManagerTourPropertyCluster[],
+  bucket: ManagerTourBucketId,
+): ManagerTourPropertyCluster[] {
+  const clusterSortKey = (cluster: ManagerTourPropertyCluster) => {
     if (!cluster.rows.length) return bucket === "past" ? -Infinity : Infinity;
     const times = cluster.rows.map((row) => row.startMs);
     return bucket === "past" ? Math.max(...times) : Math.min(...times);

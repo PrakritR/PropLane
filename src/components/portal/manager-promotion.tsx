@@ -6,7 +6,7 @@ import {
   ManagerPortalPageShell,
   PORTAL_HEADER_PRIMARY_ACTION_BTN,
 } from "@/components/portal/portal-metrics";
-import { ApplicationFilterSortFields } from "@/components/portal/application-filter-sort-fields";
+import { PortalListGroupFilterFields } from "@/components/portal/portal-list-group-filter-fields";
 import { PortalFilterSortSheet, portalFilterActiveCount } from "@/components/portal/portal-filter-sort-sheet";
 import { PORTAL_PROPERTY_FILTER_SHEET_CLASS } from "@/components/portal/portal-filter-shell";
 import { PortalRecordDetailPage } from "@/components/portal/portal-record-detail-page";
@@ -16,7 +16,10 @@ import {
   samePropertyId,
 } from "@/lib/manager-portfolio-access";
 import { Button } from "@/components/ui/button";
+import { BulkActionBar } from "@/components/ui/bulk-action-bar";
+import { Badge } from "@/components/ui/badge";
 import { Modal, ModalFooter } from "@/components/ui/modal";
+import { usePortalRowSelection } from "@/hooks/use-portal-row-selection";
 import { useAppUi } from "@/components/providers/app-ui-provider";
 import { useManagerUserId } from "@/hooks/use-manager-user-id";
 import { track } from "@/lib/analytics/track-client";
@@ -32,7 +35,7 @@ import {
   PORTAL_LIST_ADD_ICONS,
   PORTAL_LIST_ADD_ROW_WRAP_CLASS,
 } from "@/components/portal/portal-list-add-row";
-import { PromotionAssetStack } from "@/components/portal/promotion-asset-list";
+import { PromotionAssetStack, promotionAssetCanEdit } from "@/components/portal/promotion-asset-list";
 import {
   PromotionFlyerAssetDetail,
   PromotionUploadAssetDetail,
@@ -107,6 +110,16 @@ import {
   syncPropertyPipelineFromServer,
 } from "@/lib/demo-property-pipeline";
 import { AGENT_PENDING_ACTIONS_EVENT } from "@/lib/axis-assistant/pending-actions-events";
+import {
+  clusterRowsByProperty,
+  type PropertyCluster,
+} from "@/lib/resident-row-clustering";
+import {
+  DEFAULT_PORTAL_LIST_GROUP_MODE,
+  portalListGroupModeActiveCount,
+  type PortalListGroupMode,
+} from "@/lib/portal-list-grouping";
+import { PORTAL_BULK_BAR_BTN } from "@/lib/portal-bulk-bar";
 
 function promotionEntryId(asset: PromotionAsset): string | null {
   if (asset.kind === "flyer") return asset.flyerEntry?.id ?? null;
@@ -180,6 +193,7 @@ export function ManagerPromotion({
   const [editingEntryId, setEditingEntryId] = useState<string | null>(null);
   const [demoPromotionGeneratePending, setDemoPromotionGeneratePending] = useState(false);
   const [propertyFilters, setPropertyFilters] = useState<string[]>([]);
+  const [groupMode, setGroupMode] = useState<PortalListGroupMode>(DEFAULT_PORTAL_LIST_GROUP_MODE);
 
   useEffect(() => {
     if (!authReady) return;
@@ -219,6 +233,24 @@ export function ManagerPromotion({
     if (propertyFilters.length === 0) return assets;
     return assets.filter((a) => propertyFilters.some((id) => samePropertyId(a.row.propertyId, id)));
   }, [assets, propertyFilters]);
+
+  const { selectedIds, toggleSelected, clearSelection } = usePortalRowSelection(
+    `${propertyFilters.join(",")}:${groupMode}`,
+  );
+  const selectedAssets = useMemo(
+    () => propertyScopedAssets.filter((asset) => selectedIds.has(asset.id)),
+    [propertyScopedAssets, selectedIds],
+  );
+
+  const promotionPropertyClusters = useMemo((): PropertyCluster<PromotionAsset>[] => {
+    return clusterRowsByProperty(
+      propertyScopedAssets.map((asset) => ({
+        ...asset,
+        propertyId: asset.row.propertyId,
+        propertyLabel: asset.propertyLabel,
+      })),
+    );
+  }, [propertyScopedAssets]);
 
   const listings = useMemo<ManagerPromotionPropertyOption[]>(() => {
     void propertyTick;
@@ -839,20 +871,26 @@ export function ManagerPromotion({
 
   const promotionFilterSheet = (
     <PortalFilterSortSheet
-      activeCount={portalFilterActiveCount([propertyFilters])}
+      activeCount={portalFilterActiveCount([propertyFilters]) + portalListGroupModeActiveCount(groupMode)}
       compactPanel
-      filterFieldCount={1}
+      filterFieldCount={filterPropertyOptions.length > 1 ? 2 : 1}
       constrainDropdownToTitleBand
       mobileFlushBody
       className={PORTAL_PROPERTY_FILTER_SHEET_CLASS}
-      onReset={() => setPropertyFilters([])}
+      onReset={() => {
+        setPropertyFilters([]);
+        setGroupMode(DEFAULT_PORTAL_LIST_GROUP_MODE);
+      }}
       dataAttr="promotion-filter-sheet-open"
     >
-      <ApplicationFilterSortFields
+      <PortalListGroupFilterFields
+        groupMode={groupMode}
+        onGroupModeChange={setGroupMode}
         propertyOptions={filterPropertyOptions}
         propertyFilters={propertyFilters}
         onPropertyFiltersChange={setPropertyFilters}
-        dataAttr="promotion-filter-property"
+        propertyDataAttr="promotion-filter-property"
+        groupModeDataAttr="promotion-filter-group-mode"
       />
     </PortalFilterSortSheet>
   );
@@ -896,15 +934,89 @@ export function ManagerPromotion({
           </div>
         ) : (
           <div className={PORTAL_LIST_PAGE_BODY}>
-            <PromotionAssetStack
-              assets={propertyScopedAssets}
-              onView={openViewAsset}
-              onEdit={openEditAsset}
-            />
+            {groupMode === "house" ? (
+              <div className="space-y-3" data-attr="promotion-house-groups">
+                {promotionPropertyClusters.map((cluster) => (
+                  <ApplicationHouseholdCluster
+                    key={cluster.key}
+                    header={
+                      <>
+                        <span className="truncate text-xs font-semibold text-foreground">
+                          {cluster.propertyLabel}
+                        </span>
+                        <Badge tone="info">
+                          {cluster.rows.length === 1 ? "1 promotion" : `${cluster.rows.length} promotions`}
+                        </Badge>
+                      </>
+                    }
+                  >
+                    <PromotionAssetStack
+                      assets={cluster.rows}
+                      onView={openViewAsset}
+                      onEdit={openEditAsset}
+                      selectedIds={selectedIds}
+                      onToggleSelected={toggleSelected}
+                    />
+                  </ApplicationHouseholdCluster>
+                ))}
+              </div>
+            ) : (
+              <PromotionAssetStack
+                assets={propertyScopedAssets}
+                onView={openViewAsset}
+                onEdit={openEditAsset}
+                selectedIds={selectedIds}
+                onToggleSelected={toggleSelected}
+              />
+            )}
             <div className={PORTAL_LIST_ADD_ROW_WRAP_CLASS}>{promotionListAddRow}</div>
           </div>
         )}
       </div>
+
+      {selectedIds.size > 0 ? (
+        <BulkActionBar count={selectedIds.size} hideCount variant="payments">
+          <div className="flex min-w-0 flex-wrap items-center justify-start gap-2">
+            {selectedIds.size === 1 &&
+            selectedAssets[0] &&
+            promotionAssetCanEdit(selectedAssets[0], openEditAsset) ? (
+              <Button
+                type="button"
+                variant="outline"
+                className={PORTAL_BULK_BAR_BTN}
+                data-attr="promotion-bulk-edit"
+                onClick={() => openEditAsset(selectedAssets[0]!)}
+              >
+                Edit
+              </Button>
+            ) : null}
+            <Button
+              type="button"
+              variant="outline"
+              className={`${PORTAL_BULK_BAR_BTN} text-rose-800`}
+              data-attr="promotion-bulk-delete"
+              onClick={() => {
+                if (selectedAssets.length === 0) return;
+                const label =
+                  selectedAssets.length === 1
+                    ? selectedAssets[0]!.flyerEntry?.title ??
+                      selectedAssets[0]!.textEntry?.title ??
+                      "this promotion"
+                    : `${selectedAssets.length} promotions`;
+                if (!window.confirm(`Delete ${label}? This cannot be undone.`)) return;
+                for (const asset of selectedAssets) deleteAsset(asset);
+                clearSelection();
+                setTick((n) => n + 1);
+                showToast(
+                  selectedAssets.length === 1 ? "Promotion deleted." : `${selectedAssets.length} promotions deleted.`,
+                );
+              }}
+            >
+              Delete
+            </Button>
+          </div>
+        </BulkActionBar>
+      ) : null}
 
       {promotionModals}
     </ManagerPortalPageShell>

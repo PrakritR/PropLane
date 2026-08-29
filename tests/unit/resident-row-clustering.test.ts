@@ -10,10 +10,14 @@
  */
 import { describe, expect, it } from "vitest";
 import {
+  clusterRowsByProperty,
   clusterRowsByResident,
+  propertyClusterKey,
+  propertyClusterLabel,
   residentClusterKey,
   residentClusterLabel,
 } from "@/lib/resident-row-clustering";
+import { clusterPortalListRows } from "@/lib/portal-list-grouping";
 
 const row = (over: Partial<Parameters<typeof residentClusterKey>[0]> & { id: string }) => ({
   residentName: "Ahalya Bindhu Rajesh",
@@ -105,5 +109,62 @@ describe("clustering", () => {
 
   it("handles an empty list", () => {
     expect(clusterRowsByResident([])).toEqual([]);
+  });
+});
+
+describe("property clustering", () => {
+  const propertyRow = (over: Partial<{ id: string; propertyId?: string; propertyLabel?: string }> & { id: string }) => ({
+    propertyId: "prop-5257",
+    propertyLabel: "5257 Brooklyn Ave NE",
+    ...over,
+  });
+
+  it("groups rows under one property header", () => {
+    const out = clusterRowsByProperty([
+      propertyRow({ id: "1" }),
+      propertyRow({ id: "2", propertyId: "prop-5257" }),
+      propertyRow({ id: "3", propertyId: "prop-5259", propertyLabel: "5259 Brooklyn Ave NE" }),
+    ]);
+    expect(out).toHaveLength(2);
+    expect(out[0]!.rows.map((r) => r.id)).toEqual(["1", "2"]);
+    expect(out[1]!.propertyLabel).toBe("5259 Brooklyn Ave NE");
+  });
+
+  it("prefers property id for the key", () => {
+    expect(propertyClusterKey(propertyRow({ id: "1" }))).toBe("property:prop-5257");
+  });
+
+  it("falls back to label then row id", () => {
+    expect(
+      propertyClusterKey({ id: "solo", propertyId: "", propertyLabel: "4709A 8th Ave NE" }),
+    ).toBe("label:4709a 8th ave ne");
+    expect(propertyClusterKey({ id: "solo", propertyId: "", propertyLabel: "" })).toBe("row:solo");
+  });
+
+  it("shows an em dash for missing property labels", () => {
+    expect(propertyClusterLabel({ id: "1", propertyLabel: "" })).toBe("—");
+  });
+});
+
+describe("clusterPortalListRows", () => {
+  it("switches between resident and house modes", () => {
+    const rows = [
+      {
+        id: "1",
+        residentName: "Jordan",
+        residentEmail: "j@example.com",
+        propertyId: "p1",
+        propertyLabel: "House A",
+      },
+      {
+        id: "2",
+        residentName: "Jordan",
+        residentEmail: "j@example.com",
+        propertyId: "p2",
+        propertyLabel: "House B",
+      },
+    ];
+    expect(clusterPortalListRows(rows, "resident")).toHaveLength(1);
+    expect(clusterPortalListRows(rows, "house")).toHaveLength(2);
   });
 });
