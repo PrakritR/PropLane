@@ -626,7 +626,7 @@ export function ResidentDashboard({
   const totalBalanceDue = pendingCharges.reduce((sum, c) => sum + parseMoneyLabel(c.balanceLabel), 0);
 
 
-  const servicesHref = canUseServices ? `${BASE}/services/requests` : `${BASE}/services`;
+  const servicesHref = canUseServices ? `${BASE}/services` : `${BASE}/services`;
   const houseDetailsHref = `${BASE}/move-in`;
   const leaseUnlocked = applicationApproved;
   const leaseItems = leaseUnlocked && leaseRow ? [leaseRow] : [];
@@ -882,7 +882,7 @@ export function ResidentDashboard({
               }
               return (
                 <IssueRow
-                  href={`${BASE}/services/work-orders`}
+                  href={`${BASE}/services`}
                   dot={sectionAccentDot(sectionTone)}
                   title={item.row.title?.trim() || "Work order"}
                   subtitle={[item.row.propertyName, item.row.unit].filter(Boolean).join(" · ") || "Maintenance"}

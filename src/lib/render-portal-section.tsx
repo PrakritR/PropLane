@@ -1229,19 +1229,19 @@ export async function renderPortalSection(
       if (section === "services") {
         const tierGate = residentManagerTierGate("services", residentManagerTier, meta.label);
         if (tierGate) return tierGate;
-        if (!tabParts?.length) {
-          redirect(`${def.basePath}/services/requests`);
+        if (tabParts?.length) {
+          const legacy = tabParts[0];
+          if (legacy === "requests" || legacy === "work-orders") {
+            redirect(`${def.basePath}/services`);
+          }
+          notFound();
         }
-        if (tabParts.length > 1) notFound();
-        const servicesTab = tabParts[0]!;
-        if (!["requests", "work-orders"].includes(servicesTab)) notFound();
         const ResidentServicesPanel = await loadResidentServicesPanel();
-        return <ResidentServicesPanel tabId={servicesTab as "requests" | "work-orders"} basePath={def.basePath} />;
+        return <ResidentServicesPanel basePath={def.basePath} />;
       }
       if (tabParts?.length) notFound();
       if (section === "work-orders") {
-        const ResidentServicesPanel = await loadResidentServicesPanel();
-        return <ResidentServicesPanel tabId="work-orders" basePath={def.basePath} />;
+        redirect(`${def.basePath}/services`);
       }
     }
   }

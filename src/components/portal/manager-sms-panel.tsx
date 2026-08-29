@@ -1229,12 +1229,12 @@ function Bubble({
   return (
     <div className="group/msg flex w-full min-w-0">
       <div
-        className={`flex min-w-0 max-w-[min(88%,20rem)] flex-col ${
+        className={`portal-inbox-bubble-wrap flex min-w-0 flex-col ${
           outbound ? "ml-auto items-end" : "mr-auto items-start"
         }`}
       >
         <div
-          className={`relative w-full px-3.5 py-2 text-[15px] leading-relaxed sm:text-sm portal-inbox-inbound-bubble ${radius} ${
+          className={`relative w-full px-4 py-2.5 text-[15px] leading-relaxed sm:text-base portal-inbox-inbound-bubble ${radius} ${
             outbound
               ? "portal-inbox-outbound-bubble"
               : cluster === "single"

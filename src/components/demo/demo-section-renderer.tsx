@@ -228,7 +228,7 @@ export function DemoSectionRenderer({
     case "move-in":
       return <ResidentMoveInDemo />;
     case "services":
-      return <ResidentServicesPanel tabId={(tabId as "requests" | "work-orders") ?? "requests"} basePath={basePath} />;
+      return <ResidentServicesPanel basePath={basePath} />;
     case "inbox":
     case "communication":
       return <ResidentInboxPanel tabId={tabId} />;

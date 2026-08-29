@@ -232,8 +232,7 @@ export async function notifyResidentOfManagerAuthoredItem(
 
   const kindLabel = input.kind === "service-request" ? "add-on service" : "work order";
   const title = input.title.trim() || (input.kind === "service-request" ? "Add-on service" : "Work order");
-  const portalPath =
-    input.kind === "service-request" ? "/resident/services/requests" : "/resident/services/work-orders";
+  const portalPath = "/resident/services";
 
   await notifyWorkOrderEvent(db, {
     event: "created",

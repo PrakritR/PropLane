@@ -400,8 +400,7 @@ export function ManagerResidents({
   const [applicationReminderPreviewBusyId, setApplicationReminderPreviewBusyId] = useState<string | null>(null);
   const [applicationReminderBusyId, setApplicationReminderBusyId] = useState<string | null>(null);
 
-  // Services tab replica (Requests / Work orders — mirrors resident-services-panel.tsx)
-  const [svcSubTab, setSvcSubTab] = useState<"requests" | "work-orders">("requests");
+  // Services tab — unified add-on services + maintenance (mirrors resident-services-panel.tsx)
   const [svcReqBucket, setSvcReqBucket] = useState<ManagerServiceRequestBucket>("pending");
   const [svcWoBucket, setSvcWoBucket] = useState<ManagerWorkOrderBucket>("open");
   const [svcExpandedId, setSvcExpandedId] = useState<string | null>(null);
@@ -1087,7 +1086,6 @@ export function ManagerResidents({
     setPrevSelectedId(activeResidentId);
     if (activeResidentId) {
       setChargeBucket("pending");
-      setSvcSubTab("requests");
       setSvcReqBucket("pending");
       setSvcWoBucket("open");
       setSvcExpandedId(null);
@@ -2679,24 +2677,38 @@ export function ManagerResidents({
   );
 
   const residentServicesTabFooterActions = (
-    <Button
-      type="button"
-      variant="primary"
-      className={PORTAL_DETAIL_BTN}
-      data-attr={svcSubTab === "requests" ? "resident-add-service-request" : "resident-add-work-order"}
-      disabled={!canAddResidentServiceItem}
-      title={
-        canAddResidentServiceItem
-          ? undefined
-          : "Link this resident to a property before adding services."
-      }
-      onClick={() => {
-        if (svcSubTab === "requests") setAddResidentRequestOpen(true);
-        else setAddResidentWorkOrderOpen(true);
-      }}
-    >
-      {svcSubTab === "requests" ? "Add service" : "Add work order"}
-    </Button>
+    <>
+      <Button
+        type="button"
+        variant="outline"
+        className={PORTAL_DETAIL_BTN}
+        data-attr="resident-add-work-order"
+        disabled={!canAddResidentServiceItem}
+        title={
+          canAddResidentServiceItem
+            ? undefined
+            : "Link this resident to a property before adding services."
+        }
+        onClick={() => setAddResidentWorkOrderOpen(true)}
+      >
+        Add maintenance
+      </Button>
+      <Button
+        type="button"
+        variant="primary"
+        className={PORTAL_DETAIL_BTN}
+        data-attr="resident-add-service-request"
+        disabled={!canAddResidentServiceItem}
+        title={
+          canAddResidentServiceItem
+            ? undefined
+            : "Link this resident to a property before adding services."
+        }
+        onClick={() => setAddResidentRequestOpen(true)}
+      >
+        Add service
+      </Button>
+    </>
   );
 
   const residentDetailBottomBarActions = useMemo(() => {
@@ -2930,132 +2942,119 @@ export function ManagerResidents({
 
                             {resolvedDetailTab === "services" ? (
                             <ResidentDetailTabPanel>
-                              <div className="-mx-2.5 mb-3 bg-background sm:-mx-4 lg:mx-0">
-                                <LocalDestinationNav
-                                  items={[
-                                    { id: "requests", label: "Requests", dataAttr: "resident-services-tab-requests" },
-                                    { id: "work-orders", label: "Work orders", dataAttr: "resident-services-tab-work-orders" },
-                                  ]}
-                                  activeId={svcSubTab}
-                                  onChange={(id) => {
-                                    setSvcSubTab(id as "requests" | "work-orders");
-                                    setSvcExpandedId(null);
-                                  }}
-                                  ariaLabel="Resident services type"
-                                  className="rounded-none border-0 border-b border-border bg-transparent p-0 md:rounded-2xl md:border md:border-border md:bg-accent/30 md:p-1"
-                                />
-                              </div>
-
-                              {svcSubTab === "requests" ? (
-                                <div>
-                                  <div className="mb-3">
-                                    <LocalDestinationNav
-                                      items={(
-                                        ["pending", "approved", "denied"] as const
-                                      ).map((id) => ({
-                                        id,
-                                        label: id === "pending" ? "Pending" : id === "approved" ? "Approved" : "Denied",
-                                        count: residentServiceRequestsCounts[id],
-                                        dataAttr: `resident-service-request-bucket-${id}`,
-                                      }))}
-                                      activeId={svcReqBucket}
-                                      onChange={(id) => setSvcReqBucket(id as ManagerServiceRequestBucket)}
-                                      ariaLabel="Request status"
-                                      size="toolbar"
-                                    />
-                                  </div>
-                                  {residentServiceRequests.length === 0 ? (
-                                    <PortalDataTableEmpty message="No requests yet." icon="service" />
-                                  ) : residentFilteredServiceRequests.length === 0 ? (
-                                    <PortalDataTableEmpty message="No requests in this status yet." icon="service" />
-                                  ) : (
-                                    <div className={`mt-3 ${PORTAL_DATA_TABLE_WRAP}`}>
-                                      <div className={`${PORTAL_DATA_TABLE_SCROLL} overflow-x-auto`}>
-                                        <table className="w-full min-w-[28rem] table-fixed border-collapse text-left text-sm lg:min-w-0">
-                                          <thead>
-                                            <tr className={PORTAL_TABLE_HEAD_ROW}>
-                                              <th className={`${MANAGER_TABLE_TH} hidden text-left sm:table-cell`}>Type</th>
-                                              <th className={`${MANAGER_TABLE_TH} text-left`}>Item</th>
-                                              <th className={`${MANAGER_TABLE_TH} text-left`}>Status</th>
-                                              <th className={`${MANAGER_TABLE_TH} hidden text-left sm:table-cell`}>Charges</th>
-                                              <th className={PORTAL_TABLE_EXPAND_TH}>
-                                                <span className="sr-only">Expand</span>
-                                              </th>
-                                            </tr>
-                                          </thead>
-                                          <tbody>
-                                            {residentFilteredServiceRequests.map((req) => {
-                                              const rowId = `request-${req.id}`;
-                                              return (
-                                                <Fragment key={rowId}>
-                                                  <tr
-                                                    className={PORTAL_TABLE_TR_EXPANDABLE}
-                                                    onClick={createPortalRowExpandClick(() =>
-                                                      setSvcExpandedId((c) => (c === rowId ? null : rowId)),
-                                                    )}
-                                                    aria-expanded={svcExpandedId === rowId}
-                                                  >
-                                                    <td className={`${PORTAL_TABLE_TD} hidden text-muted sm:table-cell`}>Request</td>
-                                                    <td className={`${PORTAL_TABLE_TD} min-w-0 font-medium text-foreground`}>
-                                                      <span className="block text-xs text-muted sm:hidden">Request</span>
-                                                      <span className="break-words">{req.offerName}</span>
-                                                    </td>
-                                                    <td className={PORTAL_TABLE_TD}>
-                                                      <ServiceStatusBadge status={req.status} />
-                                                    </td>
-                                                    <td className={`${PORTAL_TABLE_TD} hidden sm:table-cell`}>
-                                                      {managerServiceRequestPricingSummary(req)}
-                                                    </td>
-                                                    <PortalTableExpandCell expanded={svcExpandedId === rowId} />
-                                                  </tr>
-                                                  {svcExpandedId === rowId ? (
-                                                    <tr className={PORTAL_TABLE_DETAIL_ROW}>
-                                                      <td colSpan={5} className={PORTAL_TABLE_DETAIL_CELL}>
-                                                        <ManagerServiceRequestDetail
-                                                          req={req}
-                                                          propertyLabel={selected.propertyLabel || "—"}
-                                                          onUpdated={() => setSrTick((n) => n + 1)}
-                                                          onApproved={() => setSvcReqBucket("approved")}
-                                                          onDenied={() => setSvcReqBucket("denied")}
-                                                          onCollapsed={() => setSvcExpandedId(null)}
-                                                        />
-                                                      </td>
-                                                    </tr>
-                                                  ) : null}
-                                                </Fragment>
-                                              );
-                                            })}
-                                          </tbody>
-                                        </table>
-                                      </div>
-                                    </div>
-                                  )}
-                                </div>
-                              ) : (
-                                <div>
-                                  <div className="mb-3">
-                                    <LocalDestinationNav
-                                      items={(
-                                        ["open", "scheduled", "completed"] as const
-                                      ).map((id) => ({
-                                        id,
-                                        label: id === "open" ? "Pending" : id === "scheduled" ? "Scheduled" : "Completed",
-                                        count: residentWorkOrderCounts[id],
-                                        dataAttr: `resident-work-order-bucket-${id}`,
-                                      }))}
-                                      activeId={svcWoBucket}
-                                      onChange={(id) => setSvcWoBucket(id as ManagerWorkOrderBucket)}
-                                      ariaLabel="Work order status"
-                                      size="toolbar"
-                                    />
-                                  </div>
-                                  <ManagerWorkOrdersPanel
-                                    allRows={residentWorkOrders}
-                                    bucket={svcWoBucket}
-                                    onAfterSchedule={() => setSvcWoBucket("scheduled")}
+                              <div>
+                                <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted">
+                                  Add-on services
+                                </p>
+                                <div className="mb-3">
+                                  <LocalDestinationNav
+                                    items={(
+                                      ["pending", "approved", "denied"] as const
+                                    ).map((id) => ({
+                                      id,
+                                      label: id === "pending" ? "Pending" : id === "approved" ? "Approved" : "Denied",
+                                      count: residentServiceRequestsCounts[id],
+                                      dataAttr: `resident-service-request-bucket-${id}`,
+                                    }))}
+                                    activeId={svcReqBucket}
+                                    onChange={(id) => setSvcReqBucket(id as ManagerServiceRequestBucket)}
+                                    ariaLabel="Service request status"
+                                    size="toolbar"
                                   />
                                 </div>
-                              )}
+                                {residentServiceRequests.length === 0 ? (
+                                  <PortalDataTableEmpty message="No services yet." icon="service" />
+                                ) : residentFilteredServiceRequests.length === 0 ? (
+                                  <PortalDataTableEmpty message="No services in this status yet." icon="service" />
+                                ) : (
+                                  <div className={`mt-3 ${PORTAL_DATA_TABLE_WRAP}`}>
+                                    <div className={`${PORTAL_DATA_TABLE_SCROLL} overflow-x-auto`}>
+                                      <table className="w-full min-w-[28rem] table-fixed border-collapse text-left text-sm lg:min-w-0">
+                                        <thead>
+                                          <tr className={PORTAL_TABLE_HEAD_ROW}>
+                                            <th className={`${MANAGER_TABLE_TH} hidden text-left sm:table-cell`}>Type</th>
+                                            <th className={`${MANAGER_TABLE_TH} text-left`}>Item</th>
+                                            <th className={`${MANAGER_TABLE_TH} text-left`}>Status</th>
+                                            <th className={`${MANAGER_TABLE_TH} hidden text-left sm:table-cell`}>Charges</th>
+                                            <th className={PORTAL_TABLE_EXPAND_TH}>
+                                              <span className="sr-only">Expand</span>
+                                            </th>
+                                          </tr>
+                                        </thead>
+                                        <tbody>
+                                          {residentFilteredServiceRequests.map((req) => {
+                                            const rowId = `request-${req.id}`;
+                                            return (
+                                              <Fragment key={rowId}>
+                                                <tr
+                                                  className={PORTAL_TABLE_TR_EXPANDABLE}
+                                                  onClick={createPortalRowExpandClick(() =>
+                                                    setSvcExpandedId((c) => (c === rowId ? null : rowId)),
+                                                  )}
+                                                  aria-expanded={svcExpandedId === rowId}
+                                                >
+                                                  <td className={`${PORTAL_TABLE_TD} hidden text-muted sm:table-cell`}>Service</td>
+                                                  <td className={`${PORTAL_TABLE_TD} min-w-0 font-medium text-foreground`}>
+                                                    <span className="block text-xs text-muted sm:hidden">Service</span>
+                                                    <span className="break-words">{req.offerName}</span>
+                                                  </td>
+                                                  <td className={PORTAL_TABLE_TD}>
+                                                    <ServiceStatusBadge status={req.status} />
+                                                  </td>
+                                                  <td className={`${PORTAL_TABLE_TD} hidden sm:table-cell`}>
+                                                    {managerServiceRequestPricingSummary(req)}
+                                                  </td>
+                                                  <PortalTableExpandCell expanded={svcExpandedId === rowId} />
+                                                </tr>
+                                                {svcExpandedId === rowId ? (
+                                                  <tr className={PORTAL_TABLE_DETAIL_ROW}>
+                                                    <td colSpan={5} className={PORTAL_TABLE_DETAIL_CELL}>
+                                                      <ManagerServiceRequestDetail
+                                                        req={req}
+                                                        propertyLabel={selected.propertyLabel || "—"}
+                                                        onUpdated={() => setSrTick((n) => n + 1)}
+                                                        onApproved={() => setSvcReqBucket("approved")}
+                                                        onDenied={() => setSvcReqBucket("denied")}
+                                                        onCollapsed={() => setSvcExpandedId(null)}
+                                                      />
+                                                    </td>
+                                                  </tr>
+                                                ) : null}
+                                              </Fragment>
+                                            );
+                                          })}
+                                        </tbody>
+                                      </table>
+                                    </div>
+                                  </div>
+                                )}
+                              </div>
+                              <div className="mt-6">
+                                <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted">
+                                  Maintenance
+                                </p>
+                                <div className="mb-3">
+                                  <LocalDestinationNav
+                                    items={(
+                                      ["open", "scheduled", "completed"] as const
+                                    ).map((id) => ({
+                                      id,
+                                      label: id === "open" ? "Pending" : id === "scheduled" ? "Scheduled" : "Completed",
+                                      count: residentWorkOrderCounts[id],
+                                      dataAttr: `resident-work-order-bucket-${id}`,
+                                    }))}
+                                    activeId={svcWoBucket}
+                                    onChange={(id) => setSvcWoBucket(id as ManagerWorkOrderBucket)}
+                                    ariaLabel="Maintenance status"
+                                    size="toolbar"
+                                  />
+                                </div>
+                                <ManagerWorkOrdersPanel
+                                  allRows={residentWorkOrders}
+                                  bucket={svcWoBucket}
+                                  onAfterSchedule={() => setSvcWoBucket("scheduled")}
+                                />
+                              </div>
                             </ResidentDetailTabPanel>
                             ) : null}
 
