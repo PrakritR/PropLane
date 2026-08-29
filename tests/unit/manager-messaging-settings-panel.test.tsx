@@ -196,12 +196,49 @@ describe("ManagerMessagingSettingsPanel", () => {
     render(<ManagerMessagingSettingsPanel />);
 
     fireEvent.click(
-      await screen.findByRole("button", { name: "Refresh eligibility" }),
+      await screen.findByRole("button", { name: "Check eligibility" }),
     );
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
     expect(JSON.parse(String(fetchMock.mock.calls[1]?.[1]?.body))).toEqual({
       action: "refresh_eligibility",
     });
+  });
+
+  it("lets a brand-new account with no number check its unconfirmed plan", async () => {
+    // A manager who has never been reconciled has no stored entitlement row,
+    // which reads back as `plan_unreadable`. Without a check control this state
+    // is a dead end: no number to request, nothing to buy, nothing to retry.
+    const unchecked: ManagerMessagingNumberStatus = {
+      ...pausedStatus,
+      entitlement: { eligible: false, reason: "plan_unreadable" },
+      number: null,
+    };
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(Response.json(unchecked))
+      .mockResolvedValueOnce(
+        Response.json({
+          ...unchecked,
+          entitlement: { eligible: false, reason: "free" },
+        }),
+      );
+    vi.stubGlobal("fetch", fetchMock);
+    render(<ManagerMessagingSettingsPanel />);
+
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Check eligibility" }),
+    );
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+    expect(JSON.parse(String(fetchMock.mock.calls[1]?.[1]?.body))).toEqual({
+      action: "refresh_eligibility",
+    });
+    // Once checked, the state is a real plan answer with a real next step.
+    expect(
+      await screen.findByText(
+        "A dedicated number is included with an active paid Pro or Business plan.",
+      ),
+    ).toBeTruthy();
+    expect(screen.getByRole("link", { name: "View plans" })).toBeTruthy();
   });
 
   it("gives ineligible managers a direct path to billing", async () => {

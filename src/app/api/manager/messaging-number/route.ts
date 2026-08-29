@@ -274,7 +274,16 @@ export async function POST(req: Request) {
 
   if (action === "refresh_eligibility") {
     const current = await buildStatus(actor.db, actor.userId);
-    if (!current.number?.phoneNumber) {
+    // A manager with no number may still refresh when their plan has never been
+    // resolved - a new account has no stored entitlement row, which reads back
+    // as `plan_unreadable`, and this action is the only thing that settles it.
+    // A manager whose plan IS known still needs a number first, so status
+    // checks cannot become a free Stripe ping.
+    const entitlementUnresolved =
+      !current.entitlement.eligible &&
+      (current.entitlement.reason === "plan_unreadable" ||
+        current.entitlement.reason === "legacy_unknown");
+    if (!current.number?.phoneNumber && !entitlementUnresolved) {
       return NextResponse.json(
         {
           ...publicStatus(current),

@@ -206,6 +206,32 @@ describe("manager messaging-number route", () => {
     expect(mocks.provisionManagerNumber).not.toHaveBeenCalled();
   });
 
+  it("refreshes an unresolved plan even before a number exists", async () => {
+    // The new-account shape: no entitlement row yet, so the stored read is
+    // `plan_unreadable` and this is the only action that can settle it.
+    mocks.getStoredManagerSmsEntitlement.mockResolvedValue({
+      eligible: false,
+      reason: "plan_unreadable",
+    });
+    mocks.reconcileManagerSmsEntitlement.mockResolvedValue({
+      eligible: false,
+      reason: "free",
+    });
+
+    const response = await POST(
+      new Request("https://prop-lane.test/api/manager/messaging-number", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ action: "refresh_eligibility" }),
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(mocks.reconcileManagerSmsEntitlement).toHaveBeenCalledTimes(1);
+    // Still strictly a billing re-read - it may never buy a number.
+    expect(mocks.provisionManagerNumber).not.toHaveBeenCalled();
+  });
+
   it("does not refresh or provision when no number exists", async () => {
     const response = await POST(
       new Request("https://prop-lane.test/api/manager/messaging-number", {

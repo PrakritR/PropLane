@@ -46,6 +46,21 @@ export function buildWorkNumberResidentAnnounceCopy(phone: string): {
   };
 }
 
+/**
+ * An entitlement a billing re-read can still resolve, as opposed to a settled
+ * answer about the plan. A brand-new manager lands here: they have no stored
+ * entitlement row yet, and a missing row reads back as `plan_unreadable`.
+ */
+function entitlementIsUnverified(
+  status: ManagerMessagingNumberStatus,
+): boolean {
+  return (
+    !status.entitlement.eligible &&
+    (status.entitlement.reason === "plan_unreadable" ||
+      status.entitlement.reason === "legacy_unknown")
+  );
+}
+
 function entitlementMessage(
   status: ManagerMessagingNumberStatus,
 ): string | null {
@@ -61,7 +76,9 @@ function entitlementMessage(
       return "Restart a paid Pro or Business plan to request a messaging number.";
     case "legacy_unknown":
     case "plan_unreadable":
-      return "We could not verify your messaging eligibility. Try refreshing this status.";
+      // Not necessarily a failure - a new account simply has never been checked
+      // against billing. "Check eligibility" below is what settles it.
+      return "Your messaging eligibility hasn't been checked against your plan yet.";
   }
 }
 
@@ -330,10 +347,14 @@ export function ManagerMessagingSettingsPanel({
   const planMessage = entitlementMessage(status);
   const phoneNumber = status.number?.phoneNumber ?? null;
   const isCoManager = status.workspaceRole === "co_manager";
+  const unverifiedEntitlement = entitlementIsUnverified(status);
+  // An unchecked plan must stay actionable before a number exists - otherwise
+  // the one account that sees "not checked yet" (a new one, with no number) is
+  // the one account with no control that resolves it.
   const canRefreshEligibility =
     isCoManager === false &&
-    Boolean(phoneNumber) &&
-    !status.entitlement.eligible;
+    !status.entitlement.eligible &&
+    (Boolean(phoneNumber) || unverifiedEntitlement);
   const requestPending = numberInProgress;
 
   if (isCoManager) {
@@ -405,13 +426,15 @@ export function ManagerMessagingSettingsPanel({
               <p className="text-sm leading-relaxed text-muted">
                 {planMessage}
               </p>
-              <Button
-                asChild
-                variant="outline"
-                data-attr="messaging-open-billing"
-              >
-                <Link href="/portal/profile?tab=billing">View plans</Link>
-              </Button>
+              {unverifiedEntitlement ? null : (
+                <Button
+                  asChild
+                  variant="outline"
+                  data-attr="messaging-open-billing"
+                >
+                  <Link href="/portal/profile?tab=billing">View plans</Link>
+                </Button>
+              )}
             </div>
           ) : status.number?.state === "failed" ||
             status.number?.setupNeedsAttention ? (
@@ -463,8 +486,8 @@ export function ManagerMessagingSettingsPanel({
               data-attr="messaging-eligibility-refresh"
             >
               {pendingAction === "refresh"
-                ? "Refreshing…"
-                : "Refresh eligibility"}
+                ? "Checking…"
+                : "Check eligibility"}
             </Button>
           ) : null}
 

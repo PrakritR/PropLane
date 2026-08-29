@@ -15,12 +15,15 @@ type TextNotificationSettings = {
   phone: string | null;
   phoneVerifiedAt: string | null;
   smsConfigured: boolean;
+  /** An unexpired code the server has already sent, if any. */
+  pendingVerification?: { phone: string; expiresAt: string } | null;
 };
 
 const SAFE_DEFAULTS: TextNotificationSettings = {
   phone: null,
   phoneVerifiedAt: null,
   smsConfigured: false,
+  pendingVerification: null,
 };
 
 async function readApiError(res: Response, fallback: string): Promise<string> {
@@ -95,7 +98,16 @@ export function PortalTextNotificationsBlock({
       )
       .catch(() => SAFE_DEFAULTS)
       .then((data) => {
-        if (active) setSettings(data);
+        if (!active) return;
+        setSettings(data);
+        // `codeSent` is client-only, so a reload after "Send code" would hide
+        // the code box while the resend throttle still refuses a new code.
+        // Reopen it for a code the server says is still live.
+        const pending = data.pendingVerification;
+        if (pending?.phone && !data.phoneVerifiedAt) {
+          setPhoneInput((current) => current || pending.phone);
+          setCodeSent(true);
+        }
       });
     return () => {
       active = false;

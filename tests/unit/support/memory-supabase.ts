@@ -1,7 +1,7 @@
 /**
  * Minimal in-memory Supabase-PostgREST stub for unit tests. Supports the subset
  * of the query builder the SMS provisioning / relay / reminder code uses:
- * select/eq/neq/is/not/in/order/limit/maybeSingle, update().eq()...select(),
+ * select/eq/neq/gt/lt/is/not/in/order/limit/maybeSingle, update().eq()...select(),
  * insert(), and upsert(rows, { onConflict, ignoreDuplicates }).select(). Filters
  * are applied faithfully so cross-tenant scoping is actually exercised.
  */
@@ -25,6 +25,9 @@ interface Builder extends PromiseLike<{ data: Row[] | Row | null; error: null }>
   select: (..._a: unknown[]) => Builder;
   eq: (col: string, val: unknown) => Builder;
   neq: (col: string, val: unknown) => Builder;
+  /** Lexicographic compare - ISO timestamps sort correctly as strings. */
+  gt: (col: string, val: unknown) => Builder;
+  lt: (col: string, val: unknown) => Builder;
   is: (col: string, val: unknown) => Builder;
   not: (col: string, op: string, val: unknown) => Builder;
   in: (col: string, vals: unknown[]) => Builder;
@@ -126,6 +129,14 @@ export function createMemoryDb(seed: Record<string, Row[]> = {}): MemoryDb {
       },
       not(col: string, _op: string, val: unknown) {
         filters.push((r) => (val === null ? !(r[col] === null || r[col] === undefined) : r[col] !== val));
+        return builder;
+      },
+      gt(col: string, val: unknown) {
+        filters.push((r) => String(r[col] ?? "") > String(val));
+        return builder;
+      },
+      lt(col: string, val: unknown) {
+        filters.push((r) => String(r[col] ?? "") < String(val));
         return builder;
       },
       in(col: string, vals: unknown[]) {

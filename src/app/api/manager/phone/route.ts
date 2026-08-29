@@ -41,6 +41,56 @@ function normalizeUsPhone(raw: string): string | null {
   return null;
 }
 
+type VerificationRow = {
+  created_at?: unknown;
+  send_count?: unknown;
+  first_sent_at?: unknown;
+  phone?: unknown;
+  code_hash?: unknown;
+  expires_at?: unknown;
+  attempts?: unknown;
+};
+
+/**
+ * Undo the throttle row written just before a send attempt that then failed.
+ *
+ * The row is upserted BEFORE the provider call so a delivered code can never
+ * race ahead of its own rate limit. The cost was that a send which never left
+ * the building - unconfigured Twilio, a Verify API error - still left a fresh
+ * `created_at` behind, so every retry answered "Code already sent - wait a
+ * minute before retrying" for a code the person never received, and each dead
+ * attempt burned one of the five sends allowed per hour. Restoring the prior
+ * row (or deleting it when there was none) keeps the throttle counting only
+ * codes that actually went out, and leaves an earlier still-valid code usable.
+ */
+async function rollBackFailedSend(
+  db: ReturnType<typeof createSupabaseServiceRoleClient>,
+  userId: string,
+  prior: VerificationRow | null,
+): Promise<void> {
+  try {
+    if (!prior) {
+      await db.from("phone_verifications").delete().eq("user_id", userId);
+      return;
+    }
+    await db.from("phone_verifications").upsert(
+      {
+        user_id: userId,
+        phone: prior.phone,
+        code_hash: prior.code_hash,
+        expires_at: prior.expires_at,
+        attempts: prior.attempts ?? 0,
+        send_count: prior.send_count ?? 0,
+        first_sent_at: prior.first_sent_at ?? null,
+        created_at: prior.created_at,
+      },
+      { onConflict: "user_id" },
+    );
+  } catch {
+    /* best effort - the caller is already reporting the send failure */
+  }
+}
+
 async function requireUser() {
   const supabase = await createSupabaseServerClient();
   const {
@@ -73,9 +123,25 @@ export async function GET() {
     scheduleManagerMessagingReady(user.id);
   }
   const { resolveListingCtaSmsPhone } = await import("@/lib/listing-cta-phone.server");
+  // An unexpired code this user already has in their texts. Without it, a
+  // reload (or any remount) loses the client-only "code sent" flag and hides
+  // the code box, while the resend throttle refuses to issue another one - a
+  // dead end with a perfectly good code sitting on their phone.
+  const { data: pending } = await db
+    .from("phone_verifications")
+    .select("phone, expires_at")
+    .eq("user_id", user.id)
+    .gt("expires_at", new Date().toISOString())
+    .maybeSingle();
   return NextResponse.json({
     phone: data?.phone ?? null,
     phoneVerifiedAt: data?.phone_verified_at ?? null,
+    pendingVerification: pending
+      ? {
+          phone: String(pending.phone ?? ""),
+          expiresAt: String(pending.expires_at ?? ""),
+        }
+      : null,
     forwardInbound: data?.sms_forward_inbound !== false,
     workNumber,
     // Number this manager's OWN listing CTAs text — production routes to their
@@ -111,9 +177,14 @@ export async function POST(req: Request) {
 
   const { data: existing } = await db
     .from("phone_verifications")
-    .select("created_at, send_count, first_sent_at, phone")
+    .select(
+      "created_at, send_count, first_sent_at, phone, code_hash, expires_at, attempts",
+    )
     .eq("user_id", user.id)
     .maybeSingle();
+  // Snapshot taken before the upsert below overwrites the row — this is what a
+  // failed send is rolled back to.
+  const priorVerification: VerificationRow | null = existing ? { ...existing } : null;
 
   // Per-user resend throttle (>=60s between sends).
   if (existing && Date.now() - Date.parse(String(existing.created_at)) < RESEND_THROTTLE_MS) {
@@ -172,6 +243,7 @@ export async function POST(req: Request) {
   if (usingVerify) {
     const client = twilioRestClient();
     if (!client) {
+      await rollBackFailedSend(db, user.id, priorVerification);
       return NextResponse.json({ error: "SMS is not configured yet — add Twilio credentials." }, { status: 502 });
     }
     try {
@@ -182,6 +254,7 @@ export async function POST(req: Request) {
         userId: user.id,
         code: typeof e === "object" && e && "code" in e ? String(e.code) : undefined,
       });
+      await rollBackFailedSend(db, user.id, priorVerification);
       return NextResponse.json(
         { error: "Could not send verification code. Try again shortly." },
         { status: 502 },
@@ -193,6 +266,7 @@ export async function POST(req: Request) {
   // requires Twilio Verify for OTP traffic. Never fall back to a manager work
   // number or the ordinary A2P outbox for a verification code.
   if (process.env.SMS_RUNTIME_ENABLED?.trim() === "1") {
+    await rollBackFailedSend(db, user.id, priorVerification);
     return NextResponse.json(
       { error: "Phone verification is not configured yet." },
       { status: 503 },
@@ -213,6 +287,7 @@ export async function POST(req: Request) {
   );
   if (!sent.sent) {
     console.error("legacy phone verification SMS failed", { userId: user.id, reason: sent.error });
+    await rollBackFailedSend(db, user.id, priorVerification);
     return NextResponse.json(
       { error: "Could not send verification code. Try again shortly." },
       { status: 502 },
