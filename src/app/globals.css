@@ -3100,7 +3100,17 @@ html[data-native] [data-listing-subnav] {
 }
 
 .portal-resident-detail-inbox .portal-inbox-bubble-wrap {
-  max-width: min(96%, 52rem);
+  max-width: min(98%, 56rem);
+}
+
+.portal-resident-detail-inbox .portal-inbox-two-pane {
+  min-height: min(78dvh, 100%);
+  flex: 1 1 auto;
+}
+
+.portal-resident-detail-inbox .portal-inbox-thread-body {
+  min-height: 0;
+  flex: 1 1 auto;
 }
 
 .portal-inbox-outbound-bubble {

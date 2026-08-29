@@ -184,7 +184,7 @@ import {
   deleteServiceRequestsForResident,
   type ServiceRequest,
 } from "@/lib/service-requests-storage";
-import type { DemoApplicantRow, ManagerApplicationBucket, ManagerWorkOrderBucket } from "@/data/demo-portal";
+import type { DemoApplicantRow, DemoManagerWorkOrderRow, ManagerApplicationBucket } from "@/data/demo-portal";
 import { transitionApplicationBucket } from "@/lib/application-review";
 import { useApplicationAutomation } from "@/hooks/use-application-automation";
 import { isWithdrawnApplicationRow } from "@/lib/rental-application/resident-application-list";
@@ -243,10 +243,17 @@ import {
   ManagerServiceRequestDetail,
   managerServiceRequestBucket,
   managerServiceRequestPricingSummary,
-  type ManagerServiceRequestBucket,
 } from "@/components/portal/manager-service-request-detail";
-import { ManagerWorkOrdersPanel } from "@/components/portal/manager-work-orders-panel";
-
+import {
+  PORTAL_PROPERTY_DETAIL_LIST_ROW_CLASS,
+  PortalPropertyDetailSection,
+} from "@/components/portal/portal-property-detail-section";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { ManagerAddPaymentModal } from "@/components/portal/manager-add-payment-modal";
 import { ManagerPaymentSetupModal } from "@/components/portal/manager-payment-setup-modal";
 import {
@@ -274,6 +281,25 @@ function residentRoomRentSuffix(
     return nightly > 0 ? ` · $${nightly % 1 === 0 ? nightly : nightly.toFixed(2)}/night` : "";
   }
   return room.monthlyRent ? ` · $${room.monthlyRent}/mo` : "";
+}
+
+type ResidentUnifiedServicesBucket = "pending" | "scheduled" | "completed";
+
+function residentUnifiedServiceBucketForRequest(
+  req: ServiceRequest,
+): ResidentUnifiedServicesBucket {
+  const bucket = managerServiceRequestBucket(req.status);
+  if (bucket === "pending") return "pending";
+  if (bucket === "denied") return "completed";
+  return "scheduled";
+}
+
+function residentUnifiedServiceBucketForWorkOrder(
+  row: DemoManagerWorkOrderRow,
+): ResidentUnifiedServicesBucket {
+  if (row.bucket === "open") return "pending";
+  if (row.bucket === "scheduled") return "scheduled";
+  return "completed";
 }
 
 /**
@@ -400,9 +426,9 @@ export function ManagerResidents({
   const [applicationReminderPreviewBusyId, setApplicationReminderPreviewBusyId] = useState<string | null>(null);
   const [applicationReminderBusyId, setApplicationReminderBusyId] = useState<string | null>(null);
 
-  // Services tab — unified add-on services + maintenance (mirrors resident-services-panel.tsx)
-  const [svcReqBucket, setSvcReqBucket] = useState<ManagerServiceRequestBucket>("pending");
-  const [svcWoBucket, setSvcWoBucket] = useState<ManagerWorkOrderBucket>("open");
+  // Services tab — unified add-on services + maintenance
+  const [residentServicesBucket, setResidentServicesBucket] =
+    useState<ResidentUnifiedServicesBucket>("pending");
   const [svcExpandedId, setSvcExpandedId] = useState<string | null>(null);
 
   const activeDetailTab = parseResidentDetailTab(detailTabProp);
@@ -1086,8 +1112,7 @@ export function ManagerResidents({
     setPrevSelectedId(activeResidentId);
     if (activeResidentId) {
       setChargeBucket("pending");
-      setSvcReqBucket("pending");
-      setSvcWoBucket("open");
+      setResidentServicesBucket("pending");
       setSvcExpandedId(null);
       setApplicationReviewView("application");
     }
@@ -1308,26 +1333,43 @@ export function ManagerResidents({
     selectedServiceResident?.residentEmail && selectedServiceResident.propertyId,
   );
 
-  const residentServiceRequestsCounts = useMemo(() => {
-    const c: Record<ManagerServiceRequestBucket, number> = { pending: 0, approved: 0, denied: 0 };
-    for (const req of residentServiceRequests) c[managerServiceRequestBucket(req.status)] += 1;
+  const residentUnifiedServicesCounts = useMemo(() => {
+    const c: Record<ResidentUnifiedServicesBucket, number> = {
+      pending: 0,
+      scheduled: 0,
+      completed: 0,
+    };
+    for (const req of residentServiceRequests) {
+      c[residentUnifiedServiceBucketForRequest(req)] += 1;
+    }
+    for (const row of residentWorkOrders) {
+      c[residentUnifiedServiceBucketForWorkOrder(row)] += 1;
+    }
     return c;
-  }, [residentServiceRequests]);
+  }, [residentServiceRequests, residentWorkOrders]);
 
   const residentFilteredServiceRequests = useMemo(
     () =>
       residentServiceRequests
-        .filter((req) => managerServiceRequestBucket(req.status) === svcReqBucket)
+        .filter((req) => residentUnifiedServiceBucketForRequest(req) === residentServicesBucket)
         .slice()
         .sort((a, b) => new Date(b.requestedAt).getTime() - new Date(a.requestedAt).getTime()),
-    [residentServiceRequests, svcReqBucket],
+    [residentServiceRequests, residentServicesBucket],
   );
 
-  const residentWorkOrderCounts = useMemo(() => {
-    const c: Record<ManagerWorkOrderBucket, number> = { open: 0, scheduled: 0, completed: 0 };
-    for (const row of residentWorkOrders) c[row.bucket] += 1;
-    return c;
-  }, [residentWorkOrders]);
+  const residentFilteredWorkOrders = useMemo(
+    () =>
+      residentWorkOrders
+        .filter((row) => residentUnifiedServiceBucketForWorkOrder(row) === residentServicesBucket)
+        .slice()
+        .sort((a, b) => (b.scheduledAtIso ?? "").localeCompare(a.scheduledAtIso ?? "")),
+    [residentWorkOrders, residentServicesBucket],
+  );
+
+  const residentServicesEmpty =
+    residentServiceRequests.length === 0 && residentWorkOrders.length === 0;
+  const residentServicesBucketEmpty =
+    residentFilteredServiceRequests.length === 0 && residentFilteredWorkOrders.length === 0;
 
   async function sendResidentMessage(
     channels?: { viaEmail?: boolean; viaSms?: boolean },
@@ -2488,15 +2530,6 @@ export function ManagerResidents({
       </>
     ) : (
       <>
-        <Button
-          type="button"
-          variant="outline"
-          className={PORTAL_DETAIL_BTN}
-          data-attr="resident-application-edit"
-          onClick={() => setApplicationEditOpen(true)}
-        >
-          Edit application
-        </Button>
         {selectedApplicationRow.bucket !== "rejected" && !isWithdrawnApplicationRow(selectedApplicationRow) ? (
           <Button
             type="button"
@@ -2677,38 +2710,38 @@ export function ManagerResidents({
   );
 
   const residentServicesTabFooterActions = (
-    <>
-      <Button
-        type="button"
-        variant="outline"
-        className={PORTAL_DETAIL_BTN}
-        data-attr="resident-add-work-order"
-        disabled={!canAddResidentServiceItem}
-        title={
-          canAddResidentServiceItem
-            ? undefined
-            : "Link this resident to a property before adding services."
-        }
-        onClick={() => setAddResidentWorkOrderOpen(true)}
-      >
-        Add maintenance
-      </Button>
-      <Button
-        type="button"
-        variant="primary"
-        className={PORTAL_DETAIL_BTN}
-        data-attr="resident-add-service-request"
-        disabled={!canAddResidentServiceItem}
-        title={
-          canAddResidentServiceItem
-            ? undefined
-            : "Link this resident to a property before adding services."
-        }
-        onClick={() => setAddResidentRequestOpen(true)}
-      >
-        Add service
-      </Button>
-    </>
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button
+          type="button"
+          variant="primary"
+          className={PORTAL_DETAIL_BTN}
+          data-attr="resident-add-service"
+          disabled={!canAddResidentServiceItem}
+          title={
+            canAddResidentServiceItem
+              ? undefined
+              : "Link this resident to a property before adding services."
+          }
+        >
+          Add service
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="start">
+        <DropdownMenuItem
+          data-attr="resident-add-service-request"
+          onClick={() => setAddResidentRequestOpen(true)}
+        >
+          Service offering
+        </DropdownMenuItem>
+        <DropdownMenuItem
+          data-attr="resident-add-work-order"
+          onClick={() => setAddResidentWorkOrderOpen(true)}
+        >
+          Repair request
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 
   const residentDetailBottomBarActions = useMemo(() => {
@@ -2841,12 +2874,43 @@ export function ManagerResidents({
                                     }
                                   />
                                 ) : (
-                                <div className="flex min-h-0 flex-1 flex-col gap-0">
+                                <div className="flex min-h-0 flex-1 flex-col gap-3">
+                                  {applicationShowsBackgroundCheck(selectedApplicationRow) ? (
+                                    <PortalPropertyDetailSection contentClassName="space-y-0 shrink-0">
+                                      {(
+                                        [
+                                          { id: "application", label: "Application" },
+                                          { id: "background-check", label: "Background check" },
+                                        ] as const
+                                      ).map((view) => (
+                                        <div key={view.id} className={PORTAL_PROPERTY_DETAIL_LIST_ROW_CLASS}>
+                                          <label className="flex min-w-0 flex-1 cursor-pointer items-start gap-3">
+                                            <input
+                                              type="checkbox"
+                                              className="mt-0.5 h-4 w-4 shrink-0 accent-primary"
+                                              checked={applicationReviewView === view.id}
+                                              data-attr={`resident-application-view-${view.id}`}
+                                              onChange={() => setApplicationReviewView(view.id)}
+                                              onClick={(e) => e.stopPropagation()}
+                                            />
+                                            <button
+                                              type="button"
+                                              className="min-w-0 flex-1 text-left"
+                                              onClick={() => setApplicationReviewView(view.id)}
+                                            >
+                                              <p className="text-sm font-semibold text-foreground">{view.label}</p>
+                                            </button>
+                                          </label>
+                                        </div>
+                                      ))}
+                                    </PortalPropertyDetailSection>
+                                  ) : null}
                                   <ApplicationReviewLauncherRow
                                     row={selectedApplicationRow}
                                     group={selectedApplicationGroup}
                                     bareCanvas
                                     stretch
+                                    hideToggle
                                     showDownload={false}
                                     activeView={applicationReviewView}
                                     onActiveViewChange={setApplicationReviewView}
@@ -2942,119 +3006,130 @@ export function ManagerResidents({
 
                             {resolvedDetailTab === "services" ? (
                             <ResidentDetailTabPanel>
-                              <div>
-                                <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted">
-                                  Add-on services
-                                </p>
-                                <div className="mb-3">
-                                  <LocalDestinationNav
-                                    items={(
-                                      ["pending", "approved", "denied"] as const
-                                    ).map((id) => ({
-                                      id,
-                                      label: id === "pending" ? "Pending" : id === "approved" ? "Approved" : "Denied",
-                                      count: residentServiceRequestsCounts[id],
-                                      dataAttr: `resident-service-request-bucket-${id}`,
-                                    }))}
-                                    activeId={svcReqBucket}
-                                    onChange={(id) => setSvcReqBucket(id as ManagerServiceRequestBucket)}
-                                    ariaLabel="Service request status"
-                                    size="toolbar"
-                                  />
-                                </div>
-                                {residentServiceRequests.length === 0 ? (
-                                  <PortalDataTableEmpty message="No services yet." icon="service" />
-                                ) : residentFilteredServiceRequests.length === 0 ? (
-                                  <PortalDataTableEmpty message="No services in this status yet." icon="service" />
-                                ) : (
-                                  <div className={`mt-3 ${PORTAL_DATA_TABLE_WRAP}`}>
-                                    <div className={`${PORTAL_DATA_TABLE_SCROLL} overflow-x-auto`}>
-                                      <table className="w-full min-w-[28rem] table-fixed border-collapse text-left text-sm lg:min-w-0">
-                                        <thead>
-                                          <tr className={PORTAL_TABLE_HEAD_ROW}>
-                                            <th className={`${MANAGER_TABLE_TH} hidden text-left sm:table-cell`}>Type</th>
-                                            <th className={`${MANAGER_TABLE_TH} text-left`}>Item</th>
-                                            <th className={`${MANAGER_TABLE_TH} text-left`}>Status</th>
-                                            <th className={`${MANAGER_TABLE_TH} hidden text-left sm:table-cell`}>Charges</th>
-                                            <th className={PORTAL_TABLE_EXPAND_TH}>
-                                              <span className="sr-only">Expand</span>
-                                            </th>
-                                          </tr>
-                                        </thead>
-                                        <tbody>
-                                          {residentFilteredServiceRequests.map((req) => {
-                                            const rowId = `request-${req.id}`;
-                                            return (
-                                              <Fragment key={rowId}>
-                                                <tr
-                                                  className={PORTAL_TABLE_TR_EXPANDABLE}
-                                                  onClick={createPortalRowExpandClick(() =>
-                                                    setSvcExpandedId((c) => (c === rowId ? null : rowId)),
-                                                  )}
-                                                  aria-expanded={svcExpandedId === rowId}
-                                                >
-                                                  <td className={`${PORTAL_TABLE_TD} hidden text-muted sm:table-cell`}>Service</td>
-                                                  <td className={`${PORTAL_TABLE_TD} min-w-0 font-medium text-foreground`}>
-                                                    <span className="block text-xs text-muted sm:hidden">Service</span>
-                                                    <span className="break-words">{req.offerName}</span>
-                                                  </td>
-                                                  <td className={PORTAL_TABLE_TD}>
-                                                    <ServiceStatusBadge status={req.status} />
-                                                  </td>
-                                                  <td className={`${PORTAL_TABLE_TD} hidden sm:table-cell`}>
-                                                    {managerServiceRequestPricingSummary(req)}
-                                                  </td>
-                                                  <PortalTableExpandCell expanded={svcExpandedId === rowId} />
-                                                </tr>
-                                                {svcExpandedId === rowId ? (
-                                                  <tr className={PORTAL_TABLE_DETAIL_ROW}>
-                                                    <td colSpan={5} className={PORTAL_TABLE_DETAIL_CELL}>
-                                                      <ManagerServiceRequestDetail
-                                                        req={req}
-                                                        propertyLabel={selected.propertyLabel || "—"}
-                                                        onUpdated={() => setSrTick((n) => n + 1)}
-                                                        onApproved={() => setSvcReqBucket("approved")}
-                                                        onDenied={() => setSvcReqBucket("denied")}
-                                                        onCollapsed={() => setSvcExpandedId(null)}
-                                                      />
-                                                    </td>
-                                                  </tr>
-                                                ) : null}
-                                              </Fragment>
-                                            );
-                                          })}
-                                        </tbody>
-                                      </table>
-                                    </div>
-                                  </div>
-                                )}
-                              </div>
-                              <div className="mt-6">
-                                <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted">
-                                  Maintenance
-                                </p>
-                                <div className="mb-3">
-                                  <LocalDestinationNav
-                                    items={(
-                                      ["open", "scheduled", "completed"] as const
-                                    ).map((id) => ({
-                                      id,
-                                      label: id === "open" ? "Pending" : id === "scheduled" ? "Scheduled" : "Completed",
-                                      count: residentWorkOrderCounts[id],
-                                      dataAttr: `resident-work-order-bucket-${id}`,
-                                    }))}
-                                    activeId={svcWoBucket}
-                                    onChange={(id) => setSvcWoBucket(id as ManagerWorkOrderBucket)}
-                                    ariaLabel="Maintenance status"
-                                    size="toolbar"
-                                  />
-                                </div>
-                                <ManagerWorkOrdersPanel
-                                  allRows={residentWorkOrders}
-                                  bucket={svcWoBucket}
-                                  onAfterSchedule={() => setSvcWoBucket("scheduled")}
+                              <div className="mb-3">
+                                <LocalDestinationNav
+                                  items={(
+                                    ["pending", "scheduled", "completed"] as const
+                                  ).map((id) => ({
+                                    id,
+                                    label:
+                                      id === "pending"
+                                        ? "Pending"
+                                        : id === "scheduled"
+                                          ? "Scheduled"
+                                          : "Completed",
+                                    count: residentUnifiedServicesCounts[id],
+                                    dataAttr: `resident-services-bucket-${id}`,
+                                  }))}
+                                  activeId={residentServicesBucket}
+                                  onChange={(id) =>
+                                    setResidentServicesBucket(id as ResidentUnifiedServicesBucket)
+                                  }
+                                  ariaLabel="Service status"
+                                  size="toolbar"
                                 />
                               </div>
+                              {residentServicesEmpty ? (
+                                <PortalDataTableEmpty message="No services yet." icon="service" />
+                              ) : residentServicesBucketEmpty ? (
+                                <PortalDataTableEmpty message="No services in this status yet." icon="service" />
+                              ) : (
+                                <div className={PORTAL_DATA_TABLE_WRAP}>
+                                  <div className={`${PORTAL_DATA_TABLE_SCROLL} overflow-x-auto`}>
+                                    <table className="w-full min-w-[28rem] table-fixed border-collapse text-left text-sm lg:min-w-0">
+                                      <thead>
+                                        <tr className={PORTAL_TABLE_HEAD_ROW}>
+                                          <th className={`${MANAGER_TABLE_TH} text-left`}>Item</th>
+                                          <th className={`${MANAGER_TABLE_TH} text-left`}>Status</th>
+                                          <th className={`${MANAGER_TABLE_TH} hidden text-left sm:table-cell`}>Charges</th>
+                                          <th className={PORTAL_TABLE_EXPAND_TH}>
+                                            <span className="sr-only">Expand</span>
+                                          </th>
+                                        </tr>
+                                      </thead>
+                                      <tbody>
+                                        {residentFilteredServiceRequests.map((req) => {
+                                          const rowId = `request-${req.id}`;
+                                          return (
+                                            <Fragment key={rowId}>
+                                              <tr
+                                                className={PORTAL_TABLE_TR_EXPANDABLE}
+                                                onClick={createPortalRowExpandClick(() =>
+                                                  setSvcExpandedId((c) => (c === rowId ? null : rowId)),
+                                                )}
+                                                aria-expanded={svcExpandedId === rowId}
+                                              >
+                                                <td className={`${PORTAL_TABLE_TD} min-w-0 font-medium text-foreground`}>
+                                                  <span className="break-words">{req.offerName}</span>
+                                                </td>
+                                                <td className={PORTAL_TABLE_TD}>
+                                                  <ServiceStatusBadge status={req.status} />
+                                                </td>
+                                                <td className={`${PORTAL_TABLE_TD} hidden sm:table-cell`}>
+                                                  {managerServiceRequestPricingSummary(req)}
+                                                </td>
+                                                <PortalTableExpandCell expanded={svcExpandedId === rowId} />
+                                              </tr>
+                                              {svcExpandedId === rowId ? (
+                                                <tr className={PORTAL_TABLE_DETAIL_ROW}>
+                                                  <td colSpan={4} className={PORTAL_TABLE_DETAIL_CELL}>
+                                                    <ManagerServiceRequestDetail
+                                                      req={req}
+                                                      propertyLabel={selected.propertyLabel || "—"}
+                                                      onUpdated={() => setSrTick((n) => n + 1)}
+                                                      onApproved={() => setResidentServicesBucket("scheduled")}
+                                                      onDenied={() => setResidentServicesBucket("completed")}
+                                                      onCollapsed={() => setSvcExpandedId(null)}
+                                                    />
+                                                  </td>
+                                                </tr>
+                                              ) : null}
+                                            </Fragment>
+                                          );
+                                        })}
+                                        {residentFilteredWorkOrders.map((row) => {
+                                          const rowId = `work-order-${row.id}`;
+                                          return (
+                                            <Fragment key={rowId}>
+                                              <tr
+                                                className={PORTAL_TABLE_TR_EXPANDABLE}
+                                                onClick={createPortalRowExpandClick(() =>
+                                                  setSvcExpandedId((c) => (c === rowId ? null : rowId)),
+                                                )}
+                                                aria-expanded={svcExpandedId === rowId}
+                                              >
+                                                <td className={`${PORTAL_TABLE_TD} min-w-0 font-medium text-foreground`}>
+                                                  <span className="break-words">{row.title}</span>
+                                                </td>
+                                                <td className={PORTAL_TABLE_TD}>
+                                                  <span className="text-sm text-foreground">{row.status}</span>
+                                                </td>
+                                                <td className={`${PORTAL_TABLE_TD} hidden sm:table-cell`}>
+                                                  {row.cost?.trim() || "—"}
+                                                </td>
+                                                <PortalTableExpandCell expanded={svcExpandedId === rowId} />
+                                              </tr>
+                                              {svcExpandedId === rowId ? (
+                                                <tr className={PORTAL_TABLE_DETAIL_ROW}>
+                                                  <td colSpan={4} className={PORTAL_TABLE_DETAIL_CELL}>
+                                                    <div className="space-y-2 text-sm text-muted">
+                                                      {row.description?.trim() ? (
+                                                        <p className="text-foreground">{row.description.trim()}</p>
+                                                      ) : null}
+                                                      {row.scheduled?.trim() ? <p>Scheduled: {row.scheduled}</p> : null}
+                                                      {row.priority?.trim() ? <p>Priority: {row.priority}</p> : null}
+                                                    </div>
+                                                  </td>
+                                                </tr>
+                                              ) : null}
+                                            </Fragment>
+                                          );
+                                        })}
+                                      </tbody>
+                                    </table>
+                                  </div>
+                                </div>
+                              )}
                             </ResidentDetailTabPanel>
                             ) : null}
 
@@ -3190,8 +3265,12 @@ export function ManagerResidents({
           title={selected.name || "Resident"}
           subtitle={selected.email || undefined}
           avatarName={selected.name || selected.email}
-          backHref={`${portalBase}/residents/${residentsTab}`}
-          backLabel="Back to residents"
+          backHref={
+            paymentIdProp && residentPaymentsListHref
+              ? residentPaymentsListHref
+              : `${portalBase}/residents/${residentsTab}`
+          }
+          backLabel={paymentIdProp ? "Back to payments" : "Back to residents"}
           hideBackText
           bareHeader
           dataAttrBack="resident-detail-back"
@@ -3204,6 +3283,7 @@ export function ManagerResidents({
           scrollBody={false}
           fillBody={
             resolvedDetailTab === "communication" ||
+            (showResidentTours && resolvedDetailTab === "tours") ||
             (showResidentLease && resolvedDetailTab === "lease") ||
             (showResidentApplication && resolvedDetailTab === "application")
           }
@@ -3333,7 +3413,7 @@ export function ManagerResidents({
           setAddResidentRequestOpen(false);
           setSrTick((n) => n + 1);
           setHcTick((n) => n + 1);
-          setSvcReqBucket("pending");
+          setResidentServicesBucket("pending");
         }}
       />
 
@@ -3346,7 +3426,9 @@ export function ManagerResidents({
           setAddResidentWorkOrderOpen(false);
           setWorkOrderTick((n) => n + 1);
           setHcTick((n) => n + 1);
-          setSvcWoBucket(bucket);
+          setResidentServicesBucket(
+            bucket === "open" ? "pending" : bucket === "scheduled" ? "scheduled" : "completed",
+          );
         }}
       />
 

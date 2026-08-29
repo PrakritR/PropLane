@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Button } from "@/components/ui/button";
+import { BulkActionBar } from "@/components/ui/bulk-action-bar";
 import { Modal, ModalFooter } from "@/components/ui/modal";
 import {
   PORTAL_LIST_ADD_ICONS,
@@ -45,11 +46,7 @@ import {
 } from "@/lib/promotion-assets";
 import {
   FLYER_IMAGE_LIMIT,
-  normalizePromotionTemplate,
   PROMOTION_TEMPLATE_DEFAULT,
-  PROMOTION_TONE_OPTIONS,
-  readFlyerEntries,
-  type FlyerEntry,
   type ManagerPromotionRow,
 } from "@/lib/promotion-flyer";
 import {
@@ -71,36 +68,14 @@ import {
 } from "@/lib/promotion-upload";
 import { PromotionDefaultSuggestions } from "@/components/portal/promotion-default-suggestions";
 import { addDefaultPromotionPreset, type PromotionPresetKind } from "@/lib/promotion-default-sync";
+import { usePortalRowSelection } from "@/hooks/use-portal-row-selection";
+import { PORTAL_BULK_BAR_BTN } from "@/lib/portal-bulk-bar";
 
 function promotionEntryId(asset: PromotionAsset): string | null {
   if (asset.kind === "flyer") return asset.flyerEntry?.id ?? null;
   if (asset.kind === "text") return asset.textEntry?.id ?? null;
   if (asset.kind === "upload") return asset.uploadEntry?.id ?? null;
   return null;
-}
-
-function flyerEntryToDraft(row: ManagerPromotionRow, entry: FlyerEntry, listingId: string): PromotionDraft {
-  return {
-    propertyKey: listingId,
-    propertyLabel: row.propertyLabel,
-    address: entry.inputs.address ?? "",
-    title: entry.title,
-    headline: entry.inputs.headline,
-    sellingPoints: entry.inputs.sellingPoints,
-    customDetails: entry.inputs.customDetails,
-    price: entry.inputs.price,
-    promo: entry.inputs.promo,
-    cta: entry.inputs.cta,
-    contact: entry.inputs.contact,
-    schedulingUrl: entry.inputs.schedulingUrl ?? "",
-    includeSchedulingLink: entry.inputs.includeSchedulingLink ?? true,
-    theme: entry.theme,
-    flyerSize: entry.flyerSize,
-    template: normalizePromotionTemplate(entry.template),
-    tone: entry.inputs.tone || PROMOTION_TONE_OPTIONS[0]!,
-    aiPrompt: "",
-    images: entry.inputs.images ?? [],
-  };
 }
 
 export function ManagerPropertyPromotionPanel({
@@ -179,6 +154,8 @@ export function ManagerPropertyPromotionPanel({
     return sortPromotionAssets(flattenPromotionAssets(rows), "newest");
   }, [propertyId, tick]);
 
+  const { selectedIds, toggleSelected, clearSelection } = usePortalRowSelection(assets.length);
+
   const addPromotionPreset = useCallback(
     (preset: PromotionPresetKind) => {
       if (!userId || !propertyId) return;
@@ -222,31 +199,6 @@ export function ManagerPropertyPromotionPanel({
     onRegisterNewPromotion?.(openNewPromotion);
     return () => onRegisterNewPromotion?.(null);
   }, [onRegisterNewPromotion, openNewPromotion]);
-
-  const openEditFlyer = useCallback(
-    (row: ManagerPromotionRow, entryId: string) => {
-      const entry = readFlyerEntries(row).find((e) => e.id === entryId);
-      if (!entry) return;
-      setDraft(flyerEntryToDraft(row, entry, propertyId));
-      setEditingRowId(row.id);
-      setEditingEntryId(entryId);
-      setShowForm(true);
-    },
-    [propertyId],
-  );
-
-  const openEditAsset = useCallback(
-    (asset: PromotionAsset) => {
-      if (asset.kind === "flyer" && asset.flyerEntry) {
-        openEditFlyer(asset.row, asset.flyerEntry.id);
-        return;
-      }
-      if (asset.kind === "text" && asset.textEntry) {
-        setTextModalAssetId(asset.id);
-      }
-    },
-    [openEditFlyer],
-  );
 
   const openViewAsset = useCallback((asset: PromotionAsset) => {
     setPreviewAssetId(asset.id);
@@ -468,7 +420,7 @@ export function ManagerPropertyPromotionPanel({
     }
   }
 
-  function deleteAsset(asset: PromotionAsset) {
+  function deleteAsset(asset: PromotionAsset, options?: { quiet?: boolean }) {
     if (asset.kind === "flyer" && asset.flyerEntry) {
       const next = removeFlyerEntryFromRow(asset.row, asset.flyerEntry.id);
       if (next) upsertManagerPromotion(next);
@@ -484,7 +436,7 @@ export function ManagerPropertyPromotionPanel({
     }
     setTick((n) => n + 1);
     onUpdated?.();
-    showToast("Promotion deleted.");
+    if (!options?.quiet) showToast("Promotion deleted.");
   }
 
   function handleDeleteAsset(asset: PromotionAsset) {
@@ -495,6 +447,32 @@ export function ManagerPropertyPromotionPanel({
     if (editingEntryId && promotionEntryId(asset) === editingEntryId) closeForm();
     deleteAsset(asset);
   }
+
+  const selectedAssets = useMemo(
+    () => assets.filter((asset) => selectedIds.has(asset.id)),
+    [assets, selectedIds],
+  );
+
+  const bulkDeleteAssets = () => {
+    if (selectedAssets.length === 0) return;
+    if (
+      !window.confirm(
+        `Delete ${selectedAssets.length} promotion${selectedAssets.length === 1 ? "" : "s"}? This cannot be undone.`,
+      )
+    ) {
+      return;
+    }
+    for (const asset of selectedAssets) {
+      if (previewAssetId === asset.id) closePreview();
+      if (textModalAssetId === asset.id) closeForm();
+      if (editingEntryId && promotionEntryId(asset) === editingEntryId) closeForm();
+      deleteAsset(asset, { quiet: true });
+    }
+    clearSelection();
+    showToast(
+      selectedAssets.length === 1 ? "Promotion deleted." : `${selectedAssets.length} promotions deleted.`,
+    );
+  };
 
   function handleDeleteFromFlyerModal() {
     if (!editingRowId || !editingEntryId) return;
@@ -574,8 +552,9 @@ export function ManagerPropertyPromotionPanel({
             variant="plain"
             showPropertyLabel={false}
             emptyMessage=""
+            selectedIds={selectedIds}
+            onToggleSelected={toggleSelected}
             onView={openViewAsset}
-            onEdit={openEditAsset}
           />
         )}
       </PortalPropertyDetailSection>
@@ -680,6 +659,22 @@ export function ManagerPropertyPromotionPanel({
         dataAttr="property-promotion-preview"
         showToast={showToast}
       />
+
+      {selectedIds.size > 0 ? (
+        <BulkActionBar count={selectedIds.size} hideCount variant="payments">
+          <div className="flex min-w-0 flex-wrap items-center justify-start gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              className={`${PORTAL_BULK_BAR_BTN} text-rose-800`}
+              data-attr="property-promotion-bulk-delete"
+              onClick={bulkDeleteAssets}
+            >
+              Delete
+            </Button>
+          </div>
+        </BulkActionBar>
+      ) : null}
     </>
   );
 }

@@ -1,14 +1,16 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
+import { BulkActionBar } from "@/components/ui/bulk-action-bar";
 import {
-  PORTAL_PROPERTY_DETAIL_ACTION_BUTTON_CLASS,
   PORTAL_PROPERTY_DETAIL_LIST_ROW_CLASS,
   PortalPropertyDetailSection,
 } from "@/components/portal/portal-property-detail-section";
 import { ServiceOfferingEditModal } from "@/components/portal/service-offering-edit-modal";
 import { ServiceRequestCatalogSuggestions } from "@/components/portal/service-request-catalog-suggestions";
+import { usePortalRowSelection } from "@/hooks/use-portal-row-selection";
+import { PORTAL_BULK_BAR_BTN } from "@/lib/portal-bulk-bar";
 import {
   createManagerListingServiceOption,
   resolveServiceOfferPricing,
@@ -16,7 +18,10 @@ import {
   type ManagerListingServiceOption,
   type ManagerListingSubmissionV1,
 } from "@/lib/manager-listing-submission";
-import type { ManagerPropertySaveTarget } from "@/lib/manager-property-save-target";
+import {
+  persistManagerListingSubmission,
+  type ManagerPropertySaveTarget,
+} from "@/lib/manager-property-save-target";
 
 type RequestsSaveTarget =
   | { mode: "pending"; saveId: string }
@@ -56,6 +61,7 @@ export function ServiceRequestCatalogEditor({
   onNestedModalOpenChange?: (open: boolean) => void;
 }) {
   const offers = sub.serviceRequestOptions ?? [];
+  const { selectedIds, toggleSelected, clearSelection } = usePortalRowSelection(offers.length);
 
   const [editOpen, setEditOpen] = useState(false);
   const [editingOffer, setEditingOffer] = useState<ManagerListingServiceOption | null>(null);
@@ -113,6 +119,33 @@ export function ServiceRequestCatalogEditor({
     }
   };
 
+  const selectedOffers = useMemo(
+    () => offers.filter((offer) => selectedIds.has(offer.id)),
+    [offers, selectedIds],
+  );
+
+  const bulkDeleteOffers = () => {
+    if (selectedOffers.length === 0) return;
+    if (
+      !window.confirm(
+        `Delete ${selectedOffers.length} service type${selectedOffers.length === 1 ? "" : "s"}?`,
+      )
+    ) {
+      return;
+    }
+    const nextOffers = offers.filter((offer) => !selectedIds.has(offer.id));
+    const next: ManagerListingSubmissionV1 = { ...sub, serviceRequestOptions: nextOffers };
+    if (!persistManagerListingSubmission(saveTarget, managerUserId, next)) {
+      showToast("Could not remove service.");
+      return;
+    }
+    clearSelection();
+    onUpdated();
+    showToast(
+      selectedOffers.length === 1 ? "Service removed." : `${selectedOffers.length} services removed.`,
+    );
+  };
+
   if (!saveTarget) return null;
 
   return (
@@ -121,23 +154,24 @@ export function ServiceRequestCatalogEditor({
         {offers.length > 0 ? (
           offers.map((offer) => (
             <div key={offer.id} className={PORTAL_PROPERTY_DETAIL_LIST_ROW_CLASS}>
-              <div className="min-w-0 flex-1">
-                <p className="text-sm font-semibold text-foreground">{offer.name.trim() || "Untitled request"}</p>
-                <p className="mt-0.5 text-xs text-muted">
-                  {offer.description?.trim()
-                    ? `${offer.description.trim()} · ${requestOfferSubtitle(offer)}`
-                    : requestOfferSubtitle(offer)}
-                </p>
-              </div>
-              <Button
-                type="button"
-                variant="outline"
-                className={PORTAL_PROPERTY_DETAIL_ACTION_BUTTON_CLASS}
-                data-attr={`catalog-request-edit-${offer.id}`}
-                onClick={() => openEdit(offer, false)}
-              >
-                Edit
-              </Button>
+              <label className="flex min-w-0 flex-1 cursor-pointer items-start gap-3">
+                <input
+                  type="checkbox"
+                  className="mt-0.5 h-4 w-4 shrink-0 accent-primary"
+                  checked={selectedIds.has(offer.id)}
+                  data-attr={`catalog-request-select-${offer.id}`}
+                  onChange={() => toggleSelected(offer.id)}
+                  onClick={(e) => e.stopPropagation()}
+                />
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm font-semibold text-foreground">{offer.name.trim() || "Untitled request"}</p>
+                  <p className="mt-0.5 text-xs text-muted">
+                    {offer.description?.trim()
+                      ? `${offer.description.trim()} · ${requestOfferSubtitle(offer)}`
+                      : requestOfferSubtitle(offer)}
+                  </p>
+                </div>
+              </label>
             </div>
           ))
         ) : (
@@ -163,6 +197,22 @@ export function ServiceRequestCatalogEditor({
         showToast={showToast}
         entityLabel="request type"
       />
+
+      {selectedIds.size > 0 ? (
+        <BulkActionBar count={selectedIds.size} hideCount variant="payments">
+          <div className="flex min-w-0 flex-wrap items-center justify-start gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              className={`${PORTAL_BULK_BAR_BTN} text-rose-800`}
+              data-attr="catalog-request-bulk-delete"
+              onClick={bulkDeleteOffers}
+            >
+              Delete
+            </Button>
+          </div>
+        </BulkActionBar>
+      ) : null}
     </>
   );
 }

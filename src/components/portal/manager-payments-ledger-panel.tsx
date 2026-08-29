@@ -1494,17 +1494,7 @@ export function ManagerPaymentsLedgerPanel({
     ) : null}
     {paymentIdProp && detailRow ? (
       embeddedInResident ? (
-        <div className="space-y-3">
-          <button
-            type="button"
-            className="text-sm font-medium text-primary hover:underline"
-            data-attr="resident-payment-detail-back"
-            onClick={navigateToList}
-          >
-            Back to payments
-          </button>
-          {renderPaymentDetailPanel(detailRow)}
-        </div>
+        renderPaymentDetailPanel(detailRow)
       ) : (
       <PortalRecordDetailPage
         pageTitle="Payments"

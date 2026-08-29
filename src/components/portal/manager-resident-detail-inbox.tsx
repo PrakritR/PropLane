@@ -592,7 +592,7 @@ export function ManagerResidentDetailInbox({
     );
 
   return (
-    <div className="portal-resident-detail-inbox portal-communication-inbox flex min-h-0 flex-1 flex-col">
+    <div className="portal-resident-detail-inbox portal-communication-inbox flex min-h-0 min-h-[min(72dvh,100%)] flex-1 flex-col">
       {archivedCount > 0 ? (
         <PortalSectionActionRow className="mb-2 shrink-0">
           <button

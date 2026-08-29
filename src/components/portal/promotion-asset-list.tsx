@@ -35,6 +35,8 @@ export function PromotionAssetStack({
   emptyMessage = "No promotions yet.",
   showPropertyLabel = true,
   variant = "plain",
+  selectedIds,
+  onToggleSelected,
 }: {
   assets: PromotionAsset[];
   onView: (asset: PromotionAsset) => void;
@@ -43,6 +45,8 @@ export function PromotionAssetStack({
   /** When false (property Promotion tab), the property name is omitted from the subtitle. */
   showPropertyLabel?: boolean;
   variant?: "card" | "plain";
+  selectedIds?: Set<string>;
+  onToggleSelected?: (id: string) => void;
 }) {
   if (assets.length === 0) {
     if (!emptyMessage?.trim()) return null;
@@ -50,6 +54,7 @@ export function PromotionAssetStack({
   }
 
   const kindIndices = promotionAssetKindIndices(assets);
+  const selectionMode = Boolean(selectedIds && onToggleSelected);
 
   const rows = assets.map((asset) => {
         const indexWithinKind = kindIndices.get(asset.id) ?? 0;
@@ -60,6 +65,27 @@ export function PromotionAssetStack({
           promotionKindLabel(asset.kind),
           asset.subtitle,
         ].filter(Boolean);
+
+        if (selectionMode) {
+          return (
+            <div key={asset.id} className={PORTAL_PROPERTY_DETAIL_LIST_ROW_CLASS}>
+              <label className="flex min-w-0 flex-1 cursor-pointer items-start gap-3">
+                <input
+                  type="checkbox"
+                  className="mt-0.5 h-4 w-4 shrink-0 accent-primary"
+                  checked={selectedIds!.has(asset.id)}
+                  data-attr={`promotion-select-${asset.id}`}
+                  onChange={() => onToggleSelected!(asset.id)}
+                  onClick={(e) => e.stopPropagation()}
+                />
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm font-semibold text-foreground">{title}</p>
+                  <p className="mt-0.5 text-xs text-muted">{subtitleParts.join(" · ")}</p>
+                </div>
+              </label>
+            </div>
+          );
+        }
 
         return (
           <div key={asset.id} className={PORTAL_PROPERTY_DETAIL_LIST_ROW_CLASS}>
