@@ -28,67 +28,87 @@ export function ApplicationFilterSortFields({
 }) {
   return (
     <FilterFieldsAccordion>
-      <ApplicationFilterSortFieldsBody
-        propertyOptions={propertyOptions}
-        propertyFilters={propertyFilters}
-        onPropertyFiltersChange={onPropertyFiltersChange}
-        allLabel={allLabel}
-        dataAttr={dataAttr}
-        selectionMode={selectionMode}
-      />
+      {selectionMode === "single" ? (
+        <ApplicationFilterSortFieldsSingle
+          propertyOptions={propertyOptions}
+          propertyFilters={propertyFilters}
+          onPropertyFiltersChange={onPropertyFiltersChange}
+          allLabel={allLabel}
+          dataAttr={dataAttr}
+        />
+      ) : (
+        <ApplicationFilterSortFieldsMulti
+          propertyOptions={propertyOptions}
+          propertyFilters={propertyFilters}
+          onPropertyFiltersChange={onPropertyFiltersChange}
+          allLabel={allLabel}
+          dataAttr={dataAttr}
+        />
+      )}
     </FilterFieldsAccordion>
   );
 }
 
-function ApplicationFilterSortFieldsBody({
+function ApplicationFilterSortFieldsSingle({
   propertyOptions,
   propertyFilters,
   onPropertyFiltersChange,
   allLabel,
   dataAttr,
-  selectionMode,
 }: {
   propertyOptions: { id: string; label: string }[];
   propertyFilters: string[];
   onPropertyFiltersChange: (next: string[]) => void;
   allLabel: string;
   dataAttr: string;
-  selectionMode: "single" | "multi";
 }) {
   const closeFieldMenu = useFilterAccordionClose();
   const options = propertyOptions.map((option) => ({ value: option.id, label: option.label }));
+  const summary = filterSingleSelectSummary(
+    propertyFilters[0] ?? "",
+    [{ value: "", label: allLabel }, ...options],
+    allLabel,
+  );
+
+  return (
+    <FilterCollapsibleSection
+      sectionId="property"
+      label="Property"
+      summary={summary}
+      empty={propertyFilters.length === 0}
+      menuOptionCount={options.length + 1}
+      dataAttr={`${dataAttr}-trigger`}
+    >
+      <FilterSingleSelectList
+        options={[{ value: "", label: allLabel }, ...options]}
+        value={propertyFilters[0] ?? ""}
+        onChange={(next) => onPropertyFiltersChange(next ? [next] : [])}
+        onPick={closeFieldMenu}
+        dataAttr={dataAttr}
+      />
+    </FilterCollapsibleSection>
+  );
+}
+
+function ApplicationFilterSortFieldsMulti({
+  propertyOptions,
+  propertyFilters,
+  onPropertyFiltersChange,
+  allLabel,
+  dataAttr,
+}: {
+  propertyOptions: { id: string; label: string }[];
+  propertyFilters: string[];
+  onPropertyFiltersChange: (next: string[]) => void;
+  allLabel: string;
+  dataAttr: string;
+}) {
   const [draftPropertyFilters, setDraftPropertyFilters] = usePortalFilterDraft(
     propertyFilters,
     onPropertyFiltersChange,
     [],
   );
-
-  if (selectionMode === "single") {
-    const summary = filterSingleSelectSummary(
-      propertyFilters[0] ?? "",
-      [{ value: "", label: allLabel }, ...options],
-      allLabel,
-    );
-    return (
-      <FilterCollapsibleSection
-        sectionId="property"
-        label="Property"
-        summary={summary}
-        empty={propertyFilters.length === 0}
-        menuOptionCount={options.length + 1}
-        dataAttr={`${dataAttr}-trigger`}
-      >
-        <FilterSingleSelectList
-          options={[{ value: "", label: allLabel }, ...options]}
-          value={propertyFilters[0] ?? ""}
-          onChange={(next) => onPropertyFiltersChange(next ? [next] : [])}
-          onPick={closeFieldMenu}
-          dataAttr={dataAttr}
-        />
-      </FilterCollapsibleSection>
-    );
-  }
-
+  const options = propertyOptions.map((option) => ({ value: option.id, label: option.label }));
   const summary = filterMultiSelectSummary(draftPropertyFilters, options, allLabel);
 
   return (

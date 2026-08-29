@@ -1262,7 +1262,10 @@ export function ProAccountLinksPanel({ userId, linkId: linkIdProp }: { userId: s
         })
         .filter((id): id is string => Boolean(id)),
     );
-    if (removeSet.size === 0) return;
+    if (removeSet.size === 0) {
+      clearDetailPropertySelection();
+      return;
+    }
 
     if (routeEntry.kind === "remote") {
       const inv = routeEntry.invite;
@@ -1320,7 +1323,8 @@ export function ProAccountLinksPanel({ userId, linkId: linkIdProp }: { userId: s
           all.filter((rel) => rel.id !== row.id),
         );
         refreshLocal();
-        showToast(`${removeSet.size} propert${removeSet.size === 1 ? "y" : "ies"} removed from this team member.`);
+        showToast("Link removed.");
+        navigateToList();
         clearDetailPropertySelection();
         return;
       }
