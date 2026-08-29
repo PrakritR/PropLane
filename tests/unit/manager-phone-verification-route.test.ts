@@ -109,6 +109,46 @@ describe("phone verification send failures", () => {
     expect(db.__tables.phone_verifications).toHaveLength(0);
   });
 
+  it("names a credential fault instead of telling the person to retry", async () => {
+    // Twilio reports a restricted API key with no Verify scope as a 401/8021.
+    // No retry can fix that, so it must not read as a transient failure.
+    process.env.TWILIO_VERIFY_SERVICE_SID = "VA-test";
+    const denied = Object.assign(new Error("required permission twilio/verify/service/read is missing"), {
+      status: 401,
+      code: 8021,
+    });
+    mocks.createTwilioRestClient.mockReturnValue({
+      verify: {
+        v2: {
+          services: () => ({
+            verifications: {
+              create: vi.fn(async () => {
+                throw denied;
+              }),
+            },
+          }),
+        },
+      },
+    });
+    const logged = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    const response = await POST(sendRequest());
+
+    expect(response.status).toBe(503);
+    expect((await response.json()).error).not.toContain("Try again shortly");
+    // Twilio's own sentence must reach the log, or this is undiagnosable.
+    expect(logged).toHaveBeenCalledWith(
+      "Twilio Verify send failed",
+      expect.objectContaining({
+        code: "8021",
+        status: 401,
+        message: "required permission twilio/verify/service/read is missing",
+        misconfigured: true,
+      }),
+    );
+    expect(db.__tables.phone_verifications).toHaveLength(0);
+  });
+
   it("clears the throttle when the managed runtime has no verification path", async () => {
     process.env.SMS_RUNTIME_ENABLED = "1";
 
