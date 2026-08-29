@@ -137,7 +137,10 @@ export function PortalSidebar({
   const showMobileNav = showNativeChrome || isSmallViewport;
   const navigate = usePortalNavigate();
   const session = usePortalSession();
-  const visibleSections = useCoManagerNavSections(definition, session.userId);
+  const { sections: visibleSections, restrictedSections } = useCoManagerNavSections(
+    definition,
+    session.userId,
+  );
   const navCounts = usePortalNavCounts(definition.kind);
   const [collapsed, setCollapsed] = useState(initialCollapsed);
 
@@ -220,10 +223,14 @@ export function PortalSidebar({
         section,
         subscriptionTier,
         residentNavStage,
+        coManagerRestricted: restrictedSections.has(section),
       }),
-    [definition.kind, residentNavStage, subscriptionTier],
+    [definition.kind, residentNavStage, subscriptionTier, restrictedSections],
   );
 
+  // Must take the SAME inputs as `isSectionLocked`. If one sees the co-manager
+  // restriction and the other does not, a locked row still renders as a live
+  // link into a section the server bounces — which reads as a broken tab.
   const isSectionLockNavigable = useCallback(
     (section: string) =>
       portalNavLockNavigable({
@@ -231,8 +238,9 @@ export function PortalSidebar({
         section,
         subscriptionTier,
         residentNavStage,
+        coManagerRestricted: restrictedSections.has(section),
       }),
-    [definition.kind, residentNavStage, subscriptionTier],
+    [definition.kind, residentNavStage, subscriptionTier, restrictedSections],
   );
 
   const nativeBottomNavSplit = useMemo(

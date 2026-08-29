@@ -10,6 +10,8 @@ import type { PortalDefinition } from "@/lib/portal-types";
 
 const REFRESH_EVENTS = ["axis-pro-relationships", "axis-property-pipeline", "storage"] as const;
 
+const EMPTY_RESTRICTED: ReadonlySet<string> = new Set();
+
 export function useCoManagerNavSections(definition: PortalDefinition, userId: string | null) {
   const [tick, setTick] = useState(0);
   const [invites, setInvites] = useState<AccountLinkInviteDto[] | null>(null);
@@ -62,12 +64,12 @@ export function useCoManagerNavSections(definition: PortalDefinition, userId: st
 
   return useMemo(() => {
     if (!userId || (definition.kind !== "pro" && definition.kind !== "manager")) {
-      return definition.sections;
+      return { sections: definition.sections, restrictedSections: EMPTY_RESTRICTED };
     }
 
     // Default to full nav while account links load to avoid hiding primary-manager sections.
     if (invites === null) {
-      return definition.sections;
+      return { sections: definition.sections, restrictedSections: EMPTY_RESTRICTED };
     }
 
     // A user who owns any property is a primary manager for nav (their own
@@ -78,13 +80,24 @@ export function useCoManagerNavSections(definition: PortalDefinition, userId: st
     const { isPrimaryManager, mergedPermissions, hasEmptyPermissionCoManagerLink } =
       deriveManagerNavRole(invites, ownsProperties);
 
-    return definition.sections.filter((s) =>
-      coManagerPortalSectionAllowed({
-        section: s.section,
-        isPrimaryManager,
-        mergedPermissions,
-        hasEmptyPermissionCoManagerLink,
-      }),
+    // Every section stays in the nav; the ones this link does not grant come
+    // back as LOCKED rather than missing. A sidebar that differs between two
+    // manager accounts reads as a broken build, and a removed row gives the
+    // person nothing to recognise or ask about. The data layer still enforces.
+    const restrictedSections = new Set(
+      definition.sections
+        .filter(
+          (s) =>
+            !coManagerPortalSectionAllowed({
+              section: s.section,
+              isPrimaryManager,
+              mergedPermissions,
+              hasEmptyPermissionCoManagerLink,
+            }),
+        )
+        .map((s) => s.section),
     );
+
+    return { sections: definition.sections, restrictedSections };
   }, [definition, invites, userId, tick]);
 }
