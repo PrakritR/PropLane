@@ -2399,11 +2399,7 @@ html[data-communication-hide-assistant-fab] .portal-resident-detail-inbox .porta
   padding-right: 0;
 }
 
-/* Resident detail chat is full-width (no list pane) — allow bubbles to use it. */
-.portal-resident-detail-inbox .portal-inbox-inbound-bubble,
-.portal-resident-detail-inbox .portal-inbox-outbound-bubble {
-  max-width: min(92%, 42rem);
-}
+/* Resident detail width is set on `.portal-inbox-bubble-wrap` below. */
 
 html[data-hide-assistant-fab] .portal-resident-detail-inbox [data-attr="modal-assistant-strip"],
 html[data-communication-hide-assistant-fab] .portal-resident-detail-inbox [data-attr="modal-assistant-strip"] {
@@ -3097,6 +3093,14 @@ html[data-native] [data-listing-sections-root] {
 html[data-native] [data-listing-subnav] {
   width: 100%;
   max-width: 100vw;
+}
+
+.portal-inbox-bubble-wrap {
+  max-width: min(92%, 42rem);
+}
+
+.portal-resident-detail-inbox .portal-inbox-bubble-wrap {
+  max-width: min(96%, 52rem);
 }
 
 .portal-inbox-outbound-bubble {

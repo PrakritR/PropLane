@@ -41,9 +41,8 @@ export function residentPortalPath(
     case "inbox":
       return "/resident/communication/email/unopened";
     case "services":
-      return "/resident/services/requests";
     case "services_work_orders":
-      return "/resident/services/work-orders";
+      return "/resident/services";
     case "applications":
       return "/resident/applications";
     case "login":
@@ -163,8 +162,8 @@ const LINK_LABEL: Record<ResidentSmsLinkKind, string> = {
   lease: "Sign / view lease",
   move_in: "House details",
   inbox: "Open inbox",
-  services: "Requests",
-  services_work_orders: "Work orders",
+  services: "Services",
+  services_work_orders: "Services",
   applications: "Applications",
   login: "Sign in",
   signup: "Create account",

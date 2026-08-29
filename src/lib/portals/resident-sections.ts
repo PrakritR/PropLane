@@ -20,11 +20,6 @@ export const RESIDENT_FREE_TIER_SECTION_IDS = [
 
 export type ResidentFreeTierSectionId = (typeof RESIDENT_FREE_TIER_SECTION_IDS)[number];
 
-const SERVICES_TABS = [
-  { id: "requests", label: "Requests" },
-  { id: "work-orders", label: "Work orders" },
-] as const;
-
 const DOCUMENTS_TABS = [
   { id: "application", label: "Application" },
   { id: "lease", label: "Lease" },
@@ -79,7 +74,7 @@ export const RESIDENT_UNIFIED_PORTAL_SECTIONS: PortalSection[] = [
   { section: "applications", label: "Application", tabs: [] },
   { section: "dashboard", label: "Dashboard", tabs: [] },
   { section: "lease", label: "Lease", tabs: [] },
-  { section: "services", label: "Services", tabs: [...SERVICES_TABS] },
+  { section: "services", label: "Services", tabs: [] },
   { section: "payments", label: "Payments", tabs: [] },
   { section: "communication", label: "Communication", tabs: [] },
   { section: "move-in", label: "House details", tabs: [] },
@@ -109,7 +104,7 @@ export const RESIDENT_LIMITED_PORTAL_SECTIONS: PortalSection[] = [
 
 /** Full resident workspace after both parties sign the lease. */
 export const RESIDENT_APPROVED_PORTAL_SECTIONS: PortalSection[] = [
-  { section: "services", label: "Services", tabs: [...SERVICES_TABS] },
+  { section: "services", label: "Services", tabs: [] },
   { section: "payments", label: "Payments", tabs: [] },
   { section: "dashboard", label: "Dashboard", tabs: [] },
   { section: "tour", label: "Tour", tabs: [] },

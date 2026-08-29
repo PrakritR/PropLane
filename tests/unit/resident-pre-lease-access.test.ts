@@ -58,7 +58,7 @@ describe("resident portal stage access", () => {
     expect(isResidentPathAllowedForAccess("/resident/tour", postApproval)).toBe(true);
     expect(isResidentPathAllowedForAccess("/resident/applications/pending", postApproval)).toBe(true);
     expect(isResidentPathAllowedForAccess("/resident/applications/apply?propertyId=demo", postApproval)).toBe(true);
-    expect(isResidentPathAllowedForAccess("/resident/services/requests", postApproval)).toBe(false);
+    expect(isResidentPathAllowedForAccess("/resident/services", postApproval)).toBe(false);
   });
 
   it("passes legacy section aliases through to their real destination", () => {
@@ -74,7 +74,10 @@ describe("resident portal stage access", () => {
   });
 
   it("post-lease unlocks services and house details and keeps tour and application reachable", () => {
+    expect(isResidentPathAllowedForAccess("/resident/services", postLease)).toBe(true);
+    // Legacy sub-paths redirect to the unified Services screen.
     expect(isResidentPathAllowedForAccess("/resident/services/requests", postLease)).toBe(true);
+    expect(isResidentPathAllowedForAccess("/resident/services/work-orders", postLease)).toBe(true);
     expect(isResidentPathAllowedForAccess("/resident/move-in", postLease)).toBe(true);
     expect(isResidentPathAllowedForAccess("/resident/lease", postLease)).toBe(true);
     expect(isResidentPathAllowedForAccess("/resident/tour", postLease)).toBe(true);

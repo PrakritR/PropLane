@@ -28,8 +28,8 @@ describe("claw-resident-links", () => {
     expect(residentPortalPath("lease")).toBe("/resident/lease");
     expect(residentPortalPath("move_in")).toBe("/resident/move-in");
     expect(residentPortalPath("inbox")).toBe("/resident/communication/email/unopened");
-    expect(residentPortalPath("services")).toBe("/resident/services/requests");
-    expect(residentPortalPath("services_work_orders")).toBe("/resident/services/work-orders");
+    expect(residentPortalPath("services")).toBe("/resident/services");
+    expect(residentPortalPath("services_work_orders")).toBe("/resident/services");
     expect(residentPortalPath("apply", { propertyId: "p1", bundleId: "b1" })).toBe(
       "/rent/apply?propertyId=p1&bundle=b1",
     );

@@ -115,7 +115,6 @@ describe("resident portal redesign completeness", () => {
     const band2Panels: Array<{ file: string; marker: string }> = [
       { file: "resident-applications-panel.tsx", marker: "PortalListControlStack" },
       { file: "resident-payments-panel.tsx", marker: "PortalListControlStack" },
-      { file: "resident-services-panel.tsx", marker: "PortalListControlStack" },
       { file: "resident-documents-panel.tsx", marker: "PortalListControlStack" },
     ];
 
@@ -226,10 +225,10 @@ describe("resident portal redesign completeness", () => {
      * Never both an ungated title band AND a mobile row.
      */
     it("header actions reach mobile exactly once — band OR mobile row, never both", () => {
-      // (a) Services + Tour + Applications: title band only, mobile row removed.
+      // Services uses per-section Add rows in the list body, not a title-band action.
       const services = readPanel("resident-services-panel.tsx");
-      expect(services).toContain("titleAside={servicesHeaderAction}");
-      expect(services).not.toContain("resident-services-mobile-actions");
+      expect(services).toContain("ResidentServicesRequestAddRow");
+      expect(services).toContain("ResidentServicesMaintenanceAddRow");
       expect(services).not.toContain("PortalPageHeaderMobileActionsRow");
 
       const tour = readPanel("resident-tour-panel.tsx");
@@ -241,8 +240,6 @@ describe("resident portal redesign completeness", () => {
       expect(applications).not.toContain("ResidentApplicationWorkspaceMobileApply");
       expect(applications).not.toContain("PortalPageHeaderMobileActionsRow");
 
-      // …but the control itself must still exist — the failure mode worse than a duplicate.
-      expect(services).toContain("servicesHeaderAction");
       expect(tour).toContain("scheduleTourButton");
 
       // (b) Lease moved to the band-only shape: its actions now live in the

@@ -12,11 +12,9 @@ import { ConfirmDeleteModal } from "@/components/portal/confirm-delete-modal";
 import { useAppUi } from "@/components/providers/app-ui-provider";
 import {
   ManagerPortalPageShell,
-  PORTAL_HEADER_PRIMARY_ACTION_BTN,
   PORTAL_INLINE_UNLOCK_NOTICE_CLASS,
   PORTAL_INLINE_UNLOCK_NOTICE_STACKED_CLASS,
 } from "@/components/portal/portal-metrics";
-import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
 import { PortalListAddRow, PORTAL_LIST_ADD_ROW_WRAP_CLASS } from "@/components/portal/portal-list-add-row";
 import { LocalDestinationNav } from "@/components/ui/destination-nav";
 import {
@@ -549,10 +547,8 @@ function ResidentServicesMaintenanceAddRow({
 }
 
 export function ResidentServicesPanel({
-  tabId,
   basePath,
 }: {
-  tabId: "requests" | "work-orders";
   basePath: string;
 }) {
   const { showToast } = useAppUi();
@@ -579,7 +575,6 @@ export function ResidentServicesPanel({
   const [workOrderFilter, setWorkOrderFilter] = useState<WorkOrderFilterBucket>("pending");
   const [requestsFilter, setRequestsFilter] = useState<RequestStatusBucket>("pending");
   const [expandedId, setExpandedId] = useState<string | null>(null);
-  const activeTab = tabId;
 
   // modal state
   const [modalMode, setModalMode] = useState<"none" | "maintenance" | "service">("none");
@@ -1256,78 +1251,16 @@ export function ResidentServicesPanel({
     setModalMode("maintenance");
   };
 
-  const servicesHeaderAction =
-    activeTab === "work-orders" ? (
-      <Button
-        type="button"
-        variant="primary"
-        className={`shrink-0 ${PORTAL_HEADER_PRIMARY_ACTION_BTN}`}
-        data-attr="resident-report-maintenance"
-        disabled={!servicesUnlocked}
-        onClick={openMaintenanceReport}
-      >
-        Add
-      </Button>
-    ) : (
-      <Button
-        type="button"
-        variant="primary"
-        className={`shrink-0 ${PORTAL_HEADER_PRIMARY_ACTION_BTN}`}
-        data-attr="resident-request-service"
-        disabled={!servicesUnlocked}
-        onClick={openRequestService}
-      >
-        Add
-      </Button>
-    );
-
-  const servicesListChrome = (
-    <PortalListControlStack
-      className="mb-2 max-lg:mb-2"
-      filterRow={
-        activeTab === "requests" ? (
-          <LocalDestinationNav
-            items={REQUEST_STATUS_TABS.map(({ id, label }) => ({
-              id,
-              label,
-              count: requestsCounts[id],
-              dataAttr: `resident-services-request-status-${id}`,
-            }))}
-            activeId={requestsFilter}
-            onChange={(id) => setRequestsFilter(id as RequestStatusBucket)}
-            ariaLabel="Request status"
-            className="w-full"
-          />
-        ) : (
-          <LocalDestinationNav
-            items={WORK_ORDER_FILTER_TABS.map(({ id, label }) => ({
-              id,
-              label,
-              count: workOrderFilterCounts[id],
-              dataAttr: `resident-services-work-order-status-${id}`,
-            }))}
-            activeId={workOrderFilter}
-            onChange={(id) => setWorkOrderFilter(id as WorkOrderFilterBucket)}
-            ariaLabel="Work order status"
-            className="w-full"
-          />
-        )
-      }
-    />
-  );
-
-  const requestsLockedEmpty = !servicesUnlocked && activeTab === "requests" && sortedRequests.length === 0;
-  const workOrdersLockedEmpty = !servicesUnlocked && activeTab === "work-orders" && myRows.length === 0;
-  const lockedEmpty = requestsLockedEmpty || workOrdersLockedEmpty;
+  const requestsLockedEmpty = !servicesUnlocked && sortedRequests.length === 0;
+  const workOrdersLockedEmpty = !servicesUnlocked && myRows.length === 0;
+  const lockedEmpty = requestsLockedEmpty && workOrdersLockedEmpty;
 
   return (
     <ManagerPortalPageShell
       title="Services"
       hideTitleOnMobileNav
-      titleAside={servicesHeaderAction}
       compactFilterRow
     >
-      {servicesListChrome}
       <div
         className={lockedEmpty ? "space-y-0" : undefined}
         data-slot="resident-services-body"
@@ -1349,6 +1282,21 @@ export function ResidentServicesPanel({
           <p className="mb-2 px-1 text-xs font-semibold uppercase tracking-wide text-muted">
             Add-on services
           </p>
+          <div className="mb-3">
+            <LocalDestinationNav
+              items={REQUEST_STATUS_TABS.map(({ id, label }) => ({
+                id,
+                label,
+                count: requestsCounts[id],
+                dataAttr: `resident-services-request-status-${id}`,
+              }))}
+              activeId={requestsFilter}
+              onChange={(id) => setRequestsFilter(id as RequestStatusBucket)}
+              ariaLabel="Service request status"
+              size="toolbar"
+              className="w-full"
+            />
+          </div>
           {filteredRequests.length > 0 ? (
         <>
         <div className="space-y-2 lg:hidden">
@@ -1428,6 +1376,21 @@ export function ResidentServicesPanel({
           <p className="mb-2 px-1 text-xs font-semibold uppercase tracking-wide text-muted">
             Maintenance
           </p>
+          <div className="mb-3">
+            <LocalDestinationNav
+              items={WORK_ORDER_FILTER_TABS.map(({ id, label }) => ({
+                id,
+                label,
+                count: workOrderFilterCounts[id],
+                dataAttr: `resident-services-work-order-status-${id}`,
+              }))}
+              activeId={workOrderFilter}
+              onChange={(id) => setWorkOrderFilter(id as WorkOrderFilterBucket)}
+              ariaLabel="Maintenance status"
+              size="toolbar"
+              className="w-full"
+            />
+          </div>
           {rows.length > 0 ? (
             <>
             <div className="space-y-2 lg:hidden">

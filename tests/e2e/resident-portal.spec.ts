@@ -10,7 +10,7 @@ test.use({ storageState: path.join(__dirname, "../.auth/resident.json") });
 
 const RESIDENT_SECTIONS = [
   ...RESIDENT_PORTAL_SMOKE_PATHS,
-  { label: "Services", path: "/resident/services/requests" },
+  { label: "Services", path: "/resident/services" },
 ] as const;
 
 test.describe("Resident portal", () => {
@@ -76,9 +76,17 @@ test.describe("Resident portal", () => {
     }
   });
 
-  test("services tab shows submit request option", async ({ page }) => {
-    await page.goto("/resident/services/requests");
+  test("services tab shows unified add-on and maintenance sections", async ({ page }) => {
+    await page.goto("/resident/services");
     await expect(page.getByRole("heading").first()).toBeVisible();
+    await expect(page.getByText("Add-on services")).toBeVisible();
+    await expect(page.getByText("Maintenance")).toBeVisible();
+  });
+
+  test("legacy services sub-paths redirect to unified services", async ({ page }) => {
+    await page.goto("/resident/services/requests");
+    await expect(page).toHaveURL(/\/resident\/services\/?$/, { timeout: 15_000 });
+    await expect(page.getByText("Add-on services")).toBeVisible();
   });
 
   test("documents receipts tab loads", async ({ page }) => {
