@@ -60,9 +60,10 @@ effect on the next charge with no per-charge state. A resident learns their
 manager's fee-payer for pre-checkout disclosure via
 `GET /api/portal/resident-service-fee`
 (`getManagerServiceFeePayerByManagerId`, scoped to their own
-`profiles.manager_id`) — that disclosure read still resolves from plan + account
-choice ALONE, so it does not yet reflect the property choice or the staff
-override that checkout applies.
+`profiles.manager_id`). That read runs the SAME `resolveServiceFeePayerFor`
+precedence the money paths do, so the payer a resident is shown before checkout
+cannot disagree with the one they are billed under; it resolves without a
+`propertyChoice` because the account-wide disclosure has no property in hand.
 
 The **property choice** is `serviceFeePayer` on `ManagerListingSubmissionV1`,
 edited in the listing wizard's Pricing step. `null` means "follow the account",

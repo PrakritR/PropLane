@@ -32,8 +32,9 @@ export const RESIDENT_CARD_PAYMENT_DISPLAY_LABEL = "Card · Apple Pay";
 
 /**
  * Who bears the payment "service fee" (Stripe's real processing cost) on a
- * resident charge. Resolved per manager from the plan tier + the Pro choice by
- * {@link resolveServiceFeePayer}; it is the single value that decides how the
+ * resident charge. Resolved for one payment by {@link resolveServiceFeePayerFor}
+ * (staff override → property setting → account default, under the plan rule in
+ * {@link resolveServiceFeePayer}); it is the single value that decides how the
  * fee is placed on the Connect destination charge:
  * - `resident`  — added on top of what the resident pays (retained as the
  *   Connect `application_fee_amount`, so the manager still gets the subtotal).

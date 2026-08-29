@@ -1600,18 +1600,13 @@ household-charge ledger do not charge it.
 
 ### Citations added in the template config
 
-P9 added optional config slots only: `returnedPaymentStatuteRef`,
+P9 adds optional config slots only: `returnedPaymentStatuteRef`,
 `earlyTerminationStatuteRef`, `smokeAlarmStatuteRef`, and
-`carbonMonoxideAlarmStatuteRef`. The reference PDF is a source for this manager's
-commercial terms, not verification for a state statute, so P9 populated none of them.
-The regression test proves an unset citation still renders the returned-payment clause
-without a Washington citation.
-
-**One has since been populated:** `WASHINGTON_LEASE_CONFIG.earlyTerminationStatuteRef`
-is now `RCW 59.18.310`, and the WA early-termination clause cites it. The other three
-slots remain unset for every jurisdiction. Nothing else changed about the rule — a
-citation is populated from a verified official source for THAT jurisdiction or not at
-all, and California still cites nothing.
+`carbonMonoxideAlarmStatuteRef`. No citation value is populated in any of them, for any
+jurisdiction. The reference PDF is a source for this manager's commercial terms, not
+verification for a state statute — and neither is `leases/seattle/sample-lease.md`, which
+is a rendered sample carrying the same unverified citations. The regression test proves an
+unset citation still renders the returned-payment clause without a Washington citation.
 
 ### Deliberately deferred clauses
 
@@ -1619,10 +1614,9 @@ all, and California still cites nothing.
   deadline, detailed liability cap and indemnity, crime, package, parking, bike-storage
   allocation, and the complete lettered maintenance list are not default platform terms.
   They need manager-controlled data and legal review before they can be emitted.
-- The reference's Washington citations for late possession, smoke alarms, CO alarms, and
-  cure procedures were not added or inferred. A verified official source is required
-  before populating a jurisdiction config. (Early termination is the one that has since
-  been populated — see "Citations added in the template config" above.)
+- The reference's Washington citations for late possession, early termination, smoke
+  alarms, CO alarms, and cure procedures were not added or inferred. A verified official
+  source is required before populating a jurisdiction config.
 - The disclosure rules engine owns lead-paint disclosure content. P9 does not add a second
   disclosure or change its trigger.
 - These optional fields have a normalization and generation path, but the manager listing

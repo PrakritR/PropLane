@@ -13,7 +13,7 @@ import {
 } from "@/lib/manager-access";
 import { isAppleBilledManagerPurchase } from "@/lib/manager-apple-purchase";
 import { loadManagerManualPaymentSettings } from "@/lib/manager-manual-payment-settings";
-import { resolveServiceFeePayer, type ServiceFeePayer } from "@/lib/payment-policy";
+import { resolveServiceFeePayerFor, type ServiceFeePayer } from "@/lib/payment-policy";
 
 /**
  * Server-only manager_purchases reads/writes (service role). Split out of
@@ -197,14 +197,24 @@ export async function getManagerSubscriptionTierByManagerId(managerId: string): 
 }
 
 /**
- * Who pays the resident-payment service fee for a manager, resolved from their
- * plan + Pro setting. Keyed by `manager_id` so a resident can resolve their OWN
- * manager (their `profiles.manager_id`) for pre-checkout disclosure. Falls back
- * to "resident" on any failure — the safe direction for disclosure, since it
- * over-shows a possible fee rather than hiding one (the checkout session is the
- * authoritative amount either way).
+ * Who pays the resident-payment service fee for a manager. Keyed by `manager_id`
+ * so a resident can resolve their OWN manager (their `profiles.manager_id`) for
+ * pre-checkout disclosure. Falls back to "resident" on any failure — the safe
+ * direction for disclosure, since it over-shows a possible fee rather than hiding
+ * one (the checkout session is the authoritative amount either way).
+ *
+ * It runs the SAME `resolveServiceFeePayerFor` precedence the money paths use
+ * (`createHouseholdChargeCheckout`, `createApplicationFeeCheckout`) — staff
+ * override, then the property's Pricing setting, then the account default. Reading
+ * only the account default here made the disclosure disagree with the charge: a
+ * resident could be shown one payer and then billed under another. Pass
+ * `propertyChoice` wherever the property is known; the account-wide disclosure has
+ * no property in hand, so it resolves without one.
  */
-export async function getManagerServiceFeePayerByManagerId(managerId: string): Promise<ServiceFeePayer> {
+export async function getManagerServiceFeePayerByManagerId(
+  managerId: string,
+  options: { propertyChoice?: ServiceFeePayer | null } = {},
+): Promise<ServiceFeePayer> {
   const normalized = managerId.trim();
   if (!normalized) return "resident";
   try {
@@ -217,10 +227,13 @@ export async function getManagerServiceFeePayerByManagerId(managerId: string): P
     if (!data) return "resident";
     const tier = normalizeManagerSkuTier(data.tier != null ? String(data.tier) : null) ?? "free";
     const userId = data.user_id != null ? String(data.user_id).trim() : "";
-    const proChoice = userId
-      ? (await loadManagerManualPaymentSettings(supabase, userId)).serviceFeePayer
-      : "resident";
-    return resolveServiceFeePayer(tier, proChoice);
+    const settings = userId ? await loadManagerManualPaymentSettings(supabase, userId) : null;
+    return resolveServiceFeePayerFor({
+      tier,
+      adminOverride: settings?.adminServiceFeeOverride ?? null,
+      propertyChoice: options.propertyChoice ?? null,
+      managerChoice: settings?.serviceFeePayer ?? null,
+    });
   } catch {
     return "resident";
   }

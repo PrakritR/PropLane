@@ -127,7 +127,9 @@ export const WASHINGTON_LEASE_CONFIG: LeaseJurisdictionTemplateConfig = {
   residentMaintenanceStatuteRef: "RCW 59.18.130",
   landlordMaintenanceStatuteRef: "RCW 59.18.060",
   defaultNoticeStatuteRef: "RCW 59.12.030",
-  earlyTerminationStatuteRef: "RCW 59.18.310",
+  // `earlyTerminationStatuteRef` is deliberately unset: no verified official source for a
+  // Washington early-termination citation is recorded, and the clause reads correctly with
+  // no citation. Populate it only alongside the source it was checked against.
   defaultLongTermBreakLeaseFeeUsd: 900,
   defaultLongTermHoldoverDailyUsd: 45,
   defaultLongTermLeaseUpFeePercent: 100,
