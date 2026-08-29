@@ -2355,6 +2355,10 @@ html[data-native] [class*="PORTAL_SECTION_SURFACE"] {
   html[data-portal-sidebar-collapsed] [data-slot="bulk-action-bar"][data-variant="payments"] {
     left: 58px;
   }
+
+  html[data-portal-sidebar-collapsed] [data-slot="portal-page-footer-actions"][data-pinned] {
+    left: 58px;
+  }
 }
 
 html[data-hide-assistant-fab] .axis-assistant-fab,

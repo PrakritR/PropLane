@@ -3,7 +3,14 @@
 import { useEffect, useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input, Select } from "@/components/ui/input";
-import { Modal, ModalFooter } from "@/components/ui/modal";
+import {
+  Modal,
+  ModalFooter,
+  MODAL_FIELD_LABEL_CLASS,
+  PORTAL_MODAL_FORM_FIELD_CLASS,
+  PORTAL_MODAL_FORM_FULL_ROW_CLASS,
+  PORTAL_MODAL_FORM_GRID_CLASS,
+} from "@/components/ui/modal";
 import { WorkAssignmentPicker } from "@/components/portal/work-assignment-picker";
 import { useAppUi } from "@/components/providers/app-ui-provider";
 import { useWorkAssignmentDirectory } from "@/hooks/use-work-assignment-directory";
@@ -16,6 +23,7 @@ import {
 } from "@/lib/manager-scheduled-work-tasks";
 import { getRoomOptionsForProperty } from "@/lib/rental-application/data";
 import type { WorkAssignee } from "@/lib/work-assignment";
+import { cn } from "@/lib/utils";
 
 const DURATION_OPTIONS = [
   { value: "30", label: "30 minutes" },
@@ -37,19 +45,20 @@ function roomNameFromOptionLabel(label: string): string {
   return label.split(" · ")[0]?.trim() || label.trim();
 }
 
-function defaultScheduleDate(): string {
-  const d = new Date();
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-}
-
-function defaultStartTime(): string {
+function defaultScheduleFields(): { scheduleDate: string; startTime: string } {
   const d = new Date();
   d.setMinutes(Math.ceil(d.getMinutes() / 15) * 15, 0, 0);
-  if (d.getHours() >= 17) {
-    d.setDate(d.getDate() + 1);
+  const hour = d.getHours();
+  if (hour >= 17 || hour < 9) {
+    if (hour >= 17) {
+      d.setDate(d.getDate() + 1);
+    }
     d.setHours(10, 0, 0, 0);
   }
-  return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+  return {
+    scheduleDate: `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`,
+    startTime: `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`,
+  };
 }
 
 const EMPTY_FORM = {
@@ -102,8 +111,7 @@ export function ManagerAddScheduledTourModal({
     }
     setForm({
       ...EMPTY_FORM,
-      scheduleDate: defaultScheduleDate(),
-      startTime: defaultStartTime(),
+      ...defaultScheduleFields(),
     });
   }, [open]);
 
@@ -173,10 +181,13 @@ export function ManagerAddScheduledTourModal({
 
   return (
     <Modal open={open} onClose={onClose} title="Schedule tour" dense assistantStrip={false}>
-      <div className="space-y-3">
-        <label className="space-y-1 text-sm">
-          <span className="font-medium text-foreground">Property</span>
+      <div className={PORTAL_MODAL_FORM_GRID_CLASS}>
+        <div className={cn(PORTAL_MODAL_FORM_FIELD_CLASS, PORTAL_MODAL_FORM_FULL_ROW_CLASS)}>
+          <label className={MODAL_FIELD_LABEL_CLASS} htmlFor="manual-tour-property">
+            Property
+          </label>
           <Select
+            id="manual-tour-property"
             value={form.propertyId}
             onChange={(e) => {
               setForm((current) => ({ ...current, propertyId: e.target.value }));
@@ -191,11 +202,14 @@ export function ManagerAddScheduledTourModal({
               </option>
             ))}
           </Select>
-        </label>
+        </div>
         {form.propertyId ? (
-          <label className="space-y-1 text-sm">
-            <span className="font-medium text-foreground">Room (optional)</span>
+          <div className={cn(PORTAL_MODAL_FORM_FIELD_CLASS, PORTAL_MODAL_FORM_FULL_ROW_CLASS)}>
+            <label className={MODAL_FIELD_LABEL_CLASS} htmlFor="manual-tour-room">
+              Room (optional)
+            </label>
             <Select
+              id="manual-tour-room"
               value={selectedRoomValue}
               onChange={(e) => setSelectedRoomValue(e.target.value)}
               data-attr="manual-tour-room"
@@ -207,84 +221,111 @@ export function ManagerAddScheduledTourModal({
                 </option>
               ))}
             </Select>
-          </label>
+          </div>
         ) : null}
-        <Input
-          aria-label="Guest name"
-          value={form.guestName}
-          onChange={(e) => setForm((current) => ({ ...current, guestName: e.target.value }))}
-          placeholder="Guest name"
-          data-attr="manual-tour-guest-name"
-        />
-        <Input
-          aria-label="Guest email"
-          type="email"
-          value={form.guestEmail}
-          onChange={(e) => setForm((current) => ({ ...current, guestEmail: e.target.value }))}
-          placeholder="Guest email (optional)"
-          data-attr="manual-tour-guest-email"
-        />
-        <Input
-          aria-label="Guest phone"
-          type="tel"
-          value={form.guestPhone}
-          onChange={(e) => setForm((current) => ({ ...current, guestPhone: e.target.value }))}
-          placeholder="Guest phone (optional)"
-          data-attr="manual-tour-guest-phone"
-        />
-        <label className="space-y-1 text-sm">
-          <span className="font-medium text-foreground">Date</span>
+        <div className={PORTAL_MODAL_FORM_FIELD_CLASS}>
+          <label className={MODAL_FIELD_LABEL_CLASS} htmlFor="manual-tour-guest-name">
+            Guest name
+          </label>
           <Input
+            id="manual-tour-guest-name"
+            value={form.guestName}
+            onChange={(e) => setForm((current) => ({ ...current, guestName: e.target.value }))}
+            placeholder="Jane Smith"
+            data-attr="manual-tour-guest-name"
+          />
+        </div>
+        <div className={PORTAL_MODAL_FORM_FIELD_CLASS}>
+          <label className={MODAL_FIELD_LABEL_CLASS} htmlFor="manual-tour-guest-email">
+            Guest email (optional)
+          </label>
+          <Input
+            id="manual-tour-guest-email"
+            type="email"
+            value={form.guestEmail}
+            onChange={(e) => setForm((current) => ({ ...current, guestEmail: e.target.value }))}
+            placeholder="jane@example.com"
+            data-attr="manual-tour-guest-email"
+          />
+        </div>
+        <div className={cn(PORTAL_MODAL_FORM_FIELD_CLASS, PORTAL_MODAL_FORM_FULL_ROW_CLASS)}>
+          <label className={MODAL_FIELD_LABEL_CLASS} htmlFor="manual-tour-guest-phone">
+            Guest phone (optional)
+          </label>
+          <Input
+            id="manual-tour-guest-phone"
+            type="tel"
+            value={form.guestPhone}
+            onChange={(e) => setForm((current) => ({ ...current, guestPhone: e.target.value }))}
+            placeholder="(555) 555-0100"
+            data-attr="manual-tour-guest-phone"
+          />
+        </div>
+        <div className={PORTAL_MODAL_FORM_FIELD_CLASS}>
+          <label className={MODAL_FIELD_LABEL_CLASS} htmlFor="manual-tour-date">
+            Date
+          </label>
+          <Input
+            id="manual-tour-date"
             type="date"
             value={form.scheduleDate}
             onChange={(e) => setForm((current) => ({ ...current, scheduleDate: e.target.value }))}
             data-attr="manual-tour-date"
           />
-        </label>
-        <div className="grid gap-3 sm:grid-cols-2">
-          <label className="space-y-1 text-sm">
-            <span className="font-medium text-foreground">Start time</span>
-            <Input
-              type="time"
-              value={form.startTime}
-              onChange={(e) => setForm((current) => ({ ...current, startTime: e.target.value }))}
-              data-attr="manual-tour-start-time"
-            />
-          </label>
-          <label className="space-y-1 text-sm">
-            <span className="font-medium text-foreground">Duration</span>
-            <Select
-              value={form.durationMinutes}
-              onChange={(e) => setForm((current) => ({ ...current, durationMinutes: e.target.value }))}
-              data-attr="manual-tour-duration"
-            >
-              {DURATION_OPTIONS.map((option) => (
-                <option key={option.value} value={option.value}>
-                  {option.label}
-                </option>
-              ))}
-            </Select>
-          </label>
         </div>
-        <WorkAssignmentPicker
-          kind="tour"
-          value={assignee}
-          teamMembers={teamMembers}
-          vendors={vendors}
-          disabled={saving}
-          label="Assignee (optional)"
-          dataAttr="manual-tour-assignee"
-          onChange={setAssignee}
-        />
-        <label className="space-y-1 text-sm">
-          <span className="font-medium text-foreground">Notes (optional)</span>
+        <div className={PORTAL_MODAL_FORM_FIELD_CLASS}>
+          <label className={MODAL_FIELD_LABEL_CLASS} htmlFor="manual-tour-start-time">
+            Start time
+          </label>
+          <Input
+            id="manual-tour-start-time"
+            type="time"
+            value={form.startTime}
+            onChange={(e) => setForm((current) => ({ ...current, startTime: e.target.value }))}
+            data-attr="manual-tour-start-time"
+          />
+        </div>
+        <div className={PORTAL_MODAL_FORM_FIELD_CLASS}>
+          <label className={MODAL_FIELD_LABEL_CLASS} htmlFor="manual-tour-duration">
+            Duration
+          </label>
+          <Select
+            id="manual-tour-duration"
+            value={form.durationMinutes}
+            onChange={(e) => setForm((current) => ({ ...current, durationMinutes: e.target.value }))}
+            data-attr="manual-tour-duration"
+          >
+            {DURATION_OPTIONS.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </Select>
+        </div>
+        <div className={cn(PORTAL_MODAL_FORM_FIELD_CLASS, PORTAL_MODAL_FORM_FULL_ROW_CLASS)}>
+          <WorkAssignmentPicker
+            kind="tour"
+            value={assignee}
+            teamMembers={teamMembers}
+            vendors={vendors}
+            disabled={saving}
+            label="Assignee (optional)"
+            dataAttr="manual-tour-assignee"
+            onChange={setAssignee}
+          />
+        </div>
+        <div className={cn(PORTAL_MODAL_FORM_FIELD_CLASS, PORTAL_MODAL_FORM_FULL_ROW_CLASS)}>
+          <label className={MODAL_FIELD_LABEL_CLASS} htmlFor="manual-tour-notes">
+            Notes (optional)
+          </label>
           <textarea
-            className="min-h-[72px] w-full rounded-xl border border-border bg-card px-3 py-2 text-sm"
+            id="manual-tour-notes"
+            className="min-h-[5rem] w-full rounded-xl border border-border bg-card px-3 py-2 text-sm"
             value={form.notes}
             onChange={(e) => setForm((current) => ({ ...current, notes: e.target.value }))}
             data-attr="manual-tour-notes"
           />
-        </label>
+        </div>
       </div>
       <ModalFooter>
         <Button type="button" variant="outline" onClick={onClose} disabled={saving}>

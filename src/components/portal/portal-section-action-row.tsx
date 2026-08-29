@@ -185,6 +185,7 @@ export function PortalPageFooterActions({
           rowVariant === "header" ? "px-2 py-2 max-md:pb-2" : "px-4 py-3",
           "pb-[max(0.75rem,env(safe-area-inset-bottom,0px))]",
           "max-lg:bottom-[var(--portal-native-bottom-nav-inset,0px)]",
+          pinned && "lg:left-[224px] lg:right-0",
           !pinned &&
             "md:static md:inset-auto md:z-auto md:border-0 md:bg-transparent md:px-0 md:py-0 md:shadow-none md:backdrop-blur-none",
           className,
@@ -193,7 +194,13 @@ export function PortalPageFooterActions({
         data-row-variant={rowVariant}
         data-pinned={pinned ? "" : undefined}
       >
-        <div className="mx-auto w-full min-w-0 max-w-5xl">
+        <div
+          className={cn(
+            pinned
+              ? "flex w-full min-w-0 px-0 sm:px-1 lg:px-0"
+              : "mx-auto w-full min-w-0 max-w-5xl",
+          )}
+        >
           {rowVariant === "header" ? (
             <div className={PORTAL_FOOTER_HEADER_ACTIONS_ROW}>{children}</div>
           ) : (

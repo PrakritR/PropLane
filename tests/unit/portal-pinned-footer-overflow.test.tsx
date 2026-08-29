@@ -29,7 +29,7 @@ describe("pinned footer action row", () => {
     const dock = container.querySelector<HTMLElement>("[data-slot='portal-page-footer-actions']");
     expect(dock).toBeTruthy();
     expect(dock!.dataset.rowVariant).toBe("header");
-    const row = dock!.querySelector<HTMLElement>("div.mx-auto > div");
+    const row = dock!.querySelector<HTMLElement>("[data-row-variant='header'] > div > div");
     expect(row).toBeTruthy();
     expect(row!.className).toContain("flex-nowrap");
     expect(row!.className).toContain("overflow-hidden");

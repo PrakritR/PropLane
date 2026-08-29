@@ -817,9 +817,6 @@ function ManagerPropertyInlineDetails({
 
       actions.push({
         id: "add-resident",
-        alwaysVisible: true,
-        pinEdge: "end",
-        keepPriority: 10,
         node: (
           <Button
             type="button"
@@ -908,8 +905,6 @@ function ManagerPropertyInlineDetails({
             },
             {
               id: "send-tour",
-              alwaysVisible: true,
-              pinEdge: "end",
               node: (
                 <Button
                   type="button"
