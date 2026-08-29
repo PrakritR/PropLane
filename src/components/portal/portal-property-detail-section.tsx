@@ -10,7 +10,11 @@ export const PORTAL_PROPERTY_DETAIL_ACTION_BUTTON_CLASS =
 
 /** Flat list row inside property detail tabs (no card chrome). */
 export const PORTAL_PROPERTY_DETAIL_LIST_ROW_CLASS =
-  "flex items-start justify-between gap-3 border-b border-border/50 py-3 last:border-0";
+  "flex flex-col gap-2 border-b border-border/50 py-3 last:border-0 sm:flex-row sm:items-start sm:justify-between sm:gap-3";
+
+/** Action cluster for {@link PORTAL_PROPERTY_DETAIL_LIST_ROW_CLASS} — stacks under the label on phones. */
+export const PORTAL_PROPERTY_DETAIL_LIST_ROW_ACTIONS_CLASS =
+  "flex w-full shrink-0 flex-wrap items-center gap-2 pl-7 sm:w-auto sm:pl-0";
 
 type PortalPropertyDetailSectionProps = {
   actions?: ReactNode;
