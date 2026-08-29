@@ -738,21 +738,18 @@ function ManagerPropertyInlineDetails({
       bucket !== 3 &&
       bucket !== 5
     ) {
-      const fromLeaseTab = activeDetailTab === "lease";
       const openOnboard = () => setResidentOnboardOpen(true);
-      const actions: PortalAdaptiveAction[] = [
-        {
+      const actions: PortalAdaptiveAction[] = [];
+
+      if (activeDetailTab === "application") {
+        actions.push({
           id: "add-application",
           node: (
             <Button
               type="button"
               variant="outline"
               className={PORTAL_DETAIL_BTN}
-              data-attr={
-                fromLeaseTab
-                  ? "property-application-add-footer-from-lease"
-                  : "property-application-add-footer"
-              }
+              data-attr="property-application-add-footer"
               onClick={openOnboard}
             >
               Add application
@@ -760,27 +757,48 @@ function ManagerPropertyInlineDetails({
           ),
           menuItem: (
             <DropdownMenuItem
-              data-attr={
-                fromLeaseTab
-                  ? "property-application-add-footer-from-lease"
-                  : "property-application-add-footer"
-              }
+              data-attr="property-application-add-footer"
               onSelect={openOnboard}
             >
               Add application
             </DropdownMenuItem>
           ),
-        },
-        {
+        });
+        if (sharePropertyId) {
+          actions.push({
+            id: "send-application",
+            node: (
+              <Button
+                type="button"
+                variant="outline"
+                className={PORTAL_DETAIL_BTN}
+                data-attr="property-application-send-footer"
+                onClick={() => setShareApplicationOpen(true)}
+              >
+                Send application
+              </Button>
+            ),
+            menuItem: (
+              <DropdownMenuItem
+                data-attr="property-application-send-footer"
+                onSelect={() => setShareApplicationOpen(true)}
+              >
+                Send application
+              </DropdownMenuItem>
+            ),
+          });
+        }
+      }
+
+      if (activeDetailTab === "lease") {
+        actions.push({
           id: "add-lease",
           node: (
             <Button
               type="button"
               variant="outline"
               className={PORTAL_DETAIL_BTN}
-              data-attr={
-                fromLeaseTab ? "property-lease-add-footer" : "property-lease-add-footer-from-application"
-              }
+              data-attr="property-lease-add-footer"
               onClick={openOnboard}
             >
               Add lease
@@ -788,69 +806,49 @@ function ManagerPropertyInlineDetails({
           ),
           menuItem: (
             <DropdownMenuItem
-              data-attr={
-                fromLeaseTab ? "property-lease-add-footer" : "property-lease-add-footer-from-application"
-              }
+              data-attr="property-lease-add-footer"
               onSelect={openOnboard}
             >
               Add lease
-            </DropdownMenuItem>
-          ),
-        },
-        {
-          id: "add-resident",
-          alwaysVisible: true,
-          pinEdge: "end",
-          keepPriority: 10,
-          node: (
-            <Button
-              type="button"
-              variant="primary"
-              className={PORTAL_DETAIL_BTN}
-              data-attr={
-                fromLeaseTab ? "property-resident-onboard-footer-lease-tab" : "property-resident-onboard-footer"
-              }
-              onClick={openOnboard}
-            >
-              Add resident
-            </Button>
-          ),
-          menuItem: (
-            <DropdownMenuItem
-              data-attr={
-                fromLeaseTab ? "property-resident-onboard-footer-lease-tab" : "property-resident-onboard-footer"
-              }
-              onSelect={openOnboard}
-            >
-              Add resident
-            </DropdownMenuItem>
-          ),
-        },
-      ];
-      if (!fromLeaseTab && sharePropertyId) {
-        actions.push({
-          id: "send-application",
-          node: (
-            <Button
-              type="button"
-              variant="outline"
-              className={PORTAL_DETAIL_BTN}
-              data-attr="property-application-send-footer"
-              onClick={() => setShareApplicationOpen(true)}
-            >
-              Send application
-            </Button>
-          ),
-          menuItem: (
-            <DropdownMenuItem
-              data-attr="property-application-send-footer"
-              onSelect={() => setShareApplicationOpen(true)}
-            >
-              Send application
             </DropdownMenuItem>
           ),
         });
       }
+
+      actions.push({
+        id: "add-resident",
+        alwaysVisible: true,
+        pinEdge: "end",
+        keepPriority: 10,
+        node: (
+          <Button
+            type="button"
+            variant="primary"
+            className={PORTAL_DETAIL_BTN}
+            data-attr={
+              activeDetailTab === "lease"
+                ? "property-resident-onboard-footer-lease-tab"
+                : "property-resident-onboard-footer"
+            }
+            onClick={openOnboard}
+          >
+            Add resident
+          </Button>
+        ),
+        menuItem: (
+          <DropdownMenuItem
+            data-attr={
+              activeDetailTab === "lease"
+                ? "property-resident-onboard-footer-lease-tab"
+                : "property-resident-onboard-footer"
+            }
+            onSelect={openOnboard}
+          >
+            Add resident
+          </DropdownMenuItem>
+        ),
+      });
+
       return (
         <PortalAdaptiveActionRow
           actions={actions}
