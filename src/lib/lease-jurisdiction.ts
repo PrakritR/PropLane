@@ -201,8 +201,30 @@ export function resolveJurisdiction(ctx: LeaseJurisdictionInput): JurisdictionKe
   const structured = structuredPropertyJurisdiction(ctx);
   if (structured) return structured;
   const propertyHay = propertyHaystack(ctx);
-  if (propertyHay.trim()) return resolveFromHaystack(propertyHay);
-  return resolveFromHaystack(haystackFromContext(ctx));
+  if (propertyHay.trim()) return resolveFromHaystack(propertyHay) ?? zipJurisdiction(propertyHay);
+  return resolveFromHaystack(haystackFromContext(ctx)) ?? zipJurisdiction(haystackFromContext(ctx));
+}
+
+/**
+ * Last-resort state from a US ZIP code, for the two states PropLane generates leases in.
+ *
+ * A property saved without a structured state produced no jurisdiction at all, so its lease
+ * preview came back empty and the manager was told to upload a document they did not need. The ZIP
+ * is already in the haystack and a ZIP prefix maps to a state as a postal FACT — it is a lookup,
+ * not an inference about the tenancy, and it decides only WHICH jurisdiction's template applies,
+ * never what any clause says.
+ *
+ * Deliberately last: an explicit out-of-scope state, a structured state, and every address string
+ * all still win, so this can only speak when nothing else did. It returns no city, so a
+ * Seattle-specific overlay still requires the city to be recorded properly.
+ */
+function zipJurisdiction(haystack: string): JurisdictionKey | null {
+  const zip = /\b(\d{5})(?:-\d{4})?\b/.exec(haystack)?.[1];
+  if (!zip) return null;
+  const prefix = Number(zip.slice(0, 3));
+  if (prefix >= 980 && prefix <= 994) return jurisdictionKey("WA", null);
+  if (prefix >= 900 && prefix <= 961) return jurisdictionKey("CA", null);
+  return null;
 }
 
 /** Returns the applicable state config, using a city overlay only when it is registered. */
