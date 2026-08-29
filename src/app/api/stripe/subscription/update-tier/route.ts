@@ -15,7 +15,10 @@ import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { getStripe } from "@/lib/stripe";
 import { reconcileManagerPurchaseWithStripe } from "@/lib/manager-stripe-subscription-sync";
-import { stripeSubscriptionPeriodEndSec } from "@/lib/stripe-subscription-helpers";
+import {
+  stripeSubscriptionIsBillable,
+  stripeSubscriptionPeriodEndSec,
+} from "@/lib/stripe-subscription-helpers";
 
 export const runtime = "nodejs";
 
@@ -102,8 +105,38 @@ export async function POST(req: Request) {
     const targetTier = tierRaw;
     const { stripeSubscriptionId } = await getManagerPurchaseSku(user.id);
     const supabase = createSupabaseServiceRoleClient();
+    const stripeManaged = await stripeSubscriptionIsBillable(stripeSubscriptionId);
 
-    if (!stripeSubscriptionId) {
+    if (waiverValid && targetTier !== "free") {
+      if (stripeManaged) {
+        return NextResponse.json(
+          {
+            error:
+              "Your subscription is billed through Stripe, so promo codes can't be applied here. Manage billing from Payment & invoices.",
+            code: "PROMO_NOT_APPLICABLE",
+          },
+          { status: 400 },
+        );
+      }
+      const billing: StripeBilling = billingRequested ?? "monthly";
+      const result = await setManagerPurchaseTier(user.id, targetTier, {
+        waiver: { promoCode: promoStored, billing },
+      });
+      if (!result.ok) {
+        return NextResponse.json({ error: result.error }, { status: 400 });
+      }
+      track("manager_subscription_purchased", user.id, { tier: targetTier, billing, waiver: true });
+      return NextResponse.json({
+        ok: true,
+        stripeManaged: false,
+        waiverApplied: true,
+        tier: targetTier,
+        billing,
+        message: `Promo code applied — you're now on ${targetTier === "business" ? "Business" : "Pro"}. No payment needed.`,
+      });
+    }
+
+    if (!stripeManaged) {
       if (targetTier === "free") {
         const result = await setManagerPurchaseTier(user.id, "free");
         if (!result.ok) {
@@ -111,42 +144,16 @@ export async function POST(req: Request) {
         }
         return NextResponse.json({ ok: true, stripeManaged: false, tier: "free" });
       }
-      if (waiverValid) {
-        const billing: StripeBilling = billingRequested ?? "monthly";
-        const result = await setManagerPurchaseTier(user.id, targetTier, {
-          waiver: { promoCode: promoStored, billing },
-        });
-        if (!result.ok) {
-          return NextResponse.json({ error: result.error }, { status: 400 });
-        }
-        track("manager_subscription_purchased", user.id, { tier: targetTier, billing, waiver: true });
-        return NextResponse.json({
-          ok: true,
-          stripeManaged: false,
-          waiverApplied: true,
-          tier: targetTier,
-          billing,
-          message: `Promo code applied — you're now on ${targetTier === "business" ? "Business" : "Pro"}. No payment needed.`,
-        });
-      }
       return NextResponse.json(
         { error: "Start checkout to subscribe to a paid plan." },
         { status: 402 },
       );
     }
 
-    if (waiverValid && targetTier !== "free") {
-      return NextResponse.json(
-        {
-          error:
-            "Your subscription is billed through Stripe, so promo codes can't be applied here. Manage billing from Payment & invoices.",
-          code: "PROMO_NOT_APPLICABLE",
-        },
-        { status: 400 },
-      );
-    }
-
     const stripe = getStripe();
+    if (!stripeSubscriptionId) {
+      return NextResponse.json({ error: "No active subscription found." }, { status: 400 });
+    }
 
     if (targetTier === "free") {
       try {

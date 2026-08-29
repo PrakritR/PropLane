@@ -19,15 +19,27 @@ vi.mock("@/lib/server-env", () => ({
     promo.trim().toUpperCase().replace(/[^A-Z0-9]/g, "") === "FREE100",
 }));
 vi.mock("@/lib/analytics/posthog", () => ({ track: vi.fn() }));
-vi.mock("@/lib/stripe", () => ({ getStripe: vi.fn(() => { throw new Error("Stripe must not be called"); }) }));
+vi.mock("@/lib/stripe", () => ({
+  getStripe: vi.fn(() => {
+    throw new Error("Stripe must not be called");
+  }),
+}));
 vi.mock("@/lib/manager-stripe-subscription-sync", () => ({ reconcileManagerPurchaseWithStripe: vi.fn() }));
 
 import { POST as updateTier } from "@/app/api/stripe/subscription/update-tier/route";
-import { setManagerPurchaseTier } from "@/lib/manager-access-server";
+import { getManagerPurchaseSku, setManagerPurchaseTier } from "@/lib/manager-access-server";
 import { getStripe } from "@/lib/stripe";
 
 describe("POST /api/stripe/subscription/update-tier payment waiver", () => {
-  beforeEach(() => vi.clearAllMocks());
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(getManagerPurchaseSku).mockResolvedValue({ stripeSubscriptionId: null } as Awaited<
+      ReturnType<typeof getManagerPurchaseSku>
+    >);
+    vi.mocked(getStripe).mockImplementation(() => {
+      throw new Error("Stripe must not be called");
+    });
+  });
 
   it("activates Pro with FREE100 and never initializes Stripe", async () => {
     const response = await updateTier(jsonRequest("http://localhost/api/stripe/subscription/update-tier", {
@@ -88,5 +100,36 @@ describe("POST /api/stripe/subscription/update-tier payment waiver", () => {
     expect(response.status).toBe(400);
     expect(setManagerPurchaseTier).not.toHaveBeenCalled();
     expect(getStripe).not.toHaveBeenCalled();
+  });
+
+  it("activates Business with FREE100 when a canceled Stripe subscription id is still on file", async () => {
+    vi.mocked(getManagerPurchaseSku).mockResolvedValue({
+      stripeSubscriptionId: "sub_canceled_1",
+    } as Awaited<ReturnType<typeof getManagerPurchaseSku>>);
+    vi.mocked(getStripe).mockReturnValue({
+      subscriptions: {
+        retrieve: vi.fn(async () => ({ status: "canceled" })),
+      },
+    } as never);
+
+    const response = await updateTier(jsonRequest("http://localhost/api/stripe/subscription/update-tier", {
+      method: "POST",
+      body: { tier: "business", billing: "monthly", promo: "FREE100" },
+    }));
+    const { status, data } = await parseJsonResponse<{
+      ok?: boolean;
+      waiverApplied?: boolean;
+      tier?: string;
+    }>(response);
+
+    expect(status).toBe(200);
+    expect(data).toEqual(expect.objectContaining({
+      ok: true,
+      waiverApplied: true,
+      tier: "business",
+    }));
+    expect(setManagerPurchaseTier).toHaveBeenCalledWith("manager-1", "business", {
+      waiver: { promoCode: "FREE100", billing: "monthly" },
+    });
   });
 });

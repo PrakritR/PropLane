@@ -330,6 +330,8 @@ export function ManagerPlan({
     sub.scheduledDowngrade.tier === currentTier &&
     sub.scheduledDowngrade.billing !== currentBilling;
 
+  const showBillingPromo = Boolean(sub && !sub.stripeManaged && !sub.appleManaged);
+
   /**
    * The interval the manager is already scheduled to move to. Offering an
    * unqualified "Switch to …" for it would re-issue the same schedule; the
@@ -389,13 +391,11 @@ export function ManagerPlan({
     }
   };
 
-  const applyPromoCode = async () => {
-    if (!planModal || planModal.kind !== "checkout" || promoBusy) return;
-    const code = promoCode.trim();
-    if (!code) {
-      setPromoError("Enter a promo code.");
-      return;
-    }
+  const applyWaiverPromo = async (
+    tier: "pro" | "business",
+    billingInterval: "monthly" | "annual",
+    code: string,
+  ): Promise<boolean> => {
     setPromoError(null);
     flushSync(() => setPromoBusy(true));
     try {
@@ -403,24 +403,35 @@ export function ManagerPlan({
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ tier: planModal.tier, billing: planModal.billing, promo: code }),
+        body: JSON.stringify({ tier, billing: billingInterval, promo: code }),
       });
       const body = (await res.json()) as { error?: string; message?: string; waiverApplied?: boolean };
       if (!res.ok) {
         setPromoError(body.error ?? "Could not apply promo code.");
-        return;
+        return false;
       }
-      const appliedTier = planModal.tier;
       setPlanModal(null);
       setPromoCode("");
-      showToast(body.message ?? `Promo code applied. You're now on ${tierLabel(appliedTier)}.`);
+      showToast(body.message ?? `Promo code applied. You're now on ${tierLabel(tier)}.`);
       await load();
       startTransition(() => router.refresh());
+      return true;
     } catch {
       setPromoError("Network error. Try again.");
+      return false;
     } finally {
       setPromoBusy(false);
     }
+  };
+
+  const applyPromoCode = async () => {
+    if (!planModal || planModal.kind !== "checkout" || promoBusy) return;
+    const code = promoCode.trim();
+    if (!code) {
+      setPromoError("Enter a promo code.");
+      return;
+    }
+    await applyWaiverPromo(planModal.tier, planModal.billing, code);
   };
 
   const setTierViaApi = async (
@@ -591,6 +602,13 @@ export function ManagerPlan({
 
     const paidTarget = target as "pro" | "business";
     if (!sub.stripeManaged) {
+      const code = promoCode.trim();
+      if (code) {
+        flushSync(() => setBusyTier(paidTarget));
+        await applyWaiverPromo(paidTarget, priceView, code);
+        setBusyTier(null);
+        return;
+      }
       await startEmbeddedCheckout(paidTarget, priceView);
       return;
     }
@@ -883,6 +901,41 @@ export function ManagerPlan({
               </button>
             </div>
           </div>
+
+          {showBillingPromo ? (
+            <div className="mt-4 rounded-xl border border-border bg-accent/20 px-4 py-3">
+              <label className="text-sm font-semibold text-foreground" htmlFor="billing-plan-promo-code">
+                Promo code <span className="font-normal text-muted">(optional)</span>
+              </label>
+              <div className="mt-2 flex flex-wrap items-center gap-2">
+                <div className="min-w-40 flex-1">
+                  <Input
+                    id="billing-plan-promo-code"
+                    value={promoCode}
+                    onChange={(e) => {
+                      setPromoCode(e.target.value);
+                      if (promoError) setPromoError(null);
+                    }}
+                    placeholder="Enter code"
+                    autoComplete="off"
+                    spellCheck={false}
+                    disabled={promoBusy || anyBusy}
+                    className="uppercase placeholder:normal-case"
+                    data-attr="billing-plan-promo-code-input"
+                  />
+                </div>
+              </div>
+              {promoError ? (
+                <p className="mt-2 text-xs font-medium text-[var(--status-overdue-fg)]" role="alert">
+                  {promoError}
+                </p>
+              ) : (
+                <p className="mt-2 text-xs text-muted">
+                  Enter a valid code, then choose Pro or Business — no card required.
+                </p>
+              )}
+            </div>
+          ) : null}
 
           {!sub ? (
             <div className="mt-5 grid gap-4 lg:grid-cols-3">

@@ -12,7 +12,10 @@ import {
 import { getManagerPurchaseSku } from "@/lib/manager-access-server";
 import { isAppleBilledManagerPurchase } from "@/lib/manager-apple-purchase";
 import { getStripe } from "@/lib/stripe";
-import { stripeSubscriptionPeriodEndSec } from "@/lib/stripe-subscription-helpers";
+import {
+  stripeSubscriptionIsBillable,
+  stripeSubscriptionPeriodEndSec,
+} from "@/lib/stripe-subscription-helpers";
 import { META_SCHEDULED_BILLING, META_SCHEDULED_TIER } from "@/lib/stripe-subscription-metadata";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { syncManagerPurchaseTierState } from "@/lib/manager-tier-sync";
@@ -84,7 +87,12 @@ export async function GET() {
 
     const { tier, billing, stripeSubscriptionId, appleOriginalTransactionId, readFailed } =
       await getManagerPurchaseSku(user.id);
-    const stripeManaged = Boolean(stripeSubscriptionId);
+    let stripeManaged = false;
+    try {
+      stripeManaged = await stripeSubscriptionIsBillable(stripeSubscriptionId);
+    } catch {
+      /* Stripe not configured or transient error — treat as not Stripe-managed */
+    }
     // Apple-billed grant → the plan is managed in the App Store: on native we
     // don't re-offer IAP, on web we hide Stripe checkout (report §3.4).
     const appleManaged = isAppleBilledManagerPurchase(billing, appleOriginalTransactionId);

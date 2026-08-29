@@ -1,5 +1,33 @@
 import type Stripe from "stripe";
 
+/** Subscription statuses that no longer grant paid access through Stripe billing. */
+export function isStripeSubscriptionStatusBillable(status: string | undefined): boolean {
+  return status !== "canceled" && status !== "incomplete_expired";
+}
+
+/** True when the stored subscription id still represents an active Stripe-billed plan. */
+export async function stripeSubscriptionIsBillable(
+  stripeSubscriptionId: string | null | undefined,
+  retrieve: (id: string) => Promise<{ status?: string }> = async (id) => {
+    const { getStripe } = await import("@/lib/stripe");
+    return getStripe().subscriptions.retrieve(id);
+  },
+): Promise<boolean> {
+  const sid = stripeSubscriptionId?.trim();
+  if (!sid) return false;
+  try {
+    const sub = await retrieve(sid);
+    return isStripeSubscriptionStatusBillable(sub.status);
+  } catch (e: unknown) {
+    const code =
+      typeof e === "object" && e !== null && "code" in e ? String((e as { code?: string }).code) : "";
+    const msg = e instanceof Error ? e.message : String(e);
+    const missing = code === "resource_missing" || msg.toLowerCase().includes("no such subscription");
+    if (missing) return false;
+    throw e;
+  }
+}
+
 /** Stripe typings / API versions differ; read period end defensively. */
 function stripeUnixSeconds(v: unknown): number | null {
   return typeof v === "number" && Number.isFinite(v) && v > 0 ? v : null;
