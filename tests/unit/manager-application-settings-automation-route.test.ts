@@ -20,6 +20,8 @@ const loadManagerLandlordLegalNameFromProfile = vi.fn();
 const listApplicationFeeWaiverCodes = vi.fn();
 const pickPrimaryApplicationFeeWaiverCode = vi.fn();
 const setPrimaryApplicationFeeWaiverCode = vi.fn();
+const loadTaskAutomation = vi.fn();
+const saveTaskAutomation = vi.fn();
 
 vi.mock("@/lib/manager-route-guard.server", () => ({
   requireManagerRouteUser: () => requireManagerRouteUser(),
@@ -40,6 +42,17 @@ vi.mock("@/lib/application-automation-preferences", () => ({
   loadApplicationAutomation: (...a: unknown[]) => loadApplicationAutomation(...a),
   saveApplicationAutomation: (...a: unknown[]) => saveApplicationAutomation(...a),
 }));
+// The route now reads the default-task preferences alongside application
+// automation, and the guard hands these tests a bare `{}` for `db` — without
+// this the GET hits a real `db.from(...)` and 500s.
+vi.mock("@/lib/task-automation-preferences", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/task-automation-preferences")>();
+  return {
+    ...actual,
+    loadTaskAutomation: (...a: unknown[]) => loadTaskAutomation(...a),
+    saveTaskAutomation: (...a: unknown[]) => saveTaskAutomation(...a),
+  };
+});
 vi.mock("@/lib/manager-landlord-profile", () => ({
   loadManagerLandlordLegalNameFromProfile: (...a: unknown[]) => loadManagerLandlordLegalNameFromProfile(...a),
 }));
@@ -57,6 +70,12 @@ const AUTOMATION = {
   autoSendLease: false,
 };
 
+const TASK_AUTOMATION = {
+  review_application: { enabled: true, daysAfterTrigger: 2, defaultAssigneeUserId: null, sendEmailReminder: true },
+  review_and_send_lease: { enabled: true, daysAfterTrigger: 2, defaultAssigneeUserId: null, sendEmailReminder: true },
+  collect_rent: { enabled: false, daysAfterTrigger: 3, defaultAssigneeUserId: null, sendEmailReminder: false },
+};
+
 function patch(body: unknown): Request {
   return new Request("http://localhost/api/portal/manager-application-settings", {
     method: "PATCH",
@@ -69,6 +88,8 @@ beforeEach(() => {
   requireManagerRouteUser.mockResolvedValue({ db: {}, userId: "mgr-1" });
   saveApplicationAutomation.mockResolvedValue(AUTOMATION);
   loadApplicationAutomation.mockResolvedValue(AUTOMATION);
+  loadTaskAutomation.mockResolvedValue(TASK_AUTOMATION);
+  saveTaskAutomation.mockResolvedValue(TASK_AUTOMATION);
   loadManagerLandlordLegalNameFromProfile.mockResolvedValue("Doe Holdings LLC");
   loadManagerApplicationSettings.mockResolvedValue({
     applicationFeeCents: 5000,
@@ -129,6 +150,6 @@ describe("PATCH automation", () => {
 
   it("returns the saved automation on GET", async () => {
     const res = await route.GET();
-    expect(await res.json()).toMatchObject({ automation: AUTOMATION });
+    expect(await res.json()).toMatchObject({ automation: AUTOMATION, taskAutomation: TASK_AUTOMATION });
   });
 });

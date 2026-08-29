@@ -619,8 +619,13 @@ describe("stay pricing: statewide leases do not carry another state's numeric te
     );
     const html = leaseHtml(application(propertyId, { leaseTerm: "12-Month", leaseEnd: "2027-03-09" }));
     expect(html).toContain("State of Washington");
-    expect(html).toContain("20 days before the end of any monthly rental period");
     expect(html).toContain("Within 30 days after termination");
     expect(html).toContain("68°F");
+    // The month-to-month termination notice is NOT among them any more: a
+    // fixed-term lease no longer converts to a month-to-month tenancy, so the
+    // notice period that governed that conversion has nothing left to govern.
+    // Asserting it here would demand a clause the document deliberately dropped.
+    expect(html).toContain("does not convert to a month-to-month tenancy");
+    expect(html).not.toContain("20 days before the end of any monthly rental period");
   });
 });
