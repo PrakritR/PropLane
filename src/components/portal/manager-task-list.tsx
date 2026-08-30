@@ -33,7 +33,7 @@ import { syncPropertyPipelineFromServer } from "@/lib/demo-property-pipeline";
 import { buildManagerPropertyFilterOptions } from "@/lib/manager-portfolio-access";
 import {
   compactTaskLocationLabel,
-  isManagerTaskLate,
+  openTasksForListTab,
   serviceRequestLocationLabel,
   serviceRequestsAssignedToViewer,
   taskListRowMatchesFilter,
@@ -275,14 +275,10 @@ export function ManagerTaskList({
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [editingId, setEditingId] = useState<string | null>(null);
 
-  const openTasks = useMemo(() => tasks.filter((task) => !task.completed), [tasks]);
-  const overdueTasks = useMemo(
-    () => openTasks.filter((task) => isManagerTaskLate(task)),
-    [openTasks],
-  );
+  const overdueTasks = useMemo(() => openTasksForListTab(tasks, "overdue"), [tasks]);
   const inProgressTasks = useMemo(
-    () => openTasks.filter((task) => !isManagerTaskLate(task)),
-    [openTasks],
+    () => openTasksForListTab(tasks, "in-progress"),
+    [tasks],
   );
   const doneTasks = useMemo(() => tasks.filter((task) => task.completed), [tasks]);
 
@@ -861,6 +857,10 @@ export function ManagerTaskList({
 
         {!loading && visibleRows.length === 0 && tabId === "overdue" ? (
           <PortalEmptyState icon="work-order" title="Nothing overdue." />
+        ) : null}
+
+        {!loading && visibleRows.length === 0 && tabId === "in-progress" ? (
+          <PortalEmptyState icon="work-order" title="Nothing in progress." />
         ) : null}
 
         {tabId === "in-progress" ? (

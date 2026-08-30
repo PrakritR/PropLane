@@ -2,6 +2,7 @@ import { formatRangeLabel } from "@/lib/demo-admin-scheduling";
 import {
   compactTaskLocationLabel,
   isManagerTaskLate,
+  openTasksForListTab,
 } from "@/lib/manager-task-display";
 import {
   inferManagerTaskType,
@@ -9,7 +10,7 @@ import {
   type ManagerTask,
   type ManagerTaskType,
 } from "@/lib/manager-tasks";
-import { formatPacificDateTime } from "@/lib/pacific-time";
+import { managerTaskListHref } from "@/lib/portal-detail-routes";
 import type { WorkAssignee } from "@/lib/work-assignment";
 
 export type TaskAssigneeDirectory = {
@@ -76,7 +77,9 @@ export function buildManagerTaskReminderPreview(input: {
   const schedule = managerTaskScheduleLabel(task);
   const typeLabel = MANAGER_TASK_TYPE_LABELS[taskType];
   const subject = `${reminderSubjectPrefix(taskType, late)}: ${task.title.trim()}`;
-  const tasksUrl = input.tasksUrl?.trim() || "https://prop-lane.space/portal/task-list/in-progress";
+  const tasksUrl =
+    input.tasksUrl?.trim() ||
+    `https://prop-lane.space${managerTaskListHref("/portal", late ? "overdue" : "in-progress")}`;
 
   const intro =
     taskType === "tour"

@@ -137,7 +137,7 @@ function taskMatchesTypeFilter(task: ManagerTask, filter: Exclude<ManagerTaskLis
   return true;
 }
 
-function openTasksForListTab(tasks: ManagerTask[], tabId: ManagerTaskListTabId): ManagerTask[] {
+export function openTasksForListTab(tasks: ManagerTask[], tabId: ManagerTaskListTabId): ManagerTask[] {
   if (tabId === "completed") return tasks.filter((task) => task.completed);
   const open = tasks.filter((task) => !task.completed);
   if (tabId === "overdue") return open.filter((task) => isManagerTaskLate(task));
