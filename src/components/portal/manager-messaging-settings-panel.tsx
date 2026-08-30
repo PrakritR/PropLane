@@ -346,6 +346,7 @@ export function ManagerMessagingSettingsPanel({
       });
       if (!result.ok) {
         setError(result.error ?? "Could not notify residents.");
+        showToast(result.error ?? "Could not notify residents.");
         return;
       }
       track("work_number_announce_sent", {
@@ -364,6 +365,7 @@ export function ManagerMessagingSettingsPanel({
       );
     } catch {
       setError("Could not notify residents.");
+      showToast("Could not notify residents.");
     } finally {
       setAnnounceBusy(false);
     }

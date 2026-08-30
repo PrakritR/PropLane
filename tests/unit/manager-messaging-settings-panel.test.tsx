@@ -185,6 +185,51 @@ describe("ManagerMessagingSettingsPanel", () => {
     expect(within(dialog).getByRole("button", { name: "Notify all residents" })).toBeTruthy();
   });
 
+  it("toasts on announce failure so it shows above the open modal", async () => {
+    showToast.mockClear();
+    const usable: ManagerMessagingNumberStatus = {
+      ...pausedStatus,
+      canSend: true,
+      sendingAvailable: true,
+      number: {
+        state: "active",
+        registrationState: "approved",
+        carrierRegistrationState: "registered",
+        attachmentState: "attached",
+        phoneNumber: "+18559168031",
+        lastError: null,
+      },
+    };
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("/api/portal/send-inbox-message")) {
+        return Response.json({ ok: false, error: "Delivery failed." }, { status: 500 });
+      }
+      if (url.includes("/api/portal/automation-settings")) {
+        return Response.json({ settings: {} });
+      }
+      return Response.json(usable);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    render(<ManagerMessagingSettingsPanel />);
+
+    fireEvent.click(
+      await screen.findByRole("button", {
+        name: "Tell residents about this number",
+      }),
+    );
+    const dialog = await screen.findByRole("dialog");
+    fireEvent.click(
+      within(dialog).getByRole("button", { name: "Notify all residents" }),
+    );
+
+    await waitFor(() =>
+      expect(showToast).toHaveBeenCalledWith("Delivery failed."),
+    );
+    // Failure keeps the modal open so the manager can retry.
+    expect(screen.getByRole("dialog")).toBeTruthy();
+  });
+
   it("does not blame the carrier when texting is off for the deployment", async () => {
     // Registered + active + eligible, yet unsendable purely because this
     // deployment's texting runtime is off. Calling that "Approval in progress"
