@@ -9,6 +9,8 @@
  * a tour.
  */
 import { useMemo } from "react";
+import { FieldSingleSelect } from "@/components/ui/checkbox-multi-select";
+import { MODAL_FIELD_LABEL_CLASS } from "@/components/ui/modal";
 import {
   assigneeIsStale,
   assignmentCandidatesFor,
@@ -43,60 +45,64 @@ export function WorkAssignmentPicker({
     [kind, teamMembers, vendors],
   );
 
-  // A vendor who has been deleted, or a co-manager who has been unlinked, still has to be shown on
-  // the work they hold — otherwise it reads as unassigned rather than as needing a new owner.
   const stale = assigneeIsStale(value, candidates);
   const selected = value ? `${value.type}:${value.id}` : UNASSIGNED;
+
+  const groups = useMemo(() => {
+    const teamOptions = candidates
+      .filter((candidate) => candidate.type === "team")
+      .map((candidate) => ({
+        value: `team:${candidate.id}`,
+        label: optionLabel(candidate),
+        disabled: !candidate.selectable,
+      }));
+    const vendorOptions = candidates
+      .filter((candidate) => candidate.type === "vendor")
+      .map((candidate) => ({
+        value: `vendor:${candidate.id}`,
+        label: optionLabel(candidate),
+        disabled: !candidate.selectable,
+      }));
+
+    const next = [];
+    if (teamOptions.length > 0) next.push({ label: "Team", options: teamOptions });
+    if (vendorOptions.length > 0) next.push({ label: "Vendors", options: vendorOptions });
+    return next;
+  }, [candidates]);
 
   const pick = (raw: string) => {
     if (raw === UNASSIGNED) return onChange(null);
     const [type, ...rest] = raw.split(":");
     const id = rest.join(":");
-    const candidate = candidates.find((c) => c.type === type && c.id === id);
+    const candidate = candidates.find((candidate) => candidate.type === type && candidate.id === id);
     if (!candidate) return;
-    // The name is snapshotted so the row still reads sensibly if this person later disappears.
     onChange({ type: candidate.type, id: candidate.id, name: candidate.name });
   };
 
-  const teamOptions = candidates.filter((c) => c.type === "team");
-  const vendorOptions = candidates.filter((c) => c.type === "vendor");
-
   return (
-    <label className="block">
-      <span className="mb-1 block text-xs font-medium text-muted">{label}</span>
-      <select
+    <div>
+      <FieldSingleSelect
+        label={label}
+        labelClassName={MODAL_FIELD_LABEL_CLASS}
         value={stale ? UNASSIGNED : selected}
+        onChange={pick}
         disabled={disabled}
-        data-attr={dataAttr}
-        onChange={(e) => pick(e.target.value)}
-        className="w-full rounded-lg border border-border bg-card px-3 py-2 text-sm text-foreground"
-      >
-        <option value={UNASSIGNED}>Unassigned</option>
-        {teamOptions.length > 0 ? (
-          <optgroup label="Team">
-            {teamOptions.map((c) => (
-              <option key={`team:${c.id}`} value={`team:${c.id}`} disabled={!c.selectable}>
-                {optionLabel(c)}
-              </option>
-            ))}
-          </optgroup>
-        ) : null}
-        {vendorOptions.length > 0 ? (
-          <optgroup label="Vendors">
-            {vendorOptions.map((c) => (
-              <option key={`vendor:${c.id}`} value={`vendor:${c.id}`} disabled={!c.selectable}>
-                {optionLabel(c)}
-              </option>
-            ))}
-          </optgroup>
-        ) : null}
-      </select>
+        placeholder="Unassigned"
+        groups={[
+          {
+            label: "",
+            options: [{ value: UNASSIGNED, label: "Unassigned" }],
+          },
+          ...groups,
+        ]}
+        dataAttr={dataAttr}
+      />
       {stale && value ? (
         <span className="mt-1 block text-xs text-muted" data-attr={`${dataAttr}-stale`}>
           {value.name || "The previous assignee"} is no longer on your team — reassign this.
         </span>
       ) : null}
-    </label>
+    </div>
   );
 }
 

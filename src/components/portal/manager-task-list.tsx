@@ -8,21 +8,17 @@ import { DropdownMenuItem } from "@/components/ui/dropdown-menu";
 import { DestinationNav } from "@/components/ui/destination-nav";
 import { useShallowTabId } from "@/components/ui/tabs";
 import { useAppUi } from "@/components/providers/app-ui-provider";
-import { PortalEmptyState } from "@/components/portal/portal-empty-state";
-import { ManagerTaskFilterFields } from "@/components/portal/manager-task-filter-fields";
-import { ApplicationHouseholdCluster, PortalListClusterSelectCheckbox } from "@/components/portal/application-household-list";
-import { Badge } from "@/components/ui/badge";
 import { ManagerPortalPageShell, PORTAL_HEADER_PRIMARY_ACTION_BTN_RESPONSIVE } from "@/components/portal/portal-metrics";
 import { PortalFilterSortSheet, portalFilterActiveCount } from "@/components/portal/portal-filter-sort-sheet";
 import { PORTAL_PROPERTY_FILTER_SHEET_CLASS } from "@/components/portal/portal-filter-shell";
 import { PORTAL_LIST_PAGE_BODY } from "@/components/portal/portal-inbox-ui";
-import { PortalListAddRow, PORTAL_LIST_ADD_ICONS } from "@/components/portal/portal-list-add-row";
 import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
 import {
   PortalAdaptiveActionRow,
   type PortalAdaptiveAction,
 } from "@/components/portal/portal-adaptive-action-row";
 import { ManagerTaskFormModal } from "@/components/portal/manager-task-form-modal";
+import { ManagerTaskFilterFields } from "@/components/portal/manager-task-filter-fields";
 import { ManagerCommunicationComposeModal } from "@/components/portal/manager-communication-compose-modal";
 import { PortalNotificationPreviewModal } from "@/components/portal/portal-notification-preview-modal";
 import { useWorkAssignmentDirectory } from "@/hooks/use-work-assignment-directory";
@@ -819,7 +815,7 @@ export function ManagerTaskList({
               setAddOpen(true);
             }}
           >
-            Add service
+            Add
           </Button>
         ) : undefined
       }
@@ -849,30 +845,6 @@ export function ManagerTaskList({
           >
             {renderTaskClusters(clusters)}
           </div>
-        ) : null}
-
-        {!loading && visibleRows.length === 0 && tabId === "completed" ? (
-          <PortalEmptyState icon="work-order" title="Nothing completed yet." />
-        ) : null}
-
-        {!loading && visibleRows.length === 0 && tabId === "overdue" ? (
-          <PortalEmptyState icon="work-order" title="Nothing overdue." />
-        ) : null}
-
-        {!loading && visibleRows.length === 0 && tabId === "in-progress" ? (
-          <PortalEmptyState icon="work-order" title="Nothing in progress." />
-        ) : null}
-
-        {tabId === "in-progress" ? (
-          <PortalListAddRow
-            label="Add task"
-            icon={PORTAL_LIST_ADD_ICONS.request}
-            onClick={() => {
-              setEditingId(null);
-              setAddOpen(true);
-            }}
-            dataAttr="manager-task-list-add"
-          />
         ) : null}
       </div>
 

@@ -247,10 +247,12 @@ export function CheckboxMultiSelect({
             <p className="field-dropdown-menu-option px-3 py-2 text-sm text-muted">No matches</p>
           ) : groups?.length ? (
             (filteredGroups ?? []).map((group) => (
-              <div key={group.label}>
-                <p className="field-dropdown-menu-option sticky top-0 z-[1] px-3 py-1.5 text-[10px] font-bold uppercase tracking-[0.12em] text-muted">
-                  {group.label}
-                </p>
+              <div key={group.label || "__leading__"}>
+                {group.label ? (
+                  <p className="field-dropdown-menu-option sticky top-0 z-[1] px-3 py-1.5 text-[10px] font-bold uppercase tracking-[0.12em] text-muted">
+                    {group.label}
+                  </p>
+                ) : null}
                 {group.options.map((opt) => renderCheckboxOption(opt))}
               </div>
             ))
@@ -294,6 +296,7 @@ export function CheckboxMultiSelect({
 export function FieldSingleSelect({
   label,
   options,
+  groups,
   value,
   onChange,
   disabled,
@@ -308,7 +311,8 @@ export function FieldSingleSelect({
   variant = "field",
 }: {
   label: string;
-  options: CheckboxMultiSelectOption[];
+  options?: CheckboxMultiSelectOption[];
+  groups?: CheckboxMultiSelectGroup[];
   value: string;
   onChange: (next: string) => void;
   disabled?: boolean;
@@ -330,12 +334,21 @@ export function FieldSingleSelect({
   const wrapperClassName = wrapperClassNameProp ?? partitioned.wrapperClassName;
   const triggerClassName = triggerClassNameProp ?? partitioned.triggerClassName;
 
-  const buttonLabel = options.find((o) => o.value === value)?.label ?? placeholder;
-  const showSearch = options.length > FIELD_SELECT_MENU_VISIBLE_ITEMS;
+  const flatOptions = useMemo(() => {
+    if (groups?.length) return groups.flatMap((group) => group.options);
+    return options ?? [];
+  }, [groups, options]);
+
+  const buttonLabel = flatOptions.find((o) => o.value === value)?.label ?? placeholder;
+  const showSearch = flatOptions.length > FIELD_SELECT_MENU_VISIBLE_ITEMS;
   const searchPx = showSearch ? FIELD_SELECT_MENU_SEARCH_PX : 0;
-  const visibleOptionRows = Math.min(Math.max(options.length, 1), FIELD_SELECT_MENU_VISIBLE_ITEMS);
-  const fitsWithoutScroll = fieldSelectMenuFitsWithoutScroll(options.length, searchPx);
-  const contentPx = fieldSelectMenuContentPx(visibleOptionRows, searchPx);
+  const groupHeaderPx =
+    groups?.length && flatOptions.length > 0
+      ? groups.filter((group) => group.label).length * 26
+      : 0;
+  const visibleOptionRows = Math.min(Math.max(flatOptions.length, 1), FIELD_SELECT_MENU_VISIBLE_ITEMS);
+  const fitsWithoutScroll = fieldSelectMenuFitsWithoutScroll(flatOptions.length, searchPx + groupHeaderPx);
+  const contentPx = fieldSelectMenuContentPx(visibleOptionRows, searchPx + groupHeaderPx);
 
   const setOpenAndReset = (next: boolean) => {
     setOpen(next);
@@ -350,17 +363,58 @@ export function FieldSingleSelect({
     preferOpenDown: !pill,
   });
 
+  const filteredGroups = useMemo(() => {
+    if (!groups?.length) return null;
+    if (!query.trim()) return groups;
+    return groups
+      .map((group) => ({
+        ...group,
+        options: group.options.filter((option) => matchesQuery(option.label, query)),
+      }))
+      .filter((group) => group.options.length > 0);
+  }, [groups, query]);
+
   const filteredOptions = useMemo(() => {
-    if (!query.trim()) return options;
-    return options.filter((o) => matchesQuery(o.label, query));
-  }, [options, query]);
+    if (groups?.length) return [];
+    const base = options ?? [];
+    if (!query.trim()) return base;
+    return base.filter((option) => matchesQuery(option.label, query));
+  }, [groups, options, query]);
+
+  const hasVisibleOptions = groups?.length
+    ? (filteredGroups?.length ?? 0) > 0
+    : filteredOptions.length > 0;
 
   const listRef = useFieldSelectListboxPointerPick((pickedValue) => {
-    const option = options.find((o) => o.value === pickedValue);
+    const option = flatOptions.find((o) => o.value === pickedValue);
     if (!option || option.disabled || disabled) return;
     onChange(pickedValue);
     deferAfterFieldSelectPick(() => setOpenAndReset(false));
   });
+
+  const renderOption = (opt: CheckboxMultiSelectOption) => {
+    const active = opt.value === value;
+    const optionDisabled = Boolean(disabled || opt.disabled);
+    return (
+      <button
+        key={opt.value}
+        type="button"
+        role="option"
+        aria-selected={active}
+        aria-disabled={optionDisabled || undefined}
+        disabled={optionDisabled}
+        {...{ [FIELD_SELECT_OPTION_VALUE_ATTR]: opt.value }}
+        className={`flex w-full items-center gap-2.5 px-3 py-2 text-left text-sm ${FIELD_SELECT_MENU_OPTION_CLASS} text-foreground ${
+          optionDisabled ? "cursor-not-allowed opacity-50" : ""
+        }`}
+      >
+        <span className="flex h-4 w-4 shrink-0 items-center justify-center text-primary" aria-hidden>
+          {active ? "✓" : ""}
+        </span>
+        <span className="whitespace-nowrap leading-snug">{opt.label}</span>
+      </button>
+    );
+  };
 
   const menu =
     open && menuRect && isClient && portalHost ? (
@@ -408,32 +462,23 @@ export function FieldSingleSelect({
           onTouchMove={(event) => event.stopPropagation()}
           onTouchStart={(event) => event.stopPropagation()}
         >
-          {filteredOptions.length === 0 ? (
+          {flatOptions.length === 0 ? (
+            <p className="field-dropdown-menu-option px-3 py-2 text-sm text-muted">No options</p>
+          ) : !hasVisibleOptions ? (
             <p className="field-dropdown-menu-option px-3 py-2 text-sm text-muted">No matches</p>
+          ) : groups?.length ? (
+            (filteredGroups ?? []).map((group) => (
+              <div key={group.label || "__leading__"}>
+                {group.label ? (
+                  <p className="field-dropdown-menu-option sticky top-0 z-[1] px-3 py-1.5 text-[10px] font-bold uppercase tracking-[0.12em] text-muted">
+                    {group.label}
+                  </p>
+                ) : null}
+                {group.options.map((opt) => renderOption(opt))}
+              </div>
+            ))
           ) : (
-            filteredOptions.map((opt) => {
-              const active = opt.value === value;
-              const optionDisabled = Boolean(disabled || opt.disabled);
-              return (
-                <button
-                  key={opt.value}
-                  type="button"
-                  role="option"
-                  aria-selected={active}
-                  aria-disabled={optionDisabled || undefined}
-                  disabled={optionDisabled}
-                  {...{ [FIELD_SELECT_OPTION_VALUE_ATTR]: opt.value }}
-                  className={`flex w-full items-center gap-2.5 px-3 py-2 text-left text-sm ${FIELD_SELECT_MENU_OPTION_CLASS} text-foreground ${
-                    optionDisabled ? "cursor-not-allowed opacity-50" : ""
-                  }`}
-                >
-                  <span className="flex h-4 w-4 shrink-0 items-center justify-center text-primary" aria-hidden>
-                    {active ? "✓" : ""}
-                  </span>
-                  <span className="whitespace-nowrap leading-snug">{opt.label}</span>
-                </button>
-              );
-            })
+            filteredOptions.map((opt) => renderOption(opt))
           )}
         </div>
       </div>

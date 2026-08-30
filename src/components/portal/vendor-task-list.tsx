@@ -212,7 +212,7 @@ export function VendorTaskList({
                     }
                   />
                   <div className="min-w-0 flex-1">
-                    <p className={`font-semibold text-foreground ${tabId === "completed" ? "line-through" : ""}`}>
+                    <p className={`font-semibold ${tabId === "completed" ? "text-muted" : "text-foreground"}`}>
                       {task.title}
                     </p>
                     <p className="text-sm text-muted">{formatTaskSchedule(task)}</p>
