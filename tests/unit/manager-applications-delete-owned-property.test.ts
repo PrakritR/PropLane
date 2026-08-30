@@ -91,12 +91,21 @@ function makeDb() {
           return builder;
         },
         delete() {
-          return {
-            in(_column: string, values: string[]) {
+          // The route hard-deletes through `purgeApplicationPortalData`, which
+          // fans out over sibling tables with `.eq(...)` and a JSON-path
+          // `.filter(...)`. Only the application table is asserted here; the
+          // rest just have to succeed rather than blow up the request.
+          const applyDelete = (values: string[]) => {
+            if (table === "manager_application_records") {
               DELETED_IDS.push(...values);
               APP_ROWS = APP_ROWS.filter((r) => !values.includes(r.id));
-              return Promise.resolve({ error: null });
-            },
+            }
+            return Promise.resolve({ error: null });
+          };
+          return {
+            in: (_column: string, values: string[]) => applyDelete(values),
+            eq: (_column: string, value: string) => applyDelete([value]),
+            filter: () => Promise.resolve({ error: null }),
           };
         },
         order: () => builder,

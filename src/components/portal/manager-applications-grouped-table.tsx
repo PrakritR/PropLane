@@ -84,8 +84,22 @@ export function ManagerApplicationsGroupedTable({
                   ? {
                       id: entry.row.id,
                       data: entry,
-                      primary: applicationSubmittedLabel(entry.row),
-                      meta: applicationPropertyMeta(entry.row),
+                      // A `single` cluster already names the person in its header,
+                      // so repeating the identity here would print it twice — and
+                      // for a nameless draft, whose display name RESOLVES to its
+                      // own email, twice over the same address. A household
+                      // cluster's header is the house instead, so its members
+                      // carry their own names or they are an anonymous stack of
+                      // dates whose checkbox announces "Select Submitted Jul 19".
+                      primary: entry.nested
+                        ? applicantDisplayName(entry.row)
+                        : applicationSubmittedLabel(entry.row),
+                      meta: entry.nested
+                        ? [applicationSubmittedLabel(entry.row), applicationPropertyMeta(entry.row)]
+                            .map((part) => part?.trim())
+                            .filter(Boolean)
+                            .join(" · ")
+                        : applicationPropertyMeta(entry.row),
                       selected: selectedIds?.has(entry.row.id),
                       onSelectedChange:
                         selectable && onToggleSelected
@@ -107,6 +121,20 @@ export function ManagerApplicationsGroupedTable({
                   selectable={selectable && Boolean(onToggleSelected)}
                   rows={[rowContent]}
                   columns={[
+                    // Same reasoning as `primary` above: only a household
+                    // cluster needs the applicant named on the row itself.
+                    ...(entry.nested
+                      ? [
+                          {
+                            id: "applicant",
+                            header: "Applicant",
+                            cell: (item: ApplicationTableRow) =>
+                              item.kind === "application"
+                                ? applicantDisplayName(item.row)
+                                : `Co-signer for ${applicantDisplayName(item.parent)}`,
+                          },
+                        ]
+                      : []),
                     {
                       id: "submitted",
                       header: "Submitted",

@@ -98,14 +98,27 @@ describe("the default offering is a 9 am - 5 pm day", () => {
 
   it("offers every half hour of that day, starting today", () => {
     const now = Date.parse("2026-08-04T15:00:00.000Z"); // 8:00 am Pacific
-    const keys = buildDefaultTourSlotKeys(now, 3);
+    // A requested horizon is clamped to a 7-day floor, so ask for the floor
+    // rather than a shorter window the config layer will not honor.
+    const days = 7;
+    const keys = buildDefaultTourSlotKeys(now, days);
     const perDay = DEFAULT_TOUR_END_SLOT_EXCLUSIVE - DEFAULT_TOUR_START_SLOT;
-    expect(keys).toHaveLength(perDay * 3);
+    expect(keys).toHaveLength(perDay * days);
     expect(keys[0]).toBe("2026-08-04:18");
     expect(keys[perDay - 1]).toBe("2026-08-04:33");
     // Whole days apart, with no skipped or repeated date.
     expect(keys[perDay]).toBe("2026-08-05:18");
     expect(keys[perDay * 2]).toBe("2026-08-06:18");
+  });
+
+  it("never publishes a window shorter than a week", () => {
+    // resolveDefaultTourAvailabilityConfig clamps a requested horizon to
+    // [7, 60], so a caller asking for a 3-day window still gets seven days.
+    // That floor is what makes the shorter horizons elsewhere in this file
+    // resolve to the same grid.
+    const now = Date.parse("2026-08-04T15:00:00.000Z");
+    const perDay = DEFAULT_TOUR_END_SLOT_EXCLUSIVE - DEFAULT_TOUR_START_SLOT;
+    expect(buildDefaultTourSlotKeys(now, 3)).toHaveLength(perDay * 7);
   });
 
   it("builds the same days under a UTC process as a Pacific one", () => {

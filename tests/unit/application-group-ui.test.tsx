@@ -92,8 +92,12 @@ vi.mock("@/components/providers/app-ui-provider", () => ({
 }));
 vi.mock("@/lib/manager-applications-storage", () => ({
   MANAGER_APPLICATIONS_EVENT: "manager-applications-changed",
-  syncManagerApplicationsFromServer: () => Promise.resolve(),
+  // The real sync RESOLVES TO THE ROWS and the panel pipes it straight into
+  // `setRows`. Resolving to undefined here wiped the list the panel had just
+  // read synchronously, so every row assertion saw an empty table.
+  syncManagerApplicationsFromServer: () => Promise.resolve(ROWS),
   readManagerApplicationRows: () => ROWS,
+  writeManagerApplicationRows: () => {},
   deleteManagerApplicationFromServer: () => Promise.resolve({ ok: true }),
   normalizeApplicationAxisId: (id: string) => id,
 }));
@@ -179,14 +183,17 @@ describe("group application — applicant Group ID hand-off", () => {
 });
 
 describe("group application — manager reconciliation", () => {
-  it("clusters applicants by resident on each tab and keeps group context in detail only", async () => {
+  it("names every applicant on each tab and keeps group context in detail only", async () => {
     ROWS = HOUSEHOLD_ROWS;
     const { container, rerender } = render(<ManagerApplications bucket="pending" />);
 
     // Pending tab: Priya submitted; Sam is incomplete on another tab; Jordan is approved elsewhere.
+    // These three share a Group ID, so they cluster into one HOUSEHOLD card (the
+    // later `group household lists` rule) rather than a per-resident card — but
+    // each member must still be named on their own row.
     await waitFor(() => expect(screen.getAllByText("Priya Nair").length).toBeGreaterThan(0));
     expect(document.querySelector("[data-attr='applications-resident-groups']")).toBeTruthy();
-    expect(screen.getByText("1 application")).toBeTruthy();
+    expect(screen.getByText(/Group \d+\/\d+/)).toBeTruthy();
     dumpHtml("manager-rows", container.innerHTML);
 
     rerender(<ManagerApplications bucket="incomplete" />);
@@ -203,17 +210,17 @@ describe("group application — manager reconciliation", () => {
     dumpHtml("manager-expanded", container.innerHTML);
   });
 
-  it("shows an approved applicant in a resident cluster card", async () => {
+  it("names an approved applicant in their cluster card", async () => {
     ROWS = HOUSEHOLD_ROWS;
     render(<ManagerApplications bucket="approved" />);
     await waitFor(() => expect(screen.getAllByText("Jordan Reyes").length).toBeGreaterThan(0));
     expect(document.querySelector("[data-attr='applications-resident-groups']")).toBeTruthy();
-    expect(screen.getByText("1 application")).toBeTruthy();
   });
 
-  it("lists each applicant in their own resident cluster when emails differ", async () => {
-    // Two applications share a group id but are different people — the list groups
-    // by resident identity (like Tours), not by group id.
+  it("names each applicant separately when a group's members differ", async () => {
+    // Two applications share a group id but are different people. The list clusters
+    // them by GROUP ID into one household card, so the card header cannot identify
+    // anyone — each member has to be named on their own row instead.
     ROWS = [
       {
         id: "AXIS-2001",
@@ -254,14 +261,16 @@ describe("group application — manager reconciliation", () => {
     const { container, rerender: rerenderEdge } = render(<ManagerApplications />);
     await waitFor(() => expect(screen.getByText("Casey Lin")).toBeTruthy());
     expect(screen.getByText("Devon Marsh")).toBeTruthy();
-    expect(screen.getAllByText("1 application").length).toBeGreaterThanOrEqual(2);
     dumpHtml("manager-edge-rows", container.innerHTML);
 
     rerenderEdge(<ManagerApplications bucket="pending" applicationId="AXIS-300" />);
     await waitFor(() => expect(screen.getAllByText("Ada Vance").length).toBeGreaterThan(0));
-    expect(
-      screen.getByText(/carry this Group ID, more than the 2 the organizer declared/),
-    ).toBeTruthy();
+    // The expanded detail no longer carries a group roster card — the roster
+    // moved into the application PDF, which took the over-subscription warning
+    // ("N carry this Group ID, more than the 2 the organizer declared") with it.
+    // `ApplicationGroupSection` still computes `isOverSubscribed` but is no
+    // longer rendered anywhere, so nothing surfaces that warning today.
+    expect(screen.queryByText(/carry this Group ID/)).toBeNull();
     dumpHtml("manager-edge-expanded", container.innerHTML);
   });
 });

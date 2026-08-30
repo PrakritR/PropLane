@@ -21,7 +21,13 @@ vi.mock("@/hooks/use-portal-session", () => ({
   usePortalSession: () => ({ email: "resident@example.com", userId: "user-1" }),
 }));
 vi.mock("@/hooks/use-co-manager-nav-sections", () => ({
-  useCoManagerNavSections: (definition: { sections: unknown[] }) => definition.sections,
+  // Mirror the hook's real return shape — the sidebar destructures
+  // `{ sections, restrictedSections }`, so handing back a bare array leaves
+  // `visibleSections` undefined and the render dies inside a useMemo.
+  useCoManagerNavSections: (definition: { sections: unknown[] }) => ({
+    sections: definition.sections,
+    restrictedSections: new Set<string>(),
+  }),
 }));
 vi.mock("@/lib/portal-nav-client", () => ({
   usePortalNavigate: () => vi.fn(),

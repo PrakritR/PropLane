@@ -18,8 +18,22 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # Cheap gate: emits a boolean for whether the Vercel token is configured.
+  # The `secrets` context is NOT available in a job-level `if`, so testing it
+  # there is a workflow-file error that fails every run in 0s instead of
+  # skipping — route it through a job output like ios-testflight.yml does.
+  # Only the boolean is written; the secret value never appears in logs.
+  check-secrets:
+    runs-on: ubuntu-latest
+    outputs:
+      configured: ${{ steps.check.outputs.configured }}
+    steps:
+      - id: check
+        run: echo "configured=${{ secrets.VERCEL_TOKEN != '' }}" >> "$GITHUB_OUTPUT"
+
   deploy:
-    if: ${{ secrets.VERCEL_TOKEN != '' }}
+    needs: check-secrets
+    if: ${{ needs.check-secrets.outputs.configured == 'true' }}
     runs-on: ubuntu-latest
     env:
       VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
@@ -62,7 +76,8 @@ jobs:
           fi
 
   git-integration:
-    if: ${{ secrets.VERCEL_TOKEN == '' }}
+    needs: check-secrets
+    if: ${{ needs.check-secrets.outputs.configured != 'true' }}
     runs-on: ubuntu-latest
     steps:
       - name: Vercel Git deploy only

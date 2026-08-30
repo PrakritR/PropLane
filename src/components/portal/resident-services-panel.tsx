@@ -4,6 +4,8 @@ import Image from "next/image";
 import { Fragment, useEffect, useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input, Textarea } from "@/components/ui/input";
+import { ClipboardList, Wrench } from "lucide-react";
+import { PortalListAddRow, PORTAL_LIST_ADD_ROW_WRAP_CLASS } from "@/components/portal/portal-list-add-row";
 import { formatPacificDate } from "@/lib/pacific-time";
 import { Select } from "@/components/ui/input";
 import { Modal, ModalFooter } from "@/components/ui/modal";
@@ -501,6 +503,54 @@ export function WorkOrderDetail({
         }}
       />
     </>
+  );
+}
+
+/**
+ * The two dashed add rows for this section's lists. Both read a uniform "ADD"
+ * like every other portal list, so each carries its own `ariaLabel` — two
+ * buttons named "Add" on one page leave a screen reader no way to tell a
+ * service request from a maintenance report.
+ */
+function ResidentServicesRequestAddRow({
+  onRequest,
+  disabled = false,
+}: {
+  onRequest: () => void;
+  disabled?: boolean;
+}) {
+  return (
+    <div className={PORTAL_LIST_ADD_ROW_WRAP_CLASS}>
+      <PortalListAddRow
+        label="Add"
+        ariaLabel="Request a service"
+        icon={ClipboardList}
+        onClick={onRequest}
+        disabled={disabled}
+        dataAttr="resident-services-request-add"
+      />
+    </div>
+  );
+}
+
+function ResidentServicesMaintenanceAddRow({
+  onReport,
+  disabled = false,
+}: {
+  onReport: () => void;
+  disabled?: boolean;
+}) {
+  return (
+    <div className={PORTAL_LIST_ADD_ROW_WRAP_CLASS}>
+      <PortalListAddRow
+        label="Add"
+        ariaLabel="Report a maintenance issue"
+        icon={Wrench}
+        onClick={onReport}
+        disabled={disabled}
+        dataAttr="resident-services-maintenance-add"
+      />
+    </div>
   );
 }
 
@@ -1328,6 +1378,7 @@ export function ResidentServicesPanel({
           ) : sortedRequests.length > 0 ? (
             <p className="mb-2 px-1 text-center text-sm text-muted">No requests in this status yet.</p>
           ) : null}
+          <ResidentServicesRequestAddRow onRequest={openRequestService} disabled={!servicesUnlocked} />
         </div>
         <div className="mt-6">
           <p className="mb-2 px-1 text-xs font-semibold uppercase tracking-wide text-muted">
@@ -1431,6 +1482,7 @@ export function ResidentServicesPanel({
           ) : myRows.length > 0 ? (
             <p className="mb-2 px-1 text-center text-sm text-muted">No work orders in this status yet.</p>
           ) : null}
+          <ResidentServicesMaintenanceAddRow onReport={openMaintenanceReport} disabled={!servicesUnlocked} />
         </div>
       </>
 
