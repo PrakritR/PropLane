@@ -17,6 +17,7 @@ import {
   sweepServiceOrderReminders,
   sweepWorkOrderReminders,
 } from "@/lib/reminders/subjects/records.server";
+import { sweepTourReminders } from "@/lib/reminders/subjects/tours.server";
 import { isProductionRuntime } from "@/lib/server-env";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 
@@ -58,6 +59,7 @@ export async function GET(req: Request) {
     // One subject's sweep failing must not silence the others, so each is
     // isolated and reported by name rather than aborting the pass.
     for (const [name, sweep] of [
+      ["tour", sweepTourReminders],
       ["task", sweepTaskReminders],
       ["work_order", sweepWorkOrderReminders],
       ["service_order", sweepServiceOrderReminders],

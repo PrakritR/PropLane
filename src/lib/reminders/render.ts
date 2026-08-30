@@ -32,6 +32,21 @@ export type ReminderPayload = {
 
 export type RenderedReminder = { subject: string; body: string };
 
+/**
+ * Drop a "property title" that is really an identifier.
+ *
+ * Some records carry a slug (`mgr-demo-ballard`) in the title field. Saying
+ * "your tour at mgr-demo-ballard" to a prospect is worse than saying nothing,
+ * so an id-shaped value is treated as absent and the sentence closes cleanly
+ * without it.
+ */
+export function humanPropertyLabel(raw: string | null | undefined): string | null {
+  const value = (raw ?? "").trim();
+  if (!value) return null;
+  const looksLikeId = !value.includes(" ") && /^[a-z0-9]+(?:[-_][a-z0-9]+)+$/.test(value);
+  return looksLikeId ? null : value;
+}
+
 /** "in 30 minutes", "in 1 day" — the lead time as a person would say it. */
 export function leadPhrase(leadMinutes: number): string {
   return formatLeadLabel(leadMinutes).replace(/ before$/, "").replace(/^/, "in ");
@@ -78,7 +93,7 @@ export function renderReminder(input: {
   const phrase = leadPhrase(leadMinutes);
   const title = (payload.title ?? "").trim();
   const when = (payload.whenLabel ?? "").trim();
-  const property = (payload.propertyLabel ?? "").trim();
+  const property = humanPropertyLabel(payload.propertyLabel) ?? "";
   const location = (payload.locationLabel ?? "").trim();
   const counterparty = (payload.counterpartyName ?? "").trim();
   const manager = (payload.managerName ?? "").trim() || "Your property manager";

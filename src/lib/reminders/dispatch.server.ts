@@ -52,6 +52,26 @@ const CATEGORY_BY_KIND: Record<ReminderSubjectKind, NotificationCategory> = {
   booking: "leases",
 };
 
+/**
+ * Is this refusal one that retrying can never fix?
+ *
+ * `deliverPortalInboxMessage` reports an authorization refusal and a transient
+ * outage the same way — `{ ok: false, error }` — so the message text is the only
+ * signal available. Matching it is fragile, but the alternative is worse: a
+ * recipient outside the sender's scope is a permanent state, and treating it as
+ * transient burns the whole attempts budget re-attempting a send that is
+ * refused identically every time. A miss here is merely a few wasted retries,
+ * never a lost message.
+ */
+function isPermanentDeliveryRefusal(error: string): boolean {
+  const text = error.toLowerCase();
+  return (
+    text.includes("connected to your account") ||
+    text.includes("subject and text are required") ||
+    text.includes("no valid recipients")
+  );
+}
+
 /** Distinguishes a retryable outage from a row that can never be delivered. */
 type SendOutcome = { ok: true } | { ok: false; permanent: boolean; error: string };
 
@@ -121,7 +141,7 @@ export async function dispatchReminderRow(
         senderRole: "manager",
       });
       if (result.ok) return { ok: true as const };
-      return { ok: false as const, permanent: false, error: result.error };
+      return { ok: false as const, permanent: isPermanentDeliveryRefusal(result.error), error: result.error };
     } catch (error) {
       return {
         ok: false as const,

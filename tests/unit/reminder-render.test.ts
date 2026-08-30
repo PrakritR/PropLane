@@ -7,7 +7,7 @@
  * person who scheduled it.
  */
 import { describe, expect, it } from "vitest";
-import { leadPhrase, renderReminder } from "@/lib/reminders/render";
+import { humanPropertyLabel, leadPhrase, renderReminder } from "@/lib/reminders/render";
 import { DAY, HOUR } from "@/lib/reminders/rules";
 
 const tourPayload = {
@@ -137,5 +137,38 @@ describe("every subject renders a distinct noun", () => {
       payload: {},
     });
     expect(out.subject).toContain(noun);
+  });
+});
+
+describe("humanPropertyLabel", () => {
+  it("keeps a real property name", () => {
+    expect(humanPropertyLabel("Alder Row — 3 rooms")).toBe("Alder Row — 3 rooms");
+    expect(humanPropertyLabel("The Pioneer")).toBe("The Pioneer");
+  });
+
+  it("drops an identifier that leaked into the title field", () => {
+    // Seed data carries slugs here; "your tour at mgr-demo-ballard" is worse
+    // than saying nothing at all.
+    expect(humanPropertyLabel("mgr-demo-ballard")).toBeNull();
+    expect(humanPropertyLabel("mgr-scale-03")).toBeNull();
+    expect(humanPropertyLabel("prop_123_abc")).toBeNull();
+  });
+
+  it("treats blank and missing as absent", () => {
+    expect(humanPropertyLabel("")).toBeNull();
+    expect(humanPropertyLabel("   ")).toBeNull();
+    expect(humanPropertyLabel(null)).toBeNull();
+    expect(humanPropertyLabel(undefined)).toBeNull();
+  });
+
+  it("omits the property from the sentence entirely when it was a slug", () => {
+    const out = renderReminder({
+      kind: "tour",
+      leadMinutes: 30,
+      recipientRole: "counterparty",
+      payload: { propertyLabel: "mgr-demo-ballard", recipientName: "Alex" },
+    });
+    expect(out.subject).toBe("Reminder: your tour is in 30 minutes");
+    expect(out.body).not.toContain("mgr-demo-ballard");
   });
 });
