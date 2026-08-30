@@ -1,6 +1,13 @@
 import type { ManagerListingSubmissionV1 } from "@/lib/manager-listing-submission";
-import { buildPropertyLeasePreview, type PropertyLeasePreviewHint } from "@/lib/property-lease-preview";
-import type { PropertyLeaseTemplate } from "@/lib/property-lease-templates";
+import {
+  buildPropertyLeasePreview,
+  leasePreviewContextFromSubmission,
+  type PropertyLeasePreviewHint,
+} from "@/lib/property-lease-preview";
+import { effectivePropertyLeaseTemplateHtml } from "@/lib/property-lease-placement-html";
+import { stripDisclosureReviewFromLeaseHtml } from "@/lib/property-lease-document-display";
+import { jurisdictionConfig, resolveJurisdiction } from "@/lib/lease-jurisdiction";
+import type { PropertyLeaseTemplate, PropertyLeaseTemplateKind } from "@/lib/property-lease-templates";
 import { buildCustomBuilderLeaseHtml } from "@/lib/lease-pdf-parse";
 import { prependLeaseHtmlSection } from "@/lib/lease-html-sections";
 import type { PropertyLeaseSource } from "@/lib/property-lease-source";
@@ -37,6 +44,33 @@ function submissionFromTemplate(
     customLeaseTerms: template.customLeaseTerms ?? "",
     leaseTemplateDocUrl: template.leaseTemplateDocUrl ?? null,
     leaseTemplateDocName: template.leaseTemplateDocName ?? "",
+  };
+}
+
+function draftAsTemplate(
+  draft: Pick<
+    PropertyLeaseTemplate,
+    | "leaseConfigMode"
+    | "leaseCustomKind"
+    | "customLeaseTerms"
+    | "leaseTemplateDocUrl"
+    | "leaseTemplateDocName"
+    | "leaseTemplateHtmlOverride"
+  >,
+  templateKind: PropertyLeaseTemplateKind,
+): PropertyLeaseTemplate {
+  return {
+    id: "draft",
+    kind: templateKind,
+    label: "",
+    leaseConfigMode: draft.leaseConfigMode,
+    leaseCustomKind: draft.leaseCustomKind,
+    customLeaseTerms: draft.customLeaseTerms ?? "",
+    leaseTemplateDocUrl: draft.leaseTemplateDocUrl ?? null,
+    leaseTemplateDocName: draft.leaseTemplateDocName ?? "",
+    leaseTemplateHtmlOverride: draft.leaseTemplateHtmlOverride ?? "",
+    createdAt: "",
+    updatedAt: "",
   };
 }
 
@@ -102,9 +136,6 @@ export function resolvePropertyLeaseEditHtml(args: {
   hint?: PropertyLeasePreviewHint;
   demo?: boolean;
 }): string {
-  const override = args.draft.leaseTemplateHtmlOverride?.trim();
-  if (override) return override;
-
   const normalizedSource = normalizePropertyLeaseDocumentSource(args.source);
 
   if (normalizedSource === "custom_format") {
@@ -118,10 +149,34 @@ export function resolvePropertyLeaseEditHtml(args: {
   }
 
   const previewSub = submissionFromTemplate(args.sub, args.draft);
+  const templateKind = args.templateKind ?? "long-term";
+  const override = args.draft.leaseTemplateHtmlOverride?.trim();
+
+  if (override && normalizedSource === "axis_default") {
+    const jurisdiction = resolveJurisdiction(
+      leasePreviewContextFromSubmission(previewSub, args.hint, templateKind),
+    );
+    const config = jurisdiction ? jurisdictionConfig(jurisdiction) : null;
+    if (config) {
+      let html = stripDisclosureReviewFromLeaseHtml(
+        effectivePropertyLeaseTemplateHtml({
+          sub: args.sub,
+          template: draftAsTemplate(args.draft, templateKind),
+          templateKind,
+          config,
+        }),
+      );
+      if (args.source === "custom_comments" && args.draft.customLeaseTerms?.trim()) {
+        html = appendLegacyCustomTermsSection(html, args.draft.customLeaseTerms);
+      }
+      return html;
+    }
+  }
+
   const preview = buildPropertyLeasePreview(previewSub, {
     hint: args.hint,
     demo: args.demo,
-    templateKind: args.templateKind ?? "long-term",
+    templateKind,
   });
   let html = preview.html?.trim() ?? "";
   if (!html) return "";
