@@ -168,15 +168,12 @@ function TaskNotesSnippet({ notes }: { notes: string }) {
  */
 function ManagerTaskUrgencyBadge({ task }: { task: ManagerTask }) {
   const urgency = inferManagerTaskUrgency(task);
-  // A scheduled task already prints its slot on the next line, so a badge
-  // saying "Scheduled" would just repeat it.
-  if (urgency === "scheduled") return null;
-  const urgent = urgency === "urgent";
+  // Scheduled rows already print their slot; "as needed" tasks carry no timing
+  // label on the list — only deadlines get a badge.
+  if (urgency === "scheduled" || urgency === "urgent") return null;
   return (
     <span
-      className={`rounded-full border px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide ${
-        urgent ? "border-danger/30 bg-danger/10 text-danger" : "border-border bg-accent/40 text-muted"
-      }`}
+      className="rounded-full border border-border bg-accent/40 px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-muted"
       data-attr={`manager-task-urgency-${urgency}`}
     >
       {MANAGER_TASK_URGENCY_LABELS[urgency]}
@@ -567,7 +564,6 @@ export function ManagerTaskList({
       const task = selectedTasks[0]!;
       const editTask = () => beginEdit(task);
       const remindTask = () => openReminderPreview(task);
-      const canRemind = Boolean(resolveTaskAssigneeEmail(task.assignee, assigneeDirectory));
       actions.push({
         id: "edit",
         keepPriority: 4,
@@ -588,7 +584,7 @@ export function ManagerTaskList({
           </DropdownMenuItem>
         ),
       });
-      if (canRemind && tabId !== "completed") {
+      if (tabId !== "completed") {
         actions.push({
           id: "remind",
           keepPriority: 3,
@@ -646,7 +642,6 @@ export function ManagerTaskList({
   function renderTaskRow(task: ManagerTask, completed = false) {
     const location = compactTaskLocationLabel(task);
     const assigneeLabel = formatTaskAssignee(task);
-    const canRemind = Boolean(resolveTaskAssigneeEmail(task.assignee, assigneeDirectory));
     return (
       <li key={task.id} className="flex items-start gap-3 px-4 py-3">
         <input
@@ -661,7 +656,7 @@ export function ManagerTaskList({
             )
           }
         />
-        <div className="min-w-0 flex-1">
+        <div className="flex min-w-0 flex-1 flex-col gap-2">
           <button
             type="button"
             className="w-full text-left"
@@ -680,17 +675,19 @@ export function ManagerTaskList({
             {location ? <p className="text-xs text-muted">{location}</p> : null}
             {task.notes ? <TaskNotesSnippet notes={task.notes} /> : null}
           </button>
-          {!completed && canRemind ? (
-            <Button
-              type="button"
-              variant="outline"
-              className="mt-2 h-8 min-h-0 px-3 text-[11px] font-semibold"
-              data-attr="manager-task-send-reminder"
-              loading={sendingReminderId === task.id}
-              onClick={() => openReminderPreview(task)}
-            >
-              Remind
-            </Button>
+          {!completed ? (
+            <div className="flex justify-start">
+              <Button
+                type="button"
+                variant="outline"
+                className="h-8 min-h-0 px-3 text-[11px] font-semibold"
+                data-attr="manager-task-send-reminder"
+                loading={sendingReminderId === task.id}
+                onClick={() => openReminderPreview(task)}
+              >
+                Remind
+              </Button>
+            </div>
           ) : null}
         </div>
       </li>

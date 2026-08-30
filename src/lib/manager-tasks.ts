@@ -29,7 +29,7 @@ export const MANAGER_TASK_TYPE_LABELS: Record<ManagerTaskType, string> = {
  *   calendar as a block.
  * - `deadline` has only a time to finish by. No slot is reserved; the calendar
  *   shows a due marker.
- * - `urgent` needs doing now. It has neither a slot nor a date to wait for.
+ * - `urgent` has no due date or calendar slot but still needs to get done.
  *
  * Kept separate from `priority` on purpose: how soon something must happen and
  * how much it matters are independent. A low-priority task can still carry a
@@ -40,7 +40,7 @@ export type ManagerTaskUrgency = (typeof MANAGER_TASK_URGENCIES)[number];
 
 export const MANAGER_TASK_URGENCY_LABELS: Record<ManagerTaskUrgency, string> = {
   scheduled: "Scheduled",
-  urgent: "Urgent",
+  urgent: "As needed",
   deadline: "Deadline",
 };
 

@@ -753,7 +753,7 @@ export function ManagerTaskFormModal({
                   ? "Books a slot on the calendar."
                   : form.urgency === "deadline"
                     ? "Just a time to finish by — no slot is reserved."
-                    : "Needs doing now. No date is set."}
+                    : "No due date — still needs to get done."}
               </p>
             </div>
 
