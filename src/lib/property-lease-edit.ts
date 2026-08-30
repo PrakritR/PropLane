@@ -137,20 +137,22 @@ export function resolvePropertyLeaseEditHtml(args: {
   demo?: boolean;
 }): string {
   const normalizedSource = normalizePropertyLeaseDocumentSource(args.source);
+  const override = args.draft.leaseTemplateHtmlOverride?.trim();
 
   if (normalizedSource === "custom_format") {
+    if (override) return override;
     const docUrl = args.draft.leaseTemplateDocUrl?.trim();
     if (!docUrl) return "";
     return buildUploadedLeaseEditableHtml(docUrl, args.draft.leaseTemplateDocName ?? "Uploaded lease");
   }
 
   if (normalizedSource === "custom_builder") {
+    if (override) return override;
     return buildCustomBuilderLeaseHtml(args.draft.leaseTemplateDocName ?? "Custom lease");
   }
 
   const previewSub = submissionFromTemplate(args.sub, args.draft);
   const templateKind = args.templateKind ?? "long-term";
-  const override = args.draft.leaseTemplateHtmlOverride?.trim();
 
   if (override && normalizedSource === "axis_default") {
     const jurisdiction = resolveJurisdiction(

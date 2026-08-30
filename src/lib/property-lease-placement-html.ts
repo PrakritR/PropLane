@@ -5,8 +5,8 @@ import type { LeaseJurisdictionTemplateConfig } from "@/lib/lease-templates/type
 import {
   applyLeaseSectionBodyEdits,
   parseLeaseHtmlSections,
-  type LeaseHtmlSection,
 } from "@/lib/lease-html-sections";
+import { isEditableLeaseSection } from "@/lib/lease-section-text";
 import { normalizeManagerListingSubmissionV1, type ManagerListingSubmissionV1 } from "@/lib/manager-listing-submission";
 import {
   leasePreviewContextFromSubmission,
@@ -50,9 +50,10 @@ function sectionBodyEditsFromTemplateOverride(
     const overrideSection = overrideSections[i]!;
     const baselineSection = baselineSections[i]!;
     if (overrideSection.id !== baselineSection.id) return null;
-    if (overrideSection.bodyHtml.trim() !== baselineSection.bodyHtml.trim()) {
-      edits[overrideSection.id] = overrideSection.bodyHtml;
-    }
+    if (overrideSection.bodyHtml.trim() === baselineSection.bodyHtml.trim()) continue;
+    if (!isEditableLeaseSection(overrideSection)) continue;
+    if (overrideSection.bodyHtml.includes(PROPERTY_LEASE_TEMPLATE_PLACEHOLDER)) continue;
+    edits[overrideSection.id] = overrideSection.bodyHtml;
   }
   return Object.keys(edits).length ? edits : null;
 }
@@ -154,9 +155,11 @@ export function buildPlacementLeaseHtml(
   if (source === "custom_format" || source === "custom_builder") return placementHtml;
 
   const templateKind = resolveTemplateKind(ctx, template);
-  const previewBaseline = propertyLeasePreviewBaselineHtml(sub, templateKind, template);
   const override = template.leaseTemplateHtmlOverride?.trim();
-  if (!override || isStalePropertyLeaseTemplateOverride(override, previewBaseline, config)) {
+  if (!override) return placementHtml;
+
+  const previewBaseline = propertyLeasePreviewBaselineHtml(sub, templateKind, template);
+  if (isStalePropertyLeaseTemplateOverride(override, previewBaseline, config)) {
     return placementHtml;
   }
 
@@ -175,9 +178,4 @@ export function effectivePropertyLeaseTemplateHtml(args: {
     return previewBaseline;
   }
   return override;
-}
-
-/** @internal test helper */
-export function leaseSectionBodiesForTest(sections: LeaseHtmlSection[]): Record<string, string> {
-  return Object.fromEntries(sections.map((section) => [section.id, section.bodyHtml]));
 }
