@@ -1,13 +1,14 @@
 import { LISTING_ROOM_CHOICE_SEP } from "@/lib/rental-application/data";
-import type { ManagerListingSubmissionV1 } from "@/lib/manager-listing-submission";
+import type { ManagerListingSubmissionV1, ManagerRoomSubmission } from "@/lib/manager-listing-submission";
 import { normalizeManagerListingSubmissionV1, PAYMENT_AT_SIGNING_OPTIONS, isEntireHomeListing, entireHomeMonthlyRentAmount } from "@/lib/manager-listing-submission";
+import { leaseDocumentFeeLines } from "@/lib/listing-fees";
 import { parseMoneyAmount } from "@/lib/parse-money";
 import {
   formatUtilitiesListingLine,
   resolveRoomUtilitiesPaymentModel,
   utilitiesListingSummaryLabel,
 } from "@/lib/listing-utilities-payment";
-import { roomDailyRentPrice, roomIsDailyPriced, roomMonthlyEquivalent } from "@/lib/room-pricing";
+import { roomDailyRentPrice, roomHeadlinePriceLabel, roomIsDailyPriced, roomMonthlyEquivalent } from "@/lib/room-pricing";
 
 export type ListingSigningComputationInput = ManagerListingSubmissionV1 | undefined;
 
@@ -220,4 +221,76 @@ export function utilitiesListingEstimateDetail(sub: ManagerListingSubmissionV1 |
         }`,
     );
   return lines.length ? lines.join("\n") : "Utilities TBD.";
+}
+
+function roomSecurityDepositAmount(room: ManagerRoomSubmission, sub: ManagerListingSubmissionV1): number {
+  const roomDep = parseMoneyAmount(room.securityDeposit ?? "");
+  if (roomDep > 0) return roomDep;
+  return parseMoneyAmount(sub.securityDeposit ?? "");
+}
+
+function roomMoveInFeeAmount(room: ManagerRoomSubmission, sub: ManagerListingSubmissionV1): number {
+  const roomFee = parseMoneyAmount(room.moveInFee ?? "");
+  if (roomFee > 0) return roomFee;
+  return parseMoneyAmount(sub.moveInFee ?? "");
+}
+
+function roomMonthlyUtilitiesAmount(room: ManagerRoomSubmission): number {
+  if (resolveRoomUtilitiesPaymentModel(room) !== "manager_billed") return 0;
+  return parseMoneyAmount(room.utilitiesEstimate ?? "");
+}
+
+/** Per-room payment due at signing from listing checkboxes (no proration — lease dates unknown). */
+export function listingRoomPaymentAtSigningAmount(
+  room: ManagerRoomSubmission,
+  sub: ManagerListingSubmissionV1,
+): number {
+  const n = normalizeManagerListingSubmissionV1(sub);
+  return computeLeasePaymentAtSigning(n, {
+    securityDeposit: roomSecurityDepositAmount(room, n),
+    moveInFee: roomMoveInFeeAmount(room, n),
+    monthlyRent: roomIsDailyPriced(room) ? 0 : room.monthlyRent,
+    monthlyUtilities: roomMonthlyUtilitiesAmount(room),
+  });
+}
+
+/** Collapsed pricing-step summary for one room row (rent, utilities, deposit, signing total). */
+export function listingRoomPricingSummaryLabel(room: ManagerRoomSubmission, sub: ManagerListingSubmissionV1): string {
+  const n = normalizeManagerListingSubmissionV1(sub);
+  const parts: string[] = [];
+
+  const rentLabel = roomHeadlinePriceLabel(room);
+  if (rentLabel && rentLabel !== "—") parts.push(rentLabel);
+
+  const utilModel = resolveRoomUtilitiesPaymentModel(room);
+  const utilLine = formatUtilitiesListingLine(utilModel, room.utilitiesEstimate);
+  if (utilLine && utilLine !== "—") parts.push(utilLine);
+
+  const dep = roomSecurityDepositAmount(room, n);
+  if (dep > 0) parts.push(`$${dep % 1 === 0 ? dep : dep.toFixed(2)} deposit`);
+
+  const moveIn = roomMoveInFeeAmount(room, n);
+  if (moveIn > 0) parts.push(`$${moveIn % 1 === 0 ? moveIn : moveIn.toFixed(2)} move-in`);
+
+  const signing = listingRoomPaymentAtSigningAmount(room, n);
+  if (signing > 0) {
+    parts.push(`$${signing % 1 === 0 ? signing : signing.toFixed(2)} at signing`);
+  }
+
+  return parts.length ? parts.join(" · ") : "Rent not set";
+}
+
+/** Active long-term "Other fees" preset/custom lines for wizard preview copy. */
+export function listingOtherFeesPreviewLines(sub: ManagerListingSubmissionV1): string[] {
+  const { oneTime, monthly } = leaseDocumentFeeLines(sub, "long-term");
+  const lines: string[] = [];
+  for (const fee of oneTime) {
+    const amount = parseMoneyAmount(fee.amount);
+    if (amount > 0) lines.push(`${fee.label.trim() || "Fee"}: $${amount % 1 === 0 ? amount : amount.toFixed(2)} (one-time)`);
+  }
+  for (const fee of monthly) {
+    const amount = parseMoneyAmount(fee.amount);
+    if (amount > 0) lines.push(`${fee.label.trim() || "Fee"}: $${amount % 1 === 0 ? amount : amount.toFixed(2)}/mo`);
+  }
+  return lines;
 }

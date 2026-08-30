@@ -73,6 +73,22 @@ import { retryUploadedLeaseParse, uploadAndParseLeasePdf } from "@/lib/uploaded-
 import { UploadedLeaseReviewModal } from "@/components/portal/uploaded-lease-review-modal";
 import type { UploadedLeaseFieldKey } from "@/lib/uploaded-lease-extraction";
 
+function leaseRowAllowsGeneratedBodyEdit(row: LeasePipelineRow): boolean {
+  return (
+    leaseAllowsManagerDocumentEdits(row) &&
+    Boolean(row.generatedHtml) &&
+    !row.managerUploadedPdf?.dataUrl &&
+    !row.templateDocumentUrl
+  );
+}
+
+function leaseRowIsBulkSendable(
+  row: LeasePipelineRow,
+  sendBlockedReason: (row: LeasePipelineRow) => string | undefined,
+): boolean {
+  return (row.status === "Manager Review" || row.status === "Draft") && !sendBlockedReason(row);
+}
+
 export function ManagerLeasesPipelinePanel({
   rows,
   tab,
@@ -296,21 +312,35 @@ export function ManagerLeasesPipelinePanel({
     [residentAccountEmails],
   );
 
-  const canBulkSendLeases =
-    tab === "manager" &&
-    selectedLeaseRows.length > 0 &&
-    selectedLeaseRows.every(
-      (row) =>
-        (row.status === "Manager Review" || row.status === "Draft") && !leaseRowSendBlockedReason(row),
-    );
+  const bulkSendableLeaseRows = useMemo(
+    () => selectedLeaseRows.filter((row) => leaseRowIsBulkSendable(row, leaseRowSendBlockedReason)),
+    [leaseRowSendBlockedReason, selectedLeaseRows],
+  );
+
+  const canBulkSendLeases = tab === "manager" && bulkSendableLeaseRows.length > 0;
+
+  const singleSelectedLeaseRow = selectedLeaseRows.length === 1 ? selectedLeaseRows[0]! : null;
+  const canBulkEditLease = Boolean(
+    singleSelectedLeaseRow && leaseRowAllowsGeneratedBodyEdit(singleSelectedLeaseRow),
+  );
 
   const openBulkSendLeasePreview = useCallback(() => {
-    if (!canBulkSendLeases) {
-      showToast("Selected leases can't be sent together. Each needs a document, resident account, and no review blockers.");
+    if (bulkSendableLeaseRows.length === 0) {
+      showToast("None of the selected leases can be sent. Each needs a document, resident account, and no review blockers.");
       return;
     }
-    setBulkLeaseSendRows(selectedLeaseRows);
-  }, [canBulkSendLeases, selectedLeaseRows, showToast]);
+    if (bulkSendableLeaseRows.length < selectedLeaseRows.length) {
+      showToast(
+        `Sending ${bulkSendableLeaseRows.length} of ${selectedLeaseRows.length} selected — others need a document, resident account, or review first.`,
+      );
+    }
+    setBulkLeaseSendRows(bulkSendableLeaseRows);
+  }, [bulkSendableLeaseRows, selectedLeaseRows.length, showToast]);
+
+  const editLeaseRow = useMemo(
+    () => (editLeaseRowId ? (rows.find((row) => row.id === editLeaseRowId) ?? null) : null),
+    [editLeaseRowId, rows],
+  );
 
   const confirmBulkSendLeases = useCallback(
     async (
@@ -573,7 +603,7 @@ export function ManagerLeasesPipelinePanel({
   const renderLeaseHeaderActions = (row: LeasePipelineRow) => {
     const generation = generationGate(row);
     const canEditDocument = leaseAllowsManagerDocumentEdits(row);
-    const canEditGeneratedBody = canEditDocument && Boolean(row.generatedHtml) && !row.managerUploadedPdf?.dataUrl && !row.templateDocumentUrl;
+    const canEditGeneratedBody = leaseRowAllowsGeneratedBodyEdit(row);
     const showGenerate = canEditDocument;
     const needsAccountEmail =
       (row.status === "Manager Review" || row.status === "Draft") &&
@@ -1100,10 +1130,10 @@ export function ManagerLeasesPipelinePanel({
         />
       ) : null}
 
-      {editLeaseRowId && detailRow && editLeaseRowId === detailRow.id ? (
+      {editLeaseRow ? (
         <ManagerPipelineLeaseEditModal
           open
-          row={detailRow}
+          row={editLeaseRow}
           onClose={() => setEditLeaseRowId(null)}
           onDone={() => void syncLeasePipelineFromServer(managerUserId, { force: true })}
         />
@@ -1211,16 +1241,29 @@ export function ManagerLeasesPipelinePanel({
         <BulkActionBar count={selectedIds.size} hideCount variant="payments">
           <div className="flex min-w-0 flex-wrap items-center justify-start gap-2">
             {tab === "manager" && selectedLeaseRows.length > 0 ? (
-              <Button
-                type="button"
-                variant="primary"
-                className={PORTAL_BULK_BAR_BTN}
-                data-attr="leases-bulk-send"
-                disabled={Boolean(sendingToResidentRowId) || !canBulkSendLeases}
-                onClick={openBulkSendLeasePreview}
-              >
-                Send
-              </Button>
+              <>
+                {canBulkEditLease ? (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className={PORTAL_BULK_BAR_BTN}
+                    data-attr="leases-bulk-edit"
+                    onClick={() => setEditLeaseRowId(singleSelectedLeaseRow!.id)}
+                  >
+                    Edit
+                  </Button>
+                ) : null}
+                <Button
+                  type="button"
+                  variant="primary"
+                  className={PORTAL_BULK_BAR_BTN}
+                  data-attr="leases-bulk-send"
+                  disabled={Boolean(sendingToResidentRowId) || !canBulkSendLeases}
+                  onClick={openBulkSendLeasePreview}
+                >
+                  Send
+                </Button>
+              </>
             ) : null}
           </div>
         </BulkActionBar>

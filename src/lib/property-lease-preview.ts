@@ -122,29 +122,37 @@ export function leasePreviewContextFromSubmission(
   sub: ManagerListingSubmissionV1,
   _hint?: PropertyLeasePreviewHint,
   templateKind: PropertyLeaseTemplateKind = "long-term",
-  opts?: { templatePreview?: boolean },
+  opts?: { templatePreview?: boolean; listingFeePreview?: boolean },
 ): LeaseGenerationContext {
   const isShortTerm = templateKind === "short-term";
-  const templatePreview = opts?.templatePreview ?? true;
-  const blankSubmission = templatePreview ? jurisdictionStubFromSubmission(sub) : normalizeManagerListingSubmissionV1(sub);
+  const propertyTemplatePreview = opts?.templatePreview ?? true;
+  const listingFeePreview = Boolean(opts?.listingFeePreview);
+  const previewSubmission =
+    propertyTemplatePreview && !listingFeePreview
+      ? jurisdictionStubFromSubmission(sub)
+      : normalizeManagerListingSubmissionV1(sub);
   const leaseTerm = isShortTerm ? SHORT_TERM_LEASE_TERM : "12-Month";
+  const previewRoom =
+    listingFeePreview &&
+    (previewSubmission.rooms.find((r) => r.name.trim()) ?? previewSubmission.rooms[0]);
+  const previewAddress = listingFeePreview ? formatLeaseAddressForDisplay(previewSubmission) : null;
 
   const listingProperty: MockProperty = {
     id: "property-lease-template-draft",
-    title: "",
+    title: previewSubmission.buildingName?.trim() || "",
     tagline: "",
-    address: "",
-    zip: blankSubmission.zip,
-    neighborhood: blankSubmission.neighborhood,
+    address: previewAddress?.street ?? "",
+    zip: previewSubmission.zip,
+    neighborhood: previewSubmission.neighborhood,
     beds: 0,
     baths: 0,
     rentLabel: "—",
     available: "—",
     petFriendly: false,
     buildingId: "property-lease-template-draft",
-    buildingName: "",
-    unitLabel: "",
-    listingSubmission: blankSubmission,
+    buildingName: previewSubmission.buildingName?.trim() || "",
+    unitLabel: previewRoom?.name?.trim() || "",
+    listingSubmission: previewSubmission,
     adminPublishLive: true,
   };
 
@@ -159,12 +167,14 @@ export function leasePreviewContextFromSubmission(
       leaseEnd: PROPERTY_LEASE_TEMPLATE_PLACEHOLDER,
       shortTermCheckInTime: "",
       shortTermCheckOutTime: "",
+      roomChoice1: previewRoom ? `property-lease-template-draft::${previewRoom.id}` : undefined,
     },
     leasedRoom: listingProperty,
     listingProperty,
-    submission: blankSubmission,
+    submission: previewSubmission,
     generatedAtIso: new Date().toISOString(),
-    propertyTemplatePreview: templatePreview,
+    propertyTemplatePreview,
+    listingFeePreview: listingFeePreview || undefined,
   };
 }
 
@@ -256,6 +266,7 @@ export function buildPropertyLeasePreview(
 
   const ctx = leasePreviewContextFromSubmission(normalized, opts?.hint, templateKind, {
     templatePreview: source === "axis_default",
+    listingFeePreview: source === "axis_default",
   });
   const jurisdiction = resolveLeaseJurisdiction(ctx);
   const jLabel = jurisdictionLabel(jurisdiction);

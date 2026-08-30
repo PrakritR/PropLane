@@ -75,9 +75,11 @@ export function templateOverrideHasManagerEdits(templateOverride: string, previe
 
 function isLegacyStandardLeaseFormat(html: string): boolean {
   return (
+    /AXIS SEATTLE HOUSING/i.test(html) ||
     /PROPLANE SEATTLE HOUSING/i.test(html) ||
     /<h1>\s*RESIDENTIAL LEASE AGREEMENT\s*<\/h1>/i.test(html) ||
-    /<h2>\s*1\.\s*PARTIES\s*<\/h2>/i.test(html) ||
+    /<h2>\s*1\.\s*PARTIES\s+AND\s+PREMISES\s*<\/h2>/.test(html) ||
+    /<h2>\s*6\.\s*UTILITIES\s+AND\s+SERVICES/i.test(html) ||
     /Generated ProPlane default template via ProPlane/i.test(html)
   );
 }
@@ -108,7 +110,10 @@ export function propertyLeasePreviewBaselineHtml(
   >,
 ): string {
   const previewSub = template ? submissionFromTemplate(sub, template) : sub;
-  const ctx = leasePreviewContextFromSubmission(previewSub, undefined, templateKind);
+  const ctx = leasePreviewContextFromSubmission(previewSub, undefined, templateKind, {
+    templatePreview: true,
+    listingFeePreview: true,
+  });
   const jurisdiction = resolveJurisdiction(ctx);
   const config = jurisdiction ? jurisdictionConfig(jurisdiction) : null;
   if (!config) return "";

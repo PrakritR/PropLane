@@ -142,8 +142,9 @@ describe("long-term lease parity", () => {
     expect(first).toContain("RCW 59.18.310");
     expect(first).toContain("use only bathroom on their floor");
     expect(first).toContain("Lease Summary");
-    expect(first).toContain("<strong>Rent:</strong> $825.00");
-    expect(first).toContain("<strong>Utilities:</strong> $175.00");
+    expect(first).toContain("<strong>Monthly Rent:</strong> $825.00");
+    expect(first).toContain("<strong>Utility:</strong> $175.00");
+    expect(first).toContain("<strong>Payment Due at Signing:</strong> $600.00");
     expect(first).toContain("Total payment due at signing: <strong>$600.00</strong>");
     expect(first).not.toContain("Greek Row");
     expect(first).not.toContain("additional authorized occupant");

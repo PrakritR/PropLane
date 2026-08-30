@@ -2,6 +2,7 @@ import type { LeaseUtilityLine } from "@/lib/lease-utilities";
 import { leaseUtilityKindLabel } from "@/lib/lease-utilities";
 import type { ManagerListingSubmissionV1 } from "@/lib/manager-listing-submission";
 import type { LeaseJurisdictionTemplateConfig } from "@/lib/lease-templates/types";
+import { paymentAtSigningIncludedLabels } from "@/lib/rental-application/listing-fees-display";
 
 export type CompactRoomLeaseInput = {
   config: LeaseJurisdictionTemplateConfig;
@@ -43,6 +44,7 @@ export type CompactRoomLeaseInput = {
   depositStatuteRef: string;
   residentMaintenanceStatuteRef: string;
   propertyTemplatePreview: boolean;
+  listingFeePreview?: boolean;
   generatedDate: string;
   disclosureReviewNotice: string;
   customTermsAddendumHtml: string;
@@ -126,7 +128,7 @@ function moveInPaymentSummaryHtml(input: CompactRoomLeaseInput): string {
     paySigning,
     paymentAtSigningIncludes,
   } = input;
-  if (input.propertyTemplatePreview) {
+  if (input.propertyTemplatePreview && !input.listingFeePreview) {
     return "<p>Move-in payment details are filled when a resident is placed at this property.</p>";
   }
   const includes = new Set(paymentAtSigningIncludes ?? []);
@@ -204,6 +206,9 @@ export function buildCompactRoomLeaseBody(input: CompactRoomLeaseInput): string 
     monthlyRentDisplay,
     utilitiesDisplay,
     secDep,
+    moveInFee,
+    paySigning,
+    firstPartialMonthPayment,
     houseRules,
     longTermHoldoverDailyRate,
     hasConfiguredHoldover,
@@ -256,14 +261,57 @@ export function buildCompactRoomLeaseBody(input: CompactRoomLeaseInput): string 
       ? `<p>For the first partial month, Resident shall pay <strong>${fmtUsd(input.firstPartialMonthPayment)}</strong> (prorated rent and utilities).</p>`
       : "";
 
+  const rentNum = input.parseAmount(monthlyRentDisplay);
+  const utilNum = input.parseAmount(utilitiesDisplay);
+  const totalMonthlyDisplay =
+    rentNum != null && utilNum != null && rentNum > 0 && utilNum > 0 ? fmtUsd(rentNum + utilNum) : null;
+
+  const monthlyCustomFeeSummaryLines = input.billableMonthlyCustomFees
+    .map((fee) => {
+      const amount = input.parseAmount(fee.amount);
+      if (amount == null || amount <= 0) return "";
+      return `<p style="margin:0.2rem 0"><strong>${escapeHtml(fee.label?.trim() || "Custom fee")}:</strong> ${fmtUsd(amount)}/mo</p>`;
+    })
+    .filter(Boolean)
+    .join("\n");
+
+  const supplementalOneTimeSummaryLines = (input.supplementalOneTimeLeaseFees ?? [])
+    .map((fee) => {
+      const amount = input.parseAmount(fee.amount);
+      if (amount == null || amount <= 0) return "";
+      return `<p style="margin:0.2rem 0"><strong>${escapeHtml(fee.label?.trim() || "Fee")}:</strong> ${fmtUsd(amount)}</p>`;
+    })
+    .filter(Boolean)
+    .join("\n");
+
+  const oneTimeCustomFeeSummaryLines = input.billableOneTimeCustomFees
+    .map((fee) => {
+      const amount = input.parseAmount(fee.amount);
+      if (amount == null || amount <= 0) return "";
+      return `<p style="margin:0.2rem 0"><strong>${escapeHtml(fee.label?.trim() || "Custom fee")}:</strong> ${fmtUsd(amount)}</p>`;
+    })
+    .filter(Boolean)
+    .join("\n");
+
+  const paySigningIncludesNote = input.sub ? escapeHtml(paymentAtSigningIncludedLabels(input.sub)) : "";
+
   const leaseSummaryHtml = `<div style="border:1px solid #999;padding:12px 14px;margin:0 0 1.25rem;background:#fafafa">
   <p style="margin:0 0 0.5rem;font-weight:700;text-align:center;text-transform:uppercase;letter-spacing:.04em">Lease Summary</p>
   <p style="margin:0.2rem 0"><strong>Landlord:</strong> ${landlordEntity}</p>
   <p style="margin:0.2rem 0"><strong>Resident:</strong> ${tenantName}</p>
   <p style="margin:0.2rem 0"><strong>Premises:</strong> ${premisesLine}</p>
   <p style="margin:0.2rem 0"><strong>Lease Term:</strong> ${leaseTermLine}</p>
-  <p style="margin:0.2rem 0"><strong>Rent:</strong> ${monthlyRentDisplay}</p>
-  <p style="margin:0.2rem 0"><strong>Utilities:</strong> ${utilitiesDisplay}</p>
+  <p style="margin:0.2rem 0"><strong>Monthly Rent:</strong> ${monthlyRentDisplay}</p>
+  <p style="margin:0.2rem 0"><strong>Utility:</strong> ${utilitiesDisplay}</p>
+  ${totalMonthlyDisplay ? `<p style="margin:0.2rem 0"><strong>Total monthly payment:</strong> ${totalMonthlyDisplay}</p>` : ""}
+  ${firstPartialMonthPayment > 0 ? `<p style="margin:0.2rem 0"><strong>Prorated first month:</strong> ${fmtUsd(firstPartialMonthPayment)}</p>` : input.listingFeePreview ? `<p style="margin:0.2rem 0"><strong>Prorated first month:</strong> Calculated from the lease start date when it is not the 1st of the month</p>` : ""}
+  <p style="margin:0.2rem 0"><strong>Security Deposit:</strong> ${secDep}</p>
+  <p style="margin:0.2rem 0"><strong>Move-in Fee:</strong> ${moveInFee}</p>
+  ${monthlyCustomFeeSummaryLines}
+  ${supplementalOneTimeSummaryLines}
+  ${oneTimeCustomFeeSummaryLines}
+  <p style="margin:0.2rem 0"><strong>Payment Due at Signing:</strong> ${paySigning}</p>
+  ${paySigningIncludesNote ? `<p style="margin:0.35rem 0 0;font-size:0.92em">Due at signing includes: ${paySigningIncludesNote}.</p>` : ""}
 </div>`;
 
   const holdoverClause =

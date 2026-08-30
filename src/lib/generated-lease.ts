@@ -92,6 +92,8 @@ export type LeaseGenerationContext = {
   leaseBilling?: LeaseBillingSnapshot;
   /** Property-level template preview — no resident yet; omit disclosure blocks and bracket placeholders. */
   propertyTemplatePreview?: boolean;
+  /** When true with `propertyTemplatePreview`, render listing rent/fees/deposits in the summary (generic template editor). */
+  listingFeePreview?: boolean;
   /**
    * Legal name of the landlord party, from the manager's own setting
    * (`manager-landlord-profile.ts`). Absent means the manager has not set one — the template then

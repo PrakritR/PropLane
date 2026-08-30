@@ -60,6 +60,28 @@ const longTermTemplate = (override = ""): PropertyLeaseTemplate => ({
 });
 
 describe("property lease placement html", () => {
+  it("propertyLeasePreviewBaselineHtml shows listing rent, utilities, and signing fees", () => {
+    const sub = {
+      ...seattleSub(),
+      securityDeposit: "400",
+      moveInFee: "200",
+      paymentAtSigningIncludes: ["security_deposit", "move_in_fee"],
+    };
+    const html = propertyLeasePreviewBaselineHtml(sub, "long-term");
+    expect(html).toContain("Monthly Rent:");
+    expect(html).toContain("$1,000.00");
+    expect(html).toContain("Utility:");
+    expect(html).toContain("$200.00");
+    expect(html).toContain("Security Deposit:");
+    expect(html).toContain("$400.00");
+    expect(html).toContain("Move-in Fee:");
+    expect(html).toContain("$200.00");
+    expect(html).toContain("Payment Due at Signing:");
+    expect(html).toContain("$600.00");
+    expect(html).toContain("Prorated first month:");
+    expect(html).not.toContain("monthly utilities fee of $,");
+  });
+
   it("detects legacy standard-format overrides as stale under compact_room", () => {
     const sub = seattleSub();
     const baseline = propertyLeasePreviewBaselineHtml(sub, "long-term");
