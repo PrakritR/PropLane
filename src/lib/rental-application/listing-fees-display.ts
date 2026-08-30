@@ -240,6 +240,17 @@ function roomMonthlyUtilitiesAmount(room: ManagerRoomSubmission): number {
   return parseMoneyAmount(room.utilitiesEstimate ?? "");
 }
 
+function listingOneTimeCustomFeesTotal(sub: ManagerListingSubmissionV1): number {
+  return (sub.customFees ?? [])
+    .filter((fee) => {
+      const presetId = (fee as { presetId?: string }).presetId;
+      if (presetId && presetId !== "custom") return false;
+      if (fee.frequency !== "one-time") return false;
+      return parseMoneyAmount(fee.amount ?? "") > 0;
+    })
+    .reduce((sum, fee) => sum + parseMoneyAmount(fee.amount ?? ""), 0);
+}
+
 /** Per-room payment due at signing from listing checkboxes (no proration — lease dates unknown). */
 export function listingRoomPaymentAtSigningAmount(
   room: ManagerRoomSubmission,
@@ -251,6 +262,7 @@ export function listingRoomPaymentAtSigningAmount(
     moveInFee: roomMoveInFeeAmount(room, n),
     monthlyRent: roomIsDailyPriced(room) ? 0 : room.monthlyRent,
     monthlyUtilities: roomMonthlyUtilitiesAmount(room),
+    customOneTimeFees: listingOneTimeCustomFeesTotal(n),
   });
 }
 

@@ -263,8 +263,11 @@ export function buildCompactRoomLeaseBody(input: CompactRoomLeaseInput): string 
 
   const rentNum = input.parseAmount(monthlyRentDisplay);
   const utilNum = input.parseAmount(utilitiesDisplay);
+  const isDailyRentDisplay = /\/\s*day/i.test(monthlyRentDisplay);
   const totalMonthlyDisplay =
-    rentNum != null && utilNum != null && rentNum > 0 && utilNum > 0 ? fmtUsd(rentNum + utilNum) : null;
+    !isDailyRentDisplay && rentNum != null && utilNum != null && rentNum > 0 && utilNum > 0
+      ? fmtUsd(rentNum + utilNum)
+      : null;
 
   const monthlyCustomFeeSummaryLines = input.billableMonthlyCustomFees
     .map((fee) => {

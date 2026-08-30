@@ -1112,7 +1112,7 @@ ${customTermsAddendumHtml(subNorm, "Additional Provisions from Owner/Host", prop
   const summaryTotalMonthly =
     billing
       ? fmtUsd(billing.monthlyRent + (billing.monthlyUtilities > 0 ? billing.monthlyUtilities : 0))
-      : showListingFees && rentNum != null && utilitiesNum != null && utilitiesNum > 0
+      : showListingFees && !isDailyBasis && rentNum != null && utilitiesNum != null && utilitiesNum > 0
         ? fmtUsd(rentNum + utilitiesNum)
         : totalMonthly;
   const proratedFirstMonthTotals = stripPreviewFinancials

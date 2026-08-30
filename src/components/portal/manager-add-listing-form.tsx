@@ -4000,8 +4000,8 @@ export function ManagerAddListingForm({
                     <div className="rounded-xl border border-border/80 bg-muted/30 px-3 py-2.5 text-sm">
                       <p className="font-medium text-foreground">Other fees on the lease</p>
                       <ul className="mt-1 list-inside list-disc text-muted">
-                        {listingOtherFeesPreviewLines(sub).map((line) => (
-                          <li key={line}>{line}</li>
+                        {listingOtherFeesPreviewLines(sub).map((line, idx) => (
+                          <li key={`other-fee-${idx}`}>{line}</li>
                         ))}
                       </ul>
                     </div>
