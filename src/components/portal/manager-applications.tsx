@@ -5,6 +5,7 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { BulkActionBar } from "@/components/ui/bulk-action-bar";
 import { PortalBulkMessageCarouselModal } from "@/components/portal/portal-bulk-message-carousel-modal";
+import { ConfirmDeleteModal } from "@/components/portal/confirm-delete-modal";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -46,7 +47,7 @@ import { PortalCollapsibleSection } from "@/components/portal/portal-collapsible
 import { DestinationNav } from "@/components/ui/destination-nav";
 import { SegmentedTwo } from "@/components/ui/segmented-control";
 import { ApplicationReviewLauncherRow, type ApplicationReviewView } from "@/components/portal/application-review-launcher-row";
-import { downloadBackgroundCheckForApplication } from "@/components/portal/application-screening-panel";
+import { downloadBackgroundCheckForApplication, ApplicationScreeningPanel } from "@/components/portal/application-screening-panel";
 import { ApplicationHoldingFeeModal } from "@/components/portal/application-holding-fee-box";
 import { ManagerEditApplicationModal } from "@/components/portal/manager-edit-application-modal";
 import { ManagerApplicationOnBehalfModal } from "@/components/portal/manager-application-on-behalf-modal";
@@ -112,6 +113,10 @@ import {
 } from "@/components/portal/application-group-section";
 import { ManagerCosignerReadonlyReview } from "@/components/portal/manager-cosigner-readonly-review";
 import { useCosignerSubmissionsMap } from "@/hooks/use-cosigner-submissions-map";
+import {
+  buildCosignerScreeningRow,
+  cosignerShowsBackgroundCheck,
+} from "@/lib/cosigner-screening";
 import { sortApplicationRowsForBucket } from "@/lib/manager-application-list";
 import {
   applicationListSortBucket,
@@ -526,6 +531,8 @@ export function ManagerApplications({
   );
   const [approvePreviewRow, setApprovePreviewRow] = useState<DemoApplicantRow | null>(null);
   const [bulkApproveRows, setBulkApproveRows] = useState<DemoApplicantRow[] | null>(null);
+  const [bulkRejectConfirmOpen, setBulkRejectConfirmOpen] = useState(false);
+  const [bulkRejectRows, setBulkRejectRows] = useState<DemoApplicantRow[] | null>(null);
   const [bulkApproveBusy, setBulkApproveBusy] = useState(false);
   const { selectedIds, setSelectedIds, toggleSelected } = usePortalRowSelection(bucket);
   const [approveBusyId, setApproveBusyId] = useState<string | null>(null);
@@ -550,6 +557,8 @@ export function ManagerApplications({
   const [screeningModalOpen, setScreeningModalOpen] = useState(false);
   const [applicationSettingsOpen, setApplicationSettingsOpen] = useState(false);
   const [checkrScreeningRowId, setCheckrScreeningRowId] = useState<string | null>(null);
+  const [checkrScreeningCosignerId, setCheckrScreeningCosignerId] = useState<string | null>(null);
+  const [cosignerSubmissionsTick, setCosignerSubmissionsTick] = useState(0);
   // Holding fee lives in the detail's top-right action row, not inline in the
   // body: it is an occasional manager action, and inline it pushed the
   // applicant's own answers below the fold.
@@ -664,7 +673,10 @@ export function ManagerApplications({
   const handleScreeningFlowComplete = useCallback(() => {
     handleScreeningUpdated();
     setApplicationReviewView("background-check");
-  }, [handleScreeningUpdated]);
+    if (checkrScreeningCosignerId) {
+      setCosignerSubmissionsTick((tick) => tick + 1);
+    }
+  }, [handleScreeningUpdated, checkrScreeningCosignerId]);
 
   const scopeUserId = resolveManagerScopeUserId(userId);
 
@@ -834,11 +846,10 @@ export function ManagerApplications({
   );
 
   const runBulkReject = useCallback(async () => {
-    if (!canBulkReject || bulkApproveBusy) return;
-    if (!window.confirm(`Reject ${selectedApplicationRows.length} application(s)?`)) return;
+    if (!bulkRejectRows?.length || bulkApproveBusy) return;
     setBulkApproveBusy(true);
     try {
-      for (const row of selectedApplicationRows) {
+      for (const row of bulkRejectRows) {
         const result = await transitionApplicationBucket(row.id, "rejected", {
           userId: userId ?? null,
           automation: applicationAutomation,
@@ -850,10 +861,12 @@ export function ManagerApplications({
       }
       setRows(readManagerApplicationRows());
       setSelectedIds(new Set());
+      setBulkRejectConfirmOpen(false);
+      setBulkRejectRows(null);
       showToast(
-        selectedApplicationRows.length === 1
+        bulkRejectRows.length === 1
           ? "Application rejected."
-          : `${selectedApplicationRows.length} applications rejected.`,
+          : `${bulkRejectRows.length} applications rejected.`,
       );
     } finally {
       setBulkApproveBusy(false);
@@ -861,16 +874,16 @@ export function ManagerApplications({
   }, [
     applicationAutomation,
     bulkApproveBusy,
-    canBulkReject,
-    selectedApplicationRows,
+    bulkRejectRows,
     setSelectedIds,
     showToast,
     userId,
   ]);
 
-  const openDetailScreeningModal = useCallback((row: DemoApplicantRow, opts?: { showPackagePicker?: boolean }) => {
+  const openDetailScreeningModal = useCallback((row: DemoApplicantRow, opts?: { showPackagePicker?: boolean; cosignerSubmissionId?: string }) => {
     setCheckrScreeningShowPicker(Boolean(opts?.showPackagePicker));
     setCheckrScreeningRowId(row.id);
+    setCheckrScreeningCosignerId(opts?.cosignerSubmissionId?.trim() || null);
   }, []);
 
   const onIncompleteApplicationsRoute = /\/applications\/incomplete(?:\/|$)/.test(pathname);
@@ -912,7 +925,7 @@ export function ManagerApplications({
     }
     return ids;
   }, [rowsForBucket, detailRow]);
-  const cosignerSubmissionsBySigner = useCosignerSubmissionsMap(cosignerSignerIds);
+  const cosignerSubmissionsBySigner = useCosignerSubmissionsMap(cosignerSignerIds, cosignerSubmissionsTick);
 
   const cosignerIndexParam = searchParams.get("cosigner");
   const activeCosignerIndex =
@@ -926,6 +939,19 @@ export function ManagerApplications({
     activeCosignerIndex != null && activeCosignerIndex >= 0 && activeCosignerIndex < detailCosignerSubmissions.length
       ? detailCosignerSubmissions[activeCosignerIndex]!
       : null;
+
+  const screeningModalRow = useMemo(() => {
+    if (!checkrScreeningRowId) return null;
+    const signerRow =
+      scopedRows.find((r) => r.id === checkrScreeningRowId) ??
+      (detailRow?.id === checkrScreeningRowId ? detailRow : null);
+    if (!signerRow) return null;
+    if (!checkrScreeningCosignerId) return signerRow;
+    const cosigners =
+      cosignerSubmissionsBySigner.get(normalizeApplicationAxisId(checkrScreeningRowId).toUpperCase()) ?? [];
+    const cosigner = cosigners.find((c) => c.id === checkrScreeningCosignerId);
+    return cosigner ? buildCosignerScreeningRow(signerRow, cosigner) : signerRow;
+  }, [checkrScreeningRowId, checkrScreeningCosignerId, scopedRows, detailRow, cosignerSubmissionsBySigner]);
 
   useEffect(() => {
     if (openHandled.current || scopedRows.length === 0) return;
@@ -1407,6 +1433,69 @@ export function ManagerApplications({
     );
   };
 
+  const renderCosignerDetailActions = (signerRow: DemoApplicantRow, cosigner: CosignerSubmission) => {
+    if (!cosignerShowsBackgroundCheck(cosigner)) return undefined;
+    const screeningRow = buildCosignerScreeningRow(signerRow, cosigner);
+    const showsRunCheck =
+      Boolean(screeningRow.application?.consentCredit) &&
+      screeningRow.backgroundCheck?.status !== "pending" &&
+      screeningRow.backgroundCheck?.status !== "complete";
+    const canDownloadScreening =
+      screeningRow.backgroundCheck?.status === "complete" ||
+      (isDemoModeActive() && cosignerShowsBackgroundCheck(cosigner));
+    const showsRunAgain =
+      Boolean(screeningRow.application?.consentCredit) &&
+      screeningRow.backgroundCheck?.status === "complete";
+
+    const openCosignerScreening = (opts?: { showPackagePicker?: boolean }) =>
+      openDetailScreeningModal(signerRow, {
+        showPackagePicker: opts?.showPackagePicker,
+        cosignerSubmissionId: cosigner.id,
+      });
+
+    return (
+      <div onClick={(e) => e.stopPropagation()} onKeyDown={(e) => e.stopPropagation()} role="presentation">
+        <PortalSectionActionRow variant="header" className={RESIDENT_DETAIL_HEADER_ACTIONS_ROW}>
+          <div className="flex w-full max-w-full flex-wrap items-center justify-end gap-1">
+            {showsRunCheck ? (
+              <Button
+                type="button"
+                variant="outline"
+                className={RESIDENT_DETAIL_HEADER_ACTION_BTN}
+                data-attr="run-background-check"
+                onClick={() => openCosignerScreening()}
+              >
+                Run background check
+              </Button>
+            ) : null}
+            {showsRunAgain ? (
+              <Button
+                type="button"
+                variant="outline"
+                className={RESIDENT_DETAIL_HEADER_ACTION_BTN}
+                data-attr="run-background-check-again"
+                onClick={() => openCosignerScreening({ showPackagePicker: true })}
+              >
+                Run again
+              </Button>
+            ) : null}
+            {canDownloadScreening ? (
+              <Button
+                type="button"
+                variant="outline"
+                className={RESIDENT_DETAIL_HEADER_ACTION_BTN}
+                data-attr="screening-pdf-download"
+                onClick={() => downloadBackgroundCheckForApplication(screeningRow)}
+              >
+                Download background check
+              </Button>
+            ) : null}
+          </div>
+        </PortalSectionActionRow>
+      </div>
+    );
+  };
+
   const renderApplicationDetail = (row: DemoApplicantRow) => {
     const signerKey = normalizeApplicationAxisId(row.id).toUpperCase();
     const cosignerSubmissions = cosignerSubmissionsBySigner.get(signerKey) ?? [];
@@ -1706,11 +1795,33 @@ export function ManagerApplications({
             const targets =
               scope === "single" && singleId
                 ? bulkApproveRows.filter((row) => row.id === singleId)
-                : bulkApproveRows;
+                : bulkApproveRows.filter((row) => row.id in drafts);
             void runBulkApprove(targets, skipMessage);
           }}
         />
       ) : null}
+      <ConfirmDeleteModal
+        open={bulkRejectConfirmOpen && Boolean(bulkRejectRows?.length)}
+        title={
+          (bulkRejectRows?.length ?? 0) === 1
+            ? "Reject application"
+            : `Reject ${bulkRejectRows?.length ?? 0} applications`
+        }
+        description={
+          (bulkRejectRows?.length ?? 0) === 1
+            ? `Reject the application from ${applicantDisplayName(bulkRejectRows![0]!)}?`
+            : `Reject ${bulkRejectRows?.length ?? 0} pending applications?`
+        }
+        confirmLabel="Reject"
+        busy={bulkApproveBusy}
+        dataAttr="applications-bulk-reject-confirm"
+        onClose={() => {
+          if (bulkApproveBusy) return;
+          setBulkRejectConfirmOpen(false);
+          setBulkRejectRows(null);
+        }}
+        onConfirm={() => void runBulkReject()}
+      />
       <PortalNotificationPreviewModal
         open={reminderPreview !== null}
         title="Send application reminder"
@@ -1770,24 +1881,21 @@ export function ManagerApplications({
         onClose={() => setHoldingFeeRowId(null)}
       />
       <CheckrScreeningModal
-        key={checkrScreeningRowId ?? "none"}
-        row={
-          checkrScreeningRowId
-            ? scopedRows.find((r) => r.id === checkrScreeningRowId) ??
-              (detailRow?.id === checkrScreeningRowId ? detailRow : null)
-            : null
-        }
+        key={`${checkrScreeningRowId ?? "none"}:${checkrScreeningCosignerId ?? ""}`}
+        row={screeningModalRow}
         hasLinkedCosigner={
-          checkrScreeningRowId
-            ? (cosignerSubmissionsBySigner.get(
-                normalizeApplicationAxisId(checkrScreeningRowId).toUpperCase(),
-              ) ?? []).length > 0
-            : false
+          checkrScreeningRowId != null &&
+          !checkrScreeningCosignerId &&
+          (cosignerSubmissionsBySigner.get(
+            normalizeApplicationAxisId(checkrScreeningRowId).toUpperCase(),
+          ) ?? []).length > 0
         }
+        cosignerSubmissionId={checkrScreeningCosignerId}
         open={checkrScreeningRowId !== null}
         showPackagePickerInitially={checkrScreeningShowPicker}
         onClose={() => {
           setCheckrScreeningRowId(null);
+          setCheckrScreeningCosignerId(null);
           setCheckrScreeningShowPicker(false);
         }}
         onUpdated={handleScreeningFlowComplete}
@@ -1845,13 +1953,18 @@ export function ManagerApplications({
           hideBackText
           bareHeader
           dataAttrBack="application-detail-back"
-          inlineActions={!activeCosignerSubmission}
-          actions={activeCosignerSubmission ? undefined : renderApplicationRowActions(detailRow)}
+          inlineActions={false}
+          actions={
+            activeCosignerSubmission
+              ? renderCosignerDetailActions(detailRow, activeCosignerSubmission)
+              : renderApplicationRowActions(detailRow)
+          }
           pinScrollBody
           scrollBody={false}
         >
           <div className="flex min-h-0 flex-1 flex-col">
-            {!activeCosignerSubmission && applicationShowsBackgroundCheck(detailRow) ? (
+            {(activeCosignerSubmission && cosignerShowsBackgroundCheck(activeCosignerSubmission)) ||
+            (!activeCosignerSubmission && applicationShowsBackgroundCheck(detailRow)) ? (
               <div
                 className="shrink-0 border-b border-border bg-background px-3 py-2"
                 data-attr="application-review-toggle"
@@ -1867,12 +1980,30 @@ export function ManagerApplications({
             ) : null}
             <PortalPageScrollBody>
               {activeCosignerSubmission ? (
-                <ManagerCosignerReadonlyReview
-                  sub={activeCosignerSubmission}
-                  onOpenSignerApplication={() =>
-                    navigate(applicationDetailHref(basePath, tabForRow(detailRow), detailRow.id))
-                  }
-                />
+                applicationReviewView === "background-check" &&
+                cosignerShowsBackgroundCheck(activeCosignerSubmission) ? (
+                  <ApplicationScreeningPanel
+                    row={buildCosignerScreeningRow(detailRow, activeCosignerSubmission)}
+                    cosignerSubmissionId={activeCosignerSubmission.id}
+                    bareCanvas
+                    stretch
+                    collapsible={false}
+                    onUpdated={handleScreeningFlowComplete}
+                    onOpenScreeningModal={(opts) =>
+                      openDetailScreeningModal(detailRow, {
+                        showPackagePicker: opts?.showPackagePicker,
+                        cosignerSubmissionId: activeCosignerSubmission.id,
+                      })
+                    }
+                  />
+                ) : (
+                  <ManagerCosignerReadonlyReview
+                    sub={activeCosignerSubmission}
+                    onOpenSignerApplication={() =>
+                      navigate(applicationDetailHref(basePath, tabForRow(detailRow), detailRow.id))
+                    }
+                  />
+                )
               ) : (
                 renderApplicationDetail(detailRow)
               )}
@@ -1938,12 +2069,21 @@ export function ManagerApplications({
         scoped
       />
       <CheckrScreeningModal
-        key={checkrScreeningRowId ?? "none"}
-        row={scopedRows.find((r) => r.id === checkrScreeningRowId) ?? null}
+        key={`${checkrScreeningRowId ?? "none"}:${checkrScreeningCosignerId ?? ""}`}
+        row={screeningModalRow}
+        hasLinkedCosigner={
+          checkrScreeningRowId != null &&
+          !checkrScreeningCosignerId &&
+          (cosignerSubmissionsBySigner.get(
+            normalizeApplicationAxisId(checkrScreeningRowId).toUpperCase(),
+          ) ?? []).length > 0
+        }
+        cosignerSubmissionId={checkrScreeningCosignerId}
         open={checkrScreeningRowId !== null}
         showPackagePickerInitially={checkrScreeningShowPicker}
         onClose={() => {
           setCheckrScreeningRowId(null);
+          setCheckrScreeningCosignerId(null);
           setCheckrScreeningShowPicker(false);
         }}
         onUpdated={handleScreeningFlowComplete}
@@ -2011,7 +2151,10 @@ export function ManagerApplications({
                 className={`${PORTAL_BULK_BAR_BTN} text-rose-800`}
                 data-attr="applications-bulk-reject"
                 disabled={bulkApproveBusy}
-                onClick={() => void runBulkReject()}
+                onClick={() => {
+                  setBulkRejectRows(selectedApplicationRows);
+                  setBulkRejectConfirmOpen(true);
+                }}
               >
                 Reject
               </Button>

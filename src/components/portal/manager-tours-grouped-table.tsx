@@ -7,10 +7,28 @@ import {
   type ManagerTourListCluster,
   type ManagerTourPropertyCluster,
   type ManagerTourRow,
+  tourReminderMetaHint,
+  tourReminderSummaryForCluster,
 } from "@/lib/manager-tour-list";
 import { isPropertyClusterList, type PortalListGroupMode } from "@/lib/portal-list-grouping";
+import type { ScheduledInboxMessageRecord } from "@/lib/scheduled-inbox-messages";
+import { scheduledSendBadgeLabel } from "@/lib/scheduled-send-summary";
 
-function tourLocationMeta(row: ManagerTourRow, showPropertyColumn: boolean, groupMode: PortalListGroupMode): string {
+function tourLocationMeta(
+  row: ManagerTourRow,
+  showPropertyColumn: boolean,
+  groupMode: PortalListGroupMode,
+  tourReminders: readonly ScheduledInboxMessageRecord[],
+): string {
+  const parts: string[] = [];
+  const location = tourLocationMetaBase(row, showPropertyColumn, groupMode);
+  if (location !== "—") parts.push(location);
+  const reminder = tourReminderMetaHint(row, tourReminders);
+  if (reminder) parts.push(reminder);
+  return parts.join(" · ") || "—";
+}
+
+function tourLocationMetaBase(row: ManagerTourRow, showPropertyColumn: boolean, groupMode: PortalListGroupMode): string {
   if (groupMode === "house") {
     return [row.guestName, row.roomLabel].filter(Boolean).join(" · ") || "—";
   }
@@ -29,6 +47,7 @@ export function ManagerToursGroupedTable({
   onRowClick,
   showPropertyColumn = true,
   selectable = true,
+  tourReminders = [],
 }: {
   clusters: ManagerTourListCluster[] | ManagerTourPropertyCluster[];
   groupMode: PortalListGroupMode;
@@ -39,9 +58,21 @@ export function ManagerToursGroupedTable({
   /** Hide the property column when the list is scoped to one listing. */
   showPropertyColumn?: boolean;
   selectable?: boolean;
+  tourReminders?: readonly ScheduledInboxMessageRecord[];
 }) {
   const locationHeader =
     groupMode === "house" ? "Guest" : showPropertyColumn ? "Property" : "Room";
+
+  const renderReminderBadge = (clusterRows: ManagerTourRow[]) => {
+    const label = scheduledSendBadgeLabel(
+      tourReminderSummaryForCluster({ rows: clusterRows }, tourReminders),
+    );
+    return label ? (
+      <Badge tone="pending">
+        <span data-attr="tours-cluster-scheduled">{label}</span>
+      </Badge>
+    ) : null;
+  };
 
   const renderTourDataList = (listRows: ManagerTourRow[]) => (
     <DataList
@@ -51,7 +82,7 @@ export function ManagerToursGroupedTable({
         id: row.id,
         data: row,
         primary: row.whenLabel,
-        meta: tourLocationMeta(row, showPropertyColumn, groupMode),
+        meta: tourLocationMeta(row, showPropertyColumn, groupMode, tourReminders),
         selected: selectedIds.has(row.id),
         onSelectedChange: () => onToggleSelected(row.id),
         onClick: () => onRowClick(row),
@@ -61,7 +92,7 @@ export function ManagerToursGroupedTable({
         {
           id: "location",
           header: locationHeader,
-          cell: (row) => tourLocationMeta(row, showPropertyColumn, groupMode),
+          cell: (row) => tourLocationMeta(row, showPropertyColumn, groupMode, tourReminders),
         },
       ]}
     />
@@ -94,6 +125,7 @@ export function ManagerToursGroupedTable({
                 <Badge tone="info">
                   {cluster.rows.length === 1 ? "1 tour" : `${cluster.rows.length} tours`}
                 </Badge>
+                {renderReminderBadge(cluster.rows)}
               </>
             }
           >
@@ -125,6 +157,7 @@ export function ManagerToursGroupedTable({
               <Badge tone="info">
                 {cluster.rows.length === 1 ? "1 tour" : `${cluster.rows.length} tours`}
               </Badge>
+              {renderReminderBadge(cluster.rows)}
             </>
           }
         >

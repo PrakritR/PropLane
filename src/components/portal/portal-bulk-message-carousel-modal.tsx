@@ -92,7 +92,9 @@ export function PortalBulkMessageCarouselModal({
   const [skipMessage, setSkipMessage] = useState(false);
   const [sendVia, setSendVia] = useState<string[]>([]);
   const [drafts, setDrafts] = useState<Record<string, BulkMessageCarouselDraft>>({});
+  const [includedIds, setIncludedIds] = useState<Set<string>>(() => new Set());
   const scrollRef = useRef<HTMLDivElement>(null);
+  const selectAllRef = useRef<HTMLInputElement>(null);
 
   const activeItem = items[activeIndex] ?? items[0];
   const emailAvailable = activeItem?.emailAvailable ?? Boolean(activeItem?.recipient?.includes("@"));
@@ -121,8 +123,19 @@ export function PortalBulkMessageCarouselModal({
         next[item.id] = { subject: item.subject, body: item.body };
       }
       setDrafts(next);
+      setIncludedIds(new Set(items.map((item) => item.id)));
     });
   }, [open, items, defaultViaEmail, defaultViaSms, emailAvailable, smsAvailable]);
+
+  const includedCount = includedIds.size;
+  const allIncluded = count > 0 && includedCount === count;
+  const someIncluded = includedCount > 0 && includedCount < count;
+
+  useEffect(() => {
+    const el = selectAllRef.current;
+    if (!el) return;
+    el.indeterminate = someIncluded;
+  }, [someIncluded]);
 
   const activeDraft = activeItem ? drafts[activeItem.id] : undefined;
 
@@ -161,9 +174,14 @@ export function PortalBulkMessageCarouselModal({
     (activeDraft?.subject.trim().length ?? 0) > 0 &&
       (activeDraft?.body.trim().length ?? 0) > 0;
 
+  const includedItems = useMemo(
+    () => items.filter((item) => includedIds.has(item.id)),
+    [items, includedIds],
+  );
+
   const allDraftsReady =
     skipMessage ||
-    items.every((item) => {
+    includedItems.every((item) => {
       const d = drafts[item.id];
       return Boolean(d?.subject.trim() && d?.body.trim());
     });
@@ -179,30 +197,28 @@ export function PortalBulkMessageCarouselModal({
 
   const effectiveAllLabel = skipMessage
     ? (confirmLabelWithoutMessage ?? confirmLabel)
-    : (confirmLabelAll ?? (count === 1 ? confirmLabel : `${confirmLabel} (${count})`));
+    : (confirmLabelAll ??
+      (includedCount === count
+        ? count === 1
+          ? confirmLabel
+          : `${confirmLabel} (${count})`
+        : `${confirmLabel} (${includedCount})`));
 
   const effectiveSingleLabel = skipMessage
     ? (confirmLabelWithoutMessage ?? confirmLabel)
     : (confirmLabelSingle ?? confirmLabel);
 
+  const includedDrafts = useMemo(() => {
+    const next: Record<string, BulkMessageCarouselDraft> = {};
+    for (const item of includedItems) {
+      const draft = drafts[item.id];
+      if (draft) next[item.id] = draft;
+    }
+    return next;
+  }, [drafts, includedItems]);
+
   const footer = (
-    <ModalFooter className="flex-col gap-2 sm:flex-row sm:flex-wrap sm:justify-start">
-      <Button
-        type="button"
-        variant="primary"
-        className="rounded-full"
-        data-attr="portal-bulk-carousel-confirm-all"
-        disabled={confirmBusy || !channelsOk || !allDraftsReady}
-        onClick={() =>
-          onConfirm("all", {
-            skipMessage,
-            channels: portalMessageChannelsFromSelection(sendVia),
-            drafts,
-          })
-        }
-      >
-        {confirmBusy ? confirmBusyLabel : effectiveAllLabel}
-      </Button>
+    <ModalFooter className="w-full justify-between gap-2">
       {count > 1 ? (
         <Button
           type="button"
@@ -221,7 +237,25 @@ export function PortalBulkMessageCarouselModal({
         >
           {confirmBusy ? confirmBusyLabel : effectiveSingleLabel}
         </Button>
-      ) : null}
+      ) : (
+        <span aria-hidden className="shrink-0" />
+      )}
+      <Button
+        type="button"
+        variant="primary"
+        className="rounded-full"
+        data-attr="portal-bulk-carousel-confirm-all"
+        disabled={confirmBusy || !channelsOk || !allDraftsReady || includedCount === 0}
+        onClick={() =>
+          onConfirm("all", {
+            skipMessage,
+            channels: portalMessageChannelsFromSelection(sendVia),
+            drafts: includedDrafts,
+          })
+        }
+      >
+        {confirmBusy ? confirmBusyLabel : effectiveAllLabel}
+      </Button>
     </ModalFooter>
   );
 
@@ -239,6 +273,26 @@ export function PortalBulkMessageCarouselModal({
     >
       <PortalMessageComposeModalBody>
         {intro ? <p className="text-sm leading-snug text-muted">{intro}</p> : null}
+
+        {count > 1 ? (
+          <label className="flex items-center gap-2 text-sm">
+            <input
+              ref={selectAllRef}
+              type="checkbox"
+              checked={allIncluded}
+              onChange={(e) => {
+                if (e.target.checked) {
+                  setIncludedIds(new Set(items.map((item) => item.id)));
+                } else {
+                  setIncludedIds(new Set());
+                }
+              }}
+              data-attr="portal-bulk-carousel-select-all"
+              className="h-4 w-4 rounded border-border text-primary"
+            />
+            <span className="text-muted">Send to all ({count})</span>
+          </label>
+        ) : null}
 
         {count > 1 ? (
           <div className="flex items-center justify-between gap-2">
@@ -271,7 +325,7 @@ export function PortalBulkMessageCarouselModal({
         {count > 1 ? (
           <div
             ref={scrollRef}
-            className="flex snap-x snap-mandatory gap-3 overflow-x-auto pb-1 [scrollbar-width:thin]"
+            className="flex snap-x snap-mandatory gap-3 overflow-x-auto overscroll-x-contain scroll-smooth pb-2 [scrollbar-width:thin] [&::-webkit-scrollbar]:h-1.5 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-border/80"
             onScroll={() => {
               const el = scrollRef.current;
               if (!el || el.children.length === 0) return;
@@ -291,20 +345,40 @@ export function PortalBulkMessageCarouselModal({
             }}
           >
             {items.map((item, index) => (
-              <button
+              <div
                 key={item.id}
-                type="button"
                 className={cn(
-                  "min-w-[85%] shrink-0 snap-center rounded-xl border px-3 py-2 text-left transition-colors sm:min-w-[70%]",
+                  "flex min-w-[85%] shrink-0 snap-center items-start gap-2 rounded-xl border px-3 py-2 transition-colors sm:min-w-[70%]",
                   index === activeIndex
                     ? "border-primary/40 bg-primary/[0.06]"
-                    : "border-border bg-accent/10 hover:bg-accent/20",
+                    : "border-border bg-accent/10",
+                  !includedIds.has(item.id) && "opacity-60",
                 )}
-                onClick={() => scrollToIndex(index)}
               >
-                <p className="truncate text-xs font-semibold text-foreground">{item.label}</p>
-                <p className="mt-0.5 truncate text-[11px] text-muted">{item.recipient}</p>
-              </button>
+                <input
+                  type="checkbox"
+                  checked={includedIds.has(item.id)}
+                  onChange={(e) => {
+                    setIncludedIds((prev) => {
+                      const next = new Set(prev);
+                      if (e.target.checked) next.add(item.id);
+                      else next.delete(item.id);
+                      return next;
+                    });
+                  }}
+                  data-attr={`portal-bulk-carousel-include-${item.id}`}
+                  className="mt-0.5 h-4 w-4 shrink-0 rounded border-border text-primary"
+                  aria-label={`Include ${item.label}`}
+                />
+                <button
+                  type="button"
+                  className="min-w-0 flex-1 text-left"
+                  onClick={() => scrollToIndex(index)}
+                >
+                  <p className="truncate text-xs font-semibold text-foreground">{item.label}</p>
+                  <p className="mt-0.5 truncate text-[11px] text-muted">{item.recipient}</p>
+                </button>
+              </div>
             ))}
           </div>
         ) : activeItem ? (
@@ -360,7 +434,7 @@ export function PortalBulkMessageCarouselModal({
 
         {count > 1 && !skipMessage ? (
           <p className="text-xs text-muted">
-            Swipe or use the arrows to review each message. Edit any draft before sending.
+            Scroll left or right to review each message. Uncheck any guest to exclude them from the bulk send.
           </p>
         ) : null}
       </PortalMessageComposeModalBody>

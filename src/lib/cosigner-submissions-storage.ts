@@ -1,6 +1,9 @@
+import type { ApplicationBackgroundCheck } from "@/lib/checkr/types";
 import { normalizeApplicationAxisId } from "@/lib/manager-applications-storage";
 
 export type CosignerSubmission = {
+  /** Server row id (`cosigner_submission_records.id`). */
+  id?: string;
   signerAppId: string;
   signerFullName: string;
   fullName: string;
@@ -29,7 +32,32 @@ export type CosignerSubmission = {
   signature: string;
   dateSigned: string;
   submittedAt: string;
+  backgroundCheck?: ApplicationBackgroundCheck;
 };
+
+/** Update a co-signer's cached background check after demo screening or a server refresh. */
+export function patchCosignerBackgroundCheckInCache(
+  signerAppId: string,
+  cosignerSubmissionId: string | undefined,
+  backgroundCheck: ApplicationBackgroundCheck,
+  submittedAt?: string,
+): void {
+  hydrate();
+  const signerKey = normalizeApplicationAxisId(signerAppId).toUpperCase();
+  memory = memory.map((sub) => {
+    const matchesSigner = normalizeApplicationAxisId(sub.signerAppId).toUpperCase() === signerKey;
+    if (!matchesSigner) return sub;
+    if (cosignerSubmissionId) {
+      if (sub.id !== cosignerSubmissionId) return sub;
+    } else if (submittedAt) {
+      if (sub.submittedAt !== submittedAt) return sub;
+    } else {
+      return sub;
+    }
+    return { ...sub, backgroundCheck };
+  });
+  persist();
+}
 
 const KEY = "axis:cosigner-submissions:v1";
 let memory: CosignerSubmission[] = [];
@@ -74,9 +102,9 @@ export async function submitCosignerToServerAwait(
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(sub),
     });
-    const body = (await res.json().catch(() => null)) as { error?: string } | null;
+    const body = (await res.json().catch(() => null)) as { error?: string; id?: string } | null;
     if (!res.ok) return { ok: false, error: body?.error ?? "Could not save co-signer form." };
-    appendCosignerSubmission(sub);
+    appendCosignerSubmission(body?.id ? { ...sub, id: body.id } : sub);
     return { ok: true };
   } catch {
     return { ok: false, error: "Could not save co-signer form." };

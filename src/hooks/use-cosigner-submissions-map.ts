@@ -14,7 +14,7 @@ import { isDemoModeActive } from "@/lib/demo/demo-session";
  * Fetches in parallel for the supplied signer ids (typically primary applications
  * with `hasCosigner === "yes"` visible in the current list).
  */
-export function useCosignerSubmissionsMap(signerAppIds: string[]): Map<string, CosignerSubmission[]> {
+export function useCosignerSubmissionsMap(signerAppIds: string[], refreshKey = 0): Map<string, CosignerSubmission[]> {
   const [map, setMap] = useState<Map<string, CosignerSubmission[]>>(() => new Map());
   const ids = useMemo(() => {
     const normalized = signerAppIds
@@ -54,7 +54,7 @@ export function useCosignerSubmissionsMap(signerAppIds: string[]): Map<string, C
     return () => {
       cancelled = true;
     };
-  }, [idsKey]);
+  }, [idsKey, refreshKey]);
 
   return map;
 }

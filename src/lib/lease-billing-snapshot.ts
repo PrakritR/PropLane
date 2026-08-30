@@ -11,6 +11,7 @@ import { resolvePlacementValuesForRow } from "@/lib/rental-application/placement
 import { computeLeasePaymentAtSigning } from "@/lib/rental-application/listing-fees-display";
 import { normalizeManagerListingSubmissionV1 } from "@/lib/manager-listing-submission";
 import { getPropertyById } from "@/lib/rental-application/data";
+import { computeProratedFirstMonthTotals } from "@/lib/lease-first-period-proration";
 import type { LeaseGenerationContext } from "@/lib/generated-lease";
 import type { RentalWizardFormState } from "@/lib/rental-application/types";
 
@@ -115,6 +116,28 @@ export function buildLeaseBillingSnapshot(
   const proratedUtilities =
     sumByKind(charges, "prorated_utilities") ?? sumByKind(charges, "prorated_last_month_utilities");
 
+  const leaseStart = applicant.application?.leaseStart?.trim() ?? "";
+  const leaseEnd = applicant.application?.leaseEnd?.trim() ?? "";
+  const computedProration =
+    leaseStart && (monthlyRent > 0 || monthlyUtilities > 0)
+      ? computeProratedFirstMonthTotals({
+          monthlyRent,
+          monthlyUtilities,
+          leaseStart,
+          leaseEnd,
+        })
+      : null;
+  const resolvedProratedRent =
+    proratedRent ??
+    (computedProration?.applies && computedProration.proratedRent > 0
+      ? computedProration.proratedRent
+      : undefined);
+  const resolvedProratedUtilities =
+    proratedUtilities ??
+    (computedProration?.applies && computedProration.proratedUtilities > 0
+      ? computedProration.proratedUtilities
+      : undefined);
+
   let dueAtSigning = 0;
   for (const c of charges) {
     if (SIGNING_CHARGE_KINDS.includes(c.kind)) dueAtSigning += chargeAmount(c);
@@ -133,8 +156,8 @@ export function buildLeaseBillingSnapshot(
       moveInFee,
       monthlyRent,
       monthlyUtilities,
-      proratedRent,
-      proratedUtilities,
+      proratedRent: resolvedProratedRent,
+      proratedUtilities: resolvedProratedUtilities,
       otherSigningCost: placement.otherCostAmount,
     });
   }
@@ -146,8 +169,8 @@ export function buildLeaseBillingSnapshot(
     moveInFee,
     otherCostLabel: placement.otherCostLabel,
     otherCostAmount: placement.otherCostAmount,
-    proratedRent,
-    proratedUtilities,
+    proratedRent: resolvedProratedRent,
+    proratedUtilities: resolvedProratedUtilities,
     applicationFee,
     dueAtSigning,
   };

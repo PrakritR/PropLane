@@ -14,6 +14,7 @@ import {
   paymentAtSigningIncludedLabels,
   utilitiesListingEstimateLabel,
 } from "@/lib/rental-application/listing-fees-display";
+import { leaseDocumentFeeLines } from "@/lib/listing-fees";
 import { formatUtilitiesListingLine, resolveListingUtilitiesPaymentModel } from "@/lib/listing-utilities-payment";
 import {
   hasResidentPaidLeaseUtility,
@@ -36,6 +37,10 @@ import {
   evaluateDisclosureRules,
   type DisclosureRuleEvaluation,
 } from "@/lib/lease-templates/disclosure-rules";
+import { buildCompactRoomLeaseBody } from "@/lib/lease-templates/build-compact-room-lease-html";
+import {
+  computeProratedFirstMonthTotals,
+} from "@/lib/lease-first-period-proration";
 import { resolveStayPricing } from "@/lib/room-pricing";
 import { resolveSubmissionRoom, submissionRoomRentLabel } from "@/lib/listing-room-resolution";
 import {
@@ -337,49 +342,35 @@ function proratedBlock(
   const rent = parseAmount(monthlyRentStr);
   if ((!rent && !utilitiesOnly) || !leaseStartStr || leaseStartStr === "—") return "";
   try {
-    const start = parseFlexibleLocalDate(leaseStartStr);
-    if (!start || isNaN(start.getTime())) return "";
     const utils = utilitiesOnly ? (prorate?.utilitiesAmount ?? 0) : parseAmount(utilitiesStr);
     if (utilitiesOnly && !(utils && utils > 0)) return "";
-    // Mirrors the ledger's `leaseFirstPeriodProration`: a daily-basis lease that starts AND
-    // ends inside one calendar month is billed as ONE span, so its utilities prorate across
-    // the whole term rather than from the lease start to month end.
+
+    const totals = computeProratedFirstMonthTotals({
+      monthlyRent: rent ?? 0,
+      monthlyUtilities: utils ?? 0,
+      leaseStart: leaseStartStr,
+      leaseEnd: leaseEndStr,
+      method: prorate?.method,
+      dailyRentRate: prorate?.dailyRentRate,
+      dailyUtilitiesRate: prorate?.dailyUtilitiesRate,
+      utilitiesOnly,
+      ledgerProratedRent: prorate?.ledgerProratedRent,
+      ledgerProratedUtilities: prorate?.ledgerProratedUtilities,
+    });
+    if (!totals.applies) return "";
+
+    const start = parseFlexibleLocalDate(leaseStartStr);
+    if (!start || isNaN(start.getTime())) return "";
     const span = utilitiesOnly ? intraMonthStaySpan(leaseStartStr, leaseEndStr) : null;
     const day = start.getDate();
-    const hasLedgerProration =
-      (prorate?.ledgerProratedRent != null && prorate.ledgerProratedRent > 0) ||
-      (prorate?.ledgerProratedUtilities != null && prorate.ledgerProratedUtilities > 0);
-    if (!span && day === 1 && !hasLedgerProration) return "";
     const dim = span ? span.daysInMonth : new Date(start.getFullYear(), start.getMonth() + 1, 0).getDate();
     const remaining = span ? span.billableDays : dim - day + 1;
     const useManual = prorate?.method === "daily_rate" && prorate.dailyRentRate && prorate.dailyRentRate > 0;
-    // The ledger gates the daily utilities rate on `prorateMethod === "daily_rate"`, and a
-    // positive `dailyUtilitiesRate` survives on the room after the manager switches proration
-    // back to "auto" (the wizard only rewrites `prorateMethod`). Dropping that condition here
-    // would prorate off a stale rate the ledger ignores, so the same gate applies on both sides.
     const useManualUtils =
       prorate?.method === "daily_rate" && prorate.dailyUtilitiesRate && prorate.dailyUtilitiesRate > 0;
-    const proratedRent =
-      utilitiesOnly || !rent
-        ? 0
-        : useManual
-          ? Math.round(prorate!.dailyRentRate! * remaining * 100) / 100
-          : Math.round((rent / dim) * remaining * 100) / 100;
-    const proratedUtils = useManualUtils
-      ? Math.round(prorate!.dailyUtilitiesRate! * remaining * 100) / 100
-      : utils ? Math.round((utils / dim) * remaining * 100) / 100 : null;
-    let finalProratedRent = proratedRent;
-    let finalProratedUtils = proratedUtils;
-    if (prorate?.ledgerProratedRent != null || prorate?.ledgerProratedUtilities != null) {
-      finalProratedRent = utilitiesOnly ? 0 : (prorate.ledgerProratedRent ?? 0);
-      finalProratedUtils =
-        prorate.ledgerProratedUtilities != null && prorate.ledgerProratedUtilities > 0
-          ? prorate.ledgerProratedUtilities
-          : utilitiesOnly
-            ? (prorate.ledgerProratedUtilities ?? 0)
-            : proratedUtils;
-    }
-    const total = finalProratedRent + (finalProratedUtils ?? 0);
+    const finalProratedRent = totals.proratedRent;
+    const finalProratedUtils = totals.proratedUtilities;
+    const total = totals.total;
     // The header must describe the figure actually printed in the column: a room with no
     // dailyUtilitiesRate shows its MONTHLY estimate even in utilities-only mode.
     const rateCol = (utilitiesOnly ? useManualUtils : useManual) ? "Daily rate" : "Monthly rate";
@@ -657,7 +648,7 @@ export function buildLeaseHtml(ctx: LeaseGenerationContext, config: LeaseJurisdi
   // recordApprovedApplicationCharges), so they must appear in the lease and count toward the
   // total due at signing — a lease that omits a billed charge is a legal problem. Only
   // genuinely-custom rows are listed here (preset-backed rows render through their own lines);
-  // monthly custom fees are intentionally NOT listed because they do not yet bill.
+  // monthly preset + custom fees are resolved separately via leaseDocumentFeeLines.
   const billableOneTimeCustomFees = propertyTemplatePreview
     ? []
     : (sub?.customFees ?? []).filter((fee) => {
@@ -671,25 +662,34 @@ export function buildLeaseHtml(ctx: LeaseGenerationContext, config: LeaseJurisdi
   const customFeeSigningRows = billableOneTimeCustomFees
     .map((f) => `  <tr><th>${escapeHtml(f.label?.trim() || "Custom fee")}</th><td class="amount">${escapeHtml(fmtUsd(parseAmount(f.amount) ?? 0))}</td></tr>`)
     .join("\n");
-  // Monthly custom fees now bill (recurring, alongside rent), so they too must appear in the
-  // lease — as Monthly line items in Exhibit A (not in the due-at-signing total).
-  const billableMonthlyCustomFees = propertyTemplatePreview
-    ? []
-    : (sub?.customFees ?? []).filter((fee) => {
-    const presetId = (fee as { presetId?: string }).presetId;
-    if (presetId && presetId !== "custom") return false;
-    if (fee.frequency === "one-time") return false;
-    const n = parseAmount(fee.amount);
-    return n != null && n > 0;
+  const leaseBasicsSection = stay.stayKind === "short" ? "short-term" : "long-term";
+  const leaseDocFees = propertyTemplatePreview || !subNorm
+    ? { oneTime: [], monthly: [] }
+    : leaseDocumentFeeLines(subNorm, leaseBasicsSection);
+  // Monthly preset + custom fees (parking, MTM surcharge, custom lease, etc.) bill recurring
+  // and must appear in the lease — not only genuinely-custom rows.
+  const billableMonthlyCustomFees = leaseDocFees.monthly;
+  const supplementalOneTimeLeaseFees = leaseDocFees.oneTime.filter((line) => {
+    const amount = parseAmount(line.amount);
+    if (amount == null || amount <= 0) return false;
+    return !billableOneTimeCustomFees.some(
+      (fee) =>
+        (fee.label?.trim() || "Custom fee").toLowerCase() === line.label.trim().toLowerCase() &&
+        parseAmount(fee.amount) === amount,
+    );
   });
-  const customFeeExhibitRows = [...billableOneTimeCustomFees, ...billableMonthlyCustomFees]
-    .map(
-      (f) =>
-        `  <tr><td>${escapeHtml(f.label?.trim() || "Custom fee")}</td><td class="amount">${escapeHtml(fmtUsd(parseAmount(f.amount) ?? 0))}</td><td>${
-          f.frequency === "one-time" ? "One-time" : "Monthly"
-        }</td></tr>`,
-    )
-    .join("\n");
+  const customFeeExhibitRows = [
+    ...leaseDocFees.oneTime
+      .filter((line) => !/^application fee$/i.test(line.label.trim()))
+      .map(
+        (line) =>
+          `  <tr><td>${escapeHtml(line.label.trim() || "Fee")}</td><td class="amount">${escapeHtml(fmtUsd(parseAmount(line.amount) ?? 0))}</td><td>One-time</td></tr>`,
+      ),
+    ...leaseDocFees.monthly.map(
+      (line) =>
+        `  <tr><td>${escapeHtml(line.label.trim() || "Fee")}</td><td class="amount">${escapeHtml(fmtUsd(parseAmount(line.amount) ?? 0))}</td><td>Monthly</td></tr>`,
+    ),
+  ].join("\n");
 
   const leaseBilling = ctx.leaseBilling;
   const signingAmounts = {
@@ -1093,9 +1093,30 @@ ${customTermsAddendumHtml(subNorm, "Additional Provisions from Owner/Host", prop
   const summaryMonthlyRent = billing ? fmtUsd(billing.monthlyRent) : escapeHtml(monthlyRentBaseStr);
   const summaryMonthlyUtilities = billing ? fmtUsd(billing.monthlyUtilities) : utilitiesStr;
   const summaryTotalMonthly = billing ? fmtUsd(billing.monthlyRent + billing.monthlyUtilities) : totalMonthly;
-  const firstPartialMonthPayment = billing
-    ? (billing.proratedRent ?? 0) + (billing.proratedUtilities ?? 0)
-    : 0;
+  const proratedFirstMonthTotals = propertyTemplatePreview
+    ? null
+    : computeProratedFirstMonthTotals({
+        monthlyRent: billing?.monthlyRent ?? rentNum ?? 0,
+        monthlyUtilities: billing?.monthlyUtilities ?? utilitiesNum ?? 0,
+        leaseStart: a.leaseStart ?? "",
+        leaseEnd: a.leaseEnd ?? "",
+        method: specificRoom?.prorateMethod,
+        dailyRentRate: specificRoom?.dailyRentRate,
+        dailyUtilitiesRate: specificRoom?.dailyUtilitiesRate,
+        utilitiesOnly: isDailyBasis,
+        ledgerProratedRent: leaseBilling?.proratedRent,
+        ledgerProratedUtilities: leaseBilling?.proratedUtilities,
+      });
+  const firstPartialMonthPayment =
+    proratedFirstMonthTotals?.applies && proratedFirstMonthTotals.total > 0
+      ? proratedFirstMonthTotals.total
+      : 0;
+  const customFeeSummaryRows = billableOneTimeCustomFees
+    .map(
+      (f) =>
+        `<tr><th>${escapeHtml(f.label?.trim() || "Custom fee")}</th><td class="amount">${escapeHtml(fmtUsd(parseAmount(f.amount) ?? 0))}</td></tr>`,
+    )
+    .join("\n");
   const leaseSummaryHtml =
     config.brandTitle && billing
       ? `<div style="border:1px solid #999;padding:12px 14px;margin:0 0 1.25rem;background:#fafafa">
@@ -1111,11 +1132,77 @@ ${customTermsAddendumHtml(subNorm, "Additional Provisions from Owner/Host", prop
     ${firstPartialMonthPayment > 0 ? `<tr><th>First partial month payment</th><td class="amount">${fmtUsd(firstPartialMonthPayment)}</td></tr>` : ""}
     <tr><th>Security deposit</th><td class="amount">${secDep}</td></tr>
     <tr><th>Move-in fee</th><td class="amount">${moveInFee}</td></tr>
+    ${customFeeSummaryRows}
     <tr class="total-row"><th>Payment due at signing</th><td class="amount"><strong>${paySigning}</strong></td></tr>
   </table>
   ${paySigningIncludesNote ? `<p class="fee-note">Due at signing includes: ${paySigningIncludesNote}.</p>` : ""}
 </div>`
       : "";
+
+  if (config.documentStyle === "compact_room") {
+    const compactBody = buildCompactRoomLeaseBody({
+      config,
+      tenantRaw,
+      tenantName,
+      landlordEntity,
+      roomLabel,
+      address,
+      cityZip,
+      leaseStart,
+      leaseEnd,
+      leaseTerm,
+      monthlyRentDisplay: summaryMonthlyRent,
+      utilitiesDisplay: summaryMonthlyUtilities,
+      secDep,
+      moveInFee,
+      paySigning,
+      paySigningNum,
+      firstPartialMonthPayment,
+      billableOneTimeCustomFees,
+      billableMonthlyCustomFees,
+      supplementalOneTimeLeaseFees,
+      paymentAtSigningIncludes: subNorm?.paymentAtSigningIncludes,
+      paymentMethod,
+      sub: subNorm,
+      specificRoom,
+      bathroomArrangement,
+      leaseUtilityLines,
+      houseRules,
+      longTermBreakLeaseFee,
+      // The resolver yields `undefined` for "not configured" while the compact
+      // template declares `number | null`. Every read tests `!= null`, so the two
+      // are already equivalent in behaviour — normalize at the boundary.
+      longTermLeaseUpFeePercent: longTermLeaseUpFeePercent ?? null,
+      longTermHoldoverDailyRate,
+      longTermQuietHours,
+      hasConfiguredHoldover,
+      hasConfiguredEarlyTerminationTerm,
+      earlyTerminationStatuteRef: config.earlyTerminationStatuteRef,
+      governingLawLabel,
+      depositStatuteRef: config.depositStatuteRef,
+      residentMaintenanceStatuteRef: config.residentMaintenanceStatuteRef,
+      propertyTemplatePreview,
+      generatedDate,
+      disclosureReviewNotice,
+      customTermsAddendumHtml: customTermsAddendumHtml(subNorm, "Addendum F — Additional Provisions from Property Manager", propertyTemplatePreview),
+      fmtUsd,
+      parseAmount,
+      escapeHtml,
+      isMonthToMonthLease: isMonthToMonthLease(a),
+    });
+    return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Residential Room Lease Agreement — ${escapeHtml(tenantRaw)} — ${roomLabel}</title>
+  <style>${leaseCss()}</style>
+</head>
+<body>
+${compactBody}
+</body>
+</html>`;
+  }
 
   // Long-form section numbers are COUNTED, not written down. Every heading used to carry a
   // hand-computed expression over which optional sections were present, so adding one more

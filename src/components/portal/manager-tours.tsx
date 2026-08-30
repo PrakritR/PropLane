@@ -12,6 +12,7 @@ import { ManagerAddScheduledTourModal } from "@/components/portal/manager-add-sc
 import { ManagerToursGroupedTable } from "@/components/portal/manager-tours-grouped-table";
 import { Button } from "@/components/ui/button";
 import { BulkActionBar } from "@/components/ui/bulk-action-bar";
+import { Modal, ModalFooter } from "@/components/ui/modal";
 import { PortalBulkMessageCarouselModal } from "@/components/portal/portal-bulk-message-carousel-modal";
 import { Input } from "@/components/ui/input";
 import { DestinationNav } from "@/components/ui/destination-nav";
@@ -34,6 +35,7 @@ import { ShareLeadLinkModal } from "@/components/portal/share-lead-link-modal";
 import { TourProposalsPanel } from "@/components/portal/tour-proposals-panel";
 import { useAppUi } from "@/components/providers/app-ui-provider";
 import { useManagerUserId } from "@/hooks/use-manager-user-id";
+import { useScheduledTourReminders } from "@/hooks/use-scheduled-tour-reminders";
 import { usePortalRowSelection } from "@/hooks/use-portal-row-selection";
 import { useWorkAssignmentDirectory } from "@/hooks/use-work-assignment-directory";
 import {
@@ -272,6 +274,7 @@ export function ManagerTours({
   const navigate = usePortalNavigate();
   const { showToast } = useAppUi();
   const { userId, ready: authReady } = useManagerUserId();
+  const { reminders: tourReminders, reload: reloadTourReminders } = useScheduledTourReminders();
   const { teamMembers, vendors } = useWorkAssignmentDirectory({ managerUserId: userId });
   const [tick, setTick] = useState(0);
   const [propertyTick, setPropertyTick] = useState(0);
@@ -293,8 +296,9 @@ export function ManagerTours({
 
   const refresh = useCallback(async () => {
     await syncScheduleRecordsFromServer({ force: true });
+    void reloadTourReminders();
     setTick((n) => n + 1);
-  }, []);
+  }, [reloadTourReminders]);
 
   useEffect(() => {
     if (!authReady || !userId) return;
@@ -577,7 +581,9 @@ export function ManagerTours({
       const targetRows =
         scope === "single" && opts?.singleId
           ? preview.rows.filter((row) => row.id === opts.singleId)
-          : preview.rows;
+          : opts?.drafts
+            ? preview.rows.filter((row) => row.id in (opts.drafts ?? {}))
+            : preview.rows;
       if (targetRows.length === 0) return;
 
       setNotifyBusy(true);
@@ -854,6 +860,7 @@ export function ManagerTours({
       onToggleSelected={toggleSelected}
       onToggleCluster={toggleClusterSelection}
       onRowClick={openTourDetail}
+      tourReminders={tourReminders}
     />
   );
 
@@ -1024,48 +1031,16 @@ export function ManagerTours({
   const modals = (
     <>
       {rescheduleTimePicker ? (
-        <div className="fixed inset-0 z-[80] flex items-end justify-center bg-black/40 p-4 sm:items-center">
-          <div
-            className="modal-panel w-full max-w-md rounded-3xl border border-border bg-card p-5 shadow-2xl"
-            role="dialog"
-            aria-labelledby="tour-reschedule-time-title"
-          >
-            <h2 id="tour-reschedule-time-title" className="text-lg font-semibold text-foreground">
-              {rescheduleTimePicker.rows.length === 1 ? "Pick a new tour time" : "Pick new tour times"}
-            </h2>
-            <p className="mt-1 text-sm text-muted">
-              Choose the proposed time for each tour. You will review the guest notification next.
-            </p>
-            <div className="mt-4 max-h-[min(50vh,20rem)] space-y-4 overflow-y-auto">
-              {rescheduleTimePicker.rows.map((row) => (
-                <label key={row.id} className="block text-xs font-medium text-muted">
-                  <span className="text-foreground">
-                    {row.guestName} · {row.propertyTitle}
-                  </span>
-                  <span className="mt-0.5 block font-normal">Current: {row.whenLabel}</span>
-                  <Input
-                    type="datetime-local"
-                    className="mt-1"
-                    value={rescheduleTimePicker.startLocals[row.id] ?? ""}
-                    onChange={(e) =>
-                      setRescheduleTimePicker((prev) =>
-                        prev
-                          ? {
-                              ...prev,
-                              startLocals: { ...prev.startLocals, [row.id]: e.target.value },
-                            }
-                          : prev,
-                      )
-                    }
-                    data-attr="tour-reschedule-datetime"
-                  />
-                </label>
-              ))}
-            </div>
-            <div className="mt-5 flex flex-wrap justify-end gap-2">
-              <Button type="button" variant="outline" className={BULK_BAR_BTN} onClick={() => setRescheduleTimePicker(null)}>
-                Cancel
-              </Button>
+        <Modal
+          open
+          title={
+            rescheduleTimePicker.rows.length === 1 ? "Pick a new tour time" : "Pick new tour times"
+          }
+          onClose={() => setRescheduleTimePicker(null)}
+          dense
+          footer={
+            <ModalFooter className="w-full justify-between gap-2">
+              <span aria-hidden className="shrink-0" />
               <Button
                 type="button"
                 variant="primary"
@@ -1075,9 +1050,40 @@ export function ManagerTours({
               >
                 Continue
               </Button>
-            </div>
+            </ModalFooter>
+          }
+          panelClassName="max-w-md"
+        >
+          <p className="text-sm text-muted">
+            Choose the proposed time for each tour. You will review the guest notification next.
+          </p>
+          <div className="mt-4 max-h-[min(50vh,20rem)] space-y-4 overflow-y-auto">
+            {rescheduleTimePicker.rows.map((row) => (
+              <label key={row.id} className="block text-xs font-medium text-muted">
+                <span className="text-foreground">
+                  {row.guestName} · {row.propertyTitle}
+                </span>
+                <span className="mt-0.5 block font-normal">Current: {row.whenLabel}</span>
+                <Input
+                  type="datetime-local"
+                  className="mt-1"
+                  value={rescheduleTimePicker.startLocals[row.id] ?? ""}
+                  onChange={(e) =>
+                    setRescheduleTimePicker((prev) =>
+                      prev
+                        ? {
+                            ...prev,
+                            startLocals: { ...prev.startLocals, [row.id]: e.target.value },
+                          }
+                        : prev,
+                    )
+                  }
+                  data-attr="tour-reschedule-datetime"
+                />
+              </label>
+            ))}
           </div>
-        </div>
+        </Modal>
       ) : null}
       {notifyPreview && notifyPreviewRow ? (
         notifyPreview.rows.length > 1 ? (

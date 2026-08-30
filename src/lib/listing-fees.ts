@@ -867,6 +867,69 @@ function listingFeeToDisplayRow(
   };
 }
 
+/** Preset rows rendered in dedicated lease sections (deposit, move-in, early termination). */
+const LEASE_DOCUMENT_EXCLUDED_PRESET_IDS = new Set<ListingFeePresetId>([
+  "security_deposit",
+  "move_in_fee",
+  "short_term_nightly",
+  "short_term_deposit",
+  "short_term_move_in",
+  "break_lease_fee",
+  "holdover_daily",
+]);
+
+export type LeaseDocumentFeeLine = {
+  label: string;
+  amount: string;
+};
+
+/**
+ * Canonical one-time and monthly fee lines for generated lease documents — includes preset
+ * "Other fees" (parking, MTM surcharge, custom lease, holding deposit, etc.), not only
+ * genuinely-custom rows.
+ */
+export function leaseDocumentFeeLines(
+  sub: ManagerListingSubmissionV1 | undefined,
+  section: LeaseBasicsFeeSection = "long-term",
+): { oneTime: LeaseDocumentFeeLine[]; monthly: LeaseDocumentFeeLine[] } {
+  if (!sub?.v) return { oneTime: [], monthly: [] };
+  const shortTermOn = Boolean(sub.shortTermRentalsAllowed);
+  const oneTime: LeaseDocumentFeeLine[] = [];
+  const monthly: LeaseDocumentFeeLine[] = [];
+  const seen = new Set<string>();
+
+  const push = (cadence: "one-time" | "monthly", line: LeaseDocumentFeeLine) => {
+    const key = `${cadence}|${line.label.trim().toLowerCase()}|${line.amount.trim()}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    (cadence === "monthly" ? monthly : oneTime).push(line);
+  };
+
+  const appRaw = String(sub.applicationFee ?? "")
+    .replace(/^\$/, "")
+    .trim();
+  if (section === "long-term" && isListingFeeAmountFilled(appRaw) && parseMoneyAmount(appRaw) > 0) {
+    push("one-time", { label: "Application fee", amount: appRaw });
+  }
+
+  for (const fee of resolveListingFees(sub)) {
+    if (!feeMeaningfulForPublicListing(fee.amount)) continue;
+    if (!feeBelongsInLeaseBasicsSection(fee, section, shortTermOn)) continue;
+    const presetId = fee.presetId && fee.presetId !== "custom" ? fee.presetId : undefined;
+    if (presetId && LEASE_DOCUMENT_EXCLUDED_PRESET_IDS.has(presetId)) continue;
+
+    const cadence = listingFeeCadence(fee);
+    if (cadence === "nightly") continue;
+
+    const label = displayLeaseFeeTitle(
+      fee.label.trim() || (presetId ? PRESET_BY_ID.get(presetId)?.defaultLabel : undefined) || "Fee",
+    );
+    push(cadence === "monthly" ? "monthly" : "one-time", { label, amount: fee.amount });
+  }
+
+  return { oneTime, monthly };
+}
+
 /** Public listing fee rows for one lease-basics section (skips zero amounts). */
 export function listingFeeRowsForLeaseBasicsSection(
   sub: ManagerListingSubmissionV1,

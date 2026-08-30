@@ -6,7 +6,7 @@
 import { NextResponse } from "next/server";
 import { isAdminUser } from "@/lib/auth/admin-preview";
 import { collectLinkedPropertyIdsForUser } from "@/lib/auth/manager-lease-scope";
-import { runBackgroundCheck } from "@/lib/checkr/background-check";
+import { runBackgroundCheck, runCosignerBackgroundCheck } from "@/lib/checkr/background-check";
 import { isCheckrAddOn, isCheckrPackage, type CheckrAddOnSlug } from "@/lib/checkr/packages";
 import type { CheckrPackage } from "@/lib/checkr/config";
 import { isScreeningCheckoutSession } from "@/lib/stripe-screening";
@@ -37,6 +37,7 @@ export async function POST(req: Request) {
     }
 
     const applicationId = session.metadata?.application_id?.trim();
+    const cosignerSubmissionId = session.metadata?.cosigner_submission_id?.trim();
     const managerUserId = session.metadata?.manager_user_id?.trim();
     if (!applicationId || !managerUserId) {
       return NextResponse.json({ error: "Checkout session is missing screening metadata." }, { status: 400 });
@@ -71,12 +72,20 @@ export async function POST(req: Request) {
       );
     }
 
-    const { data: existingRecord } = await db
-      .from("manager_application_records")
-      .select("row_data")
-      .eq("id", applicationId)
-      .maybeSingle();
-    const existingRow = existingRecord?.row_data as { backgroundCheck?: { stripeCheckoutSessionId?: string } } | null;
+    const { data: existingRecord } = cosignerSubmissionId
+      ? await db
+          .from("cosigner_submission_records")
+          .select("row_data")
+          .eq("id", cosignerSubmissionId)
+          .maybeSingle()
+      : await db
+          .from("manager_application_records")
+          .select("row_data")
+          .eq("id", applicationId)
+          .maybeSingle();
+    const existingRow = existingRecord?.row_data as {
+      backgroundCheck?: { stripeCheckoutSessionId?: string };
+    } | null;
     if (existingRow?.backgroundCheck?.stripeCheckoutSessionId === session.id) {
       return NextResponse.json({
         paid: true,
@@ -94,14 +103,23 @@ export async function POST(req: Request) {
       .map((s) => s.trim())
       .filter(isCheckrAddOn) as CheckrAddOnSlug[];
 
-    const result = await runBackgroundCheck({
-      db,
-      applicationId,
-      managerUserId,
-      packageSlug,
-      addOnProducts,
-      prepaid: { checkoutSessionId: session.id, paymentIntentId },
-    });
+    const result = cosignerSubmissionId
+      ? await runCosignerBackgroundCheck({
+          db,
+          cosignerSubmissionId,
+          managerUserId,
+          packageSlug,
+          addOnProducts,
+          prepaid: { checkoutSessionId: session.id, paymentIntentId },
+        })
+      : await runBackgroundCheck({
+          db,
+          applicationId,
+          managerUserId,
+          packageSlug,
+          addOnProducts,
+          prepaid: { checkoutSessionId: session.id, paymentIntentId },
+        });
 
     if (!result.ok) {
       return NextResponse.json({ error: result.error, code: result.code }, { status: result.status });

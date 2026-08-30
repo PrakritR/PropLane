@@ -18,6 +18,7 @@ import { isDemoModeActive } from "@/lib/demo/demo-session";
 import { isScreeningTestModeActive } from "@/lib/screening/screening-test-mode";
 import { MANAGER_PLAN_PORTAL_URL } from "@/lib/portals/manager-plan-path";
 import { replaceManagerApplicationRowInCache } from "@/lib/manager-applications-storage";
+import { patchCosignerBackgroundCheckInCache } from "@/lib/cosigner-submissions-storage";
 import { applicantDisplayName } from "@/lib/rental-application/applicant-name";
 import { BackgroundCheckCosignerNotice } from "@/components/portal/application-screening-panel";
 import type { DemoApplicantRow } from "@/data/demo-portal";
@@ -98,6 +99,7 @@ export function CheckrScreeningModal({
   onUpdated,
   showPackagePickerInitially = false,
   hasLinkedCosigner = false,
+  cosignerSubmissionId = null,
 }: {
   row: DemoApplicantRow | null;
   open: boolean;
@@ -106,6 +108,8 @@ export function CheckrScreeningModal({
   /** When true, skip the completed summary and show package/payment immediately (e.g. Run again). */
   showPackagePickerInitially?: boolean;
   hasLinkedCosigner?: boolean;
+  /** When set, the order runs against this co-signer submission instead of the primary applicant. */
+  cosignerSubmissionId?: string | null;
 }) {
   const { showToast } = useAppUi();
   const pathname = usePathname();
@@ -115,6 +119,7 @@ export function CheckrScreeningModal({
   const [configured, setConfigured] = useState(() => isDemo);
   const [screeningAllowed, setScreeningAllowed] = useState(() => isDemo);
   const [packagesLoaded, setPackagesLoaded] = useState(() => isDemo);
+  const [packagesLoadError, setPackagesLoadError] = useState<string | null>(null);
   const [packages, setPackages] = useState<PackageOption[]>(() => (isDemo ? DEMO_PACKAGES : []));
   const [addOns, setAddOns] = useState<AddOnOption[]>(() => (isDemo ? DEMO_ADD_ONS : []));
   const [selectedPackage, setSelectedPackage] = useState<CheckrPackage>("essential");
@@ -127,39 +132,62 @@ export function CheckrScreeningModal({
   const [checkoutAddOns, setCheckoutAddOns] = useState<CheckrAddOnSlug[]>([]);
   const checkoutSelectionReadyRef = useRef(false);
   const demoResolveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const wasOpenRef = useRef(false);
 
   useEffect(() => {
-    if (!open) return;
+    if (!open) {
+      wasOpenRef.current = false;
+      return;
+    }
+    const justOpened = !wasOpenRef.current;
+    wasOpenRef.current = true;
+
     setBg(row?.backgroundCheck);
     setError(null);
     setBusy(false);
-    setSelectedPackage("essential");
-    setSelectedAddOns([]);
-    setCheckoutPackage("essential");
-    setCheckoutAddOns([]);
-    checkoutSelectionReadyRef.current = false;
-    setShowPackagePicker(showPackagePickerInitially || row?.backgroundCheck?.status !== "complete");
-    setPackagesLoaded(isDemo);
+    if (justOpened) {
+      setSelectedPackage("essential");
+      setSelectedAddOns([]);
+      setCheckoutPackage("essential");
+      setCheckoutAddOns([]);
+      checkoutSelectionReadyRef.current = false;
+      setShowPackagePicker(showPackagePickerInitially || row?.backgroundCheck?.status !== "complete");
+      setPackagesLoaded(isDemo);
+      setPackagesLoadError(null);
+    }
   }, [open, row?.id, row?.backgroundCheck, showPackagePickerInitially, isDemo]);
 
   useEffect(() => {
     if (!open || isDemo) return;
+    let cancelled = false;
     void fetch("/api/screening/packages", { credentials: "include" })
       .then(async (res) => {
-        if (!res.ok) return;
+        if (!res.ok) {
+          const body = (await res.json().catch(() => null)) as { error?: string } | null;
+          throw new Error(body?.error ?? "Could not load screening packages.");
+        }
         const body = (await res.json()) as {
           configured?: boolean;
           screeningAllowed?: boolean;
           packages?: PackageOption[];
           addOns?: AddOnOption[];
         };
+        if (cancelled) return;
         setConfigured(Boolean(body.configured));
         setScreeningAllowed(body.screeningAllowed !== false);
         if (body.packages?.length) setPackages(body.packages);
         if (body.addOns?.length) setAddOns(body.addOns);
       })
-      .catch(() => undefined)
-      .finally(() => setPackagesLoaded(true));
+      .catch((e: unknown) => {
+        if (cancelled) return;
+        setPackagesLoadError(e instanceof Error ? e.message : "Could not load screening packages.");
+      })
+      .finally(() => {
+        if (!cancelled) setPackagesLoaded(true);
+      });
+    return () => {
+      cancelled = true;
+    };
   }, [open, isDemo]);
 
   useEffect(() => {
@@ -199,7 +227,11 @@ export function CheckrScreeningModal({
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
-        body: JSON.stringify({ applicationId: row.id, action: "refresh" }),
+        body: JSON.stringify({
+          applicationId: row.id,
+          cosignerSubmissionId: cosignerSubmissionId ?? undefined,
+          action: "refresh",
+        }),
       })
         .then(async (res) => {
           if (cancelled || !res.ok) return;
@@ -216,7 +248,7 @@ export function CheckrScreeningModal({
       cancelled = true;
       clearInterval(timer);
     };
-  }, [open, row, bg?.status, isDemo, handlePaymentComplete]);
+  }, [open, row, bg?.status, isDemo, handlePaymentComplete, cosignerSubmissionId]);
 
   useEffect(() => () => {
     if (demoResolveTimer.current) clearTimeout(demoResolveTimer.current);
@@ -308,16 +340,20 @@ export function CheckrScreeningModal({
       demoResolveTimer.current = setTimeout(() => {
         const resolved = buildDemoBackgroundCheck(row, { packageSlug: selectedPackage, addOnProducts: selectedAddOns });
         setBg(resolved);
-        replaceManagerApplicationRowInCache({
-          ...row,
-          backgroundCheck: resolved,
-          backgroundCheckStatus: backgroundCheckStatusFromCheckr(resolved),
-        });
+        if (cosignerSubmissionId) {
+          patchCosignerBackgroundCheckInCache(row.id, cosignerSubmissionId, resolved);
+        } else {
+          replaceManagerApplicationRowInCache({
+            ...row,
+            backgroundCheck: resolved,
+            backgroundCheckStatus: backgroundCheckStatusFromCheckr(resolved),
+          });
+        }
         handlePaymentComplete(resolved);
       }, DEMO_SCREENING_RESOLVE_DELAY_MS);
       return;
     }
-  }, [row, handlePaymentComplete, showToast, isDemo, selectedPackage, selectedAddOns]);
+  }, [row, handlePaymentComplete, showToast, isDemo, selectedPackage, selectedAddOns, cosignerSubmissionId]);
 
   if (!row) return null;
 
@@ -331,11 +367,13 @@ export function CheckrScreeningModal({
   return (
     <Modal open={open} onClose={onClose} title={modalTitle} panelClassName="max-w-4xl max-h-[min(92vh,56rem)] overflow-y-auto">
       <div className="space-y-5 text-sm">
-        {hasLinkedCosigner ? (
+        {hasLinkedCosigner && !cosignerSubmissionId ? (
           <BackgroundCheckCosignerNotice applicantName={applicantDisplayName(row)} />
         ) : null}
         {!packagesLoaded ? (
           <p className="text-muted">Loading screening options…</p>
+        ) : packagesLoadError ? (
+          <p className="rounded-xl border px-3 py-2 text-xs portal-banner-pending">{packagesLoadError}</p>
         ) : !screeningAllowed ? (
           <>
             <p className="native-hide text-muted">
@@ -508,8 +546,9 @@ export function CheckrScreeningModal({
                 </div>
               ) : (
                 <ScreeningInlinePayment
-                  key={`${row.id}:${checkoutPackage}:${checkoutAddOns.join(",")}`}
+                  key={`${row.id}:${cosignerSubmissionId ?? ""}:${checkoutPackage}:${checkoutAddOns.join(",")}`}
                   applicationId={row.id}
+                  cosignerSubmissionId={cosignerSubmissionId ?? undefined}
                   packageSlug={checkoutPackage}
                   addOnProducts={checkoutAddOns}
                   returnPath={returnPath}
