@@ -13,6 +13,10 @@ import { NextResponse } from "next/server";
 import { randomUUID } from "node:crypto";
 import { dispatchDueReminders } from "@/lib/reminders/dispatch.server";
 import { sweepTaskReminders } from "@/lib/reminders/subjects/tasks.server";
+import {
+  sweepServiceOrderReminders,
+  sweepWorkOrderReminders,
+} from "@/lib/reminders/subjects/records.server";
 import { isProductionRuntime } from "@/lib/server-env";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 
@@ -50,14 +54,22 @@ export async function GET(req: Request) {
     // sweep failure must not stop delivery of what is already queued, so it is
     // reported rather than thrown.
     let swept = 0;
-    let sweepError: string | null = null;
-    try {
-      swept = await sweepTaskReminders(db);
-    } catch (error) {
-      sweepError = describeError(error);
+    const sweepErrors: string[] = [];
+    // One subject's sweep failing must not silence the others, so each is
+    // isolated and reported by name rather than aborting the pass.
+    for (const [name, sweep] of [
+      ["task", sweepTaskReminders],
+      ["work_order", sweepWorkOrderReminders],
+      ["service_order", sweepServiceOrderReminders],
+    ] as const) {
+      try {
+        swept += await sweep(db);
+      } catch (error) {
+        sweepErrors.push(`${name}: ${describeError(error)}`);
+      }
     }
     const summary = await dispatchDueReminders(db, workerId);
-    return NextResponse.json({ ok: true, swept, ...(sweepError ? { sweepError } : {}), ...summary });
+    return NextResponse.json({ ok: true, swept, ...(sweepErrors.length ? { sweepErrors } : {}), ...summary });
   } catch (error) {
     // A Supabase failure arrives as a plain PostgrestError object, not an
     // Error, so `instanceof Error` alone reports "dispatch failed" and throws
