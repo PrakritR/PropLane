@@ -38,4 +38,20 @@ describe("lease-first-period-proration", () => {
     });
     expect(slash).toEqual(iso);
   });
+
+  it("prorates with explicit daily rates when the room uses set per day", () => {
+    const totals = computeProratedFirstMonthTotals({
+      monthlyRent: 800,
+      monthlyUtilities: 200,
+      leaseStart: "9/22/2026",
+      leaseEnd: "12/1/2026",
+      method: "daily_rate",
+      dailyRentRate: 30,
+      dailyUtilitiesRate: 7,
+    });
+    expect(totals.applies).toBe(true);
+    expect(totals.proratedRent).toBe(270);
+    expect(totals.proratedUtilities).toBe(63);
+    expect(totals.total).toBe(333);
+  });
 });

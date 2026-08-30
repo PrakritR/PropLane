@@ -298,14 +298,38 @@ describe("long-term lease parity", () => {
       }),
       SEATTLE_LEASE_CONFIG,
     );
-    expect(html).toContain("Month-to-month surcharge");
-    expect(html).toMatch(/<strong>Month-to-month surcharge:<\/strong> \$25\.00 \(monthly\)/);
-    expect(html).toContain("Custom lease");
-    expect(html).toMatch(/<strong>Custom lease:<\/strong> \$100\.00 \(monthly\)/);
+    expect(html).not.toContain("Month-to-month surcharge");
+    expect(html).not.toContain("Custom lease");
     expect(html).toContain("Holding deposit");
     expect(html).toMatch(/<strong>Holding deposit:<\/strong> \$100\.00 \(one-time\)/);
     expect(html).toContain("Application fee");
     expect(html).toMatch(/<strong>Application fee:<\/strong> \$50\.00 \(one-time\)/);
+  });
+
+  it("shows month-to-month surcharge only on month-to-month leases", () => {
+    const ctx = longTermContext({ monthToMonthSurcharge: "25" });
+    ctx.application = {
+      ...ctx.application,
+      leaseTerm: "Month-to-Month",
+      leaseEnd: "",
+    };
+    const html = buildLeaseHtml(ctx, SEATTLE_LEASE_CONFIG);
+    expect(html).toContain("Month-to-month surcharge");
+    expect(html).toMatch(/<strong>Month-to-month surcharge:<\/strong> \$25\.00 \(monthly\)/);
+  });
+
+  it("shows custom lease surcharge only when the term uses non-standard calendar dates", () => {
+    const ctx = longTermContext({ customLeaseSurcharge: "100" });
+    ctx.application = {
+      ...ctx.application,
+      leaseTerm: "Custom",
+      leaseStart: "9/22/2026",
+      leaseEnd: "12/1/2026",
+    };
+    const html = buildLeaseHtml(ctx, SEATTLE_LEASE_CONFIG);
+    expect(html).toContain("Custom lease");
+    expect(html).toMatch(/<strong>Custom lease:<\/strong> \$100\.00 \(monthly\)/);
+    expect(html).not.toContain("Month-to-month surcharge");
   });
 
   it("leaves short-term agreements byte-identical when only long-term terms change", () => {

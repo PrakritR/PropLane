@@ -2963,7 +2963,7 @@ export function ManagerResidents({
                                       setCheckrScreeningShowPicker(Boolean(opts?.showPackagePicker));
                                       setCheckrScreeningRowId(selectedApplicationRow.id);
                                     }}
-                                    hasLinkedCosigner={selectedApplicationCosigners.length > 0}
+                                    cosignerSubmissions={selectedApplicationCosigners}
                                     householdPanels={
                                       applicationReviewView === "application" ? (
                                         <ApplicationHouseholdInlinePanels

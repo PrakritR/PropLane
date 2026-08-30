@@ -6,6 +6,7 @@ import { ManagerApplicationReadonlyReview } from "@/components/portal/manager-ap
 import { ApplicationScreeningPanel } from "@/components/portal/application-screening-panel";
 import { ApplicationVerificationPhotos } from "@/components/portal/application-verification-photos";
 import { applicationShowsBackgroundCheck } from "@/lib/application-background-check";
+import type { CosignerSubmission } from "@/lib/cosigner-submissions-storage";
 import type { ApplicationGroup } from "@/lib/rental-application/application-groups";
 import type { DemoApplicantRow } from "@/data/demo-portal";
 
@@ -27,6 +28,11 @@ export function ApplicationReviewLauncherRow({
   onActiveViewChange,
   group = null,
   omitReviewSections,
+  cosignerSubmissions = [],
+  screeningSubjectId,
+  onScreeningSubjectChange,
+  onRequestChecksForSubjects,
+  /** @deprecated Use cosignerSubmissions — kept for callers not yet migrated. */
   hasLinkedCosigner = false,
   /** When a parent renders the Application / Background check toggle above scroll chrome. */
   hideToggle = false,
@@ -46,7 +52,10 @@ export function ApplicationReviewLauncherRow({
   group?: ApplicationGroup | null;
   /** Skip answer cards already rendered above the Application / Background check toggle. */
   omitReviewSections?: Array<"group" | "cosigner" | "placement">;
-  /** Primary application has a linked co-signer submission — background check scopes to this applicant only. */
+  cosignerSubmissions?: CosignerSubmission[];
+  screeningSubjectId?: string;
+  onScreeningSubjectChange?: (subjectId: string) => void;
+  onRequestChecksForSubjects?: (subjectIds: string[]) => void;
   hasLinkedCosigner?: boolean;
   hideToggle?: boolean;
   /** Rendered inside the Application tab, above the readonly review body. */
@@ -120,7 +129,10 @@ export function ApplicationReviewLauncherRow({
           onHeaderActionsChange={onScreeningHeaderActionsChange}
           onUpdated={onScreeningUpdated}
           onOpenScreeningModal={onOpenScreeningModal}
-          hasLinkedCosigner={hasLinkedCosigner}
+          cosignerSubmissions={cosignerSubmissions}
+          screeningSubjectId={screeningSubjectId}
+          onScreeningSubjectChange={onScreeningSubjectChange}
+          onRequestChecksForSubjects={onRequestChecksForSubjects}
         />
       )}
     </div>

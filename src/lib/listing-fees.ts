@@ -3,6 +3,11 @@ import {
   type ManagerListingSubmissionV1,
   type PaymentAtSigningOptionId,
 } from "@/lib/manager-listing-submission";
+import {
+  shouldBillCustomLeaseSurcharge,
+  shouldBillMonthToMonthSurcharge,
+  type LeaseRecurringFeeBillingContext,
+} from "@/lib/custom-lease-billing";
 import { parseMoneyAmount } from "@/lib/parse-money";
 
 /** Fee fields must be filled with a dollar amount; use 0 when there is no charge. */
@@ -891,6 +896,7 @@ export type LeaseDocumentFeeLine = {
 export function leaseDocumentFeeLines(
   sub: ManagerListingSubmissionV1 | undefined,
   section: LeaseBasicsFeeSection = "long-term",
+  billingContext?: LeaseRecurringFeeBillingContext,
 ): { oneTime: LeaseDocumentFeeLine[]; monthly: LeaseDocumentFeeLine[] } {
   if (!sub?.v) return { oneTime: [], monthly: [] };
   const shortTermOn = Boolean(sub.shortTermRentalsAllowed);
@@ -917,6 +923,16 @@ export function leaseDocumentFeeLines(
     if (!feeBelongsInLeaseBasicsSection(fee, section, shortTermOn)) continue;
     const presetId = fee.presetId && fee.presetId !== "custom" ? fee.presetId : undefined;
     if (presetId && LEASE_DOCUMENT_EXCLUDED_PRESET_IDS.has(presetId)) continue;
+    if (billingContext && presetId === "mtm_surcharge" && !shouldBillMonthToMonthSurcharge(billingContext)) {
+      continue;
+    }
+    if (
+      billingContext &&
+      presetId === "custom_lease_surcharge" &&
+      !shouldBillCustomLeaseSurcharge(billingContext)
+    ) {
+      continue;
+    }
 
     const cadence = listingFeeCadence(fee);
     if (cadence === "nightly") continue;

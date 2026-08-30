@@ -117,6 +117,12 @@ import {
   buildCosignerScreeningRow,
   cosignerShowsBackgroundCheck,
 } from "@/lib/cosigner-screening";
+import {
+  buildScreeningSubjects,
+  cosignerSubmissionIdForSubject,
+  resolveScreeningSubjectId,
+  screeningRowForSubject,
+} from "@/lib/background-check-subjects";
 import { sortApplicationRowsForBucket } from "@/lib/manager-application-list";
 import {
   applicationListSortBucket,
@@ -565,6 +571,7 @@ export function ManagerApplications({
   const [holdingFeeRowId, setHoldingFeeRowId] = useState<string | null>(null);
   const [checkrScreeningShowPicker, setCheckrScreeningShowPicker] = useState(false);
   const [applicationReviewView, setApplicationReviewView] = useState<ApplicationReviewView>("application");
+  const [screeningSubjectId, setScreeningSubjectId] = useState<string | null>(null);
   useEffect(() => {
     if (!authReady) return;
     const sync = () => setRows(readManagerApplicationRows());
@@ -940,6 +947,41 @@ export function ManagerApplications({
       ? detailCosignerSubmissions[activeCosignerIndex]!
       : null;
 
+  useEffect(() => {
+    setScreeningSubjectId(null);
+  }, [detailRow?.id]);
+
+  const detailScreeningSubjects = useMemo(() => {
+    if (!detailRow) return [];
+    return buildScreeningSubjects(detailRow, detailCosignerSubmissions);
+  }, [detailRow, detailCosignerSubmissions]);
+
+  const resolvedScreeningSubjectId = detailRow
+    ? resolveScreeningSubjectId(detailScreeningSubjects, screeningSubjectId, detailRow.id)
+    : "";
+
+  const activeScreeningRow = useMemo(() => {
+    if (!detailRow) return null;
+    return screeningRowForSubject(detailRow, detailCosignerSubmissions, resolvedScreeningSubjectId);
+  }, [detailRow, detailCosignerSubmissions, resolvedScreeningSubjectId]);
+
+  const activeScreeningCosignerId = cosignerSubmissionIdForSubject(
+    detailScreeningSubjects,
+    resolvedScreeningSubjectId,
+  );
+
+  const openScreeningForSubjectIds = useCallback(
+    (subjectIds: string[]) => {
+      if (!detailRow || subjectIds.length === 0) return;
+      const firstId = subjectIds[0]!;
+      setScreeningSubjectId(firstId);
+      openDetailScreeningModal(detailRow, {
+        cosignerSubmissionId: cosignerSubmissionIdForSubject(detailScreeningSubjects, firstId),
+      });
+    },
+    [detailRow, detailScreeningSubjects, openDetailScreeningModal],
+  );
+
   const screeningModalRow = useMemo(() => {
     if (!checkrScreeningRowId) return null;
     const signerRow =
@@ -952,6 +994,53 @@ export function ManagerApplications({
     const cosigner = cosigners.find((c) => c.id === checkrScreeningCosignerId);
     return cosigner ? buildCosignerScreeningRow(signerRow, cosigner) : signerRow;
   }, [checkrScreeningRowId, checkrScreeningCosignerId, scopedRows, detailRow, cosignerSubmissionsBySigner]);
+
+  const checkrModalSignerRow = useMemo(() => {
+    if (!checkrScreeningRowId) return null;
+    return (
+      scopedRows.find((r) => r.id === checkrScreeningRowId) ??
+      (detailRow?.id === checkrScreeningRowId ? detailRow : null)
+    );
+  }, [checkrScreeningRowId, scopedRows, detailRow]);
+
+  const checkrModalSubjects = useMemo(() => {
+    if (!checkrModalSignerRow) return [];
+    return buildScreeningSubjects(
+      checkrModalSignerRow,
+      cosignerSubmissionsBySigner.get(normalizeApplicationAxisId(checkrModalSignerRow.id).toUpperCase()) ?? [],
+    );
+  }, [checkrModalSignerRow, cosignerSubmissionsBySigner]);
+
+  const checkrModalSubjectId = useMemo(() => {
+    if (!checkrModalSignerRow) return undefined;
+    return resolveScreeningSubjectId(
+      checkrModalSubjects,
+      checkrScreeningCosignerId ?? screeningSubjectId,
+      checkrModalSignerRow.id,
+    );
+  }, [checkrModalSignerRow, checkrModalSubjects, checkrScreeningCosignerId, screeningSubjectId]);
+
+  const checkrScreeningModal = (
+    <CheckrScreeningModal
+      key={`${checkrScreeningRowId ?? "none"}:${checkrScreeningCosignerId ?? ""}`}
+      row={screeningModalRow}
+      screeningSubjects={checkrModalSubjects}
+      screeningSubjectId={checkrModalSubjectId}
+      onScreeningSubjectChange={(subjectId) => {
+        setScreeningSubjectId(subjectId);
+        setCheckrScreeningCosignerId(cosignerSubmissionIdForSubject(checkrModalSubjects, subjectId) ?? null);
+      }}
+      cosignerSubmissionId={checkrScreeningCosignerId}
+      open={checkrScreeningRowId !== null}
+      showPackagePickerInitially={checkrScreeningShowPicker}
+      onClose={() => {
+        setCheckrScreeningRowId(null);
+        setCheckrScreeningCosignerId(null);
+        setCheckrScreeningShowPicker(false);
+      }}
+      onUpdated={handleScreeningFlowComplete}
+    />
+  );
 
   useEffect(() => {
     if (openHandled.current || scopedRows.length === 0) return;
@@ -1188,6 +1277,11 @@ export function ManagerApplications({
   };
 
   const renderApplicationRowActions = (row: DemoApplicantRow) => {
+    const useHouseholdScreeningContext =
+      row.id === detailRow?.id && applicationReviewView === "background-check" && Boolean(activeScreeningRow);
+    const screeningRow = useHouseholdScreeningContext && activeScreeningRow ? activeScreeningRow : row;
+    const screeningCosignerId =
+      useHouseholdScreeningContext && activeScreeningCosignerId ? activeScreeningCosignerId : undefined;
     const isPending = row.bucket === "pending";
     const showCompletionReminder = showCompletionReminderForRow(row);
     const renderSendReminderButton = (className = RESIDENT_DETAIL_HEADER_ACTION_BTN) => (
@@ -1204,16 +1298,17 @@ export function ManagerApplications({
     );
     const sendReminderButton = showCompletionReminder ? renderSendReminderButton() : null;
     const showsRunCheck =
-      applicationShowsBackgroundCheck(row) &&
-      Boolean(row.application?.consentCredit) &&
-      row.backgroundCheck?.status !== "pending" &&
-      row.backgroundCheck?.status !== "complete";
+      applicationShowsBackgroundCheck(screeningRow) &&
+      Boolean(screeningRow.application?.consentCredit) &&
+      screeningRow.backgroundCheck?.status !== "pending" &&
+      screeningRow.backgroundCheck?.status !== "complete";
     const canDownloadScreening =
-      row.backgroundCheck?.status === "complete" || (isDemoModeActive() && applicationShowsBackgroundCheck(row));
+      screeningRow.backgroundCheck?.status === "complete" ||
+      (isDemoModeActive() && applicationShowsBackgroundCheck(screeningRow));
     const showsRunAgain =
-      applicationShowsBackgroundCheck(row) &&
-      Boolean(row.application?.consentCredit) &&
-      row.backgroundCheck?.status === "complete";
+      applicationShowsBackgroundCheck(screeningRow) &&
+      Boolean(screeningRow.application?.consentCredit) &&
+      screeningRow.backgroundCheck?.status === "complete";
 
     const approveButton =
       isPending && !isWithdrawnApplicationRow(row) && !isInProgressApplicationRow(row) ? (
@@ -1246,7 +1341,11 @@ export function ManagerApplications({
         variant="outline"
         className={RESIDENT_DETAIL_HEADER_ACTION_BTN}
         data-attr="run-background-check"
-        onClick={() => openDetailScreeningModal(row)}
+        onClick={() =>
+          openDetailScreeningModal(row, {
+            cosignerSubmissionId: screeningCosignerId,
+          })
+        }
       >
         Run background check
       </Button>
@@ -1258,7 +1357,12 @@ export function ManagerApplications({
         variant="outline"
         className={RESIDENT_DETAIL_HEADER_ACTION_BTN}
         data-attr="run-background-check-again"
-        onClick={() => openDetailScreeningModal(row, { showPackagePicker: true })}
+        onClick={() =>
+          openDetailScreeningModal(row, {
+            showPackagePicker: true,
+            cosignerSubmissionId: screeningCosignerId,
+          })
+        }
       >
         Run again
       </Button>
@@ -1282,7 +1386,11 @@ export function ManagerApplications({
         variant="outline"
         className={RESIDENT_DETAIL_HEADER_ACTION_BTN}
         data-attr="screening-pdf-download"
-        onClick={() => downloadBackgroundCheckForApplication(row)}
+        onClick={() =>
+          downloadBackgroundCheckForApplication(screeningRow, {
+            cosignerSubmissionId: screeningCosignerId,
+          })
+        }
       >
         Download background check
       </Button>
@@ -1551,8 +1659,16 @@ export function ManagerApplications({
         activeView={applicationReviewView}
         onActiveViewChange={setApplicationReviewView}
         onScreeningUpdated={handleScreeningFlowComplete}
-        onOpenScreeningModal={(opts) => openDetailScreeningModal(row, opts)}
-        hasLinkedCosigner={cosignerSubmissions.length > 0}
+        onOpenScreeningModal={(opts) =>
+          openDetailScreeningModal(row, {
+            ...opts,
+            cosignerSubmissionId: activeScreeningCosignerId,
+          })
+        }
+        cosignerSubmissions={cosignerSubmissions}
+        screeningSubjectId={resolvedScreeningSubjectId}
+        onScreeningSubjectChange={setScreeningSubjectId}
+        onRequestChecksForSubjects={openScreeningForSubjectIds}
         householdPanels={householdPanels}
         omitReviewSections={["cosigner", "group"]}
       />
@@ -1880,26 +1996,7 @@ export function ManagerApplications({
         open={holdingFeeRowId !== null}
         onClose={() => setHoldingFeeRowId(null)}
       />
-      <CheckrScreeningModal
-        key={`${checkrScreeningRowId ?? "none"}:${checkrScreeningCosignerId ?? ""}`}
-        row={screeningModalRow}
-        hasLinkedCosigner={
-          checkrScreeningRowId != null &&
-          !checkrScreeningCosignerId &&
-          (cosignerSubmissionsBySigner.get(
-            normalizeApplicationAxisId(checkrScreeningRowId).toUpperCase(),
-          ) ?? []).length > 0
-        }
-        cosignerSubmissionId={checkrScreeningCosignerId}
-        open={checkrScreeningRowId !== null}
-        showPackagePickerInitially={checkrScreeningShowPicker}
-        onClose={() => {
-          setCheckrScreeningRowId(null);
-          setCheckrScreeningCosignerId(null);
-          setCheckrScreeningShowPicker(false);
-        }}
-        onUpdated={handleScreeningFlowComplete}
-      />
+      {checkrScreeningModal}
     </>
   );
 
@@ -2068,26 +2165,7 @@ export function ManagerApplications({
         initialTab="applications"
         scoped
       />
-      <CheckrScreeningModal
-        key={`${checkrScreeningRowId ?? "none"}:${checkrScreeningCosignerId ?? ""}`}
-        row={screeningModalRow}
-        hasLinkedCosigner={
-          checkrScreeningRowId != null &&
-          !checkrScreeningCosignerId &&
-          (cosignerSubmissionsBySigner.get(
-            normalizeApplicationAxisId(checkrScreeningRowId).toUpperCase(),
-          ) ?? []).length > 0
-        }
-        cosignerSubmissionId={checkrScreeningCosignerId}
-        open={checkrScreeningRowId !== null}
-        showPackagePickerInitially={checkrScreeningShowPicker}
-        onClose={() => {
-          setCheckrScreeningRowId(null);
-          setCheckrScreeningCosignerId(null);
-          setCheckrScreeningShowPicker(false);
-        }}
-        onUpdated={handleScreeningFlowComplete}
-      />
+      {checkrScreeningModal}
       {!authReady && rows.length === 0 ? (
         <div className={PORTAL_DATA_TABLE_WRAP}>
           <ListSkeleton rows={5} showLeading={false} />
