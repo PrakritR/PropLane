@@ -13,10 +13,10 @@ import { usePortalSession } from "@/hooks/use-portal-session";
 import { formatRangeLabel } from "@/lib/demo-admin-scheduling";
 import { compactTaskLocationLabel, taskNotesPreview } from "@/lib/manager-task-display";
 import {
-  MANAGER_TASK_LIST_TAB_LABELS,
-  MANAGER_TASK_LIST_TABS,
+  VENDOR_TASK_LIST_TAB_LABELS,
+  VENDOR_TASK_LIST_TABS,
   managerTaskListHref,
-  type ManagerTaskListTabId,
+  type VendorTaskListTabId,
 } from "@/lib/portal-detail-routes";
 import { formatPacificDateTime } from "@/lib/pacific-time";
 import {
@@ -60,10 +60,10 @@ export function VendorTaskList({
   tabId: serverTabId,
   basePath = "/vendor",
 }: {
-  tabId: ManagerTaskListTabId;
+  tabId: VendorTaskListTabId;
   basePath?: string;
 }) {
-  const tabId = useShallowTabId(serverTabId, MANAGER_TASK_LIST_TABS);
+  const tabId = useShallowTabId(serverTabId, VENDOR_TASK_LIST_TABS);
   const { showToast } = useAppUi();
   const { userId, ready } = usePortalSession();
   const demo = isDemoModeActive();
@@ -115,9 +115,9 @@ export function VendorTaskList({
 
   const tabItems = useMemo(
     () =>
-      MANAGER_TASK_LIST_TABS.map((id) => ({
+      VENDOR_TASK_LIST_TABS.map((id) => ({
         id,
-        label: MANAGER_TASK_LIST_TAB_LABELS[id],
+        label: VENDOR_TASK_LIST_TAB_LABELS[id],
         href: managerTaskListHref(basePath, id),
         count: id === "completed" ? doneTasks.length : openTasks.length,
         dataAttr: `vendor-task-list-tab-${id}`,
