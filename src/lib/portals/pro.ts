@@ -35,6 +35,7 @@ export const proPortal: PortalDefinition = {
       label: "Tasks",
       tabs: [
         { id: "in-progress", label: "In progress" },
+        { id: "overdue", label: "Overdue" },
         { id: "completed", label: "Completed" },
       ],
     },

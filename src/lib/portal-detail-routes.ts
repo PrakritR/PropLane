@@ -242,15 +242,31 @@ export function managerTourDetailHref(
   return `${basePath}/tours/${bucket}/${encodeURIComponent(tourId)}`;
 }
 
-export const MANAGER_TASK_LIST_TABS = ["in-progress", "completed"] as const;
+export const MANAGER_TASK_LIST_TABS = ["in-progress", "overdue", "completed"] as const;
 export type ManagerTaskListTabId = (typeof MANAGER_TASK_LIST_TABS)[number];
 
-export const MANAGER_TASK_LIST_TAB_LABELS: Record<ManagerTaskListTabId, string> = {
+/** Vendor task list keeps two tabs — overdue is manager-only. */
+export const VENDOR_TASK_LIST_TABS = ["in-progress", "completed"] as const;
+export type VendorTaskListTabId = (typeof VENDOR_TASK_LIST_TABS)[number];
+
+export const VENDOR_TASK_LIST_TAB_LABELS: Record<VendorTaskListTabId, string> = {
   "in-progress": "In progress",
   completed: "Completed",
 };
 
+export const MANAGER_TASK_LIST_TAB_LABELS: Record<ManagerTaskListTabId, string> = {
+  "in-progress": "In progress",
+  overdue: "Overdue",
+  completed: "Completed",
+};
+
 export function parseManagerTaskListTab(raw: string | undefined | null): ManagerTaskListTabId {
+  if (raw === "completed") return "completed";
+  if (raw === "overdue" || raw === "late") return "overdue";
+  return "in-progress";
+}
+
+export function parseVendorTaskListTab(raw: string | undefined | null): VendorTaskListTabId {
   if (raw === "completed") return "completed";
   return "in-progress";
 }
