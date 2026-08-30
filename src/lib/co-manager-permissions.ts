@@ -263,19 +263,12 @@ export const PORTAL_SECTION_CO_MANAGER_PERMISSION: Partial<Record<string, CoMana
   calendar: "calendar",
   services: "services",
   promotion: "promotion",
+  tours: "applications",
+  "task-list": "calendar",
+  bookings: "calendar",
+  vendors: "services",
 };
 
-function coManagerHasSectionPermission(
-  section: string,
-  permissions: CoManagerPermissions,
-): boolean {
-  const perm = PORTAL_SECTION_CO_MANAGER_PERMISSION[section];
-  if (!perm) return false;
-  if (hasCoManagerPermission(permissions, perm)) return true;
-  // Legacy grants: properties permission also unlocked services before services was its own checkbox.
-  if (section === "services" && hasCoManagerPermission(permissions, "properties")) return true;
-  return false;
-}
 
 export function mergeCoManagerPermissions(
   rows: { coManagerPermissions?: CoManagerPermissions }[],
@@ -310,17 +303,7 @@ export function coManagerPortalSectionAllowed(input: {
   section: string;
   isPrimaryManager: boolean;
   mergedPermissions: CoManagerPermissions;
-  /**
-   * True when the user is a co-manager who has at least one accepted incoming
-   * link but whose merged permissions are empty (links exist, nothing is
-   * explicitly restricted). In that case every MODULE nav section is shown,
-   * mirroring the data layer's "empty permissions = full access" rule
-   * (moduleAllowed in src/lib/auth/co-manager-module-scope.ts) so the nav no
-   * longer hides sections the co-manager can already reach through the APIs.
-   * Only module sections in PORTAL_SECTION_CO_MANAGER_PERMISSION are unlocked;
-   * `relationships` stays gated and unknown sections are unaffected. Defaults to
-   * false, so a non-empty merged set still restricts as before.
-   */
+  /** @deprecated Nav no longer locks co-manager sections; kept for callers/tests. */
   hasEmptyPermissionCoManagerLink?: boolean;
 }): boolean {
   if (input.isPrimaryManager) return true;
@@ -329,10 +312,8 @@ export function coManagerPortalSectionAllowed(input: {
   // module permission.
   if (input.section === "relationships") return true;
   if (CO_MANAGER_ALWAYS_ALLOWED_SECTIONS.has(input.section)) return true;
-  if (coManagerHasSectionPermission(input.section, input.mergedPermissions)) return true;
-  // Empty-permission link ⇒ grant every module section (parity with the data layer).
-  if (input.hasEmptyPermissionCoManagerLink && PORTAL_SECTION_CO_MANAGER_PERMISSION[input.section]) {
-    return true;
-  }
+  // Every mapped module tab stays navigable; property + module grants are
+  // enforced in APIs and row filters (see co-manager-module-scope).
+  if (PORTAL_SECTION_CO_MANAGER_PERMISSION[input.section]) return true;
   return false;
 }
