@@ -105,10 +105,9 @@ export function ManagerSignupPanel({
       }
       if (result.status === "error") {
         setErrorText(result.message);
-        showToast(result.message);
       }
     },
-    [billing, router, showToast, tier],
+    [billing, router, tier],
   );
 
   useEffect(() => {
@@ -124,7 +123,6 @@ export function ManagerSignupPanel({
         if (result.status !== "provisioned") {
           if (result.status === "error") {
             setErrorText(result.message);
-            showToast(result.message);
           }
           return;
         }
@@ -142,7 +140,7 @@ export function ManagerSignupPanel({
 
   const createManager = async () => {
     if (!fullName.trim() || !email.trim() || password.length < 8) {
-      showToast("Enter your name, email, and an 8+ character password.");
+      setErrorText("Enter your name, email, and an 8+ character password.");
       return;
     }
     setErrorText(null);
@@ -156,7 +154,6 @@ export function ManagerSignupPanel({
       const body = (await res.json()) as { error?: string; redirectTo?: string; existingAccount?: boolean };
       if (!res.ok) {
         setErrorText(body.error ?? "Could not create account.");
-        showToast(body.error ?? "Could not create account.");
         return;
       }
       const supabase = createSupabaseBrowserClient();
@@ -173,7 +170,7 @@ export function ManagerSignupPanel({
       const offer = buildPricingOffer({ tier, billing, promo: trimmedPromo, returnSurface });
       applyPricingResult(await continuePartnerPricingWithOffer(offer, { phone: trimmedPhone }));
     } catch {
-      showToast("Network error.");
+      setErrorText("Network error.");
     } finally {
       setBusy(false);
     }

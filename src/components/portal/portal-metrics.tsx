@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { ChevronDown } from "lucide-react";
 import { PortalPageFooterActions, PortalPageTitleBand } from "@/components/portal/portal-section-action-row";
-import { Fragment, type ReactNode } from "react";
+import { Fragment, type CSSProperties, type ReactNode } from "react";
 import { FieldSingleSelect } from "@/components/ui/checkbox-multi-select";
 import { Select } from "@/components/ui/input";
 import { PageHeader } from "@/components/ui/page-header";
@@ -587,6 +587,7 @@ export function ManagerPortalPageShell({
   /** Communication thread reading: flex-fill children to the bottom nav on phones. */
   mobileThreadFill = false,
   viewportFillBody = false,
+  navigationProvidesTitle = false,
   /** Fixed title + tabs/search; only the body region scrolls (default on). */
   stickyPageChrome = true,
   surfaceCard = false,
@@ -617,6 +618,12 @@ export function ManagerPortalPageShell({
   mobileThreadFill?: boolean;
   /** Flex-fill page body at all breakpoints — fixed chrome + scrollable inbox below. */
   viewportFillBody?: boolean;
+  /**
+   * Top-level queue only: the active portal navigation already names this section.
+   * Keeps a semantic h1 while removing the redundant persistent visual title row.
+   * Move all page actions into the queue command bar before enabling this.
+   */
+  navigationProvidesTitle?: boolean;
   /** List pages: pin header/tabs; scroll table or cards in {@link PORTAL_LIST_PAGE_SCROLL_BODY}. */
   stickyPageChrome?: boolean;
   /** Legacy white card shell — default is flat on the page canvas. */
@@ -652,7 +659,9 @@ export function ManagerPortalPageShell({
         fillBody && "flex min-h-0 flex-1 flex-col",
       )}
     >
-      {useInlineTitleBand ? (
+      {navigationProvidesTitle ? (
+        <h1 className="sr-only">{title}</h1>
+      ) : useInlineTitleBand ? (
         <PortalPageTitleBand
           className={cn(
             chromeShrink,
@@ -806,6 +815,14 @@ export const PORTAL_HEADER_ACTION_BTN_RESPONSIVE = `w-full shrink-0 md:w-auto ${
 
 export const PORTAL_HEADER_PRIMARY_ACTION_BTN_RESPONSIVE =
   `w-full shrink-0 md:w-auto ${PORTAL_HEADER_PRIMARY_ACTION_BTN}`;
+
+/** Primary action inside an adaptive command strip — compact, not title-sized. */
+export const PORTAL_COMMAND_PRIMARY_ACTION_BTN =
+  "portal-command-primary box-border !h-10 !min-h-10 shrink-0 rounded-lg border border-transparent px-3 text-sm font-semibold shadow-none";
+
+export const PORTAL_COMMAND_PRIMARY_ACTION_STYLE: CSSProperties = {
+  background: "color-mix(in srgb, var(--btn-primary) 92%, #000)",
+};
 
 /** Full-width header tool row (Filter | Reminders | … | primary) — edge-to-edge in the content column. */
 export const PORTAL_HEADER_FULL_WIDTH_ACTION_GRID =

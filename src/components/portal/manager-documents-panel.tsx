@@ -425,7 +425,6 @@ export function ManagerDocumentsPanel({
   const documentsUploadButton = isLibraryTab ? (
     <Button
       type="button"
-      variant="outline"
       className={`shrink-0 ${PORTAL_HEADER_ACTION_BTN}`}
       onClick={() => libraryRef.current?.openUpload()}
       disabled={isDemoModeActive()}
@@ -439,7 +438,6 @@ export function ManagerDocumentsPanel({
     !isLeasingDocumentsTab && !isLibraryTab && !isTemplatesTab ? (
       <Button
         type="button"
-        variant="outline"
         className={`shrink-0 ${PORTAL_HEADER_ACTION_BTN}`}
         onClick={() => setGenerateModalOpen(true)}
         disabled={loading}

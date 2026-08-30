@@ -357,12 +357,24 @@ export function PortalDataTableEmpty({
   message,
   icon = "default",
   variant = "card",
+  description,
+  action,
 }: {
   message: string;
   icon?: PortalEmptyIconKind;
   /** @deprecated Empty states use a single title line. */
   detail?: string;
-  variant?: "card" | "plain" | "stacked";
+  variant?: "card" | "plain" | "stacked" | "compact";
+  description?: string;
+  action?: ReactNode;
 }) {
-  return <PortalEmptyState title={message} icon={icon} variant={variant} />;
+  return (
+    <PortalEmptyState
+      title={message}
+      icon={icon}
+      variant={variant}
+      description={description}
+      action={action}
+    />
+  );
 }

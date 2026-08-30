@@ -43,6 +43,7 @@ const ManagerApplications = dynamic(() => import("@/components/portal/manager-ap
 const ManagerResidents = dynamic(() => import("@/components/portal/manager-residents").then((m) => m.ManagerResidents), { ssr: false, loading });
 const ManagerLeases = dynamic(() => import("@/components/portal/manager-leases").then((m) => m.ManagerLeases), { ssr: false, loading });
 const ManagerPayments = dynamic(() => import("@/components/portal/manager-payments").then((m) => m.ManagerPayments), { ssr: false, loading });
+const ManagerTaskList = dynamic(() => import("@/components/portal/manager-task-list").then((m) => m.ManagerTaskList), { ssr: false, loading });
 const ManagerInbox = dynamic(() => import("@/components/portal/manager-inbox").then((m) => m.ManagerInbox), { ssr: false, loading });
 const ManagerAllServicesPanel = dynamic(() => import("@/components/portal/manager-all-services-panel").then((m) => m.ManagerAllServicesPanel), { ssr: false, loading });
 const ManagerFinancesPanel = dynamic(() => import("@/components/portal/manager-finances-panel").then((m) => m.ManagerFinancesPanel), { ssr: false, loading });
@@ -152,6 +153,8 @@ export function DemoSectionRenderer({
         return <ManagerLeases />;
       case "payments":
         return <ManagerPayments />;
+      case "task-list":
+        return <ManagerTaskList tabId={tabId === "completed" ? "completed" : "in-progress"} basePath={basePath} />;
       case "services":
         return (
           <ManagerAllServicesPanel

@@ -1,6 +1,5 @@
 "use client";
 
-import { useAppUi } from "@/components/providers/app-ui-provider";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { PasswordInput } from "@/components/ui/password-input";
@@ -40,7 +39,6 @@ export function MobileEmailSignIn({
   nextPath: string;
   disabled?: boolean;
 }) {
-  const { showToast } = useAppUi();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
@@ -48,7 +46,7 @@ export function MobileEmailSignIn({
 
   const signIn = async () => {
     if (!email.trim() || !password) {
-      showToast("Enter email and password.");
+      setErrorText("Enter email and password.");
       return;
     }
     setErrorText(null);
@@ -73,7 +71,6 @@ export function MobileEmailSignIn({
       }
       if (error) {
         setErrorText(error.message);
-        showToast(error.message);
         return;
       }
       if (!data.user) {
@@ -81,9 +78,7 @@ export function MobileEmailSignIn({
       }
       window.location.replace(continueHref(nextPath));
     } catch (e) {
-      const msg = e instanceof Error ? e.message : "Sign-in failed";
-      setErrorText(msg);
-      showToast(msg);
+      setErrorText(e instanceof Error ? e.message : "Sign-in failed");
     } finally {
       setBusy(false);
     }

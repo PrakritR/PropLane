@@ -100,9 +100,8 @@ function DataListMobileRow<T>({
   selectable?: boolean;
 }) {
   const clickable = Boolean(row.onClick);
-  const body = (
-  <>
-    {selectable && row.onSelectedChange ? (
+  const selection =
+    selectable && row.onSelectedChange ? (
       <input
         type="checkbox"
         className="h-4 w-4 shrink-0 rounded border-border"
@@ -112,7 +111,8 @@ function DataListMobileRow<T>({
         data-portal-row-ignore
         aria-label={`Select ${row.primary}`}
       />
-    ) : null}
+    ) : null;
+  const recordContent = (
     <div className="min-w-0 flex-1">
       <div className="flex min-w-0 items-center gap-2">
         <p className="min-w-0 flex-1 truncate text-sm font-semibold text-foreground">{row.primary}</p>
@@ -120,43 +120,38 @@ function DataListMobileRow<T>({
       </div>
       {row.meta ? <p className="truncate text-xs text-muted">{row.meta}</p> : null}
     </div>
-    {row.inlineAction ? <div className="shrink-0" data-portal-row-ignore>{row.inlineAction}</div> : null}
-    {row.overflowActions ? <DataListOverflowMenu actions={row.overflowActions} /> : null}
-  </>
+  );
+  const trailingActions = (
+    <>
+      {row.inlineAction ? <div className="shrink-0" data-portal-row-ignore>{row.inlineAction}</div> : null}
+      {row.overflowActions ? <DataListOverflowMenu actions={row.overflowActions} /> : null}
+    </>
   );
 
   if (!clickable) {
     return (
       <div className={DATA_LIST_MOBILE_ROW_CLASS} data-slot="data-list-mobile-row">
-        {body}
+        {selection}
+        {recordContent}
+        {trailingActions}
       </div>
     );
   }
 
-  // Nested buttons (inline actions, overflow menus) cannot live inside a row <button>.
-  if (row.inlineAction || row.overflowActions?.length) {
+  // Selection and row actions are siblings of the record button. A checkbox or
+  // menu nested inside a row <button> is invalid HTML and breaks keyboard use.
+  if (selection || row.inlineAction || row.overflowActions?.length) {
     return (
-      <div
-        role="button"
-        tabIndex={0}
-        className={cn(
-          DATA_LIST_MOBILE_ROW_CLASS,
-          "w-full text-left transition hover:bg-accent/40",
-        )}
-        onClick={(e) => {
-          if (!row.onClick || isPortalRowClickIgnored(e.target)) return;
-          row.onClick();
-        }}
-        onKeyDown={(e) => {
-          if (!row.onClick || isPortalRowClickIgnored(e.target)) return;
-          if (e.key === "Enter" || e.key === " ") {
-            e.preventDefault();
-            row.onClick();
-          }
-        }}
-        data-slot="data-list-mobile-row"
-      >
-        {body}
+      <div className={cn(DATA_LIST_MOBILE_ROW_CLASS, "w-full")} data-slot="data-list-mobile-row">
+        {selection}
+        <button
+          type="button"
+          className="flex min-h-10 min-w-0 flex-1 items-center rounded-lg text-left transition-colors duration-100 hover:bg-accent/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          onClick={() => row.onClick?.()}
+        >
+          {recordContent}
+        </button>
+        {trailingActions}
       </div>
     );
   }
@@ -168,7 +163,7 @@ function DataListMobileRow<T>({
       onClick={() => row.onClick?.()}
       data-slot="data-list-mobile-row"
     >
-      {body}
+      {recordContent}
     </button>
   );
 }

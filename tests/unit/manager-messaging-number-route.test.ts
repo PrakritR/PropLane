@@ -367,4 +367,26 @@ describe("manager messaging-number route", () => {
       { state: "active" },
     );
   });
+
+  it("returns the precise provisioning diagnostic instead of replacing it with generic copy", async () => {
+    const db = dbFor({ mode: "automatic" });
+    mocks.requireManagerRouteUser.mockResolvedValue({ db, userId: MANAGER });
+    mocks.provisionManagerNumber.mockResolvedValue({
+      ok: false,
+      error:
+        "Twilio Messaging Service sender-pool attachment failed (code 20403, HTTP 403). Permission denied. The purchased number was released.",
+      state: "failed",
+    });
+    process.env.SMS_PROVISIONING_ENABLED = "1";
+
+    const response = await POST(
+      new Request("https://prop-lane.test/api/manager/messaging-number", {
+        method: "POST",
+        body: "{}",
+      }),
+    );
+
+    expect(response.status).toBe(502);
+    expect((await response.json()).error).toContain("code 20403, HTTP 403");
+  });
 });

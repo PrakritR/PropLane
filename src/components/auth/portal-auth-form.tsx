@@ -192,7 +192,7 @@ export function PortalAuthForm({
 
   const handleSignIn = async () => {
     if (!email.trim() || !password) {
-      showToast("Enter email and password.");
+      setErrorText("Enter email and password.");
       return;
     }
     setErrorText(null);
@@ -215,9 +215,7 @@ export function PortalAuthForm({
         }
       }
       if (authResult.error) {
-        const message = friendlyAuthError(authResult.error.message);
-        setErrorText(message);
-        showToast(message);
+        setErrorText(friendlyAuthError(authResult.error.message));
         return;
       }
       const user = authResult.data.user;
@@ -233,9 +231,7 @@ export function PortalAuthForm({
       didRedirect = true;
       window.location.replace(continueHref(nextPath));
     } catch (e) {
-      const message = friendlyAuthError(e instanceof Error ? e.message : "Sign-in failed");
-      setErrorText(message);
-      showToast(message);
+      setErrorText(friendlyAuthError(e instanceof Error ? e.message : "Sign-in failed"));
     } finally {
       if (!didRedirect) setBusy(false);
     }
@@ -243,11 +239,11 @@ export function PortalAuthForm({
 
   const handleCreate = async () => {
     if (!email.trim() || password.length < 8) {
-      showToast("Enter your email and a password of at least 8 characters.");
+      setErrorText("Enter your email and a password of at least 8 characters.");
       return;
     }
     if (prospectHandoff && tourInquiryFromUrl && !phone.trim()) {
-      showToast("Enter the phone number you used on your tour request.");
+      setErrorText("Enter the phone number you used on your tour request.");
       return;
     }
     setErrorText(null);
@@ -269,9 +265,7 @@ export function PortalAuthForm({
         });
         const body = (await res.json().catch(() => ({}))) as { error?: string; redirectTo?: string };
         if (!res.ok) {
-          const message = body.error ?? "Could not create your account.";
-          setErrorText(message);
-          showToast(message);
+          setErrorText(body.error ?? "Could not create your account.");
           return;
         }
         const supabase = createSupabaseBrowserClient();
@@ -301,9 +295,7 @@ export function PortalAuthForm({
       });
       const body = (await res.json()) as { error?: string; existingAccount?: boolean };
       if (!res.ok) {
-        const message = body.error ?? "Could not create your account.";
-        setErrorText(message);
-        showToast(message);
+        setErrorText(body.error ?? "Could not create your account.");
         return;
       }
       const supabase = createSupabaseBrowserClient();
@@ -352,9 +344,7 @@ export function PortalAuthForm({
       }
       window.location.replace(getStartedHref(safeNextPath(nextPath)));
     } catch (e) {
-      const message = friendlyAuthError(e instanceof Error ? e.message : "Sign up failed");
-      setErrorText(message);
-      showToast(message);
+      setErrorText(friendlyAuthError(e instanceof Error ? e.message : "Sign up failed"));
     } finally {
       if (!didRedirect) setBusy(false);
     }

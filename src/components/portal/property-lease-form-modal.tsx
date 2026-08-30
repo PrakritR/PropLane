@@ -259,7 +259,6 @@ export function PropertyLeaseFormModal({
     const validationError = validateLeaseDraft(draft, documentMode);
     if (validationError) {
       setError(validationError);
-      showToast(validationError);
       return;
     }
 

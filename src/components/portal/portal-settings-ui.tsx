@@ -196,6 +196,8 @@ export type PortalSettingsNavItem = {
   id: string;
   label: string;
   icon?: ReactNode;
+  /** Optional visual grouping for long settings navigations. */
+  group?: string;
 };
 
 /**
@@ -218,9 +220,19 @@ export function PortalSettingsNav({
   onSelect: (id: string) => void;
   className?: string;
 }) {
+  const itemGroups = items.reduce<Array<{ label?: string; items: PortalSettingsNavItem[] }>>((groups, item) => {
+    const existing = groups.find((group) => group.label === item.group);
+    if (existing) {
+      existing.items.push(item);
+      return groups;
+    }
+    groups.push({ label: item.group, items: [item] });
+    return groups;
+  }, []);
+
   return (
-    <aside className={cn("w-60 shrink-0", className)}>
-      <div className="flex items-center gap-3 px-2.5 pb-4">
+    <aside className={cn("w-60 shrink-0 rounded-2xl border border-border bg-card/60 p-2.5", className)}>
+      <div className="flex items-center gap-3 border-b border-border px-1 pb-3.5">
         <span className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-primary/10 text-sm font-semibold text-primary">
           {profileInitials(name, email)}
         </span>
@@ -229,32 +241,41 @@ export function PortalSettingsNav({
           {email ? <p className="truncate text-xs text-muted">{email}</p> : null}
         </div>
       </div>
-      <nav aria-label="Settings sections" className="space-y-0.5">
-        {items.map((item) => {
-          const active = item.id === activeId;
-          return (
-            <button
-              key={item.id}
-              type="button"
-              onClick={() => onSelect(item.id)}
-              aria-current={active ? "page" : undefined}
-              data-attr={`settings-nav-${item.id}`}
-              className={cn(
-                "flex min-h-9 w-full items-center gap-2.5 rounded-[8px] px-2.5 py-1.5 text-left text-[13px] font-medium tracking-[-0.01em] transition-colors duration-150",
-                active
-                  ? "bg-[var(--secondary)] text-foreground"
-                  : "text-muted hover:bg-[var(--secondary)]/60 hover:text-foreground",
-              )}
-            >
-              {item.icon ? (
-                <span className={cn("shrink-0", active ? "text-primary" : "opacity-80")} aria-hidden>
-                  {item.icon}
-                </span>
-              ) : null}
-              <span className="min-w-0 truncate">{item.label}</span>
-            </button>
-          );
-        })}
+      <nav aria-label="Settings sections" className="pt-2.5">
+        {itemGroups.map((group, groupIndex) => (
+          <div key={group.label ?? "settings"} className={groupIndex > 0 ? "mt-3 border-t border-border pt-3" : undefined}>
+            {group.label ? (
+              <p className="px-2.5 pb-1 text-[10px] font-bold uppercase tracking-[0.12em] text-muted/75">{group.label}</p>
+            ) : null}
+            <div className="space-y-0.5">
+              {group.items.map((item) => {
+                const active = item.id === activeId;
+                return (
+                  <button
+                    key={item.id}
+                    type="button"
+                    onClick={() => onSelect(item.id)}
+                    aria-current={active ? "page" : undefined}
+                    data-attr={`settings-nav-${item.id}`}
+                    className={cn(
+                      "flex min-h-10 w-full items-center gap-2.5 rounded-xl px-2.5 py-2 text-left text-[13px] font-medium tracking-[-0.01em] transition-colors duration-150",
+                      active
+                        ? "bg-primary/10 text-foreground shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--primary)_18%,transparent)]"
+                        : "text-muted hover:bg-[var(--secondary)]/70 hover:text-foreground",
+                    )}
+                  >
+                    {item.icon ? (
+                      <span className={cn("shrink-0", active ? "text-primary" : "opacity-80")} aria-hidden>
+                        {item.icon}
+                      </span>
+                    ) : null}
+                    <span className="min-w-0 truncate">{item.label}</span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        ))}
       </nav>
     </aside>
   );

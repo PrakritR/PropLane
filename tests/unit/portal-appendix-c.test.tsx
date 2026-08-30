@@ -157,6 +157,27 @@ describe("PortalListControlStack", () => {
     expect(screen.getByRole("link", { name: /Active/ }).getAttribute("aria-current")).toBe("page");
     expect(screen.getByPlaceholderText("Search items")).toBeTruthy();
   });
+
+  it("composes destinations, search, filters, and utilities in command mode", () => {
+    const { container } = render(
+      <PortalListControlStack
+        variant="command"
+        filterRow={<button type="button">Filter</button>}
+        actions={<button type="button">Settings</button>}
+        destinations={[
+          { id: "pending", label: "Pending", href: "/portal/tours/pending", count: 2 },
+          { id: "past", label: "Past", href: "/portal/tours/past", count: 0 },
+        ]}
+        activeDestinationId="pending"
+        search={{ value: "", onChange: () => {}, placeholder: "Search tours" }}
+      />,
+    );
+    expect(container.querySelector('[data-variant="command"]')).toBeTruthy();
+    expect(screen.getByRole("link", { name: /Pending/ })).toBeTruthy();
+    expect(screen.getByRole("searchbox", { name: "Search tours" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Filter" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Settings" })).toBeTruthy();
+  });
 });
 
 describe("PortalSectionActionRow", () => {

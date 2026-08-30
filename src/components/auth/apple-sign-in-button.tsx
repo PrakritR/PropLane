@@ -41,7 +41,7 @@ export function AppleSignInButton({
   fixedCallbackPath?: string;
   intent?: OAuthSignInIntent | null;
   onBeforeRedirect?: () => void;
-  /** Render the failure in place too — a toast is too transient for a multi-sentence hint. */
+  /** Prefer an in-place failure slot; toast only when the caller has nowhere else to put it. */
   onError?: (message: string) => void;
 }) {
   const { showToast } = useAppUi();
@@ -108,8 +108,9 @@ export function AppleSignInButton({
         // same answer `openOAuthUrl` gives for the WebAuthSession `CANCELED` code; Apple and
         // Google must not answer the same question two different ways on the same screen.
         if (!result.cancelled) {
-          onError?.(result.message);
-          if (shouldShowAppleSignInErrorToast(result.message)) {
+          if (onError) {
+            onError(result.message);
+          } else if (shouldShowAppleSignInErrorToast(result.message)) {
             showToast(result.message);
           }
         }

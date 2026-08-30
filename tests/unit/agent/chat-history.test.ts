@@ -7,7 +7,7 @@ import {
   listAgentChatThreads,
   loadAgentChatTranscript,
 } from "@/lib/agent/chat-history";
-import { appendAgentMessages, createPortalChatSession, ensureAgentSession } from "@/lib/agent/sessions";
+import { appendAgentMessages, ensureAgentSession } from "@/lib/agent/sessions";
 
 type Row = Record<string, unknown> & { id: string };
 type TableName = "agent_sessions" | "agent_messages" | "agent_pending_actions";
@@ -19,7 +19,10 @@ const SESSION_A = "10000000-0000-4000-8000-000000000001";
 const SESSION_B = "10000000-0000-4000-8000-000000000002";
 
 /** Small in-memory chain that records the same equality/range behavior used by the archive. */
-function makeDb(seed: Partial<Record<TableName, Row[]>>, options: { withoutSessionTitle?: boolean } = {}) {
+function makeDb(
+  seed: Partial<Record<TableName, Row[]>>,
+  options: { withoutSessionTitle?: boolean; failMessageReads?: boolean } = {},
+) {
   const tables: Record<TableName, Row[]> = {
     agent_sessions: [...(seed.agent_sessions ?? [])],
     agent_messages: [...(seed.agent_messages ?? [])],
@@ -61,6 +64,12 @@ function makeDb(seed: Partial<Record<TableName, Row[]>>, options: { withoutSessi
           return {
             data: null,
             error: { code: "PGRST204", message: "Could not find the 'title' column of 'agent_sessions'" },
+          };
+        }
+        if (options.failMessageReads && table === "agent_messages" && operation === "select") {
+          return {
+            data: null,
+            error: { code: "57014", message: "statement timeout" },
           };
         }
         const rows = tables[table];
@@ -178,6 +187,14 @@ describe("portal chat archive", () => {
         portalSession("30000000-0000-4000-8000-000000000003", "2026-08-04T12:00:02.000Z", { portal: "resident" }),
         portalSession("30000000-0000-4000-8000-000000000004", "2026-08-04T12:00:03.000Z", { kind: "leasing_sms" }),
       ],
+      // Every listed thread carries a question; empty threads are never saved.
+      agent_messages: newest.map((session, index) => ({
+        id: `msg-${index}`,
+        session_id: session.id,
+        role: "user",
+        content: `Question ${index}`,
+        created_at: session.updated_at as string,
+      })),
     });
 
     const first = await listAgentChatThreads({ userId: USER_A, db }, "manager");
@@ -375,17 +392,48 @@ describe("portal chat archive", () => {
     expect(db.tables.agent_pending_actions[0]).toMatchObject({ status: "denied" });
   });
 
-  it("creates and lists a blank thread even while an additive title migration is pending", async () => {
-    const db = makeDb({}, { withoutSessionTitle: true });
+  it("lists only conversations that carry a question, even while an additive title migration is pending", async () => {
+    const db = makeDb(
+      {
+        agent_sessions: [
+          { id: SESSION_A, user_id: USER_A, landlord_id: USER_A, portal: "manager", kind: "portal_chat", updated_at: "2026-08-04T12:00:00.000Z" },
+          // An empty thread (no user message) must never surface in history.
+          { id: SESSION_B, user_id: USER_A, landlord_id: USER_A, portal: "manager", kind: "portal_chat", updated_at: "2026-08-05T12:00:00.000Z" },
+        ],
+        agent_messages: [
+          { id: "m1", session_id: SESSION_A, role: "user", content: "How much rent is overdue?", created_at: "2026-08-04T12:00:01.000Z" },
+        ],
+      },
+      { withoutSessionTitle: true },
+    );
     const actor = { userId: USER_A, landlordId: USER_A, db };
-
-    const sessionId = await createPortalChatSession(actor, "manager");
-    expect(sessionId).toBe("created-1");
 
     const archive = await listAgentChatThreads(actor, "manager");
     expect(archive.error).toBeUndefined();
-    expect(archive.threads).toEqual([
-      expect.objectContaining({ id: sessionId, title: "New conversation" }),
-    ]);
+    expect(archive.threads.map((thread) => thread.id)).toEqual([SESSION_A]);
+    expect(archive.threads[0]).toMatchObject({ title: "How much rent is overdue?" });
+  });
+
+  it("returns an error instead of an empty archive when conversation titles fail to load", async () => {
+    const db = makeDb(
+      {
+        agent_sessions: [portalSession(SESSION_A, "2026-08-04T12:00:00.000Z")],
+        agent_messages: [
+          {
+            id: "m1",
+            session_id: SESSION_A,
+            role: "user",
+            content: "How much rent is overdue?",
+            created_at: "2026-08-04T12:00:01.000Z",
+          },
+        ],
+      },
+      { failMessageReads: true },
+    );
+
+    const archive = await listAgentChatThreads({ userId: USER_A, db }, "manager");
+    expect(archive.threads).toEqual([]);
+    expect(archive.nextCursor).toBeNull();
+    expect(archive.error).toBe("Could not load conversations. Try again.");
   });
 });

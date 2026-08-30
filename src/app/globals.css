@@ -1191,6 +1191,11 @@ input[type="date"].portal-modal-date-input::-webkit-date-and-time-value {
   box-shadow: 0 8px 20px -8px color-mix(in srgb, var(--btn-primary) 60%, transparent);
 }
 
+/* Compact operational primaries retain AA contrast when hovered in both themes. */
+.portal-command-primary:hover {
+  filter: brightness(1.04) !important;
+}
+
 .btn-brand-cta {
   background: linear-gradient(135deg, var(--cobalt-deep) 0%, var(--sky) 100%) !important;
   color: var(--pl-white);
@@ -2089,7 +2094,6 @@ html[data-native] .axis-assistant-panel {
   max-height: min(62dvh, calc(100dvh - var(--native-safe-top) - var(--native-safe-bottom) - 4.5rem));
   border-radius: 22px 22px 16px 16px;
   transform-origin: bottom center;
-  transition: bottom 180ms ease-out, max-height 180ms ease-out;
 }
 
 /* Keep the composer above the software keyboard; hide Next.js dev issue badge while open. */

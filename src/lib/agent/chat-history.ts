@@ -124,8 +124,8 @@ export async function listAgentChatThreads(
       return { threads: [], nextCursor: null, error: "Could not load conversations. Try again." };
     }
     const rows = data as { id: string; title?: string | null; updated_at?: string | null }[];
-    const visibleRows = rows.slice(0, AGENT_CHAT_HISTORY_PAGE_SIZE);
-    const sessionIds = visibleRows.map((row) => String(row.id));
+    const candidateRows = rows.slice(0, AGENT_CHAT_HISTORY_PAGE_SIZE);
+    const sessionIds = candidateRows.map((row) => String(row.id));
     const promptsBySession = new Map<string, string[]>();
     if (sessionIds.length > 0) {
       const { data: promptRows, error: promptsError } = await actor.db
@@ -135,29 +135,41 @@ export async function listAgentChatThreads(
         .eq("role", "user")
         .order("created_at", { ascending: true });
       if (promptsError) {
+        // Fail closed with an error — an empty prompts map would filter every
+        // real thread out and look like "no history" instead of a load failure.
         reportArchiveFailure("load conversation titles", promptsError);
-      } else {
-        for (const row of (promptRows ?? []) as { session_id?: unknown; content?: unknown }[]) {
-          if (typeof row.session_id !== "string" || typeof row.content !== "string") continue;
-          const prompts = promptsBySession.get(row.session_id) ?? [];
-          prompts.push(row.content);
-          promptsBySession.set(row.session_id, prompts);
-        }
+        return {
+          threads: [],
+          nextCursor: null,
+          error: "Could not load conversations. Try again.",
+        };
+      }
+      for (const row of (promptRows ?? []) as { session_id?: unknown; content?: unknown }[]) {
+        if (typeof row.session_id !== "string" || typeof row.content !== "string") continue;
+        const prompts = promptsBySession.get(row.session_id) ?? [];
+        prompts.push(row.content);
+        promptsBySession.set(row.session_id, prompts);
       }
     }
-    const visible = visibleRows.map((row) => {
-      const prompts = promptsBySession.get(String(row.id)) ?? [];
-      return {
-        id: String(row.id),
-        title:
-          readGeneratedAgentChatThreadTitle(row.title) ??
-          (prompts.length > 0 ? agentChatThreadTitleFromPrompts(prompts) : fallbackTitle(row.title)),
-        updatedAt: String(row.updated_at ?? ""),
-      };
-    });
+    // Only surface conversations that carry at least one question. A session
+    // with no user message is an empty thread the user never sent into (or an
+    // orphan from a failed first turn) and must not appear in history.
+    const visible = candidateRows
+      .filter((row) => (promptsBySession.get(String(row.id)) ?? []).length > 0)
+      .map((row) => {
+        const prompts = promptsBySession.get(String(row.id)) ?? [];
+        return {
+          id: String(row.id),
+          title: readGeneratedAgentChatThreadTitle(row.title) ?? agentChatThreadTitleFromPrompts(prompts),
+          updatedAt: String(row.updated_at ?? ""),
+        };
+      });
     return {
       threads: visible,
-      nextCursor: rows.length > AGENT_CHAT_HISTORY_PAGE_SIZE ? visible.at(-1)?.updatedAt ?? null : null,
+      // Key the cursor off the last CANDIDATE row, not the last visible one, so
+      // filtering out empty threads never prematurely ends pagination.
+      nextCursor:
+        rows.length > AGENT_CHAT_HISTORY_PAGE_SIZE ? String(candidateRows.at(-1)?.updated_at ?? "") || null : null,
     };
   } catch (error) {
     reportArchiveFailure("list conversations", error);
