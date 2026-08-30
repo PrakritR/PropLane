@@ -244,11 +244,43 @@ function publicStatus(
     sendingAvailable: status.sendingAvailable,
     planTier: status.planTier,
     entitlement: status.entitlement,
-    number: status.number,
+    number: status.number
+      ? {
+          ...status.number,
+          lastError: publicAttachmentDiagnostic(status.number.lastError),
+        }
+      : null,
     canRequest: status.canRequest,
     canSend: status.canSend,
     personalPhone: status.personalPhone,
   };
+}
+
+function publicAttachmentDiagnostic(
+  error: string | null | undefined,
+): string | null {
+  const value = error?.trim() ?? "";
+  if (
+    /^Twilio Messaging Service sender-pool attachment failed \(code [\w-]+, HTTP \d{3}\)\.(?: The purchased number (?:was released|release could not be confirmed; do not retry until PropLane reviews it)\.)?$/.test(
+      value,
+    )
+  ) {
+    return value;
+  }
+  return null;
+}
+
+function publicProvisioningError(error: string): string {
+  const attachmentDiagnostic = publicAttachmentDiagnostic(error);
+  if (attachmentDiagnostic) return attachmentDiagnostic;
+  if (
+    /^Messaging Service attachment is not configured\. The purchased number (?:was released|release could not be confirmed; do not retry until PropLane reviews it)\.$/.test(
+      error,
+    )
+  ) {
+    return error;
+  }
+  return "We could not set up your messaging number. Try again later.";
 }
 
 /** Read-only manager messaging status. Never seeds a row or contacts a provider. */
@@ -406,7 +438,7 @@ export async function POST(req: Request) {
     return NextResponse.json(
       {
         ...next,
-        error: result.error,
+        error: publicProvisioningError(result.error),
       },
       { status: result.state === "pending_registration" ? 503 : 502 },
     );

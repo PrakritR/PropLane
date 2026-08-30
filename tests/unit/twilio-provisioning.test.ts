@@ -63,7 +63,7 @@ describe("purchaseManagerTwilioNumber", () => {
       cleanupConfirmed: true,
       purchasedNumber: { number: "+12065550123", sid: "PN111" },
       error:
-        "Twilio Messaging Service sender-pool attachment failed (code 20403, HTTP 403): Permission denied More info: https://www.twilio.com/docs/errors/20403 The purchased number was released.",
+        "Twilio Messaging Service sender-pool attachment failed (code 20403, HTTP 403). The purchased number was released.",
     });
     expect(mocks.remove).toHaveBeenCalledTimes(1);
     expect(consoleError).toHaveBeenCalledWith(
@@ -75,6 +75,8 @@ describe("purchaseManagerTwilioNumber", () => {
         status: 403,
       }),
     );
+    expect(JSON.stringify(result)).not.toContain("Permission denied");
+    expect(JSON.stringify(result)).not.toContain("twilio.com/docs");
   });
 
   it("does not tell callers to retry when provider cleanup cannot be confirmed", async () => {
@@ -89,9 +91,46 @@ describe("purchaseManagerTwilioNumber", () => {
 
     const result = await purchaseManagerTwilioNumber();
 
-    expect(result).toMatchObject({ ok: false });
+    expect(result).toMatchObject({ ok: false, cleanupConfirmed: false });
     if (result.ok) throw new Error("Expected attachment failure");
     expect(result.error).toContain("code 20403, HTTP 403");
     expect(result.error).toContain("do not retry until PropLane reviews it");
+  });
+  it("reports unconfirmed cleanup when attachment configuration is missing", async () => {
+    vi.stubEnv("TWILIO_MESSAGING_SERVICE_SID", "");
+    mocks.remove.mockResolvedValue(false);
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+
+    const result = await purchaseManagerTwilioNumber();
+
+    expect(result).toMatchObject({
+      ok: false,
+      cleanupConfirmed: false,
+      purchasedNumber: { number: "+12065550123", sid: "PN111" },
+    });
+    if (result.ok) throw new Error("Expected configuration failure");
+    expect(result.error).toContain("do not retry until PropLane reviews it");
+  });
+
+  it("quarantines an ambiguous purchase response instead of permitting a duplicate", async () => {
+    mocks.purchase.mockRejectedValue(
+      Object.assign(new Error("socket timed out after request write"), {
+        code: "ETIMEDOUT",
+      }),
+    );
+
+    const result = await purchaseManagerTwilioNumber({
+      requestId: "req-timeout",
+    });
+
+    expect(result).toEqual({
+      ok: false,
+      cleanupConfirmed: false,
+      error:
+        "Twilio work-number purchase failed (code ETIMEDOUT). Provider ownership is unconfirmed; do not retry until PropLane reviews it.",
+    });
+    expect(mocks.attach).not.toHaveBeenCalled();
+    expect(mocks.remove).not.toHaveBeenCalled();
+    expect(JSON.stringify(result)).not.toContain("socket timed out");
   });
 });

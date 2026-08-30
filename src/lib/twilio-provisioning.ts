@@ -43,14 +43,7 @@ function twilioOperationError(operation: string, error: unknown): string {
     fields.code ? `code ${fields.code}` : null,
     fields.status ? `HTTP ${fields.status}` : null,
   ].filter(Boolean);
-  const detail = fields.message?.trim();
-  const moreInfo = fields.moreInfo?.trim();
-  return [
-    `${operation} failed${identifiers.length ? ` (${identifiers.join(", ")})` : ""}${detail ? `: ${detail}` : "."}`,
-    moreInfo ? `More info: ${moreInfo}` : null,
-  ]
-    .filter(Boolean)
-    .join(" ");
+  return `${operation} failed${identifiers.length ? ` (${identifiers.join(", ")})` : ""}.`;
 }
 
 /**
@@ -70,6 +63,7 @@ export async function purchaseManagerTwilioNumber(opts?: {
 
   const areaCodeDigits = opts?.areaCode?.replace(/\D/g, "").slice(0, 3);
   const areaCode = areaCodeDigits && areaCodeDigits.length === 3 ? Number(areaCodeDigits) : undefined;
+  let purchaseOutcomeMayBeAmbiguous = false;
 
   try {
     const available = await client.availablePhoneNumbers("US").local.list({
@@ -87,6 +81,11 @@ export async function purchaseManagerTwilioNumber(opts?: {
       };
     }
 
+    // A transport failure after this request reaches Twilio can hide a
+    // successful purchase. Keep the durable request id quarantined so the
+    // reconciliation worker can find that exact friendlyName; opening the row
+    // for an immediate retry could buy a second number.
+    purchaseOutcomeMayBeAmbiguous = true;
     const purchased = await client.incomingPhoneNumbers.create({
       phoneNumber: candidate,
       ...(opts?.requestId ? { friendlyName: `proplane-manager-${opts.requestId}` } : {}),
@@ -99,8 +98,31 @@ export async function purchaseManagerTwilioNumber(opts?: {
     let messagingServiceSid: string | null = null;
     const svc = process.env.TWILIO_MESSAGING_SERVICE_SID?.trim();
     if (!svc || !phoneNumberSid) {
-      await client.incomingPhoneNumbers(phoneNumberSid).remove().catch(() => undefined);
-      return { ok: false, error: "Messaging Service attachment is not configured." };
+      const released = phoneNumberSid
+        ? await client
+            .incomingPhoneNumbers(phoneNumberSid)
+            .remove()
+            .catch((cleanupError) => {
+              console.error(
+                "Twilio number cleanup after configuration failure failed",
+                {
+                  phoneNumberSid,
+                  ...twilioErrorFields(cleanupError),
+                },
+              );
+              return false;
+            })
+        : false;
+      return {
+        ok: false,
+        cleanupConfirmed: released,
+        purchasedNumber: phoneNumberSid
+          ? { number, sid: phoneNumberSid }
+          : undefined,
+        error: released
+          ? "Messaging Service attachment is not configured. The purchased number was released."
+          : "Messaging Service attachment is not configured. The purchased number release could not be confirmed; do not retry until PropLane reviews it.",
+      };
     }
     try {
       await client.messaging.v1.services(svc).phoneNumbers.create({ phoneNumberSid });
@@ -137,7 +159,17 @@ export async function purchaseManagerTwilioNumber(opts?: {
 
     return { ok: true, number, sid: phoneNumberSid, messagingServiceSid };
   } catch (e) {
-    return { ok: false, error: e instanceof Error ? e.message : "Could not provision a work number." };
+    if (purchaseOutcomeMayBeAmbiguous && opts?.requestId) {
+      return {
+        ok: false,
+        cleanupConfirmed: false,
+        error: `${twilioOperationError("Twilio work-number purchase", e)} Provider ownership is unconfirmed; do not retry until PropLane reviews it.`,
+      };
+    }
+    return {
+      ok: false,
+      error: twilioOperationError("Twilio work-number provisioning", e),
+    };
   }
 }
 

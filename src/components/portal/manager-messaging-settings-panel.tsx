@@ -157,6 +157,34 @@ function inferredUsAreaCode(phone: string | null | undefined): string {
   return digits.length === 10 ? digits.slice(0, 3) : "";
 }
 
+function isMessagingNumberStatus(
+  value: unknown,
+): value is ManagerMessagingNumberStatus {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const candidate = value as Partial<ManagerMessagingNumberStatus>;
+  return (
+    typeof candidate.mode === "string" &&
+    typeof candidate.workspaceRole === "string" &&
+    typeof candidate.provisioningAvailable === "boolean" &&
+    typeof candidate.canRequest === "boolean" &&
+    typeof candidate.canSend === "boolean" &&
+    Boolean(candidate.personalPhone) &&
+    typeof candidate.personalPhone === "object"
+  );
+}
+
+function publicFailureDiagnostic(error: string | null | undefined): string | null {
+  const value = error?.trim() ?? "";
+  if (
+    /^Twilio Messaging Service sender-pool attachment failed \(code [\w-]+, HTTP \d{3}\)\.(?: The purchased number (?:was released|release could not be confirmed; do not retry until PropLane reviews it)\.)?$/.test(
+      value,
+    )
+  ) {
+    return value;
+  }
+  return null;
+}
+
 export function ManagerMessagingSettingsPanel({
   personalPhoneRefreshKey = 0,
 }: {
@@ -275,6 +303,7 @@ export function ManagerMessagingSettingsPanel({
           error?: string;
         };
         if (!res.ok) {
+          if (isMessagingNumberStatus(body)) setStatus(body);
           setError(body.error ?? "Could not request a messaging number.");
           // Failed provision responses include the updated public status (e.g.
           // quarantined provisioning with canRequest: false). Apply it so Retry
@@ -464,6 +493,7 @@ export function ManagerMessagingSettingsPanel({
    * belonging to another account — is never advertised to residents.
    */
   const announceReady = Boolean(phoneNumber) && status.canSend;
+  const failureDiagnostic = publicFailureDiagnostic(status.number?.lastError);
   // An unchecked plan must stay actionable before a number exists - otherwise
   // the one account that sees "not checked yet" (a new one, with no number) is
   // the one account with no control that resolves it.
@@ -563,12 +593,12 @@ export function ManagerMessagingSettingsPanel({
                 not purchase another number automatically. Fix the issue below,
                 then retry setup when you&apos;re ready.
               </p>
-              {status.number.lastError ? (
+              {failureDiagnostic ? (
                 <p
                   className="break-words text-xs"
                   data-attr="messaging-number-failure-diagnostic"
                 >
-                  Diagnostic: {status.number.lastError}
+                  Diagnostic: {failureDiagnostic}
                 </p>
               ) : null}
             </div>

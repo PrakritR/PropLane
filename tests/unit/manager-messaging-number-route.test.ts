@@ -143,6 +143,24 @@ describe("manager messaging-number route", () => {
     });
   });
 
+  it("removes unexpected persisted last_error details from read-only status", async () => {
+    const db = dbFor();
+    db.__tables.manager_sms_numbers.push({
+      manager_user_id: MANAGER,
+      provision_state: "failed",
+      registration_state: "approved",
+      attachment_state: "failed",
+      number_registration_state: "not_submitted",
+      last_error: "database host and provider account details",
+    });
+    mocks.requireManagerRouteUser.mockResolvedValue({ db, userId: MANAGER });
+
+    const body = await (await GET()).json();
+
+    expect(body.number.lastError).toBeNull();
+    expect(JSON.stringify(body)).not.toContain("database host");
+  });
+
   it("derives stuck carrier-registration attention from provider progress instead of updated_at", async () => {
     const db = dbFor();
     db.__tables.manager_sms_numbers.push({
@@ -374,7 +392,7 @@ describe("manager messaging-number route", () => {
     mocks.provisionManagerNumber.mockResolvedValue({
       ok: false,
       error:
-        "Twilio Messaging Service sender-pool attachment failed (code 20403, HTTP 403). Permission denied. The purchased number was released.",
+        "Twilio Messaging Service sender-pool attachment failed (code 20403, HTTP 403). The purchased number was released.",
       state: "failed",
     });
     process.env.SMS_PROVISIONING_ENABLED = "1";
@@ -388,5 +406,37 @@ describe("manager messaging-number route", () => {
 
     expect(response.status).toBe(502);
     expect((await response.json()).error).toContain("code 20403, HTTP 403");
+  });
+  it("does not expose an unexpected internal provisioning error", async () => {
+    const db = dbFor({ mode: "automatic" });
+    db.__tables.manager_sms_numbers.push({
+      manager_user_id: MANAGER,
+      provision_state: "failed",
+      registration_state: "approved",
+      attachment_state: "failed",
+      number_registration_state: "not_submitted",
+      last_error: "database host and provider account details",
+    });
+    mocks.requireManagerRouteUser.mockResolvedValue({ db, userId: MANAGER });
+    mocks.provisionManagerNumber.mockResolvedValue({
+      ok: false,
+      error: "database host and provider account details",
+      state: "failed",
+    });
+    process.env.SMS_PROVISIONING_ENABLED = "1";
+
+    const response = await POST(
+      new Request("https://prop-lane.test/api/manager/messaging-number", {
+        method: "POST",
+        body: "{}",
+      }),
+    );
+
+    const body = await response.json();
+    expect(body).toMatchObject({
+      error: "We could not set up your messaging number. Try again later.",
+      number: { lastError: null },
+    });
+    expect(JSON.stringify(body)).not.toContain("database host");
   });
 });

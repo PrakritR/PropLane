@@ -465,7 +465,7 @@ describe("ManagerMessagingSettingsPanel", () => {
         attachmentState: "failed",
         phoneNumber: null,
         lastError:
-          "Twilio Messaging Service sender-pool attachment failed (code 20403, HTTP 403). Permission denied. The purchased number was released.",
+          "Twilio Messaging Service sender-pool attachment failed (code 20403, HTTP 403). The purchased number was released.",
       },
     };
     vi.stubGlobal("fetch", vi.fn(async () => Response.json(failed)));
@@ -482,7 +482,77 @@ describe("ManagerMessagingSettingsPanel", () => {
     expect(screen.getByRole("button", { name: "Retry setup" })).toBeTruthy();
   });
 
-  it("applies a failed provision status so Retry disappears after quarantine", async () => {
+  it("does not render an unexpected internal last_error as a public diagnostic", async () => {
+    const failed: ManagerMessagingNumberStatus = {
+      ...pausedStatus,
+      number: {
+        state: "failed",
+        registrationState: "approved",
+        carrierRegistrationState: "not_submitted",
+        attachmentState: "failed",
+        phoneNumber: null,
+        lastError: "database host and provider account details",
+      },
+    };
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json(failed)));
+
+    render(<ManagerMessagingSettingsPanel />);
+
+    await screen.findByText("Setup failed before a work number became active.", {
+      exact: false,
+    });
+    expect(screen.queryByText(/database host/i)).toBeNull();
+  });
+
+  it("applies the fresh failed status returned by a failed setup request", async () => {
+    const ready: ManagerMessagingNumberStatus = {
+      ...pausedStatus,
+      mode: "automatic",
+      provisioningAvailable: true,
+      canRequest: true,
+    };
+    const failed: ManagerMessagingNumberStatus = {
+      ...ready,
+      number: {
+        state: "failed",
+        registrationState: "approved",
+        carrierRegistrationState: "not_submitted",
+        attachmentState: "failed",
+        phoneNumber: null,
+        lastError:
+          "Twilio Messaging Service sender-pool attachment failed (code 20403, HTTP 403). The purchased number was released.",
+      },
+    };
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(Response.json(ready))
+      .mockResolvedValueOnce(
+        Response.json(
+          { ...failed, error: failed.number?.lastError },
+          { status: 502 },
+        ),
+      );
+    vi.stubGlobal("fetch", fetchMock);
+    render(<ManagerMessagingSettingsPanel />);
+
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Request work number" }),
+    );
+
+    expect(
+      await screen.findByText("Setup failed before a work number became active.", {
+        exact: false,
+      }),
+    ).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Retry setup" })).toBeTruthy();
+    expect(
+      document.querySelector(
+        '[data-attr="messaging-number-failure-diagnostic"]',
+      )?.textContent,
+    ).toContain("code 20403, HTTP 403");
+  });
+
+  it("applies a quarantined provision status so Retry disappears", async () => {
     const readyToRequest: ManagerMessagingNumberStatus = {
       ...pausedStatus,
       mode: "automatic",
