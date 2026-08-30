@@ -33,6 +33,16 @@ export type ManagerMessagingNumber = {
   setupNeedsAttention?: boolean;
 };
 
+/**
+ * The account's authoritative plan class, resolved from `manager_purchases`
+ * (never the reconcile-dependent `sms_manager_entitlements` row, which is absent
+ * until a manager first requests a number). `"free"` is confirmed no-paid-plan;
+ * `"paid"` is Pro/Business or a live subscription; `"unknown"` is an unreadable
+ * plan row. UI shows the "upgrade to unlock SMS" upsell ONLY for `"free"` — a
+ * paid manager who has never reconciled must not see a free-tier prompt.
+ */
+export type ManagerMessagingPlanTier = "free" | "paid" | "unknown";
+
 export type ManagerMessagingNumberStatus = {
   mode: ManagerMessagingRuntimeMode;
   workspaceRole: ManagerMessagingWorkspaceRole;
@@ -45,6 +55,7 @@ export type ManagerMessagingNumberStatus = {
    * can flip.
    */
   sendingAvailable: boolean;
+  planTier: ManagerMessagingPlanTier;
   entitlement: ManagerMessagingEntitlement;
   number: ManagerMessagingNumber | null;
   canRequest: boolean;

@@ -2,9 +2,11 @@ import { NextResponse } from "next/server";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { track } from "@/lib/analytics/posthog";
 import { requireManagerRouteUser } from "@/lib/manager-route-guard.server";
+import { getEffectiveManagerSkuTier } from "@/lib/manager-access-server";
 import {
   managerCarrierRegistrationNeedsAttention,
   type ManagerMessagingNumberStatus,
+  type ManagerMessagingPlanTier,
   type ManagerMessagingRuntimeMode,
 } from "@/lib/sms/manager-messaging-number";
 import {
@@ -83,6 +85,7 @@ async function buildStatus(
   const [
     runtimeResult,
     entitlement,
+    planTierResult,
     numberResult,
     profileResult,
     pureCoManager,
@@ -93,6 +96,10 @@ async function buildStatus(
       .eq("singleton", true)
       .maybeSingle(),
     getStoredManagerSmsEntitlement(db, userId),
+    // Authoritative plan class, independent of the reconcile-dependent
+    // entitlement row. This is what the free/paid UI keys off, so a paid manager
+    // who never requested a number is never shown the free-tier upsell.
+    getEffectiveManagerSkuTier(userId),
     db
       .from("manager_sms_numbers")
       .select(NUMBER_SELECT)
@@ -167,6 +174,15 @@ async function buildStatus(
       }
     : null;
 
+  // Unreadable plan → "unknown" (fail closed to no upsell, never the Free cap);
+  // an explicit "free" tier → "free"; anything else (pro/business, or a null
+  // tier backed by a live subscription) → "paid".
+  const planTier: ManagerMessagingPlanTier = !planTierResult.ok
+    ? "unknown"
+    : planTierResult.tier === "free"
+      ? "free"
+      : "paid";
+
   const requestableState =
     number === null ||
     number.state === "pending_registration" ||
@@ -185,6 +201,7 @@ async function buildStatus(
     workspaceRole: pureCoManager ? "co_manager" : "primary",
     provisioningAvailable: provisioningEnvEnabled && modeAllowsManager,
     sendingAvailable: sendEnvEnabled && modeAllowsManager,
+    planTier,
     entitlement,
     number,
     // A missing/stale entitlement row must not deadlock a genuinely paid
@@ -225,6 +242,7 @@ function publicStatus(
     workspaceRole: status.workspaceRole,
     provisioningAvailable: status.provisioningAvailable,
     sendingAvailable: status.sendingAvailable,
+    planTier: status.planTier,
     entitlement: status.entitlement,
     number: status.number,
     canRequest: status.canRequest,

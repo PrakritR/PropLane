@@ -18,7 +18,8 @@ vi.mock("@/lib/supabase/service", () => ({
   createSupabaseServiceRoleClient: () => mocks.serviceClient(),
 }));
 vi.mock("@/lib/twilio", () => ({ sendSms: mocks.sendSms }));
-vi.mock("@/lib/twilio-client.server", () => ({
+vi.mock("@/lib/twilio-client.server", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/twilio-client.server")>()),
   createTwilioRestClient: mocks.createTwilioRestClient,
 }));
 vi.mock("@/lib/proplane-sms-transport.server", () => ({

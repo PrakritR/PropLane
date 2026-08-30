@@ -5,12 +5,16 @@ const mocks = vi.hoisted(() => ({
   requireManagerRouteUser: vi.fn(),
   getStoredManagerSmsEntitlement: vi.fn(),
   reconcileManagerSmsEntitlement: vi.fn(),
+  getEffectiveManagerSkuTier: vi.fn(),
   provisionManagerNumber: vi.fn(),
   track: vi.fn(),
 }));
 
 vi.mock("@/lib/manager-route-guard.server", () => ({
   requireManagerRouteUser: mocks.requireManagerRouteUser,
+}));
+vi.mock("@/lib/manager-access-server", () => ({
+  getEffectiveManagerSkuTier: mocks.getEffectiveManagerSkuTier,
 }));
 vi.mock("@/lib/sms/manager-sms-entitlement.server", () => ({
   getStoredManagerSmsEntitlement: mocks.getStoredManagerSmsEntitlement,
@@ -74,6 +78,7 @@ beforeEach(() => {
     tier: "pro",
     source: "stripe",
   });
+  mocks.getEffectiveManagerSkuTier.mockResolvedValue({ ok: true, tier: "pro" });
 });
 
 afterEach(() => {
@@ -92,6 +97,7 @@ describe("manager messaging-number route", () => {
       mode: "paused",
       workspaceRole: "primary",
       provisioningAvailable: false,
+      planTier: "paid",
       canRequest: false,
       canSend: false,
       number: null,
@@ -100,6 +106,28 @@ describe("manager messaging-number route", () => {
     expect(mocks.getStoredManagerSmsEntitlement).toHaveBeenCalledTimes(1);
     expect(mocks.reconcileManagerSmsEntitlement).not.toHaveBeenCalled();
     expect(mocks.provisionManagerNumber).not.toHaveBeenCalled();
+  });
+
+  it("maps the authoritative plan class into planTier (free / unknown)", async () => {
+    mocks.getEffectiveManagerSkuTier.mockResolvedValueOnce({
+      ok: true,
+      tier: "free",
+    });
+    expect((await (await GET()).json()).planTier).toBe("free");
+
+    // A null tier backed by a live subscription is paid, not free.
+    mocks.getEffectiveManagerSkuTier.mockResolvedValueOnce({
+      ok: true,
+      tier: null,
+    });
+    expect((await (await GET()).json()).planTier).toBe("paid");
+
+    // An unreadable plan fails closed to "unknown" (never the free upsell).
+    mocks.getEffectiveManagerSkuTier.mockResolvedValueOnce({
+      ok: false,
+      error: "boom",
+    });
+    expect((await (await GET()).json()).planTier).toBe("unknown");
   });
 
   it("exposes co-manager workspace context on read-only status", async () => {
