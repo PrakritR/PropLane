@@ -21,7 +21,6 @@ import { ManagerPortalSettingsModal } from "@/components/portal/manager-portal-s
 import {
   PORTAL_HEADER_ACTION_BTN,
   PORTAL_HEADER_PRIMARY_ACTION_BTN,
-  PORTAL_COMMAND_PRIMARY_ACTION_STYLE,
 } from "@/components/portal/portal-metrics";
 import {
   axisAdminFilterContact,
@@ -267,8 +266,8 @@ export function ManagerCommunication({
   const communicationNewMessageButton = (
     <Button
       type="button"
+      variant="outline"
       className={`shrink-0 ${PORTAL_HEADER_PRIMARY_ACTION_BTN}`}
-      style={PORTAL_COMMAND_PRIMARY_ACTION_STYLE}
       data-attr="communication-new-message"
       aria-label="New message"
       onClick={() => openCompose("email")}
