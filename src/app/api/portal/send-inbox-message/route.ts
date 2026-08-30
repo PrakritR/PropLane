@@ -28,6 +28,10 @@ import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { canSendResidentOutboundSms, sendResidentOutboundSms } from "@/lib/resident-outbound-sms.server";
 import {
+  RESIDENT_AGENT_THREAD_TYPE,
+  runResidentInboxAgentTurn,
+} from "@/lib/agent/resident-inbox-agent.server";
+import {
   findThreadByResidentPhone,
   forwardResidentMessageToManagers,
   openClawResidentThread,
@@ -260,6 +264,30 @@ export async function POST(req: Request) {
           } catch {
             void turnTask();
           }
+        }
+        return NextResponse.json({ ok: true, agentHandled: true });
+      }
+
+      // Same shape for a resident's assistant thread. The other party here is
+      // PropLane itself, so there is no human recipient to scope-check and this
+      // branch commits its own reply. The turn runs AFTER the response so a slow
+      // model never delays the resident's own message from appearing.
+      if (replyTarget.threadType === RESIDENT_AGENT_THREAD_TYPE && replyTarget.ownerUserId === user.id) {
+        await commitInboxThreadReply(db, replyTarget, replyBody);
+        const turnTask = () =>
+          runResidentInboxAgentTurn(db, replyTarget, user.id, senderEmail, text)
+            .then((outcome) => {
+              // A turn that declines to reply is the interesting case and is
+              // otherwise invisible: no throw, no message, nothing in the log.
+              if (!outcome.replied) {
+                console.error("resident-agent inbox turn did not reply", outcome.reason);
+              }
+            })
+            .catch((e) => console.error("resident-agent inbox turn failed", e));
+        try {
+          after(turnTask);
+        } catch {
+          void turnTask();
         }
         return NextResponse.json({ ok: true, agentHandled: true });
       }

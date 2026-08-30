@@ -4,8 +4,11 @@ import {
   ADMIN_INBOX_SCOPE,
   applyPortalInboxThreadScope,
   MANAGER_INBOX_SCOPE,
+  RESIDENT_INBOX_SCOPE,
   resolveInboxScopeUser,
 } from "@/lib/portal-inbox-thread-scope";
+import { ensureResidentAgentThread } from "@/lib/agent/resident-inbox-agent.server";
+import { managerIdsOwningResident } from "@/lib/resident-manager-scope";
 import { collapsePersonInboxThreads, type PersistedInboxThread } from "@/lib/portal-inbox-storage";
 
 export const runtime = "nodejs";
@@ -24,6 +27,28 @@ export async function GET(request: Request) {
     const scopeParam = url.searchParams.get("scope") ?? "";
     const ctx = await resolveInboxScopeUser(scopeParam);
     if (!ctx) return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
+
+    // Make sure a resident always has their assistant conversation before the
+    // list is read, so it simply appears in Communication with no extra call
+    // from the client. Deterministic id keeps this idempotent; a failure here
+    // must never take down the inbox, so it is swallowed.
+    if (scopeParam === RESIDENT_INBOX_SCOPE && ctx.user.id && ctx.user.email) {
+      try {
+        const managerIds = await managerIdsOwningResident(ctx.db, ctx.user.email);
+        // Bound to ONE manager — the first that owns this resident. A resident
+        // with several would otherwise get one assistant thread per manager,
+        // which reads as duplicates rather than as scoping.
+        if (managerIds[0]) {
+          await ensureResidentAgentThread(ctx.db, {
+            residentUserId: ctx.user.id,
+            residentEmail: ctx.user.email,
+            managerUserId: managerIds[0],
+          });
+        }
+      } catch (e) {
+        console.error("ensureResidentAgentThread failed", e);
+      }
+    }
 
     let query = ctx.db
       .from("portal_inbox_thread_records")

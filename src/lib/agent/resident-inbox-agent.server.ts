@@ -1,0 +1,169 @@
+/**
+ * The resident's assistant thread in Communication.
+ *
+ * Mirrors the vendor agent thread that already exists: a conversation whose
+ * other party is PropLane itself, so the resident is plainly talking to an
+ * assistant rather than to a manager who has secretly been replaced by one.
+ * That honesty is the reason this is a dedicated thread instead of an
+ * auto-reply inside a human conversation — a resident must never mistake a
+ * generated answer for their property manager's word.
+ *
+ * The turn runs after the send response, so a slow model never delays the
+ * resident's own message from appearing.
+ */
+import type { SupabaseClient } from "@supabase/supabase-js";
+import { formatPacificDateTime } from "@/lib/pacific-time";
+import {
+  commitInboxThreadReply,
+  type InboxThreadReplyTarget,
+} from "@/lib/portal-inbox-delivery";
+import {
+  autoRespondToResidentInboxMessage,
+  type InboxTurnMessage,
+} from "@/lib/agent/inbox-auto-respond.server";
+
+export const RESIDENT_AGENT_THREAD_TYPE = "resident_agent";
+const RESIDENT_INBOX_SCOPE = "axis_portal_inbox_resident_v1";
+/** Shown as the other party. Never a manager's name — see the file header. */
+export const RESIDENT_AGENT_FROM_NAME = "PropLane Assistant";
+
+/** Stable per resident+manager, so the assistant is one continuing conversation. */
+export function residentAgentThreadId(residentUserId: string, managerUserId: string): string {
+  return `resident-agent-${residentUserId}-${managerUserId}`;
+}
+
+/**
+ * Read the thread as an alternating transcript.
+ *
+ * Anything the assistant said is `manager` side (it is what came back); anything
+ * else is the resident. Attribution is by the stored `from` name rather than by
+ * position, because a thread can also carry system notices.
+ */
+export function threadHistory(rowData: Record<string, unknown> | null | undefined): InboxTurnMessage[] {
+  const messages = Array.isArray(rowData?.messages) ? (rowData!.messages as unknown[]) : [];
+  return messages
+    .map((entry) => {
+      const row = (entry ?? {}) as Record<string, unknown>;
+      const body = typeof row.body === "string" ? row.body : "";
+      const from = typeof row.from === "string" ? row.from : "";
+      return {
+        from: from === RESIDENT_AGENT_FROM_NAME ? ("manager" as const) : ("resident" as const),
+        body,
+      };
+    })
+    .filter((entry) => entry.body.trim());
+}
+
+/**
+ * Create the assistant thread if the resident does not have one yet.
+ *
+ * Idempotent on the deterministic id, so calling it on every portal load is
+ * safe and cannot fan out duplicate conversations.
+ */
+export async function ensureResidentAgentThread(
+  db: SupabaseClient,
+  input: { residentUserId: string; residentEmail: string; managerUserId: string },
+): Promise<string> {
+  const threadId = residentAgentThreadId(input.residentUserId, input.managerUserId);
+  const { data: existing } = await db
+    .from("portal_inbox_thread_records")
+    .select("id")
+    .eq("id", threadId)
+    .maybeSingle();
+  if (existing) return threadId;
+
+  const when = formatPacificDateTime(new Date());
+  await db.from("portal_inbox_thread_records").upsert(
+    {
+      id: threadId,
+      scope: RESIDENT_INBOX_SCOPE,
+      owner_user_id: input.residentUserId,
+      participant_email: input.residentEmail.trim().toLowerCase(),
+      thread_type: RESIDENT_AGENT_THREAD_TYPE,
+      row_data: {
+        id: threadId,
+        folder: "inbox",
+        from: RESIDENT_AGENT_FROM_NAME,
+        email: "",
+        subject: "Ask PropLane",
+        preview: "Ask about your lease, rent, maintenance or upcoming visits.",
+        time: when,
+        unread: false,
+        threadType: RESIDENT_AGENT_THREAD_TYPE,
+        messages: [
+          {
+            id: "resident-agent-intro",
+            from: RESIDENT_AGENT_FROM_NAME,
+            body: [
+              "Hi — you can ask me about your lease, rent, maintenance requests or anything coming up.",
+              "",
+              "I can look things up for you, and if something needs doing I will show you exactly what it is before anything happens.",
+            ].join("\n"),
+            at: when,
+          },
+        ],
+      },
+      updated_at: new Date().toISOString(),
+    },
+    { onConflict: "id" },
+  );
+  return threadId;
+}
+
+/** The manager this assistant thread is bound to, parsed from its own id. */
+export function managerUserIdFromAgentThreadId(threadId: string, residentUserId: string): string | null {
+  const prefix = `resident-agent-${residentUserId}-`;
+  if (!threadId.startsWith(prefix)) return null;
+  const managerUserId = threadId.slice(prefix.length).trim();
+  return managerUserId || null;
+}
+
+/**
+ * Answer the resident's latest message in their assistant thread.
+ *
+ * Never throws into the caller: this runs after the send response, so a failure
+ * here must not surface as a failed send. A turn that produces nothing simply
+ * leaves the thread as the resident left it.
+ */
+export async function runResidentInboxAgentTurn(
+  db: SupabaseClient,
+  target: InboxThreadReplyTarget,
+  residentUserId: string,
+  residentEmail: string,
+  incomingText: string,
+): Promise<{ replied: boolean; reason?: string }> {
+  const managerUserId = managerUserIdFromAgentThreadId(target.threadId, residentUserId);
+  if (!managerUserId) return { replied: false, reason: "thread_not_bound_to_manager" };
+
+  const { data: row } = await db
+    .from("portal_inbox_thread_records")
+    .select("row_data")
+    .eq("id", target.threadId)
+    .maybeSingle();
+  const history = threadHistory(row?.row_data as Record<string, unknown> | null);
+  // The incoming message is already committed to the thread by the caller, so
+  // drop the trailing copy rather than sending it to the model twice.
+  const priorHistory = history.slice(0, -1);
+
+  const result = await autoRespondToResidentInboxMessage(db, {
+    managerUserId,
+    residentEmail,
+    incomingText,
+    history: priorHistory,
+  });
+  if (!result.ok) return { replied: false, reason: result.reason };
+
+  const body = result.pendingAction
+    ? [
+        result.reply,
+        "",
+        `I have prepared this for you to confirm: ${result.pendingAction.preview?.title ?? result.pendingAction.toolName}.`,
+        "Nothing has happened yet — open it in your portal to approve or discard.",
+      ]
+        .filter(Boolean)
+        .join("\n")
+    : result.reply;
+
+  await commitInboxThreadReply(db, target, { fromName: RESIDENT_AGENT_FROM_NAME, text: body });
+  return { replied: true };
+}
