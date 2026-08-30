@@ -6,6 +6,7 @@ import { usePortalNavigate } from "@/lib/portal-nav-client";
 import { Button } from "@/components/ui/button";
 import { ScopedInboxComposeModal, type ScopedInboxSendPayload } from "@/components/portal/inbox-scoped-compose-modal";
 import type { InboxScopedContact } from "@/data/inbox-scoped-directory";
+import { AssistantPendingActionCard } from "@/components/portal/assistant-shared";
 import { INBOX_TAB_DEFS, INBOX_LIST_SCROLL, InboxBubbleMessage, InboxComposer, InboxConversationRow, InboxReplyChannelPicker, InboxScheduledCard, InboxScheduledThreadList, InboxThreadEmpty, InboxThreadView, InboxTwoPane, PortalInboxEmptyState, PortalInboxMessageTable, type PortalInboxTableRow } from "@/components/portal/portal-inbox-ui";
 import {
   buildInboxThreadAssistantContext,
@@ -27,6 +28,7 @@ import { filterEmailInboxThreads } from "@/lib/communication-inbox-filters";
 import { demoResidentInboxThreads } from "@/data/demo-portal";
 import { usePortalSession } from "@/hooks/use-portal-session";
 import { isUpcomingScheduledInboxMessage, type ScheduledInboxMessageRecord } from "@/lib/scheduled-inbox-messages";
+import { normalizePendingActions } from "@/lib/axis-assistant/pending-action-display";
 
 function resolveResidentReplyRecipientEmail(threadEmail: string, contacts: InboxScopedContact[]): string {
   const normalized = threadEmail.trim().toLowerCase();
@@ -113,6 +115,10 @@ function previewLine(body: string, max = 100) {
   const t = body.trim().replace(/\s+/g, " ");
   if (t.length <= max) return t;
   return `${t.slice(0, max)}…`;
+}
+
+function isResidentAgentThreadId(threadId: string): boolean {
+  return threadId.startsWith("resident-agent-");
 }
 
 /**
@@ -1210,6 +1216,65 @@ export const ResidentInboxPanel = forwardRef<
     });
   }, [activeThread, activeFolder, pendingSendingThreadIds]);
 
+  const [resolvingPendingId, setResolvingPendingId] = useState<string | null>(null);
+  const [resolvedPendingIds, setResolvedPendingIds] = useState<Set<string>>(() => new Set());
+  useEffect(() => {
+    setResolvedPendingIds(new Set());
+  }, [activeThread?.id]);
+
+  const inboxPendingActions = useMemo(() => {
+    if (!activeThread || !isResidentAgentThreadId(activeThread.id)) return [];
+    const items = normalizePendingActions({
+      actions: inboxThreadMessages(activeThread)
+        .map((message) => message.pendingAction)
+        .filter((entry): entry is { id: string; preview: unknown } => {
+          return Boolean(entry && typeof entry === "object" && typeof entry.id === "string" && entry.preview);
+        }),
+    });
+    return items.filter((item) => !resolvedPendingIds.has(item.id));
+  }, [activeThread, resolvedPendingIds]);
+
+  const resolveInboxPendingAction = useCallback(
+    async (id: string, decision: "confirm" | "deny") => {
+      if (!id || resolvingPendingId) return;
+      setResolvingPendingId(id);
+      try {
+        const res = await fetch("/api/agent/resident-chat", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify(decision === "confirm" ? { confirmActionId: id } : { denyActionId: id }),
+        });
+        const data = (await res.json().catch(() => ({}))) as { error?: string };
+        if (!res.ok || data.error) {
+          showToast(data.error ?? "Could not complete that action.");
+          return;
+        }
+        setResolvedPendingIds((prev) => new Set(prev).add(id));
+        showToast(decision === "confirm" ? "Done." : "Cancelled.");
+      } catch {
+        showToast("Network error.");
+      } finally {
+        setResolvingPendingId(null);
+      }
+    },
+    [resolvingPendingId, showToast],
+  );
+
+  const residentPendingActionCards =
+    inboxPendingActions.length > 0 ? (
+      <div className="space-y-2 pt-1" data-attr="resident-inbox-pending-actions">
+        {inboxPendingActions.map((item) => (
+          <AssistantPendingActionCard
+            key={item.id}
+            pendingAction={{ id: item.id, preview: item.preview }}
+            loading={resolvingPendingId === item.id}
+            onResolve={(decision) => resolveInboxPendingAction(item.id, decision)}
+          />
+        ))}
+      </div>
+    ) : null;
+
   // Scheduled messages the resident has queued to this conversation's manager —
   // shown inline as compact cards. Residents may cancel or send now, but not
   // edit content (the resident scheduled-message route only patches status).
@@ -1506,7 +1571,12 @@ export const ResidentInboxPanel = forwardRef<
               }
               subtitle={activeThread.subject || (activeIsSent ? undefined : activeThread.email)}
               messages={activeBubbles}
-              afterMessages={residentScheduledCards}
+              afterMessages={
+                <>
+                  {residentPendingActionCards}
+                  {residentScheduledCards}
+                </>
+              }
               threadKey={activeThread.id}
               onBack={() => setExpandedId(null)}
               headerActions={
@@ -1670,7 +1740,12 @@ export const ResidentInboxPanel = forwardRef<
                 }
                 subtitle={activeThread.subject || (activeIsSent ? undefined : activeThread.email)}
                 messages={activeBubbles}
-                afterMessages={residentScheduledCards}
+                afterMessages={
+                  <>
+                    {residentPendingActionCards}
+                    {residentScheduledCards}
+                  </>
+                }
                 threadKey={activeThread.id}
                 onBack={() => setExpandedId(null)}
                 headerActions={

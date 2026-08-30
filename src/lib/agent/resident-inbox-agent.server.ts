@@ -22,6 +22,7 @@ import {
   type InboxTurnMessage,
 } from "@/lib/agent/inbox-auto-respond.server";
 import { createPendingActionForUser } from "@/lib/tools/pending-actions";
+import type { ActionPreview } from "@/lib/tools/registry";
 
 export const RESIDENT_AGENT_THREAD_TYPE = "resident_agent";
 const RESIDENT_INBOX_SCOPE = "axis_portal_inbox_resident_v1";
@@ -155,6 +156,7 @@ export async function runResidentInboxAgentTurn(
   if (!result.ok) return { replied: false, reason: result.reason };
 
   let body = result.reply;
+  let pendingAction: { id: string; preview: ActionPreview } | null = null;
   if (result.pendingAction) {
     // Persist the proposal, exactly as the chat routes do. Without this the
     // assistant asks "want me to go ahead?" with nothing behind it — the
@@ -171,15 +173,20 @@ export async function runResidentInboxAgentTurn(
     });
     const label = result.pendingAction.preview?.title ?? result.pendingAction.toolName;
     body = actionId
-      ? [result.reply, "", `Approve "${label}" in your portal and I will do it. Nothing has happened yet.`]
+      ? [result.reply, "", `Approve "${label}" below and I will do it. Nothing has happened yet.`]
           .filter(Boolean)
           .join("\n")
       // Say so rather than leaving a promise the resident cannot act on.
       : [result.reply, "", `I could not prepare "${label}" just now — please try again shortly.`]
           .filter(Boolean)
           .join("\n");
+    if (actionId) pendingAction = { id: actionId, preview: result.pendingAction.preview };
   }
 
-  await commitInboxThreadReply(db, target, { fromName: RESIDENT_AGENT_FROM_NAME, text: body });
+  await commitInboxThreadReply(db, target, {
+    fromName: RESIDENT_AGENT_FROM_NAME,
+    text: body,
+    ...(pendingAction ? { pendingAction } : {}),
+  });
   return { replied: true };
 }

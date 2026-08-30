@@ -21,6 +21,11 @@ export type InboxThreadMessage = {
   delivery?: "sending" | "sent" | "failed";
   /** Image attachments served via /api/portal/inbox-attachments. */
   attachments?: { url: string; name?: string }[];
+  /**
+   * Resident-assistant confirm card. Carries ONLY the action id + preview —
+   * never the stored tool input. Confirm posts the id to `/api/agent/resident-chat`.
+   */
+  pendingAction?: { id: string; preview: unknown };
 };
 
 /**

@@ -3,8 +3,9 @@
  *
  * The agent loop returns a proposed write; it does not store one. Without the
  * insert the assistant ends the turn asking "shall I go ahead?" with nothing
- * behind it — the resident's portal shows no card to approve, and saying yes
- * just makes the next turn propose again. `portal: "resident"` is load-bearing:
+ * behind it. The action id + preview ride on the inbox message so the thread
+ * can render the confirm card and POST it to `/api/agent/resident-chat`.
+ * `portal: "resident"` is load-bearing:
  * the confirm gate is portal-bound and refuses a claimed row whose portal does
  * not match the calling route.
  */
@@ -118,7 +119,11 @@ describe("resident assistant proposals", () => {
     // The write itself has NOT happened — only the proposal was stored.
     expect(captured.pendingInserts.every((r) => r.tool_name === "report_maintenance_issue")).toBe(true);
 
-    expect(residentVisibleReply(captured)).toContain('Approve "Report a maintenance issue" in your portal');
+    expect(residentVisibleReply(captured)).toContain('Approve "Report a maintenance issue" below');
+    const rowData = captured.threadUpserts.at(-1)?.row_data as {
+      messages: { pendingAction?: { id: string; preview: unknown } }[];
+    };
+    expect(rowData.messages.at(-1)?.pendingAction).toEqual({ id: "pending-action-1", preview: PREVIEW });
   });
 
   it("tells the resident when the proposal could not be stored", async () => {

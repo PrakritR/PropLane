@@ -40,7 +40,6 @@ import {
   type PortalDownloadResult,
 } from "@/lib/portal-document-download";
 import { stripLeaseAiDisclaimerFromHtml, stripLeaseAiReviewDisclaimer } from "@/lib/lease-templates/types";
-import { stripDisclosureReviewFromLeaseHtml } from "@/lib/property-lease-document-display";
 import { effectiveApplicationForRow, enrichApplicationForLease, readManagerApplicationRows, signedRentLabelForRow, writeManagerApplicationRows } from "@/lib/manager-applications-storage";
 import { getPropertyById, getRoomChoiceLabel, getBundleChoiceLabel } from "@/lib/rental-application/data";
 import { cachedLandlordLegalName, LEASE_LANDLORD_PLACEHOLDER } from "@/lib/manager-landlord-profile";
@@ -2130,7 +2129,11 @@ export function getLeaseDocumentHtml(row: LeasePipelineRow): string | null {
       );
   const body = hasAnyLeaseSignature(row) ? applyLeaseSignaturesToHtml(row, rendered) : rendered;
   if (!body) return null;
-  return stripDisclosureReviewFromLeaseHtml(body);
+  // Do not strip stored `<aside class="disclosure-review">` here. The
+  // fingerprint hashes raw `generatedHtml`; display must be those same bytes
+  // (plus section edits / signature overlay). Property-editor surfaces strip
+  // the aside themselves.
+  return body;
 }
 
 /**

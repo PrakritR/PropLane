@@ -83,3 +83,17 @@ export function cosignerSubmissionIdForSubject(
 ): string | undefined {
   return subjects.find((s) => s.id === subjectId)?.cosignerSubmissionId;
 }
+
+/** First unique subject to open, plus the rest so a bulk request can continue. */
+export function queueScreeningSubjectIds(
+  subjectIds: string[],
+): { current: string; remaining: string[] } | null {
+  const unique: string[] = [];
+  for (const id of subjectIds) {
+    const trimmed = id.trim();
+    if (!trimmed || unique.includes(trimmed)) continue;
+    unique.push(trimmed);
+  }
+  if (unique.length === 0) return null;
+  return { current: unique[0]!, remaining: unique.slice(1) };
+}

@@ -4,6 +4,7 @@ import {
   backgroundCheckStatusLabel,
   buildScreeningSubjects,
   cosignerSubmissionIdForSubject,
+  queueScreeningSubjectIds,
   resolveScreeningSubjectId,
   screeningRowForSubject,
 } from "@/lib/background-check-subjects";
@@ -89,5 +90,13 @@ describe("background-check subjects", () => {
     expect(backgroundCheckStatusLabel(undefined)).toBe("Not started");
     expect(backgroundCheckStatusLabel({ status: "pending" } as never)).toBe("Pending");
     expect(backgroundCheckStatusLabel({ status: "complete", result: "clear" } as never)).toBe("Clear");
+  });
+
+  it("queueScreeningSubjectIds keeps every unique id so bulk request can continue", () => {
+    expect(queueScreeningSubjectIds([])).toBeNull();
+    expect(queueScreeningSubjectIds(["AXIS-TEST", "cosigner-abc", "AXIS-TEST", "  "])).toEqual({
+      current: "AXIS-TEST",
+      remaining: ["cosigner-abc"],
+    });
   });
 });

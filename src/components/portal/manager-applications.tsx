@@ -120,6 +120,7 @@ import {
 import {
   buildScreeningSubjects,
   cosignerSubmissionIdForSubject,
+  queueScreeningSubjectIds,
   resolveScreeningSubjectId,
   screeningRowForSubject,
 } from "@/lib/background-check-subjects";
@@ -572,6 +573,8 @@ export function ManagerApplications({
   const [checkrScreeningShowPicker, setCheckrScreeningShowPicker] = useState(false);
   const [applicationReviewView, setApplicationReviewView] = useState<ApplicationReviewView>("application");
   const [screeningSubjectId, setScreeningSubjectId] = useState<string | null>(null);
+  const screeningQueueRef = useRef<string[]>([]);
+  const screeningCompletedRef = useRef(false);
   useEffect(() => {
     if (!authReady) return;
     const sync = () => setRows(readManagerApplicationRows());
@@ -972,11 +975,13 @@ export function ManagerApplications({
 
   const openScreeningForSubjectIds = useCallback(
     (subjectIds: string[]) => {
-      if (!detailRow || subjectIds.length === 0) return;
-      const firstId = subjectIds[0]!;
-      setScreeningSubjectId(firstId);
+      if (!detailRow) return;
+      const queued = queueScreeningSubjectIds(subjectIds);
+      if (!queued) return;
+      screeningQueueRef.current = queued.remaining;
+      setScreeningSubjectId(queued.current);
       openDetailScreeningModal(detailRow, {
-        cosignerSubmissionId: cosignerSubmissionIdForSubject(detailScreeningSubjects, firstId),
+        cosignerSubmissionId: cosignerSubmissionIdForSubject(detailScreeningSubjects, queued.current),
       });
     },
     [detailRow, detailScreeningSubjects, openDetailScreeningModal],
@@ -1034,11 +1039,29 @@ export function ManagerApplications({
       open={checkrScreeningRowId !== null}
       showPackagePickerInitially={checkrScreeningShowPicker}
       onClose={() => {
+        const completed = screeningCompletedRef.current;
+        screeningCompletedRef.current = false;
         setCheckrScreeningRowId(null);
         setCheckrScreeningCosignerId(null);
         setCheckrScreeningShowPicker(false);
+        if (completed && screeningQueueRef.current.length > 0 && detailRow) {
+          const nextId = screeningQueueRef.current[0]!;
+          screeningQueueRef.current = screeningQueueRef.current.slice(1);
+          const remainingSubjects = detailScreeningSubjects;
+          setScreeningSubjectId(nextId);
+          queueMicrotask(() => {
+            openDetailScreeningModal(detailRow, {
+              cosignerSubmissionId: cosignerSubmissionIdForSubject(remainingSubjects, nextId),
+            });
+          });
+          return;
+        }
+        if (!completed) screeningQueueRef.current = [];
       }}
-      onUpdated={handleScreeningFlowComplete}
+      onUpdated={() => {
+        screeningCompletedRef.current = true;
+        handleScreeningFlowComplete();
+      }}
     />
   );
 

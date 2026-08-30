@@ -235,6 +235,13 @@ import {
 import { downloadBackgroundCheckForApplication } from "@/components/portal/application-screening-panel";
 import { runApplicationPdfDownload } from "@/components/portal/manager-applications";
 import { applicationShowsBackgroundCheck } from "@/lib/application-background-check";
+import { buildCosignerScreeningRow } from "@/lib/cosigner-screening";
+import {
+  buildScreeningSubjects,
+  cosignerSubmissionIdForSubject,
+  queueScreeningSubjectIds,
+  resolveScreeningSubjectId,
+} from "@/lib/background-check-subjects";
 import { ResidentApplicationEditor } from "@/components/portal/resident-application-editor";
 import { CheckrScreeningModal } from "@/components/portal/checkr-screening-modal";
 import { ManagerResidentDetailInbox } from "@/components/portal/manager-resident-detail-inbox";
@@ -419,6 +426,10 @@ export function ManagerResidents({
   const [welcomePreviewContent, setWelcomePreviewContent] = useState("");
   const [approvePreviewRow, setApprovePreviewRow] = useState<DemoApplicantRow | null>(null);
   const [checkrScreeningRowId, setCheckrScreeningRowId] = useState<string | null>(null);
+  const [checkrScreeningCosignerId, setCheckrScreeningCosignerId] = useState<string | null>(null);
+  const [screeningSubjectId, setScreeningSubjectId] = useState<string | null>(null);
+  const screeningQueueRef = useRef<string[]>([]);
+  const screeningCompletedRef = useRef(false);
   const [holdingFeeRowId, setHoldingFeeRowId] = useState<string | null>(null);
   const [checkrScreeningShowPicker, setCheckrScreeningShowPicker] = useState(false);
   const [applicationReviewView, setApplicationReviewView] = useState<ApplicationReviewView>("application");
@@ -1225,12 +1236,72 @@ export function ManagerResidents({
     () => (selectedApplicationRow ? signerAppIdsForCosignerLookup([selectedApplicationRow]) : []),
     [selectedApplicationRow],
   );
-  const residentCosignerSubmissionsBySigner = useCosignerSubmissionsMap(residentCosignerSignerIds);
+  const [residentCosignerSubmissionsTick, setResidentCosignerSubmissionsTick] = useState(0);
+  const residentCosignerSubmissionsBySigner = useCosignerSubmissionsMap(
+    residentCosignerSignerIds,
+    residentCosignerSubmissionsTick,
+  );
   const selectedApplicationCosigners = useMemo(() => {
     if (!selectedApplicationRow) return [];
     const key = normalizeApplicationAxisId(selectedApplicationRow.id).toUpperCase();
     return residentCosignerSubmissionsBySigner.get(key) ?? [];
   }, [selectedApplicationRow, residentCosignerSubmissionsBySigner]);
+
+  useEffect(() => {
+    setScreeningSubjectId(null);
+  }, [selectedApplicationRow?.id]);
+
+  const residentScreeningSubjects = useMemo(() => {
+    if (!selectedApplicationRow) return [];
+    return buildScreeningSubjects(selectedApplicationRow, selectedApplicationCosigners);
+  }, [selectedApplicationRow, selectedApplicationCosigners]);
+
+  const resolvedResidentScreeningSubjectId = selectedApplicationRow
+    ? resolveScreeningSubjectId(residentScreeningSubjects, screeningSubjectId, selectedApplicationRow.id)
+    : "";
+
+  const residentScreeningCosignerId = cosignerSubmissionIdForSubject(
+    residentScreeningSubjects,
+    resolvedResidentScreeningSubjectId,
+  );
+
+  const openResidentScreeningForSubjectIds = useCallback(
+    (subjectIds: string[]) => {
+      if (!selectedApplicationRow) return;
+      const queued = queueScreeningSubjectIds(subjectIds);
+      if (!queued) return;
+      screeningQueueRef.current = queued.remaining;
+      setScreeningSubjectId(queued.current);
+      setCheckrScreeningShowPicker(true);
+      setCheckrScreeningRowId(selectedApplicationRow.id);
+      setCheckrScreeningCosignerId(
+        cosignerSubmissionIdForSubject(residentScreeningSubjects, queued.current) ?? null,
+      );
+    },
+    [selectedApplicationRow, residentScreeningSubjects],
+  );
+
+  const residentScreeningModalRow = useMemo(() => {
+    if (!checkrScreeningRowId) return null;
+    const signerRow =
+      readManagerApplicationRows().find((r) => r.id === checkrScreeningRowId) ??
+      (selectedApplicationRow?.id === checkrScreeningRowId ? selectedApplicationRow : null);
+    if (!signerRow) return null;
+    if (!checkrScreeningCosignerId) return signerRow;
+    const cosigners =
+      checkrScreeningRowId === selectedApplicationRow?.id ? selectedApplicationCosigners : [];
+    const cosigner = cosigners.find((c) => c.id === checkrScreeningCosignerId);
+    return cosigner ? buildCosignerScreeningRow(signerRow, cosigner) : signerRow;
+  }, [checkrScreeningRowId, checkrScreeningCosignerId, selectedApplicationRow, selectedApplicationCosigners]);
+
+  const residentModalSubjectId = useMemo(() => {
+    if (!selectedApplicationRow) return undefined;
+    return resolveScreeningSubjectId(
+      residentScreeningSubjects,
+      checkrScreeningCosignerId ?? screeningSubjectId,
+      selectedApplicationRow.id,
+    );
+  }, [selectedApplicationRow, residentScreeningSubjects, checkrScreeningCosignerId, screeningSubjectId]);
 
   const activeCosignerIndexParam = searchParams.get("cosigner");
   const activeCosignerIndex =
@@ -1251,7 +1322,10 @@ export function ManagerResidents({
   }, [paymentIdProp, activeDetailTab]);
 
   const handleScreeningUpdated = useCallback(() => {
-    void syncManagerApplicationsFromServer({ force: true, managerUserId: userId }).then(() => setHcTick((n) => n + 1));
+    void syncManagerApplicationsFromServer({ force: true, managerUserId: userId }).then(() => {
+      setHcTick((n) => n + 1);
+      setResidentCosignerSubmissionsTick((n) => n + 1);
+    });
   }, [userId]);
 
   // The resident's Application section is hidden for a LINKED (co-managed)
@@ -2962,8 +3036,12 @@ export function ManagerResidents({
                                     onOpenScreeningModal={(opts) => {
                                       setCheckrScreeningShowPicker(Boolean(opts?.showPackagePicker));
                                       setCheckrScreeningRowId(selectedApplicationRow.id);
+                                      setCheckrScreeningCosignerId(residentScreeningCosignerId ?? null);
                                     }}
                                     cosignerSubmissions={selectedApplicationCosigners}
+                                    screeningSubjectId={resolvedResidentScreeningSubjectId}
+                                    onScreeningSubjectChange={setScreeningSubjectId}
+                                    onRequestChecksForSubjects={openResidentScreeningForSubjectIds}
                                     householdPanels={
                                       applicationReviewView === "application" ? (
                                         <ApplicationHouseholdInlinePanels
@@ -4058,19 +4136,44 @@ export function ManagerResidents({
       </Modal>
 
       <CheckrScreeningModal
-        key={checkrScreeningRowId ?? "none"}
-        row={
-          checkrScreeningRowId
-            ? readManagerApplicationRows().find((r) => r.id === checkrScreeningRowId) ?? null
-            : null
-        }
+        key={`${checkrScreeningRowId ?? "none"}:${checkrScreeningCosignerId ?? ""}`}
+        row={residentScreeningModalRow}
+        screeningSubjects={residentScreeningSubjects}
+        screeningSubjectId={residentModalSubjectId}
+        onScreeningSubjectChange={(subjectId) => {
+          setScreeningSubjectId(subjectId);
+          setCheckrScreeningCosignerId(
+            cosignerSubmissionIdForSubject(residentScreeningSubjects, subjectId) ?? null,
+          );
+        }}
+        cosignerSubmissionId={checkrScreeningCosignerId}
         open={checkrScreeningRowId !== null}
         showPackagePickerInitially={checkrScreeningShowPicker}
         onClose={() => {
+          const completed = screeningCompletedRef.current;
+          screeningCompletedRef.current = false;
           setCheckrScreeningRowId(null);
+          setCheckrScreeningCosignerId(null);
           setCheckrScreeningShowPicker(false);
+          if (completed && screeningQueueRef.current.length > 0 && selectedApplicationRow) {
+            const nextId = screeningQueueRef.current[0]!;
+            screeningQueueRef.current = screeningQueueRef.current.slice(1);
+            setScreeningSubjectId(nextId);
+            queueMicrotask(() => {
+              setCheckrScreeningShowPicker(true);
+              setCheckrScreeningRowId(selectedApplicationRow.id);
+              setCheckrScreeningCosignerId(
+                cosignerSubmissionIdForSubject(residentScreeningSubjects, nextId) ?? null,
+              );
+            });
+            return;
+          }
+          if (!completed) screeningQueueRef.current = [];
         }}
-        onUpdated={handleScreeningUpdated}
+        onUpdated={() => {
+          screeningCompletedRef.current = true;
+          handleScreeningUpdated();
+        }}
       />
 
       <ApplicationHoldingFeeModal

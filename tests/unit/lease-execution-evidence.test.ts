@@ -10,6 +10,7 @@ import {
 } from "@/lib/lease-execution-evidence";
 import {
   applyLeaseSignaturesToHtml,
+  getLeaseDocumentHtml,
   managerSignLease,
   normalizeLeasePipelineRow,
   readLeasePipeline,
@@ -49,6 +50,14 @@ function baseRow(overrides: Partial<LeasePipelineRow> = {}): LeasePipelineRow {
 describe("lease document hashing", () => {
   it("hashes the generated HTML exactly as an independent tool would", async () => {
     expect(await leaseDocumentSha256(baseRow())).toBe(independentSha256(LEASE_HTML));
+  });
+
+  it("keeps a stored disclosure-review aside so display matches the fingerprint", async () => {
+    const html =
+      '<html><body><aside class="disclosure-review"><p>Review item</p></aside><p>LEASE BODY v1</p></body></html>';
+    const row = baseRow({ generatedHtml: html });
+    expect(getLeaseDocumentHtml(row)).toContain('class="disclosure-review"');
+    expect(await leaseDocumentSha256(row)).toBe(independentSha256(html));
   });
 
   it("hashes the ORIGINAL uploaded PDF, not the copy carrying the certificate page", async () => {

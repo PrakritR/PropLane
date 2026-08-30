@@ -151,7 +151,13 @@ export async function resolveInboxThreadReplyTarget(
 export async function commitInboxThreadReply(
   db: SupabaseClient,
   target: InboxThreadReplyTarget,
-  opts: { fromName: string; text: string; attachments?: { url: string; name?: string }[] },
+  opts: {
+    fromName: string;
+    text: string;
+    attachments?: { url: string; name?: string }[];
+    /** Opaque confirm-gate id + preview. Never the stored tool input. */
+    pendingAction?: { id: string; preview: unknown } | null;
+  },
 ): Promise<void> {
   const { data: freshRow } = await db
     .from("portal_inbox_thread_records")
@@ -168,6 +174,9 @@ export async function commitInboxThreadReply(
     body: opts.text,
     at: when,
     ...(opts.attachments?.length ? { attachments: opts.attachments } : {}),
+    ...(opts.pendingAction?.id
+      ? { pendingAction: { id: opts.pendingAction.id, preview: opts.pendingAction.preview } }
+      : {}),
   });
   await db.from("portal_inbox_thread_records").upsert(
     {
