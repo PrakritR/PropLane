@@ -53,6 +53,12 @@ function sectionBodyEditsFromTemplateOverride(
     if (overrideSection.bodyHtml.trim() === baselineSection.bodyHtml.trim()) continue;
     if (!isEditableLeaseSection(overrideSection)) continue;
     if (overrideSection.bodyHtml.includes(PROPERTY_LEASE_TEMPLATE_PLACEHOLDER)) continue;
+    if (
+      overrideSection.bodyHtml.includes("<strong>—</strong>") &&
+      baselineSection.bodyHtml.includes("<strong>—</strong>")
+    ) {
+      continue;
+    }
     edits[overrideSection.id] = overrideSection.bodyHtml;
   }
   return Object.keys(edits).length ? edits : null;
@@ -109,16 +115,29 @@ export function propertyLeasePreviewBaselineHtml(
     PropertyLeaseTemplate,
     "leaseConfigMode" | "leaseCustomKind" | "customLeaseTerms" | "leaseTemplateDocUrl" | "leaseTemplateDocName"
   >,
+  opts?: { listingFeePreview?: boolean },
 ): string {
   const previewSub = template ? submissionFromTemplate(sub, template) : sub;
   const ctx = leasePreviewContextFromSubmission(previewSub, undefined, templateKind, {
     templatePreview: true,
-    listingFeePreview: true,
+    listingFeePreview: opts?.listingFeePreview ?? true,
   });
   const jurisdiction = resolveJurisdiction(ctx);
   const config = jurisdiction ? jurisdictionConfig(jurisdiction) : null;
   if (!config) return "";
   return buildLeaseHtml(ctx, config).trim();
+}
+
+/** Baseline used only to diff saved overrides — keeps placeholder financials so ledger sections are not merged. */
+function propertyLeaseMergeComparisonBaselineHtml(
+  sub: ManagerListingSubmissionV1,
+  templateKind: PropertyLeaseTemplateKind,
+  template: Pick<
+    PropertyLeaseTemplate,
+    "leaseConfigMode" | "leaseCustomKind" | "customLeaseTerms" | "leaseTemplateDocUrl" | "leaseTemplateDocName"
+  >,
+): string {
+  return propertyLeasePreviewBaselineHtml(sub, templateKind, template, { listingFeePreview: false });
 }
 
 export function mergePropertyLeaseTemplateEditsOntoPlacement(
@@ -164,7 +183,7 @@ export function buildPlacementLeaseHtml(
   const override = template.leaseTemplateHtmlOverride?.trim();
   if (!override) return placementHtml;
 
-  const previewBaseline = propertyLeasePreviewBaselineHtml(sub, templateKind, template);
+  const previewBaseline = propertyLeaseMergeComparisonBaselineHtml(sub, templateKind, template);
   if (isStalePropertyLeaseTemplateOverride(override, previewBaseline, config)) {
     return placementHtml;
   }
@@ -179,9 +198,14 @@ export function effectivePropertyLeaseTemplateHtml(args: {
   config: LeaseJurisdictionTemplateConfig;
 }): string {
   const override = args.template.leaseTemplateHtmlOverride?.trim();
-  const previewBaseline = propertyLeasePreviewBaselineHtml(args.sub, args.templateKind, args.template);
-  if (!override || isStalePropertyLeaseTemplateOverride(override, previewBaseline, args.config)) {
-    return previewBaseline;
+  const staleBaseline = propertyLeaseMergeComparisonBaselineHtml(
+    args.sub,
+    args.templateKind,
+    args.template,
+  );
+  const displayBaseline = propertyLeasePreviewBaselineHtml(args.sub, args.templateKind, args.template);
+  if (!override || isStalePropertyLeaseTemplateOverride(override, staleBaseline, args.config)) {
+    return displayBaseline;
   }
   return override;
 }
