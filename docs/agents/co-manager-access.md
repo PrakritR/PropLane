@@ -60,6 +60,25 @@ downgrade. Same reasoning as the property cap in
 never treated as Free. Coverage: `tests/unit/co-manager-plan-reconcile.test.ts`,
 `tests/unit/manager-access.test.ts`.
 
+**The sidebar is the same for every manager account; grants are enforced in the
+data layer, not the nav.** `useCoManagerNavSections` returns no restricted set and
+`coManagerPortalSectionAllowed` allows every mapped module section, so a co-manager
+sees and can open the same tabs as the owner and gets that section filtered to their
+assigned properties by the scoping below. `portalNavLockKind`'s `coManagerRestricted`
+input is deprecated and inert — do not re-add a nav-level lock or a hidden row for a
+missing module grant. Coverage: `tests/unit/portal-nav-locks.test.ts`,
+`tests/unit/co-manager-permissions.test.ts`.
+
+**A pure co-manager inherits the linked owner's plan for nav locks and section
+paywalls.** A manager who owns no `manager_property_records` row takes the best tier
+among their accepted link inviters (`getManagerPortalNavSubscriptionTier` →
+`pickManagerPortalNavSubscriptionTier`, `paid` > unknown/`null` > `free`), so someone
+working a Pro owner's portfolio is not padlocked out of that owner's modules. It is
+the PORTAL tier only: quotas, billing UI, and every other entitlement still read the
+account's own plan (`resolveEffectiveManagerSkuTier`, see
+[`plan-entitlements.md`](plan-entitlements.md)), and owning any property pins the
+manager to their own tier. Coverage: `tests/unit/manager-portal-nav-tier.test.ts`.
+
 **Server scoping** — `src/lib/auth/co-manager-module-scope.ts`:
 `linkedPropertyIdsForModule` (property-keyed tables),
 `linkedOwnerScopeForModule` (owner-keyed tables like the vendor directory),

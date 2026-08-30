@@ -198,7 +198,10 @@ function overrideMoney(raw: string | null | undefined): number | undefined {
 
 /**
  * The resident's own negotiated monthly rent, which outranks the room's listing price
- * (monthly OR daily). Mirrors `residentNegotiatedMonthlyRent` in household-charges.ts.
+ * (monthly OR daily). The ONE implementation: `residentNegotiatedMonthlyRent`
+ * (household-charges.ts) and the lease proration settings both delegate here, so a
+ * manager override or a signed/renewed rent can never mean two different things.
+ * Returns 0 when there is no negotiated figure.
  */
 export function negotiatedMonthlyRentAmount(input: {
   managerRentOverride?: string | null;

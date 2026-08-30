@@ -62,22 +62,6 @@ type LeaseApplicationWithRentSnapshot = Partial<RentalWizardFormState> & {
 const HOLDING_DEPOSIT_CREDIT_NOTE =
   "Any holding deposit already paid for this placement is credited against the security deposit stated above. The charge ledger in the PropLane portal reflects the resulting balance.";
 
-const DISCLOSURE_TEMPLATE_SECTIONS = new Set([
-  "Premises",
-  "Premises / Municipal compliance",
-  "Rent",
-  "Rent / Notices",
-  "Security Deposit & Move-In Charges",
-  "Utilities & Services",
-  "House Rules",
-  "Default & Remedies / Governing Law",
-  "Statutory Disclosures",
-  "Lead-Based Paint Disclosure",
-  "Addendum A \u2014 Move-In Condition Report",
-  "Addendum B \u2014 Bed Bug Disclosure",
-  "Addendum C \u2014 Mold & Moisture Policy",
-]);
-
 function escapeHtml(s: string): string {
   return s
     .replace(/&/g, "&amp;")

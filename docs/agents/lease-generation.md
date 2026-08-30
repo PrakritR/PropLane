@@ -1125,6 +1125,15 @@ the same rule as `resolveStayPricing`. It also makes the section render for a
 lease starting on the 1st, which the day-based math alone would have suppressed:
 a snapshot with a prorated amount means there IS something to disclose.
 
+The snapshot itself (`buildLeaseBillingSnapshot`) derives those two figures with the
+SAME listing settings the ledger prorates by — `resolveLeaseProrationInputForApplicant`
+(`src/lib/lease-proration-settings.ts`) resolves the room/entire-home `prorateMethod`,
+`dailyRentRate` / `dailyUtilitiesRate` and the utilities-only branch, mirroring
+`household-charges.ts`. That computed result wins, and a `prorated_rent` /
+`prorated_utilities` charge row is the fallback for when it does not apply; the same
+resolved amounts (never both a first-month AND a prorated rent line) are what
+`dueAtSigning` sums. Coverage: `tests/unit/lease-billing-snapshot.test.ts`.
+
 **The deposit keys on `rentalType`, not on the resolved `stayKind`.** That asymmetry is
 deliberate and load-bearing: only an explicit short-term application is charged
 `sub.shortTermDeposit`; a daily-priced room on a standard application is charged
@@ -1287,9 +1296,19 @@ on an executed lease is the worst thing this module can produce.
   the likely one) is added to `disclosure-clause-rules.json` with `cite_verified: true`, add an
   optional `shortTermLodgerStatuteRef` to `LeaseJurisdictionTemplateConfig` and render it in
   that section. No such field was added here, because it would have carried zero values.
-- **`leases/disclosure-clause-rules.json` is reference material and is never parsed at
-  runtime.** `leases/lease-generation-manifest.json` still lists wiring it into the section
-  renderer as a TODO. `build-lease-html.ts` hardcodes its own disclosures.
+- **`leases/disclosure-clause-rules.json` reaches the document ONLY as verbatim bodies.**
+  `disclosure-rules.ts` imports the catalog at runtime and `build-lease-html.ts` injects
+  `disclosureVerbatimHtmlForSection(...)` into the sections a fired rule names in
+  `template_section`; every other clause is still hardcoded in the builder, and
+  `leases/lease-generation-manifest.json` still lists full section-renderer wiring as a TODO.
+- **The generated document carries no disclosure-review notice.** `evaluateDisclosureRules`
+  still decides which verbatim disclosures render, but the old
+  `<aside class="disclosure-review">` block ("Disclosure review" / "Lease completion
+  required", listing unknown triggers, undelivered attachments, unverified citations and
+  content gaps) is no longer emitted by `build-lease-html.ts`, and
+  `getLeaseDocumentHtml` strips any such block left on a stored row. `canCompleteLease`
+  therefore reports on the evaluation only — it gates nothing, and no send path consults
+  it. Coverage: `tests/unit/disclosure-rules.test.ts` asserts the notice is absent.
 - Two hardcoded Washington citations used to print on **every** California lease
   (`Landlord responsibilities (RCW 59.18.060)` and Addendum C's `(RCW 59.18.130)`). They sat
   outside the `config` mechanism. Both are now routed through config rather than deleted,
@@ -1595,8 +1614,13 @@ into it; they are one operator's terms, not a state rule.
 
 `lateFeeAmount` and `lateFeeEnabled` already existed. The long form uses the listing's
 configured late fee when supplied and omits the late-fee paragraph when it is disabled.
-The existing `monthToMonthSurcharge` is not rendered because the billing snapshot and
-household-charge ledger do not charge it.
+`monthToMonthSurcharge` and the custom-lease surcharge are preset MONTHLY fees, so they reach
+the document through `leaseDocumentFeeLines`, and both are gated on the lease's own billing
+context (`shouldBillMonthToMonthSurcharge` / `shouldBillCustomLeaseSurcharge` in
+`src/lib/custom-lease-billing.ts`, passed in from `build-lease-html.ts`): the month-to-month
+line prints only for a `Month-to-Month` term, the custom-lease line only for a custom-calendar
+fixed term, and neither for a short-term application. Ungated, the document quoted a monthly
+surcharge the ledger never bills for that term.
 
 ### Citations added in the template config
 

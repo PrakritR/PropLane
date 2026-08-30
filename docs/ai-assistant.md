@@ -72,7 +72,11 @@ target that unavoidably reads as an identity (`submit_vendor_invoice`'s
    fed back as a `tool_result` error so the model self-corrects.
 2. The loop halts and returns `pendingAction`; the chat route persists it with
    `createPendingAction` and sends the client only `{id, preview}` — never the
-   raw input. A preview that resolved something the user is approving (an
+   raw input. Any non-chat surface that proposes must persist too: the resident
+   inbox auto-responder (`resident-inbox-agent.server.ts`) writes the row with
+   `createPendingActionForUser` and `portal: "resident"` before naming it in the
+   reply, because a proposal the resident cannot approve is just a promise the
+   next turn re-makes. A preview that resolved something the user is approving (an
    auto-picked visit slot) pins it with `confirmedInput`, which
    `previewWriteTool` STRIPS out of the stored/returned preview and uses as the
    stored input, so the handler executes exactly what the card showed.

@@ -90,17 +90,29 @@ describe("ManagerTaskList", () => {
     cleanup();
   });
 
-  it("renders the task list shell and add row", async () => {
+  it("renders the task list shell and an empty-state add button", async () => {
     render(<ManagerTaskList tabId="in-progress" basePath="/portal" />);
     expect(screen.getByRole("heading", { name: "Tasks" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: /In progress/i })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: /Overdue/i })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: /Completed/i })).toBeInTheDocument();
+    // With no tasks the header action steps aside for the empty state's own CTA,
+    // so the page never draws two "add a task" buttons at once.
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Add task" })).toBeInTheDocument();
+    });
+    expect(screen.queryByRole("button", { name: "Add" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /^Filter\b/i })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /^All\b/i })).not.toBeInTheDocument();
+  });
+
+  it("moves the add action into the header once tasks exist", async () => {
+    tasks.push(makeTask());
+    render(<ManagerTaskList tabId="in-progress" basePath="/portal" />);
     await waitFor(() => {
       expect(screen.getByRole("button", { name: "Add" })).toBeInTheDocument();
     });
-    expect(screen.getByRole("button", { name: /^Filter\b/i })).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /^All\b/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Add task" })).not.toBeInTheDocument();
   });
 
   it("renders task rows grouped into clusters", async () => {
