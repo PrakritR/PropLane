@@ -1,29 +1,34 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
-import { Modal, ModalFooter } from "@/components/ui/modal";
-import { useAppUi } from "@/components/providers/app-ui-provider";
-import { copyTextToClipboard } from "@/lib/manager-property-links";
 import { PORTAL_HEADER_ACTION_BTN } from "@/components/portal/portal-metrics";
 import {
-  formatManagerMessagingPhone,
   MANAGER_MESSAGING_SETTINGS_HREF,
   type ManagerMessagingNumberStatus,
 } from "@/lib/sms/manager-messaging-number";
 
-/** Copy-only work number popup for manager Communication → SMS. */
+/**
+ * Communication-header entry point to work-number setup. Three states, keyed on
+ * the account's authoritative plan (`planTier`) and whether a number is already
+ * assigned:
+ *  - free plan → greyed, non-actionable, tooltip prompting a Pro upgrade.
+ *  - paid (or unreadable) plan, no number yet → active "Set up messaging" → Settings.
+ *  - number already assigned → nothing rendered (the CTA "goes away" once set up).
+ *
+ * `planTier === "unknown"` (a transient plan-read failure) falls to the setup
+ * link, never the free upsell, so a paying manager is never shown an upgrade
+ * prompt on a billing-read blip. A co-manager owns neither billing nor the
+ * number, so they get the read-only settings link instead of the upsell.
+ */
 export function ManagerWorkNumberButton({ className }: { className?: string }) {
-  const { showToast } = useAppUi();
-  const [workNumber, setWorkNumber] = useState<string | null>(null);
+  const [status, setStatus] = useState<ManagerMessagingNumberStatus | null>(
+    null,
+  );
   const [resolved, setResolved] = useState(false);
   const [statusError, setStatusError] = useState(false);
-  const [statusAttempt, setStatusAttempt] = useState(0);
-  const [canSend, setCanSend] = useState(false);
-  const [workspaceRole, setWorkspaceRole] =
-    useState<ManagerMessagingNumberStatus["workspaceRole"]>("primary");
-  const [open, setOpen] = useState(false);
+  const [attempt, setAttempt] = useState(0);
 
   useEffect(() => {
     let active = true;
@@ -39,134 +44,101 @@ export function ManagerWorkNumberButton({ className }: { className?: string }) {
       })
       .then((body) => {
         if (!active) return;
-        if (body) {
-          const payload = body as ManagerMessagingNumberStatus;
-          setWorkNumber(payload.number?.phoneNumber ?? null);
-          setCanSend(payload.canSend === true);
-          setWorkspaceRole(
-            payload.workspaceRole === "co_manager" ? "co_manager" : "primary",
-          );
-        }
+        setStatus((body ?? null) as ManagerMessagingNumberStatus | null);
         setResolved(true);
       })
       .catch(() => {
-        if (active) {
-          setStatusError(true);
-          setResolved(true);
-        }
+        if (!active) return;
+        setStatusError(true);
+        setResolved(true);
       });
     return () => {
       active = false;
     };
-  }, [statusAttempt]);
+  }, [attempt]);
 
-  const copyWorkNumber = useCallback(async () => {
-    const num = workNumber?.trim();
-    if (!num) return;
-    const ok = await copyTextToClipboard(num);
-    showToast(ok ? "Work number copied." : "Could not copy work number.");
-  }, [showToast, workNumber]);
+  const btnClass = `shrink-0 ${PORTAL_HEADER_ACTION_BTN} ${className ?? ""}`.trim();
 
-  return (
-    <>
-      {statusError ? (
-        <div className="flex min-w-0 items-center gap-2" role="alert" aria-live="polite">
-          <span className="sr-only">Messaging status unavailable.</span>
-          <span className="hidden text-sm text-muted sm:inline" aria-hidden="true">
-            Messaging status unavailable.
-          </span>
-          <Button
-            type="button"
-            variant="outline"
-            className={`shrink-0 ${PORTAL_HEADER_ACTION_BTN} ${className ?? ""}`.trim()}
-            data-attr="messaging-status-retry"
-            aria-label="Retry messaging status"
-            title="Messaging status unavailable. Tap to retry."
-            onClick={() => setStatusAttempt((attempt) => attempt + 1)}
-          >
-            Retry
-          </Button>
-        </div>
-      ) : resolved && !workNumber ? (
-        <Button
-          asChild
-          variant="outline"
-          className={`shrink-0 ${PORTAL_HEADER_ACTION_BTN} ${className ?? ""}`.trim()}
-          data-attr="messaging-open-settings"
+  if (statusError) {
+    return (
+      <div
+        className="flex min-w-0 items-center gap-2"
+        role="alert"
+        aria-live="polite"
+      >
+        <span className="sr-only">Messaging status unavailable.</span>
+        <span
+          className="hidden text-sm text-muted sm:inline"
+          aria-hidden="true"
         >
-          <Link
-            href={MANAGER_MESSAGING_SETTINGS_HREF}
-            aria-label={
-              workspaceRole === "co_manager" ? "View messaging" : "Set up messaging"
-            }
-          >
-            <span className="sm:hidden" aria-hidden="true">
-              Messaging
-            </span>
-            <span className="hidden sm:inline">
-              {workspaceRole === "co_manager"
-                ? "View messaging"
-                : "Set up messaging"}
-            </span>
-          </Link>
-        </Button>
-      ) : (
+          Messaging status unavailable.
+        </span>
         <Button
           type="button"
           variant="outline"
-          className={`shrink-0 ${PORTAL_HEADER_ACTION_BTN} ${className ?? ""}`.trim()}
-          disabled={!resolved}
-          onClick={() => setOpen(true)}
-          data-attr="messaging-view-number"
-          aria-label="View number"
+          className={btnClass}
+          data-attr="messaging-status-retry"
+          aria-label="Retry messaging status"
+          title="Messaging status unavailable. Tap to retry."
+          onClick={() => setAttempt((a) => a + 1)}
+        >
+          Retry
+        </Button>
+      </div>
+    );
+  }
+
+  // Until resolved, render nothing rather than flash the wrong plan state.
+  if (!resolved || !status) return null;
+
+  // Once a number is assigned, the CTA has done its job and disappears.
+  if (status.number?.phoneNumber) return null;
+
+  const isCoManager = status.workspaceRole === "co_manager";
+
+  if (status.planTier === "free" && !isCoManager) {
+    return (
+      <span
+        className="inline-flex shrink-0"
+        title="Subscribe to Pro to unlock SMS"
+      >
+        <Button
+          type="button"
+          variant="outline"
+          className={btnClass}
+          disabled
+          aria-disabled="true"
+          title="Subscribe to Pro to unlock SMS"
+          data-attr="messaging-upsell-locked"
+          aria-label="Subscribe to Pro to unlock SMS"
         >
           <span className="sm:hidden" aria-hidden="true">
-            Number
+            Messaging
           </span>
-          <span className="hidden sm:inline">View number</span>
+          <span className="hidden sm:inline">Set up messaging</span>
         </Button>
-      )}
-      <Modal
-        open={open}
-        title="Work number"
-        onClose={() => setOpen(false)}
-        footer={
-          <ModalFooter>
-            <Button
-              type="button"
-              variant="primary"
-              className="rounded-full"
-              disabled={!workNumber}
-              onClick={() => copyWorkNumber()}
-            >
-              Copy number
-            </Button>
-          </ModalFooter>
-        }
+      </span>
+    );
+  }
+
+  return (
+    <Button
+      asChild
+      variant="outline"
+      className={btnClass}
+      data-attr="messaging-open-settings"
+    >
+      <Link
+        href={MANAGER_MESSAGING_SETTINGS_HREF}
+        aria-label={isCoManager ? "View messaging" : "Set up messaging"}
       >
-        <div className="space-y-4">
-          <p className="text-sm text-muted">
-            This number is assigned to your manager account and cannot be edited
-            here.
-          </p>
-          <p className="rounded-xl border border-border bg-accent/25 px-3 py-2 text-base font-semibold text-foreground">
-            {formatManagerMessagingPhone(workNumber)}
-          </p>
-          {!canSend ? (
-            <p className="text-sm text-muted">
-              Messaging approval is still in progress.
-            </p>
-          ) : null}
-          <Link
-            href={MANAGER_MESSAGING_SETTINGS_HREF}
-            className="inline-flex min-h-10 items-center text-sm font-medium text-primary underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/25"
-            data-attr="messaging-manage-settings"
-            onClick={() => setOpen(false)}
-          >
-            Manage messaging settings
-          </Link>
-        </div>
-      </Modal>
-    </>
+        <span className="sm:hidden" aria-hidden="true">
+          Messaging
+        </span>
+        <span className="hidden sm:inline">
+          {isCoManager ? "View messaging" : "Set up messaging"}
+        </span>
+      </Link>
+    </Button>
   );
 }
