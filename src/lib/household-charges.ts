@@ -18,7 +18,12 @@ import {
   type ManagerRoomSubmission,
 } from "@/lib/manager-listing-submission";
 import { listingPresetFeeAmount } from "@/lib/listing-fees";
-import { formatRoomPriceAmount, resolveStayPricing, roomDailyRentPrice } from "@/lib/room-pricing";
+import {
+  formatRoomPriceAmount,
+  negotiatedMonthlyRentAmount,
+  resolveStayPricing,
+  roomDailyRentPrice,
+} from "@/lib/room-pricing";
 import { resolveSubmissionRoom } from "@/lib/listing-room-resolution";
 import { utilitiesBillableMonthlyAmount } from "@/lib/listing-utilities-payment";
 import { paymentSnapshotsFromListing } from "@/lib/household-charge-payment-eligibility";
@@ -1411,14 +1416,10 @@ function selectedRoom(row: DemoApplicantRow) {
  * discard the negotiated figure and re-bill the listing's daily rate.
  */
 function residentNegotiatedMonthlyRent(row: DemoApplicantRow): number {
-  const override = row.application?.managerRentOverride?.trim();
-  if (override) {
-    const amount = parseMoneyAmount(override);
-    if (amount > 0) return amount;
-  }
-  const signedRent = Number(row.signedMonthlyRent ?? 0);
-  if (Number.isFinite(signedRent) && signedRent > 0) return signedRent;
-  return 0;
+  return negotiatedMonthlyRentAmount({
+    managerRentOverride: row.application?.managerRentOverride,
+    signedMonthlyRent: row.signedMonthlyRent,
+  });
 }
 
 /** Short-term nightly rate: manager override / signed rent beat room and listing defaults. */

@@ -46,7 +46,7 @@ const SIGNING_CHARGE_KINDS: HouseholdChargeKind[] = [
 ];
 
 const FIRST_PERIOD_RENT_KINDS: HouseholdChargeKind[] = ["first_month_rent", "prorated_rent"];
-const FIRST_PERIOD_UTIL_KINDS: HouseholdChargeKind[] = ["utilities", "prorated_utilities"];
+const FIRST_PERIOD_UTIL_KINDS: HouseholdChargeKind[] = ["prorated_utilities"];
 
 function chargeAmount(c: HouseholdCharge): number {
   return parseMoneyLabel(c.balanceLabel || c.amountLabel || "0");

@@ -200,11 +200,22 @@ function overrideMoney(raw: string | null | undefined): number | undefined {
  * The resident's own negotiated monthly rent, which outranks the room's listing price
  * (monthly OR daily). Mirrors `residentNegotiatedMonthlyRent` in household-charges.ts.
  */
-function negotiatedMonthlyRent(application: StayPricingInput["application"]): number | undefined {
-  const override = positiveMoney(application?.managerRentOverride);
+export function negotiatedMonthlyRentAmount(input: {
+  managerRentOverride?: string | null;
+  signedMonthlyRent?: number | null;
+}): number {
+  const override = positiveMoney(input.managerRentOverride);
   if (override !== undefined) return override;
-  const signed = Number(application?.signedMonthlyRent ?? 0);
-  return Number.isFinite(signed) && signed > 0 ? signed : undefined;
+  const signed = Number(input.signedMonthlyRent ?? 0);
+  return Number.isFinite(signed) && signed > 0 ? signed : 0;
+}
+
+function negotiatedMonthlyRent(application: StayPricingInput["application"]): number | undefined {
+  const amount = negotiatedMonthlyRentAmount({
+    managerRentOverride: application?.managerRentOverride,
+    signedMonthlyRent: application?.signedMonthlyRent,
+  });
+  return amount > 0 ? amount : undefined;
 }
 
 /**

@@ -6,7 +6,7 @@ import {
   normalizeManagerListingSubmissionV1,
   type ManagerRoomSubmission,
 } from "@/lib/manager-listing-submission";
-import { roomDailyRentPrice } from "@/lib/room-pricing";
+import { negotiatedMonthlyRentAmount, roomDailyRentPrice } from "@/lib/room-pricing";
 import { getPropertyById } from "@/lib/rental-application/data";
 import { intraMonthStaySpan } from "@/lib/short-term-stay-pricing";
 
@@ -58,7 +58,11 @@ export function resolveLeaseProrationInputForApplicant(
         : "auto";
   const dailyRentRate = entireHome ? sub.entireHomeDailyRentRate : room?.dailyRentRate;
   const dailyUtilitiesRate = entireHome ? sub.entireHomeDailyUtilitiesRate : room?.dailyUtilitiesRate;
-  const dailyBasisRate = roomDailyRentPrice(room);
+  const negotiatedRent = negotiatedMonthlyRentAmount({
+    managerRentOverride: applicant.application?.managerRentOverride,
+    signedMonthlyRent: applicant.signedMonthlyRent,
+  });
+  const dailyBasisRate = negotiatedRent > 0 ? undefined : roomDailyRentPrice(room);
   const leaseStart = applicant.application?.leaseStart?.trim() ?? "";
   const leaseEnd = applicant.application?.leaseEnd?.trim() ?? "";
   const endsInsideFirstMonth =
