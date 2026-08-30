@@ -11,7 +11,6 @@ import { useShallowTabId } from "@/components/ui/tabs";
 import { useAppUi } from "@/components/providers/app-ui-provider";
 import { ApplicationHouseholdCluster, PortalListClusterSelectCheckbox } from "@/components/portal/application-household-list";
 import { ManagerPortalPageShell, PORTAL_HEADER_PRIMARY_ACTION_BTN_RESPONSIVE } from "@/components/portal/portal-metrics";
-import { ManagerPortalSettingsModal } from "@/components/portal/manager-portal-settings-modal";
 import { PortalFilterSortSheet, portalFilterActiveCount } from "@/components/portal/portal-filter-sort-sheet";
 import { PORTAL_PROPERTY_FILTER_SHEET_CLASS } from "@/components/portal/portal-filter-shell";
 import { PORTAL_LIST_PAGE_BODY } from "@/components/portal/portal-inbox-ui";
@@ -23,14 +22,13 @@ import {
 import { ManagerTaskFormModal } from "@/components/portal/manager-task-form-modal";
 import { ManagerTaskFilterFields } from "@/components/portal/manager-task-filter-fields";
 import { ManagerCommunicationComposeModal } from "@/components/portal/manager-communication-compose-modal";
-import { PortalNotificationPreviewModal } from "@/components/portal/portal-notification-preview-modal";
-import { useWorkAssignmentDirectory } from "@/hooks/use-work-assignment-directory";
 import { useManagerUserId } from "@/hooks/use-manager-user-id";
 import type { ManagerComposePrefill } from "@/lib/manager-compose-prefill";
 import { formatRangeLabel, syncScheduleRecordsFromServer } from "@/lib/demo-admin-scheduling";
 import { syncPropertyPipelineFromServer } from "@/lib/demo-property-pipeline";
 import { buildManagerPropertyFilterOptions } from "@/lib/manager-portfolio-access";
 import {
+  compareManagerTaskListRows,
   compactTaskLocationLabel,
   openTasksForListTab,
   serviceRequestLocationLabel,
@@ -38,6 +36,7 @@ import {
   taskListRowMatchesFilter,
   taskNotesPreview,
   type ManagerTaskListFilterId,
+  type ManagerTaskListSortId,
 } from "@/lib/manager-task-display";
 import {
   MANAGER_TASKS_EVENT,
@@ -51,11 +50,6 @@ import {
   type ManagerTask,
   type ManagerTaskPriority,
 } from "@/lib/manager-tasks";
-import {
-  buildManagerTaskReminderPreview,
-  resolveTaskAssigneeEmail,
-  taskAssigneeRecipientLabel,
-} from "@/lib/manager-task-reminder";
 import {
   MANAGER_TASK_LIST_TAB_LABELS,
   MANAGER_TASK_LIST_TABS,
@@ -124,13 +118,6 @@ function taskListRowClusterFields(
     propertyId: row.request.propertyId,
     propertyLabel: propertyLabelForId(row.request.propertyId),
   };
-}
-
-function rowSortKey(row: TaskListRow): string {
-  if (row.kind === "task") {
-    return row.task.start ?? row.task.dueDate ?? row.task.createdAt;
-  }
-  return row.request.requestedAt;
 }
 
 function serviceRequestBucket(req: ServiceRequest): "pending" | "approved" | "denied" {
@@ -211,20 +198,17 @@ export function ManagerTaskList({
   const tabId = useShallowTabId(serverTabId, MANAGER_TASK_LIST_TABS);
   const { showToast } = useAppUi();
   const { userId, email: managerEmail, ready } = useManagerUserId();
-  const assignmentDirectory = useWorkAssignmentDirectory({ managerUserId: userId });
   const [tasks, setTasks] = useState<ManagerTask[]>([]);
   const [assignedServices, setAssignedServices] = useState<ServiceRequest[]>([]);
   const [loading, setLoading] = useState(true);
   const [addOpen, setAddOpen] = useState(false);
-  const [remindersOpen, setRemindersOpen] = useState(false);
   const [composeOpen, setComposeOpen] = useState(false);
   const [composeDraft, setComposeDraft] = useState<ManagerComposePrefill | null>(null);
-  const [reminderPreview, setReminderPreview] = useState<ManagerTask | null>(null);
-  const [sendingReminderId, setSendingReminderId] = useState<string | null>(null);
   const [propertyTick, setPropertyTick] = useState(0);
   const [propertyFilterId, setPropertyFilterId] = useState("");
   const [groupMode, setGroupMode] = useState<PortalListGroupMode>(DEFAULT_PORTAL_LIST_GROUP_MODE);
   const [listFilter, setListFilter] = useState<ManagerTaskListFilterId>("all");
+  const [sortId, setSortId] = useState<ManagerTaskListSortId>("due_soonest");
 
   const propertyOptions = useMemo(
     () => buildManagerPropertyFilterOptions(userId),
@@ -308,7 +292,7 @@ export function ManagerTaskList({
         : [];
     return [...taskRows, ...serviceRows]
       .filter((row) => taskListRowMatchesFilter(row, listFilter))
-      .sort((a, b) => rowSortKey(b).localeCompare(rowSortKey(a)));
+      .sort((a, b) => compareManagerTaskListRows(a, b, sortId, propertyLabelForId));
   }, [
     assignedServices,
     doneTasks,
@@ -316,6 +300,8 @@ export function ManagerTaskList({
     listFilter,
     matchesProperty,
     overdueTasks,
+    propertyLabelForId,
+    sortId,
     tabId,
   ]);
 
@@ -330,9 +316,13 @@ export function ManagerTaskList({
   );
 
   const taskFilterActiveCount =
-    portalFilterActiveCount([listFilter !== "all" ? listFilter : "", propertyFilterId]);
+    portalFilterActiveCount([
+      listFilter !== "all" ? listFilter : "",
+      propertyFilterId,
+      sortId !== "due_soonest" ? sortId : "",
+    ]);
 
-  const taskFilterFieldCount = (propertyOptions.length > 1 ? 1 : 0) + 2;
+  const taskFilterFieldCount = (propertyOptions.length > 1 ? 1 : 0) + 3;
 
   const tasksFilterSheet = (
     <PortalFilterSortSheet
@@ -346,6 +336,7 @@ export function ManagerTaskList({
         setListFilter("all");
         setPropertyFilterId("");
         setGroupMode(DEFAULT_PORTAL_LIST_GROUP_MODE);
+        setSortId("due_soonest");
       }}
       dataAttr="tasks-filter-sheet-open"
     >
@@ -358,13 +349,15 @@ export function ManagerTaskList({
         onPropertyFilterIdChange={setPropertyFilterId}
         groupMode={groupMode}
         onGroupModeChange={setGroupMode}
+        sortId={sortId}
+        onSortIdChange={setSortId}
       />
     </PortalFilterSortSheet>
   );
 
   useEffect(() => {
     setSelectedIds([]);
-  }, [tabId, propertyFilterId, listFilter, groupMode]);
+  }, [tabId, propertyFilterId, listFilter, groupMode, sortId]);
 
   useEffect(() => {
     if (tabId !== "in-progress" && listFilter === "service_orders") {
@@ -414,60 +407,6 @@ export function ManagerTaskList({
     matchesProperty,
     overdueTasks,
   ]);
-
-  const assigneeDirectory = useMemo(
-    () => ({
-      teamMembers: assignmentDirectory.teamMembers,
-      vendors: assignmentDirectory.vendors.map((vendor) => ({
-        id: vendor.id,
-        name: vendor.name,
-        email: vendor.email,
-      })),
-    }),
-    [assignmentDirectory.teamMembers, assignmentDirectory.vendors],
-  );
-
-  function openReminderPreview(task: ManagerTask) {
-    const email = resolveTaskAssigneeEmail(task.assignee, assigneeDirectory);
-    if (!email) {
-      showToast("Add an email for the assignee before sending a reminder.");
-      return;
-    }
-    setReminderPreview(task);
-  }
-
-  async function sendTaskReminder(
-    task: ManagerTask,
-    draft?: { subject?: string; body?: string },
-  ): Promise<boolean> {
-    setSendingReminderId(task.id);
-    try {
-      const preview = buildManagerTaskReminderPreview({ task });
-      const res = await fetch("/api/portal/send-task-reminder", {
-        method: "POST",
-        credentials: "include",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          taskId: task.id,
-          subject: draft?.subject?.trim() || preview.subject,
-          text: draft?.body?.trim() || preview.body,
-        }),
-      });
-      const data = (await res.json().catch(() => ({}))) as { ok?: boolean; error?: string };
-      if (!res.ok || !data.ok) {
-        showToast(data.error ?? "Could not send reminder.");
-        return false;
-      }
-      showToast("Reminder sent by email.");
-      await refresh();
-      return true;
-    } catch {
-      showToast("Could not send reminder.");
-      return false;
-    } finally {
-      setSendingReminderId(null);
-    }
-  }
 
   async function bulkComplete(rows: ManagerTask[]) {
     if (!userId || rows.length === 0) return;
@@ -567,7 +506,6 @@ export function ManagerTaskList({
     if (selectedTasks.length === 1) {
       const task = selectedTasks[0]!;
       const editTask = () => beginEdit(task);
-      const remindTask = () => openReminderPreview(task);
       actions.push({
         id: "edit",
         keepPriority: 4,
@@ -588,28 +526,6 @@ export function ManagerTaskList({
           </DropdownMenuItem>
         ),
       });
-      if (tabId !== "completed") {
-        actions.push({
-          id: "remind",
-          keepPriority: 3,
-          node: (
-            <Button
-              type="button"
-              variant="outline"
-              className={TASK_BULK_BAR_BTN}
-              data-attr="manager-task-remind-selected"
-              onClick={remindTask}
-            >
-              Remind
-            </Button>
-          ),
-          menuItem: (
-            <DropdownMenuItem data-attr="manager-task-remind-selected" onSelect={remindTask}>
-              Remind
-            </DropdownMenuItem>
-          ),
-        });
-      }
     }
 
     actions.push({
@@ -641,7 +557,7 @@ export function ManagerTaskList({
         gapPx={4}
       />
     );
-  }, [assigneeDirectory, selectedTasks, tabId]);
+  }, [selectedTasks, tabId]);
 
   function renderTaskRow(task: ManagerTask, completed = false) {
     const location = compactTaskLocationLabel(task);
@@ -679,20 +595,6 @@ export function ManagerTaskList({
             {location ? <p className="text-xs text-muted">{location}</p> : null}
             {task.notes ? <TaskNotesSnippet notes={task.notes} /> : null}
           </button>
-          {!completed ? (
-            <div className="flex justify-start">
-              <Button
-                type="button"
-                variant="outline"
-                className="h-8 min-h-0 px-3 text-[11px] font-semibold"
-                data-attr="manager-task-send-reminder"
-                loading={sendingReminderId === task.id}
-                onClick={() => openReminderPreview(task)}
-              >
-                Remind
-              </Button>
-            </div>
-          ) : null}
         </div>
       </li>
     );
@@ -799,9 +701,10 @@ export function ManagerTaskList({
     ));
   }
 
-  const reminderPreviewContent = reminderPreview
-    ? buildManagerTaskReminderPreview({ task: reminderPreview })
-    : null;
+  function openAddTask() {
+    setEditingId(null);
+    setAddOpen(true);
+  }
 
   return (
     <ManagerPortalPageShell
@@ -809,35 +712,17 @@ export function ManagerTaskList({
       hideTitleOnMobileNav
       titleInlineFilter={tasksFilterSheet}
       titleAside={
-        <>
-          {/* Reminders are configured per subject, and Tasks is one of them —
-              this is the entry point to that shared surface. The settings modal
-              is `scoped` by default, so it opens on Reminders alone rather than
-              exposing every unrelated tab from here. */}
+        !loading && visibleRows.length > 0 && tabId === "in-progress" ? (
           <Button
             type="button"
             variant="outline"
             className={PORTAL_HEADER_PRIMARY_ACTION_BTN_RESPONSIVE}
-            data-attr="manager-task-reminders-open"
-            onClick={() => setRemindersOpen(true)}
+            data-attr="manager-task-list-add"
+            onClick={openAddTask}
           >
-            Reminders
+            Add
           </Button>
-          {tabId === "in-progress" ? (
-            <Button
-              type="button"
-              variant="outline"
-              className={PORTAL_HEADER_PRIMARY_ACTION_BTN_RESPONSIVE}
-              data-attr="manager-task-list-add"
-              onClick={() => {
-                setEditingId(null);
-                setAddOpen(true);
-              }}
-            >
-              Add
-            </Button>
-          ) : null}
-        </>
+        ) : null
       }
       compactFilterRow
     >
@@ -864,6 +749,23 @@ export function ManagerTaskList({
             data-attr="manager-task-groups"
           >
             {renderTaskClusters(clusters)}
+          </div>
+        ) : null}
+
+        {!loading && visibleRows.length === 0 ? (
+          <div className="flex flex-col items-center justify-center gap-4 py-16">
+            <p className="text-sm text-muted">
+              {tabId === "completed"
+                ? "No completed tasks yet."
+                : tabId === "overdue"
+                  ? "No overdue tasks."
+                  : "No tasks in progress."}
+            </p>
+            {tabId === "in-progress" ? (
+              <Button type="button" data-attr="manager-task-list-empty-add" onClick={openAddTask}>
+                Add task
+              </Button>
+            ) : null}
           </div>
         ) : null}
       </div>
@@ -910,42 +812,6 @@ export function ManagerTaskList({
           setComposeDraft(null);
           showToast("Message sent.");
         }}
-      />
-
-      {reminderPreview && reminderPreviewContent ? (
-        <PortalNotificationPreviewModal
-          open
-          title="Send task reminder"
-          onClose={() => setReminderPreview(null)}
-          recipient={taskAssigneeRecipientLabel(reminderPreview, assigneeDirectory)}
-          subject={reminderPreviewContent.subject}
-          body={reminderPreviewContent.body}
-          intro="Review the reminder below. It will be emailed to the assignee."
-          showSkipMessage={false}
-          showChannelPicker={false}
-          emailAvailable
-          smsAvailable={false}
-          editableBody
-          editableSubject
-          confirmLabel="Send reminder"
-          confirmBusy={sendingReminderId === reminderPreview.id}
-          confirmBusyLabel="Sending…"
-          onConfirm={async (_skipMessage, _channels, draft) => {
-            const ok = await sendTaskReminder(reminderPreview, {
-              subject: draft?.subject,
-              body: draft?.body,
-            });
-            if (ok) setReminderPreview(null);
-          }}
-        />
-      ) : null}
-      {/* Mounted unconditionally and driven by `open`: this modal manages its own
-          open/close transition, so mounting it already-open renders nothing. */}
-      <ManagerPortalSettingsModal
-        open={remindersOpen}
-        onClose={() => setRemindersOpen(false)}
-        initialTab="reminders"
-        scopedTitle="Reminders"
       />
     </ManagerPortalPageShell>
   );

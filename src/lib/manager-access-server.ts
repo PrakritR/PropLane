@@ -158,6 +158,52 @@ export async function getManagerSubscriptionTier(userId: string): Promise<Manage
   return getManagerSubscriptionTierCached(userId);
 }
 
+const getManagerPortalNavSubscriptionTierCached = cache(
+  async (userId: string): Promise<ManagerSubscriptionTier> => {
+    const ownTier = await getManagerSubscriptionTierCached(userId);
+    try {
+      const supabase = createSupabaseServiceRoleClient();
+      const { data: ownedRow } = await supabase
+        .from("manager_property_records")
+        .select("id")
+        .eq("manager_user_id", userId)
+        .limit(1)
+        .maybeSingle();
+      const hasOwnedProperties = Boolean(ownedRow?.id);
+      if (hasOwnedProperties) return ownTier;
+
+      const { data: links } = await supabase
+        .from("account_link_invites")
+        .select("inviter_user_id")
+        .eq("invitee_user_id", userId)
+        .eq("status", "accepted");
+      const inviterIds = [
+        ...new Set(
+          (links ?? [])
+            .map((row) => String((row as { inviter_user_id?: string }).inviter_user_id ?? "").trim())
+            .filter(Boolean),
+        ),
+      ];
+      if (inviterIds.length === 0) return ownTier;
+
+      const { pickManagerPortalNavSubscriptionTier } = await import("@/lib/manager-access");
+      const linkedOwnerTiers = await Promise.all(
+        inviterIds.map((inviterId) => getManagerSubscriptionTierCached(inviterId)),
+      );
+      return pickManagerPortalNavSubscriptionTier(ownTier, false, linkedOwnerTiers);
+    } catch {
+      return ownTier;
+    }
+  },
+);
+
+/** Plan tier used for manager sidebar locks and section paywalls (not billing UI). */
+export async function getManagerPortalNavSubscriptionTier(
+  userId: string,
+): Promise<ManagerSubscriptionTier> {
+  return getManagerPortalNavSubscriptionTierCached(userId);
+}
+
 const getManagerSubscriptionTierByManagerIdCached = cache(
   async (managerId: string): Promise<ManagerSubscriptionTier> => {
     const normalized = managerId.trim();

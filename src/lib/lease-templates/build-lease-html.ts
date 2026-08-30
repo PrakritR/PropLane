@@ -32,10 +32,8 @@ import { jointLeasePartiesParagraph } from "@/lib/bundle-group/joint-lease";
 import { leaseCss, type LeaseJurisdictionTemplateConfig } from "@/lib/lease-templates/types";
 import { resolveJurisdiction } from "@/lib/lease-jurisdiction";
 import {
-  disclosureRulesCatalog,
   disclosureVerbatimHtmlForSection,
   evaluateDisclosureRules,
-  type DisclosureRuleEvaluation,
 } from "@/lib/lease-templates/disclosure-rules";
 import { buildCompactRoomLeaseBody } from "@/lib/lease-templates/build-compact-room-lease-html";
 import {
@@ -142,46 +140,6 @@ function customTermsAddendumHtml(
 ${body}
 </div>
 `;
-}
-
-function unplacedDisclosureRules(evaluation: DisclosureRuleEvaluation): string[] {
-  return evaluation.firedRules
-    .filter((rule) => rule.template_section && !DISCLOSURE_TEMPLATE_SECTIONS.has(rule.template_section))
-    .map((rule) => rule.id);
-}
-
-function disclosureReviewNoticeHtml(
-  evaluation: DisclosureRuleEvaluation | null,
-  canCompleteLease: boolean,
-): string {
-  if (!evaluation) return "";
-  const fieldLabel = (field: string) =>
-    disclosureRulesCatalog.trigger_field_dictionary[field]?.description ?? field.replace(/_/g, " ");
-  const missing = [...evaluation.unknownTriggers, ...evaluation.unknownUnverifiedTriggers]
-    .map(
-      ({ rule, field }) =>
-        `<li>${escapeHtml(fieldLabel(field))} is required for ${escapeHtml(rule.name)}${rule.cite_verified ? "" : " (citation verification is still pending)"}.</li>`,
-    )
-    .join("");
-  const attachments = evaluation.attachmentRequirements
-    .map((rule) => `<li>${escapeHtml(rule.name)}: ${escapeHtml(rule.attachment ?? "")}</li>`)
-    .join("");
-  const incomplete = missing || attachments;
-  const unverified = evaluation.excludedUnverifiedRuleCount
-    ? `<p>${evaluation.excludedUnverifiedRuleCount} applicable rule${evaluation.excludedUnverifiedRuleCount === 1 ? " is" : "s are"} excluded because ${evaluation.excludedUnverifiedRuleCount === 1 ? "its citation has" : "their citations have"} not been verified.</p>`
-    : "";
-  const contentGapCount = evaluation.contentGaps.length + unplacedDisclosureRules(evaluation).length;
-  const contentGaps = contentGapCount
-    ? `<p>${contentGapCount} verified rule${contentGapCount === 1 ? " has" : "s have"} no safe rendered catalog placement or verbatim body. Legal review must confirm the existing template satisfies ${contentGapCount === 1 ? "it" : "them"}.</p>`
-    : "";
-  if (!incomplete && !unverified && !contentGaps) return "";
-  return `<aside class="disclosure-review" data-disclosure-complete="${canCompleteLease ? "true" : "false"}">
-<p><strong>${canCompleteLease ? "Disclosure review" : "Lease completion required"}</strong></p>
-${missing ? `<p>This lease cannot be completed until the following information is supplied:</p><ul>${missing}</ul>` : ""}
-${attachments ? `<p>These required attachments are not delivered by PropLane and must be provided before completion:</p><ul>${attachments}</ul>` : ""}
-${unverified}
-${contentGaps}
-</aside>`;
 }
 
 /**
@@ -670,9 +628,15 @@ export function buildLeaseHtml(ctx: LeaseGenerationContext, config: LeaseJurisdi
     .map((f) => `  <tr><th>${escapeHtml(f.label?.trim() || "Custom fee")}</th><td class="amount">${escapeHtml(fmtUsd(parseAmount(f.amount) ?? 0))}</td></tr>`)
     .join("\n");
   const leaseBasicsSection = stay.stayKind === "short" ? "short-term" : "long-term";
+  const leaseFeeBillingContext = {
+    leaseStart: a.leaseStart,
+    leaseEnd: a.leaseEnd,
+    leaseTerm: a.leaseTerm,
+    rentalType: a.rentalType,
+  };
   const leaseDocFees = stripPreviewFinancials || !subNorm
     ? { oneTime: [], monthly: [] }
-    : leaseDocumentFeeLines(subNorm, leaseBasicsSection);
+    : leaseDocumentFeeLines(subNorm, leaseBasicsSection, leaseFeeBillingContext);
   // Monthly preset + custom fees (parking, MTM surcharge, custom lease, etc.) bill recurring
   // and must appear in the lease — not only genuinely-custom rows.
   const billableMonthlyCustomFees = leaseDocFees.monthly;
@@ -743,11 +707,7 @@ export function buildLeaseHtml(ctx: LeaseGenerationContext, config: LeaseJurisdi
         },
       })
     : null;
-  const disclosureCanCompleteLease =
-    disclosureEvaluation?.canCompleteLease === true && unplacedDisclosureRules(disclosureEvaluation).length === 0;
-  const disclosureReviewNotice = propertyTemplatePreview
-    ? ""
-    : disclosureReviewNoticeHtml(disclosureEvaluation, disclosureCanCompleteLease);
+  const disclosureReviewNotice = "";
   const disclosureHtml = (templateSection: string) =>
     disclosureEvaluation ? disclosureVerbatimHtmlForSection(disclosureEvaluation, templateSection) : "";
   const premisesDisclosureHtml = disclosureHtml("Premises / Municipal compliance");

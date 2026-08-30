@@ -144,6 +144,73 @@ export function openTasksForListTab(tasks: ManagerTask[], tabId: ManagerTaskList
   return open.filter((task) => !isManagerTaskLate(task));
 }
 
+export const MANAGER_TASK_LIST_SORTS = ["due_soonest", "due_latest", "newest", "house"] as const;
+export type ManagerTaskListSortId = (typeof MANAGER_TASK_LIST_SORTS)[number];
+
+export const MANAGER_TASK_LIST_SORT_LABELS: Record<ManagerTaskListSortId, string> = {
+  due_soonest: "Due soonest",
+  due_latest: "Due latest",
+  newest: "Newest first",
+  house: "House A–Z",
+};
+
+type TaskListRowLike =
+  | { kind: "task"; task: ManagerTask }
+  | { kind: "service"; request: ServiceRequest };
+
+function taskListRowDueMs(row: TaskListRowLike): number | null {
+  if (row.kind === "task") return managerTaskDueInstant(row.task);
+  const requestedMs = Date.parse(row.request.requestedAt);
+  return Number.isFinite(requestedMs) ? requestedMs : null;
+}
+
+function taskListRowHouseLabel(
+  row: TaskListRowLike,
+  propertyLabelForId: (propertyId?: string) => string,
+): string {
+  if (row.kind === "task") {
+    return (
+      compactTaskPropertyLabel(row.task.propertyId, row.task.propertyTitle) ??
+      propertyLabelForId(row.task.propertyId) ??
+      ""
+    );
+  }
+  return compactTaskPropertyLabel(row.request.propertyId) ?? propertyLabelForId(row.request.propertyId) ?? "";
+}
+
+/** Stable list ordering for manager Tasks (numeric due dates, not string sort). */
+export function compareManagerTaskListRows(
+  a: TaskListRowLike,
+  b: TaskListRowLike,
+  sortId: ManagerTaskListSortId,
+  propertyLabelForId: (propertyId?: string) => string,
+): number {
+  if (sortId === "house") {
+    const left = taskListRowHouseLabel(a, propertyLabelForId);
+    const right = taskListRowHouseLabel(b, propertyLabelForId);
+    const byHouse = left.localeCompare(right, undefined, { sensitivity: "base" });
+    if (byHouse !== 0) return byHouse;
+  }
+
+  if (sortId === "newest") {
+    const aCreated = a.kind === "task" ? a.task.createdAt : a.request.requestedAt;
+    const bCreated = b.kind === "task" ? b.task.createdAt : b.request.requestedAt;
+    return bCreated.localeCompare(aCreated);
+  }
+
+  const aDue = taskListRowDueMs(a);
+  const bDue = taskListRowDueMs(b);
+  if (aDue != null && bDue != null) {
+    return sortId === "due_latest" ? bDue - aDue : aDue - bDue;
+  }
+  if (aDue != null) return -1;
+  if (bDue != null) return 1;
+
+  const aCreated = a.kind === "task" ? a.task.createdAt : a.request.requestedAt;
+  const bCreated = b.kind === "task" ? b.task.createdAt : b.request.requestedAt;
+  return bCreated.localeCompare(aCreated);
+}
+
 export function countTaskListFilterBuckets(input: {
   tasks: ManagerTask[];
   services: ServiceRequest[];
