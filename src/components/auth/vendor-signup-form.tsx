@@ -9,7 +9,6 @@ import { AuthSignedInRoleBanner } from "@/components/auth/auth-signed-in-role-ba
 import { useSignedInPortalRoles } from "@/components/auth/use-signed-in-portal-roles";
 import { VendorAppleSignUpButton } from "@/components/auth/vendor-apple-sign-up-button";
 import { VendorGoogleSignUpButton } from "@/components/auth/vendor-google-sign-up-button";
-import { useAppUi } from "@/components/providers/app-ui-provider";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { PasswordInput } from "@/components/ui/password-input";
@@ -49,7 +48,6 @@ export function VendorSignupForm({
   hideLegalFooter?: boolean;
 }) {
   const router = useRouter();
-  const { showToast } = useAppUi();
   const [email, setEmail] = useState(initialEmail);
   const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
@@ -73,7 +71,7 @@ export function VendorSignupForm({
   const submit = async () => {
     setError(null);
     if (compact && !inviteToken && (!email.trim() || password.length < 8)) {
-      showToast("Enter your email and an 8+ character password.");
+      setError("Enter your email and an 8+ character password.");
       return;
     }
     if (!inviteToken && !email.trim().includes("@")) {

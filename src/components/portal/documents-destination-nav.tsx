@@ -30,10 +30,16 @@ export function documentGroupIdForTab(tabId: string): string {
 
 type DocumentTabItem = { id: string; label: string; href: string };
 
-const EQUAL_NAV_CLASS = "max-w-none max-lg:rounded-none max-lg:border-0 max-lg:border-b max-lg:border-border max-lg:bg-transparent";
+const DOCUMENT_GROUP_NAV_CLASS =
+  "gap-2 border-b border-border px-0 [&_a]:min-h-9 [&_a]:px-3 max-lg:scroll-px-0";
+
+const DOCUMENT_VIEW_NAV_CLASS =
+  "max-w-none rounded-xl border border-border bg-accent/30 p-1 [&_a]:!flex-none [&_a]:!basis-auto max-lg:rounded-xl max-lg:border max-lg:bg-accent/30";
 
 /**
- * Group switcher + full-width sub-tabs — same chrome as Payments list sections.
+ * Two-tier document navigation: category labels establish context; the compact
+ * contextual row switches views. Equal-width button grids made both levels
+ * look like primary actions and overwhelmed the document list.
  */
 export function DocumentsDestinationNav({
   tabId,
@@ -62,20 +68,16 @@ export function DocumentsDestinationNav({
         items={groupItems}
         activeId={activeGroupId}
         ariaLabel="Document section"
-        itemLayout="equal"
-        denseEqualRow
-        size="toolbar"
-        className={EQUAL_NAV_CLASS}
+        appearance="command"
+        className={DOCUMENT_GROUP_NAV_CLASS}
       />
       {subItems.length > 0 ? (
         <DestinationNav
           items={subItems}
           activeId={tabId}
           ariaLabel="Document view"
-          itemLayout="equal"
-          denseEqualRow
           size="toolbar"
-          className={EQUAL_NAV_CLASS}
+          className={DOCUMENT_VIEW_NAV_CLASS}
         />
       ) : null}
     </div>

@@ -59,12 +59,14 @@ describe("Finance and Documents title-row controls", () => {
     expect(filterFields).toContain("PORTAL_FILTER_PANEL_FOUR_FIELD_HEIGHT_CLASS");
   });
 
-  it("renders Payments filter in the title band like Applications", () => {
+  it("keeps Payments in the title band while Applications uses the command strip", () => {
     const payments = portalSource("manager-payments.tsx");
     const applications = portalSource("manager-applications.tsx");
 
     expect(payments).toContain("titleInlineFilter={paymentsFilterSheet}");
     expect(payments).not.toContain('desktopPresentation="inline"');
-    expect(applications).toContain("titleInlineFilter={applicationsFilterSort}");
+    expect(applications).toContain("titleInlineFilter={null}");
+    expect(applications).toContain('variant="command"');
+    expect(applications).toContain("filterRow={applicationsFilterSort}");
   });
 });

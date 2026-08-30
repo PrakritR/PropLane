@@ -6,7 +6,10 @@ import {
   isPlaceholderManagerWorkNumber,
 } from "@/lib/claw-leasing-links";
 import { PRODUCTION_APP_ORIGIN, resolveEmailLinkBaseUrl } from "@/lib/app-url";
-import { createTwilioRestClient } from "@/lib/twilio-client.server";
+import {
+  createTwilioRestClient,
+  twilioErrorFields,
+} from "@/lib/twilio-client.server";
 
 export type EnsureManagerSmsNumberResult =
   | { ok: true; number: string }
@@ -27,7 +30,28 @@ export function resolveInboundWebhookUrl(): string {
 
 export type PurchaseTwilioNumberResult =
   | { ok: true; number: string; sid: string; messagingServiceSid: string | null }
-  | { ok: false; error: string };
+  | {
+      ok: false;
+      error: string;
+      cleanupConfirmed?: boolean;
+      purchasedNumber?: { number: string; sid: string };
+    };
+
+function twilioOperationError(operation: string, error: unknown): string {
+  const fields = twilioErrorFields(error);
+  const identifiers = [
+    fields.code ? `code ${fields.code}` : null,
+    fields.status ? `HTTP ${fields.status}` : null,
+  ].filter(Boolean);
+  const detail = fields.message?.trim();
+  const moreInfo = fields.moreInfo?.trim();
+  return [
+    `${operation} failed${identifiers.length ? ` (${identifiers.join(", ")})` : ""}${detail ? `: ${detail}` : "."}`,
+    moreInfo ? `More info: ${moreInfo}` : null,
+  ]
+    .filter(Boolean)
+    .join(" ");
+}
 
 /**
  * Provider-only Twilio purchase: find an SMS-capable US local number, buy it,
@@ -81,9 +105,34 @@ export async function purchaseManagerTwilioNumber(opts?: {
     try {
       await client.messaging.v1.services(svc).phoneNumbers.create({ phoneNumberSid });
       messagingServiceSid = svc;
-    } catch {
-      await client.incomingPhoneNumbers(phoneNumberSid).remove().catch(() => undefined);
-      return { ok: false, error: "Could not attach the work number to PropLane messaging." };
+    } catch (error) {
+      const diagnostic = twilioOperationError(
+        "Twilio Messaging Service sender-pool attachment",
+        error,
+      );
+      console.error("Twilio Messaging Service sender-pool attachment failed", {
+        phoneNumberSid,
+        messagingServiceSid: svc,
+        ...twilioErrorFields(error),
+      });
+      const released = await client
+        .incomingPhoneNumbers(phoneNumberSid)
+        .remove()
+        .catch((cleanupError) => {
+          console.error("Twilio number cleanup after attachment failure failed", {
+            phoneNumberSid,
+            ...twilioErrorFields(cleanupError),
+          });
+          return false;
+        });
+      return {
+        ok: false,
+        cleanupConfirmed: released,
+        purchasedNumber: { number, sid: phoneNumberSid },
+        error: released
+          ? `${diagnostic} The purchased number was released.`
+          : `${diagnostic} The purchased number release could not be confirmed; do not retry until PropLane reviews it.`,
+      };
     }
 
     return { ok: true, number, sid: phoneNumberSid, messagingServiceSid };

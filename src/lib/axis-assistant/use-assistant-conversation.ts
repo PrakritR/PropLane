@@ -110,7 +110,6 @@ type TranscriptResponse = {
   };
   error?: string;
 };
-type StartSessionResponse = { sessionId?: string; error?: string };
 type DeleteSessionResponse = { deleted?: boolean; error?: string };
 function isRetryableConfirmStatus(status: number): boolean {
   return status === 429 || status >= 500;
@@ -395,24 +394,11 @@ export function useAssistantConversation(endpoint: string, options: AssistantCon
   }, [attachments, endpoint, multiThread, storageScope]);
 
   const startNewChat = useCallback(async () => {
+    // A brand-new chat is a local reset only. The server thread is created
+    // lazily on the first message (see `send`), so an empty conversation the
+    // user opens but never types into is never saved or shown in history.
     reset();
-    if (!multiThread) return;
-    try {
-      const res = await fetch(endpoint, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ newSession: true }),
-      });
-      const data = (await res.json()) as StartSessionResponse;
-      if (!res.ok || !data.sessionId || data.error) {
-        throw new Error(data.error ?? "We couldn't start a saved conversation. Please try again.");
-      }
-      setActiveThreadId(data.sessionId);
-      setThreads((current) => upsertThread(current, data.sessionId!, []));
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "We couldn't start a saved conversation. Please try again.");
-    }
-  }, [endpoint, multiThread, reset]);
+  }, [reset]);
 
   const openHistory = useCallback(() => {
     if (!multiThread) return;

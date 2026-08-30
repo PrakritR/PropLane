@@ -111,10 +111,9 @@ export function ManagerTrialSignupForm({
       }
       if (result.status === "error") {
         setErrorText(result.message);
-        showToast(result.message);
       }
     },
-    [showToast],
+    [],
   );
 
   useEffect(() => {
@@ -151,7 +150,6 @@ export function ManagerTrialSignupForm({
         if (result.status !== "provisioned") {
           if (result.status === "error") {
             setErrorText(result.message);
-            showToast(result.message);
           }
           return;
         }
@@ -174,16 +172,16 @@ export function ManagerTrialSignupForm({
 
   const submit = async () => {
     if (!fullName.trim()) {
-      showToast("Enter your full name.");
+      setErrorText("Enter your full name.");
       return;
     }
     if (!email.trim() || password.length < 8) {
-      showToast("Enter your email and an 8+ character password.");
+      setErrorText("Enter your email and an 8+ character password.");
       return;
     }
     const normalizedPhone = normalizeE164(phone);
     if (!normalizedPhone) {
-      showToast("Enter a valid phone number.");
+      setErrorText("Enter a valid phone number.");
       return;
     }
     setErrorText(null);
@@ -203,7 +201,6 @@ export function ManagerTrialSignupForm({
       const body = (await res.json()) as { error?: string; redirectTo?: string; existingAccount?: boolean };
       if (!res.ok) {
         setErrorText(body.error ?? "Could not create manager account.");
-        showToast(body.error ?? "Could not create manager account.");
         return;
       }
       const supabase = createSupabaseBrowserClient();
@@ -228,7 +225,7 @@ export function ManagerTrialSignupForm({
       const fallback = body.redirectTo?.startsWith("/") ? body.redirectTo : managerPortalEntryPath();
       await navigateAfterRoleSignup(fallback);
     } catch {
-      showToast("Network error.");
+      setErrorText("Network error.");
     } finally {
       setBusy(false);
     }

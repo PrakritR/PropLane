@@ -80,6 +80,7 @@ type SettingsGroup = {
   label: string;
   description: string;
   icon: ComponentType<{ className?: string }>;
+  group: "Workspace" | "Account";
 };
 
 function ManagerMessagingSettingsPane() {
@@ -254,6 +255,7 @@ export function PortalProfileClient({
         label: "Profile",
         description: `Name, contact details, and ${idLabel}.`,
         icon: UserRound,
+        group: "Account",
       },
     ];
     if (!demo) {
@@ -262,6 +264,7 @@ export function PortalProfileClient({
         label: "Billing & plan",
         description: "Subscription and payment details.",
         icon: CreditCard,
+        group: "Workspace",
       });
     }
     if (!demo && variant === "manager") {
@@ -270,6 +273,7 @@ export function PortalProfileClient({
         label: "Messaging",
         description: "Dedicated work number and texting readiness.",
         icon: MessagesSquare,
+        group: "Workspace",
       });
     }
     list.push(
@@ -278,12 +282,14 @@ export function PortalProfileClient({
         label: "Preferences",
         description: "Appearance, assistant, and device options.",
         icon: SlidersHorizontal,
+        group: "Account",
       },
       {
         id: "security",
         label: "Login & security",
         description: "Password and sign-in options.",
         icon: Lock,
+        group: "Account",
       },
     );
     // Keys authorize against the manager tool layer, so the pane is manager-only.
@@ -294,6 +300,7 @@ export function PortalProfileClient({
         label: "API & MCP",
         description: "Connect your own AI agent to PropLane.",
         icon: KeyRound,
+        group: "Workspace",
       });
     }
     list.push(
@@ -302,12 +309,14 @@ export function PortalProfileClient({
         label: "Feedback",
         description: "Report issues or share product feedback.",
         icon: MessageSquareText,
+        group: "Account",
       },
       {
         id: "account",
         label: "Account",
         description: "Switch portals, sign out, or delete your account.",
         icon: Settings2,
+        group: "Account",
       },
     );
     return list;
@@ -401,16 +410,13 @@ export function PortalProfileClient({
       case "profile":
         return personalInfoSection;
       case "billing":
-        // Slot for the plan/billing feature — ManagerPlan owns everything
-        // inside this card; Settings only provides the section frame.
+        // Billing is a complete operational surface. It owns its current-plan
+        // state and comparison cards, so Settings deliberately provides no
+        // duplicate heading or card around it.
         return (
-          <PortalSettingsSection title="Billing & plan" description="Subscription and payment details.">
-            <PortalSettingsGroup>
-              <div className="p-4">
-                <ManagerPlan embedded showCurrentPlan={false} />
-              </div>
-            </PortalSettingsGroup>
-          </PortalSettingsSection>
+          <div className="min-w-0">
+            <ManagerPlan embedded showCurrentPlan={false} />
+          </div>
         );
       case "messaging":
         return <ManagerMessagingSettingsPane />;
@@ -445,6 +451,10 @@ export function PortalProfileClient({
       <ManagerPortalPageShell
         title="Settings"
         subtitle="Manage your account settings and preferences."
+        // Billing has its own compact plan status + pricing hierarchy. Keeping
+        // the generic Settings header above it wastes the first viewport and
+        // competes with the financial decision the manager came to make.
+        navigationProvidesTitle={paneGroup.id === "billing"}
         // The mobile/native app bar already reads "Settings" — same as every
         // other manager section, drop the duplicate in-page title on phones.
         hideTitleOnMobileNav
@@ -458,6 +468,7 @@ export function PortalProfileClient({
               id: g.id,
               label: g.label,
               icon: <g.icon className="h-4 w-4" />,
+              group: g.group,
             }))}
             activeId={paneGroup.id}
             onSelect={openGroup}
@@ -466,18 +477,27 @@ export function PortalProfileClient({
             {activeGroup === null ? (
               <div className="space-y-5 lg:hidden">
                 <PortalSettingsProfileHeader name={emptyToDash(fullName)} email={initialEmail} />
-                <PortalSettingsGroup>
-                  {groups.map((g) => (
-                    <PortalSettingsLinkRow
-                      key={g.id}
-                      icon={<g.icon className="h-4 w-4" />}
-                      label={g.label}
-                      description={g.description}
-                      onClick={() => openGroup(g.id)}
-                      dataAttr={`settings-open-${g.id}`}
-                    />
-                  ))}
-                </PortalSettingsGroup>
+                {(["Account", "Workspace"] as const).map((group) => {
+                  const groupItems = groups.filter((item) => item.group === group);
+                  if (groupItems.length === 0) return null;
+                  return (
+                    <section key={group} className="space-y-2">
+                      <h2 className="px-1 text-[11px] font-bold uppercase tracking-[0.12em] text-muted">{group}</h2>
+                      <PortalSettingsGroup>
+                        {groupItems.map((g) => (
+                          <PortalSettingsLinkRow
+                            key={g.id}
+                            icon={<g.icon className="h-4 w-4" />}
+                            label={g.label}
+                            description={g.description}
+                            onClick={() => openGroup(g.id)}
+                            dataAttr={`settings-open-${g.id}`}
+                          />
+                        ))}
+                      </PortalSettingsGroup>
+                    </section>
+                  );
+                })}
               </div>
             ) : (
               <div className="mb-4 lg:hidden">

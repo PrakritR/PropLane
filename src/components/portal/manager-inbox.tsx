@@ -1865,7 +1865,7 @@ export const ManagerInbox = forwardRef<
               Delete all trash
             </Button>
           ) : null}
-          <Button type="button" variant="outline" className={`shrink-0 ${PORTAL_HEADER_ACTION_BTN}`} data-attr="inbox-new-message" onClick={() => setComposeOpen(true)}>
+          <Button type="button" variant="primary" className={`shrink-0 ${PORTAL_HEADER_ACTION_BTN}`} data-attr="inbox-new-message" onClick={() => setComposeOpen(true)}>
             New message
           </Button>
         </>

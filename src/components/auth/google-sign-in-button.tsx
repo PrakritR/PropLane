@@ -47,7 +47,7 @@ export function GoogleSignInButton({
   fixedCallbackPath?: string;
   intent?: OAuthSignInIntent | null;
   onBeforeRedirect?: () => void;
-  /** Render the failure in place too — a toast is too transient for a multi-sentence hint. */
+  /** Prefer an in-place failure slot; toast only when the caller has nowhere else to put it. */
   onError?: (message: string) => void;
 }) {
   const { showToast } = useAppUi();
@@ -78,8 +78,11 @@ export function GoogleSignInButton({
       onBeforeRedirect,
     });
     if (!result.ok) {
-      onError?.(result.message);
-      showToast(result.message);
+      if (onError) {
+        onError(result.message);
+      } else {
+        showToast(result.message);
+      }
       setBusy(false);
       return;
     }

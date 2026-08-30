@@ -133,7 +133,6 @@ export function PortalTextNotificationsBlock({
       if (!res.ok) {
         const message = await readApiError(res, "Could not send the code.");
         setError(message);
-        showToast(message);
         return;
       }
       setCodeSent(true);
@@ -141,7 +140,6 @@ export function PortalTextNotificationsBlock({
       showToast("Code sent. Check your texts.");
     } catch {
       setError("Network error. Check your connection and try again.");
-      showToast("Network error.");
     } finally {
       setBusy(null);
     }
@@ -165,7 +163,6 @@ export function PortalTextNotificationsBlock({
       if (!res.ok) {
         const message = await readApiError(res, "Could not verify the code.");
         setError(message);
-        showToast(message);
         return;
       }
       const body = (await res.json()) as { ok?: boolean; phone?: string };
@@ -173,7 +170,6 @@ export function PortalTextNotificationsBlock({
       showToast("Phone verified.");
     } catch {
       setError("Network error. Check your connection and try again.");
-      showToast("Network error.");
     } finally {
       setBusy(null);
     }

@@ -59,6 +59,22 @@ describe("DestinationNav", () => {
     expect(link.className).toContain("max-lg:flex-none");
     expect(link.className).toContain("max-lg:whitespace-nowrap");
   });
+
+  it("renders compact queue counts in the command appearance", () => {
+    render(
+      <DestinationNav
+        items={[
+          { id: "pending", label: "Pending", href: "/portal/tours/pending", count: 5 },
+          { id: "past", label: "Past", href: "/portal/tours/past", count: 0 },
+        ]}
+        activeId="pending"
+        appearance="command"
+      />,
+    );
+    const active = screen.getByRole("link", { name: /Pending/ });
+    expect(active.className).toContain("border-primary");
+    expect(screen.getByLabelText("5 items")).toBeTruthy();
+  });
 });
 
 describe("PageHeader", () => {
@@ -178,6 +194,29 @@ describe("DataList", () => {
       />,
     );
     expect(screen.getByText("No records")).toBeTruthy();
+  });
+
+  it("keeps a selectable mobile row checkbox outside its record button", () => {
+    const { container } = render(
+      <DataList
+        selectable
+        rows={[
+          {
+            id: "1",
+            data: { name: "Alice" },
+            primary: "Alice",
+            selected: false,
+            onSelectedChange: () => {},
+            onClick: () => {},
+          },
+        ]}
+        columns={[{ id: "name", header: "Name", cell: (row) => row.name }]}
+      />,
+    );
+    const mobileRow = container.querySelector("[data-slot=data-list-mobile-row]");
+    expect(mobileRow?.querySelector("button input")).toBeNull();
+    expect(mobileRow?.querySelector(":scope > input[type=checkbox]")).toBeTruthy();
+    expect(mobileRow?.querySelector(":scope > button")).toBeTruthy();
   });
 });
 

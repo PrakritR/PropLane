@@ -40,10 +40,16 @@ export function financeGroupIdForTab(tabId: string): string {
 
 type FinanceTabItem = { id: string; label: string; href: string };
 
-const EQUAL_NAV_CLASS = "max-w-none max-lg:rounded-none max-lg:border-0 max-lg:border-b max-lg:border-border max-lg:bg-transparent";
+const FINANCE_GROUP_NAV_CLASS =
+  "gap-2 border-b border-border px-0 [&_a]:min-h-9 [&_a]:px-3 max-lg:scroll-px-0";
+
+const FINANCE_VIEW_NAV_CLASS =
+  "max-w-none rounded-xl border border-border bg-accent/30 p-1 [&_a]:!flex-none [&_a]:!basis-auto max-lg:rounded-xl max-lg:border max-lg:bg-accent/30";
 
 /**
- * Group switcher + full-width sub-tabs — same chrome as Payments and Documents.
+ * Category navigation stays visually quiet; the contextual row carries the
+ * actual finance view. This avoids turning every navigational choice into a
+ * large, equal-width button.
  */
 export function FinanceDestinationNav({
   tabId,
@@ -74,20 +80,16 @@ export function FinanceDestinationNav({
         items={groupItems}
         activeId={activeGroupId}
         ariaLabel="Finance section"
-        itemLayout="equal"
-        denseEqualRow
-        size="toolbar"
-        className={EQUAL_NAV_CLASS}
+        appearance="command"
+        className={FINANCE_GROUP_NAV_CLASS}
       />
       {subItems.length > 0 ? (
         <DestinationNav
           items={subItems}
           activeId={tabId}
           ariaLabel="Finance view"
-          itemLayout="equal"
-          denseEqualRow
           size="toolbar"
-          className={EQUAL_NAV_CLASS}
+          className={FINANCE_VIEW_NAV_CLASS}
         />
       ) : null}
     </div>

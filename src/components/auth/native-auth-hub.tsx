@@ -9,7 +9,6 @@ import {
 } from "@/components/auth/auth-mobile-primitives";
 import { OAuthSocialStack } from "@/components/auth/oauth-social-stack";
 import { useAuthWelcomeChrome } from "@/components/auth/use-auth-welcome-chrome";
-import { useAppUi } from "@/components/providers/app-ui-provider";
 import { useIsNativeApp } from "@/hooks/use-is-native-app";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -81,7 +80,6 @@ type NativeAuthHubProps = {
 function NativeAuthHubInner({ defaultMode = "sign-in" }: NativeAuthHubProps) {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const { showToast } = useAppUi();
   useAuthWelcomeChrome(true);
   const { isNative } = useIsNativeApp();
 
@@ -199,7 +197,7 @@ function NativeAuthHubInner({ defaultMode = "sign-in" }: NativeAuthHubProps) {
   const signIn = async () => {
     const credentials = credentialsFromDom();
     if (!credentials.email || !credentials.password) {
-      showToast("Enter email and password.");
+      setErrorText("Enter email and password.");
       return;
     }
     // Re-sync state so a later retry, and the remembered-email write below, see
@@ -228,7 +226,6 @@ function NativeAuthHubInner({ defaultMode = "sign-in" }: NativeAuthHubProps) {
       if (error) {
         setErrorText(error.message);
         setFailedSignInAttempts((n) => n + 1);
-        showToast(error.message);
         return;
       }
       if (!data.user) throw new Error("No active session.");
@@ -240,10 +237,8 @@ function NativeAuthHubInner({ defaultMode = "sign-in" }: NativeAuthHubProps) {
       }
       window.location.replace(signInContinueHref);
     } catch (e) {
-      const msg = e instanceof Error ? e.message : "Sign-in failed";
-      setErrorText(msg);
+      setErrorText(e instanceof Error ? e.message : "Sign-in failed");
       setFailedSignInAttempts((n) => n + 1);
-      showToast(msg);
     } finally {
       setBusy(false);
     }
