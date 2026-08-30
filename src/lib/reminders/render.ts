@@ -57,7 +57,6 @@ const SUBJECT_NOUN: Record<ReminderSubjectKind, string> = {
   task: "task",
   service_order: "service visit",
   work_order: "maintenance visit",
-  booking: "stay",
 };
 
 function greeting(name?: string | null): string {

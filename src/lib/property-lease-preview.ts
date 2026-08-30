@@ -132,9 +132,12 @@ export function leasePreviewContextFromSubmission(
       ? jurisdictionStubFromSubmission(sub)
       : normalizeManagerListingSubmissionV1(sub);
   const leaseTerm = isShortTerm ? SHORT_TERM_LEASE_TERM : "12-Month";
-  const previewRoom =
-    listingFeePreview &&
-    (previewSubmission.rooms.find((r) => r.name.trim()) ?? previewSubmission.rooms[0]);
+  // A ternary rather than `&&`: the `&&` form yields `false` when not previewing
+  // listing fees, and `false.name` is a type error at the use site below.
+  // `undefined` is the same falsy value every reader already handles.
+  const previewRoom = listingFeePreview
+    ? (previewSubmission.rooms.find((r) => r.name.trim()) ?? previewSubmission.rooms[0])
+    : undefined;
   const previewAddress = listingFeePreview ? formatLeaseAddressForDisplay(previewSubmission) : null;
 
   const listingProperty: MockProperty = {

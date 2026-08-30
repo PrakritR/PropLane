@@ -84,7 +84,9 @@ function leaseRowAllowsGeneratedBodyEdit(row: LeasePipelineRow): boolean {
 
 function leaseRowIsBulkSendable(
   row: LeasePipelineRow,
-  sendBlockedReason: (row: LeasePipelineRow) => string | undefined,
+  // `leaseSendGateBlocker` reports "not blocked" as null; this only tests the
+  // result for truthiness, so both spellings of absent are accepted.
+  sendBlockedReason: (row: LeasePipelineRow) => string | null | undefined,
 ): boolean {
   return (row.status === "Manager Review" || row.status === "Draft") && !sendBlockedReason(row);
 }

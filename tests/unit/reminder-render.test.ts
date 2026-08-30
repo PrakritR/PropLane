@@ -103,8 +103,8 @@ describe("missing fields degrade instead of printing placeholders", () => {
 
   it("never leaves a blank run or trailing whitespace in the body", () => {
     const out = renderReminder({
-      kind: "booking",
-      leadMinutes: 3 * DAY,
+      kind: "service_order",
+      leadMinutes: 1 * DAY,
       recipientRole: "counterparty",
       payload: { title: "Stay", whenLabel: "Sep 2", recipientName: "Bo" },
     });
@@ -128,7 +128,7 @@ describe("every subject renders a distinct noun", () => {
     ["tour", "tour"],
     ["service_order", "service visit"],
     ["work_order", "maintenance visit"],
-    ["booking", "stay"],
+    
   ] as const)("%s reads as “%s”", (kind, noun) => {
     const out = renderReminder({
       kind,

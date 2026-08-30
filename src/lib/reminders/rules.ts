@@ -16,12 +16,17 @@
  * unit is what lets the same control drive every subject.
  */
 
+/**
+ * Bookings are deliberately absent: they are a calendar VIEW over the same
+ * planned events tours come from, not a record type of their own, so a
+ * "Bookings" rule could never fire. A Settings row that can never do anything
+ * is worse than no row at all.
+ */
 export const REMINDER_SUBJECT_KINDS = [
   "tour",
   "task",
   "service_order",
   "work_order",
-  "booking",
 ] as const;
 
 export type ReminderSubjectKind = (typeof REMINDER_SUBJECT_KINDS)[number];
@@ -182,12 +187,6 @@ export const REMINDER_SUBJECT_META: Record<ReminderSubjectKind, ReminderSubjectM
     anchorLabel: "the maintenance visit",
     counterpartyLabel: "resident and vendor",
   },
-  booking: {
-    kind: "booking",
-    label: "Bookings",
-    anchorLabel: "check-in",
-    counterpartyLabel: "guest",
-  },
 };
 
 /**
@@ -227,14 +226,6 @@ export const DEFAULT_REMINDER_RULES: ReminderRules = {
     enabled: true,
     leadMinutes: [1 * DAY, 30 * MINUTE],
     audience: { manager: false, counterparty: true },
-    inbox: true,
-    email: true,
-    sms: false,
-  },
-  booking: {
-    enabled: true,
-    leadMinutes: [3 * DAY, 1 * DAY],
-    audience: { manager: true, counterparty: true },
     inbox: true,
     email: true,
     sms: false,
