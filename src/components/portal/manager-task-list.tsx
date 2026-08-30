@@ -276,6 +276,14 @@ export function ManagerTaskList({
   const [editingId, setEditingId] = useState<string | null>(null);
 
   const openTasks = useMemo(() => tasks.filter((task) => !task.completed), [tasks]);
+  const overdueTasks = useMemo(
+    () => openTasks.filter((task) => isManagerTaskLate(task)),
+    [openTasks],
+  );
+  const inProgressTasks = useMemo(
+    () => openTasks.filter((task) => !isManagerTaskLate(task)),
+    [openTasks],
+  );
   const doneTasks = useMemo(() => tasks.filter((task) => task.completed), [tasks]);
 
   const matchesProperty = useCallback(
@@ -290,48 +298,39 @@ export function ManagerTaskList({
   );
 
   const visibleRows = useMemo((): TaskListRow[] => {
-    const taskRows: TaskListRow[] = (tabId === "completed" ? doneTasks : openTasks)
+    const taskSource =
+      tabId === "completed" ? doneTasks : tabId === "overdue" ? overdueTasks : inProgressTasks;
+    const taskRows: TaskListRow[] = taskSource
       .filter((task) => matchesProperty(task.propertyId))
       .map((task) => ({ kind: "task", id: task.id, task }));
     const serviceRows: TaskListRow[] =
-      tabId === "completed"
-        ? []
-        : assignedServices
+      tabId === "in-progress"
+        ? assignedServices
             .filter((req) => matchesProperty(req.propertyId))
-            .map((request) => ({ kind: "service", id: `service-${request.id}`, request }));
+            .map((request) => ({ kind: "service", id: `service-${request.id}`, request }))
+        : [];
     return [...taskRows, ...serviceRows]
       .filter((row) => taskListRowMatchesFilter(row, listFilter))
       .sort((a, b) => rowSortKey(b).localeCompare(rowSortKey(a)));
-  }, [assignedServices, doneTasks, listFilter, matchesProperty, openTasks, tabId]);
+  }, [
+    assignedServices,
+    doneTasks,
+    inProgressTasks,
+    listFilter,
+    matchesProperty,
+    overdueTasks,
+    tabId,
+  ]);
 
-  const { lateRows, onTrackRows } = useMemo(() => {
-    if (tabId !== "in-progress") {
-      return { lateRows: [] as TaskListRow[], onTrackRows: visibleRows };
-    }
-    const late: TaskListRow[] = [];
-    const onTrack: TaskListRow[] = [];
-    for (const row of visibleRows) {
-      if (row.kind === "task" && isManagerTaskLate(row.task)) {
-        late.push(row);
-      } else {
-        onTrack.push(row);
-      }
-    }
-    return { lateRows: late, onTrackRows: onTrack };
-  }, [tabId, visibleRows]);
-
-  const clusterRows = useCallback(
-    (rows: TaskListRow[]) =>
+  const clusters = useMemo(
+    () =>
       clusterPortalListRows(
-        rows.map((row) => taskListRowClusterFields(row, propertyLabelForId)),
+        visibleRows.map((row) => taskListRowClusterFields(row, propertyLabelForId)),
         groupMode,
         (row) => row.propertyLabel,
       ),
-    [groupMode, propertyLabelForId],
+    [groupMode, propertyLabelForId, visibleRows],
   );
-
-  const lateClusters = useMemo(() => clusterRows(lateRows), [clusterRows, lateRows]);
-  const onTrackClusters = useMemo(() => clusterRows(onTrackRows), [clusterRows, onTrackRows]);
 
   const taskFilterActiveCount =
     portalFilterActiveCount([listFilter !== "all" ? listFilter : "", propertyFilterId]);
@@ -390,20 +389,33 @@ export function ManagerTaskList({
     [selectedTaskRows],
   );
 
-  const tabItems = useMemo(
-    () =>
-      MANAGER_TASK_LIST_TABS.map((id) => ({
-        id,
-        label: MANAGER_TASK_LIST_TAB_LABELS[id],
-        href: managerTaskListHref(basePath, id),
-        count:
-          id === "completed"
-            ? doneTasks.length
-            : openTasks.length + assignedServices.filter((req) => matchesProperty(req.propertyId)).length,
-        dataAttr: `manager-task-list-tab-${id}`,
-      })),
-    [assignedServices, basePath, doneTasks.length, matchesProperty, openTasks.length],
-  );
+  const tabItems = useMemo(() => {
+    const serviceCount = assignedServices.filter((req) => matchesProperty(req.propertyId)).length;
+    const inProgressCount =
+      inProgressTasks.filter((task) => matchesProperty(task.propertyId)).length + serviceCount;
+    const overdueCount = overdueTasks.filter((task) => matchesProperty(task.propertyId)).length;
+    const completedCount = doneTasks.filter((task) => matchesProperty(task.propertyId)).length;
+
+    return MANAGER_TASK_LIST_TABS.map((id) => ({
+      id,
+      label: MANAGER_TASK_LIST_TAB_LABELS[id],
+      href: managerTaskListHref(basePath, id),
+      count:
+        id === "completed"
+          ? completedCount
+          : id === "overdue"
+            ? overdueCount
+            : inProgressCount,
+      dataAttr: `manager-task-list-tab-${id}`,
+    }));
+  }, [
+    assignedServices,
+    basePath,
+    doneTasks,
+    inProgressTasks,
+    matchesProperty,
+    overdueTasks,
+  ]);
 
   const assigneeDirectory = useMemo(
     () => ({
@@ -637,7 +649,6 @@ export function ManagerTaskList({
   function renderTaskRow(task: ManagerTask, completed = false) {
     const location = compactTaskLocationLabel(task);
     const assigneeLabel = formatTaskAssignee(task);
-    const late = !completed && isManagerTaskLate(task);
     const canRemind = Boolean(resolveTaskAssigneeEmail(task.assignee, assigneeDirectory));
     return (
       <li key={task.id} className="flex items-start gap-3 px-4 py-3">
@@ -661,15 +672,9 @@ export function ManagerTaskList({
             onClick={() => beginEdit(task)}
           >
             <div className="flex flex-wrap items-center gap-2">
-              <p className={`font-semibold text-foreground ${completed ? "line-through" : ""}`}>{task.title}</p>
-              {late ? (
-                <span
-                  className="rounded-full border border-danger/30 bg-danger/10 px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-danger"
-                  data-attr="manager-task-late"
-                >
-                  Late
-                </span>
-              ) : null}
+              <p className={`font-semibold ${completed ? "text-muted" : "text-foreground"}`}>
+                {task.title}
+              </p>
               <ManagerTaskUrgencyBadge task={task} />
               <ManagerTaskPriorityBadge priority={task.priority} />
             </div>
@@ -845,33 +850,16 @@ export function ManagerTaskList({
             className={`space-y-4 ${tabId === "completed" ? "opacity-80" : ""}`}
             data-attr="manager-task-groups"
           >
-            {tabId === "in-progress" && lateRows.length > 0 ? (
-              <section className="space-y-3" data-attr="manager-task-late-section">
-                <div className="flex items-center gap-2 px-1">
-                  <h2 className="text-sm font-semibold text-danger">Late</h2>
-                  <Badge tone="overdue">
-                    {lateRows.length === 1 ? "1 item" : `${lateRows.length} items`}
-                  </Badge>
-                </div>
-                {renderTaskClusters(lateClusters)}
-              </section>
-            ) : null}
-
-            {(tabId === "completed" ? visibleRows.length > 0 : onTrackRows.length > 0) ? (
-              <section className="space-y-3">
-                {tabId === "in-progress" && lateRows.length > 0 && onTrackRows.length > 0 ? (
-                  <div className="px-1">
-                    <h2 className="text-sm font-semibold text-foreground">In progress</h2>
-                  </div>
-                ) : null}
-                {renderTaskClusters(onTrackClusters)}
-              </section>
-            ) : null}
+            {renderTaskClusters(clusters)}
           </div>
         ) : null}
 
         {!loading && visibleRows.length === 0 && tabId === "completed" ? (
           <PortalEmptyState icon="work-order" title="Nothing completed yet." />
+        ) : null}
+
+        {!loading && visibleRows.length === 0 && tabId === "overdue" ? (
+          <PortalEmptyState icon="work-order" title="Nothing overdue." />
         ) : null}
 
         {tabId === "in-progress" ? (

@@ -742,19 +742,24 @@ export async function renderPortalSection(
     }
 
     if (section === "task-list") {
-      const TASK_TABS = ["in-progress", "completed"] as const;
       if (!tabParts?.length) {
         redirect(`${def.basePath}/task-list/in-progress`);
       }
       const taskTab = tabParts[0]!;
-      if (!TASK_TABS.includes(taskTab as (typeof TASK_TABS)[number])) {
+      if (taskTab === "late") {
+        redirect(`${def.basePath}/task-list/overdue`);
+      }
+      const { MANAGER_TASK_LIST_TABS, parseManagerTaskListTab } = await import(
+        "@/lib/portal-detail-routes"
+      );
+      if (!(MANAGER_TASK_LIST_TABS as readonly string[]).includes(taskTab)) {
         redirect(`${def.basePath}/task-list/in-progress`);
       }
       if (tabParts.length > 1) notFound();
       const ManagerTaskList = await loadManagerTaskList();
       return subscriptionGated(
         <ManagerTaskList
-          tabId={taskTab as "in-progress" | "completed"}
+          tabId={parseManagerTaskListTab(taskTab)}
           basePath={def.basePath}
         />,
         kind,
@@ -1263,16 +1268,20 @@ export async function renderPortalSection(
   }
 
   if (kind === "vendor" && section === "task-list") {
-    const TASK_TABS = ["in-progress", "completed"] as const;
+    const { VENDOR_TASK_LIST_TABS, parseVendorTaskListTab } = await import(
+      "@/lib/portal-detail-routes"
+    );
     if (!tabParts?.length) {
       redirect(`${def.basePath}/task-list/in-progress`);
     }
     const taskTab = tabParts[0]!;
-    if (!TASK_TABS.includes(taskTab as (typeof TASK_TABS)[number])) {
+    if (!(VENDOR_TASK_LIST_TABS as readonly string[]).includes(taskTab)) {
       redirect(`${def.basePath}/task-list/in-progress`);
     }
     if (tabParts.length > 1) notFound();
-    return <VendorTaskList tabId={taskTab as "in-progress" | "completed"} basePath={def.basePath} />;
+    return (
+      <VendorTaskList tabId={parseVendorTaskListTab(taskTab)} basePath={def.basePath} />
+    );
   }
 
   if (kind === "vendor" && section === "calendar") {

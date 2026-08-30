@@ -1,5 +1,6 @@
 import { getPropertyById } from "@/lib/rental-application/data";
 import { moduleRowVisibleToPortalUser } from "@/lib/manager-portfolio-access";
+import type { ManagerTaskListTabId } from "@/lib/portal-detail-routes";
 import type { ManagerTask } from "@/lib/manager-tasks";
 import { inferManagerTaskType, inferManagerTaskUrgency } from "@/lib/manager-tasks";
 import {
@@ -136,21 +137,27 @@ function taskMatchesTypeFilter(task: ManagerTask, filter: Exclude<ManagerTaskLis
   return true;
 }
 
+function openTasksForListTab(tasks: ManagerTask[], tabId: ManagerTaskListTabId): ManagerTask[] {
+  if (tabId === "completed") return tasks.filter((task) => task.completed);
+  const open = tasks.filter((task) => !task.completed);
+  if (tabId === "overdue") return open.filter((task) => isManagerTaskLate(task));
+  return open.filter((task) => !isManagerTaskLate(task));
+}
+
 export function countTaskListFilterBuckets(input: {
   tasks: ManagerTask[];
   services: ServiceRequest[];
-  tabId: "in-progress" | "completed";
+  tabId: ManagerTaskListTabId;
   matchesProperty: (propertyId?: string) => boolean;
 }): Record<ManagerTaskListFilterId, number> {
-  const taskRows = (input.tabId === "completed"
-    ? input.tasks.filter((task) => task.completed)
-    : input.tasks.filter((task) => !task.completed)
-  ).filter((task) => input.matchesProperty(task.propertyId));
+  const taskRows = openTasksForListTab(input.tasks, input.tabId).filter((task) =>
+    input.matchesProperty(task.propertyId),
+  );
 
   const serviceRows =
-    input.tabId === "completed"
-      ? []
-      : input.services.filter((req) => input.matchesProperty(req.propertyId));
+    input.tabId === "in-progress"
+      ? input.services.filter((req) => input.matchesProperty(req.propertyId))
+      : [];
 
   const tours = taskRows.filter((task) => inferManagerTaskType(task) === "tour").length;
   const houseTasks = taskRows.filter((task) => inferManagerTaskType(task) === "house").length;

@@ -72,4 +72,31 @@ describe("countTaskListFilterBuckets", () => {
       house_tasks: 1,
     });
   });
+
+  it("splits overdue from in-progress and omits service orders on overdue", () => {
+    const pastEnd = "2026-08-01T10:00:00.000Z";
+    const countsInProgress = countTaskListFilterBuckets({
+      tabId: "in-progress",
+      matchesProperty: () => true,
+      tasks: [
+        baseTask({ id: "on-time", end: "2099-08-01T11:00:00.000Z", start: "2099-08-01T10:00:00.000Z" }),
+        baseTask({ id: "late", end: pastEnd, start: "2026-08-01T09:00:00.000Z" }),
+      ],
+      services: [{ id: "s1", propertyId: "p1", requestedAt: "2026-08-01T12:00:00.000Z" } as ServiceRequest],
+    });
+    expect(countsInProgress.all).toBe(2);
+    expect(countsInProgress.service_orders).toBe(1);
+
+    const countsOverdue = countTaskListFilterBuckets({
+      tabId: "overdue",
+      matchesProperty: () => true,
+      tasks: [
+        baseTask({ id: "on-time", end: "2099-08-01T11:00:00.000Z", start: "2099-08-01T10:00:00.000Z" }),
+        baseTask({ id: "late", end: pastEnd, start: "2026-08-01T09:00:00.000Z" }),
+      ],
+      services: [{ id: "s1", propertyId: "p1", requestedAt: "2026-08-01T12:00:00.000Z" } as ServiceRequest],
+    });
+    expect(countsOverdue.all).toBe(1);
+    expect(countsOverdue.service_orders).toBe(0);
+  });
 });

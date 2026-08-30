@@ -60,6 +60,7 @@ describe("ManagerTaskList", () => {
     render(<ManagerTaskList tabId="in-progress" basePath="/portal" />);
     expect(screen.getByRole("heading", { name: "Tasks" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: /In progress/i })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /Overdue/i })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: /Completed/i })).toBeInTheDocument();
     await waitFor(() => {
       expect(screen.getByRole("button", { name: "Add service" })).toBeInTheDocument();
