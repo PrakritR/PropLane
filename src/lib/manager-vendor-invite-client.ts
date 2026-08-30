@@ -2,6 +2,7 @@ import type {
   NotificationConfirmDraft,
   NotificationDeliveryChannels,
 } from "@/components/portal/portal-notification-preview-modal";
+import type { NotificationCategory } from "@/lib/notification-preferences";
 import { deliverPortalInboxMessage } from "@/lib/portal-message-delivery";
 
 export type ManagerVendorInvitePreview = {
@@ -21,6 +22,10 @@ export type ManagerVendorRemovalPreview = {
   subject: string;
   body: string;
 };
+
+export type ManagerDirectoryMessageResult =
+  | { ok: true; message: string; delivery?: "sent" | "scheduled" | "saved" }
+  | { ok: false; message: string };
 
 export async function fetchManagerVendorInviteDraft(input: {
   vendorId: string;
@@ -113,8 +118,8 @@ export async function deliverManagerDirectoryMessage(
   skipMessage: boolean,
   channels?: NotificationDeliveryChannels,
   messageDraft?: NotificationConfirmDraft,
-  opts?: { toUserIds?: string[] },
-): Promise<{ ok: boolean; message: string }> {
+  opts?: { toUserIds?: string[]; eventCategory?: NotificationCategory },
+): Promise<ManagerDirectoryMessageResult> {
   if (skipMessage) {
     return { ok: true, message: "" };
   }
@@ -123,6 +128,7 @@ export async function deliverManagerDirectoryMessage(
   const body = messageDraft?.body?.trim() || preview.body;
   const viaEmail = channels?.viaEmail !== false;
   const viaSms = channels?.viaSms === true;
+  const recipientUserId = opts?.toUserIds?.[0]?.trim() ?? "";
 
   if (messageDraft?.scheduleAt) {
     const response = await fetch("/api/portal/scheduled-inbox-messages", {
@@ -137,6 +143,7 @@ export async function deliverManagerDirectoryMessage(
         deliverViaSms: viaSms,
         recipientEmail: preview.email,
         recipientName: preview.name.trim(),
+        recipientUserId: recipientUserId || undefined,
         senderPortal: "manager",
       }),
     });
@@ -144,11 +151,15 @@ export async function deliverManagerDirectoryMessage(
     if (!response.ok) {
       return { ok: false, message: data.error ?? "The message could not be scheduled." };
     }
-    return { ok: true, message: `Message scheduled for ${preview.name.trim() || preview.email || "recipient"}.` };
+    return {
+      ok: true,
+      delivery: "scheduled",
+      message: `Message scheduled for ${preview.name.trim() || preview.email || "recipient"}.`,
+    };
   }
 
   const notice = await deliverPortalInboxMessage({
-    eventCategory: "messages",
+    eventCategory: opts?.eventCategory ?? "messages",
     toEmails: preview.email ? [preview.email] : undefined,
     toUserIds: opts?.toUserIds,
     subject,
@@ -159,6 +170,7 @@ export async function deliverManagerDirectoryMessage(
   if (notice.ok) {
     return {
       ok: true,
+      delivery: notice.skipped ? "saved" : "sent",
       message: notice.skipped
         ? "Message saved to PropLane inbox."
         : `Message sent to ${preview.name.trim() || preview.email || "recipient"}.`,
@@ -175,18 +187,19 @@ export async function deliverManagerVendorInvite(
   skipMessage: boolean,
   channels?: NotificationDeliveryChannels,
   messageDraft?: NotificationConfirmDraft,
-): Promise<{ ok: boolean; message: string }> {
+): Promise<ManagerDirectoryMessageResult> {
   const result = await deliverManagerDirectoryMessage(preview, skipMessage, channels, messageDraft);
   if (!result.ok) return result;
-  if (!skipMessage && result.message) {
-    if (result.message.startsWith("Message sent")) {
-      return { ok: true, message: `Portal invite sent to ${preview.email}.` };
+  if (!skipMessage && result.delivery) {
+    const label = preview.email;
+    if (result.delivery === "sent") {
+      return { ok: true, delivery: "sent", message: `Portal invite sent to ${label}.` };
     }
-    if (result.message.startsWith("Message scheduled")) {
-      return { ok: true, message: `Portal invite scheduled for ${preview.email}.` };
+    if (result.delivery === "scheduled") {
+      return { ok: true, delivery: "scheduled", message: `Portal invite scheduled for ${label}.` };
     }
-    if (result.message.startsWith("Message saved")) {
-      return { ok: true, message: `Invite saved to PropLane inbox for ${preview.email}.` };
+    if (result.delivery === "saved") {
+      return { ok: true, delivery: "saved", message: `Invite saved to PropLane inbox for ${label}.` };
     }
   }
   return result;

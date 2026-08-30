@@ -97,12 +97,17 @@ import {
 import { deliverManagerDirectoryMessage } from "@/lib/manager-vendor-invite-client";
 import {
   buildCoManagerInviteBody,
+  buildCoManagerInviteDeclinedBody,
   buildCoManagerInviteWithdrawnBody,
+  buildCoManagerLinkLeftBody,
   buildCoManagerLinkRemovedBody,
+  coManagerInviteDeclinedSubject,
   coManagerInviteSubject,
   coManagerInviteWithdrawnSubject,
+  coManagerLinkLeftSubject,
   coManagerLinkRemovedSubject,
 } from "@/lib/co-manager-link-email";
+import { fetchAndCacheLandlordLegalName } from "@/lib/manager-landlord-profile";
 
 type TeamRemovePreviewItem = BulkMessageCarouselItem & {
   entry: TeamListEntry;
@@ -367,8 +372,8 @@ function AddPropertyToCoManager({
 }
 
 export function ProAccountLinksPanel({ userId, linkId: linkIdProp }: { userId: string; linkId?: string }) {
-  const { email: managerEmail } = useManagerUserId();
-  const managerDisplayName = managerEmail?.trim() || "Your property manager";
+  const { email: managerEmail, ready: managerSessionReady } = useManagerUserId();
+  const [managerDisplayName, setManagerDisplayName] = useState("Your property manager");
   const { showToast } = useAppUi();
   const navigate = usePortalNavigate();
   const portalBase = usePaidPortalBasePath();
@@ -376,6 +381,24 @@ export function ProAccountLinksPanel({ userId, linkId: linkIdProp }: { userId: s
 
   const [localTick, setLocalTick] = useState(0);
   const refreshLocal = useCallback(() => setLocalTick((n) => n + 1), []);
+
+  useEffect(() => {
+    if (!managerSessionReady) return;
+    let cancelled = false;
+    void (async () => {
+      const name = await fetchAndCacheLandlordLegalName();
+      if (cancelled) return;
+      if (name) {
+        setManagerDisplayName(name);
+        return;
+      }
+      const email = managerEmail?.trim();
+      setManagerDisplayName(email || "Your property manager");
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [managerSessionReady, managerEmail]);
 
   const [remoteLoaded, setRemoteLoaded] = useState(false);
   // Remote (account-backed) is the default; only a confirmed missing table
@@ -902,25 +925,6 @@ export function ProAccountLinksPanel({ userId, linkId: linkIdProp }: { userId: s
 
     setLinkInviteBusy(true);
     try {
-      if (!skipMessage) {
-        const result = await deliverManagerDirectoryMessage(
-          {
-            name: linkInvitePreview.recipientName,
-            email: "",
-            subject: linkInvitePreview.subject,
-            body: linkInvitePreview.body,
-          },
-          false,
-          channels,
-          messageDraft,
-          { toUserIds: [linkInvitePreview.recipientUserId] },
-        );
-        if (!result.ok) {
-          showToast(result.message);
-          return;
-        }
-      }
-
       if (useRemote && remoteLoaded) {
         try {
           const res = await fetch("/api/pro/account-links", {
@@ -942,43 +946,72 @@ export function ProAccountLinksPanel({ userId, linkId: linkIdProp }: { userId: s
             showToast(data.error ?? "Could not send invite.");
             return;
           }
-          await loadRemoteInvites();
-          resetLinkDraft();
-          setLinkInvitePreview(null);
-          showToast(
-            skipMessage ? "Invite sent. Waiting for their approval." : "Invite sent and team member notified.",
-          );
-          return;
         } catch {
           showToast("Network error.");
           return;
         }
+      } else {
+        const all = readProRelationships(userId);
+        const dupe = all.some((r) => r.linkedAxisId === draftAxisId);
+        if (dupe) {
+          showToast("You already have a link with this account.");
+          return;
+        }
+        const row: ProRelationshipRecord = {
+          id: generateRelationshipId(),
+          linkedAxisId: draftAxisId,
+          linkedDisplayName: draftName ?? undefined,
+          linkedUserId: draftUserId,
+          linkDirection: "outgoing",
+          perspective: "manager_tab",
+          payoutPercentForManager: payout,
+          assignedPropertyIds: ids,
+          coManagerPermissions: flatCoManagerPermissionsFromProperty(propertyCoManagerPermissions),
+          propertyCoManagerPermissions,
+          createdAt: new Date().toISOString(),
+        };
+        writeProRelationships(userId, [...all, row]);
+        refreshLocal();
       }
 
-      const all = readProRelationships(userId);
-      const dupe = all.some((r) => r.linkedAxisId === draftAxisId);
-      if (dupe) {
-        showToast("You already have a link with this account.");
+      if (!skipMessage) {
+        const result = await deliverManagerDirectoryMessage(
+          {
+            name: linkInvitePreview.recipientName,
+            email: "",
+            subject: linkInvitePreview.subject,
+            body: linkInvitePreview.body,
+          },
+          false,
+          channels,
+          messageDraft,
+          { toUserIds: [linkInvitePreview.recipientUserId], eventCategory: "account" },
+        );
+        if (!result.ok) {
+          showToast(result.message);
+          if (useRemote && remoteLoaded) {
+            await loadRemoteInvites();
+          }
+          return;
+        }
+      }
+
+      if (useRemote && remoteLoaded) {
+        await loadRemoteInvites();
+        resetLinkDraft();
+        setLinkInvitePreview(null);
+        showToast(
+          skipMessage ? "Invite sent. Waiting for their approval." : "Invite sent and team member notified.",
+        );
         return;
       }
-      const row: ProRelationshipRecord = {
-        id: generateRelationshipId(),
-        linkedAxisId: draftAxisId,
-        linkedDisplayName: draftName ?? undefined,
-        linkedUserId: draftUserId,
-        linkDirection: "outgoing",
-        perspective: "manager_tab",
-        payoutPercentForManager: payout,
-        assignedPropertyIds: ids,
-        coManagerPermissions: flatCoManagerPermissionsFromProperty(propertyCoManagerPermissions),
-        propertyCoManagerPermissions,
-        createdAt: new Date().toISOString(),
-      };
-      writeProRelationships(userId, [...readProRelationships(userId), row]);
-      refreshLocal();
+
       resetLinkDraft();
       setLinkInvitePreview(null);
-      showToast(skipMessage ? "Link saved locally." : "Link saved and team member notified.");
+      refreshLocal();
+      showToast(
+        skipMessage ? "Link saved locally." : "Link saved and team member notified.",
+      );
     } finally {
       setLinkInviteBusy(false);
     }
@@ -1593,16 +1626,30 @@ export function ProAccountLinksPanel({ userId, linkId: linkIdProp }: { userId: s
           : entry.row.assignedPropertyIds.map((id) => teamPropertyLabel(id));
       const linkedUserId =
         entry.kind === "remote" ? entry.invite.linkedUserId : entry.row.linkedUserId?.trim() ?? "";
-      const isOutgoingPending =
-        entry.kind === "remote" &&
-        entry.invite.status === "pending" &&
-        entry.invite.direction === "outgoing";
-      const subject = isOutgoingPending
-        ? coManagerInviteWithdrawnSubject(managerDisplayName)
-        : coManagerLinkRemovedSubject(managerDisplayName);
-      const body = isOutgoingPending
-        ? buildCoManagerInviteWithdrawnBody({ actorName: managerDisplayName })
-        : buildCoManagerLinkRemovedBody({ actorName: managerDisplayName, propertyLabels });
+      let subject: string;
+      let body: string;
+      if (entry.kind === "remote") {
+        const inv = entry.invite;
+        const isOutgoingPending = inv.status === "pending" && inv.direction === "outgoing";
+        const isIncomingPending = inv.status === "pending" && inv.direction === "incoming";
+        const isIncomingAccepted = inv.status === "accepted" && inv.direction === "incoming";
+        if (isOutgoingPending) {
+          subject = coManagerInviteWithdrawnSubject(managerDisplayName);
+          body = buildCoManagerInviteWithdrawnBody({ actorName: managerDisplayName });
+        } else if (isIncomingPending) {
+          subject = coManagerInviteDeclinedSubject(managerDisplayName);
+          body = buildCoManagerInviteDeclinedBody({ inviteeName: managerDisplayName });
+        } else if (isIncomingAccepted) {
+          subject = coManagerLinkLeftSubject(managerDisplayName);
+          body = buildCoManagerLinkLeftBody({ inviteeName: managerDisplayName, propertyLabels });
+        } else {
+          subject = coManagerLinkRemovedSubject(managerDisplayName);
+          body = buildCoManagerLinkRemovedBody({ actorName: managerDisplayName, propertyLabels });
+        }
+      } else {
+        subject = coManagerLinkRemovedSubject(managerDisplayName);
+        body = buildCoManagerLinkRemovedBody({ actorName: managerDisplayName, propertyLabels });
+      }
       return {
         id: entry.id,
         label: entry.name,

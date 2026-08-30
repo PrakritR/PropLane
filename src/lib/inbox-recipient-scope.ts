@@ -81,6 +81,29 @@ async function accountLinkCoManagerIdsForManagers(
   return ids;
 }
 
+/** Pending co-manager invitees the manager may notify before acceptance. */
+async function pendingAccountLinkInviteeIdsForManagers(
+  db: SupabaseClient,
+  managerIds: string[],
+): Promise<Set<string>> {
+  const ids = new Set<string>();
+  if (managerIds.length === 0) return ids;
+  try {
+    const { data } = await db
+      .from("account_link_invites")
+      .select("invitee_user_id")
+      .eq("status", "pending")
+      .in("inviter_user_id", managerIds);
+    for (const row of data ?? []) {
+      const id = String(row.invitee_user_id ?? "").trim();
+      if (id) ids.add(id);
+    }
+  } catch {
+    /* table may not exist */
+  }
+  return ids;
+}
+
 /**
  * Emails of the sender's HOUSEMATES: other approved residents assigned to the
  * same property, under one of the same managers. Derived from the manager's own
@@ -233,6 +256,7 @@ export async function filterRecipientsBySenderScope<T extends InboxScopeRecipien
     // authoritative accepted account_link_invites are resolved too — the same
     // source the vendor and resident branches use.
     const coManagerIds = await accountLinkCoManagerIdsForManagers(db, [sender.id]);
+    const pendingInviteeIds = await pendingAccountLinkInviteeIdsForManagers(db, [sender.id]);
     if (coManagerIds.size > 0) {
       const { data: coProfiles } = await db.from("profiles").select("id, email").in("id", [...coManagerIds]);
       for (const row of coProfiles ?? []) {
@@ -243,11 +267,12 @@ export async function filterRecipientsBySenderScope<T extends InboxScopeRecipien
     const vendors = await vendorEmailsForManagers(db, [sender.id]);
     const keep = await Promise.all(
       recipients.map(async (recipient) => {
+        if (recipient.userId && coManagerIds.has(recipient.userId)) return true;
+        if (recipient.userId && pendingInviteeIds.has(recipient.userId)) return true;
         const email = recipient.email.trim().toLowerCase();
         if (!email) return false;
         if (email === ADMIN_EMAIL) return true;
         if (coManagers.has(email)) return true;
-        if (recipient.userId && coManagerIds.has(recipient.userId)) return true;
         if (vendors.has(email)) return true;
         return managerOwnsResident(db, sender.id, {
           email,

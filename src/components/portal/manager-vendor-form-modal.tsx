@@ -308,7 +308,22 @@ export function ManagerVendorFormModal({
   };
 
   const addOnly = async () => {
-    await openInvitePreview();
+    const row = buildRow();
+    if (!row) return;
+    const email = row.email.trim().toLowerCase();
+    const validEmail = email && /^[^\s@]+@[^\s@.]+(?:\.[^\s@.]+)+$/.test(email);
+    if (validEmail) {
+      await openInvitePreview();
+      return;
+    }
+    setSaving(true);
+    setError(null);
+    const persisted = await persistRow(row);
+    setSaving(false);
+    if (!persisted) return;
+    showToast("Vendor added.");
+    onClose();
+    onSaved?.();
   };
 
   const openRemovePreview = async () => {

@@ -282,6 +282,7 @@ export const ManagerVendorsPanel = forwardRef(function ManagerVendorsPanel(
 
       setRemovePreviewBusy(true);
       try {
+        const processedIds = new Set<string>();
         for (const preview of targetPreviews) {
           const fromCarousel = opts?.drafts?.[preview.vendorId];
           const rowDraft = fromCarousel
@@ -291,13 +292,18 @@ export const ManagerVendorsPanel = forwardRef(function ManagerVendorsPanel(
             const result = await deliverManagerDirectoryMessage(preview, false, channels, rowDraft);
             if (!result.ok) {
               showToast(result.message);
+              const remaining = removePreview.filter((item) => !processedIds.has(item.vendorId));
+              if (remaining.length > 0) setRemovePreview(remaining);
               return;
             }
           }
           if (!deleteVendorQuiet(preview.vendorId)) {
             showToast("Could not remove vendor.");
+            const remaining = removePreview.filter((item) => !processedIds.has(item.vendorId));
+            if (remaining.length > 0) setRemovePreview(remaining);
             return;
           }
+          processedIds.add(preview.vendorId);
         }
         setRemovePreview(null);
         if (scope === "all") {

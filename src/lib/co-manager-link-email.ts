@@ -76,3 +76,47 @@ export function buildCoManagerInviteWithdrawnBody(params: { actorName: string })
     "— PropLane",
   ].join("\n");
 }
+
+export function coManagerInviteDeclinedSubject(inviteeName: string): string {
+  const name = inviteeName.trim() || "A co-manager";
+  return `${name} declined your co-manager invite`;
+}
+
+export function buildCoManagerInviteDeclinedBody(params: { inviteeName: string }): string {
+  const inviteeName = params.inviteeName.trim() || "A co-manager";
+  return [
+    `${inviteeName} declined your co-manager invite on PropLane.`,
+    "",
+    "You can send a new invite from Co-managers when you are ready.",
+    "",
+    `Open your portal: ${appOrigin()}/manager/relationships`,
+    "",
+    "— PropLane",
+  ].join("\n");
+}
+
+export function coManagerLinkLeftSubject(inviteeName: string): string {
+  const name = inviteeName.trim() || "A co-manager";
+  return `${name} left your co-manager team`;
+}
+
+export function buildCoManagerLinkLeftBody(params: {
+  inviteeName: string;
+  propertyLabels?: string[];
+}): string {
+  const inviteeName = params.inviteeName.trim() || "A co-manager";
+  const properties = params.propertyLabels?.filter(Boolean);
+  const propertyLine =
+    properties && properties.length > 0
+      ? `Properties affected: ${properties.join(", ")}`
+      : "Their co-manager access on PropLane was removed.";
+  return [
+    `${inviteeName} left your co-manager team on PropLane.`,
+    "",
+    propertyLine,
+    "",
+    `Manage your team: ${appOrigin()}/manager/relationships`,
+    "",
+    "— PropLane",
+  ].join("\n");
+}

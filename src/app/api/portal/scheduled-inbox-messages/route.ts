@@ -191,10 +191,46 @@ export async function POST(req: Request) {
     }
 
     if (!broadcastCategories.length && (!recipientEmail || !recipientEmail.includes("@"))) {
-      return NextResponse.json({ error: "Choose a recipient or a broadcast group." }, { status: 400 });
+      const recipientUserIdFromBody = String(body.recipientUserId ?? "").trim();
+      if (!recipientUserIdFromBody) {
+        return NextResponse.json({ error: "Choose a recipient or a broadcast group." }, { status: 400 });
+      }
+      const { allowed } = await filterRecipientsBySenderScope(
+        ctx.db,
+        {
+          id: ctx.userId,
+          email: ctx.email,
+          role: ctx.role,
+          isAdmin: false,
+        },
+        [{ email: "", userId: recipientUserIdFromBody }],
+      );
+      if (allowed.length === 0) {
+        return NextResponse.json({ error: "That recipient is not in your messaging scope." }, { status: 403 });
+      }
+
+      const record = await createScheduledInboxMessage(ctx.db, {
+        id: generateScheduledInboxMessageId(),
+        managerUserId: ctx.userId,
+        sendAt: sendAt.toISOString(),
+        status: "scheduled",
+        subject,
+        body: messageBody,
+        recipientEmail: recipientUserIdFromBody,
+        recipientName: recipientName || "Co-manager",
+        recipientUserId: recipientUserIdFromBody,
+        deliverViaEmail: body.deliverViaEmail !== false,
+        deliverViaSms: body.deliverViaSms === true,
+        senderPortal: "manager",
+        senderUserId: ctx.userId,
+        senderName: ctx.name,
+        senderEmail: ctx.email,
+      });
+
+      return NextResponse.json({ ok: true, message: record });
     }
 
-    let recipientUserId: string | null = null;
+    let recipientUserId: string | null = String(body.recipientUserId ?? "").trim() || null;
     if (recipientEmail && !broadcastCategories.length) {
       recipientUserId = await resolveManagerUserIdForEmail(ctx.db, recipientEmail);
     }
