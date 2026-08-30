@@ -25,6 +25,38 @@ export function togglePortalListClusterSelection(
   });
 }
 
+/** Page-level select-all above grouped portal lists (payments, tours, …). */
+export function PortalListSelectAllRow({
+  allSelected,
+  someSelected,
+  onToggle,
+  label = "Select all",
+  dataAttr = "portal-list-select-all",
+}: {
+  allSelected: boolean;
+  someSelected: boolean;
+  onToggle: () => void;
+  label?: string;
+  dataAttr?: string;
+}) {
+  return (
+    <label className="mb-2 flex items-center gap-2 px-2.5 text-sm max-md:px-0 sm:px-4 lg:px-5">
+      <input
+        type="checkbox"
+        className="h-4 w-4 shrink-0 rounded border-border accent-primary"
+        checked={allSelected}
+        ref={(el) => {
+          if (el) el.indeterminate = someSelected;
+        }}
+        onChange={onToggle}
+        aria-label={label}
+        data-attr={dataAttr}
+      />
+      <span className="text-muted">{label}</span>
+    </label>
+  );
+}
+
 export function PortalListClusterSelectCheckbox({
   ids,
   selectedIds,

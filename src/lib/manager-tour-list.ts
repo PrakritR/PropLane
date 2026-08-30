@@ -20,6 +20,7 @@ import {
 } from "@/lib/resident-row-clustering";
 import { clusterPortalListRows, type PortalListGroupMode } from "@/lib/portal-list-grouping";
 import type { ScheduledInboxMessageRecord } from "@/lib/scheduled-inbox-messages";
+import { formatScheduledSendAt } from "@/lib/scheduled-payment-messages";
 import { summariseScheduledSends, type ScheduledSendSummary } from "@/lib/scheduled-send-summary";
 
 export type ManagerTourRowSource = "inquiry" | "planned";
@@ -283,7 +284,7 @@ export function sortManagerTourPropertyClustersForBucket(
 }
 
 export function tourReminderSummaryForCluster(
-  cluster: ManagerTourListCluster,
+  cluster: { rows: readonly ManagerTourRow[] },
   reminders: readonly ScheduledInboxMessageRecord[],
 ): ScheduledSendSummary {
   const plannedIds = new Set(
@@ -302,6 +303,21 @@ export function tourReminderSummaryForRow(
   return summariseScheduledSends(
     reminders.filter((message) => message.tourPlannedEventId === row.sourceId),
   );
+}
+
+/** Subline on a tour row — mirrors payment reminder hints on the charges list. */
+export function tourReminderMetaHint(
+  row: ManagerTourRow,
+  reminders: readonly ScheduledInboxMessageRecord[],
+): string | null {
+  const summary = tourReminderSummaryForRow(row, reminders);
+  if (summary.count > 0 && summary.nextSendAt) {
+    const next = formatScheduledSendAt(summary.nextSendAt);
+    return summary.count === 1
+      ? `Next reminder ${next}`
+      : `Next reminder ${next} (+${summary.count - 1} more)`;
+  }
+  return null;
 }
 
 export function filterManagerTourRows(

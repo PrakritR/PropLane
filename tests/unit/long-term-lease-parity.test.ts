@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { buildLeaseHtml } from "@/lib/lease-templates/build-lease-html";
-import { CALIFORNIA_LEASE_CONFIG, SEATTLE_LEASE_CONFIG } from "@/lib/lease-templates/types";
+import {
+  CALIFORNIA_LEASE_CONFIG,
+  SEATTLE_LEASE_CONFIG,
+  WASHINGTON_LEASE_CONFIG,
+} from "@/lib/lease-templates/types";
 import {
   createDefaultListingSubmission,
   emptyBathroom,
@@ -88,40 +92,35 @@ function headings(html: string): string[] {
 }
 
 describe("long-term lease parity", () => {
-  it("keeps the long-form sections and addenda in a stable order", () => {
+  it("keeps the compact Washington room lease sections and addenda in a stable order", () => {
     const sections = headings(buildLeaseHtml(longTermContext(), SEATTLE_LEASE_CONFIG));
     const expected = [
-      "1. Parties",
-      "2. Premises",
-      "3. Lease Term",
-      "4. Rent",
-      "5. Security Deposit & Move-In Charges",
-      "6. Returned Payments",
-      "7. Utilities & Services",
-      "8. Use, Occupancy & Guest Policy",
-      "9. Shared Spaces",
-      "10. House Rules",
-      "11. Pets",
-      "12. Maintenance & Repairs",
-      "13. Entry (RCW 59.18.150)",
-      "14. Assignment & Subletting",
-      "15. Move-Out & Surrender",
-      "16. Renter's Insurance",
-      "17. Default & Remedies",
-      "18. Early Termination",
-      "19. Payment Application Order",
-      "20. Notices",
-      "21. Lead-Based Paint Disclosure",
-      "22. Governing Law; Severability; Entire Agreement",
-      "23. Attorney Fees",
-      "24. Application Summary (Incorporated by Reference)",
-      "25. Rent & Fees Schedule (Exhibit A)",
-      "26. Electronic Signature",
+      "1. Parties and Premises",
+      "2. Lease Term",
+      "3. Rent and Utilities",
+      "4. Move-In Payment Summary",
+      "5. Security Deposit",
+      "6. Utilities",
+      "7. Occupancy",
+      "8. House Rules",
+      "9. Furnishings",
+      "10. Maintenance",
+      "11. Entry",
+      "12. Pets and Smoking",
+      "13. Subletting or Assignment",
+      "14. Alterations",
+      "15. Move-Out",
+      "16. Default",
+      "17. General Provisions",
+      "18. Governing Law",
+      "19. Entire Agreement",
+      "20. Addenda",
       `Addendum A ${String.fromCharCode(8212)} Move-In Condition Report`,
       `Addendum B ${String.fromCharCode(8212)} Bed Bug Disclosure`,
       `Addendum C ${String.fromCharCode(8212)} Mold & Moisture Policy`,
       `Addendum D ${String.fromCharCode(8212)} Maintenance & Tenant Responsibilities Detail`,
       `Addendum E ${String.fromCharCode(8212)} House Rules Enforcement`,
+      "21. Signatures",
     ];
     expect(sections).toEqual(expected);
   });
@@ -130,28 +129,24 @@ describe("long-term lease parity", () => {
     const first = buildLeaseHtml(longTermContext(), SEATTLE_LEASE_CONFIG);
     const changed = buildLeaseHtml(longTermContext({ longTermBreakLeaseFee: "750", longTermHoldoverDailyRate: "55" }), SEATTLE_LEASE_CONFIG);
 
+    expect(first).toContain("RESIDENTIAL ROOM LEASE AGREEMENT");
     expect(first).toContain("$900.00");
     expect(first).toContain("$45.00 per day");
     expect(first).toContain("12:00 PM");
     expect(first).toContain("does not convert to a month-to-month tenancy unless both parties agree in writing");
     expect(first).toContain("Residents do not have exclusive possession of shared areas");
-    expect(first).toContain("Break lease fee");
-    expect(first).toContain("Holdover after lease end");
-    expect(first).toContain("$60.00 per hour");
-    expect(first).toContain("$30.00");
-    expect(first).toContain("Hall bath is shared with Room 6.");
+    expect(first).toContain("break lease fee of <strong>$900.00</strong>");
+    expect(first).toContain("RCW 59.18.310");
+    expect(first).toContain("use only bathroom on their floor");
     expect(first).toContain("Lease Summary");
-    expect(first).toContain("Monthly rent</th><td class=\"amount\"><strong>$825.00");
-    expect(first).toContain("Monthly utilities</th><td class=\"amount\"><strong>$175.00");
-    expect(first).toContain("Total monthly payment</th><td class=\"amount\"><strong>$1,000.00");
-    expect(first).toContain("Payment due at signing</th><td class=\"amount\"><strong>$600.00");
-    expect(first).toContain("Mailing address: 5259 Brooklyn Ave NE, Seattle, WA 98105");
+    expect(first).toContain("<strong>Rent:</strong> $825.00");
+    expect(first).toContain("<strong>Utilities:</strong> $175.00");
+    expect(first).toContain("Total payment due at signing: <strong>$600.00</strong>");
     expect(first).not.toContain("Greek Row");
     expect(first).not.toContain("additional authorized occupant");
-    expect(first).toContain("<ul class=\"lease-shared-spaces\">");
-    expect(changed).toContain("$750.00");
+    expect(changed).toContain("break lease fee of <strong>$750.00</strong>");
     expect(changed).toContain("$55.00 per day");
-    expect(changed).not.toContain("$900.00");
+    expect(changed).not.toContain("break lease fee of <strong>$900.00</strong>");
     expect(changed).not.toContain("$45.00 per day");
   });
 
@@ -188,7 +183,7 @@ describe("long-term lease parity", () => {
   it("keeps configured quiet hours when the listing supplies custom house rules", () => {
     const html = buildLeaseHtml(longTermContext({ houseRulesText: "No shoes indoors." }), SEATTLE_LEASE_CONFIG);
     expect(html).toContain("No shoes indoors.");
-    expect(html).toContain("Quiet hours:</strong> 10:00 PM to 8:00 AM");
+    expect(html).toContain("Quiet hours are strictly enforced (10:00 PM to 8:00 AM)");
   });
 
   it("does not print a jurisdiction default late fee when the listing disables late fees", () => {
@@ -201,9 +196,8 @@ describe("long-term lease parity", () => {
       longTermContext({ longTermBreakLeaseFee: "-$900", longTermHoldoverDailyRate: "fee 45" }),
       SEATTLE_LEASE_CONFIG,
     );
-    expect(html).not.toContain("$900.00");
-    expect(html).not.toContain("Holdover:");
-    expect(html).not.toContain("break-lease fee");
+    expect(html).not.toContain("break lease fee of <strong>$900.00</strong>");
+    expect(html).not.toContain("$45.00 per day");
   });
 
   it("honors payment-at-signing checkboxes for the due-at-signing total", () => {
@@ -212,9 +206,9 @@ describe("long-term lease parity", () => {
     });
     ctx.leaseBilling = { ...ctx.leaseBilling!, dueAtSigning: 400 };
     const html = buildLeaseHtml(ctx, SEATTLE_LEASE_CONFIG);
-    expect(html).toContain("Payment due at signing</th><td class=\"amount\"><strong>$400.00");
-    expect(html).toContain("Due at signing includes: security deposit");
-    expect(html).not.toContain("Due at signing includes: security deposit and move-in fee");
+    expect(html).toContain("Total payment due at signing: <strong>$400.00</strong>");
+    expect(html).toContain("<strong>$400.00</strong> security deposit");
+    expect(html).not.toContain("move-in fee");
   });
 
   it("renders a configured returned-payment clause without an unset jurisdiction citation", () => {
@@ -233,7 +227,7 @@ describe("long-term lease parity", () => {
     expect(html).not.toContain("State of Washington");
   });
 
-  it("matches the lease summary first partial month payment to the prorated section total", () => {
+  it("includes first partial month payment in the move-in payment summary", () => {
     const ctx = longTermContext();
     ctx.application = {
       ...ctx.application,
@@ -246,8 +240,48 @@ describe("long-term lease parity", () => {
       proratedUtilities: 116.67,
     };
     const html = buildLeaseHtml(ctx, SEATTLE_LEASE_CONFIG);
-    expect(html).toContain("Prorated total due first month</strong></td><td><strong>$666.67</strong>");
-    expect(html).toContain("First partial month payment</th><td class=\"amount\">$666.67");
+    expect(html).toContain("For the first partial month, Resident shall pay <strong>$666.67</strong>");
+  });
+
+  it("prorates the move-in payment summary for a custom mid-month term using flexible lease dates", () => {
+    const ctx = longTermContext();
+    ctx.application = {
+      ...ctx.application,
+      leaseTerm: "Custom",
+      leaseStart: "9/22/2026",
+      leaseEnd: "12/1/2026",
+      managerRentOverride: "$800",
+      managerUtilitiesOverride: "$200",
+    };
+    ctx.leaseBilling = {
+      monthlyRent: 800,
+      monthlyUtilities: 200,
+      securityDeposit: 400,
+      moveInFee: 150,
+      otherCostLabel: "",
+      otherCostAmount: 0,
+      dueAtSigning: 850,
+    };
+    const html = buildLeaseHtml(ctx, SEATTLE_LEASE_CONFIG);
+    expect(html).toContain("For the first partial month, Resident shall pay <strong>$300.00</strong>");
+  });
+
+  it("uses the long-form standard document for California", () => {
+    const sections = headings(
+      buildLeaseHtml(
+        longTermContext({ address: "1 Market St, San Francisco, CA 94105", state: "CA", city: "San Francisco" }),
+        CALIFORNIA_LEASE_CONFIG,
+      ),
+    );
+    expect(sections[0]).toBe("1. Parties");
+    expect(sections.some((s) => s.includes("Electronic Signature"))).toBe(true);
+  });
+
+  it("inherits compact room style from statewide Washington config", () => {
+    expect(WASHINGTON_LEASE_CONFIG.documentStyle).toBe("compact_room");
+    const html = buildLeaseHtml(longTermContext(), WASHINGTON_LEASE_CONFIG);
+    expect(html).toContain("RESIDENTIAL ROOM LEASE AGREEMENT");
+    expect(html).toContain("4. Move-In Payment Summary");
   });
 
   it("leaves short-term agreements byte-identical when only long-term terms change", () => {

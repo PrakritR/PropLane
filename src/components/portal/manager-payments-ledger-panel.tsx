@@ -13,6 +13,7 @@ import { Badge } from "@/components/ui/badge";
 import { useAppUi } from "@/components/providers/app-ui-provider";
 import {
   ApplicationHouseholdCluster,
+  PortalListSelectAllRow,
 } from "@/components/portal/application-household-list";
 
 import {
@@ -242,6 +243,8 @@ export function ManagerPaymentsLedgerPanel({
     [selectedRows],
   );
   const showSelection = rows.length > 0;
+  const allSelected = showSelection && rows.every((row) => selectedIds.has(row.id));
+  const someSelected = selectedIds.size > 0 && !allSelected;
   const rowIdsKey = useMemo(() => rows.map((row) => row.id).join(","), [rows]);
   const ledgerClusters = useMemo(
     () =>
@@ -289,6 +292,13 @@ export function ManagerPaymentsLedgerPanel({
       return next;
     });
   };
+
+  const toggleSelectAll = useCallback(() => {
+    setSelectedIds((prev) => {
+      const all = rows.length > 0 && rows.every((row) => prev.has(row.id));
+      return all ? new Set() : new Set(rows.map((row) => row.id));
+    });
+  }, [rows]);
 
   const markSelectedAsPaid = async () => {
     const targets = rows.filter((row) => selectedIds.has(row.id) && isMarkableAsPaid(row));
@@ -1418,6 +1428,21 @@ export function ManagerPaymentsLedgerPanel({
                   <Badge tone="info">
                     {cluster.rows.length === 1 ? "1 charge" : `${cluster.rows.length} charges`}
                   </Badge>
+                  {(() => {
+                    const chargeIds = new Set(
+                      cluster.rows.map((row) => row.householdChargeId).filter(Boolean),
+                    );
+                    const label = scheduledSendBadgeLabel(
+                      summariseScheduledSends(
+                        scheduledMessages.filter((message) => chargeIds.has(message.chargeId)),
+                      ),
+                    );
+                    return label ? (
+                      <Badge tone="pending">
+                        <span data-attr="payments-cluster-scheduled">{label}</span>
+                      </Badge>
+                    ) : null;
+                  })()}
                 </>
               }
             >
@@ -1543,6 +1568,15 @@ export function ManagerPaymentsLedgerPanel({
     ) : (
       <div className={PORTAL_LIST_PAGE_BODY}>
         <>
+          {showSelection && !embeddedInResident ? (
+            <PortalListSelectAllRow
+              allSelected={allSelected}
+              someSelected={someSelected}
+              onToggle={toggleSelectAll}
+              label="Select all"
+              dataAttr="payments-select-all"
+            />
+          ) : null}
           {embeddedInResident ? renderChargeDataList(rows) : renderManagerGroupedLedger()}
           {renderAddPaymentRow()}
         </>
