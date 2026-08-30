@@ -445,25 +445,23 @@ export function ManagerTaskFormModal({
       }
     >
       <div className={PORTAL_MODAL_FORM_GRID_CLASS}>
-        {!editingId ? (
-          <div className={cn(PORTAL_MODAL_FORM_FIELD_CLASS, PORTAL_MODAL_FORM_FULL_ROW_CLASS)}>
-            <label className={MODAL_FIELD_LABEL_CLASS} htmlFor="manager-task-kind">
-              Task type
-            </label>
-            <Select
-              id="manager-task-kind"
-              value={form.taskKind}
-              onChange={(e) => updateTaskKind(e.target.value as ManagerTaskFormKind)}
-              data-attr="manager-task-kind"
-            >
-              {MANAGER_TASK_FORM_KINDS.map((kind) => (
-                <option key={kind} value={kind}>
-                  {MANAGER_TASK_FORM_KIND_LABELS[kind]}
-                </option>
-              ))}
-            </Select>
-          </div>
-        ) : null}
+        <div className={cn(PORTAL_MODAL_FORM_FIELD_CLASS, PORTAL_MODAL_FORM_FULL_ROW_CLASS)}>
+          <label className={MODAL_FIELD_LABEL_CLASS} htmlFor="manager-task-kind">
+            Task type
+          </label>
+          <Select
+            id="manager-task-kind"
+            value={form.taskKind}
+            onChange={(e) => updateTaskKind(e.target.value as ManagerTaskFormKind)}
+            data-attr="manager-task-kind"
+          >
+            {MANAGER_TASK_FORM_KINDS.map((kind) => (
+              <option key={kind} value={kind}>
+                {MANAGER_TASK_FORM_KIND_LABELS[kind]}
+              </option>
+            ))}
+          </Select>
+        </div>
 
         {isTour ? (
           <>
