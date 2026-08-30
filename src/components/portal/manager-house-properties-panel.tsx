@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { BulkActionBar } from "@/components/ui/bulk-action-bar";
 import {
@@ -1507,7 +1508,7 @@ export function ManagerHousePropertiesPanel({
         ) : null
       ) : (
         <div className={PORTAL_LIST_PAGE_BODY}>
-          {rows.map(({ sourceBucket, row }) => {
+          {rows.map(({ sourceBucket, row, linked }) => {
             const rowKey = row.adminRefId + (row.listingId ?? "");
             const address = `${row.address}${row.zip ? `, ${row.zip}` : ""}`;
             const summary = `${adminPropertyRentDisplayLabel(row)} · ${row.beds} bd / ${row.baths} ba · ${row.neighborhood}`;
@@ -1517,6 +1518,13 @@ export function ManagerHousePropertiesPanel({
                 title={managerPropertyRowTitle(row, sourceBucket)}
                 address={address}
                 summary={summary}
+                badge={
+                  linked ? (
+                    <Badge tone="info" className="text-[10px] font-semibold uppercase tracking-wide">
+                      Co-managed
+                    </Badge>
+                  ) : undefined
+                }
                 checked={selectedIds.has(rowKey)}
                 onSelectedChange={() => toggleSelected(rowKey)}
                 onOpen={() => {

@@ -315,6 +315,37 @@ export function isManagerFreePlan(tier: ManagerSubscriptionTier): boolean {
   return tier === "free";
 }
 
+/** Higher rank wins when a pure co-manager inherits a linked owner's plan for nav locks. */
+export function managerNavSubscriptionTierRank(tier: ManagerSubscriptionTier): number {
+  if (tier === "paid") return 2;
+  if (tier === null) return 1;
+  return 0;
+}
+
+/**
+ * Sidebar / paywall tier for a manager portal session. Primary managers (own ≥
+ * one property) keep their own plan; a co-manager with no owned portfolio
+ * inherits the best tier among accepted link inviters so Free-tier linked
+ * accounts are not padlocked out of the owner's Pro modules.
+ */
+export function pickManagerPortalNavSubscriptionTier(
+  ownTier: ManagerSubscriptionTier,
+  hasOwnedProperties: boolean,
+  linkedOwnerTiers: ManagerSubscriptionTier[],
+): ManagerSubscriptionTier {
+  if (hasOwnedProperties || linkedOwnerTiers.length === 0) return ownTier;
+  let best = ownTier;
+  let bestRank = managerNavSubscriptionTierRank(best);
+  for (const tier of linkedOwnerTiers) {
+    const rank = managerNavSubscriptionTierRank(tier);
+    if (rank > bestRank) {
+      best = tier;
+      bestRank = rank;
+    }
+  }
+  return best;
+}
+
 /** Applicant background checks (Checkr) require Pro or Business — not included on Free. */
 export function managerScreeningAllowedForTier(tier: ManagerSubscriptionTier): boolean {
   return !isManagerFreePlan(tier);

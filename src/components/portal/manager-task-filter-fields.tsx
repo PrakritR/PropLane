@@ -11,7 +11,10 @@ import {
 import {
   MANAGER_TASK_LIST_FILTER_LABELS,
   MANAGER_TASK_LIST_FILTERS,
+  MANAGER_TASK_LIST_SORT_LABELS,
+  MANAGER_TASK_LIST_SORTS,
   type ManagerTaskListFilterId,
+  type ManagerTaskListSortId,
 } from "@/lib/manager-task-display";
 import type { PortalListGroupMode } from "@/lib/portal-list-grouping";
 import type { ManagerTaskListTabId } from "@/lib/portal-detail-routes";
@@ -71,6 +74,8 @@ export function ManagerTaskFilterFields({
   onPropertyFilterIdChange,
   groupMode,
   onGroupModeChange,
+  sortId,
+  onSortIdChange,
 }: {
   listFilter: ManagerTaskListFilterId;
   onListFilterChange: (next: ManagerTaskListFilterId) => void;
@@ -80,8 +85,15 @@ export function ManagerTaskFilterFields({
   onPropertyFilterIdChange: (next: string) => void;
   groupMode: PortalListGroupMode;
   onGroupModeChange: (next: PortalListGroupMode) => void;
+  sortId: ManagerTaskListSortId;
+  onSortIdChange: (next: ManagerTaskListSortId) => void;
 }) {
   const propertyFilters = propertyFilterId ? [propertyFilterId] : [];
+  const sortOptions = MANAGER_TASK_LIST_SORTS.map((id) => ({
+    value: id,
+    label: MANAGER_TASK_LIST_SORT_LABELS[id],
+  }));
+  const [draftSortId, setDraftSortId] = usePortalFilterDraft(sortId, onSortIdChange, "due_soonest");
 
   return (
     <FilterFieldsAccordion>
@@ -90,6 +102,21 @@ export function ManagerTaskFilterFields({
         onListFilterChange={onListFilterChange}
         tabId={tabId}
       />
+      <FilterCollapsibleSection
+        sectionId="sort"
+        label="Sort by"
+        summary={filterSingleSelectSummary(draftSortId, sortOptions, "Due soonest")}
+        empty={draftSortId === "due_soonest"}
+        menuOptionCount={sortOptions.length}
+        dataAttr="tasks-filter-sort-trigger"
+      >
+        <FilterSingleSelectList
+          options={sortOptions}
+          value={draftSortId}
+          onChange={(next) => setDraftSortId(next as ManagerTaskListSortId)}
+          dataAttr="tasks-filter-sort"
+        />
+      </FilterCollapsibleSection>
       <PortalListGroupFilterFields
         groupMode={groupMode}
         onGroupModeChange={onGroupModeChange}
