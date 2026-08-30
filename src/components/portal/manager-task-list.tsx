@@ -248,7 +248,11 @@ export function ManagerTaskList({
   }, [showToast, userId]);
 
   useEffect(() => {
-    if (!ready || !userId) return;
+    if (!ready) return;
+    if (!userId) {
+      setLoading(false);
+      return;
+    }
     void syncPropertyPipelineFromServer()
       .then(() => setPropertyTick((n) => n + 1))
       .catch(() => undefined);

@@ -326,7 +326,6 @@ export async function fetchManagerTasks(managerUserId: string): Promise<ManagerT
   const tasks = normalizeManagerTasks(data.tasks);
   writeLocalTasks(managerUserId, tasks);
   syncLocalTasksToPlannedEvents(managerUserId, tasks);
-  notifyManagerTasksChanged();
   return tasks;
 }
 
