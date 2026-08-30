@@ -239,7 +239,17 @@ export type PropertyLeasePreviewResult = {
 
 export function buildPropertyLeasePreview(
   sub: ManagerListingSubmissionV1,
-  opts?: { hint?: PropertyLeasePreviewHint; demo?: boolean; templateKind?: PropertyLeaseTemplateKind },
+  opts?: {
+    hint?: PropertyLeasePreviewHint;
+    demo?: boolean;
+    templateKind?: PropertyLeaseTemplateKind;
+    /**
+     * Render this listing's real rent, deposit, address and room instead of the
+     * template's "Filled at placement" placeholders. Opt-in, like the placement
+     * surface's own flag — see the note at the call site below.
+     */
+    listingFeePreview?: boolean;
+  },
 ): PropertyLeasePreviewResult {
   void opts?.demo;
   const normalized = normalizeManagerListingSubmissionV1(sub);
@@ -269,7 +279,15 @@ export function buildPropertyLeasePreview(
 
   const ctx = leasePreviewContextFromSubmission(normalized, opts?.hint, templateKind, {
     templatePreview: source === "axis_default",
-    listingFeePreview: source === "axis_default",
+    // NOT `source === "axis_default"`. These two flags are opposites at the
+    // point of use — `templatePreview && !listingFeePreview` is what selects the
+    // jurisdiction stub — so setting both from one condition turned the template
+    // preview's "Filled at placement" placeholders back into this listing's real
+    // rent, deposit, address and building name. That is a lease TEMPLATE, shown
+    // while configuring the default; it must not read as though it is bound to
+    // one listing. Real figures belong on the placement surface, which has its
+    // own opt-in. A caller that genuinely wants a listing-specific preview asks.
+    listingFeePreview: opts?.listingFeePreview ?? false,
   });
   const jurisdiction = resolveLeaseJurisdiction(ctx);
   const jLabel = jurisdictionLabel(jurisdiction);
