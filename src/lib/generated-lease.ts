@@ -34,7 +34,7 @@ import {
   type JurisdictionKey,
 } from "@/lib/lease-jurisdiction";
 import type { JointLeaseMember } from "@/lib/bundle-group/types";
-import { buildLeaseHtml } from "@/lib/lease-templates/build-lease-html";
+import { buildPlacementLeaseHtml } from "@/lib/property-lease-placement-html";
 import type { LeaseBillingSnapshot } from "@/lib/lease-billing-snapshot";
 import { formatRoomPriceAmount, resolveStayPricing, type StayKind } from "@/lib/room-pricing";
 import { isDemoModeActive } from "@/lib/demo/demo-session";
@@ -376,7 +376,7 @@ export function buildAiGeneratedLeaseHtml(ctx: LeaseGenerationContext): LeaseGen
 
   return {
     kind: "generated",
-    html: buildLeaseHtml(ctx, config),
+    html: buildPlacementLeaseHtml(ctx, config),
     executedJurisdiction,
     templateVersion: null,
     templateDocument: null,
