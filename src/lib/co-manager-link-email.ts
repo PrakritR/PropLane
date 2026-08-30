@@ -5,11 +5,8 @@
 
 import { resolveEmailLinkBaseUrl } from "@/lib/app-url";
 
-function appOrigin(): string {
-  if (typeof window !== "undefined" && window.location?.origin) {
-    return window.location.origin;
-  }
-  return resolveEmailLinkBaseUrl();
+function portalRelationshipsUrl(): string {
+  return `${resolveEmailLinkBaseUrl()}/portal/relationships`;
 }
 
 export function coManagerInviteSubject(inviterName: string): string {
@@ -29,7 +26,7 @@ export function buildCoManagerInviteBody(params: {
     "",
     `Properties: ${properties}`,
     "",
-    `Open your portal to review and approve the link: ${appOrigin()}/manager/relationships`,
+    `Open your portal to review and approve the link: ${portalRelationshipsUrl()}`,
     "",
     "— PropLane",
   ].join("\n");
@@ -55,7 +52,7 @@ export function buildCoManagerLinkRemovedBody(params: {
     "",
     propertyLine,
     "",
-    `Open your portal: ${appOrigin()}/manager/relationships`,
+    `Open your portal: ${portalRelationshipsUrl()}`,
     "",
     "— PropLane",
   ].join("\n");
@@ -89,7 +86,7 @@ export function buildCoManagerInviteDeclinedBody(params: { inviteeName: string }
     "",
     "You can send a new invite from Co-managers when you are ready.",
     "",
-    `Open your portal: ${appOrigin()}/manager/relationships`,
+    `Open your portal: ${portalRelationshipsUrl()}`,
     "",
     "— PropLane",
   ].join("\n");
@@ -115,7 +112,7 @@ export function buildCoManagerLinkLeftBody(params: {
     "",
     propertyLine,
     "",
-    `Manage your team: ${appOrigin()}/manager/relationships`,
+    `Manage your team: ${portalRelationshipsUrl()}`,
     "",
     "— PropLane",
   ].join("\n");

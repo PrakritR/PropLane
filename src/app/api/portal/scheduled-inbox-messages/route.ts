@@ -209,6 +209,17 @@ export async function POST(req: Request) {
         return NextResponse.json({ error: "That recipient is not in your messaging scope." }, { status: 403 });
       }
 
+      const { data: recipientProfile } = await ctx.db
+        .from("profiles")
+        .select("email, full_name")
+        .eq("id", recipientUserIdFromBody)
+        .maybeSingle();
+      const resolvedEmail = String(recipientProfile?.email ?? "").trim().toLowerCase();
+      const resolvedName =
+        recipientName ||
+        String(recipientProfile?.full_name ?? "").trim() ||
+        (resolvedEmail.includes("@") ? resolvedEmail : "Co-manager");
+
       const record = await createScheduledInboxMessage(ctx.db, {
         id: generateScheduledInboxMessageId(),
         managerUserId: ctx.userId,
@@ -216,8 +227,8 @@ export async function POST(req: Request) {
         status: "scheduled",
         subject,
         body: messageBody,
-        recipientEmail: recipientUserIdFromBody,
-        recipientName: recipientName || "Co-manager",
+        recipientEmail: resolvedEmail.includes("@") ? resolvedEmail : "",
+        recipientName: resolvedName,
         recipientUserId: recipientUserIdFromBody,
         deliverViaEmail: body.deliverViaEmail !== false,
         deliverViaSms: body.deliverViaSms === true,

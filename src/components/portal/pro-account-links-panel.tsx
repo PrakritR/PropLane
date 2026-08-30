@@ -924,6 +924,7 @@ export function ProAccountLinksPanel({ userId, linkId: linkIdProp }: { userId: s
     const propertyCoManagerPermissions = normalizePropertyCoManagerPermissions(propertyPermissionsDraft, ids);
 
     setLinkInviteBusy(true);
+    let pendingInviteId: string | null = null;
     try {
       if (useRemote && remoteLoaded) {
         try {
@@ -940,12 +941,17 @@ export function ProAccountLinksPanel({ userId, linkId: linkIdProp }: { userId: s
               skipInviteNotification: true,
             }),
           });
-          const data = (await res.json()) as { error?: string; migrationRequired?: boolean };
+          const data = (await res.json()) as {
+            error?: string;
+            migrationRequired?: boolean;
+            invite?: { id?: string };
+          };
           if (!res.ok) {
             setInviteeAtCap(Boolean(data.error?.includes("Invitee needs to upgrade")));
             showToast(data.error ?? "Could not send invite.");
             return;
           }
+          pendingInviteId = data.invite?.id?.trim() || null;
         } catch {
           showToast("Network error.");
           return;
@@ -988,6 +994,7 @@ export function ProAccountLinksPanel({ userId, linkId: linkIdProp }: { userId: s
           { toUserIds: [linkInvitePreview.recipientUserId], eventCategory: "account" },
         );
         if (!result.ok) {
+          if (pendingInviteId) await cancelInvite(pendingInviteId);
           showToast(result.message);
           if (useRemote && remoteLoaded) {
             await loadRemoteInvites();
@@ -1704,6 +1711,8 @@ export function ProAccountLinksPanel({ userId, linkId: linkIdProp }: { userId: s
 
     setTeamRemoveBusy(true);
     try {
+      const processedIds = new Set<string>();
+      let notifiedCount = 0;
       for (const item of targetItems) {
         const linkedUserId =
           item.entry.kind === "remote"
@@ -1725,10 +1734,14 @@ export function ProAccountLinksPanel({ userId, linkId: linkIdProp }: { userId: s
           });
           if (!result.ok) {
             showToast(result.message);
+            const remaining = teamRemovePreview.filter((entry) => !processedIds.has(entry.id));
+            if (remaining.length > 0) setTeamRemovePreview(remaining);
             return;
           }
+          notifiedCount += 1;
         }
         await executeTeamRemoveEntry(item.entry);
+        processedIds.add(item.id);
       }
       setTeamRemovePreview(null);
       if (scope === "all") {
@@ -1737,15 +1750,21 @@ export function ProAccountLinksPanel({ userId, linkId: linkIdProp }: { userId: s
       } else if (opts?.singleId) {
         toggleSelected(opts.singleId);
       }
-      const count = targetItems.length;
+      const count = processedIds.size;
       showToast(
         skipMessage
           ? count === 1
             ? "Team link removed."
             : `${count} team links removed.`
-          : count === 1
-            ? "Team link removed and team member notified."
-            : `${count} team links removed and team members notified.`,
+          : notifiedCount === 0
+            ? count === 1
+              ? "Team link removed."
+              : `${count} team links removed.`
+            : notifiedCount === count
+              ? count === 1
+                ? "Team link removed and team member notified."
+                : `${count} team links removed and team members notified.`
+              : `${count} team links removed; ${notifiedCount} team member${notifiedCount === 1 ? "" : "s"} notified.`,
       );
     } finally {
       setTeamRemoveBusy(false);

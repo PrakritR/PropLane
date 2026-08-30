@@ -549,9 +549,9 @@ export function ManagerVendorFormModal({
         body={removePreview?.body ?? ""}
         intro="Review the message before removing this vendor from your roster."
         showChannelPicker
-        showSchedule
+        showSchedule={false}
         emailAvailable={Boolean(removePreview?.email?.includes("@"))}
-        smsAvailable={Boolean(removePreview?.phone?.trim())}
+        smsAvailable={Boolean(removePreview?.email?.includes("@") && removePreview?.phone?.trim())}
         defaultViaSms={false}
         confirmLabel="Remove & send message"
         confirmLabelWithoutMessage="Remove only"

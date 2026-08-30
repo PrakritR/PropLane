@@ -537,9 +537,9 @@ export const ManagerVendorsPanel = forwardRef(function ManagerVendorsPanel(
           body={removePreview[0]!.body}
           intro="Review the message before removing this vendor from your roster."
           showChannelPicker
-          showSchedule
+          showSchedule={false}
           emailAvailable={Boolean(removePreview[0]!.email?.includes("@"))}
-          smsAvailable={Boolean(removePreview[0]!.phone?.trim())}
+          smsAvailable={Boolean(removePreview[0]!.email?.includes("@") && removePreview[0]!.phone?.trim())}
           defaultViaSms={false}
           confirmLabel="Remove & send message"
           confirmLabelWithoutMessage="Remove only"
@@ -566,7 +566,7 @@ export const ManagerVendorsPanel = forwardRef(function ManagerVendorsPanel(
               subject: preview.subject,
               body: preview.body,
               emailAvailable: Boolean(preview.email?.includes("@")),
-              smsAvailable: Boolean(preview.phone?.trim()),
+              smsAvailable: Boolean(preview.email?.includes("@") && preview.phone?.trim()),
             }),
           )}
           confirmLabel="Remove all & send"

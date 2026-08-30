@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getPortalAccessContext, hasAdminRole, hasRole } from "@/lib/auth/portal-access";
+import { getPortalAccessContext, hasRole } from "@/lib/auth/portal-access";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { buildVendorRemovedEmailBody, vendorRemovedSubject } from "@/lib/vendor-invite-email";
 
@@ -19,7 +19,7 @@ export async function POST(req: Request) {
   try {
     const ctx = await getPortalAccessContext();
     if (!ctx.user) return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
-    if (!hasRole(ctx, "manager") && !hasAdminRole(ctx)) {
+    if (!hasRole(ctx, "manager")) {
       return NextResponse.json({ error: "Forbidden." }, { status: 403 });
     }
 
