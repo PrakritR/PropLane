@@ -13,7 +13,8 @@ import {
   type TaskTemplateConfig,
 } from "@/lib/task-automation-preferences";
 import type { WorkAssignee } from "@/lib/work-assignment";
-import { resolveEmailLinkBaseUrl } from "@/lib/app-url";
+import { isManagerTaskLate } from "@/lib/manager-task-display";
+import { managerTaskListHref } from "@/lib/portal-detail-routes";
 import { shouldNotifyManagerOfApplicationSubmit } from "@/lib/application-submitted-notification.server";
 
 type ServiceDb = SupabaseClient;
@@ -190,8 +191,9 @@ export async function sendTaskAssigneeEmail(input: {
   const apiKey = process.env.RESEND_API_KEY?.trim();
   if (!apiKey) return { sent: false, error: "mailer_unconfigured" };
   const from = process.env.RESEND_FROM?.trim() || "PropLane <onboarding@resend.dev>";
-  const origin = resolveEmailLinkBaseUrl();
-  const tasksUrl = `${origin.replace(/\/$/, "")}/portal/task-list/in-progress`;
+  const origin = resolveEmailLinkBaseUrl().replace(/\/$/, "");
+  const late = isManagerTaskLate(input.task);
+  const tasksUrl = `${origin}${managerTaskListHref("/portal", late ? "overdue" : "in-progress")}`;
   const dueLabel = input.task.dueDate
     ? new Date(input.task.dueDate).toLocaleString("en-US", { timeZone: "America/Los_Angeles" })
     : "No due date";
