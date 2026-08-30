@@ -13,25 +13,39 @@ import type { DemoApplicantRow } from "@/data/demo-portal";
 import { isDemoModeActive } from "@/lib/demo/demo-session";
 import { isScreeningTestModeActive } from "@/lib/screening/screening-test-mode";
 import { buildBackgroundCheckReportHtml } from "@/lib/background-check-report-html";
-import { applicantDisplayName } from "@/lib/rental-application/applicant-name";
 import { MANAGER_PLAN_PORTAL_URL } from "@/lib/portals/manager-plan-path";
 import type { ManagerScreeningSettings } from "@/lib/screening/types";
+import { BackgroundCheckHouseholdTable } from "@/components/portal/background-check-household-table";
+import {
+  buildScreeningSubjects,
+  cosignerSubmissionIdForSubject,
+  resolveScreeningSubjectId,
+  screeningRowForSubject,
+} from "@/lib/background-check-subjects";
+import type { CosignerSubmission } from "@/lib/cosigner-submissions-storage";
 
 const DEMO_SCREENING_DEFAULTS = { mode: "manual" as const };
 
 function backgroundCheckDocumentHref(
   applicationId: string,
-  opts?: { attachment?: boolean; cacheKey?: string },
+  opts?: { attachment?: boolean; cacheKey?: string; cosignerSubmissionId?: string },
 ): string {
   const params = new URLSearchParams({ applicationId });
   if (opts?.attachment) params.set("disposition", "attachment");
   if (opts?.cacheKey) params.set("v", opts.cacheKey);
+  if (opts?.cosignerSubmissionId) params.set("cosignerSubmissionId", opts.cosignerSubmissionId);
   return `/api/screening/background-check/document?${params.toString()}`;
 }
 
-function downloadBackgroundCheckPdf(applicationId: string): void {
+function downloadBackgroundCheckPdf(
+  applicationId: string,
+  opts?: { cosignerSubmissionId?: string },
+): void {
   const anchor = document.createElement("a");
-  anchor.href = backgroundCheckDocumentHref(applicationId, { attachment: true });
+  anchor.href = backgroundCheckDocumentHref(applicationId, {
+    attachment: true,
+    cosignerSubmissionId: opts?.cosignerSubmissionId,
+  });
   anchor.rel = "noopener";
   document.body.appendChild(anchor);
   anchor.click();
@@ -39,7 +53,10 @@ function downloadBackgroundCheckPdf(applicationId: string): void {
 }
 
 /** Download the background-check report PDF for an application row. */
-export function downloadBackgroundCheckForApplication(row: DemoApplicantRow): void {
+export function downloadBackgroundCheckForApplication(
+  row: DemoApplicantRow,
+  opts?: { cosignerSubmissionId?: string },
+): void {
   const demo = isDemoModeActive() || isScreeningTestModeActive();
   if (demo) {
     void import("@/lib/demo/demo-document-files")
@@ -48,7 +65,7 @@ export function downloadBackgroundCheckForApplication(row: DemoApplicantRow): vo
     return;
   }
   if (row.backgroundCheck?.status === "complete") {
-    downloadBackgroundCheckPdf(row.id);
+    downloadBackgroundCheckPdf(row.id, { cosignerSubmissionId: opts?.cosignerSubmissionId });
   }
 }
 
@@ -57,11 +74,13 @@ export function BackgroundCheckReportFrame({
   demo,
   bareCanvas = false,
   stretch = false,
+  cosignerSubmissionId,
 }: {
   row: DemoApplicantRow;
   demo: boolean;
   bareCanvas?: boolean;
   stretch?: boolean;
+  cosignerSubmissionId?: string;
 }) {
   const bg = row.backgroundCheck;
   const reportHtml = useMemo(() => buildBackgroundCheckReportHtml(row), [row]);
@@ -70,7 +89,7 @@ export function BackgroundCheckReportFrame({
     ? `${bg.reportId ?? ""}:${bg.reportResourceId ?? ""}:${bg.completedAt ?? ""}`
     : "";
   const pdfHref = canTryOfficialPdf
-    ? backgroundCheckDocumentHref(row.id, { cacheKey: pdfCacheKey })
+    ? backgroundCheckDocumentHref(row.id, { cacheKey: pdfCacheKey, cosignerSubmissionId })
     : null;
   const pdfSrc = pdfHref ? `${pdfHref}#toolbar=0&navpanes=0` : null;
   const [pdfFailed, setPdfFailed] = useState(false);
@@ -175,19 +194,6 @@ export function backgroundCheckChip(bc: ApplicationBackgroundCheck): { label: st
   return { label: `Checkr: ${label}`, className: `portal-badge-pending ${ring}` };
 }
 
-/** Shown when screening the primary applicant while a co-signer application is linked. */
-export function BackgroundCheckCosignerNotice({ applicantName }: { applicantName: string }) {
-  return (
-    <p
-      className="rounded-xl border border-border bg-accent/25 px-3 py-2.5 text-xs leading-relaxed text-foreground"
-      data-attr="background-check-cosigner-notice"
-    >
-      This background check runs on <span className="font-semibold">{applicantName}</span> only. To screen the
-      co-signer, open their co-signer application from this page.
-    </p>
-  );
-}
-
 export function ApplicationScreeningPanel({
   row,
   onUpdated,
@@ -199,8 +205,11 @@ export function ApplicationScreeningPanel({
   onHeaderActionsChange,
   presentation = "full",
   className,
-  hasLinkedCosigner = false,
-  cosignerSubmissionId,
+  cosignerSubmissions = [],
+  screeningSubjectId,
+  onScreeningSubjectChange,
+  onRequestChecksForSubjects,
+  cosignerSubmissionId: cosignerSubmissionIdProp,
 }: {
   row: DemoApplicantRow;
   onUpdated?: () => void;
@@ -215,11 +224,39 @@ export function ApplicationScreeningPanel({
   onHeaderActionsChange?: (actions: React.ReactNode) => void;
   presentation?: "full" | "compact";
   className?: string;
-  hasLinkedCosigner?: boolean;
+  cosignerSubmissions?: CosignerSubmission[];
+  screeningSubjectId?: string;
+  onScreeningSubjectChange?: (subjectId: string) => void;
+  /** Opens the screening modal for the checked household members (signer and/or co-signers). */
+  onRequestChecksForSubjects?: (subjectIds: string[]) => void;
   cosignerSubmissionId?: string;
 }) {
   const { showToast } = useAppUi();
   const demo = isDemoModeActive() || isScreeningTestModeActive();
+  const screeningSubjects = useMemo(
+    () => buildScreeningSubjects(row, cosignerSubmissions),
+    [row, cosignerSubmissions],
+  );
+  const activeSubjectId = resolveScreeningSubjectId(
+    screeningSubjects,
+    screeningSubjectId ?? cosignerSubmissionIdProp,
+    row.id,
+  );
+  const activeRow = useMemo(
+    () => screeningRowForSubject(row, cosignerSubmissions, activeSubjectId),
+    [row, cosignerSubmissions, activeSubjectId],
+  );
+  const activeCosignerSubmissionId =
+    cosignerSubmissionIdProp ??
+    cosignerSubmissionIdForSubject(screeningSubjects, activeSubjectId);
+  const [selectedSubjectIds, setSelectedSubjectIds] = useState<Set<string>>(() => new Set([activeSubjectId]));
+
+  useEffect(() => {
+    setSelectedSubjectIds((prev) => {
+      if (prev.has(activeSubjectId)) return prev;
+      return new Set([activeSubjectId]);
+    });
+  }, [activeSubjectId]);
   const [settings, setSettings] = useState<ManagerScreeningSettings | null>(demo ? DEMO_SCREENING_DEFAULTS : null);
   const [configured, setConfigured] = useState(demo);
   const [screeningAllowed, setScreeningAllowed] = useState(true);
@@ -228,11 +265,16 @@ export function ApplicationScreeningPanel({
   const [bgOverride, setBgOverride] = useState<ApplicationBackgroundCheck | undefined>();
   const [bgBusy, setBgBusy] = useState(false);
   const [reportModalOpen, setReportModalOpen] = useState(false);
-  const bg = bgOverride ?? row.backgroundCheck;
+  const bg = bgOverride ?? activeRow.backgroundCheck;
 
   useEffect(() => {
     setBgOverride(undefined);
-  }, [row.id, row.backgroundCheck?.status, row.backgroundCheck?.completedAt]);
+  }, [
+    row.id,
+    activeSubjectId,
+    activeRow.backgroundCheck?.status,
+    activeRow.backgroundCheck?.completedAt,
+  ]);
 
   useEffect(() => {
     if (demo) return;
@@ -264,7 +306,7 @@ export function ApplicationScreeningPanel({
           credentials: "include",
           body: JSON.stringify({
             applicationId: row.id,
-            cosignerSubmissionId,
+            cosignerSubmissionId: activeCosignerSubmissionId,
             action,
           }),
         });
@@ -276,7 +318,7 @@ export function ApplicationScreeningPanel({
         setBgBusy(false);
       }
     },
-    [demo, onUpdated, row.id, cosignerSubmissionId],
+    [demo, onUpdated, row.id, activeCosignerSubmissionId],
   );
 
   useEffect(() => {
@@ -325,34 +367,36 @@ export function ApplicationScreeningPanel({
   const handleDownload = useCallback(() => {
     if (demo) {
       void import("@/lib/demo/demo-document-files")
-        .then(({ downloadDemoBackgroundCheckPdf }) => downloadDemoBackgroundCheckPdf({ ...row, backgroundCheck: bg }))
+        .then(({ downloadDemoBackgroundCheckPdf }) =>
+          downloadDemoBackgroundCheckPdf({ ...activeRow, backgroundCheck: bg }),
+        )
         .catch(() => showToast("Could not download screening report."));
       return;
     }
-    downloadBackgroundCheckPdf(row.id);
-  }, [bg, demo, row, showToast]);
+    downloadBackgroundCheckPdf(row.id, { cosignerSubmissionId: activeCosignerSubmissionId });
+  }, [activeCosignerSubmissionId, activeRow, bg, demo, row.id, showToast]);
 
-  const showsBackgroundCheck = applicationShowsBackgroundCheck(row);
-  const screening = row.screening;
+  const showsBackgroundCheck = applicationShowsBackgroundCheck(row) || screeningSubjects.length > 0;
+  const screening = activeRow.screening ?? row.screening;
   const canOrder =
     showsBackgroundCheck &&
     !demo &&
     screeningAllowed &&
     configured &&
     settings?.mode !== "off" &&
-    row.application?.consentCredit &&
+    activeRow.application?.consentCredit &&
     screening?.status !== "in_progress" &&
     screening?.status !== "queued" &&
     screening?.status !== "complete";
 
   const backgroundCheckComplete = bg?.status === "complete";
   const showCompletedState =
-    showsBackgroundCheck && backgroundCheckComplete && Boolean(row.application?.consentCredit);
+    showsBackgroundCheck && backgroundCheckComplete && Boolean(activeRow.application?.consentCredit);
   const canRunBackgroundCheck =
     showsBackgroundCheck &&
     screeningAllowed &&
     bgConfigured &&
-    Boolean(row.application?.consentCredit) &&
+    Boolean(activeRow.application?.consentCredit) &&
     bg?.status !== "pending" &&
     !backgroundCheckComplete &&
     Boolean(onOpenScreeningModal);
@@ -376,7 +420,7 @@ export function ApplicationScreeningPanel({
         ? demo
           ? "Demo check in progress…"
           : "Checkr is processing. This updates automatically."
-        : row.application?.consentCredit
+        : activeRow.application?.consentCredit
           ? "No report yet. Run a background check when you are ready."
           : "Applicant must authorize a background check first.";
   const headerActionBtnClass =
@@ -569,17 +613,36 @@ export function ApplicationScreeningPanel({
           scrollableContent
           dense
         >
-          <BackgroundCheckReportFrame row={{ ...row, backgroundCheck: bg }} demo={demo} bareCanvas />
+          <BackgroundCheckReportFrame
+            row={{ ...activeRow, backgroundCheck: bg }}
+            demo={demo}
+            bareCanvas
+            cosignerSubmissionId={activeCosignerSubmissionId}
+          />
         </Modal>
       </>
     );
   }
 
+  const householdTable =
+    screeningSubjects.length > 1 ? (
+      <BackgroundCheckHouseholdTable
+        subjects={screeningSubjects}
+        viewSubjectId={activeSubjectId}
+        onViewSubjectChange={(id) => onScreeningSubjectChange?.(id)}
+        selectedSubjectIds={selectedSubjectIds}
+        onSelectedSubjectIdsChange={setSelectedSubjectIds}
+        onRequestChecks={
+          onRequestChecksForSubjects
+            ? () => onRequestChecksForSubjects([...selectedSubjectIds])
+            : undefined
+        }
+      />
+    ) : null;
+
   const panelHead = (
     <>
-      {hasLinkedCosigner ? (
-        <BackgroundCheckCosignerNotice applicantName={applicantDisplayName(row)} />
-      ) : null}
+      {householdTable}
       {!screeningAllowed && !demo ? (
         <>
           <p className="native-hide text-xs text-muted">
@@ -621,7 +684,7 @@ export function ApplicationScreeningPanel({
       {screeningAllowed && configured && settings?.mode === "off" && !demo ? (
         <p className="text-xs text-muted">Screening is off in Applications settings.</p>
       ) : null}
-      {screeningAllowed && !row.application?.consentCredit ? (
+      {screeningAllowed && !activeRow.application?.consentCredit ? (
         <p className="text-xs text-muted">Applicant must authorize a background check first.</p>
       ) : null}
 
@@ -651,12 +714,13 @@ export function ApplicationScreeningPanel({
   );
 
   const reportFrame = (
-    <BackgroundCheckReportFrame
-      row={{ ...row, backgroundCheck: bg }}
-      demo={demo}
-      bareCanvas={bareCanvas}
-      stretch={stretch}
-    />
+          <BackgroundCheckReportFrame
+            row={{ ...activeRow, backgroundCheck: bg }}
+            demo={demo}
+            bareCanvas={bareCanvas}
+            stretch={stretch}
+            cosignerSubmissionId={activeCosignerSubmissionId}
+          />
   );
 
   const panelTail = (

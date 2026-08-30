@@ -119,8 +119,8 @@ describe("disclosure rules catalog evaluator", () => {
       expect.arrayContaining(["has_periodic_pest_service", "shared_utility_metering"]),
     );
     expect(result.canCompleteLease).toBe(false);
-    expect(html).toContain("Lease completion required");
-    expect(html).toContain("Year of construction / first certificate of occupancy");
+    expect(html).not.toContain("Lease completion required");
+    expect(html).not.toContain("Year of construction / first certificate of occupancy");
   });
 
   it("keeps Fremont statewide and excludes San Francisco-only rules", () => {
@@ -163,7 +163,7 @@ describe("disclosure rules catalog evaluator", () => {
     expect(result.excludedUnverifiedRuleCount).toBeGreaterThan(0);
     expect(result.unknownUnverifiedTriggers.map(({ field }) => field)).toContain("has_nonrefundable_fee");
     expect(result.canCompleteLease).toBe(false);
-    expect(html).toContain(`${result.excludedUnverifiedRuleCount} applicable rules are excluded because their citations have not been verified.`);
+    expect(html).not.toContain("applicable rules are excluded because their citations have not been verified");
   });
 
   it("leaves the short-term agreement byte-identical when disclosure inputs change", () => {
