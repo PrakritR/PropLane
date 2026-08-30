@@ -108,8 +108,14 @@ export function ManagerResidentsGroupedTable({
                     {
                       id: row.id,
                       data: row,
-                      primary: residentHousingMeta(row, showPropertyInRows),
-                      meta: row.email || undefined,
+                      // A household cluster's header is the house, not a person,
+                      // so the resident has to be named on their own row — the
+                      // per-resident branch above gets this from its header.
+                      primary: row.name,
+                      meta: [residentHousingMeta(row, showPropertyInRows), row.email]
+                        .map((part) => part?.trim())
+                        .filter(Boolean)
+                        .join(" · ") || undefined,
                       selected: selectedIds?.has(row.id),
                       onSelectedChange:
                         selectable && onToggleSelected ? () => onToggleSelected(row.id) : undefined,
@@ -120,6 +126,11 @@ export function ManagerResidentsGroupedTable({
                     },
                   ]}
                   columns={[
+                    {
+                      id: "resident",
+                      header: "Resident",
+                      cell: (item) => item.name,
+                    },
                     {
                       id: "unit",
                       header: "Unit",

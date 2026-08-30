@@ -34,7 +34,13 @@ vi.mock("@/hooks/use-portal-session", () => ({
 }));
 vi.mock("@/hooks/use-portal-nav-counts", () => ({ usePortalNavCounts: () => ({}) }));
 vi.mock("@/hooks/use-co-manager-nav-sections", () => ({
-  useCoManagerNavSections: (definition: { sections: unknown[] }) => definition.sections,
+  // Mirror the hook's real return shape — the sidebar destructures
+  // `{ sections, restrictedSections }`, so handing back a bare array leaves
+  // `visibleSections` undefined and the render dies inside a useMemo.
+  useCoManagerNavSections: (definition: { sections: unknown[] }) => ({
+    sections: definition.sections,
+    restrictedSections: new Set<string>(),
+  }),
 }));
 vi.mock("@/hooks/use-is-native-app", () => ({
   useNativeChrome: () => false,

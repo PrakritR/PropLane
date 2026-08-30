@@ -12,6 +12,10 @@ import { PortalPropertyRecordRow } from "@/components/portal/portal-record-row";
 import { PortalEmptyState } from "@/components/portal/portal-empty-state";
 import { ResidentScheduleTourModal } from "@/components/portal/resident-schedule-tour-modal";
 import { PORTAL_LIST_PAGE_BODY } from "@/components/portal/portal-inbox-ui";
+import {
+  PortalListAddRow,
+  PORTAL_LIST_ADD_ROW_WRAP_CLASS,
+} from "@/components/portal/portal-list-add-row";
 import { LocalDestinationNav } from "@/components/ui/destination-nav";
 import { formatRangeLabel } from "@/lib/demo-admin-scheduling";
 import { formatTourContactPhoneDisplay } from "@/lib/tour-contact-quality";
@@ -374,6 +378,21 @@ export function ResidentTourPanel({
         </div>
       ) : (
         <>
+          {toursForBucket.length === 0 ? (
+            // An empty bucket used to render nothing at all, so a resident with
+            // no tours got a blank tab with no way forward. The dashed add row
+            // is the same affordance every other portal list uses when empty.
+            <div className={PORTAL_LIST_ADD_ROW_WRAP_CLASS}>
+              <PortalListAddRow
+                label="Schedule tour"
+                ariaLabel="Schedule a tour"
+                hint="Browse homes"
+                icon={Calendar}
+                onClick={openScheduleTour}
+                dataAttr="resident-tour-schedule-add"
+              />
+            </div>
+          ) : null}
           {toursForBucket.length > 0 ? (
             <div className={PORTAL_LIST_PAGE_BODY} data-attr="resident-tour-list">
               {toursForBucket.map((tour) => {

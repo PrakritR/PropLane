@@ -30,6 +30,10 @@ vi.mock("@/components/providers/app-ui-provider", () => ({
   useAppUi: () => ({ showToast: vi.fn() }),
 }));
 vi.mock("next/navigation", () => ({
+  // A whole-module mock must name every export the tree reaches, or the first
+  // component to call a missing one fails the render with a generic error.
+  usePathname: () => "/portal/tours",
+  useSearchParams: () => new URLSearchParams(),
   useRouter: () => ({ push: vi.fn(), replace: vi.fn(), refresh: vi.fn(), prefetch: vi.fn() }),
 }));
 vi.mock("@/lib/tour-planned-change.client", async (importOriginal) => {

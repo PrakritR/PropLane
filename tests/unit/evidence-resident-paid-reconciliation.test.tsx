@@ -184,11 +184,13 @@ describe("resident F6/U9 — Payments › Paid reconciles with Documents › Ren
     // the real evidence; the tab-count cross-check is tracked with that dead prop.
     expect(screen.getByRole("link", { name: /^Paid/ })).toBeTruthy();
 
-    // Read the rendered table, not the whole subtree — DataList also draws a
-    // mobile card per row, so a text query counts every row twice.
-    const rowText = Array.from(view.container.querySelectorAll("tbody tr")).map((tr) =>
-      (tr.textContent ?? "").replace(/\s+/g, " ").trim(),
-    );
+    // Read the rendered rows, not the whole subtree — a plain text query would
+    // also pick up headings and totals. This list passes `hideColumnHeaders`, so
+    // DataList skips the desktop table entirely and draws ONE card row per
+    // payment; there is no `tbody` to read here any more.
+    const rowText = Array.from(
+      view.container.querySelectorAll('[data-slot="data-list-mobile-row"]'),
+    ).map((row) => (row.textContent ?? "").replace(/\s+/g, " ").trim());
 
     // Six ledger payments; one of them (August rent) still has a live charge, so
     // it must appear exactly once, not beside a synthesized twin.
