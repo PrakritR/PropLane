@@ -13,6 +13,7 @@ import {
   type TaskTemplateConfig,
 } from "@/lib/task-automation-preferences";
 import type { WorkAssignee } from "@/lib/work-assignment";
+import { resolveEmailLinkBaseUrl } from "@/lib/app-url";
 import { isManagerTaskLate } from "@/lib/manager-task-display";
 import { managerTaskListHref } from "@/lib/portal-detail-routes";
 import { shouldNotifyManagerOfApplicationSubmit } from "@/lib/application-submitted-notification.server";
