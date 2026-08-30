@@ -24,6 +24,8 @@ import {
   ensureManagerTaskResidentDirectory,
   MANAGER_TASK_FORM_KIND_LABELS,
   MANAGER_TASK_FORM_KINDS,
+  managerTaskFormKindFromTaskType,
+  managerTaskTypeFromFormKind,
   residentsForManagerTaskProperty,
   type ManagerTaskFormKind,
 } from "@/lib/manager-task-form-support";
@@ -177,11 +179,19 @@ export function ManagerTaskFormModal({
     return getRoomOptionsForProperty(form.propertyId, { includeUnavailable: true }).filter((option) => option.value);
   }, [form.propertyId]);
 
-  const propertyRequired =
-    form.taskKind === "house" || form.taskKind === "tour" || form.taskKind === "work-order";
   const isTour = form.taskKind === "tour";
   const isWorkOrder = form.taskKind === "work-order";
+  const isCheckIn = form.taskKind === "check-in";
+  const isCheckOut = form.taskKind === "check-out";
+  const isTurnover = isCheckIn || isCheckOut;
   const workOrderNeedsResident = isWorkOrder && form.workOrderCategory !== "General";
+  const showResidentPicker =
+    workOrderNeedsResident || (isTurnover && Boolean(form.propertyId));
+  const propertyRequired =
+    form.taskKind === "house" ||
+    form.taskKind === "tour" ||
+    form.taskKind === "work-order" ||
+    isTurnover;
   // A due date belongs to the deadline timing only: a scheduled task has a slot
   // instead, and an urgent one is deliberately dateless.
   const showDueDate = form.urgency === "deadline" && !isTour;
@@ -212,7 +222,7 @@ export function ManagerTaskFormModal({
       if (!task) return;
       setForm({
         ...EMPTY_FORM,
-        taskKind: task.propertyId ? "house" : "general",
+        taskKind: managerTaskFormKindFromTaskType(task.taskType),
         title: task.title,
         notes: task.notes ?? "",
         propertyId: task.propertyId ?? "",
@@ -255,7 +265,7 @@ export function ManagerTaskFormModal({
 
   async function handleSave() {
     if (!assignee) {
-      showToast("Choose who this service is assigned to.");
+      showToast("Choose who this task is assigned to.");
       return;
     }
     if (propertyRequired && !form.propertyId) {
@@ -273,7 +283,7 @@ export function ManagerTaskFormModal({
       }
     }
     if (isWorkOrder && workOrderNeedsResident && !form.residentEmail) {
-      showToast("Choose a resident for the service.");
+      showToast("Choose a resident for the maintenance request.");
       return;
     }
 
@@ -302,10 +312,11 @@ export function ManagerTaskFormModal({
 
       const taskTitle = isTour
         ? scheduledTaskTitleForTour(form.guestName.trim() || form.title.trim())
-        : form.title.trim();
+        : form.title.trim() ||
+          (isCheckIn ? "Check in" : isCheckOut ? "Check out" : "");
 
       if (!taskTitle) {
-        showToast(isTour ? "Add a guest name or title." : "Add a service title.");
+        showToast(isTour ? "Add a guest name or title." : "Add a task title.");
         return;
       }
 
@@ -387,6 +398,7 @@ export function ManagerTaskFormModal({
         assignee,
         urgency: form.urgency,
         priority: form.priority,
+        taskType: managerTaskTypeFromFormKind(form.taskKind),
       };
 
       if (editingId) {
@@ -399,7 +411,7 @@ export function ManagerTaskFormModal({
       onClose();
       onSaved?.(composePrefill);
     } catch (e) {
-      showToast(e instanceof Error ? e.message : "Could not save service.");
+      showToast(e instanceof Error ? e.message : "Could not save task.");
     } finally {
       setSaving(false);
     }
@@ -407,7 +419,7 @@ export function ManagerTaskFormModal({
 
   const canSave =
     Boolean(assignee) &&
-    Boolean(form.title.trim() || (isTour && form.guestName.trim())) &&
+    Boolean(form.title.trim() || (isTour && form.guestName.trim()) || isTurnover) &&
     (!propertyRequired || Boolean(form.propertyId)) &&
     (!isTour || Boolean(form.scheduleDate && form.startTime)) &&
     (!isWorkOrder || !workOrderNeedsResident || Boolean(form.residentEmail));
@@ -436,7 +448,7 @@ export function ManagerTaskFormModal({
         {!editingId ? (
           <div className={cn(PORTAL_MODAL_FORM_FIELD_CLASS, PORTAL_MODAL_FORM_FULL_ROW_CLASS)}>
             <label className={MODAL_FIELD_LABEL_CLASS} htmlFor="manager-task-kind">
-              Service type
+              Task type
             </label>
             <Select
               id="manager-task-kind"
@@ -497,15 +509,21 @@ export function ManagerTaskFormModal({
         ) : (
           <div className={cn(PORTAL_MODAL_FORM_FIELD_CLASS, PORTAL_MODAL_FORM_FULL_ROW_CLASS)}>
             <label className={MODAL_FIELD_LABEL_CLASS} htmlFor="manager-task-title">
-              {isWorkOrder ? "Service title" : "Description"}
+              {isWorkOrder ? "Task title" : "Description"}
             </label>
             <Input
               id="manager-task-title"
-              aria-label="Service title"
+              aria-label="Task title"
               value={form.title}
               onChange={(e) => setForm((current) => ({ ...current, title: e.target.value }))}
               placeholder={
-                isWorkOrder ? "Leaky faucet in kitchen" : "Inspect unit, meet vendor, follow up…"
+                isCheckIn
+                  ? "Linen bag, early check-in, keys…"
+                  : isCheckOut
+                    ? "Final walk-through, keys, cleaning…"
+                    : isWorkOrder
+                      ? "Leaky faucet in kitchen"
+                      : "Inspect unit, meet vendor, follow up…"
               }
               data-attr="manager-task-title-input"
             />
@@ -588,10 +606,10 @@ export function ManagerTaskFormModal({
           </div>
         ) : null}
 
-        {workOrderNeedsResident ? (
+        {showResidentPicker ? (
           <div className={cn(PORTAL_MODAL_FORM_FIELD_CLASS, PORTAL_MODAL_FORM_FULL_ROW_CLASS)}>
             <label className={MODAL_FIELD_LABEL_CLASS} htmlFor="manager-task-resident">
-              Resident
+              Resident{workOrderNeedsResident ? "" : " (optional)"}
             </label>
             <Select
               id="manager-task-resident"
@@ -846,15 +864,15 @@ export function ManagerTaskFormModal({
 
         <p className={cn("text-xs text-muted", PORTAL_MODAL_FORM_FULL_ROW_CLASS)}>
           {isTour
-            ? "Saving schedules the tour and adds it to your service list and calendar."
+            ? "Saving schedules the tour and adds it to your task list and calendar."
             : isWorkOrder
-              ? "Saving creates the service and a linked calendar entry when scheduled."
+              ? "Saving creates the maintenance request and a linked calendar entry when scheduled."
               : form.scheduleDate && form.startTime && form.endTime
                 ? "Saving blocks this time on your calendar."
                 : form.dueDate
                   ? "Due date appears on your calendar as a reminder block."
-                  : "Add a schedule or due date to show this service on your calendar."}
-          {!editingId && (isTour || (isWorkOrder && workOrderNeedsResident))
+                  : "Add a schedule or due date to show this task on your calendar."}
+          {!editingId && (isTour || isWorkOrder && workOrderNeedsResident)
             ? " You can notify the guest or resident on the next screen."
             : null}
         </p>

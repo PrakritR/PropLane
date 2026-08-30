@@ -10,14 +10,16 @@ import { emitAdminUi } from "@/lib/demo-admin-ui";
 export const MANAGER_TASKS_RECORD_PREFIX = "axis_manager_tasks_v1_";
 export const MANAGER_TASKS_EVENT = "manager-tasks-changed";
 
-export const MANAGER_TASK_TYPES = ["general", "house", "tour", "work_order"] as const;
+export const MANAGER_TASK_TYPES = ["general", "house", "tour", "work_order", "check_in", "check_out"] as const;
 export type ManagerTaskType = (typeof MANAGER_TASK_TYPES)[number];
 
 export const MANAGER_TASK_TYPE_LABELS: Record<ManagerTaskType, string> = {
-  general: "General service",
-  house: "House service",
+  general: "General task",
+  house: "House task",
   tour: "Tour",
-  work_order: "Service",
+  work_order: "Maintenance",
+  check_in: "Check in",
+  check_out: "Check out",
 };
 
 /**
@@ -150,6 +152,8 @@ export function inferManagerTaskType(
   if (task.linkedTourId || task.title.trim().startsWith("Tour ·")) return "tour";
   if (task.linkedWorkOrderId || task.title.trim().startsWith("Service ·") || task.title.trim().startsWith("Work order ·"))
     return "work_order";
+  if (/^check[\s-]?in\b/i.test(task.title.trim())) return "check_in";
+  if (/^check[\s-]?out\b/i.test(task.title.trim())) return "check_out";
   if (task.propertyId?.trim() && task.roomLabel?.trim()) return "house";
   return "general";
 }

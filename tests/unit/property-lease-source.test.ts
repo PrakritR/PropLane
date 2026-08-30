@@ -111,7 +111,7 @@ describe("property lease preview", () => {
   it("uses generic PropLane default draft without listing-specific details", () => {
     const preview = buildPropertyLeasePreview(seattleRoomSub(), { demo: true });
     expect(preview.source).toBe("axis_default");
-    expect(preview.html).toContain("RESIDENTIAL LEASE AGREEMENT");
+    expect(preview.html).toContain("RESIDENTIAL ROOM LEASE AGREEMENT");
     expect(preview.html).not.toContain("The Pioneer");
     expect(preview.html).not.toContain("[Resident name]");
     expect(preview.html).toContain("Filled at placement");
@@ -134,7 +134,7 @@ describe("property lease preview", () => {
       },
       { templateKind: "short-term" },
     );
-    expect(longPreview.html).toContain("RESIDENTIAL LEASE AGREEMENT");
+    expect(longPreview.html).toContain("RESIDENTIAL ROOM LEASE AGREEMENT");
     expect(shortPreview.html).toContain("SHORT-TERM ROOM STAY AGREEMENT");
     expect(shortPreview.html).not.toContain("RESIDENTIAL LEASE AGREEMENT");
     expect(shortPreview.html).toContain("Guest");
@@ -148,7 +148,7 @@ describe("property lease preview", () => {
 
   it("does not embed listing marketing copy in section 2 Premises", () => {
     const preview = buildPropertyLeasePreview(seattleRoomSub(), { demo: true });
-    expect(preview.html).toContain("<h2>2. Premises</h2>");
+    expect(preview.html).toContain("<h2>1. Parties and Premises</h2>");
     expect(preview.html).toContain("Filled at placement");
     expect(preview.html).not.toContain("The Pioneer");
     expect(preview.html).not.toContain("$2400.00 / month");
@@ -167,7 +167,7 @@ describe("property lease preview", () => {
       }),
     );
     expect(preview.source).toBe("custom_comments");
-    expect(preview.html).toContain("RESIDENTIAL LEASE AGREEMENT");
+    expect(preview.html).toContain("RESIDENTIAL ROOM LEASE AGREEMENT");
     expect(preview.html).toContain("Additional Provisions from Property Manager");
     expect(preview.html).toContain("No smoking on balconies.");
     expect(preview.html).toContain("Parking spot #4 only.");
