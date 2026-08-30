@@ -288,7 +288,7 @@ export const ManagerVendorsPanel = forwardRef(function ManagerVendorsPanel(
           const rowDraft = fromCarousel
             ? { subject: fromCarousel.subject, body: fromCarousel.body }
             : messageDraft;
-          if (!skipMessage) {
+          if (!skipMessage && preview.email?.includes("@")) {
             const result = await deliverManagerDirectoryMessage(preview, false, channels, rowDraft);
             if (!result.ok) {
               showToast(result.message);
@@ -548,7 +548,10 @@ export const ManagerVendorsPanel = forwardRef(function ManagerVendorsPanel(
           confirmBusyLabel="Removing…"
           cancelLabel="Cancel"
           onConfirm={(skipMessage, channels, messageDraft) =>
-            void confirmVendorRemove(skipMessage, channels, messageDraft)
+            void confirmVendorRemove(skipMessage, channels, messageDraft, {
+              scope: "single",
+              singleId: removePreview[0]!.vendorId,
+            })
           }
         />
       ) : null}

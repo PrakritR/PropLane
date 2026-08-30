@@ -5,6 +5,10 @@ import { buildVendorRemovedEmailBody, vendorRemovedSubject } from "@/lib/vendor-
 
 export const runtime = "nodejs";
 
+function canPrepareVendorRemoval(role: string | null | undefined): boolean {
+  return role === "admin" || role === "manager" || role === "owner" || role === "pro";
+}
+
 function vendorNameFromRowData(rowData: unknown): string {
   const row = (rowData && typeof rowData === "object" && !Array.isArray(rowData) ? rowData : {}) as Record<
     string,
@@ -19,7 +23,7 @@ export async function POST(req: Request) {
   try {
     const ctx = await getPortalAccessContext();
     if (!ctx.user) return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
-    if (!hasRole(ctx, "manager")) {
+    if (!hasRole(ctx, "manager") && !canPrepareVendorRemoval(ctx.profile?.role)) {
       return NextResponse.json({ error: "Forbidden." }, { status: 403 });
     }
 

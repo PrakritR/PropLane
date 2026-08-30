@@ -2207,6 +2207,7 @@ export function ProAccountLinksPanel({ userId, linkId: linkIdProp }: { userId: s
           body={teamRemovePreview[0]!.body}
           intro="Review the message before removing this team link."
           showChannelPicker
+          showSchedule={false}
           emailAvailable={teamRemovePreview[0]!.emailAvailable}
           smsAvailable={false}
           defaultViaSms={false}

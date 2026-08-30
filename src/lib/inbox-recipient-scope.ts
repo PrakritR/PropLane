@@ -81,6 +81,29 @@ async function accountLinkCoManagerIdsForManagers(
   return ids;
 }
 
+/** Inviters who sent this user a pending or accepted co-manager invite (invitee → inviter messaging). */
+async function coManagerInviterIdsForInvitee(
+  db: SupabaseClient,
+  inviteeUserId: string,
+): Promise<Set<string>> {
+  const ids = new Set<string>();
+  if (!inviteeUserId) return ids;
+  try {
+    const { data } = await db
+      .from("account_link_invites")
+      .select("inviter_user_id")
+      .in("status", ["pending", "accepted"])
+      .eq("invitee_user_id", inviteeUserId);
+    for (const row of data ?? []) {
+      const id = String(row.inviter_user_id ?? "").trim();
+      if (id) ids.add(id);
+    }
+  } catch {
+    /* table may not exist */
+  }
+  return ids;
+}
+
 /** Pending co-manager invitees the manager may notify before acceptance. */
 async function pendingAccountLinkInviteeIdsForManagers(
   db: SupabaseClient,
@@ -255,8 +278,11 @@ export async function filterRecipientsBySenderScope<T extends InboxScopeRecipien
     // `portal_pro_relationship_records` is a client-writable mirror, so the
     // authoritative accepted account_link_invites are resolved too — the same
     // source the vendor and resident branches use.
-    const coManagerIds = await accountLinkCoManagerIdsForManagers(db, [sender.id]);
-    const pendingInviteeIds = await pendingAccountLinkInviteeIdsForManagers(db, [sender.id]);
+    const [coManagerIds, pendingInviteeIds, inviterIdsForInvitee] = await Promise.all([
+      accountLinkCoManagerIdsForManagers(db, [sender.id]),
+      pendingAccountLinkInviteeIdsForManagers(db, [sender.id]),
+      coManagerInviterIdsForInvitee(db, sender.id),
+    ]);
     if (coManagerIds.size > 0) {
       const { data: coProfiles } = await db.from("profiles").select("id, email").in("id", [...coManagerIds]);
       for (const row of coProfiles ?? []) {
@@ -269,6 +295,7 @@ export async function filterRecipientsBySenderScope<T extends InboxScopeRecipien
       recipients.map(async (recipient) => {
         if (recipient.userId && coManagerIds.has(recipient.userId)) return true;
         if (recipient.userId && pendingInviteeIds.has(recipient.userId)) return true;
+        if (recipient.userId && inviterIdsForInvitee.has(recipient.userId)) return true;
         const email = recipient.email.trim().toLowerCase();
         if (!email) return false;
         if (email === ADMIN_EMAIL) return true;
