@@ -120,14 +120,16 @@ describe("coManagerPortalSectionAllowed", () => {
     ).toBe(true);
   });
 
-  it("hides ungranted module sections when merged permissions are non-empty", () => {
-    expect(
-      coManagerPortalSectionAllowed({
-        section: "payments",
-        isPrimaryManager: false,
-        mergedPermissions: { promotion: true },
-      }),
-    ).toBe(false);
+  it("keeps module tabs navigable for co-managers regardless of merged permissions", () => {
+    for (const section of ["payments", "tours", "task-list", "bookings", "vendors"]) {
+      expect(
+        coManagerPortalSectionAllowed({
+          section,
+          isPrimaryManager: false,
+          mergedPermissions: { promotion: true },
+        }),
+      ).toBe(true);
+    }
   });
 
   it("shows module sections for an empty-permission co-manager link", () => {
@@ -173,14 +175,14 @@ describe("coManagerPortalSectionAllowed", () => {
     ).toBe(false);
   });
 
-  it("still hides ungranted modules when the flag is absent (default behavior)", () => {
+  it("allows mapped module sections even when merged permissions are empty", () => {
     expect(
       coManagerPortalSectionAllowed({
         section: "payments",
         isPrimaryManager: false,
         mergedPermissions: {},
       }),
-    ).toBe(false);
+    ).toBe(true);
   });
 });
 
