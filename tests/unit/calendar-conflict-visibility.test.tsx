@@ -117,7 +117,9 @@ describe("property availability calendar shows the same conflicts (F-CAL-6)", ()
   it("asks for a window wide enough that navigating a few weeks out still shows conflicts", async () => {
     const fetchMock = vi.fn(async () => ({ ok: true, json: async () => ({ meetings: [] }) }));
     vi.stubGlobal("fetch", fetchMock);
-    const { GOOGLE_BUSY_DEFAULT_DAYS_AHEAD } = await import("@/hooks/use-google-calendar-busy");
+    const { GOOGLE_BUSY_DEFAULT_DAYS_AHEAD, GOOGLE_BUSY_DAYS_BEFORE } = await import(
+      "@/hooks/use-google-calendar-busy"
+    );
     await renderPropertyToursPanel({ managerUserId: "m1" });
     await waitFor(() => expect(fetchMock).toHaveBeenCalled());
 
@@ -130,8 +132,16 @@ describe("property availability calendar shows the same conflicts (F-CAL-6)", ()
     // Starts before today, so this week is never clipped at "now"…
     expect(timeMin.getTime()).toBeLessThan(now);
     // …and reaches far enough forward that the two-week blind spot is gone.
+    //
+    // The window starts at the top of LAST week, so how far past "now" it
+    // reaches depends on the weekday: the full 56 days on a Monday, shrinking
+    // to just over 49 by Sunday night. A flat `> 50` therefore failed every
+    // Sunday CI run (measured 49.93) while passing the rest of the week.
+    // Assert the guaranteed floor derived from the constants instead.
     expect(GOOGLE_BUSY_DEFAULT_DAYS_AHEAD).toBeGreaterThanOrEqual(56);
-    expect((timeMax.getTime() - now) / day).toBeGreaterThan(50);
+    const reachDays = (timeMax.getTime() - now) / day;
+    expect(reachDays).toBeGreaterThan(GOOGLE_BUSY_DEFAULT_DAYS_AHEAD - GOOGLE_BUSY_DAYS_BEFORE);
+    expect(reachDays).toBeLessThanOrEqual(GOOGLE_BUSY_DEFAULT_DAYS_AHEAD);
   });
 
   it("asks Google for nothing when there is no signed-in manager", async () => {
