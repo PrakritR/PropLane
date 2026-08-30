@@ -21,6 +21,7 @@ import {
   autoRespondToResidentInboxMessage,
   type InboxTurnMessage,
 } from "@/lib/agent/inbox-auto-respond.server";
+import { createPendingActionForUser } from "@/lib/tools/pending-actions";
 
 export const RESIDENT_AGENT_THREAD_TYPE = "resident_agent";
 const RESIDENT_INBOX_SCOPE = "axis_portal_inbox_resident_v1";
@@ -153,16 +154,31 @@ export async function runResidentInboxAgentTurn(
   });
   if (!result.ok) return { replied: false, reason: result.reason };
 
-  const body = result.pendingAction
-    ? [
-        result.reply,
-        "",
-        `I have prepared this for you to confirm: ${result.pendingAction.preview?.title ?? result.pendingAction.toolName}.`,
-        "Nothing has happened yet — open it in your portal to approve or discard.",
-      ]
-        .filter(Boolean)
-        .join("\n")
-    : result.reply;
+  let body = result.reply;
+  if (result.pendingAction) {
+    // Persist the proposal, exactly as the chat routes do. Without this the
+    // assistant asks "want me to go ahead?" with nothing behind it — the
+    // resident has no way to say yes, and the next turn just re-proposes.
+    // `portal: "resident"` matters: the confirm gate is portal-bound and
+    // refuses a claimed row whose portal does not match the calling route.
+    const actionId = await createPendingActionForUser(db, {
+      landlordId: residentUserId,
+      userId: residentUserId,
+      toolName: result.pendingAction.toolName,
+      input: result.pendingAction.input,
+      preview: result.pendingAction.preview,
+      portal: "resident",
+    });
+    const label = result.pendingAction.preview?.title ?? result.pendingAction.toolName;
+    body = actionId
+      ? [result.reply, "", `Approve "${label}" in your portal and I will do it. Nothing has happened yet.`]
+          .filter(Boolean)
+          .join("\n")
+      // Say so rather than leaving a promise the resident cannot act on.
+      : [result.reply, "", `I could not prepare "${label}" just now — please try again shortly.`]
+          .filter(Boolean)
+          .join("\n");
+  }
 
   await commitInboxThreadReply(db, target, { fromName: RESIDENT_AGENT_FROM_NAME, text: body });
   return { replied: true };
