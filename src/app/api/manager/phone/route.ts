@@ -288,6 +288,7 @@ export async function POST(req: Request) {
       console.error("Twilio Verify send failed", {
         userId: user.id,
         serviceSid: verifyServiceSid(),
+        ...detail,
         ...twilioErrorFields(e),
       });
       await rollBackFailedSend(db, user.id, priorVerification);
