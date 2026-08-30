@@ -120,6 +120,9 @@ describe("long-term lease parity", () => {
       `Addendum C ${String.fromCharCode(8212)} Mold & Moisture Policy`,
       `Addendum D ${String.fromCharCode(8212)} Maintenance & Tenant Responsibilities Detail`,
       `Addendum E ${String.fromCharCode(8212)} House Rules Enforcement`,
+      // Federally required for pre-1978 housing, so it belongs in the compact
+      // lease alongside the other disclosures rather than only the long form.
+      "Lead-Based Paint Disclosure",
       "21. Signatures",
     ];
     expect(sections).toEqual(expected);
