@@ -5,14 +5,28 @@
  * once-a-day cron, so any lead time shorter than a day was delivered on the
  * next daily tick — after the event it was announcing.
  *
+ * Delivery goes through `deliverPortalInboxMessage`, the same layer the rest of
+ * the product sends through, so a reminder lands in the recipient's
+ * Communication thread AND mirrors outward by email in one call — and each
+ * recipient's own notification preferences gate the outward copy. Writing a
+ * second, reminder-only send path would have meant a second set of preference
+ * rules to keep in sync, and reminders that live somewhere nobody replies.
+ *
  * Each claimed row is settled exactly once: `sent` on success, back to
  * `scheduled` on a transient failure so the next run retries it, and `failed`
- * when the row can never succeed (no API key, no address). The attempts ceiling
- * lives in `claim_due_reminders`, so a permanently broken row stops on its own.
+ * when the row can never succeed. The attempts ceiling lives in
+ * `claim_due_reminders`, so a permanently broken row stops on its own.
  */
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { deliverPortalInboxMessage } from "@/lib/portal-inbox-delivery";
 import { claimDueReminders, resolveReminder, type ReminderQueueRow } from "@/lib/reminders/queue.server";
 import { renderReminder, type ReminderPayload } from "@/lib/reminders/render";
+import {
+  DEFAULT_REMINDER_SETTINGS,
+  type ReminderSubjectKind,
+} from "@/lib/reminders/rules";
+import { loadReminderSettingsForManagers } from "@/lib/reminders/settings.server";
+import type { NotificationCategory } from "@/lib/notification-preferences";
 
 export type DispatchSummary = {
   claimed: number;
@@ -22,41 +36,68 @@ export type DispatchSummary = {
   errors: string[];
 };
 
+/**
+ * Which notification category each subject belongs to.
+ *
+ * This is what lets a recipient silence maintenance mail without also silencing
+ * their lease — the categories already exist in `notification-preferences`, so
+ * reminders reuse them rather than inventing a "reminders" switch that would
+ * override the choices someone already made.
+ */
+const CATEGORY_BY_KIND: Record<ReminderSubjectKind, NotificationCategory> = {
+  tour: "leases",
+  task: "messages",
+  service_order: "maintenance",
+  work_order: "maintenance",
+  booking: "leases",
+};
+
 /** Distinguishes a retryable outage from a row that can never be delivered. */
 type SendOutcome = { ok: true } | { ok: false; permanent: boolean; error: string };
 
-async function sendReminderEmail(to: string, subject: string, text: string): Promise<SendOutcome> {
-  const recipient = to.trim().toLowerCase();
-  if (!recipient.includes("@")) {
-    return { ok: false, permanent: true, error: "invalid recipient address" };
-  }
-  const apiKey = process.env.RESEND_API_KEY?.trim();
-  if (!apiKey) {
-    // A deployment fact, not a per-row fault. Permanent for this run so the
-    // queue is not hammered 288 times a day on a box with no mailer.
-    return { ok: false, permanent: true, error: "mailer_unconfigured" };
-  }
-  const from = process.env.RESEND_FROM?.trim() || "PropLane <onboarding@resend.dev>";
-  try {
-    const res = await fetch("https://api.resend.com/emails", {
-      method: "POST",
-      headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
-      body: JSON.stringify({ from, to: [recipient], subject, text }),
+type SenderIdentity = { userId: string; email: string; name: string };
+
+async function loadSenders(
+  db: SupabaseClient,
+  managerUserIds: readonly string[],
+): Promise<Map<string, SenderIdentity>> {
+  const out = new Map<string, SenderIdentity>();
+  const ids = [...new Set(managerUserIds)].filter(Boolean);
+  if (ids.length === 0) return out;
+  const { data } = await db.from("profiles").select("id, email, full_name").in("id", ids);
+  for (const row of data ?? []) {
+    const email = String((row as { email?: unknown }).email ?? "").trim().toLowerCase();
+    if (!email) continue;
+    out.set(String((row as { id: string }).id), {
+      userId: String((row as { id: string }).id),
+      email,
+      name: String((row as { full_name?: unknown }).full_name ?? "").trim() || "PropLane",
     });
-    if (res.ok) return { ok: true };
-    // 4xx is our fault and will not fix itself; 5xx and 429 are worth retrying.
-    const permanent = res.status >= 400 && res.status < 500 && res.status !== 429;
-    return { ok: false, permanent, error: `resend ${res.status}` };
-  } catch (error) {
-    return { ok: false, permanent: false, error: error instanceof Error ? error.message : "network error" };
   }
+  return out;
 }
 
 export async function dispatchReminderRow(
   db: SupabaseClient,
   workerId: string,
   row: ReminderQueueRow,
+  sender: SenderIdentity | undefined,
+  channels: { inbox: boolean; email: boolean; sms: boolean },
 ): Promise<"sent" | "failed" | "retried"> {
+  // Without a sender identity there is no thread to write into and no From to
+  // send as. That cannot fix itself on a retry, so stop rather than spin.
+  if (!sender) {
+    await resolveReminder(db, row.id, workerId, "failed", "manager profile has no email");
+    return "failed";
+  }
+  // The manager's own copy would be a message from themselves to themselves,
+  // which `deliverPortalInboxMessage` drops as a self-send. Skip it cleanly
+  // instead of letting it look like a delivery failure.
+  if (row.recipientEmail.trim().toLowerCase() === sender.email) {
+    await resolveReminder(db, row.id, workerId, "sent");
+    return "sent";
+  }
+
   const { subject, body } = renderReminder({
     kind: row.kind,
     leadMinutes: row.leadMinutes,
@@ -64,7 +105,32 @@ export async function dispatchReminderRow(
     payload: row.payload as ReminderPayload,
   });
 
-  const outcome = await sendReminderEmail(row.recipientEmail, subject, body);
+  const outcome: SendOutcome = await (async () => {
+    try {
+      const result = await deliverPortalInboxMessage(db, {
+        senderUserId: sender.userId,
+        senderEmail: sender.email,
+        fromName: sender.name,
+        subject,
+        text: body,
+        toEmails: [row.recipientEmail],
+        deliverToPortalInbox: channels.inbox,
+        deliverViaEmail: channels.email,
+        deliverViaSms: channels.sms,
+        eventCategory: CATEGORY_BY_KIND[row.kind],
+        senderRole: "manager",
+      });
+      if (result.ok) return { ok: true as const };
+      return { ok: false as const, permanent: false, error: result.error };
+    } catch (error) {
+      return {
+        ok: false as const,
+        permanent: false,
+        error: error instanceof Error ? error.message : "delivery threw",
+      };
+    }
+  })();
+
   if (outcome.ok) {
     await resolveReminder(db, row.id, workerId, "sent");
     return "sent";
@@ -81,8 +147,9 @@ export async function dispatchReminderRow(
  * One dispatcher pass.
  *
  * Rows are sent sequentially rather than in parallel: the batch is small, the
- * provider rate-limits, and a serial loop means one row's failure cannot take
- * the rest of the batch down with it.
+ * providers rate-limit, and a serial loop means one row's failure cannot take
+ * the rest of the batch down with it. Senders and rules are loaded once per
+ * run rather than per row, so a busy tick is a couple of queries, not N.
  */
 export async function dispatchDueReminders(
   db: SupabaseClient,
@@ -91,10 +158,24 @@ export async function dispatchDueReminders(
 ): Promise<DispatchSummary> {
   const claimed = await claimDueReminders(db, workerId, limit);
   const summary: DispatchSummary = { claimed: claimed.length, sent: 0, failed: 0, retried: 0, errors: [] };
+  if (claimed.length === 0) return summary;
+
+  const managerIds = claimed.map((row) => row.managerUserId);
+  const [senders, settingsByManager] = await Promise.all([
+    loadSenders(db, managerIds),
+    loadReminderSettingsForManagers(db, managerIds),
+  ]);
 
   for (const row of claimed) {
     try {
-      const result = await dispatchReminderRow(db, workerId, row);
+      const rule =
+        settingsByManager.get(row.managerUserId)?.rules[row.kind] ??
+        DEFAULT_REMINDER_SETTINGS.rules[row.kind];
+      const result = await dispatchReminderRow(db, workerId, row, senders.get(row.managerUserId), {
+        inbox: rule.inbox,
+        email: rule.email,
+        sms: rule.sms,
+      });
       if (result === "sent") summary.sent += 1;
       else if (result === "failed") summary.failed += 1;
       else summary.retried += 1;

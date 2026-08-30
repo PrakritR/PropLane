@@ -12,6 +12,7 @@
 import { NextResponse } from "next/server";
 import { randomUUID } from "node:crypto";
 import { dispatchDueReminders } from "@/lib/reminders/dispatch.server";
+import { sweepTaskReminders } from "@/lib/reminders/subjects/tasks.server";
 import { isProductionRuntime } from "@/lib/server-env";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 
@@ -44,8 +45,19 @@ export async function GET(req: Request) {
   const workerId = `dispatch-${randomUUID()}`;
   try {
     const db = createSupabaseServiceRoleClient();
+    // Sweep first, then drain: a subject created since the last tick gets its
+    // reminders queued and, if one is already due, sent in the same pass. A
+    // sweep failure must not stop delivery of what is already queued, so it is
+    // reported rather than thrown.
+    let swept = 0;
+    let sweepError: string | null = null;
+    try {
+      swept = await sweepTaskReminders(db);
+    } catch (error) {
+      sweepError = describeError(error);
+    }
     const summary = await dispatchDueReminders(db, workerId);
-    return NextResponse.json({ ok: true, ...summary });
+    return NextResponse.json({ ok: true, swept, ...(sweepError ? { sweepError } : {}), ...summary });
   } catch (error) {
     // A Supabase failure arrives as a plain PostgrestError object, not an
     // Error, so `instanceof Error` alone reports "dispatch failed" and throws

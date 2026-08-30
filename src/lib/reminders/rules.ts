@@ -45,7 +45,16 @@ export type ReminderRule = {
   /** Minutes before the anchor moment. Sorted furthest-out first, deduped. */
   leadMinutes: number[];
   audience: ReminderAudience;
-  /** Delivery channels. SMS is reserved — email is the only channel wired today. */
+  /**
+   * Delivery channels.
+   *
+   * `inbox` is the in-house Communication thread — the place a person already
+   * reads and replies — and `email` mirrors it outward. Both ship on by default
+   * and are delivered by one call, so a recipient's own notification
+   * preferences still gate the outward copy. `sms` rides the same path and is
+   * reserved for when a work number is wired.
+   */
+  inbox: boolean;
   email: boolean;
   sms: boolean;
 };
@@ -194,6 +203,7 @@ export const DEFAULT_REMINDER_RULES: ReminderRules = {
     enabled: true,
     leadMinutes: [1 * DAY, 30 * MINUTE],
     audience: { manager: true, counterparty: true },
+    inbox: true,
     email: true,
     sms: false,
   },
@@ -201,6 +211,7 @@ export const DEFAULT_REMINDER_RULES: ReminderRules = {
     enabled: true,
     leadMinutes: [1 * DAY],
     audience: { manager: false, counterparty: true },
+    inbox: true,
     email: true,
     sms: false,
   },
@@ -208,6 +219,7 @@ export const DEFAULT_REMINDER_RULES: ReminderRules = {
     enabled: true,
     leadMinutes: [1 * DAY, 1 * HOUR],
     audience: { manager: true, counterparty: true },
+    inbox: true,
     email: true,
     sms: false,
   },
@@ -215,6 +227,7 @@ export const DEFAULT_REMINDER_RULES: ReminderRules = {
     enabled: true,
     leadMinutes: [1 * DAY, 30 * MINUTE],
     audience: { manager: false, counterparty: true },
+    inbox: true,
     email: true,
     sms: false,
   },
@@ -222,6 +235,7 @@ export const DEFAULT_REMINDER_RULES: ReminderRules = {
     enabled: true,
     leadMinutes: [3 * DAY, 1 * DAY],
     audience: { manager: true, counterparty: true },
+    inbox: true,
     email: true,
     sms: false,
   },
@@ -262,6 +276,7 @@ function normalizeRule(raw: unknown, fallback: ReminderRule): ReminderRule {
       manager: normalizeBoolean(audienceRaw.manager, fallback.audience.manager),
       counterparty: normalizeBoolean(audienceRaw.counterparty, fallback.audience.counterparty),
     },
+    inbox: normalizeBoolean(row.inbox, fallback.inbox),
     email: normalizeBoolean(row.email, fallback.email),
     sms: normalizeBoolean(row.sms, fallback.sms),
   };
@@ -337,7 +352,7 @@ export function reminderSendTimes(
   now: Date = new Date(),
 ): { leadMinutes: number; sendAt: Date }[] {
   if (!rule.enabled) return [];
-  if (!rule.email && !rule.sms) return [];
+  if (!rule.inbox && !rule.email && !rule.sms) return [];
   const anchorMs = new Date(anchorIso).getTime();
   if (!Number.isFinite(anchorMs)) return [];
 

@@ -167,7 +167,12 @@ describe("reminderSendTimes", () => {
 
   it("returns nothing for a disabled rule, no channel, or an unreadable anchor", () => {
     expect(reminderSendTimes(rule({ enabled: false }), anchor, quietOff, now)).toEqual([]);
-    expect(reminderSendTimes(rule({ email: false, sms: false }), anchor, quietOff, now)).toEqual([]);
+    // Every channel off means there is nowhere to deliver, so nothing schedules.
+    expect(reminderSendTimes(rule({ inbox: false, email: false, sms: false }), anchor, quietOff, now)).toEqual([]);
+    // …but the in-app thread alone is still a real destination.
+    expect(
+      reminderSendTimes(rule({ inbox: true, email: false, sms: false, leadMinutes: [30] }), anchor, quietOff, now),
+    ).toHaveLength(1);
     expect(reminderSendTimes(rule(), "not-a-date", quietOff, now)).toEqual([]);
     expect(reminderSendTimes(rule(), "", quietOff, now)).toEqual([]);
   });

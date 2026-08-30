@@ -162,7 +162,12 @@ export async function createCollectRentTask(
   });
 }
 
-async function assigneeEmail(db: ServiceDb, assignee: WorkAssignee): Promise<string | null> {
+/**
+ * The assignee's address: a co-manager's profile email, or a vendor's stored
+ * contact. Exported so the reminder spine resolves recipients the same way the
+ * task emails already do, rather than growing a second lookup that could drift.
+ */
+export async function assigneeEmail(db: ServiceDb, assignee: WorkAssignee): Promise<string | null> {
   if (assignee.type === "team") {
     const { data } = await db.from("profiles").select("email").eq("id", assignee.id).maybeSingle();
     const email = typeof data?.email === "string" ? data.email.trim().toLowerCase() : "";
