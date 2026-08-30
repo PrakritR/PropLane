@@ -15,20 +15,64 @@ import {
 } from "@/lib/manager-work-orders-storage";
 import { getRoomChoiceLabel } from "@/lib/rental-application/data";
 import { formatPreferredArrival } from "@/lib/preferred-arrival";
+import type { ManagerTaskType } from "@/lib/manager-tasks";
 import {
   type ResidentMaintenanceCategoryLabel,
   workOrderCategoryForResidentLabel,
 } from "@/lib/work-order-taxonomy";
 
-export const MANAGER_TASK_FORM_KINDS = ["general", "house", "tour", "work-order"] as const;
+export const MANAGER_TASK_FORM_KINDS = [
+  "general",
+  "house",
+  "check-in",
+  "check-out",
+  "tour",
+  "work-order",
+] as const;
 export type ManagerTaskFormKind = (typeof MANAGER_TASK_FORM_KINDS)[number];
 
 export const MANAGER_TASK_FORM_KIND_LABELS: Record<ManagerTaskFormKind, string> = {
-  general: "General service",
-  house: "House service",
+  general: "General task",
+  house: "House task",
+  "check-in": "Check in",
+  "check-out": "Check out",
   tour: "Tour",
-  "work-order": "Service",
+  "work-order": "Maintenance",
 };
+
+export function managerTaskTypeFromFormKind(kind: ManagerTaskFormKind): ManagerTaskType {
+  switch (kind) {
+    case "house":
+      return "house";
+    case "tour":
+      return "tour";
+    case "work-order":
+      return "work_order";
+    case "check-in":
+      return "check_in";
+    case "check-out":
+      return "check_out";
+    default:
+      return "general";
+  }
+}
+
+export function managerTaskFormKindFromTaskType(taskType: ManagerTaskType | undefined): ManagerTaskFormKind {
+  switch (taskType) {
+    case "house":
+      return "house";
+    case "tour":
+      return "tour";
+    case "work_order":
+      return "work-order";
+    case "check_in":
+      return "check-in";
+    case "check_out":
+      return "check-out";
+    default:
+      return "general";
+  }
+}
 
 export type ManagerTaskResidentOption = {
   residentName: string;

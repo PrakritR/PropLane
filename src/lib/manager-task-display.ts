@@ -91,8 +91,8 @@ export const MANAGER_TASK_LIST_FILTER_LABELS: Record<ManagerTaskListFilterId, st
   all: "All",
   service_orders: "Service orders",
   tours: "Tours",
-  general_tasks: "General services",
-  house_tasks: "House services",
+  general_tasks: "General tasks",
+  house_tasks: "House tasks",
 };
 
 export function managerTaskIsScheduled(task: Pick<ManagerTask, "start" | "end">): boolean {
@@ -132,7 +132,7 @@ export function isManagerTaskLate(
 function taskMatchesTypeFilter(task: ManagerTask, filter: Exclude<ManagerTaskListFilterId, "all" | "service_orders">): boolean {
   const type = inferManagerTaskType(task);
   if (filter === "tours") return type === "tour";
-  if (filter === "house_tasks") return type === "house";
+  if (filter === "house_tasks") return type === "house" || type === "check_in" || type === "check_out";
   if (filter === "general_tasks") return type === "general" || type === "work_order";
   return true;
 }
@@ -160,7 +160,10 @@ export function countTaskListFilterBuckets(input: {
       : [];
 
   const tours = taskRows.filter((task) => inferManagerTaskType(task) === "tour").length;
-  const houseTasks = taskRows.filter((task) => inferManagerTaskType(task) === "house").length;
+  const houseTasks = taskRows.filter((task) => {
+    const type = inferManagerTaskType(task);
+    return type === "house" || type === "check_in" || type === "check_out";
+  }).length;
   const generalTasks = taskRows.filter((task) => {
     const type = inferManagerTaskType(task);
     return type === "general" || type === "work_order";

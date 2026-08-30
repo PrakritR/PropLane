@@ -448,7 +448,7 @@ describe("generated-lease", () => {
     expect(html).not.toContain(RESIDENT_RESPONSIBLE_SENTENCE);
     expect(html).not.toContain(NO_BREAKDOWN_SENTENCE);
     expect(html).toContain(UTILITIES_FIGURE);
-    expect(html).toContain("estimated monthly utilities / RUBS charge");
+    expect(html).toContain("monthly utilities of");
     expect(html).not.toContain("no separate monthly utilities / RUBS charge is due from Resident");
   });
 
@@ -463,12 +463,12 @@ describe("generated-lease", () => {
     ];
     const midMonth = { leaseStart: "2026-06-15", managerRentOverride: "$1800" };
     const withResidentPaid = leaseHtmlWithUtilities(residentPaid, midMonth);
-    expect(withResidentPaid).toContain("Prorated First Month");
-    expect(withResidentPaid).toContain("<td>Utilities estimate</td>");
+    expect(withResidentPaid).toContain("For the first partial month");
+    expect(withResidentPaid).toContain("prorated rent and utilities");
 
     const withNoneResidentPaid = leaseHtmlWithUtilities(allIncluded, midMonth);
-    expect(withNoneResidentPaid).toContain("Prorated First Month");
-    expect(withNoneResidentPaid).toContain("<td>Utilities estimate</td>");
+    expect(withNoneResidentPaid).toContain("For the first partial month");
+    expect(withNoneResidentPaid).toContain("prorated rent and utilities");
     expect(withNoneResidentPaid).toContain(UTILITIES_FIGURE);
   });
 

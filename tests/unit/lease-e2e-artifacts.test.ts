@@ -163,7 +163,7 @@ describe("lease documents: generation, formatting and ledger agreement", () => {
     const numbered = h.filter((x) => /^\d+\./.test(x)).map((x) => Number(x.split(".")[0]));
     expect(numbered).toEqual(numbered.map((_, i) => i + 1));
 
-    expect(body).toContain("RESIDENTIAL LEASE AGREEMENT");
+    expect(body).toContain("RESIDENTIAL ROOM LEASE AGREEMENT");
     expect(h.join(" | ")).toContain("Parties");
     expect(h.join(" | ")).toContain("Rent");
     expect(h.join(" | ")).toContain("Security Deposit");
@@ -300,20 +300,16 @@ describe("lease documents: generation, formatting and ledger agreement", () => {
   });
 
   it("the prorated cross-reference names the REAL rent and utilities sections", () => {
-    // A mid-month start adds the prorated section, which shifts every number after Rent. The
-    // reference used to be hardcoded "Sections 4 and 9" and pointed at Use/Occupancy.
+    // Compact WA leases inline proration in §3 instead of a separate numbered section.
     const pid = "e2e-prorated-xref";
     seedListing(pid, PLACES.seattle, room({ monthlyRent: 825, utilitiesEstimate: "175" }));
     const body = html(application(pid, { leaseStart: "2026-09-14", leaseEnd: "2027-09-13" }));
     save("11-seattle-prorated-crossref", body);
 
-    const ref = body.match(/Sections (\d+) and (\d+) apply/);
-    expect(ref).not.toBeNull();
-    const named = headings(body);
-    const rentNo = Number(named.find((x) => /^\d+\. Rent$/.test(x))!.split(".")[0]);
-    const utilNo = Number(named.find((x) => /^\d+\. Utilities/.test(x))!.split(".")[0]);
-    expect(Number(ref![1])).toBe(rentNo);
-    expect(Number(ref![2])).toBe(utilNo);
+    expect(body).toContain("For the first partial month");
+    expect(body).toContain("prorated rent and utilities");
+    const h = headings(body);
+    expect(h.some((x) => /Rent and Utilities/i.test(x))).toBe(true);
   });
 
   it("a post-1978 property does not carry it", () => {
