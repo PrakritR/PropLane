@@ -116,7 +116,7 @@ export function CheckboxMultiSelect({
   const searchPx = showSearch ? FIELD_SELECT_MENU_SEARCH_PX : 0;
   const groupHeaderPx =
     groups?.length && flatOptions.length > 0
-      ? (groups.length * 26)
+      ? groups.filter((group) => group.label).length * 26
       : 0;
   const visibleOptionRows = Math.min(
     Math.max(flatOptions.length, 1),

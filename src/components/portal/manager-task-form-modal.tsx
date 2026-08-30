@@ -411,7 +411,7 @@ export function ManagerTaskFormModal({
     <Modal
       open={open}
       onClose={onClose}
-      title={editingId ? "Edit" : "Add"}
+      title={editingId ? "Edit task" : "Add task"}
       dense
       assistantContext={editingId ? "Edit task" : "Add task"}
       footer={
@@ -422,7 +422,7 @@ export function ManagerTaskFormModal({
             disabled={saving || !canSave}
             data-attr="manager-task-save"
           >
-            {saving ? "Saving…" : editingId ? "Save" : "Add"}
+            {saving ? "Saving…" : editingId ? "Save task" : "Add task"}
           </Button>
         </ModalFooter>
       }
