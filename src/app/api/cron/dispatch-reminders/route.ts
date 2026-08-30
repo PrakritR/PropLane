@@ -1,0 +1,55 @@
+/**
+ * Drain the reminder queue.
+ *
+ * Runs every 5 minutes — the piece that makes short lead times possible. Every
+ * other reminder cron in this project is daily, which is why a "30 minutes
+ * before" reminder could only ever arrive on the next daily tick, after the
+ * event.
+ *
+ * Safe to run concurrently with itself: `claim_due_reminders` uses
+ * `for update skip locked`, so two overlapping invocations take disjoint work.
+ */
+import { NextResponse } from "next/server";
+import { randomUUID } from "node:crypto";
+import { dispatchDueReminders } from "@/lib/reminders/dispatch.server";
+import { isProductionRuntime } from "@/lib/server-env";
+import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
+
+export const runtime = "nodejs";
+
+function describeError(error: unknown): string {
+  if (error instanceof Error) return error.message;
+  if (error && typeof error === "object") {
+    const row = error as { message?: unknown; code?: unknown; details?: unknown; hint?: unknown };
+    const parts = [row.message, row.code, row.details, row.hint]
+      .map((part) => (typeof part === "string" ? part.trim() : ""))
+      .filter(Boolean);
+    if (parts.length > 0) return parts.join(" · ");
+  }
+  return "dispatch failed";
+}
+
+function isAuthorized(req: Request): boolean {
+  const cronSecret = process.env.CRON_SECRET?.trim();
+  if (!cronSecret) return !isProductionRuntime();
+  return req.headers.get("authorization") === `Bearer ${cronSecret}`;
+}
+
+export async function GET(req: Request) {
+  if (!isAuthorized(req)) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  // Identifies this run's lease so a run that dies mid-send can be reclaimed.
+  const workerId = `dispatch-${randomUUID()}`;
+  try {
+    const db = createSupabaseServiceRoleClient();
+    const summary = await dispatchDueReminders(db, workerId);
+    return NextResponse.json({ ok: true, ...summary });
+  } catch (error) {
+    // A Supabase failure arrives as a plain PostgrestError object, not an
+    // Error, so `instanceof Error` alone reports "dispatch failed" and throws
+    // away the only diagnostic a cron nobody watches will ever produce.
+    return NextResponse.json({ ok: false, error: describeError(error) }, { status: 500 });
+  }
+}

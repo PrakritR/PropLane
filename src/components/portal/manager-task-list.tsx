@@ -13,6 +13,7 @@ import { ManagerTaskFilterFields } from "@/components/portal/manager-task-filter
 import { ApplicationHouseholdCluster, PortalListClusterSelectCheckbox } from "@/components/portal/application-household-list";
 import { Badge } from "@/components/ui/badge";
 import { ManagerPortalPageShell, PORTAL_HEADER_PRIMARY_ACTION_BTN_RESPONSIVE } from "@/components/portal/portal-metrics";
+import { ManagerPortalSettingsModal } from "@/components/portal/manager-portal-settings-modal";
 import { PortalFilterSortSheet, portalFilterActiveCount } from "@/components/portal/portal-filter-sort-sheet";
 import { PORTAL_PROPERTY_FILTER_SHEET_CLASS } from "@/components/portal/portal-filter-shell";
 import { PORTAL_LIST_PAGE_BODY } from "@/components/portal/portal-inbox-ui";
@@ -220,6 +221,7 @@ export function ManagerTaskList({
   const [assignedServices, setAssignedServices] = useState<ServiceRequest[]>([]);
   const [loading, setLoading] = useState(true);
   const [addOpen, setAddOpen] = useState(false);
+  const [remindersOpen, setRemindersOpen] = useState(false);
   const [composeOpen, setComposeOpen] = useState(false);
   const [composeDraft, setComposeDraft] = useState<ManagerComposePrefill | null>(null);
   const [reminderPreview, setReminderPreview] = useState<ManagerTask | null>(null);
@@ -808,20 +810,35 @@ export function ManagerTaskList({
       hideTitleOnMobileNav
       titleInlineFilter={tasksFilterSheet}
       titleAside={
-        tabId === "in-progress" ? (
+        <>
+          {/* Reminders are configured per subject, and Tasks is one of them —
+              this is the entry point to that shared surface. The settings modal
+              is `scoped` by default, so it opens on Reminders alone rather than
+              exposing every unrelated tab from here. */}
           <Button
             type="button"
             variant="outline"
             className={PORTAL_HEADER_PRIMARY_ACTION_BTN_RESPONSIVE}
-            data-attr="manager-task-list-add"
-            onClick={() => {
-              setEditingId(null);
-              setAddOpen(true);
-            }}
+            data-attr="manager-task-reminders-open"
+            onClick={() => setRemindersOpen(true)}
           >
-            Add service
+            Reminders
           </Button>
-        ) : undefined
+          {tabId === "in-progress" ? (
+            <Button
+              type="button"
+              variant="outline"
+              className={PORTAL_HEADER_PRIMARY_ACTION_BTN_RESPONSIVE}
+              data-attr="manager-task-list-add"
+              onClick={() => {
+                setEditingId(null);
+                setAddOpen(true);
+              }}
+            >
+              Add service
+            </Button>
+          ) : null}
+        </>
       }
       compactFilterRow
     >
@@ -947,6 +964,14 @@ export function ManagerTaskList({
           }}
         />
       ) : null}
+      {/* Mounted unconditionally and driven by `open`: this modal manages its own
+          open/close transition, so mounting it already-open renders nothing. */}
+      <ManagerPortalSettingsModal
+        open={remindersOpen}
+        onClose={() => setRemindersOpen(false)}
+        initialTab="reminders"
+        scopedTitle="Reminders"
+      />
     </ManagerPortalPageShell>
   );
 }

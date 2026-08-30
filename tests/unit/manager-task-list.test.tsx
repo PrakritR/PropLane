@@ -20,6 +20,10 @@ vi.mock("@/hooks/use-work-assignment-directory", () => ({
 vi.mock("@/lib/demo-admin-scheduling", () => ({
   formatRangeLabel: () => "Tomorrow",
   syncScheduleRecordsFromServer: () => Promise.resolve(true),
+  // Reached through the settings modal the Reminders button opens. A whole-module
+  // mock must name every export the tree touches, or the first missing one fails
+  // the import rather than the assertion.
+  formatAvailabilitySlotLabel: (slot: number) => `slot ${slot}`,
 }));
 vi.mock("@/lib/demo-property-pipeline", () => ({
   syncPropertyPipelineFromServer: () => Promise.resolve(true),
