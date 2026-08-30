@@ -179,6 +179,10 @@ export async function patchManagerTaskRow(
       typeof patch.linkedWorkOrderId === "string"
         ? patch.linkedWorkOrderId.trim() || undefined
         : current.linkedWorkOrderId,
+    reminderSentAt:
+      typeof patch.reminderSentAt === "string"
+        ? patch.reminderSentAt.trim() || undefined
+        : current.reminderSentAt,
     updatedAt: new Date().toISOString(),
   };
   const updated = tasks.map((row) => (row.id === taskId ? next : row));

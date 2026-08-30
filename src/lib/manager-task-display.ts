@@ -1,7 +1,7 @@
 import { getPropertyById } from "@/lib/rental-application/data";
 import { moduleRowVisibleToPortalUser } from "@/lib/manager-portfolio-access";
 import type { ManagerTask } from "@/lib/manager-tasks";
-import { inferManagerTaskType } from "@/lib/manager-tasks";
+import { inferManagerTaskType, inferManagerTaskUrgency } from "@/lib/manager-tasks";
 import {
   readAllServiceRequests,
   type ServiceRequest,
@@ -96,6 +96,36 @@ export const MANAGER_TASK_LIST_FILTER_LABELS: Record<ManagerTaskListFilterId, st
 
 export function managerTaskIsScheduled(task: Pick<ManagerTask, "start" | "end">): boolean {
   return Boolean(task.start?.trim() && task.end?.trim());
+}
+
+/** Effective due instant for lateness — end of a slot, due date, or lone start. */
+export function managerTaskDueInstant(
+  task: Pick<ManagerTask, "start" | "end" | "dueDate" | "urgency">,
+): number | null {
+  const urgency = inferManagerTaskUrgency(task);
+  if (urgency === "scheduled" && task.end?.trim()) {
+    const endMs = Date.parse(task.end);
+    return Number.isFinite(endMs) ? endMs : null;
+  }
+  if (task.dueDate?.trim()) {
+    const dueMs = Date.parse(task.dueDate);
+    return Number.isFinite(dueMs) ? dueMs : null;
+  }
+  if (task.start?.trim() && !managerTaskIsScheduled(task)) {
+    const startMs = Date.parse(task.start);
+    return Number.isFinite(startMs) ? startMs : null;
+  }
+  return null;
+}
+
+export function isManagerTaskLate(
+  task: Pick<ManagerTask, "completed" | "start" | "end" | "dueDate" | "urgency">,
+  referenceMs: number = Date.now(),
+): boolean {
+  if (task.completed) return false;
+  const dueMs = managerTaskDueInstant(task);
+  if (dueMs == null) return false;
+  return dueMs < referenceMs;
 }
 
 function taskMatchesTypeFilter(task: ManagerTask, filter: Exclude<ManagerTaskListFilterId, "all" | "service_orders">): boolean {

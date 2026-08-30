@@ -24,6 +24,8 @@ import {
 } from "@/components/portal/portal-adaptive-action-row";
 import { ManagerTaskFormModal } from "@/components/portal/manager-task-form-modal";
 import { ManagerCommunicationComposeModal } from "@/components/portal/manager-communication-compose-modal";
+import { PortalNotificationPreviewModal } from "@/components/portal/portal-notification-preview-modal";
+import { useWorkAssignmentDirectory } from "@/hooks/use-work-assignment-directory";
 import { useManagerUserId } from "@/hooks/use-manager-user-id";
 import type { ManagerComposePrefill } from "@/lib/manager-compose-prefill";
 import { formatRangeLabel, syncScheduleRecordsFromServer } from "@/lib/demo-admin-scheduling";
@@ -31,6 +33,7 @@ import { syncPropertyPipelineFromServer } from "@/lib/demo-property-pipeline";
 import { buildManagerPropertyFilterOptions } from "@/lib/manager-portfolio-access";
 import {
   compactTaskLocationLabel,
+  isManagerTaskLate,
   serviceRequestLocationLabel,
   serviceRequestsAssignedToViewer,
   taskListRowMatchesFilter,
@@ -49,6 +52,11 @@ import {
   type ManagerTask,
   type ManagerTaskPriority,
 } from "@/lib/manager-tasks";
+import {
+  buildManagerTaskReminderPreview,
+  resolveTaskAssigneeEmail,
+  taskAssigneeRecipientLabel,
+} from "@/lib/manager-task-reminder";
 import {
   MANAGER_TASK_LIST_TAB_LABELS,
   MANAGER_TASK_LIST_TABS,
@@ -207,12 +215,15 @@ export function ManagerTaskList({
   const tabId = useShallowTabId(serverTabId, MANAGER_TASK_LIST_TABS);
   const { showToast } = useAppUi();
   const { userId, email: managerEmail, ready } = useManagerUserId();
+  const assignmentDirectory = useWorkAssignmentDirectory({ managerUserId: userId });
   const [tasks, setTasks] = useState<ManagerTask[]>([]);
   const [assignedServices, setAssignedServices] = useState<ServiceRequest[]>([]);
   const [loading, setLoading] = useState(true);
   const [addOpen, setAddOpen] = useState(false);
   const [composeOpen, setComposeOpen] = useState(false);
   const [composeDraft, setComposeDraft] = useState<ManagerComposePrefill | null>(null);
+  const [reminderPreview, setReminderPreview] = useState<ManagerTask | null>(null);
+  const [sendingReminderId, setSendingReminderId] = useState<string | null>(null);
   const [propertyTick, setPropertyTick] = useState(0);
   const [propertyFilterId, setPropertyFilterId] = useState("");
   const [groupMode, setGroupMode] = useState<PortalListGroupMode>(DEFAULT_PORTAL_LIST_GROUP_MODE);
@@ -293,10 +304,34 @@ export function ManagerTaskList({
       .sort((a, b) => rowSortKey(b).localeCompare(rowSortKey(a)));
   }, [assignedServices, doneTasks, listFilter, matchesProperty, openTasks, tabId]);
 
-  const taskClusters = useMemo(() => {
-    const clusterRows = visibleRows.map((row) => taskListRowClusterFields(row, propertyLabelForId));
-    return clusterPortalListRows(clusterRows, groupMode, (row) => row.propertyLabel);
-  }, [visibleRows, groupMode, propertyLabelForId]);
+  const { lateRows, onTrackRows } = useMemo(() => {
+    if (tabId !== "in-progress") {
+      return { lateRows: [] as TaskListRow[], onTrackRows: visibleRows };
+    }
+    const late: TaskListRow[] = [];
+    const onTrack: TaskListRow[] = [];
+    for (const row of visibleRows) {
+      if (row.kind === "task" && isManagerTaskLate(row.task)) {
+        late.push(row);
+      } else {
+        onTrack.push(row);
+      }
+    }
+    return { lateRows: late, onTrackRows: onTrack };
+  }, [tabId, visibleRows]);
+
+  const clusterRows = useCallback(
+    (rows: TaskListRow[]) =>
+      clusterPortalListRows(
+        rows.map((row) => taskListRowClusterFields(row, propertyLabelForId)),
+        groupMode,
+        (row) => row.propertyLabel,
+      ),
+    [groupMode, propertyLabelForId],
+  );
+
+  const lateClusters = useMemo(() => clusterRows(lateRows), [clusterRows, lateRows]);
+  const onTrackClusters = useMemo(() => clusterRows(onTrackRows), [clusterRows, onTrackRows]);
 
   const taskFilterActiveCount =
     portalFilterActiveCount([listFilter !== "all" ? listFilter : "", propertyFilterId]);
@@ -369,6 +404,60 @@ export function ManagerTaskList({
       })),
     [assignedServices, basePath, doneTasks.length, matchesProperty, openTasks.length],
   );
+
+  const assigneeDirectory = useMemo(
+    () => ({
+      teamMembers: assignmentDirectory.teamMembers,
+      vendors: assignmentDirectory.vendors.map((vendor) => ({
+        id: vendor.id,
+        name: vendor.name,
+        email: vendor.email,
+      })),
+    }),
+    [assignmentDirectory.teamMembers, assignmentDirectory.vendors],
+  );
+
+  function openReminderPreview(task: ManagerTask) {
+    const email = resolveTaskAssigneeEmail(task.assignee, assigneeDirectory);
+    if (!email) {
+      showToast("Add an email for the assignee before sending a reminder.");
+      return;
+    }
+    setReminderPreview(task);
+  }
+
+  async function sendTaskReminder(
+    task: ManagerTask,
+    draft?: { subject?: string; body?: string },
+  ): Promise<boolean> {
+    setSendingReminderId(task.id);
+    try {
+      const preview = buildManagerTaskReminderPreview({ task });
+      const res = await fetch("/api/portal/send-task-reminder", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          taskId: task.id,
+          subject: draft?.subject?.trim() || preview.subject,
+          text: draft?.body?.trim() || preview.body,
+        }),
+      });
+      const data = (await res.json().catch(() => ({}))) as { ok?: boolean; error?: string };
+      if (!res.ok || !data.ok) {
+        showToast(data.error ?? "Could not send reminder.");
+        return false;
+      }
+      showToast("Reminder sent by email.");
+      await refresh();
+      return true;
+    } catch {
+      showToast("Could not send reminder.");
+      return false;
+    } finally {
+      setSendingReminderId(null);
+    }
+  }
 
   async function bulkComplete(rows: ManagerTask[]) {
     if (!userId || rows.length === 0) return;
@@ -468,6 +557,8 @@ export function ManagerTaskList({
     if (selectedTasks.length === 1) {
       const task = selectedTasks[0]!;
       const editTask = () => beginEdit(task);
+      const remindTask = () => openReminderPreview(task);
+      const canRemind = Boolean(resolveTaskAssigneeEmail(task.assignee, assigneeDirectory));
       actions.push({
         id: "edit",
         keepPriority: 4,
@@ -488,6 +579,28 @@ export function ManagerTaskList({
           </DropdownMenuItem>
         ),
       });
+      if (canRemind && tabId !== "completed") {
+        actions.push({
+          id: "remind",
+          keepPriority: 3,
+          node: (
+            <Button
+              type="button"
+              variant="outline"
+              className={TASK_BULK_BAR_BTN}
+              data-attr="manager-task-remind-selected"
+              onClick={remindTask}
+            >
+              Remind
+            </Button>
+          ),
+          menuItem: (
+            <DropdownMenuItem data-attr="manager-task-remind-selected" onSelect={remindTask}>
+              Remind
+            </DropdownMenuItem>
+          ),
+        });
+      }
     }
 
     actions.push({
@@ -519,11 +632,13 @@ export function ManagerTaskList({
         gapPx={4}
       />
     );
-  }, [selectedTasks, tabId]);
+  }, [assigneeDirectory, selectedTasks, tabId]);
 
   function renderTaskRow(task: ManagerTask, completed = false) {
     const location = compactTaskLocationLabel(task);
     const assigneeLabel = formatTaskAssignee(task);
+    const late = !completed && isManagerTaskLate(task);
+    const canRemind = Boolean(resolveTaskAssigneeEmail(task.assignee, assigneeDirectory));
     return (
       <li key={task.id} className="flex items-start gap-3 px-4 py-3">
         <input
@@ -538,22 +653,44 @@ export function ManagerTaskList({
             )
           }
         />
-        <button
-          type="button"
-          className="min-w-0 flex-1 text-left"
-          data-attr="manager-task-row-open"
-          onClick={() => beginEdit(task)}
-        >
-          <div className="flex flex-wrap items-center gap-2">
-            <p className={`font-semibold text-foreground ${completed ? "line-through" : ""}`}>{task.title}</p>
-            <ManagerTaskUrgencyBadge task={task} />
-            <ManagerTaskPriorityBadge priority={task.priority} />
-          </div>
-          <p className="text-sm text-muted">{formatTaskSchedule(task)}</p>
-          {assigneeLabel ? <p className="text-xs text-muted">{assigneeLabel}</p> : null}
-          {location ? <p className="text-xs text-muted">{location}</p> : null}
-          {task.notes ? <TaskNotesSnippet notes={task.notes} /> : null}
-        </button>
+        <div className="min-w-0 flex-1">
+          <button
+            type="button"
+            className="w-full text-left"
+            data-attr="manager-task-row-open"
+            onClick={() => beginEdit(task)}
+          >
+            <div className="flex flex-wrap items-center gap-2">
+              <p className={`font-semibold text-foreground ${completed ? "line-through" : ""}`}>{task.title}</p>
+              {late ? (
+                <span
+                  className="rounded-full border border-danger/30 bg-danger/10 px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-danger"
+                  data-attr="manager-task-late"
+                >
+                  Late
+                </span>
+              ) : null}
+              <ManagerTaskUrgencyBadge task={task} />
+              <ManagerTaskPriorityBadge priority={task.priority} />
+            </div>
+            <p className="text-sm text-muted">{formatTaskSchedule(task)}</p>
+            {assigneeLabel ? <p className="text-xs text-muted">{assigneeLabel}</p> : null}
+            {location ? <p className="text-xs text-muted">{location}</p> : null}
+            {task.notes ? <TaskNotesSnippet notes={task.notes} /> : null}
+          </button>
+          {!completed && canRemind ? (
+            <Button
+              type="button"
+              variant="outline"
+              className="mt-2 h-8 min-h-0 px-3 text-[11px] font-semibold"
+              data-attr="manager-task-send-reminder"
+              loading={sendingReminderId === task.id}
+              onClick={() => openReminderPreview(task)}
+            >
+              Remind
+            </Button>
+          ) : null}
+        </div>
       </li>
     );
   }
@@ -600,6 +737,69 @@ export function ManagerTaskList({
     );
   }
 
+  function renderTaskClusters(
+    clusters: ReturnType<typeof clusterPortalListRows<TaskListClusterRow>>,
+  ) {
+    if (isPropertyClusterList(groupMode, clusters)) {
+      return clusters.map((cluster) => (
+        <ApplicationHouseholdCluster
+          key={cluster.key}
+          headerLeading={renderClusterHeaderCheckbox(cluster.rows, cluster.propertyLabel || "items")}
+          header={
+            <>
+              <span className="truncate text-xs font-semibold text-foreground">{cluster.propertyLabel}</span>
+              <Badge tone="info">
+                {cluster.rows.length === 1 ? "1 item" : `${cluster.rows.length} items`}
+              </Badge>
+            </>
+          }
+        >
+          <ul className="divide-y divide-border">
+            {cluster.rows.map((row) =>
+              row.kind === "task"
+                ? renderTaskRow(row.task, tabId === "completed")
+                : renderServiceRow(row.request),
+            )}
+          </ul>
+        </ApplicationHouseholdCluster>
+      ));
+    }
+
+    return clusters.map((cluster) => (
+      <ApplicationHouseholdCluster
+        key={cluster.key}
+        headerLeading={renderClusterHeaderCheckbox(cluster.rows, cluster.residentLabel || "items")}
+        header={
+          <>
+            <span className="truncate text-xs font-semibold text-foreground">{cluster.residentLabel}</span>
+            {cluster.residentEmail &&
+            cluster.residentEmail.toLowerCase() !== cluster.residentLabel.trim().toLowerCase() ? (
+              <span className="truncate text-xs text-muted">{cluster.residentEmail}</span>
+            ) : null}
+            {cluster.propertyLabel ? (
+              <span className="truncate text-xs text-muted">{cluster.propertyLabel}</span>
+            ) : null}
+            <Badge tone="info">
+              {cluster.rows.length === 1 ? "1 item" : `${cluster.rows.length} items`}
+            </Badge>
+          </>
+        }
+      >
+        <ul className="divide-y divide-border">
+          {cluster.rows.map((row) =>
+            row.kind === "task"
+              ? renderTaskRow(row.task, tabId === "completed")
+              : renderServiceRow(row.request),
+          )}
+        </ul>
+      </ApplicationHouseholdCluster>
+    ));
+  }
+
+  const reminderPreviewContent = reminderPreview
+    ? buildManagerTaskReminderPreview({ task: reminderPreview })
+    : null;
+
   return (
     <ManagerPortalPageShell
       title="Tasks"
@@ -642,71 +842,31 @@ export function ManagerTaskList({
 
         {!loading && visibleRows.length > 0 ? (
           <div
-            className={`space-y-3 ${tabId === "completed" ? "opacity-80" : ""}`}
+            className={`space-y-4 ${tabId === "completed" ? "opacity-80" : ""}`}
             data-attr="manager-task-groups"
           >
-            {isPropertyClusterList(groupMode, taskClusters)
-              ? taskClusters.map((cluster) => (
-                  <ApplicationHouseholdCluster
-                    key={cluster.key}
-                    headerLeading={renderClusterHeaderCheckbox(
-                      cluster.rows,
-                      cluster.propertyLabel || "items",
-                    )}
-                    header={
-                      <>
-                        <span className="truncate text-xs font-semibold text-foreground">
-                          {cluster.propertyLabel}
-                        </span>
-                        <Badge tone="info">
-                          {cluster.rows.length === 1 ? "1 item" : `${cluster.rows.length} items`}
-                        </Badge>
-                      </>
-                    }
-                  >
-                    <ul className="divide-y divide-border">
-                      {cluster.rows.map((row) =>
-                        row.kind === "task"
-                          ? renderTaskRow(row.task, tabId === "completed")
-                          : renderServiceRow(row.request),
-                      )}
-                    </ul>
-                  </ApplicationHouseholdCluster>
-                ))
-              : taskClusters.map((cluster) => (
-                  <ApplicationHouseholdCluster
-                    key={cluster.key}
-                    headerLeading={renderClusterHeaderCheckbox(
-                      cluster.rows,
-                      cluster.residentLabel || "items",
-                    )}
-                    header={
-                      <>
-                        <span className="truncate text-xs font-semibold text-foreground">
-                          {cluster.residentLabel}
-                        </span>
-                        {cluster.residentEmail &&
-                        cluster.residentEmail.toLowerCase() !== cluster.residentLabel.trim().toLowerCase() ? (
-                          <span className="truncate text-xs text-muted">{cluster.residentEmail}</span>
-                        ) : null}
-                        {cluster.propertyLabel ? (
-                          <span className="truncate text-xs text-muted">{cluster.propertyLabel}</span>
-                        ) : null}
-                        <Badge tone="info">
-                          {cluster.rows.length === 1 ? "1 item" : `${cluster.rows.length} items`}
-                        </Badge>
-                      </>
-                    }
-                  >
-                    <ul className="divide-y divide-border">
-                      {cluster.rows.map((row) =>
-                        row.kind === "task"
-                          ? renderTaskRow(row.task, tabId === "completed")
-                          : renderServiceRow(row.request),
-                      )}
-                    </ul>
-                  </ApplicationHouseholdCluster>
-                ))}
+            {tabId === "in-progress" && lateRows.length > 0 ? (
+              <section className="space-y-3" data-attr="manager-task-late-section">
+                <div className="flex items-center gap-2 px-1">
+                  <h2 className="text-sm font-semibold text-danger">Late</h2>
+                  <Badge tone="overdue">
+                    {lateRows.length === 1 ? "1 item" : `${lateRows.length} items`}
+                  </Badge>
+                </div>
+                {renderTaskClusters(lateClusters)}
+              </section>
+            ) : null}
+
+            {(tabId === "completed" ? visibleRows.length > 0 : onTrackRows.length > 0) ? (
+              <section className="space-y-3">
+                {tabId === "in-progress" && lateRows.length > 0 && onTrackRows.length > 0 ? (
+                  <div className="px-1">
+                    <h2 className="text-sm font-semibold text-foreground">In progress</h2>
+                  </div>
+                ) : null}
+                {renderTaskClusters(onTrackClusters)}
+              </section>
+            ) : null}
           </div>
         ) : null}
 
@@ -770,6 +930,34 @@ export function ManagerTaskList({
           showToast("Message sent.");
         }}
       />
+
+      {reminderPreview && reminderPreviewContent ? (
+        <PortalNotificationPreviewModal
+          open
+          title="Send task reminder"
+          onClose={() => setReminderPreview(null)}
+          recipient={taskAssigneeRecipientLabel(reminderPreview, assigneeDirectory)}
+          subject={reminderPreviewContent.subject}
+          body={reminderPreviewContent.body}
+          intro="Review the reminder below. It will be emailed to the assignee."
+          showSkipMessage={false}
+          showChannelPicker={false}
+          emailAvailable
+          smsAvailable={false}
+          editableBody
+          editableSubject
+          confirmLabel="Send reminder"
+          confirmBusy={sendingReminderId === reminderPreview.id}
+          confirmBusyLabel="Sending…"
+          onConfirm={async (_skipMessage, _channels, draft) => {
+            const ok = await sendTaskReminder(reminderPreview, {
+              subject: draft?.subject,
+              body: draft?.body,
+            });
+            if (ok) setReminderPreview(null);
+          }}
+        />
+      ) : null}
     </ManagerPortalPageShell>
   );
 }

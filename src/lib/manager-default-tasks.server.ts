@@ -182,11 +182,13 @@ export async function sendTaskAssigneeEmail(input: {
   task: ManagerTask;
   assignee: WorkAssignee;
   kind: "created" | "due";
-}): Promise<{ sent: boolean }> {
+  subject?: string;
+  text?: string;
+}): Promise<{ sent: boolean; error?: string }> {
   const to = await assigneeEmail(input.db, input.assignee);
-  if (!to) return { sent: false };
+  if (!to) return { sent: false, error: "assignee_email_missing" };
   const apiKey = process.env.RESEND_API_KEY?.trim();
-  if (!apiKey) return { sent: false };
+  if (!apiKey) return { sent: false, error: "mailer_unconfigured" };
   const from = process.env.RESEND_FROM?.trim() || "PropLane <onboarding@resend.dev>";
   const origin = resolveEmailLinkBaseUrl();
   const tasksUrl = `${origin.replace(/\/$/, "")}/portal/task-list/in-progress`;
@@ -194,26 +196,31 @@ export async function sendTaskAssigneeEmail(input: {
     ? new Date(input.task.dueDate).toLocaleString("en-US", { timeZone: "America/Los_Angeles" })
     : "No due date";
   const subject =
-    input.kind === "due"
+    input.subject?.trim() ||
+    (input.kind === "due"
       ? `Task due: ${input.task.title}`
-      : `New task assigned: ${input.task.title}`;
-  const lines = [
-    `Hi ${input.assignee.name},`,
-    "",
-    input.kind === "due"
-      ? `This task is due now: ${input.task.title}`
-      : `You have been assigned a task: ${input.task.title}`,
-    input.task.notes ? "" : null,
-    input.task.notes ?? null,
-    `Due: ${dueLabel}`,
-    input.task.propertyTitle ? `Property: ${input.task.propertyTitle}` : null,
-    "",
-    `Open your task list: ${tasksUrl}`,
-  ].filter((line): line is string => line !== null);
+      : `New task assigned: ${input.task.title}`);
+  const lines =
+    input.text?.trim() ||
+    [
+      `Hi ${input.assignee.name},`,
+      "",
+      input.kind === "due"
+        ? `This task is due now: ${input.task.title}`
+        : `You have been assigned a task: ${input.task.title}`,
+      input.task.notes ? "" : null,
+      input.task.notes ?? null,
+      `Due: ${dueLabel}`,
+      input.task.propertyTitle ? `Property: ${input.task.propertyTitle}` : null,
+      "",
+      `Open your task list: ${tasksUrl}`,
+    ]
+      .filter((line): line is string => line !== null)
+      .join("\n");
   const res = await fetch("https://api.resend.com/emails", {
     method: "POST",
     headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
-    body: JSON.stringify({ from, to: [to], subject, text: lines.join("\n") }),
+    body: JSON.stringify({ from, to: [to], subject, text: lines }),
   });
   return { sent: res.ok };
 }
