@@ -46,6 +46,12 @@ export type CompactRoomLeaseInput = {
   generatedDate: string;
   disclosureReviewNotice: string;
   customTermsAddendumHtml: string;
+  leadDisclosureHtml?: string;
+  utilitiesBreakdown?: string;
+  utilitiesEstimateSentence?: string;
+  tenantPhone?: string;
+  tenantEmail?: string;
+  tenantDob?: string;
   fmtUsd: (n: number) => string;
   parseAmount: (s: string | undefined | null) => number | null;
   escapeHtml: (s: string) => string;
@@ -265,8 +271,10 @@ export function buildCompactRoomLeaseBody(input: CompactRoomLeaseInput): string 
       ? ` Any continued occupancy after termination shall be charged <strong>${fmtUsd(longTermHoldoverDailyRate)} per day</strong>.`
       : "";
 
+  const monthToMonthNotice =
+    input.config.monthToMonthTerminationNotice ?? "within the period required by applicable law";
   const leaseTermSection = isMonthToMonthLease
-    ? `<p>This tenancy is month-to-month beginning <strong>${leaseStart}</strong> and continuing until lawfully ended. Either party may terminate with written notice as required by applicable law.</p>`
+    ? `<p>This tenancy is month-to-month beginning <strong>${leaseStart}</strong> and continuing until lawfully ended. Either party may provide written notice to terminate ${monthToMonthNotice}.</p>`
     : `<p>This is a fixed-term lease beginning <strong>${leaseStart}</strong>, and ending <strong>${leaseEnd}</strong>.</p>
 <p>This Agreement automatically terminates at the end of the lease term and does not convert to a month-to-month tenancy unless both parties agree in writing.</p>
 <p>Resident agrees to vacate the Premises no later than <strong>12:00 PM</strong> on the final day of the lease term.${holdoverClause}</p>
@@ -281,6 +289,17 @@ ${disclosureReviewNotice}
 
 <h2>1. Parties and Premises</h2>
 <p>This Residential Room Lease Agreement is entered into between <strong>${landlordEntity}</strong> (&ldquo;Landlord&rdquo;) and <strong>${tenantName}</strong> (&ldquo;Resident&rdquo;).</p>
+${
+  !input.propertyTemplatePreview && (input.tenantPhone || input.tenantEmail || input.tenantDob)
+    ? `<p>Resident contact: ${[
+        input.tenantPhone ? `Phone ${input.tenantPhone}` : "",
+        input.tenantEmail ? `Email ${input.tenantEmail}` : "",
+        input.tenantDob ? `Date of birth: ${input.tenantDob}` : "",
+      ]
+        .filter(Boolean)
+        .join(" · ")}</p>`
+    : ""
+}
 <p>Landlord leases to Resident the private bedroom identified as <strong>${roomLabel}</strong> located at: <strong>${address}${cityZip ? `, ${escapeHtml(cityZip)}` : ""}</strong> (&ldquo;Premises&rdquo;).</p>
 <p>${premisesAccess}</p>
 
@@ -311,11 +330,13 @@ ${moveInPaymentSummaryHtml(input)}
   <li>Lost or damaged furnishings</li>
   <li>Other charges permitted by Washington law</li>
 </ul>
-<p>Any refundable balance shall be returned in accordance with Washington law after Resident vacates and provides a forwarding address.</p>
+<p>${input.config.depositReturnWindow ?? "Any refundable balance shall be returned in accordance with Washington law after Resident vacates and provides a forwarding address."}</p>
 <p>The security deposit may not be used as the final month&apos;s rent.</p>
 
 <h2>6. Utilities</h2>
 <p>Resident shall pay monthly utilities of <strong>${utilitiesDisplay}</strong>.</p>
+${input.utilitiesBreakdown ?? ""}
+${input.utilitiesEstimateSentence ? `<p>${input.utilitiesEstimateSentence}</p>` : ""}
 ${utilitiesBullets}
 <p>Utilities are provided for ordinary residential use only. Excessive or abusive usage may result in additional charges if permitted by law.</p>
 
@@ -334,7 +355,7 @@ ${houseRulesBlock}
 <p>Landlord is not responsible for loss or theft of Resident&apos;s personal belongings.</p>
 
 <h2>10. Maintenance</h2>
-<p>Landlord shall maintain the property in compliance with applicable Washington law. Resident agrees to:</p>
+<p>Landlord shall maintain the property in compliance with applicable Washington law, including adequate heating capable of maintaining ${input.config.minimumHeatTemperature ?? "the minimum temperature required by applicable law"}, and functioning plumbing and hot water. Resident agrees to:</p>
 <ul>
   <li>Promptly report maintenance problems.</li>
   <li>Avoid damaging the property.</li>
@@ -441,6 +462,12 @@ ${houseRulesBlock}
 <p><strong>Three-strike policy:</strong> Three documented written warnings in any 12-month period for the same or similar violations may constitute grounds for lease termination with appropriate statutory notice.</p>
 </div>
 ${customTermsAddendumHtml}
+${
+  input.leadDisclosureHtml
+    ? `<h2>Lead-Based Paint Disclosure</h2>
+${input.leadDisclosureHtml}`
+    : ""
+}
 
 <h2>21. Signatures</h2>
 <p><strong>Landlord</strong> and <strong>Resident</strong> each execute this Agreement <strong>once</strong> through the PropLane portal. The <strong>Electronic Signature Certificate</strong> appended to the signed copy is the binding record for both parties. No duplicate handwritten signature lines are included in this document.</p>

@@ -59,6 +59,6 @@ describe("property lease edit", () => {
       source: "axis_default",
       demo: true,
     });
-    expect(html).toContain("RESIDENTIAL LEASE AGREEMENT");
+    expect(html).toContain("RESIDENTIAL ROOM LEASE AGREEMENT");
   });
 });

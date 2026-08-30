@@ -85,7 +85,7 @@ describe("buildManagerTaskReminderPreview", () => {
         title: "Service · Leaky faucet",
       }),
     });
-    expect(preview.subject).toContain("Service reminder");
-    expect(preview.body).toContain("service request");
+    expect(preview.subject).toContain("Maintenance reminder");
+    expect(preview.body).toContain("maintenance request");
   });
 });

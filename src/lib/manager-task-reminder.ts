@@ -54,13 +54,17 @@ export function taskAssigneeRecipientLabel(
 function reminderSubjectPrefix(taskType: ManagerTaskType, late: boolean): string {
   if (late) {
     if (taskType === "tour") return "Overdue tour";
-    if (taskType === "work_order") return "Overdue service";
+    if (taskType === "work_order") return "Overdue maintenance";
     if (taskType === "house") return "Overdue house task";
+    if (taskType === "check_in") return "Overdue check-in";
+    if (taskType === "check_out") return "Overdue check-out";
     return "Overdue task";
   }
   if (taskType === "tour") return "Tour reminder";
-  if (taskType === "work_order") return "Service reminder";
+  if (taskType === "work_order") return "Maintenance reminder";
   if (taskType === "house") return "House task reminder";
+  if (taskType === "check_in") return "Check-in reminder";
+  if (taskType === "check_out") return "Check-out reminder";
   return "Task reminder";
 }
 
@@ -88,8 +92,8 @@ export function buildManagerTaskReminderPreview(input: {
         : "Reminder about an upcoming tour:"
       : taskType === "work_order"
         ? late
-          ? "This service request is past its scheduled time:"
-          : "Reminder about a service request:"
+          ? "This maintenance request is past its scheduled time:"
+          : "Reminder about a maintenance request:"
         : taskType === "house"
           ? late
             ? "This house task is overdue:"
