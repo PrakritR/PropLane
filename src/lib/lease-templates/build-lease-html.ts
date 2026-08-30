@@ -699,10 +699,9 @@ export function buildLeaseHtml(ctx: LeaseGenerationContext, config: LeaseJurisdi
   ].join("\n");
 
   const leaseBilling = ctx.leaseBilling;
-  const listingMoveInFeeNum = parseAmount(specificRoom?.moveInFee?.trim() || sub?.moveInFee) ?? 0;
   const signingAmounts = {
     securityDeposit: leaseBilling?.securityDeposit ?? stay.deposit ?? 0,
-    moveInFee: leaseBilling?.moveInFee ?? listingMoveInFeeNum,
+    moveInFee: leaseBilling?.moveInFee ?? parseAmount(moveInFee) ?? 0,
     monthlyRent: leaseBilling?.monthlyRent ?? rentNum ?? 0,
     monthlyUtilities: leaseBilling?.monthlyUtilities ?? utilitiesNum ?? 0,
     proratedRent: leaseBilling?.proratedRent,
@@ -1112,7 +1111,7 @@ ${customTermsAddendumHtml(subNorm, "Additional Provisions from Owner/Host", prop
   const documentUtilitiesDisplay = summaryMonthlyUtilities;
   const summaryTotalMonthly =
     billing
-      ? fmtUsd(billing.monthlyRent + billing.monthlyUtilities)
+      ? fmtUsd(billing.monthlyRent + (billing.monthlyUtilities > 0 ? billing.monthlyUtilities : 0))
       : showListingFees && rentNum != null && utilitiesNum != null && utilitiesNum > 0
         ? fmtUsd(rentNum + utilitiesNum)
         : totalMonthly;

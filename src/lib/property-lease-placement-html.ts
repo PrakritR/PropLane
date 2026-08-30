@@ -78,6 +78,7 @@ function isLegacyStandardLeaseFormat(html: string): boolean {
     /AXIS SEATTLE HOUSING/i.test(html) ||
     /PROPLANE SEATTLE HOUSING/i.test(html) ||
     /<h1>\s*RESIDENTIAL LEASE AGREEMENT\s*<\/h1>/i.test(html) ||
+    /<h2>\s*1\.\s*PARTIES\s*<\/h2>/i.test(html) ||
     /<h2>\s*1\.\s*PARTIES\s+AND\s+PREMISES\s*<\/h2>/.test(html) ||
     /<h2>\s*6\.\s*UTILITIES\s+AND\s+SERVICES/i.test(html) ||
     /Generated ProPlane default template via ProPlane/i.test(html)
