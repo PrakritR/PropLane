@@ -114,7 +114,8 @@ export function createManagerWorkOrderFromTaskForm(input: {
   categoryLabel: ResidentMaintenanceCategoryLabel;
   propertyId: string;
   propertyLabel: string;
-  resident: ManagerTaskResidentOption;
+  resident?: ManagerTaskResidentOption | null;
+  unitLabel?: string;
 }): DemoManagerWorkOrderRow {
   const id = `REQ-${Date.now()}`;
   const details =
@@ -125,9 +126,9 @@ export function createManagerWorkOrderFromTaskForm(input: {
     propertyName: input.propertyLabel,
     propertyId: input.propertyId,
     assignedPropertyId: input.propertyId,
-    assignedRoomChoice: input.resident.assignedRoomChoice,
+    assignedRoomChoice: input.resident?.assignedRoomChoice,
     managerUserId: input.managerUserId,
-    unit: input.resident.roomLabel || "—",
+    unit: input.unitLabel?.trim() || input.resident?.roomLabel || "—",
     title: input.title.trim(),
     priority: "Medium",
     status: "Submitted",
@@ -137,8 +138,8 @@ export function createManagerWorkOrderFromTaskForm(input: {
     scheduled: "—",
     cost: "—",
     preferredArrival: formatPreferredArrival("Anytime", ""),
-    residentName: input.resident.residentName,
-    residentEmail: input.resident.residentEmail,
+    residentName: input.resident?.residentName,
+    residentEmail: input.resident?.residentEmail,
     managerInitiated: true,
   };
   writeManagerWorkOrderRows([row, ...readManagerWorkOrderRows()]);

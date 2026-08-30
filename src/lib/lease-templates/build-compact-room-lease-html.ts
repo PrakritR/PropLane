@@ -23,6 +23,8 @@ export type CompactRoomLeaseInput = {
   firstPartialMonthPayment: number;
   billableOneTimeCustomFees: ReadonlyArray<{ label?: string; amount?: string }>;
   billableMonthlyCustomFees: ReadonlyArray<{ label?: string; amount?: string }>;
+  /** Preset one-time fees (application, holding deposit, etc.) not due at signing. */
+  supplementalOneTimeLeaseFees?: ReadonlyArray<{ label?: string; amount?: string }>;
   paymentAtSigningIncludes?: readonly string[];
   paymentMethod: string;
   sub: ManagerListingSubmissionV1 | undefined;
@@ -235,6 +237,14 @@ export function buildCompactRoomLeaseBody(input: CompactRoomLeaseInput): string 
     })
     .filter(Boolean)
     .join("\n");
+  const supplementalOneTimeFeeLines = (input.supplementalOneTimeLeaseFees ?? [])
+    .map((fee) => {
+      const amount = input.parseAmount(fee.amount);
+      if (amount == null || amount <= 0) return "";
+      return `<p><strong>${escapeHtml(fee.label?.trim() || "Fee")}:</strong> ${fmtUsd(amount)} (one-time)</p>`;
+    })
+    .filter(Boolean)
+    .join("\n");
   const prorationLine =
     input.firstPartialMonthPayment > 0
       ? `<p>For the first partial month, Resident shall pay <strong>${fmtUsd(input.firstPartialMonthPayment)}</strong> (prorated rent and utilities).</p>`
@@ -282,6 +292,7 @@ ${leaseTermSection}
 <p><strong>Rent:</strong> ${monthlyRentDisplay}<br/>
 <strong>Utilities:</strong> ${utilitiesDisplay}</p>
 ${monthlyCustomFeeLines}
+${supplementalOneTimeFeeLines}
 ${prorationLine}
 <p>${paymentInstruction}</p>
 <p>Failure to pay rent, utilities, fees, or other charges when due may constitute a default under this Agreement and applicable Washington law.</p>

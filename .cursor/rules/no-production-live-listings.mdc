@@ -1,0 +1,40 @@
+---
+description: Hard stop on production writes to live Brooklyn / 4709A listing rows
+alwaysApply: true
+---
+
+# No production writes to live listings (captain gate)
+
+**As of 2026-08-30 the captain closed production listing edits for these live rows.**
+
+Agents must **never** read, write, migrate, or run scripts against production
+`manager_property_records` for:
+
+| Property | Record id |
+| --- | --- |
+| 5257 Brooklyn Ave NE | `mgr--9-rooms-b1wf3z` |
+| 5259 Brooklyn Ave NE | `mgr-seed-5259-brooklyn-ave-ne` |
+| 4709A 8th Ave NE | `mgr-seed-4709a-8th-ave-ne` |
+
+## Allowed
+
+- Dev/test Supabase (`emstjswhotsnyksqhqyf`) — normal agent work.
+- Code, tests, and **dry-run** production scripts (no `--apply`, no
+  `ALLOW_PRODUCTION_LISTING_WRITE`).
+- Reading production for diagnosis only when the captain explicitly asks.
+
+## Forbidden without a new, named captain waiver
+
+- `ALLOW_PRODUCTION_LISTING_WRITE=1` on any script or route.
+- `--apply` on `scripts/copy-brooklyn-5257-*-production.ts`.
+- `scripts/restore-4709a-move-in.mjs` or `scripts/restore-brooklyn-move-in.mjs`
+  against production.
+- Hand-editing live rows in the Supabase SQL editor for these ids.
+- Migrations that `UPDATE` these property ids on production.
+
+The **one-time** 5257 → 5259 pricing copy was captain-approved via
+`scripts/copy-brooklyn-5257-pricing-to-5259-production.ts`. Do not re-run it.
+
+If pricing or move-in copy must change again, the captain edits via the manager
+portal on production or issues a **new** explicit production waiver with a
+one-shot script name — never routine agent work.

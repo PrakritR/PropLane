@@ -14,6 +14,7 @@ import {
   paymentAtSigningIncludedLabels,
   utilitiesListingEstimateLabel,
 } from "@/lib/rental-application/listing-fees-display";
+import { leaseDocumentFeeLines } from "@/lib/listing-fees";
 import { formatUtilitiesListingLine, resolveListingUtilitiesPaymentModel } from "@/lib/listing-utilities-payment";
 import {
   hasResidentPaidLeaseUtility,
@@ -647,7 +648,7 @@ export function buildLeaseHtml(ctx: LeaseGenerationContext, config: LeaseJurisdi
   // recordApprovedApplicationCharges), so they must appear in the lease and count toward the
   // total due at signing — a lease that omits a billed charge is a legal problem. Only
   // genuinely-custom rows are listed here (preset-backed rows render through their own lines);
-  // monthly custom fees are intentionally NOT listed because they do not yet bill.
+  // monthly preset + custom fees are resolved separately via leaseDocumentFeeLines.
   const billableOneTimeCustomFees = propertyTemplatePreview
     ? []
     : (sub?.customFees ?? []).filter((fee) => {
@@ -661,25 +662,34 @@ export function buildLeaseHtml(ctx: LeaseGenerationContext, config: LeaseJurisdi
   const customFeeSigningRows = billableOneTimeCustomFees
     .map((f) => `  <tr><th>${escapeHtml(f.label?.trim() || "Custom fee")}</th><td class="amount">${escapeHtml(fmtUsd(parseAmount(f.amount) ?? 0))}</td></tr>`)
     .join("\n");
-  // Monthly custom fees now bill (recurring, alongside rent), so they too must appear in the
-  // lease — as Monthly line items in Exhibit A (not in the due-at-signing total).
-  const billableMonthlyCustomFees = propertyTemplatePreview
-    ? []
-    : (sub?.customFees ?? []).filter((fee) => {
-    const presetId = (fee as { presetId?: string }).presetId;
-    if (presetId && presetId !== "custom") return false;
-    if (fee.frequency === "one-time") return false;
-    const n = parseAmount(fee.amount);
-    return n != null && n > 0;
+  const leaseBasicsSection = stay.stayKind === "short" ? "short-term" : "long-term";
+  const leaseDocFees = propertyTemplatePreview || !subNorm
+    ? { oneTime: [], monthly: [] }
+    : leaseDocumentFeeLines(subNorm, leaseBasicsSection);
+  // Monthly preset + custom fees (parking, MTM surcharge, custom lease, etc.) bill recurring
+  // and must appear in the lease — not only genuinely-custom rows.
+  const billableMonthlyCustomFees = leaseDocFees.monthly;
+  const supplementalOneTimeLeaseFees = leaseDocFees.oneTime.filter((line) => {
+    const amount = parseAmount(line.amount);
+    if (amount == null || amount <= 0) return false;
+    return !billableOneTimeCustomFees.some(
+      (fee) =>
+        (fee.label?.trim() || "Custom fee").toLowerCase() === line.label.trim().toLowerCase() &&
+        parseAmount(fee.amount) === amount,
+    );
   });
-  const customFeeExhibitRows = [...billableOneTimeCustomFees, ...billableMonthlyCustomFees]
-    .map(
-      (f) =>
-        `  <tr><td>${escapeHtml(f.label?.trim() || "Custom fee")}</td><td class="amount">${escapeHtml(fmtUsd(parseAmount(f.amount) ?? 0))}</td><td>${
-          f.frequency === "one-time" ? "One-time" : "Monthly"
-        }</td></tr>`,
-    )
-    .join("\n");
+  const customFeeExhibitRows = [
+    ...leaseDocFees.oneTime
+      .filter((line) => !/^application fee$/i.test(line.label.trim()))
+      .map(
+        (line) =>
+          `  <tr><td>${escapeHtml(line.label.trim() || "Fee")}</td><td class="amount">${escapeHtml(fmtUsd(parseAmount(line.amount) ?? 0))}</td><td>One-time</td></tr>`,
+      ),
+    ...leaseDocFees.monthly.map(
+      (line) =>
+        `  <tr><td>${escapeHtml(line.label.trim() || "Fee")}</td><td class="amount">${escapeHtml(fmtUsd(parseAmount(line.amount) ?? 0))}</td><td>Monthly</td></tr>`,
+    ),
+  ].join("\n");
 
   const leaseBilling = ctx.leaseBilling;
   const signingAmounts = {
@@ -1150,6 +1160,7 @@ ${customTermsAddendumHtml(subNorm, "Additional Provisions from Owner/Host", prop
       firstPartialMonthPayment,
       billableOneTimeCustomFees,
       billableMonthlyCustomFees,
+      supplementalOneTimeLeaseFees,
       paymentAtSigningIncludes: subNorm?.paymentAtSigningIncludes,
       paymentMethod,
       sub: subNorm,

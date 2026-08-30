@@ -181,6 +181,7 @@ export function ManagerTaskFormModal({
     form.taskKind === "house" || form.taskKind === "tour" || form.taskKind === "work-order";
   const isTour = form.taskKind === "tour";
   const isWorkOrder = form.taskKind === "work-order";
+  const workOrderNeedsResident = isWorkOrder && form.workOrderCategory !== "General";
   // A due date belongs to the deadline timing only: a scheduled task has a slot
   // instead, and an urgent one is deliberately dateless.
   const showDueDate = form.urgency === "deadline" && !isTour;
@@ -271,11 +272,9 @@ export function ManagerTaskFormModal({
         return;
       }
     }
-    if (isWorkOrder) {
-      if (!form.residentEmail) {
-        showToast("Choose a resident for the service.");
-        return;
-      }
+    if (isWorkOrder && workOrderNeedsResident && !form.residentEmail) {
+      showToast("Choose a resident for the service.");
+      return;
     }
 
     setSaving(true);
@@ -315,8 +314,10 @@ export function ManagerTaskFormModal({
         start && end ? formatRangeLabel(start, end) : start ? formatRangeLabel(start, start) : undefined;
 
       if (!editingId && isWorkOrder) {
-        const resident = residentsForProperty.find((row) => row.residentEmail === form.residentEmail);
-        if (!resident) {
+        const resident = workOrderNeedsResident
+          ? residentsForProperty.find((row) => row.residentEmail === form.residentEmail)
+          : null;
+        if (workOrderNeedsResident && !resident) {
           showToast("Choose a resident for this property.");
           return;
         }
@@ -326,17 +327,21 @@ export function ManagerTaskFormModal({
           notes: form.notes,
           categoryLabel: form.workOrderCategory,
           propertyId: form.propertyId,
-          propertyLabel: selectedProperty?.label ?? resident.propertyLabel,
+          propertyLabel: selectedProperty?.label ?? resident?.propertyLabel ?? "",
           resident,
+          unitLabel: roomLabel,
         });
-        composePrefill = buildManagerTaskComposePrefill({
-          kind: "work-order",
-          title: taskTitle,
-          notes: form.notes,
-          propertyLabel: selectedProperty?.label,
-          recipientEmail: resident.residentEmail,
-          recipientName: resident.residentName,
-        });
+        composePrefill =
+          resident != null
+            ? buildManagerTaskComposePrefill({
+                kind: "work-order",
+                title: taskTitle,
+                notes: form.notes,
+                propertyLabel: selectedProperty?.label,
+                recipientEmail: resident.residentEmail,
+                recipientName: resident.residentName,
+              })
+            : null;
       }
 
       if (!editingId && isTour) {
@@ -405,7 +410,7 @@ export function ManagerTaskFormModal({
     Boolean(form.title.trim() || (isTour && form.guestName.trim())) &&
     (!propertyRequired || Boolean(form.propertyId)) &&
     (!isTour || Boolean(form.scheduleDate && form.startTime)) &&
-    (!isWorkOrder || Boolean(form.residentEmail));
+    (!isWorkOrder || !workOrderNeedsResident || Boolean(form.residentEmail));
 
   return (
     <Modal
@@ -558,6 +563,33 @@ export function ManagerTaskFormModal({
 
         {isWorkOrder ? (
           <div className={cn(PORTAL_MODAL_FORM_FIELD_CLASS, PORTAL_MODAL_FORM_FULL_ROW_CLASS)}>
+            <label className={MODAL_FIELD_LABEL_CLASS} htmlFor="manager-task-work-order-category">
+              Category
+            </label>
+            <Select
+              id="manager-task-work-order-category"
+              value={form.workOrderCategory}
+              onChange={(e) =>
+                setForm((current) => ({
+                  ...current,
+                  workOrderCategory: e.target.value as ResidentMaintenanceCategoryLabel,
+                  residentEmail:
+                    e.target.value === "General" ? "" : current.residentEmail,
+                }))
+              }
+              data-attr="manager-task-work-order-category"
+            >
+              {WORK_ORDER_CATEGORY_OPTIONS.map((option) => (
+                <option key={option} value={option}>
+                  {option}
+                </option>
+              ))}
+            </Select>
+          </div>
+        ) : null}
+
+        {workOrderNeedsResident ? (
+          <div className={cn(PORTAL_MODAL_FORM_FIELD_CLASS, PORTAL_MODAL_FORM_FULL_ROW_CLASS)}>
             <label className={MODAL_FIELD_LABEL_CLASS} htmlFor="manager-task-resident">
               Resident
             </label>
@@ -579,31 +611,6 @@ export function ManagerTaskFormModal({
               {residentsForProperty.map((resident) => (
                 <option key={resident.residentEmail} value={resident.residentEmail}>
                   {resident.residentName} · {resident.propertyLabel}
-                </option>
-              ))}
-            </Select>
-          </div>
-        ) : null}
-
-        {isWorkOrder ? (
-          <div className={cn(PORTAL_MODAL_FORM_FIELD_CLASS, PORTAL_MODAL_FORM_FULL_ROW_CLASS)}>
-            <label className={MODAL_FIELD_LABEL_CLASS} htmlFor="manager-task-work-order-category">
-              Category
-            </label>
-            <Select
-              id="manager-task-work-order-category"
-              value={form.workOrderCategory}
-              onChange={(e) =>
-                setForm((current) => ({
-                  ...current,
-                  workOrderCategory: e.target.value as ResidentMaintenanceCategoryLabel,
-                }))
-              }
-              data-attr="manager-task-work-order-category"
-            >
-              {WORK_ORDER_CATEGORY_OPTIONS.map((option) => (
-                <option key={option} value={option}>
-                  {option}
                 </option>
               ))}
             </Select>
@@ -847,7 +854,7 @@ export function ManagerTaskFormModal({
                 : form.dueDate
                   ? "Due date appears on your calendar as a reminder block."
                   : "Add a schedule or due date to show this service on your calendar."}
-          {!editingId && (isTour || isWorkOrder)
+          {!editingId && (isTour || (isWorkOrder && workOrderNeedsResident))
             ? " You can notify the guest or resident on the next screen."
             : null}
         </p>

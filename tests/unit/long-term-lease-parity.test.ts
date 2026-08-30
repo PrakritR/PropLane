@@ -284,6 +284,26 @@ describe("long-term lease parity", () => {
     expect(html).toContain("4. Move-In Payment Summary");
   });
 
+  it("renders listing Other fees (preset monthly and one-time) in the compact lease", () => {
+    const html = buildLeaseHtml(
+      longTermContext({
+        applicationFee: "50",
+        holdingDeposit: "100",
+        monthToMonthSurcharge: "25",
+        customLeaseSurcharge: "100",
+      }),
+      SEATTLE_LEASE_CONFIG,
+    );
+    expect(html).toContain("Month-to-month surcharge");
+    expect(html).toMatch(/<strong>Month-to-month surcharge:<\/strong> \$25\.00 \(monthly\)/);
+    expect(html).toContain("Custom lease");
+    expect(html).toMatch(/<strong>Custom lease:<\/strong> \$100\.00 \(monthly\)/);
+    expect(html).toContain("Holding deposit");
+    expect(html).toMatch(/<strong>Holding deposit:<\/strong> \$100\.00 \(one-time\)/);
+    expect(html).toContain("Application fee");
+    expect(html).toMatch(/<strong>Application fee:<\/strong> \$50\.00 \(one-time\)/);
+  });
+
   it("leaves short-term agreements byte-identical when only long-term terms change", () => {
     const context = longTermContext({
       shortTermRentalsAllowed: true,
