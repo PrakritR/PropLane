@@ -9,9 +9,8 @@ export type ManagerNavRole = {
   mergedPermissions: CoManagerPermissions;
   /**
    * True when the user is a co-manager with ≥1 accepted incoming link but no
-   * explicit module restrictions (merged permissions empty). Threaded into
-   * `coManagerPortalSectionAllowed` so nav visibility matches the data layer's
-   * empty-permissions = full-access rule.
+   * explicit module restrictions (merged permissions empty). Retained for
+   * callers that branch on the data-layer empty-permissions = full-access rule.
    */
   hasEmptyPermissionCoManagerLink: boolean;
 };
