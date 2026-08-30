@@ -36,6 +36,10 @@ export function useScheduledTourReminders() {
   }, []);
 
   useEffect(() => {
+    void reload();
+  }, [reload]);
+
+  useEffect(() => {
     const onSettings = () => void reload();
     window.addEventListener(PAYMENT_AUTOMATION_SETTINGS_EVENT, onSettings);
     return () => window.removeEventListener(PAYMENT_AUTOMATION_SETTINGS_EVENT, onSettings);

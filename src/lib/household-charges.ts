@@ -36,6 +36,11 @@ import type { DemoApplicantRow } from "@/data/demo-portal";
 import { readManagerApplicationRows } from "@/lib/manager-applications-storage";
 import { generatePaymentReference } from "@/lib/payment-reference";
 import {
+  leaseEndProration,
+  leaseFirstPeriodProration,
+  leaseStartProration,
+} from "@/lib/lease-first-period-proration";
+import {
   intraMonthStaySpan,
   shortTermStayChargeTitle,
   shortTermStayNightCount,
@@ -236,14 +241,6 @@ export type RecurringRentProfile = {
   updatedAt: string;
   zelleContact?: string;
   venmoContact?: string;
-};
-
-type LeaseBoundaryProration = {
-  prorated: boolean;
-  factor: number;
-  billableDays: number;
-  daysInMonth: number;
-  dueDateLabel?: string;
 };
 
 function isBrowser() {
@@ -1247,67 +1244,6 @@ function firstRecurringMonthAfterLeaseStart(leaseStart: string | undefined): str
   if (!yearRaw || !monthRaw) return currentRentMonth();
   const nextMonth = new Date(yearRaw, monthRaw, 1);
   return monthKeyFromDate(nextMonth);
-}
-
-function leaseStartProration(leaseStart: string | undefined): { prorated: boolean; factor: number; billableDays: number; daysInMonth: number; label: string } {
-  if (!leaseStart?.trim()) return { prorated: false, factor: 1, billableDays: 0, daysInMonth: 0, label: "full first month" };
-  const [yearRaw, monthRaw, dayRaw] = leaseStart.split("-").map(Number);
-  if (!yearRaw || !monthRaw || !dayRaw) return { prorated: false, factor: 1, billableDays: 0, daysInMonth: 0, label: "full first month" };
-  const daysInMonth = new Date(yearRaw, monthRaw, 0).getDate();
-  if (!Number.isFinite(daysInMonth) || daysInMonth <= 0 || dayRaw <= 1) {
-    return { prorated: false, factor: 1, billableDays: daysInMonth, daysInMonth, label: "full first month" };
-  }
-  const billableDays = Math.max(1, daysInMonth - dayRaw + 1);
-  return {
-    prorated: true,
-    factor: billableDays / daysInMonth,
-    billableDays,
-    daysInMonth,
-    label: `${billableDays}/${daysInMonth} days from lease start`,
-  };
-}
-
-function leaseEndProration(leaseEnd: string | undefined): LeaseBoundaryProration {
-  if (!leaseEnd?.trim()) return { prorated: false, factor: 1, billableDays: 0, daysInMonth: 0 };
-  const [yearRaw, monthRaw, dayRaw] = leaseEnd.split("-").map(Number);
-  if (!yearRaw || !monthRaw || !dayRaw) return { prorated: false, factor: 1, billableDays: 0, daysInMonth: 0 };
-  const daysInMonth = new Date(yearRaw, monthRaw, 0).getDate();
-  if (!Number.isFinite(daysInMonth) || daysInMonth <= 0 || dayRaw >= daysInMonth) {
-    return { prorated: false, factor: 1, billableDays: daysInMonth, daysInMonth };
-  }
-  const leaseEndDate = new Date(yearRaw, monthRaw - 1, dayRaw);
-  const reminderDate = new Date(leaseEndDate.getTime() - 7 * 24 * 60 * 60 * 1000);
-  return {
-    prorated: true,
-    factor: dayRaw / daysInMonth,
-    billableDays: dayRaw,
-    daysInMonth,
-    dueDateLabel: `By ${reminderDate.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })}`,
-  };
-}
-
-/**
- * Proration for the FIRST billed period. Normally that is the partial month from the
- * lease start; for a lease that also ends in the same month it is the whole lease term.
- *
- * Collapsing the two edges into one span is DAILY-ONLY (`collapseIntraMonth`): monthly
- * rooms must bill exactly as they always have, so they keep the plain lease-start
- * proration even when the lease ends in the same month.
- */
-function leaseFirstPeriodProration(
-  leaseStart: string | undefined,
-  leaseEnd: string | undefined,
-  collapseIntraMonth: boolean,
-): ReturnType<typeof leaseStartProration> {
-  const span = collapseIntraMonth ? intraMonthStaySpan(leaseStart, leaseEnd) : null;
-  if (!span) return leaseStartProration(leaseStart);
-  return {
-    prorated: true,
-    factor: span.billableDays / span.daysInMonth,
-    billableDays: span.billableDays,
-    daysInMonth: span.daysInMonth,
-    label: `${span.billableDays}/${span.daysInMonth} days of lease term`,
-  };
 }
 
 function firstMonthRentChargeForLeaseStart(

@@ -323,7 +323,7 @@ export function ManagerLeasesPipelinePanel({
       const targets =
         scope === "single" && singleId
           ? bulkLeaseSendRows.filter((row) => row.id === singleId)
-          : bulkLeaseSendRows;
+          : bulkLeaseSendRows.filter((row) => row.id in drafts);
       if (targets.length === 0) return;
 
       for (const row of targets) {
@@ -1210,13 +1210,13 @@ export function ManagerLeasesPipelinePanel({
       {selectedIds.size > 0 ? (
         <BulkActionBar count={selectedIds.size} hideCount variant="payments">
           <div className="flex min-w-0 flex-wrap items-center justify-start gap-2">
-            {canBulkSendLeases ? (
+            {tab === "manager" && selectedLeaseRows.length > 0 ? (
               <Button
                 type="button"
                 variant="primary"
                 className={PORTAL_BULK_BAR_BTN}
                 data-attr="leases-bulk-send"
-                disabled={Boolean(sendingToResidentRowId)}
+                disabled={Boolean(sendingToResidentRowId) || !canBulkSendLeases}
                 onClick={openBulkSendLeasePreview}
               >
                 Send

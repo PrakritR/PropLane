@@ -15,6 +15,7 @@ import type { ApplicationBackgroundCheck } from "@/lib/checkr/types";
  */
 export function ScreeningInlinePayment({
   applicationId,
+  cosignerSubmissionId,
   packageSlug,
   addOnProducts,
   returnPath,
@@ -22,6 +23,7 @@ export function ScreeningInlinePayment({
   onError,
 }: {
   applicationId: string;
+  cosignerSubmissionId?: string;
   packageSlug: CheckrPackage;
   addOnProducts: CheckrAddOnSlug[];
   /** App path Stripe returns to after payment (must start with "/"). */
@@ -48,6 +50,7 @@ export function ScreeningInlinePayment({
           credentials: "include",
           body: JSON.stringify({
             applicationId,
+            cosignerSubmissionId,
             packageSlug,
             addOnProducts,
             mode: "embedded",
@@ -91,7 +94,7 @@ export function ScreeningInlinePayment({
     return () => {
       cancelled = true;
     };
-  }, [applicationId, packageSlug, addOnKey, returnPath, onPaid, onError]);
+  }, [applicationId, cosignerSubmissionId, packageSlug, addOnKey, returnPath, onPaid, onError]);
 
   const retry = () => {
     setError(null);

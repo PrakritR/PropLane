@@ -25,6 +25,7 @@ import { propertyFromRecord } from "@/lib/resident-move-in-resolve";
 import { chargeManagerForScreening } from "@/lib/screening/charge-manager";
 import { getStripe } from "@/lib/stripe";
 import type { RentalWizardFormState } from "@/lib/rental-application/types";
+import type { CosignerSubmission } from "@/lib/cosigner-submissions-storage";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 export type BackgroundCheckResult =
@@ -509,4 +510,398 @@ export async function applyBackgroundCheckReport(
   await persistApplicationRow(db, nextRow);
   await upsertBackgroundCheckOrder(db, nextRow, bc);
   return nextRow;
+}
+
+type CosignerSubmissionRecord = {
+  id: string;
+  signerAppId: string;
+  managerUserId: string | null;
+  submission: CosignerSubmission;
+};
+
+async function loadCosignerSubmissionRecord(
+  db: SupabaseClient,
+  cosignerSubmissionId: string,
+): Promise<CosignerSubmissionRecord | null> {
+  const { data, error } = await db
+    .from("cosigner_submission_records")
+    .select("id, signer_app_id, manager_user_id, row_data")
+    .eq("id", cosignerSubmissionId)
+    .maybeSingle();
+  if (error || !data?.row_data) return null;
+  return {
+    id: String(data.id),
+    signerAppId: String(data.signer_app_id),
+    managerUserId: (data.manager_user_id as string | null) ?? null,
+    submission: data.row_data as CosignerSubmission,
+  };
+}
+
+async function persistCosignerSubmissionRecord(
+  db: SupabaseClient,
+  record: CosignerSubmissionRecord,
+): Promise<void> {
+  const { error } = await db.from("cosigner_submission_records").update({
+    row_data: record.submission,
+    updated_at: new Date().toISOString(),
+  }).eq("id", record.id);
+  if (error) throw new Error(error.message);
+}
+
+function applicantInputFromCosigner(sub: CosignerSubmission): CheckrApplicantInput {
+  return applicantInputFromApplication({
+    fullLegalName: sub.fullName,
+    email: sub.email,
+    phone: sub.phone,
+    dateOfBirth: sub.dob,
+    ssn: sub.ssn,
+  } as RentalWizardFormState);
+}
+
+function applyCosignerBackgroundCheck(
+  record: CosignerSubmissionRecord,
+  bc: ApplicationBackgroundCheck,
+): CosignerSubmissionRecord {
+  return { ...record, submission: { ...record.submission, backgroundCheck: bc } };
+}
+
+async function waitForPrepaidCosignerScreening(
+  db: SupabaseClient,
+  cosignerSubmissionId: string,
+  checkoutSessionId: string,
+  maxAttempts = 15,
+  delayMs = 400,
+): Promise<CosignerSubmissionRecord | null> {
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    const record = await loadCosignerSubmissionRecord(db, cosignerSubmissionId);
+    if (record?.submission.backgroundCheck?.stripeCheckoutSessionId === checkoutSessionId) {
+      return record;
+    }
+    if (attempt < maxAttempts - 1) {
+      await sleep(delayMs);
+    }
+  }
+  return null;
+}
+
+async function claimPrepaidCosignerScreeningCheckout(opts: {
+  db: SupabaseClient;
+  cosignerSubmissionId: string;
+  managerUserId: string;
+  checkoutSessionId: string;
+}): Promise<
+  | { kind: "proceed" }
+  | { kind: "existing"; record: CosignerSubmissionRecord; backgroundCheck: ApplicationBackgroundCheck }
+  | { kind: "busy" }
+> {
+  const existing = await loadCosignerSubmissionRecord(opts.db, opts.cosignerSubmissionId);
+  if (existing?.submission.backgroundCheck?.stripeCheckoutSessionId === opts.checkoutSessionId) {
+    return { kind: "existing", record: existing, backgroundCheck: existing.submission.backgroundCheck! };
+  }
+
+  const { error } = await opts.db.from("screening_orders").insert({
+    application_id: opts.cosignerSubmissionId,
+    manager_user_id: opts.managerUserId,
+    provider: STRIPE_CHECKOUT_CLAIM_PROVIDER,
+    external_order_id: opts.checkoutSessionId,
+    status: "processing",
+    row_data: { checkoutSessionId: opts.checkoutSessionId, cosignerSubmissionId: opts.cosignerSubmissionId },
+  });
+
+  if (!error) return { kind: "proceed" };
+
+  if (error.code === "23505") {
+    const record = await waitForPrepaidCosignerScreening(
+      opts.db,
+      opts.cosignerSubmissionId,
+      opts.checkoutSessionId,
+    );
+    if (record?.submission.backgroundCheck) {
+      return { kind: "existing", record, backgroundCheck: record.submission.backgroundCheck };
+    }
+    return { kind: "busy" };
+  }
+
+  throw new Error(error.message);
+}
+
+export type CosignerBackgroundCheckResult =
+  | {
+      ok: true;
+      signerApplicationId: string;
+      cosignerSubmissionId: string;
+      backgroundCheck: ApplicationBackgroundCheck;
+      submission: CosignerSubmission;
+    }
+  | { ok: false; status: number; error: string; code?: string };
+
+export async function precheckCosignerBackgroundCheckOrder(opts: {
+  db: SupabaseClient;
+  cosignerSubmissionId: string;
+  managerUserId: string;
+}): Promise<
+  | { ok: true; record: CosignerSubmissionRecord; signerRow: DemoApplicantRow }
+  | Extract<CosignerBackgroundCheckResult, { ok: false }>
+> {
+  if (!backgroundCheckConfigured()) {
+    return {
+      ok: false,
+      status: 503,
+      error: "Background checks are not configured. Add CHECKR_API_KEY.",
+      code: "not_configured",
+    };
+  }
+
+  const tier = await getManagerSubscriptionTier(opts.managerUserId);
+  if (!managerScreeningAllowedForTier(tier) && !checkrSimulate()) {
+    return {
+      ok: false,
+      status: 403,
+      error: "Applicant screening requires Pro or Business. Upgrade your plan to run background checks.",
+      code: "upgrade_required",
+    };
+  }
+
+  const record = await loadCosignerSubmissionRecord(opts.db, opts.cosignerSubmissionId);
+  if (!record) return { ok: false, status: 404, error: "Co-signer submission not found." };
+
+  const signerRow = await loadApplicationRow(opts.db, record.signerAppId);
+  if (!signerRow) return { ok: false, status: 404, error: "Application not found." };
+
+  const ownerId = signerRow.managerUserId?.trim() || record.managerUserId?.trim();
+  if (!ownerId || ownerId !== opts.managerUserId) {
+    return { ok: false, status: 403, error: "Forbidden." };
+  }
+  if (!record.submission.consentCredit) {
+    return { ok: false, status: 400, error: "Co-signer did not authorize a background check." };
+  }
+  if (record.submission.backgroundCheck?.status === "pending") {
+    return {
+      ok: false,
+      status: 409,
+      error: "A background check is already in progress for this co-signer.",
+      code: "in_progress",
+    };
+  }
+  return { ok: true, record, signerRow };
+}
+
+export async function runCosignerBackgroundCheck(opts: {
+  db: SupabaseClient;
+  cosignerSubmissionId: string;
+  managerUserId: string;
+  packageSlug?: string;
+  addOnProducts?: string[];
+  prepaid?: { checkoutSessionId: string; paymentIntentId?: string };
+}): Promise<CosignerBackgroundCheckResult> {
+  if (opts.prepaid) {
+    const existing = await loadCosignerSubmissionRecord(opts.db, opts.cosignerSubmissionId);
+    if (existing?.submission.backgroundCheck?.stripeCheckoutSessionId === opts.prepaid.checkoutSessionId) {
+      return {
+        ok: true,
+        signerApplicationId: existing.signerAppId,
+        cosignerSubmissionId: existing.id,
+        backgroundCheck: existing.submission.backgroundCheck!,
+        submission: existing.submission,
+      };
+    }
+
+    const claim = await claimPrepaidCosignerScreeningCheckout({
+      db: opts.db,
+      cosignerSubmissionId: opts.cosignerSubmissionId,
+      managerUserId: opts.managerUserId,
+      checkoutSessionId: opts.prepaid.checkoutSessionId,
+    });
+    if (claim.kind === "existing") {
+      return {
+        ok: true,
+        signerApplicationId: claim.record.signerAppId,
+        cosignerSubmissionId: claim.record.id,
+        backgroundCheck: claim.backgroundCheck,
+        submission: claim.record.submission,
+      };
+    }
+    if (claim.kind === "busy") {
+      return {
+        ok: false,
+        status: 409,
+        error: "A background check is already being placed for this payment.",
+        code: "in_progress",
+      };
+    }
+  }
+
+  const precheck = await precheckCosignerBackgroundCheckOrder(opts);
+  if (!precheck.ok) return precheck;
+  const { record, signerRow } = precheck;
+
+  const rawPackageSlug = opts.packageSlug ?? "";
+  const packageSlug: CheckrPackage = isCheckrPackage(rawPackageSlug) ? rawPackageSlug : "essential";
+  const addOnProducts = (opts.addOnProducts ?? []).filter(isCheckrAddOn) as CheckrAddOnSlug[];
+  const costCents = checkrOrderCostCents(packageSlug, addOnProducts);
+
+  let stripePaymentIntentId: string | undefined;
+  if (opts.prepaid) {
+    stripePaymentIntentId = opts.prepaid.paymentIntentId;
+  } else if (!checkrSkipsManagerCardCharge()) {
+    const charge = await chargeManagerForScreening({
+      managerUserId: opts.managerUserId,
+      applicationId: record.id,
+      amountCents: costCents,
+    });
+    if (!charge.ok) {
+      return { ok: false, status: 402, error: charge.message, code: charge.code };
+    }
+    stripePaymentIntentId = charge.paymentIntentId;
+  }
+
+  const property = await loadCheckrProperty(
+    opts.db,
+    signerRow.assignedPropertyId || signerRow.propertyId || signerRow.application?.propertyId,
+  );
+
+  let created;
+  try {
+    created = await createBackgroundCheck(applicantInputFromCosigner(record.submission), property, {
+      packageSlug,
+      addOnProducts,
+    });
+  } catch (e) {
+    const providerError = e instanceof Error ? e.message : "Checkr request failed.";
+    if (stripePaymentIntentId) {
+      try {
+        const stripe = getStripe();
+        await stripe.refunds.create({ payment_intent: stripePaymentIntentId, reason: "requested_by_customer" });
+      } catch (refundError) {
+        console.error("checkr cosigner background check: charge not refunded after order failure", {
+          cosignerSubmissionId: record.id,
+          managerUserId: opts.managerUserId,
+          paymentIntentId: stripePaymentIntentId,
+          providerError,
+          refundError: refundError instanceof Error ? refundError.message : String(refundError),
+        });
+      }
+    }
+    return { ok: false, status: 502, error: providerError, code: "provider_error" };
+  }
+
+  const now = new Date().toISOString();
+  const bc: ApplicationBackgroundCheck = {
+    provider: "checkr",
+    candidateId: created.applicantId,
+    reportId: created.orderId,
+    packageSlug: created.packageSlug,
+    addOnProducts: created.addOnProducts.length > 0 ? created.addOnProducts : undefined,
+    status: created.status,
+    result: created.result,
+    reportSnapshot: created.reportSnapshot,
+    reportResourceId: created.reportResourceId,
+    orderedAt: now,
+    completedAt: created.status === "complete" ? now : undefined,
+    simulated: created.simulated || undefined,
+    costCents,
+    stripePaymentIntentId,
+    stripeCheckoutSessionId: opts.prepaid?.checkoutSessionId,
+  };
+
+  const nextRecord = applyCosignerBackgroundCheck(record, bc);
+  await persistCosignerSubmissionRecord(opts.db, nextRecord);
+
+  const auditRow: DemoApplicantRow = { ...signerRow, id: record.id, managerUserId: opts.managerUserId };
+  await upsertBackgroundCheckOrder(opts.db, auditRow, bc);
+
+  try {
+    await recordAutoExpense(opts.db, opts.managerUserId, {
+      categoryCode: "service_fees",
+      amountCents: costCents,
+      expenseDate: now.slice(0, 10),
+      memo: `Co-signer background check (Checkr) — ${record.submission.fullName || record.id}`,
+      propertyId: signerRow.assignedPropertyId || signerRow.propertyId || signerRow.application?.propertyId || "",
+      sourceStripePaymentId: stripePaymentIntentId ?? `checkr_cosigner_screening_${record.id}`,
+    });
+  } catch (e) {
+    console.error("checkr cosigner background check: failed to record auto-expense", {
+      cosignerSubmissionId: record.id,
+      managerUserId: opts.managerUserId,
+      paymentIntentId: stripePaymentIntentId,
+      error: e instanceof Error ? e.message : String(e),
+    });
+  }
+
+  return {
+    ok: true,
+    signerApplicationId: record.signerAppId,
+    cosignerSubmissionId: record.id,
+    backgroundCheck: bc,
+    submission: nextRecord.submission,
+  };
+}
+
+export async function refreshCosignerBackgroundCheck(opts: {
+  db: SupabaseClient;
+  cosignerSubmissionId: string;
+  managerUserId: string;
+}): Promise<CosignerBackgroundCheckResult> {
+  const record = await loadCosignerSubmissionRecord(opts.db, opts.cosignerSubmissionId);
+  if (!record) return { ok: false, status: 404, error: "Co-signer submission not found." };
+
+  const signerRow = await loadApplicationRow(opts.db, record.signerAppId);
+  if (!signerRow) return { ok: false, status: 404, error: "Application not found." };
+  const ownerId = signerRow.managerUserId?.trim() || record.managerUserId?.trim();
+  if (!ownerId || ownerId !== opts.managerUserId) {
+    return { ok: false, status: 403, error: "Forbidden." };
+  }
+
+  const existing = record.submission.backgroundCheck;
+  if (!existing) {
+    return { ok: false, status: 404, error: "No background check has been run for this co-signer." };
+  }
+  if (existing.status === "complete" && existing.reportResourceId?.trim()) {
+    return {
+      ok: true,
+      signerApplicationId: record.signerAppId,
+      cosignerSubmissionId: record.id,
+      backgroundCheck: existing,
+      submission: record.submission,
+    };
+  }
+
+  const report = await fetchBackgroundCheckReport(existing.reportId, {
+    ssn: digitsOnly(record.submission.ssn),
+    firstName: record.submission.fullName.trim().split(/\s+/)[0],
+    lastName: record.submission.fullName.trim().split(/\s+/).slice(-1)[0],
+    dob: normalizeDob(record.submission.dob),
+    packageSlug: existing.packageSlug,
+    addOnProducts: existing.addOnProducts,
+  });
+  if (!report) {
+    return {
+      ok: true,
+      signerApplicationId: record.signerAppId,
+      cosignerSubmissionId: record.id,
+      backgroundCheck: existing,
+      submission: record.submission,
+    };
+  }
+
+  const bc: ApplicationBackgroundCheck = {
+    ...existing,
+    status: report.status,
+    result: report.result,
+    reportSnapshot: report.reportSnapshot ?? existing.reportSnapshot,
+    reportResourceId: report.reportResourceId ?? existing.reportResourceId,
+    completedAt: report.status === "complete" ? new Date().toISOString() : existing.completedAt,
+  };
+  const nextRecord = applyCosignerBackgroundCheck(record, bc);
+  await persistCosignerSubmissionRecord(opts.db, nextRecord);
+  const auditRow: DemoApplicantRow = { ...signerRow, id: record.id, managerUserId: opts.managerUserId };
+  await upsertBackgroundCheckOrder(opts.db, auditRow, bc);
+
+  return {
+    ok: true,
+    signerApplicationId: record.signerAppId,
+    cosignerSubmissionId: record.id,
+    backgroundCheck: bc,
+    submission: nextRecord.submission,
+  };
 }

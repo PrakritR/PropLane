@@ -17,7 +17,9 @@ import { resolveAppOrigin } from "@/lib/app-url";
 import { track } from "@/lib/analytics/posthog";
 import {
   precheckBackgroundCheckOrder,
+  precheckCosignerBackgroundCheckOrder,
   runBackgroundCheck,
+  runCosignerBackgroundCheck,
 } from "@/lib/checkr/background-check";
 import { checkrSkipsManagerCardCharge } from "@/lib/checkr/config";
 import type { CheckrPackage } from "@/lib/checkr/config";
@@ -39,6 +41,7 @@ export const runtime = "nodejs";
 
 type Body = {
   applicationId?: string;
+  cosignerSubmissionId?: string;
   packageSlug?: string;
   addOnProducts?: string[];
   /** `embedded` renders Stripe inside the screening modal; default is hosted redirect. */
@@ -57,7 +60,11 @@ export async function POST(req: Request) {
 
     const body = (await req.json()) as Body;
     const applicationId = body.applicationId?.trim();
+    const cosignerSubmissionId = body.cosignerSubmissionId?.trim();
     if (!applicationId) return NextResponse.json({ error: "applicationId is required." }, { status: 400 });
+    if (cosignerSubmissionId && !cosignerSubmissionId.startsWith("cosigner-")) {
+      return NextResponse.json({ error: "Invalid co-signer submission id." }, { status: 400 });
+    }
 
     const rawPackageSlug = body.packageSlug ?? "";
     const packageSlug: CheckrPackage = isCheckrPackage(rawPackageSlug) ? rawPackageSlug : "essential";
@@ -86,14 +93,24 @@ export async function POST(req: Request) {
       }
     }
 
-    const precheck = await precheckBackgroundCheckOrder({ db, applicationId, managerUserId });
+    const precheck = cosignerSubmissionId
+      ? await precheckCosignerBackgroundCheckOrder({ db, cosignerSubmissionId, managerUserId })
+      : await precheckBackgroundCheckOrder({ db, applicationId, managerUserId });
     if (!precheck.ok) {
       return NextResponse.json({ error: precheck.error, code: precheck.code }, { status: precheck.status });
     }
 
     // Simulate-only environments have nothing to charge — run immediately.
     if (checkrSkipsManagerCardCharge()) {
-      const result = await runBackgroundCheck({ db, applicationId, managerUserId, packageSlug, addOnProducts });
+      const result = cosignerSubmissionId
+        ? await runCosignerBackgroundCheck({
+            db,
+            cosignerSubmissionId,
+            managerUserId,
+            packageSlug,
+            addOnProducts,
+          })
+        : await runBackgroundCheck({ db, applicationId, managerUserId, packageSlug, addOnProducts });
       if (!result.ok) {
         return NextResponse.json({ error: result.error, code: result.code }, { status: result.status });
       }
@@ -123,6 +140,7 @@ export async function POST(req: Request) {
       manager_user_id: managerUserId,
       package_slug: packageSlug,
       add_on_products: addOnProducts.join(","),
+      ...(cosignerSubmissionId ? { cosigner_submission_id: cosignerSubmissionId } : {}),
     };
 
     const { stripeCustomerId } = await getManagerPurchaseSku(managerUserId);

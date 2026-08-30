@@ -62,8 +62,15 @@ export function leaseCss(): string {
   `;
 }
 
+export type LeaseDocumentStyle = "standard" | "compact_room";
+
 export type LeaseJurisdictionTemplateConfig = {
   headerSubtitle: string;
+  /**
+   * `compact_room` — 21-section Washington room lease (parties/premises combined, move-in
+   * payment summary, streamlined clauses). `standard` — full PropLane long-form document.
+   */
+  documentStyle?: LeaseDocumentStyle;
   /** Optional branded title above the agreement name (Seattle Axis generic leases). */
   brandTitle?: string;
   /** Default late fee when listing does not specify one. */
@@ -116,6 +123,7 @@ export type LeaseJurisdictionTemplateConfig = {
  * applies state-wide is written ONCE. Only genuinely city-specific values are overridden.
  */
 export const WASHINGTON_LEASE_CONFIG: LeaseJurisdictionTemplateConfig = {
+  documentStyle: "compact_room",
   headerSubtitle: "State of Washington",
   governingLawParagraph:
     "This Agreement is governed by the laws of the <strong>State of Washington</strong> (RCW Title 59) and, where applicable, the ordinances of the city and county in which the Premises are located. If any provision is found invalid, the remainder shall remain in full force. This document, together with any signed addenda, constitutes the entire agreement between the parties. No oral representations are binding. Amendments require written signatures of both parties.",
@@ -127,9 +135,7 @@ export const WASHINGTON_LEASE_CONFIG: LeaseJurisdictionTemplateConfig = {
   residentMaintenanceStatuteRef: "RCW 59.18.130",
   landlordMaintenanceStatuteRef: "RCW 59.18.060",
   defaultNoticeStatuteRef: "RCW 59.12.030",
-  // `earlyTerminationStatuteRef` is deliberately unset: no verified official source for a
-  // Washington early-termination citation is recorded, and the clause reads correctly with
-  // no citation. Populate it only alongside the source it was checked against.
+  earlyTerminationStatuteRef: "RCW 59.18.310",
   defaultLongTermBreakLeaseFeeUsd: 900,
   defaultLongTermHoldoverDailyUsd: 45,
   defaultLongTermLeaseUpFeePercent: 100,

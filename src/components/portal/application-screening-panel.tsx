@@ -200,6 +200,7 @@ export function ApplicationScreeningPanel({
   presentation = "full",
   className,
   hasLinkedCosigner = false,
+  cosignerSubmissionId,
 }: {
   row: DemoApplicantRow;
   onUpdated?: () => void;
@@ -215,6 +216,7 @@ export function ApplicationScreeningPanel({
   presentation?: "full" | "compact";
   className?: string;
   hasLinkedCosigner?: boolean;
+  cosignerSubmissionId?: string;
 }) {
   const { showToast } = useAppUi();
   const demo = isDemoModeActive() || isScreeningTestModeActive();
@@ -260,7 +262,11 @@ export function ApplicationScreeningPanel({
           method: "POST",
           headers: { "Content-Type": "application/json" },
           credentials: "include",
-          body: JSON.stringify({ applicationId: row.id, action }),
+          body: JSON.stringify({
+            applicationId: row.id,
+            cosignerSubmissionId,
+            action,
+          }),
         });
         const body = (await res.json()) as { error?: string; backgroundCheck?: ApplicationBackgroundCheck };
         if (!res.ok) return;
@@ -270,7 +276,7 @@ export function ApplicationScreeningPanel({
         setBgBusy(false);
       }
     },
-    [demo, onUpdated, row.id],
+    [demo, onUpdated, row.id, cosignerSubmissionId],
   );
 
   useEffect(() => {

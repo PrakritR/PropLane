@@ -59,13 +59,19 @@ export async function GET(req: Request) {
 
     const { data, error } = await db
       .from("cosigner_submission_records")
-      .select("row_data, created_at")
+      .select("id, row_data, created_at")
       .eq("signer_app_id", signerAppId)
       .order("created_at", { ascending: true });
 
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
-    const rows = (data ?? []).map((r) => r.row_data).filter(Boolean) as CosignerSubmission[];
+    const rows = (data ?? [])
+      .map((r) => {
+        const rowData = r.row_data as CosignerSubmission | null;
+        if (!rowData) return null;
+        return { ...rowData, id: String(r.id) };
+      })
+      .filter(Boolean) as CosignerSubmission[];
     return NextResponse.json({ rows });
   } catch (e) {
     const message = e instanceof Error ? e.message : "Failed to load co-signer submissions.";

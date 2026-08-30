@@ -10,7 +10,7 @@
 import type Stripe from "stripe";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { track } from "@/lib/analytics/posthog";
-import { runBackgroundCheck } from "@/lib/checkr/background-check";
+import { runBackgroundCheck, runCosignerBackgroundCheck } from "@/lib/checkr/background-check";
 import { getStripe } from "@/lib/stripe";
 
 export const SCREENING_CHECKOUT_PURPOSE = "application_screening";
@@ -27,6 +27,7 @@ export async function runScreeningFromStripeSession(
   if (session.payment_status !== "paid" && session.payment_status !== "no_payment_required") return;
 
   const applicationId = session.metadata?.application_id?.trim();
+  const cosignerSubmissionId = session.metadata?.cosigner_submission_id?.trim();
   const managerUserId = session.metadata?.manager_user_id?.trim();
   if (!applicationId || !managerUserId) {
     console.error("[stripe webhook] screening checkout missing metadata", { sessionId: session.id });
@@ -35,17 +36,29 @@ export async function runScreeningFromStripeSession(
   const paymentIntentId =
     typeof session.payment_intent === "string" ? session.payment_intent : session.payment_intent?.id;
 
-  const result = await runBackgroundCheck({
-    db,
-    applicationId,
-    managerUserId,
-    packageSlug: session.metadata?.package_slug,
-    addOnProducts: (session.metadata?.add_on_products ?? "")
-      .split(",")
-      .map((s) => s.trim())
-      .filter(Boolean),
-    prepaid: { checkoutSessionId: session.id, paymentIntentId },
-  });
+  const result = cosignerSubmissionId
+    ? await runCosignerBackgroundCheck({
+        db,
+        cosignerSubmissionId,
+        managerUserId,
+        packageSlug: session.metadata?.package_slug,
+        addOnProducts: (session.metadata?.add_on_products ?? "")
+          .split(",")
+          .map((s) => s.trim())
+          .filter(Boolean),
+        prepaid: { checkoutSessionId: session.id, paymentIntentId },
+      })
+    : await runBackgroundCheck({
+        db,
+        applicationId,
+        managerUserId,
+        packageSlug: session.metadata?.package_slug,
+        addOnProducts: (session.metadata?.add_on_products ?? "")
+          .split(",")
+          .map((s) => s.trim())
+          .filter(Boolean),
+        prepaid: { checkoutSessionId: session.id, paymentIntentId },
+      });
 
   if (result.ok) {
     track("background_check_started", managerUserId, { provider: result.backgroundCheck.provider });
