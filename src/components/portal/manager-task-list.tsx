@@ -370,7 +370,7 @@ export function ManagerTaskList({
   }, [tabId, propertyFilterId, listFilter, groupMode]);
 
   useEffect(() => {
-    if (tabId === "completed" && listFilter === "service_orders") {
+    if (tabId !== "in-progress" && listFilter === "service_orders") {
       setListFilter("all");
     }
   }, [listFilter, tabId]);
@@ -406,6 +406,7 @@ export function ManagerTaskList({
           : id === "overdue"
             ? overdueCount
             : inProgressCount,
+      alert: id === "overdue" && overdueCount > 0,
       dataAttr: `manager-task-list-tab-${id}`,
     }));
   }, [
