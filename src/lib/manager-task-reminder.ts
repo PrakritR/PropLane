@@ -2,7 +2,6 @@ import { formatRangeLabel } from "@/lib/demo-admin-scheduling";
 import {
   compactTaskLocationLabel,
   isManagerTaskLate,
-  openTasksForListTab,
 } from "@/lib/manager-task-display";
 import {
   inferManagerTaskType,
@@ -11,6 +10,7 @@ import {
   type ManagerTaskType,
 } from "@/lib/manager-tasks";
 import { managerTaskListHref } from "@/lib/portal-detail-routes";
+import { formatPacificDateTime } from "@/lib/pacific-time";
 import type { WorkAssignee } from "@/lib/work-assignment";
 
 export type TaskAssigneeDirectory = {
