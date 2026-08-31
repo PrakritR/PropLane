@@ -548,10 +548,13 @@ export function ManagerAddServiceModal({
 
         {findServiceIntakeOption(intakeOptions, form.optionKey)?.kind === "add-on" ? (
           <WorkAssignmentPicker
+            kind="service"
             teamMembers={teamMembers}
             vendors={vendors}
             value={assignee}
             onChange={setAssignee}
+            disabled={busy}
+            dataAttr="manager-add-service-assignee"
           />
         ) : null}
 
