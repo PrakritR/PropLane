@@ -1,6 +1,9 @@
 "use client";
 
-import { PortalListGroupFilterFields } from "@/components/portal/portal-list-group-filter-fields";
+import {
+  PortalListGroupModeField,
+  PortalListPropertyField,
+} from "@/components/portal/portal-list-group-filter-fields";
 import {
   FilterCollapsibleSection,
   FilterFieldsAccordion,
@@ -97,10 +100,13 @@ export function ManagerTaskFilterFields({
 
   return (
     <FilterFieldsAccordion>
-      <TaskCategoryFilterFields
-        listFilter={listFilter}
-        onListFilterChange={onListFilterChange}
-        tabId={tabId}
+      {/* Group by leads, then Sort by, then the rest — the same order on every
+          portal list, so the two controls that reshape the list are always the
+          first things read. */}
+      <PortalListGroupModeField
+        groupMode={groupMode}
+        onGroupModeChange={onGroupModeChange}
+        dataAttr="tasks-filter-group-mode"
       />
       <FilterCollapsibleSection
         sectionId="sort"
@@ -117,17 +123,20 @@ export function ManagerTaskFilterFields({
           dataAttr="tasks-filter-sort"
         />
       </FilterCollapsibleSection>
-      <PortalListGroupFilterFields
-        groupMode={groupMode}
-        onGroupModeChange={onGroupModeChange}
-        propertyOptions={propertyOptions}
-        propertyFilters={propertyFilters}
-        onPropertyFiltersChange={(next) => onPropertyFilterIdChange(next[0] ?? "")}
-        propertyAllLabel="All houses"
-        propertyDataAttr="tasks-filter-property"
-        groupModeDataAttr="tasks-filter-group-mode"
-        showPropertyFilter={propertyOptions.length > 1}
+      <TaskCategoryFilterFields
+        listFilter={listFilter}
+        onListFilterChange={onListFilterChange}
+        tabId={tabId}
       />
+      {propertyOptions.length > 1 ? (
+        <PortalListPropertyField
+          propertyOptions={propertyOptions}
+          propertyFilters={propertyFilters}
+          onPropertyFiltersChange={(next) => onPropertyFilterIdChange(next[0] ?? "")}
+          propertyAllLabel="All houses"
+          propertyDataAttr="tasks-filter-property"
+        />
+      ) : null}
     </FilterFieldsAccordion>
   );
 }
