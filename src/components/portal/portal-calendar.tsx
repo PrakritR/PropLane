@@ -70,13 +70,9 @@ import {
   type CalendarViewTabId,
   type ToursHubTabId,
 } from "@/lib/portal-detail-routes";
-import {
-  DEFAULT_MANAGER_TOUR_SETTINGS,
-  managerTourSettingsToDefaultAvailability,
-  type ManagerTourSettings,
-} from "@/lib/manager-tour-settings";
 
 const MANAGER_PORTAL_BASE = "/portal";
+const NO_DEFAULT_TOUR_AVAILABILITY = { enabled: false as const };
 
 export function PortalCalendar({
   portal,
@@ -111,7 +107,6 @@ export function PortalCalendar({
   const [propertiesLoading, setPropertiesLoading] = useState(false);
   const [shareTourModalOpen, setShareTourModalOpen] = useState(false);
   const [calendarSettingsOpen, setCalendarSettingsOpen] = useState(false);
-  const [tourSettings, setTourSettings] = useState<ManagerTourSettings>(DEFAULT_MANAGER_TOUR_SETTINGS);
   const [coManagerPeers, setCoManagerPeers] = useState<CoManagerCalendarPeerDto[]>([]);
   const [shareAvailability, setShareAvailability] = useState(false);
   const [googleCalendarTick, setGoogleCalendarTick] = useState(0);
@@ -124,37 +119,6 @@ export function PortalCalendar({
   const toursHubTab: ToursHubTabId = toursHubTabProp ?? "tours";
   const [workOrderTick, setWorkOrderTick] = useState(0);
   const [calendarAnchorDate, setCalendarAnchorDate] = useState(() => new Date());
-
-  const loadTourSettings = useCallback(async () => {
-    if (portal !== "manager" || !userId || isDemoModeActive()) {
-      setTourSettings(DEFAULT_MANAGER_TOUR_SETTINGS);
-      return;
-    }
-    try {
-      const res = await fetch("/api/portal/manager-tour-settings", {
-        credentials: "include",
-        cache: "no-store",
-      });
-      const body = (await res.json().catch(() => ({}))) as { settings?: ManagerTourSettings };
-      if (res.ok && body.settings) setTourSettings(body.settings);
-    } catch {
-      /* keep prior */
-    }
-  }, [portal, userId]);
-
-  useEffect(() => {
-    void loadTourSettings();
-  }, [loadTourSettings]);
-
-  useEffect(() => {
-    if (!calendarSettingsOpen) void loadTourSettings();
-  }, [calendarSettingsOpen, loadTourSettings]);
-
-  const defaultTourAvailability = useMemo(
-    () => managerTourSettingsToDefaultAvailability(tourSettings),
-    [tourSettings],
-  );
-
 
   useEffect(() => {
     if (portal !== "manager") return;
@@ -747,7 +711,7 @@ export function PortalCalendar({
                     : "Schedule"
                 : "Schedule meeting"
             }
-            defaultTourAvailability={portal === "manager" ? defaultTourAvailability : undefined}
+            defaultTourAvailability={portal === "manager" ? NO_DEFAULT_TOUR_AVAILABILITY : undefined}
             scheduledTourFilter={
               availabilityView && calendarScheduledTourFilter ? calendarScheduledTourFilter : undefined
             }
@@ -852,7 +816,6 @@ export function PortalCalendar({
         initialTab="calendar"
         scoped
         scopedTitle="Calendar"
-        onCalendarSettingsSaved={() => void loadTourSettings()}
       />
     </>
   );

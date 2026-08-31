@@ -544,6 +544,11 @@ export function ManagerApplications({
     setApplicationsFilterOpen(false);
     setAddApplicationOpen(true);
   }, []);
+  const openSendApplicationInvite = useCallback(() => {
+    armFilterSheetOpenSuppressFromOverlayDismiss();
+    setApplicationsFilterOpen(false);
+    setInviteModalOpen(true);
+  }, []);
   useEffect(() => {
     if (!addApplicationOpen) return;
     setApplicationsFilterOpen(false);
@@ -1602,12 +1607,12 @@ export function ManagerApplications({
       type="button"
       className={PORTAL_COMMAND_PRIMARY_ACTION_BTN}
       style={PORTAL_COMMAND_PRIMARY_ACTION_STYLE}
-      data-attr="applications-add"
-      onClick={openAddApplication}
-      disabled={propertyOptions.length === 0}
-      title={propertyOptions.length === 0 ? "Add a property before starting an application" : undefined}
+      data-attr="applications-send"
+      onClick={openSendApplicationInvite}
+      disabled={shareableProperties.length === 0}
+      title={shareableProperties.length === 0 ? "List a property before sending an application link" : undefined}
     >
-      Add
+      Send application
     </Button>
   );
 
@@ -1888,7 +1893,7 @@ export function ManagerApplications({
           <div className={PORTAL_LIST_ADD_ROW_WRAP_CLASS}>
             <PortalListAddRow
               label="Add"
-              ariaLabel="Add application"
+              ariaLabel="Add application on behalf"
               icon={PORTAL_LIST_ADD_ICONS.application}
               onClick={openAddApplication}
               disabled={propertyOptions.length === 0}

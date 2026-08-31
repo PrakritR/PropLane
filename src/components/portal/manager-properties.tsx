@@ -15,8 +15,6 @@ import { PortalListControlStack } from "@/components/portal/portal-list-control-
 import {
   ManagerPortalPageShell,
   PORTAL_COMMAND_ACTION_BTN,
-  PORTAL_COMMAND_PRIMARY_ACTION_BTN,
-  PORTAL_COMMAND_PRIMARY_ACTION_STYLE,
 } from "@/components/portal/portal-metrics";
 import { propertyListHref, type PropertyDetailTabId } from "@/lib/portal-detail-routes";
 import { useAppUi } from "@/components/providers/app-ui-provider";
@@ -228,20 +226,6 @@ export function ManagerProperties({
     </Button>
   );
 
-  const propertiesAddButton = (
-    <Button
-      type="button"
-      className={PORTAL_COMMAND_PRIMARY_ACTION_BTN}
-      style={PORTAL_COMMAND_PRIMARY_ACTION_STYLE}
-      data-attr="manager-properties-create"
-      onClick={tryOpenAdd}
-      disabled={!skuLoaded}
-      aria-busy={!skuLoaded}
-    >
-      {!skuLoaded ? "Loading…" : "Add property"}
-    </Button>
-  );
-
   const isDetailView = Boolean(propertyKeyProp);
 
   const listPanel = (
@@ -285,12 +269,7 @@ export function ManagerProperties({
             }))}
             activeDestinationId={activeStage}
             destinationAriaLabel="Property pipeline stage"
-            actions={
-              <>
-                {propertiesShareButton}
-                {propertiesAddButton}
-              </>
-            }
+            actions={propertiesShareButton}
           />
           {atPropertyLimit && limitMax != null ? (
             <p className="mb-4 shrink-0 rounded-2xl border px-4 py-3 text-sm portal-banner-danger lg:mb-4">

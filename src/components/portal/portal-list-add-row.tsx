@@ -4,6 +4,7 @@ import type { LucideIcon } from "lucide-react";
 import {
   ClipboardList,
   CreditCard,
+  DoorOpen,
   FileText,
   Home,
   ListTodo,
@@ -107,6 +108,7 @@ export const PORTAL_LIST_ADD_ICONS = {
   resident: UserPlus,
   application: ClipboardList,
   lease: FileText,
+  tour: DoorOpen,
   promotion: Megaphone,
   request: ListTodo,
   service: ClipboardList,
