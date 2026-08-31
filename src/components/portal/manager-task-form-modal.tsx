@@ -217,11 +217,25 @@ export function ManagerTaskFormModal({
     if (!editingId && teamMembers.length > 0) {
       const self = teamMembers.find((m) => m.userId === managerUserId) ?? teamMembers[0];
       if (self) {
-        setAssignee({
+        const nextAssignee: WorkAssignee = {
           type: "team",
           id: self.userId,
           name: self.name?.trim() || self.email?.trim() || "You",
-        });
+        };
+        // Keep the EXISTING object when the value is unchanged. `teamMembers` is
+        // memoized on a relationship-sync tick, so it gets a fresh identity every
+        // time that sync fires; storing a new-but-equal object each run re-rendered,
+        // which re-ran this effect, which stored another — "Maximum update depth
+        // exceeded" as soon as the sync was chatty. Returning `current` makes React
+        // bail out of the render instead.
+        setAssignee((current) =>
+          current &&
+          current.type === nextAssignee.type &&
+          current.id === nextAssignee.id &&
+          current.name === nextAssignee.name
+            ? current
+            : nextAssignee,
+        );
       }
     }
     if (!editingId) return;
