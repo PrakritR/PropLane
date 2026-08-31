@@ -99,21 +99,6 @@ export function ApplicationReviewLauncherRow({
         }
         data-testid="application-readonly-review"
       >
-        {householdPanels}
-        {row.application ? (
-          <ManagerApplicationReadonlyReview
-            partial={row.application}
-            assignedPropertyId={row.assignedPropertyId}
-            assignedRoomChoice={row.assignedRoomChoice}
-            omitSections={omitReviewSections}
-          />
-        ) : (
-          <p className="rounded-2xl border border-border bg-card px-4 py-8 text-center text-sm text-muted">
-            Application details are not available for this record.
-          </p>
-        )}
-        <ApplicationVerificationPhotos row={row} />
-
         {showsScreening ? (
           <div id="application-background-check-section" className="scroll-mt-4">
             <ApplicationScreeningPanel
@@ -133,6 +118,22 @@ export function ApplicationReviewLauncherRow({
             />
           </div>
         ) : null}
+
+        {householdPanels}
+
+        {row.application ? (
+          <ManagerApplicationReadonlyReview
+            partial={row.application}
+            assignedPropertyId={row.assignedPropertyId}
+            assignedRoomChoice={row.assignedRoomChoice}
+            omitSections={omitReviewSections}
+          />
+        ) : (
+          <p className="rounded-2xl border border-border bg-card px-4 py-8 text-center text-sm text-muted">
+            Application details are not available for this record.
+          </p>
+        )}
+        <ApplicationVerificationPhotos row={row} />
       </section>
     </div>
   );

@@ -17,7 +17,7 @@ const PORTAL_FOOTER_INLINE_ACTIONS_ROW = cn(
 // Adaptive footers measure available width and tuck overflow into … — horizontal
 // scroll here hid buttons on the right even when the row had room on web.
 const PORTAL_FOOTER_HEADER_ACTIONS_ROW = cn(
-  "flex w-full min-w-0 shrink-0 flex-nowrap items-center justify-start gap-2 overflow-hidden pb-0.5 sm:pb-0",
+  "flex w-full min-w-0 flex-1 shrink-0 flex-nowrap items-center justify-start gap-2 overflow-hidden pb-0.5 sm:pb-0",
   "[&_button]:w-auto [&_button]:max-w-none [&_button]:shrink-0 [&_label]:w-auto [&_label]:max-w-none [&_label]:shrink-0",
 );
 
@@ -202,7 +202,7 @@ export function PortalPageFooterActions({
         <div
           className={cn(
             pinned
-              ? "flex w-full min-w-0 px-0 sm:px-1 lg:px-0"
+              ? "flex w-full min-w-0 flex-1 justify-start px-3 sm:px-4 lg:px-6"
               : "mx-auto w-full min-w-0 max-w-5xl",
           )}
         >
