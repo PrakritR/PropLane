@@ -61,6 +61,33 @@ export async function purchaseManagerTwilioNumber(opts?: {
     return { ok: false, error: "SMS is not configured (missing Twilio credentials)." };
   }
 
+  const svc = process.env.TWILIO_MESSAGING_SERVICE_SID?.trim();
+  if (!svc) {
+    return {
+      ok: false,
+      error: "Messaging Service attachment is not configured. No number was purchased.",
+    };
+  }
+  try {
+    // Fail before a billable purchase when the configured service is stale,
+    // deleted, belongs to another account, or the restricted key cannot read
+    // its sender pool. The same subresource is used for the later attachment.
+    await client.messaging.v1.services(svc).phoneNumbers.list({ limit: 1 });
+  } catch (error) {
+    const diagnostic = twilioOperationError(
+      "Twilio Messaging Service sender-pool preflight",
+      error,
+    );
+    console.error("Twilio Messaging Service sender-pool preflight failed", {
+      messagingServiceSid: svc,
+      ...twilioErrorFields(error),
+    });
+    return {
+      ok: false,
+      error: `${diagnostic} No number was purchased.`,
+    };
+  }
+
   const areaCodeDigits = opts?.areaCode?.replace(/\D/g, "").slice(0, 3);
   const areaCode = areaCodeDigits && areaCodeDigits.length === 3 ? Number(areaCodeDigits) : undefined;
   let purchaseOutcomeMayBeAmbiguous = false;
@@ -96,8 +123,7 @@ export async function purchaseManagerTwilioNumber(opts?: {
     const phoneNumberSid = String(purchased.sid ?? "").trim();
 
     let messagingServiceSid: string | null = null;
-    const svc = process.env.TWILIO_MESSAGING_SERVICE_SID?.trim();
-    if (!svc || !phoneNumberSid) {
+    if (!phoneNumberSid) {
       const released = phoneNumberSid
         ? await client
             .incomingPhoneNumbers(phoneNumberSid)

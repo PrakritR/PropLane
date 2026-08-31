@@ -4,6 +4,7 @@ const mocks = vi.hoisted(() => {
   const available = vi.fn();
   const purchase = vi.fn();
   const attach = vi.fn();
+  const senderPoolList = vi.fn();
   const remove = vi.fn();
   const createClient = vi.fn(() => ({
     availablePhoneNumbers: () => ({ local: { list: available } }),
@@ -11,10 +12,14 @@ const mocks = vi.hoisted(() => {
       create: purchase,
     }),
     messaging: {
-      v1: { services: () => ({ phoneNumbers: { create: attach } }) },
+      v1: {
+        services: () => ({
+          phoneNumbers: { create: attach, list: senderPoolList },
+        }),
+      },
     },
   }));
-  return { available, purchase, attach, remove, createClient };
+  return { available, purchase, attach, senderPoolList, remove, createClient };
 });
 
 vi.mock("@/lib/twilio-client.server", () => ({
@@ -41,7 +46,40 @@ describe("purchaseManagerTwilioNumber", () => {
       phoneNumber: "+12065550123",
       sid: "PN111",
     });
+    mocks.senderPoolList.mockResolvedValue([]);
     mocks.remove.mockResolvedValue(true);
+  });
+
+  it("checks the sender pool before purchasing a number", async () => {
+    mocks.senderPoolList.mockRejectedValue(
+      Object.assign(new Error("Not Found"), {
+        code: 20404,
+        status: 404,
+      }),
+    );
+    const consoleError = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => undefined);
+
+    const result = await purchaseManagerTwilioNumber({ requestId: "req-preflight" });
+
+    expect(result).toEqual({
+      ok: false,
+      error:
+        "Twilio Messaging Service sender-pool preflight failed (code 20404, HTTP 404). No number was purchased.",
+    });
+    expect(mocks.available).not.toHaveBeenCalled();
+    expect(mocks.purchase).not.toHaveBeenCalled();
+    expect(mocks.attach).not.toHaveBeenCalled();
+    expect(mocks.remove).not.toHaveBeenCalled();
+    expect(consoleError).toHaveBeenCalledWith(
+      "Twilio Messaging Service sender-pool preflight failed",
+      expect.objectContaining({
+        messagingServiceSid: "MG111",
+        code: "20404",
+        status: 404,
+      }),
+    );
   });
 
   it("preserves Twilio attachment diagnostics and confirms cleanup", async () => {
@@ -96,20 +134,18 @@ describe("purchaseManagerTwilioNumber", () => {
     expect(result.error).toContain("code 20403, HTTP 403");
     expect(result.error).toContain("do not retry until PropLane reviews it");
   });
-  it("reports unconfirmed cleanup when attachment configuration is missing", async () => {
+  it("fails before purchase when attachment configuration is missing", async () => {
     vi.stubEnv("TWILIO_MESSAGING_SERVICE_SID", "");
-    mocks.remove.mockResolvedValue(false);
-    vi.spyOn(console, "error").mockImplementation(() => undefined);
 
     const result = await purchaseManagerTwilioNumber();
 
-    expect(result).toMatchObject({
+    expect(result).toEqual({
       ok: false,
-      cleanupConfirmed: false,
-      purchasedNumber: { number: "+12065550123", sid: "PN111" },
+      error: "Messaging Service attachment is not configured. No number was purchased.",
     });
-    if (result.ok) throw new Error("Expected configuration failure");
-    expect(result.error).toContain("do not retry until PropLane reviews it");
+    expect(mocks.available).not.toHaveBeenCalled();
+    expect(mocks.purchase).not.toHaveBeenCalled();
+    expect(mocks.remove).not.toHaveBeenCalled();
   });
 
   it("quarantines an ambiguous purchase response instead of permitting a duplicate", async () => {
