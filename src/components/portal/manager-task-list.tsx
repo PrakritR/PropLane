@@ -4,16 +4,10 @@ import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { BulkActionBar } from "@/components/ui/bulk-action-bar";
-import { DropdownMenuItem } from "@/components/ui/dropdown-menu";
 import { DestinationNav } from "@/components/ui/destination-nav";
 import { useShallowTabId } from "@/components/ui/tabs";
 import { useAppUi } from "@/components/providers/app-ui-provider";
-import {
-  ApplicationHouseholdCluster,
-  PortalListClusterSelectCheckbox,
-  PortalListSelectAllRow,
-} from "@/components/portal/application-household-list";
+import { ApplicationHouseholdCluster } from "@/components/portal/application-household-list";
 import { DataList } from "@/components/ui/data-list";
 import {
   PortalListAddRow,
@@ -26,10 +20,6 @@ import { PortalFilterSortSheet, portalFilterActiveCount } from "@/components/por
 import { PORTAL_PROPERTY_FILTER_SHEET_CLASS } from "@/components/portal/portal-filter-shell";
 import { PORTAL_LIST_PAGE_BODY } from "@/components/portal/portal-inbox-ui";
 import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
-import {
-  PortalAdaptiveActionRow,
-  type PortalAdaptiveAction,
-} from "@/components/portal/portal-adaptive-action-row";
 import { ManagerTaskFormModal } from "@/components/portal/manager-task-form-modal";
 import { ManagerTaskFilterFields } from "@/components/portal/manager-task-filter-fields";
 import { ManagerCommunicationComposeModal } from "@/components/portal/manager-communication-compose-modal";
@@ -53,11 +43,8 @@ import {
   MANAGER_TASKS_EVENT,
   MANAGER_TASK_PRIORITY_LABELS,
   MANAGER_TASK_URGENCY_LABELS,
-  deleteManagerTask,
   fetchManagerTasks,
   inferManagerTaskUrgency,
-  reapplyManagerTasksToCalendar,
-  updateManagerTask,
   type ManagerTask,
   type ManagerTaskPriority,
 } from "@/lib/manager-tasks";
@@ -82,10 +69,6 @@ import {
   type PortalListGroupMode,
 } from "@/lib/portal-list-grouping";
 import type { ResidentIdentityFields, PropertyClusterFields } from "@/lib/resident-row-clustering";
-
-/** Match payments bulk bar — compact outline pills in one horizontal row on mobile. */
-const TASK_BULK_BAR_BTN =
-  "h-8 min-h-0 shrink-0 whitespace-nowrap rounded-full border-border px-2.5 text-[10px] font-semibold sm:px-3 sm:text-[11px] !shadow-none hover:!translate-y-0 [html[data-theme=dark]_&]:portal-outline-control";
 
 function formatTaskSchedule(task: ManagerTask): string {
   if (task.start && task.end) return formatRangeLabel(task.start, task.end);
@@ -193,10 +176,6 @@ function ManagerTaskPriorityBadge({ priority }: { priority?: ManagerTaskPriority
   );
 }
 
-function taskListRowId(row: TaskListRow): string {
-  return row.kind === "task" ? row.task.id : row.id;
-}
-
 export function ManagerTaskList({
   tabId: serverTabId,
   basePath = "/portal",
@@ -268,7 +247,6 @@ export function ManagerTaskList({
     };
   }, [userId]);
 
-  const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [editingId, setEditingId] = useState<string | null>(null);
 
   const overdueTasks = useMemo(() => openTasksForListTab(tasks, "overdue"), [tasks]);
@@ -369,28 +347,10 @@ export function ManagerTaskList({
   );
 
   useEffect(() => {
-    setSelectedIds([]);
-  }, [tabId, propertyFilterId, listFilter, groupMode, sortId, searchQuery]);
-
-  useEffect(() => {
     if (tabId !== "in-progress" && listFilter === "service_orders") {
       setListFilter("all");
     }
   }, [listFilter, tabId]);
-
-  const selectedTaskRows = useMemo(
-    () =>
-      visibleRows.filter(
-        (row): row is Extract<TaskListRow, { kind: "task" }> =>
-          row.kind === "task" && selectedIds.includes(row.id),
-      ),
-    [visibleRows, selectedIds],
-  );
-
-  const selectedTasks = useMemo(
-    () => selectedTaskRows.map((row) => row.task),
-    [selectedTaskRows],
-  );
 
   const tabItems = useMemo(() => {
     const serviceCount = assignedServices.filter((req) => matchesProperty(req.propertyId)).length;
@@ -421,156 +381,10 @@ export function ManagerTaskList({
     overdueTasks,
   ]);
 
-  async function bulkComplete(rows: ManagerTask[]) {
-    if (!userId || rows.length === 0) return;
-    const target = !rows[0]!.completed;
-    let done = 0;
-    for (const task of rows) {
-      try {
-        await updateManagerTask(userId, task.id, { completed: target });
-        done += 1;
-      } catch {
-        // Keep going; the count below is what the manager is told.
-      }
-    }
-    reapplyManagerTasksToCalendar(userId);
-    setSelectedIds([]);
-    await refresh();
-    showToast(
-      done === rows.length
-        ? target
-          ? `Marked ${done} completed.`
-          : `Reopened ${done}.`
-        : `Updated ${done} of ${rows.length}.`,
-    );
-  }
-
-  async function bulkDelete(rows: ManagerTask[]) {
-    if (!userId || rows.length === 0) return;
-    let done = 0;
-    for (const task of rows) {
-      try {
-        await deleteManagerTask(userId, task.id);
-        done += 1;
-      } catch {
-        // Same reasoning as bulkComplete: report what landed.
-      }
-    }
-    reapplyManagerTasksToCalendar(userId);
-    setSelectedIds([]);
-    await refresh();
-    showToast(done === rows.length ? `Removed ${done}.` : `Removed ${done} of ${rows.length}.`);
-  }
-
   function beginEdit(task: ManagerTask) {
     setEditingId(task.id);
     setAddOpen(true);
   }
-
-  const selectedIdSet = useMemo(() => new Set(selectedIds), [selectedIds]);
-
-  const toggleClusterSelection = useCallback((ids: readonly string[]) => {
-    setSelectedIds((prev) => {
-      const allSelected = ids.length > 0 && ids.every((id) => prev.includes(id));
-      if (allSelected) return prev.filter((id) => !ids.includes(id));
-      return [...new Set([...prev, ...ids])];
-    });
-  }, []);
-
-  const renderClusterHeaderCheckbox = (rows: TaskListClusterRow[], label: string) => (
-    <PortalListClusterSelectCheckbox
-      ids={rows.map((row) => taskListRowId(row))}
-      selectedIds={selectedIdSet}
-      onToggleCluster={toggleClusterSelection}
-      ariaLabel={`Select all ${label}`}
-    />
-  );
-
-  const bulkSelectionActions = useMemo(() => {
-    if (selectedTasks.length === 0) return null;
-
-    const completeLabel = tabId === "completed" ? "Mark open" : "Mark completed";
-    const completeTasks = () => void bulkComplete(selectedTasks);
-    const deleteTasks = () => void bulkDelete(selectedTasks);
-
-    const actions: PortalAdaptiveAction[] = [
-      {
-        id: "complete",
-        keepPriority: 5,
-        node: (
-          <Button
-            type="button"
-            variant="outline"
-            className={TASK_BULK_BAR_BTN}
-            data-attr="manager-task-mark-completed"
-            onClick={completeTasks}
-          >
-            {completeLabel}
-          </Button>
-        ),
-        menuItem: (
-          <DropdownMenuItem data-attr="manager-task-mark-completed" onSelect={completeTasks}>
-            {completeLabel}
-          </DropdownMenuItem>
-        ),
-      },
-    ];
-
-    if (selectedTasks.length === 1) {
-      const task = selectedTasks[0]!;
-      const editTask = () => beginEdit(task);
-      actions.push({
-        id: "edit",
-        keepPriority: 4,
-        node: (
-          <Button
-            type="button"
-            variant="outline"
-            className={TASK_BULK_BAR_BTN}
-            data-attr="manager-task-edit-selected"
-            onClick={editTask}
-          >
-            Edit
-          </Button>
-        ),
-        menuItem: (
-          <DropdownMenuItem data-attr="manager-task-edit-selected" onSelect={editTask}>
-            Edit
-          </DropdownMenuItem>
-        ),
-      });
-    }
-
-    actions.push({
-      id: "delete",
-      keepPriority: 0,
-      node: (
-        <Button
-          type="button"
-          variant="outline"
-          className={cn(TASK_BULK_BAR_BTN, "text-danger")}
-          data-attr="manager-task-delete-selected"
-          onClick={deleteTasks}
-        >
-          Delete
-        </Button>
-      ),
-      menuItem: (
-        <DropdownMenuItem data-attr="manager-task-delete-selected" onSelect={deleteTasks}>
-          Delete
-        </DropdownMenuItem>
-      ),
-    });
-
-    return (
-      <PortalAdaptiveActionRow
-        actions={actions}
-        moreAriaLabel="More task actions"
-        moreDataAttr="manager-task-bulk-more-actions"
-        gapPx={4}
-      />
-    );
-  }, [selectedTasks, tabId]);
 
   const taskListColumns = [
     { id: "task", header: "Task", cell: (row: TaskListRow) => (row.kind === "task" ? row.task.title : row.request.offerName) },
@@ -580,7 +394,6 @@ export function ManagerTaskList({
   const renderTaskDataList = (rows: TaskListClusterRow[]) => (
     <DataList
       hideColumnHeaders
-      selectable
       rows={rows.map((row) => {
         if (row.kind === "task") {
           const task = row.task;
@@ -590,11 +403,6 @@ export function ManagerTaskList({
             primary: task.title,
             meta: taskRowMetaLine(task) || undefined,
             trailing: taskRowTrailing(task),
-            selected: selectedIds.includes(task.id),
-            onSelectedChange: (selected: boolean) =>
-              setSelectedIds((prev) =>
-                selected ? [...prev, task.id] : prev.filter((id) => id !== task.id),
-              ),
             onClick: () => beginEdit(task),
           };
         }
@@ -610,11 +418,6 @@ export function ManagerTaskList({
           trailing: (
             <Badge tone="info">Service</Badge>
           ),
-          selected: selectedIds.includes(rowId),
-          onSelectedChange: (selected: boolean) =>
-            setSelectedIds((prev) =>
-              selected ? [...prev, rowId] : prev.filter((id) => id !== rowId),
-            ),
           inlineAction: (
             <Link
               href={serviceRequestDetailHref(basePath, bucket, request.id)}
@@ -641,7 +444,6 @@ export function ManagerTaskList({
       return clusters.map((cluster) => (
         <ApplicationHouseholdCluster
           key={cluster.key}
-          headerLeading={renderClusterHeaderCheckbox(cluster.rows, cluster.propertyLabel || "tasks")}
           header={
             <>
               <span className="truncate text-xs font-semibold text-foreground">{cluster.propertyLabel}</span>
@@ -657,7 +459,6 @@ export function ManagerTaskList({
     return clusters.map((cluster) => (
       <ApplicationHouseholdCluster
         key={cluster.key}
-        headerLeading={renderClusterHeaderCheckbox(cluster.rows, cluster.residentLabel || "tasks")}
         header={
           <>
             <span className="truncate text-xs font-semibold text-foreground">{cluster.residentLabel}</span>
@@ -676,20 +477,6 @@ export function ManagerTaskList({
       </ApplicationHouseholdCluster>
     ));
   }
-
-  const allVisibleIds = useMemo(() => visibleRows.map(taskListRowId), [visibleRows]);
-  const allSelected =
-    allVisibleIds.length > 0 && allVisibleIds.every((id) => selectedIdSet.has(id));
-  const someSelected = allVisibleIds.some((id) => selectedIdSet.has(id));
-
-  const toggleSelectAll = useCallback(() => {
-    setSelectedIds((prev) => {
-      if (allVisibleIds.length > 0 && allVisibleIds.every((id) => prev.includes(id))) {
-        return prev.filter((id) => !allVisibleIds.includes(id));
-      }
-      return [...new Set([...prev, ...allVisibleIds])];
-    });
-  }, [allVisibleIds]);
 
   function openAddTask() {
     setEditingId(null);
@@ -764,13 +551,6 @@ export function ManagerTaskList({
 
         {!loading && visibleRows.length > 0 ? (
           <>
-            <PortalListSelectAllRow
-              allSelected={allSelected}
-              someSelected={someSelected}
-              onToggle={toggleSelectAll}
-              label="Select all"
-              dataAttr="manager-task-select-all"
-            />
             <div
               className={cn("space-y-3", tabId === "completed" && "opacity-80")}
               data-attr="manager-task-groups"
@@ -786,12 +566,6 @@ export function ManagerTaskList({
           : null}
       </div>
 
-      {selectedTasks.length > 0 ? (
-        <BulkActionBar count={selectedTasks.length} hideCount variant="payments">
-          {bulkSelectionActions}
-        </BulkActionBar>
-      ) : null}
-
       {userId ? (
         <ManagerTaskFormModal
           open={addOpen}
@@ -803,7 +577,6 @@ export function ManagerTaskList({
           editingId={editingId}
           propertyTick={propertyTick}
           onSaved={async (prefill) => {
-            setSelectedIds([]);
             await refresh();
             showToast(editingId ? "Task updated." : "Task saved.");
             if (prefill) {

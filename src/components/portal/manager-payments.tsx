@@ -272,7 +272,6 @@ export function ManagerPayments({
   const [checkingManualPayments, setCheckingManualPayments] = useState(false);
   const [listSort, setListSort] = useState<PaymentListSort>(DEFAULT_PAYMENT_LIST_SORT);
   const [groupMode, setGroupMode] = useState<PortalListGroupMode>(DEFAULT_PORTAL_LIST_GROUP_MODE);
-  const [searchQuery, setSearchQuery] = useState("");
   // Per-payment reminder lists show the full saved default schedule, so bypass
   // the Inbox schedule-visibility window (which only gates Inbox → Schedule).
   const { messages: scheduledMessages, settings: reminderSettings, reload: reloadSchedule, setSettings: setReminderSettings } = useScheduledPaymentMessages({ includeHidden: true });
@@ -507,17 +506,8 @@ export function ManagerPayments({
 
   const outgoingRowsForBucket = useMemo(() => {
     const filtered = outgoingRowsForCounts.filter((row) => row.bucket === bucket);
-    const sorted = sortOutgoingRows(filtered, bucket, listSort);
-    const q = searchQuery.trim().toLowerCase();
-    if (!q) return sorted;
-    return sorted.filter((row) => {
-      const hay = [row.payeeLabel, row.propertyName, row.chargeTitle, row.amountLabel]
-        .filter(Boolean)
-        .join(" ")
-        .toLowerCase();
-      return hay.includes(q);
-    });
-  }, [outgoingRowsForCounts, bucket, listSort, searchQuery]);
+    return sortOutgoingRows(filtered, bucket, listSort);
+  }, [outgoingRowsForCounts, bucket, listSort]);
 
   const propertyOptionsForFilter = propertyOptions;
 
@@ -540,17 +530,8 @@ export function ManagerPayments({
       return true;
     });
 
-    const sorted = sortLedgerRows(filtered, bucket, listSort);
-    const q = searchQuery.trim().toLowerCase();
-    if (!q) return sorted;
-    return sorted.filter((row) => {
-      const hay = [row.residentName, row.propertyName, row.chargeTitle, row.balanceDue]
-        .filter(Boolean)
-        .join(" ")
-        .toLowerCase();
-      return hay.includes(q);
-    });
-  }, [mergedRows, bucket, propertyFilters, residentFilters, listSort, searchQuery]);
+    return sortLedgerRows(filtered, bucket, listSort);
+  }, [mergedRows, bucket, propertyFilters, residentFilters, listSort]);
 
   const filterTouchCount = paymentFilterTouches(propertyFilters, residentFilters, listSort, groupMode);
 
@@ -949,12 +930,6 @@ export function ManagerPayments({
       <PortalListControlStack
         className="mb-2 max-lg:mb-2"
         destinationRow={paymentsListDestinations}
-        search={{
-          value: searchQuery,
-          onChange: setSearchQuery,
-          placeholder: "Search charges",
-          dataAttr: "payments-search",
-        }}
         activeFilterChips={<PortalActiveFilterChips chips={activeFilterChips} />}
       />
       {paymentsPanel}

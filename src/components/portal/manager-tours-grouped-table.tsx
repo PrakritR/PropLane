@@ -46,13 +46,13 @@ export function ManagerToursGroupedTable({
   onToggleCluster,
   onRowClick,
   showPropertyColumn = true,
-  selectable = true,
+  selectable = false,
   tourReminders = [],
 }: {
   clusters: ManagerTourListCluster[] | ManagerTourPropertyCluster[];
   groupMode: PortalListGroupMode;
-  selectedIds: Set<string>;
-  onToggleSelected: (id: string) => void;
+  selectedIds?: Set<string>;
+  onToggleSelected?: (id: string) => void;
   onToggleCluster?: (ids: readonly string[]) => void;
   onRowClick: (row: ManagerTourRow) => void;
   /** Hide the property column when the list is scoped to one listing. */
@@ -83,8 +83,6 @@ export function ManagerToursGroupedTable({
         data: row,
         primary: row.whenLabel,
         meta: tourLocationMeta(row, showPropertyColumn, groupMode, tourReminders),
-        selected: selectedIds.has(row.id),
-        onSelectedChange: () => onToggleSelected(row.id),
         onClick: () => onRowClick(row),
       }))}
       columns={[
@@ -99,7 +97,7 @@ export function ManagerToursGroupedTable({
   );
 
   const renderClusterCheckbox = (rows: ManagerTourRow[], label: string) =>
-    onToggleCluster && selectable ? (
+    onToggleCluster && selectable && selectedIds ? (
       <PortalListClusterSelectCheckbox
         ids={rows.map((row) => row.id)}
         selectedIds={selectedIds}
