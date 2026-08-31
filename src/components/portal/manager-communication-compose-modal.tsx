@@ -3,15 +3,15 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Modal, ModalFooter } from "@/components/ui/modal";
-import { CheckboxMultiSelect, type CheckboxMultiSelectGroup } from "@/components/ui/checkbox-multi-select";
+import { type CheckboxMultiSelectGroup } from "@/components/ui/checkbox-multi-select";
 import {
   defaultPortalMessageChannelSelection,
   defaultPortalMessageScheduleAt,
   PORTAL_MESSAGE_COMPOSE_MODAL_PANEL_CLASS,
-  PORTAL_MESSAGE_COMPOSE_SELECT_LABEL_CLASS,
   PORTAL_MESSAGE_COMPOSE_TWO_COL_CLASS,
   PortalMessageBodyField,
   PortalMessageComposeModalBody,
+  PortalMessageComposeRecipientSection,
   PortalMessageScheduleFields,
   PortalMessageSendViaDropdown,
   PortalMessageSubjectField,
@@ -782,35 +782,26 @@ export function ManagerCommunicationComposeModal({
       }
     >
       <PortalMessageComposeModalBody>
-        <div className={PORTAL_MESSAGE_COMPOSE_TWO_COL_CLASS}>
-          <CheckboxMultiSelect
-            label="To"
-            labelClassName={PORTAL_MESSAGE_COMPOSE_SELECT_LABEL_CLASS}
-            options={sectionOptions}
-            selected={selectedCategories}
-            onChange={onCategoriesChange}
-            dataAttr="communication-compose-category"
-          />
-          <CheckboxMultiSelect
-            label="Which people"
-            labelClassName={PORTAL_MESSAGE_COMPOSE_SELECT_LABEL_CLASS}
-            groups={personGroups}
-            selected={selectedKeys}
-            onChange={(next) => setSelectedKeys(next as PersonKey[])}
-            disabled={directoryCategories.length === 0 || adminOnlyDirectory}
-            searchPlaceholder="Search people…"
-            emptyMenuText={
-              selectedCategories.length === 0
-                ? "Pick a section first"
-                : adminOnlyDirectory
-                  ? "PropLane admin is the recipient"
-                  : directoryCategories.length === 0
-                    ? "Other uses the field below"
-                    : "No contacts in selected sections"
-            }
-            dataAttr="communication-compose-person"
-          />
-        </div>
+        <PortalMessageComposeRecipientSection
+          sectionOptions={sectionOptions}
+          selectedCategories={selectedCategories}
+          onCategoriesChange={onCategoriesChange}
+          sectionDataAttr="communication-compose-category"
+          personGroups={personGroups}
+          selectedKeys={selectedKeys}
+          onPeopleChange={(next) => setSelectedKeys(next as PersonKey[])}
+          peopleDisabled={directoryCategories.length === 0 || adminOnlyDirectory}
+          peopleEmptyMenuText={
+            selectedCategories.length === 0
+              ? "Pick a section first"
+              : adminOnlyDirectory
+                ? "PropLane admin is the recipient"
+                : directoryCategories.length === 0
+                  ? "Other uses the field below"
+                  : "No contacts in selected sections"
+          }
+          peopleDataAttr="communication-compose-person"
+        />
 
         {selectedCategories.includes("other") ? (
           <div data-attr="communication-compose-other-wrap">

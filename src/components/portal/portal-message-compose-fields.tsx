@@ -3,6 +3,7 @@
 import type { ReactNode } from "react";
 import {
   CheckboxMultiSelect,
+  type CheckboxMultiSelectGroup,
   type CheckboxMultiSelectOption,
 } from "@/components/ui/checkbox-multi-select";
 import { Input, Textarea } from "@/components/ui/input";
@@ -30,8 +31,64 @@ export function portalMessageFieldLabel(className?: string) {
 /** Match Subject/Message labels on To / Which people multi-selects. */
 export const PORTAL_MESSAGE_COMPOSE_SELECT_LABEL_CLASS = portalMessageFieldLabel();
 
-/** Two-column row for compose dropdowns (To / Which people, Subject / Send via). */
+/** Two-column row for compose dropdowns (Subject / Send via). */
 export const PORTAL_MESSAGE_COMPOSE_TWO_COL_CLASS = "grid min-w-0 grid-cols-1 gap-3 sm:grid-cols-2";
+
+/** To: section filter + people picker in one labeled block (new message / SMS compose). */
+export function PortalMessageComposeRecipientSection({
+  sectionOptions,
+  selectedCategories,
+  onCategoriesChange,
+  sectionDataAttr,
+  personGroups,
+  selectedKeys,
+  onPeopleChange,
+  peopleDisabled = false,
+  peopleSearchPlaceholder = "Search people…",
+  peopleEmptyMenuText,
+  peopleDataAttr,
+}: {
+  sectionOptions: CheckboxMultiSelectOption[];
+  selectedCategories: string[];
+  onCategoriesChange: (next: string[]) => void;
+  sectionDataAttr: string;
+  personGroups: CheckboxMultiSelectGroup[];
+  selectedKeys: string[];
+  onPeopleChange: (next: string[]) => void;
+  peopleDisabled?: boolean;
+  peopleSearchPlaceholder?: string;
+  peopleEmptyMenuText: string;
+  peopleDataAttr: string;
+}) {
+  return (
+    <fieldset className="min-w-0 border-0 p-0">
+      <legend className={PORTAL_MESSAGE_COMPOSE_SELECT_LABEL_CLASS}>To</legend>
+      <div className="mt-1 space-y-2">
+        <CheckboxMultiSelect
+          label="Recipient sections"
+          hideLabel
+          labelClassName={PORTAL_MESSAGE_COMPOSE_SELECT_LABEL_CLASS}
+          options={sectionOptions}
+          selected={selectedCategories}
+          onChange={onCategoriesChange}
+          dataAttr={sectionDataAttr}
+        />
+        <CheckboxMultiSelect
+          label="Which people"
+          hideLabel
+          labelClassName={PORTAL_MESSAGE_COMPOSE_SELECT_LABEL_CLASS}
+          groups={personGroups}
+          selected={selectedKeys}
+          onChange={onPeopleChange}
+          disabled={peopleDisabled}
+          searchPlaceholder={peopleSearchPlaceholder}
+          emptyMenuText={peopleEmptyMenuText}
+          dataAttr={peopleDataAttr}
+        />
+      </div>
+    </fieldset>
+  );
+}
 
 export function portalMessageSendViaToMode(selected: string[]): PortalMessageSendViaMode {
   const { viaEmail, viaSms } = portalMessageChannelsFromSelection(selected);
