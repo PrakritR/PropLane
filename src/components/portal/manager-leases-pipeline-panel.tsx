@@ -5,12 +5,17 @@ import { Button } from "@/components/ui/button";
 import { PortalRecordListSurface } from "@/components/portal/portal-record-list-surface";
 import { PortalBulkMessageCarouselModal } from "@/components/portal/portal-bulk-message-carousel-modal";
 import { useAppUi } from "@/components/providers/app-ui-provider";
-import {
-  RESIDENT_DETAIL_HEADER_ACTION_BTN,
-  RESIDENT_DETAIL_HEADER_ACTIONS_ROW,
-} from "@/components/portal/portal-metrics";
 import { PortalRecordShareLinkButton } from "@/components/portal/portal-record-share-link-button";
-import { PortalSectionActionRow } from "@/components/portal/portal-section-action-row";
+import {
+  PortalFooterFitActionRow,
+  type PortalFooterFitAction,
+} from "@/components/portal/portal-footer-fit-action-row";
+import {
+  RESIDENT_DOCUMENTS_DETAIL_FOOTER_BTN,
+  ResidentDocumentsDetailFooter,
+} from "@/components/portal/portal-data-table";
+import { PortalPageScrollBody } from "@/lib/portal-page-chrome-layout";
+import { ChevronDown } from "lucide-react";
 import { deliverPortalInboxMessage } from "@/lib/portal-message-delivery";
 import { buildLeaseReadyForResidentMessage } from "@/lib/resident-portal-login-copy";
 import { PortalRecordDetailPage } from "@/components/portal/portal-record-detail-page";
@@ -27,7 +32,6 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
-  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import type { ManagerLeaseTab } from "@/data/demo-portal";
@@ -631,7 +635,7 @@ export function ManagerLeasesPipelinePanel({
     );
   };
 
-  const renderLeaseHeaderActions = (row: LeasePipelineRow) => {
+  const renderLeaseDetailFooterActions = (row: LeasePipelineRow) => {
     const generation = generationGate(row);
     const canEditDocument = leaseAllowsManagerDocumentEdits(row);
     const canEditGeneratedBody = leaseRowAllowsGeneratedBodyEdit(row);
@@ -641,343 +645,350 @@ export function ManagerLeasesPipelinePanel({
       !residentAccountEmails.has(row.residentEmail.trim().toLowerCase());
 
     const hasDocument = hasLeaseDocument(row);
-    // Every reason `sendLeaseToResident` would refuse, in the same order, so the
-    // manager gets a sentence rather than a mystery.
     const sendBlockedReason = !residentAccountEmails.has(row.residentEmail.trim().toLowerCase())
       ? "Resident must create their PropLane resident account before you can send the lease."
       : !row.generatedHtml && !row.managerUploadedPdf?.dataUrl
         ? "Generate or upload a lease document first."
-        : // Unapproved applicant, a document that disagrees with the record, or
-          // an import nobody has confirmed. `sendLeaseToResident` refuses on the
-          // same three; this is the affordance.
-          sendGateBlockerForRender(row);
+        : sendGateBlockerForRender(row);
     const showSendToResident = row.status === "Manager Review" || row.status === "Draft";
     const showDelete = row.status !== "Fully Signed";
     const showMoveToReview = row.status === "Resident Signature Pending";
     const showManagerSign = !row.managerSignature && residentHasSignedLease(row);
     const showSigningReminder = row.status === "Resident Signature Pending";
     const showRenewals = hasBothLeaseSignatures(row) && row.status === "Fully Signed";
-
+    const showReviewImport = Boolean(row.uploadedLeaseParse);
+    const importNeedsReview = leaseNeedsUploadedLeaseReviewAction(row);
+    const reviewImportLabel = importNeedsReview ? "Review import" : "Imported lease";
     const uploadLabel = pendingRowId === row.id ? "Uploading…" : hasDocument ? "Upload" : "Upload PDF";
+    const regenerateLabel =
+      generatingRowId === row.id ? "Generating…" : hasLeaseDocument(row) ? "Regenerate" : "Generate lease";
+    const actionBtnClass = RESIDENT_DOCUMENTS_DETAIL_FOOTER_BTN;
+    const deleteBtnClass = `${actionBtnClass} border-rose-200 text-rose-800 hover:bg-[var(--status-overdue-bg)] portal-danger-outline`;
 
     const triggerUpload = () => {
-      // Not a render-phase write: triggerUpload is only ever passed as onClick/onSelect.
-      // The compiler flags it because the closure is created during render.
       // eslint-disable-next-line react-hooks/refs
       uploadTargetRowIdRef.current = row.id;
       uploadRef.current?.click();
     };
 
-    const signButton = showManagerSign ? (
-      <Button
-        type="button"
-        variant="outline"
-        className={RESIDENT_DETAIL_HEADER_ACTION_BTN}
-        data-attr="lease-manager-sign"
-        onClick={() => onManagerSign(row)}
-      >
-        Sign
-      </Button>
-    ) : showSigningReminder ? (
-      <Button
-        type="button"
-        variant="outline"
-        className={RESIDENT_DETAIL_HEADER_ACTION_BTN}
-        data-attr="lease-signing-reminder"
-        disabled={reminderBusyForRow === row.id}
-        title="Send signing reminder"
-        onClick={() => openLeaseSigningReminderPreview(row)}
-      >
-        {reminderBusyForRow === row.id ? "Sending…" : "Send reminder"}
-      </Button>
-    ) : null;
+    const showEditMenu =
+      canEditGeneratedBody || hasDocument || showGenerate || canEditDocument || showReviewImport;
 
-    const shareButton = hasDocument ? (
-      <PortalRecordShareLinkButton
-        kind="lease"
-        recordId={row.id}
-        className={RESIDENT_DETAIL_HEADER_ACTION_BTN}
-        dataAttr="lease-share"
-        recordTitle={row.residentName?.trim() || row.unit?.trim() || row.propertyId}
-      />
-    ) : null;
+    const actions: PortalFooterFitAction[] = [];
 
-    const sendToResidentButton = showSendToResident ? (
-      // Disabled only while this row's send is in flight, never for a gate
-      // reason. Disabling for a reason makes the click handler — the only thing
-      // that states that reason and opens the review which clears it —
-      // unreachable, and `title` is invisible on touch, so a blocked Send became
-      // a dead button with no sentence anywhere. The gate is
-      // `sendLeaseToResident`, never the button ("greying out a button is not
-      // the gate"), so an enabled Send that explains itself is strictly safer.
-      <Button
-        type="button"
-        variant="outline"
-        className={RESIDENT_DETAIL_HEADER_ACTION_BTN}
-        data-attr="lease-send-resident"
-        disabled={sendingToResidentRowId === row.id}
-        title={sendBlockedReason ?? undefined}
-        onClick={() => openSendLeasePreview(row)}
-      >
-        {sendingToResidentRowId === row.id ? "Sending…" : "Send"}
-      </Button>
-    ) : null;
-
-    const editButton = canEditGeneratedBody ? (
-      <Button
-        type="button"
-        variant="outline"
-        className={RESIDENT_DETAIL_HEADER_ACTION_BTN}
-        data-attr="lease-edit"
-        onClick={() => setEditLeaseRowId(row.id)}
-      >
-        Edit
-      </Button>
-    ) : null;
-
-    const downloadButton = hasDocument ? (
-      <Button
-        type="button"
-        variant="outline"
-        className={RESIDENT_DETAIL_HEADER_ACTION_BTN}
-        data-attr="lease-download"
-        onClick={() => onDownload(row)}
-      >
-        Download
-      </Button>
-    ) : null;
-
-    const generateButton = showGenerate ? (
-      <Button
-        type="button"
-        variant="outline"
-        className={RESIDENT_DETAIL_HEADER_ACTION_BTN}
-        data-attr="lease-generate"
-        disabled={generatingRowId === row.id || !generation.ok}
-        title={generation.ok ? undefined : generation.error}
-        onClick={() => runGenerateLease(row)}
-      >
-        {generatingRowId === row.id ? "Generating…" : hasLeaseDocument(row) ? "Regenerate" : "Generate lease"}
-      </Button>
-    ) : null;
-
-    const showReviewImport = Boolean(row.uploadedLeaseParse);
-    // The CTA predicate, not the send gate — see lease-pipeline-storage.
-    const importNeedsReview = leaseNeedsUploadedLeaseReviewAction(row);
-    const reviewImportLabel = importNeedsReview ? "Review import" : "Imported lease";
-    const reviewImportButton = showReviewImport ? (
-      <Button
-        type="button"
-        variant={importNeedsReview ? "primary" : "outline"}
-        className={RESIDENT_DETAIL_HEADER_ACTION_BTN}
-        data-attr="lease-review-import"
-        onClick={() => setImportReviewRowId(row.id)}
-      >
-        {reviewImportLabel}
-      </Button>
-    ) : null;
-
-    const uploadButton = canEditDocument ? (
-      <Button
-        type="button"
-        variant="outline"
-        className={RESIDENT_DETAIL_HEADER_ACTION_BTN}
-        onClick={triggerUpload}
-        disabled={pendingRowId === row.id}
-      >
-        {uploadLabel}
-      </Button>
-    ) : null;
-
-    const deleteButton = showDelete ? (
-      <Button
-        type="button"
-        variant="outline"
-        className={`${RESIDENT_DETAIL_HEADER_ACTION_BTN} border-rose-200 text-rose-800 hover:bg-[var(--status-overdue-bg)] portal-danger-outline`}
-        data-attr="lease-delete"
-        onClick={() => onDeleteLease(row)}
-      >
-        Delete
-      </Button>
-    ) : null;
-
-    const moveToReviewButton = showMoveToReview ? (
-      <Button
-        type="button"
-        variant="outline"
-        className={RESIDENT_DETAIL_HEADER_ACTION_BTN}
-        data-attr="lease-move-manager-review"
-        onClick={() => onMoveToManagerReview(row)}
-      >
-        Move to review
-      </Button>
-    ) : null;
-
-    const renewButton = showRenewals ? (
-      <Button
-        type="button"
-        variant="outline"
-        className={RESIDENT_DETAIL_HEADER_ACTION_BTN}
-        data-attr="lease-renew"
-        onClick={() => {
-          setRenewInitialTerm(undefined);
-          setRenewLeaseRow(row);
-        }}
-      >
-        Renew lease
-      </Button>
-    ) : null;
-
-    const extendButton = showRenewals ? (
-      <Button
-        type="button"
-        variant="outline"
-        className={RESIDENT_DETAIL_HEADER_ACTION_BTN}
-        onClick={() => setAmendLeaseRow(row)}
-      >
-        Extend move-out
-      </Button>
-    ) : null;
-
-    const emailSetupButton = needsAccountEmail ? (
-      <Button
-        type="button"
-        variant="outline"
-        className={`${RESIDENT_DETAIL_HEADER_ACTION_BTN} bg-primary/[0.06] text-primary hover:bg-primary/[0.12]`}
-        disabled={emailBusyForRow === row.id}
-        onClick={() => sendAccountEmail(row)}
-      >
-        {emailBusyForRow === row.id ? "Sending…" : "Email setup"}
-      </Button>
-    ) : null;
-
-    const hasMobileOverflow =
-      hasDocument ||
-      canEditDocument ||
-      showReviewImport ||
-      showDelete ||
-      showGenerate ||
-      showMoveToReview ||
-      showRenewals ||
-      needsAccountEmail;
-
-    const mobileOverflowMenu = hasMobileOverflow ? (
-      <DropdownMenu>
-        <DropdownMenuTrigger asChild>
+    if (showSendToResident) {
+      actions.push({
+        id: "send",
+        button: (
           <Button
             type="button"
             variant="outline"
-            className={`${RESIDENT_DETAIL_HEADER_ACTION_BTN} max-md:px-2.5 max-md:text-base`}
-            data-attr="lease-more-actions"
-            aria-label="More lease actions"
+            className={actionBtnClass}
+            data-attr="lease-send-resident"
+            disabled={sendingToResidentRowId === row.id}
+            title={sendBlockedReason ?? undefined}
+            onClick={() => openSendLeasePreview(row)}
           >
-            …
+            {sendingToResidentRowId === row.id ? "Sending…" : "Send"}
           </Button>
-        </DropdownMenuTrigger>
-        <DropdownMenuContent align="end" backdrop>
-          {hasDocument ? (
-            <DropdownMenuItem data-attr="lease-download" onSelect={() => onDownload(row)}>
-              Download
-            </DropdownMenuItem>
-          ) : null}
-          {hasDocument ? (
-            <PortalRecordShareLinkButton
-              kind="lease"
-              recordId={row.id}
-              menuItem
-              dataAttr="lease-share-menu"
-              recordTitle={row.residentName?.trim() || row.unit?.trim() || row.propertyId}
-            />
-          ) : null}
-          {canEditDocument ? (
-            <DropdownMenuItem
-              data-attr="lease-upload"
-              disabled={pendingRowId === row.id}
-              onSelect={triggerUpload}
-            >
-              {uploadLabel}
-            </DropdownMenuItem>
-          ) : null}
-          {showReviewImport ? (
-            <DropdownMenuItem data-attr="lease-review-import" onSelect={() => setImportReviewRowId(row.id)}>
-              {reviewImportLabel}
-            </DropdownMenuItem>
-          ) : null}
-          {showDelete ? (
-            <>
-              <DropdownMenuSeparator />
-              <DropdownMenuItem
-                data-attr="lease-delete"
-                className="text-[var(--status-overdue-fg)] focus:text-[var(--status-overdue-fg)]"
-                onSelect={() => onDeleteLease(row)}
+        ),
+        menuItem: (
+          <DropdownMenuItem
+            data-attr="lease-send-resident"
+            disabled={sendingToResidentRowId === row.id}
+            onSelect={() => openSendLeasePreview(row)}
+          >
+            {sendingToResidentRowId === row.id ? "Sending…" : "Send"}
+          </DropdownMenuItem>
+        ),
+      });
+    }
+
+    if (hasDocument) {
+      actions.push({
+        id: "share",
+        button: (
+          <PortalRecordShareLinkButton
+            kind="lease"
+            recordId={row.id}
+            className={actionBtnClass}
+            dataAttr="lease-share"
+            recordTitle={row.residentName?.trim() || row.unit?.trim() || row.propertyId}
+          />
+        ),
+        menuItem: (
+          <PortalRecordShareLinkButton
+            kind="lease"
+            recordId={row.id}
+            menuItem
+            dataAttr="lease-share-menu"
+            recordTitle={row.residentName?.trim() || row.unit?.trim() || row.propertyId}
+          />
+        ),
+      });
+    }
+
+    if (showEditMenu) {
+      actions.push({
+        id: "edit",
+        button: (
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                type="button"
+                variant="outline"
+                className={actionBtnClass}
+                data-attr="lease-edit-menu"
               >
-                Delete
+                Edit
+                <ChevronDown className="ml-1 h-4 w-4 shrink-0 opacity-60" aria-hidden />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent side="top" align="start" className="z-[60] min-w-[12rem]" backdrop>
+              {canEditGeneratedBody ? (
+                <DropdownMenuItem data-attr="lease-edit" onSelect={() => setEditLeaseRowId(row.id)}>
+                  Edit document
+                </DropdownMenuItem>
+              ) : null}
+              {hasDocument ? (
+                <DropdownMenuItem data-attr="lease-download" onSelect={() => onDownload(row)}>
+                  Download
+                </DropdownMenuItem>
+              ) : null}
+              {showGenerate ? (
+                <DropdownMenuItem
+                  data-attr="lease-generate"
+                  disabled={generatingRowId === row.id || !generation.ok}
+                  onSelect={() => runGenerateLease(row)}
+                >
+                  {regenerateLabel}
+                </DropdownMenuItem>
+              ) : null}
+              {canEditDocument ? (
+                <DropdownMenuItem
+                  data-attr="lease-upload"
+                  disabled={pendingRowId === row.id}
+                  onSelect={triggerUpload}
+                >
+                  {uploadLabel}
+                </DropdownMenuItem>
+              ) : null}
+              {showReviewImport ? (
+                <DropdownMenuItem data-attr="lease-review-import" onSelect={() => setImportReviewRowId(row.id)}>
+                  {reviewImportLabel}
+                </DropdownMenuItem>
+              ) : null}
+            </DropdownMenuContent>
+          </DropdownMenu>
+        ),
+        menuItem: (
+          <>
+            {canEditGeneratedBody ? (
+              <DropdownMenuItem data-attr="lease-edit" onSelect={() => setEditLeaseRowId(row.id)}>
+                Edit document
               </DropdownMenuItem>
-            </>
-          ) : null}
-          {showGenerate ? (
-            <DropdownMenuItem
-              data-attr="lease-generate"
-              disabled={generatingRowId === row.id || !generation.ok}
-              onSelect={() => runGenerateLease(row)}
-            >
-              {generatingRowId === row.id ? "Generating…" : hasLeaseDocument(row) ? "Regenerate" : "Generate lease"}
-            </DropdownMenuItem>
-          ) : null}
-          {showMoveToReview ? (
-            <DropdownMenuItem data-attr="lease-move-manager-review" onSelect={() => onMoveToManagerReview(row)}>
-              Move to review
-            </DropdownMenuItem>
-          ) : null}
-          {showRenewals ? (
-            <>
+            ) : null}
+            {hasDocument ? (
+              <DropdownMenuItem data-attr="lease-download" onSelect={() => onDownload(row)}>
+                Download
+              </DropdownMenuItem>
+            ) : null}
+            {showGenerate ? (
               <DropdownMenuItem
-                data-attr="lease-renew"
-                onSelect={() => {
-                  setRenewInitialTerm(undefined);
-                  setRenewLeaseRow(row);
-                }}
+                data-attr="lease-generate"
+                disabled={generatingRowId === row.id || !generation.ok}
+                onSelect={() => runGenerateLease(row)}
               >
-                Renew lease
+                {regenerateLabel}
               </DropdownMenuItem>
-              <DropdownMenuItem onSelect={() => setAmendLeaseRow(row)}>Extend move-out</DropdownMenuItem>
-            </>
-          ) : null}
-          {needsAccountEmail ? (
-            <DropdownMenuItem disabled={emailBusyForRow === row.id} onSelect={() => void sendAccountEmail(row)}>
-              {emailBusyForRow === row.id ? "Sending…" : "Email setup"}
-            </DropdownMenuItem>
-          ) : null}
-        </DropdownMenuContent>
-      </DropdownMenu>
-    ) : null;
+            ) : null}
+            {canEditDocument ? (
+              <DropdownMenuItem
+                data-attr="lease-upload"
+                disabled={pendingRowId === row.id}
+                onSelect={triggerUpload}
+              >
+                {uploadLabel}
+              </DropdownMenuItem>
+            ) : null}
+            {showReviewImport ? (
+              <DropdownMenuItem data-attr="lease-review-import" onSelect={() => setImportReviewRowId(row.id)}>
+                {reviewImportLabel}
+              </DropdownMenuItem>
+            ) : null}
+          </>
+        ),
+      });
+    }
+
+    if (showManagerSign) {
+      actions.push({
+        id: "sign",
+        button: (
+          <Button
+            type="button"
+            variant="outline"
+            className={actionBtnClass}
+            data-attr="lease-manager-sign"
+            onClick={() => onManagerSign(row)}
+          >
+            Sign
+          </Button>
+        ),
+        menuItem: (
+          <DropdownMenuItem data-attr="lease-manager-sign" onSelect={() => onManagerSign(row)}>
+            Sign
+          </DropdownMenuItem>
+        ),
+      });
+    } else if (showSigningReminder) {
+      actions.push({
+        id: "reminder",
+        button: (
+          <Button
+            type="button"
+            variant="outline"
+            className={actionBtnClass}
+            data-attr="lease-signing-reminder"
+            disabled={reminderBusyForRow === row.id}
+            title="Send signing reminder"
+            onClick={() => openLeaseSigningReminderPreview(row)}
+          >
+            {reminderBusyForRow === row.id ? "Sending…" : "Send reminder"}
+          </Button>
+        ),
+        menuItem: (
+          <DropdownMenuItem
+            data-attr="lease-signing-reminder"
+            disabled={reminderBusyForRow === row.id}
+            onSelect={() => openLeaseSigningReminderPreview(row)}
+          >
+            {reminderBusyForRow === row.id ? "Sending…" : "Send reminder"}
+          </DropdownMenuItem>
+        ),
+      });
+    }
+
+    if (showMoveToReview) {
+      actions.push({
+        id: "move-review",
+        button: (
+          <Button
+            type="button"
+            variant="outline"
+            className={actionBtnClass}
+            data-attr="lease-move-manager-review"
+            onClick={() => onMoveToManagerReview(row)}
+          >
+            Move to review
+          </Button>
+        ),
+        menuItem: (
+          <DropdownMenuItem data-attr="lease-move-manager-review" onSelect={() => onMoveToManagerReview(row)}>
+            Move to review
+          </DropdownMenuItem>
+        ),
+      });
+    }
+
+    if (showRenewals) {
+      actions.push({
+        id: "renew",
+        button: (
+          <Button
+            type="button"
+            variant="outline"
+            className={actionBtnClass}
+            data-attr="lease-renew"
+            onClick={() => {
+              setRenewInitialTerm(undefined);
+              setRenewLeaseRow(row);
+            }}
+          >
+            Renew lease
+          </Button>
+        ),
+        menuItem: (
+          <DropdownMenuItem
+            data-attr="lease-renew"
+            onSelect={() => {
+              setRenewInitialTerm(undefined);
+              setRenewLeaseRow(row);
+            }}
+          >
+            Renew lease
+          </DropdownMenuItem>
+        ),
+      });
+      actions.push({
+        id: "extend",
+        button: (
+          <Button type="button" variant="outline" className={actionBtnClass} onClick={() => setAmendLeaseRow(row)}>
+            Extend move-out
+          </Button>
+        ),
+        menuItem: <DropdownMenuItem onSelect={() => setAmendLeaseRow(row)}>Extend move-out</DropdownMenuItem>,
+      });
+    }
+
+    if (needsAccountEmail) {
+      actions.push({
+        id: "email-setup",
+        button: (
+          <Button
+            type="button"
+            variant="outline"
+            className={`${actionBtnClass} bg-primary/[0.06] text-primary hover:bg-primary/[0.12]`}
+            disabled={emailBusyForRow === row.id}
+            onClick={() => sendAccountEmail(row)}
+          >
+            {emailBusyForRow === row.id ? "Sending…" : "Email setup"}
+          </Button>
+        ),
+        menuItem: (
+          <DropdownMenuItem disabled={emailBusyForRow === row.id} onSelect={() => void sendAccountEmail(row)}>
+            {emailBusyForRow === row.id ? "Sending…" : "Email setup"}
+          </DropdownMenuItem>
+        ),
+      });
+    }
+
+    if (showDelete) {
+      actions.push({
+        id: "delete",
+        button: (
+          <Button
+            type="button"
+            variant="outline"
+            className={deleteBtnClass}
+            data-attr="lease-delete"
+            onClick={() => onDeleteLease(row)}
+          >
+            Delete
+          </Button>
+        ),
+        menuItem: (
+          <DropdownMenuItem
+            className="text-rose-800 focus:text-rose-800"
+            data-attr="lease-delete"
+            onSelect={() => onDeleteLease(row)}
+          >
+            Delete
+          </DropdownMenuItem>
+        ),
+      });
+    }
+
+    if (actions.length === 0) return null;
 
     return (
-      <div onClick={(e) => e.stopPropagation()} onKeyDown={(e) => e.stopPropagation()} role="presentation">
-        <PortalSectionActionRow variant="header" className={RESIDENT_DETAIL_HEADER_ACTIONS_ROW}>
-          <div className="flex max-w-full flex-nowrap items-center gap-1 md:hidden">
-            {sendToResidentButton}
-            {shareButton}
-            {signButton}
-            {editButton}
-            {mobileOverflowMenu}
-          </div>
-          <div className="hidden max-w-full flex-nowrap items-center gap-1 md:flex">
-            {sendToResidentButton}
-            {shareButton}
-            {signButton}
-            {editButton}
-            {downloadButton}
-            {generateButton}
-            {reviewImportButton}
-            {uploadButton}
-            {moveToReviewButton}
-            {renewButton}
-            {extendButton}
-            {emailSetupButton}
-            {deleteButton}
-          </div>
-        </PortalSectionActionRow>
+      <div
+        className="relative w-full min-w-0 flex-1"
+        onClick={(e) => e.stopPropagation()}
+        onKeyDown={(e) => e.stopPropagation()}
+        role="presentation"
+      >
+        <PortalFooterFitActionRow actions={actions} moreLabel="More lease actions" />
       </div>
     );
   };
@@ -1199,6 +1210,7 @@ export function ManagerLeasesPipelinePanel({
   );
 
   if (leaseIdProp && detailRow) {
+    const detailFooterActions = renderLeaseDetailFooterActions(detailRow);
     return (
       <>
         {leaseModals}
@@ -1211,11 +1223,20 @@ export function ManagerLeasesPipelinePanel({
           hideBackText
           bareHeader
           dataAttrBack="lease-detail-back"
-          inlineActions
-          actions={renderLeaseHeaderActions(detailRow)}
           pinScrollBody
+          scrollBody={false}
+          footerOmitSpacer
+          footer={
+            detailFooterActions ? (
+              <ResidentDocumentsDetailFooter>{detailFooterActions}</ResidentDocumentsDetailFooter>
+            ) : undefined
+          }
         >
-          {renderLeaseRowDetail(detailRow)}
+          <div className="flex min-h-0 flex-1 flex-col">
+            <PortalPageScrollBody className="min-w-0 max-w-full pt-3 pb-[calc(2.75rem+var(--portal-native-bottom-nav-inset,0px)+env(safe-area-inset-bottom,0px))] lg:pb-3">
+              {renderLeaseRowDetail(detailRow)}
+            </PortalPageScrollBody>
+          </div>
         </PortalRecordDetailPage>
       </>
     );
