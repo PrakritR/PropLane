@@ -2742,6 +2742,11 @@ export function ManagerResidents({
         ? "Back to services"
         : "Back to residents";
 
+  const residentDetailViewportFill =
+    resolvedDetailTab === "communication" ||
+    (showResidentTours && resolvedDetailTab === "tours") ||
+    (showResidentApplication && resolvedDetailTab === "application");
+
   const residentDetailPanel =
     selected ? (
                           <div className="flex min-h-0 flex-1 flex-col gap-0">
@@ -2811,8 +2816,7 @@ export function ManagerResidents({
                               {residentLease ? (
                                 <LeaseDocumentPreview
                                   row={residentLease}
-                                  stretch
-                                  className="min-h-0 flex-1"
+                                  flow
                                   suppressApplicationDraft={Boolean(selected.manuallyAdded)}
                                   emptyHint="No lease document yet. Generate or upload one from Manager Review first."
                                 />
@@ -3216,17 +3220,11 @@ export function ManagerResidents({
           hideBackText
           bareHeader
           dataAttrBack="resident-detail-back"
-          // Communication is a fill-height chat; the lease and application tabs scroll
-          // the document inside a bounded preview frame. Without fillBody both overflow a
-          // clipped portal surface with no way to reach the rest of the document.
+          // Communication, tours, and application review fill the viewport; lease scrolls
+          // with the pinned page body via `flow` document preview.
           pinScrollBody
-          scrollBody={false}
-          fillBody={
-            resolvedDetailTab === "communication" ||
-            (showResidentTours && resolvedDetailTab === "tours") ||
-            (showResidentLease && resolvedDetailTab === "lease") ||
-            (showResidentApplication && resolvedDetailTab === "application")
-          }
+          scrollBody={!residentDetailViewportFill}
+          fillBody={residentDetailViewportFill}
         >
           {residentDetailPanel}
         </PortalRecordDetailPage>
