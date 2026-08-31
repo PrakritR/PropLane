@@ -4,10 +4,8 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/input";
 import { Modal, ModalFooter } from "@/components/ui/modal";
-import {
-  CheckboxMultiSelect,
-  type CheckboxMultiSelectGroup,
-} from "@/components/ui/checkbox-multi-select";
+import { type CheckboxMultiSelectGroup } from "@/components/ui/checkbox-multi-select";
+import { PortalMessageComposeRecipientSection } from "@/components/portal/portal-message-compose-fields";
 import { useAppUi } from "@/components/providers/app-ui-provider";
 import type { ManagerSmsResidentConversation } from "@/lib/manager-sms-messages";
 import {
@@ -282,37 +280,31 @@ export function ManagerSmsComposeModal({
             phone to their profile first.
           </p>
         ) : null}
-        <div className="grid gap-3 sm:grid-cols-2">
-          <CheckboxMultiSelect
-            label="To"
-            options={sectionOptions}
-            selected={selectedSections}
-            onChange={(next) =>
-              setSelectedSections(
-                next.filter(
-                  (v): v is SmsComposeSection =>
-                    v === "resident" || v === "applicant",
-                ),
-              )
-            }
-            dataAttr="manager-sms-compose-section"
-          />
-          <CheckboxMultiSelect
-            label="Which people"
-            groups={personGroups}
-            selected={selectedPeople}
-            onChange={setSelectedPeople}
-            disabled={directorySections.length === 0}
-            emptyMenuText={
-              selectedSections.length === 0
-                ? "Pick a section first"
-                : directorySections.length === 0
-                  ? "Pick Residents or Applicants first"
-                  : "No people with phones in selected sections"
-            }
-            dataAttr="manager-sms-compose-person"
-          />
-        </div>
+        <PortalMessageComposeRecipientSection
+          sectionOptions={sectionOptions}
+          selectedCategories={selectedSections}
+          onCategoriesChange={(next) =>
+            setSelectedSections(
+              next.filter(
+                (v): v is SmsComposeSection =>
+                  v === "resident" || v === "applicant",
+              ),
+            )
+          }
+          sectionDataAttr="manager-sms-compose-section"
+          personGroups={personGroups}
+          selectedKeys={selectedPeople}
+          onPeopleChange={setSelectedPeople}
+          peopleDisabled={directorySections.length === 0}
+          peopleEmptyMenuText={
+            selectedSections.length === 0
+              ? "Pick a section first"
+              : directorySections.length === 0
+                ? "Pick Residents or Applicants first"
+                : "No people with phones in selected sections"
+          }
+          peopleDataAttr="manager-sms-compose-person"
+        />
 
         <div>
           <label
