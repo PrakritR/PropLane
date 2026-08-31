@@ -42,7 +42,7 @@ describe("Team is two sidebar entries, not one tabbed page", () => {
 describe("Calendar and Bookings are separate sidebar entries", () => {
   it("lists Calendar and Bookings under Operations", () => {
     const group = PORTAL_NAV_GROUPS.pro.find((g) => g.id === "operations");
-    expect(group?.sections).toEqual(["task-list", "calendar", "bookings", "communication"]);
+    expect(group?.sections).toEqual(["tasks", "calendar", "bookings", "communication"]);
   });
 
   it("Calendar is schedule-only — no in-page tabs", () => {

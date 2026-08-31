@@ -16,7 +16,6 @@ import {
   PortalTableDetailActions,
 } from "@/components/portal/portal-data-table";
 import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
-import { PortalSectionActionRow } from "@/components/portal/portal-section-action-row";
 import { ResidentPortalListBottomBar } from "@/components/portal/resident-portal-list-bottom-bar";
 import type { PortalAdaptiveAction } from "@/components/portal/portal-adaptive-action-row";
 import { PortalRecordDetailPage } from "@/components/portal/portal-record-detail-page";
@@ -279,11 +278,6 @@ export function ResidentPaymentsPanel({
 
   const availableManualChannels = useMemo(
     () => availableManualChannelsForCharges(unpaidPayableCharges),
-    [unpaidPayableCharges],
-  );
-
-  const totalDueCents = useMemo(
-    () => unpaidPayableCharges.reduce((sum, charge) => sum + centsFromLabel(charge.balanceLabel), 0),
     [unpaidPayableCharges],
   );
 
@@ -1211,7 +1205,7 @@ export function ResidentPaymentsPanel({
     <Button
       type="button"
       variant="primary"
-      className={PORTAL_HEADER_ACTION_BTN}
+      className={PORTAL_BULK_BAR_BTN}
       data-attr={selectedPayableIds.length > 0 ? "resident-payments-pay-selected" : "resident-payments-pay-all"}
       onClick={payHeaderAction}
     >
@@ -1219,33 +1213,19 @@ export function ResidentPaymentsPanel({
     </Button>
   ) : null;
 
-  const paymentsHeaderActions = !paymentsUnlocked ? (
-    <>
-      <Button
-        type="button"
-        variant="outline"
-        className={PORTAL_HEADER_ACTION_BTN}
-        disabled
-        onClick={() => showToast("Payments unlock after your application is approved.")}
-      >
-        Payment method
-      </Button>
-      <Button
-        type="button"
-        variant="primary"
-        className={PORTAL_HEADER_ACTION_BTN}
-        disabled
-        onClick={() => showToast("Payments unlock after your application is approved.")}
-      >
-        Pay all
-      </Button>
-    </>
-  ) : showPayActions ? (
-    <>
-      {paymentMethodButton}
-      {payButton}
-    </>
-  ) : null;
+  const paymentsTitleAction = !paymentsUnlocked ? (
+    <Button
+      type="button"
+      variant="outline"
+      className={PORTAL_HEADER_ACTION_BTN}
+      disabled
+      onClick={() => showToast("Payments unlock after your application is approved.")}
+    >
+      Payment method
+    </Button>
+  ) : (
+    paymentMethodButton
+  );
 
   const paySelectionActions = useMemo((): PortalAdaptiveAction[] => {
     if (selectedPayableIds.length === 0) return [];
@@ -1351,27 +1331,6 @@ export function ResidentPaymentsPanel({
         <PortalDataTableEmpty icon="payment" message="No charges yet." variant="stacked" />
       ) : (
         <>
-          {totalDueCents > 0 ? (
-            <div
-              className="mb-4 flex flex-col gap-3 rounded-2xl border border-border bg-card p-4 sm:flex-row sm:items-center sm:justify-between"
-              data-attr="resident-payments-balance-due"
-            >
-              <div>
-                <p className="text-xs font-semibold uppercase tracking-wide text-muted">Balance due</p>
-                <p className="text-2xl font-bold tabular-nums text-foreground">{formatUsd(totalDueCents)}</p>
-                <p className="mt-1 text-sm text-muted">
-                  {unpaidPayableCharges.length} charge{unpaidPayableCharges.length === 1 ? "" : "s"} ready to pay
-                  {availableManualChannels.length > 0
-                    ? ` · ${availableManualChannels.map((c) => residentManualPaymentMethodLabel(c)).join(" · ")} available`
-                    : ""}
-                </p>
-              </div>
-              <p className="text-xs leading-relaxed text-muted sm:max-w-xs">
-                Select charges below, then tap <span className="font-semibold text-foreground">Pay</span> in the
-                bar below.
-              </p>
-            </div>
-          ) : null}
           {showBulkCheckoutBar && checkout ? (
             <div className="mb-4 rounded-xl border border-border bg-card p-3 sm:p-4">
               {renderCheckoutBlock(
@@ -1643,13 +1602,7 @@ export function ResidentPaymentsPanel({
       <ManagerPortalPageShell
         title="Payments"
         hideTitleOnMobileNav
-        titleAside={
-          paymentsHeaderActions ? (
-            <PortalSectionActionRow variant="header" className="hidden gap-2 md:flex">
-              {paymentsHeaderActions}
-            </PortalSectionActionRow>
-          ) : undefined
-        }
+        titleAside={paymentsTitleAction ?? undefined}
         compactFilterRow
       >
         <PortalListControlStack
@@ -1670,12 +1623,7 @@ export function ResidentPaymentsPanel({
       </ManagerPortalPageShell>
       <ResidentPortalListBottomBar
         showDefaultBar={showPayActions && selectedPayableIds.length === 0}
-        defaultActions={
-          <>
-            {paymentMethodButton}
-            {payButton}
-          </>
-        }
+        defaultActions={payButton}
         selectionCount={selectedPayableIds.length}
         selectionActions={paySelectionActions}
         selectionBarVariant="payments"

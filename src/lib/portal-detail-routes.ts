@@ -275,7 +275,20 @@ export function managerTaskListHref(
   basePath: string,
   tab: ManagerTaskListTabId = "in-progress",
 ): string {
-  return `${basePath}/task-list/${tab}`;
+  if (tab === "in-progress") return `${basePath}/tasks`;
+  return `${basePath}/tasks/${tab}`;
+}
+
+/** Legacy `/task-list/...` bookmarks and emailed links → `/tasks`. */
+export function legacyTaskListSectionRedirectPath(
+  basePath: string,
+  tabParts?: string[],
+): string {
+  const tab = tabParts?.[0];
+  if (!tab || tab === "in-progress") return `${basePath}/tasks`;
+  if (tab === "late") return `${basePath}/tasks/overdue`;
+  const tail = tabParts!.length > 1 ? `/${tabParts!.slice(1).join("/")}` : "";
+  return `${basePath}/tasks/${tab}${tail}`;
 }
 
 export const TOURS_HUB_TABS = ["tours", "services"] as const;

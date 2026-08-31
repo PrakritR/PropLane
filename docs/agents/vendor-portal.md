@@ -18,9 +18,10 @@ extended in lockstep — when adding a 5th role, grep for `"resident" ===` /
 **Portal registry.** `src/lib/portals/vendor.ts` is the section list — read it
 rather than a copy here. Two naming notes that outlive any list: Services keeps
 the section key `work-orders` (relabeled from "Work Orders" in the mobile-nav-m1
-overhaul), and Tasks is `task-list`, the vendor's view of manager tasks assigned
+overhaul), and Tasks is `tasks`, the vendor's view of manager tasks assigned
 to them (`VendorTaskList`, `GET/PATCH /api/vendor/tasks`, tabs
-`in-progress`/`completed`, a bare `/vendor/task-list` redirecting to the first).
+`in-progress`/`completed`; bare `/vendor/tasks` is the default in-progress view —
+legacy `/vendor/task-list/...` redirects there).
 Routes live at `src/app/vendor/layout.tsx` +
 `src/app/vendor/[section]/[[...tab]]/page.tsx`, copied from the resident
 portal shell. Render handlers are in `render-portal-section.tsx` under

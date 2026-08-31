@@ -4,7 +4,7 @@ import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import { ManagerTaskList } from "@/components/portal/manager-task-list";
 
 const { pathnameRef } = vi.hoisted(() => ({
-  pathnameRef: { current: "/portal/task-list/in-progress" },
+  pathnameRef: { current: "/portal/tasks" },
 }));
 
 vi.mock("next/navigation", () => ({
@@ -86,7 +86,7 @@ function makeTask(overrides: Record<string, unknown> = {}) {
 describe("ManagerTaskList", () => {
   afterEach(() => {
     tasks.length = 0;
-    pathnameRef.current = "/portal/task-list/in-progress";
+    pathnameRef.current = "/portal/tasks";
     cleanup();
   });
 
@@ -115,7 +115,7 @@ describe("ManagerTaskList", () => {
 
   it("renders completed task rows", async () => {
     tasks.push(makeTask({ id: "task-2", title: "Replace filter", completed: true }));
-    pathnameRef.current = "/portal/task-list/completed";
+    pathnameRef.current = "/portal/tasks/completed";
     render(<ManagerTaskList tabId="completed" basePath="/portal" />);
     await waitFor(() => {
       expect(screen.getByText("Replace filter")).toBeInTheDocument();

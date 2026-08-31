@@ -39,7 +39,7 @@ const SECTION_ICONS: Record<string, LucideIcon> = {
   calendar: Calendar,
   // Occupancy / channel stays — distinct from Calendar (schedule + availability) sitting above it.
   bookings: BedDouble,
-  "task-list": ListTodo,
+  tasks: ListTodo,
   // A tour is someone being shown a place, so it gets its own glyph rather than falling through
   // to the `?? Circle` default — which is what put an empty circle in the nav — and rather than
   // reusing Calendar, which already means the Calendar section sitting a few rows below it.

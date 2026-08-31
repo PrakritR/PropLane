@@ -30,7 +30,7 @@ export function ResidentPortalListBottomBar({
 }) {
   if (selectionCount > 0 && selectionActions.length > 0) {
     return (
-      <BulkActionBar count={selectionCount} variant={selectionBarVariant} className={className}>
+      <BulkActionBar count={selectionCount} hideCount variant={selectionBarVariant} className={className}>
         <PortalAdaptiveActionRow actions={selectionActions} align="start" gapPx={4} />
       </BulkActionBar>
     );
@@ -38,8 +38,14 @@ export function ResidentPortalListBottomBar({
 
   if (showDefaultBar && defaultActions) {
     return (
-      <PortalPageFooterActions className={cn("md:hidden", className)} rowVariant="header">
-        <div className="flex w-full min-w-0 flex-nowrap items-center justify-end gap-2">{defaultActions}</div>
+      <PortalPageFooterActions
+        className={cn(
+          "max-lg:inset-x-2.5 max-lg:bottom-[calc(var(--portal-native-bottom-nav-inset,0px)+0.75rem)] max-lg:rounded-2xl max-lg:border max-lg:shadow-md",
+          className,
+        )}
+        rowVariant="header"
+      >
+        <div className="flex w-full min-w-0 flex-nowrap items-center justify-start gap-2">{defaultActions}</div>
       </PortalPageFooterActions>
     );
   }

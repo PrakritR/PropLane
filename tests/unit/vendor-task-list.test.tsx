@@ -4,7 +4,7 @@ import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import { VendorTaskList } from "@/components/portal/vendor-task-list";
 
 vi.mock("next/navigation", () => ({
-  usePathname: () => "/vendor/task-list/in-progress",
+  usePathname: () => "/vendor/tasks",
   useRouter: () => ({ push: () => {}, replace: () => {}, refresh: () => {} }),
   useSearchParams: () => new URLSearchParams(),
 }));

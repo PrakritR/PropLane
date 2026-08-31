@@ -121,7 +121,7 @@ describe("coManagerPortalSectionAllowed", () => {
   });
 
   it("keeps module tabs navigable for co-managers regardless of merged permissions", () => {
-    for (const section of ["payments", "tours", "task-list", "bookings", "vendors"]) {
+    for (const section of ["payments", "tours", "tasks", "bookings", "vendors"]) {
       expect(
         coManagerPortalSectionAllowed({
           section,

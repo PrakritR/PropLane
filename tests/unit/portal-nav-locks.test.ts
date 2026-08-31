@@ -139,7 +139,7 @@ describe("portal nav lock kinds", () => {
 
 describe("co-manager nav sections", () => {
   it("does not lock tabs — property scoping is enforced in the data layer", () => {
-    for (const section of ["vendors", "tours", "task-list", "bookings", "payments"]) {
+    for (const section of ["vendors", "tours", "tasks", "bookings", "payments"]) {
       expect(
         portalNavLockKind({
           kind: "manager",

@@ -27,7 +27,7 @@ export const FREE_SUBSCRIPTION_SECTIONS = new Set([
   "applications",
   "payments",
   "tours",
-  "task-list",
+  "tasks",
   "profile",
   "bugs-feedback",
   "app",
