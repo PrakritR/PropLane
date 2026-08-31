@@ -110,6 +110,8 @@ export function ManagerCommunication({
   const [contactOpen, setContactOpen] = useState(false);
   const [communicationSettingsOpen, setCommunicationSettingsOpen] = useState(false);
   const [smsRecipients, setSmsRecipients] = useState<ManagerSmsResidentConversation[]>([]);
+  const [smsCanSend, setSmsCanSend] = useState(false);
+  const smsOutboundEnabled = smsUiEnabled || smsCanSend;
   const [threadOpen, setThreadOpen] = useState(Boolean(threadId));
   const [threadSelected, setThreadSelected] = useState(Boolean(threadId));
   const [searchQuery, setSearchQuery] = useState("");
@@ -137,9 +139,9 @@ export function ManagerCommunication({
   );
 
   const loadSmsRecipients = useCallback(async () => {
-    // SMS UI hidden until A2P clears — never fetch SMS recipients or expose them
-    // in compose. Transport/webhooks/agents are unaffected.
-    if (!smsUiEnabled) return;
+    // Load conversation directory when SMS UI is on OR the work number can send
+    // (inbox replies to inbound texts need rows even while the SMS panel is hidden).
+    if (!smsOutboundEnabled) return;
     try {
       const res = await fetch("/api/manager/sms-conversations", { credentials: "include", cache: "no-store" });
       if (!res.ok) return;
@@ -149,7 +151,23 @@ export function ManagerCommunication({
     } catch {
       /* keep prior list */
     }
-  }, [smsUiEnabled]);
+  }, [smsOutboundEnabled]);
+
+  useEffect(() => {
+    let cancelled = false;
+    void fetch("/api/manager/messaging-number", { credentials: "include", cache: "no-store" })
+      .then((res) => (res.ok ? res.json() : null))
+      .then((body) => {
+        if (cancelled || !body || typeof body !== "object") return;
+        setSmsCanSend((body as { canSend?: boolean }).canSend === true);
+      })
+      .catch(() => {
+        if (!cancelled) setSmsCanSend(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     void loadSmsRecipients();

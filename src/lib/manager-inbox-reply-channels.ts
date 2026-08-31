@@ -58,9 +58,10 @@ export type ManagerInboxSmsRecipientLike = {
 export function resolveManagerInboxSmsTarget(
   thread: { from?: string | null; email?: string | null },
   smsRecipients: ManagerInboxSmsRecipientLike[],
-  smsUiEnabled: boolean,
+  /** True when the manager may send from their work number (UI flag and/or canSend). */
+  smsOutboundEnabled: boolean,
 ): ManagerInboxSmsTarget | null {
-  if (!smsUiEnabled) return null;
+  if (!smsOutboundEnabled) return null;
 
   const email = String(thread.email ?? "").trim().toLowerCase();
   if (inboxThreadHasEmail(email)) {

@@ -76,7 +76,7 @@ describe("manager inbox reply channels", () => {
     });
   });
 
-  it("keeps SMS unavailable when the SMS UI is off", () => {
+  it("keeps SMS unavailable when outbound is disabled", () => {
     expect(
       resolveManagerInboxSmsTarget(
         { from: "+16504484183", email: "" },
@@ -84,5 +84,15 @@ describe("manager inbox reply channels", () => {
         false,
       ),
     ).toBeNull();
+  });
+
+  it("allows SMS target resolution when the work number can send even if SMS UI is off", () => {
+    expect(
+      resolveManagerInboxSmsTarget(
+        { from: "+16504484183", email: "" },
+        [],
+        true,
+      ),
+    ).toMatchObject({ phone: "+16504484183" });
   });
 });

@@ -16,6 +16,10 @@
  *
  * Default OFF.
  *
+ * Inbox replies to inbound work-number texts are NOT gated on this flag — they
+ * follow the manager's live work-number `canSend` status so a prospect thread
+ * stays replyable once the number is operational.
+ *
  * ⚠️ Correctness: while this is OFF, inbound-SMS notices must still be VISIBLE.
  * They are NOT suppressed — they fall through into the person's conversation in
  * the unified email/conversation list instead of being routed to the hidden SMS

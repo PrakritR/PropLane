@@ -248,6 +248,27 @@ export const ManagerInbox = forwardRef<
     );
   }, [manualScheduledMessages, scheduledMessages]);
   const { userId } = useManagerUserId();
+  const [smsCanSend, setSmsCanSend] = useState(false);
+  /** Work-number replies stay live when canSend even if the global SMS comm UI flag is off. */
+  const smsOutboundEnabled = smsUiEnabled || smsCanSend;
+
+  useEffect(() => {
+    if (isDemoModeActive()) return;
+    let cancelled = false;
+    void fetch("/api/manager/messaging-number", { credentials: "include", cache: "no-store" })
+      .then((res) => (res.ok ? res.json() : null))
+      .then((body) => {
+        if (cancelled || !body || typeof body !== "object") return;
+        setSmsCanSend((body as { canSend?: boolean }).canSend === true);
+      })
+      .catch(() => {
+        if (!cancelled) setSmsCanSend(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   const [local, setLocal] = useState<InboxThread[]>(() => loadPersistedInbox(MANAGER_INBOX_STORAGE_KEY, []) as InboxThread[]);
   const localRef = useRef(local);
   const replySmsAttemptRef = useRef<ManualSmsAttempt | null>(null);
@@ -647,7 +668,7 @@ export const ManagerInbox = forwardRef<
       const emailAllowed = channels.email && inboxThreadHasEmail(thread.email);
       const smsAllowed =
         channels.sms &&
-        Boolean(resolveManagerInboxSmsTarget(thread, smsRecipients, smsUiEnabled)?.phone?.trim());
+        Boolean(resolveManagerInboxSmsTarget(thread, smsRecipients, smsOutboundEnabled)?.phone?.trim());
       if (!emailAllowed && !smsAllowed) {
         throw new InboxSendRefusal(
           channels.email && !inboxThreadHasEmail(thread.email)
@@ -748,7 +769,7 @@ export const ManagerInbox = forwardRef<
           const smsTarget = resolveManagerInboxSmsTarget(
             thread,
             smsRecipients,
-            smsUiEnabled,
+            smsOutboundEnabled,
           );
           if (!smsTarget?.phone?.trim()) {
             failureMessage ||= "No phone is available for this conversation.";
@@ -843,7 +864,7 @@ export const ManagerInbox = forwardRef<
         smsUnknown,
       };
     },
-    [smsRecipients, smsUiEnabled],
+    [smsRecipients, smsOutboundEnabled],
   );
 
   const handleComposeSend = useCallback(
@@ -1031,9 +1052,9 @@ export const ManagerInbox = forwardRef<
   const activeSmsTarget = useMemo(
     () =>
       activeThread
-        ? resolveManagerInboxSmsTarget(activeThread, smsRecipients, smsUiEnabled)
+        ? resolveManagerInboxSmsTarget(activeThread, smsRecipients, smsOutboundEnabled)
         : null,
-    [activeThread, smsRecipients, smsUiEnabled],
+    [activeThread, smsRecipients, smsOutboundEnabled],
   );
   const activeSmsAvailable = Boolean(activeSmsTarget?.phone?.trim());
 
