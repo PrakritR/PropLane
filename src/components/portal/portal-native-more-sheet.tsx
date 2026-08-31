@@ -23,6 +23,7 @@ export type PortalMoreNavItem = {
   section: string;
   label: string;
   href: string;
+  sectionTabId?: string;
   locked?: boolean;
   /**
    * A locked row that still navigates — the manager/pro free-tier case, whose
@@ -57,6 +58,8 @@ type PortalNativeMoreSheetProps = {
   /** Portal role — buckets the sheet into the same grouped sections as the web sidebar. */
   kind: PortalKind;
   activeSection: string;
+  /** When set (e.g. payments incoming/outgoing), only this tab is active for the section. */
+  activeSectionTabId?: string | null;
   showNavIcons: boolean;
 };
 
@@ -120,9 +123,16 @@ export function PortalNativeMoreSheet({
   items,
   kind,
   activeSection,
+  activeSectionTabId,
   showNavIcons,
 }: PortalNativeMoreSheetProps) {
   const closeSheet = () => onOpenChange(false);
+
+  const isMoreNavItemActive = (item: PortalMoreNavItem) => {
+    if (activeSection !== item.section) return false;
+    if (item.sectionTabId) return item.sectionTabId === activeSectionTabId;
+    return true;
+  };
 
   const navGroups = useMemo(() => {
     const grouped = groupNavItems(kind, items);
@@ -156,10 +166,10 @@ export function PortalNativeMoreSheet({
                 ) : null}
                 <ul className="space-y-1">
                   {group.items.map((item) => (
-                    <li key={item.section}>
+                    <li key={item.sectionTabId ? `${item.section}-${item.sectionTabId}` : item.section}>
                       <MoreNavRow
                         item={item}
-                        active={activeSection === item.section}
+                        active={isMoreNavItemActive(item)}
                         showNavIcons={showNavIcons}
                         onNavigate={closeSheet}
                       />

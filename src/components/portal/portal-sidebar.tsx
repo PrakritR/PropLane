@@ -448,6 +448,7 @@ export function PortalSidebar({
         item.subItems?.length
           ? item.subItems.map((sub) => ({
               section: item.section,
+              sectionTabId: sub.sectionTabId,
               label: sub.label,
               href: sub.href,
               locked: isSectionLocked(item.section),
@@ -925,6 +926,7 @@ export function PortalSidebar({
         items={moreSheetItems}
         kind={definition.kind}
         activeSection={activeSection}
+        activeSectionTabId={activePaymentTab}
         showNavIcons={showNavIcons}
       />
 
