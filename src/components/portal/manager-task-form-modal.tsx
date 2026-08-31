@@ -13,6 +13,10 @@ import {
 } from "@/components/ui/modal";
 import { PORTAL_MODAL_BODY_SCROLL_CLASS } from "@/components/ui/modal-styles";
 import { WorkAssignmentPicker } from "@/components/portal/work-assignment-picker";
+import {
+  ManagerLegacyServiceIntakeForm,
+  type ServiceIntakeFooterState,
+} from "@/components/portal/manager-legacy-service-intake-form";
 import { useAppUi } from "@/components/providers/app-ui-provider";
 import { useWorkAssignmentDirectory } from "@/hooks/use-work-assignment-directory";
 import type { ManagerComposePrefill } from "@/lib/manager-compose-prefill";
@@ -21,7 +25,6 @@ import {
   buildManagerTaskComposePrefill,
   buildManagerTaskResidentOptions,
   createManagerTourFromTaskForm,
-  createManagerWorkOrderFromTaskForm,
   ensureManagerTaskResidentDirectory,
   MANAGER_TASK_FORM_KIND_LABELS,
   MANAGER_TASK_FORM_KINDS,
@@ -149,6 +152,7 @@ export function ManagerTaskFormModal({
   const [assignee, setAssignee] = useState<WorkAssignee | null>(null);
   const [selectedRoomValue, setSelectedRoomValue] = useState("");
   const [residentTick, setResidentTick] = useState(0);
+  const [serviceFooter, setServiceFooter] = useState<ServiceIntakeFooterState | null>(null);
 
   const propertyOptions = useMemo(
     () => buildManagerPropertyFilterOptions(managerUserId),
@@ -196,6 +200,11 @@ export function ManagerTaskFormModal({
   // A due date belongs to the deadline timing only: a scheduled task has a slot
   // instead, and an urgent one is deliberately dateless.
   const showDueDate = form.urgency === "deadline" && !isTour;
+  const useServiceIntakeForm = isWorkOrder && !editingId;
+
+  useEffect(() => {
+    if (!open || !useServiceIntakeForm) setServiceFooter(null);
+  }, [open, useServiceIntakeForm, form.taskKind]);
 
   useEffect(() => {
     if (!open) {
@@ -279,6 +288,7 @@ export function ManagerTaskFormModal({
   }
 
   async function handleSave() {
+    if (useServiceIntakeForm) return;
     if (!assignee) {
       showToast("Choose who this task is assigned to.");
       return;
@@ -338,37 +348,6 @@ export function ManagerTaskFormModal({
       let composePrefill: ManagerComposePrefill | null = null;
       const scheduleLabel =
         start && end ? formatRangeLabel(start, end) : start ? formatRangeLabel(start, start) : undefined;
-
-      if (!editingId && isWorkOrder) {
-        const resident = workOrderNeedsResident
-          ? residentsForProperty.find((row) => row.residentEmail === form.residentEmail)
-          : null;
-        if (workOrderNeedsResident && !resident) {
-          showToast("Choose a resident for this property.");
-          return;
-        }
-        createManagerWorkOrderFromTaskForm({
-          managerUserId,
-          title: taskTitle,
-          notes: form.notes,
-          categoryLabel: form.workOrderCategory,
-          propertyId: form.propertyId,
-          propertyLabel: selectedProperty?.label ?? resident?.propertyLabel ?? "",
-          resident,
-          unitLabel: roomLabel,
-        });
-        composePrefill =
-          resident != null
-            ? buildManagerTaskComposePrefill({
-                kind: "work-order",
-                title: taskTitle,
-                notes: form.notes,
-                propertyLabel: selectedProperty?.label,
-                recipientEmail: resident.residentEmail,
-                recipientName: resident.residentName,
-              })
-            : null;
-      }
 
       if (!editingId && isTour) {
         const tourResult = await createManagerTourFromTaskForm({
@@ -447,38 +426,64 @@ export function ManagerTaskFormModal({
       dense
       assistantContext={editingId ? "Edit task" : "Add task"}
       footer={
-        <ModalFooter>
-          <Button
-            type="button"
-            onClick={() => void handleSave()}
-            disabled={saving || !canSave}
-            data-attr="manager-task-save"
-          >
-            {saving ? "Saving…" : editingId ? "Save task" : "Add task"}
-          </Button>
-        </ModalFooter>
+        useServiceIntakeForm && serviceFooter ? (
+          <ModalFooter>
+            <Button
+              type="button"
+              onClick={serviceFooter.submit}
+              disabled={serviceFooter.saving || !serviceFooter.canSubmit}
+              data-attr="manager-task-save"
+            >
+              {serviceFooter.saving ? "Saving…" : "Add task"}
+            </Button>
+          </ModalFooter>
+        ) : (
+          <ModalFooter>
+            <Button
+              type="button"
+              onClick={() => void handleSave()}
+              disabled={saving || !canSave}
+              data-attr="manager-task-save"
+            >
+              {saving ? "Saving…" : editingId ? "Save task" : "Add task"}
+            </Button>
+          </ModalFooter>
+        )
       }
     >
+      <div className="shrink-0 pb-4">
+        <label className={MODAL_FIELD_LABEL_CLASS} htmlFor="manager-task-kind">
+          Task type
+        </label>
+        <Select
+          id="manager-task-kind"
+          className="mt-1"
+          value={form.taskKind}
+          onChange={(e) => updateTaskKind(e.target.value as ManagerTaskFormKind)}
+          data-attr="manager-task-kind"
+        >
+          {MANAGER_TASK_FORM_KINDS.map((kind) => (
+            <option key={kind} value={kind}>
+              {MANAGER_TASK_FORM_KIND_LABELS[kind]}
+            </option>
+          ))}
+        </Select>
+      </div>
+
+      {useServiceIntakeForm ? (
+        <ManagerLegacyServiceIntakeForm
+          open={open}
+          managerUserId={managerUserId}
+          submitLabel="Add task"
+          onRegisterFooter={setServiceFooter}
+          onComplete={(composePrefill) => {
+            onClose();
+            onSaved?.(composePrefill ?? null);
+          }}
+        />
+      ) : (
       <div className={PORTAL_MODAL_BODY_SCROLL_CLASS}>
       <div className={PORTAL_MODAL_FORM_GRID_CLASS}>
-        <div className={cn(PORTAL_MODAL_FORM_FIELD_CLASS, PORTAL_MODAL_FORM_FULL_ROW_CLASS)}>
-          <label className={MODAL_FIELD_LABEL_CLASS} htmlFor="manager-task-kind">
-            Task type
-          </label>
-          <Select
-            id="manager-task-kind"
-            value={form.taskKind}
-            onChange={(e) => updateTaskKind(e.target.value as ManagerTaskFormKind)}
-            data-attr="manager-task-kind"
-          >
-            {MANAGER_TASK_FORM_KINDS.map((kind) => (
-              <option key={kind} value={kind}>
-                {MANAGER_TASK_FORM_KIND_LABELS[kind]}
-              </option>
-            ))}
-          </Select>
-        </div>
-
         {isTour ? (
           <>
             <div className={PORTAL_MODAL_FORM_FIELD_CLASS}>
@@ -892,6 +897,7 @@ export function ManagerTaskFormModal({
         </p>
       </div>
       </div>
+      )}
     </Modal>
   );
 }

@@ -2,17 +2,15 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-  MANAGER_TABLE_TH,
   ManagerPortalPageShell,
 } from "@/components/portal/portal-metrics";
 import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
+import { PORTAL_LIST_PAGE_BODY } from "@/components/portal/portal-inbox-ui";
+import { DataList } from "@/components/ui/data-list";
 import { ReportGeneratePrompt } from "@/components/portal/reports/report-generate-prompt";
 import {
-  PORTAL_TABLE_TD,
   PortalDataTableEmpty,
-  PortalMobileSummaryCard,
 } from "@/components/portal/portal-data-table";
-import { DocumentsTableShell } from "@/components/portal/documents-table-shell";
 import {
   DocumentInlineViewer,
   ResidentAddDocumentModal,
@@ -123,42 +121,25 @@ function ApplicationDocumentsTable({ basePath }: { basePath: string }) {
   }
 
   return (
-    <DocumentsTableShell
-      hideColumnHeaders
-      colSpan={3}
-      head={
-        <>
-          <th className={`${MANAGER_TABLE_TH} text-left`}>Name</th>
-          <th className={`${MANAGER_TABLE_TH} text-left`}>Status</th>
-          <th className={`${MANAGER_TABLE_TH} text-left`}>Property</th>
-        </>
-      }
-      rows={rows.map((row) => ({
-        key: row.id,
-        expanded: false,
-        detail: null,
-        onToggle: () => openApplication(row),
-        cells: (
-          <>
-            <td className={`${PORTAL_TABLE_TD} align-middle`}>
-              <span className="min-w-0 truncate font-medium text-foreground">Rental application</span>
-            </td>
-            <td className={`${PORTAL_TABLE_TD} align-middle`}>{applicationStatusLabel(row.bucket)}</td>
-            <td className={`${PORTAL_TABLE_TD} align-middle`}>
-              <p className="min-w-0 truncate">{row.property || "—"}</p>
-            </td>
-          </>
-        ),
-        card: (
-          <PortalMobileSummaryCard
-            title="Rental application"
-            subtitle={applicationStatusLabel(row.bucket)}
-            meta={row.property || "—"}
-            onClick={() => openApplication(row)}
-          />
-        ),
-      }))}
-    />
+    <div className={PORTAL_LIST_PAGE_BODY}>
+      <DataList
+        variant="resident"
+        hideColumnHeaders
+        rows={rows.map((row) => ({
+          id: row.id,
+          data: row,
+          primary: "Rental application",
+          meta: row.property || "—",
+          trailing: <span className="text-xs text-muted">{applicationStatusLabel(row.bucket)}</span>,
+          onClick: () => openApplication(row),
+        }))}
+        columns={[
+          { id: "name", header: "Name", cell: () => "Rental application" },
+          { id: "status", header: "Status", cell: (row) => applicationStatusLabel(row.bucket) },
+          { id: "property", header: "Property", cell: (row) => row.property || "—" },
+        ]}
+      />
+    </div>
   );
 }
 
@@ -674,42 +655,27 @@ function RentReceiptsTab({ basePath }: { basePath: string }) {
         ) : receipts.length === 0 ? (
           <PortalDataTableEmpty icon="default" message="No rent receipts in this date range yet." />
         ) : (
-          <DocumentsTableShell
-            hideColumnHeaders
-            colSpan={3}
-            head={
-              <>
-                <th className={`${MANAGER_TABLE_TH} text-left`}>Name</th>
-                <th className={`${MANAGER_TABLE_TH} text-left`}>Amount</th>
-                <th className={`${MANAGER_TABLE_TH} text-left`}>Date</th>
-              </>
-            }
-            rows={receipts.map((row) => ({
-              key: row.id,
-              expanded: false,
-              detail: null,
-              onToggle: () => openReceipt(row),
-              cells: (
-                <>
-                  <td className={`${PORTAL_TABLE_TD} align-middle`}>
-                    <span className="min-w-0 truncate font-medium text-foreground">
-                      {receiptRowLabel(row.description)}
-                    </span>
-                  </td>
-                  <td className={`${PORTAL_TABLE_TD} align-middle`}>{row.amount}</td>
-                  <td className={`${PORTAL_TABLE_TD} align-middle`}>{row.date}</td>
-                </>
-              ),
-              card: (
-                <PortalMobileSummaryCard
-                  title={receiptRowLabel(row.description)}
-                  subtitle={row.amount}
-                  meta={row.date}
-                  onClick={() => openReceipt(row)}
-                />
-              ),
-            }))}
-          />
+          <div className={PORTAL_LIST_PAGE_BODY}>
+            <DataList
+              variant="resident"
+              hideColumnHeaders
+              rows={receipts.map((row) => ({
+                id: row.id,
+                data: row,
+                primary: receiptRowLabel(row.description),
+                meta: row.date,
+                trailing: (
+                  <span className="text-sm font-semibold tabular-nums text-foreground">{row.amount}</span>
+                ),
+                onClick: () => openReceipt(row),
+              }))}
+              columns={[
+                { id: "name", header: "Name", cell: (row) => receiptRowLabel(row.description) },
+                { id: "amount", header: "Amount", cell: (row) => row.amount },
+                { id: "date", header: "Date", cell: (row) => row.date },
+              ]}
+            />
+          </div>
         )}
       </div>
     </>

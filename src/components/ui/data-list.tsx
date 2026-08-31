@@ -59,6 +59,10 @@ export type DataListRow<T> = {
 export const DATA_LIST_MOBILE_ROW_CLASS =
   "flex min-h-[56px] max-h-[56px] items-center gap-3 border-b border-border/80 px-3 py-2 last:border-0";
 
+/** Resident portal lists — taller rows, no max height, selection tint (Payments-style). */
+export const DATA_LIST_RESIDENT_MOBILE_ROW_CLASS =
+  "flex min-h-[56px] items-center gap-3 border-b border-border/80 px-4 py-3 last:border-0 transition-colors";
+
 export const DATA_LIST_DESKTOP_ROW_CLASS = "h-11 max-h-11";
 
 function DataListOverflowMenu({ actions }: { actions: DataListRowAction[] }) {
@@ -95,39 +99,46 @@ function DataListOverflowMenu({ actions }: { actions: DataListRowAction[] }) {
 function DataListMobileRow<T>({
   row,
   selectable,
+  variant = "default",
 }: {
   row: DataListRow<T>;
   selectable?: boolean;
+  variant?: "default" | "resident";
 }) {
   const clickable = Boolean(row.onClick);
+  const rowClass = cn(
+    variant === "resident" ? DATA_LIST_RESIDENT_MOBILE_ROW_CLASS : DATA_LIST_MOBILE_ROW_CLASS,
+    clickable && variant === "resident" ? "hover:bg-accent/30" : clickable ? "hover:bg-accent/40" : "",
+    variant === "resident" && row.selected ? "bg-primary/[0.06]" : "",
+  );
   const body = (
-  <>
-    {selectable && row.onSelectedChange ? (
-      <input
-        type="checkbox"
-        className="h-4 w-4 shrink-0 rounded border-border"
-        checked={row.selected ?? false}
-        onChange={(e) => row.onSelectedChange?.(e.target.checked)}
-        onClick={(e) => e.stopPropagation()}
-        data-portal-row-ignore
-        aria-label={`Select ${row.primary}`}
-      />
-    ) : null}
-    <div className="min-w-0 flex-1">
-      <div className="flex min-w-0 items-center gap-2">
-        <p className="min-w-0 flex-1 truncate text-sm font-semibold text-foreground">{row.primary}</p>
-        {row.trailing ? <div className="shrink-0">{row.trailing}</div> : null}
+    <>
+      {selectable && row.onSelectedChange ? (
+        <input
+          type="checkbox"
+          className="h-4 w-4 shrink-0 rounded border-border"
+          checked={row.selected ?? false}
+          onChange={(e) => row.onSelectedChange?.(e.target.checked)}
+          onClick={(e) => e.stopPropagation()}
+          data-portal-row-ignore
+          aria-label={`Select ${row.primary}`}
+        />
+      ) : null}
+      <div className="min-w-0 flex-1">
+        <div className="flex min-w-0 items-center gap-2">
+          <p className="min-w-0 flex-1 truncate text-sm font-semibold text-foreground">{row.primary}</p>
+          {row.trailing ? <div className="shrink-0">{row.trailing}</div> : null}
+        </div>
+        {row.meta ? <p className="truncate text-xs text-muted">{row.meta}</p> : null}
       </div>
-      {row.meta ? <p className="truncate text-xs text-muted">{row.meta}</p> : null}
-    </div>
-    {row.inlineAction ? <div className="shrink-0" data-portal-row-ignore>{row.inlineAction}</div> : null}
-    {row.overflowActions ? <DataListOverflowMenu actions={row.overflowActions} /> : null}
-  </>
+      {row.inlineAction ? <div className="shrink-0" data-portal-row-ignore>{row.inlineAction}</div> : null}
+      {row.overflowActions ? <DataListOverflowMenu actions={row.overflowActions} /> : null}
+    </>
   );
 
   if (!clickable) {
     return (
-      <div className={DATA_LIST_MOBILE_ROW_CLASS} data-slot="data-list-mobile-row">
+      <div className={rowClass} data-slot="data-list-mobile-row">
         {body}
       </div>
     );
@@ -139,10 +150,7 @@ function DataListMobileRow<T>({
       <div
         role="button"
         tabIndex={0}
-        className={cn(
-          DATA_LIST_MOBILE_ROW_CLASS,
-          "w-full text-left transition hover:bg-accent/40",
-        )}
+        className={cn(rowClass, "w-full text-left")}
         onClick={(e) => {
           if (!row.onClick || isPortalRowClickIgnored(e.target)) return;
           row.onClick();
@@ -164,7 +172,7 @@ function DataListMobileRow<T>({
   return (
     <button
       type="button"
-      className={cn(DATA_LIST_MOBILE_ROW_CLASS, "w-full text-left transition hover:bg-accent/40")}
+      className={cn(rowClass, "w-full text-left")}
       onClick={() => row.onClick?.()}
       data-slot="data-list-mobile-row"
     >
@@ -234,6 +242,7 @@ export function DataList<T>({
   columns,
   selectable = false,
   hideColumnHeaders = false,
+  variant = "default",
   emptyState,
   className,
 }: {
@@ -242,6 +251,8 @@ export function DataList<T>({
   selectable?: boolean;
   /** Hide the desktop column header row (resident portal lists). */
   hideColumnHeaders?: boolean;
+  /** `resident` — single card shell + Payments-style row density (all breakpoints). */
+  variant?: "default" | "resident";
   emptyState?: ReactNode;
   className?: string;
 }) {
@@ -251,12 +262,28 @@ export function DataList<T>({
 
   const mobileRows = rows.map((row) => (
     <div key={row.id}>
-      <DataListMobileRow row={row} selectable={selectable} />
+      <DataListMobileRow row={row} selectable={selectable} variant={variant} />
       {row.expanded && row.expandedContent ? (
-        <div className="border-b border-border/80 bg-accent/20 px-3 py-3">{row.expandedContent}</div>
+        <div
+          className={cn(
+            "border-b border-border/80 bg-accent/20 px-4 py-3 last:border-0",
+            variant === "resident" ? "" : "px-3",
+          )}
+        >
+          {row.expandedContent}
+        </div>
       ) : null}
     </div>
   ));
+
+  const residentListBody = (
+    <div
+      className="overflow-hidden rounded-2xl border border-border bg-card"
+      data-variant="resident"
+    >
+      {mobileRows}
+    </div>
+  );
 
   const desktopTable = (
     <div className={PORTAL_DATA_TABLE_WRAP}>
@@ -310,9 +337,12 @@ export function DataList<T>({
   return (
     <div className={cn("min-w-0", className)} data-slot="data-list">
       {hideColumnHeaders ? (
-        // Resident-cluster lists (Applications, Leases, Tours, etc.) are card rows,
-        // not spreadsheets — skip the desktop table entirely so no column headers appear.
-        <div className="space-y-2">{mobileRows}</div>
+        // Resident-cluster lists are card rows, not spreadsheets — skip desktop tables.
+        variant === "resident" ? (
+          residentListBody
+        ) : (
+          <div className="space-y-2">{mobileRows}</div>
+        )
       ) : (
         <PortalResponsiveDataView mobile={mobileRows} desktop={desktopTable} />
       )}

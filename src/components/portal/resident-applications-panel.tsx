@@ -16,6 +16,7 @@ import {
 } from "@/components/portal/portal-metrics";
 import { LocalDestinationNav } from "@/components/ui/destination-nav";
 import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
+import { PORTAL_LIST_PAGE_BODY } from "@/components/portal/portal-inbox-ui";
 import { PortalSectionActionRow } from "@/components/portal/portal-section-action-row";
 import { PortalPropertyRecordRow } from "@/components/portal/portal-record-row";
 import { PortalRecordDetailPage } from "@/components/portal/portal-record-detail-page";
@@ -1083,6 +1084,7 @@ export function ResidentApplicationsPanel({
 
   const renderRoutedList = () => (
     <DataList
+      variant="resident"
       hideColumnHeaders
       rows={listClustersForRows(filteredRowsForBucket)
         .flatMap((cluster) => (cluster.kind === "household" ? cluster.rows : [cluster.row]))
@@ -1244,75 +1246,11 @@ export function ResidentApplicationsPanel({
           <div className={PORTAL_DATA_TABLE_WRAP}>
             <div className="flex items-center justify-center px-6 py-16 text-sm text-muted">Loading applications…</div>
           </div>
-        ) : listRows.length > 0 ? (
-          <div className="w-full min-w-0 space-y-2">
-            {listClustersForRows(listRows).map((cluster) => {
-              const renderRow = (row: DemoApplicantRow, nestedInHousehold: boolean) => {
-                const room = displayRoomForRow(row);
-                const address = [
-                  room !== "—" ? `Room ${room}` : null,
-                  realApplicantName(row.name) || "Your application",
-                ]
-                  .filter(Boolean)
-                  .join(" · ");
-                const summary = [applicationStageDisplayLabel(row), applicationStartedLabel(row), row.id]
-                  .filter(Boolean)
-                  .join(" · ");
-                const group = groupForRow(applicationGroups, { groupId: groupIdForRow(row) });
-                const groupBadgeDescriptor = !nestedInHousehold && group ? describeGroupBadge(group) : null;
-                const signerKey = normalizeApplicationAxisId(row.id).toUpperCase();
-                const cosignerRows = cosignerSubmissionsBySigner.get(signerKey) ?? [];
-
-                return (
-                  <Fragment key={row.id}>
-                    <ApplicationNestedListRow nested={nestedInHousehold}>
-                      <PortalPropertyRecordRow
-                        title={stripPropertyRoomCountSuffix(row.property || "Property")}
-                        address={address}
-                        summary={summary}
-                        badge={
-                          groupBadgeDescriptor ? (
-                            <span title={groupBadgeDescriptor.title}>
-                              <Badge tone={groupBadgeDescriptor.tone}>{groupBadgeDescriptor.label}</Badge>
-                            </span>
-                          ) : undefined
-                        }
-                        onOpen={() => openApplicationRow(row)}
-                        dataAttr="resident-application-list-row"
-                      />
-                    </ApplicationNestedListRow>
-                    {cosignerRows.map((sub, index) => (
-                      <ApplicationCosignerListRow
-                        key={`${row.id}-cosigner-${index}`}
-                        name={sub.fullName || "Co-signer"}
-                        subtitle={`Co-signer for ${applicantDisplayName(row)}`}
-                        preview={sub.email || undefined}
-                        onOpen={() =>
-                          portalNavigate(
-                            `${residentApplicationDetailHref(basePath, row.bucket as ResidentApplicationBucketId, row.id)}?cosigner=${index}`,
-                          )
-                        }
-                      />
-                    ))}
-                  </Fragment>
-                );
-              };
-
-              if (cluster.kind === "single") {
-                return renderRow(cluster.row, false);
-              }
-
-              return (
-                <ApplicationHouseholdCluster
-                  key={cluster.groupId}
-                  header={householdClusterHeaderForRows(cluster.group, cluster.rows)}
-                >
-                  {cluster.rows.map((row) => renderRow(row, true))}
-                </ApplicationHouseholdCluster>
-              );
-            })}
-          </div>
-        ) : null}
+        ) : listRows.length === 0 ? (
+          <PortalDataTableEmpty icon="application" message="No applications in this tab yet." />
+        ) : (
+          <div className={PORTAL_LIST_PAGE_BODY}>{renderRoutedList()}</div>
+        )}
 
         {withdrawModal}
         {propertyPickerModal}
