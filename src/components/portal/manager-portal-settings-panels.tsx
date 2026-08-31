@@ -50,6 +50,7 @@ import { TaskAutomationSettingsFields } from "@/components/portal/task-automatio
 import type { WorkAssignmentTeamMember } from "@/hooks/use-work-assignment-directory";
 import {
   DEFAULT_TASK_AUTOMATION,
+  DEFAULT_TASK_TEMPLATE_KEYS,
   type TaskAutomationPreferences,
 } from "@/lib/task-automation-preferences";
 
@@ -124,13 +125,10 @@ export function ApplicationsSettingsPanel({
   otherInstructions,
   onOtherInstructionsChange,
   onAutomationChange,
-  onTaskAutomationChange,
   onWaiverCodeChange,
   onSave,
 }: {
   automation: ApplicationAutomationPreferences;
-  taskAutomation: TaskAutomationPreferences;
-  teamMembers: WorkAssignmentTeamMember[];
   loading: boolean;
   saving: boolean;
   waiverCode: string;
@@ -143,7 +141,6 @@ export function ApplicationsSettingsPanel({
   otherInstructions: string;
   onOtherInstructionsChange: (value: string) => void;
   onAutomationChange: (next: ApplicationAutomationPreferences) => void;
-  onTaskAutomationChange: (next: TaskAutomationPreferences) => void;
   onWaiverCodeChange: (value: string) => void;
   onSave: () => void;
 }) {
@@ -288,36 +285,46 @@ export function ApplicationsSettingsPanel({
         />
         <p className="text-xs text-muted">Applicants entering this code apply for free. Leave empty to turn it off.</p>
       </div>
-      <TaskAutomationSettingsFields
-        templateKeys={["review_application"]}
-        taskAutomation={taskAutomation}
-        teamMembers={teamMembers}
-        loading={loading}
-        saving={saving}
-        onChange={onTaskAutomationChange}
-      />
     </div>
+  );
+}
+
+export function TaskSettingsPanel({
+  taskAutomation,
+  teamMembers,
+  loading,
+  saving,
+  onTaskAutomationChange,
+}: {
+  taskAutomation: TaskAutomationPreferences;
+  teamMembers: WorkAssignmentTeamMember[];
+  loading: boolean;
+  saving: boolean;
+  onTaskAutomationChange: (next: TaskAutomationPreferences) => void;
+}) {
+  return (
+    <TaskAutomationSettingsFields
+      templateKeys={[...DEFAULT_TASK_TEMPLATE_KEYS]}
+      taskAutomation={taskAutomation}
+      teamMembers={teamMembers}
+      loading={loading}
+      saving={saving}
+      onChange={onTaskAutomationChange}
+      withTopBorder={false}
+    />
   );
 }
 
 export function LeaseSettingsPanel({
   automation,
-  taskAutomation,
-  teamMembers,
   loading,
   saving,
   onAutomationChange,
-  onTaskAutomationChange,
-  onSave,
 }: {
   automation: ApplicationAutomationPreferences;
-  taskAutomation: TaskAutomationPreferences;
-  teamMembers: WorkAssignmentTeamMember[];
   loading: boolean;
   saving: boolean;
   onAutomationChange: (next: ApplicationAutomationPreferences) => void;
-  onTaskAutomationChange: (next: TaskAutomationPreferences) => void;
-  onSave: () => void;
 }) {
   return (
     <div className="space-y-4">
@@ -355,14 +362,6 @@ export function LeaseSettingsPanel({
           </span>
         </label>
       ))}
-      <TaskAutomationSettingsFields
-        templateKeys={["review_and_send_lease", "collect_rent"]}
-        taskAutomation={taskAutomation}
-        teamMembers={teamMembers}
-        loading={loading}
-        saving={saving}
-        onChange={onTaskAutomationChange}
-      />
     </div>
   );
 }
@@ -391,37 +390,43 @@ export function CalendarSettingsPanel({
   const [automation, setAutomation] = useState<ManagerAutomationSettings>(DEFAULT_MANAGER_AUTOMATION_SETTINGS);
   const [messageModalOpen, setMessageModalOpen] = useState(false);
 
-  const load = useCallback(async () => {
-    setLoading(true);
-    try {
-      if (demo) {
-        setTourSettings(DEFAULT_MANAGER_TOUR_SETTINGS);
-        setAutomation(DEFAULT_MANAGER_AUTOMATION_SETTINGS);
-        return;
-      }
-      const [tourRes, autoRes] = await Promise.all([
-        fetch("/api/portal/manager-tour-settings", { credentials: "include", cache: "no-store" }),
-        fetch("/api/portal/automation-settings", { credentials: "include", cache: "no-store" }),
-      ]);
-      const tourBody = (await tourRes.json().catch(() => ({}))) as { settings?: ManagerTourSettings; error?: string };
-      const autoBody = (await autoRes.json().catch(() => ({}))) as {
-        settings?: ManagerAutomationSettings;
-        error?: string;
-      };
-      if (!tourRes.ok) throw new Error(tourBody.error ?? "Could not load tour settings.");
-      if (!autoRes.ok) throw new Error(autoBody.error ?? "Could not load automation settings.");
-      setTourSettings(tourBody.settings ?? DEFAULT_MANAGER_TOUR_SETTINGS);
-      setAutomation(autoBody.settings ?? DEFAULT_MANAGER_AUTOMATION_SETTINGS);
-    } catch (e) {
-      showToast(e instanceof Error ? e.message : "Could not load calendar settings.");
-    } finally {
-      setLoading(false);
-    }
-  }, [demo, showToast]);
-
   useEffect(() => {
-    void load();
-  }, [load]);
+    let cancelled = false;
+    (async () => {
+      setLoading(true);
+      try {
+        if (demo) {
+          if (!cancelled) {
+            setTourSettings(DEFAULT_MANAGER_TOUR_SETTINGS);
+            setAutomation(DEFAULT_MANAGER_AUTOMATION_SETTINGS);
+          }
+          return;
+        }
+        const [tourRes, autoRes] = await Promise.all([
+          fetch("/api/portal/manager-tour-settings", { credentials: "include", cache: "no-store" }),
+          fetch("/api/portal/automation-settings", { credentials: "include", cache: "no-store" }),
+        ]);
+        const tourBody = (await tourRes.json().catch(() => ({}))) as { settings?: ManagerTourSettings; error?: string };
+        const autoBody = (await autoRes.json().catch(() => ({}))) as {
+          settings?: ManagerAutomationSettings;
+          error?: string;
+        };
+        if (!tourRes.ok) throw new Error(tourBody.error ?? "Could not load tour settings.");
+        if (!autoRes.ok) throw new Error(autoBody.error ?? "Could not load automation settings.");
+        if (!cancelled) {
+          setTourSettings(tourBody.settings ?? DEFAULT_MANAGER_TOUR_SETTINGS);
+          setAutomation(autoBody.settings ?? DEFAULT_MANAGER_AUTOMATION_SETTINGS);
+        }
+      } catch (e) {
+        showToast(e instanceof Error ? e.message : "Could not load calendar settings.");
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [demo, showToast]);
 
   const templatePreview = useMemo(
     () => fillTourReminderTemplate(automation.templates.tourReminder, TOUR_PREVIEW_CONTEXT),

@@ -349,6 +349,8 @@ export function PortalSidebar({
     return primary.filter((item) => !isSectionLocked(item.section));
   }, [definition.kind, nativeBottomNavSplit, isSectionLocked]);
   const showMoreTab = showMobileNav && nativeBottomNavShowMoreTab(definition.kind, navItems);
+  const showBottomNavBar =
+    showMobileNav && isClient && (nativeBottomNavItems.length > 0 || showMoreTab);
   const moreTabActive = !nativeBottomNavItems.some((item) => isNavItemActive(item));
   const [sectionsSheetOpen, setSectionsSheetOpen] = useState(false);
   const [bottomNavEl, setBottomNavEl] = useState<HTMLElement | null>(null);
@@ -938,7 +940,7 @@ export function PortalSidebar({
         showNavIcons={showNavIcons}
       />
 
-      {showMobileNav && nativeBottomNavItems.length > 0 && isClient
+      {showBottomNavBar
         ? createPortal(
             <nav
               ref={setBottomNavEl}

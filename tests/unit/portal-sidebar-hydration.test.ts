@@ -54,4 +54,9 @@ describe("portal sidebar native hydration", () => {
     expect(PORTAL_SIDEBAR_SOURCE).toContain("playSwipeEnter");
   });
 
+  it("renders the bottom bar when only the More tab is available", () => {
+    expect(PORTAL_SIDEBAR_SOURCE).toContain("showBottomNavBar");
+    expect(PORTAL_SIDEBAR_SOURCE).toContain("nativeBottomNavItems.length > 0 || showMoreTab");
+  });
+
 });

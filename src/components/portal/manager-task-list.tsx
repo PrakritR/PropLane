@@ -605,8 +605,8 @@ export function ManagerTaskList({
       <ManagerPortalSettingsModal
         open={settingsOpen}
         onClose={() => setSettingsOpen(false)}
-        initialTab="automation"
-        scopedTitle="Settings"
+        initialTab="tasks"
+        scopedTitle="Tasks"
       />
     </ManagerPortalPageShell>
   );

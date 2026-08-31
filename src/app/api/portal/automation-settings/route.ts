@@ -22,7 +22,14 @@ async function requireManager() {
   ]);
   const roleList = (roles ?? []).map((r) => String(r.role).toLowerCase());
   const legacy = String(profile?.role ?? user.user_metadata?.role ?? "").toLowerCase();
-  const isManager = roleList.includes("manager") || legacy === "manager" || legacy === "admin";
+  const isManager =
+    roleList.includes("manager") ||
+    roleList.includes("owner") ||
+    roleList.includes("pro") ||
+    legacy === "manager" ||
+    legacy === "admin" ||
+    legacy === "owner" ||
+    legacy === "pro";
   if (!isManager) return null;
   return { db, userId: user.id };
 }

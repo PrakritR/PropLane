@@ -8,6 +8,7 @@ import {
   type TaskTemplateConfig,
 } from "@/lib/task-automation-preferences";
 import type { WorkAssignmentTeamMember } from "@/hooks/use-work-assignment-directory";
+import { cn } from "@/lib/utils";
 
 export function TaskAutomationSettingsFields({
   templateKeys,
@@ -16,6 +17,7 @@ export function TaskAutomationSettingsFields({
   loading,
   saving,
   onChange,
+  withTopBorder = true,
 }: {
   templateKeys: DefaultTaskTemplateKey[];
   taskAutomation: TaskAutomationPreferences;
@@ -23,6 +25,7 @@ export function TaskAutomationSettingsFields({
   loading: boolean;
   saving: boolean;
   onChange: (next: TaskAutomationPreferences) => void;
+  withTopBorder?: boolean;
 }) {
   function patchTemplate(key: DefaultTaskTemplateKey, patch: Partial<TaskTemplateConfig>) {
     onChange({
@@ -32,7 +35,7 @@ export function TaskAutomationSettingsFields({
   }
 
   return (
-    <div className="space-y-4 border-t border-border pt-4">
+    <div className={cn("space-y-4", withTopBorder && "border-t border-border pt-4")}>
       <div>
         <p className="text-[13px] font-semibold text-foreground">Default tasks</p>
         <p className="mt-1 text-xs text-muted">

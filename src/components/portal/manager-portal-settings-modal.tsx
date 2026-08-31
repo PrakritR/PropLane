@@ -16,6 +16,7 @@ import {
   PaymentsSettingsPanel,
   ResidentSettingsPanel,
   SettingsPanelModalSaveButton,
+  TaskSettingsPanel,
   type ManagerSettingsPanelFooter,
 } from "@/components/portal/manager-portal-settings-panels";
 import type { ApplicationAutomationPreferences } from "@/lib/application-automation-preferences";
@@ -37,6 +38,7 @@ export type ManagerPortalSettingsTab =
   | "applications"
   | "calendar"
   | "lease"
+  | "tasks"
   | "resident"
   | "payments"
   | "communication"
@@ -46,6 +48,7 @@ const TABS: { id: ManagerPortalSettingsTab; label: string }[] = [
   { id: "applications", label: "Applications" },
   { id: "calendar", label: "Calendar" },
   { id: "lease", label: "Lease" },
+  { id: "tasks", label: "Tasks" },
   { id: "resident", label: "Residents" },
   { id: "payments", label: "Payments" },
   { id: "communication", label: "Communication" },
@@ -150,7 +153,7 @@ export function ManagerPortalSettingsModal({
 
   useEffect(() => {
     if (!open) return;
-    if (tab === "applications" || tab === "lease") {
+    if (tab === "applications" || tab === "lease" || tab === "tasks") {
       void loadApplications();
     }
   }, [open, tab, loadApplications]);
@@ -215,7 +218,15 @@ export function ManagerPortalSettingsModal({
       return {
         saving,
         disabled: loading,
-        onSave: () => void saveApplicationBundle({ automation, taskAutomation }),
+        onSave: () => void saveApplicationBundle({ automation }),
+      };
+    }
+    if (tab === "tasks") {
+      return {
+        saving,
+        disabled: loading,
+        onSave: () => void saveApplicationBundle({ taskAutomation }),
+        dataAttr: "manager-task-automation-save",
       };
     }
     if (tab === "resident") return null;
@@ -268,8 +279,6 @@ export function ManagerPortalSettingsModal({
       {tab === "applications" ? (
         <ApplicationsSettingsPanel
           automation={automation}
-          taskAutomation={taskAutomation}
-          teamMembers={teamMembers}
           loading={loading}
           saving={saving}
           waiverCode={waiverCode}
@@ -282,7 +291,6 @@ export function ManagerPortalSettingsModal({
           otherInstructions={otherInstructions}
           onOtherInstructionsChange={setOtherInstructions}
           onAutomationChange={setAutomation}
-          onTaskAutomationChange={setTaskAutomation}
           onWaiverCodeChange={setWaiverCode}
           onSave={() =>
             void saveApplicationBundle({
@@ -294,29 +302,37 @@ export function ManagerPortalSettingsModal({
         />
       ) : null}
 
-      {tab === "automation" ? <ManagerPortalAutomationSettingsPanel /> : null}
-      {tab === "calendar" ? (
+      {open && tab === "automation" ? <ManagerPortalAutomationSettingsPanel /> : null}
+      {open && tab === "calendar" ? (
         <CalendarSettingsPanel onFooterReady={setPanelFooter} onSaved={onCalendarSettingsSaved} />
       ) : null}
 
       {tab === "lease" ? (
         <LeaseSettingsPanel
           automation={automation}
+          loading={loading}
+          saving={saving}
+          onAutomationChange={setAutomation}
+        />
+      ) : null}
+
+      {open && tab === "tasks" ? (
+        <TaskSettingsPanel
           taskAutomation={taskAutomation}
           teamMembers={teamMembers}
           loading={loading}
           saving={saving}
-          onAutomationChange={setAutomation}
           onTaskAutomationChange={setTaskAutomation}
-          onSave={() => void saveApplicationBundle({ automation, taskAutomation })}
         />
       ) : null}
 
       {tab === "resident" ? <ResidentSettingsPanel /> : null}
 
-      {tab === "payments" ? <PaymentsSettingsPanel onFooterReady={setPanelFooter} /> : null}
+      {open && tab === "payments" ? <PaymentsSettingsPanel onFooterReady={setPanelFooter} /> : null}
 
-      {tab === "communication" ? <CommunicationSettingsPanel onFooterReady={setPanelFooter} /> : null}
+      {open && tab === "communication" ? (
+        <CommunicationSettingsPanel onFooterReady={setPanelFooter} />
+      ) : null}
       </div>
     </Modal>
   );

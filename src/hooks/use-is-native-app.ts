@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useSyncExternalStore } from "react";
 import { detectNativePlatformSync } from "@/lib/native/detect-native";
 import { getNativeInfo, type NativePlatform } from "@/lib/native/push-client";
 
@@ -64,17 +64,33 @@ export function useNativeChrome(): boolean {
 /** Matches the portal shell's `lg:hidden` breakpoint (1024px) so JS gating tracks the same cutoff as the CSS. */
 const SMALL_PORTAL_VIEWPORT_QUERY = "(max-width: 1023px)";
 
-/** True after mount when the viewport is narrower than the portal `lg` breakpoint — false during SSR to avoid hydration mismatches. */
+function subscribeSmallPortalViewport(onStoreChange: () => void): () => void {
+  const mql = window.matchMedia(SMALL_PORTAL_VIEWPORT_QUERY);
+  const notify = () => onStoreChange();
+  mql.addEventListener("change", notify);
+  // DevTools device emulation and some programmatic resizes update matchMedia
+  // without firing "change"; resize keeps the bottom bar in sync with CSS that
+  // already hides `.portal-mobile-chrome` on small viewports.
+  window.addEventListener("resize", notify);
+  return () => {
+    mql.removeEventListener("change", notify);
+    window.removeEventListener("resize", notify);
+  };
+}
+
+function getSmallPortalViewportSnapshot(): boolean {
+  return window.matchMedia(SMALL_PORTAL_VIEWPORT_QUERY).matches;
+}
+
+function getSmallPortalViewportServerSnapshot(): boolean {
+  return false;
+}
+
+/** True when the viewport is narrower than the portal `lg` breakpoint — false during SSR. */
 export function useIsSmallPortalViewport(): boolean {
-  const [isSmall, setIsSmall] = useState(false);
-
-  useEffect(() => {
-    const mql = window.matchMedia(SMALL_PORTAL_VIEWPORT_QUERY);
-    const sync = () => setIsSmall(mql.matches);
-    sync();
-    mql.addEventListener("change", sync);
-    return () => mql.removeEventListener("change", sync);
-  }, []);
-
-  return isSmall;
+  return useSyncExternalStore(
+    subscribeSmallPortalViewport,
+    getSmallPortalViewportSnapshot,
+    getSmallPortalViewportServerSnapshot,
+  );
 }
