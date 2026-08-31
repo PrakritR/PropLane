@@ -105,6 +105,7 @@ import {
   MANUAL_SMS_NETWORK_UNKNOWN_MESSAGE,
   MANUAL_SMS_UNKNOWN_MESSAGE,
   isManualSmsOutcomeUnknown,
+  isManualSmsSubmitted,
   resolveManualSmsAttempt,
   type ManualSmsAttempt,
 } from "@/lib/sms/manual-send-attempt";
@@ -807,12 +808,15 @@ export const ManagerInbox = forwardRef<
                 code?: string;
                 status?: string;
               };
-              smsOk = res.ok;
-              smsUnknown = !smsOk && isManualSmsOutcomeUnknown(data);
+              smsUnknown = isManualSmsOutcomeUnknown(data);
+              smsOk = res.ok && isManualSmsSubmitted(data);
               if (smsOk) {
                 replySmsAttemptRef.current = null;
               } else if (smsUnknown) {
                 failureMessage = MANUAL_SMS_UNKNOWN_MESSAGE;
+              } else if (res.ok && data.status && data.status !== "submitted") {
+                failureMessage =
+                  "Text message is queued but has not been delivered yet. Check Settings → Messaging or try again shortly.";
               } else {
                 failureMessage = data.error?.trim() || failureMessage;
               }
