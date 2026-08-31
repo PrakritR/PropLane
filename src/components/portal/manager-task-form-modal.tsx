@@ -283,7 +283,7 @@ export function ManagerTaskFormModal({
       }
     }
     if (isWorkOrder && workOrderNeedsResident && !form.residentEmail) {
-      showToast("Choose a resident for the maintenance request.");
+      showToast("Choose a resident for the service request.");
       return;
     }
 
@@ -864,7 +864,7 @@ export function ManagerTaskFormModal({
           {isTour
             ? "Saving schedules the tour and adds it to your task list and calendar."
             : isWorkOrder
-              ? "Saving creates the maintenance request and a linked calendar entry when scheduled."
+              ? "Saving creates the service request and a linked calendar entry when scheduled."
               : form.scheduleDate && form.startTime && form.endTime
                 ? "Saving blocks this time on your calendar."
                 : form.dueDate

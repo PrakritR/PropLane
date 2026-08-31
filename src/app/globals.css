@@ -1375,7 +1375,7 @@ input[type="date"].portal-modal-date-input::-webkit-date-and-time-value {
    higher specificity and wins in the native app, so this only ever governs web. */
 :root {
   --portal-native-bottom-nav-inset: max(2.75rem, calc(env(safe-area-inset-bottom, 0px) + 2rem));
-  --portal-mobile-scroll-bottom-inset: var(--portal-native-bottom-nav-inset);
+  --portal-mobile-scroll-bottom-inset: calc(var(--portal-native-bottom-nav-inset) + 0.75rem);
   --portal-ease: cubic-bezier(0.22, 1, 0.36, 1);
   --portal-duration-fast: 120ms;
   --portal-duration: 220ms;
@@ -2261,6 +2261,32 @@ html[data-native] .portal-mobile-nav-bar {
   .axis-assistant-panel {
     bottom: calc(var(--portal-native-bottom-nav-inset) + 0.75rem);
   }
+
+  /* List footers: compact dashed add row so content clears the bottom tab bar. */
+  .portal-list-page-body .portal-list-add-row-wrap {
+    padding-top: 0.5rem;
+    padding-bottom: 0.5rem;
+  }
+
+  .portal-list-page-body .portal-list-add-row {
+    min-height: 0;
+    flex-direction: row;
+    gap: 0.5rem;
+    border-width: 1px;
+    border-radius: 0.75rem;
+    padding-top: 0.625rem;
+    padding-bottom: 0.625rem;
+  }
+
+  .portal-list-page-body .portal-list-add-row > svg {
+    height: 1.25rem;
+    width: 1.25rem;
+  }
+
+  .portal-list-page-body .portal-list-add-row > span {
+    flex-direction: row;
+    gap: 0.5rem;
+  }
 }
 
 /* Nested scroll panels: desktop only — mobile uses #portal-main-content scroll. */
@@ -2387,7 +2413,7 @@ html[data-rental-wizard-active] {
 }
 
 html[data-communication-surface] {
-  --portal-mobile-scroll-bottom-inset: var(--portal-native-bottom-nav-inset);
+  --portal-mobile-scroll-bottom-inset: calc(var(--portal-native-bottom-nav-inset) + 0.75rem);
 }
 
 @media (max-width: 1023px) {

@@ -388,7 +388,7 @@ function ModalPanelInner({
           className={cn(
             // Footer actions sit on the modal canvas; the divider, rather than a
             // second grey surface, separates them from the form above.
-            "shrink-0 border-t border-border bg-transparent",
+            "shrink-0 border-t border-border bg-transparent pb-[max(0.75rem,env(safe-area-inset-bottom,0px))] [html[data-native]_&]:pb-[max(0.75rem,var(--native-safe-bottom))]",
             dense ? "mt-2 pt-3" : "mt-4 pt-4",
           )}
         >

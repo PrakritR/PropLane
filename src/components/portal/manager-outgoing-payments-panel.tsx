@@ -240,6 +240,7 @@ export function ManagerOutgoingPaymentsPanel({
             icon={PORTAL_LIST_ADD_ICONS.payment}
             onClick={onAddPayment}
             dataAttr="payments-list-add"
+            inline
           />
         </div>
       ) : null}

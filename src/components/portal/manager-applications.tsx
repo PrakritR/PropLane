@@ -2201,6 +2201,7 @@ export function ManagerApplications({
               onClick={openAddApplication}
               disabled={propertyOptions.length === 0}
               dataAttr="applications-list-add"
+              inline
             />
           </div>
         </div>

@@ -17,7 +17,7 @@ export const MANAGER_TASK_TYPE_LABELS: Record<ManagerTaskType, string> = {
   general: "General task",
   house: "House task",
   tour: "Tour",
-  work_order: "Maintenance",
+  work_order: "Service",
   check_in: "Check in",
   check_out: "Check out",
 };

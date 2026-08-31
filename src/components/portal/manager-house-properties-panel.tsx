@@ -1552,6 +1552,7 @@ export function ManagerHousePropertiesPanel({
                 onClick={onAddProperty}
                 disabled={addPropertyDisabled}
                 dataAttr="properties-list-add"
+                inline
               />
             </div>
           ) : null}
