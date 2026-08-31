@@ -457,7 +457,7 @@ export function ManagerTaskFormModal({
       </div>
 
       {useServiceIntakeForm ? (
-        <ServiceIntakeFormFields
+        <ManagerLegacyServiceIntakeForm
           open={open}
           managerUserId={managerUserId}
           submitLabel="Add task"
