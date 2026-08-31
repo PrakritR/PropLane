@@ -1381,6 +1381,10 @@ input[type="date"].portal-modal-date-input::-webkit-date-and-time-value {
 :root {
   --portal-native-bottom-nav-inset: max(2.75rem, calc(env(safe-area-inset-bottom, 0px) + 2rem));
   --portal-mobile-scroll-bottom-inset: calc(var(--portal-native-bottom-nav-inset) + 0.75rem);
+  /* How far a floating bottom element (bulk bar, FAB) sits ABOVE the tab bar.
+     The nav inset is measured to the bar's exact height, so a small gap read as
+     the two touching on a phone; this is the deliberate breathing room. */
+  --portal-floating-bottom-gap: 1.25rem;
   --portal-ease: cubic-bezier(0.22, 1, 0.36, 1);
   --portal-duration-fast: 120ms;
   --portal-duration: 220ms;
@@ -2353,12 +2357,12 @@ html[data-native] [class*="PORTAL_SECTION_SURFACE"] {
   }
 
   html[data-bulk-action-bar] #portal-main-content {
-    padding-bottom: calc(var(--portal-mobile-scroll-bottom-inset) + 3.75rem);
-    scroll-padding-bottom: calc(var(--portal-mobile-scroll-bottom-inset) + 3.75rem);
+    padding-bottom: calc(var(--portal-mobile-scroll-bottom-inset) + 4.25rem);
+    scroll-padding-bottom: calc(var(--portal-mobile-scroll-bottom-inset) + 4.25rem);
   }
 
   html[data-bulk-action-bar] .axis-assistant-fab {
-    bottom: calc(var(--portal-native-bottom-nav-inset, 0px) + 5.5rem) !important;
+    bottom: calc(var(--portal-native-bottom-nav-inset, 0px) + 6rem) !important;
   }
 
   /* Record detail footer actions — float FAB above the centered action row. */

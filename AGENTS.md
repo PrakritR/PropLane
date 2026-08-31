@@ -348,6 +348,43 @@ mid-walkthrough. Regression coverage:
 
 **Read [`docs/portal-ui-system.md`](docs/portal-ui-system.md) before editing portal UI.**
 
+### Every list tab copies the Properties portal — that is the house theme
+
+The manager Properties tab is the reference design for **every** list surface in
+**every** portal (manager/property, resident, vendor, admin). When you build or
+touch a tab, it adopts this shape; a bespoke layout for one tab is the bug.
+
+Compose it with `PortalRecordListSurface`
+(`src/components/portal/portal-record-list-surface.tsx`) rather than re-typing
+the wrapper, the dashed footer, and the bar per panel — that hand-rolling is
+exactly how the gutters drifted apart across tabs before. The shape is:
+
+1. **Header card** — `PortalSectionActionRow variant="header"`: status/bucket
+   tabs with count chips on the left, actions on the right (outline secondary,
+   filled primary last).
+2. **Flat record rows, never a table for the top-level list** — a row variant
+   from `portal-record-row.tsx` (`PortalPropertyRecordRow` for
+   address/asset rows, `PortalPersonRecordRow` for people,
+   `PortalServiceRecordRow` for jobs/tickets). Bold title, muted detail lines
+   under it, `Badge` last. Selection is a leading checkbox; a selected row gets
+   the `border-l-primary` rail and tinted fill. Tables stay for *detail* views
+   and the admin record tables, not the list itself.
+3. **Dashed ADD footer** — `PortalListAddRow`, uppercase `ADD`, `inline` once
+   rows exist above it. Always pass `ariaLabel`: every tab renders the same
+   visible "ADD", so without it a screen reader hears a page of identical
+   buttons.
+4. **Floating bulk bar** — `BulkActionBar variant="payments" hideCount`, present
+   only while something is selected.
+
+**Mobile is not a separate design.** The same surface reflows; the bulk bar
+floats as a rounded card clear of the tab bar. That clearance is one knob,
+`--portal-floating-bottom-gap` in `globals.css` — the nav inset is *measured* to
+the real bar height, so a small gap reads as the two touching. Change the knob,
+never a per-panel `bottom`.
+
+Group by comes before Sort by in every filter stack
+(`manager-task-filter-fields.tsx` is the reference).
+
 Expandable rows, section cards, and data tables share one pattern across manager,
 resident, vendor, and admin portals:
 

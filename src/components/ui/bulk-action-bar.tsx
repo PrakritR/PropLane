@@ -37,7 +37,7 @@ export function BulkActionBar({
       className={cn(
         "fixed inset-x-0 bottom-0 z-[51] border-t border-border bg-card/95 px-3 py-2.5 shadow-[var(--shadow-lg)] backdrop-blur-md sm:px-4 sm:py-3",
         "pb-[max(0.75rem,var(--native-safe-bottom))]",
-        "max-lg:inset-x-2.5 max-lg:bottom-[calc(var(--portal-native-bottom-nav-inset,0px)+0.75rem)] max-lg:rounded-2xl max-lg:border max-lg:py-3 max-lg:pb-3 max-lg:shadow-md",
+        "max-lg:inset-x-2.5 max-lg:bottom-[calc(var(--portal-native-bottom-nav-inset,0px)+var(--portal-floating-bottom-gap,1.25rem))] max-lg:rounded-2xl max-lg:border max-lg:py-3 max-lg:pb-3 max-lg:shadow-md",
         variant === "payments" && "lg:left-[224px] lg:right-0",
         className,
       )}
