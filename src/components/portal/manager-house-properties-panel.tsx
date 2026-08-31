@@ -893,7 +893,7 @@ function ManagerPropertyInlineDetails({
           />
           {previewHasToolbar ? (
             <div
-              className="border-t border-border/40 px-3 py-2"
+              className="border-t border-border px-3 py-2"
               data-attr="property-detail-toolbar-actions"
             >
               {propertyTopHeaderActions}

@@ -192,6 +192,10 @@ describe("PortalListControlStack", () => {
     expect(screen.getByRole("button", { name: "Filter" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Settings" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Add" })).toBeTruthy();
+    expect(container.querySelector('[data-attr="portal-list-command-actions"]')).toBeTruthy();
+    expect(container.querySelector("[data-portal-list-destination-nav]")?.parentElement?.className).toMatch(
+      /border-b/,
+    );
   });
 });
 

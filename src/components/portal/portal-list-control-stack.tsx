@@ -116,9 +116,14 @@ export function PortalListControlStack({
         data-slot="portal-list-control-stack"
         data-variant="command"
       >
-        <div className="flex min-w-0 flex-col rounded-xl border border-border bg-card/75">
+        <div className="flex min-w-0 flex-col rounded-xl border border-border bg-card/75 shadow-sm">
           {showDestinations ? (
-            <HorizontalScrollCapture className="min-w-0 px-2 pt-0.5">
+            <HorizontalScrollCapture
+              className={cn(
+                "min-w-0 border-border px-1 pt-1",
+                showActionRow && "border-b",
+              )}
+            >
               <div ref={destinationRef} data-portal-list-destination-nav>
                 {destinationContent}
               </div>
@@ -128,8 +133,9 @@ export function PortalListControlStack({
             <div
               className={cn(
                 "flex min-w-0 flex-wrap items-center gap-2 px-2.5 py-2",
-                (showDestinations || showUtilityRow) && "border-t border-border",
+                !showDestinations && showUtilityRow && "border-b border-border",
               )}
+              data-attr="portal-list-command-actions"
             >
               {actions}
             </div>
@@ -140,6 +146,7 @@ export function PortalListControlStack({
                 "flex min-w-0 flex-wrap items-center gap-2 p-2",
                 (showDestinations || showActionRow) && "border-t border-border",
               )}
+              data-attr="portal-list-command-utilities"
             >
               {search ? (
                 <div className="relative min-w-0 w-full flex-1 sm:min-w-[12rem]">

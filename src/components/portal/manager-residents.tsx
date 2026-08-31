@@ -3221,8 +3221,12 @@ export function ManagerResidents({
       <PortalListControlStack
         className="mb-2 max-lg:mb-1.5"
         variant="command"
-        filterRow={residentsFilterSheet}
-        actions={residentsAddButton}
+        actions={
+          <>
+            {residentsFilterSheet}
+            {residentsAddButton}
+          </>
+        }
         search={{
           value: searchQuery,
           onChange: setSearchQuery,
