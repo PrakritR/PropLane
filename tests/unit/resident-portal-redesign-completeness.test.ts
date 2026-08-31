@@ -116,6 +116,7 @@ describe("resident portal redesign completeness", () => {
       { file: "resident-applications-panel.tsx", marker: "PortalListControlStack" },
       { file: "resident-payments-panel.tsx", marker: "PortalListControlStack" },
       { file: "resident-documents-panel.tsx", marker: "PortalListControlStack" },
+      { file: "resident-services-panel.tsx", marker: "PortalListControlStack" },
     ];
 
     it.each(band2Panels)("%s uses %s for band-2 tabs", ({ file, marker }) => {
@@ -226,9 +227,11 @@ describe("resident portal redesign completeness", () => {
      * Never both an ungated title band AND a mobile row.
      */
     it("header actions reach mobile exactly once — band OR mobile row, never both", () => {
-      // Services uses list-body add actions, not a title-band action.
+      // Services uses a single list-body add action, not a title-band action.
       const services = readPanel("resident-services-panel.tsx");
-      expect(services).toContain("ResidentServicesAddActions");
+      expect(services).toContain("ResidentAddServiceModal");
+      expect(services).toContain('dataAttr="resident-services-add"');
+      expect(services).not.toContain("ResidentServicesAddActions");
       expect(services).not.toContain("PortalPageHeaderMobileActionsRow");
 
       const tour = readPanel("resident-tour-panel.tsx");

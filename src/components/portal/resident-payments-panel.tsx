@@ -1250,6 +1250,7 @@ export function ResidentPaymentsPanel({
   const renderChargeList = () => (
     <div className={PORTAL_LIST_PAGE_BODY}>
       <DataList
+        variant="resident"
         hideColumnHeaders
         selectable={showSelectCol}
         rows={rowsForBucket.map((row) => ({

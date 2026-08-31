@@ -4,10 +4,10 @@ import { useEffect, useState } from "react";
 import { Modal, ModalFooter } from "@/components/ui/modal";
 import { Button } from "@/components/ui/button";
 import {
-  ServiceIntakeFormFields,
+  ManagerLegacyServiceIntakeForm,
   type ManagerServiceResidentOption,
   type ServiceIntakeFooterState,
-} from "@/components/portal/service-intake-form-fields";
+} from "@/components/portal/manager-legacy-service-intake-form";
 import type { ManagerComposePrefill } from "@/lib/manager-compose-prefill";
 
 export type { ManagerServiceResidentOption };
@@ -65,7 +65,7 @@ export function ManagerCreateServiceRequestModal({
         ) : undefined
       }
     >
-      <ServiceIntakeFormFields
+      <ManagerLegacyServiceIntakeForm
         open={open}
         managerUserId={managerUserId}
         defaultPropertyId={defaultPropertyId}

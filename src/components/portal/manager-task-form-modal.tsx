@@ -14,9 +14,9 @@ import {
 import { PORTAL_MODAL_BODY_SCROLL_CLASS } from "@/components/ui/modal-styles";
 import { WorkAssignmentPicker } from "@/components/portal/work-assignment-picker";
 import {
-  ServiceIntakeFormFields,
+  ManagerLegacyServiceIntakeForm,
   type ServiceIntakeFooterState,
-} from "@/components/portal/service-intake-form-fields";
+} from "@/components/portal/manager-legacy-service-intake-form";
 import { useAppUi } from "@/components/providers/app-ui-provider";
 import { useWorkAssignmentDirectory } from "@/hooks/use-work-assignment-directory";
 import type { ManagerComposePrefill } from "@/lib/manager-compose-prefill";
