@@ -20,6 +20,7 @@ vi.mock("@/components/ui/modal", () => ({
     title: string;
     children: ReactNode;
   }) => (open ? <div role="dialog" aria-label={title}><h2>{title}</h2>{children}</div> : null),
+  ModalFooter: ({ children }: { children: ReactNode }) => <div>{children}</div>,
 }));
 vi.mock("@/components/marketing/tour-schedule-flow", () => ({
   TourScheduleFlow: () => <div data-testid="tour-schedule-flow" />,
@@ -88,7 +89,7 @@ describe("ResidentTourPanel", () => {
     expect(screen.getByText("Looking for a quiet room.")).toBeTruthy();
   });
 
-  it("shows schedule tour add row without subtitle when there are no tours", async () => {
+  it("shows schedule tour FAB when the tour list is empty", async () => {
     vi.stubGlobal(
       "fetch",
       vi.fn().mockResolvedValue({
@@ -99,12 +100,12 @@ describe("ResidentTourPanel", () => {
 
     render(<ResidentTourPanel basePath="/resident" bucket="pending" />);
 
-    expect(await screen.findByText("SCHEDULE TOUR")).toBeTruthy();
-    expect(screen.getByText("Browse homes")).toBeTruthy();
+    expect(await screen.findByRole("button", { name: "Schedule a tour" })).toBeTruthy();
+    expect(document.querySelector('[data-attr="resident-tour-schedule-add"]')).toBeTruthy();
     expect(screen.getByText("Pending")).toBeTruthy();
     expect(screen.getByText("Confirmed")).toBeTruthy();
     expect(screen.queryByText("Your scheduled property tours and requested times.")).toBeNull();
-    expect(screen.queryByRole("button", { name: /^Browse homes$/i })).toBeNull();
+    expect(screen.queryByText("SCHEDULE TOUR")).toBeNull();
   });
 
   it("opens schedule tour in a modal instead of leaving the tour tab", async () => {
@@ -118,8 +119,10 @@ describe("ResidentTourPanel", () => {
 
     render(<ResidentTourPanel basePath="/resident" bucket="declined" />);
 
-    expect(await screen.findByText("SCHEDULE TOUR")).toBeTruthy();
-    fireEvent.click(document.querySelector('[data-attr="resident-tour-schedule"]') as HTMLElement);
+    await screen.findByRole("button", { name: "Schedule a tour" });
+    const fab = document.querySelector('[data-attr="resident-tour-schedule-add"]');
+    expect(fab).toBeTruthy();
+    fireEvent.click(fab as HTMLElement);
     expect(await screen.findByRole("dialog", { name: "Choose a home to tour" })).toBeTruthy();
     expect(screen.getByLabelText("Search homes to tour")).toBeTruthy();
   });
