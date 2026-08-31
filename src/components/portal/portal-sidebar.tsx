@@ -642,23 +642,20 @@ export function PortalSidebar({
             const active = isPaymentSubNavActive(sub);
             const subLocked = locked;
             const subBody = (
-              <>
-                <span className="flex min-w-0 flex-1 items-center gap-2">
-                  {showNavIcons ? (
-                    <span className={active ? "text-primary" : "text-primary/70"} aria-hidden>
-                      <PortalNavIcon section={item.section} className="h-[15px] w-[15px] shrink-0" active={active} />
-                    </span>
-                  ) : null}
-                  <span className="min-w-0 truncate">{sub.label}</span>
-                </span>
-                <ChevronRight className="h-3.5 w-3.5 shrink-0 opacity-60" aria-hidden />
-              </>
+              <span className="flex min-w-0 flex-1 items-center gap-2">
+                {showNavIcons ? (
+                  <span className={active ? "text-primary" : subLocked ? "opacity-60" : "opacity-80"} aria-hidden>
+                    <PortalNavIcon section={item.section} className="h-[15px] w-[15px] shrink-0" active={active} />
+                  </span>
+                ) : null}
+                <span className="min-w-0 truncate">{sub.label}</span>
+              </span>
             );
             if (subLocked && !isSectionLockNavigable(item.section)) {
               return (
                 <span
                   key={sub.sectionTabId}
-                  className="flex min-h-8 cursor-not-allowed items-center justify-between gap-2 rounded-[10px] bg-primary/[0.04] px-2.5 py-1.5 text-[13px] font-medium tracking-[-0.01em] text-primary/50"
+                  className={cn(navLinkClass(false, true), "cursor-not-allowed")}
                   title={lockAriaLabel(sub.label, true, item.section)}
                   aria-label={lockAriaLabel(sub.label, true, item.section)}
                   role="link"
@@ -681,12 +678,7 @@ export function PortalSidebar({
                       }
                     : undefined
                 }
-                className={cn(
-                  "flex min-h-8 items-center justify-between gap-2 rounded-[10px] px-2.5 py-1.5 text-[13px] font-medium tracking-[-0.01em] transition-colors duration-150",
-                  active
-                    ? "bg-primary/10 text-primary"
-                    : "bg-primary/[0.04] text-primary/80 hover:bg-primary/10 hover:text-primary",
-                )}
+                className={navLinkClass(active, subLocked)}
                 aria-label={lockAriaLabel(sub.label, subLocked, item.section)}
                 aria-current={active ? "page" : undefined}
               >
