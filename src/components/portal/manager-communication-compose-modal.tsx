@@ -800,7 +800,6 @@ export function ManagerCommunicationComposeModal({
                   ? "Other uses the field below"
                   : "No contacts in selected sections"
           }
-          peopleDataAttr="communication-compose-person"
         />
 
         {selectedCategories.includes("other") ? (

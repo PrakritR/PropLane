@@ -6,6 +6,7 @@ import {
 } from "@/lib/manager-sms-messages.server";
 import {
   deleteManagerSmsContactName,
+  isSavableContactEmail,
   upsertManagerSmsContact,
 } from "@/lib/sms/manager-sms-contacts.server";
 import {
@@ -77,9 +78,17 @@ export async function POST(req: Request) {
   const body = (await req.json().catch(() => ({}))) as {
     phone?: string;
     displayName?: string;
+    email?: string;
   };
   const displayName = String(body.displayName ?? "").trim();
   const phone = normalizeE164(String(body.phone ?? ""));
+  // Optional: adding a number to an email-only conversation records that address
+  // here so the thread resolves to this contact and gains its SMS channel.
+  const rawEmail = String(body.email ?? "").trim().toLowerCase();
+  const email = rawEmail ? rawEmail : undefined;
+  if (email !== undefined && !isSavableContactEmail(email)) {
+    return NextResponse.json({ error: "Enter a valid email address." }, { status: 400 });
+  }
   if (!displayName || displayName.length > 80) {
     return NextResponse.json({ error: "Enter a contact name up to 80 characters." }, { status: 400 });
   }
@@ -139,6 +148,7 @@ export async function POST(req: Request) {
       phone,
       counterpartyRole: target.counterpartyRole,
       displayName,
+      ...(email !== undefined ? { email } : {}),
     });
     if (!result.ok) {
       console.error("manager SMS contact create failed", result.error);
@@ -153,6 +163,7 @@ export async function POST(req: Request) {
       conversationKey: primary.conversationKey,
       displayName,
       phone,
+      email: email ?? null,
       counterpartyRole: primary.counterpartyRole,
     },
   });
@@ -164,11 +175,36 @@ export async function PUT(req: Request) {
   const body = (await req.json().catch(() => ({}))) as {
     conversationKey?: string;
     displayName?: string;
+    /** `""` clears the saved address; omitting the key leaves it untouched. */
+    email?: string;
+    /** A corrected number for a contact that has not texted yet. */
+    phone?: string;
   };
   const conversationKey = String(body.conversationKey ?? "").trim();
-  const displayName = String(body.displayName ?? "").trim();
-  if (!conversationKey || displayName.length < 1 || displayName.length > 80) {
+  // Both fields are optional so the same editor can save a name, an address, or
+  // both — but a request that changes nothing is a client bug, not a no-op save.
+  const displayName = body.displayName === undefined ? undefined : String(body.displayName).trim();
+  const email =
+    body.email === undefined ? undefined : String(body.email).trim().toLowerCase() || null;
+  if (!conversationKey) {
+    return NextResponse.json({ error: "Conversation is required." }, { status: 400 });
+  }
+  const rawPhone = body.phone === undefined ? undefined : String(body.phone).trim();
+  const nextPhone = rawPhone === undefined ? undefined : normalizeE164(rawPhone);
+  if (rawPhone !== undefined && !nextPhone) {
+    return NextResponse.json(
+      { error: "Enter a valid phone number, including country code." },
+      { status: 400 },
+    );
+  }
+  if (displayName === undefined && email === undefined && nextPhone === undefined) {
+    return NextResponse.json({ error: "Nothing to save." }, { status: 400 });
+  }
+  if (displayName !== undefined && (displayName.length < 1 || displayName.length > 80)) {
     return NextResponse.json({ error: "Enter a contact name up to 80 characters." }, { status: 400 });
+  }
+  if (email != null && !isSavableContactEmail(email)) {
+    return NextResponse.json({ error: "Enter a valid email address." }, { status: 400 });
   }
   const match = await resolveVisibleConversation(auth.db, auth.user.id, conversationKey);
   if (!match?.phone) return NextResponse.json({ error: "Conversation not found." }, { status: 404 });
@@ -179,17 +215,48 @@ export async function PUT(req: Request) {
       return NextResponse.json({ error: "You do not have edit access to this conversation." }, { status: 403 });
     }
   }
+  const counterpartyRole = match.counterpartyRole ?? "unknown";
+  // Moving the number moves only the saved contact details. Texts already sent
+  // or received stay on the number they actually went to — the transport record
+  // is not rewritten by an address-book edit.
+  const movingNumber = Boolean(nextPhone) && !sameNormalizedPhone(match.phone, nextPhone!);
+
   const result = await upsertManagerSmsContact(auth.db, {
     managerUserId: ownerManagerUserId,
-    phone: match.phone,
-    counterpartyRole: match.counterpartyRole ?? "unknown",
-    displayName,
+    phone: movingNumber ? nextPhone! : match.phone,
+    counterpartyRole,
+    ...(displayName !== undefined ? { displayName } : {}),
+    ...(email !== undefined ? { email } : {}),
   });
   if (!result.ok) {
-    console.error("manager SMS contact rename failed", result.error);
-    return NextResponse.json({ error: "Could not save contact name." }, { status: 500 });
+    console.error("manager SMS contact save failed", result.error);
+    return NextResponse.json({ error: "Could not save contact details." }, { status: 500 });
   }
-  return NextResponse.json({ ok: true, displayName });
+
+  if (movingNumber) {
+    // Clear the label on the old number LAST, so a failed move never leaves the
+    // contact nameless at both numbers.
+    const cleared = await deleteManagerSmsContactName(auth.db, {
+      managerUserId: ownerManagerUserId,
+      phone: match.phone,
+      counterpartyRole,
+    });
+    if (!cleared.ok) console.error("manager SMS contact move cleanup failed", cleared.error);
+  }
+
+  return NextResponse.json({
+    ok: true,
+    displayName: displayName ?? null,
+    email: email ?? null,
+    phone: movingNumber ? nextPhone : match.phone,
+    conversationKey: movingNumber
+      ? buildConversationKey({
+          ownerManagerUserId,
+          role: counterpartyRole,
+          counterpartyPhone: nextPhone!,
+        })
+      : conversationKey,
+  });
 }
 
 export async function DELETE(req: Request) {

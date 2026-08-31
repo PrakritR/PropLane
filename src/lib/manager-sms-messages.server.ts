@@ -816,7 +816,12 @@ export async function fetchManagerSmsConversations(
     const role = conversation.counterpartyRole ?? "unknown";
     const key = managerSmsContactKey(ownerId, conversation.phone, role);
     if (key) representedContactKeys.add(key);
-    conversation.savedContactName = key ? contactMap.get(key)?.displayName ?? null : null;
+    const contact = key ? contactMap.get(key) ?? null : null;
+    conversation.savedContactName = contact?.displayName ?? null;
+    // A manager-typed address only fills a gap; a directory email always wins.
+    if (!conversation.residentEmail?.trim() && contact?.email) {
+      conversation.residentEmail = contact.email;
+    }
   }
 
   // Address-book contacts must remain visible before the first inbound text.
@@ -832,7 +837,7 @@ export async function fetchManagerSmsConversations(
     });
     conversations.push({
       residentUserId: null,
-      residentEmail: null,
+      residentEmail: contact.email,
       name: contact.displayName,
       directoryName: null,
       savedContactName: contact.displayName,

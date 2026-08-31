@@ -34,7 +34,20 @@ export const PORTAL_MESSAGE_COMPOSE_SELECT_LABEL_CLASS = portalMessageFieldLabel
 /** Two-column row for compose dropdowns (Subject / Send via). */
 export const PORTAL_MESSAGE_COMPOSE_TWO_COL_CLASS = "grid min-w-0 grid-cols-1 gap-3 sm:grid-cols-2";
 
-/** To: section filter + people picker in one labeled block (new message / SMS compose). */
+/** Prefixes keep the merged To options unambiguous — the "admin" section and the
+ * synthetic "admin" person key are otherwise the same string. */
+const RECIPIENT_SECTION_PREFIX = "section:";
+const RECIPIENT_PERSON_PREFIX = "person:";
+
+function sameSelection(a: string[], b: string[]): boolean {
+  return a.length === b.length && a.every((v, i) => v === b[i]);
+}
+
+/**
+ * To: sections and the people inside them in ONE dropdown (new message / SMS
+ * compose). Picking a section reveals its people as a group in the same open
+ * menu — two stacked selects read as two unrelated recipients fields.
+ */
 export function PortalMessageComposeRecipientSection({
   sectionOptions,
   selectedCategories,
@@ -46,7 +59,6 @@ export function PortalMessageComposeRecipientSection({
   peopleDisabled = false,
   peopleSearchPlaceholder = "Search people…",
   peopleEmptyMenuText,
-  peopleDataAttr,
 }: {
   sectionOptions: CheckboxMultiSelectOption[];
   selectedCategories: string[];
@@ -58,32 +70,100 @@ export function PortalMessageComposeRecipientSection({
   peopleDisabled?: boolean;
   peopleSearchPlaceholder?: string;
   peopleEmptyMenuText: string;
-  peopleDataAttr: string;
 }) {
+  const personGroupFor = (sectionLabel: string) =>
+    personGroups.find((group) => group.label === sectionLabel) ?? null;
+  const asPersonGroup = (group: CheckboxMultiSelectGroup): CheckboxMultiSelectGroup => ({
+    label: group.label,
+    options: group.options.map((o) => ({
+      ...o,
+      value: `${RECIPIENT_PERSON_PREFIX}${o.value}`,
+      // A section whose people are fixed (PropLane admin) still SHOWS its
+      // recipient, so the one field always says who is being written to.
+      disabled: peopleDisabled || o.disabled,
+    })),
+  });
+
+  /**
+   * A section's people sit DIRECTLY under that section's own row, not after the
+   * whole section list — with several sections open, a trailing block gives no
+   * clue which people belong to which one.
+   */
+  const groups: CheckboxMultiSelectGroup[] = [];
+  const matchedPersonGroups = new Set<CheckboxMultiSelectGroup>();
+  let pendingSections: CheckboxMultiSelectOption[] = [];
+  let sectionHeaderUsed = false;
+  const flushSections = () => {
+    if (pendingSections.length === 0) return;
+    groups.push({ label: sectionHeaderUsed ? "" : "Sections", options: pendingSections });
+    sectionHeaderUsed = true;
+    pendingSections = [];
+  };
+  for (const option of sectionOptions) {
+    pendingSections.push({ ...option, value: `${RECIPIENT_SECTION_PREFIX}${option.value}` });
+    const people = personGroupFor(option.label);
+    if (!people) continue;
+    flushSections();
+    matchedPersonGroups.add(people);
+    groups.push(asPersonGroup(people));
+  }
+  flushSections();
+  // A people group whose label does not match any section still has to render,
+  // or its recipients silently disappear from the menu.
+  for (const group of personGroups) {
+    if (!matchedPersonGroups.has(group)) groups.push(asPersonGroup(group));
+  }
+
+  const listedPersonKeys = new Set(personGroups.flatMap((g) => g.options.map((o) => o.value)));
+  const selected = [
+    ...selectedCategories.map((v) => `${RECIPIENT_SECTION_PREFIX}${v}`),
+    ...selectedKeys.filter((k) => listedPersonKeys.has(k)).map((v) => `${RECIPIENT_PERSON_PREFIX}${v}`),
+  ];
+
+  const personLabel = (key: string) =>
+    personGroups.flatMap((g) => g.options).find((o) => o.value === key)?.label ?? key;
+  const sectionLabel = (value: string) =>
+    sectionOptions.find((o) => o.value === value)?.label ?? value;
+
+  let triggerLabel: string | undefined;
+  if (selectedKeys.length === 1) triggerLabel = personLabel(selectedKeys[0]!);
+  else if (selectedKeys.length > 1) triggerLabel = `${selectedKeys.length} recipients`;
+  else if (selectedCategories.length === 1) triggerLabel = sectionLabel(selectedCategories[0]!);
+  else if (selectedCategories.length > 1) triggerLabel = `${selectedCategories.length} sections`;
+
+  const handleChange = (next: string[]) => {
+    const nextCategories = next
+      .filter((v) => v.startsWith(RECIPIENT_SECTION_PREFIX))
+      .map((v) => v.slice(RECIPIENT_SECTION_PREFIX.length));
+    const nextListedPeople = next
+      .filter((v) => v.startsWith(RECIPIENT_PERSON_PREFIX))
+      .map((v) => v.slice(RECIPIENT_PERSON_PREFIX.length));
+    // Keys the menu never showed (a section's fixed recipient) survive a toggle.
+    const nextPeople = [
+      ...selectedKeys.filter((k) => !listedPersonKeys.has(k)),
+      ...nextListedPeople,
+    ];
+
+    if (!sameSelection(nextCategories, selectedCategories)) onCategoriesChange(nextCategories);
+    if (!sameSelection(nextPeople, selectedKeys)) onPeopleChange(nextPeople);
+  };
+
   return (
     <fieldset className="min-w-0 border-0 p-0">
       <legend className={PORTAL_MESSAGE_COMPOSE_SELECT_LABEL_CLASS}>To</legend>
-      <div className="mt-1 space-y-2">
+      <div className="mt-1">
         <CheckboxMultiSelect
-          label="Recipient sections"
+          label="Recipients"
           hideLabel
           labelClassName={PORTAL_MESSAGE_COMPOSE_SELECT_LABEL_CLASS}
-          options={sectionOptions}
-          selected={selectedCategories}
-          onChange={onCategoriesChange}
-          dataAttr={sectionDataAttr}
-        />
-        <CheckboxMultiSelect
-          label="Which people"
-          hideLabel
-          labelClassName={PORTAL_MESSAGE_COMPOSE_SELECT_LABEL_CLASS}
-          groups={personGroups}
-          selected={selectedKeys}
-          onChange={onPeopleChange}
-          disabled={peopleDisabled}
+          groups={groups}
+          selected={selected}
+          onChange={handleChange}
+          selectionTriggerLabel={triggerLabel}
+          emptyLabel="Choose recipients"
           searchPlaceholder={peopleSearchPlaceholder}
           emptyMenuText={peopleEmptyMenuText}
-          dataAttr={peopleDataAttr}
+          dataAttr={sectionDataAttr}
         />
       </div>
     </fieldset>

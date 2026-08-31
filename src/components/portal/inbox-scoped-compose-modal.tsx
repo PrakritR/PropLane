@@ -474,7 +474,6 @@ export function ScopedInboxComposeModal({
                 ? "PropLane admin is the recipient"
                 : "No contacts in selected sections"
           }
-          peopleDataAttr="inbox-compose-person"
         />
 
         <div className={PORTAL_MESSAGE_COMPOSE_TWO_COL_CLASS}>

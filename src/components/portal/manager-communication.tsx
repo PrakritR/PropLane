@@ -3,7 +3,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { PortalFilterSortSheet } from "@/components/portal/portal-filter-sort-sheet";
-import { PORTAL_MULTI_FIELD_FILTER_SHEET_CLASS } from "@/components/portal/portal-filter-shell";
 import { CommunicationFilterSortFields } from "@/components/portal/communication-filter-sort-fields";
 import { PortalActiveFilterChips, type PortalActiveFilterChip } from "@/components/portal/portal-filter-chips";
 import { ManagerUnifiedInbox } from "@/components/portal/manager-unified-inbox";
@@ -14,13 +13,13 @@ import {
   type CommunicationComposeChannel,
 } from "@/components/portal/manager-communication-compose-modal";
 import { ManagerWorkNumberButton } from "@/components/portal/manager-work-number-button";
-import { ManagerSmsContactModal } from "@/components/portal/manager-sms-contact-modal";
 import { PortalCommunicationShell } from "@/components/portal/portal-communication-shell";
 import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
 import { ManagerPortalSettingsModal } from "@/components/portal/manager-portal-settings-modal";
 import {
-  PORTAL_HEADER_ACTION_BTN,
-  PORTAL_HEADER_PRIMARY_ACTION_BTN,
+  PORTAL_COMMAND_ACTION_BTN,
+  PORTAL_COMMAND_PRIMARY_ACTION_BTN,
+  PORTAL_COMMAND_PRIMARY_ACTION_STYLE,
 } from "@/components/portal/portal-metrics";
 import {
   axisAdminFilterContact,
@@ -38,7 +37,6 @@ import { PROPERTY_PIPELINE_EVENT } from "@/lib/demo-property-pipeline";
 import { MANAGER_APPLICATIONS_EVENT } from "@/lib/manager-applications-storage";
 import type { CommunicationListSort } from "@/lib/unified-inbox-merge";
 import {
-  dispatchManagerSmsContactsChanged,
   normalizeManagerSmsConversationsPayload,
   type ManagerSmsResidentConversation,
 } from "@/lib/manager-sms-messages";
@@ -107,12 +105,10 @@ export function ManagerCommunication({
   const [composeOpen, setComposeOpen] = useState(false);
   const [composeChannel, setComposeChannel] = useState<CommunicationComposeChannel>("email");
   const [composeDraft, setComposeDraft] = useState<ManagerComposePrefill | null>(null);
-  const [contactOpen, setContactOpen] = useState(false);
   const [communicationSettingsOpen, setCommunicationSettingsOpen] = useState(false);
   const [smsRecipients, setSmsRecipients] = useState<ManagerSmsResidentConversation[]>([]);
   const [threadOpen, setThreadOpen] = useState(Boolean(threadId));
   const [threadSelected, setThreadSelected] = useState(Boolean(threadId));
-  const [searchQuery, setSearchQuery] = useState("");
   const [propertyTick, setPropertyTick] = useState(0);
 
   const filterContacts = useMemo(() => {
@@ -249,9 +245,12 @@ export function ManagerCommunication({
     <PortalFilterSortSheet
       activeCount={filterTouchCount}
       compactPanel
+      commandStripTrigger
       filterFieldCount={3}
-      constrainDropdownToTitleBand
-      className={PORTAL_MULTI_FIELD_FILTER_SHEET_CLASS}
+      constrainDropdownToTitleBand={false}
+      // Content-width trigger: the command strip's default `flex-1` would
+      // stretch Filter across the row beside the fixed-width Settings/Message.
+      className="flex-none"
       mobileFlushBody={true}
       onReset={() => {
         setFilters(EMPTY_COMMUNICATION_THREAD_FILTERS);
@@ -266,8 +265,8 @@ export function ManagerCommunication({
   const communicationNewMessageButton = (
     <Button
       type="button"
-      variant="outline"
-      className={`shrink-0 ${PORTAL_HEADER_PRIMARY_ACTION_BTN}`}
+      className={PORTAL_COMMAND_PRIMARY_ACTION_BTN}
+      style={PORTAL_COMMAND_PRIMARY_ACTION_STYLE}
       data-attr="communication-new-message"
       aria-label="New message"
       onClick={() => openCompose("email")}
@@ -279,32 +278,18 @@ export function ManagerCommunication({
     </Button>
   );
 
-  const communicationHeaderActions = (
+  const communicationCommandActions = (
     <>
+      {communicationFilterSheet}
       {/* Plan-gated setup CTA: shown regardless of the SMS-inbox A2P flag so a
           paid manager can begin work-number setup (and a free manager sees the
           upsell) before the inbox surface is switched on. It self-hides once a
           number is assigned. */}
-      <ManagerWorkNumberButton />
-      {smsUiEnabled ? (
-        <Button
-          type="button"
-          variant="outline"
-          className={`shrink-0 ${PORTAL_HEADER_PRIMARY_ACTION_BTN}`}
-          data-attr="communication-add-phone-contact"
-          aria-label="Add contact"
-          onClick={() => setContactOpen(true)}
-        >
-          <span className="sm:hidden" aria-hidden="true">
-            Contact
-          </span>
-          <span className="hidden sm:inline">Add contact</span>
-        </Button>
-      ) : null}
+      <ManagerWorkNumberButton className={PORTAL_COMMAND_ACTION_BTN} />
       <Button
         type="button"
         variant="outline"
-        className={PORTAL_HEADER_ACTION_BTN}
+        className={PORTAL_COMMAND_ACTION_BTN}
         data-attr="communication-settings-open"
         onClick={() => setCommunicationSettingsOpen(true)}
       >
@@ -316,14 +301,10 @@ export function ManagerCommunication({
 
   const controlStack = (
     <PortalListControlStack
+      variant="command"
+      stickyDestinations={false}
       destinations={[
         { id: "active", label: "Active", href: `${commBase}/active`, dataAttr: "communication-segment-active" },
-        {
-          id: "unread",
-          label: "Unread",
-          href: `${commBase}/unread`,
-          dataAttr: "communication-segment-unread",
-        },
         {
           id: "archived",
           label: "Archived",
@@ -331,15 +312,9 @@ export function ManagerCommunication({
           dataAttr: "communication-segment-archived",
         },
       ]}
-      activeDestinationId={listSegment}
+      activeDestinationId={listSegment === "unread" ? "active" : listSegment}
       destinationAriaLabel="Conversation folders"
-      destinationNavSize="toolbar"
-      search={{
-        value: searchQuery,
-        onChange: setSearchQuery,
-        placeholder: "Search contacts or messages",
-        dataAttr: "unified-inbox-search",
-      }}
+      actions={communicationCommandActions}
       activeFilterChips={<PortalActiveFilterChips chips={activeFilterChips} />}
     />
   );
@@ -347,8 +322,7 @@ export function ManagerCommunication({
   return (
     <PortalCommunicationShell
       title="Communication"
-      titleInlineFilter={communicationFilterSheet}
-      titleAside={communicationHeaderActions}
+      titleInlineFilter={null}
       hideTitleOnMobileNav
       controlStack={controlStack}
       hideMobileFilterRow={threadOpen}
@@ -371,36 +345,6 @@ export function ManagerCommunication({
         onSent={handleComposeSent}
       />
 
-      <ManagerSmsContactModal
-        open={contactOpen}
-        onClose={() => setContactOpen(false)}
-        onSaved={(contact) => {
-          // Seed or rename immediately so selection resolves before the SMS
-          // conversations refetch returns — including when this number already
-          // had a sidebar thread under another role.
-          dispatchManagerSmsContactsChanged({
-            optimisticResident: {
-              residentUserId: null,
-              residentEmail: null,
-              name: contact.displayName,
-              directoryName: null,
-              savedContactName: contact.displayName,
-              phone: contact.phone,
-              propertyLabel: null,
-              counterpartyRole: contact.counterpartyRole,
-              conversationKey: contact.conversationKey,
-              memberKeys: [contact.conversationKey],
-              messages: [],
-            },
-          });
-          void loadSmsRecipients();
-          setActiveThreadId(contact.conversationKey);
-          selectCommunicationThreadUrl(
-            `${commBase}/active/${encodeURIComponent(contact.conversationKey)}`,
-          );
-        }}
-      />
-
       <ManagerUnifiedInbox
         tabId={inboxTabId}
         commBase={commBase}
@@ -416,8 +360,6 @@ export function ManagerCommunication({
         onThreadOpenChange={setThreadOpen}
         onThreadSelectedChange={setThreadSelected}
         listChrome="external"
-        searchQuery={searchQuery}
-        onSearchQueryChange={setSearchQuery}
         onAddConversation={() => openCompose("email")}
       />
       <ManagerPortalSettingsModal

@@ -2,7 +2,12 @@
 
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
 import { usePortalNavigate } from "@/lib/portal-nav-client";
+import { Pencil, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import {
+  PortalContactDetailsModal,
+  type PortalContactDetailsValues,
+} from "@/components/portal/portal-contact-details-modal";
 import { useAppUi } from "@/components/providers/app-ui-provider";
 import { ManagerPortalPageShell, ManagerPortalStatusPills, ManagerPortalFilterRow, PORTAL_HEADER_ACTION_BTN } from "@/components/portal/portal-metrics";
 import { PortalSectionActionRow } from "@/components/portal/portal-section-action-row";
@@ -86,7 +91,7 @@ import {
 import { useManagerUserId } from "@/hooks/use-manager-user-id";
 import { isDemoModeActive } from "@/lib/demo/demo-session";
 import { filterEmailInboxThreads } from "@/lib/communication-inbox-filters";
-import type { ManagerSmsResidentConversation } from "@/lib/manager-sms-messages";
+import { dispatchManagerSmsContactsChanged, type ManagerSmsResidentConversation } from "@/lib/manager-sms-messages";
 import {
   threadPassesCommunicationFilters,
   type CommunicationThreadFilters,
@@ -1011,11 +1016,67 @@ export const ManagerInbox = forwardRef<
     });
   }, [expandedId]);
 
+  const [threadPhoneOpen, setThreadPhoneOpen] = useState(false);
+  const [threadPhoneError, setThreadPhoneError] = useState<string | null>(null);
+  const [savingThreadPhone, setSavingThreadPhone] = useState(false);
+
   const activeSmsAvailable = useMemo(() => {
     if (!smsUiEnabled || !activeThread?.email) return false;
     const norm = activeThread.email.trim().toLowerCase();
     return smsRecipients.some((r) => r.residentEmail?.trim().toLowerCase() === norm && r.phone?.trim());
   }, [activeThread, smsRecipients, smsUiEnabled]);
+
+  /**
+   * An email-only conversation has no SMS channel until someone supplies a
+   * number. Saving one writes an address-book contact carrying THIS thread's
+   * address, which is what makes `activeSmsAvailable` resolve for it.
+   */
+  const canAddThreadPhone = Boolean(
+    smsUiEnabled && !activeSmsAvailable && activeThread?.email?.trim() && !embeddedResidentChat,
+  );
+
+  const saveThreadContact = useCallback(
+    async (values: PortalContactDetailsValues) => {
+      const threadEmail = activeThread?.email?.trim().toLowerCase();
+      const email = values.email || threadEmail;
+      if (!email) {
+        setThreadPhoneError("Enter an email address.");
+        return;
+      }
+      setSavingThreadPhone(true);
+      setThreadPhoneError(null);
+      try {
+        const res = await fetch("/api/manager/sms-contacts", {
+          method: "POST",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            phone: values.phone,
+            email,
+            // The route stores a label for every contact; fall back to whatever
+            // already names this conversation rather than forcing a retype.
+            displayName: (values.name || activeThread?.from || email).slice(0, 80),
+          }),
+        });
+        const body = (await res.json().catch(() => ({}))) as { error?: string };
+        if (!res.ok) throw new Error(body.error ?? "Could not save contact details.");
+        setThreadPhoneOpen(false);
+        showToast("Contact details saved.");
+        dispatchManagerSmsContactsChanged();
+      } catch (e) {
+        setThreadPhoneError(e instanceof Error ? e.message : "Could not save contact details.");
+      } finally {
+        setSavingThreadPhone(false);
+      }
+    },
+    [activeThread, showToast],
+  );
+
+  const openThreadPhone = useCallback(() => {
+    setThreadPhoneError(null);
+    setThreadPhoneOpen(true);
+  }, []);
+
 
   useEffect(() => {
     const defaults = channelsFor("inbox_default");
@@ -1404,6 +1465,7 @@ export const ManagerInbox = forwardRef<
       onViaSmsChange={setReplyViaSms}
       emailAvailable
       smsAvailable={activeSmsAvailable}
+      onAddPhone={canAddThreadPhone ? openThreadPhone : undefined}
     />
   );
 
@@ -1415,6 +1477,7 @@ export const ManagerInbox = forwardRef<
       onViaSmsChange={setAiDraftViaSms}
       emailAvailable
       smsAvailable={activeSmsAvailable}
+      onAddPhone={canAddThreadPhone ? openThreadPhone : undefined}
     />
   );
 
@@ -1648,6 +1711,17 @@ export const ManagerInbox = forwardRef<
             New message
           </Button>
         ) : null}
+        {canAddThreadPhone ? (
+          <button
+            type="button"
+            className="flex h-9 w-9 shrink-0 touch-manipulation items-center justify-center rounded-full text-muted transition-colors hover:bg-foreground/5 hover:text-foreground focus-visible:ring-2 focus-visible:ring-primary/40"
+            aria-label="Edit contact details"
+            data-attr="inbox-thread-contact-edit"
+            onClick={openThreadPhone}
+          >
+            <Pencil className="h-4 w-4" aria-hidden />
+          </button>
+        ) : null}
         <Button
           type="button"
           variant="outline"
@@ -1657,6 +1731,16 @@ export const ManagerInbox = forwardRef<
         >
           Archive
         </Button>
+        {/* Same controls as the text thread header: pen, Archive, delete. */}
+        <button
+          type="button"
+          className="flex h-9 w-9 shrink-0 touch-manipulation items-center justify-center rounded-full text-muted transition-colors hover:bg-foreground/5 hover:text-danger focus-visible:ring-2 focus-visible:ring-primary/40"
+          aria-label="Delete conversation"
+          data-attr="inbox-thread-delete"
+          onClick={() => deleteForever(activeThread.id)}
+        >
+          <Trash2 className="h-4 w-4" aria-hidden />
+        </button>
       </>
     )
   ) : null;
@@ -1823,6 +1907,20 @@ export const ManagerInbox = forwardRef<
           liveContacts={liveContacts}
         />
       ) : null}
+
+      <PortalContactDetailsModal
+        open={threadPhoneOpen}
+        onClose={() => setThreadPhoneOpen(false)}
+        initial={{
+          name: activeThread?.from?.trim() || "",
+          phone: "",
+          email: activeThread?.email?.trim() || "",
+        }}
+        onSave={(values) => void saveThreadContact(values)}
+        saving={savingThreadPhone}
+        error={threadPhoneError}
+        formId="inbox-thread-contact-details-form"
+      />
 
       {tabId === "schedule" && !searchActive ? (
         <ManagerInboxSchedulePanel

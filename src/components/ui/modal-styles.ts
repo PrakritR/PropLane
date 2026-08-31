@@ -33,7 +33,13 @@ export const MODAL_LARGE_PANEL_CLASS = "max-w-4xl w-full";
 export const MODAL_XL_PANEL_CLASS = "max-w-5xl w-full";
 
 /** Tall editor dialog — fills the standard modal viewport height so body flex children can grow. */
-export const MODAL_TALL_PANEL_CLASS = "h-[min(92dvh,56rem)] max-h-[min(92dvh,56rem)]";
+/**
+ * Cap only — never a fixed height. `h-[92dvh]` made EVERY modal with a footer
+ * as tall as the viewport, so a short form (contact details, communication
+ * settings) rendered a band of empty white between its last field and the
+ * actions. Content-height panels still scroll internally once they hit the cap.
+ */
+export const MODAL_TALL_PANEL_CLASS = "max-h-[min(92dvh,56rem)]";
 
 /** Internal scroll region when `scrollableContent={false}` — body flexes between header and assistant/footer. */
 export const PORTAL_MODAL_BODY_SCROLL_CLASS =
