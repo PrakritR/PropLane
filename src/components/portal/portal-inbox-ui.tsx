@@ -109,7 +109,8 @@ export function InboxConversationListAddRow({
   return (
     <div className={PORTAL_LIST_ADD_ROW_WRAP_CLASS}>
       <PortalListAddRow
-        label="Add conversation"
+        label="Add"
+        ariaLabel="Add conversation"
         icon={PORTAL_LIST_ADD_ICONS.conversation}
         onClick={onClick}
         dataAttr={dataAttr}

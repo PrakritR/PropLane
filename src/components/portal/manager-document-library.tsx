@@ -65,6 +65,8 @@ import {
   PortalListAddRow,
   PORTAL_LIST_ADD_ROW_WRAP_CLASS,
 } from "@/components/portal/portal-list-add-row";
+import { cn } from "@/lib/utils";
+import { PORTAL_LIST_PAGE_BODY } from "@/components/portal/portal-inbox-ui";
 
 const SCOPE_FILTERS: { id: string; label: string }[] = [
   { id: "", label: "All scopes" },
@@ -634,9 +636,10 @@ export const ManagerDocumentLibrary = forwardRef<ManagerDocumentLibraryHandle, M
   const hasLibraryQuery = Boolean(search.trim() || categoryFilter || scopeFilter || propertyFilter || expiryFilter);
 
   const addDocumentRow = demo ? null : (
-    <div className={PORTAL_LIST_ADD_ROW_WRAP_CLASS}>
+    <div className={cn(PORTAL_LIST_PAGE_BODY, PORTAL_LIST_ADD_ROW_WRAP_CLASS)}>
       <PortalListAddRow
-        label="Add document"
+        label="Add"
+        ariaLabel="Add document"
         icon={FileUp}
         onClick={() => setUploadOpen(true)}
         dataAttr="documents-list-add"

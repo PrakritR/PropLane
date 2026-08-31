@@ -32,6 +32,8 @@ import {
 } from "@/lib/portal-bug-feedback";
 import { feedbackStatusLabel } from "@/lib/portal-bug-feedback-utils";
 import { usePortalSession } from "@/hooks/use-portal-session";
+import { cn } from "@/lib/utils";
+import { PORTAL_LIST_PAGE_BODY } from "@/components/portal/portal-inbox-ui";
 
 function formatWhen(iso: string) {
   try {
@@ -179,9 +181,10 @@ export function PortalBugFeedbackPanel({
   ) : null;
 
   const addFeedbackRow = (
-    <div className={PORTAL_LIST_ADD_ROW_WRAP_CLASS}>
+    <div className={cn(PORTAL_LIST_PAGE_BODY, PORTAL_LIST_ADD_ROW_WRAP_CLASS)}>
       <PortalListAddRow
-        label="Add feedback"
+        label="Add"
+        ariaLabel="Add feedback"
         hint="Share an idea or report an issue"
         icon={MessageSquarePlus}
         onClick={() => setSubmitOpen(true)}

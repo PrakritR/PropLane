@@ -1852,7 +1852,8 @@ export function ProAccountLinksPanel({ userId, linkId: linkIdProp }: { userId: s
 
   const teamListAddRow = (
     <PortalListAddRow
-      label="Link account"
+      label="Add"
+      ariaLabel="Link account"
       icon={PORTAL_LIST_ADD_ICONS.team}
       onClick={openLinkModal}
       disabled={linkAccountBlocked}

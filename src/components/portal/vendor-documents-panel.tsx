@@ -1,30 +1,20 @@
 "use client";
 
-import { Fragment, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { Button } from "@/components/ui/button";
 import { TabNav } from "@/components/ui/tabs";
 import { useAppUi } from "@/components/providers/app-ui-provider";
 import {
   ManagerPortalFilterRow,
   ManagerPortalPageShell,
-  MANAGER_TABLE_TH,
 } from "@/components/portal/portal-metrics";
+import { PORTAL_LIST_PAGE_BODY } from "@/components/portal/portal-inbox-ui";
 import {
-  PORTAL_DATA_TABLE_WRAP,
-  PORTAL_DATA_TABLE_SCROLL,
   PORTAL_DETAIL_BTN,
   PORTAL_DETAIL_BTN_PRIMARY,
-  PORTAL_MOBILE_CARD_CLASS,
-  PORTAL_TABLE_DETAIL_CELL,
-  PORTAL_TABLE_DETAIL_ROW,
-  PORTAL_TABLE_HEAD_ROW,
-  PORTAL_TABLE_TD,
-  PORTAL_TABLE_TR_EXPANDABLE,
   PortalDataTableEmpty,
   PortalTableDetailActions,
-  PortalTableExpandChevron,
   PortalTableInlineExpand,
-  createPortalRowExpandClick,
 } from "@/components/portal/portal-data-table";
 import { DocumentInlineViewer, triggerDocumentDownload } from "@/components/portal/resident-other-documents";
 import { PortalSharedDocumentsTable } from "@/components/portal/portal-shared-documents-table";
@@ -329,111 +319,61 @@ export function VendorDocumentsPanel({
         <PortalDataTableEmpty message="No document types in this tab yet." icon="document" />
       ) : (
         <>
-          <div className="space-y-2 lg:hidden">
+          {/*
+            One list at every width, in the house shape. This tab used to render
+            a mobile card list AND a desktop table over the same rows, so the two
+            drifted and neither matched the rest of the product. The row expands
+            in place because its actions are uploads, not a detail page.
+          */}
+          <div className={PORTAL_LIST_PAGE_BODY}>
             {rows.map(({ kind, doc }) => {
               const expanded = expandedKind === kind;
               const statusLabel = vendorDocumentStatusLabel(doc);
               return (
-                <div key={kind} className={PORTAL_MOBILE_CARD_CLASS}>
+                <div
+                  key={kind}
+                  className={`portal-property-row border-b border-border/50 px-3 py-3 transition-colors max-md:px-2.5 max-md:py-2.5 ${
+                    expanded
+                      ? "border-l-[3px] border-l-primary bg-primary/[0.06]"
+                      : "border-l-[3px] border-l-transparent hover:bg-foreground/[0.03]"
+                  }`}
+                >
                   <button
                     type="button"
-                    className="flex w-full items-center justify-between gap-2 text-left"
+                    className="flex w-full min-w-0 items-start gap-3 text-left"
                     onClick={() => setExpandedKind((cur) => (cur === kind ? null : kind))}
                     aria-expanded={expanded}
+                    data-attr="vendor-document-row"
                   >
-                    <div className="flex min-w-0 flex-1 items-start justify-between gap-2.5">
-                      <div className="min-w-0">
-                        <p className="truncate font-semibold text-foreground">{VENDOR_DOCUMENT_LABELS[kind]}</p>
-                        <p className="mt-0.5 truncate text-xs text-muted">
-                          {doc ? doc.fileName : "No file on file"}
-                        </p>
-                      </div>
-                      <span
-                        className={`inline-flex shrink-0 rounded-full px-2.5 py-0.5 text-[11px] font-semibold ${vendorDocumentStatusTone(doc)}`}
+                    <div className="flex min-w-0 flex-1 flex-col gap-1">
+                      <PortalTableInlineExpand
+                        expanded={expanded}
+                        className="text-sm font-semibold text-foreground"
                       >
-                        {statusLabel}
-                      </span>
+                        <span className="truncate">{VENDOR_DOCUMENT_LABELS[kind]}</span>
+                      </PortalTableInlineExpand>
+                      <p className="text-xs leading-relaxed text-muted">
+                        {doc ? doc.fileName : "No file on file"}
+                      </p>
+                      {doc ? (
+                        <p className="text-xs text-muted">Uploaded {safeFormatDateTime(doc.uploadedAt)}</p>
+                      ) : null}
                     </div>
-                    <PortalTableExpandChevron expanded={expanded} />
+                    <span
+                      className={`mt-0.5 inline-flex shrink-0 rounded-full px-2.5 py-0.5 text-[11px] font-semibold ${vendorDocumentStatusTone(doc)}`}
+                    >
+                      {statusLabel}
+                    </span>
                   </button>
                   {expanded ? (
                     <div className="mt-3 border-t border-border pt-3">
                       <p className="mb-3 text-xs text-muted">{VENDOR_DOCUMENT_HINTS[kind]}</p>
-                      {doc ? (
-                        <p className="mb-3 text-xs text-muted">
-                          Uploaded {safeFormatDateTime(doc.uploadedAt)}
-                        </p>
-                      ) : null}
                       {renderRowActions(kind, doc)}
                     </div>
                   ) : null}
                 </div>
               );
             })}
-          </div>
-
-          <div className={`${PORTAL_DATA_TABLE_WRAP} hidden lg:block`}>
-            <div className={PORTAL_DATA_TABLE_SCROLL}>
-              <table className="w-full table-fixed border-collapse text-left text-sm">
-                <thead>
-                  <tr className={PORTAL_TABLE_HEAD_ROW}>
-                    <th className={`${MANAGER_TABLE_TH} text-left`}>Document</th>
-                    <th className={`${MANAGER_TABLE_TH} text-left`}>Status</th>
-                    <th className={`${MANAGER_TABLE_TH} text-left`}>File</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {rows.map(({ kind, doc }) => {
-                    const statusLabel = vendorDocumentStatusLabel(doc);
-                    const expanded = expandedKind === kind;
-                    return (
-                      <Fragment key={kind}>
-                        <tr
-                          className={PORTAL_TABLE_TR_EXPANDABLE}
-                          aria-expanded={expanded}
-                          onClick={createPortalRowExpandClick(() =>
-                            setExpandedKind((cur) => (cur === kind ? null : kind)),
-                          )}
-                        >
-                          <td className={`${PORTAL_TABLE_TD} align-middle`}>
-                            <PortalTableInlineExpand expanded={expanded} className="font-medium text-foreground">
-                              {VENDOR_DOCUMENT_LABELS[kind]}
-                            </PortalTableInlineExpand>
-                            <p className="mt-0.5 line-clamp-2 text-xs text-muted">{VENDOR_DOCUMENT_HINTS[kind]}</p>
-                          </td>
-                          <td className={`${PORTAL_TABLE_TD} align-middle`}>
-                            <span
-                              className={`inline-flex rounded-full px-2.5 py-0.5 text-[11px] font-semibold ${vendorDocumentStatusTone(doc)}`}
-                            >
-                              {statusLabel}
-                            </span>
-                          </td>
-                          <td className={`${PORTAL_TABLE_TD} align-middle`}>
-                            {doc ? (
-                              <>
-                                <p className="truncate font-medium text-foreground">{doc.fileName}</p>
-                                <p className="mt-0.5 text-xs text-muted">
-                                  Uploaded {safeFormatDateTime(doc.uploadedAt)}
-                                </p>
-                              </>
-                            ) : (
-                              <p className="text-muted">No file on file</p>
-                            )}
-                          </td>
-                        </tr>
-                        {expanded ? (
-                          <tr className={PORTAL_TABLE_DETAIL_ROW}>
-                            <td colSpan={3} className={PORTAL_TABLE_DETAIL_CELL}>
-                              {renderRowActions(kind, doc)}
-                            </td>
-                          </tr>
-                        ) : null}
-                      </Fragment>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
           </div>
 
           {previewDoc && previewKind ? (
