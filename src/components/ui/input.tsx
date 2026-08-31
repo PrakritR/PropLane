@@ -42,7 +42,7 @@ export function Textarea({ className = "", ...props }: React.TextareaHTMLAttribu
   return <textarea className={`${textareaBase} ${className}`} {...props} />;
 }
 
-/** Real `<select>` — reliable inside modals where portaled custom menus can fight dismiss handlers. */
+/** Real `<select>` — OS-native picker. Avoid in portal UI; use {@link Select} instead. */
 export function NativeSelect({ className = "", children, ...props }: SelectHTMLAttributes<HTMLSelectElement>) {
   return (
     <div className="relative w-full">
@@ -60,7 +60,7 @@ export function NativeSelect({ className = "", children, ...props }: SelectHTMLA
   );
 }
 
-/** Native-select API backed by the shared custom field dropdown (opaque portaled menu). */
+/** Native-select API backed by the shared portaled field dropdown (opaque white menu + search). */
 export function Select({
   className = "",
   children,

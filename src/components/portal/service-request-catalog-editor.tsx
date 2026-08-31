@@ -7,6 +7,11 @@ import {
   PORTAL_PROPERTY_DETAIL_LIST_ROW_CLASS,
   PortalPropertyDetailSection,
 } from "@/components/portal/portal-property-detail-section";
+import {
+  PORTAL_LIST_ADD_ICONS,
+  PORTAL_LIST_ADD_ROW_WRAP_CLASS,
+  PortalListAddRow,
+} from "@/components/portal/portal-list-add-row";
 import { ServiceOfferingEditModal } from "@/components/portal/service-offering-edit-modal";
 import { ServiceRequestCatalogSuggestions } from "@/components/portal/service-request-catalog-suggestions";
 import { usePortalRowSelection } from "@/hooks/use-portal-row-selection";
@@ -180,13 +185,23 @@ export function ServiceRequestCatalogEditor({
           ))
         ) : (
           <p className="px-1 py-2 text-sm text-muted">
-            No service types yet. Add a preset below or tap Add.
+            No service types yet. Add a preset below or create a custom type.
           </p>
         )}
       </PortalPropertyDetailSection>
 
-      <div className="mt-4 px-1">
+      <div className="px-3 py-4 max-md:px-2.5 sm:py-5">
         <ServiceRequestCatalogSuggestions offers={offers} onAddPreset={openAddPreset} />
+      </div>
+
+      <div className={PORTAL_LIST_ADD_ROW_WRAP_CLASS}>
+        <PortalListAddRow
+          label="Add"
+          ariaLabel="Add custom service type"
+          icon={PORTAL_LIST_ADD_ICONS.service}
+          onClick={openAddCustom}
+          dataAttr="service-request-add-custom"
+        />
       </div>
 
       <ServiceOfferingEditModal

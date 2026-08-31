@@ -61,6 +61,29 @@ export function ManagerPropertyTourPanel({
     void loadTourSettings();
   }, [loadTourSettings]);
 
+  const persistTourSettings = useCallback(
+    async (next: ManagerTourSettings) => {
+      setTourSettings(next);
+      if (!managerUserId || isDemoModeActive()) return;
+      try {
+        const res = await fetch("/api/portal/manager-tour-settings", {
+          method: "PATCH",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(next),
+        });
+        if (!res.ok) {
+          showToast("Could not save tour default settings.");
+          void loadTourSettings();
+        }
+      } catch {
+        showToast("Could not save tour default settings.");
+        void loadTourSettings();
+      }
+    },
+    [loadTourSettings, managerUserId, showToast],
+  );
+
   const defaultTourAvailability = useMemo(
     () => managerTourSettingsToDefaultAvailability(tourSettings),
     [tourSettings],
@@ -133,17 +156,6 @@ export function ManagerPropertyTourPanel({
     [listingId, managerUserId, otherProperties, showToast, storageKey],
   );
 
-  // This is the screen where a manager PUBLISHES tour availability, so it has to
-  // show the conflicts that availability would collide with. It used to render
-  // no busy overlay at all while /portal/calendar showed the same half hour as
-  // "Blocked" — a slot you could publish straight on top of (F-CAL-6).
-  //
-  // It therefore has to say when the overlay is INCOMPLETE — truncated, or a
-  // read that failed — because a manager who reached this panel from Properties
-  // may never open /portal/calendar, and an incomplete grid is indistinguishable
-  // from a free one. The connection-SETUP warnings (not connected, OAuth not
-  // configured, API disabled) stay with the portfolio calendar so the same
-  // account-level problem is not toasted twice.
   const googleBusyMeetings = useGoogleCalendarBusyMeetings({
     enabled: Boolean(managerUserId),
     onWarning: ({ warning, hint }) => {
@@ -155,13 +167,35 @@ export function ManagerPropertyTourPanel({
     },
   });
 
+  const handleDefaultTourHoursChange = useCallback(
+    (startSlot: number, endSlotExclusive: number) => {
+      void persistTourSettings({
+        ...tourSettings,
+        defaultTourStartSlot: startSlot,
+        defaultTourEndSlotExclusive: endSlotExclusive,
+      });
+    },
+    [persistTourSettings, tourSettings],
+  );
+
+  const handleDefaultTourGridEnabledChange = useCallback(
+    (enabled: boolean) => {
+      void persistTourSettings({
+        ...tourSettings,
+        defaultTourGridEnabled: enabled,
+      });
+    },
+    [persistTourSettings, tourSettings],
+  );
+
   return (
     <PortalPropertyDetailSection>
       <p className="mb-3 text-sm text-muted">
         Set when prospects can book a tour at{" "}
         <span className="font-medium text-foreground">{propertyLabel}</span>. Click an empty slot or
         drag across a range, then confirm in the schedule dialog. Use Add availability for a recurring
-        block.
+        block. The Default toggle and time range set fallback hours for days without painted
+        availability.
       </p>
       <PortalCalendarPanels
         key={storageKey ?? "property-calendar-unavailable"}
@@ -172,6 +206,9 @@ export function ManagerPropertyTourPanel({
         flowScroll
         availabilityHeading="Tour availability"
         defaultTourAvailability={defaultTourAvailability}
+        editableDefaultTourHours
+        onDefaultTourHoursChange={handleDefaultTourHoursChange}
+        onDefaultTourGridEnabledChange={handleDefaultTourGridEnabledChange}
         tourScopeLabel={propertyLabel}
         unavailableMessage="Sign in to manage tour availability for this property."
         externalMeetings={googleBusyMeetings}

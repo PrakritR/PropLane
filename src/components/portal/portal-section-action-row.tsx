@@ -160,24 +160,29 @@ export function PortalPageFooterActions({
   rowVariant = "toolbar",
   /** Keep the white dock fixed on every breakpoint (resident profile sections). */
   pinned = false,
+  /** Scroll clearance lives on the scroller via padding — no in-flow spacer band. */
+  omitSpacer = false,
 }: {
   children: ReactNode;
   className?: string;
   rowVariant?: "toolbar" | "header";
   pinned?: boolean;
+  omitSpacer?: boolean;
 }) {
   return (
     <>
-      <div
-        aria-hidden
-        className={
-          pinned
-            ? PORTAL_FOOTER_PINNED_SPACER
-            : rowVariant === "header"
-              ? PORTAL_FOOTER_INLINE_SPACER
-              : "h-[calc(4.25rem+var(--portal-native-bottom-nav-inset,0px))] shrink-0 md:hidden"
-        }
-      />
+      {!omitSpacer ? (
+        <div
+          aria-hidden
+          className={
+            pinned
+              ? PORTAL_FOOTER_PINNED_SPACER
+              : rowVariant === "header"
+                ? PORTAL_FOOTER_INLINE_SPACER
+                : "h-[calc(4.25rem+var(--portal-native-bottom-nav-inset,0px))] shrink-0 md:hidden"
+          }
+        />
+      ) : null}
       <div
         className={cn(
           "fixed inset-x-0 bottom-0 z-40 border-t border-border bg-background shadow-[var(--shadow-lg)]",

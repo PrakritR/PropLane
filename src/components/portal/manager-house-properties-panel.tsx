@@ -10,7 +10,6 @@ import {
 import type { PortalAdaptiveAction } from "@/components/portal/portal-adaptive-action-row";
 import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
 import { PortalDetailDestinationNav } from "@/components/portal/portal-detail-destination-nav";
-import { PropertyPreviewScopeNav } from "@/components/portal/property-preview-scope-nav";
 import type { MockProperty } from "@/data/types";
 import { ListingDetailSections } from "@/components/marketing/listing-detail-sections";
 import { ListingStickySubnav } from "@/components/marketing/listing-detail-subnav";
@@ -28,20 +27,17 @@ import { ManagerPortalSettingsModal } from "@/components/portal/manager-portal-s
 import { PortalPageFooterActions } from "@/components/portal/portal-section-action-row";
 import { PortalPageChrome, PortalPageScrollBody } from "@/lib/portal-page-chrome-layout";
 import { cn } from "@/lib/utils";
-import { PORTAL_DETAIL_BTN } from "@/components/portal/portal-data-table";
 import { PORTAL_PROPERTY_DETAIL_ACTION_BUTTON_CLASS } from "@/components/portal/portal-property-detail-section";
 import { PortalRecordDetailPage } from "@/components/portal/portal-record-detail-page";
 import {
-  PROPERTY_DETAIL_SECTION_TABS,
-  PROPERTY_DETAIL_TAB_LABELS,
   PROPERTY_DETAIL_TOP_TAB_LABELS,
   PROPERTY_DETAIL_TOP_TAB_SHORT_LABELS,
   propertyDetailHref,
   propertyListHref,
   propertyDetailTopNavId,
   parsePropertyDetailTab,
-  type PropertyDetailSectionTabId,
   type PropertyDetailTabId,
+  type PropertyDetailTopTabId,
 } from "@/lib/portal-detail-routes";
 import { ManagerPropertyRequestsPanel } from "@/components/portal/manager-property-requests-panel";
 import { PropertyResidentOnboardWizard } from "@/components/portal/property-resident-onboard-wizard";
@@ -343,7 +339,7 @@ function ManagerPropertyInlineDetails({
   );
 
 
-  const sectionHeaderBtn = PORTAL_PROPERTY_DETAIL_ACTION_BUTTON_CLASS;
+  const propertyDetailFooterBtn = PORTAL_PROPERTY_DETAIL_ACTION_BUTTON_CLASS;
   const canEditListing = Boolean(displaySub && portalSub);
   // Show Edit only with write (`edit`) level and Delete only with `delete` level.
   // Own properties always qualify; a linked property is gated by the grant.
@@ -353,21 +349,11 @@ function ManagerPropertyInlineDetails({
   const listingOwnerUserId = portalSub?.ownerUserId ?? managerUserId;
 
   const openFullListingEditor = () => setListingEditorOpen(true);
-  const dangerBtnClass = `${sectionHeaderBtn} border-rose-200 text-rose-800 hover:bg-[var(--status-overdue-bg)] portal-danger-outline`;
+  const dangerBtnClass = `${propertyDetailFooterBtn} border-rose-200 text-rose-800 hover:bg-[var(--status-overdue-bg)] portal-danger-outline`;
 
   const leaseAddHandlerRef = useRef<(() => void) | null>(null);
   const registerLeaseAddHandler = useCallback((handler: (() => void) | null) => {
     leaseAddHandlerRef.current = handler;
-  }, []);
-
-  const promotionNewHandlerRef = useRef<(() => void) | null>(null);
-  const registerPromotionNewHandler = useCallback((handler: (() => void) | null) => {
-    promotionNewHandlerRef.current = handler;
-  }, []);
-
-  const requestAddHandlerRef = useRef<(() => void) | null>(null);
-  const registerRequestAddHandler = useCallback((handler: (() => void) | null) => {
-    requestAddHandlerRef.current = handler;
   }, []);
 
   const applicationAddHandlerRef = useRef<(() => void) | null>(null);
@@ -493,13 +479,6 @@ function ManagerPropertyInlineDetails({
         ? ["preview", "house-details", "move-in", "application", "lease", "tours", "requests", "promotion"]
         : ["preview", "house-details", "move-in", "application", "lease"];
   const activeDetailTab = availableTabs.includes(detailTab) ? detailTab : availableTabs[0]!;
-  const detailSectionTabs = useMemo(
-    () =>
-      availableTabs.filter((tab): tab is PropertyDetailSectionTabId =>
-        (PROPERTY_DETAIL_SECTION_TABS as readonly string[]).includes(tab),
-      ),
-    [availableTabs],
-  );
   const topNavItems = useMemo(() => {
     const items: Array<{
       id: string;
@@ -508,10 +487,7 @@ function ManagerPropertyInlineDetails({
       href: string;
       dataAttr: string;
     }> = [];
-    const pushTopTab = (
-      id: keyof typeof PROPERTY_DETAIL_TOP_TAB_LABELS,
-      tab: PropertyDetailTabId,
-    ) => {
+    const pushTopTab = (id: PropertyDetailTopTabId, tab: PropertyDetailTabId) => {
       if (!availableTabs.includes(tab)) return;
       items.push({
         id,
@@ -523,28 +499,20 @@ function ManagerPropertyInlineDetails({
     };
 
     pushTopTab("preview", "preview");
+    pushTopTab("house-details", "house-details");
+    pushTopTab("move-in", "move-in");
     pushTopTab("tours", "tours");
     pushTopTab("application", "application");
     pushTopTab("lease", "lease");
     pushTopTab("requests", "requests");
     pushTopTab("promotion", "promotion");
     return items;
-  }, [availableTabs, detailSectionTabs, propertiesBase, propertyRouteKey, stage]);
+  }, [availableTabs, propertiesBase, propertyRouteKey, stage]);
   const activeTopNavId = propertyDetailTopNavId(activeDetailTab);
-  const isPreviewSection = activeTopNavId === "preview";
-  const detailsSubNavItems = useMemo(
-    () =>
-      detailSectionTabs.map((tab) => ({
-        id: tab,
-        label: PROPERTY_DETAIL_TAB_LABELS[tab],
-        href: propertyDetailHref(propertiesBase, stage, propertyRouteKey, tab),
-        dataAttr: `property-details-subtab-${tab}`,
-      })),
-    [detailSectionTabs, propertiesBase, propertyRouteKey, stage],
-  );
+  const isListingPreview = activeDetailTab === "preview";
 
   const propertyTabFooterActions = useMemo(() => {
-    if (isPreviewSection) {
+    if (isListingPreview) {
       const actions: PortalAdaptiveAction[] = [];
 
       if (bucket === 2 && listingId) {
@@ -555,7 +523,7 @@ function ManagerPropertyInlineDetails({
               <Button
                 type="button"
                 variant="primary"
-                className={PORTAL_DETAIL_BTN}
+                className={propertyDetailFooterBtn}
                 data-attr="listing-edit-full"
                 onClick={() => openFullListingEditor()}
               >
@@ -578,7 +546,7 @@ function ManagerPropertyInlineDetails({
             <Button
               type="button"
               variant="outline"
-              className={PORTAL_DETAIL_BTN}
+              className={propertyDetailFooterBtn}
               data-attr="listing-send-listing"
               onClick={() => onSendToProspect?.(listingId)}
             >
@@ -600,7 +568,7 @@ function ManagerPropertyInlineDetails({
             <Button
               type="button"
               variant="outline"
-              className={PORTAL_DETAIL_BTN}
+              className={propertyDetailFooterBtn}
               data-attr="listing-unlist"
               onClick={() => setPendingDestructiveAction("unlist")}
             >
@@ -625,7 +593,7 @@ function ManagerPropertyInlineDetails({
             <Button
               type="button"
               variant="primary"
-              className={PORTAL_DETAIL_BTN}
+              className={propertyDetailFooterBtn}
               data-attr="listing-relist"
               onClick={() => {
                 if (!skuLoaded) {
@@ -686,7 +654,7 @@ function ManagerPropertyInlineDetails({
               <Button
                 type="button"
                 variant="outline"
-                className={PORTAL_DETAIL_BTN}
+                className={propertyDetailFooterBtn}
                 data-attr="listing-edit-full"
                 onClick={() => openFullListingEditor()}
               >
@@ -736,7 +704,7 @@ function ManagerPropertyInlineDetails({
             <Button
               type="button"
               variant="primary"
-              className={PORTAL_DETAIL_BTN}
+              className={propertyDetailFooterBtn}
               data-attr="draft-continue-editing"
               onClick={() => {
                 if (!skuLoaded) {
@@ -790,42 +758,16 @@ function ManagerPropertyInlineDetails({
 
       if (actions.length === 0) return null;
       return (
-        <div className="flex w-full min-w-0 flex-nowrap items-stretch gap-2 [&_button]:min-w-0 [&_button]:flex-1 [&_button]:basis-0">
+        <>
           {actions.map((action) => (
             <Fragment key={action.id}>{action.node}</Fragment>
           ))}
-        </div>
-      );
-    }
-    if (activeDetailTab === "requests" && bucket === 2 && stablePropertyId) {
-      return (
-        <Button
-          type="button"
-          variant="primary"
-          className={PORTAL_DETAIL_BTN}
-          data-attr="manager-service-request-add-footer"
-          onClick={() => requestAddHandlerRef.current?.()}
-        >
-          Add service
-        </Button>
-      );
-    }
-    if (activeDetailTab === "promotion" && bucket === 2 && listingId) {
-      return (
-        <Button
-          type="button"
-          variant="primary"
-          className={PORTAL_DETAIL_BTN}
-          data-attr="manager-property-new-promotion-footer"
-          onClick={() => promotionNewHandlerRef.current?.()}
-        >
-          Add
-        </Button>
+        </>
       );
     }
     return null;
   }, [
-    isPreviewSection,
+    isListingPreview,
     activeDetailTab,
     bucket,
     listingId,
@@ -845,6 +787,12 @@ function ManagerPropertyInlineDetails({
     propCount,
     dangerBtnClass,
   ]);
+
+  const hasPinnedPropertyFooter =
+    Boolean(propertyTabFooterActions) ||
+    activeDetailTab === "house-details" ||
+    activeDetailTab === "move-in" ||
+    activeDetailTab === "tours";
 
   // Every hook above runs unconditionally. This guard used to sit ~470 lines earlier, so a
   // row/mock/submission flipping between renders changed the hook COUNT, which is the
@@ -866,29 +814,29 @@ function ManagerPropertyInlineDetails({
             denseEqualRow
             appearance="command"
           />
+          {isListingPreview && hasPreview ? (
+            <div className="w-full border-t border-border/60 bg-accent/30 px-1 py-1">
+              <ListingStickySubnav
+                mode="portal"
+                appearance="portal"
+                pinned
+                className="mb-0 w-full max-w-full border-0 bg-transparent py-0 shadow-none"
+              />
+            </div>
+          ) : null}
         </div>
       </PortalPageChrome>
 
-      <PortalPageScrollBody className="min-w-0 max-w-full pt-3">
-      {isPreviewSection && detailsSubNavItems.length > 1 ? (
-        <PropertyPreviewScopeNav
-          items={detailsSubNavItems.map((item) => ({
-            id: item.id as PropertyDetailSectionTabId,
-            href: item.href,
-            dataAttr: item.dataAttr,
-          }))}
-          activeId={activeDetailTab as PropertyDetailSectionTabId}
-        />
-      ) : null}
-
-      {isPreviewSection && activeDetailTab === "preview" ? (
+      <PortalPageScrollBody
+        className={cn(
+          "min-w-0 max-w-full pt-3",
+          hasPinnedPropertyFooter &&
+            "pb-[calc(2.75rem+var(--portal-native-bottom-nav-inset,0px)+env(safe-area-inset-bottom,0px))] lg:pb-3",
+        )}
+      >
+      {isListingPreview ? (
         hasPreview ? (
           <>
-            <ListingStickySubnav
-              mode="portal"
-              appearance="portal"
-              className="mb-3 shrink-0 rounded-2xl border border-border bg-accent/30 py-1.5 shadow-sm"
-            />
             <ListingDetailSections
               property={previewProperty!}
               rich={rich!}
@@ -907,7 +855,7 @@ function ManagerPropertyInlineDetails({
         ) : null
       ) : null}
 
-      {isPreviewSection && activeDetailTab === "house-details" && bucket !== 3 && bucket !== 5 ? (
+      {activeDetailTab === "house-details" && bucket !== 3 && bucket !== 5 ? (
         <ManagerPropertyHouseDetailsPanel
           noteKey={noteKey}
           sub={managerSubmission}
@@ -918,7 +866,7 @@ function ManagerPropertyInlineDetails({
         />
       ) : null}
 
-      {isPreviewSection && activeDetailTab === "move-in" && bucket !== 3 && bucket !== 5 ? (
+      {activeDetailTab === "move-in" && bucket !== 3 && bucket !== 5 ? (
         <ManagerPropertyRoomMoveInPanel
           sub={managerSubmission}
           saveTarget={houseSaveTarget}
@@ -970,7 +918,6 @@ function ManagerPropertyInlineDetails({
           listingId={listingId}
           showToast={showToast}
           onUpdated={onUpdated}
-          onRegisterNewPromotion={registerPromotionNewHandler}
         />
       ) : null}
 
@@ -981,14 +928,13 @@ function ManagerPropertyInlineDetails({
           managerUserId={managerUserId}
           onUpdated={onUpdated}
           showToast={showToast}
-          onRegisterAddRequest={registerRequestAddHandler}
         />
       ) : null}
 
       </PortalPageScrollBody>
 
       {propertyTabFooterActions ? (
-        <PortalPageFooterActions pinned rowVariant="header">
+        <PortalPageFooterActions pinned rowVariant="header" omitSpacer>
           {propertyTabFooterActions}
         </PortalPageFooterActions>
       ) : null}

@@ -256,6 +256,30 @@ set, so the resident-detail Communication tab does not qualify and passes
 `threadReading: false`. Coverage:
 `tests/unit/resident-detail-communication-chrome.test.ts`.
 
+## Field dropdowns: base standard (forms + toolbars)
+
+Every portal single-select — property type, answer type, tour hours, lease
+fields, filter scope — is ONE pattern: a **rounded-2xl field trigger** (label +
+value + chevron) and a **white portaled menu** with a checkmark on the active
+row. Search appears when there are more than five options. This is the reference
+look for “Property type” in the add-property wizard and every other form field.
+
+- **Use:** `Select` from `src/components/ui/input.tsx` (drop-in for
+  `<select>`/`<option>`) or `FieldSingleSelect` from
+  `src/components/ui/checkbox-multi-select.tsx` when you already have
+  `{ value, label }[]` options.
+- **Do NOT use:** `NativeSelect` or a bare `<select>` in portal surfaces — they
+  open the OS-native dark picker (iOS/macOS) and break visual parity with the
+  rest of the product.
+- **Trigger tokens:** `FIELD_SELECT_TRIGGER_*` in
+  `src/components/ui/field-select-styles.ts` — `rounded-2xl`,
+  `border-border`, `bg-auth-input-bg`, chevron on the right. Toolbar/time
+  pickers may pass a shorter `triggerClassName` but keep the same border,
+  background, and portaled menu — never borderless ghost triggers.
+- **Menu machinery:** same portaled overlay as filters below —
+  `useFieldSelectMenu`, `FieldSelectMenuSearch`, five visible rows then scroll.
+  Menus portal into the open modal shell when present.
+
 ## Filter dropdowns: one portaled-overlay pattern
 
 Every portal filter field (property / resident / status / sort / scope) is ONE
@@ -299,7 +323,8 @@ or resize the panel.
   (`FilterCollapsibleSection` + `FilterCheckboxList` multi / `FilterSingleSelectList`
   single, inside a `FilterFieldsAccordion` for one-open-at-a-time). `CheckboxMultiSelect`
   / `FieldSingleSelect` (`checkbox-multi-select.tsx`) are the same pattern for
-  form/toolbar/scope pickers — prefer them over a bare `<select>`.
+  form/toolbar/scope pickers — prefer them over a bare `<select>` or
+  `NativeSelect`. See **Field dropdowns: base standard** above.
   `menuOptionCount` is REQUIRED on `FilterCollapsibleSection`: it sizes the portaled
   menu until the child list reports the rows it actually renders (see the row-count
   bullet below).

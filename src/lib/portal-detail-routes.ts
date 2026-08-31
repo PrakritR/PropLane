@@ -34,6 +34,8 @@ export type PropertyDetailSectionTabId = (typeof PROPERTY_DETAIL_SECTION_TABS)[n
 
 export const PROPERTY_DETAIL_TOP_TAB_LABELS = {
   preview: "Preview",
+  "house-details": "House details",
+  "move-in": "Move-in",
   tours: "Tours",
   application: "Application",
   lease: "Lease",
@@ -53,11 +55,15 @@ export type PropertyDetailTopTabId = keyof typeof PROPERTY_DETAIL_TOP_TAB_LABELS
 export const PROPERTY_DETAIL_TOP_TAB_SHORT_LABELS: Partial<
   Record<PropertyDetailTopTabId, string>
 > = {
+  "house-details": "House",
+  "move-in": "Move-in",
   application: "Apply",
   promotion: "Promo",
 };
 
 export function propertyDetailTopNavId(tab: PropertyDetailTabId): PropertyDetailTopTabId {
+  if (tab === "house-details") return "house-details";
+  if (tab === "move-in") return "move-in";
   if (tab === "tours") return "tours";
   if (tab === "application") return "application";
   if (tab === "lease") return "lease";

@@ -60,10 +60,10 @@ describe("portal-detail-routes", () => {
     expect(PROPERTY_DETAIL_TAB_LABELS.tours).toBe("Tours");
   });
 
-  it("maps preview section tabs to the Preview top nav id", () => {
+  it("maps preview section tabs to their own top nav ids", () => {
     expect(propertyDetailTopNavId("preview")).toBe("preview");
-    expect(propertyDetailTopNavId("house-details")).toBe("preview");
-    expect(propertyDetailTopNavId("move-in")).toBe("preview");
+    expect(propertyDetailTopNavId("house-details")).toBe("house-details");
+    expect(propertyDetailTopNavId("move-in")).toBe("move-in");
     expect(PROPERTY_DETAIL_SCOPE_LABELS.preview).toBe("Listing");
   });
 
