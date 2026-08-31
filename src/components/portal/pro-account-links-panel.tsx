@@ -26,6 +26,8 @@ import {
   PORTAL_LIST_ADD_ROW_WRAP_CLASS,
 } from "@/components/portal/portal-list-add-row";
 import { PORTAL_LIST_PAGE_BODY, INBOX_LIST_SCROLL } from "@/components/portal/portal-inbox-ui";
+import { PortalPersonRecordRow } from "@/components/portal/portal-record-row";
+import { cn } from "@/lib/utils";
 import { PortalRecordDetailPage } from "@/components/portal/portal-record-detail-page";
 import { useAppUi } from "@/components/providers/app-ui-provider";
 import { usePortalRowSelection } from "@/hooks/use-portal-row-selection";
@@ -2292,25 +2294,24 @@ export function ProAccountLinksPanel({ userId, linkId: linkIdProp }: { userId: s
         message="No team members match this property filter. Try All properties or pick another listing."
       />
     ) : (
-      <div className={PORTAL_LIST_ADD_ROW_WRAP_CLASS}>{teamListAddRow}</div>
+      // An empty list still belongs in the house body, or this tab's gutters
+      // differ from every other one the moment it has nothing in it.
+      <div className={cn(PORTAL_LIST_PAGE_BODY, PORTAL_LIST_ADD_ROW_WRAP_CLASS)}>{teamListAddRow}</div>
     )
   ) : (
     <div className={PORTAL_LIST_PAGE_BODY} data-attr="co-manager-unified-view">
       <div className={INBOX_LIST_SCROLL}>
-        <DataList
-          hideColumnHeaders
-          selectable
-          rows={teamEntries.map((entry) => ({
-            id: entry.id,
-            data: entry,
-            primary: entry.name,
-            meta: `${entry.axisId} · ${entry.preview}`,
-            selected: selectedIds.has(entry.id),
-            onSelectedChange: () => toggleSelected(entry.id),
-            onClick: () => openTeamDetail(entry.id),
-          }))}
-          columns={[{ id: "member", header: "Member", cell: (entry: TeamListEntry) => entry.name }]}
-        />
+        {teamEntries.map((entry) => (
+          <PortalPersonRecordRow
+            key={entry.id}
+            name={entry.name}
+            subtitle={`${entry.axisId} · ${entry.preview}`}
+            checked={selectedIds.has(entry.id)}
+            onSelectedChange={() => toggleSelected(entry.id)}
+            onOpen={() => openTeamDetail(entry.id)}
+            dataAttr="team-list-row"
+          />
+        ))}
       </div>
       <div className={PORTAL_LIST_ADD_ROW_WRAP_CLASS}>{teamListAddRow}</div>
     </div>

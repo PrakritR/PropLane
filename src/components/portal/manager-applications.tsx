@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { cn } from "@/lib/utils";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { BulkActionBar } from "@/components/ui/bulk-action-bar";
@@ -2171,7 +2172,9 @@ export function ManagerApplications({
           <ListSkeleton rows={5} showLeading={false} />
         </div>
       ) : rowsForBucket.length === 0 ? (
-        <div className={PORTAL_LIST_ADD_ROW_WRAP_CLASS}>
+        // Empty still belongs in the house body — otherwise this tab's gutters
+        // change the moment the bucket has nothing in it.
+        <div className={cn(PORTAL_LIST_PAGE_BODY, PORTAL_LIST_ADD_ROW_WRAP_CLASS)}>
           <PortalListAddRow
             label="Add"
             ariaLabel="Add application"
