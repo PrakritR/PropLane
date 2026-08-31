@@ -816,6 +816,10 @@ export const PORTAL_HEADER_ACTION_BTN_RESPONSIVE = `w-full shrink-0 md:w-auto ${
 export const PORTAL_HEADER_PRIMARY_ACTION_BTN_RESPONSIVE =
   `w-full shrink-0 md:w-auto ${PORTAL_HEADER_PRIMARY_ACTION_BTN}`;
 
+/** Outline action inside an adaptive command strip — matches Properties Share. */
+export const PORTAL_COMMAND_ACTION_BTN =
+  "box-border h-10 min-h-10 shrink-0 rounded-lg border border-border bg-card px-3.5 text-sm font-semibold shadow-none";
+
 /** Primary action inside an adaptive command strip — compact, not title-sized. */
 export const PORTAL_COMMAND_PRIMARY_ACTION_BTN =
   "portal-command-primary box-border !h-10 !min-h-10 shrink-0 rounded-lg border border-transparent px-3 text-sm font-semibold shadow-none";

@@ -8,7 +8,6 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } fro
 import { useSearchParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { BulkActionBar } from "@/components/ui/bulk-action-bar";
-import { SegmentedThree } from "@/components/ui/segmented-control";
 import { PortalDetailDestinationNav } from "@/components/portal/portal-detail-destination-nav";
 import { PortalPageChrome, PortalPageScrollBody } from "@/lib/portal-page-chrome-layout";
 import {Input, Textarea, Select, NativeSelect} from "@/components/ui/input";
@@ -24,7 +23,8 @@ import { useAppUi } from "@/components/providers/app-ui-provider";
 import {
   MANAGER_TABLE_TH,
   ManagerPortalPageShell,
-  PORTAL_HEADER_PRIMARY_ACTION_BTN_RESPONSIVE,
+  PORTAL_COMMAND_PRIMARY_ACTION_BTN,
+  PORTAL_COMMAND_PRIMARY_ACTION_STYLE,
   RESIDENT_DETAIL_HEADER_ACTION_BTN,
 } from "@/components/portal/portal-metrics";
 import {
@@ -66,11 +66,7 @@ import { ManagerResidentToursPanel } from "@/components/portal/manager-resident-
 import { buildManagerTourRows } from "@/lib/manager-tour-list";
 import { buildResidentListClusters } from "@/lib/manager-resident-list-grouping";
 import { PORTAL_LIST_PAGE_BODY } from "@/components/portal/portal-inbox-ui";
-import {
-  PortalListAddRow,
-  PORTAL_LIST_ADD_ICONS,
-  PORTAL_LIST_ADD_ROW_WRAP_CLASS,
-} from "@/components/portal/portal-list-add-row";
+import { PortalListFab } from "@/components/portal/portal-list-fab";
 import { LeaseDocumentPreview } from "@/components/portal/lease-document-preview";
 import { LeasePrimaryHeaderActions } from "@/components/portal/lease-primary-header-actions";
 import { LeaseGenerateModal } from "@/components/portal/lease-generate-modal";
@@ -1179,12 +1175,6 @@ export function ManagerResidents({
     });
   }, [residentCharges, selected?.roomLabel]);
 
-  const residentChargeCounts = useMemo(() => {
-    const counts: Record<ManagerPaymentBucket, number> = { pending: 0, overdue: 0, paid: 0 };
-    for (const row of residentLedgerRows) counts[row.bucket] += 1;
-    return counts;
-  }, [residentLedgerRows]);
-
   useEffect(() => {
     if (!paymentIdProp || !residentLedgerRows.length) return;
     const decoded = decodeURIComponent(paymentIdProp);
@@ -1193,10 +1183,14 @@ export function ManagerResidents({
   }, [paymentIdProp, residentLedgerRows, chargeBucket]);
 
   const residentLedgerRowsForBucket = useMemo(() => {
-    const filtered = residentLedgerRows.filter((row) => row.bucket === chargeBucket);
-    const direction = chargeBucket === "paid" ? "desc" : "asc";
-    return [...filtered].sort((a, b) => compareDueDateMs(a.dueDateSortMs, b.dueDateSortMs, direction));
-  }, [residentLedgerRows, chargeBucket]);
+    const bucketOrder: Record<ManagerPaymentBucket, number> = { overdue: 0, pending: 1, paid: 2 };
+    return [...residentLedgerRows].sort((a, b) => {
+      const bucketCmp = bucketOrder[a.bucket] - bucketOrder[b.bucket];
+      if (bucketCmp !== 0) return bucketCmp;
+      const direction = a.bucket === "paid" ? "desc" : "asc";
+      return compareDueDateMs(a.dueDateSortMs, b.dueDateSortMs, direction);
+    });
+  }, [residentLedgerRows]);
 
   const selectedApplicationRow = useMemo<DemoApplicantRow | null>(() => {
     void hcTick;
@@ -2818,7 +2812,6 @@ export function ManagerResidents({
                                     cosignerSubmissions={selectedApplicationCosigners}
                                     activeView={applicationReviewView}
                                     onActiveViewChange={setApplicationReviewView}
-                                    showPropertySummary
                                     onOpenCosigner={(index) => {
                                       navigate(
                                         `${residentDetailHref(portalBase, residentsTab, selected.id, "application")}?cosigner=${index}`,
@@ -2898,16 +2891,6 @@ export function ManagerResidents({
 
                             {resolvedDetailTab === "payments" ? (
                             <ResidentDetailTabPanel>
-                              {paymentIdProp ? null : (
-                                <SegmentedThree
-                                  value={chargeBucket}
-                                  onChange={(id) => setChargeBucket(id as ManagerPaymentBucket)}
-                                  first={{ id: "pending", label: "Pending", count: residentChargeCounts.pending }}
-                                  second={{ id: "overdue", label: "Overdue", count: residentChargeCounts.overdue }}
-                                  third={{ id: "paid", label: "Paid", count: residentChargeCounts.paid }}
-                                  className="mb-3 w-full"
-                                />
-                              )}
                               <ManagerPaymentsLedgerPanel
                                 rows={paymentIdProp ? residentLedgerRows : residentLedgerRowsForBucket}
                                 managerUserId={userId ?? null}
@@ -3102,8 +3085,8 @@ export function ManagerResidents({
   const residentsAddButton = (
     <Button
       type="button"
-      variant="outline"
-      className={PORTAL_HEADER_PRIMARY_ACTION_BTN_RESPONSIVE}
+      className={PORTAL_COMMAND_PRIMARY_ACTION_BTN}
+      style={PORTAL_COMMAND_PRIMARY_ACTION_STYLE}
       onClick={() => setAddResidentOpen(true)}
     >
       Add
@@ -3116,7 +3099,7 @@ export function ManagerResidents({
         activeCount={portalFilterActiveCount([propertyFilters])}
         compactPanel
         filterFieldCount={1}
-        constrainDropdownToTitleBand
+        constrainDropdownToTitleBand={false}
         mobileFlushBody
         className={PORTAL_PROPERTY_FILTER_SHEET_CLASS}
         onReset={() => setPropertyFilters([])}
@@ -3232,12 +3215,14 @@ export function ManagerResidents({
       <ManagerPortalPageShell
         title="Residents"
         hideTitleOnMobileNav
-        titleInlineFilter={residentsFilterSheet}
-        titleAside={residentsAddButton}
+        titleInlineFilter={null}
         compactFilterRow
       >
       <PortalListControlStack
         className="mb-2 max-lg:mb-1.5"
+        variant="command"
+        filterRow={residentsFilterSheet}
+        actions={residentsAddButton}
         search={{
           value: searchQuery,
           onChange: setSearchQuery,
@@ -3246,27 +3231,16 @@ export function ManagerResidents({
         }}
       />
       {filtered.length === 0 ? (
-        <>
-          {residents.length > 0 ? (
-            <PortalDataTableEmpty
-              icon="residents"
-              message={
-                searchQuery.trim()
-                  ? "No residents match your search."
-                  : "No residents match this filter."
-              }
-            />
-          ) : null}
-          <div className={PORTAL_LIST_ADD_ROW_WRAP_CLASS}>
-            <PortalListAddRow
-              label="Add"
-              ariaLabel="Add resident"
-              icon={PORTAL_LIST_ADD_ICONS.resident}
-              onClick={() => setAddResidentOpen(true)}
-              dataAttr="residents-list-add"
-            />
-          </div>
-        </>
+        residents.length > 0 ? (
+          <PortalDataTableEmpty
+            icon="residents"
+            message={
+              searchQuery.trim()
+                ? "No residents match your search."
+                : "No residents match this filter."
+            }
+          />
+        ) : null
       ) : (
         <div className={PORTAL_LIST_PAGE_BODY}>
           <ManagerResidentsGroupedTable
@@ -3278,18 +3252,13 @@ export function ManagerResidents({
               navigate(residentDetailHref(portalBase, residentsTab, res.id, resolvedDetailTab))
             }
           />
-          <div className={PORTAL_LIST_ADD_ROW_WRAP_CLASS}>
-            <PortalListAddRow
-              label="Add"
-              ariaLabel="Add resident"
-              icon={PORTAL_LIST_ADD_ICONS.resident}
-              onClick={() => setAddResidentOpen(true)}
-              dataAttr="residents-list-add"
-              inline
-            />
-          </div>
         </div>
       )}
+      <PortalListFab
+        onClick={() => setAddResidentOpen(true)}
+        ariaLabel="Add resident"
+        dataAttr="residents-list-add"
+      />
 
       </ManagerPortalPageShell>
       )}

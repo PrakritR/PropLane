@@ -167,12 +167,17 @@ describe("PortalListControlStack", () => {
     expect(screen.getByPlaceholderText("Search items")).toBeTruthy();
   });
 
-  it("composes destinations, search, filters, and utilities in command mode", () => {
+  it("composes destinations, action row, search, and filters in command mode", () => {
     const { container } = render(
       <PortalListControlStack
         variant="command"
         filterRow={<button type="button">Filter</button>}
-        actions={<button type="button">Settings</button>}
+        actions={
+          <>
+            <button type="button">Settings</button>
+            <button type="button">Add</button>
+          </>
+        }
         destinations={[
           { id: "pending", label: "Pending", href: "/portal/tours/pending", count: 2 },
           { id: "past", label: "Past", href: "/portal/tours/past", count: 0 },
@@ -186,6 +191,7 @@ describe("PortalListControlStack", () => {
     expect(screen.getByRole("searchbox", { name: "Search tours" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Filter" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Settings" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Add" })).toBeTruthy();
   });
 });
 

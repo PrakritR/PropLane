@@ -12,9 +12,12 @@ import { PortalFilterSortSheet, portalFilterActiveCount } from "@/components/por
 import { PORTAL_PROPERTY_FILTER_SHEET_CLASS } from "@/components/portal/portal-filter-shell";
 import { PortalActiveFilterChips } from "@/components/portal/portal-filter-chips";
 import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
+import { PortalListFab } from "@/components/portal/portal-list-fab";
 import {
   ManagerPortalPageShell,
-  PORTAL_HEADER_ACTION_BTN_RESPONSIVE,
+  PORTAL_COMMAND_ACTION_BTN,
+  PORTAL_COMMAND_PRIMARY_ACTION_BTN,
+  PORTAL_COMMAND_PRIMARY_ACTION_STYLE,
 } from "@/components/portal/portal-metrics";
 import { useAppUi } from "@/components/providers/app-ui-provider";
 import type { ManagerLeaseTab } from "@/data/demo-portal";
@@ -196,7 +199,7 @@ export function ManagerLeases({
       activeCount={portalFilterActiveCount([propertyFilters])}
       compactPanel
       filterFieldCount={1}
-      constrainDropdownToTitleBand
+      constrainDropdownToTitleBand={false}
       mobileFlushBody
       className={PORTAL_PROPERTY_FILTER_SHEET_CLASS}
       onReset={() => setPropertyFilters([])}
@@ -211,60 +214,26 @@ export function ManagerLeases({
     </PortalFilterSortSheet>
   );
 
-  const leasesShareButton = (
-    <Button
-      type="button"
-      variant="outline"
-      className={PORTAL_HEADER_ACTION_BTN_RESPONSIVE}
-      data-attr="leases-share"
-      disabled={shareableProperties.length === 0}
-      title={shareableProperties.length === 0 ? "List a property as active before sharing" : "Share listing links"}
-      onClick={() => setShareLeasesOpen(true)}
-    >
-      Share
-    </Button>
-  );
-
-  const leasesEditButton = (
-    <Button
-      type="button"
-      variant="outline"
-      className={PORTAL_HEADER_ACTION_BTN_RESPONSIVE}
-      data-attr="leases-edit-properties"
-      disabled={editablePropertyOptions.length === 0}
-      title={editablePropertyOptions.length === 0 ? "Add a property before editing lease settings" : undefined}
-      onClick={() => setEditLeasesOpen(true)}
-    >
-      Edit
-    </Button>
-  );
-
-  const leasesAddButton = (
-    <Button
-      type="button"
-      variant="outline"
-      className={PORTAL_HEADER_ACTION_BTN_RESPONSIVE}
-      data-attr="leases-add"
-      onClick={() => setAddLeaseOpen(true)}
-    >
-      Add
-    </Button>
-  );
-
-  const leasesHeaderActions = (
+  const leasesListActions = (
     <>
       <Button
         type="button"
         variant="outline"
-        className={PORTAL_HEADER_ACTION_BTN_RESPONSIVE}
+        className={PORTAL_COMMAND_ACTION_BTN}
         data-attr="leases-settings-open"
         onClick={() => setLeaseSettingsOpen(true)}
       >
         Settings
       </Button>
-      {leasesAddButton}
-      {leasesShareButton}
-      {leasesEditButton}
+      <Button
+        type="button"
+        className={PORTAL_COMMAND_PRIMARY_ACTION_BTN}
+        style={PORTAL_COMMAND_PRIMARY_ACTION_STYLE}
+        data-attr="leases-add"
+        onClick={() => setAddLeaseOpen(true)}
+      >
+        Add
+      </Button>
     </>
   );
 
@@ -329,13 +298,13 @@ export function ManagerLeases({
     <>
       <ManagerPortalPageShell
         title="Leases"
-        titleInlineFilter={leasesFilterSheet}
-        titleAside={leasesHeaderActions}
+        titleInlineFilter={null}
         hideTitleOnMobileNav
         compactFilterRow
       >
         <PortalListControlStack
           className="mb-2"
+          variant="command"
           destinations={tabs.map((t) => ({
             id: t.id,
             label: t.label,
@@ -353,6 +322,8 @@ export function ManagerLeases({
           }))}
           activeDestinationId={tab}
           destinationAriaLabel="Lease pipeline stage"
+          filterRow={leasesFilterSheet}
+          actions={leasesListActions}
           search={{
             value: searchQuery,
             onChange: setSearchQuery,
@@ -381,10 +352,14 @@ export function ManagerLeases({
           residentAccountEmails={residentAccountEmails}
           leaseId={leaseIdProp}
           listBasePath={basePath}
-          onAddLease={() => setAddLeaseOpen(true)}
           onEmailAccountSetup={(email) => {
             setResidentAccountEmails((prev) => new Set([...prev, email.trim().toLowerCase()]));
           }}
+        />
+        <PortalListFab
+          onClick={() => setAddLeaseOpen(true)}
+          ariaLabel="Add lease"
+          dataAttr="leases-list-add"
         />
       </ManagerPortalPageShell>
       {modals}
