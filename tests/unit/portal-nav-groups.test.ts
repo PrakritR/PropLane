@@ -49,6 +49,11 @@ const CASES = [
 ];
 
 describe("portal nav groups cover the registry exactly", () => {
+  it("registers incoming and outgoing as payments sidebar tabs", () => {
+    const payments = proPortal.sections.find((section) => section.section === "payments");
+    expect(payments?.tabs.map((tab) => tab.id)).toEqual(["incoming", "outgoing"]);
+  });
+
   for (const { kind, sections, sidebarShowsProfile, sidebarShowsFeedback } of CASES) {
     const groups = PORTAL_NAV_GROUPS[kind];
     const grouped = groups.flatMap((g) => g.sections);

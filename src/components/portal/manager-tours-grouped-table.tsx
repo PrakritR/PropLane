@@ -142,7 +142,6 @@ export function ManagerToursGroupedTable({
       {(clusters as ManagerTourListCluster[]).map((cluster) => (
         <ApplicationHouseholdCluster
           key={cluster.key}
-          headerLeading={renderClusterCheckbox(cluster.rows, cluster.residentLabel)}
           header={
             <>
               <span className="truncate text-xs font-semibold text-foreground">

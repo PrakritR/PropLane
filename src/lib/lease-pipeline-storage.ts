@@ -889,7 +889,9 @@ export function normalizeLeasePipelineRow(raw: unknown): LeasePipelineRow {
     application: r.application,
     // Do not alter persisted historical bytes on read. Section overrides stay
     // separate until they are materialized for signing.
-    generatedHtml: stripLeaseAiDisclaimerFromHtml(r.generatedHtml ?? null),
+    generatedHtml: stripLeaseAiDisclaimerFromHtml(
+      typeof r.generatedHtml === "string" ? r.generatedHtml : null,
+    ),
     generatedAtIso: r.generatedAtIso ?? null,
     managerSectionEdits: normalizeManagerSectionEdits(r.managerSectionEdits),
     managerUploadedPdf: r.managerUploadedPdf ?? null,

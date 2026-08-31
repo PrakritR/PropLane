@@ -17,13 +17,9 @@ import {
 import {
   PortalDataTableEmpty,
 } from "@/components/portal/portal-data-table";
-import { PORTAL_LIST_PAGE_BODY } from "@/components/portal/portal-inbox-ui";
+import { PortalRecordListSurface } from "@/components/portal/portal-record-list-surface";
 import { DataList } from "@/components/ui/data-list";
-import {
-  PortalListAddRow,
-  PORTAL_LIST_ADD_ICONS,
-  PORTAL_LIST_ADD_ROW_WRAP_CLASS,
-} from "@/components/portal/portal-list-add-row";
+import { PORTAL_LIST_ADD_ICONS } from "@/components/portal/portal-list-add-row";
 import type { DemoManagerPaymentLedgerRow, ManagerPaymentBucket, ManagerPaymentDirection } from "@/data/demo-portal";
 import { PortalRecordDetailPage } from "@/components/portal/portal-record-detail-page";
 import {
@@ -240,7 +236,7 @@ export function ManagerPaymentsLedgerPanel({
     () => selectedRows.filter(isRemindableRow),
     [selectedRows],
   );
-  const showSelection = false;
+  const showSelection = !paymentIdProp;
   const allSelected = showSelection && rows.every((row) => selectedIds.has(row.id));
   const someSelected = selectedIds.size > 0 && !allSelected;
   const rowIdsKey = useMemo(() => rows.map((row) => row.id).join(","), [rows]);
@@ -677,18 +673,6 @@ export function ManagerPaymentsLedgerPanel({
   // so a screen reader is not given two identically-named buttons.
   const addPaymentLabel = "Add";
   const addPaymentAriaLabel = embeddedInResident ? "Add payment" : "Add charge";
-  const renderAddPaymentRow = (className?: string) =>
-    onAddPayment ? (
-      <div className={className ?? PORTAL_LIST_ADD_ROW_WRAP_CLASS} data-testid="payments-list-add">
-        <PortalListAddRow
-          label={addPaymentLabel}
-          ariaLabel={addPaymentAriaLabel}
-          icon={PORTAL_LIST_ADD_ICONS.payment}
-          onClick={onAddPayment}
-          dataAttr="payments-list-add"
-        />
-      </div>
-    ) : null;
   const renderStayNightsCell = (row: DemoManagerPaymentLedgerRow) => {
     if (editingRowId !== row.id || !row.householdChargeId || !isStayTotalRow(row)) return null;
     const parsed = parseShortTermStayChargeTitle(row.chargeTitle);
@@ -1397,6 +1381,9 @@ export function ManagerPaymentsLedgerPanel({
           trailing: (
             <span className="text-sm font-semibold tabular-nums text-foreground">{row.lineAmount}</span>
           ),
+          selected: showSelection ? selectedIds.has(row.id) : undefined,
+          onSelectedChange:
+            showSelection ? () => toggleSelected(row.id) : undefined,
           onClick: isEditing ? undefined : () => openPaymentDetail(row),
           expanded: isEditing,
           expandedContent: isEditing ? renderInlineEditForm(row) : undefined,
@@ -1551,17 +1538,40 @@ export function ManagerPaymentsLedgerPanel({
       )
     ) : !hasAnySource ? (
       onAddPayment ? (
-        renderAddPaymentRow(`${PORTAL_LIST_ADD_ROW_WRAP_CLASS} pt-5 sm:pt-6`)
+        <PortalRecordListSurface
+          isEmpty
+          add={{
+            label: addPaymentLabel,
+            ariaLabel: addPaymentAriaLabel,
+            icon: PORTAL_LIST_ADD_ICONS.payment,
+            onClick: onAddPayment,
+            dataAttr: "payments-list-add",
+          }}
+          className="pt-5 sm:pt-6"
+          dataAttr="payments-list-empty"
+        />
       ) : (
         <PortalDataTableEmpty message="No payments in this bucket yet." icon="payment" />
       )
     ) : (
-      <div className={PORTAL_LIST_PAGE_BODY}>
-        <>
-          {embeddedInResident ? renderChargeDataList(rows) : renderManagerGroupedLedger()}
-          {renderAddPaymentRow()}
-        </>
-      </div>
+      <PortalRecordListSurface
+        add={
+          onAddPayment
+            ? {
+                label: addPaymentLabel,
+                ariaLabel: addPaymentAriaLabel,
+                icon: PORTAL_LIST_ADD_ICONS.payment,
+                onClick: onAddPayment,
+                dataAttr: "payments-list-add",
+              }
+            : undefined
+        }
+        bulkCount={embeddedInResident ? 0 : selectedIds.size}
+        bulkActions={embeddedInResident ? undefined : bulkSelectionActions}
+        dataAttr="payments-ledger-list"
+      >
+        {embeddedInResident ? renderChargeDataList(rows) : renderManagerGroupedLedger()}
+      </PortalRecordListSurface>
     )}
     </>
   );

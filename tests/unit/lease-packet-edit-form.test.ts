@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { normalizeLeasePipelineRow } from "@/lib/lease-pipeline-storage";
+import { stripLeaseAiDisclaimerFromHtml } from "@/lib/lease-templates/types";
 import {
   buildLeasePacketUpdateFromForm,
   leasePacketFormAutoLeaseEnd,
@@ -58,5 +59,22 @@ describe("lease packet inline edit form", () => {
     const baseline = leasePacketFormValuesFromRow(row);
     const built = buildLeasePacketUpdateFromForm("lease-1", baseline, baseline);
     expect(built.ok).toBe(false);
+  });
+
+  it("normalizes non-string generatedHtml without throwing", () => {
+    const normalized = normalizeLeasePipelineRow({
+      id: "lease-bad-html",
+      generatedHtml: { html: "<p>oops</p>" } as unknown as string,
+    });
+    expect(normalized.generatedHtml).toBeNull();
+  });
+});
+
+describe("stripLeaseAiDisclaimerFromHtml", () => {
+  it("returns null for non-string input", () => {
+    expect(stripLeaseAiDisclaimerFromHtml(null)).toBeNull();
+    expect(stripLeaseAiDisclaimerFromHtml(undefined)).toBeNull();
+    expect(stripLeaseAiDisclaimerFromHtml("")).toBeNull();
+    expect(stripLeaseAiDisclaimerFromHtml({ html: "<p>x</p>" } as unknown as string)).toBeNull();
   });
 });

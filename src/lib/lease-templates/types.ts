@@ -16,12 +16,15 @@ export function stripLeaseAiReviewDisclaimer(text: string | null | undefined): s
 
 /** Remove AI disclaimer banner from saved generated HTML (legacy rows). */
 export function stripLeaseAiDisclaimerFromHtml(html: string | null | undefined): string | null {
-  if (!html) return null;
-  let result = html.replace(/<div class="ai-disclaimer"[^>]*>[\s\S]*?<\/div>\s*/gi, "");
+  if (html == null) return null;
+  if (typeof html !== "string") return null;
+  const trimmed = html.trim();
+  if (!trimmed) return null;
+  let result = trimmed.replace(/<div class="ai-disclaimer"[^>]*>[\s\S]*?<\/div>\s*/gi, "");
   while (result.includes(LEASE_AI_REVIEW_DISCLAIMER)) {
     result = result.split(LEASE_AI_REVIEW_DISCLAIMER).join("");
   }
-  return result;
+  return result.trim() || null;
 }
 
 /** True when the lease document was AI-generated HTML (not a manager-uploaded PDF). */

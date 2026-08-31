@@ -83,7 +83,12 @@ export function groupNavItems<T extends { section: string }>(
   kind: PortalKind,
   items: T[],
 ): GroupedNav<T>[] {
-  const byId = new Map(items.map((i) => [i.section, i] as const));
+  const bySection = new Map<string, T[]>();
+  for (const item of items) {
+    const list = bySection.get(item.section) ?? [];
+    list.push(item);
+    bySection.set(item.section, list);
+  }
 
   // Application phase: show all sections in sidebar groups; locks are stage-based.
   const config = PORTAL_NAV_GROUPS[kind] ?? [];
@@ -92,9 +97,9 @@ export function groupNavItems<T extends { section: string }>(
   const groups: GroupedNav<T>[] = config.map((g) => {
     const groupItems: T[] = [];
     for (const id of g.sections) {
-      const item = byId.get(id);
-      if (item) {
-        groupItems.push(item);
+      const sectionItems = bySection.get(id);
+      if (sectionItems?.length) {
+        groupItems.push(...sectionItems);
         assigned.add(id);
       }
     }

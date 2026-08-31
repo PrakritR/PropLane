@@ -39,6 +39,9 @@ export type PortalListAddConfig = {
   onClick: () => void;
   disabled?: boolean;
   dataAttr?: string;
+  /** Override the default inline-when-nonempty rule (e.g. tours always use the compact footer). */
+  inline?: boolean;
+  className?: string;
 };
 
 export function PortalRecordListSurface({
@@ -77,10 +80,9 @@ export function PortalRecordListSurface({
               onClick={add.onClick}
               disabled={add.disabled}
               dataAttr={add.dataAttr}
-              // Inline only once rows exist above it; on an empty list the tall
-              // dashed box is the page's only call to action and should read
-              // like one.
-              inline={!isEmpty}
+              className={add.className}
+              // Inline once rows exist above it, unless a list opts into compact always.
+              inline={add.inline ?? !isEmpty}
             />
           </div>
         ) : null}
