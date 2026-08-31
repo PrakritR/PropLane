@@ -109,6 +109,24 @@ export function managerCarrierRegistrationNeedsAttention(input: {
   );
 }
 
+/**
+ * The one provider diagnostic safe to surface verbatim: the structured
+ * sender-pool attachment failure — operation name plus optional Twilio code
+ * and/or HTTP status (never raw provider free-text), with its cleanup outcome.
+ * `twilioOperationError` emits whichever identifiers exist, so code-only,
+ * status-only, and neither must all match. Any other stored value (raw DB or
+ * provider text) is scrubbed to null.
+ */
+const MANAGER_MESSAGING_SENDER_POOL_DIAGNOSTIC =
+  /^Twilio Messaging Service sender-pool attachment failed(?: \((?:code [\w-]+(?:, HTTP \d{3})?|HTTP \d{3})\))?\.(?: The purchased number (?:was released|release could not be confirmed; do not retry until PropLane reviews it)\.)?$/;
+
+export function managerMessagingSenderPoolDiagnostic(
+  error: string | null | undefined,
+): string | null {
+  const value = error?.trim() ?? "";
+  return MANAGER_MESSAGING_SENDER_POOL_DIAGNOSTIC.test(value) ? value : null;
+}
+
 export const MANAGER_MESSAGING_SETTINGS_HREF = "/portal/profile?tab=messaging";
 
 export function formatManagerMessagingPhone(

@@ -31,6 +31,7 @@ import { deliverPortalInboxMessage } from "@/lib/portal-message-delivery";
 import { track } from "@/lib/analytics/track-client";
 import {
   formatManagerMessagingPhone,
+  managerMessagingSenderPoolDiagnostic,
   type ManagerMessagingNumberStatus,
 } from "@/lib/sms/manager-messaging-number";
 
@@ -173,18 +174,6 @@ function isMessagingNumberStatus(
   );
 }
 
-function publicFailureDiagnostic(error: string | null | undefined): string | null {
-  const value = error?.trim() ?? "";
-  if (
-    /^Twilio Messaging Service sender-pool attachment failed \(code [\w-]+, HTTP \d{3}\)\.(?: The purchased number (?:was released|release could not be confirmed; do not retry until PropLane reviews it)\.)?$/.test(
-      value,
-    )
-  ) {
-    return value;
-  }
-  return null;
-}
-
 export function ManagerMessagingSettingsPanel({
   personalPhoneRefreshKey = 0,
 }: {
@@ -303,14 +292,11 @@ export function ManagerMessagingSettingsPanel({
           error?: string;
         };
         if (!res.ok) {
-          if (isMessagingNumberStatus(body)) setStatus(body);
-          setError(body.error ?? "Could not request a messaging number.");
           // Failed provision responses include the updated public status (e.g.
           // quarantined provisioning with canRequest: false). Apply it so Retry
           // does not stay enabled against a server that will refuse another buy.
-          if (typeof body.canRequest === "boolean") {
-            setStatus(body);
-          }
+          if (isMessagingNumberStatus(body)) setStatus(body);
+          setError(body.error ?? "Could not request a messaging number.");
           return;
         }
         setStatus(body);
@@ -493,7 +479,9 @@ export function ManagerMessagingSettingsPanel({
    * belonging to another account — is never advertised to residents.
    */
   const announceReady = Boolean(phoneNumber) && status.canSend;
-  const failureDiagnostic = publicFailureDiagnostic(status.number?.lastError);
+  const failureDiagnostic = managerMessagingSenderPoolDiagnostic(
+    status.number?.lastError,
+  );
   // An unchecked plan must stay actionable before a number exists - otherwise
   // the one account that sees "not checked yet" (a new one, with no number) is
   // the one account with no control that resolves it.
