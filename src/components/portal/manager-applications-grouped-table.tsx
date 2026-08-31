@@ -20,6 +20,7 @@ import {
 } from "@/lib/manager-application-list";
 import type { ApplicationListCluster } from "@/lib/rental-application/application-list-grouping";
 import type { DemoApplicantRow } from "@/data/demo-portal";
+import type { CosignerSubmission } from "@/lib/cosigner-submissions-storage";
 import { applicantDisplayName } from "@/lib/rental-application/applicant-name";
 import { stripPropertyRoomCountSuffix } from "@/lib/portal-mobile-preview";
 
@@ -178,9 +179,12 @@ export function ManagerApplicationsGroupedTable({
                             id: "applicant",
                             header: "Applicant",
                             cell: (item: ApplicationTableRow) =>
-                              item.kind === "application"
-                                ? applicantDisplayName(item.row)
-                                : `Co-signer for ${applicantDisplayName(item.parent)}`,
+                              // A screening row carries `row`, not `parent`, so
+                              // narrow on the field rather than on "not an
+                              // application" - the union has four members.
+                              "parent" in item
+                                ? `Co-signer for ${applicantDisplayName(item.parent)}`
+                                : applicantDisplayName(item.row),
                           },
                         ]
                       : []),
