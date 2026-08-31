@@ -12,6 +12,7 @@ import {
   MODAL_FULL_PAGE_PANEL_CLASS,
   MODAL_FULL_PAGE_STACK_CLASS,
   MODAL_PANEL_CLASS,
+  MODAL_TALL_PANEL_CLASS,
   MODAL_OVERLAY_BACKDROP_CLASS,
   PORTAL_MOBILE_DRAWER_EDGE_CLASS,
   PORTAL_MOBILE_DRAWER_SHELL_CLASS,
@@ -25,8 +26,10 @@ export {
   MODAL_INSET_BOX_CLASS,
   MODAL_INSET_BOX_PRE_CLASS,
   MODAL_PANEL_CLASS,
+  MODAL_TALL_PANEL_CLASS,
   MODAL_WARNING_BOX_CLASS,
   MODAL_FIELD_LABEL_CLASS,
+  PORTAL_MODAL_BODY_SCROLL_CLASS,
   PORTAL_MODAL_FORM_GRID_CLASS,
   PORTAL_MODAL_FORM_FIELD_CLASS,
   PORTAL_MODAL_FORM_FULL_ROW_CLASS,
@@ -360,7 +363,7 @@ function ModalPanelInner({
                 ? cn(
                     "min-h-0 min-w-0 overflow-x-hidden overflow-y-auto overscroll-contain [-webkit-overflow-scrolling:touch]",
                     bodyScrollFillsMiddle
-                      ? "flex min-h-0 flex-1 flex-col"
+                      ? "max-h-[min(42vh,calc(min(92dvh,56rem)-12rem))] shrink-0 @2xl:flex @2xl:min-h-0 @2xl:max-h-none @2xl:flex-1 @2xl:shrink"
                       : "shrink-0 max-h-[min(60vh,calc(min(92dvh,56rem)-11rem))]",
                   )
                 : "flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden"
@@ -378,8 +381,8 @@ function ModalPanelInner({
             conversationInstance={assistantConversationInstance}
             onExpandedChange={onAssistantExpandedChange}
             defaultExpanded={assistantDefaultExpanded}
-          fillHeight={!scrollableContent && Boolean(footer)}
-            className={cn("shrink-0", dense ? "px-0" : undefined)}
+            fillHeight={assistantExpanded || (!scrollableContent && Boolean(footer))}
+            className={cn(assistantExpanded ? "min-h-0 flex-1" : "shrink-0", dense ? "px-0" : undefined)}
           />
         ) : null}
       </div>
@@ -470,6 +473,14 @@ export function Modal({
     wasOpenRef.current = open;
   }, [open]);
 
+  /** Footer actions sit below the assistant — children own internal scroll. */
+  const stackedPortalLayout = footer != null;
+  const resolvedScrollableContent = stackedPortalLayout ? false : scrollableContent;
+  const resolvedPanelClassName = cn(
+    stackedPortalLayout && !fullPage ? MODAL_TALL_PANEL_CLASS : undefined,
+    panelClassName,
+  );
+
   const panelInnerProps = {
     title,
     description,
@@ -485,7 +496,7 @@ export function Modal({
     onAssistantExpandedChange: setAssistantExpanded,
     assistantDefaultExpanded,
     assistantEditHint,
-    scrollableContent,
+    scrollableContent: resolvedScrollableContent,
   };
 
   if (!open) return null;
@@ -504,12 +515,12 @@ export function Modal({
         dataAttr={dataAttr}
         panelClassName={cn(
           useFullViewport
-            ? cn(dense ? "px-4" : "px-5", panelClassName, MODAL_FULL_PAGE_PANEL_CLASS)
+            ? cn(dense ? "px-4" : "px-5", resolvedPanelClassName, MODAL_FULL_PAGE_PANEL_CLASS)
             : cn(
                 PORTAL_MOBILE_DRAWER_SHELL_CLASS,
                 "max-h-[min(92dvh,56rem)] pt-3",
                 dense ? "px-4" : "px-5",
-                panelClassName,
+                resolvedPanelClassName,
               ),
           PORTAL_MOBILE_DRAWER_EDGE_CLASS,
         )}
@@ -536,8 +547,8 @@ export function Modal({
       dataAttr={dataAttr}
       panelClassName={cn(
         fullPage
-          ? cn(dense ? "px-4" : "px-5", panelClassName, MODAL_FULL_PAGE_PANEL_CLASS)
-          : cn(MODAL_PANEL_CLASS, "min-h-0 @container", panelClassName),
+          ? cn(dense ? "px-4" : "px-5", resolvedPanelClassName, MODAL_FULL_PAGE_PANEL_CLASS)
+          : cn(MODAL_PANEL_CLASS, "min-h-0 @container", resolvedPanelClassName),
       )}
     >
       <ModalPanelInner

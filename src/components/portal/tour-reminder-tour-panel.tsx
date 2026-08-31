@@ -3,11 +3,10 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
-import { Modal } from "@/components/ui/modal";
 import { useAppUi } from "@/components/providers/app-ui-provider";
 import { formatTourReminderTimingLabel } from "@/components/portal/reminder-settings-shared";
 import { patchScheduledMessage } from "@/components/portal/payment-schedule-ui";
-import { InboxScheduledCard } from "@/components/portal/portal-inbox-ui";
+import { InboxScheduledCard, ScheduledMessageDetailModal } from "@/components/portal/portal-inbox-ui";
 import type { ScheduledInboxMessageRecord } from "@/lib/scheduled-inbox-messages";
 import { formatScheduledSendAt } from "@/lib/scheduled-payment-messages";
 
@@ -226,12 +225,9 @@ export function TourReminderTourPanel({
         )}
       </div>
 
-      <Modal
+      <ScheduledMessageDetailModal
         open={Boolean(editingReminder)}
         onClose={() => setEditingReminder(null)}
-        title="Scheduled message"
-        dense
-        panelClassName="max-w-lg p-3 sm:p-4"
       >
         {editingReminder ? (
           <InboxScheduledCard
@@ -268,7 +264,7 @@ export function TourReminderTourPanel({
             }
           />
         ) : null}
-      </Modal>
+      </ScheduledMessageDetailModal>
     </>
   );
 }

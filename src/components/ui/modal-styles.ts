@@ -35,6 +35,10 @@ export const MODAL_XL_PANEL_CLASS = "max-w-5xl w-full";
 /** Tall editor dialog — fills the standard modal viewport height so body flex children can grow. */
 export const MODAL_TALL_PANEL_CLASS = "h-[min(92dvh,56rem)] max-h-[min(92dvh,56rem)]";
 
+/** Internal scroll region when `scrollableContent={false}` — body flexes between header and assistant/footer. */
+export const PORTAL_MODAL_BODY_SCROLL_CLASS =
+  "min-h-0 flex-1 overflow-x-hidden overflow-y-auto overscroll-contain [-webkit-overflow-scrolling:touch]";
+
 /** Full-viewport modal shell — opt in with `fullPage` for rare immersive flows. */
 export const MODAL_FULL_PAGE_STACK_CLASS = "fixed inset-0 z-[70] overflow-hidden";
 export const MODAL_FULL_PAGE_CENTER_CLASS =

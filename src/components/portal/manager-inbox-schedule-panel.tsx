@@ -2,7 +2,6 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
-import { Modal } from "@/components/ui/modal";
 import { ManagerPortalFilterRow, MANAGER_TABLE_TH } from "@/components/portal/portal-metrics";
 import { FieldSingleSelect } from "@/components/ui/checkbox-multi-select";
 import {
@@ -15,7 +14,7 @@ import {
   PORTAL_TABLE_TD,
   createPortalRowExpandClick,
 } from "@/components/portal/portal-data-table";
-import { PortalInboxEmptyState, InboxScheduledCard } from "@/components/portal/portal-inbox-ui";
+import { PortalInboxEmptyState, InboxScheduledCard, ScheduledMessageDetailModal } from "@/components/portal/portal-inbox-ui";
 import { readPortalApiError } from "@/lib/portal-api-error";
 import {
   sendAutomationScheduledMessageNow,
@@ -568,15 +567,13 @@ export function ManagerInboxSchedulePanel({
         </>
       )}
 
-      <Modal
+      <ScheduledMessageDetailModal
         open={Boolean(editingRowId)}
         onClose={() => setEditingRowId(null)}
-        title="Scheduled message"
         description="View and manage this scheduled send."
-        panelClassName="max-w-lg"
       >
         {editingRow ? <div key={editingRowId}>{renderRowEditPanel(editingRow)}</div> : null}
-      </Modal>
+      </ScheduledMessageDetailModal>
     </div>
   );
 }

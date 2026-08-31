@@ -966,16 +966,7 @@ export function CommunicationSettingsPanel({
           className="mt-0.5 h-4 w-4 shrink-0 accent-primary"
           checked={draft.inboxAiDraftAutoSend}
           onChange={(e) => {
-            const next = e.target.checked;
-            if (
-              next &&
-              !window.confirm(
-                "Auto-send will email or text AI-drafted replies without your approval. Inbound resident and prospect messages are untrusted — misleading content could influence what goes out under your name.\n\nTurn on auto-send?",
-              )
-            ) {
-              return;
-            }
-            setDraft((prev) => ({ ...prev, inboxAiDraftAutoSend: next }));
+            setDraft((prev) => ({ ...prev, inboxAiDraftAutoSend: e.target.checked }));
           }}
           data-attr="communication-inbox-ai-draft-auto-send"
         />
@@ -987,11 +978,6 @@ export function CommunicationSettingsPanel({
           </span>
         </span>
       </label>
-      {draft.inboxAiDraftAutoSend ? (
-        <p className="rounded-xl border border-amber-500/30 bg-amber-500/10 px-3 py-2.5 text-xs text-foreground">
-          Auto-send is on. Review each thread carefully — AI drafts send without a second confirmation.
-        </p>
-      ) : null}
       <ManagerSmsWorkNumberHint
         show={anySmsEnabled}
         phone={smsSetup?.phone ?? null}
@@ -1009,9 +995,6 @@ export function CommunicationSettingsPanel({
           }}
           dataAttr="communication-send-via-category"
         />
-        <div>
-          <p className="text-xs text-muted">{activeSendViaSection.description}</p>
-        </div>
         <ReminderSendViaField
           viaEmail={deliverViaFromManagerSettings(draft, activeSendViaSection.kind).viaEmail}
           viaSms={deliverViaFromManagerSettings(draft, activeSendViaSection.kind).viaSms}

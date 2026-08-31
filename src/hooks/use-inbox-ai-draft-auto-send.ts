@@ -34,15 +34,6 @@ export function useInboxAiDraftAutoSend() {
 
   const setEnabled = useCallback(
     (next: boolean) => {
-      if (
-        next &&
-        !enabled &&
-        !window.confirm(
-          "Auto-send will email or text AI-drafted replies without your approval. Inbound messages are untrusted — misleading content could influence what goes out under your name.\n\nTurn on auto-send?",
-        )
-      ) {
-        return;
-      }
       setEnabledLocal(next);
       if (demo) return;
       void (async () => {
@@ -61,7 +52,7 @@ export function useInboxAiDraftAutoSend() {
         }
       })();
     },
-    [demo, enabled, load, showToast],
+    [demo, load, showToast],
   );
 
   return { enabled, setEnabled };

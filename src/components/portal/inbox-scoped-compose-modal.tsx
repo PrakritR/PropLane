@@ -448,7 +448,6 @@ export function ScopedInboxComposeModal({
       onClose={onClose}
       dense
       assistantStrip={portal !== "resident"}
-      fullScreenMobile={false}
       panelClassName={PORTAL_MESSAGE_COMPOSE_MODAL_PANEL_CLASS}
       footer={
         <ModalFooter>

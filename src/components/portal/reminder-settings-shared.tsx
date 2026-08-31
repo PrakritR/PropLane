@@ -2,10 +2,9 @@
 
 import { useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
-import { Modal } from "@/components/ui/modal";
 import { CheckboxMultiSelect } from "@/components/ui/checkbox-multi-select";
 import { Input } from "@/components/ui/input";
-import { InboxScheduledCard } from "@/components/portal/portal-inbox-ui";
+import { InboxScheduledCard, ScheduledMessageDetailModal } from "@/components/portal/portal-inbox-ui";
 import { normalizeTourReminderMinutesBeforeList } from "@/lib/payment-automation-settings";
 
 export const REMINDER_FIELD_LABEL_CLASS = "text-xs font-semibold text-muted";
@@ -116,13 +115,7 @@ export function ReminderMessageUpdateModal({
   onSave: (next: { subject: string; body: string }) => void;
 }) {
   return (
-    <Modal
-      open={open}
-      onClose={onClose}
-      title="Update message"
-      dense
-      panelClassName="max-w-lg p-3 sm:p-4"
-    >
+    <ScheduledMessageDetailModal open={open} onClose={onClose} title="Update message">
       <div className="space-y-3">
         <InboxScheduledCard
           sendLabel="Preview"
@@ -141,7 +134,7 @@ export function ReminderMessageUpdateModal({
         />
         <p className="text-[11px] text-muted">{placeholders}</p>
       </div>
-    </Modal>
+    </ScheduledMessageDetailModal>
   );
 }
 

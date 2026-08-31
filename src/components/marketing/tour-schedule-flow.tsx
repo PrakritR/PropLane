@@ -137,16 +137,53 @@ function openSlotIndicesForDateStr(availability: Set<string>, dateStr: string): 
   }
   return out.sort((a, b) => a - b);
 }
+function TourStepNavigationFooter({
+  step,
+  onBack,
+  onContinue,
+}: {
+  step: TourStep;
+  onBack: () => void;
+  onContinue: () => void;
+}) {
+  if (step >= 3) return null;
+  return (
+    <div className={`flex w-full ${step > 1 ? "justify-between" : "justify-end"}`}>
+      {step > 1 ? (
+        <button
+          type="button"
+          onClick={onBack}
+          className="rounded-full border border-border px-5 py-2 text-sm font-semibold text-muted hover:bg-accent/30"
+        >
+          Back
+        </button>
+      ) : null}
+      <button
+        type="button"
+        onClick={onContinue}
+        className="rounded-full bg-primary px-7 py-2 text-sm font-semibold text-white shadow-sm transition-all hover:brightness-105"
+      >
+        Continue
+      </button>
+    </div>
+  );
+}
+
 export function TourScheduleFlow({
   property,
   returnAfterAuth,
   onSuccess,
   embedded = false,
+  embeddedModalLayout = false,
+  onEmbeddedFooterChange,
 }: {
   property: MockProperty;
   returnAfterAuth: string;
   onSuccess: () => void;
   embedded?: boolean;
+  /** Resident portal modal: pin Back/Continue below the assistant strip via {@link onEmbeddedFooterChange}. */
+  embeddedModalLayout?: boolean;
+  onEmbeddedFooterChange?: (footer: ReactNode | null) => void;
 }) {
   const { showToast } = useAppUi();
   const [step, setStep] = useState<TourStep>(1);
@@ -256,6 +293,58 @@ export function TourScheduleFlow({
     { n: 2, label: "Date & time" },
     { n: 3, label: "Your details" },
   ];
+
+  const goToPreviousStep = useCallback(() => {
+    setStep((current) => (current - 1) as TourStep);
+  }, []);
+
+  const goToNextStep = useCallback(() => {
+    const errs: Record<string, string> = {};
+    if (step === 1) {
+      if (!selectedRoomKey) errs.room = "Choose a room to tour, or select not sure yet.";
+    }
+    if (step === 2) {
+      if (selectedDay === null || selectedSlotIndex === null || managersAtSelectedSlot.length === 0) {
+        errs.tourSlot = "Select a date and time for your tour.";
+      }
+    }
+    if (Object.keys(errs).length > 0) {
+      setFieldErrors(errs);
+      showToast("Please fix the highlighted fields before continuing.");
+      queueMicrotask(() => scrollToFirstWizardFieldError(TOUR_STEP_FIELD_ORDER[step] ?? [], errs));
+      return;
+    }
+    setFieldErrors({});
+    const next = (step + 1) as TourStep;
+    setStep(next);
+    setMaxStepReached((m) => nextWizardMaxReached(m, next) as TourStep);
+  }, [
+    managersAtSelectedSlot.length,
+    selectedDay,
+    selectedRoomKey,
+    selectedSlotIndex,
+    showToast,
+    step,
+  ]);
+
+  useEffect(() => {
+    if (!embeddedModalLayout || !onEmbeddedFooterChange) return;
+    if (submitted || step >= 3) {
+      onEmbeddedFooterChange(null);
+      return;
+    }
+    onEmbeddedFooterChange(
+      <TourStepNavigationFooter step={step} onBack={goToPreviousStep} onContinue={goToNextStep} />,
+    );
+    return () => onEmbeddedFooterChange(null);
+  }, [
+    embeddedModalLayout,
+    goToNextStep,
+    goToPreviousStep,
+    onEmbeddedFooterChange,
+    step,
+    submitted,
+  ]);
 
   if (submitted) {
     const createAccountHref = submittedContact?.email
@@ -573,46 +662,11 @@ export function TourScheduleFlow({
         )}
       </div>
 
-      <div className={`mt-6 flex ${step > 1 ? "justify-between" : "justify-end"}`}>
-        {step > 1 && (
-          <button
-            type="button"
-            onClick={() => setStep((s) => (s - 1) as TourStep)}
-            className="rounded-full border border-border px-5 py-2 text-sm font-semibold text-muted hover:bg-accent/30"
-          >
-            Back
-          </button>
-        )}
-        {step < 3 && (
-          <button
-            type="button"
-            onClick={() => {
-              const errs: Record<string, string> = {};
-              if (step === 1) {
-                if (!selectedRoomKey) errs.room = "Choose a room to tour, or select not sure yet.";
-              }
-              if (step === 2) {
-                if (selectedDay === null || selectedSlotIndex === null || managersAtSelectedSlot.length === 0) {
-                  errs.tourSlot = "Select a date and time for your tour.";
-                }
-              }
-              if (Object.keys(errs).length > 0) {
-                setFieldErrors(errs);
-                showToast("Please fix the highlighted fields before continuing.");
-                queueMicrotask(() => scrollToFirstWizardFieldError(TOUR_STEP_FIELD_ORDER[step] ?? [], errs));
-                return;
-              }
-              setFieldErrors({});
-              const next = (step + 1) as TourStep;
-              setStep(next);
-              setMaxStepReached((m) => nextWizardMaxReached(m, next) as TourStep);
-            }}
-            className="rounded-full bg-primary px-7 py-2 text-sm font-semibold text-white shadow-sm transition-all hover:brightness-105"
-          >
-            Continue
-          </button>
-        )}
-      </div>
+      {!embeddedModalLayout && step < 3 ? (
+        <div className="mt-6">
+          <TourStepNavigationFooter step={step} onBack={goToPreviousStep} onContinue={goToNextStep} />
+        </div>
+      ) : null}
     </div>
   );
 }

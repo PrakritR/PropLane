@@ -9,9 +9,9 @@ import { Input, Textarea } from "@/components/ui/input";
 import { MODAL_INSET_BOX_CLASS } from "@/components/ui/modal";
 import { cn } from "@/lib/utils";
 
-/** New-message compose modals: cap height; body scrolls inside {@link Modal} (`scrollableContent`). */
+/** New-message compose modals: full height on mobile; capped on desktop. Body scrolls inside the modal shell. */
 export const PORTAL_MESSAGE_COMPOSE_MODAL_PANEL_CLASS =
-  "flex w-full max-w-lg min-h-0 max-h-[min(92dvh,38rem)] flex-col";
+  "flex w-full max-w-lg min-h-0 flex-col max-lg:h-[min(92dvh,calc(100dvh-var(--portal-native-bottom-nav-inset,0px)))] max-lg:max-h-[min(92dvh,calc(100dvh-var(--portal-native-bottom-nav-inset,0px)))] lg:max-h-[min(92dvh,38rem)]";
 
 export type PortalMessageSendViaMode = "email" | "sms" | "both";
 
@@ -47,7 +47,11 @@ export function portalMessageSendViaModeToSelection(mode: PortalMessageSendViaMo
 }
 
 export function PortalMessageComposeModalBody({ children }: { children: ReactNode }) {
-  return <div className="space-y-3">{children}</div>;
+  return (
+    <div className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto overscroll-contain [-webkit-overflow-scrolling:touch]">
+      <div className="space-y-3">{children}</div>
+    </div>
+  );
 }
 
 export function defaultPortalMessageScheduleAt(): string {

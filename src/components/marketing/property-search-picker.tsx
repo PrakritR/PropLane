@@ -1,6 +1,7 @@
 "use client";
 
 import { useId, useMemo, useRef, useState } from "react";
+import { cn } from "@/lib/utils";
 
 export type PropertySearchOption = {
   id: string;
@@ -61,6 +62,9 @@ export function PropertySearchPicker({
   ariaLabel = "Search properties",
   itemNoun = "property",
   itemNounPlural = "properties",
+  /** Let the option list grow inside a tall modal instead of capping at 18rem. */
+  listFillsAvailableHeight = false,
+  className,
 }: {
   options: PropertySearchOption[];
   value: string | null;
@@ -77,6 +81,8 @@ export function PropertySearchPicker({
    */
   itemNoun?: string;
   itemNounPlural?: string;
+  listFillsAvailableHeight?: boolean;
+  className?: string;
 }) {
   const listId = useId();
   const inputRef = useRef<HTMLInputElement>(null);
@@ -102,7 +108,12 @@ export function PropertySearchPicker({
   const showList = focused || displayQuery.length > 0 || !selected;
 
   return (
-    <div className="space-y-3">
+    <div
+      className={cn(
+        listFillsAvailableHeight ? "flex min-h-0 flex-1 flex-col gap-3" : "space-y-3",
+        className,
+      )}
+    >
       <div className="relative">
         <span className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-muted/60">
           <SearchIcon />
@@ -151,7 +162,7 @@ export function PropertySearchPicker({
       ) : null}
 
       {showList ? (
-        <div className="space-y-2">
+        <div className={cn(listFillsAvailableHeight ? "flex min-h-0 flex-1 flex-col gap-2" : "space-y-2")}>
           {options.length === 0 ? (
             <div className="glass-card rounded-2xl border border-dashed border-border px-4 py-8 text-center text-sm text-muted">
               {listEmptyMessage}
@@ -169,7 +180,10 @@ export function PropertySearchPicker({
                 id={listId}
                 role="listbox"
                 aria-label={ariaLabel}
-                className="max-h-72 space-y-2 overflow-y-auto overscroll-contain pr-1"
+                className={cn(
+                  "space-y-2 overflow-y-auto overscroll-contain pr-1",
+                  listFillsAvailableHeight ? "min-h-0 flex-1" : "max-h-72",
+                )}
               >
                 {filtered.items.length === 0 ? (
                   <li className="glass-card rounded-2xl border border-dashed border-border px-4 py-6 text-center text-sm text-muted">

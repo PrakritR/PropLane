@@ -109,6 +109,7 @@ export const PORTAL_LIST_ADD_ICONS = {
   lease: FileText,
   promotion: Megaphone,
   request: ListTodo,
+  service: ClipboardList,
   conversation: MessageSquare,
   vendor: HardHat,
   team: Users,
