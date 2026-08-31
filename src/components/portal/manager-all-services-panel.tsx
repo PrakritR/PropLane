@@ -76,17 +76,15 @@ import {
   managerServiceRequestBucket,
   type ManagerServiceRequestBucket,
 } from "@/components/portal/manager-service-request-detail";
-import { ManagerCreateServiceRequestModal } from "@/components/portal/manager-create-service-request-modal";
+import { ManagerAddServiceModal } from "@/components/portal/manager-add-service-modal";
 import { ManagerEditServiceRequestsModal } from "@/components/portal/manager-edit-service-requests-modal";
-import { ManagerCreateWorkOrderModal } from "@/components/portal/manager-create-work-order-modal";
 import { useAppUi } from "@/components/providers/app-ui-provider";
 import { Button } from "@/components/ui/button";
 import { DropdownMenuItem } from "@/components/ui/dropdown-menu";
 import { usePortalRowSelection } from "@/hooks/use-portal-row-selection";
 import { useShallowTabId } from "@/components/ui/tabs";
-import { Wrench } from "lucide-react";
+import { Plus } from "lucide-react";
 import {
-  PORTAL_LIST_ADD_ICONS,
   PORTAL_LIST_ADD_ROW_WRAP_CLASS,
   PortalListAddRow,
 } from "@/components/portal/portal-list-add-row";
@@ -144,10 +142,9 @@ export function ManagerAllServicesPanel({
     setPrevReqBucketProp(requestBucketProp);
     if (reqBucket !== requestBucketProp) setReqBucket(requestBucketProp);
   }
-  const [addRequestOpen, setAddRequestOpen] = useState(false);
+  const [addServiceOpen, setAddServiceOpen] = useState(false);
   const [serviceState, setServiceState] = useState<ServiceRowState>("open");
   const [editServiceRequestsOpen, setEditServiceRequestsOpen] = useState(false);
-  const [addWorkOrderOpen, setAddWorkOrderOpen] = useState(false);
   const typeFilter: FilterType = tabId;
 
   const propertyOptions = useMemo(() => {
@@ -328,41 +325,30 @@ export function ManagerAllServicesPanel({
     );
   };
 
-  const servicesAddButton =
-    typeFilter === "requests" ? (
-      <div className="flex w-full shrink-0 flex-col gap-2 md:w-auto md:flex-row md:items-center">
-        <Button
-          type="button"
-          variant="outline"
-          className={PORTAL_HEADER_ACTION_BTN}
-          data-attr="edit-service-requests-open"
-          onClick={() => setEditServiceRequestsOpen(true)}
-          disabled={propertyOptions.length === 0}
-          title={propertyOptions.length === 0 ? "Add a property before editing its service types" : undefined}
-        >
-          Edit
-        </Button>
-        <Button
-          type="button"
-          variant="outline"
-          className={PORTAL_HEADER_PRIMARY_ACTION_BTN_RESPONSIVE}
-          data-attr="manager-service-request-add"
-          onClick={() => setAddRequestOpen(true)}
-        >
-          Add
-        </Button>
-      </div>
-    ) : (
+  const servicesAddButton = (
+    <div className="flex w-full shrink-0 flex-col gap-2 md:w-auto md:flex-row md:items-center">
+      <Button
+        type="button"
+        variant="outline"
+        className={PORTAL_HEADER_ACTION_BTN}
+        data-attr="edit-service-requests-open"
+        onClick={() => setEditServiceRequestsOpen(true)}
+        disabled={propertyOptions.length === 0}
+        title={propertyOptions.length === 0 ? "Add a property before editing its service types" : undefined}
+      >
+        Edit
+      </Button>
       <Button
         type="button"
         variant="outline"
         className={PORTAL_HEADER_PRIMARY_ACTION_BTN_RESPONSIVE}
-        data-attr="manager-work-order-add"
-        onClick={() => setAddWorkOrderOpen(true)}
+        data-attr="manager-service-add"
+        onClick={() => setAddServiceOpen(true)}
       >
-        Add
+        Add service
       </Button>
-    );
+    </div>
+  );
 
   // Hoisted above the early returns below. It sat after them, so on a render that took an
   // early return this hook did not run and the hook COUNT changed between renders, which
@@ -480,24 +466,14 @@ export function ManagerAllServicesPanel({
         >
           {renderRequestDetail(detailRequest)}
         </PortalRecordDetailPage>
-        <ManagerCreateServiceRequestModal
-          open={addRequestOpen}
-          onClose={() => setAddRequestOpen(false)}
+        <ManagerAddServiceModal
+          open={addServiceOpen}
+          onClose={() => setAddServiceOpen(false)}
           managerUserId={userId}
           defaultPropertyId={propertyFilters[0] || undefined}
           onSubmitted={() => {
             setDataTick((t) => t + 1);
-            setReqBucket("pending");
-          }}
-        />
-        <ManagerCreateWorkOrderModal
-          open={addWorkOrderOpen}
-          onClose={() => setAddWorkOrderOpen(false)}
-          managerUserId={userId}
-          defaultPropertyId={propertyFilters[0] || undefined}
-          onSubmitted={(bucket) => {
-            setDataTick((t) => t + 1);
-            setWoBucket(bucket);
+            setServiceState("open");
           }}
         />
       </>
@@ -514,18 +490,18 @@ export function ManagerAllServicesPanel({
           listBasePath={basePath}
           onAfterSchedule={() => router.push(`${basePath}/services/work-orders/scheduled`)}
           listAddAction={{
-            onClick: () => setAddWorkOrderOpen(true),
-            dataAttr: "services-work-orders-list-add",
+            onClick: () => setAddServiceOpen(true),
+            dataAttr: "services-list-add",
           }}
         />
-        <ManagerCreateWorkOrderModal
-          open={addWorkOrderOpen}
-          onClose={() => setAddWorkOrderOpen(false)}
+        <ManagerAddServiceModal
+          open={addServiceOpen}
+          onClose={() => setAddServiceOpen(false)}
           managerUserId={userId}
           defaultPropertyId={propertyFilters[0] || undefined}
-          onSubmitted={(bucket) => {
+          onSubmitted={() => {
             setDataTick((t) => t + 1);
-            setWoBucket(bucket);
+            setWoBucket("open");
           }}
         />
       </>
@@ -534,14 +510,10 @@ export function ManagerAllServicesPanel({
 
   const servicesListAddRow = (
     <PortalListAddRow
-      label="Add"
-      icon={typeFilter === "work-orders" ? Wrench : PORTAL_LIST_ADD_ICONS.request}
-      onClick={() =>
-        typeFilter === "work-orders" ? setAddWorkOrderOpen(true) : setAddRequestOpen(true)
-      }
-      dataAttr={
-        typeFilter === "work-orders" ? "services-work-orders-list-add" : "services-requests-list-add"
-      }
+      label="Add service"
+      icon={Plus}
+      onClick={() => setAddServiceOpen(true)}
+      dataAttr="services-list-add"
     />
   );
 
@@ -639,14 +611,14 @@ export function ManagerAllServicesPanel({
         </div>
       )}
 
-      <ManagerCreateServiceRequestModal
-        open={addRequestOpen}
-        onClose={() => setAddRequestOpen(false)}
+      <ManagerAddServiceModal
+        open={addServiceOpen}
+        onClose={() => setAddServiceOpen(false)}
         managerUserId={userId}
         defaultPropertyId={propertyFilters[0] || undefined}
         onSubmitted={() => {
           setDataTick((t) => t + 1);
-          setReqBucket("pending");
+          setServiceState("open");
         }}
       />
 
@@ -657,17 +629,6 @@ export function ManagerAllServicesPanel({
         managerUserId={userId}
         onSaved={() => setPropertyTick((t) => t + 1)}
         showToast={showToast}
-      />
-
-      <ManagerCreateWorkOrderModal
-        open={addWorkOrderOpen}
-        onClose={() => setAddWorkOrderOpen(false)}
-        managerUserId={userId}
-        defaultPropertyId={propertyFilters[0] || undefined}
-        onSubmitted={(bucket) => {
-          setDataTick((t) => t + 1);
-          setWoBucket(bucket);
-        }}
       />
 
       {selectedIds.size > 0 ? (

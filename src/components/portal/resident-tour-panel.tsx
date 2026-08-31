@@ -8,14 +8,12 @@ import { ManagerPortalPageShell, PORTAL_HEADER_PRIMARY_ACTION_BTN } from "@/comp
 import { PortalRecordDetailPage } from "@/components/portal/portal-record-detail-page";
 import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
 import { PortalSectionActionRow } from "@/components/portal/portal-section-action-row";
-import { PortalPropertyRecordRow } from "@/components/portal/portal-record-row";
 import { PortalEmptyState } from "@/components/portal/portal-empty-state";
 import { ResidentScheduleTourModal } from "@/components/portal/resident-schedule-tour-modal";
 import { PORTAL_LIST_PAGE_BODY } from "@/components/portal/portal-inbox-ui";
-import {
-  PortalListAddRow,
-  PORTAL_LIST_ADD_ROW_WRAP_CLASS,
-} from "@/components/portal/portal-list-add-row";
+import { DataList } from "@/components/ui/data-list";
+import { PortalResidentListFab } from "@/components/portal/portal-resident-list-fab";
+import { PortalDataTableEmpty } from "@/components/portal/portal-data-table";
 import { LocalDestinationNav } from "@/components/ui/destination-nav";
 import { formatRangeLabel } from "@/lib/demo-admin-scheduling";
 import { formatTourContactPhoneDisplay } from "@/lib/tour-contact-quality";
@@ -378,28 +376,12 @@ export function ResidentTourPanel({
         </div>
       ) : (
         <>
-          {toursForBucket.length === 0 ? (
-            // An empty bucket used to render nothing at all, so a resident with
-            // no tours got a blank tab with no way forward. The dashed add row
-            // is the same affordance every other portal list uses when empty.
-            <div className={PORTAL_LIST_ADD_ROW_WRAP_CLASS}>
-              <PortalListAddRow
-                label="Schedule tour"
-                ariaLabel="Schedule a tour"
-                hint="Browse homes"
-                icon={Calendar}
-                onClick={openScheduleTour}
-                dataAttr="resident-tour-schedule-add"
-              />
-            </div>
-          ) : null}
-          {toursForBucket.length > 0 ? (
-            <div className={PORTAL_LIST_PAGE_BODY} data-attr="resident-tour-list">
-              {toursForBucket.map((tour) => {
+          <div className={PORTAL_LIST_PAGE_BODY} data-attr="resident-tour-list">
+            <DataList
+              variant="resident"
+              hideColumnHeaders
+              rows={toursForBucket.map((tour) => {
                 const address = [
-                  // The stored label already reads "Room 1" / "Studio B", so a
-                  // "Room " prefix produced "Room Room 1". Only prefix a label
-                  // that is not already self-describing.
                   tour.roomLabel
                     ? /^(room|studio|unit|suite|apt|apartment)\b/i.test(tour.roomLabel.trim())
                       ? tour.roomLabel.trim()
@@ -409,21 +391,28 @@ export function ResidentTourPanel({
                 ]
                   .filter(Boolean)
                   .join(" · ");
-                return (
-                  <PortalPropertyRecordRow
-                    key={tour.inquiryId}
-                    title={stripPropertyRoomCountSuffix(tour.propertyTitle ?? "Property tour")}
-                    address={address || tourWhenLabel(tour)}
-                    summary={tourWhenLabel(tour)}
-                    onOpen={() =>
-                      navigate(residentTourDetailHref(basePath, residentTourBucketForView(tour), tour.inquiryId))
-                    }
-                    dataAttr="resident-tour-list-row"
-                  />
-                );
+                const when = tourWhenLabel(tour);
+                return {
+                  id: tour.inquiryId,
+                  data: tour,
+                  primary: stripPropertyRoomCountSuffix(tour.propertyTitle ?? "Property tour"),
+                  meta: address || when,
+                  trailing: <span className="text-xs text-muted">{when}</span>,
+                  onClick: () =>
+                    navigate(residentTourDetailHref(basePath, residentTourBucketForView(tour), tour.inquiryId)),
+                };
               })}
-            </div>
-          ) : null}
+              columns={[{ id: "tour", header: "Tour", cell: () => "—" }]}
+              emptyState={
+                <PortalDataTableEmpty icon="default" message="No tours in this tab yet." variant="stacked" />
+              }
+            />
+          </div>
+          <PortalResidentListFab
+            onClick={openScheduleTour}
+            ariaLabel="Schedule a tour"
+            dataAttr="resident-tour-schedule-add"
+          />
         </>
       )}
     </>

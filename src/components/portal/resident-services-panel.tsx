@@ -1,11 +1,14 @@
 "use client";
 
 import Image from "next/image";
-import { Fragment, useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input, Textarea } from "@/components/ui/input";
-import { ClipboardList, Wrench } from "lucide-react";
-import { PortalListAddRow, PORTAL_LIST_ADD_ROW_WRAP_CLASS } from "@/components/portal/portal-list-add-row";
+import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
+import { PORTAL_LIST_PAGE_BODY } from "@/components/portal/portal-inbox-ui";
+import { DataList } from "@/components/ui/data-list";
+import { PortalResidentListFab } from "@/components/portal/portal-resident-list-fab";
+import { ResidentAddServiceModal } from "@/components/portal/resident-add-service-modal";
 import { formatPacificDate } from "@/lib/pacific-time";
 import { Select } from "@/components/ui/input";
 import { Modal, ModalFooter } from "@/components/ui/modal";
@@ -18,20 +21,9 @@ import {
 } from "@/components/portal/portal-metrics";
 import { LocalDestinationNav } from "@/components/ui/destination-nav";
 import {
-  PORTAL_DATA_TABLE,
-  PORTAL_DATA_TABLE_SCROLL,
-  PORTAL_DATA_TABLE_WRAP,
-  PortalDataTableColGroup,
   PORTAL_DETAIL_BTN,
-  PORTAL_TABLE_DETAIL_CELL,
-  PORTAL_TABLE_DETAIL_ROW,
-  PORTAL_TABLE_TR_EXPANDABLE,
-  PORTAL_TABLE_TD,
-  PortalMobileSummaryCard,
+  PortalDataTableEmpty,
   PortalTableDetailActions,
-  PortalTableInlineExpand,
-  createPortalRowExpandClick,
-  portalTableColumnPercents,
 } from "@/components/portal/portal-data-table";
 import { PreferredArrivalField } from "@/components/portal/preferred-arrival-field";
 import { formatPreferredArrival, parsePreferredArrival } from "@/lib/preferred-arrival";
@@ -43,8 +35,6 @@ import {
   readManagerWorkOrderRows,
   syncManagerWorkOrdersFromServer,
   updateManagerWorkOrder,
-  upsertManagerWorkOrderToServer,
-  writeManagerWorkOrderRows,
 } from "@/lib/manager-work-orders-storage";
 import { readManagerApplicationRows, syncManagerApplicationsFromServer } from "@/lib/manager-applications-storage";
 import {
@@ -58,20 +48,15 @@ import { pickPrimaryFilingScope } from "@/lib/resident-filing-scope";
 import { getPropertyById } from "@/lib/rental-application/data";
 import { RESIDENT_WORK_ORDER_REMINDER_COOLDOWN_MS } from "@/lib/resident-work-order-reminder-email";
 import { isDemoModeActive } from "@/lib/demo/demo-session";
-import { parseMoneyAmount } from "@/lib/household-charges";
-import { workOrderCategoryForResidentLabel } from "@/lib/work-order-taxonomy";
 import { ENTRY_PERMISSION_OPTIONS, entryPermissionLabel } from "@/lib/work-order-entry";
-import { track } from "@/lib/analytics/track-client";
 import {
   SERVICE_REQUESTS_EVENT,
-  createServiceRequest,
   deleteServiceRequest,
   readServiceRequestsForResident,
   syncServiceRequestsFromServer,
   updateServiceRequest,
   hasDeposit,
   isServiceRequestFeePaid,
-  CUSTOM_SERVICE_REQUEST_OFFER_ID,
   type ServiceRequest,
 } from "@/lib/service-requests-storage";
 import {
@@ -519,41 +504,8 @@ export function WorkOrderDetail({
 }
 
 /**
- * One add affordance for the unified Services list — request an add-on or report an issue.
+ * Unified Services list for residents.
  */
-function ResidentServicesAddActions({
-  onRequest,
-  onReport,
-  disabled = false,
-}: {
-  onRequest: () => void;
-  onReport: () => void;
-  disabled?: boolean;
-}) {
-  return (
-    <div className={`${PORTAL_LIST_ADD_ROW_WRAP_CLASS} grid grid-cols-2 gap-2`}>
-      <PortalListAddRow
-        label="Request"
-        ariaLabel="Request a service"
-        icon={ClipboardList}
-        onClick={onRequest}
-        disabled={disabled}
-        dataAttr="resident-services-request-add"
-        inline
-      />
-      <PortalListAddRow
-        label="Report"
-        ariaLabel="Report a service issue"
-        icon={Wrench}
-        onClick={onReport}
-        disabled={disabled}
-        dataAttr="resident-services-maintenance-add"
-        inline
-      />
-    </div>
-  );
-}
-
 export function ResidentServicesPanel({
   basePath,
 }: {
@@ -562,29 +514,9 @@ export function ResidentServicesPanel({
   const { showToast } = useAppUi();
   const session = usePortalSession();
 
-  const openMaintenancePhotoPicker = () => {
-    const input = document.createElement("input");
-    input.type = "file";
-    input.accept = "image/*";
-    input.multiple = true;
-    input.style.cssText = "position:fixed;left:-9999px;top:-9999px;opacity:0;width:0;height:0;";
-    input.setAttribute("tabindex", "-1");
-    input.setAttribute("aria-hidden", "true");
-    const onChange = () => {
-      void onPickPhotos(input.files);
-      input.removeEventListener("change", onChange);
-      input.remove();
-    };
-    input.addEventListener("change", onChange);
-    document.body.appendChild(input);
-    input.click();
-  };
-
   const [serviceStateFilter, setServiceStateFilter] = useState<ServiceRowState>("open");
   const [expandedId, setExpandedId] = useState<string | null>(null);
-
-  // modal state
-  const [modalMode, setModalMode] = useState<"none" | "maintenance" | "service">("none");
+  const [addServiceOpen, setAddServiceOpen] = useState(false);
 
   // edit modals (resident edits their own items)
   const [editingRequest, setEditingRequest] = useState<ServiceRequest | null>(null);
@@ -599,26 +531,6 @@ export function ResidentServicesPanel({
   const [wDetails, setWDetails] = useState("");
   const [reminderSendingId, setReminderSendingId] = useState<string | null>(null);
   const [requestReminderSendingId, setRequestReminderSendingId] = useState<string | null>(null);
-
-  // maintenance form
-  const [mTitle, setMTitle] = useState("");
-  const [mDescription, setMDescription] = useState("");
-  const [mCategory, setMCategory] = useState("Plumbing");
-  const [mPriority, setMPriority] = useState("Medium");
-  const [mArrivalPreset, setMArrivalPreset] = useState("Anytime");
-  const [mArrivalCustom, setMArrivalCustom] = useState("");
-  const [mEntryPermission, setMEntryPermission] = useState<DemoManagerWorkOrderRow["entryPermission"]>("call_first");
-  const [mEntryNotes, setMEntryNotes] = useState("");
-  const [mPhotos, setMPhotos] = useState<string[]>([]);
-
-  // add-on service request form
-  /** Catalog offer id, or CUSTOM_SERVICE_REQUEST_OFFER_ID for a free-form request. */
-  const [requestTypeId, setRequestTypeId] = useState("");
-  const [customTitle, setCustomTitle] = useState("");
-  const [customDescription, setCustomDescription] = useState("");
-  const [customPriceLimit, setCustomPriceLimit] = useState("");
-  const [maintenanceSubmitting, setMaintenanceSubmitting] = useState(false);
-  const [serviceSubmitting, setServiceSubmitting] = useState(false);
 
   const [allRows, setAllRows] = useState<DemoManagerWorkOrderRow[]>([]);
   const [serviceRequests, setServiceRequests] = useState<ServiceRequest[]>([]);
@@ -963,49 +875,9 @@ export function ResidentServicesPanel({
 
   const servicesUnlocked = Boolean(residentLeaseRow && hasBothLeaseSignatures(residentLeaseRow));
 
-  if (!servicesUnlocked && modalMode !== "none") {
-    setModalMode("none");
+  if (!servicesUnlocked && addServiceOpen) {
+    setAddServiceOpen(false);
   }
-
-  const fileToDataUrl = (file: File) =>
-    new Promise<string>((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = () => resolve(String(reader.result ?? ""));
-      reader.onerror = () => reject(new Error(`Could not read ${file.name}`));
-      reader.readAsDataURL(file);
-    });
-
-  const onPickPhotos = async (files: FileList | null) => {
-    if (!files?.length) return;
-    const remaining = 6 - mPhotos.length;
-    if (remaining <= 0) { showToast("Up to 6 photos."); return; }
-    const next = [...mPhotos];
-    for (let i = 0; i < Math.min(files.length, remaining); i++) {
-      const file = files[i];
-      if (!file) continue;
-      if (!file.type.startsWith("image/")) { showToast("Images only."); return; }
-      next.push(await fileToDataUrl(file));
-    }
-    setMPhotos(next);
-  };
-
-  const resetMaintenance = () => {
-    setMTitle("");
-    setMDescription("");
-    setMCategory("Plumbing");
-    setMPriority("Medium");
-    setMArrivalPreset("Anytime");
-    setMArrivalCustom("");
-    setMEntryPermission("call_first");
-    setMEntryNotes("");
-    setMPhotos([]);
-  };
-  const resetService = () => {
-    setRequestTypeId(availableOffers.length > 0 ? "" : CUSTOM_SERVICE_REQUEST_OFFER_ID);
-    setCustomTitle("");
-    setCustomDescription("");
-    setCustomPriceLimit("");
-  };
 
   function getApplication() {
     if (residentApplication) return residentApplication;
@@ -1058,223 +930,84 @@ export function ResidentServicesPanel({
     return { propertyId, managerUserId };
   }
 
-  const submitMaintenance = async () => {
-    if (maintenanceSubmitting) return;
+  const openAddService = () => {
     if (!servicesUnlocked) {
       showToast("Services unlock after your lease is fully signed.");
       return;
     }
-    if (!mTitle.trim()) { showToast("Add a title first."); return; }
-    if (!mDescription.trim()) { showToast("Describe the issue first."); return; }
-    if (!residentEmail) { showToast("Sign in to submit."); return; }
-    setMaintenanceSubmitting(true);
-    try {
-    const application = getApplication();
-    const { propertyId, managerUserId } = resolveFilingIds();
-    if (!propertyId || !managerUserId) {
-      showToast("Could not find your property manager. Contact support.");
-      return;
-    }
-    const propertyLabel =
-      application?.property ||
-      getPropertyById(propertyId)?.address.split(",")[0]?.trim() ||
-      "Assigned house";
-    const propertyAddress = getPropertyById(propertyId)?.address.trim() || undefined;
-    const row: DemoManagerWorkOrderRow & { requestType: string } = {
-      id: `REQ-${Date.now()}`,
-      requestType: "maintenance",
-      propertyName: propertyLabel,
-      propertyId,
-      propertyAddress,
-      assignedPropertyId: application?.assignedPropertyId,
-      assignedRoomChoice: application?.assignedRoomChoice || application?.application?.roomChoice1,
-      managerUserId,
-      unit: application?.assignedRoomChoice || application?.application?.roomChoice1 || "—",
-      title: mTitle.trim(),
-      priority: mPriority,
-      status: "Submitted",
-      bucket: "open",
-      category: workOrderCategoryForResidentLabel(mCategory),
-      description: mDescription.trim(),
-      scheduled: "—",
-      cost: "—",
-      preferredArrival: formatPreferredArrival(mArrivalPreset, mArrivalCustom),
-      entryPermission: mEntryPermission,
-      entryNotes: mEntryNotes.trim() || undefined,
-      residentName: application?.name,
-      residentEmail,
-      photoDataUrls: mPhotos,
-    };
-    writeManagerWorkOrderRows([row, ...readManagerWorkOrderRows()], { mirror: false });
-    const mirrored = await upsertManagerWorkOrderToServer(row);
-    if (!mirrored.ok) {
-      deleteManagerWorkOrderRow(row.id);
-      setAllRows(readManagerWorkOrderRows());
-      showToast(mirrored.error || "Could not send work order to your manager. Try again.");
-      return;
-    }
-    if (mirrored.row.id === row.id) {
-      updateManagerWorkOrder(row.id, () => mirrored.row);
-    }
-    setAllRows(readManagerWorkOrderRows());
-    setExpandedId(row.id);
-    // Manager notification (inbox + email + SMS) fires server-side on the
-    // mirror write — a second client-side send here would double-notify.
-    showToast("Service request submitted.");
-    track("work_order_submitted", {
-      category: row.category,
-      priority: mPriority,
-      emergency: mPriority === "Emergency",
-      photo_count: mPhotos.length,
-      entry_permission: mEntryPermission,
-    });
-    resetMaintenance();
-    setModalMode("none");
-    await syncManagerWorkOrdersFromServer({ force: true });
-    setAllRows(readManagerWorkOrderRows());
-    } finally {
-      setMaintenanceSubmitting(false);
-    }
+    setAddServiceOpen(true);
   };
 
-  const submitService = async () => {
-    if (serviceSubmitting) return;
-    if (!servicesUnlocked) {
-      showToast("Services unlock after your lease is fully signed.");
-      return;
-    }
-    if (!residentEmail) { showToast("Sign in to submit."); return; }
-
-    const isCustom =
-      requestTypeId === CUSTOM_SERVICE_REQUEST_OFFER_ID || availableOffers.length === 0;
-    if (isCustom) {
-      if (!customTitle.trim()) { showToast("Add a title for your request."); return; }
-      const limitAmount = parseMoneyAmount(customPriceLimit.trim());
-      if (!Number.isFinite(limitAmount) || limitAmount <= 0) {
-        showToast("Enter a valid price limit.");
-        return;
+  const serviceListRows = useMemo(() => {
+    return filteredUnifiedRows.flatMap((unified) => {
+      if (unified.kind === "add-on") {
+        const req = serviceRequestById.get(unified.id);
+        if (!req) return [];
+        const rowId = `request-${req.id}`;
+        const isExpanded = expandedId === rowId;
+        return [
+          {
+            id: rowId,
+            data: req,
+            primary: req.offerName,
+            meta: [unified.statusLabel, req.notes?.trim()].filter(Boolean).join(" · ") || unified.statusLabel,
+            trailing: (
+              <span className="text-sm font-semibold tabular-nums text-foreground">
+                {displayServiceRequestCost(req)}
+              </span>
+            ),
+            expanded: isExpanded,
+            onClick: () => setExpandedId((current) => (current === rowId ? null : rowId)),
+            expandedContent: (
+              <ServiceRequestCard
+                req={req}
+                onDelete={reloadServiceRequests}
+                onEdit={() => openRequestEdit(req)}
+                onSendReminder={() => void sendServiceRequestReminder(req)}
+                reminderSending={requestReminderSendingId === req.id}
+              />
+            ),
+          },
+        ];
       }
-    } else {
-      if (!requestTypeId || !availableOffers.some((o) => o.id === requestTypeId)) {
-        showToast("Select a request type.");
-        return;
-      }
-    }
-
-    setServiceSubmitting(true);
-    try {
-    const application = getApplication();
-    const { propertyId, managerUserId } = resolveFilingIds();
-    if (!propertyId) {
-      showToast("No property assignment found. Contact support.");
-      return;
-    }
-    if (!managerUserId) { showToast("Could not find your property manager. Contact support."); return; }
-
-    let offerId: string;
-    let offerName: string;
-    let offerDescription: string;
-    let price: string;
-    let priceLimit: string | undefined;
-    let deposit: string;
-    let notifyTitle: string;
-    let notifyDetails: string[];
-
-    if (isCustom) {
-      const limitLabel = customPriceLimit.trim().startsWith("$")
-        ? customPriceLimit.trim()
-        : `$${parseMoneyAmount(customPriceLimit.trim())}`;
-      offerId = CUSTOM_SERVICE_REQUEST_OFFER_ID;
-      offerName = customTitle.trim();
-      offerDescription = customDescription.trim();
-      price = "";
-      priceLimit = limitLabel;
-      deposit = "";
-      notifyTitle = offerName;
-      notifyDetails = [
-        "Custom request",
-        `Price limit: ${limitLabel}`,
-        offerDescription ? `Details: ${offerDescription}` : "",
+      const row = workOrderById.get(unified.id);
+      if (!row) return [];
+      const isExpanded = expandedId === row.id;
+      return [
+        {
+          id: row.id,
+          data: row,
+          primary: row.title,
+          meta: [unified.statusLabel, row.description?.trim()].filter(Boolean).join(" · ") || unified.statusLabel,
+          trailing: (
+            <span
+              className={`inline-flex rounded-full px-2 py-0.5 text-[10px] font-semibold ${priorityClass(row.priority)}`}
+            >
+              {row.priority}
+            </span>
+          ),
+          expanded: isExpanded,
+          onClick: () => setExpandedId((current) => (current === row.id ? null : row.id)),
+          expandedContent: (
+            <WorkOrderDetail
+              row={row}
+              onEdit={() => openWorkOrderEdit(row)}
+              onCancel={() => cancelWorkOrder(row.id)}
+              onSendReminder={() => void sendWorkOrderReminder(row)}
+              reminderSending={reminderSendingId === row.id}
+            />
+          ),
+        },
       ];
-    } else {
-      const currentOffer = availableOffers.find((offer) => offer.id === requestTypeId) ?? null;
-      if (!currentOffer) {
-        showToast("That request option is no longer available. Please choose another.");
-        setRequestTypeId("");
-        return;
-      }
-      offerId = currentOffer.id;
-      offerName = currentOffer.name;
-      offerDescription = currentOffer.description;
-      price = currentOffer.price;
-      deposit = currentOffer.deposit;
-      notifyTitle = currentOffer.name;
-      notifyDetails = [
-        `Offer: ${currentOffer.name}`,
-        currentOffer.description ? `Offer details: ${currentOffer.description}` : "",
-        currentOffer.price ? `Price: ${currentOffer.price}` : "",
-        hasDeposit(currentOffer.deposit) ? `Deposit: ${currentOffer.deposit}` : "",
-      ];
-    }
-
-    const { mirrored } = await createServiceRequest({
-      offerId,
-      offerName,
-      offerDescription,
-      price,
-      priceLimit,
-      deposit,
-      residentEmail,
-      residentName: application?.name || residentEmail,
-      managerUserId,
-      propertyId,
-      returnByDate: "",
-      notes: isCustom ? customDescription.trim() : "",
     });
-    if (!mirrored.ok) {
-      showToast(mirrored.error || "Could not send request to your manager. Try again.");
-      return;
-    }
-    // Manager notification (inbox + email + SMS) fires server-side on the
-    // mirror write — a second client-side send here would double-notify.
-    void notifyDetails;
-    showToast(`${notifyTitle} requested. Awaiting manager approval.`);
-    resetService();
-    setModalMode("none");
-    await syncServiceRequestsFromServer({ force: true });
-    reloadServiceRequests();
-    } finally {
-      setServiceSubmitting(false);
-    }
-  };
-
-  const serviceRequestIsCustom =
-    requestTypeId === CUSTOM_SERVICE_REQUEST_OFFER_ID || availableOffers.length === 0;
-  const serviceRequestCatalogSelected =
-    Boolean(requestTypeId) &&
-    requestTypeId !== CUSTOM_SERVICE_REQUEST_OFFER_ID &&
-    availableOffers.some((o) => o.id === requestTypeId);
-  const serviceRequestSubmitDisabled =
-    serviceSubmitting ||
-    !requestTypeId ||
-    (serviceRequestIsCustom ? !customTitle.trim() || !customPriceLimit.trim() : !serviceRequestCatalogSelected);
-
-  const openRequestService = () => {
-    if (!servicesUnlocked) {
-      showToast("Services unlock after your lease is fully signed.");
-      return;
-    }
-    setRequestTypeId(availableOffers.length > 0 ? "" : CUSTOM_SERVICE_REQUEST_OFFER_ID);
-    setModalMode("service");
-  };
-
-  const openMaintenanceReport = () => {
-    if (!servicesUnlocked) {
-      showToast("Services unlock after your lease is fully signed.");
-      return;
-    }
-    setModalMode("maintenance");
-  };
+  }, [
+    filteredUnifiedRows,
+    serviceRequestById,
+    workOrderById,
+    expandedId,
+    requestReminderSendingId,
+    reminderSendingId,
+  ]);
 
   const lockedEmpty = !servicesUnlocked && unifiedServiceRows.length === 0;
 
@@ -1295,8 +1028,10 @@ export function ResidentServicesPanel({
         </p>
       ) : null}
 
-      <div>
-        <div className="mb-3">
+      <PortalListControlStack
+        className={lockedEmpty ? "mb-0" : "mb-3 max-lg:mb-4"}
+        destinationInset
+        destinationRow={
           <LocalDestinationNav
             items={SERVICE_STATE_TABS.map(({ id, label }) => ({
               id,
@@ -1310,417 +1045,50 @@ export function ResidentServicesPanel({
             size="toolbar"
             className="w-full"
           />
-        </div>
-        {filteredUnifiedRows.length > 0 ? (
-          <>
-            <div className="space-y-2 lg:hidden">
-              {filteredUnifiedRows.map((unified) => {
-                if (unified.kind === "add-on") {
-                  const req = serviceRequestById.get(unified.id);
-                  if (!req) return null;
-                  const rowId = `request-${req.id}`;
-                  const expanded = expandedId === rowId;
-                  return (
-                    <PortalMobileSummaryCard
-                      key={rowId}
-                      title={req.offerName}
-                      subtitle={unified.statusLabel}
-                      trailing={<span className="text-xs text-muted">{displayServiceRequestCost(req)}</span>}
-                      expanded={expanded}
-                      onClick={() => setExpandedId((c) => (c === rowId ? null : rowId))}
-                    >
-                      {expanded ? (
-                        <ServiceRequestCard
-                          req={req}
-                          onDelete={reloadServiceRequests}
-                          onEdit={() => openRequestEdit(req)}
-                          onSendReminder={() => void sendServiceRequestReminder(req)}
-                          reminderSending={requestReminderSendingId === req.id}
-                        />
-                      ) : null}
-                    </PortalMobileSummaryCard>
-                  );
-                }
-                const row = workOrderById.get(unified.id);
-                if (!row) return null;
-                const expanded = expandedId === row.id;
-                return (
-                  <PortalMobileSummaryCard
-                    key={row.id}
-                    title={row.title}
-                    subtitle={row.description ? row.description : unified.statusLabel}
-                    badge={
-                      <span className={`inline-flex rounded-full px-2 py-0.5 text-[10px] font-semibold ${priorityClass(row.priority)}`}>
-                        {row.priority}
-                      </span>
-                    }
-                    trailing={<span className="text-xs text-muted">{displayWorkOrderCost(row.cost)}</span>}
-                    expanded={expanded}
-                    onClick={() => setExpandedId((c) => (c === row.id ? null : row.id))}
-                  >
-                    {expanded ? (
-                      <WorkOrderDetail
-                        row={row}
-                        onEdit={() => openWorkOrderEdit(row)}
-                        onCancel={() => cancelWorkOrder(row.id)}
-                        onSendReminder={() => void sendWorkOrderReminder(row)}
-                        reminderSending={reminderSendingId === row.id}
-                      />
-                    ) : null}
-                  </PortalMobileSummaryCard>
-                );
-              })}
-            </div>
-            <div className={`${PORTAL_DATA_TABLE_WRAP} hidden lg:block`}>
-              <div className={PORTAL_DATA_TABLE_SCROLL}>
-                <table className={PORTAL_DATA_TABLE}>
-                  <PortalDataTableColGroup percents={portalTableColumnPercents(3)} />
-                  <tbody>
-                    {filteredUnifiedRows.map((unified) => {
-                      if (unified.kind === "add-on") {
-                        const req = serviceRequestById.get(unified.id);
-                        if (!req) return null;
-                        const rowId = `request-${req.id}`;
-                        const isExpanded = expandedId === rowId;
-                        return (
-                          <Fragment key={rowId}>
-                            <tr
-                              className={PORTAL_TABLE_TR_EXPANDABLE}
-                              onClick={createPortalRowExpandClick(() =>
-                                setExpandedId((c) => (c === rowId ? null : rowId)),
-                              )}
-                              aria-expanded={isExpanded}
-                            >
-                              <td className={`${PORTAL_TABLE_TD} font-medium text-foreground`}>
-                                <PortalTableInlineExpand expanded={isExpanded}>{req.offerName}</PortalTableInlineExpand>
-                              </td>
-                              <td className={PORTAL_TABLE_TD}>{unified.statusLabel}</td>
-                              <td className={PORTAL_TABLE_TD}>{displayServiceRequestCost(req)}</td>
-                            </tr>
-                            {isExpanded ? (
-                              <tr className={PORTAL_TABLE_DETAIL_ROW}>
-                                <td colSpan={3} className={PORTAL_TABLE_DETAIL_CELL}>
-                                  <ServiceRequestCard
-                                    req={req}
-                                    onDelete={reloadServiceRequests}
-                                    onEdit={() => openRequestEdit(req)}
-                                    onSendReminder={() => void sendServiceRequestReminder(req)}
-                                    reminderSending={requestReminderSendingId === req.id}
-                                  />
-                                </td>
-                              </tr>
-                            ) : null}
-                          </Fragment>
-                        );
-                      }
-                      const row = workOrderById.get(unified.id);
-                      if (!row) return null;
-                      const isExpanded = expandedId === row.id;
-                      return (
-                        <Fragment key={row.id}>
-                          <tr
-                            className={PORTAL_TABLE_TR_EXPANDABLE}
-                            onClick={createPortalRowExpandClick(() =>
-                              setExpandedId((c) => (c === row.id ? null : row.id)),
-                            )}
-                            aria-expanded={isExpanded}
-                          >
-                            <td className={`${PORTAL_TABLE_TD} font-medium text-foreground`}>
-                              <PortalTableInlineExpand expanded={isExpanded}>{row.title}</PortalTableInlineExpand>
-                              <p className="mt-0.5 text-[11px] font-normal text-muted line-clamp-1">{row.description}</p>
-                            </td>
-                            <td className={PORTAL_TABLE_TD}>
-                              <span className={`inline-flex rounded-full px-2 py-0.5 text-[10px] font-semibold ${priorityClass(row.priority)}`}>
-                                {row.priority}
-                              </span>
-                            </td>
-                            <td className={PORTAL_TABLE_TD}>{displayWorkOrderCost(row.cost)}</td>
-                          </tr>
-                          {isExpanded ? (
-                            <tr className={PORTAL_TABLE_DETAIL_ROW}>
-                              <td colSpan={3} className={`${PORTAL_TABLE_DETAIL_CELL} text-sm text-muted`}>
-                                <WorkOrderDetail
-                                  row={row}
-                                  onEdit={() => openWorkOrderEdit(row)}
-                                  onCancel={() => cancelWorkOrder(row.id)}
-                                  onSendReminder={() => void sendWorkOrderReminder(row)}
-                                  reminderSending={reminderSendingId === row.id}
-                                />
-                              </td>
-                            </tr>
-                          ) : null}
-                        </Fragment>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          </>
-        ) : unifiedServiceRows.length > 0 ? (
-          <p className="mb-2 px-1 text-center text-sm text-muted">No services in this status yet.</p>
-        ) : null}
-        <ResidentServicesAddActions
-          onRequest={openRequestService}
-          onReport={openMaintenanceReport}
-          disabled={!servicesUnlocked}
+        }
+      />
+
+      <div className={PORTAL_LIST_PAGE_BODY}>
+        <DataList
+          variant="resident"
+          hideColumnHeaders
+          rows={serviceListRows}
+          columns={[
+            { id: "service", header: "Service", cell: () => "—" },
+          ]}
+          emptyState={
+            filteredUnifiedRows.length === 0 && unifiedServiceRows.length > 0 ? (
+              <p className="px-1 py-6 text-center text-sm text-muted">No services in this status yet.</p>
+            ) : filteredUnifiedRows.length === 0 ? (
+              <PortalDataTableEmpty icon="request" message="No services yet." variant="stacked" />
+            ) : undefined
+          }
         />
       </div>
 
-      </div>
+      <PortalResidentListFab
+        onClick={openAddService}
+        disabled={!servicesUnlocked}
+        ariaLabel="Add service"
+        dataAttr="resident-services-add"
+      />
 
-      {/* Service issue modal — mount only while open so no file input leaks to the list page */}
-      {modalMode === "maintenance" ? (
-      <Modal
-        open
-        title="Report service issue"
-        onClose={() => { setModalMode("none"); resetMaintenance(); }}
-        panelClassName="max-w-lg"
-        footer={
-          <ModalFooter>
-            <Button
-              type="button"
-              variant="primary"
-              className="rounded-full"
-              data-attr="resident-maintenance-submit"
-              onClick={() => { return submitMaintenance(); }}
-              disabled={maintenanceSubmitting}
-            >
-              {maintenanceSubmitting ? "Submitting…" : "Submit"}
-            </Button>
-          </ModalFooter>
-        }
-      >
-        <p className="text-xs text-muted">Describe the issue. Your property manager will be notified.</p>
-        <div className="mt-4 grid gap-3">
-          <div>
-            <p className="mb-1 text-[11px] font-medium text-muted">Title</p>
-            <Input value={mTitle} onChange={(e) => setMTitle(e.target.value)} placeholder="Short summary of the issue" className="bg-card" />
-          </div>
-          <div>
-            <p className="mb-1 text-[11px] font-medium text-muted">Description</p>
-            <Textarea
-              value={mDescription}
-              onChange={(e) => setMDescription(e.target.value)}
-              placeholder="What's happening? Include any details that will help maintenance."
-              rows={4}
-              className="bg-card"
-            />
-          </div>
-          <div className="grid gap-3 sm:grid-cols-2">
-            <div>
-              <p className="mb-1 text-[11px] font-medium text-muted">Category</p>
-              <Select value={mCategory} onChange={(e) => setMCategory(e.target.value)} className="bg-card">
-                <option>Plumbing</option>
-                <option>Electrical</option>
-                <option>HVAC</option>
-                <option>Appliance</option>
-                <option>Access / Locks</option>
-                <option>General</option>
-              </Select>
-            </div>
-            <div>
-              <p className="mb-1 text-[11px] font-medium text-muted">Priority</p>
-              <Select value={mPriority} onChange={(e) => setMPriority(e.target.value)} className="bg-card">
-                <option>Emergency</option>
-                <option>Low</option>
-                <option>Medium</option>
-                <option>High</option>
-              </Select>
-              {mPriority === "Emergency" ? (
-                <p className="mt-1 text-[11px] font-medium text-[var(--status-overdue-fg)]">
-                  For fire, gas, or major flooding, call 911 first - then submit this.
-                </p>
-              ) : null}
-            </div>
-          </div>
-          <PreferredArrivalField
-            preset={mArrivalPreset}
-            custom={mArrivalCustom}
-            onPresetChange={setMArrivalPreset}
-            onCustomChange={setMArrivalCustom}
-          />
-          <div>
-            <p className="mb-1 text-[11px] font-medium text-muted">Can the repair person enter if you&apos;re not home?</p>
-            <Select
-              value={mEntryPermission}
-              onChange={(e) => setMEntryPermission(e.target.value as DemoManagerWorkOrderRow["entryPermission"])}
-              className="bg-card"
-            >
-              {ENTRY_PERMISSION_OPTIONS.map((option) => (
-                <option key={option.value} value={option.value}>
-                  {option.label}
-                </option>
-              ))}
-            </Select>
-          </div>
-          <div>
-            <p className="mb-1 text-[11px] font-medium text-muted">Entry notes (gate code, pets, parking...)</p>
-            <Input value={mEntryNotes} onChange={(e) => setMEntryNotes(e.target.value)} placeholder="Optional" className="bg-card" />
-          </div>
-          <div>
-            <p className="mb-1 text-[11px] font-medium text-muted">Photos (up to 6)</p>
-            <Button type="button" variant="outline" className="w-fit rounded-full text-xs" onClick={openMaintenancePhotoPicker}>
-              Attach photos
-            </Button>
-          </div>
-          {mPhotos.length ? (
-            <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-              {mPhotos.map((src, i) => (
-                <div key={i} className="overflow-hidden rounded-xl border border-border bg-accent/30">
-                  <Image src={src} alt={`Photo ${i + 1}`} width={240} height={180} className="h-24 w-full object-cover" unoptimized />
-                  <div className="flex justify-start p-2">
-                    <Button type="button" variant="outline" className="h-8 rounded-full px-3 text-[11px]" onClick={() => setMPhotos((p) => p.filter((_, j) => j !== i))}>
-                      Remove
-                    </Button>
-                  </div>
-                </div>
-              ))}
-            </div>
-          ) : null}
-        </div>
-      </Modal>
-      ) : null}
 
-      {/* Request modal */}
-      <Modal
-        open={modalMode === "service"}
-        title="Add service"
-        onClose={() => { setModalMode("none"); resetService(); }}
-        panelClassName="max-w-lg"
-        footer={
-          modalMode === "service" ? (
-            <ModalFooter>
-              <Button
-                type="button"
-                variant="primary"
-                className="rounded-full"
-                onClick={() => { return submitService(); }}
-                disabled={serviceRequestSubmitDisabled}
-              >
-                {serviceSubmitting ? "Sending…" : "Send request"}
-              </Button>
-            </ModalFooter>
-          ) : undefined
-        }
-      >
-        {(() => {
-          const isCustom =
-            requestTypeId === CUSTOM_SERVICE_REQUEST_OFFER_ID ||
-            (availableOffers.length === 0 && Boolean(requestTypeId));
-          const selectedCatalogOffer =
-            requestTypeId &&
-            requestTypeId !== CUSTOM_SERVICE_REQUEST_OFFER_ID
-              ? availableOffers.find((o) => o.id === requestTypeId) ?? null
-              : null;
-          return (
-            <>
-              <p className="text-xs text-muted">
-                {isCustom || availableOffers.length === 0
-                  ? "Describe what you need and your max budget. Your manager will set the final price and approve the request."
-                  : "Choose a request type your property offers, or Custom for something else."}
-              </p>
-
-              <div className="mt-4 space-y-3">
-                <div>
-                  <p className="mb-1 text-[11px] font-medium text-muted">
-                    Service type <span className="text-rose-500">*</span>
-                  </p>
-                  <Select
-                    value={
-                      requestTypeId ||
-                      (availableOffers.length === 0 ? CUSTOM_SERVICE_REQUEST_OFFER_ID : "")
-                    }
-                    onChange={(e) => {
-                      const next = e.target.value;
-                      setRequestTypeId(next);
-                      if (next !== CUSTOM_SERVICE_REQUEST_OFFER_ID) {
-                        setCustomTitle("");
-                        setCustomDescription("");
-                        setCustomPriceLimit("");
-                      }
-                    }}
-                    className="bg-card"
-                    disabled={serviceSubmitting}
-                  >
-                    {availableOffers.length > 0 ? (
-                      <option value="">Select a service</option>
-                    ) : null}
-                    {availableOffers.map((offer) => (
-                      <option key={offer.id} value={offer.id}>
-                        {offer.name}
-                        {offer.price ? ` · ${offer.price}` : ""}
-                      </option>
-                    ))}
-                    <option value={CUSTOM_SERVICE_REQUEST_OFFER_ID}>Custom</option>
-                  </Select>
-                </div>
-
-                {selectedCatalogOffer ? (
-                  <div className="rounded-xl border border-border bg-accent/20 px-3 py-2.5 text-sm">
-                    <p className="font-semibold text-foreground">{selectedCatalogOffer.name}</p>
-                    {selectedCatalogOffer.description ? (
-                      <p className="mt-1 text-xs text-muted">{selectedCatalogOffer.description}</p>
-                    ) : null}
-                    <p className="mt-1 text-xs text-muted">
-                      {[
-                        selectedCatalogOffer.price ? `Price ${selectedCatalogOffer.price}` : null,
-                        hasDeposit(selectedCatalogOffer.deposit)
-                          ? `Deposit ${selectedCatalogOffer.deposit}`
-                          : null,
-                      ]
-                        .filter(Boolean)
-                        .join(" · ") || "Manager-set pricing"}
-                    </p>
-                  </div>
-                ) : null}
-
-                {isCustom ||
-                (availableOffers.length === 0 &&
-                  (requestTypeId === CUSTOM_SERVICE_REQUEST_OFFER_ID || !requestTypeId)) ? (
-                  <>
-                    <div>
-                      <p className="mb-1 text-[11px] font-medium text-muted">
-                        Request title <span className="text-rose-500">*</span>
-                      </p>
-                      <Input
-                        value={customTitle}
-                        onChange={(e) => setCustomTitle(e.target.value)}
-                        placeholder="e.g. Extra storage bin"
-                        className="bg-card"
-                      />
-                    </div>
-                    <div>
-                      <p className="mb-1 text-[11px] font-medium text-muted">Details (optional)</p>
-                      <Textarea
-                        value={customDescription}
-                        onChange={(e) => setCustomDescription(e.target.value)}
-                        placeholder="Size, timing, or other details…"
-                        className="min-h-[72px] bg-card"
-                      />
-                    </div>
-                    <div>
-                      <p className="mb-1 text-[11px] font-medium text-muted">
-                        Price limit <span className="text-rose-500">*</span>
-                      </p>
-                      <Input
-                        value={customPriceLimit}
-                        onChange={(e) => setCustomPriceLimit(e.target.value)}
-                        placeholder="$50"
-                        inputMode="decimal"
-                        className="bg-card"
-                      />
-                      <p className="mt-1 text-[10px] text-muted">
-                        Maximum you&apos;re willing to pay. Your manager confirms the final amount.
-                      </p>
-                    </div>
-                  </>
-                ) : null}
-              </div>
-            </>
-          );
-        })()}
-      </Modal>
+      <ResidentAddServiceModal
+        open={addServiceOpen}
+        onClose={() => setAddServiceOpen(false)}
+        residentEmail={residentEmail}
+        residentName={getApplication()?.name || residentEmail}
+        availableOffers={availableOffers}
+        servicesUnlocked={servicesUnlocked}
+        resolveFilingIds={resolveFilingIds}
+        getApplication={getApplication}
+        onSubmitted={() => {
+          setAllRows(readManagerWorkOrderRows());
+          reloadServiceRequests();
+          setAppTick((tick) => tick + 1);
+        }}
+      />
 
       {/* Edit add-on service request modal */}
       <Modal
@@ -1827,6 +1195,7 @@ export function ResidentServicesPanel({
           </div>
         </div>
       </Modal>
+      </div>
     </ManagerPortalPageShell>
   );
 }

@@ -258,11 +258,8 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { ManagerAddPaymentModal } from "@/components/portal/manager-add-payment-modal";
 import { ManagerPaymentSetupModal } from "@/components/portal/manager-payment-setup-modal";
-import {
-  ManagerCreateServiceRequestModal,
-  type ManagerServiceResidentOption,
-} from "@/components/portal/manager-create-service-request-modal";
-import { ManagerCreateWorkOrderModal } from "@/components/portal/manager-create-work-order-modal";
+import { ManagerAddServiceModal } from "@/components/portal/manager-add-service-modal";
+import type { ManagerServiceResidentOption } from "@/components/portal/manager-create-service-request-modal";
 import {
   mergeApplicationLeaseDatesIntoResidentRow,
   persistResidentProfileEdit,
@@ -440,8 +437,7 @@ export function ManagerResidents({
   const [applicationEditOpen, setApplicationEditOpen] = useState(false);
   const [residentPaymentSetupOpen, setResidentPaymentSetupOpen] = useState(false);
   const [addResidentPaymentOpen, setAddResidentPaymentOpen] = useState(false);
-  const [addResidentRequestOpen, setAddResidentRequestOpen] = useState(false);
-  const [addResidentWorkOrderOpen, setAddResidentWorkOrderOpen] = useState(false);
+  const [addResidentServiceOpen, setAddResidentServiceOpen] = useState(false);
   const [embeddedPaymentFooterActions, setEmbeddedPaymentFooterActions] = useState<ReactNode>(null);
   const [embeddedPaymentBulkActions, setEmbeddedPaymentBulkActions] = useState<ReactNode>(null);
   const handleEmbeddedPaymentFooterActions = useCallback((actions: ReactNode | null) => {
@@ -2729,38 +2725,21 @@ export function ManagerResidents({
   );
 
   const residentServicesTabFooterActions = (
-    <DropdownMenu>
-      <DropdownMenuTrigger asChild>
-        <Button
-          type="button"
-          variant="primary"
-          className={PORTAL_DETAIL_BTN}
-          data-attr="resident-add-service"
-          disabled={!canAddResidentServiceItem}
-          title={
-            canAddResidentServiceItem
-              ? undefined
-              : "Link this resident to a property before adding services."
-          }
-        >
-          Add service
-        </Button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="start">
-        <DropdownMenuItem
-          data-attr="resident-add-service-request"
-          onClick={() => setAddResidentRequestOpen(true)}
-        >
-          Service offering
-        </DropdownMenuItem>
-        <DropdownMenuItem
-          data-attr="resident-add-work-order"
-          onClick={() => setAddResidentWorkOrderOpen(true)}
-        >
-          Repair request
-        </DropdownMenuItem>
-      </DropdownMenuContent>
-    </DropdownMenu>
+    <Button
+      type="button"
+      variant="primary"
+      className={PORTAL_DETAIL_BTN}
+      data-attr="resident-add-service"
+      disabled={!canAddResidentServiceItem}
+      title={
+        canAddResidentServiceItem
+          ? undefined
+          : "Link this resident to a property before adding services."
+      }
+      onClick={() => setAddResidentServiceOpen(true)}
+    >
+      Add service
+    </Button>
   );
 
   const residentDetailBottomBarActions = useMemo(() => {
@@ -3484,31 +3463,17 @@ export function ManagerResidents({
         }}
       />
 
-      <ManagerCreateServiceRequestModal
-        open={addResidentRequestOpen}
-        onClose={() => setAddResidentRequestOpen(false)}
+      <ManagerAddServiceModal
+        open={addResidentServiceOpen}
+        onClose={() => setAddResidentServiceOpen(false)}
         managerUserId={userId ?? null}
         defaultResident={selectedServiceResident}
         onSubmitted={() => {
-          setAddResidentRequestOpen(false);
+          setAddResidentServiceOpen(false);
           setSrTick((n) => n + 1);
-          setHcTick((n) => n + 1);
-          setResidentServicesBucket("pending");
-        }}
-      />
-
-      <ManagerCreateWorkOrderModal
-        open={addResidentWorkOrderOpen}
-        onClose={() => setAddResidentWorkOrderOpen(false)}
-        managerUserId={userId ?? null}
-        defaultResident={selectedServiceResident}
-        onSubmitted={(bucket) => {
-          setAddResidentWorkOrderOpen(false);
           setWorkOrderTick((n) => n + 1);
           setHcTick((n) => n + 1);
-          setResidentServicesBucket(
-            bucket === "open" ? "pending" : bucket === "scheduled" ? "scheduled" : "completed",
-          );
+          setResidentServicesBucket("pending");
         }}
       />
 

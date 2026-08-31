@@ -1,22 +1,18 @@
 "use client";
 
-import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { useRouter } from "next/navigation";
-import { MANAGER_TABLE_TH, ManagerPortalStatusPills } from "@/components/portal/portal-metrics";
+import { ManagerPortalStatusPills } from "@/components/portal/portal-metrics";
 import {
-  PORTAL_TABLE_TD,
   PortalDataTableEmpty,
-  PortalMobileSummaryCard,
-  PortalTableInlineExpand,
 } from "@/components/portal/portal-data-table";
-import { DocumentsTableShell } from "@/components/portal/documents-table-shell";
+import { PORTAL_LIST_PAGE_BODY } from "@/components/portal/portal-inbox-ui";
+import { DataList } from "@/components/ui/data-list";
 import {
   RESIDENT_LEASE_LIST_LABEL,
   residentLeaseDetailSubtitle,
 } from "@/components/portal/resident-lease-document-preview";
 import { usePortalSession } from "@/hooks/use-portal-session";
-import { portalNavClick, prefetchPortalHref, usePortalNavigate } from "@/lib/portal-nav-client";
+import { usePortalNavigate } from "@/lib/portal-nav-client";
 import {
   LEASE_PIPELINE_EVENT,
   findLeaseForResidentEmail,
@@ -167,7 +163,6 @@ export function ResidentLeaseListTable({
   /** Documents tab only — when set, overrides `bucket`. */
   statusFilter?: ResidentLeaseStatusFilter;
 }) {
-  const router = useRouter();
   const navigate = usePortalNavigate();
   const pipelineRow = useResidentLeasePipelineRow();
   const documentRows = useMemo(() => {
@@ -206,57 +201,29 @@ export function ResidentLeaseListTable({
   }
 
   return (
-    <DocumentsTableShell
-      hideColumnHeaders
-      colSpan={3}
-      head={
-        <>
-          <th className={`${MANAGER_TABLE_TH} text-left`}>Name</th>
-          <th className={`${MANAGER_TABLE_TH} text-left`}>Status</th>
-          <th className={`${MANAGER_TABLE_TH} text-left`}>Property</th>
-        </>
-      }
-      rows={documentRows.map((entry) => {
-        const href = leaseDetailPath(entry);
-        const statusLabel = entry.status;
-        const metaLabel = residentLeaseDetailSubtitle(statusLabel, safeFormatDateTime(entry.signedAt));
-        return {
-          key: entry.id,
-          expanded: false,
-          detail: null,
-          onToggle: () => openLease(entry),
-          cells: (
-            <>
-              <td className={`${PORTAL_TABLE_TD} align-middle`}>
-                <Link
-                  href={href}
-                  className="block min-w-0 text-left"
-                  onClick={portalNavClick(router, href)}
-                  onMouseEnter={() => prefetchPortalHref(router, href)}
-                  onFocus={() => prefetchPortalHref(router, href)}
-                >
-                  <PortalTableInlineExpand expanded={false} className="min-w-0 truncate font-medium text-foreground">
-                    <span className="truncate">{RESIDENT_LEASE_LIST_LABEL}</span>
-                  </PortalTableInlineExpand>
-                </Link>
-              </td>
-              <td className={`${PORTAL_TABLE_TD} align-middle`}>{statusLabel}</td>
-              <td className={`${PORTAL_TABLE_TD} align-middle`}>
-                <p className="min-w-0 truncate">{propertyLabel}</p>
-              </td>
-            </>
-          ),
-          card: (
-            <PortalMobileSummaryCard
-              title={RESIDENT_LEASE_LIST_LABEL}
-              subtitle={metaLabel}
-              meta={propertyLabel}
-              onClick={() => openLease(entry)}
-            />
-          ),
-        };
-      })}
-    />
+    <div className={PORTAL_LIST_PAGE_BODY}>
+      <DataList
+        variant="resident"
+        hideColumnHeaders
+        rows={documentRows.map((entry) => {
+          const statusLabel = entry.status;
+          const metaLabel = residentLeaseDetailSubtitle(statusLabel, safeFormatDateTime(entry.signedAt));
+          return {
+            id: entry.id,
+            data: entry,
+            primary: RESIDENT_LEASE_LIST_LABEL,
+            meta: [propertyLabel, metaLabel].filter(Boolean).join(" · "),
+            trailing: <span className="text-xs text-muted">{statusLabel}</span>,
+            onClick: () => openLease(entry),
+          };
+        })}
+        columns={[
+          { id: "name", header: "Name", cell: () => RESIDENT_LEASE_LIST_LABEL },
+          { id: "status", header: "Status", cell: (row) => row.status },
+          { id: "property", header: "Property", cell: () => propertyLabel },
+        ]}
+      />
+    </div>
   );
 }
 
