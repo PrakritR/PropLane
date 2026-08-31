@@ -9,7 +9,17 @@ import { DropdownMenuItem } from "@/components/ui/dropdown-menu";
 import { DestinationNav } from "@/components/ui/destination-nav";
 import { useShallowTabId } from "@/components/ui/tabs";
 import { useAppUi } from "@/components/providers/app-ui-provider";
-import { ApplicationHouseholdCluster, PortalListClusterSelectCheckbox } from "@/components/portal/application-household-list";
+import {
+  ApplicationHouseholdCluster,
+  PortalListClusterSelectCheckbox,
+  PortalListSelectAllRow,
+} from "@/components/portal/application-household-list";
+import { DataList } from "@/components/ui/data-list";
+import {
+  PortalListAddRow,
+  PORTAL_LIST_ADD_ICONS,
+  PORTAL_LIST_ADD_ROW_WRAP_CLASS,
+} from "@/components/portal/portal-list-add-row";
 import { ManagerPortalPageShell, PORTAL_HEADER_PRIMARY_ACTION_BTN_RESPONSIVE } from "@/components/portal/portal-metrics";
 import { PortalFilterSortSheet, portalFilterActiveCount } from "@/components/portal/portal-filter-sort-sheet";
 import { PORTAL_PROPERTY_FILTER_SHEET_CLASS } from "@/components/portal/portal-filter-shell";
@@ -34,7 +44,7 @@ import {
   serviceRequestLocationLabel,
   serviceRequestsAssignedToViewer,
   taskListRowMatchesFilter,
-  taskNotesPreview,
+  taskListRowMatchesSearch,
   type ManagerTaskListFilterId,
   type ManagerTaskListSortId,
 } from "@/lib/manager-task-display";
@@ -126,25 +136,23 @@ function serviceRequestBucket(req: ServiceRequest): "pending" | "approved" | "de
   return "pending";
 }
 
-function TaskNotesSnippet({ notes }: { notes: string }) {
-  const [expanded, setExpanded] = useState(false);
-  const { preview, truncated } = taskNotesPreview(notes);
-  if (!notes.trim()) return null;
+function taskRowMetaLine(task: ManagerTask): string {
+  const parts: string[] = [];
+  const location = compactTaskLocationLabel(task);
+  if (location) parts.push(location);
+  const schedule = formatTaskSchedule(task);
+  if (schedule && schedule !== "No schedule or due date") parts.push(schedule);
+  const assigneeLabel = formatTaskAssignee(task);
+  if (assigneeLabel) parts.push(assigneeLabel);
+  return parts.join(" · ");
+}
+
+function taskRowTrailing(task: ManagerTask) {
   return (
-    <div className="mt-1">
-      <p className={`text-sm text-muted ${expanded ? "whitespace-pre-wrap" : "line-clamp-2"}`}>
-        {expanded ? notes : preview}
-      </p>
-      {truncated ? (
-        <button
-          type="button"
-          className="mt-1 text-xs font-semibold text-primary"
-          onClick={() => setExpanded((open) => !open)}
-        >
-          {expanded ? "Show less" : "Show more"}
-        </button>
-      ) : null}
-    </div>
+    <span className="flex items-center gap-1.5">
+      <ManagerTaskUrgencyBadge task={task} />
+      <ManagerTaskPriorityBadge priority={task.priority} />
+    </span>
   );
 }
 
@@ -209,6 +217,7 @@ export function ManagerTaskList({
   const [groupMode, setGroupMode] = useState<PortalListGroupMode>(DEFAULT_PORTAL_LIST_GROUP_MODE);
   const [listFilter, setListFilter] = useState<ManagerTaskListFilterId>("all");
   const [sortId, setSortId] = useState<ManagerTaskListSortId>("due_soonest");
+  const [searchQuery, setSearchQuery] = useState("");
 
   const propertyOptions = useMemo(
     () => buildManagerPropertyFilterOptions(userId),
@@ -292,6 +301,7 @@ export function ManagerTaskList({
         : [];
     return [...taskRows, ...serviceRows]
       .filter((row) => taskListRowMatchesFilter(row, listFilter))
+      .filter((row) => taskListRowMatchesSearch(row, searchQuery))
       .sort((a, b) => compareManagerTaskListRows(a, b, sortId, propertyLabelForId));
   }, [
     assignedServices,
@@ -301,6 +311,7 @@ export function ManagerTaskList({
     matchesProperty,
     overdueTasks,
     propertyLabelForId,
+    searchQuery,
     sortId,
     tabId,
   ]);
@@ -357,7 +368,7 @@ export function ManagerTaskList({
 
   useEffect(() => {
     setSelectedIds([]);
-  }, [tabId, propertyFilterId, listFilter, groupMode, sortId]);
+  }, [tabId, propertyFilterId, listFilter, groupMode, sortId, searchQuery]);
 
   useEffect(() => {
     if (tabId !== "in-progress" && listFilter === "service_orders") {
@@ -559,113 +570,84 @@ export function ManagerTaskList({
     );
   }, [selectedTasks, tabId]);
 
-  function renderTaskRow(task: ManagerTask, completed = false) {
-    const location = compactTaskLocationLabel(task);
-    const assigneeLabel = formatTaskAssignee(task);
-    return (
-      <li key={task.id} className="flex items-start gap-3 px-4 py-3">
-        <input
-          type="checkbox"
-          className="mt-1"
-          checked={selectedIds.includes(task.id)}
-          aria-label={`Select ${task.title}`}
-          onClick={(event) => event.stopPropagation()}
-          onChange={(event) =>
-            setSelectedIds((prev) =>
-              event.target.checked ? [...prev, task.id] : prev.filter((id) => id !== task.id),
-            )
-          }
-        />
-        <div className="flex min-w-0 flex-1 flex-col gap-2">
-          <button
-            type="button"
-            className="w-full text-left"
-            data-attr="manager-task-row-open"
-            onClick={() => beginEdit(task)}
-          >
-            <div className="flex flex-wrap items-center gap-2">
-              <p className={`font-semibold ${completed ? "text-muted" : "text-foreground"}`}>
-                {task.title}
-              </p>
-              <ManagerTaskUrgencyBadge task={task} />
-              <ManagerTaskPriorityBadge priority={task.priority} />
-            </div>
-            <p className="text-sm text-muted">{formatTaskSchedule(task)}</p>
-            {assigneeLabel ? <p className="text-xs text-muted">{assigneeLabel}</p> : null}
-            {location ? <p className="text-xs text-muted">{location}</p> : null}
-            {task.notes ? <TaskNotesSnippet notes={task.notes} /> : null}
-          </button>
-        </div>
-      </li>
-    );
-  }
+  const taskListColumns = [
+    { id: "task", header: "Task", cell: (row: TaskListRow) => (row.kind === "task" ? row.task.title : row.request.offerName) },
+    { id: "meta", header: "Details", cell: (row: TaskListRow) => (row.kind === "task" ? taskRowMetaLine(row.task) : serviceRequestLocationLabel(row.request) ?? "") },
+  ] as const;
 
-  function renderServiceRow(request: ServiceRequest) {
-    const location = serviceRequestLocationLabel(request);
-    const bucket = serviceRequestBucket(request);
-    const rowId = `service-${request.id}`;
-    return (
-      <li key={rowId} className="flex items-start gap-3 px-4 py-3">
-        <input
-          type="checkbox"
-          className="mt-1 h-4 w-4 shrink-0 accent-primary"
-          checked={selectedIds.includes(rowId)}
-          aria-label={`Select ${request.offerName}`}
-          onClick={(event) => event.stopPropagation()}
-          onChange={(event) =>
+  const renderTaskDataList = (rows: TaskListClusterRow[]) => (
+    <DataList
+      hideColumnHeaders
+      selectable
+      rows={rows.map((row) => {
+        if (row.kind === "task") {
+          const task = row.task;
+          return {
+            id: task.id,
+            data: row,
+            primary: task.title,
+            meta: taskRowMetaLine(task) || undefined,
+            trailing: taskRowTrailing(task),
+            selected: selectedIds.includes(task.id),
+            onSelectedChange: (selected: boolean) =>
+              setSelectedIds((prev) =>
+                selected ? [...prev, task.id] : prev.filter((id) => id !== task.id),
+              ),
+            onClick: () => beginEdit(task),
+          };
+        }
+        const request = row.request;
+        const bucket = serviceRequestBucket(request);
+        const rowId = `service-${request.id}`;
+        const location = serviceRequestLocationLabel(request);
+        return {
+          id: rowId,
+          data: row,
+          primary: request.offerName,
+          meta: [location, request.status].filter(Boolean).join(" · ") || undefined,
+          trailing: (
+            <Badge tone="info">Service</Badge>
+          ),
+          selected: selectedIds.includes(rowId),
+          onSelectedChange: (selected: boolean) =>
             setSelectedIds((prev) =>
-              event.target.checked ? [...prev, rowId] : prev.filter((id) => id !== rowId),
-            )
-          }
-        />
-        <div className="min-w-0 flex-1">
-          <div className="flex flex-wrap items-center gap-2">
-            <p className="font-semibold text-foreground">{request.offerName}</p>
-            <span className="rounded-full border border-border bg-accent/40 px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-muted">
-              Service order
-            </span>
-            <span className="rounded-full border border-border px-2 py-0.5 text-[11px] font-semibold capitalize text-muted">
-              {request.status}
-            </span>
-          </div>
-          {location ? <p className="mt-0.5 text-xs text-muted">{location}</p> : null}
-          {request.notes ? <TaskNotesSnippet notes={request.notes} /> : null}
-          <Link
-            href={serviceRequestDetailHref(basePath, bucket, request.id)}
-            className="mt-2 inline-block text-xs font-semibold text-primary"
-            data-attr="manager-task-list-service-link"
-          >
-            Open service order
-          </Link>
-        </div>
-      </li>
-    );
-  }
+              selected ? [...prev, rowId] : prev.filter((id) => id !== rowId),
+            ),
+          inlineAction: (
+            <Link
+              href={serviceRequestDetailHref(basePath, bucket, request.id)}
+              className="text-xs font-semibold text-primary"
+              data-attr="manager-task-list-service-link"
+              onClick={(event) => event.stopPropagation()}
+            >
+              Open
+            </Link>
+          ),
+        };
+      })}
+      columns={[...taskListColumns]}
+    />
+  );
 
   function renderTaskClusters(
     clusters: ReturnType<typeof clusterPortalListRows<TaskListClusterRow>>,
   ) {
+    const clusterCountLabel = (count: number) =>
+      count === 1 ? "1 task" : `${count} tasks`;
+
     if (isPropertyClusterList(groupMode, clusters)) {
       return clusters.map((cluster) => (
         <ApplicationHouseholdCluster
           key={cluster.key}
-          headerLeading={renderClusterHeaderCheckbox(cluster.rows, cluster.propertyLabel || "items")}
+          headerLeading={renderClusterHeaderCheckbox(cluster.rows, cluster.propertyLabel || "tasks")}
           header={
             <>
               <span className="truncate text-xs font-semibold text-foreground">{cluster.propertyLabel}</span>
-              <Badge tone="info">
-                {cluster.rows.length === 1 ? "1 item" : `${cluster.rows.length} items`}
-              </Badge>
+              <Badge tone="info">{clusterCountLabel(cluster.rows.length)}</Badge>
             </>
           }
         >
-          <ul className="divide-y divide-border">
-            {cluster.rows.map((row) =>
-              row.kind === "task"
-                ? renderTaskRow(row.task, tabId === "completed")
-                : renderServiceRow(row.request),
-            )}
-          </ul>
+          {renderTaskDataList(cluster.rows)}
         </ApplicationHouseholdCluster>
       ));
     }
@@ -673,7 +655,7 @@ export function ManagerTaskList({
     return clusters.map((cluster) => (
       <ApplicationHouseholdCluster
         key={cluster.key}
-        headerLeading={renderClusterHeaderCheckbox(cluster.rows, cluster.residentLabel || "items")}
+        headerLeading={renderClusterHeaderCheckbox(cluster.rows, cluster.residentLabel || "tasks")}
         header={
           <>
             <span className="truncate text-xs font-semibold text-foreground">{cluster.residentLabel}</span>
@@ -684,27 +666,46 @@ export function ManagerTaskList({
             {cluster.propertyLabel ? (
               <span className="truncate text-xs text-muted">{cluster.propertyLabel}</span>
             ) : null}
-            <Badge tone="info">
-              {cluster.rows.length === 1 ? "1 item" : `${cluster.rows.length} items`}
-            </Badge>
+            <Badge tone="info">{clusterCountLabel(cluster.rows.length)}</Badge>
           </>
         }
       >
-        <ul className="divide-y divide-border">
-          {cluster.rows.map((row) =>
-            row.kind === "task"
-              ? renderTaskRow(row.task, tabId === "completed")
-              : renderServiceRow(row.request),
-          )}
-        </ul>
+        {renderTaskDataList(cluster.rows)}
       </ApplicationHouseholdCluster>
     ));
   }
+
+  const allVisibleIds = useMemo(() => visibleRows.map(taskListRowId), [visibleRows]);
+  const allSelected =
+    allVisibleIds.length > 0 && allVisibleIds.every((id) => selectedIdSet.has(id));
+  const someSelected = allVisibleIds.some((id) => selectedIdSet.has(id));
+
+  const toggleSelectAll = useCallback(() => {
+    setSelectedIds((prev) => {
+      if (allVisibleIds.length > 0 && allVisibleIds.every((id) => prev.includes(id))) {
+        return prev.filter((id) => !allVisibleIds.includes(id));
+      }
+      return [...new Set([...prev, ...allVisibleIds])];
+    });
+  }, [allVisibleIds]);
 
   function openAddTask() {
     setEditingId(null);
     setAddOpen(true);
   }
+
+  const renderAddTaskRow = (className?: string) =>
+    tabId === "in-progress" ? (
+      <div className={className ?? PORTAL_LIST_ADD_ROW_WRAP_CLASS} data-testid="tasks-list-add">
+        <PortalListAddRow
+          label="Add"
+          ariaLabel="Add task"
+          icon={PORTAL_LIST_ADD_ICONS.request}
+          onClick={openAddTask}
+          dataAttr="manager-task-list-add"
+        />
+      </div>
+    ) : null;
 
   return (
     <ManagerPortalPageShell
@@ -712,12 +713,12 @@ export function ManagerTaskList({
       hideTitleOnMobileNav
       titleInlineFilter={tasksFilterSheet}
       titleAside={
-        !loading && visibleRows.length > 0 && tabId === "in-progress" ? (
+        !loading && tabId === "in-progress" ? (
           <Button
             type="button"
             variant="outline"
             className={PORTAL_HEADER_PRIMARY_ACTION_BTN_RESPONSIVE}
-            data-attr="manager-task-list-add"
+            data-attr="manager-task-list-header-add"
             onClick={openAddTask}
           >
             Add
@@ -738,36 +739,39 @@ export function ManagerTaskList({
             className="max-w-none"
           />
         }
+        search={{
+          value: searchQuery,
+          onChange: setSearchQuery,
+          placeholder: "Search tasks",
+          dataAttr: "manager-task-list-search",
+        }}
       />
 
       <div className={PORTAL_LIST_PAGE_BODY}>
         {loading ? <p className="text-sm text-muted">Loading…</p> : null}
 
         {!loading && visibleRows.length > 0 ? (
-          <div
-            className={`space-y-4 ${tabId === "completed" ? "opacity-80" : ""}`}
-            data-attr="manager-task-groups"
-          >
-            {renderTaskClusters(clusters)}
-          </div>
+          <>
+            <PortalListSelectAllRow
+              allSelected={allSelected}
+              someSelected={someSelected}
+              onToggle={toggleSelectAll}
+              label="Select all"
+              dataAttr="manager-task-select-all"
+            />
+            <div
+              className={cn("space-y-3", tabId === "completed" && "opacity-80")}
+              data-attr="manager-task-groups"
+            >
+              {renderTaskClusters(clusters)}
+            </div>
+            {renderAddTaskRow()}
+          </>
         ) : null}
 
-        {!loading && visibleRows.length === 0 ? (
-          <div className="flex flex-col items-center justify-center gap-4 py-16">
-            <p className="text-sm text-muted">
-              {tabId === "completed"
-                ? "No completed tasks yet."
-                : tabId === "overdue"
-                  ? "No overdue tasks."
-                  : "No tasks in progress."}
-            </p>
-            {tabId === "in-progress" ? (
-              <Button type="button" data-attr="manager-task-list-empty-add" onClick={openAddTask}>
-                Add task
-              </Button>
-            ) : null}
-          </div>
-        ) : null}
+        {!loading && visibleRows.length === 0
+          ? renderAddTaskRow(`${PORTAL_LIST_ADD_ROW_WRAP_CLASS} pt-5 sm:pt-6`)
+          : null}
       </div>
 
       {selectedTasks.length > 0 ? (

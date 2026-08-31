@@ -109,8 +109,8 @@ describe("ManagerTaskList", () => {
     await waitFor(() => {
       expect(screen.getByText("Fix the porch light")).toBeInTheDocument();
     });
-    expect(screen.getByText("1 item")).toBeInTheDocument();
-    expect(screen.getByRole("checkbox", { name: /Select all/i })).toBeInTheDocument();
+    expect(screen.getByText("1 task")).toBeInTheDocument();
+    expect(screen.getByRole("checkbox", { name: "Select all" })).toBeInTheDocument();
   });
 
   it("renders completed task rows", async () => {

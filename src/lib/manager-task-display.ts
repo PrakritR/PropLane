@@ -257,3 +257,31 @@ export function taskListRowMatchesFilter(
   if (filter === "service_orders") return false;
   return taskMatchesTypeFilter(row.task, filter);
 }
+
+export function taskListRowMatchesSearch(
+  row:
+    | { kind: "task"; task: ManagerTask }
+    | { kind: "service"; request: ServiceRequest },
+  query: string,
+): boolean {
+  const needle = query.trim().toLowerCase();
+  if (!needle) return true;
+  if (row.kind === "task") {
+    const task = row.task;
+    return [
+      task.title,
+      task.notes,
+      task.propertyTitle,
+      task.roomLabel,
+      task.assignee?.name,
+      compactTaskLocationLabel(task),
+    ].some((value) => value?.toLowerCase().includes(needle));
+  }
+  return [
+    row.request.offerName,
+    row.request.notes,
+    row.request.residentName,
+    row.request.residentEmail,
+    serviceRequestLocationLabel(row.request),
+  ].some((value) => value?.toLowerCase().includes(needle));
+}
