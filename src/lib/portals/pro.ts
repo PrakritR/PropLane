@@ -20,7 +20,10 @@ export const proPortal: PortalDefinition = {
     {
       section: "payments",
       label: "Payments",
-      tabs: [],
+      tabs: [
+        { id: "incoming", label: "Incoming" },
+        { id: "outgoing", label: "Outgoing" },
+      ],
     },
     {
       section: "services",
@@ -120,7 +123,8 @@ export const MANAGER_PORTAL_SMOKE_PATHS = [
   { label: "Applications", path: "/portal/applications/pending" },
   { label: "Leases", path: "/portal/leases" },
   { label: "Residents", path: "/portal/residents/current" },
-  { label: "Payments", path: "/portal/payments" },
+  { label: "Payments (incoming)", path: "/portal/payments/incoming/pending" },
+  { label: "Payments (outgoing)", path: "/portal/payments/outgoing/pending" },
   { label: "Services", path: "/portal/services/requests" },
   { label: "Tasks", path: "/portal/tasks" },
   { label: "Communication", path: "/portal/communication/active" },

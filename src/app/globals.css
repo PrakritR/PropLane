@@ -2321,6 +2321,27 @@ html[data-native] .portal-mobile-nav-bar {
     flex-direction: column;
     gap: 0.25rem;
   }
+
+  /* Tours: compact list footer at every width when rows exist above it. */
+  .portal-list-page-body .portal-list-add-row--tour {
+    min-height: 0;
+    flex-direction: row;
+    gap: 0.5rem;
+    border-width: 1px;
+    border-radius: 0.75rem;
+    padding-top: 0.625rem;
+    padding-bottom: 0.625rem;
+  }
+
+  .portal-list-page-body .portal-list-add-row--tour > svg {
+    height: 1.25rem;
+    width: 1.25rem;
+  }
+
+  .portal-list-page-body .portal-list-add-row--tour > span {
+    flex-direction: row;
+    gap: 0.5rem;
+  }
 }
 
 /* Nested scroll panels: desktop only — mobile uses #portal-main-content scroll. */
@@ -2515,6 +2536,8 @@ html[data-portal-sticky-chrome] .portal-calendar-toolbar {
   top: 0;
   z-index: 15;
   flex-shrink: 0;
+  max-width: 100%;
+  overflow-x: clip;
   background-color: var(--portal-surface-light);
 }
 
@@ -2546,11 +2569,16 @@ html[data-portal-sticky-chrome] .portal-calendar-compact {
   flex-direction: column;
   min-height: 0;
   flex: 1 1 0%;
+  min-width: 0;
+  max-width: 100%;
+  overflow-x: clip;
 }
 
 html[data-portal-sticky-chrome] .portal-calendar-compact-body {
   min-height: 0;
   flex: 1 1 0%;
+  max-width: 100%;
+  overflow-x: clip;
   overflow-y: auto;
   overscroll-behavior: contain;
   -webkit-overflow-scrolling: touch;

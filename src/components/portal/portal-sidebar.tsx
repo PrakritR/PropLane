@@ -47,9 +47,10 @@ import {
 import { prefetchPortalPanelChunks } from "@/lib/portal-panel-prefetch";
 import { SIDEBAR_COLLAPSED_COOKIE } from "@/lib/portal-sidebar-cookie";
 import { groupNavItems, isAppNavHiddenInNativeShell, isHiddenFromMobileNav } from "@/lib/portals/nav-groups";
+import { PAYMENT_BUCKETS } from "@/lib/portal-detail-routes";
 import type { PortalDefinition, PortalKind } from "@/lib/portal-types";
 import { cn } from "@/lib/utils";
-import { ChevronsLeft, ChevronsRight } from "lucide-react";
+import { ChevronsLeft, ChevronsRight, ChevronRight } from "lucide-react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -66,7 +67,81 @@ function hrefForSection(def: PortalDefinition, section: string) {
     return `${def.basePath}/communication/inbox/unopened`;
   }
   if (!meta.tabs.length) return `${def.basePath}/${section}`;
-  return `${def.basePath}/${section}/${meta.tabs[0].id}`;
+  return `${def.basePath}/${section}/${meta.tabs[0].id}/pending`;
+}
+
+type PortalSidebarNavSubItem = {
+  sectionTabId: string;
+  label: string;
+  href: string;
+  prefetchHrefs: string[];
+};
+
+type PortalSidebarNavItem = {
+  section: string;
+  label: string;
+  href: string;
+  prefetchHrefs: string[];
+  sectionTabId?: string;
+  subItems?: PortalSidebarNavSubItem[];
+};
+
+function buildPortalNavItems(
+  definition: PortalDefinition,
+  visibleSections: PortalDefinition["sections"],
+  showNativeChrome: boolean,
+  residentNavStage: ResidentPortalNavStage | undefined,
+): PortalSidebarNavItem[] {
+  return visibleSections
+    .filter((section) => {
+      if (isAppNavHiddenInNativeShell(definition.kind, section.section, showNativeChrome)) {
+        return false;
+      }
+      if (
+        definition.kind === "resident" &&
+        residentNavStage &&
+        !residentNavSectionVisibleInNav(section.section, residentNavStage)
+      ) {
+        return false;
+      }
+      return true;
+    })
+    .flatMap((section) => {
+      if (
+        section.section === "payments" &&
+        section.tabs.some((tab) => tab.id === "incoming" || tab.id === "outgoing")
+      ) {
+        const tabs = section.tabs.filter((tab) => tab.id === "incoming" || tab.id === "outgoing");
+        return [
+          {
+            section: section.section,
+            label: section.label,
+            href: `${definition.basePath}/payments/incoming/pending`,
+            prefetchHrefs: PAYMENT_BUCKETS.flatMap((bucket) =>
+              tabs.map((tab) => `${definition.basePath}/payments/${tab.id}/${bucket}`),
+            ),
+            subItems: tabs.map((tab) => ({
+              sectionTabId: tab.id,
+              label: tab.label,
+              href: `${definition.basePath}/payments/${tab.id}/pending`,
+              prefetchHrefs: PAYMENT_BUCKETS.map(
+                (bucket) => `${definition.basePath}/payments/${tab.id}/${bucket}`,
+              ),
+            })),
+          },
+        ];
+      }
+      return [
+        {
+          section: section.section,
+          label: section.label,
+          href: hrefForSection(definition, section.section),
+          prefetchHrefs: section.tabs.length
+            ? section.tabs.map((tab) => `${definition.basePath}/${section.section}/${tab.id}`)
+            : [`${definition.basePath}/${section.section}`],
+        },
+      ];
+    });
 }
 
 function portalBrandCopy(kind: PortalKind): { subtitle: string; ariaLabel: string } {
@@ -144,32 +219,47 @@ export function PortalSidebar({
   const navCounts = usePortalNavCounts(definition.kind);
   const [collapsed, setCollapsed] = useState(initialCollapsed);
 
+  const activeSection = useMemo(() => {
+    const parts = pathname.split("/").filter(Boolean);
+    return parts[1] ?? "dashboard";
+  }, [pathname]);
+
   const navItems = useMemo(
-    () =>
-      visibleSections
-        .filter((section) => {
-          if (isAppNavHiddenInNativeShell(definition.kind, section.section, showNativeChrome)) {
-            return false;
-          }
-          if (
-            definition.kind === "resident" &&
-            residentNavStage &&
-            !residentNavSectionVisibleInNav(section.section, residentNavStage)
-          ) {
-            return false;
-          }
-          return true;
-        })
-        .map((section) => ({
-          section: section.section,
-          label: section.label,
-          href: hrefForSection(definition, section.section),
-          prefetchHrefs: section.tabs.length
-            ? section.tabs.map((tab) => `${definition.basePath}/${section.section}/${tab.id}`)
-            : [`${definition.basePath}/${section.section}`],
-        })),
+    () => buildPortalNavItems(definition, visibleSections, showNativeChrome, residentNavStage),
     [definition, residentNavStage, visibleSections, showNativeChrome],
   );
+
+  const activePaymentTab = useMemo(() => {
+    if (activeSection !== "payments") return null;
+    const parts = pathname.split("/").filter(Boolean);
+    const paymentsIdx = parts.indexOf("payments");
+    const tab = parts[paymentsIdx + 1];
+    return tab === "incoming" || tab === "outgoing" ? tab : "incoming";
+  }, [activeSection, pathname]);
+
+  const isNavItemActive = useCallback(
+    (item: PortalSidebarNavItem) => {
+      if (activeSection !== item.section) return false;
+      if (item.subItems?.length) {
+        return item.subItems.some((sub) => sub.sectionTabId === activePaymentTab);
+      }
+      if (item.sectionTabId) return item.sectionTabId === activePaymentTab;
+      return true;
+    },
+    [activePaymentTab, activeSection],
+  );
+
+  const isPaymentSubNavActive = useCallback(
+    (sub: PortalSidebarNavSubItem) =>
+      activeSection === "payments" && sub.sectionTabId === activePaymentTab,
+    [activePaymentTab, activeSection],
+  );
+
+  const resolveNavItemHref = useCallback((item: PortalSidebarNavItem) => {
+    if (!item.subItems?.length) return item.href;
+    const activeSub = item.subItems.find((sub) => sub.sectionTabId === activePaymentTab);
+    return activeSub?.href ?? item.subItems[0]?.href ?? item.href;
+  }, [activePaymentTab]);
 
   const navGroups = useMemo(() => groupNavItems(definition.kind, navItems), [definition.kind, navItems]);
   const firstTrailingGroupIdx = useMemo(
@@ -197,11 +287,6 @@ export function PortalSidebar({
       return next;
     });
   };
-
-  const activeSection = useMemo(() => {
-    const parts = pathname.split("/").filter(Boolean);
-    return parts[1] ?? "dashboard";
-  }, [pathname]);
 
   const showNavIcons =
     definition.kind === "admin" ||
@@ -259,7 +344,7 @@ export function PortalSidebar({
     return primary.filter((item) => !isSectionLocked(item.section));
   }, [definition.kind, nativeBottomNavSplit, isSectionLocked]);
   const showMoreTab = showMobileNav && nativeBottomNavShowMoreTab(definition.kind, navItems);
-  const moreTabActive = !nativeBottomNavItems.some((item) => item.section === activeSection);
+  const moreTabActive = !nativeBottomNavItems.some((item) => isNavItemActive(item));
   const [sectionsSheetOpen, setSectionsSheetOpen] = useState(false);
   const [bottomNavEl, setBottomNavEl] = useState<HTMLElement | null>(null);
   const bottomNavScrollRef = useRef<HTMLDivElement>(null);
@@ -359,14 +444,27 @@ export function PortalSidebar({
     const ordered = orderNativeBottomNavItems(navItems, definition.kind);
     return ordered
       .filter((item) => !isHiddenFromMobileNav(definition.kind, item.section))
-      .map((item) => ({
-        section: item.section,
-        label: item.label,
-        href: item.href,
-        locked: isSectionLocked(item.section),
-        lockedNavigable: isSectionLockNavigable(item.section),
-        count: navCounts[item.section] ?? 0,
-      }));
+      .flatMap((item) =>
+        item.subItems?.length
+          ? item.subItems.map((sub) => ({
+              section: item.section,
+              label: sub.label,
+              href: sub.href,
+              locked: isSectionLocked(item.section),
+              lockedNavigable: isSectionLockNavigable(item.section),
+              count: navCounts[item.section] ?? 0,
+            }))
+          : [
+              {
+                section: item.section,
+                label: item.label,
+                href: item.href,
+                locked: isSectionLocked(item.section),
+                lockedNavigable: isSectionLockNavigable(item.section),
+                count: navCounts[item.section] ?? 0,
+              },
+            ],
+      );
   }, [navItems, definition.kind, navCounts, isSectionLocked, isSectionLockNavigable]);
 
   const mobileTopStripItems = useMemo(
@@ -390,10 +488,11 @@ export function PortalSidebar({
   };
 
   const renderMobileNavLink = (
-    s: (typeof navItems)[number],
+    s: PortalSidebarNavItem,
     variant: "top" | "bottom",
   ) => {
-    const active = activeSection === s.section;
+    const href = resolveNavItemHref(s);
+    const active = isNavItemActive(s);
     const locked = isSectionLocked(s.section);
     // Inert locks must not navigate anywhere: the server bounces the request
     // straight back home, which reads as a tab that silently fails.
@@ -403,10 +502,10 @@ export function PortalSidebar({
     if (variant === "bottom") {
       return (
         <Link
-          key={s.section}
-          href={inert ? "#" : s.href}
+          key={`${s.section}-${s.sectionTabId ?? "default"}`}
+          href={inert ? "#" : href}
           data-native-nav-section={s.section}
-          data-attr={`bottom-nav-${s.section}`}
+          data-attr={`bottom-nav-${s.section}${s.sectionTabId ? `-${s.sectionTabId}` : ""}`}
           prefetch={inert ? false : portalMobileLinkPrefetchEnabled()}
           aria-disabled={inert ? true : undefined}
           onClick={(e) => {
@@ -414,8 +513,8 @@ export function PortalSidebar({
               e.preventDefault();
               return;
             }
-            portalNavClick(router, s.href, {
-              preferFullNavigation: showNativeChrome && isCrossPortalNavigation(pathname, s.href),
+            portalNavClick(router, href, {
+              preferFullNavigation: showNativeChrome && isCrossPortalNavigation(pathname, href),
             })(e);
           }}
           className={`${PORTAL_NATIVE_BOTTOM_NAV_ITEM_CLASS} ${
@@ -460,9 +559,10 @@ export function PortalSidebar({
 
     return (
       <Link
-        key={s.section}
-        href={inert ? "#" : s.href}
+        key={`${s.section}-${s.sectionTabId ?? "default"}`}
+        href={inert ? "#" : href}
         data-mobile-nav-section={s.section}
+        data-mobile-nav-section-tab={s.sectionTabId}
         prefetch={inert ? false : portalMobileLinkPrefetchEnabled()}
         aria-disabled={inert ? true : undefined}
         onClick={(e) => {
@@ -470,7 +570,7 @@ export function PortalSidebar({
             e.preventDefault();
             return;
           }
-          portalNavClick(router, s.href)(e);
+          portalNavClick(router, href)(e);
         }}
         className={`inline-flex shrink-0 items-center gap-1.5 rounded-[14px] px-3.5 py-2 text-xs font-semibold whitespace-nowrap transition sm:text-[13px] ${
           inert ? "cursor-not-allowed " : ""
@@ -495,8 +595,97 @@ export function PortalSidebar({
     );
   };
 
-  const renderDesktopLink = (s: (typeof navItems)[number]) => {
-    const active = activeSection === s.section;
+  const renderPaymentsNavGroup = (item: PortalSidebarNavItem) => {
+    const locked = isSectionLocked(item.section);
+    const count = navCounts[item.section] ?? 0;
+    const groupActive = isNavItemActive(item);
+
+    return (
+      <div key={`${item.section}-group`} className="flex flex-col gap-1">
+        <div
+          className={cn(
+            "flex min-h-8 items-center justify-between gap-2 rounded-[8px] px-2.5 py-1.5 text-[13px] font-medium tracking-[-0.01em]",
+            groupActive ? "text-foreground" : locked ? "text-muted/70" : "text-muted",
+          )}
+        >
+          <span className="flex min-w-0 flex-1 items-center gap-2.5">
+            {showNavIcons ? (
+              <span className={groupActive ? "text-primary" : locked ? "opacity-60" : "opacity-80"} aria-hidden>
+                <PortalNavIcon section={item.section} className="h-[17px] w-[17px] shrink-0" active={groupActive} />
+              </span>
+            ) : null}
+            <span className="min-w-0 truncate">{item.label}</span>
+          </span>
+          <span className="flex shrink-0 items-center gap-1.5">
+            {!locked ? <PortalNavCountBadge count={count} /> : null}
+            {locked ? <NavLockIcon className="h-3.5 w-3.5 text-muted" /> : null}
+          </span>
+        </div>
+        <div className="ml-1 flex flex-col gap-1 border-l border-border/70 pl-2">
+          {item.subItems!.map((sub) => {
+            const active = isPaymentSubNavActive(sub);
+            const subLocked = locked;
+            const subBody = (
+              <>
+                <span className="flex min-w-0 flex-1 items-center gap-2">
+                  {showNavIcons ? (
+                    <span className={active ? "text-primary" : "text-primary/70"} aria-hidden>
+                      <PortalNavIcon section={item.section} className="h-[15px] w-[15px] shrink-0" active={active} />
+                    </span>
+                  ) : null}
+                  <span className="min-w-0 truncate">{sub.label}</span>
+                </span>
+                <ChevronRight className="h-3.5 w-3.5 shrink-0 opacity-60" aria-hidden />
+              </>
+            );
+            if (subLocked && !isSectionLockNavigable(item.section)) {
+              return (
+                <span
+                  key={sub.sectionTabId}
+                  className="flex min-h-8 cursor-not-allowed items-center justify-between gap-2 rounded-[10px] bg-primary/[0.04] px-2.5 py-1.5 text-[13px] font-medium tracking-[-0.01em] text-primary/50"
+                  title={lockAriaLabel(sub.label, true, item.section)}
+                  aria-label={lockAriaLabel(sub.label, true, item.section)}
+                  role="link"
+                  aria-disabled="true"
+                >
+                  {subBody}
+                </span>
+              );
+            }
+            return (
+              <Link
+                key={sub.sectionTabId}
+                href={sub.href}
+                prefetch={portalBackgroundPrefetchEnabled()}
+                onMouseEnter={
+                  portalBackgroundPrefetchEnabled()
+                    ? () => {
+                        prefetchPortalHref(router, sub.href);
+                        for (const href of sub.prefetchHrefs) prefetchPortalHref(router, href);
+                      }
+                    : undefined
+                }
+                className={cn(
+                  "flex min-h-8 items-center justify-between gap-2 rounded-[10px] px-2.5 py-1.5 text-[13px] font-medium tracking-[-0.01em] transition-colors duration-150",
+                  active
+                    ? "bg-primary/10 text-primary"
+                    : "bg-primary/[0.04] text-primary/80 hover:bg-primary/10 hover:text-primary",
+                )}
+                aria-label={lockAriaLabel(sub.label, subLocked, item.section)}
+                aria-current={active ? "page" : undefined}
+              >
+                {subBody}
+              </Link>
+            );
+          })}
+        </div>
+      </div>
+    );
+  };
+
+  const renderDesktopLink = (s: PortalSidebarNavItem) => {
+    if (s.subItems?.length) return renderPaymentsNavGroup(s);
+    const active = isNavItemActive(s);
     const locked = isSectionLocked(s.section);
     const count = navCounts[s.section] ?? 0;
     const body = (
@@ -523,7 +712,7 @@ export function PortalSidebar({
       // ever reached assistive tech. Applies to every resident lock, not one string.
       return (
         <span
-          key={s.section}
+          key={`${s.section}-${s.sectionTabId ?? "default"}`}
           className={cn(navLinkClass(false, true), "cursor-not-allowed")}
           title={lockAriaLabel(s.label, true, s.section)}
           aria-label={lockAriaLabel(s.label, true, s.section)}
@@ -536,7 +725,7 @@ export function PortalSidebar({
     }
     return (
       <Link
-        key={s.section}
+        key={`${s.section}-${s.sectionTabId ?? "default"}`}
         href={s.href}
         prefetch={portalBackgroundPrefetchEnabled()}
         onMouseEnter={
@@ -556,8 +745,9 @@ export function PortalSidebar({
     );
   };
 
-  const renderRailLink = (s: (typeof navItems)[number]) => {
-    const active = activeSection === s.section;
+  const renderRailLink = (s: PortalSidebarNavItem) => {
+    const href = resolveNavItemHref(s);
+    const active = isNavItemActive(s);
     const locked = isSectionLocked(s.section);
     const count = navCounts[s.section] ?? 0;
     const railClass = cn(
@@ -580,7 +770,7 @@ export function PortalSidebar({
     if (locked && !isSectionLockNavigable(s.section)) {
       return (
         <span
-          key={s.section}
+          key={`${s.section}-${s.sectionTabId ?? "default"}`}
           // The collapsed rail is icon-only, so `title={s.label}` dropped the
           // reason entirely — carry the same tooltip the expanded row shows.
           title={lockAriaLabel(s.label, true, s.section)}
@@ -594,14 +784,14 @@ export function PortalSidebar({
     }
     return (
       <Link
-        key={s.section}
-        href={s.href}
+        key={`${s.section}-${s.sectionTabId ?? "default"}`}
+        href={href}
         prefetch={portalBackgroundPrefetchEnabled()}
         onMouseEnter={
           portalBackgroundPrefetchEnabled()
             ? () => {
-                prefetchPortalHref(router, s.href);
-                for (const href of s.prefetchHrefs) prefetchPortalHref(router, href);
+                prefetchPortalHref(router, href);
+                for (const prefetchHref of s.prefetchHrefs) prefetchPortalHref(router, prefetchHref);
               }
             : undefined
         }

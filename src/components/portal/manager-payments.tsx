@@ -4,9 +4,11 @@ import { MANAGER_MANUAL_PAYMENT_AUTO_CHECK_MS } from "@/lib/resident-manual-paym
 import { useEffect, useMemo, useState, useCallback, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import {
+  DropdownMenu,
+  DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { DestinationNav } from "@/components/ui/destination-nav";
 import { PortalFilterSortSheet } from "@/components/portal/portal-filter-sort-sheet";
 import { PORTAL_PROPERTY_FILTER_SHEET_CLASS } from "@/components/portal/portal-filter-shell";
 import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
@@ -19,10 +21,8 @@ import {
 import { useAppUi } from "@/components/providers/app-ui-provider";
 import {
   ManagerPortalPageShell,
-  PORTAL_HEADER_ACTION_BTN,
-  PORTAL_HEADER_PRIMARY_ACTION_BTN,
+  PORTAL_COMMAND_ACTION_BTN,
 } from "@/components/portal/portal-metrics";
-import { PortalAdaptiveHeaderActions } from "@/components/portal/portal-adaptive-header-actions";
 import type { DemoManagerOutgoingPaymentRow, DemoManagerPaymentLedgerRow } from "@/data/demo-portal";
 import { parseMoneyLabel } from "@/lib/portal-monthly-profit";
 import { ManagerPaymentsLedgerPanel } from "@/components/portal/manager-payments-ledger-panel";
@@ -74,11 +74,6 @@ import {
   readOwnActiveManagerVendorRows,
   syncManagerVendorsFromServer,
 } from "@/lib/manager-vendors-storage";
-
-const DIRECTION_LABELS: { id: ManagerPaymentDirection; label: string }[] = [
-  { id: "incoming", label: "Incoming" },
-  { id: "outgoing", label: "Outgoing" },
-];
 
 const PAY_LABELS: { id: ManagerPaymentBucket; label: string }[] = [
   { id: "pending", label: "Pending" },
@@ -181,6 +176,8 @@ function sortOutgoingRows(
 }
 
 function PaymentsFilterSheet({
+  open,
+  onOpenChange,
   activeCount,
   onReset,
   propertyOptions,
@@ -197,6 +194,8 @@ function PaymentsFilterSheet({
   groupMode,
   onGroupModeChange,
 }: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
   activeCount: number;
   onReset: () => void;
   propertyOptions: { id: string; label: string }[];
@@ -215,11 +214,14 @@ function PaymentsFilterSheet({
 }) {
   return (
     <PortalFilterSortSheet
+      open={open}
+      onOpenChange={onOpenChange}
       activeCount={activeCount}
       compactPanel
+      commandStripTrigger
       filterFieldCount={filterFieldCount}
       mobileFlushBody
-      constrainDropdownToTitleBand
+      constrainDropdownToTitleBand={false}
       className={PORTAL_PROPERTY_FILTER_SHEET_CLASS}
       onReset={onReset}
       dataAttr="payments-filter-sheet-open"
@@ -269,6 +271,7 @@ export function ManagerPayments({
   const [reminderSettingsOpen, setReminderSettingsOpen] = useState(false);
   const [paymentSettingsOpen, setPaymentSettingsOpen] = useState(false);
   const [paymentSetupOpen, setPaymentSetupOpen] = useState(false);
+  const [paymentsFilterOpen, setPaymentsFilterOpen] = useState(false);
   const [checkingManualPayments, setCheckingManualPayments] = useState(false);
   const [listSort, setListSort] = useState<PaymentListSort>(DEFAULT_PAYMENT_LIST_SORT);
   const [groupMode, setGroupMode] = useState<PortalListGroupMode>(DEFAULT_PORTAL_LIST_GROUP_MODE);
@@ -550,6 +553,8 @@ export function ManagerPayments({
   );
 
   const paymentsFilterSheetProps = {
+    open: paymentsFilterOpen,
+    onOpenChange: setPaymentsFilterOpen,
     activeCount: filterTouchCount,
     onReset: () => {
       setPropertyFilters([]);
@@ -571,10 +576,6 @@ export function ManagerPayments({
     groupMode,
     onGroupModeChange: setGroupMode,
   };
-
-  const paymentsFilterSheet = (
-    <PaymentsFilterSheet {...paymentsFilterSheetProps} />
-  );
 
   const runCheckManualPayments = useCallback((options?: { silent?: boolean }) => {
     void (async () => {
@@ -610,6 +611,77 @@ export function ManagerPayments({
     })();
   }, [showToast]);
 
+  const paymentsFilterSort = <PaymentsFilterSheet {...paymentsFilterSheetProps} />;
+
+  const paymentsSettingsMenu =
+    direction === "incoming" ? (
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button
+            type="button"
+            variant="outline"
+            className={PORTAL_COMMAND_ACTION_BTN}
+            data-attr="payments-settings-menu"
+          >
+            Settings
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="start" backdrop>
+          <DropdownMenuItem data-attr="payments-settings-open" onSelect={() => setPaymentSettingsOpen(true)}>
+            Settings
+          </DropdownMenuItem>
+          <DropdownMenuItem data-attr="payments-reminder-settings" onSelect={() => setReminderSettingsOpen(true)}>
+            Reminders
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
+    ) : (
+      <Button
+        type="button"
+        variant="outline"
+        className={PORTAL_COMMAND_ACTION_BTN}
+        data-attr="payments-settings-open"
+        onClick={() => setPaymentSettingsOpen(true)}
+      >
+        Settings
+      </Button>
+    );
+
+  const paymentsCheckButton =
+    direction === "incoming" ? (
+      <Button
+        type="button"
+        variant="outline"
+        className={PORTAL_COMMAND_ACTION_BTN}
+        data-attr="manager-check-manual-payments"
+        disabled={checkingManualPayments}
+        onClick={() => runCheckManualPayments()}
+      >
+        {checkingManualPayments ? "Checking…" : "Check"}
+      </Button>
+    ) : null;
+
+  const paymentsSetupButton = (
+    <Button
+      type="button"
+      variant="outline"
+      className={PORTAL_COMMAND_ACTION_BTN}
+      data-attr="payments-setup"
+      onClick={() => setPaymentSetupOpen(true)}
+    >
+      Setup
+    </Button>
+  );
+
+  const paymentsListActions = (
+    <>
+      {paymentsFilterSort}
+      {paymentsSettingsMenu}
+      {paymentsCheckButton}
+      {paymentsSetupButton}
+    </>
+  );
+
   const hasIncomingManualCandidates = direction === "incoming" && counts.pending + counts.overdue > 0;
   const checkingManualPaymentsRef = useRef(checkingManualPayments);
   useEffect(() => {
@@ -624,140 +696,6 @@ export function ManagerPayments({
     }, MANAGER_MANUAL_PAYMENT_AUTO_CHECK_MS);
     return () => window.clearInterval(timer);
   }, [hasIncomingManualCandidates, runCheckManualPayments]);
-
-  const paymentsAddButton = (
-    <Button
-      type="button"
-      variant="outline"
-      className={PORTAL_HEADER_PRIMARY_ACTION_BTN}
-      onClick={() => (direction === "incoming" ? setAddOpen(true) : setAddOutgoingOpen(true))}
-      data-attr="payments-add"
-    >
-      Add
-    </Button>
-  );
-
-  const paymentsHeaderActions = (
-    <PortalAdaptiveHeaderActions
-      className="w-full min-w-0"
-      moreDataAttr="payments-more-actions"
-      moreAriaLabel="More payment actions"
-      actions={[
-        {
-          id: "settings",
-          keepPriority: 4,
-          node: (
-            <Button
-              type="button"
-              variant="outline"
-              className={PORTAL_HEADER_ACTION_BTN}
-              data-attr="payments-settings-open"
-              onClick={() => setPaymentSettingsOpen(true)}
-            >
-              Settings
-            </Button>
-          ),
-          menuItem: (
-            <DropdownMenuItem
-              data-attr="payments-settings-open-menu"
-              onSelect={() => setPaymentSettingsOpen(true)}
-            >
-              Settings
-            </DropdownMenuItem>
-          ),
-        },
-        ...(direction === "incoming"
-          ? [
-              {
-                id: "reminders",
-                keepPriority: 3,
-                node: (
-                  <Button
-                    type="button"
-                    variant="outline"
-                    className={PORTAL_HEADER_ACTION_BTN}
-                    data-attr="payments-reminder-settings"
-                    onClick={() => setReminderSettingsOpen(true)}
-                  >
-                    Reminders
-                  </Button>
-                ),
-                menuItem: (
-                  <DropdownMenuItem
-                    data-attr="payments-reminder-settings-menu"
-                    onSelect={() => setReminderSettingsOpen(true)}
-                  >
-                    Reminders
-                  </DropdownMenuItem>
-                ),
-              },
-              {
-                id: "check",
-                keepPriority: 2,
-                node: (
-                  <Button
-                    type="button"
-                    variant="outline"
-                    className={PORTAL_HEADER_ACTION_BTN}
-                    data-attr="manager-check-manual-payments"
-                    disabled={checkingManualPayments}
-                    onClick={() => runCheckManualPayments()}
-                  >
-                    {checkingManualPayments ? "Checking…" : "Check"}
-                  </Button>
-                ),
-                menuItem: (
-                  <DropdownMenuItem
-                    data-attr="manager-check-manual-payments-menu"
-                    disabled={checkingManualPayments}
-                    onSelect={() => runCheckManualPayments()}
-                  >
-                    {checkingManualPayments ? "Checking…" : "Check"}
-                  </DropdownMenuItem>
-                ),
-              },
-            ]
-          : []),
-        {
-          id: "setup",
-          keepPriority: 1,
-          node: (
-            <Button
-              type="button"
-              variant="outline"
-              className={PORTAL_HEADER_ACTION_BTN}
-              data-attr="payments-setup"
-              onClick={() => setPaymentSetupOpen(true)}
-            >
-              Payment setup
-            </Button>
-          ),
-          menuItem: (
-            <DropdownMenuItem
-              data-attr="payments-setup-menu"
-              onSelect={() => setPaymentSetupOpen(true)}
-            >
-              Payment setup
-            </DropdownMenuItem>
-          ),
-        },
-        {
-          id: "add",
-          alwaysVisible: true,
-          pinEdge: "end",
-          node: paymentsAddButton,
-          menuItem: (
-            <DropdownMenuItem
-              data-attr="payments-add-menu"
-              onSelect={() => (direction === "incoming" ? setAddOpen(true) : setAddOutgoingOpen(true))}
-            >
-              Add
-            </DropdownMenuItem>
-          ),
-        },
-      ]}
-    />
-  );
 
   const activeFilterChips = useMemo((): PortalActiveFilterChip[] => {
     const chips: PortalActiveFilterChip[] = [];
@@ -792,43 +730,6 @@ export function ManagerPayments({
     }
     return chips;
   }, [propertyFilters, residentFilters, listSort, sortOptions, propertyLabelById, residentOptions]);
-
-  const directionNav = (
-    <DestinationNav
-      items={DIRECTION_LABELS.map((d) => ({
-        id: d.id,
-        label: d.label,
-        href: `${paymentsBase}/${d.id}/pending`,
-        dataAttr: `payments-direction-${d.id}`,
-      }))}
-      activeId={direction}
-      ariaLabel="Payment direction"
-      itemLayout="equal"
-      denseEqualRow
-      className="max-w-none"
-    />
-  );
-
-  const paymentsListDestinations = (
-    <div className="flex w-full min-w-0 flex-col gap-2">
-      {directionNav}
-      <DestinationNav
-        items={tabs.map((t) => ({
-          id: t.id,
-          label: t.label,
-          href: `${paymentsBase}/${direction}/${t.id}`,
-          count: t.count,
-          alert: t.alert,
-          dataAttr: `payments-bucket-${t.id}`,
-        }))}
-        activeId={bucket}
-        ariaLabel="Payment status"
-        itemLayout="equal"
-        denseEqualRow
-        className="max-w-none"
-      />
-    </div>
-  );
 
   const paymentsPanel =
     direction === "incoming" ? (
@@ -923,13 +824,23 @@ export function ManagerPayments({
     <ManagerPortalPageShell
       title="Payments"
       hideTitleOnMobileNav
-      titleInlineFilter={paymentsFilterSheet}
-      titleAside={paymentsHeaderActions}
+      titleInlineFilter={null}
       compactFilterRow
     >
       <PortalListControlStack
         className="mb-2 max-lg:mb-2"
-        destinationRow={paymentsListDestinations}
+        variant="command"
+        destinations={tabs.map((t) => ({
+          id: t.id,
+          label: t.label,
+          href: `${paymentsBase}/${direction}/${t.id}`,
+          count: t.count,
+          alert: t.alert,
+          dataAttr: `payments-bucket-${t.id}`,
+        }))}
+        activeDestinationId={bucket}
+        destinationAriaLabel="Payment status"
+        actions={paymentsListActions}
         activeFilterChips={<PortalActiveFilterChips chips={activeFilterChips} />}
       />
       {paymentsPanel}

@@ -467,22 +467,6 @@ export function ManagerTours({
     });
   }, []);
 
-  const openDeletePreview = useCallback(
-    (rows: ManagerTourRow[]) => {
-      if (rows.length === 0) return;
-      if (rows.every(isPendingInquiry)) {
-        openDeclinePreview(rows);
-        return;
-      }
-      if (rows.every(isUpcomingPlanned)) {
-        openCancelPreview(rows);
-        return;
-      }
-      showToast("These tours can't be deleted together.");
-    },
-    [openCancelPreview, openDeclinePreview, showToast],
-  );
-
   const openReschedulePreview = useCallback(
     (rows: ManagerTourRow[]) => {
       if (rows.length === 0) return;
@@ -931,6 +915,78 @@ export function ManagerTours({
     </>
   ) : null;
 
+  const messageBulkRow =
+    singleSelectedTourRow?.guestEmail?.includes("@") ? singleSelectedTourRow : null;
+  const canBulkReschedule =
+    selectedTourRows.length > 0 &&
+    selectedTourRows.every((row) => isPendingInquiry(row) || isUpcomingPlanned(row)) &&
+    !(selectedTourRows.some(isPendingInquiry) && selectedTourRows.some(isUpcomingPlanned));
+  const allSelectedPendingInquiry =
+    selectedTourRows.length > 0 && selectedTourRows.every(isPendingInquiry);
+  const allSelectedUpcomingPlanned =
+    selectedTourRows.length > 0 && selectedTourRows.every(isUpcomingPlanned);
+
+  const listBulkActions =
+    selectedTourRows.length > 0 ? (
+      <>
+        {messageBulkRow ? (
+          <Button
+            type="button"
+            variant="outline"
+            className={BULK_BAR_BTN}
+            data-attr="tours-bulk-message"
+            onClick={() => openGuestMessage(messageBulkRow)}
+          >
+            Message
+          </Button>
+        ) : null}
+        {canBulkReschedule ? (
+          <Button
+            type="button"
+            variant="outline"
+            className={BULK_BAR_BTN}
+            data-attr="tours-bulk-reschedule"
+            onClick={() => openReschedulePreview(selectedTourRows)}
+          >
+            Reschedule
+          </Button>
+        ) : null}
+        {bucket === "pending" && allSelectedPendingInquiry ? (
+          <>
+            <Button
+              type="button"
+              variant="outline"
+              className={BULK_BAR_BTN}
+              data-attr="tours-bulk-decline"
+              onClick={() => openDeclinePreview(selectedTourRows)}
+            >
+              Decline
+            </Button>
+            <Button
+              type="button"
+              variant="primary"
+              className={BULK_BAR_BTN}
+              data-attr="tours-bulk-approve"
+              onClick={() => openApprovePreview(selectedTourRows)}
+            >
+              Approve
+            </Button>
+          </>
+        ) : null}
+        {bucket === "upcoming" && allSelectedUpcomingPlanned ? (
+          <Button
+            type="button"
+            variant="outline"
+            className={`${BULK_BAR_BTN} text-rose-800`}
+            data-attr="tours-bulk-cancel"
+            onClick={() => openCancelPreview(selectedTourRows)}
+          >
+            Cancel tour
+          </Button>
+        ) : null}
+      </>
+    ) : null;
+
   const notifyPreviewRow = notifyPreview?.rows[0] ?? null;
 
   const modals = (
@@ -1160,39 +1216,18 @@ export function ManagerTours({
       <PortalRecordListSurface
           isEmpty={authReady && rowsForBucket.length === 0}
           add={{
+            label: "Add tour",
             ariaLabel: "Schedule tour",
             icon: PORTAL_LIST_ADD_ICONS.tour,
+            inline: true,
+            className:
+              "portal-list-add-row--tour [&_span_span]:text-sm [&_span_span]:font-semibold [&_span_span]:normal-case [&_span_span]:tracking-normal",
             onClick: () => setAddTourOpen(true),
             disabled: !authReady || propertyOptions.length === 0,
             dataAttr: "tours-list-add",
           }}
           bulkCount={selectedIds.size}
-          bulkActions={
-            <>
-              <Button
-                type="button"
-                variant="outline"
-                className={BULK_BAR_BTN}
-                data-attr="tours-bulk-edit"
-                disabled={!singleSelectedTourRow}
-                onClick={() => {
-                  if (singleSelectedTourRow) openTourDetail(singleSelectedTourRow);
-                }}
-              >
-                Edit
-              </Button>
-              <Button
-                type="button"
-                variant="outline"
-                className={`${BULK_BAR_BTN} border-rose-200 text-rose-800 hover:bg-[var(--status-overdue-bg)] portal-danger-outline`}
-                data-attr="tours-bulk-delete"
-                disabled={selectedTourRows.length === 0}
-                onClick={() => openDeletePreview(selectedTourRows)}
-              >
-                Delete
-              </Button>
-            </>
-          }
+          bulkActions={listBulkActions}
         >
           {!authReady ? (
             <p className="text-sm text-muted">Loading tours…</p>

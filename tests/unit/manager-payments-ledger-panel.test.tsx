@@ -210,7 +210,38 @@ describe("ManagerPaymentsLedgerPanel", () => {
     );
 
     expect(screen.getByRole("button", { name: /Add charge/i })).toBeTruthy();
-    expect(screen.getByTestId("payments-list-add")).toBeTruthy();
+  });
+
+  it("renders selection checkboxes on grouped charge rows", () => {
+    const { container } = render(
+      <ManagerPaymentsLedgerPanel
+        rows={[
+          sampleRow({ id: "hc_a", chargeTitle: "Move-in cost" }),
+          sampleRow({ id: "hc_b", chargeTitle: "July rent" }),
+        ]}
+        managerUserId="mgr-test"
+        activeBucket="pending"
+        direction="incoming"
+        onAddPayment={() => undefined}
+      />,
+    );
+
+    expect(container.querySelectorAll('input[type="checkbox"]').length).toBeGreaterThan(0);
+  });
+
+  it("shows bulk actions when a charge is selected", () => {
+    render(
+      <ManagerPaymentsLedgerPanel
+        rows={[sampleRow()]}
+        managerUserId="mgr-test"
+        activeBucket="pending"
+        direction="incoming"
+        onAddPayment={() => undefined}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("checkbox"));
+    expect(screen.getByRole("button", { name: /Mark as paid/i })).toBeTruthy();
   });
 
   it("renders a dashed list add row when embedded in resident", () => {
@@ -240,7 +271,9 @@ describe("ManagerPaymentsLedgerPanel", () => {
 
     const mobileRow = container.querySelector('[data-slot="data-list-mobile-row"]');
     expect(mobileRow).toBeTruthy();
-    fireEvent.click(mobileRow!);
+    const recordButton = mobileRow!.querySelector("button");
+    expect(recordButton).toBeTruthy();
+    fireEvent.click(recordButton!);
     expect(navigate).toHaveBeenCalledWith("/portal/residents/approved/r1/payments/pending/hc_test_1");
   });
 });

@@ -144,6 +144,7 @@ export function ManagerPropertyTourPanel({
         drag across a range, then confirm in the schedule dialog. Use Add availability for a recurring
         block — only painted windows are bookable.
       </p>
+      <div className="min-w-0 max-w-full overflow-x-clip">
       <PortalCalendarPanels
         key={storageKey ?? "property-calendar-unavailable"}
         storageKey={storageKey}
@@ -170,6 +171,7 @@ export function ManagerPropertyTourPanel({
             : undefined
         }
       />
+      </div>
       <ManagerPortalSettingsModal
         open={settingsOpen}
         onClose={() => setSettingsOpen(false)}

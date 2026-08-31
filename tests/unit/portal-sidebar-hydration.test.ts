@@ -24,9 +24,15 @@ describe("portal sidebar native hydration", () => {
   });
 
   it("only forces full navigation on native bottom tab taps that leave the portal", () => {
-    expect(PORTAL_SIDEBAR_SOURCE).toContain("isCrossPortalNavigation(pathname, s.href)");
+    expect(PORTAL_SIDEBAR_SOURCE).toContain("isCrossPortalNavigation(pathname, href)");
     expect(PORTAL_NAV_CLIENT_SOURCE).toContain("preferFullNavigation");
     expect(PORTAL_NAV_CLIENT_SOURCE).toContain("isCrossPortalNavigation");
+  });
+
+  it("nests Payments incoming/outgoing links under a Payments parent row", () => {
+    expect(PORTAL_SIDEBAR_SOURCE).toContain("subItems:");
+    expect(PORTAL_SIDEBAR_SOURCE).toContain("renderPaymentsNavGroup");
+    expect(PORTAL_SIDEBAR_SOURCE).toContain("isPaymentSubNavActive");
   });
 
   it("the More sheet lists every section, not just overflow (e.g. Documents alongside Finances)", () => {

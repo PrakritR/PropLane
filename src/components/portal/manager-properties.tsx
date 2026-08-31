@@ -3,7 +3,6 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Button } from "@/components/ui/button";
 import { ManagerAddListingForm } from "@/components/portal/manager-add-listing-form";
 import {
   ManagerHousePropertiesPanel,
@@ -14,7 +13,6 @@ import { ShareLeadLinkModal } from "@/components/portal/share-lead-link-modal";
 import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
 import {
   ManagerPortalPageShell,
-  PORTAL_COMMAND_ACTION_BTN,
 } from "@/components/portal/portal-metrics";
 import { propertyListHref, type PropertyDetailTabId } from "@/lib/portal-detail-routes";
 import { useAppUi } from "@/components/providers/app-ui-provider";
@@ -212,20 +210,6 @@ export function ManagerProperties({
     setShareListingOpen(true);
   };
 
-  const propertiesShareButton = (
-    <Button
-      type="button"
-      variant="outline"
-      className={PORTAL_COMMAND_ACTION_BTN}
-      disabled={shareableProperties.length === 0}
-      title={shareableProperties.length === 0 ? "No listed properties to share yet" : "Share a listing link"}
-      data-attr="manager-properties-share"
-      onClick={() => openShareListing()}
-    >
-      Share
-    </Button>
-  );
-
   const isDetailView = Boolean(propertyKeyProp);
 
   const listPanel = (
@@ -269,7 +253,6 @@ export function ManagerProperties({
             }))}
             activeDestinationId={activeStage}
             destinationAriaLabel="Property pipeline stage"
-            actions={propertiesShareButton}
           />
           {atPropertyLimit && limitMax != null ? (
             <p className="mb-4 shrink-0 rounded-2xl border px-4 py-3 text-sm portal-banner-danger lg:mb-4">
