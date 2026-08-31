@@ -46,7 +46,6 @@ import {
 import { UploadedLeasePdfPreview } from "@/components/portal/uploaded-lease-pdf-preview";
 import { PortalCollapsibleSection } from "@/components/portal/portal-collapsible-section";
 import { DestinationNav } from "@/components/ui/destination-nav";
-import { SegmentedTwo } from "@/components/ui/segmented-control";
 import { ApplicationReviewLauncherRow, type ApplicationReviewView } from "@/components/portal/application-review-launcher-row";
 import { downloadBackgroundCheckForApplication, ApplicationScreeningPanel } from "@/components/portal/application-screening-panel";
 import { ApplicationHoldingFeeModal } from "@/components/portal/application-holding-fee-box";
@@ -1278,11 +1277,8 @@ export function ManagerApplications({
   };
 
   const renderApplicationRowActions = (row: DemoApplicantRow) => {
-    const useHouseholdScreeningContext =
-      row.id === detailRow?.id && applicationReviewView === "background-check" && Boolean(activeScreeningRow);
-    const screeningRow = useHouseholdScreeningContext && activeScreeningRow ? activeScreeningRow : row;
-    const screeningCosignerId =
-      useHouseholdScreeningContext && activeScreeningCosignerId ? activeScreeningCosignerId : undefined;
+    const screeningRow = row;
+    const screeningCosignerId = activeCosignerSubmission ? activeScreeningCosignerId : undefined;
     const isPending = row.bucket === "pending";
     const showCompletionReminder = showCompletionReminderForRow(row);
     const renderSendReminderButton = (className = RESIDENT_DETAIL_HEADER_ACTION_BTN) => (
@@ -1622,7 +1618,7 @@ export function ManagerApplications({
         : undefined;
     const showPaidDepositNote = paidDepositCharge?.status === "paid";
     const group = groupForRow(applicationGroups, { groupId: groupIdForRow(row) });
-    const showHouseholdSections = applicationReviewView === "application";
+    const showHouseholdSections = true;
     const householdPanels = showHouseholdSections ? (
         <ApplicationHouseholdInlinePanels
           cosignerSubmissions={cosignerSubmissions}
@@ -1656,7 +1652,7 @@ export function ManagerApplications({
         group={group}
         bareCanvas
         showDownload={false}
-        hideToggle={applicationShowsBackgroundCheck(row)}
+        hideToggle
         activeView={applicationReviewView}
         onActiveViewChange={setApplicationReviewView}
         onScreeningUpdated={handleScreeningFlowComplete}
@@ -2061,47 +2057,34 @@ export function ManagerApplications({
           scrollBody={false}
         >
           <div className="flex min-h-0 flex-1 flex-col">
-            {(activeCosignerSubmission && cosignerShowsBackgroundCheck(activeCosignerSubmission)) ||
-            (!activeCosignerSubmission && applicationShowsBackgroundCheck(detailRow)) ? (
-              <div
-                className="shrink-0 border-b border-border bg-background px-3 py-2"
-                data-attr="application-review-toggle"
-              >
-                <SegmentedTwo
-                  value={applicationReviewView}
-                  onChange={setApplicationReviewView}
-                  left={{ id: "application", label: "Application" }}
-                  right={{ id: "background-check", label: "Background check" }}
-                  className="w-full"
-                />
-              </div>
-            ) : null}
             <PortalPageScrollBody>
               {activeCosignerSubmission ? (
-                applicationReviewView === "background-check" &&
-                cosignerShowsBackgroundCheck(activeCosignerSubmission) ? (
-                  <ApplicationScreeningPanel
-                    row={buildCosignerScreeningRow(detailRow, activeCosignerSubmission)}
-                    cosignerSubmissionId={activeCosignerSubmission.id}
-                    bareCanvas
-                    stretch
-                    collapsible={false}
-                    onUpdated={handleScreeningFlowComplete}
-                    onOpenScreeningModal={(opts) =>
-                      openDetailScreeningModal(detailRow, {
-                        showPackagePicker: opts?.showPackagePicker,
-                        cosignerSubmissionId: activeCosignerSubmission.id,
-                      })
-                    }
-                  />
-                ) : (
+                <div className="space-y-3">
                   <ManagerCosignerReadonlyReview
                     sub={activeCosignerSubmission}
                     onOpenSignerApplication={() =>
                       navigate(applicationDetailHref(basePath, tabForRow(detailRow), detailRow.id))
                     }
                   />
-                )
+                  {cosignerShowsBackgroundCheck(activeCosignerSubmission) ? (
+                    <div id="application-background-check-section" className="scroll-mt-4">
+                      <ApplicationScreeningPanel
+                        row={buildCosignerScreeningRow(detailRow, activeCosignerSubmission)}
+                        cosignerSubmissionId={activeCosignerSubmission.id}
+                        bareCanvas
+                        collapsible={false}
+                        presentation="compact"
+                        onUpdated={handleScreeningFlowComplete}
+                        onOpenScreeningModal={(opts) =>
+                          openDetailScreeningModal(detailRow, {
+                            showPackagePicker: opts?.showPackagePicker,
+                            cosignerSubmissionId: activeCosignerSubmission.id,
+                          })
+                        }
+                      />
+                    </div>
+                  ) : null}
+                </div>
               ) : (
                 renderApplicationDetail(detailRow)
               )}

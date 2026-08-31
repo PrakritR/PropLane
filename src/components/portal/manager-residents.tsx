@@ -53,7 +53,6 @@ import { PortalListControlStack } from "@/components/portal/portal-list-control-
 import { PortalPageFooterActions, PortalSectionActionRow } from "@/components/portal/portal-section-action-row";
 import {
   RESIDENT_DETAIL_TAB_LABELS,
-  RESIDENT_DETAIL_TAB_SHORT_LABELS,
   managerResidentItemDetailHref,
   residentDetailHref,
   residentPaymentDetailHref,
@@ -230,7 +229,7 @@ import {
   ApplicationReviewLauncherRow,
   type ApplicationReviewView,
 } from "@/components/portal/application-review-launcher-row";
-import { downloadBackgroundCheckForApplication } from "@/components/portal/application-screening-panel";
+import { ApplicationReviewNavCluster } from "@/components/portal/application-review-nav-cluster";
 import { runApplicationPdfDownload } from "@/components/portal/manager-applications";
 import { applicationShowsBackgroundCheck } from "@/lib/application-background-check";
 import { ResidentApplicationEditor } from "@/components/portal/resident-application-editor";
@@ -244,10 +243,6 @@ import {
   managerServiceRequestBucket,
   managerServiceRequestPricingSummary,
 } from "@/components/portal/manager-service-request-detail";
-import {
-  PORTAL_PROPERTY_DETAIL_LIST_ROW_CLASS,
-  PortalPropertyDetailSection,
-} from "@/components/portal/portal-property-detail-section";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -2492,128 +2487,52 @@ export function ManagerResidents({
   ) : null;
 
   const residentApplicationTabFooterActions = selectedApplicationRow ? (
-    applicationReviewView === "background-check" ? (
-      <>
-        {applicationShowsBackgroundCheck(selectedApplicationRow) &&
-        Boolean(selectedApplicationRow.application?.consentCredit) &&
-        selectedApplicationRow.backgroundCheck?.status !== "pending" &&
-        selectedApplicationRow.backgroundCheck?.status !== "complete" ? (
-          <Button
-            type="button"
-            variant="outline"
-            className={PORTAL_DETAIL_BTN}
-            data-attr="run-background-check"
-            onClick={() => {
-              setCheckrScreeningShowPicker(false);
-              setCheckrScreeningRowId(selectedApplicationRow.id);
-            }}
-          >
-            {isDemoModeActive() ? "Test" : "Run background check"}
-          </Button>
-        ) : null}
-        {applicationShowsBackgroundCheck(selectedApplicationRow) &&
-        Boolean(selectedApplicationRow.application?.consentCredit) &&
-        selectedApplicationRow.backgroundCheck?.status === "complete" ? (
-          <Button
-            type="button"
-            variant="outline"
-            className={PORTAL_DETAIL_BTN}
-            data-attr="run-background-check-again"
-            onClick={() => {
-              setCheckrScreeningShowPicker(true);
-              setCheckrScreeningRowId(selectedApplicationRow.id);
-            }}
-          >
-            Run again
-          </Button>
-        ) : null}
-        {selectedApplicationRow.backgroundCheck?.status === "complete" ||
-        (isDemoModeActive() && applicationShowsBackgroundCheck(selectedApplicationRow)) ? (
-          <Button
-            type="button"
-            variant="outline"
-            className={PORTAL_DETAIL_BTN}
-            data-attr="screening-pdf-download"
-            onClick={() => downloadBackgroundCheckForApplication(selectedApplicationRow)}
-          >
-            Download
-          </Button>
-        ) : null}
-      </>
-    ) : (
-      <>
-        {selectedApplicationRow.bucket !== "rejected" && !isWithdrawnApplicationRow(selectedApplicationRow) ? (
-          <Button
-            type="button"
-            variant="outline"
-            className={PORTAL_DETAIL_BTN}
-            data-attr="application-holding-fee-open"
-            onClick={() => setHoldingFeeRowId(selectedApplicationRow.id)}
-          >
-            Holding fee
-          </Button>
-        ) : null}
-        {selectedApplicationRow.bucket === "pending" ? (
-          <>
-            {shouldOfferApplicationCompletionReminder(selectedApplicationRow) ? (
-              <Button
-                type="button"
-                variant="outline"
-                className={PORTAL_DETAIL_BTN}
-                data-attr="resident-application-send-reminder"
-                disabled={applicationReminderPreviewBusyId !== null || applicationReminderBusyId !== null}
-                onClick={() => openApplicationCompletionReminderPreview(selectedApplicationRow)}
-              >
-                {applicationReminderPreviewBusyId === selectedApplicationRow.id ? "Loading…" : "Send reminder"}
-              </Button>
-            ) : null}
-            <Button
-              type="button"
-              variant="outline"
-              className={PORTAL_DETAIL_BTN}
-              data-attr="resident-application-reject"
-              onClick={() => setApplicationBucket(selectedApplicationRow.id, "rejected")}
-            >
-              Reject
-            </Button>
-            {!isInProgressApplicationRow(selectedApplicationRow) &&
-            !isWithdrawnApplicationRow(selectedApplicationRow) ? (
-              <Button
-                type="button"
-                variant="primary"
-                className={PORTAL_DETAIL_BTN}
-                data-attr="resident-application-approve"
-                onClick={() => setApprovePreviewRow(selectedApplicationRow)}
-              >
-                Approve
-              </Button>
-            ) : null}
-          </>
-        ) : (
-          <Button
-            type="button"
-            variant="outline"
-            className={PORTAL_DETAIL_BTN}
-            data-attr="resident-application-move-pending"
-            onClick={() => setApplicationBucket(selectedApplicationRow.id, "pending")}
-          >
-            <span className="max-md:hidden">To pending</span>
-            <span className="md:hidden">Pending</span>
-          </Button>
-        )}
+    <>
+      {selectedApplicationRow.bucket === "pending" &&
+      !isWithdrawnApplicationRow(selectedApplicationRow) &&
+      !isInProgressApplicationRow(selectedApplicationRow) ? (
+        <Button
+          type="button"
+          variant="primary"
+          className={PORTAL_DETAIL_BTN}
+          data-attr="resident-application-approve"
+          onClick={() => setApprovePreviewRow(selectedApplicationRow)}
+        >
+          Approve
+        </Button>
+      ) : null}
+      {applicationShowsBackgroundCheck(selectedApplicationRow) ? (
         <Button
           type="button"
           variant="outline"
           className={PORTAL_DETAIL_BTN}
-          data-attr="resident-application-download-footer"
+          data-attr="resident-application-request-screening"
           onClick={() => {
-            runApplicationPdfDownload(selectedApplicationRow, showToast);
+            if (selectedApplicationRow.application?.consentCredit) {
+              setCheckrScreeningShowPicker(false);
+              setCheckrScreeningRowId(selectedApplicationRow.id);
+              return;
+            }
+            if (shouldOfferApplicationCompletionReminder(selectedApplicationRow)) {
+              void openApplicationCompletionReminderPreview(selectedApplicationRow);
+            }
           }}
         >
-          Download
+          Request screening
         </Button>
-      </>
-    )
+      ) : null}
+      <Button
+        type="button"
+        variant="outline"
+        className={PORTAL_DETAIL_BTN}
+        data-attr="resident-application-download-footer"
+        onClick={() => {
+          runApplicationPdfDownload(selectedApplicationRow, showToast);
+        }}
+      >
+        Download
+      </Button>
+    </>
   ) : null;
 
   const residentLeaseTabFooterActions =
@@ -2823,7 +2742,6 @@ export function ManagerResidents({
                                   .map((tab) => ({
                                     id: tab,
                                     label: RESIDENT_DETAIL_TAB_LABELS[tab],
-                                    shortLabel: RESIDENT_DETAIL_TAB_SHORT_LABELS[tab],
                                     href: residentDetailHref(portalBase, residentsTab, selected.id, tab),
                                     dataAttr: `resident-detail-tab-${tab}`,
                                   }))}
@@ -2895,36 +2813,18 @@ export function ManagerResidents({
                                   />
                                 ) : (
                                 <div className="flex min-h-0 flex-1 flex-col gap-3">
-                                  {applicationShowsBackgroundCheck(selectedApplicationRow) ? (
-                                    <PortalPropertyDetailSection contentClassName="space-y-0 shrink-0">
-                                      {(
-                                        [
-                                          { id: "application", label: "Application" },
-                                          { id: "background-check", label: "Background check" },
-                                        ] as const
-                                      ).map((view) => (
-                                        <div key={view.id} className={PORTAL_PROPERTY_DETAIL_LIST_ROW_CLASS}>
-                                          <label className="flex min-w-0 flex-1 cursor-pointer items-start gap-3">
-                                            <input
-                                              type="checkbox"
-                                              className="mt-0.5 h-4 w-4 shrink-0 accent-primary"
-                                              checked={applicationReviewView === view.id}
-                                              data-attr={`resident-application-view-${view.id}`}
-                                              onChange={() => setApplicationReviewView(view.id)}
-                                              onClick={(e) => e.stopPropagation()}
-                                            />
-                                            <button
-                                              type="button"
-                                              className="min-w-0 flex-1 text-left"
-                                              onClick={() => setApplicationReviewView(view.id)}
-                                            >
-                                              <p className="text-sm font-semibold text-foreground">{view.label}</p>
-                                            </button>
-                                          </label>
-                                        </div>
-                                      ))}
-                                    </PortalPropertyDetailSection>
-                                  ) : null}
+                                  <ApplicationReviewNavCluster
+                                    row={selectedApplicationRow}
+                                    cosignerSubmissions={selectedApplicationCosigners}
+                                    activeView={applicationReviewView}
+                                    onActiveViewChange={setApplicationReviewView}
+                                    showPropertySummary
+                                    onOpenCosigner={(index) => {
+                                      navigate(
+                                        `${residentDetailHref(portalBase, residentsTab, selected.id, "application")}?cosigner=${index}`,
+                                      );
+                                    }}
+                                  />
                                   <ApplicationReviewLauncherRow
                                     row={selectedApplicationRow}
                                     group={selectedApplicationGroup}
@@ -2941,26 +2841,24 @@ export function ManagerResidents({
                                     }}
                                     cosignerSubmissions={selectedApplicationCosigners}
                                     householdPanels={
-                                      applicationReviewView === "application" ? (
-                                        <ApplicationHouseholdInlinePanels
-                                          cosignerSubmissions={selectedApplicationCosigners}
-                                          hasCosigner={selectedApplicationRow.application?.hasCosigner}
-                                          applyingAsGroup={selectedApplicationRow.application?.applyingAsGroup}
-                                          groupId={groupIdForRow(selectedApplicationRow)}
-                                          onOpenCosigner={(index) => {
-                                            navigate(
-                                              `${residentDetailHref(portalBase, residentsTab, selected.id, "application")}?cosigner=${index}`,
-                                            );
-                                          }}
-                                          group={selectedApplicationGroup}
-                                          currentRowId={selectedApplicationRow.id}
-                                          onOpenApplication={(applicationId) => {
-                                            navigate(
-                                              residentDetailHref(portalBase, residentsTab, applicationId, "application"),
-                                            );
-                                          }}
-                                        />
-                                      ) : null
+                                      <ApplicationHouseholdInlinePanels
+                                        cosignerSubmissions={selectedApplicationCosigners}
+                                        hasCosigner={selectedApplicationRow.application?.hasCosigner}
+                                        applyingAsGroup={selectedApplicationRow.application?.applyingAsGroup}
+                                        groupId={groupIdForRow(selectedApplicationRow)}
+                                        onOpenCosigner={(index) => {
+                                          navigate(
+                                            `${residentDetailHref(portalBase, residentsTab, selected.id, "application")}?cosigner=${index}`,
+                                          );
+                                        }}
+                                        group={selectedApplicationGroup}
+                                        currentRowId={selectedApplicationRow.id}
+                                        onOpenApplication={(applicationId) => {
+                                          navigate(
+                                            residentDetailHref(portalBase, residentsTab, applicationId, "application"),
+                                          );
+                                        }}
+                                      />
                                     }
                                     omitReviewSections={["cosigner", "group"]}
                                     className="min-h-0 flex-1"
