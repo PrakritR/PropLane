@@ -193,14 +193,18 @@ export function ResidentLeaseListTable({
   if (documentRows.length === 0) {
     const bucketLabel = bucket === "signed" ? "signed" : "pending";
     return (
-      <PortalDataTableEmpty
-        icon="lease"
-        message={
-          bucket || statusFilter
-            ? `No ${statusFilter && statusFilter !== "all" ? statusFilter : bucketLabel} leases yet.`
-            : emptyMessage
-        }
-      />
+      // Inside the house body like the populated list, so the tab does not
+      // change its gutters just because the resident has no lease yet.
+      <div className={PORTAL_LIST_PAGE_BODY}>
+        <PortalDataTableEmpty
+          icon="lease"
+          message={
+            bucket || statusFilter
+              ? `No ${statusFilter && statusFilter !== "all" ? statusFilter : bucketLabel} leases yet.`
+              : emptyMessage
+          }
+        />
+      </div>
     );
   }
 
