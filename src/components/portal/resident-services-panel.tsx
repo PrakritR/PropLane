@@ -3,10 +3,11 @@
 import Image from "next/image";
 import { useEffect, useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
+import { DataList } from "@/components/ui/data-list";
+import { DropdownMenuItem } from "@/components/ui/dropdown-menu";
 import { Input, Textarea } from "@/components/ui/input";
 import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
 import { PORTAL_LIST_PAGE_BODY } from "@/components/portal/portal-inbox-ui";
-import { DataList } from "@/components/ui/data-list";
 import { PortalResidentListFab } from "@/components/portal/portal-resident-list-fab";
 import { ResidentAddServiceModal } from "@/components/portal/resident-add-service-modal";
 import { formatPacificDate } from "@/lib/pacific-time";
@@ -63,7 +64,12 @@ import {
   buildUnifiedServiceRows,
   countServiceRowsByState,
   type ServiceRowState,
+  type UnifiedServiceRow,
 } from "@/lib/unified-service-rows";
+import { ResidentPortalListBottomBar } from "@/components/portal/resident-portal-list-bottom-bar";
+import type { PortalAdaptiveAction } from "@/components/portal/portal-adaptive-action-row";
+import { PORTAL_BULK_BAR_BTN } from "@/lib/portal-bulk-bar";
+import { usePortalRowSelection } from "@/hooks/use-portal-row-selection";
 import {
   LEASE_PIPELINE_EVENT,
   findLeaseForResidentEmail,
@@ -77,6 +83,22 @@ const SERVICE_STATE_TABS: { id: ServiceRowState; label: string }[] = [
   { id: "done", label: "Done" },
   { id: "declined", label: "Declined" },
 ];
+
+function unifiedServiceRowKey(row: Pick<UnifiedServiceRow, "kind" | "id">): string {
+  return `${row.kind}::${row.id}`;
+}
+
+function parseUnifiedServiceRowKey(key: string): { kind: UnifiedServiceRow["kind"]; id: string } | null {
+  const splitAt = key.indexOf("::");
+  if (splitAt <= 0) return null;
+  const kind = key.slice(0, splitAt) as UnifiedServiceRow["kind"];
+  if (kind !== "add-on" && kind !== "maintenance") return null;
+  return { kind, id: key.slice(splitAt + 2) };
+}
+
+type ResidentServiceListRowData =
+  | { unified: UnifiedServiceRow; req: ServiceRequest }
+  | { unified: UnifiedServiceRow; row: DemoManagerWorkOrderRow };
 
 export type WorkOrderFilterBucket = "pending" | "scheduled" | "completed";
 
@@ -515,6 +537,8 @@ export function ResidentServicesPanel({
   const session = usePortalSession();
 
   const [serviceStateFilter, setServiceStateFilter] = useState<ServiceRowState>("open");
+  const { selectedIds, toggleSelected, clearSelection } = usePortalRowSelection(serviceStateFilter);
+  const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [addServiceOpen, setAddServiceOpen] = useState(false);
 
@@ -730,7 +754,6 @@ export function ResidentServicesPanel({
           propertyName: row.propertyName,
           unit: row.unit,
           scheduledAtIso: row.scheduledAtIso,
-          createdAtIso: row.createdAtIso,
         })),
         propertyLabelForRequest: (propertyId) =>
           getPropertyById(propertyId)?.buildingName?.trim() || null,
@@ -940,14 +963,14 @@ export function ResidentServicesPanel({
 
   const serviceListRows = useMemo(() => {
     return filteredUnifiedRows.flatMap((unified) => {
+      const rowKey = unifiedServiceRowKey(unified);
       if (unified.kind === "add-on") {
         const req = serviceRequestById.get(unified.id);
         if (!req) return [];
-        const rowId = `request-${req.id}`;
-        const isExpanded = expandedId === rowId;
+        const isExpanded = expandedId === rowKey;
         return [
           {
-            id: rowId,
+            id: rowKey,
             data: req,
             primary: req.offerName,
             meta: [unified.statusLabel, req.notes?.trim()].filter(Boolean).join(" · ") || unified.statusLabel,
@@ -956,8 +979,10 @@ export function ResidentServicesPanel({
                 {displayServiceRequestCost(req)}
               </span>
             ),
+            selected: selectedIds.has(rowKey),
+            onSelectedChange: () => toggleSelected(rowKey),
             expanded: isExpanded,
-            onClick: () => setExpandedId((current) => (current === rowId ? null : rowId)),
+            onClick: () => setExpandedId((current) => (current === rowKey ? null : rowKey)),
             expandedContent: (
               <ServiceRequestCard
                 req={req}
@@ -972,10 +997,10 @@ export function ResidentServicesPanel({
       }
       const row = workOrderById.get(unified.id);
       if (!row) return [];
-      const isExpanded = expandedId === row.id;
+      const isExpanded = expandedId === rowKey;
       return [
         {
-          id: row.id,
+          id: rowKey,
           data: row,
           primary: row.title,
           meta: [unified.statusLabel, row.description?.trim()].filter(Boolean).join(" · ") || unified.statusLabel,
@@ -986,8 +1011,10 @@ export function ResidentServicesPanel({
               {row.priority}
             </span>
           ),
+          selected: selectedIds.has(rowKey),
+          onSelectedChange: () => toggleSelected(rowKey),
           expanded: isExpanded,
-          onClick: () => setExpandedId((current) => (current === row.id ? null : row.id)),
+          onClick: () => setExpandedId((current) => (current === rowKey ? null : rowKey)),
           expandedContent: (
             <WorkOrderDetail
               row={row}
@@ -1007,11 +1034,109 @@ export function ResidentServicesPanel({
     expandedId,
     requestReminderSendingId,
     reminderSendingId,
+    selectedIds,
+    toggleSelected,
+  ]);
+
+  const deleteSelectedServices = () => {
+    for (const key of selectedIds) {
+      const parsed = parseUnifiedServiceRowKey(key);
+      if (!parsed) continue;
+      if (parsed.kind === "add-on") {
+        const req = serviceRequestById.get(parsed.id);
+        if (req) deleteServiceRequest(req.id);
+      } else {
+        cancelWorkOrder(parsed.id);
+      }
+    }
+    clearSelection();
+    setBulkDeleteOpen(false);
+    reloadServiceRequests();
+    setAllRows(readManagerWorkOrderRows());
+    showToast(selectedIds.size === 1 ? "Service removed." : "Services removed.");
+  };
+
+  const serviceSelectionActions = useMemo((): PortalAdaptiveAction[] => {
+    if (selectedIds.size === 0) return [];
+    const actions: PortalAdaptiveAction[] = [];
+    if (selectedIds.size === 1) {
+      const parsed = parseUnifiedServiceRowKey([...selectedIds][0]!);
+      if (parsed?.kind === "add-on") {
+        const req = serviceRequestById.get(parsed.id);
+        if (req?.status === "pending") {
+          actions.push({
+            id: "reminder",
+            keepPriority: 2,
+            node: (
+              <Button
+                type="button"
+                variant="outline"
+                className={PORTAL_BULK_BAR_BTN}
+                disabled={requestReminderSendingId === req.id}
+                data-attr="resident-service-request-send-reminder"
+                onClick={() => void sendServiceRequestReminder(req)}
+              >
+                {requestReminderSendingId === req.id ? "Sending…" : "Send reminder"}
+              </Button>
+            ),
+            menuItem: (
+              <DropdownMenuItem onSelect={() => void sendServiceRequestReminder(req)}>Send reminder</DropdownMenuItem>
+            ),
+          });
+        }
+      } else if (parsed?.kind === "maintenance") {
+        const row = workOrderById.get(parsed.id);
+        if (row && row.bucket !== "completed") {
+          actions.push({
+            id: "reminder",
+            keepPriority: 2,
+            node: (
+              <Button
+                type="button"
+                variant="outline"
+                className={PORTAL_BULK_BAR_BTN}
+                disabled={reminderSendingId === row.id}
+                onClick={() => void sendWorkOrderReminder(row)}
+              >
+                {reminderSendingId === row.id ? "Sending…" : "Send reminder"}
+              </Button>
+            ),
+            menuItem: (
+              <DropdownMenuItem onSelect={() => void sendWorkOrderReminder(row)}>Send reminder</DropdownMenuItem>
+            ),
+          });
+        }
+      }
+    }
+    actions.push({
+      id: "delete",
+      keepPriority: 0,
+      node: (
+        <Button
+          type="button"
+          variant="outline"
+          className={PORTAL_BULK_BAR_BTN}
+          data-attr="resident-services-bulk-delete"
+          onClick={() => setBulkDeleteOpen(true)}
+        >
+          Delete
+        </Button>
+      ),
+      menuItem: <DropdownMenuItem onSelect={() => setBulkDeleteOpen(true)}>Delete</DropdownMenuItem>,
+    });
+    return actions;
+  }, [
+    reminderSendingId,
+    requestReminderSendingId,
+    selectedIds,
+    serviceRequestById,
+    workOrderById,
   ]);
 
   const lockedEmpty = !servicesUnlocked && unifiedServiceRows.length === 0;
 
   return (
+    <>
     <ManagerPortalPageShell
       title="Services"
       hideTitleOnMobileNav
@@ -1052,6 +1177,7 @@ export function ResidentServicesPanel({
         <DataList
           variant="resident"
           hideColumnHeaders
+          selectable={servicesUnlocked}
           rows={serviceListRows}
           columns={[
             { id: "service", header: "Service", cell: () => "—" },
@@ -1197,5 +1323,23 @@ export function ResidentServicesPanel({
       </Modal>
       </div>
     </ManagerPortalPageShell>
+    <ResidentPortalListBottomBar
+      selectionCount={selectedIds.size}
+      selectionActions={serviceSelectionActions}
+    />
+    <ConfirmDeleteModal
+      open={bulkDeleteOpen}
+      title={selectedIds.size === 1 ? "Delete service" : "Delete services"}
+      description={
+        selectedIds.size === 1
+          ? "Remove this service from your list?"
+          : `Remove ${selectedIds.size} selected services from your list?`
+      }
+      confirmLabel="Delete"
+      dataAttr="resident-services-bulk-delete-confirm"
+      onClose={() => setBulkDeleteOpen(false)}
+      onConfirm={deleteSelectedServices}
+    />
+    </>
   );
 }

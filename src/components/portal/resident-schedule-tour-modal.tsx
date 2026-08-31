@@ -131,7 +131,7 @@ export function ResidentScheduleTourModal({
       dense
       assistantContext="Schedule tour"
       panelClassName={flowProperty ? "max-w-2xl" : "max-w-lg"}
-      footer={flowProperty ? (flowFooter ? <ModalFooter>{flowFooter}</ModalFooter> : null) : pickerFooter}
+      footer={flowProperty ? (flowFooter ? <ModalFooter className="w-full">{flowFooter}</ModalFooter> : null) : pickerFooter}
     >
       {flowProperty ? (
         <div className={PORTAL_MODAL_BODY_SCROLL_CLASS}>
