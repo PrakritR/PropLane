@@ -82,10 +82,16 @@ export function PortalPropertyRecordRow({
   selected?: boolean;
   checked?: boolean;
   onSelectedChange?: (selected: boolean) => void;
-  onOpen: () => void;
+  /**
+   * Omit for a row with nothing to open. A read-only list (finance entries)
+   * still wants this row's typography, and rendering a button that does
+   * nothing would announce itself to a screen reader as actionable.
+   */
+  onOpen?: () => void;
   dataAttr?: string;
 }) {
   const selectable = Boolean(onSelectedChange);
+  const openable = Boolean(onOpen);
   return (
     <div
       className={`portal-property-row flex w-full items-stretch border-b border-border/50 px-3 py-3 transition-colors max-md:px-2.5 max-md:py-2.5 ${
@@ -105,17 +111,26 @@ export function PortalPropertyRecordRow({
           aria-label={`Select ${title}`}
         />
       ) : null}
-      <button
-        type="button"
-        data-attr={dataAttr}
-        onClick={onOpen}
-        className="flex min-w-0 flex-1 flex-col gap-1 text-left"
-      >
-        <p className="truncate text-sm font-semibold text-foreground">{title}</p>
-        <p className="text-xs leading-relaxed text-muted">{address}</p>
-        {summary ? <p className="text-xs text-muted">{summary}</p> : null}
-        {badge ? <div className="mt-0.5">{badge}</div> : null}
-      </button>
+      {openable ? (
+        <button
+          type="button"
+          data-attr={dataAttr}
+          onClick={onOpen}
+          className="flex min-w-0 flex-1 flex-col gap-1 text-left"
+        >
+          <p className="truncate text-sm font-semibold text-foreground">{title}</p>
+          <p className="text-xs leading-relaxed text-muted">{address}</p>
+          {summary ? <p className="text-xs text-muted">{summary}</p> : null}
+          {badge ? <div className="mt-0.5">{badge}</div> : null}
+        </button>
+      ) : (
+        <div data-attr={dataAttr} className="flex min-w-0 flex-1 flex-col gap-1 text-left">
+          <p className="truncate text-sm font-semibold text-foreground">{title}</p>
+          <p className="text-xs leading-relaxed text-muted">{address}</p>
+          {summary ? <p className="text-xs text-muted">{summary}</p> : null}
+          {badge ? <div className="mt-0.5">{badge}</div> : null}
+        </div>
+      )}
     </div>
   );
 }

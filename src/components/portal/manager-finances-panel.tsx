@@ -44,6 +44,8 @@ import {
   ReportExportButtons,
   type ReportFilterState,
 } from "@/components/portal/reports/report-filter-bar";
+import { PortalPropertyRecordRow } from "@/components/portal/portal-record-row";
+import { PortalRecordListSurface } from "@/components/portal/portal-record-list-surface";
 import { PORTAL_DATA_TABLE, PORTAL_DATA_TABLE_WRAP,
   PORTAL_DATA_TABLE_SCROLL,
   PORTAL_MOBILE_CARD_CLASS,
@@ -166,6 +168,90 @@ function compareRows(a: ReportRow, b: ReportRow, key: string, dir: "asc" | "desc
     cmp = av.localeCompare(bv, undefined, { sensitivity: "base" });
   }
   return dir === "asc" ? cmp : -cmp;
+}
+
+/**
+ * Transaction entries in the house list shape.
+ *
+ * Income and Expenses are records — a payment, a bill — so they read like every
+ * other list in the product rather than as a spreadsheet. The accounting
+ * REPORTS (trial balance, balance sheet, general ledger) deliberately stay on
+ * FinancesDataTable below: there the columns are the data, and flattening them
+ * into three text lines would destroy the report.
+ *
+ * Lines are derived from each column's `format` rather than from key names,
+ * because Income and Expenses do not share a column vocabulary.
+ */
+function FinancesRecordList({
+  report,
+  sortKey,
+  sortDir,
+  onTaxStatusChange,
+}: {
+  report: ReportResult;
+  sortKey: string;
+  sortDir: "asc" | "desc";
+  onTaxStatusChange?: (expenseId: string, deductible: boolean) => void;
+}) {
+  const visibleCols = useMemo(
+    () => report.columns.filter((c) => !HIDDEN_FINANCE_COLS.has(c.key)),
+    [report.columns],
+  );
+  const sortedRows = useMemo(
+    () => [...report.rows].sort((a, b) => compareRows(a, b, sortKey, sortDir)),
+    [report.rows, sortKey, sortDir],
+  );
+
+  const dateCols = visibleCols.filter((c) => c.format === "date");
+  const moneyCols = visibleCols.filter((c) => c.format === "money");
+  const textCols = visibleCols.filter(
+    (c) => c.format !== "date" && c.format !== "money" && c.key !== "taxStatus",
+  );
+  const titleCol = textCols[0];
+
+  const join = (parts: string[]) => parts.filter((p) => p && p !== "—").join(" · ");
+
+  return (
+    <>
+      {sortedRows.map((row, idx) => {
+        const title = titleCol ? formatCellValue(titleCol, row[titleCol.key]) : "Entry";
+        const line2 = join([
+          ...dateCols.map((c) => formatCellValue(c, row[c.key])),
+          ...textCols.slice(1, 2).map((c) => formatCellValue(c, row[c.key])),
+        ]);
+        const line3 = join([
+          ...moneyCols.map((c) => formatCellValue(c, row[c.key])),
+          ...textCols.slice(2).map((c) => formatCellValue(c, row[c.key])),
+        ]);
+        return (
+          <PortalPropertyRecordRow
+            key={`${row.id ?? idx}-${idx}`}
+            title={title}
+            address={line2}
+            summary={line3 || undefined}
+            badge={
+              onTaxStatusChange && row.id ? (
+                <ExpenseTaxStatusToggle
+                  compact
+                  deductible={row.taxDeductible !== false}
+                  onChange={(next) => onTaxStatusChange(String(row.id), next)}
+                />
+              ) : undefined
+            }
+            dataAttr="finance-list-row"
+          />
+        );
+      })}
+      {report.totals ? (
+        <div className="flex items-center justify-between gap-3 border-b border-border/50 px-3 py-3 max-md:px-2.5">
+          <p className="text-sm font-semibold text-foreground">Total</p>
+          <p className="text-sm font-semibold tabular-nums text-foreground">
+            {join(moneyCols.map((c) => formatCellValue(c, report.totals![c.key])))}
+          </p>
+        </div>
+      ) : null}
+    </>
+  );
 }
 
 function FinancesDataTable({
@@ -757,6 +843,9 @@ export function ManagerFinancesPanel({
   const specialFinancePanels = new Set(["bills", "bank-reconciliation", "security-deposits", "owner-distributions"]);
   const showScopedReportFilters = !specialFinancePanels.has(tabId);
   const showTransactionSearch = tabId === "income" || tabId === "expenses";
+  // Only the transaction tabs are record lists. Every other finance tab is an
+  // accounting report whose columns ARE the data, so it stays a table.
+  const isTransactionTab = tabId === "income" || tabId === "expenses";
   const activeDefaultSort = DEFAULT_SORT[tabId] ?? { key: "date", dir: "desc" as const };
   const financeSortOptions = (report?.columns ?? [])
     .filter((column) => !HIDDEN_FINANCE_COLS.has(column.key))
@@ -1145,13 +1234,26 @@ export function ManagerFinancesPanel({
                 <PortalDataTableEmpty message="No finance entries yet." icon="finance" />
               )
             ) : (
-              <FinancesDataTable
-                report={filteredReport}
-                sortKey={sortKey}
-                sortDir={sortDir}
-                onHeaderSort={onHeaderSort}
-                onTaxStatusChange={tabId === "expenses" ? (id, d) => void updateExpenseTaxStatus(id, d) : undefined}
-              />
+              isTransactionTab ? (
+                <PortalRecordListSurface>
+                  <FinancesRecordList
+                    report={filteredReport}
+                    sortKey={sortKey}
+                    sortDir={sortDir}
+                    onTaxStatusChange={
+                      tabId === "expenses" ? (id, d) => void updateExpenseTaxStatus(id, d) : undefined
+                    }
+                  />
+                </PortalRecordListSurface>
+              ) : (
+                <FinancesDataTable
+                  report={filteredReport}
+                  sortKey={sortKey}
+                  sortDir={sortDir}
+                  onHeaderSort={onHeaderSort}
+                  onTaxStatusChange={tabId === "expenses" ? (id, d) => void updateExpenseTaxStatus(id, d) : undefined}
+                />
+              )
             )}
             {financesListAddRow ? (
               <div className={`${PORTAL_LIST_ADD_ROW_WRAP_CLASS} ${filteredReport && filteredReport.rows.length > 0 ? "pt-5 sm:pt-6" : ""}`}>
