@@ -535,7 +535,7 @@ export function ManagerAllServicesPanel({
   const servicesListAddRow = (
     <PortalListAddRow
       label="Add"
-      icon={typeFilter === "work-orders" ? Wrench : PORTAL_LIST_ADD_ICONS.request}
+      icon={typeFilter === "work-orders" ? Wrench : PORTAL_LIST_ADD_ICONS.service}
       onClick={() =>
         typeFilter === "work-orders" ? setAddWorkOrderOpen(true) : setAddRequestOpen(true)
       }

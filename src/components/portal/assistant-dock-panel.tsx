@@ -32,6 +32,8 @@ export type AssistantDockPanelProps = {
   compact?: boolean;
   /** Keep the composer pinned at the bottom; only message history scrolls. */
   pinnedComposer?: boolean;
+  /** One-line hint above the composer when pinned in compact mode with no messages yet. */
+  composerHint?: string | null;
   /** When set, shows a collapse control in the header (desktop rail). */
   onCollapse?: () => void;
   /** When set, shows a switch-to-popup control (desktop rail). */
@@ -52,6 +54,7 @@ export function AssistantDockPanel({
   className,
   compact = false,
   pinnedComposer = false,
+  composerHint = null,
   onCollapse,
   onUndockToPopup,
   inputId,
@@ -256,7 +259,8 @@ export function AssistantDockPanel({
       >
         {!hasConversation && compact && pinnedComposer ? (
           <p className="text-xs leading-relaxed text-muted">
-            Describe the lease change below — rent, dates, names, or other terms.
+            {composerHint?.trim() ||
+              "Describe the change below — rent, dates, names, or other terms."}
           </p>
         ) : !hasConversation && !compact ? (
           <div className="flex flex-1 flex-col items-center justify-center gap-4 text-center">

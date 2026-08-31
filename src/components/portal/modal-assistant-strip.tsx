@@ -1,6 +1,6 @@
 "use client";
 
-import { ChevronDown, ChevronUp } from "lucide-react";
+import { ChevronDown } from "lucide-react";
 import { useEffect, useState } from "react";
 
 import { AssistantDockPanel } from "@/components/portal/assistant-dock-panel";
@@ -144,6 +144,11 @@ export function ModalAssistantStrip({
               endpoint={config.endpoint}
               contextHint={contextHint}
               compact
+              pinnedComposer
+              composerHint={
+                editHint?.trim() ||
+                "Ask below — PropLane uses this screen as context for your question."
+              }
               className={
                 fillHeight
                   ? "min-h-0 flex-1 max-h-none"
@@ -164,7 +169,7 @@ export function ModalAssistantStrip({
                 <AxisAssistantSparkleIcon className="h-4 w-4 shrink-0" />
                 Ask PropLane Assistant
               </span>
-              <ChevronUp className="h-4 w-4 shrink-0 text-muted" aria-hidden />
+              <ChevronDown className="h-4 w-4 shrink-0 text-muted" aria-hidden />
             </span>
             {editHint?.trim() ? <span className="text-xs font-normal text-muted">{editHint.trim()}</span> : null}
           </button>

@@ -60,7 +60,7 @@ export function ManagerPropertyRequestsPanel({
       <div className={PORTAL_LIST_ADD_ROW_WRAP_CLASS}>
         <PortalListAddRow
           label="Add"
-          icon={PORTAL_LIST_ADD_ICONS.request}
+          icon={PORTAL_LIST_ADD_ICONS.service}
           onClick={() => addHandlerRef.current?.()}
           dataAttr="manager-service-request-add"
         />

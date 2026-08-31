@@ -266,7 +266,6 @@ export function PortalNotificationPreviewModal({
       title={title}
       onClose={onClose}
       dense
-      fullScreenMobile={false}
       footer={footer}
       panelClassName={cn(PORTAL_MESSAGE_COMPOSE_MODAL_PANEL_CLASS, panelClassName)}
     >

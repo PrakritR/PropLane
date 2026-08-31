@@ -516,8 +516,7 @@ export function ManagerApplicationOnBehalfModal({
         onClose={handleClose}
         title={activeName ? `Application for ${activeName}` : "Application"}
         description="Complete the application, then send it to the resident to review and finish."
-        panelClassName="flex max-h-[min(90vh,56rem)] w-full max-w-5xl flex-col"
-        fullScreenMobile={false}
+        panelClassName="flex max-h-[min(90vh,56rem)] w-full max-w-5xl flex-col max-lg:!h-[100dvh] max-lg:!max-h-[100dvh]"
         dataAttr="manager-application-on-behalf-wizard"
       >
         {phase === "wizard" && activeAxisId ? (

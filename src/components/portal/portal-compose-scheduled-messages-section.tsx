@@ -1,9 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Modal } from "@/components/ui/modal";
 import { Button } from "@/components/ui/button";
-import { InboxScheduledCard, InboxScheduledSubjectRow } from "@/components/portal/portal-inbox-ui";
+import { InboxScheduledCard, InboxScheduledSubjectRow, ScheduledMessageDetailModal } from "@/components/portal/portal-inbox-ui";
 import { useScheduledPaymentMessages, patchScheduledMessage } from "@/components/portal/payment-schedule-ui";
 import {
   sendAutomationScheduledMessageNow,
@@ -180,13 +179,9 @@ export function PortalComposeScheduledMessagesSection({
         ) : null}
       </div>
 
-      <Modal
+      <ScheduledMessageDetailModal
         open={editing != null}
         onClose={() => setEditing(null)}
-        title="Scheduled message"
-        dense
-        fullScreenMobile={false}
-        panelClassName="max-w-lg p-3 sm:p-4"
         dataAttr="compose-scheduled-detail-modal"
       >
         {editing ? (
@@ -213,7 +208,7 @@ export function PortalComposeScheduledMessagesSection({
             }
           />
         ) : null}
-      </Modal>
+      </ScheduledMessageDetailModal>
     </>
   );
 }

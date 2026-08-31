@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Modal, ModalFooter } from "@/components/ui/modal";
+import { MODAL_TALL_PANEL_CLASS, PORTAL_MODAL_BODY_SCROLL_CLASS } from "@/components/ui/modal-styles";
 import { useAppUi } from "@/components/providers/app-ui-provider";
 import { isDemoModeActive } from "@/lib/demo/demo-session";
 import {
@@ -27,6 +28,7 @@ import {
 import { useWorkAssignmentDirectory } from "@/hooks/use-work-assignment-directory";
 import { useManagerUserId } from "@/hooks/use-manager-user-id";
 import { CANONICAL_DEMO_MANAGER_NAME } from "@/lib/demo/demo-canonical-accounts";
+import { cn } from "@/lib/utils";
 import { cacheLandlordLegalName } from "@/lib/manager-landlord-profile";
 import { PORTAL_TOOLBAR_PILL_BUTTON, PORTAL_TOOLBAR_PILL_BUTTON_ACTIVE } from "@/components/portal/portal-metrics";
 import { ManagerReminderSettingsPanel } from "@/components/portal/manager-reminder-settings-panel";
@@ -235,7 +237,7 @@ export function ManagerPortalSettingsModal({
           ? `${scopedTitle ?? TABS.find((item) => item.id === tab)?.label ?? "Settings"} settings`
           : "Portal settings"
       }
-      panelClassName="max-w-lg p-3 sm:p-4"
+      panelClassName={cn("max-w-lg p-3 sm:p-4", MODAL_TALL_PANEL_CLASS)}
       footer={
         modalFooter ? (
           <ModalFooter>
@@ -244,6 +246,7 @@ export function ManagerPortalSettingsModal({
         ) : undefined
       }
     >
+      <div className={PORTAL_MODAL_BODY_SCROLL_CLASS}>
       {/* A scoped dialog is already ON its one section, so a switcher would only offer the manager
           a way to wander out of it. */}
       {scoped ? null : (
@@ -314,6 +317,7 @@ export function ManagerPortalSettingsModal({
       {tab === "payments" ? <PaymentsSettingsPanel onFooterReady={setPanelFooter} /> : null}
 
       {tab === "communication" ? <CommunicationSettingsPanel onFooterReady={setPanelFooter} /> : null}
+      </div>
     </Modal>
   );
 }

@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { CheckboxMultiSelect, FieldSingleSelect } from "@/components/ui/checkbox-multi-select";
 import { Input, Textarea } from "@/components/ui/input";
 import { Modal } from "@/components/ui/modal";
+import { MODAL_TALL_PANEL_CLASS, PORTAL_MODAL_BODY_SCROLL_CLASS } from "@/components/ui/modal-styles";
 import { useAppUi } from "@/components/providers/app-ui-provider";
 import type { ManagerAutomationSettings } from "@/lib/payment-automation-settings";
 import {
@@ -24,7 +25,7 @@ import {
   mergeClientScheduledMessagePatch,
 } from "@/lib/client-scheduled-message-overrides";
 import { readPortalApiError } from "@/lib/portal-api-error";
-import { InboxScheduledCard } from "@/components/portal/portal-inbox-ui";
+import { InboxScheduledCard, ScheduledMessageDetailModal } from "@/components/portal/portal-inbox-ui";
 import { ReminderMessagePreviewCard, ReminderMessageUpdateModal, ReminderSendViaField } from "@/components/portal/reminder-settings-shared";
 import { sendAutomationScheduledMessageNow } from "@/components/portal/portal-inbox-selection";
 import { threadScheduledItemFromAutomationMessage } from "@/lib/inbox-scheduled-thread";
@@ -52,6 +53,7 @@ import {
   scheduledReminderShortLabel,
   type ScheduledPaymentMessage,
 } from "@/lib/scheduled-payment-messages";
+import { cn } from "@/lib/utils";
 
 export { formatFriendlyReminderSchedule };
 
@@ -287,8 +289,10 @@ export function ChargeRemindersModal({
       title="Edit reminder"
       dense
       assistantContext={`Edit reminder for ${chargeTitle}`}
-      panelClassName="max-w-lg p-3 sm:p-4"
+      panelClassName={cn("max-w-lg p-3 sm:p-4", MODAL_TALL_PANEL_CLASS)}
+      scrollableContent={false}
     >
+      <div className={PORTAL_MODAL_BODY_SCROLL_CLASS}>
       <div className="space-y-4">
         <div className="rounded-xl border border-border bg-accent/20 px-3 py-2.5">
           <p className="text-sm font-semibold text-foreground">{chargeTitle}</p>
@@ -367,13 +371,11 @@ export function ChargeRemindersModal({
           </button>
         ) : null}
       </div>
+      </div>
     </Modal>
-    <Modal
+    <ScheduledMessageDetailModal
       open={open && Boolean(editingMessage)}
       onClose={() => setEditingMessage(null)}
-      title="Scheduled message"
-      dense
-      panelClassName="max-w-lg p-3 sm:p-4"
     >
       {editingMessage && editingScheduled ? (
         <InboxScheduledCard
@@ -414,7 +416,7 @@ export function ChargeRemindersModal({
           }
         />
       ) : null}
-    </Modal>
+    </ScheduledMessageDetailModal>
     </>
   );
 }
@@ -1265,8 +1267,10 @@ export function ReminderSettingsModal({
       title={variant === "inbox" ? "Schedule settings" : "Payment reminders"}
       dense={variant === "payments"}
       assistantContext={variant === "payments" ? "Payment reminders modal" : undefined}
-      panelClassName={variant === "payments" ? "max-w-md p-3 sm:p-4" : undefined}
+      panelClassName={variant === "payments" ? cn("max-w-md p-3 sm:p-4", MODAL_TALL_PANEL_CLASS) : undefined}
+      scrollableContent={false}
     >
+      <div className={PORTAL_MODAL_BODY_SCROLL_CLASS}>
       <PaymentAutomationSettingsPanel
         settings={settings}
         variant={variant}
@@ -1274,6 +1278,7 @@ export function ReminderSettingsModal({
         onSaved={onSaved}
         onAfterSave={onClose}
       />
+      </div>
     </Modal>
   );
 }

@@ -24,6 +24,7 @@ import { Button } from "@/components/ui/button";
 import { Input, Textarea } from "@/components/ui/input";
 import { CheckboxMultiSelect } from "@/components/ui/checkbox-multi-select";
 import { Modal, ModalFooter } from "@/components/ui/modal";
+import { MODAL_TALL_PANEL_CLASS, PORTAL_MODAL_BODY_SCROLL_CLASS } from "@/components/ui/modal-styles";
 import { DEMO_INBOX_REPLY_PREFILL_EVENT } from "@/lib/demo/demo-playback";
 import { isDemoModeActive } from "@/lib/demo/demo-session";
 import { isNativeRuntimeSync } from "@/lib/native/detect-native";
@@ -67,6 +68,7 @@ import {
   inboxAttachmentDisplayName,
   inboxAttachmentPathFromServeUrl,
 } from "@/lib/inbox-attachments";
+import { cn } from "@/lib/utils";
 
 /** Same chrome as other portal data tables */
 export const PORTAL_INBOX_TABLE_WRAP = PORTAL_DATA_TABLE_WRAP;
@@ -1524,11 +1526,6 @@ export function AiDraftReplyCard({
           </label>
         ) : null}
       </div>
-      {autoSend ? (
-        <p className="mt-2 text-[11px] text-amber-700 dark:text-amber-300">
-          Auto-send is on. AI drafts will send without your approval — review inbound messages carefully.
-        </p>
-      ) : null}
       <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
         <Button
           type="button"
@@ -1579,6 +1576,158 @@ export type InboxScheduledSaveEdit = {
   deliverViaSms?: boolean;
 };
 
+function ScheduledMessageActionFooter({
+  showSendActions,
+  editable,
+  hasSaveEdit,
+  busy,
+  onCancelSend,
+  onEdit,
+  onSendNow,
+}: {
+  showSendActions: boolean;
+  editable: boolean;
+  hasSaveEdit: boolean;
+  busy?: boolean;
+  onCancelSend: () => void;
+  onEdit: () => void;
+  onSendNow: () => void;
+}) {
+  const hasFooter = (showSendActions && true) || (editable && hasSaveEdit);
+  if (!hasFooter) return null;
+
+  return (
+    <div className="flex w-full flex-wrap items-center justify-end gap-2">
+      {showSendActions ? (
+        <Button
+          type="button"
+          variant="ghost"
+          className="h-8 min-h-0 px-3 text-[12px] text-muted hover:text-danger"
+          onClick={onCancelSend}
+          disabled={busy}
+          data-attr="inbox-scheduled-cancel"
+        >
+          Cancel send
+        </Button>
+      ) : null}
+      {editable && hasSaveEdit ? (
+        <Button
+          type="button"
+          variant="ghost"
+          className="h-8 min-h-0 gap-1.5 px-3 text-[12px]"
+          onClick={onEdit}
+          disabled={busy}
+          data-attr="inbox-scheduled-edit"
+        >
+          <Pencil className="h-3.5 w-3.5" strokeWidth={2.25} />
+          Edit
+        </Button>
+      ) : null}
+      {showSendActions ? (
+        <Button
+          type="button"
+          variant="primary"
+          className="h-8 min-h-0 rounded-full px-4 text-[12px]"
+          onClick={onSendNow}
+          disabled={busy}
+          data-attr="inbox-scheduled-send-now"
+        >
+          Send now
+        </Button>
+      ) : null}
+    </div>
+  );
+}
+
+function enhanceInboxScheduledCardFooter(
+  node: ReactNode,
+  onFooter: (footer: ReactNode | null) => void,
+): ReactNode {
+  if (!isValidElement(node)) return node;
+  if (node.type === InboxScheduledCard) {
+    return cloneElement(node as React.ReactElement<InboxScheduledCardProps>, {
+      pinActionsInModalFooter: true,
+      onModalFooterChange: onFooter,
+      presentation: "detail",
+    });
+  }
+  const props = node.props as { children?: ReactNode };
+  if (props.children == null) return node;
+  const nextChildren = Children.map(props.children, (child) => enhanceInboxScheduledCardFooter(child, onFooter));
+  return cloneElement(node, {}, nextChildren);
+}
+
+export type InboxScheduledCardProps = {
+  sendLabel: string;
+  subject: string;
+  body: string;
+  meta?: string;
+  channel?: InboxChannel;
+  deliverViaEmail?: boolean;
+  deliverViaSms?: boolean;
+  source: "manual" | "automation";
+  emailAvailable?: boolean;
+  smsAvailable?: boolean;
+  channelEditable?: boolean;
+  editable: boolean;
+  busy?: boolean;
+  expanded?: boolean;
+  onToggleExpand?: () => void;
+  presentation?: "compact" | "detail";
+  onCancel: () => void;
+  onSendNow: () => void;
+  onSaveEdit?: (next: InboxScheduledSaveEdit) => void | Promise<void>;
+  showSendActions?: boolean;
+  pinActionsInModalFooter?: boolean;
+  onModalFooterChange?: (footer: ReactNode | null) => void;
+};
+
+/** Full-screen scheduled-message popup — scrollable body, assistant, pinned footer actions. */
+export function ScheduledMessageDetailModal({
+  open,
+  onClose,
+  title = "Scheduled message",
+  description,
+  assistantContext = "Scheduled message",
+  panelClassName,
+  dataAttr,
+  children,
+}: {
+  open: boolean;
+  onClose: () => void;
+  title?: string;
+  description?: ReactNode;
+  assistantContext?: string;
+  panelClassName?: string;
+  dataAttr?: string;
+  children: ReactNode;
+}) {
+  const [footer, setFooter] = useState<ReactNode | null>(null);
+
+  useEffect(() => {
+    if (!open) setFooter(null);
+  }, [open]);
+
+  return (
+    <Modal
+      open={open}
+      onClose={onClose}
+      title={title}
+      description={description}
+      dense
+      assistantContext={assistantContext}
+      scrollableContent={false}
+      panelClassName={cn("max-w-lg p-3 sm:p-4", MODAL_TALL_PANEL_CLASS, panelClassName)}
+      dataAttr={dataAttr}
+      footer={footer ? <ModalFooter className="w-full justify-end gap-2">{footer}</ModalFooter> : undefined}
+    >
+      <div className={PORTAL_MODAL_BODY_SCROLL_CLASS}>
+        {enhanceInboxScheduledCardFooter(children, setFooter)}
+      </div>
+    </Modal>
+  );
+}
+
 /**
  * Inline scheduled message — compact chip in the thread (`compact`) or full body
  * when nested inside another modal (`detail`).
@@ -1604,34 +1753,9 @@ export function InboxScheduledCard({
   onSendNow,
   onSaveEdit,
   showSendActions = true,
-}: {
-  sendLabel: string;
-  subject: string;
-  body: string;
-  meta?: string;
-  channel?: InboxChannel;
-  deliverViaEmail?: boolean;
-  deliverViaSms?: boolean;
-  source: "manual" | "automation";
-  emailAvailable?: boolean;
-  smsAvailable?: boolean;
-  /** When true (default for editable manual rows), Send via can be changed while editing. */
-  channelEditable?: boolean;
-  editable: boolean;
-  busy?: boolean;
-  /** @deprecated Use `presentation="detail"` instead. */
-  expanded?: boolean;
-  /** @deprecated Expand/collapse removed; kept for caller compatibility. */
-  onToggleExpand?: () => void;
-  /** `compact` = one-line chip in thread, opens a popup; `detail` = full inline body (inside another modal). */
-  presentation?: "compact" | "detail";
-  onCancel: () => void;
-  onSendNow: () => void;
-  /** Inline save of edited subject/body/channels. Present only when `editable`. */
-  onSaveEdit?: (next: InboxScheduledSaveEdit) => void | Promise<void>;
-  /** When false, hides Send now / Cancel send (template editors). */
-  showSendActions?: boolean;
-}) {
+  pinActionsInModalFooter = false,
+  onModalFooterChange,
+}: InboxScheduledCardProps) {
   const canEditChannels =
     channelEditable ??
     (editable && _source === "manual" && Boolean(onSaveEdit) && (emailAvailable || smsAvailable));
@@ -1696,6 +1820,44 @@ export function InboxScheduledCard({
       })
       .finally(() => setSaving(false));
   };
+
+  const pinFooterActions = presentation === "compact" || pinActionsInModalFooter;
+
+  const actionFooter = useMemo(() => {
+    if (editing) return null;
+    return (
+      <ScheduledMessageActionFooter
+        showSendActions={showSendActions}
+        editable={editable}
+        hasSaveEdit={Boolean(onSaveEdit)}
+        busy={busy}
+        onCancelSend={() => {
+          onCancel();
+          if (presentation === "compact") closeModal();
+        }}
+        onEdit={startEdit}
+        onSendNow={() => {
+          onSendNow();
+          if (presentation === "compact") closeModal();
+        }}
+      />
+    );
+  }, [
+    busy,
+    editable,
+    editing,
+    onCancel,
+    onSaveEdit,
+    onSendNow,
+    presentation,
+    showSendActions,
+  ]);
+
+  useEffect(() => {
+    if (!pinActionsInModalFooter || !onModalFooterChange) return;
+    onModalFooterChange(actionFooter);
+    return () => onModalFooterChange(null);
+  }, [actionFooter, onModalFooterChange, pinActionsInModalFooter]);
 
   const detailBody = (
     <div
@@ -1785,51 +1947,65 @@ export function InboxScheduledCard({
             {body || " "}
           </p>
           {meta ? <p className="mt-1 text-[11px] text-muted">{meta}</p> : null}
-          <div className="mt-2.5 flex flex-wrap items-center justify-start gap-2">
-            {showSendActions ? (
-              <>
-                <Button
-                  type="button"
-                  variant="outline"
-                  className="h-8 min-h-0 px-3 text-[12px]"
-                  onClick={() => {
-                    onSendNow();
-                    if (presentation === "compact") closeModal();
-                  }}
-                  disabled={busy}
-                  data-attr="inbox-scheduled-send-now"
-                >
-                  Send now
-                </Button>
+          {!pinFooterActions ? (
+            <div className="mt-2.5 flex flex-wrap items-center justify-start gap-2">
+              {showSendActions ? (
+                <>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    className="h-8 min-h-0 px-3 text-[12px] text-muted hover:text-danger"
+                    onClick={() => {
+                      onCancel();
+                      if (presentation === "compact") closeModal();
+                    }}
+                    disabled={busy}
+                    data-attr="inbox-scheduled-cancel"
+                  >
+                    Cancel send
+                  </Button>
+                  {editable && onSaveEdit ? (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      className="h-8 min-h-0 gap-1.5 px-3 text-[12px]"
+                      onClick={startEdit}
+                      disabled={busy}
+                      data-attr="inbox-scheduled-edit"
+                    >
+                      <Pencil className="h-3.5 w-3.5" strokeWidth={2.25} />
+                      Edit
+                    </Button>
+                  ) : null}
+                  <Button
+                    type="button"
+                    variant="primary"
+                    className="h-8 min-h-0 rounded-full px-4 text-[12px]"
+                    onClick={() => {
+                      onSendNow();
+                      if (presentation === "compact") closeModal();
+                    }}
+                    disabled={busy}
+                    data-attr="inbox-scheduled-send-now"
+                  >
+                    Send now
+                  </Button>
+                </>
+              ) : editable && onSaveEdit ? (
                 <Button
                   type="button"
                   variant="ghost"
-                  className="h-8 min-h-0 px-3 text-[12px] text-muted hover:text-danger"
-                  onClick={() => {
-                    onCancel();
-                    if (presentation === "compact") closeModal();
-                  }}
+                  className="h-8 min-h-0 gap-1.5 px-3 text-[12px]"
+                  onClick={startEdit}
                   disabled={busy}
-                  data-attr="inbox-scheduled-cancel"
+                  data-attr="inbox-scheduled-edit"
                 >
-                  Cancel send
+                  <Pencil className="h-3.5 w-3.5" strokeWidth={2.25} />
+                  Edit
                 </Button>
-              </>
-            ) : null}
-            {editable && onSaveEdit ? (
-              <Button
-                type="button"
-                variant="ghost"
-                className="h-8 min-h-0 gap-1.5 px-3 text-[12px]"
-                onClick={startEdit}
-                disabled={busy}
-                data-attr="inbox-scheduled-edit"
-              >
-                <Pencil className="h-3.5 w-3.5" strokeWidth={2.25} />
-                Edit
-              </Button>
-            ) : null}
-          </div>
+              ) : null}
+            </div>
+          ) : null}
         </>
       )}
     </div>
@@ -1862,11 +2038,17 @@ export function InboxScheduledCard({
         onClose={closeModal}
         title="Scheduled message"
         dense
-        fullScreenMobile={false}
-        panelClassName="max-w-lg p-3 sm:p-4"
+        assistantContext="Scheduled message"
+        scrollableContent={false}
+        panelClassName={cn("max-w-lg p-3 sm:p-4", MODAL_TALL_PANEL_CLASS)}
         dataAttr="inbox-scheduled-detail-modal"
+        footer={
+          actionFooter ? (
+            <ModalFooter className="w-full justify-end gap-2">{actionFooter}</ModalFooter>
+          ) : undefined
+        }
       >
-        {detailBody}
+        <div className={PORTAL_MODAL_BODY_SCROLL_CLASS}>{detailBody}</div>
       </Modal>
     </>
   );
@@ -1961,43 +2143,41 @@ export function InboxScheduledThreadList({
         onClose={() => setListOpen(false)}
         title="Scheduled messages"
         dense
-        fullScreenMobile={false}
-        panelClassName="max-w-lg p-3 sm:p-4"
-        dataAttr="inbox-scheduled-list-modal"
         assistantContext="Scheduled messages"
+        scrollableContent={false}
+        panelClassName={cn("max-w-lg p-3 sm:p-4", MODAL_TALL_PANEL_CLASS)}
+        dataAttr="inbox-scheduled-list-modal"
         footer={
           footerAction ? (
             <ModalFooter>{footerAction}</ModalFooter>
           ) : undefined
         }
       >
-        <p className="text-xs font-semibold text-muted">Scheduled messages</p>
-        <ul className="mt-2 max-h-[min(70vh,28rem)] space-y-1.5 overflow-y-auto overscroll-contain pr-0.5 [-webkit-overflow-scrolling:touch]">
-          {childArray.map((child, index) => {
-            const props = (child as React.ReactElement<{ subject?: string; sendLabel?: string }>).props;
-            return (
-              <li key={child.key ?? index}>
-                <InboxScheduledSubjectRow
-                  subject={props.subject ?? ""}
-                  sendLabel={props.sendLabel ?? ""}
-                  onClick={() => openDetail(index)}
-                />
-              </li>
-            );
-          })}
-        </ul>
+        <div className={PORTAL_MODAL_BODY_SCROLL_CLASS}>
+          <p className="text-xs font-semibold text-muted">Scheduled messages</p>
+          <ul className="mt-2 space-y-1.5">
+            {childArray.map((child, index) => {
+              const props = (child as React.ReactElement<{ subject?: string; sendLabel?: string }>).props;
+              return (
+                <li key={child.key ?? index}>
+                  <InboxScheduledSubjectRow
+                    subject={props.subject ?? ""}
+                    sendLabel={props.sendLabel ?? ""}
+                    onClick={() => openDetail(index)}
+                  />
+                </li>
+              );
+            })}
+          </ul>
+        </div>
       </Modal>
-      <Modal
+      <ScheduledMessageDetailModal
         open={detailOpen}
         onClose={() => setDetailOpen(false)}
-        title="Scheduled message"
-        dense
-        fullScreenMobile={false}
-        panelClassName="max-w-lg p-3 sm:p-4"
         dataAttr="inbox-scheduled-detail-modal"
       >
         {detailChildren[detailIdx] ?? null}
-      </Modal>
+      </ScheduledMessageDetailModal>
     </>
   );
 }

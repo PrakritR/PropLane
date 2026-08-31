@@ -24,7 +24,6 @@ import { useAppUi } from "@/components/providers/app-ui-provider";
 import {
   MANAGER_TABLE_TH,
   ManagerPortalPageShell,
-  PORTAL_HEADER_ACTION_BTN,
   PORTAL_HEADER_PRIMARY_ACTION_BTN_RESPONSIVE,
   RESIDENT_DETAIL_HEADER_ACTION_BTN,
 } from "@/components/portal/portal-metrics";
@@ -225,7 +224,6 @@ import { ApplicationHouseholdInlinePanels } from "@/components/portal/applicatio
 import { ManagerCosignerReadonlyReview } from "@/components/portal/manager-cosigner-readonly-review";
 import { dedupeResidentsByEmail } from "@/lib/resident-directory-dedupe";
 import { ApplicationHoldingFeeModal } from "@/components/portal/application-holding-fee-box";
-import { ManagerPortalSettingsModal } from "@/components/portal/manager-portal-settings-modal";
 import { useCosignerSubmissionsMap } from "@/hooks/use-cosigner-submissions-map";
 import { signerAppIdsForCosignerLookup } from "@/lib/rental-application/application-list-grouping";
 import {
@@ -385,7 +383,6 @@ export function ManagerResidents({
   const residentsTab = RESIDENTS_LIST_TAB;
   const [chargeBucket, setChargeBucket] = useState<ManagerPaymentBucket>("pending");
   const [residentReminderSettingsOpen, setResidentReminderSettingsOpen] = useState(false);
-  const [residentSettingsOpen, setResidentSettingsOpen] = useState(false);
   const [prevSelectedId, setPrevSelectedId] = useState<string | null>(null);
   const [residentAccountEmails, setResidentAccountEmails] = useState<Set<string>>(new Set());
   const [uploadingLeaseRowId, setUploadingLeaseRowId] = useState<string | null>(null);
@@ -3226,25 +3223,14 @@ export function ManagerResidents({
     ) : null;
 
   const residentsAddButton = (
-    <>
-      <Button
-        type="button"
-        variant="outline"
-        className={PORTAL_HEADER_ACTION_BTN}
-        data-attr="residents-settings-open"
-        onClick={() => setResidentSettingsOpen(true)}
-      >
-        Settings
-      </Button>
-      <Button
-        type="button"
-        variant="outline"
-        className={PORTAL_HEADER_PRIMARY_ACTION_BTN_RESPONSIVE}
-        onClick={() => setAddResidentOpen(true)}
-      >
-        Add
-      </Button>
-    </>
+    <Button
+      type="button"
+      variant="outline"
+      className={PORTAL_HEADER_PRIMARY_ACTION_BTN_RESPONSIVE}
+      onClick={() => setAddResidentOpen(true)}
+    >
+      Add
+    </Button>
   );
 
   const residentsFilterSheet =
@@ -3462,12 +3448,6 @@ export function ManagerResidents({
           void reloadResidentPaymentSchedule();
           setResidentReminderSettingsOpen(false);
         }}
-      />
-      <ManagerPortalSettingsModal
-        open={residentSettingsOpen}
-        onClose={() => setResidentSettingsOpen(false)}
-        initialTab="resident"
-        scopedTitle="Residents"
       />
       <ManagerAddPaymentModal
         open={addResidentPaymentOpen}
