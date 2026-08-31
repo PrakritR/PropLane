@@ -20,7 +20,6 @@ import { deliverPortalInboxMessage } from "@/lib/portal-message-delivery";
 import { buildLeaseReadyForResidentMessage } from "@/lib/resident-portal-login-copy";
 import { PortalRecordDetailPage } from "@/components/portal/portal-record-detail-page";
 import { ManagerLeasesGroupedTable } from "@/components/portal/manager-leases-grouped-table";
-import { INBOX_LIST_SCROLL } from "@/components/portal/portal-inbox-ui";
 import { PORTAL_LIST_ADD_ICONS } from "@/components/portal/portal-list-add-row";
 import { leaseDetailHref, leaseListHref } from "@/lib/portal-detail-routes";
 import { usePortalNavigate } from "@/lib/portal-nav-client";
@@ -1268,7 +1267,6 @@ export function ManagerLeasesPipelinePanel({
     <>
       {leaseModals}
       <PortalRecordListSurface
-        className={INBOX_LIST_SCROLL}
         add={
           onAddLease
             ? {
