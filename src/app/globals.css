@@ -2295,6 +2295,32 @@ html[data-native] .portal-mobile-nav-bar {
     flex-direction: row;
     gap: 0.5rem;
   }
+
+  /* Properties: keep the dashed add row prominent — not the compact list footer. */
+  .portal-list-page-body .portal-list-add-row-wrap:has(.portal-list-add-row--property) {
+    padding-top: 0.75rem;
+    padding-bottom: 0.75rem;
+  }
+
+  .portal-list-page-body .portal-list-add-row--property {
+    min-height: 8.5rem;
+    flex-direction: column;
+    gap: 0.75rem;
+    border-width: 2px;
+    border-radius: 1rem;
+    padding-top: 1.75rem;
+    padding-bottom: 1.75rem;
+  }
+
+  .portal-list-page-body .portal-list-add-row--property > svg {
+    height: 2rem;
+    width: 2rem;
+  }
+
+  .portal-list-page-body .portal-list-add-row--property > span {
+    flex-direction: column;
+    gap: 0.25rem;
+  }
 }
 
 /* Nested scroll panels: desktop only — mobile uses #portal-main-content scroll. */

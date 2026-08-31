@@ -1289,12 +1289,13 @@ export function ManagerHousePropertiesPanel({
     onAddProperty ? (
       <div className={PORTAL_LIST_ADD_ROW_WRAP_CLASS}>
         <PortalListAddRow
-          label="Add"
+          label="Add property"
           ariaLabel="Add property"
           icon={PORTAL_LIST_ADD_ICONS.property}
           onClick={onAddProperty}
-          dataAttr="properties-list-add"
-          inline={hasRows}
+          disabled={addPropertyDisabled}
+          dataAttr="manager-properties-create"
+          className="portal-list-add-row--property min-h-[11rem] sm:min-h-[12.5rem] sm:py-14 [&>svg]:h-10 [&>svg]:w-10 [&_span_span]:text-xs sm:[&_span_span]:text-sm"
         />
       </div>
     ) : null;

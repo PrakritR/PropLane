@@ -19,7 +19,6 @@ import {
 } from "@/components/portal/portal-metrics";
 import { PortalActiveFilterChips } from "@/components/portal/portal-filter-chips";
 import { PortalFilterSortSheet } from "@/components/portal/portal-filter-sort-sheet";
-import { PORTAL_PROPERTY_FILTER_SHEET_CLASS } from "@/components/portal/portal-filter-shell";
 import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
 import {
   PortalNotificationPreviewModal,
@@ -388,7 +387,6 @@ export function ManagerTours({
       filterFieldCount={propertyOptions.length > 1 ? 2 : 1}
       mobileFlushBody
       constrainDropdownToTitleBand={false}
-      className={PORTAL_PROPERTY_FILTER_SHEET_CLASS}
       onReset={() => {
         setPropertyFilters([]);
         setGroupMode(DEFAULT_PORTAL_LIST_GROUP_MODE);
@@ -1163,7 +1161,7 @@ export function ManagerTours({
           isEmpty={authReady && rowsForBucket.length === 0}
           add={{
             ariaLabel: "Schedule tour",
-            icon: PORTAL_LIST_ADD_ICONS.request,
+            icon: PORTAL_LIST_ADD_ICONS.tour,
             onClick: () => setAddTourOpen(true),
             disabled: !authReady || propertyOptions.length === 0,
             dataAttr: "tours-list-add",

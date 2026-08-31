@@ -352,6 +352,9 @@ const CALENDAR_CO_MANAGER_SLOT =
 /** Toolbar default-hours pickers — same field-select chrome as property forms (rounded-2xl, portaled menu). */
 const CALENDAR_TIME_FIELD_SELECT_TRIGGER =
   "min-h-9 rounded-2xl border border-border bg-auth-input-bg px-3 text-xs font-semibold text-foreground shadow-[0_1px_2px_rgba(15,23,42,0.03)] hover:border-primary/25 focus:border-primary/40 focus:ring-4 focus:ring-primary/10 sm:min-h-10 sm:text-sm";
+/** Compact tour-calendar toolbar — fits beside week nav on phones. */
+const CALENDAR_COMPACT_TIME_FIELD_SELECT_TRIGGER =
+  "h-7 min-h-7 rounded-lg border border-border bg-auth-input-bg px-2 text-[10px] font-semibold text-foreground shadow-none hover:border-primary/25 focus:border-primary/40 focus:ring-2 focus:ring-primary/10 sm:h-8 sm:min-h-8 sm:px-2.5 sm:text-xs";
 export const MEETING_CONFIRMED_COLOR =
   "border-sky-300 bg-sky-100 text-sky-950 [html[data-theme=dark]_&]:portal-calendar-meeting-confirmed";
 export const MEETING_PEER_COLOR =
@@ -1529,8 +1532,6 @@ export function PortalCalendarPanels({
     return map;
   }, [coManagerAvailabilityOverlays]);
 
-  const isPropertyTourCalendar = Boolean(scheduledTourFilter?.viewerUserId);
-
   const startTimeOptions = useMemo(
     () =>
       slotRowIndices.map((slot) => ({
@@ -1559,7 +1560,7 @@ export function PortalCalendarPanels({
     [canEditDefaultTourHours, onDefaultTourHoursChange],
   );
 
-  const onDefaultTourStartChange = useCallback(
+  const onVisibleWindowStartChange = useCallback(
     (nextRaw: string) => {
       const nextStart = Number.parseInt(nextRaw, 10);
       if (!Number.isFinite(nextStart)) return;
@@ -1576,7 +1577,7 @@ export function PortalCalendarPanels({
     [saveDefaultTourHours, visibleEndSlotExclusive],
   );
 
-  const onDefaultTourEndChange = useCallback(
+  const onVisibleWindowEndChange = useCallback(
     (nextRaw: string) => {
       const nextEnd = Number.parseInt(nextRaw, 10);
       if (!Number.isFinite(nextEnd)) return;
@@ -1595,7 +1596,7 @@ export function PortalCalendarPanels({
 
     if (compact) {
       return (
-        <div className="inline-flex shrink-0 flex-wrap items-center justify-end gap-1 sm:gap-1.5">
+        <div className="inline-flex shrink-0 flex-nowrap items-center gap-0.5 sm:gap-1">
           {onDefaultTourGridEnabledChange ? (
             <button
               type="button"
@@ -1616,20 +1617,20 @@ export function PortalCalendarPanels({
           <FieldSingleSelect
             hideLabel
             label="Start time"
-            wrapperClassName="w-[6.25rem] shrink-0 sm:w-[7rem]"
-            triggerClassName={CALENDAR_TIME_FIELD_SELECT_TRIGGER}
+            wrapperClassName="w-[4.5rem] shrink-0 sm:w-[5rem]"
+            triggerClassName={CALENDAR_COMPACT_TIME_FIELD_SELECT_TRIGGER}
             value={String(visibleStartSlot)}
-            onChange={onDefaultTourStartChange}
+            onChange={onVisibleWindowStartChange}
             options={startTimeOptions}
           />
-          <span className="text-[11px] font-medium text-muted sm:text-xs">–</span>
+          <span className="px-0.5 text-[10px] font-medium text-muted sm:text-[11px]">–</span>
           <FieldSingleSelect
             hideLabel
             label="End time"
-            wrapperClassName="w-[6.25rem] shrink-0 sm:w-[7rem]"
-            triggerClassName={CALENDAR_TIME_FIELD_SELECT_TRIGGER}
+            wrapperClassName="w-[4.5rem] shrink-0 sm:w-[5rem]"
+            triggerClassName={CALENDAR_COMPACT_TIME_FIELD_SELECT_TRIGGER}
             value={String(visibleEndSlotExclusive)}
-            onChange={onDefaultTourEndChange}
+            onChange={onVisibleWindowEndChange}
             options={endTimeOptions}
           />
         </div>
@@ -1639,7 +1640,7 @@ export function PortalCalendarPanels({
     return (
       <div className="flex flex-wrap items-center gap-2">
         <span className="text-xs font-semibold uppercase tracking-[0.14em] text-muted">Show</span>
-        <Select value={String(visibleStartSlot)} onChange={(e) => onDefaultTourStartChange(e.target.value)}>
+        <Select value={String(visibleStartSlot)} onChange={(e) => onVisibleWindowStartChange(e.target.value)}>
           {slotRowIndices.map((slot) => (
             <option key={`start-${slot}`} value={slot}>
               {formatAvailabilitySlotLabel(slot)}
@@ -1649,7 +1650,7 @@ export function PortalCalendarPanels({
         <span className="text-sm font-medium text-muted">to</span>
         <Select
           value={String(visibleEndSlotExclusive)}
-          onChange={(e) => onDefaultTourEndChange(e.target.value)}
+          onChange={(e) => onVisibleWindowEndChange(e.target.value)}
         >
           {slotRowIndices
             .map((slot) => slot + 1)
@@ -2401,7 +2402,8 @@ export function PortalCalendarPanels({
       !vendorMode && canEditAvailability ? (
         <div
           className={cn(
-            "flex w-full min-w-0 flex-nowrap items-center justify-start gap-1 overflow-x-auto overscroll-x-contain [-webkit-overflow-scrolling:touch] sm:gap-1.5",
+            "flex min-w-0 flex-nowrap items-center justify-start gap-1 overflow-x-auto overscroll-x-contain [-webkit-overflow-scrolling:touch] sm:gap-1.5",
+            delegateFooterToModal ? "w-auto shrink-0" : "w-full",
             "[&_button]:w-auto [&_button]:shrink-0",
           )}
         >
@@ -2470,30 +2472,30 @@ export function PortalCalendarPanels({
         <div className={compactShellClass}>
           <div className={compactToolbarClass}>
             <div className="flex w-full min-w-0 max-w-full flex-wrap items-center justify-center gap-1.5 sm:gap-2">
-              <Button
-                type="button"
-                variant="ghost"
-                className="h-8 w-7 shrink-0 rounded-full p-0 text-base leading-none text-muted hover:bg-accent/60 hover:text-foreground"
-                onClick={() => shiftAvailabilityWeek(-1)}
-                aria-label="Previous week"
-              >
-                ←
-              </Button>
-              <p className="shrink-0 whitespace-nowrap px-0.5 text-center text-xs font-semibold text-foreground sm:text-sm">
-                {formatWeekRangeMonSun(weekMonday)}
-              </p>
-              <Button
-                type="button"
-                variant="ghost"
-                className="h-8 w-7 shrink-0 rounded-full p-0 text-base leading-none text-muted hover:bg-accent/60 hover:text-foreground"
-                onClick={() => shiftAvailabilityWeek(1)}
-                aria-label="Next week"
-              >
-                →
-              </Button>
-              {!vendorMode ? (
-                <div className="shrink-0 pl-0.5 sm:pl-1">{renderTimeWindowControl(true)}</div>
-              ) : null}
+              <div className="flex shrink-0 flex-nowrap items-center gap-1 sm:gap-1.5">
+                <Button
+                  type="button"
+                  variant="ghost"
+                  className="h-8 w-7 shrink-0 rounded-full p-0 text-base leading-none text-muted hover:bg-accent/60 hover:text-foreground"
+                  onClick={() => shiftAvailabilityWeek(-1)}
+                  aria-label="Previous week"
+                >
+                  ←
+                </Button>
+                <p className="shrink-0 whitespace-nowrap px-0.5 text-center text-xs font-semibold text-foreground sm:text-sm">
+                  {formatWeekRangeMonSun(weekMonday)}
+                </p>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  className="h-8 w-7 shrink-0 rounded-full p-0 text-base leading-none text-muted hover:bg-accent/60 hover:text-foreground"
+                  onClick={() => shiftAvailabilityWeek(1)}
+                  aria-label="Next week"
+                >
+                  →
+                </Button>
+              </div>
+              {!vendorMode ? renderTimeWindowControl(true) : null}
               <div className="mx-0.5 hidden h-7 w-px shrink-0 bg-border/80 sm:block" aria-hidden />
               {saveStatus === "saving" ? <span className={`shrink-0 px-2 py-0.5 text-[11px] font-semibold ${CALENDAR_BADGE_INFO}`}>Saving…</span> : null}
               {saveStatus === "error" ? <span className={`shrink-0 px-2 py-0.5 text-[11px] font-semibold ${CALENDAR_BADGE_ERROR}`}>Failed</span> : null}
@@ -2667,8 +2669,8 @@ export function PortalCalendarPanels({
             return (
               <>
                 {/* Mobile: week strip — seven equal columns across full width. */}
-                <div className={`${compactMobileTopGap} lg:hidden`}>
-                  <div className="grid w-full grid-cols-7 gap-1 pb-1 sm:gap-1.5">
+                <div className={`${compactMobileTopGap} min-w-0 lg:hidden`}>
+                  <div className="grid w-full min-w-0 grid-cols-7 gap-0.5 pb-1">
                     {activeBlockDates.map((d, idx) => {
                       const ds = toLocalDateStr(d);
                       const count = showEventCountsInDayHeader
@@ -2683,15 +2685,15 @@ export function PortalCalendarPanels({
                             setMobileDayIndex(idx);
                             setAnchorDate(activeBlockDates[idx]!);
                           }}
-                          className={`flex min-w-0 w-full flex-col items-center justify-center rounded-xl px-1 py-1.5 text-center transition max-lg:py-2 ${
+                          className={`flex min-w-0 w-full flex-col items-center justify-center rounded-lg px-0.5 py-1 text-center transition ${
                             isActive ? "bg-primary text-primary-foreground" : "bg-accent/40 text-muted"
                           }`}
                         >
-                          <span className="text-[10px] font-bold uppercase tracking-[0.08em]">
+                          <span className="text-[8px] font-bold uppercase leading-none tracking-[0.06em]">
                             {d.toLocaleDateString(undefined, { weekday: "short" })}
                           </span>
-                          <span className="text-sm font-semibold">{d.toLocaleDateString(undefined, { day: "numeric" })}</span>
-                          <span className="text-[9px] font-medium opacity-80">{showEventCountsInDayHeader ? `${count} event${count === 1 ? "" : "s"}` : `${count} open`}</span>
+                          <span className="text-xs font-semibold leading-tight">{d.toLocaleDateString(undefined, { day: "numeric" })}</span>
+                          <span className="text-[8px] font-medium leading-tight opacity-80">{showEventCountsInDayHeader ? `${count} event${count === 1 ? "" : "s"}` : `${count} open`}</span>
                         </button>
                       );
                     })}
@@ -2717,26 +2719,26 @@ export function PortalCalendarPanels({
                   </div>
                 </div>
 
-                {/* Desktop: full-week grid with horizontal scroll on narrower viewports. */}
-                <div className={`${compactGridTopGap} hidden lg:block`}>
-                  <div className={bareSurface ? "" : "overflow-hidden rounded-2xl border border-border bg-card"}>
-                    <div className="overflow-x-auto" onMouseLeave={cancelDragSelection} onMouseUp={finishDragSelection}>
-                      <div className={`grid min-w-[760px] grid-cols-[56px_repeat(7,minmax(72px,1fr))] text-[10px] sm:text-xs ${CALENDAR_GRID_GAP}`}>
-                        <div className={`px-1.5 py-2 sm:px-2 ${CALENDAR_HEADER_CELL}`}>Time</div>
+                {/* Desktop: full-week grid — columns shrink to fit narrow property panels. */}
+                <div className={`${compactGridTopGap} hidden min-w-0 lg:block`}>
+                  <div className={bareSurface ? "min-w-0" : "min-w-0 overflow-hidden rounded-2xl border border-border bg-card"}>
+                    <div className="min-w-0 overflow-x-auto" onMouseLeave={cancelDragSelection} onMouseUp={finishDragSelection}>
+                      <div className={`grid w-full min-w-0 grid-cols-[44px_repeat(7,minmax(0,1fr))] text-[10px] ${CALENDAR_GRID_GAP}`}>
+                        <div className={`px-1 py-1.5 sm:px-1.5 ${CALENDAR_HEADER_CELL}`}>Time</div>
                         {activeBlockDates.map((d) => {
                           const ds = toLocalDateStr(d);
                           const count = showEventCountsInDayHeader
                             ? scheduledMeetings.filter((meeting) => meeting.dateStr === ds).length
                             : openSlotCountForDate(ds);
                           return (
-                            <div key={ds} className={`px-1 py-2.5 text-center sm:px-2 ${CALENDAR_HEADER_CELL}`}>
-                              <p className="text-[11px] font-semibold text-muted sm:text-xs">
+                            <div key={ds} className={`px-0.5 py-1.5 text-center sm:px-1 ${CALENDAR_HEADER_CELL}`}>
+                              <p className="text-[10px] font-semibold leading-tight text-muted">
                                 {d.toLocaleDateString(undefined, { weekday: "short" })}
                               </p>
-                              <p className="mt-0.5 text-sm font-semibold text-foreground">
+                              <p className="mt-0.5 text-xs font-semibold leading-tight text-foreground">
                                 {d.toLocaleDateString(undefined, { month: "short", day: "numeric" })}
                               </p>
-                              <p className={`mt-0.5 text-[10px] font-medium sm:text-[11px] ${CALENDAR_OPEN_COUNT}`}>
+                              <p className={`mt-0.5 text-[9px] font-medium leading-tight ${CALENDAR_OPEN_COUNT}`}>
                                 {showEventCountsInDayHeader ? `${count} event${count === 1 ? "" : "s"}` : `${count} open`}
                               </p>
                               {renderFlexibleToggle(d.getDay())}

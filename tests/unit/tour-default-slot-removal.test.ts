@@ -46,7 +46,7 @@ describe("removing one default window", () => {
 
   it("keeps the rest of the day bookable on the implicit default", () => {
     const stored = removeOneDefaultWindow(date, DEFAULT_TOUR_START_SLOT);
-    const offered = new Set(resolveTourOfferingSlots(stored, now));
+    const offered = new Set(resolveTourOfferingSlots(stored, now, { enabled: true }));
 
     expect(offered.has(`${date}:${DEFAULT_TOUR_START_SLOT}`)).toBe(false);
     for (let slot = DEFAULT_TOUR_START_SLOT + 1; slot < DEFAULT_TOUR_END_SLOT_EXCLUSIVE; slot += 1) {
@@ -56,19 +56,23 @@ describe("removing one default window", () => {
 
   it("does not close the day — the failure mode this guards against", () => {
     const stored = removeOneDefaultWindow(date, DEFAULT_TOUR_START_SLOT);
-    const offered = resolveTourOfferingSlots(stored, now).filter((k) => k.startsWith(`${date}:`));
+    const offered = resolveTourOfferingSlots(stored, now, { enabled: true }).filter((k) => k.startsWith(`${date}:`));
     expect(offered.length).toBe(DEFAULT_TOUR_END_SLOT_EXCLUSIVE - DEFAULT_TOUR_START_SLOT - 1);
   });
 
   it("leaves other days on the untouched default", () => {
     const stored = removeOneDefaultWindow(date, DEFAULT_TOUR_START_SLOT);
-    const offered = new Set(resolveTourOfferingSlots(stored, now));
+    const offered = new Set(resolveTourOfferingSlots(stored, now, { enabled: true }));
     const otherDay = "2026-08-21";
     expect(offered.has(`${otherDay}:${DEFAULT_TOUR_START_SLOT}`)).toBe(true);
   });
 
-  it("removing with NO stored write still offers the full default day", () => {
-    const offered = new Set(resolveTourOfferingSlots([], now));
+  it("removing with NO stored write still offers the full default day when enabled", () => {
+    const offered = new Set(resolveTourOfferingSlots([], now, { enabled: true }));
     expect(offered.has(`${date}:${DEFAULT_TOUR_START_SLOT}`)).toBe(true);
+  });
+
+  it("offers nothing when the default grid is disabled", () => {
+    expect(resolveTourOfferingSlots([], now, { enabled: false })).toEqual([]);
   });
 });

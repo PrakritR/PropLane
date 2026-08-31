@@ -49,7 +49,7 @@ export function managerTourSettingsToDefaultAvailability(
     startSlot: settings.defaultTourStartSlot,
     endSlotExclusive: settings.defaultTourEndSlotExclusive,
     horizonDays: settings.defaultTourHorizonDays,
-    enabled: settings.defaultTourGridEnabled !== false,
+    enabled: settings.defaultTourGridEnabled === true,
   });
 }
 
@@ -79,7 +79,7 @@ export function normalizeManagerTourSettings(raw: unknown): ManagerTourSettings 
     defaultTourStartSlot: startSlot,
     defaultTourEndSlotExclusive: Math.max(startSlot + 1, endSlotExclusive),
     defaultTourHorizonDays: normalizeHorizonDays(row.defaultTourHorizonDays),
-    defaultTourGridEnabled: row.defaultTourGridEnabled !== false,
+    defaultTourGridEnabled: row.defaultTourGridEnabled === true,
   };
 }
 

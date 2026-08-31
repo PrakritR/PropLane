@@ -1,10 +1,11 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { ManagerPortalSettingsModal } from "@/components/portal/manager-portal-settings-modal";
 import { PortalCalendarPanels } from "@/components/portal/portal-calendar-panels";
 import {
   PORTAL_PROPERTY_DETAIL_ACTION_BUTTON_CLASS,
+  PropertyDetailFooterActions,
   PortalPropertyDetailSection,
 } from "@/components/portal/portal-property-detail-section";
 import { Button } from "@/components/ui/button";
@@ -14,17 +15,13 @@ import {
   syncScheduleRecordsFromServer,
   writeAvailabilityDateSetForStorageKeyToServer,
 } from "@/lib/demo-admin-scheduling";
-import { isDemoModeActive } from "@/lib/demo/demo-session";
 import { buildManagerPropertyFilterOptions } from "@/lib/manager-portfolio-access";
-import {
-  DEFAULT_MANAGER_TOUR_SETTINGS,
-  managerTourSettingsToDefaultAvailability,
-  type ManagerTourSettings,
-} from "@/lib/manager-tour-settings";
 import {
   isGoogleBusyIncompleteWarning,
   useGoogleCalendarBusyMeetings,
 } from "@/hooks/use-google-calendar-busy";
+
+const NO_DEFAULT_TOUR_AVAILABILITY = { enabled: false as const };
 
 export function ManagerPropertyTourPanel({
   listingId,
@@ -43,57 +40,8 @@ export function ManagerPropertyTourPanel({
   showToast: (message: string) => void;
 }) {
   const [tick, setTick] = useState(0);
-  const [tourSettings, setTourSettings] = useState<ManagerTourSettings>(DEFAULT_MANAGER_TOUR_SETTINGS);
   const [settingsOpen, setSettingsOpen] = useState(false);
-
-  const loadTourSettings = useCallback(async () => {
-    if (!managerUserId || isDemoModeActive()) {
-      setTourSettings(DEFAULT_MANAGER_TOUR_SETTINGS);
-      return;
-    }
-    try {
-      const res = await fetch("/api/portal/manager-tour-settings", {
-        credentials: "include",
-        cache: "no-store",
-      });
-      const body = (await res.json().catch(() => ({}))) as { settings?: ManagerTourSettings };
-      if (res.ok && body.settings) setTourSettings(body.settings);
-    } catch {
-      /* keep prior */
-    }
-  }, [managerUserId]);
-
-  useEffect(() => {
-    void loadTourSettings();
-  }, [loadTourSettings]);
-
-  const persistTourSettings = useCallback(
-    async (patch: Partial<ManagerTourSettings>) => {
-      setTourSettings((prev) => ({ ...prev, ...patch }));
-      if (!managerUserId || isDemoModeActive()) return;
-      try {
-        const res = await fetch("/api/portal/manager-tour-settings", {
-          method: "PATCH",
-          credentials: "include",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(patch),
-        });
-        if (!res.ok) {
-          showToast("Could not save tour default settings.");
-          void loadTourSettings();
-        }
-      } catch {
-        showToast("Could not save tour default settings.");
-        void loadTourSettings();
-      }
-    },
-    [loadTourSettings, managerUserId, showToast],
-  );
-
-  const defaultTourAvailability = useMemo(
-    () => managerTourSettingsToDefaultAvailability(tourSettings),
-    [tourSettings],
-  );
+  const [calendarFooterActions, setCalendarFooterActions] = useState<ReactNode>(null);
 
   const refresh = useCallback(async () => {
     await syncScheduleRecordsFromServer({ force: true });
@@ -173,43 +121,28 @@ export function ManagerPropertyTourPanel({
     },
   });
 
-  const handleDefaultTourHoursChange = useCallback(
-    (startSlot: number, endSlotExclusive: number) => {
-      void persistTourSettings({
-        defaultTourStartSlot: startSlot,
-        defaultTourEndSlotExclusive: endSlotExclusive,
-      });
-    },
-    [persistTourSettings],
-  );
-
-  const handleDefaultTourGridEnabledChange = useCallback(
-    (enabled: boolean) => {
-      void persistTourSettings({ defaultTourGridEnabled: enabled });
-    },
-    [persistTourSettings],
-  );
-
   return (
     <PortalPropertyDetailSection
       actions={
-        <Button
-          type="button"
-          variant="outline"
-          className={PORTAL_PROPERTY_DETAIL_ACTION_BUTTON_CLASS}
-          data-attr="property-tour-settings-open"
-          onClick={() => setSettingsOpen(true)}
-        >
-          Settings
-        </Button>
+        <PropertyDetailFooterActions>
+          <Button
+            type="button"
+            variant="outline"
+            className={PORTAL_PROPERTY_DETAIL_ACTION_BUTTON_CLASS}
+            data-attr="property-tour-settings-open"
+            onClick={() => setSettingsOpen(true)}
+          >
+            Settings
+          </Button>
+          {calendarFooterActions}
+        </PropertyDetailFooterActions>
       }
     >
       <p className="mb-3 text-sm text-muted">
         Set when prospects can book a tour at{" "}
         <span className="font-medium text-foreground">{propertyLabel}</span>. Click an empty slot or
         drag across a range, then confirm in the schedule dialog. Use Add availability for a recurring
-        block. The Default toggle and time range set fallback hours for days without painted
-        availability.
+        block — only painted windows are bookable.
       </p>
       <PortalCalendarPanels
         key={storageKey ?? "property-calendar-unavailable"}
@@ -218,11 +151,10 @@ export function ManagerPropertyTourPanel({
         compactAvailability
         defaultViewMode="week"
         flowScroll
+        delegateFooterToModal
+        onModalFooterChange={setCalendarFooterActions}
         availabilityHeading="Tour availability"
-        defaultTourAvailability={defaultTourAvailability}
-        editableDefaultTourHours
-        onDefaultTourHoursChange={handleDefaultTourHoursChange}
-        onDefaultTourGridEnabledChange={handleDefaultTourGridEnabledChange}
+        defaultTourAvailability={NO_DEFAULT_TOUR_AVAILABILITY}
         tourScopeLabel={propertyLabel}
         unavailableMessage="Sign in to manage tour availability for this property."
         externalMeetings={googleBusyMeetings}
@@ -244,7 +176,6 @@ export function ManagerPropertyTourPanel({
         initialTab="calendar"
         scoped
         scopedTitle="Tours"
-        onCalendarSettingsSaved={() => void loadTourSettings()}
       />
     </PortalPropertyDetailSection>
   );

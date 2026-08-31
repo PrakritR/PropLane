@@ -276,7 +276,7 @@ export function resolveDefaultTourAvailabilityConfig(
     typeof partial?.horizonDays === "number" && Number.isFinite(partial.horizonDays)
       ? Math.max(7, Math.min(60, Math.trunc(partial.horizonDays)))
       : DEFAULT_TOUR_HORIZON_DAYS;
-  const enabled = partial?.enabled !== false;
+  const enabled = partial?.enabled === true;
   return { startSlot, endSlotExclusive, horizonDays, enabled };
 }
 
