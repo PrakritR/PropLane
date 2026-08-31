@@ -3422,6 +3422,7 @@ export function ManagerResidents({
               icon={PORTAL_LIST_ADD_ICONS.resident}
               onClick={() => setAddResidentOpen(true)}
               dataAttr="residents-list-add"
+              inline
             />
           </div>
         </div>

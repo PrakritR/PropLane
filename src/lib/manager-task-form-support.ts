@@ -37,7 +37,7 @@ export const MANAGER_TASK_FORM_KIND_LABELS: Record<ManagerTaskFormKind, string> 
   "check-in": "Move in",
   "check-out": "Move out",
   tour: "Tour",
-  "work-order": "Maintenance",
+  "work-order": "Service",
 };
 
 export function managerTaskTypeFromFormKind(kind: ManagerTaskFormKind): ManagerTaskType {

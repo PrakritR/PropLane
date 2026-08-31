@@ -91,7 +91,7 @@ export const MANAGER_TASK_LIST_FILTER_LABELS: Record<ManagerTaskListFilterId, st
   all: "All",
   service_orders: "Service orders",
   tours: "Tours",
-  general_tasks: "General tasks",
+  general_tasks: "Service tasks",
   house_tasks: "House tasks",
 };
 

@@ -1210,6 +1210,7 @@ export function ManagerLeasesPipelinePanel({
               icon={PORTAL_LIST_ADD_ICONS.lease}
               onClick={onAddLease}
               dataAttr="leases-list-add"
+              inline
             />
           </div>
         ) : null}
@@ -1235,6 +1236,7 @@ export function ManagerLeasesPipelinePanel({
               icon={PORTAL_LIST_ADD_ICONS.lease}
               onClick={onAddLease}
               dataAttr="leases-list-add"
+              inline
             />
           </div>
         ) : null}

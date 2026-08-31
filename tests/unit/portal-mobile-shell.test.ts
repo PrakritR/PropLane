@@ -214,4 +214,14 @@ describe("portal mobile shell conventions", () => {
     // dead whitespace under the app bar.
     expect(headingWrapper?.[1].split(/\s+/)).toContain("max-md:hidden");
   });
+
+  it("compacts list-footer add rows on mobile and clears bottom nav inset", () => {
+    expect(GLOBALS_CSS).toContain(".portal-list-page-body .portal-list-add-row");
+    expect(GLOBALS_CSS).toContain(
+      "--portal-mobile-scroll-bottom-inset: calc(var(--portal-native-bottom-nav-inset) + 0.75rem)",
+    );
+
+    const MODAL_SOURCE = readFileSync(join(process.cwd(), "src/components/ui/modal.tsx"), "utf8");
+    expect(MODAL_SOURCE).toContain("env(safe-area-inset-bottom");
+  });
 });

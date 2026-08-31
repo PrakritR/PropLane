@@ -1290,6 +1290,7 @@ export function ManagerTours({
                 onClick={() => setAddTourOpen(true)}
                 disabled={propertyOptions.length === 0}
                 dataAttr="tours-list-add"
+                inline
               />
             </div>
           </>

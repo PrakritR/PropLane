@@ -40,7 +40,7 @@ export const MODAL_FULL_PAGE_STACK_CLASS = "fixed inset-0 z-[70] overflow-hidden
 export const MODAL_FULL_PAGE_CENTER_CLASS =
   "relative z-[71] flex min-h-full items-stretch justify-stretch p-0";
 export const MODAL_FULL_PAGE_PANEL_CLASS =
-  "modal-panel fixed inset-0 z-[71] flex !h-[100dvh] !max-h-[100dvh] !w-full !max-w-none flex-col overflow-hidden !rounded-none border-0 shadow-none outline-none pt-[max(0.75rem,var(--native-safe-top,0px))] pb-[max(1rem,var(--native-safe-bottom,0px))]";
+  "modal-panel fixed inset-0 z-[71] flex !h-[100dvh] !max-h-[100dvh] !w-full !max-w-none flex-col overflow-hidden !rounded-none border-0 shadow-none outline-none pt-[max(0.75rem,var(--native-safe-top,0px))] pb-[max(1.25rem,var(--native-safe-bottom,0px))] max-lg:pb-[max(1.25rem,env(safe-area-inset-bottom,0px))]";
 
 /**
  * Mobile Vaul drawers must span the viewport width — caller `max-w-*` classes are for
@@ -51,4 +51,4 @@ export const PORTAL_MOBILE_DRAWER_EDGE_CLASS =
 
 /** Partial-height portal bottom sheet shell (below `lg`). */
 export const PORTAL_MOBILE_DRAWER_SHELL_CLASS =
-  "modal-panel fixed inset-x-0 bottom-0 z-[71] flex flex-col overflow-hidden rounded-none border-t border-border shadow-[var(--shadow-card)] outline-none motion-reduce:transition-none pb-[max(1rem,var(--native-safe-bottom,0px))] !left-0 !right-0 !w-screen !max-w-none border-x-0";
+  "modal-panel fixed inset-x-0 bottom-0 z-[71] flex max-h-[min(96dvh,calc(100dvh-var(--portal-native-bottom-nav-inset,0px)))] flex-col overflow-hidden rounded-t-2xl border-t border-border shadow-[var(--shadow-card)] outline-none motion-reduce:transition-none pb-[max(1.25rem,env(safe-area-inset-bottom,0px))] [html[data-native]_&]:pb-[max(1.25rem,var(--native-safe-bottom,0px))] !left-0 !right-0 !w-screen !max-w-none border-x-0";
