@@ -1,11 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import {
-  PortalListAddRow,
-  PORTAL_LIST_ADD_ICONS,
-  PORTAL_LIST_ADD_ROW_WRAP_CLASS,
-} from "@/components/portal/portal-list-add-row";
+import { PORTAL_LIST_ADD_ICONS } from "@/components/portal/portal-list-add-row";
+import { PortalRecordListSurface } from "@/components/portal/portal-record-list-surface";
 import { PortalListGroupFilterFields } from "@/components/portal/portal-list-group-filter-fields";
 import { ManagerAddScheduledTourModal } from "@/components/portal/manager-add-scheduled-tour-modal";
 import { ManagerToursGroupedTable } from "@/components/portal/manager-tours-grouped-table";
@@ -24,7 +21,6 @@ import { PortalActiveFilterChips } from "@/components/portal/portal-filter-chips
 import { PortalFilterSortSheet } from "@/components/portal/portal-filter-sort-sheet";
 import { PORTAL_PROPERTY_FILTER_SHEET_CLASS } from "@/components/portal/portal-filter-shell";
 import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
-import { PORTAL_LIST_PAGE_BODY } from "@/components/portal/portal-inbox-ui";
 import {
   PortalNotificationPreviewModal,
   type NotificationConfirmDraft,
@@ -89,6 +85,7 @@ import {
   buildTourRescheduledTenantBody,
 } from "@/lib/tour-notifications";
 import { PORTAL_BULK_BAR_BTN } from "@/lib/portal-bulk-bar";
+import { usePortalRowSelection } from "@/hooks/use-portal-row-selection";
 
 const TOUR_BUCKET_LABELS = MANAGER_TOUR_BUCKETS.map((id) => ({
   id,
@@ -342,6 +339,28 @@ export function ManagerTours({
     return sortManagerTourClustersForBucket(grouped, bucket);
   }, [rowsForBucket, bucket, groupMode]);
 
+  const { selectedIds, setSelectedIds, toggleSelected } = usePortalRowSelection(bucket);
+  const selectedTourRows = useMemo(
+    () => rowsForBucket.filter((row) => selectedIds.has(row.id)),
+    [rowsForBucket, selectedIds],
+  );
+  const singleSelectedTourRow = selectedTourRows.length === 1 ? selectedTourRows[0]! : null;
+
+  const toggleTourCluster = useCallback(
+    (ids: readonly string[]) => {
+      setSelectedIds((prev) => {
+        const allSelected = ids.length > 0 && ids.every((id) => prev.has(id));
+        const next = new Set(prev);
+        for (const id of ids) {
+          if (allSelected) next.delete(id);
+          else next.add(id);
+        }
+        return next;
+      });
+    },
+    [setSelectedIds],
+  );
+
   const detailRow = useMemo(() => {
     if (!tourIdProp) return null;
     const decoded = decodeURIComponent(tourIdProp);
@@ -365,6 +384,7 @@ export function ManagerTours({
     <PortalFilterSortSheet
       activeCount={filterTouchCount}
       compactPanel
+      commandStripTrigger
       filterFieldCount={propertyOptions.length > 1 ? 2 : 1}
       mobileFlushBody
       constrainDropdownToTitleBand={false}
@@ -805,7 +825,10 @@ export function ManagerTours({
     <ManagerToursGroupedTable
       clusters={clusters}
       groupMode={groupMode}
-      selectable={false}
+      selectable
+      selectedIds={selectedIds}
+      onToggleSelected={toggleSelected}
+      onToggleCluster={toggleTourCluster}
       onRowClick={openTourDetail}
       tourReminders={tourReminders}
     />
@@ -1095,7 +1118,7 @@ export function ManagerTours({
       {modals}
 
       <PortalListControlStack
-        className="mb-2"
+        className="mb-2 max-lg:mb-1.5"
         variant="command"
         destinations={tabs.map((tab) => ({
           id: tab.id,
@@ -1107,9 +1130,9 @@ export function ManagerTours({
         }))}
         activeDestinationId={bucket}
         destinationAriaLabel="Tour status"
-        filterRow={filterSheet}
         actions={
           <>
+            {filterSheet}
             <Button
               type="button"
               variant="outline"
@@ -1134,28 +1157,51 @@ export function ManagerTours({
         activeFilterChips={activeFilterChips}
       />
 
-      <div className={PORTAL_LIST_PAGE_BODY}>
-        {bucket === "pending" ? <TourProposalsPanel /> : null}
+      {bucket === "pending" ? <TourProposalsPanel /> : null}
 
-        {!authReady ? (
-          <p className="text-sm text-muted">Loading tours…</p>
-        ) : rowsForBucket.length === 0 ? null : (
-          renderGroupedTours()
-        )}
-        {authReady ? (
-          <div className={PORTAL_LIST_ADD_ROW_WRAP_CLASS}>
-            <PortalListAddRow
-              label="Add"
-              ariaLabel="Schedule tour"
-              icon={PORTAL_LIST_ADD_ICONS.request}
-              onClick={() => setAddTourOpen(true)}
-              disabled={propertyOptions.length === 0}
-              dataAttr="tours-list-add"
-              inline={rowsForBucket.length > 0}
-            />
-          </div>
-        ) : null}
-      </div>
+      <PortalRecordListSurface
+          isEmpty={authReady && rowsForBucket.length === 0}
+          add={{
+            ariaLabel: "Schedule tour",
+            icon: PORTAL_LIST_ADD_ICONS.request,
+            onClick: () => setAddTourOpen(true),
+            disabled: !authReady || propertyOptions.length === 0,
+            dataAttr: "tours-list-add",
+          }}
+          bulkCount={selectedIds.size}
+          bulkActions={
+            <>
+              <Button
+                type="button"
+                variant="outline"
+                className={BULK_BAR_BTN}
+                data-attr="tours-bulk-edit"
+                disabled={!singleSelectedTourRow}
+                onClick={() => {
+                  if (singleSelectedTourRow) openTourDetail(singleSelectedTourRow);
+                }}
+              >
+                Edit
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                className={`${BULK_BAR_BTN} border-rose-200 text-rose-800 hover:bg-[var(--status-overdue-bg)] portal-danger-outline`}
+                data-attr="tours-bulk-delete"
+                disabled={selectedTourRows.length === 0}
+                onClick={() => openDeletePreview(selectedTourRows)}
+              >
+                Delete
+              </Button>
+            </>
+          }
+        >
+          {!authReady ? (
+            <p className="text-sm text-muted">Loading tours…</p>
+          ) : rowsForBucket.length > 0 ? (
+            renderGroupedTours()
+          ) : null}
+        </PortalRecordListSurface>
 
       <ShareLeadLinkModal
         open={shareTourOpen}

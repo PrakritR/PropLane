@@ -15,8 +15,6 @@ import { PortalListControlStack } from "@/components/portal/portal-list-control-
 import {
   ManagerPortalPageShell,
   PORTAL_COMMAND_ACTION_BTN,
-  PORTAL_COMMAND_PRIMARY_ACTION_BTN,
-  PORTAL_COMMAND_PRIMARY_ACTION_STYLE,
 } from "@/components/portal/portal-metrics";
 import { useAppUi } from "@/components/providers/app-ui-provider";
 import type { ManagerLeaseTab } from "@/data/demo-portal";
@@ -186,6 +184,7 @@ export function ManagerLeases({
     <PortalFilterSortSheet
       activeCount={portalFilterActiveCount([propertyFilters])}
       compactPanel
+      commandStripTrigger
       filterFieldCount={1}
       constrainDropdownToTitleBand={false}
       mobileFlushBody
@@ -204,6 +203,7 @@ export function ManagerLeases({
 
   const leasesListActions = (
     <>
+      {leasesFilterSheet}
       <Button
         type="button"
         variant="outline"
@@ -212,15 +212,6 @@ export function ManagerLeases({
         onClick={() => setLeaseSettingsOpen(true)}
       >
         Settings
-      </Button>
-      <Button
-        type="button"
-        className={PORTAL_COMMAND_PRIMARY_ACTION_BTN}
-        style={PORTAL_COMMAND_PRIMARY_ACTION_STYLE}
-        data-attr="leases-add"
-        onClick={() => setAddLeaseOpen(true)}
-      >
-        Add
       </Button>
     </>
   );
@@ -291,7 +282,7 @@ export function ManagerLeases({
         compactFilterRow
       >
         <PortalListControlStack
-          className="mb-2"
+          className="mb-2 max-lg:mb-1.5"
           variant="command"
           destinations={tabs.map((t) => ({
             id: t.id,
@@ -310,7 +301,6 @@ export function ManagerLeases({
           }))}
           activeDestinationId={tab}
           destinationAriaLabel="Lease pipeline stage"
-          filterRow={leasesFilterSheet}
           actions={leasesListActions}
           activeFilterChips={
             propertyFilters.length > 0 ? (
@@ -334,6 +324,7 @@ export function ManagerLeases({
           residentAccountEmails={residentAccountEmails}
           leaseId={leaseIdProp}
           listBasePath={basePath}
+          onAddLease={() => setAddLeaseOpen(true)}
           onEmailAccountSetup={(email) => {
             setResidentAccountEmails((prev) => new Set([...prev, email.trim().toLowerCase()]));
           }}

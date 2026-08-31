@@ -34,7 +34,7 @@ import { PortalActiveFilterChips } from "@/components/portal/portal-filter-chips
 import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
 import { PortalSectionActionRow } from "@/components/portal/portal-section-action-row";
 import { PortalRecordDetailPage } from "@/components/portal/portal-record-detail-page";
-import { PORTAL_LIST_PAGE_BODY } from "@/components/portal/portal-inbox-ui";
+import { PortalRecordListSurface } from "@/components/portal/portal-record-list-surface";
 import {
   PORTAL_DATA_TABLE_WRAP,
   PORTAL_DETAIL_BTN,
@@ -48,11 +48,9 @@ import { downloadBackgroundCheckForApplication, ApplicationScreeningPanel } from
 import { ApplicationHoldingFeeModal } from "@/components/portal/application-holding-fee-box";
 import { ManagerEditApplicationModal } from "@/components/portal/manager-edit-application-modal";
 import { ManagerApplicationOnBehalfModal } from "@/components/portal/manager-application-on-behalf-modal";
-import {
-  PortalListAddRow,
-  PORTAL_LIST_ADD_ICONS,
-  PORTAL_LIST_ADD_ROW_WRAP_CLASS,
-} from "@/components/portal/portal-list-add-row";
+import { PORTAL_LIST_ADD_ICONS } from "@/components/portal/portal-list-add-row";
+import { PORTAL_BULK_BAR_BTN } from "@/lib/portal-bulk-bar";
+import { usePortalRowSelection } from "@/hooks/use-portal-row-selection";
 import { CheckrScreeningModal } from "@/components/portal/checkr-screening-modal";
 import { ManagerScreeningSettingsModal } from "@/components/portal/manager-screening-settings";
 import { ManagerPortalSettingsModal } from "@/components/portal/manager-portal-settings-modal";
@@ -776,6 +774,10 @@ export function ManagerApplications({
     );
   }, [rowsForBucket, bucket, applicationGroups]);
 
+  const { selectedIds, toggleSelected, clearSelection } = usePortalRowSelection(bucket);
+  const listSelectedCount = selectedIds.size;
+  const singleListSelectedId = listSelectedCount === 1 ? [...selectedIds][0]! : null;
+
   const openDetailScreeningModal = useCallback((row: DemoApplicantRow, opts?: { showPackagePicker?: boolean; cosignerSubmissionId?: string }) => {
     setCheckrScreeningShowPicker(Boolean(opts?.showPackagePicker));
     setCheckrScreeningRowId(row.id);
@@ -1062,6 +1064,44 @@ export function ManagerApplications({
     }
 
     showToast("Application deleted.");
+  };
+
+  const deleteListSelectedApplications = async () => {
+    const ids = [...selectedIds];
+    if (ids.length === 0) return;
+    const label =
+      ids.length === 1
+        ? applicantDisplayName(rows.find((row) => row.id === ids[0])!) || "this application"
+        : `${ids.length} applications`;
+    if (!window.confirm(`Delete ${label}? This cannot be undone.`)) return;
+
+    let deleted = 0;
+    for (const id of ids) {
+      const row = rows.find((candidate) => candidate.id === id);
+      if (!row) continue;
+      const nextRows = rows.filter((r) => r.id !== id);
+      writeManagerApplicationRows(nextRows);
+      setRows(nextRows);
+      const result = await deleteManagerApplicationFromServer(id);
+      if (!result.ok) {
+        setRows(await syncManagerApplicationsFromServer({ managerUserId: userId }));
+        showToast(result.error ?? "Could not delete application.");
+        return;
+      }
+      purgeApplicationLocalData(id);
+      deleted += 1;
+    }
+
+    const [syncedRows] = await Promise.all([
+      syncManagerApplicationsFromServer({ force: true, managerUserId: userId }),
+      syncHouseholdChargesFromServer(),
+    ]);
+    setRows(syncedRows);
+    clearSelection();
+    if (applicationIdProp && ids.includes(applicationIdProp)) {
+      navigate(applicationsListHref(bucket));
+    }
+    showToast(deleted === 1 ? "Application deleted." : `${deleted} applications deleted.`);
   };
 
   const sendApplicationReminder = async (
@@ -1864,39 +1904,64 @@ export function ManagerApplications({
           <ListSkeleton rows={5} showLeading={false} />
         </div>
       ) : (
-        <div className={PORTAL_LIST_PAGE_BODY}>
-          {rowsForBucket.length === 0 ? (
-            <PortalDataTableEmpty
-              icon="default"
-              message={
-                propertyFilters.length > 0
-                  ? "No applications match your filters."
-                  : "No applications in this bucket yet."
-              }
-            />
-          ) : (
+        <PortalRecordListSurface
+          isEmpty={rowsForBucket.length === 0}
+          empty={
+            propertyFilters.length > 0 ? (
+              <PortalDataTableEmpty icon="default" message="No applications match your filters." />
+            ) : null
+          }
+          add={{
+            label: "Add",
+            ariaLabel: "Add application",
+            icon: PORTAL_LIST_ADD_ICONS.application,
+            onClick: openAddApplication,
+            disabled: propertyOptions.length === 0,
+            dataAttr: "applications-list-add",
+          }}
+          bulkCount={listSelectedCount}
+          bulkActions={
+            <>
+              <Button
+                type="button"
+                variant="outline"
+                className={PORTAL_BULK_BAR_BTN}
+                data-attr="applications-bulk-edit"
+                disabled={!singleListSelectedId}
+                onClick={() => {
+                  if (!singleListSelectedId) return;
+                  const row = rowsForBucket.find((candidate) => candidate.id === singleListSelectedId);
+                  if (row) navigate(applicationDetailHref(basePath, tabForRow(row), row.id));
+                }}
+              >
+                Edit
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                className={`${PORTAL_BULK_BAR_BTN} border-rose-200 text-rose-800 hover:bg-[var(--status-overdue-bg)] portal-danger-outline`}
+                data-attr="applications-bulk-delete"
+                onClick={() => void deleteListSelectedApplications()}
+              >
+                Delete
+              </Button>
+            </>
+          }
+        >
+          {rowsForBucket.length > 0 ? (
             <ManagerApplicationsGroupedTable
               clusters={listClusters}
               cosignerSubmissionsBySigner={cosignerSubmissionsBySigner}
-              selectable={false}
+              selectable
+              selectedIds={selectedIds}
+              onToggleSelected={toggleSelected}
               onOpenApplication={(row) => navigate(applicationDetailHref(basePath, tabForRow(row), row.id))}
               onOpenCosigner={(row, index) =>
                 navigate(`${applicationDetailHref(basePath, tabForRow(row), row.id)}?cosigner=${index}`)
               }
             />
-          )}
-          <div className={PORTAL_LIST_ADD_ROW_WRAP_CLASS}>
-            <PortalListAddRow
-              label="Add"
-              ariaLabel="Add application"
-              icon={PORTAL_LIST_ADD_ICONS.application}
-              onClick={openAddApplication}
-              disabled={propertyOptions.length === 0}
-              dataAttr="applications-list-add"
-              inline={rowsForBucket.length > 0}
-            />
-          </div>
-        </div>
+          ) : null}
+        </PortalRecordListSurface>
       )}
       </div>
     </ManagerPortalPageShell>

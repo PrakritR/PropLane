@@ -77,12 +77,15 @@ export function ManagerToursGroupedTable({
   const renderTourDataList = (listRows: ManagerTourRow[]) => (
     <DataList
       hideColumnHeaders
-      selectable={selectable}
+      selectable={selectable && Boolean(onToggleSelected)}
       rows={listRows.map((row) => ({
         id: row.id,
         data: row,
         primary: row.whenLabel,
         meta: tourLocationMeta(row, showPropertyColumn, groupMode, tourReminders),
+        selected: selectedIds?.has(row.id),
+        onSelectedChange:
+          selectable && onToggleSelected ? () => onToggleSelected(row.id) : undefined,
         onClick: () => onRowClick(row),
       }))}
       columns={[

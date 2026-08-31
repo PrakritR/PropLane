@@ -322,6 +322,39 @@ export function ManagerLeasesPipelinePanel({
     singleSelectedLeaseRow && leaseRowAllowsGeneratedBodyEdit(singleSelectedLeaseRow),
   );
 
+  const deletableSelectedLeaseRows = useMemo(
+    () => selectedLeaseRows.filter((row) => row.status !== "Fully Signed"),
+    [selectedLeaseRows],
+  );
+
+  const deleteSelectedLeases = useCallback(() => {
+    if (deletableSelectedLeaseRows.length === 0) {
+      showToast("Fully signed leases can't be deleted.");
+      return;
+    }
+    const label =
+      deletableSelectedLeaseRows.length === 1
+        ? `${deletableSelectedLeaseRows[0]!.residentName} (${deletableSelectedLeaseRows[0]!.unit})`
+        : `${deletableSelectedLeaseRows.length} leases`;
+    if (
+      !window.confirm(
+        `Delete ${label}? Generate or upload can recreate ${deletableSelectedLeaseRows.length === 1 ? "it" : "them"}.`,
+      )
+    ) {
+      return;
+    }
+    let deleted = 0;
+    for (const row of deletableSelectedLeaseRows) {
+      if (deleteLeasePipelineRow(row.id, managerUserId)) deleted += 1;
+    }
+    if (deleted === 0) {
+      showToast("Could not delete lease.");
+      return;
+    }
+    setSelectedIds(new Set());
+    showToast(deleted === 1 ? "Lease document deleted." : `${deleted} lease documents deleted.`);
+  }, [deletableSelectedLeaseRows, managerUserId, setSelectedIds, showToast]);
+
   const openBulkSendLeasePreview = useCallback(() => {
     if (bulkSendableLeaseRows.length === 0) {
       showToast("None of the selected leases can be sent. Each needs a document, resident account, and no review blockers.");
@@ -1203,6 +1236,7 @@ export function ManagerLeasesPipelinePanel({
           add={
             onAddLease
               ? {
+                  label: "Add lease",
                   ariaLabel: "Add lease",
                   icon: PORTAL_LIST_ADD_ICONS.lease,
                   onClick: onAddLease,
@@ -1223,6 +1257,7 @@ export function ManagerLeasesPipelinePanel({
         add={
           onAddLease
             ? {
+                label: "Add lease",
                 ariaLabel: "Add lease",
                 icon: PORTAL_LIST_ADD_ICONS.lease,
                 onClick: onAddLease,
@@ -1232,33 +1267,49 @@ export function ManagerLeasesPipelinePanel({
         }
         bulkCount={selectedIds.size}
         bulkActions={
-          <>
-            {tab === "manager" && selectedLeaseRows.length > 0 ? (
-              <>
-                {canBulkEditLease ? (
-                  <Button
-                    type="button"
-                    variant="outline"
-                    className={PORTAL_BULK_BAR_BTN}
-                    data-attr="leases-bulk-edit"
-                    onClick={() => setEditLeaseRowId(singleSelectedLeaseRow!.id)}
-                  >
-                    Edit
-                  </Button>
-                ) : null}
+          selectedLeaseRows.length > 0 ? (
+            <>
+              <Button
+                type="button"
+                variant="outline"
+                className={PORTAL_BULK_BAR_BTN}
+                data-attr="leases-bulk-edit"
+                disabled={!singleSelectedLeaseRow}
+                onClick={() => {
+                  if (!singleSelectedLeaseRow) return;
+                  if (canBulkEditLease) {
+                    setEditLeaseRowId(singleSelectedLeaseRow.id);
+                    return;
+                  }
+                  openLeaseDetail(singleSelectedLeaseRow);
+                }}
+              >
+                Edit
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                className={`${PORTAL_BULK_BAR_BTN} border-rose-200 text-rose-800 hover:bg-[var(--status-overdue-bg)] portal-danger-outline`}
+                data-attr="leases-bulk-delete"
+                disabled={deletableSelectedLeaseRows.length === 0}
+                onClick={deleteSelectedLeases}
+              >
+                Delete
+              </Button>
+              {tab === "manager" && canBulkSendLeases ? (
                 <Button
                   type="button"
                   variant="primary"
                   className={PORTAL_BULK_BAR_BTN}
                   data-attr="leases-bulk-send"
-                  disabled={Boolean(sendingToResidentRowId) || !canBulkSendLeases}
+                  disabled={Boolean(sendingToResidentRowId)}
                   onClick={openBulkSendLeasePreview}
                 >
                   Send
                 </Button>
-              </>
-            ) : null}
-          </>
+              ) : null}
+            </>
+          ) : null
         }
       >
         <ManagerLeasesGroupedTable

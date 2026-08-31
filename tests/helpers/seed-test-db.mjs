@@ -1630,8 +1630,140 @@ try {
     };
   }
 
-  const applicationRows = people.map(buildApplicationRow);
+  const DEMO_INCOMPLETE_GROUP_ID = "PROPLANE-DEMOGRP1";
+  const incompleteFixturePeople = [
+    {
+      axisId: "AXIS-DEMOGRPIN1",
+      name: "Riley Group Lead",
+      email: "riley.group.workflow@test.proplane.local",
+      propId: "mgr-demo-cascade",
+      roomId: "room-3",
+      groupRole: "first",
+      income: 92000,
+    },
+    {
+      axisId: "AXIS-DEMOGRPIN2",
+      name: "Sam Group Member",
+      email: "sam.group.workflow@test.proplane.local",
+      propId: "mgr-demo-cascade",
+      roomId: "room-4",
+      groupRole: "joining",
+      income: 88000,
+    },
+    {
+      axisId: "AXIS-DEMOCOSIN1",
+      name: "Jordan With Cosigner",
+      email: "jordan.cosigner.workflow@test.proplane.local",
+      propId: "mgr-demo-cascade",
+      roomId: "room-2",
+      hasCosigner: true,
+      income: 75000,
+    },
+  ].map((p, i) => {
+    const prop = propById.get(p.propId);
+    const roomDef = prop.rooms.find((r) => r.id === p.roomId);
+    return {
+      ...p,
+      index: people.length + i,
+      prop,
+      room: roomDef,
+      rent: roomDef.rent,
+      roomChoice: `${p.propId}::${p.roomId}`,
+    };
+  });
+
+  function buildIncompleteFixtureApplication(p) {
+    const application = buildCatalogApplication(p);
+    if (p.groupRole) {
+      application.applyingAsGroup = "yes";
+      application.groupRole = p.groupRole;
+      application.groupId = DEMO_INCOMPLETE_GROUP_ID;
+      application.groupSize = "2";
+    }
+    if (p.hasCosigner) {
+      application.hasCosigner = "yes";
+    }
+    application.consentCredit = false;
+    return application;
+  }
+
+  function buildIncompleteApplicationRow(p) {
+    return {
+      id: p.axisId,
+      manager_user_id: p.prop.ownerUserId,
+      resident_email: p.email,
+      property_id: p.propId,
+      assigned_property_id: null,
+      row_data: {
+        id: p.axisId,
+        axisId: p.axisId,
+        bucket: "pending",
+        stage: "In progress",
+        detail: `Started ${isoDate(daysFromNow(-3))}`,
+        email: p.email,
+        name: p.name,
+        property: p.prop.name,
+        application: buildIncompleteFixtureApplication(p),
+        backgroundCheckStatus: "pending_review",
+        managerUserId: p.prop.ownerUserId,
+        propertyId: p.propId,
+        testRunId,
+      },
+      updated_at: NOW.toISOString(),
+    };
+  }
+
+  const applicationRows = [
+    ...people.map(buildApplicationRow),
+    ...incompleteFixturePeople.map(buildIncompleteApplicationRow),
+  ];
   await must(supabase.from("manager_application_records").upsert(applicationRows, { onConflict: "id" }), "manager_application_records(catalog)");
+
+  const cosignerPrimary = incompleteFixturePeople.find((p) => p.hasCosigner);
+  if (cosignerPrimary) {
+    await must(
+      supabase.from("cosigner_submission_records").upsert(
+        {
+          id: "cosigner-seed-axis-democosin1",
+          signer_app_id: cosignerPrimary.axisId,
+          manager_user_id: cosignerPrimary.prop.ownerUserId,
+          row_data: {
+            signerAppId: cosignerPrimary.axisId,
+            signerFullName: cosignerPrimary.name,
+            fullName: "Taylor Cosigner",
+            email: "taylor.cosigner.workflow@test.proplane.local",
+            phone: "(206) 555-0142",
+            dob: "1988-04-12",
+            dlNumber: "WA-DL-4821999",
+            ssn: "000-12-3456",
+            address: "410 Pine St",
+            city: "Seattle",
+            state: "WA",
+            zip: "98101",
+            notEmployed: false,
+            employerName: "Northwest Tech Co.",
+            employerAddress: "500 Union St, Seattle, WA",
+            supervisorName: "Dana Wells",
+            supervisorPhone: "(206) 555-0133",
+            jobTitle: "Director",
+            monthlyIncome: "9000",
+            annualIncome: "108000",
+            employmentStart: "2018-03-01",
+            otherIncome: "",
+            bankruptcy: "no",
+            criminal: "no",
+            consentCredit: false,
+            signature: "Taylor Cosigner",
+            dateSigned: isoDate(daysFromNow(-2)),
+            submittedAt: daysFromNow(-2).toISOString(),
+          },
+          updated_at: NOW.toISOString(),
+        },
+        { onConflict: "id" },
+      ),
+      "cosigner_submission_records(incomplete fixture)",
+    );
+  }
 
   const approvedPeople = people.filter((p) => p.bucket === "approved");
 
@@ -2131,6 +2263,8 @@ try {
     vendorEmail,
     everythingEmail,
     ...people.map((p) => p.email),
+    ...incompleteFixturePeople.map((p) => p.email),
+    "taylor.cosigner.workflow@test.proplane.local",
     ...DEMO_WORKFLOW_RESIDENT_EMAILS,
   ]);
   if (canonicalEmails.has(PRODUCTION_ADMIN_EMAIL)) {
