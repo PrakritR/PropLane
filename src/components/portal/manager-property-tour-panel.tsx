@@ -1,8 +1,13 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { ManagerPortalSettingsModal } from "@/components/portal/manager-portal-settings-modal";
 import { PortalCalendarPanels } from "@/components/portal/portal-calendar-panels";
-import { PortalPropertyDetailSection } from "@/components/portal/portal-property-detail-section";
+import {
+  PORTAL_PROPERTY_DETAIL_ACTION_BUTTON_CLASS,
+  PortalPropertyDetailSection,
+} from "@/components/portal/portal-property-detail-section";
+import { Button } from "@/components/ui/button";
 import {
   managerPropertyAvailabilityStorageKey,
   readAvailabilityDateSetForStorageKey,
@@ -39,6 +44,7 @@ export function ManagerPropertyTourPanel({
 }) {
   const [tick, setTick] = useState(0);
   const [tourSettings, setTourSettings] = useState<ManagerTourSettings>(DEFAULT_MANAGER_TOUR_SETTINGS);
+  const [settingsOpen, setSettingsOpen] = useState(false);
 
   const loadTourSettings = useCallback(async () => {
     if (!managerUserId || isDemoModeActive()) {
@@ -62,15 +68,15 @@ export function ManagerPropertyTourPanel({
   }, [loadTourSettings]);
 
   const persistTourSettings = useCallback(
-    async (next: ManagerTourSettings) => {
-      setTourSettings(next);
+    async (patch: Partial<ManagerTourSettings>) => {
+      setTourSettings((prev) => ({ ...prev, ...patch }));
       if (!managerUserId || isDemoModeActive()) return;
       try {
         const res = await fetch("/api/portal/manager-tour-settings", {
           method: "PATCH",
           credentials: "include",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(next),
+          body: JSON.stringify(patch),
         });
         if (!res.ok) {
           showToast("Could not save tour default settings.");
@@ -170,26 +176,34 @@ export function ManagerPropertyTourPanel({
   const handleDefaultTourHoursChange = useCallback(
     (startSlot: number, endSlotExclusive: number) => {
       void persistTourSettings({
-        ...tourSettings,
         defaultTourStartSlot: startSlot,
         defaultTourEndSlotExclusive: endSlotExclusive,
       });
     },
-    [persistTourSettings, tourSettings],
+    [persistTourSettings],
   );
 
   const handleDefaultTourGridEnabledChange = useCallback(
     (enabled: boolean) => {
-      void persistTourSettings({
-        ...tourSettings,
-        defaultTourGridEnabled: enabled,
-      });
+      void persistTourSettings({ defaultTourGridEnabled: enabled });
     },
-    [persistTourSettings, tourSettings],
+    [persistTourSettings],
   );
 
   return (
-    <PortalPropertyDetailSection>
+    <PortalPropertyDetailSection
+      actions={
+        <Button
+          type="button"
+          variant="outline"
+          className={PORTAL_PROPERTY_DETAIL_ACTION_BUTTON_CLASS}
+          data-attr="property-tour-settings-open"
+          onClick={() => setSettingsOpen(true)}
+        >
+          Settings
+        </Button>
+      }
+    >
       <p className="mb-3 text-sm text-muted">
         Set when prospects can book a tour at{" "}
         <span className="font-medium text-foreground">{propertyLabel}</span>. Click an empty slot or
@@ -223,6 +237,14 @@ export function ManagerPropertyTourPanel({
               }
             : undefined
         }
+      />
+      <ManagerPortalSettingsModal
+        open={settingsOpen}
+        onClose={() => setSettingsOpen(false)}
+        initialTab="calendar"
+        scoped
+        scopedTitle="Tours"
+        onCalendarSettingsSaved={() => void loadTourSettings()}
       />
     </PortalPropertyDetailSection>
   );

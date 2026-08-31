@@ -1107,9 +1107,9 @@ export function ManagerTours({
         }))}
         activeDestinationId={bucket}
         destinationAriaLabel="Tour status"
-        filterRow={filterSheet}
         actions={
           <>
+            {filterSheet}
             <Button
               type="button"
               variant="outline"
