@@ -61,8 +61,10 @@ describe("portal chat routes bind their own registry + persona", () => {
     expect(source).toContain(`system: withAgentCustomInstructions(${prompt}, customInstructions)`);
     expect(source).toContain("loadAgentCustomInstructions(ctx.db, ctx.userId)");
     expect(source).toContain("handleAgentChatHistoryRequest");
-    expect(source).toContain("createPortalChatSession");
-    expect(source).toContain("body.newSession === true");
+    // The session is created lazily on the first message via ensureAgentSession,
+    // so an empty "New chat" the user never sends into is never persisted.
+    expect(source).toContain("ensureAgentSession");
+    expect(source).not.toContain("body.newSession");
     // The confirm gate is bound to the SAME portal, so a proposal made in one
     // portal can never be confirmed against another portal's tool of the same name.
     expect(source).toContain(`portal: ${portal}`);

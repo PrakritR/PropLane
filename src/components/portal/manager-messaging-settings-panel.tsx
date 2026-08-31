@@ -276,6 +276,12 @@ export function ManagerMessagingSettingsPanel({
         };
         if (!res.ok) {
           setError(body.error ?? "Could not request a messaging number.");
+          // Failed provision responses include the updated public status (e.g.
+          // quarantined provisioning with canRequest: false). Apply it so Retry
+          // does not stay enabled against a server that will refuse another buy.
+          if (typeof body.canRequest === "boolean") {
+            setStatus(body);
+          }
           return;
         }
         setStatus(body);
@@ -550,8 +556,23 @@ export function ManagerMessagingSettingsPanel({
                 </Button>
               )}
             </div>
-          ) : status.number?.state === "failed" ||
-            status.number?.setupNeedsAttention ? (
+          ) : status.number?.state === "failed" ? (
+            <div className="space-y-2 text-sm leading-relaxed text-muted">
+              <p>
+                Setup failed before a work number became active. PropLane will
+                not purchase another number automatically. Fix the issue below,
+                then retry setup when you&apos;re ready.
+              </p>
+              {status.number.lastError ? (
+                <p
+                  className="break-words text-xs"
+                  data-attr="messaging-number-failure-diagnostic"
+                >
+                  Diagnostic: {status.number.lastError}
+                </p>
+              ) : null}
+            </div>
+          ) : status.number?.setupNeedsAttention ? (
             <p className="text-sm leading-relaxed text-muted">
               Setup requires PropLane review, so sending remains off. Your
               existing provider request is preserved and no additional number
@@ -633,9 +654,6 @@ export function ManagerMessagingSettingsPanel({
                   }
                   disabled={pendingAction !== null}
                 />
-                <p className="text-[11px] leading-relaxed text-muted">
-                  We use this when inventory is available and otherwise choose a nearby number.
-                </p>
               </div>
               <Button
                 type="button"

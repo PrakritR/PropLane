@@ -451,4 +451,75 @@ describe("ManagerMessagingSettingsPanel", () => {
       }),
     ).toBeNull();
   });
+
+  it("shows a retryable provisioning failure and its provider diagnostic without claiming A2P review", async () => {
+    const failed: ManagerMessagingNumberStatus = {
+      ...pausedStatus,
+      mode: "automatic",
+      provisioningAvailable: true,
+      canRequest: true,
+      number: {
+        state: "failed",
+        registrationState: "approved",
+        carrierRegistrationState: "not_submitted",
+        attachmentState: "failed",
+        phoneNumber: null,
+        lastError:
+          "Twilio Messaging Service sender-pool attachment failed (code 20403, HTTP 403). Permission denied. The purchased number was released.",
+      },
+    };
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json(failed)));
+
+    render(<ManagerMessagingSettingsPanel />);
+
+    expect(
+      await screen.findByText("Setup failed before a work number became active.", {
+        exact: false,
+      }),
+    ).toBeTruthy();
+    expect(screen.getByText(/code 20403, HTTP 403/)).toBeTruthy();
+    expect(screen.queryByText(/requires PropLane review/i)).toBeNull();
+    expect(screen.getByRole("button", { name: "Retry setup" })).toBeTruthy();
+  });
+
+  it("applies a failed provision status so Retry disappears after quarantine", async () => {
+    const readyToRequest: ManagerMessagingNumberStatus = {
+      ...pausedStatus,
+      mode: "automatic",
+      provisioningAvailable: true,
+      canRequest: true,
+    };
+    const quarantined: ManagerMessagingNumberStatus & { error: string } = {
+      ...readyToRequest,
+      canRequest: false,
+      number: {
+        state: "provisioning",
+        registrationState: "pending",
+        carrierRegistrationState: "not_submitted",
+        attachmentState: "not_attached",
+        phoneNumber: null,
+        lastError:
+          "Twilio release was not confirmed after a failed attach. PropLane will not retry automatically.",
+        setupNeedsAttention: true,
+      },
+      error:
+        "Twilio release was not confirmed after a failed attach. PropLane will not retry automatically.",
+    };
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(Response.json(readyToRequest))
+      .mockResolvedValueOnce(Response.json(quarantined, { status: 502 }));
+    vi.stubGlobal("fetch", fetchMock);
+    render(<ManagerMessagingSettingsPanel />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "Request work number" }));
+
+    expect(
+      await screen.findByText(/will not retry automatically/i),
+    ).toBeTruthy();
+    await waitFor(() => {
+      expect(screen.queryByRole("button", { name: "Request work number" })).toBeNull();
+      expect(screen.queryByRole("button", { name: "Retry setup" })).toBeNull();
+    });
+  });
 });

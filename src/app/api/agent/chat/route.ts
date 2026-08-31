@@ -7,7 +7,7 @@ import { SYSTEM_PROMPT } from "@/lib/agent/system-prompt";
 import { sanitizeChatMessages, lastUserText, applyChatAttachments } from "@/lib/agent/chat-handler";
 import { createPendingAction } from "@/lib/tools/pending-actions";
 import { handlePendingActionDecision } from "@/lib/agent/pending-action-decision";
-import { createPortalChatSession, ensureAgentSession, appendAgentMessages } from "@/lib/agent/sessions";
+import { ensureAgentSession, appendAgentMessages } from "@/lib/agent/sessions";
 import { handleAgentChatHistoryDeleteRequest, handleAgentChatHistoryRequest } from "@/lib/agent/chat-history-route";
 import { MODAL_CHAT_SESSION_KIND, PORTAL_CHAT_SESSION_KIND } from "@/lib/agent/chat-history";
 import { loadAgentCustomInstructions, withAgentCustomInstructions } from "@/lib/agent/user-preferences";
@@ -83,19 +83,6 @@ export async function POST(req: Request) {
     traceMetadata: { landlordId: ctx.landlordId, role: "manager" },
   });
   if (decision) return decision;
-
-  // New chat is a real, server-owned thread immediately — not a browser-only
-  // reset that disappears from Past conversations until its first message.
-  if (body.newSession === true) {
-    const sessionId = await createPortalChatSession(ctx, "manager");
-    if (!sessionId) {
-      return NextResponse.json(
-        { error: "We couldn't start a saved conversation. Please try again." },
-        { status: 503 },
-      );
-    }
-    return NextResponse.json({ sessionId });
-  }
 
   let messages = sanitizeChatMessages(body.messages);
   if (messages.length === 0 || messages[messages.length - 1]!.role !== "user") {

@@ -25,13 +25,16 @@ describe("financeGroupIdForTab", () => {
 });
 
 describe("FinanceDestinationNav layout", () => {
-  it("uses full-width equal tabs like Payments", () => {
+  it("uses a quiet category row and compact contextual view controls", () => {
     const source = readFileSync(
       join(process.cwd(), "src/components/portal/finance-destination-nav.tsx"),
       "utf8",
     );
-    expect(source).toContain('itemLayout="equal"');
-    expect(source).toContain("denseEqualRow");
+    expect(source).toContain('appearance="command"');
+    expect(source).toContain("FINANCE_GROUP_NAV_CLASS");
+    expect(source).toContain("FINANCE_VIEW_NAV_CLASS");
+    expect(source).toContain("[&_a]:!flex-none");
+    expect(source).not.toContain('itemLayout="equal"');
     expect(source).not.toContain("LocalDestinationNav");
     expect(source).not.toContain("SUB_NAV_WRAP_CLASS");
   });

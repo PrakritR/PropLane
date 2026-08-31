@@ -57,7 +57,10 @@ describe("DataList", () => {
     );
 
     const row = screen.getByRole("button", { name: /Submitted Jul 18, 2026/i });
-    expect(row.tagName).toBe("DIV");
-    expect(screen.getByRole("button", { name: "Send reminder" })).toBeTruthy();
+    const inlineAction = screen.getByRole("button", { name: "Send reminder" });
+    expect(row.tagName).toBe("BUTTON");
+    expect(row.parentElement?.dataset.slot).toBe("data-list-mobile-row");
+    expect(inlineAction.parentElement?.parentElement).toBe(row.parentElement);
+    expect(row.contains(inlineAction)).toBe(false);
   });
 });

@@ -293,12 +293,11 @@ export function CheckrScreeningModal({
       if (!res.ok || !data.paid || !data.backgroundCheck) {
         const message = data.error ?? "Could not confirm screening payment.";
         setError(message);
-        showToast(message);
         return;
       }
       handlePaymentComplete(data.backgroundCheck);
     })();
-  }, [open, row, isDemo, searchParams, pathname, router, showToast, handlePaymentComplete]);
+  }, [open, row, isDemo, searchParams, pathname, router, handlePaymentComplete]);
 
   const totalCents = useMemo(
     () => sumScreeningOrderCents(selectedPackage, selectedAddOns, packages, addOns),

@@ -217,6 +217,40 @@ describe("provisionManagerNumber — buys exactly one number when enabled", () =
     const rec2 = await getManagerNumberRecord(db, MGR);
     expect(rec2?.attempts).toBe(2);
   });
+
+  it("quarantines an attachment failure when provider cleanup is unconfirmed", async () => {
+    process.env.SMS_PROVISIONING_ENABLED = "1";
+    purchaseMock.mockResolvedValue({
+      ok: false,
+      error:
+        "Twilio Messaging Service sender-pool attachment failed (code 20403, HTTP 403): Permission denied. The purchased number release could not be confirmed; do not retry until PropLane reviews it.",
+      cleanupConfirmed: false,
+      purchasedNumber: { number: "+12065550123", sid: "PN123" },
+    });
+    const db = seed() as never;
+
+    const res = await provisionManagerNumber(db, MGR);
+
+    expect(res).toMatchObject({ ok: false, state: "provisioning" });
+    const rec = await getManagerNumberRecord(db, MGR);
+    expect(rec).toMatchObject({
+      provisionState: "provisioning",
+      attachmentState: "failed",
+      quarantineReason: "provider_release_unconfirmed",
+    });
+    expect(
+      (db as unknown as {
+        __tables: Record<string, Array<Record<string, unknown>>>;
+      }).__tables.sms_provisioning_operations[0],
+    ).toMatchObject({
+      state: "failed",
+      phone_number: "+12065550123",
+      phone_number_sid: "PN123",
+    });
+
+    await provisionManagerNumber(db, MGR);
+    expect(purchaseMock).toHaveBeenCalledTimes(1);
+  });
 });
 
 describe("resolveActiveManagerSendNumber — registration gate", () => {

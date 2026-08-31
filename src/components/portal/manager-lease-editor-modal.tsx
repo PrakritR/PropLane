@@ -243,7 +243,6 @@ export function ManagerLeaseEditorModal({
     const validationError = validateLeaseDraft(draft, documentMode);
     if (validationError) {
       setError(validationError);
-      showToast(validationError);
       return false;
     }
     const leaseFields = {

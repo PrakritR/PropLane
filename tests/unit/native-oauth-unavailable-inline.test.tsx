@@ -129,8 +129,8 @@ describe("native shell cannot run Google sign-in", () => {
 
     await waitFor(() => expect(errors).toContain(NATIVE_IOS_OAUTH_REBUILD_MESSAGE));
 
-    // The message the user is shown must be the actionable one, not silence.
-    expect(showToast).toHaveBeenCalledWith(NATIVE_IOS_OAUTH_REBUILD_MESSAGE);
+    // Inline slot owns the message — no bottom-right toast duplicate.
+    expect(showToast).not.toHaveBeenCalled();
     // …and the page must still be the page: no reload, nothing typed thrown away.
     expect(navigations).toEqual([]);
     // The button has to come back, or the screen is stuck on "Redirecting…" forever.
@@ -141,10 +141,11 @@ describe("native shell cannot run Google sign-in", () => {
     const { GoogleSignInButton } = await import("@/components/auth/google-sign-in-button");
     const { Browser } = await import("@capacitor/browser");
 
-    render(<GoogleSignInButton onError={() => {}} />);
+    const errors: string[] = [];
+    render(<GoogleSignInButton onError={(message) => errors.push(message)} />);
     fireEvent.click(screen.getByText("Continue with Google"));
 
-    await waitFor(() => expect(showToast).toHaveBeenCalled());
+    await waitFor(() => expect(errors.length).toBeGreaterThan(0));
     expect(Browser.open).not.toHaveBeenCalled();
   });
 });

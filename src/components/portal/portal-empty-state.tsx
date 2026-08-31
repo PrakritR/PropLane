@@ -163,11 +163,15 @@ export function PortalEmptyState({
   title,
   icon = "default",
   variant = "card",
+  description,
+  action,
 }: {
   title: string;
   icon?: PortalEmptyIconKind | ReactNode;
-  /** `plain` drops the bordered card; `stacked` connects below an unlock notice. */
-  variant?: "card" | "plain" | "stacked";
+  /** `plain` drops the border; `compact` keeps an empty queue from dominating the page. */
+  variant?: "card" | "plain" | "stacked" | "compact";
+  description?: string;
+  action?: ReactNode;
 }) {
   const iconNode =
     typeof icon === "string" ? <PortalEmptyIcon kind={icon as PortalEmptyIconKind} /> : icon;
@@ -176,11 +180,15 @@ export function PortalEmptyState({
       ? "flex flex-col items-center justify-center px-4 py-16 text-center sm:py-20"
       : variant === "stacked"
         ? PORTAL_EMPTY_STATE_STACKED_WRAP
+        : variant === "compact"
+          ? "flex flex-col items-center justify-center rounded-xl border border-border bg-card/60 px-4 py-10 text-center sm:py-12"
         : PORTAL_EMPTY_STATE_WRAP;
   return (
     <div className={wrapClass}>
       <AxisHeaderMarkTile>{iconNode}</AxisHeaderMarkTile>
-      <p className="mt-4 text-sm font-medium text-muted">{title}</p>
+      <p className="mt-4 text-sm font-semibold text-foreground">{title}</p>
+      {description ? <p className="mt-1 max-w-md text-sm text-muted">{description}</p> : null}
+      {action ? <div className="mt-4">{action}</div> : null}
     </div>
   );
 }

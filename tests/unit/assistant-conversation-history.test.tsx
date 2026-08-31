@@ -92,15 +92,16 @@ describe("server-backed assistant conversation history", () => {
     await act(async () => {
       await result.current.startNewChat();
     });
+    // New chat is a local reset only — no server thread is created (and nothing
+    // is added to Past conversations) until the first message is actually sent.
     expect(result.current.messages).toEqual([]);
-    const start = fetchMock.mock.calls.find(([, init]) => {
+    expect(result.current.activeThreadId).toBe("");
+    const eagerStart = fetchMock.mock.calls.find(([, init]) => {
       if ((init as RequestInit | undefined)?.method !== "POST") return false;
       const body = JSON.parse(String((init as RequestInit | undefined)?.body)) as { newSession?: boolean };
       return body.newSession === true;
     });
-    expect(start).toBeTruthy();
-    await waitFor(() => expect(result.current.activeThreadId).toBe(FRESH));
-    expect(result.current.threads[0]).toMatchObject({ id: FRESH, title: "New conversation" });
+    expect(eagerStart).toBeUndefined();
 
     await act(async () => {
       await result.current.send("A brand new question");
@@ -110,12 +111,15 @@ describe("server-backed assistant conversation history", () => {
       const body = JSON.parse(String((init as RequestInit | undefined)?.body)) as { messages?: unknown[] };
       return Array.isArray(body.messages);
     });
-    expect(JSON.parse(String((post?.[1] as RequestInit).body))).toMatchObject({
+    const sentBody = JSON.parse(String((post?.[1] as RequestInit).body)) as Record<string, unknown>;
+    // The first message of a brand-new chat carries no sessionId; the server
+    // creates the thread lazily and returns its id in the reply.
+    expect(sentBody).toMatchObject({
       archive: true,
-      sessionId: FRESH,
       messages: [{ role: "user", content: "A brand new question" }],
     });
-    expect(result.current.activeThreadId).toBe(FRESH);
+    expect(sentBody.sessionId).toBeUndefined();
+    await waitFor(() => expect(result.current.activeThreadId).toBe(FRESH));
     expect(result.current.threads[0]).toMatchObject({ id: FRESH, title: "A brand new question" });
 
     await act(async () => {

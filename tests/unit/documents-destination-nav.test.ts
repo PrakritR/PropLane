@@ -14,13 +14,16 @@ describe("documents destination nav", () => {
     expect(documentGroupIdForTab("1099")).toBe("reports");
   });
 
-  it("uses full-width equal sub-tabs like Payments", () => {
+  it("uses a quiet category row and compact contextual view controls", () => {
     const source = readFileSync(
       join(process.cwd(), "src/components/portal/documents-destination-nav.tsx"),
       "utf8",
     );
-    expect(source).toContain('itemLayout="equal"');
-    expect(source).toContain("denseEqualRow");
+    expect(source).toContain('appearance="command"');
+    expect(source).toContain("DOCUMENT_GROUP_NAV_CLASS");
+    expect(source).toContain("DOCUMENT_VIEW_NAV_CLASS");
+    expect(source).toContain("[&_a]:!flex-none");
+    expect(source).not.toContain('itemLayout="equal"');
     expect(source).not.toContain("LocalDestinationNav");
   });
 });

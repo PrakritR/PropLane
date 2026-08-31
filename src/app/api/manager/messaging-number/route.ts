@@ -406,7 +406,7 @@ export async function POST(req: Request) {
     return NextResponse.json(
       {
         ...next,
-        error: "We could not set up your messaging number. Try again later.",
+        error: result.error,
       },
       { status: result.state === "pending_registration" ? 503 : 502 },
     );

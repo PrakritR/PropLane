@@ -213,7 +213,24 @@ export async function provisionManagerNumber(
   }
   const purchase = await purchaseManagerTwilioNumber({ areaCode: opts?.areaCode, requestId });
   if (!purchase.ok) {
-    await db.from("sms_provisioning_operations").update({ state: "failed", last_error: purchase.error.slice(0, 500), updated_at: nowIso() }).eq("request_id", requestId);
+    await db.from("sms_provisioning_operations").update({
+      state: purchase.cleanupConfirmed === true ? "released" : "failed",
+      phone_number: purchase.purchasedNumber?.number ?? null,
+      phone_number_sid: purchase.purchasedNumber?.sid ?? null,
+      last_error: purchase.error.slice(0, 500),
+      updated_at: nowIso(),
+    }).eq("request_id", requestId);
+    if (purchase.cleanupConfirmed === false) {
+      await db.from(TABLE).update({
+        provision_state: "provisioning",
+        attachment_state: "failed",
+        quarantined_at: nowIso(),
+        quarantine_reason: "provider_release_unconfirmed",
+        last_error: purchase.error.slice(0, 500),
+        updated_at: nowIso(),
+      }).eq("manager_user_id", id).eq("provision_request_id", requestId);
+      return { ok: false, error: purchase.error, state: "provisioning" };
+    }
     await recordProvisionFailure(db, id, requestId, purchase.error);
     return { ok: false, error: purchase.error, state: "failed" };
   }

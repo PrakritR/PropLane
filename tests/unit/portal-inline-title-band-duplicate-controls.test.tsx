@@ -511,4 +511,17 @@ describe("header controls reach mobile exactly once", () => {
     expect(document.querySelector('[data-slot="portal-page-header-mobile-actions"]')).not.toBeNull();
     expect(screen.getAllByRole("button", { name: "Upload" })).toHaveLength(1);
   });
+
+  it("keeps a semantic h1 without a persistent visual title when navigation names the queue", () => {
+    render(
+      <ManagerPortalPageShell title="Residents" hideTitleOnMobileNav navigationProvidesTitle>
+        <p>Resident records</p>
+      </ManagerPortalPageShell>,
+    );
+
+    const heading = screen.getByRole("heading", { name: "Residents", level: 1 });
+    expect(heading.className).toContain("sr-only");
+    expect(document.querySelector('[data-slot="portal-page-title-band"]')).toBeNull();
+    expect(document.querySelector('[data-slot="page-header"]')).toBeNull();
+  });
 });

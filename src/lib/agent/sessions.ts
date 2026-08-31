@@ -113,14 +113,6 @@ export async function ensureAgentSession(
   }
 }
 
-/** Create an empty server-owned portal thread as soon as the user presses New chat. */
-export function createPortalChatSession(actor: SessionActor, portal: AgentPortal): Promise<string | null> {
-  return ensureAgentSession(actor, portal, {
-    title: UNTITLED_THREAD,
-    kind: PORTAL_CHAT_SESSION_KIND,
-  });
-}
-
 /**
  * Append a completed turn before responding, keeping the archive immediately
  * consistent for a refresh, layout switch, or cross-device reopen.

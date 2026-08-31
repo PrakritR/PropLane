@@ -868,10 +868,15 @@ export function ManagerPlan({
         ))}
 
         {/* Compare plans */}
-        <section>
-          <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+        <section aria-labelledby="plan-comparison-heading">
+          <div className="flex flex-col gap-4 border-b border-border pb-5 sm:flex-row sm:items-end sm:justify-between">
             <div>
-              <h3 className="text-lg font-semibold text-foreground">Compare plans</h3>
+              <h2 id="plan-comparison-heading" className="text-xl font-semibold tracking-[-0.02em] text-foreground sm:text-2xl">
+                Choose the plan that fits your portfolio
+              </h2>
+              <p className="mt-1.5 max-w-2xl text-sm leading-6 text-muted">
+                Start with the tools you need today and change plans as your portfolio grows.
+              </p>
             </div>
             <div className="surface-panel inline-flex shrink-0 items-center gap-1 rounded-full border border-border p-1 shadow-sm">
               <button
@@ -944,7 +949,7 @@ export function ManagerPlan({
               ))}
             </div>
           ) : (
-            <div className="mt-5 grid gap-4 lg:grid-cols-3 lg:items-stretch">
+            <div className="mt-6 grid gap-5 lg:grid-cols-3 lg:items-stretch">
               {planTiers.map((t) => {
                 const tierId = t.id as ManagerSkuTier;
                 const pb = priceView === "monthly" ? t.monthly : t.annual;
@@ -952,18 +957,21 @@ export function ManagerPlan({
                 const isScheduled = sub.scheduledDowngrade?.tier === tierId;
                 const busyHere = busyTier === tierId;
                 const isUpgrade = tierRank(tierId) > tierRank(currentTier);
+                const isFeatured = tierId === "pro";
                 const actionLabel = planActionLabel(tierId);
 
                 return (
                   <article
                     key={t.id}
-                    className={`surface-panel relative flex h-full flex-col rounded-2xl border p-6 transition ${
+                    className={`surface-panel relative flex h-full flex-col rounded-2xl border p-6 transition sm:p-7 ${
                       isCurrent
-                        ? "border-2 border-primary shadow-[0_4px_24px_-12px_rgba(0,122,255,0.35)] ring-1 ring-primary/15"
-                        : "border-border hover:border-primary/30"
+                        ? "border-primary/50 bg-primary/[0.025] shadow-[0_10px_28px_-18px_rgba(47,107,255,0.55)]"
+                        : isFeatured
+                          ? "border-primary/35 shadow-[0_10px_28px_-20px_rgba(47,107,255,0.5)]"
+                          : "border-border hover:border-primary/30"
                     }`}
                   >
-                    {tierId === "pro" && !isCurrent ? (
+                    {isFeatured && !isCurrent ? (
                       <span className="absolute right-4 top-4 rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-primary">
                         Popular
                       </span>

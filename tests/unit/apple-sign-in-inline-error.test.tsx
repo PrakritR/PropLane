@@ -1,10 +1,9 @@
 // @vitest-environment jsdom
 //
-// The Apple button's inline failure slot is independent of the toast dedupe.
+// The Apple button's inline failure slot replaces the toast when `onError` is provided.
+// Toast only fires for callers with nowhere else to put the message.
 //
-// `shouldShowAppleSignInErrorToast` remembers every message it has shown so a toast fires at
-// most once per tab session. The inline slot has no such constraint: each attempt clears it
-// first, so gating the re-set on that dedupe left a repeated failure showing nothing at all —
+// Each attempt clears the inline slot first, so a repeated failure still re-shows the reason —
 // the same silent "it just did nothing" the native OAuth work exists to remove.
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
@@ -60,14 +59,23 @@ describe("AppleSignInButton inline error", () => {
 
     fireEvent.click(screen.getByText("Continue with Apple"));
     await waitFor(() => expect(inlineError).toBe(FAILURE));
-    expect(showToast).toHaveBeenCalledTimes(1);
+    expect(showToast).not.toHaveBeenCalled();
 
     fireEvent.click(screen.getByText("Continue with Apple"));
     await waitFor(() => expect(startAppleSignIn).toHaveBeenCalledTimes(2));
 
-    // The toast stays deduped, but the screen must still explain itself.
+    // With an inline slot, toast must stay quiet — the form already shows the reason.
     await waitFor(() => expect(inlineError).toBe(FAILURE));
-    expect(showToast).toHaveBeenCalledTimes(1);
+    expect(showToast).not.toHaveBeenCalled();
+  });
+
+  it("toasts when there is no inline error slot", async () => {
+    const { AppleSignInButton } = await import("@/components/auth/apple-sign-in-button");
+
+    render(<AppleSignInButton />);
+    fireEvent.click(screen.getByText("Continue with Apple"));
+
+    await waitFor(() => expect(showToast).toHaveBeenCalledWith(FAILURE));
   });
 
   it("shows no inline error when the user dismisses the Apple sheet", async () => {

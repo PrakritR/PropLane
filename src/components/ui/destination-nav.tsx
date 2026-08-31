@@ -33,6 +33,8 @@ export function DestinationNav({
   denseEqualRow = false,
   /** With `equal`, center the tab row (property detail sub-nav). */
   centerEqualRow = false,
+  /** `command` is the low-chrome list-page treatment: text tabs with an active underline. */
+  appearance = "segmented",
 }: {
   items: DestinationNavItem[];
   /** Match the active item by normalized href. */
@@ -46,13 +48,20 @@ export function DestinationNav({
   itemLayout?: "auto" | "equal";
   denseEqualRow?: boolean;
   centerEqualRow?: boolean;
+  appearance?: "segmented" | "command";
 }) {
   const normalize = (href: string) => href.replace(/\/$/, "");
   const compactItems = itemLayout === "equal" ? false : items.length > 4;
 
   return (
     <nav
-      className={destinationNavShellClassName(className, itemLayout, denseEqualRow, centerEqualRow)}
+      className={destinationNavShellClassName(
+        className,
+        itemLayout,
+        denseEqualRow,
+        centerEqualRow,
+        appearance,
+      )}
       aria-label={ariaLabel}
       data-slot="destination-nav"
       {...(itemLayout === "equal" ? {} : { [HORIZONTAL_SCROLL_ATTR]: "" })}
@@ -67,19 +76,27 @@ export function DestinationNav({
             href={item.href}
             data-attr={item.dataAttr}
             className={cn(
-              itemLayout === "equal" ? "min-w-0" : destinationNavItemWidthClass(compactItems),
-              "portal-pressable inline-flex items-center justify-center gap-1.5 rounded-xl font-semibold transition-colors",
               itemLayout === "equal"
+                ? "min-w-0"
+                : destinationNavItemWidthClass(compactItems, appearance),
+              "portal-pressable inline-flex items-center justify-center gap-1.5 font-semibold transition-[color,border-color,background-color] duration-100",
+              appearance === "command"
+                ? "min-h-11 rounded-none border-b-2 px-2.5 py-2 text-sm sm:px-3"
+                : itemLayout === "equal"
                 ? denseEqualRow
                   ? "min-h-9 min-w-0 px-0 py-1 text-center leading-none lg:min-h-11 lg:px-2 lg:py-2 lg:text-sm"
                   : "min-h-10 min-w-0 px-0.5 py-1.5 text-center leading-tight lg:min-h-11 lg:px-2 lg:py-2 lg:text-sm"
                 : size === "toolbar"
                   ? "h-9 px-2 text-xs sm:px-3 md:h-10 md:text-sm"
-                  : "min-h-11 px-2 py-2 text-sm sm:px-3.5",
+                  : "min-h-11 rounded-xl px-2 py-2 text-sm sm:px-3.5",
               "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-              active
-                ? "bg-card text-foreground shadow-[var(--shadow-sm)] ring-1 ring-primary/25"
-                : "text-muted hover:bg-card/60 hover:text-foreground",
+              appearance === "command"
+                ? active
+                  ? "border-primary text-primary"
+                  : "border-transparent text-muted hover:border-border hover:text-foreground"
+                : active
+                  ? "bg-card text-foreground shadow-[var(--shadow-sm)] ring-1 ring-primary/25"
+                  : "text-muted hover:bg-card/60 hover:text-foreground",
               item.alert && !active && "text-[var(--status-overdue-fg)]",
             )}
             aria-current={active ? "page" : undefined}
@@ -102,6 +119,17 @@ export function DestinationNav({
                 item.label
               )}
             </span>
+            {appearance === "command" && item.count != null ? (
+              <span
+                className={cn(
+                  "inline-flex min-w-5 items-center justify-center rounded-full px-1.5 py-0.5 text-[11px] font-semibold tabular-nums",
+                  active ? "bg-primary/10 text-primary" : "bg-accent text-muted",
+                )}
+                aria-label={`${item.count} ${item.count === 1 ? "item" : "items"}`}
+              >
+                {item.count}
+              </span>
+            ) : null}
           </Link>
         );
       })}
@@ -122,9 +150,16 @@ function destinationNavShellClassName(
   itemLayout: "auto" | "equal" = "auto",
   denseEqualRow = false,
   centerEqualRow = false,
+  appearance: "segmented" | "command" = "segmented",
 ) {
   return cn(
-    itemLayout === "equal"
+    appearance === "command"
+      ? cn(
+          "flex w-full gap-1 border-0 bg-transparent p-0",
+          PORTAL_HORIZONTAL_SCROLL_ROW_CLASS,
+          "snap-x snap-mandatory scroll-px-2",
+        )
+      : itemLayout === "equal"
       ? denseEqualRow
         ? "grid w-full min-w-0 auto-cols-fr grid-flow-col gap-0.5 rounded-2xl border border-border bg-accent/30 p-1 max-lg:gap-0.5 max-lg:p-0 max-lg:rounded-none max-lg:border-0 max-lg:bg-transparent"
         : centerEqualRow
@@ -140,7 +175,11 @@ function destinationNavShellClassName(
 }
 
 /** Few tabs share width on desktop; on phones always scroll so long labels never clip. */
-function destinationNavItemWidthClass(compactItems: boolean) {
+function destinationNavItemWidthClass(
+  compactItems: boolean,
+  appearance: "segmented" | "command" = "segmented",
+) {
+  if (appearance === "command") return "shrink-0 snap-start whitespace-nowrap";
   if (compactItems) return "shrink-0 whitespace-nowrap";
   return "min-w-0 flex-1 basis-0 max-lg:shrink-0 max-lg:flex-none max-lg:basis-auto max-lg:whitespace-nowrap";
 }
@@ -219,4 +258,3 @@ export function LocalDestinationNav({
     </nav>
   );
 }
-

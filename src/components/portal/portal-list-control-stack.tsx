@@ -1,9 +1,10 @@
 "use client";
 
 import { useEffect, useRef, type ReactNode } from "react";
+import { Search } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { DestinationNav, type DestinationNavItem } from "@/components/ui/destination-nav";
-import { HorizontalScrollCapture } from "@/components/portal/portal-horizontal-scroll";
+import { HorizontalScrollCapture, HORIZONTAL_SCROLL_ATTR } from "@/components/portal/portal-horizontal-scroll";
 import { syncPortalMobileTopChrome } from "@/lib/portal-mobile-top-chrome";
 import { cn } from "@/lib/utils";
 
@@ -15,10 +16,6 @@ import { cn } from "@/lib/utils";
  */
 export function PortalListControlStack({
   filterRow,
-  /**
-   * @deprecated Pass actions via `titleAside` on {@link ManagerPortalPageShell} (Appendix F band 1).
-   */
-  primaryAction: _primaryAction,
   destinations,
   activeDestinationId,
   destinationAriaLabel = "Section views",
@@ -32,10 +29,12 @@ export function PortalListControlStack({
   stickyDestinations = true,
   /** `toolbar` renders compact segment tabs (Communication Active / Unread / Archived). */
   destinationNavSize = "default",
+  /** `command` composes destinations, search, filters, and utilities into one adaptive surface. */
+  variant = "stacked",
+  actions,
 }: {
   /** Typically {@link PortalFilterSortSheet} (mobile sheet; optional desktop inline pills or panel modal). */
   filterRow?: ReactNode;
-  primaryAction?: ReactNode;
   destinations?: DestinationNavItem[];
   activeDestinationId?: string;
   destinationAriaLabel?: string;
@@ -54,6 +53,9 @@ export function PortalListControlStack({
   destinationInset?: boolean;
   stickyDestinations?: boolean;
   destinationNavSize?: "default" | "toolbar";
+  variant?: "stacked" | "command";
+  /** Low-frequency utility controls that follow search/filter in the command layout. */
+  actions?: ReactNode;
 }) {
   const showDestinations = Boolean(destinationRow) || (destinations && destinations.length > 0);
   const showFindRow = Boolean(filterRow || search);
@@ -61,7 +63,7 @@ export function PortalListControlStack({
 
   useEffect(() => {
     const el = destinationRef.current;
-    if (!el || !showDestinations) return;
+    if (!el || !showDestinations || !stickyDestinations) return;
     const sync = () => syncPortalMobileTopChrome(el);
     sync();
     const main = el.closest("#portal-main-content");
@@ -79,9 +81,83 @@ export function PortalListControlStack({
       const mobileBar = main?.querySelector<HTMLElement>(".portal-mobile-nav-bar");
       if (mobileBar) syncPortalMobileTopChrome(mobileBar);
     };
-  }, [showDestinations]);
+  }, [showDestinations, stickyDestinations]);
 
-  if (!showDestinations && !showFindRow && !activeFilterChips) return null;
+  if (!showDestinations && !showFindRow && !activeFilterChips && !actions) return null;
+
+  const destinationContent =
+    destinationRow ?? (
+      <DestinationNav
+        items={destinations!}
+        activeId={activeDestinationId}
+        ariaLabel={destinationAriaLabel}
+        size={destinationNavSize}
+        appearance={variant === "command" ? "command" : "segmented"}
+        className={cn(
+          destinationNavSize === "toolbar"
+            ? "gap-0.5 rounded-xl border-0 bg-transparent p-0"
+            : variant === "stacked" &&
+                "max-lg:rounded-none max-lg:border-0 max-lg:border-b max-lg:border-border max-lg:bg-transparent",
+          variant === "stacked" &&
+            destinationNavSize !== "toolbar" &&
+            (destinationInset
+              ? "max-lg:gap-2.5 max-lg:p-1"
+              : "max-lg:gap-2.5 max-lg:px-2.5 max-lg:py-0 sm:max-lg:px-4"),
+        )}
+      />
+    );
+
+  if (variant === "command") {
+    return (
+      <div
+        className={cn("shrink-0 space-y-2", className)}
+        data-slot="portal-list-control-stack"
+        data-variant="command"
+      >
+        <div className="flex min-w-0 flex-col rounded-xl border border-border bg-card/75 xl:flex-row xl:items-center">
+          {showDestinations ? (
+            <HorizontalScrollCapture className="min-w-0 border-b border-border px-2 xl:flex-1 xl:border-b-0 xl:px-2.5">
+              <div ref={destinationRef} data-portal-list-destination-nav>
+                {destinationContent}
+              </div>
+            </HorizontalScrollCapture>
+          ) : null}
+          {showFindRow || actions ? (
+            <div className="flex min-w-0 flex-wrap items-center gap-2 p-2 xl:flex-nowrap xl:shrink-0 xl:pl-0">
+              {search ? (
+                <div className="relative min-w-0 flex-1 xl:w-64 xl:flex-none">
+                  <Search
+                    className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted"
+                    strokeWidth={1.75}
+                    aria-hidden
+                  />
+                  <Input
+                    type="search"
+                    value={search.value}
+                    onChange={(e) => search.onChange(e.target.value)}
+                    placeholder={search.placeholder}
+                    aria-label={search.ariaLabel ?? search.placeholder}
+                    className="portal-list-search h-10 min-h-10 w-full rounded-lg border border-border bg-background py-2 pl-9 pr-3 text-sm shadow-none outline-none focus:border-primary/40 focus:ring-2 focus:ring-primary/15"
+                    data-attr={search.dataAttr ?? "portal-list-search"}
+                  />
+                </div>
+              ) : null}
+              {filterRow ? <div className="shrink-0">{filterRow}</div> : null}
+              {actions ? (
+                <div
+                  className="flex min-w-0 shrink-0 items-center gap-2 max-xl:w-full max-xl:overflow-x-auto max-xl:overscroll-x-contain max-xl:[scrollbar-width:none] max-xl:[&::-webkit-scrollbar]:hidden"
+                  {...{ [HORIZONTAL_SCROLL_ATTR]: "" }}
+                >
+                  {actions}
+                </div>
+              ) : null}
+            </div>
+          ) : null}
+        </div>
+        {activeFilterChips ? <div className="min-w-0">{activeFilterChips}</div> : null}
+      </div>
+    );
+  }
 
   return (
     <div className={cn("shrink-0 space-y-2 max-lg:space-y-2.5", className)} data-slot="portal-list-control-stack">
@@ -94,21 +170,7 @@ export function PortalListControlStack({
           )}
         >
           <div ref={destinationRef} data-portal-list-destination-nav>
-            {destinationRow ?? (
-              <DestinationNav
-                items={destinations!}
-                activeId={activeDestinationId}
-                ariaLabel={destinationAriaLabel}
-                size={destinationNavSize}
-                className={cn(
-                  destinationNavSize === "toolbar"
-                    ? "gap-0.5 rounded-xl border-0 bg-transparent p-0"
-                    : "max-lg:rounded-none max-lg:border-0 max-lg:border-b max-lg:border-border max-lg:bg-transparent",
-                  destinationNavSize !== "toolbar" &&
-                    (destinationInset ? "max-lg:gap-2.5 max-lg:p-1" : "max-lg:gap-2.5 max-lg:px-2.5 max-lg:py-0 sm:max-lg:px-4"),
-                )}
-              />
-            )}
+            {destinationContent}
           </div>
         </HorizontalScrollCapture>
       ) : null}

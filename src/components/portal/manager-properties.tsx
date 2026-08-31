@@ -14,8 +14,8 @@ import { ShareLeadLinkModal } from "@/components/portal/share-lead-link-modal";
 import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
 import {
   ManagerPortalPageShell,
-  PORTAL_HEADER_ACTION_BTN,
-  PORTAL_HEADER_PRIMARY_ACTION_BTN,
+  PORTAL_COMMAND_PRIMARY_ACTION_BTN,
+  PORTAL_COMMAND_PRIMARY_ACTION_STYLE,
 } from "@/components/portal/portal-metrics";
 import { propertyListHref, type PropertyDetailTabId } from "@/lib/portal-detail-routes";
 import { useAppUi } from "@/components/providers/app-ui-provider";
@@ -217,7 +217,7 @@ export function ManagerProperties({
     <Button
       type="button"
       variant="outline"
-      className={`shrink-0 ${PORTAL_HEADER_ACTION_BTN}`}
+      className="h-10 min-h-10 shrink-0 rounded-lg px-3.5 text-sm"
       disabled={shareableProperties.length === 0}
       title={shareableProperties.length === 0 ? "No listed properties to share yet" : "Share a listing link"}
       data-attr="manager-properties-share"
@@ -230,22 +230,15 @@ export function ManagerProperties({
   const propertiesAddButton = (
     <Button
       type="button"
-      variant="outline"
-      className={`shrink-0 ${PORTAL_HEADER_PRIMARY_ACTION_BTN}`}
+      className={PORTAL_COMMAND_PRIMARY_ACTION_BTN}
+      style={PORTAL_COMMAND_PRIMARY_ACTION_STYLE}
       data-attr="manager-properties-create"
       onClick={tryOpenAdd}
       disabled={!skuLoaded}
       aria-busy={!skuLoaded}
     >
-      {!skuLoaded ? "Loading…" : "Add"}
+      {!skuLoaded ? "Loading…" : "Add property"}
     </Button>
-  );
-
-  const propertiesDesktopHeaderActions = (
-    <>
-      {propertiesShareButton}
-      {propertiesAddButton}
-    </>
   );
 
   const isDetailView = Boolean(propertyKeyProp);
@@ -274,11 +267,14 @@ export function ManagerProperties({
         <ManagerPortalPageShell
           title="Properties"
           hideTitleOnMobileNav
-          titleAside={propertiesDesktopHeaderActions}
+          navigationProvidesTitle
+          titleInlineFilter={null}
           compactFilterRow
         >
           <PortalListControlStack
             className="mb-2"
+            variant="command"
+            stickyDestinations={false}
             destinations={MANAGER_STAGES.map((stage) => ({
               id: stage.key,
               label: stage.label,
@@ -288,6 +284,12 @@ export function ManagerProperties({
             }))}
             activeDestinationId={activeStage}
             destinationAriaLabel="Property pipeline stage"
+            actions={
+              <>
+                {propertiesShareButton}
+                {propertiesAddButton}
+              </>
+            }
           />
           {atPropertyLimit && limitMax != null ? (
             <p className="mb-4 shrink-0 rounded-2xl border px-4 py-3 text-sm portal-banner-danger lg:mb-4">
