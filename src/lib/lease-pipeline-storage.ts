@@ -2129,6 +2129,7 @@ export function getLeaseDocumentHtml(row: LeasePipelineRow): string | null {
         }),
       );
   const body = hasAnyLeaseSignature(row) ? applyLeaseSignaturesToHtml(row, rendered) : rendered;
+  if (!body) return null;
   return stripDisclosureReviewFromLeaseHtml(body);
 }
 

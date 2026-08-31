@@ -3,7 +3,7 @@
 import Image from "next/image";
 import { useEffect, useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
-import { DataList } from "@/components/ui/data-list";
+import { DataList, type DataListRow } from "@/components/ui/data-list";
 import { DropdownMenuItem } from "@/components/ui/dropdown-menu";
 import { Input, Textarea } from "@/components/ui/input";
 import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
@@ -961,8 +961,8 @@ export function ResidentServicesPanel({
     setAddServiceOpen(true);
   };
 
-  const serviceListRows = useMemo(() => {
-    return filteredUnifiedRows.flatMap((unified) => {
+  const serviceListRows = useMemo((): DataListRow<ServiceRequest | DemoManagerWorkOrderRow>[] => {
+    return filteredUnifiedRows.flatMap((unified): DataListRow<ServiceRequest | DemoManagerWorkOrderRow>[] => {
       const rowKey = unifiedServiceRowKey(unified);
       if (unified.kind === "add-on") {
         const req = serviceRequestById.get(unified.id);
@@ -1174,7 +1174,7 @@ export function ResidentServicesPanel({
       />
 
       <div className={PORTAL_LIST_PAGE_BODY}>
-        <DataList
+        <DataList<ServiceRequest | DemoManagerWorkOrderRow>
           variant="resident"
           hideColumnHeaders
           selectable={servicesUnlocked}
@@ -1186,7 +1186,7 @@ export function ResidentServicesPanel({
             filteredUnifiedRows.length === 0 && unifiedServiceRows.length > 0 ? (
               <p className="px-1 py-6 text-center text-sm text-muted">No services in this status yet.</p>
             ) : filteredUnifiedRows.length === 0 ? (
-              <PortalDataTableEmpty icon="request" message="No services yet." variant="stacked" />
+              <PortalDataTableEmpty icon="service" message="No services yet." variant="stacked" />
             ) : undefined
           }
         />

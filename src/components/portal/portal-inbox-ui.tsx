@@ -1957,7 +1957,6 @@ export function InboxScheduledCard({
                     className="h-8 min-h-0 px-3 text-[12px] text-muted hover:text-danger"
                     onClick={() => {
                       onCancel();
-                      if (presentation === "compact") closeModal();
                     }}
                     disabled={busy}
                     data-attr="inbox-scheduled-cancel"
@@ -1983,7 +1982,6 @@ export function InboxScheduledCard({
                     className="h-8 min-h-0 rounded-full px-4 text-[12px]"
                     onClick={() => {
                       onSendNow();
-                      if (presentation === "compact") closeModal();
                     }}
                     disabled={busy}
                     data-attr="inbox-scheduled-send-now"
