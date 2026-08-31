@@ -213,7 +213,8 @@ describe("resident portal redesign completeness", () => {
       expect(lease).toContain("LocalDestinationNav");
       expect(lease).toContain('variant="plain"');
       const services = readPanel("resident-services-panel.tsx");
-      expect(services.match(/className="w-full"/g)?.length ?? 0).toBeGreaterThanOrEqual(2);
+      expect(services).toContain("SERVICE_STATE_TABS");
+      expect(services).toContain('ariaLabel="Service status"');
     });
 
     /**
@@ -225,10 +226,9 @@ describe("resident portal redesign completeness", () => {
      * Never both an ungated title band AND a mobile row.
      */
     it("header actions reach mobile exactly once — band OR mobile row, never both", () => {
-      // Services uses per-section Add rows in the list body, not a title-band action.
+      // Services uses list-body add actions, not a title-band action.
       const services = readPanel("resident-services-panel.tsx");
-      expect(services).toContain("ResidentServicesRequestAddRow");
-      expect(services).toContain("ResidentServicesMaintenanceAddRow");
+      expect(services).toContain("ResidentServicesAddActions");
       expect(services).not.toContain("PortalPageHeaderMobileActionsRow");
 
       const tour = readPanel("resident-tour-panel.tsx");

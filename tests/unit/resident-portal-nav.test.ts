@@ -78,20 +78,20 @@ describe("resident portal nav stages", () => {
     expect(residentSectionUnlockedForStage("services", "post_lease")).toBe(true);
   });
 
-  it("post-approval bottom bar is lease, payments, tour, and communication", () => {
+  it("post-approval bottom bar is lease, payments, dashboard, and communication", () => {
     expect(residentBottomNavPrimarySections("post_approval_pre_lease")).toEqual([
       "lease",
       "payments",
-      "tour",
+      "dashboard",
       "communication",
     ]);
   });
 
-  it("post-lease bottom bar is services, payments, tour, and communication", () => {
+  it("post-lease bottom bar is services, payments, dashboard, and communication", () => {
     expect(residentBottomNavPrimarySections("post_lease")).toEqual([
       "services",
       "payments",
-      "tour",
+      "dashboard",
       "communication",
     ]);
   });

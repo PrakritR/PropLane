@@ -70,6 +70,7 @@ import {
 } from "@/lib/portal-inbox-storage";
 import { formatRangeLabel } from "@/lib/demo-admin-scheduling";
 import { residentTourDetailHref, residentTourListHref } from "@/lib/portal-detail-routes";
+import { resolveResidentPortalNavStage } from "@/lib/resident-portal-nav";
 import { residentTourBucketForView, sortResidentTourViews } from "@/lib/resident-tour-list";
 import { stripPropertyRoomCountSuffix } from "@/lib/portal-mobile-preview";
 import type { ResidentTourView } from "@/lib/tour-resident-link.server";
@@ -625,6 +626,19 @@ export function ResidentDashboard({
   const overdueChargeCount = pendingCharges.filter((c) => isHouseholdChargeOverdue(c)).length;
   const totalBalanceDue = pendingCharges.reduce((sum, c) => sum + parseMoneyLabel(c.balanceLabel), 0);
 
+  const navStage = resolveResidentPortalNavStage({
+    leaseAccessUnlocked: leaseSigned,
+    applicationApproved,
+    hasCompletedApplicationSubmission: applicationRows.length > 0,
+  });
+  const showTourKpi =
+    navStage === "pre_approval" || navStage === "application_submitted" || pendingTourCount > 0;
+  const showApplicationKpi =
+    navStage === "pre_approval" || navStage === "application_submitted";
+  const showLeaseKpi = applicationApproved && !leaseSigned;
+  const showPaymentsKpi = applicationApproved;
+  const showServicesKpi = leaseSigned;
+  const showInboxKpi = inbox > 0;
 
   const servicesHref = canUseServices ? `${BASE}/services` : `${BASE}/services`;
   const houseDetailsHref = `${BASE}/move-in`;
@@ -660,7 +674,29 @@ export function ResidentDashboard({
       hideTitleOnMobileNav
     >
       <div className={`min-w-0 ${PORTAL_DASHBOARD_STACK}`}>
+        {leaseSigned && showHouseDetails ? (
+          <Link
+            href={houseDetailsHref}
+            data-attr="resident-dashboard-move-in-hero"
+            className="mb-1 flex w-full items-center justify-between gap-3 rounded-2xl border border-primary/25 bg-[color-mix(in_srgb,var(--status-approved-bg)_55%,var(--card))] px-4 py-3.5 transition-colors hover:border-primary/40 [html[data-native]_&]:px-3.5 [html[data-native]_&]:py-3"
+          >
+            <span className="min-w-0">
+              <span className="block text-sm font-bold text-foreground [html[data-native]_&]:text-[13px]">
+                Move-in details
+              </span>
+              <span className="mt-0.5 block truncate text-xs text-muted [html[data-native]_&]:text-[11px]">
+                {appProperty
+                  ? `${appProperty}${appRoom ? ` · ${appRoom}` : ""}`
+                  : "Placement, keys, and house information"}
+              </span>
+            </span>
+            <span aria-hidden className="shrink-0 text-lg text-primary">
+              ›
+            </span>
+          </Link>
+        ) : null}
         <PortalDashboardKpiRow>
+            {showTourKpi ? (
             <PortalDashboardKpiTile
               label="Tour pending"
               value={pendingTourCount}
@@ -669,6 +705,8 @@ export function ResidentDashboard({
               href={residentTourListHref(BASE, "pending")}
               dataAttr="resident-dashboard-kpi-tour-pending"
             />
+            ) : null}
+            {showApplicationKpi ? (
             <PortalDashboardKpiTile
               label="Application pending"
               value={pendingApplicationCount}
@@ -677,7 +715,8 @@ export function ResidentDashboard({
               href={`${BASE}/applications`}
               dataAttr="resident-dashboard-kpi-application-pending"
             />
-            {leaseUnlocked ? (
+            ) : null}
+            {showLeaseKpi ? (
             <PortalDashboardKpiTile
               label="Lease"
               value={lease.cta ? 1 : 0}
@@ -687,16 +726,7 @@ export function ResidentDashboard({
               dataAttr="resident-dashboard-kpi-lease"
             />
             ) : null}
-            {showHouseDetails ? (
-            <PortalDashboardKpiTile
-              label="House details"
-              value="—"
-              tone="neutral"
-              href={houseDetailsHref}
-              dataAttr="resident-dashboard-kpi-house-details"
-            />
-            ) : null}
-            {canUseServices ? (
+            {showServicesKpi && canUseServices ? (
             <PortalDashboardKpiTile
               label="Services"
               value={openServiceCount}
@@ -706,7 +736,7 @@ export function ResidentDashboard({
               dataAttr="resident-dashboard-kpi-services"
             />
             ) : null}
-            {canUsePayments ? (
+            {showPaymentsKpi && canUsePayments ? (
             <PortalDashboardKpiTile
               label="Balance due"
               value={formatUsd(totalBalanceDue)}
@@ -716,6 +746,7 @@ export function ResidentDashboard({
               dataAttr="resident-dashboard-kpi-balance"
             />
             ) : null}
+            {showInboxKpi ? (
             <PortalDashboardKpiTile
               label="Unread messages"
               value={inbox}
@@ -724,6 +755,7 @@ export function ResidentDashboard({
               href={communicationHref}
               dataAttr="resident-dashboard-kpi-inbox"
             />
+            ) : null}
         </PortalDashboardKpiRow>
 
         {/* Needs attention — dense issue rows grouped under tiny uppercase labels. */}

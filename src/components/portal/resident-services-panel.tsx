@@ -75,11 +75,23 @@ import {
   type ServiceRequest,
 } from "@/lib/service-requests-storage";
 import {
+  buildUnifiedServiceRows,
+  countServiceRowsByState,
+  type ServiceRowState,
+} from "@/lib/unified-service-rows";
+import {
   LEASE_PIPELINE_EVENT,
   findLeaseForResidentEmail,
   hasBothLeaseSignatures,
   syncLeasePipelineFromServer,
 } from "@/lib/lease-pipeline-storage";
+
+const SERVICE_STATE_TABS: { id: ServiceRowState; label: string }[] = [
+  { id: "open", label: "Open" },
+  { id: "scheduled", label: "Scheduled" },
+  { id: "done", label: "Done" },
+  { id: "declined", label: "Declined" },
+];
 
 export type WorkOrderFilterBucket = "pending" | "scheduled" | "completed";
 
@@ -507,48 +519,36 @@ export function WorkOrderDetail({
 }
 
 /**
- * The two dashed add rows for this section's lists. Both read a uniform "ADD"
- * like every other portal list, so each carries its own `ariaLabel` — two
- * buttons named "Add" on one page leave a screen reader no way to tell a
- * service request from a maintenance report.
+ * One add affordance for the unified Services list — request an add-on or report an issue.
  */
-function ResidentServicesRequestAddRow({
+function ResidentServicesAddActions({
   onRequest,
+  onReport,
   disabled = false,
 }: {
   onRequest: () => void;
+  onReport: () => void;
   disabled?: boolean;
 }) {
   return (
-    <div className={PORTAL_LIST_ADD_ROW_WRAP_CLASS}>
+    <div className={`${PORTAL_LIST_ADD_ROW_WRAP_CLASS} grid grid-cols-2 gap-2`}>
       <PortalListAddRow
-        label="Add"
+        label="Request"
         ariaLabel="Request a service"
         icon={ClipboardList}
         onClick={onRequest}
         disabled={disabled}
         dataAttr="resident-services-request-add"
+        inline
       />
-    </div>
-  );
-}
-
-function ResidentServicesMaintenanceAddRow({
-  onReport,
-  disabled = false,
-}: {
-  onReport: () => void;
-  disabled?: boolean;
-}) {
-  return (
-    <div className={PORTAL_LIST_ADD_ROW_WRAP_CLASS}>
       <PortalListAddRow
-        label="Add"
-        ariaLabel="Report a maintenance issue"
+        label="Report"
+        ariaLabel="Report a service issue"
         icon={Wrench}
         onClick={onReport}
         disabled={disabled}
         dataAttr="resident-services-maintenance-add"
+        inline
       />
     </div>
   );
@@ -580,8 +580,7 @@ export function ResidentServicesPanel({
     input.click();
   };
 
-  const [workOrderFilter, setWorkOrderFilter] = useState<WorkOrderFilterBucket>("pending");
-  const [requestsFilter, setRequestsFilter] = useState<RequestStatusBucket>("pending");
+  const [serviceStateFilter, setServiceStateFilter] = useState<ServiceRowState>("open");
   const [expandedId, setExpandedId] = useState<string | null>(null);
 
   // modal state
@@ -794,17 +793,6 @@ export function ResidentServicesPanel({
     );
   }, [allRows, residentEmail]);
 
-  const rows = useMemo(
-    () => myRows.filter((r) => workOrderFilterBucket(r) === workOrderFilter),
-    [myRows, workOrderFilter],
-  );
-
-  const workOrderFilterCounts = useMemo(() => {
-    const c: Record<WorkOrderFilterBucket, number> = { pending: 0, scheduled: 0, completed: 0 };
-    for (const r of myRows) c[workOrderFilterBucket(r)] += 1;
-    return c;
-  }, [myRows]);
-
   const sortedRequests = useMemo(
     () =>
       [...serviceRequests].sort((a, b) => {
@@ -815,16 +803,45 @@ export function ResidentServicesPanel({
     [serviceRequests],
   );
 
-  const requestsCounts = useMemo(() => {
-    const c: Record<RequestStatusBucket, number> = { pending: 0, completed: 0, denied: 0 };
-    for (const req of sortedRequests) c[serviceRequestStatusBucket(req)] += 1;
-    return c;
-  }, [sortedRequests]);
-
-  const filteredRequests = useMemo(
-    () => sortedRequests.filter((req) => serviceRequestStatusBucket(req) === requestsFilter),
-    [sortedRequests, requestsFilter],
+  const unifiedServiceRows = useMemo(
+    () =>
+      buildUnifiedServiceRows({
+        addOns: sortedRequests,
+        maintenance: myRows.map((row) => ({
+          id: row.id,
+          title: row.title,
+          status: row.status,
+          bucket: row.bucket,
+          residentName: row.residentName,
+          residentEmail: row.residentEmail,
+          propertyId: row.propertyId,
+          propertyName: row.propertyName,
+          unit: row.unit,
+          scheduledAtIso: row.scheduledAtIso,
+          createdAtIso: row.createdAtIso,
+        })),
+        propertyLabelForRequest: (propertyId) =>
+          getPropertyById(propertyId)?.buildingName?.trim() || null,
+      }),
+    [sortedRequests, myRows],
   );
+
+  const serviceStateCounts = useMemo(
+    () => countServiceRowsByState(unifiedServiceRows),
+    [unifiedServiceRows],
+  );
+
+  const filteredUnifiedRows = useMemo(
+    () => unifiedServiceRows.filter((row) => row.state === serviceStateFilter),
+    [unifiedServiceRows, serviceStateFilter],
+  );
+
+  const serviceRequestById = useMemo(
+    () => new Map(sortedRequests.map((req) => [req.id, req])),
+    [sortedRequests],
+  );
+
+  const workOrderById = useMemo(() => new Map(myRows.map((row) => [row.id, row])), [myRows]);
 
   function openRequestEdit(req: ServiceRequest) {
     setEditingRequest(req);
@@ -1103,7 +1120,7 @@ export function ResidentServicesPanel({
     setExpandedId(row.id);
     // Manager notification (inbox + email + SMS) fires server-side on the
     // mirror write — a second client-side send here would double-notify.
-    showToast("Maintenance request submitted.");
+    showToast("Service request submitted.");
     track("work_order_submitted", {
       category: row.category,
       priority: mPriority,
@@ -1259,9 +1276,7 @@ export function ResidentServicesPanel({
     setModalMode("maintenance");
   };
 
-  const requestsLockedEmpty = !servicesUnlocked && sortedRequests.length === 0;
-  const workOrdersLockedEmpty = !servicesUnlocked && myRows.length === 0;
-  const lockedEmpty = requestsLockedEmpty && workOrdersLockedEmpty;
+  const lockedEmpty = !servicesUnlocked && unifiedServiceRows.length === 0;
 
   return (
     <ManagerPortalPageShell
@@ -1276,139 +1291,64 @@ export function ResidentServicesPanel({
       {!servicesUnlocked ? (
         <p className={lockedEmpty ? PORTAL_INLINE_UNLOCK_NOTICE_STACKED_CLASS : PORTAL_INLINE_UNLOCK_NOTICE_CLASS}>
           <span className="font-semibold">Services unlock after your lease is fully signed.</span>{" "}
-          Maintenance and service requests become available once you and your manager have both signed.
+          Request add-ons and report issues once you and your manager have both signed.
         </p>
       ) : null}
 
-      {/*
-        One Services screen. A resident thinks about "things happening at my place", not about
-        which of PropLane's two stores a row lives in — so both are shown here, each keeping its
-        own card, rather than hidden behind a Requests / Work orders switch.
-      */}
-      <>
-        <div>
-          <p className="mb-2 px-1 text-xs font-semibold uppercase tracking-wide text-muted">
-            Add-on services
-          </p>
-          <div className="mb-3">
-            <LocalDestinationNav
-              items={REQUEST_STATUS_TABS.map(({ id, label }) => ({
-                id,
-                label,
-                count: requestsCounts[id],
-                dataAttr: `resident-services-request-status-${id}`,
-              }))}
-              activeId={requestsFilter}
-              onChange={(id) => setRequestsFilter(id as RequestStatusBucket)}
-              ariaLabel="Service request status"
-              size="toolbar"
-              className="w-full"
-            />
-          </div>
-          {filteredRequests.length > 0 ? (
-        <>
-        <div className="space-y-2 lg:hidden">
-          {filteredRequests.map((req) => {
-            const rowId = `request-${req.id}`;
-            const expanded = expandedId === rowId;
-            return (
-              <PortalMobileSummaryCard
-                key={rowId}
-                title={req.offerName}
-                trailing={<span className="text-xs text-muted">{displayServiceRequestCost(req)}</span>}
-                expanded={expanded}
-                onClick={() => setExpandedId((c) => (c === rowId ? null : rowId))}
-              >
-                {expanded ? (
-                  <ServiceRequestCard
-                    req={req}
-                    onDelete={reloadServiceRequests}
-                    onEdit={() => openRequestEdit(req)}
-                    onSendReminder={() => void sendServiceRequestReminder(req)}
-                    reminderSending={requestReminderSendingId === req.id}
-                  />
-                ) : null}
-              </PortalMobileSummaryCard>
-            );
-          })}
+      <div>
+        <div className="mb-3">
+          <LocalDestinationNav
+            items={SERVICE_STATE_TABS.map(({ id, label }) => ({
+              id,
+              label,
+              count: serviceStateCounts[id],
+              dataAttr: `resident-services-status-${id}`,
+            }))}
+            activeId={serviceStateFilter}
+            onChange={(id) => setServiceStateFilter(id as ServiceRowState)}
+            ariaLabel="Service status"
+            size="toolbar"
+            className="w-full"
+          />
         </div>
-        <div className={`${PORTAL_DATA_TABLE_WRAP} hidden lg:block`}>
-            <div className={PORTAL_DATA_TABLE_SCROLL}>
-              <table className={PORTAL_DATA_TABLE}>
-                <PortalDataTableColGroup percents={portalTableColumnPercents(2)} />
-                <tbody>
-                  {filteredRequests.map((req) => {
-                    const rowId = `request-${req.id}`;
-                    const isExpanded = expandedId === rowId;
-                    return (
-                      <Fragment key={rowId}>
-                        <tr
-                          className={PORTAL_TABLE_TR_EXPANDABLE}
-                          onClick={createPortalRowExpandClick(() =>
-                            setExpandedId((c) => (c === rowId ? null : rowId)),
-                          )}
-                          aria-expanded={isExpanded}
-                        >
-                          <td className={`${PORTAL_TABLE_TD} font-medium text-foreground`}>
-                            <PortalTableInlineExpand expanded={isExpanded}>{req.offerName}</PortalTableInlineExpand>
-                          </td>
-                          <td className={PORTAL_TABLE_TD}>{displayServiceRequestCost(req)}</td>
-                        </tr>
-                        {isExpanded ? (
-                          <tr className={PORTAL_TABLE_DETAIL_ROW}>
-                            <td colSpan={2} className={PORTAL_TABLE_DETAIL_CELL}>
-                              <ServiceRequestCard
-                                req={req}
-                                onDelete={reloadServiceRequests}
-                                onEdit={() => openRequestEdit(req)}
-                                onSendReminder={() => void sendServiceRequestReminder(req)}
-                                reminderSending={requestReminderSendingId === req.id}
-                              />
-                            </td>
-                          </tr>
-                        ) : null}
-                      </Fragment>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-        </div>
-        </>
-          ) : sortedRequests.length > 0 ? (
-            <p className="mb-2 px-1 text-center text-sm text-muted">No requests in this status yet.</p>
-          ) : null}
-          <ResidentServicesRequestAddRow onRequest={openRequestService} disabled={!servicesUnlocked} />
-        </div>
-        <div className="mt-6">
-          <p className="mb-2 px-1 text-xs font-semibold uppercase tracking-wide text-muted">
-            Maintenance
-          </p>
-          <div className="mb-3">
-            <LocalDestinationNav
-              items={WORK_ORDER_FILTER_TABS.map(({ id, label }) => ({
-                id,
-                label,
-                count: workOrderFilterCounts[id],
-                dataAttr: `resident-services-work-order-status-${id}`,
-              }))}
-              activeId={workOrderFilter}
-              onChange={(id) => setWorkOrderFilter(id as WorkOrderFilterBucket)}
-              ariaLabel="Maintenance status"
-              size="toolbar"
-              className="w-full"
-            />
-          </div>
-          {rows.length > 0 ? (
-            <>
+        {filteredUnifiedRows.length > 0 ? (
+          <>
             <div className="space-y-2 lg:hidden">
-              {rows.map((row) => {
+              {filteredUnifiedRows.map((unified) => {
+                if (unified.kind === "add-on") {
+                  const req = serviceRequestById.get(unified.id);
+                  if (!req) return null;
+                  const rowId = `request-${req.id}`;
+                  const expanded = expandedId === rowId;
+                  return (
+                    <PortalMobileSummaryCard
+                      key={rowId}
+                      title={req.offerName}
+                      subtitle={unified.statusLabel}
+                      trailing={<span className="text-xs text-muted">{displayServiceRequestCost(req)}</span>}
+                      expanded={expanded}
+                      onClick={() => setExpandedId((c) => (c === rowId ? null : rowId))}
+                    >
+                      {expanded ? (
+                        <ServiceRequestCard
+                          req={req}
+                          onDelete={reloadServiceRequests}
+                          onEdit={() => openRequestEdit(req)}
+                          onSendReminder={() => void sendServiceRequestReminder(req)}
+                          reminderSending={requestReminderSendingId === req.id}
+                        />
+                      ) : null}
+                    </PortalMobileSummaryCard>
+                  );
+                }
+                const row = workOrderById.get(unified.id);
+                if (!row) return null;
                 const expanded = expandedId === row.id;
                 return (
                   <PortalMobileSummaryCard
                     key={row.id}
                     title={row.title}
-                    subtitle={row.description ? row.description : undefined}
+                    subtitle={row.description ? row.description : unified.statusLabel}
                     badge={
                       <span className={`inline-flex rounded-full px-2 py-0.5 text-[10px] font-semibold ${priorityClass(row.priority)}`}>
                         {row.priority}
@@ -1436,63 +1376,104 @@ export function ResidentServicesPanel({
                 <table className={PORTAL_DATA_TABLE}>
                   <PortalDataTableColGroup percents={portalTableColumnPercents(3)} />
                   <tbody>
-                    {rows.map((row) => {
+                    {filteredUnifiedRows.map((unified) => {
+                      if (unified.kind === "add-on") {
+                        const req = serviceRequestById.get(unified.id);
+                        if (!req) return null;
+                        const rowId = `request-${req.id}`;
+                        const isExpanded = expandedId === rowId;
+                        return (
+                          <Fragment key={rowId}>
+                            <tr
+                              className={PORTAL_TABLE_TR_EXPANDABLE}
+                              onClick={createPortalRowExpandClick(() =>
+                                setExpandedId((c) => (c === rowId ? null : rowId)),
+                              )}
+                              aria-expanded={isExpanded}
+                            >
+                              <td className={`${PORTAL_TABLE_TD} font-medium text-foreground`}>
+                                <PortalTableInlineExpand expanded={isExpanded}>{req.offerName}</PortalTableInlineExpand>
+                              </td>
+                              <td className={PORTAL_TABLE_TD}>{unified.statusLabel}</td>
+                              <td className={PORTAL_TABLE_TD}>{displayServiceRequestCost(req)}</td>
+                            </tr>
+                            {isExpanded ? (
+                              <tr className={PORTAL_TABLE_DETAIL_ROW}>
+                                <td colSpan={3} className={PORTAL_TABLE_DETAIL_CELL}>
+                                  <ServiceRequestCard
+                                    req={req}
+                                    onDelete={reloadServiceRequests}
+                                    onEdit={() => openRequestEdit(req)}
+                                    onSendReminder={() => void sendServiceRequestReminder(req)}
+                                    reminderSending={requestReminderSendingId === req.id}
+                                  />
+                                </td>
+                              </tr>
+                            ) : null}
+                          </Fragment>
+                        );
+                      }
+                      const row = workOrderById.get(unified.id);
+                      if (!row) return null;
                       const isExpanded = expandedId === row.id;
                       return (
-                      <Fragment key={row.id}>
-                        <tr
-                          className={PORTAL_TABLE_TR_EXPANDABLE}
-                          onClick={createPortalRowExpandClick(() =>
-                            setExpandedId((c) => (c === row.id ? null : row.id)),
-                          )}
-                          aria-expanded={isExpanded}
-                        >
-                          <td className={`${PORTAL_TABLE_TD} font-medium text-foreground`}>
-                            <PortalTableInlineExpand expanded={isExpanded}>{row.title}</PortalTableInlineExpand>
-                            <p className="mt-0.5 text-[11px] font-normal text-muted line-clamp-1">{row.description}</p>
-                          </td>
-                          <td className={PORTAL_TABLE_TD}>
-                            <span className={`inline-flex rounded-full px-2 py-0.5 text-[10px] font-semibold ${priorityClass(row.priority)}`}>
-                              {row.priority}
-                            </span>
-                          </td>
-                          <td className={PORTAL_TABLE_TD}>{displayWorkOrderCost(row.cost)}</td>
-                        </tr>
-                        {isExpanded ? (
-                          <tr className={PORTAL_TABLE_DETAIL_ROW}>
-                            <td colSpan={3} className={`${PORTAL_TABLE_DETAIL_CELL} text-sm text-muted`}>
-                              <WorkOrderDetail
-                                row={row}
-                                onEdit={() => openWorkOrderEdit(row)}
-                                onCancel={() => cancelWorkOrder(row.id)}
-                                onSendReminder={() => void sendWorkOrderReminder(row)}
-                                reminderSending={reminderSendingId === row.id}
-                              />
+                        <Fragment key={row.id}>
+                          <tr
+                            className={PORTAL_TABLE_TR_EXPANDABLE}
+                            onClick={createPortalRowExpandClick(() =>
+                              setExpandedId((c) => (c === row.id ? null : row.id)),
+                            )}
+                            aria-expanded={isExpanded}
+                          >
+                            <td className={`${PORTAL_TABLE_TD} font-medium text-foreground`}>
+                              <PortalTableInlineExpand expanded={isExpanded}>{row.title}</PortalTableInlineExpand>
+                              <p className="mt-0.5 text-[11px] font-normal text-muted line-clamp-1">{row.description}</p>
                             </td>
+                            <td className={PORTAL_TABLE_TD}>
+                              <span className={`inline-flex rounded-full px-2 py-0.5 text-[10px] font-semibold ${priorityClass(row.priority)}`}>
+                                {row.priority}
+                              </span>
+                            </td>
+                            <td className={PORTAL_TABLE_TD}>{displayWorkOrderCost(row.cost)}</td>
                           </tr>
-                        ) : null}
-                      </Fragment>
-                    );
+                          {isExpanded ? (
+                            <tr className={PORTAL_TABLE_DETAIL_ROW}>
+                              <td colSpan={3} className={`${PORTAL_TABLE_DETAIL_CELL} text-sm text-muted`}>
+                                <WorkOrderDetail
+                                  row={row}
+                                  onEdit={() => openWorkOrderEdit(row)}
+                                  onCancel={() => cancelWorkOrder(row.id)}
+                                  onSendReminder={() => void sendWorkOrderReminder(row)}
+                                  reminderSending={reminderSendingId === row.id}
+                                />
+                              </td>
+                            </tr>
+                          ) : null}
+                        </Fragment>
+                      );
                     })}
                   </tbody>
                 </table>
               </div>
             </div>
-            </>
-          ) : myRows.length > 0 ? (
-            <p className="mb-2 px-1 text-center text-sm text-muted">No work orders in this status yet.</p>
-          ) : null}
-          <ResidentServicesMaintenanceAddRow onReport={openMaintenanceReport} disabled={!servicesUnlocked} />
-        </div>
-      </>
+          </>
+        ) : unifiedServiceRows.length > 0 ? (
+          <p className="mb-2 px-1 text-center text-sm text-muted">No services in this status yet.</p>
+        ) : null}
+        <ResidentServicesAddActions
+          onRequest={openRequestService}
+          onReport={openMaintenanceReport}
+          disabled={!servicesUnlocked}
+        />
+      </div>
 
       </div>
 
-      {/* Maintenance modal — mount only while open so no file input leaks to the list page */}
+      {/* Service issue modal — mount only while open so no file input leaks to the list page */}
       {modalMode === "maintenance" ? (
       <Modal
         open
-        title="Add work order"
+        title="Report service issue"
         onClose={() => { setModalMode("none"); resetMaintenance(); }}
         panelClassName="max-w-lg"
         footer={

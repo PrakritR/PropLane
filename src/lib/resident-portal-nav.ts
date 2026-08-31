@@ -34,8 +34,8 @@ export function resolveResidentPortalNavStage(
 export const RESIDENT_BOTTOM_NAV_PRIMARY: Record<ResidentPortalNavStage, readonly string[]> = {
   pre_approval: ["tour", "applications", "dashboard", "communication"],
   application_submitted: ["tour", "applications", "dashboard", "communication"],
-  post_approval_pre_lease: ["lease", "payments", "tour", "communication"],
-  post_lease: ["services", "payments", "tour", "communication"],
+  post_approval_pre_lease: ["lease", "payments", "dashboard", "communication"],
+  post_lease: ["services", "payments", "dashboard", "communication"],
 };
 
 const STAGE_UNLOCKED_SECTIONS: Record<ResidentPortalNavStage, readonly string[]> = {
