@@ -12,7 +12,6 @@ import { PortalFilterSortSheet, portalFilterActiveCount } from "@/components/por
 import { PORTAL_PROPERTY_FILTER_SHEET_CLASS } from "@/components/portal/portal-filter-shell";
 import { PortalActiveFilterChips } from "@/components/portal/portal-filter-chips";
 import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
-import { PortalListFab } from "@/components/portal/portal-list-fab";
 import {
   ManagerPortalPageShell,
   PORTAL_COMMAND_ACTION_BTN,
@@ -338,11 +337,6 @@ export function ManagerLeases({
           onEmailAccountSetup={(email) => {
             setResidentAccountEmails((prev) => new Set([...prev, email.trim().toLowerCase()]));
           }}
-        />
-        <PortalListFab
-          onClick={() => setAddLeaseOpen(true)}
-          ariaLabel="Add lease"
-          dataAttr="leases-list-add"
         />
       </ManagerPortalPageShell>
       {modals}

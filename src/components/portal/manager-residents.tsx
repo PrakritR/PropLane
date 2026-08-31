@@ -62,6 +62,8 @@ import {
   type ResidentsTabId,
 } from "@/lib/portal-detail-routes";
 import { PORTAL_BULK_BAR_BTN } from "@/lib/portal-bulk-bar";
+import { PortalRecordListSurface } from "@/components/portal/portal-record-list-surface";
+import { usePortalRowSelection } from "@/hooks/use-portal-row-selection";
 import { PortalRecordDetailPage } from "@/components/portal/portal-record-detail-page";
 import { ManagerResidentsGroupedTable } from "@/components/portal/manager-residents-grouped-table";
 import { ManagerResidentToursPanel } from "@/components/portal/manager-resident-tours-panel";
@@ -71,7 +73,9 @@ import {
   DEV_RESIDENT_LIST_FIXTURES,
   shouldShowDevResidentListFixtures,
 } from "@/lib/dev/resident-list-fixtures";
-import { PORTAL_LIST_PAGE_BODY } from "@/components/portal/portal-inbox-ui";
+import {
+  PORTAL_LIST_ADD_ICONS,
+} from "@/components/portal/portal-list-add-row";
 import { LeaseDocumentPreview } from "@/components/portal/lease-document-preview";
 import { LeasePrimaryHeaderActions } from "@/components/portal/lease-primary-header-actions";
 import { LeaseGenerateModal } from "@/components/portal/lease-generate-modal";
@@ -465,6 +469,7 @@ export function ManagerResidents({
   // Edit resident
   const erSkipPricingFillRef = useRef(false);
   const [editResidentOpen, setEditResidentOpen] = useState(false);
+  const [editResidentTargetId, setEditResidentTargetId] = useState<string | null>(null);
   const [erSaving, setErSaving] = useState(false);
   const [erName, setErName] = useState("");
   const [erEmail, setErEmail] = useState("");
@@ -1101,6 +1106,10 @@ export function ManagerResidents({
       ),
     [filtered, applicationGroups],
   );
+
+  const { selectedIds, toggleSelected, clearSelection } = usePortalRowSelection(residentsTab);
+  const listSelectedCount = selectedIds.size;
+  const singleListSelectedId = listSelectedCount === 1 ? [...selectedIds][0]! : null;
 
   const activeResidentId = residentIdProp ? decodeURIComponent(residentIdProp) : null;
   const selected = useMemo(
@@ -2113,9 +2122,10 @@ export function ManagerResidents({
     })();
   }
 
-  function openEditResidentModal() {
-    if (!selected) return;
-    const row = readManagerApplicationRows().find((r) => r.id === selected.id);
+  function openEditResidentModal(residentId?: string) {
+    const targetId = residentId ?? selected?.id;
+    if (!targetId) return;
+    const row = readManagerApplicationRows().find((r) => r.id === targetId);
     if (!row) {
       showToast("Resident record not found.");
       return;
@@ -2162,17 +2172,19 @@ export function ManagerResidents({
     setErSecurityDeposit(savedDeposit || app?.managerSecurityDepositOverride?.trim() || "");
     setErNotes(row.manualResidentDetails?.notes || "");
     erSkipPricingFillRef.current = true;
+    setEditResidentTargetId(targetId);
     setEditResidentOpen(true);
   }
 
   function saveEditedResident() {
-    if (!selected || erSaving) return;
+    const targetId = editResidentTargetId ?? selected?.id;
+    if (!targetId || erSaving) return;
     if (!erName.trim()) {
       showToast("Enter the resident's name.");
       return;
     }
     const rows = readManagerApplicationRows();
-    const idx = rows.findIndex((r) => r.id === selected.id);
+    const idx = rows.findIndex((r) => r.id === targetId);
     if (idx === -1) {
       showToast("Resident record not found.");
       return;
@@ -2270,6 +2282,7 @@ export function ManagerResidents({
           return;
         }
         setEditResidentOpen(false);
+        setEditResidentTargetId(null);
         setHcTick((n) => n + 1);
         setLeaseTick((n) => n + 1);
         // Say what actually propagated. Charges and leases each decline for legitimate reasons
@@ -2300,15 +2313,11 @@ export function ManagerResidents({
     setResidentPaymentSetupOpen(true);
   }
 
-  async function deleteSelectedResident() {
-    if (!selected) return;
-    const selectedResident = selected;
-    if (!window.confirm(`Delete resident ${selectedResident.name || selectedResident.email}? This cannot be undone.`)) return;
-
+  async function executeResidentDelete(selectedResident: ActiveResident): Promise<boolean> {
     const allRows = readManagerApplicationRows();
     if (!allRows.some((row) => row.id === selectedResident.id)) {
       showToast("Resident not found.");
-      return;
+      return false;
     }
 
     let serverDeleteError: string | null = null;
@@ -2333,7 +2342,7 @@ export function ManagerResidents({
 
     if (serverDeleteError) {
       showToast(serverDeleteError);
-      return;
+      return false;
     }
 
     writeManagerApplicationRows(allRows.filter((row) => row.id !== selectedResident.id));
@@ -2372,12 +2381,49 @@ export function ManagerResidents({
     }
 
     await syncManagerApplicationsFromServer({ force: true, managerUserId: userId });
-    navigate(`${portalBase}/residents/${residentsTab}`);
     setHcTick((n) => n + 1);
     setLeaseTick((n) => n + 1);
     setWorkOrderTick((n) => n + 1);
     setInboxTick((n) => n + 1);
+    return true;
+  }
+
+  async function deleteSelectedResident() {
+    if (!selected) return;
+    if (!window.confirm(`Delete resident ${selected.name || selected.email}? This cannot be undone.`)) return;
+    const ok = await executeResidentDelete(selected);
+    if (!ok) return;
+    navigate(`${portalBase}/residents/${residentsTab}`);
     showToast("Resident and all related portal data deleted.");
+  }
+
+  async function deleteListSelectedResidents() {
+    const ids = [...selectedIds];
+    if (ids.length === 0) return;
+    const label =
+      ids.length === 1
+        ? residentDirectoryRows.find((row) => row.id === ids[0])?.name ||
+          residentDirectoryRows.find((row) => row.id === ids[0])?.email ||
+          "this resident"
+        : `${ids.length} residents`;
+    if (!window.confirm(`Delete ${label}? This cannot be undone.`)) return;
+
+    let deleted = 0;
+    for (const id of ids) {
+      const resident = residentDirectoryRows.find((row) => row.id === id);
+      if (!resident) continue;
+      if (await executeResidentDelete(resident)) deleted += 1;
+    }
+    if (deleted === 0) return;
+    clearSelection();
+    if (activeResidentId && ids.includes(activeResidentId)) {
+      navigate(`${portalBase}/residents/${residentsTab}`);
+    }
+    showToast(
+      deleted === 1
+        ? "Resident and all related portal data deleted."
+        : `${deleted} residents and related portal data deleted.`,
+    );
   }
 
   function leaseGenerationGateTitle(row: LeasePipelineRow): string | undefined {
@@ -3249,25 +3295,58 @@ export function ManagerResidents({
           </>
         }
       />
-      {filtered.length === 0 ? (
-        residentDirectoryRows.length > 0 || propertyFilters.length > 0 ? (
-          <PortalDataTableEmpty
-            icon="residents"
-            message={residentsListEmptyMessage}
-          />
-        ) : null
-      ) : (
-        <div className={PORTAL_LIST_PAGE_BODY}>
-          <ManagerResidentsGroupedTable
-            clusters={residentListClusters}
-            showPropertyInRows={propertyFilters.length > 0}
-            selectable={false}
-            onOpenResident={(res) =>
-              navigate(residentDetailHref(portalBase, residentsTab, res.id, resolvedDetailTab))
-            }
-          />
-        </div>
-      )}
+      <PortalRecordListSurface
+        isEmpty={filtered.length === 0}
+        empty={
+          residentDirectoryRows.length > 0 || propertyFilters.length > 0 ? (
+            <PortalDataTableEmpty icon="residents" message={residentsListEmptyMessage} />
+          ) : null
+        }
+        add={{
+          label: "Add",
+          ariaLabel: "Add resident",
+          icon: PORTAL_LIST_ADD_ICONS.resident,
+          onClick: () => setAddResidentOpen(true),
+          dataAttr: "residents-list-add",
+        }}
+        bulkCount={listSelectedCount}
+        bulkActions={
+          <>
+            <Button
+              type="button"
+              variant="outline"
+              className={PORTAL_BULK_BAR_BTN}
+              data-attr="residents-bulk-edit"
+              disabled={!singleListSelectedId}
+              onClick={() => {
+                if (singleListSelectedId) openEditResidentModal(singleListSelectedId);
+              }}
+            >
+              Edit
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              className={`${PORTAL_BULK_BAR_BTN} border-rose-200 text-rose-800 hover:bg-[var(--status-overdue-bg)] portal-danger-outline`}
+              data-attr="residents-bulk-delete"
+              onClick={() => void deleteListSelectedResidents()}
+            >
+              Delete
+            </Button>
+          </>
+        }
+      >
+        <ManagerResidentsGroupedTable
+          clusters={residentListClusters}
+          showPropertyInRows={propertyFilters.length > 0}
+          selectable
+          selectedIds={selectedIds}
+          onToggleSelected={toggleSelected}
+          onOpenResident={(res) =>
+            navigate(residentDetailHref(portalBase, residentsTab, res.id, resolvedDetailTab))
+          }
+        />
+      </PortalRecordListSurface>
 
       </ManagerPortalPageShell>
       )}
@@ -3612,7 +3691,10 @@ export function ManagerResidents({
       <Modal
         open={editResidentOpen}
         title="Edit resident"
-        onClose={() => setEditResidentOpen(false)}
+        onClose={() => {
+          setEditResidentOpen(false);
+          setEditResidentTargetId(null);
+        }}
         assistantContext="Edit resident"
         scrollableContent
         footer={

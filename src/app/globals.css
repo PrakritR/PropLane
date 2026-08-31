@@ -2783,6 +2783,25 @@ html[data-native] [data-listing-sections-root] {
   scroll-padding-inline: 0.5rem;
 }
 
+/* App tab and other viewport-fill pages: one screen, no #portal-main-content scroll. */
+#portal-main-content:has([data-viewport-fill-body]) {
+  overflow: hidden;
+  padding-bottom: 0;
+  scroll-padding-bottom: 0;
+}
+
+.portal-main-inner:has([data-viewport-fill-body]) {
+  display: flex !important;
+  flex: 1 1 0% !important;
+  min-height: 0 !important;
+  flex-direction: column;
+}
+
+.portal-main-inner:has([data-viewport-fill-body]) > [data-viewport-fill-body] {
+  flex: 1 1 0%;
+  min-height: 0;
+}
+
 @media (max-width: 1023px) {
   .portal-main-inner > * {
     width: 100%;
@@ -2797,7 +2816,7 @@ html[data-native] [data-listing-sections-root] {
      surface taller than the viewport became unscrollable below the fold. The
      `html[data-communication-thread-reading] .portal-main-inner > *` override
      earlier in this file exists for the same reason. */
-  html:not([data-portal-sticky-chrome]):not([data-communication-surface]) .portal-main-inner > * {
+  html:not([data-portal-sticky-chrome]):not([data-communication-surface]) .portal-main-inner > *:not([data-viewport-fill-body]) {
     flex: 0 0 auto;
   }
 }

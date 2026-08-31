@@ -1,7 +1,11 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { PortalListFab } from "@/components/portal/portal-list-fab";
+import {
+  PortalListAddRow,
+  PORTAL_LIST_ADD_ICONS,
+  PORTAL_LIST_ADD_ROW_WRAP_CLASS,
+} from "@/components/portal/portal-list-add-row";
 import { PortalListGroupFilterFields } from "@/components/portal/portal-list-group-filter-fields";
 import { ManagerAddScheduledTourModal } from "@/components/portal/manager-add-scheduled-tour-modal";
 import { ManagerToursGroupedTable } from "@/components/portal/manager-tours-grouped-table";
@@ -1138,13 +1142,20 @@ export function ManagerTours({
         ) : rowsForBucket.length === 0 ? null : (
           renderGroupedTours()
         )}
+        {authReady ? (
+          <div className={PORTAL_LIST_ADD_ROW_WRAP_CLASS}>
+            <PortalListAddRow
+              label="Add"
+              ariaLabel="Schedule tour"
+              icon={PORTAL_LIST_ADD_ICONS.request}
+              onClick={() => setAddTourOpen(true)}
+              disabled={propertyOptions.length === 0}
+              dataAttr="tours-list-add"
+              inline={rowsForBucket.length > 0}
+            />
+          </div>
+        ) : null}
       </div>
-      <PortalListFab
-        onClick={() => setAddTourOpen(true)}
-        disabled={propertyOptions.length === 0}
-        ariaLabel="Schedule tour"
-        dataAttr="tours-list-add"
-      />
 
       <ShareLeadLinkModal
         open={shareTourOpen}

@@ -4,7 +4,6 @@ import Link from "next/link";
 import { Smartphone } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { MobileAppPreview } from "@/components/marketing/mobile-app-preview";
-import { PortalPageFooterActions } from "@/components/portal/portal-section-action-row";
 import { iosAppDownloadIsTestFlight, iosAppDownloadLabel, iosAppDownloadUrl } from "@/lib/ios-app-download";
 import { isNativeRuntimeSync } from "@/lib/native/detect-native";
 import { cn } from "@/lib/utils";
@@ -62,13 +61,14 @@ export function MobileAppDownloadPanel({
   }
 
   const heading = testFlight ? "Install the PropLane mobile beta" : "Get PropLane on your phone";
-  const renderDownloadCta = (fullWidthOnMobile: boolean) => (
+  const renderDownloadCta = (fullWidthOnMobile: boolean, prominent = false) => (
     <Button
       asChild
       variant="primary"
       className={cn(
-        "h-11 min-h-0 rounded-full px-6 text-sm font-semibold",
-        fullWidthOnMobile && "max-lg:w-full max-lg:justify-center",
+        "min-h-0 rounded-full font-semibold",
+        prominent ? "h-12 px-7 text-[15px] shadow-md" : "h-11 px-6 text-sm",
+        fullWidthOnMobile && "w-full justify-center",
       )}
       data-attr="mobile-app-download-cta"
     >
@@ -78,23 +78,34 @@ export function MobileAppDownloadPanel({
     </Button>
   );
 
-  return (
-    <div
-      className={cn(
-        "grid gap-8 lg:grid-cols-[minmax(0,1fr)_292px] lg:items-start",
-        dockCtaOnMobile && "flex min-h-0 flex-1 flex-col max-lg:gap-6 lg:grid",
-        className,
-      )}
-    >
+  if (dockCtaOnMobile) {
+    return (
       <div
-        className={cn(
-          "flex flex-col items-start gap-6 rounded-2xl border border-border bg-card px-5 py-6 sm:px-8 sm:py-8",
-          dockCtaOnMobile && "max-lg:hidden",
-        )}
+        className={cn("flex min-h-0 flex-1 flex-col overflow-hidden", className)}
         data-attr="mobile-app-download-panel"
       >
+        <div className="flex min-h-0 flex-1 flex-col items-center gap-2 overflow-hidden px-1 pb-[calc(var(--portal-native-bottom-nav-inset,0px)+0.5rem)] pt-1 max-lg:pb-[calc(var(--portal-native-bottom-nav-inset,0px)+0.5rem)] lg:gap-4 lg:pb-4 lg:pt-2">
+          <div className="flex min-h-0 w-full max-w-[min(318px,calc(100vw-1.25rem))] flex-1 items-center justify-center overflow-hidden">
+            <MobileAppPreview portalMobile />
+          </div>
+          <div className="w-full shrink-0 max-w-[min(318px,calc(100vw-1.25rem))] px-1">
+            {renderDownloadCta(true, true)}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div
+      className={cn("grid gap-8 lg:grid-cols-[minmax(0,1fr)_292px] lg:items-start", className)}
+      data-attr="mobile-app-download-panel"
+    >
+      <div
+        className="flex flex-col items-start gap-6 rounded-2xl border border-border bg-card px-5 py-6 sm:px-8 sm:py-8"
+      >
         <h2 className="text-2xl font-semibold text-foreground">{heading}</h2>
-        <div className={cn("flex flex-wrap gap-2", dockCtaOnMobile && "max-lg:hidden")}>
+        <div className="flex flex-wrap gap-2">
           {renderDownloadCta(false)}
           {showPortalLink ? (
             <Button asChild variant="outline" className="h-11 min-h-0 rounded-full px-6 text-sm">
@@ -106,15 +117,8 @@ export function MobileAppDownloadPanel({
         </div>
       </div>
 
-      <MobileAppPreview
-        className={cn("lg:justify-self-end", dockCtaOnMobile && "max-lg:mx-auto max-lg:flex-1")}
-      />
+      <MobileAppPreview className="lg:justify-self-end" />
 
-      {dockCtaOnMobile ? (
-        <PortalPageFooterActions rowVariant="header" className="max-lg:inset-x-2.5 max-lg:rounded-2xl max-lg:border max-lg:shadow-md">
-          {renderDownloadCta(true)}
-        </PortalPageFooterActions>
-      ) : null}
     </div>
   );
 }

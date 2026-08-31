@@ -48,7 +48,11 @@ import { downloadBackgroundCheckForApplication, ApplicationScreeningPanel } from
 import { ApplicationHoldingFeeModal } from "@/components/portal/application-holding-fee-box";
 import { ManagerEditApplicationModal } from "@/components/portal/manager-edit-application-modal";
 import { ManagerApplicationOnBehalfModal } from "@/components/portal/manager-application-on-behalf-modal";
-import { PortalListFab } from "@/components/portal/portal-list-fab";
+import {
+  PortalListAddRow,
+  PORTAL_LIST_ADD_ICONS,
+  PORTAL_LIST_ADD_ROW_WRAP_CLASS,
+} from "@/components/portal/portal-list-add-row";
 import { CheckrScreeningModal } from "@/components/portal/checkr-screening-modal";
 import { ManagerScreeningSettingsModal } from "@/components/portal/manager-screening-settings";
 import { ManagerPortalSettingsModal } from "@/components/portal/manager-portal-settings-modal";
@@ -1859,37 +1863,42 @@ export function ManagerApplications({
         <div className={PORTAL_DATA_TABLE_WRAP}>
           <ListSkeleton rows={5} showLeading={false} />
         </div>
-      ) : rowsForBucket.length === 0 ? (
-        <div className={PORTAL_LIST_PAGE_BODY}>
-          <PortalDataTableEmpty
-            icon="default"
-            message={
-              propertyFilters.length > 0
-                ? "No applications match your filters."
-                : "No applications in this bucket yet."
-            }
-          />
-        </div>
       ) : (
         <div className={PORTAL_LIST_PAGE_BODY}>
-          <ManagerApplicationsGroupedTable
-            clusters={listClusters}
-            cosignerSubmissionsBySigner={cosignerSubmissionsBySigner}
-            selectable={false}
-            onOpenApplication={(row) => navigate(applicationDetailHref(basePath, tabForRow(row), row.id))}
-            onOpenCosigner={(row, index) =>
-              navigate(`${applicationDetailHref(basePath, tabForRow(row), row.id)}?cosigner=${index}`)
-            }
-          />
+          {rowsForBucket.length === 0 ? (
+            <PortalDataTableEmpty
+              icon="default"
+              message={
+                propertyFilters.length > 0
+                  ? "No applications match your filters."
+                  : "No applications in this bucket yet."
+              }
+            />
+          ) : (
+            <ManagerApplicationsGroupedTable
+              clusters={listClusters}
+              cosignerSubmissionsBySigner={cosignerSubmissionsBySigner}
+              selectable={false}
+              onOpenApplication={(row) => navigate(applicationDetailHref(basePath, tabForRow(row), row.id))}
+              onOpenCosigner={(row, index) =>
+                navigate(`${applicationDetailHref(basePath, tabForRow(row), row.id)}?cosigner=${index}`)
+              }
+            />
+          )}
+          <div className={PORTAL_LIST_ADD_ROW_WRAP_CLASS}>
+            <PortalListAddRow
+              label="Add"
+              ariaLabel="Add application"
+              icon={PORTAL_LIST_ADD_ICONS.application}
+              onClick={openAddApplication}
+              disabled={propertyOptions.length === 0}
+              dataAttr="applications-list-add"
+              inline={rowsForBucket.length > 0}
+            />
+          </div>
         </div>
       )}
       </div>
-      <PortalListFab
-        onClick={openAddApplication}
-        disabled={propertyOptions.length === 0}
-        ariaLabel="Add application"
-        dataAttr="applications-list-add"
-      />
     </ManagerPortalPageShell>
       {applicationModals}
     </>

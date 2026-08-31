@@ -7,7 +7,7 @@ import { ManagerPortalPageShell } from "@/components/portal/portal-metrics";
 export function ManagerMobileAppPanel() {
   return (
     <ManagerPortalPageShell title="App" hideTitleOnMobileNav viewportFillBody>
-      <MobileAppDownloadPanel showPortalLink={false} dockCtaOnMobile />
+      <MobileAppDownloadPanel showPortalLink={false} dockCtaOnMobile className="min-h-0 overflow-hidden" />
     </ManagerPortalPageShell>
   );
 }

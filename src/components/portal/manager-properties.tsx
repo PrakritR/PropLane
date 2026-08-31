@@ -12,7 +12,6 @@ import {
 } from "@/components/portal/manager-house-properties-panel";
 import { ShareLeadLinkModal } from "@/components/portal/share-lead-link-modal";
 import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
-import { PortalListFab } from "@/components/portal/portal-list-fab";
 import {
   ManagerPortalPageShell,
   PORTAL_COMMAND_ACTION_BTN,
@@ -306,12 +305,6 @@ export function ManagerProperties({
             </p>
           ) : null}
           {listPanel}
-          <PortalListFab
-            onClick={tryOpenAdd}
-            disabled={!skuLoaded}
-            ariaLabel="Add property"
-            dataAttr="properties-list-add"
-          />
         </ManagerPortalPageShell>
       )}
       {wizardOpen ? (

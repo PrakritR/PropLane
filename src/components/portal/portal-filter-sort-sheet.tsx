@@ -438,9 +438,9 @@ export function PortalFilterSortSheet({
         className={cn(
           "relative inline-flex min-w-0 max-w-full",
           commandStripTrigger
-            ? "min-w-0 shrink-0 flex-1 max-md:min-w-0"
+            ? "w-fit min-w-0 shrink-0"
             : compactTrigger
-              ? "w-full shrink-0 max-md:flex-1 md:w-[10.75rem] md:max-w-[10.75rem]"
+              ? "w-fit shrink-0 md:w-[10.75rem] md:max-w-[10.75rem]"
               : "w-fit flex-1 md:hidden",
           className,
         )}
@@ -453,12 +453,12 @@ export function PortalFilterSortSheet({
             commandStripTrigger
               ? cn(
                   PORTAL_COMMAND_ACTION_BTN,
-                  "inline-flex w-full min-w-0 items-center justify-center gap-1.5 whitespace-nowrap",
+                  "inline-flex w-auto items-center justify-center gap-1.5 whitespace-nowrap",
                 )
               : compactTrigger
               ? cn(
                   PORTAL_HEADER_ACTION_BTN,
-                  "inline-flex w-full min-w-0 items-center justify-center gap-1.5 whitespace-nowrap max-md:px-2.5 md:px-3",
+                  "inline-flex w-auto items-center justify-center gap-1.5 whitespace-nowrap max-md:px-2.5 md:px-3",
                 )
               : "inline-flex h-9 min-w-0 w-full items-center justify-center gap-1.5 rounded-full text-xs font-semibold whitespace-nowrap",
           )}

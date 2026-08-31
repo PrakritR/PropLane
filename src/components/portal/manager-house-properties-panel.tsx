@@ -46,7 +46,14 @@ import {
 import { ManagerPropertyRequestsPanel } from "@/components/portal/manager-property-requests-panel";
 import { PropertyResidentOnboardWizard } from "@/components/portal/property-resident-onboard-wizard";
 import { PortalPropertyRecordRow } from "@/components/portal/portal-record-row";
-import { PortalDataTableEmpty } from "@/components/portal/portal-data-table";
+import {
+  PortalListAddRow,
+  PORTAL_LIST_ADD_ICONS,
+  PORTAL_LIST_ADD_ROW_WRAP_CLASS,
+} from "@/components/portal/portal-list-add-row";
+import { BulkActionBar } from "@/components/ui/bulk-action-bar";
+import { PORTAL_BULK_BAR_BTN } from "@/lib/portal-bulk-bar";
+import { usePortalRowSelection } from "@/hooks/use-portal-row-selection";
 import { PORTAL_LIST_PAGE_BODY } from "@/components/portal/portal-inbox-ui";
 import { useManagerUserId } from "@/hooks/use-manager-user-id";
 import { useListingContactSmsPhone } from "@/hooks/use-listing-contact-sms-phone";
@@ -162,6 +169,20 @@ function propertyRowDeleteFromQueueAllowed(
   const stablePropertyId = entry.row.listingId?.trim() || entry.row.adminRefId.trim() || null;
   if (!managerUserId || !stablePropertyId) return false;
   return hasLinkedPropertyModuleLevel(managerUserId, stablePropertyId, "properties", "delete");
+}
+
+type PropertyListDestructiveAction = "delete-queue" | "delete-draft" | "unlist";
+
+function propertyListDestructiveActionForEntry(
+  managerUserId: string | null,
+  entry: { sourceBucket: AdminPropertyBucketIndex; row: AdminPropertyRow; linked: boolean },
+): PropertyListDestructiveAction | null {
+  if (entry.sourceBucket === 5) return "delete-draft";
+  if (entry.sourceBucket === 3 && propertyRowDeleteFromQueueAllowed(managerUserId, entry)) {
+    return "delete-queue";
+  }
+  if (entry.sourceBucket === 2 && entry.row.listingId?.trim()) return "unlist";
+  return null;
 }
 
 export function managerStageFromParam(raw: string | null): ManagerStageKey {
@@ -1156,6 +1177,100 @@ export function ManagerHousePropertiesPanel({
   const propertyKeyFromRow = (row: AdminPropertyRow) =>
     row.listingId?.trim() || row.adminRefId.trim();
 
+  const { selectedIds, toggleSelected, clearSelection } = usePortalRowSelection(activeStage);
+  const listSelectedCount = selectedIds.size;
+  const selectedEntries = useMemo(
+    () => rows.filter(({ row }) => selectedIds.has(propertyRowKey(row))),
+    [rows, selectedIds],
+  );
+  const singleSelectedEntry = selectedEntries.length === 1 ? selectedEntries[0]! : null;
+  const listDeleteAction = singleSelectedEntry
+    ? propertyListDestructiveActionForEntry(managerUserId, singleSelectedEntry)
+    : null;
+  const listShareListingId = singleSelectedEntry?.row.listingId?.trim() || null;
+  const [listDestructiveAction, setListDestructiveAction] = useState<PropertyListDestructiveAction | null>(
+    null,
+  );
+  const [listDestructiveBusy, setListDestructiveBusy] = useState(false);
+
+  const listDestructiveModalCopy =
+    listDestructiveAction === "delete-queue" && singleSelectedEntry
+      ? {
+          title: "Delete from queue",
+          description: `Remove ${managerPropertyRowTitle(singleSelectedEntry.row, singleSelectedEntry.sourceBucket)} from your unlisted queue permanently?`,
+          confirmLabel: "Delete from queue",
+          dataAttr: "property-list-delete-queue-confirm",
+        }
+      : listDestructiveAction === "delete-draft" && singleSelectedEntry
+        ? {
+            title: "Delete draft",
+            description: `Delete the draft for ${managerPropertyRowTitle(singleSelectedEntry.row, singleSelectedEntry.sourceBucket)}? Your saved progress will be removed.`,
+            confirmLabel: "Delete draft",
+            dataAttr: "property-list-delete-draft-confirm",
+          }
+        : listDestructiveAction === "unlist" && singleSelectedEntry
+          ? {
+              title: "Unlist property",
+              description: `Unlist ${managerPropertyRowTitle(singleSelectedEntry.row, singleSelectedEntry.sourceBucket)}? It will be removed from the public listing and moved to your unlisted queue.`,
+              confirmLabel: "Unlist",
+              dataAttr: "property-list-unlist-confirm",
+            }
+          : null;
+
+  const confirmListDestructiveAction = () => {
+    if (!singleSelectedEntry || !listDestructiveAction) return;
+    const { row, sourceBucket } = singleSelectedEntry;
+    const action = listDestructiveAction;
+    setListDestructiveBusy(true);
+    deferCatalogMutation(() => {
+      if (action === "delete-queue") {
+        const ok = deleteUnlistedManagerProperty(row.adminRefId, managerUserId);
+        setListDestructiveBusy(false);
+        setListDestructiveAction(null);
+        if (!ok) {
+          showToast("Could not delete from queue.");
+          return;
+        }
+        showToast("Removed from queue.");
+        clearSelection();
+        handlePropertyUpdated();
+        return;
+      }
+      if (action === "delete-draft") {
+        void deleteManagerPropertyDraft(row.adminRefId, managerUserId).then((ok) => {
+          setListDestructiveBusy(false);
+          setListDestructiveAction(null);
+          if (!ok) {
+            showToast("Could not delete the draft. Check your connection and try again.");
+            return;
+          }
+          showToast("Draft deleted.");
+          clearSelection();
+          handlePropertyUpdated();
+        });
+        return;
+      }
+      const listingId = row.listingId?.trim();
+      if (!listingId) {
+        showToast("Could not unlist.");
+        setListDestructiveBusy(false);
+        setListDestructiveAction(null);
+        return;
+      }
+      const ok = unlistManagerListing(listingId, managerUserId);
+      setListDestructiveBusy(false);
+      setListDestructiveAction(null);
+      if (!ok) {
+        showToast("Could not unlist.");
+        return;
+      }
+      showToast("Listing unlisted.");
+      clearSelection();
+      handlePropertyUpdated();
+      handleAfterUnlist(listingId || row.adminRefId.trim());
+    });
+  };
+
   const routePropertyEntry = useMemo(() => {
     if (!propertyKeyProp) return null;
     const decoded = decodeURIComponent(propertyKeyProp);
@@ -1223,11 +1338,24 @@ export function ManagerHousePropertiesPanel({
     );
   }
 
+  const hasRows = rows.length > 0;
+  const renderAddPropertyRow = () =>
+    onAddProperty ? (
+      <div className={PORTAL_LIST_ADD_ROW_WRAP_CLASS}>
+        <PortalListAddRow
+          label="Add"
+          ariaLabel="Add property"
+          icon={PORTAL_LIST_ADD_ICONS.property}
+          onClick={onAddProperty}
+          dataAttr="properties-list-add"
+          inline={hasRows}
+        />
+      </div>
+    ) : null;
+
   return (
     <>
-      {rows.length === 0 ? (
-        <PortalDataTableEmpty message="No properties in this stage yet." icon="default" />
-      ) : (
+      {hasRows ? (
         <div className={PORTAL_LIST_PAGE_BODY}>
           {rows.map(({ sourceBucket, row, linked }) => {
             const rowKey = row.adminRefId + (row.listingId ?? "");
@@ -1239,6 +1367,8 @@ export function ManagerHousePropertiesPanel({
                 title={managerPropertyRowTitle(row, sourceBucket)}
                 address={address}
                 summary={summary}
+                checked={selectedIds.has(rowKey)}
+                onSelectedChange={() => toggleSelected(rowKey)}
                 badge={
                   linked ? (
                     <Badge tone="info">
@@ -1262,8 +1392,79 @@ export function ManagerHousePropertiesPanel({
               />
             );
           })}
+          {renderAddPropertyRow()}
+        </div>
+      ) : (
+        <div className={PORTAL_LIST_PAGE_BODY}>
+          <PortalDataTableEmpty message="No properties in this stage yet." icon="default" />
+          {renderAddPropertyRow()}
         </div>
       )}
+      {listSelectedCount > 0 ? (
+        <BulkActionBar count={listSelectedCount} hideCount>
+          <div className="flex flex-wrap items-center justify-start gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              className={PORTAL_BULK_BAR_BTN}
+              data-attr="properties-bulk-edit"
+              disabled={!singleSelectedEntry}
+              onClick={() => {
+                if (!singleSelectedEntry) return;
+                router.push(
+                  propertyDetailHref(
+                    propertiesBase,
+                    activeStage,
+                    propertyKeyFromRow(singleSelectedEntry.row),
+                    detailTabProp ?? "preview",
+                  ),
+                  { scroll: false },
+                );
+              }}
+            >
+              Edit
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              className={`${PORTAL_BULK_BAR_BTN} border-rose-200 text-rose-800 hover:bg-[var(--status-overdue-bg)] portal-danger-outline`}
+              data-attr={listDeleteAction === "unlist" ? "properties-bulk-unlist" : "properties-bulk-delete"}
+              disabled={!listDeleteAction}
+              onClick={() => {
+                if (listDeleteAction) setListDestructiveAction(listDeleteAction);
+              }}
+            >
+              {listDeleteAction === "unlist" ? "Unlist" : "Delete"}
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              className={PORTAL_BULK_BAR_BTN}
+              data-attr="properties-bulk-share"
+              disabled={!listShareListingId || !onSendToProspect}
+              onClick={() => {
+                if (listShareListingId) onSendToProspect?.(listShareListingId);
+              }}
+            >
+              Share
+            </Button>
+          </div>
+        </BulkActionBar>
+      ) : null}
+      {listDestructiveModalCopy ? (
+        <ConfirmDeleteModal
+          open={listDestructiveAction !== null}
+          title={listDestructiveModalCopy.title}
+          description={listDestructiveModalCopy.description}
+          confirmLabel={listDestructiveModalCopy.confirmLabel}
+          busy={listDestructiveBusy}
+          dataAttr={listDestructiveModalCopy.dataAttr}
+          onClose={() => {
+            if (!listDestructiveBusy) setListDestructiveAction(null);
+          }}
+          onConfirm={confirmListDestructiveAction}
+        />
+      ) : null}
     </>
   );
 }
