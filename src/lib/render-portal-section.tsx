@@ -328,6 +328,12 @@ export async function renderPortalSection(
     redirect(`${def.basePath}/profile`);
   }
 
+  // Legacy task-list paths → `/tasks` (bookmarks, emailed links).
+  if (section === "task-list") {
+    const { legacyTaskListSectionRedirectPath } = await import("@/lib/portal-detail-routes");
+    redirect(legacyTaskListSectionRedirectPath(def.basePath, tabParts));
+  }
+
   const residentCtx = kind === "resident" ? await getEffectiveSessionForPortal("resident") : null;
   const residentManagerTier =
     kind === "resident" && residentCtx?.profile?.manager_id?.trim()
@@ -741,21 +747,21 @@ export async function renderPortalSection(
       );
     }
 
-    if (section === "task-list") {
-      if (!tabParts?.length) {
-        redirect(`${def.basePath}/task-list/in-progress`);
+    if (section === "tasks") {
+      const taskTab = tabParts?.[0];
+      if (taskTab === "in-progress") {
+        redirect(`${def.basePath}/tasks`);
       }
-      const taskTab = tabParts[0]!;
       if (taskTab === "late") {
-        redirect(`${def.basePath}/task-list/overdue`);
+        redirect(`${def.basePath}/tasks/overdue`);
       }
       const { MANAGER_TASK_LIST_TABS, parseManagerTaskListTab } = await import(
         "@/lib/portal-detail-routes"
       );
-      if (!(MANAGER_TASK_LIST_TABS as readonly string[]).includes(taskTab)) {
-        redirect(`${def.basePath}/task-list/in-progress`);
+      if (taskTab && !(MANAGER_TASK_LIST_TABS as readonly string[]).includes(taskTab)) {
+        redirect(`${def.basePath}/tasks`);
       }
-      if (tabParts.length > 1) notFound();
+      if (tabParts && tabParts.length > 1) notFound();
       const ManagerTaskList = await loadManagerTaskList();
       return subscriptionGated(
         <ManagerTaskList
@@ -763,7 +769,7 @@ export async function renderPortalSection(
           basePath={def.basePath}
         />,
         kind,
-        "task-list",
+        "tasks",
         managerOwnerSubscriptionTier,
       );
     }
@@ -1267,18 +1273,18 @@ export async function renderPortalSection(
     return <VendorWorkOrdersPanel />;
   }
 
-  if (kind === "vendor" && section === "task-list") {
+  if (kind === "vendor" && section === "tasks") {
     const { VENDOR_TASK_LIST_TABS, parseVendorTaskListTab } = await import(
       "@/lib/portal-detail-routes"
     );
-    if (!tabParts?.length) {
-      redirect(`${def.basePath}/task-list/in-progress`);
+    const taskTab = tabParts?.[0];
+    if (taskTab === "in-progress") {
+      redirect(`${def.basePath}/tasks`);
     }
-    const taskTab = tabParts[0]!;
-    if (!(VENDOR_TASK_LIST_TABS as readonly string[]).includes(taskTab)) {
-      redirect(`${def.basePath}/task-list/in-progress`);
+    if (taskTab && !(VENDOR_TASK_LIST_TABS as readonly string[]).includes(taskTab)) {
+      redirect(`${def.basePath}/tasks`);
     }
-    if (tabParts.length > 1) notFound();
+    if (tabParts && tabParts.length > 1) notFound();
     return (
       <VendorTaskList tabId={parseVendorTaskListTab(taskTab)} basePath={def.basePath} />
     );

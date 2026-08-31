@@ -424,7 +424,7 @@ export function VendorDashboard({ displayName }: { displayName: string }) {
               value={openTasks.length}
               tone={openTasks.length > 0 ? "brand" : "neutral"}
               emphasis={openTasks.length > 0}
-              href={`${BASE}/task-list/in-progress`}
+              href={`${BASE}/tasks`}
               dataAttr="vendor-dashboard-kpi-tasks"
             />
             <PortalDashboardKpiTile
@@ -537,7 +537,7 @@ export function VendorDashboard({ displayName }: { displayName: string }) {
 
           <AttentionGroup
             title="Tasks"
-            href={`${BASE}/task-list/in-progress`}
+            href={`${BASE}/tasks`}
             linkLabel="Tasks →"
             dataAttr="vendor-dashboard-tasks-link"
             badge={
@@ -552,7 +552,7 @@ export function VendorDashboard({ displayName }: { displayName: string }) {
             keyForItem={(task) => `${task.managerUserId}:${task.id}`}
             renderRow={(task) => (
               <IssueRow
-                href={`${BASE}/task-list/in-progress`}
+                href={`${BASE}/tasks`}
                 dot={DOT_PENDING}
                 title={task.title}
                 subtitle={compactTaskLocationLabel(task) ?? undefined}

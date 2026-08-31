@@ -37,7 +37,7 @@ const PRO_GROUPS: NavGroupConfig[] = [
   { id: "home", label: null, sections: ["dashboard", "app"] },
   { id: "leasing", label: "Leasing", sections: ["properties", "tours", "applications", "leases"] },
   { id: "tenancy", label: "Tenancy", sections: ["residents", "payments", "services"] },
-  { id: "operations", label: "Operations", sections: ["task-list", "calendar", "bookings", "communication"] },
+  { id: "operations", label: "Operations", sections: ["tasks", "calendar", "bookings", "communication"] },
   { id: "marketing", label: "Marketing", sections: ["promotion"] },
   { id: "team", label: "Team", sections: ["relationships", "vendors"] },
   { id: "finances", label: "Finances", sections: ["financials", "documents"] },
@@ -59,7 +59,7 @@ const RESIDENT_GROUPS: NavGroupConfig[] = [
 
 const VENDOR_GROUPS: NavGroupConfig[] = [
   { id: "home", label: null, sections: ["dashboard"] },
-  { id: "work", label: "Work", sections: ["work-orders", "task-list", "calendar"] },
+  { id: "work", label: "Work", sections: ["work-orders", "tasks", "calendar"] },
   { id: "operations", label: "Operations", sections: ["communication"] },
   { id: "finances", label: "Finances", sections: ["financials", "payments", "documents"] },
 ];

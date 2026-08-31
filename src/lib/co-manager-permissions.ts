@@ -264,7 +264,7 @@ export const PORTAL_SECTION_CO_MANAGER_PERMISSION: Partial<Record<string, CoMana
   services: "services",
   promotion: "promotion",
   tours: "applications",
-  "task-list": "calendar",
+  tasks: "calendar",
   bookings: "calendar",
   vendors: "services",
 };

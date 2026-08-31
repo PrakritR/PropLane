@@ -16,7 +16,7 @@ const PAID_MANAGER_NAV = [
   { label: "Residents", path: "/portal/residents/current" },
   { label: "Payments", path: "/portal/payments" },
   { label: "Services", path: "/portal/services/requests" },
-  { label: "Tasks", path: "/portal/task-list" },
+  { label: "Tasks", path: "/portal/tasks" },
   { label: "Communication", path: "/portal/communication/active" },
   { label: "Feedback", path: "/portal/bugs-feedback" },
   { label: "Team", path: "/portal/relationships" },
