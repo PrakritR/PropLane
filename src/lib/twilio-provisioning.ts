@@ -159,7 +159,8 @@ export async function purchaseManagerTwilioNumber(opts?: {
 
     return { ok: true, number, sid: phoneNumberSid, messagingServiceSid };
   } catch (e) {
-    if (purchaseOutcomeMayBeAmbiguous && opts?.requestId) {
+    const status = twilioErrorFields(e).status;
+    if (purchaseOutcomeMayBeAmbiguous && opts?.requestId && (!status || status >= 500)) {
       return {
         ok: false,
         cleanupConfirmed: false,

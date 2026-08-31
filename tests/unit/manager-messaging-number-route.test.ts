@@ -443,7 +443,7 @@ describe("manager messaging-number route", () => {
   it.each([
     "No SMS-capable numbers are available in area code 999 right now.",
     "No SMS-capable numbers are available right now — try again shortly.",
-    "Twilio work-number purchase failed (code 20429, HTTP 429). Provider ownership is unconfirmed; do not retry until PropLane reviews it.",
+    "Twilio work-number purchase failed (code 20500, HTTP 500). Provider ownership is unconfirmed; do not retry until PropLane reviews it.",
     "Twilio Messaging Service sender-pool attachment failed (code ETIMEDOUT). The purchased number was released.",
     "Twilio Messaging Service sender-pool attachment failed (HTTP 500). The purchased number was released.",
     "Messaging Service attachment is not configured. The purchased number release could not be confirmed; do not retry until PropLane reviews it.",

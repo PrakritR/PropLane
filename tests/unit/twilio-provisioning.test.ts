@@ -133,4 +133,23 @@ describe("purchaseManagerTwilioNumber", () => {
     expect(mocks.remove).not.toHaveBeenCalled();
     expect(JSON.stringify(result)).not.toContain("socket timed out");
   });
+
+  it("leaves a definitive 4xx rejection retryable instead of quarantining it", async () => {
+    mocks.purchase.mockRejectedValue(
+      Object.assign(new Error("Too Many Requests"), {
+        code: 20429,
+        status: 429,
+      }),
+    );
+
+    const result = await purchaseManagerTwilioNumber({ requestId: "req-429" });
+
+    expect(result).toEqual({
+      ok: false,
+      error: "Twilio work-number provisioning failed (code 20429, HTTP 429).",
+    });
+    expect(result).not.toHaveProperty("cleanupConfirmed");
+    expect(mocks.attach).not.toHaveBeenCalled();
+    expect(JSON.stringify(result)).not.toContain("do not retry");
+  });
 });
