@@ -24,12 +24,12 @@ export function PromotionDefaultSuggestions({
   onAddPreset: (preset: PromotionPresetKind) => void;
 }) {
   const missing = missingPromotionPresets(propertyId, promotionRow);
-  if (missing.length === 0) return null;
-
   const presets = PROMOTION_PRESET_DEFS.filter((p) => missing.includes(p.kind));
 
+  if (presets.length === 0) return null;
+
   return (
-    <div className="space-y-2 px-1" data-attr="promotion-default-suggestions">
+    <div className="space-y-2" data-attr="promotion-default-suggestions">
       <p className="text-xs font-bold uppercase tracking-[0.12em] text-muted">Suggested promotions</p>
       {presets.map((preset) => (
         <div key={preset.kind} className={PROMOTION_PRESET_ROW_CLASS}>

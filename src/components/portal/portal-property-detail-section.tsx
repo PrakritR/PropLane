@@ -6,7 +6,19 @@ import { cn } from "@/lib/utils";
 
 /** Outline pill actions in property detail tab toolbars and list rows. */
 export const PORTAL_PROPERTY_DETAIL_ACTION_BUTTON_CLASS =
-  "h-8 shrink-0 rounded-full px-3 text-xs";
+  "h-8 min-h-0 w-auto max-w-none shrink-0 rounded-full px-3 text-xs font-semibold";
+
+/** Left-aligned compact cluster for pinned property detail footers (Save, Edit, …). */
+export const PORTAL_PROPERTY_DETAIL_FOOTER_ACTIONS_CLASS =
+  "flex w-full min-w-0 flex-nowrap items-center justify-start gap-2 [&_button]:w-auto [&_button]:max-w-none [&_button]:shrink-0";
+
+export function PropertyDetailFooterActions({ children }: { children: ReactNode }) {
+  return (
+    <div className={PORTAL_PROPERTY_DETAIL_FOOTER_ACTIONS_CLASS} data-slot="property-detail-footer-actions">
+      {children}
+    </div>
+  );
+}
 
 /** Flat list row inside property detail tabs (no card chrome). */
 export const PORTAL_PROPERTY_DETAIL_LIST_ROW_CLASS =
@@ -18,7 +30,6 @@ export const PORTAL_PROPERTY_DETAIL_LIST_ROW_ACTIONS_CLASS =
 
 type PortalPropertyDetailSectionProps = {
   actions?: ReactNode;
-  actionsJustify?: "end" | "between";
   children: ReactNode;
   contentClassName?: string;
   surfaceMuted?: boolean;
@@ -31,7 +42,6 @@ type PortalPropertyDetailSectionProps = {
  */
 export function PortalPropertyDetailSection({
   actions,
-  actionsJustify = "end",
   children,
   contentClassName,
   surfaceMuted = false,
@@ -46,17 +56,8 @@ export function PortalPropertyDetailSection({
     >
       <div className={contentClassName}>{children}</div>
       {actions ? (
-        <PortalPageFooterActions
-          className={cn(
-            "mt-3",
-            !bareSurface && "md:mt-4",
-            actionsJustify === "end" &&
-              "[&_[data-slot=portal-section-action-row]>div]:w-full [&_[data-slot=portal-section-action-row]>div]:justify-end",
-            actionsJustify === "between" &&
-              "[&_[data-slot=portal-section-action-row]>div]:w-full [&_[data-slot=portal-section-action-row]>div]:justify-between",
-          )}
-        >
-          {actions}
+        <PortalPageFooterActions pinned rowVariant="header" omitSpacer className="mt-3">
+          <PropertyDetailFooterActions>{actions}</PropertyDetailFooterActions>
         </PortalPageFooterActions>
       ) : null}
     </div>

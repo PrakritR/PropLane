@@ -119,14 +119,11 @@ export function ManagerPropertyPromotionPanel({
   showToast,
   onUpdated,
   headerActionsExtra,
-  onRegisterNewPromotion,
 }: {
   listingId: string;
   showToast: (m: string) => void;
   onUpdated?: () => void;
   headerActionsExtra?: ReactNode;
-  /** Parent header "New promotion" — same handler as the former section footer button. */
-  onRegisterNewPromotion?: (openNewPromotion: (() => void) | null) => void;
 }) {
   const { userId, email: managerEmail, ready: authReady } = useManagerUserId();
   // Aborts the copy request owned by whichever compose modal is open.
@@ -230,11 +227,6 @@ export function ManagerPropertyPromotionPanel({
     setDraft(draftWithPropertyKey(EMPTY_DRAFT, propertyId, listings, autofillOpts));
     setShowNewModal(true);
   }, [listings, propertyId, autofillOpts]);
-
-  useEffect(() => {
-    onRegisterNewPromotion?.(openNewPromotion);
-    return () => onRegisterNewPromotion?.(null);
-  }, [onRegisterNewPromotion, openNewPromotion]);
 
   const openViewAsset = useCallback((asset: PromotionAsset) => {
     setPreviewAssetId(asset.id);
@@ -607,7 +599,7 @@ export function ManagerPropertyPromotionPanel({
       <PortalPropertyDetailSection contentClassName="space-y-0">
         {headerActionsExtra ? <div className="mb-3">{headerActionsExtra}</div> : null}
         {assets.length === 0 ? (
-          <p className="px-1 py-2 text-sm text-muted">No promotions yet. Add a suggested default below or tap Add.</p>
+          <p className="px-1 py-2 text-sm text-muted">No promotions yet. Add a suggested default below.</p>
         ) : (
           <PromotionAssetStack
             assets={assets}
@@ -622,7 +614,7 @@ export function ManagerPropertyPromotionPanel({
         )}
       </PortalPropertyDetailSection>
 
-      <div className="mt-4">
+      <div className="px-3 py-4 max-md:px-2.5 sm:py-5">
         <PromotionDefaultSuggestions
           propertyId={propertyId}
           promotionRow={promotionRow}
@@ -633,6 +625,7 @@ export function ManagerPropertyPromotionPanel({
       <div className={PORTAL_LIST_ADD_ROW_WRAP_CLASS}>
         <PortalListAddRow
           label="Add"
+          ariaLabel="Add custom promotion"
           icon={PORTAL_LIST_ADD_ICONS.promotion}
           onClick={openNewPromotion}
           dataAttr="manager-property-new-promotion"

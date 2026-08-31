@@ -412,14 +412,14 @@ export function ListingDetailSections({
   return (
     <ListingPreviewNewTabContext.Provider value={embeddedPreview}>
     <ListingSidebarRenterCtasContext.Provider value={!embeddedPreview}>
-    <div className="bg-background text-foreground min-w-0 max-w-full" data-listing-sections-root>
+    <div className="bg-background text-foreground min-w-0 max-w-full" data-listing-sections-root data-manager-listing-preview={managerPreviewChrome ? "" : undefined}>
       <div
         className={`mx-auto flex min-w-0 max-w-6xl flex-col ${
           managerPreviewChrome ? "px-3 sm:px-4" : "px-4"
         } ${
           embeddedPreview
             ? managerPreviewChrome
-              ? "pb-6 pt-0 sm:pb-8"
+              ? "pb-0 pt-0"
               : "pb-8 pt-2 sm:pb-10 sm:pt-3"
             : "py-8 sm:py-10 [html[data-native]_&]:pb-[max(2rem,env(safe-area-inset-bottom))] [html[data-native]_&]:pt-[max(0.5rem,env(safe-area-inset-top))]"
         }`}

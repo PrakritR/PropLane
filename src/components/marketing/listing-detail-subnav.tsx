@@ -160,6 +160,7 @@ export function ListingStickySubnav({
   pinned = false,
   className = "",
   appearance = "marketing",
+  align = "start",
 }: {
   mode?: ListingSubnavMode;
   /** When true (preview shell), subnav is fixed above the scroller — not sticky over content. */
@@ -167,6 +168,8 @@ export function ListingStickySubnav({
   className?: string;
   /** Portal manager preview uses the same segmented tab chrome as property detail tabs. */
   appearance?: "marketing" | "portal";
+  /** Pin listing section tabs to the trailing edge of the property detail chrome. */
+  align?: "start" | "center" | "end";
 }) {
   const rootRef = useRef<HTMLElement>(null);
   const listRef = useRef<HTMLUListElement>(null);
@@ -386,6 +389,8 @@ export function ListingStickySubnav({
   const portalTabs = appearance === "portal";
   /** Property listing preview (manager tab, modal shell): fit all section tabs without horizontal clip. */
   const compactEqualTabs = portalTabs || (mode === "modal" && pinned);
+  const alignEnd = align === "end";
+  const alignCenter = align === "center";
 
   const portalSticky = mode === "portal" && !pinned;
 
@@ -395,9 +400,12 @@ export function ListingStickySubnav({
       data-listing-subnav
       data-listing-subnav-pinned={pinned ? "" : undefined}
       data-listing-subnav-portal={portalSticky ? "" : undefined}
+      data-listing-subnav-align={alignCenter ? "center" : alignEnd ? "end" : undefined}
       className={`z-[45] min-w-0 w-full max-w-full overflow-hidden py-2 backdrop-blur-md transition-[background-color,border-color,box-shadow] duration-300 ease-out sm:py-2.5 [html[data-native]_&]:border-x-0 [html[data-native]_&]:px-3 [html[data-native]_&]:py-2 ${
         portalTabs
-          ? `border-b border-border ${portalSticky ? "sticky bg-background shadow-sm [top:var(--portal-mobile-top-chrome,0px)]" : "bg-accent/30"}`
+          ? alignEnd || alignCenter
+            ? `border-0 bg-transparent ${pinned ? "" : "sticky bg-background shadow-sm [top:var(--portal-mobile-top-chrome,0px)]"}`
+            : `border-b border-border ${portalSticky ? "sticky bg-background shadow-sm [top:var(--portal-mobile-top-chrome,0px)]" : "bg-background"}`
           : compactEqualTabs
             ? `border-b border-border bg-accent/30 ${className}`
             : `border-b border-border ${pinned ? "relative top-0 bg-background" : "sticky -mx-4 shadow-sm sm:mx-0 sm:rounded-2xl [html[data-native]_&]:-mx-0 [html[data-native]_&]:rounded-none [html[data-native]_&]:pt-2"} ${className} ${
@@ -421,7 +429,11 @@ export function ListingStickySubnav({
         ref={listRef}
         className={
           compactEqualTabs
-            ? "grid w-full min-w-0 auto-cols-fr grid-flow-col gap-0 px-0.5 py-0.5 text-[10px] font-semibold leading-tight"
+            ? alignEnd
+              ? "flex w-auto min-w-0 max-w-full flex-nowrap items-center justify-end gap-0.5 px-0.5 py-0.5 text-[10px] font-semibold leading-tight"
+              : alignCenter
+                ? "mx-auto flex w-full min-w-0 max-w-full flex-nowrap items-center justify-center gap-0.5 px-0.5 py-0.5 text-[10px] font-semibold leading-tight"
+                : "grid w-full min-w-0 auto-cols-fr grid-flow-col gap-0.5 px-1 py-1 text-xs font-semibold leading-tight sm:text-[13px]"
             : `flex flex-nowrap items-center gap-1 overflow-x-auto overscroll-x-contain px-2 py-0.5 text-[12px] font-semibold [-webkit-overflow-scrolling:touch] ${
                 fadeEnd && mode !== "portal"
                   ? "[mask-image:linear-gradient(to_right,#000_calc(100%_-_1.75rem),transparent)] [-webkit-mask-image:linear-gradient(to_right,#000_calc(100%_-_1.75rem),transparent)] sm:[mask-image:none] sm:[-webkit-mask-image:none]"
@@ -432,7 +444,7 @@ export function ListingStickySubnav({
         {nav.map((item) => {
           const active = activeId === item.id;
           return (
-            <li key={item.id} className={compactEqualTabs ? "min-w-0" : "shrink-0"}>
+            <li key={item.id} className={compactEqualTabs && !alignEnd && !alignCenter ? "min-w-0" : "shrink-0"}>
               <button
                 ref={(el) => {
                   tabRefs.current.set(item.id, el);
@@ -442,11 +454,17 @@ export function ListingStickySubnav({
                 aria-current={active ? "true" : undefined}
                 className={`inline-flex w-full min-w-0 cursor-pointer items-center justify-center border-0 text-[inherit] transition-colors ${
                   compactEqualTabs
-                    ? `min-h-9 rounded-lg px-0 py-1.5 ${
-                        active
-                          ? "bg-card text-foreground shadow-[var(--shadow-sm)] ring-1 ring-primary/25"
-                          : "text-muted hover:bg-card/60 hover:text-foreground"
-                      }`
+                    ? alignEnd || alignCenter
+                      ? `min-h-8 rounded-md px-2 py-1 whitespace-nowrap w-auto ${
+                          active
+                            ? "bg-card text-foreground shadow-[var(--shadow-sm)] ring-1 ring-primary/25"
+                            : "text-muted hover:bg-card/60 hover:text-foreground"
+                        }`
+                      : `min-h-9 rounded-lg px-0.5 py-1.5 sm:min-h-10 sm:px-1 ${
+                          active
+                            ? "bg-card text-foreground shadow-[var(--shadow-sm)] ring-1 ring-primary/25"
+                            : "text-muted hover:bg-card/60 hover:text-foreground"
+                        }`
                     : `min-h-[44px] rounded-xl px-3 py-2 sm:min-h-0 sm:py-1.5 ${
                         active
                           ? "rounded-full bg-primary text-primary-foreground shadow-sm"

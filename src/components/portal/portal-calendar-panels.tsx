@@ -8,11 +8,13 @@ import {
   useRef,
   useState,
   type MouseEvent,
+  type Dispatch,
   type ReactNode,
+  type SetStateAction,
 } from "react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Input, NativeSelect, Select } from "@/components/ui/input";
+import { Input, Select } from "@/components/ui/input";
 import { FieldSingleSelect } from "@/components/ui/checkbox-multi-select";
 import { Modal, ModalFooter, MODAL_HEADER_CLOSE_CLASS } from "@/components/ui/modal";
 import { X } from "lucide-react";
@@ -61,16 +63,19 @@ import {
 import { mondayBasedDayIndex, resolveBlockBaseDates } from "@/lib/portal/availability-block";
 import {
   addExplicitTourSlotKeys,
-  defaultTourSlotKeysForDate,
+  defaultTourSlotExclusionKey,
+  partitionTourAvailabilityStoredKeys,
   resolveDefaultTourAvailabilityConfig,
   resolveTourOfferingSlots,
   slotIsBookable,
   type DefaultTourAvailabilityConfig,
 } from "@/lib/tour-slot-math";
 import { cn } from "@/lib/utils";
-import { HORIZONTAL_SCROLL_ATTR, PORTAL_HORIZONTAL_SCROLL_ROW_CLASS } from "@/lib/horizontal-scroll";
 import { PortalPageFooterActions } from "@/components/portal/portal-section-action-row";
-import { PORTAL_DETAIL_BTN } from "@/components/portal/portal-data-table";
+
+/** Compact footer pills on property tour calendar — four actions must fit one row on phones. */
+const CALENDAR_AVAILABILITY_FOOTER_BUTTON_CLASS =
+  "h-7 min-h-0 w-auto max-w-none shrink-0 rounded-full px-2 text-[10px] font-semibold leading-tight sm:h-8 sm:px-2.5 sm:text-xs";
 import {
   type CoManagerAvailabilityOverlay,
   type ScheduledTourFilter,
@@ -116,6 +121,204 @@ const WEEKDAY_OPTIONS = [
   { value: 6, label: "Sun" },
 ] as const;
 
+const BLOCK_MODAL_LABEL_CLASS = "text-xs font-semibold text-foreground";
+const BLOCK_MODAL_FIELD_CLASS = "min-h-9 rounded-xl px-3 py-1.5 text-sm";
+const BLOCK_MODAL_SUMMARY_CLASS =
+  "rounded-xl border border-border bg-accent/30 px-3 py-2 text-xs leading-snug text-muted";
+const BLOCK_MODAL_DAY_BTN_BASE =
+  "rounded-full border px-2.5 py-1.5 text-xs font-semibold transition";
+const BLOCK_MODAL_DAY_BTN_ACTIVE = "border-primary bg-primary text-white";
+const BLOCK_MODAL_DAY_BTN_INACTIVE =
+  "border-border bg-card text-muted hover:border-primary/30 hover:text-primary [html[data-theme=dark]_&]:portal-calendar-inactive-slot";
+
+function BlockOccurrencesInput({
+  cadence,
+  value,
+  draft,
+  onDraftChange,
+  onCommit,
+}: {
+  cadence: RecurrenceCadence;
+  value: number;
+  draft: string | null;
+  onDraftChange: (draft: string | null) => void;
+  onCommit: (next: number) => void;
+}) {
+  const disabled = cadence === "once";
+  const displayValue = disabled ? "1" : draft !== null ? draft : String(value);
+
+  return (
+    <Input
+      type="text"
+      inputMode="numeric"
+      pattern="[0-9]*"
+      className={BLOCK_MODAL_FIELD_CLASS}
+      value={displayValue}
+      disabled={disabled}
+      aria-label="Occurrences"
+      onChange={(e) => {
+        const raw = e.target.value.replace(/\D/g, "");
+        if (raw === "") {
+          onDraftChange("");
+          return;
+        }
+        onDraftChange(null);
+        const parsed = Number.parseInt(raw, 10);
+        if (Number.isFinite(parsed)) {
+          onCommit(Math.max(1, Math.min(24, parsed)));
+        }
+      }}
+      onBlur={() => {
+        if (draft === "") {
+          onDraftChange(null);
+          return;
+        }
+        if (draft !== null) {
+          const parsed = Number.parseInt(draft, 10);
+          onCommit(Math.max(1, Math.min(24, Number.isFinite(parsed) ? parsed : value)));
+          onDraftChange(null);
+        }
+      }}
+    />
+  );
+}
+
+type RecurringBlockModalFormFieldsProps = {
+  blockSummary: string;
+  blockWeekdays: number[];
+  toggleBlockWeekday: (weekday: number) => void;
+  blockStartSlot: number;
+  setBlockStartSlot: (slot: number) => void;
+  blockEndSlotExclusive: number;
+  setBlockEndSlotExclusive: Dispatch<SetStateAction<number>>;
+  blockCadence: RecurrenceCadence;
+  setBlockCadence: (cadence: RecurrenceCadence) => void;
+  blockOccurrences: number;
+  setBlockOccurrences: (count: number) => void;
+  blockOccurrencesDraft: string | null;
+  setBlockOccurrencesDraft: (draft: string | null) => void;
+  slotRowIndices: number[];
+};
+
+function RecurringBlockModalFormFields({
+  blockSummary,
+  blockWeekdays,
+  toggleBlockWeekday,
+  blockStartSlot,
+  setBlockStartSlot,
+  blockEndSlotExclusive,
+  setBlockEndSlotExclusive,
+  blockCadence,
+  setBlockCadence,
+  blockOccurrences,
+  setBlockOccurrences,
+  blockOccurrencesDraft,
+  setBlockOccurrencesDraft,
+  slotRowIndices,
+}: RecurringBlockModalFormFieldsProps) {
+  return (
+    <div className="space-y-4">
+      <div className={BLOCK_MODAL_SUMMARY_CLASS}>{blockSummary}</div>
+
+      <div className="space-y-1.5">
+        <p className={BLOCK_MODAL_LABEL_CLASS}>Days of week</p>
+        <div className="flex flex-wrap gap-1.5">
+          {WEEKDAY_OPTIONS.map((option) => {
+            const active = blockWeekdays.includes(option.value);
+            return (
+              <button
+                key={option.value}
+                type="button"
+                onClick={() => toggleBlockWeekday(option.value)}
+                className={cn(
+                  BLOCK_MODAL_DAY_BTN_BASE,
+                  active ? BLOCK_MODAL_DAY_BTN_ACTIVE : BLOCK_MODAL_DAY_BTN_INACTIVE,
+                )}
+              >
+                {option.label}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      <div className="grid gap-3 sm:grid-cols-2">
+        <div className="space-y-1.5">
+          <label className={BLOCK_MODAL_LABEL_CLASS}>Start time</label>
+          <Select
+            className={BLOCK_MODAL_FIELD_CLASS}
+            value={String(blockStartSlot)}
+            onChange={(e) => {
+              const nextStart = Number.parseInt(e.target.value, 10);
+              if (!Number.isFinite(nextStart)) return;
+              setBlockStartSlot(nextStart);
+              setBlockEndSlotExclusive((current) =>
+                current <= nextStart ? Math.min(SLOTS_PER_DAY, nextStart + 1) : current,
+              );
+            }}
+          >
+            {slotRowIndices.map((slot) => (
+              <option key={`block-start-${slot}`} value={slot}>
+                {formatAvailabilitySlotLabel(slot)}
+              </option>
+            ))}
+          </Select>
+        </div>
+        <div className="space-y-1.5">
+          <label className={BLOCK_MODAL_LABEL_CLASS}>End time</label>
+          <Select
+            className={BLOCK_MODAL_FIELD_CLASS}
+            value={String(blockEndSlotExclusive)}
+            onChange={(e) => {
+              const nextEnd = Number.parseInt(e.target.value, 10);
+              if (!Number.isFinite(nextEnd)) return;
+              setBlockEndSlotExclusive(nextEnd);
+              if (blockStartSlot >= nextEnd) {
+                setBlockStartSlot(Math.max(0, nextEnd - 1));
+              }
+            }}
+          >
+            {slotRowIndices
+              .map((slot) => slot + 1)
+              .filter((slot) => slot > blockStartSlot && slot <= SLOTS_PER_DAY)
+              .map((slot) => (
+                <option key={`block-end-${slot}`} value={slot}>
+                  {formatSlotEndLabel(slot)}
+                </option>
+              ))}
+          </Select>
+        </div>
+      </div>
+
+      <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_96px]">
+        <div className="space-y-1.5">
+          <label className={BLOCK_MODAL_LABEL_CLASS}>Repeat</label>
+          <Select
+            className={BLOCK_MODAL_FIELD_CLASS}
+            value={blockCadence}
+            onChange={(e) => setBlockCadence(e.target.value as RecurrenceCadence)}
+          >
+            <option value="once">Once</option>
+            <option value="weekly">Weekly</option>
+            <option value="biweekly">Biweekly</option>
+            <option value="monthly">Monthly</option>
+          </Select>
+        </div>
+        <div className="space-y-1.5">
+          <label className={BLOCK_MODAL_LABEL_CLASS}>Occurrences</label>
+          <BlockOccurrencesInput
+            cadence={blockCadence}
+            value={blockOccurrences}
+            draft={blockOccurrencesDraft}
+            onDraftChange={setBlockOccurrencesDraft}
+            onCommit={setBlockOccurrences}
+          />
+        </div>
+      </div>
+    </div>
+  );
+}
+
 const CALENDAR_HEADER_CELL =
   "bg-accent/30 font-bold uppercase tracking-[0.12em] text-muted [html[data-theme=dark]_&]:portal-calendar-header-cell";
 const CALENDAR_TIME_CELL =
@@ -146,8 +349,9 @@ const CALENDAR_INACTIVE_SLOT =
   "border-border bg-accent/30 text-muted hover:border-primary/20 hover:bg-primary/[0.06] [html[data-theme=dark]_&]:portal-calendar-inactive-slot";
 const CALENDAR_CO_MANAGER_SLOT =
   "border-violet-300 bg-violet-100 text-violet-950 ring-1 ring-inset ring-violet-300/80 [html[data-theme=dark]_&]:border-violet-400/40 [html[data-theme=dark]_&]:bg-violet-500/15 [html[data-theme=dark]_&]:text-violet-100";
-const COMPACT_TIME_SELECT_TRIGGER_FLAT =
-  "h-8 min-h-0 shrink-0 rounded-md border-0 bg-transparent px-1 text-[11px] font-semibold whitespace-nowrap text-foreground shadow-none ring-0 hover:bg-accent/50 focus:border-transparent focus:ring-0 sm:text-xs";
+/** Toolbar default-hours pickers — same field-select chrome as property forms (rounded-2xl, portaled menu). */
+const CALENDAR_TIME_FIELD_SELECT_TRIGGER =
+  "min-h-9 rounded-2xl border border-border bg-auth-input-bg px-3 text-xs font-semibold text-foreground shadow-[0_1px_2px_rgba(15,23,42,0.03)] hover:border-primary/25 focus:border-primary/40 focus:ring-4 focus:ring-primary/10 sm:min-h-10 sm:text-sm";
 export const MEETING_CONFIRMED_COLOR =
   "border-sky-300 bg-sky-100 text-sky-950 [html[data-theme=dark]_&]:portal-calendar-meeting-confirmed";
 export const MEETING_PEER_COLOR =
@@ -440,7 +644,7 @@ function buildTourGuestNotifyContext(
 function FooterShell({ inline, children }: { inline: boolean; children: React.ReactNode }) {
   if (!inline) {
     return (
-      <PortalPageFooterActions pinned rowVariant="header">
+      <PortalPageFooterActions pinned rowVariant="header" omitSpacer>
         {children}
       </PortalPageFooterActions>
     );
@@ -514,6 +718,9 @@ export function PortalCalendarPanels({
   delegateFooterToModal = false,
   onModalFooterChange,
   defaultTourAvailability,
+  editableDefaultTourHours = false,
+  onDefaultTourHoursChange,
+  onDefaultTourGridEnabledChange,
 }: {
   storageKey: string | null;
   availabilityStorageKeys?: string[];
@@ -538,6 +745,10 @@ export function PortalCalendarPanels({
   onModalFooterChange?: (footer: ReactNode | null) => void;
   /** Manager default 9–5 (or customized in Calendar settings) when no week is published. */
   defaultTourAvailability?: DefaultTourAvailabilityConfig;
+  /** When true and nothing is painted, toolbar hours update the default tour window. */
+  editableDefaultTourHours?: boolean;
+  onDefaultTourHoursChange?: (startSlot: number, endSlotExclusive: number) => void;
+  onDefaultTourGridEnabledChange?: (enabled: boolean) => void;
   otherProperties?: { id: string; name: string }[];
   onCopyWeekToHouses?: (propertyIds: string[], weekDateStrs: string[], scope: "week" | "entire") => void;
   scheduledTourFilter?: ScheduledTourFilter;
@@ -619,6 +830,21 @@ export function PortalCalendarPanels({
     () => resolveDefaultTourAvailabilityConfig(defaultTourAvailability),
     [defaultTourAvailability],
   );
+  const publishedActiveSlots = useMemo(
+    () => new Set(partitionTourAvailabilityStoredKeys([...activeSlots]).publishedSlots),
+    [activeSlots],
+  );
+  const canEditDefaultTourHours =
+    editableDefaultTourHours && Boolean(onDefaultTourHoursChange);
+  useEffect(() => {
+    if (!editableDefaultTourHours) return;
+    setVisibleStartSlot(resolvedDefaultTourAvailability.startSlot);
+    setVisibleEndSlotExclusive(resolvedDefaultTourAvailability.endSlotExclusive);
+  }, [
+    editableDefaultTourHours,
+    resolvedDefaultTourAvailability.endSlotExclusive,
+    resolvedDefaultTourAvailability.startSlot,
+  ]);
   /** Painted availability plus the 9-5 default on days with no published windows. */
   const offeredSlots = useMemo(
     () =>
@@ -640,10 +866,10 @@ export function PortalCalendarPanels({
   const defaultOnlySlots = useMemo(() => {
     const out = new Set<string>();
     for (const key of offeredSlots) {
-      if (!activeSlots.has(key)) out.add(key);
+      if (!publishedActiveSlots.has(key)) out.add(key);
     }
     return out;
-  }, [activeSlots, offeredSlots]);
+  }, [offeredSlots, publishedActiveSlots]);
 
   const [dragSelection, setDragSelection] = useState<DragSelection | null>(null);
   // Mirrors dragSelection synchronously. mousedown and mouseup can land in the
@@ -661,6 +887,7 @@ export function PortalCalendarPanels({
   const [blockWeekdays, setBlockWeekdays] = useState<number[]>([0, 1, 2, 3, 4]);
   const [blockCadence, setBlockCadence] = useState<RecurrenceCadence>("weekly");
   const [blockOccurrences, setBlockOccurrences] = useState(4);
+  const [blockOccurrencesDraft, setBlockOccurrencesDraft] = useState<string | null>(null);
   const [updateToHousesOpen, setUpdateToHousesOpen] = useState(false);
   const [copyToHousesScope, setCopyToHousesScope] = useState<"week" | "entire">("week");
   const [selectedHouseIds, setSelectedHouseIds] = useState<Set<string>>(new Set());
@@ -838,7 +1065,7 @@ export function PortalCalendarPanels({
         setSelectedBlock({ kind: "meeting", meeting });
         return;
       }
-      if (activeSlots.has(dateSlotKey(dateStr, slotIdx))) {
+      if (publishedActiveSlots.has(dateSlotKey(dateStr, slotIdx))) {
         setSelectedBlock({ kind: "availability", dateStr, slotIndex: slotIdx });
         return;
       }
@@ -846,27 +1073,22 @@ export function PortalCalendarPanels({
         vendorCalendarActions.onAddFromSlot(dateStr, slotIdx);
       }
     },
-    [activeSlots, vendorCalendarActions],
+    [publishedActiveSlots, vendorCalendarActions],
   );
 
   /**
-   * Removes one default window. The rest of that day's default is written back
-   * explicitly, because painting anything on a day takes it off the default —
-   * without this, dropping one window would close the whole day.
+   * Removes one default window by storing an exclusion marker so the rest of
+   * that day stays on the implicit default.
    */
   const removeDefaultSlot = useCallback(
     (dateStr: string, slotIdx: number) => {
-      const removedKey = dateSlotKey(dateStr, slotIdx);
       mutateAvailability((current) => {
         const next = new Set(current);
-        for (const key of defaultTourSlotKeysForDate(dateStr, resolvedDefaultTourAvailability)) {
-          if (key !== removedKey && slotIsBookable(key)) next.add(key);
-        }
-        next.delete(removedKey);
+        next.add(defaultTourSlotExclusionKey(dateStr, slotIdx));
         return next;
       });
     },
-    [mutateAvailability, resolvedDefaultTourAvailability],
+    [mutateAvailability],
   );
 
   /** Paint one slot without opening the recurring-block modal. */
@@ -1330,30 +1552,56 @@ export function PortalCalendarPanels({
   );
 
   const renderTimeWindowControl = (compact = false) => {
+    const maybeSaveDefaultHours = (nextStart: number, nextEndExclusive: number) => {
+      if (!canEditDefaultTourHours) return;
+      onDefaultTourHoursChange?.(nextStart, nextEndExclusive);
+    };
     const onStartChange = (nextRaw: string) => {
       const nextStart = Number.parseInt(nextRaw, 10);
       if (!Number.isFinite(nextStart)) return;
       setVisibleStartSlot(nextStart);
-      setVisibleEndSlotExclusive((current) =>
-        current <= nextStart ? Math.min(nextStart + 1, SLOTS_PER_DAY) : current,
-      );
+      setVisibleEndSlotExclusive((current) => {
+        const nextEnd = current <= nextStart ? Math.min(nextStart + 1, SLOTS_PER_DAY) : current;
+        maybeSaveDefaultHours(nextStart, nextEnd);
+        return nextEnd;
+      });
     };
     const onEndChange = (nextRaw: string) => {
       const nextEnd = Number.parseInt(nextRaw, 10);
       if (!Number.isFinite(nextEnd)) return;
       setVisibleEndSlotExclusive(nextEnd);
-      setVisibleStartSlot((current) => (current >= nextEnd ? Math.max(0, nextEnd - 1) : current));
+      setVisibleStartSlot((current) => {
+        const nextStart = current >= nextEnd ? Math.max(0, nextEnd - 1) : current;
+        maybeSaveDefaultHours(nextStart, nextEnd);
+        return nextStart;
+      });
     };
 
     if (compact) {
       return (
-        <div className="inline-flex shrink-0 items-center gap-1 whitespace-nowrap sm:gap-1.5">
+        <div className="inline-flex shrink-0 flex-wrap items-center justify-end gap-1 sm:gap-1.5">
+          {onDefaultTourGridEnabledChange ? (
+            <button
+              type="button"
+              className={cn(
+                "h-7 shrink-0 rounded-full border px-2 text-[10px] font-semibold transition",
+                resolvedDefaultTourAvailability.enabled !== false
+                  ? "border-primary bg-primary/10 text-primary"
+                  : "border-border bg-card text-muted",
+              )}
+              data-attr="calendar-default-tour-toggle"
+              onClick={() =>
+                onDefaultTourGridEnabledChange(resolvedDefaultTourAvailability.enabled === false)
+              }
+            >
+              Default {resolvedDefaultTourAvailability.enabled !== false ? "on" : "off"}
+            </button>
+          ) : null}
           <FieldSingleSelect
             hideLabel
             label="Start time"
-            variant="pill"
-            wrapperClassName="min-w-[3.25rem] shrink-0"
-            triggerClassName={COMPACT_TIME_SELECT_TRIGGER_FLAT}
+            wrapperClassName="w-[6.25rem] shrink-0 sm:w-[7rem]"
+            triggerClassName={CALENDAR_TIME_FIELD_SELECT_TRIGGER}
             value={String(visibleStartSlot)}
             onChange={onStartChange}
             options={startTimeOptions}
@@ -1362,9 +1610,8 @@ export function PortalCalendarPanels({
           <FieldSingleSelect
             hideLabel
             label="End time"
-            variant="pill"
-            wrapperClassName="min-w-[3.25rem] shrink-0"
-            triggerClassName={COMPACT_TIME_SELECT_TRIGGER_FLAT}
+            wrapperClassName="w-[6.25rem] shrink-0 sm:w-[7rem]"
+            triggerClassName={CALENDAR_TIME_FIELD_SELECT_TRIGGER}
             value={String(visibleEndSlotExclusive)}
             onChange={onEndChange}
             options={endTimeOptions}
@@ -1469,6 +1716,7 @@ export function PortalCalendarPanels({
       );
       setBlockCadence(selection ? "once" : "weekly");
       setBlockOccurrences(selection ? 1 : 4);
+      setBlockOccurrencesDraft(null);
       setBlockModalOpen(true);
     },
     [anchorDate, viewMode, visibleStartSlot],
@@ -1575,12 +1823,14 @@ export function PortalCalendarPanels({
       const next = new Set(current);
       for (const ds of activeBlockDateStrs) {
         for (const slot of slotRowIndices) {
-          next.delete(dateSlotKey(ds, slot));
+          const key = dateSlotKey(ds, slot);
+          next.delete(key);
+          next.delete(defaultTourSlotExclusionKey(ds, slot));
         }
       }
       return next;
     });
-  }, [activeBlockDateStrs, mutateAvailability]);
+  }, [activeBlockDateStrs, mutateAvailability, slotRowIndices]);
 
   const blockSummary = useMemo(() => {
     const days = blockWeekdays.length > 0 ? weekdayLabelList(blockWeekdays) : "No days selected";
@@ -2132,33 +2382,34 @@ export function PortalCalendarPanels({
       !vendorMode && canEditAvailability ? (
         <div
           className={cn(
-            "flex w-full min-w-0 flex-nowrap items-center justify-start gap-2",
-            PORTAL_HORIZONTAL_SCROLL_ROW_CLASS,
-            "[&_button]:shrink-0",
+            "flex w-full min-w-0 flex-nowrap items-center justify-start gap-1 overflow-x-auto overscroll-x-contain [-webkit-overflow-scrolling:touch] sm:gap-1.5",
+            "[&_button]:w-auto [&_button]:shrink-0",
           )}
         >
           <Button
             type="button"
             variant="outline"
-            className={PORTAL_DETAIL_BTN}
+            className={CALENDAR_AVAILABILITY_FOOTER_BUTTON_CLASS}
             data-attr="calendar-copy-previous-week"
             onClick={copyPreviousWeek}
           >
-            Copy previous week
+            <span className="sm:hidden">Prev week</span>
+            <span className="hidden sm:inline">Copy previous week</span>
           </Button>
           <Button
             type="button"
             variant="outline"
-            className={PORTAL_DETAIL_BTN}
+            className={CALENDAR_AVAILABILITY_FOOTER_BUTTON_CLASS}
             data-attr="calendar-create-block"
             onClick={openBlockModal}
           >
-            Add availability
+            <span className="sm:hidden">Add</span>
+            <span className="hidden sm:inline">Add availability</span>
           </Button>
           <Button
             type="button"
             variant="outline"
-            className={PORTAL_DETAIL_BTN}
+            className={CALENDAR_AVAILABILITY_FOOTER_BUTTON_CLASS}
             data-attr="calendar-clear-week"
             onClick={clearCurrentWeek}
           >
@@ -2167,7 +2418,7 @@ export function PortalCalendarPanels({
           <Button
             type="button"
             variant="outline"
-            className={PORTAL_DETAIL_BTN}
+            className={CALENDAR_AVAILABILITY_FOOTER_BUTTON_CLASS}
             data-attr="calendar-copy-to-houses"
             disabled={!onCopyWeekToHouses || !otherProperties?.length}
             title={!otherProperties?.length ? "Add another house to copy availability" : undefined}
@@ -2177,7 +2428,8 @@ export function PortalCalendarPanels({
               setUpdateToHousesOpen(true);
             }}
           >
-            Copy to houses
+            <span className="sm:hidden">Copy</span>
+            <span className="hidden sm:inline">Copy to houses</span>
           </Button>
         </div>
       ) : null;
@@ -2255,7 +2507,7 @@ export function PortalCalendarPanels({
           {(() => {
             const renderSlotButton = (ds: string, slotIdx: number) => {
               const key = dateSlotKey(ds, slotIdx);
-              const active = activeSlots.has(key);
+              const active = publishedActiveSlots.has(key);
               const coManagerOverlay = coManagerOverlayBySlotKey.get(key);
               const coManagerOpen = Boolean(coManagerOverlay && !active && !meetingBySlotKey.get(key));
               const selected = isSlotInDragSelection(ds, slotIdx);
@@ -2501,6 +2753,7 @@ export function PortalCalendarPanels({
           onClose={() => {
             setBlockModalOpen(false);
             setDragSelection(null);
+            setBlockOccurrencesDraft(null);
           }}
           footer={
             <ModalFooter>
@@ -2516,100 +2769,22 @@ export function PortalCalendarPanels({
             </ModalFooter>
           }
         >
-          <div className="space-y-5">
-            <div className="rounded-2xl border border-border bg-accent/30 px-4 py-3 text-sm text-muted">{blockSummary}</div>
-
-            <div className="space-y-2">
-              <p className="text-sm font-semibold text-foreground">Days of week</p>
-              <div className="flex flex-wrap gap-2">
-                {WEEKDAY_OPTIONS.map((option) => {
-                  const active = blockWeekdays.includes(option.value);
-                  return (
-                    <button
-                      key={option.value}
-                      type="button"
-                      onClick={() => toggleBlockWeekday(option.value)}
-                      className={`rounded-full border px-3 py-2 text-sm font-semibold transition ${
-                        active
-                          ? "border-primary bg-primary text-white"
-                          : "border-border bg-card text-muted hover:border-primary/30 hover:text-primary [html[data-theme=dark]_&]:portal-calendar-inactive-slot"
-                      }`}
-                    >
-                      {option.label}
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-
-            <div className="grid gap-4 sm:grid-cols-2">
-              <div className="space-y-2">
-                <label className="text-sm font-semibold text-foreground">Start time</label>
-                <NativeSelect
-                  value={String(blockStartSlot)}
-                  onChange={(e) => {
-                    const nextStart = Number.parseInt(e.target.value, 10);
-                    if (!Number.isFinite(nextStart)) return;
-                    setBlockStartSlot(nextStart);
-                    setBlockEndSlotExclusive((current) =>
-                      current <= nextStart ? Math.min(SLOTS_PER_DAY, nextStart + 1) : current,
-                    );
-                  }}
-                >
-                  {slotRowIndices.map((slot) => (
-                    <option key={`block-start-${slot}`} value={slot}>
-                      {formatAvailabilitySlotLabel(slot)}
-                    </option>
-                  ))}
-                </NativeSelect>
-              </div>
-              <div className="space-y-2">
-                <label className="text-sm font-semibold text-foreground">End time</label>
-                <NativeSelect
-                  value={String(blockEndSlotExclusive)}
-                  onChange={(e) => {
-                    const nextEnd = Number.parseInt(e.target.value, 10);
-                    if (!Number.isFinite(nextEnd)) return;
-                    setBlockEndSlotExclusive(nextEnd);
-                    setBlockStartSlot((current) => (current >= nextEnd ? Math.max(0, nextEnd - 1) : current));
-                  }}
-                >
-                  {slotRowIndices
-                    .map((slot) => slot + 1)
-                    .filter((slot) => slot > blockStartSlot && slot <= SLOTS_PER_DAY)
-                    .map((slot) => (
-                      <option key={`block-end-${slot}`} value={slot}>
-                        {formatSlotEndLabel(slot)}
-                      </option>
-                    ))}
-                </NativeSelect>
-              </div>
-            </div>
-
-            <div className="grid gap-4 sm:grid-cols-[minmax(0,1fr)_140px]">
-              <div className="space-y-2">
-                <label className="text-sm font-semibold text-foreground">Repeat</label>
-                <NativeSelect value={blockCadence} onChange={(e) => setBlockCadence(e.target.value as RecurrenceCadence)}>
-                  <option value="once">Once</option>
-                  <option value="weekly">Weekly</option>
-                  <option value="biweekly">Biweekly</option>
-                  <option value="monthly">Monthly</option>
-                </NativeSelect>
-              </div>
-              <div className="space-y-2">
-                <label className="text-sm font-semibold text-foreground">Occurrences</label>
-                <Input
-                  type="number"
-                  min={1}
-                  max={24}
-                  value={String(blockCadence === "once" ? 1 : blockOccurrences)}
-                  onChange={(e) => setBlockOccurrences(Math.max(1, Math.min(24, Number.parseInt(e.target.value, 10) || 1)))}
-                  disabled={blockCadence === "once"}
-                />
-              </div>
-            </div>
-
-          </div>
+          <RecurringBlockModalFormFields
+            blockSummary={blockSummary}
+            blockWeekdays={blockWeekdays}
+            toggleBlockWeekday={toggleBlockWeekday}
+            blockStartSlot={blockStartSlot}
+            setBlockStartSlot={setBlockStartSlot}
+            blockEndSlotExclusive={blockEndSlotExclusive}
+            setBlockEndSlotExclusive={setBlockEndSlotExclusive}
+            blockCadence={blockCadence}
+            setBlockCadence={setBlockCadence}
+            blockOccurrences={blockOccurrences}
+            setBlockOccurrences={setBlockOccurrences}
+            blockOccurrencesDraft={blockOccurrencesDraft}
+            setBlockOccurrencesDraft={setBlockOccurrencesDraft}
+            slotRowIndices={slotRowIndices}
+          />
         </Modal>
 
         {otherProperties && otherProperties.length > 0 && onCopyWeekToHouses ? (
@@ -2929,7 +3104,7 @@ export function PortalCalendarPanels({
               <div className="grid gap-2 sm:grid-cols-2">
                 {visibleSlotIndices.map((slotIdx) => {
                   const key = dateSlotKey(ds, slotIdx);
-                  const active = activeSlots.has(key);
+                  const active = publishedActiveSlots.has(key);
                   const selected = isSlotInDragSelection(ds, slotIdx);
                   return (
                     <button
@@ -2989,6 +3164,7 @@ export function PortalCalendarPanels({
         onClose={() => {
           setBlockModalOpen(false);
           setDragSelection(null);
+          setBlockOccurrencesDraft(null);
         }}
         footer={
           <ModalFooter>
@@ -3004,98 +3180,22 @@ export function PortalCalendarPanels({
           </ModalFooter>
         }
       >
-        <div className="space-y-5">
-          <div className="rounded-2xl border border-border bg-accent/30 px-4 py-3 text-sm text-muted">{blockSummary}</div>
-
-          <div className="space-y-2">
-            <p className="text-sm font-semibold text-foreground">Days of week</p>
-            <div className="flex flex-wrap gap-2">
-              {WEEKDAY_OPTIONS.map((option) => {
-                const active = blockWeekdays.includes(option.value);
-                return (
-                  <button
-                    key={option.value}
-                    type="button"
-                    onClick={() => toggleBlockWeekday(option.value)}
-                    className={`rounded-full border px-3 py-2 text-sm font-semibold transition ${
-                      active
-                        ? "border-primary bg-primary text-white"
-                        : "border-border bg-card text-muted hover:border-primary/30 hover:text-primary"
-                    }`}
-                  >
-                    {option.label}
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-
-          <div className="grid gap-4 sm:grid-cols-2">
-            <div className="space-y-2">
-              <label className="text-sm font-semibold text-foreground">Start time</label>
-              <NativeSelect
-                value={String(blockStartSlot)}
-                onChange={(e) => {
-                  const nextStart = Number.parseInt(e.target.value, 10);
-                  if (!Number.isFinite(nextStart)) return;
-                  setBlockStartSlot(nextStart);
-                  setBlockEndSlotExclusive((current) => (current <= nextStart ? Math.min(SLOTS_PER_DAY, nextStart + 1) : current));
-                }}
-              >
-                {slotRowIndices.map((slot) => (
-                  <option key={`block-start-${slot}`} value={slot}>
-                    {formatAvailabilitySlotLabel(slot)}
-                  </option>
-                ))}
-              </NativeSelect>
-            </div>
-            <div className="space-y-2">
-              <label className="text-sm font-semibold text-foreground">End time</label>
-              <NativeSelect
-                value={String(blockEndSlotExclusive)}
-                onChange={(e) => {
-                  const nextEnd = Number.parseInt(e.target.value, 10);
-                  if (!Number.isFinite(nextEnd)) return;
-                  setBlockEndSlotExclusive(nextEnd);
-                  setBlockStartSlot((current) => (current >= nextEnd ? Math.max(0, nextEnd - 1) : current));
-                }}
-              >
-                {slotRowIndices
-                  .map((slot) => slot + 1)
-                  .filter((slot) => slot > blockStartSlot && slot <= SLOTS_PER_DAY)
-                  .map((slot) => (
-                    <option key={`block-end-${slot}`} value={slot}>
-                      {formatSlotEndLabel(slot)}
-                    </option>
-                  ))}
-              </NativeSelect>
-            </div>
-          </div>
-
-          <div className="grid gap-4 sm:grid-cols-[minmax(0,1fr)_140px]">
-            <div className="space-y-2">
-              <label className="text-sm font-semibold text-foreground">Repeat</label>
-              <NativeSelect value={blockCadence} onChange={(e) => setBlockCadence(e.target.value as RecurrenceCadence)}>
-                <option value="once">Once</option>
-                <option value="weekly">Weekly</option>
-                <option value="biweekly">Biweekly</option>
-                <option value="monthly">Monthly</option>
-              </NativeSelect>
-            </div>
-            <div className="space-y-2">
-              <label className="text-sm font-semibold text-foreground">Occurrences</label>
-              <Input
-                type="number"
-                min={1}
-                max={24}
-                value={String(blockCadence === "once" ? 1 : blockOccurrences)}
-                onChange={(e) => setBlockOccurrences(Math.max(1, Math.min(24, Number.parseInt(e.target.value, 10) || 1)))}
-                disabled={blockCadence === "once"}
-              />
-            </div>
-          </div>
-
-        </div>
+        <RecurringBlockModalFormFields
+          blockSummary={blockSummary}
+          blockWeekdays={blockWeekdays}
+          toggleBlockWeekday={toggleBlockWeekday}
+          blockStartSlot={blockStartSlot}
+          setBlockStartSlot={setBlockStartSlot}
+          blockEndSlotExclusive={blockEndSlotExclusive}
+          setBlockEndSlotExclusive={setBlockEndSlotExclusive}
+          blockCadence={blockCadence}
+          setBlockCadence={setBlockCadence}
+          blockOccurrences={blockOccurrences}
+          setBlockOccurrences={setBlockOccurrences}
+          blockOccurrencesDraft={blockOccurrencesDraft}
+          setBlockOccurrencesDraft={setBlockOccurrencesDraft}
+          slotRowIndices={slotRowIndices}
+        />
       </Modal>
       {selectedBlockModal}
       {userId ? (

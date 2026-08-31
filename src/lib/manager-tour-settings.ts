@@ -31,6 +31,8 @@ export type ManagerTourSettings = {
   defaultTourEndSlotExclusive?: number;
   /** How many days ahead the implicit default grid is offered when nothing is published. */
   defaultTourHorizonDays?: number;
+  /** When false, an empty calendar offers no default windows to prospects. */
+  defaultTourGridEnabled?: boolean;
 };
 
 export const DEFAULT_MANAGER_TOUR_SETTINGS: ManagerTourSettings = {
@@ -47,6 +49,7 @@ export function managerTourSettingsToDefaultAvailability(
     startSlot: settings.defaultTourStartSlot,
     endSlotExclusive: settings.defaultTourEndSlotExclusive,
     horizonDays: settings.defaultTourHorizonDays,
+    enabled: settings.defaultTourGridEnabled !== false,
   });
 }
 
@@ -76,6 +79,7 @@ export function normalizeManagerTourSettings(raw: unknown): ManagerTourSettings 
     defaultTourStartSlot: startSlot,
     defaultTourEndSlotExclusive: Math.max(startSlot + 1, endSlotExclusive),
     defaultTourHorizonDays: normalizeHorizonDays(row.defaultTourHorizonDays),
+    defaultTourGridEnabled: row.defaultTourGridEnabled !== false,
   };
 }
 
@@ -162,7 +166,6 @@ export async function saveManagerTourSettings(
   managerUserId: string,
   settings: unknown,
 ): Promise<ManagerTourSettings> {
-  const normalized = normalizeManagerTourSettings(settings);
   // Read-modify-write: replacing `row_data` outright would take the manager's application fee
   // and automation flags with it.
   const { data: existing } = await db
@@ -174,6 +177,12 @@ export async function saveManagerTourSettings(
     existing?.row_data && typeof existing.row_data === "object" && !Array.isArray(existing.row_data)
       ? { ...(existing.row_data as Record<string, unknown>) }
       : {};
+  const existingTourSettings = normalizeManagerTourSettings(rowData[ROW_DATA_KEY]);
+  const patch =
+    settings && typeof settings === "object" && !Array.isArray(settings)
+      ? (settings as Record<string, unknown>)
+      : {};
+  const normalized = normalizeManagerTourSettings({ ...existingTourSettings, ...patch });
   rowData[ROW_DATA_KEY] = normalized;
   const { error } = await db.from("manager_automation_settings").upsert(
     {

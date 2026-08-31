@@ -244,10 +244,15 @@ export const DEFAULT_TOUR_END_SLOT_EXCLUSIVE = 34;
  */
 export const DEFAULT_TOUR_HORIZON_DAYS = 21;
 
+/** Stored availability keys that begin with this prefix exclude one default window. */
+export const DEFAULT_TOUR_SLOT_EXCLUSION_PREFIX = "!";
+
 export type DefaultTourAvailabilityConfig = {
   startSlot: number;
   endSlotExclusive: number;
   horizonDays: number;
+  /** When false, an empty calendar offers no implicit default grid. */
+  enabled?: boolean;
 };
 
 export function resolveDefaultTourAvailabilityConfig(
@@ -271,7 +276,42 @@ export function resolveDefaultTourAvailabilityConfig(
     typeof partial?.horizonDays === "number" && Number.isFinite(partial.horizonDays)
       ? Math.max(7, Math.min(60, Math.trunc(partial.horizonDays)))
       : DEFAULT_TOUR_HORIZON_DAYS;
-  return { startSlot, endSlotExclusive, horizonDays };
+  const enabled = partial?.enabled !== false;
+  return { startSlot, endSlotExclusive, horizonDays, enabled };
+}
+
+const DATE_SLOT_KEY_RE = /^\d{4}-\d{2}-\d{2}:\d+$/;
+
+export function isDefaultTourSlotExclusionKey(key: string): boolean {
+  return key.startsWith(DEFAULT_TOUR_SLOT_EXCLUSION_PREFIX);
+}
+
+export function defaultTourSlotExclusionKey(dateStr: string, slotIdx: number): string {
+  return `${DEFAULT_TOUR_SLOT_EXCLUSION_PREFIX}${dateStr}:${slotIdx}`;
+}
+
+export function parseDefaultTourSlotExclusionKey(key: string): string | null {
+  if (!isDefaultTourSlotExclusionKey(key)) return null;
+  const slotKey = key.slice(DEFAULT_TOUR_SLOT_EXCLUSION_PREFIX.length);
+  return DATE_SLOT_KEY_RE.test(slotKey) ? slotKey : null;
+}
+
+/** Split stored availability payload keys into painted slots and default exclusions. */
+export function partitionTourAvailabilityStoredKeys(keys: readonly string[]): {
+  publishedSlots: string[];
+  defaultExcludedSlots: string[];
+} {
+  const publishedSlots: string[] = [];
+  const defaultExcludedSlots: string[] = [];
+  for (const key of keys) {
+    if (isDefaultTourSlotExclusionKey(key)) {
+      const slotKey = parseDefaultTourSlotExclusionKey(key);
+      if (slotKey) defaultExcludedSlots.push(slotKey);
+      continue;
+    }
+    if (DATE_SLOT_KEY_RE.test(key)) publishedSlots.push(key);
+  }
+  return { publishedSlots, defaultExcludedSlots };
 }
 
 /** `YYYY-MM-DD` for an instant, on the tour calendar's wall clock. */
@@ -319,18 +359,25 @@ export function shouldOfferDefaultTourGrid(publishedFutureSlots: readonly string
  * in around a partial day.
  */
 export function resolveTourOfferingSlots(
-  publishedSlots: readonly string[],
+  storedSlots: readonly string[],
   now: number = Date.now(),
   defaultConfig: DefaultTourAvailabilityConfig = resolveDefaultTourAvailabilityConfig(),
 ): string[] {
+  const { publishedSlots, defaultExcludedSlots } = partitionTourAvailabilityStoredKeys(storedSlots);
   const bookablePublished = publishedSlots.filter((slot) => slotIsBookable(slot, now));
+  if (defaultConfig.enabled === false) {
+    return bookablePublished;
+  }
+  const excluded = new Set(defaultExcludedSlots);
   const datesWithPublished = new Set(
     bookablePublished.map((slot) => slot.split(":")[0]).filter((date): date is string => Boolean(date)),
   );
   const merged = new Set<string>(bookablePublished);
   for (const key of buildDefaultTourSlotKeys(now, defaultConfig.horizonDays, defaultConfig)) {
     const date = key.split(":")[0];
-    if (date && !datesWithPublished.has(date)) merged.add(key);
+    if (date && !datesWithPublished.has(date) && !excluded.has(key)) {
+      merged.add(key);
+    }
   }
   return [...merged];
 }
@@ -370,18 +417,20 @@ export function defaultTourSlotKeysForDate(
  * Paint one explicit slot from the manager calendar.
  *
  * The first explicit slot on a day that was still on the implicit default must
- * materialize that default band first — otherwise `resolveTourOfferingSlots`
- * drops the whole 9-5 window when a single out-of-band slot (e.g. 6 PM) is added.
+ * Removing one default window stores a `!date:slot` exclusion marker so the rest
+ * of the day stays on the implicit default without painting every other window.
  */
 export function addExplicitTourSlotKeys(
-  publishedSlots: readonly string[],
+  storedKeys: readonly string[],
   dateStr: string,
   slotIdx: number,
   defaultConfig: DefaultTourAvailabilityConfig = resolveDefaultTourAvailabilityConfig(),
   now: number = Date.now(),
 ): string[] {
   const key = `${dateStr}:${slotIdx}`;
-  const next = new Set(publishedSlots);
+  const { publishedSlots, defaultExcludedSlots } = partitionTourAvailabilityStoredKeys(storedKeys);
+  const next = new Set(storedKeys);
+  const excludedOnDate = defaultExcludedSlots.filter((slot) => slot.startsWith(`${dateStr}:`));
   const hasExplicitOnDate = publishedSlots.some(
     (slot) => slot.startsWith(`${dateStr}:`) && slotIsBookable(slot, now),
   );
@@ -389,8 +438,12 @@ export function addExplicitTourSlotKeys(
     for (const defaultKey of defaultTourSlotKeysForDate(dateStr, defaultConfig)) {
       if (slotIsBookable(defaultKey, now)) next.add(defaultKey);
     }
+    for (const excludedSlot of excludedOnDate) {
+      next.delete(defaultTourSlotExclusionKey(excludedSlot));
+    }
   }
   next.add(key);
+  next.delete(defaultTourSlotExclusionKey(key));
   return [...next];
 }
 

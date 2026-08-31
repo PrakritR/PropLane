@@ -2744,6 +2744,18 @@ html[data-native] [data-listing-sections-root] {
   margin-bottom: 0;
 }
 
+/* Property listing preview: shrink the scroller to content on phones so the fixed
+   footer row sits flush under the gallery instead of leaving a dead band. */
+@media (max-width: 1023px) {
+  html[data-portal-sticky-chrome]
+    .portal-list-page-scroll:has([data-manager-listing-preview]) {
+    flex: 0 1 auto;
+    min-height: 0;
+    max-height: 100%;
+    overflow-y: auto;
+  }
+}
+
 /* Manager list sections: pipeline tabs stick flush under the mobile top bar. */
 #portal-main-content [data-portal-list-destination-nav] {
   top: var(--portal-mobile-top-chrome, 0px);
