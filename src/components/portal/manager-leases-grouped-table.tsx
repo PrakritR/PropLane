@@ -2,7 +2,7 @@
 
 import { ApplicationHouseholdCluster } from "@/components/portal/application-household-list";
 import { Badge } from "@/components/ui/badge";
-import { DataList } from "@/components/ui/data-list";
+import { PortalPropertyRecordRow } from "@/components/portal/portal-record-row";
 import type { LeasePipelineRow } from "@/lib/lease-pipeline-storage";
 import {
   leaseUnitMeta,
@@ -46,38 +46,33 @@ export function ManagerLeasesGroupedTable({
             </>
           }
         >
-          <DataList
-            hideColumnHeaders
-            selectable={selectable && Boolean(onToggleSelected)}
-            rows={cluster.rows.map((row) => ({
-              id: row.id,
-              data: row,
-              primary: leaseUpdatedLabel(row),
-              meta: leaseUnitMeta(row),
-              selected: selectedIds?.has(row.id),
-              onSelectedChange:
-                selectable && onToggleSelected ? () => onToggleSelected(row.id) : undefined,
-              onClick: () => onOpenLease(row),
-            }))}
-            columns={[
-              {
-                id: "updated",
-                header: "Updated",
-                cell: (row) => (
-                  <span className="inline-flex flex-wrap items-center gap-1.5">
-                    <span>{leaseUpdatedLabel(row)}</span>
-                    {row.pendingRenewal ? <Badge tone="warning">Renewal</Badge> : null}
-                    {row.leaseKind === "joint_bundle" ? <Badge tone="neutral">Joint bundle</Badge> : null}
-                  </span>
-                ),
-              },
-              {
-                id: "unit",
-                header: "Unit",
-                cell: (row) => leaseUnitMeta(row),
-              },
-            ]}
-          />
+          {cluster.rows.map((row) => {
+            const unit = leaseUnitMeta(row);
+            return (
+              <PortalPropertyRecordRow
+                key={row.id}
+                // Unit leads: the resident's name is already the cluster header,
+                // so repeating it here would make every row in a group read the
+                // same. Fall back to the updated stamp when a row has no unit.
+                title={unit || leaseUpdatedLabel(row)}
+                address={unit ? leaseUpdatedLabel(row) : ""}
+                badge={
+                  row.pendingRenewal || row.leaseKind === "joint_bundle" ? (
+                    <span className="inline-flex flex-wrap items-center gap-1.5">
+                      {row.pendingRenewal ? <Badge tone="warning">Renewal</Badge> : null}
+                      {row.leaseKind === "joint_bundle" ? <Badge tone="neutral">Joint bundle</Badge> : null}
+                    </span>
+                  ) : undefined
+                }
+                checked={selectedIds?.has(row.id) ?? false}
+                onSelectedChange={
+                  selectable && onToggleSelected ? () => onToggleSelected(row.id) : undefined
+                }
+                onOpen={() => onOpenLease(row)}
+                dataAttr="lease-list-row"
+              />
+            );
+          })}
         </ApplicationHouseholdCluster>
       ))}
     </div>

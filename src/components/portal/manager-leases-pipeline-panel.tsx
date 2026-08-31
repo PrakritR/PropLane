@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
-import { BulkActionBar } from "@/components/ui/bulk-action-bar";
+import { PortalRecordListSurface } from "@/components/portal/portal-record-list-surface";
 import { PortalBulkMessageCarouselModal } from "@/components/portal/portal-bulk-message-carousel-modal";
 import { useAppUi } from "@/components/providers/app-ui-provider";
 import {
@@ -16,11 +16,7 @@ import { buildLeaseReadyForResidentMessage } from "@/lib/resident-portal-login-c
 import { PortalRecordDetailPage } from "@/components/portal/portal-record-detail-page";
 import { ManagerLeasesGroupedTable } from "@/components/portal/manager-leases-grouped-table";
 import { INBOX_LIST_SCROLL } from "@/components/portal/portal-inbox-ui";
-import {
-  PortalListAddRow,
-  PORTAL_LIST_ADD_ICONS,
-  PORTAL_LIST_ADD_ROW_WRAP_CLASS,
-} from "@/components/portal/portal-list-add-row";
+import { PORTAL_LIST_ADD_ICONS } from "@/components/portal/portal-list-add-row";
 import { leaseDetailHref, leaseListHref } from "@/lib/portal-detail-routes";
 import { usePortalNavigate } from "@/lib/portal-nav-client";
 import {
@@ -1202,18 +1198,19 @@ export function ManagerLeasesPipelinePanel({
     return (
       <>
         {leaseModals}
-        {onAddLease ? (
-          <div className={PORTAL_LIST_ADD_ROW_WRAP_CLASS}>
-            <PortalListAddRow
-              label="Add"
-              ariaLabel="Add lease"
-              icon={PORTAL_LIST_ADD_ICONS.lease}
-              onClick={onAddLease}
-              dataAttr="leases-list-add"
-              inline
-            />
-          </div>
-        ) : null}
+        <PortalRecordListSurface
+          isEmpty
+          add={
+            onAddLease
+              ? {
+                  ariaLabel: "Add lease",
+                  icon: PORTAL_LIST_ADD_ICONS.lease,
+                  onClick: onAddLease,
+                  dataAttr: "leases-list-add",
+                }
+              : undefined
+          }
+        />
       </>
     );
   }
@@ -1221,29 +1218,21 @@ export function ManagerLeasesPipelinePanel({
   return (
     <>
       {leaseModals}
-      <div className={INBOX_LIST_SCROLL}>
-        <ManagerLeasesGroupedTable
-          clusters={leaseClusters}
-          selectedIds={selectedIds}
-          onToggleSelected={toggleSelected}
-          onOpenLease={openLeaseDetail}
-        />
-        {onAddLease ? (
-          <div className={PORTAL_LIST_ADD_ROW_WRAP_CLASS}>
-            <PortalListAddRow
-              label="Add"
-              ariaLabel="Add lease"
-              icon={PORTAL_LIST_ADD_ICONS.lease}
-              onClick={onAddLease}
-              dataAttr="leases-list-add"
-              inline
-            />
-          </div>
-        ) : null}
-      </div>
-      {selectedIds.size > 0 ? (
-        <BulkActionBar count={selectedIds.size} hideCount variant="payments">
-          <div className="flex min-w-0 flex-wrap items-center justify-start gap-2">
+      <PortalRecordListSurface
+        className={INBOX_LIST_SCROLL}
+        add={
+          onAddLease
+            ? {
+                ariaLabel: "Add lease",
+                icon: PORTAL_LIST_ADD_ICONS.lease,
+                onClick: onAddLease,
+                dataAttr: "leases-list-add",
+              }
+            : undefined
+        }
+        bulkCount={selectedIds.size}
+        bulkActions={
+          <>
             {tab === "manager" && selectedLeaseRows.length > 0 ? (
               <>
                 {canBulkEditLease ? (
@@ -1269,9 +1258,16 @@ export function ManagerLeasesPipelinePanel({
                 </Button>
               </>
             ) : null}
-          </div>
-        </BulkActionBar>
-      ) : null}
+          </>
+        }
+      >
+        <ManagerLeasesGroupedTable
+          clusters={leaseClusters}
+          selectedIds={selectedIds}
+          onToggleSelected={toggleSelected}
+          onOpenLease={openLeaseDetail}
+        />
+      </PortalRecordListSurface>
     </>
   );
 }

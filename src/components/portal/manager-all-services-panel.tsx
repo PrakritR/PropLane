@@ -21,6 +21,7 @@ const SERVICE_STATE_TABS: { id: ServiceRowState; label: string }[] = [
 import { ApplicationHouseholdCluster } from "@/components/portal/application-household-list";
 import { Badge } from "@/components/ui/badge";
 import { BulkActionBar } from "@/components/ui/bulk-action-bar";
+import { PortalRecordListSurface } from "@/components/portal/portal-record-list-surface";
 import { PortalListGroupFilterFields } from "@/components/portal/portal-list-group-filter-fields";
 import {
   PortalAdaptiveActionRow,
@@ -84,10 +85,6 @@ import { DropdownMenuItem } from "@/components/ui/dropdown-menu";
 import { usePortalRowSelection } from "@/hooks/use-portal-row-selection";
 import { useShallowTabId } from "@/components/ui/tabs";
 import { Plus } from "lucide-react";
-import {
-  PORTAL_LIST_ADD_ROW_WRAP_CLASS,
-  PortalListAddRow,
-} from "@/components/portal/portal-list-add-row";
 
 type FilterType = "requests" | "work-orders";
 
@@ -508,14 +505,12 @@ export function ManagerAllServicesPanel({
     );
   }
 
-  const servicesListAddRow = (
-    <PortalListAddRow
-      label="Add service"
-      icon={Plus}
-      onClick={() => setAddServiceOpen(true)}
-      dataAttr="services-list-add"
-    />
-  );
+  const servicesListAdd = {
+    ariaLabel: "Add service",
+    icon: Plus,
+    onClick: () => setAddServiceOpen(true),
+    dataAttr: "services-list-add",
+  };
 
   const servicesListDestinations = (
     <div className="flex w-full min-w-0 flex-col gap-2">
@@ -554,10 +549,7 @@ export function ManagerAllServicesPanel({
         }}
         activeFilterChips={<PortalActiveFilterChips chips={activeFilterChips} />}
       />
-      {visibleUnifiedRows.length === 0 ? (
-        <div className={PORTAL_LIST_ADD_ROW_WRAP_CLASS}>{servicesListAddRow}</div>
-      ) : (
-        <div>
+      <PortalRecordListSurface isEmpty={visibleUnifiedRows.length === 0} add={servicesListAdd}>
           {/*
             One list over both stores, grouped by resident the way Payments and Tours are. Each row
             opens its OWN record — an add-on goes to the request detail, maintenance to the work
@@ -607,9 +599,7 @@ export function ManagerAllServicesPanel({
                   </ApplicationHouseholdCluster>
                 ))}
           </div>
-          <div className={PORTAL_LIST_ADD_ROW_WRAP_CLASS}>{servicesListAddRow}</div>
-        </div>
-      )}
+      </PortalRecordListSurface>
 
       <ManagerAddServiceModal
         open={addServiceOpen}

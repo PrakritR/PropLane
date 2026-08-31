@@ -46,11 +46,8 @@ import { track } from "@/lib/analytics/track-client";
 import { PortalRecordDetailPage } from "@/components/portal/portal-record-detail-page";
 import { workOrderDetailHref, workOrderListHref } from "@/lib/portal-detail-routes";
 import { PortalServiceRecordRow } from "@/components/portal/portal-record-row";
+import { PortalRecordListSurface } from "@/components/portal/portal-record-list-surface";
 import { INBOX_LIST_SCROLL } from "@/components/portal/portal-inbox-ui";
-import {
-  PORTAL_LIST_ADD_ROW_WRAP_CLASS,
-  PortalListAddRow,
-} from "@/components/portal/portal-list-add-row";
 import { usePortalNavigate } from "@/lib/portal-nav-client";
 
 function priorityClass(p: string) {
@@ -1158,14 +1155,16 @@ export function ManagerWorkOrdersPanel({
   if (rows.length === 0) {
     if (listAddAction) {
       return (
-        <div className={PORTAL_LIST_ADD_ROW_WRAP_CLASS}>
-          <PortalListAddRow
-            label={listAddAction.label ?? "Add"}
-            icon={listAddAction.icon ?? Wrench}
-            onClick={listAddAction.onClick}
-            dataAttr={listAddAction.dataAttr}
-          />
-        </div>
+        <PortalRecordListSurface
+          isEmpty
+          add={{
+            label: listAddAction.label ?? "Add",
+            ariaLabel: "Add work order",
+            icon: listAddAction.icon ?? Wrench,
+            onClick: listAddAction.onClick,
+            dataAttr: listAddAction.dataAttr,
+          }}
+        />
       );
     }
     return (
@@ -1178,7 +1177,20 @@ export function ManagerWorkOrdersPanel({
 
   return (
     <div>
-      <div className={INBOX_LIST_SCROLL}>
+      <PortalRecordListSurface
+        className={INBOX_LIST_SCROLL}
+        add={
+          listAddAction
+            ? {
+                label: listAddAction.label ?? "Add",
+                ariaLabel: "Add work order",
+                icon: listAddAction.icon ?? Wrench,
+                onClick: listAddAction.onClick,
+                dataAttr: listAddAction.dataAttr,
+              }
+            : undefined
+        }
+      >
         {rows.map((row) => {
           const subtitle = [row.propertyName, row.unit].filter(Boolean).join(" · ");
           return (
@@ -1191,18 +1203,7 @@ export function ManagerWorkOrdersPanel({
             />
           );
         })}
-      </div>
-
-      {listAddAction ? (
-        <div className={PORTAL_LIST_ADD_ROW_WRAP_CLASS}>
-          <PortalListAddRow
-            label={listAddAction.label ?? "Add"}
-            icon={listAddAction.icon ?? Wrench}
-            onClick={listAddAction.onClick}
-            dataAttr={listAddAction.dataAttr}
-          />
-        </div>
-      ) : null}
+      </PortalRecordListSurface>
 
       <Modal
         open={Boolean(completeRow)}
