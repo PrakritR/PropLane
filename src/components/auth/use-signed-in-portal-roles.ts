@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import type { AuthRole } from "@/components/auth/portal-switcher";
 import { createSupabaseBrowserClient } from "@/lib/supabase/browser";
+import { safeBrowserGetSession } from "@/lib/supabase/safe-browser-session";
 
 export type SignedInPortalRoles = {
   /** Session email, or null when signed out. */
@@ -30,8 +31,8 @@ export function useSignedInPortalRoles(): SignedInPortalRoles {
     void (async () => {
       try {
         const supabase = createSupabaseBrowserClient();
-        const { data } = await supabase.auth.getSession();
-        const sessionEmail = data.session?.user?.email ?? null;
+        const { session } = await safeBrowserGetSession(supabase);
+        const sessionEmail = session?.user?.email ?? null;
         if (!cancelled) setEmail(sessionEmail);
         if (!sessionEmail) {
           if (!cancelled) setRoles([]);

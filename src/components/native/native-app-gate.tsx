@@ -4,6 +4,7 @@ import { isNativeAppAllowedPath } from "@/lib/auth/native-entry-paths";
 import { redirectNativeFromMarketing } from "@/lib/auth/native-welcome-redirect";
 import { detectNativePlatformSync, tagHtmlNativePlatform } from "@/lib/native/detect-native";
 import { createSupabaseBrowserClient } from "@/lib/supabase/browser";
+import { safeBrowserGetSession } from "@/lib/supabase/safe-browser-session";
 import { usePathname } from "next/navigation";
 import { useEffect, useState, type ReactNode } from "react";
 
@@ -32,9 +33,7 @@ export function NativeAppGate({ children }: { children: ReactNode }) {
       setBlocked(true);
       const supabase = createSupabaseBrowserClient();
       void redirectNativeFromMarketing(async () => {
-        const {
-          data: { session },
-        } = await supabase.auth.getSession();
+        const { session } = await safeBrowserGetSession(supabase);
         return { session };
       });
     });

@@ -67,4 +67,7 @@ export function registerBrowserAuthRecovery(supabase: SupabaseClient): void {
       }
     }
   });
+
+  // Clear corrupt refresh cookies before other callers race on raw getSession().
+  void safeBrowserGetSession(supabase);
 }

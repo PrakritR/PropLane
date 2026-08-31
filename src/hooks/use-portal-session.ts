@@ -3,6 +3,7 @@
 import { useEffect, useState, useSyncExternalStore } from "react";
 import type { AuthChangeEvent, Session } from "@supabase/supabase-js";
 import { createSupabaseBrowserClient } from "@/lib/supabase/browser";
+import { safeBrowserGetSession } from "@/lib/supabase/safe-browser-session";
 import {
   demoSessionForRole,
   getDemoRole,
@@ -63,8 +64,8 @@ function ensurePortalSessionStore() {
 
   void (async () => {
     try {
-      const result = await supabase.auth.getSession();
-      applySession(result.data.session);
+      const { session } = await safeBrowserGetSession(supabase);
+      applySession(session);
     } catch {
       updateSnapshot({ userId: null, email: null, ready: true });
     }
