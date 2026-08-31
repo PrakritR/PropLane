@@ -22,6 +22,8 @@
  * "Bookings" rule could never fire. A Settings row that can never do anything
  * is worse than no row at all.
  */
+import { normalizeTimings } from "@/lib/reminders/timings";
+
 export const REMINDER_SUBJECT_KINDS = [
   "tour",
   "task",
@@ -49,6 +51,13 @@ export type ReminderRule = {
   enabled: boolean;
   /** Minutes before the anchor moment. Sorted furthest-out first, deduped. */
   leadMinutes: number[];
+  /**
+   * Directional timings ("before:1440", "after:15"). Supersedes `leadMinutes`,
+   * which could only count backwards — so "15 minutes after submitted" was
+   * inexpressible. `leadMinutes` is kept so a rule saved before directions
+   * existed still resolves instead of reading as an empty selection.
+   */
+  timings?: string[];
   audience: ReminderAudience;
   /**
    * Delivery channels.
@@ -267,6 +276,9 @@ function normalizeRule(raw: unknown, fallback: ReminderRule): ReminderRule {
       manager: normalizeBoolean(audienceRaw.manager, fallback.audience.manager),
       counterparty: normalizeBoolean(audienceRaw.counterparty, fallback.audience.counterparty),
     },
+    timings: Array.isArray(row.timings)
+      ? normalizeTimings(row.timings, [])
+      : fallback.timings,
     inbox: normalizeBoolean(row.inbox, fallback.inbox),
     email: normalizeBoolean(row.email, fallback.email),
     sms: normalizeBoolean(row.sms, fallback.sms),

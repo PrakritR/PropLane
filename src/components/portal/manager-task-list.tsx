@@ -211,7 +211,7 @@ export function ManagerTaskList({
   const [assignedServices, setAssignedServices] = useState<ServiceRequest[]>([]);
   const [loading, setLoading] = useState(true);
   const [addOpen, setAddOpen] = useState(false);
-  const [settingsTab, setSettingsTab] = useState<"reminders" | "task-automation" | null>(null);
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const [composeOpen, setComposeOpen] = useState(false);
   const [composeDraft, setComposeDraft] = useState<ManagerComposePrefill | null>(null);
   const [propertyTick, setPropertyTick] = useState(0);
@@ -715,25 +715,12 @@ export function ManagerTaskList({
       hideTitleOnMobileNav
       titleInlineFilter={tasksFilterSheet}
       titleAside={
-        <>
-          {/* Two adjustable halves: Reminders decides when someone is told,
-              Settings decides which tasks are created at all. Both open the
-              settings modal scoped to their own tab. */}
-          <Button
-            type="button"
-            variant="outline"
-            className={PORTAL_HEADER_PRIMARY_ACTION_BTN_RESPONSIVE}
-            data-attr="manager-task-reminders-open"
-            onClick={() => setSettingsTab("reminders")}
-          >
-            Reminders
-          </Button>
-          <Button
+        <>          <Button
             type="button"
             variant="outline"
             className={PORTAL_HEADER_PRIMARY_ACTION_BTN_RESPONSIVE}
             data-attr="manager-task-automation-open"
-            onClick={() => setSettingsTab("task-automation")}
+            onClick={() => setSettingsOpen(true)}
           >
             Settings
           </Button>
@@ -842,16 +829,11 @@ export function ManagerTaskList({
           showToast("Message sent.");
         }}
       />
-      {/* ONE settings modal, not one per tab. Two of these mounted together
-          put two Vaul drawers on the page at once, which drove each other into
-          "Maximum update depth exceeded". `key` remounts it so the modal opens
-          on the tab that was asked for rather than the one it opened on first. */}
       <ManagerPortalSettingsModal
-        key={settingsTab ?? "closed"}
-        open={settingsTab !== null}
-        onClose={() => setSettingsTab(null)}
-        initialTab={settingsTab ?? "task-automation"}
-        scopedTitle={settingsTab === "reminders" ? "Reminders" : "Task automation"}
+        open={settingsOpen}
+        onClose={() => setSettingsOpen(false)}
+        initialTab="automation"
+        scopedTitle="Settings"
       />
     </ManagerPortalPageShell>
   );

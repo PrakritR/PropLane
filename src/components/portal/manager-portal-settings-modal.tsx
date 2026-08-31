@@ -31,8 +31,7 @@ import { CANONICAL_DEMO_MANAGER_NAME } from "@/lib/demo/demo-canonical-accounts"
 import { cn } from "@/lib/utils";
 import { cacheLandlordLegalName } from "@/lib/manager-landlord-profile";
 import { PORTAL_TOOLBAR_PILL_BUTTON, PORTAL_TOOLBAR_PILL_BUTTON_ACTIVE } from "@/components/portal/portal-metrics";
-import { ManagerReminderSettingsPanel } from "@/components/portal/manager-reminder-settings-panel";
-import { ManagerTaskAutomationSettingsPanel } from "@/components/portal/manager-task-automation-settings-panel";
+import { ManagerPortalAutomationSettingsPanel } from "@/components/portal/manager-portal-automation-settings-panel";
 
 export type ManagerPortalSettingsTab =
   | "applications"
@@ -41,8 +40,7 @@ export type ManagerPortalSettingsTab =
   | "resident"
   | "payments"
   | "communication"
-  | "reminders"
-  | "task-automation";
+  | "automation";
 
 const TABS: { id: ManagerPortalSettingsTab; label: string }[] = [
   { id: "applications", label: "Applications" },
@@ -51,8 +49,7 @@ const TABS: { id: ManagerPortalSettingsTab; label: string }[] = [
   { id: "resident", label: "Residents" },
   { id: "payments", label: "Payments" },
   { id: "communication", label: "Communication" },
-  { id: "reminders", label: "Reminders" },
-  { id: "task-automation", label: "Task automation" },
+  { id: "automation", label: "Automation" },
 ];
 
 export function ManagerPortalSettingsModal({
@@ -297,8 +294,7 @@ export function ManagerPortalSettingsModal({
         />
       ) : null}
 
-      {tab === "reminders" ? <ManagerReminderSettingsPanel /> : null}
-      {tab === "task-automation" ? <ManagerTaskAutomationSettingsPanel /> : null}
+      {tab === "automation" ? <ManagerPortalAutomationSettingsPanel /> : null}
       {tab === "calendar" ? (
         <CalendarSettingsPanel onFooterReady={setPanelFooter} onSaved={onCalendarSettingsSaved} />
       ) : null}
