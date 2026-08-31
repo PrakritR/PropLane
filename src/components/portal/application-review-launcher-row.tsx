@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useState, type ReactNode } from "react";
-import { SegmentedTwo } from "@/components/ui/segmented-control";
 import { ManagerApplicationReadonlyReview } from "@/components/portal/manager-application-readonly-review";
 import { ApplicationScreeningPanel } from "@/components/portal/application-screening-panel";
 import { ApplicationVerificationPhotos } from "@/components/portal/application-verification-photos";
@@ -14,7 +13,7 @@ export type ApplicationReviewView = "application" | "background-check";
 
 /**
  * Inline application review on resident / application detail pages.
- * Application and background check are separate full-width views with a top toggle.
+ * Application and background check share one scroll — screening is a section card, not a tab.
  */
 export function ApplicationReviewLauncherRow({
   row,
@@ -26,7 +25,7 @@ export function ApplicationReviewLauncherRow({
   onScreeningHeaderActionsChange,
   activeView: activeViewProp,
   onActiveViewChange,
-  group = null,
+  group: _group = null,
   omitReviewSections,
   cosignerSubmissions = [],
   screeningSubjectId,
@@ -34,14 +33,13 @@ export function ApplicationReviewLauncherRow({
   onRequestChecksForSubjects,
   /** @deprecated Use cosignerSubmissions — kept for callers not yet migrated. */
   hasLinkedCosigner = false,
-  /** When a parent renders the Application / Background check toggle above scroll chrome. */
+  /** @deprecated Background check is always inline; parent may render nav rows above. */
   hideToggle = false,
   householdPanels,
   className,
 }: {
   row: DemoApplicantRow;
   bareCanvas?: boolean;
-  /** Fill the parent flex area with a scrollable document frame (resident profile tab). */
   stretch?: boolean;
   showDownload?: boolean;
   onScreeningUpdated?: () => void;
@@ -50,7 +48,6 @@ export function ApplicationReviewLauncherRow({
   activeView?: ApplicationReviewView;
   onActiveViewChange?: (view: ApplicationReviewView) => void;
   group?: ApplicationGroup | null;
-  /** Skip answer cards already rendered above the Application / Background check toggle. */
   omitReviewSections?: Array<"group" | "cosigner" | "placement">;
   cosignerSubmissions?: CosignerSubmission[];
   screeningSubjectId?: string;
@@ -58,7 +55,6 @@ export function ApplicationReviewLauncherRow({
   onRequestChecksForSubjects?: (subjectIds: string[]) => void;
   hasLinkedCosigner?: boolean;
   hideToggle?: boolean;
-  /** Rendered inside the Application tab, above the readonly review body. */
   householdPanels?: ReactNode;
   className?: string;
 }) {
@@ -70,71 +66,74 @@ export function ApplicationReviewLauncherRow({
     if (activeViewProp === undefined) setInternalView(view);
     onActiveViewChange?.(view);
   };
+  void setActiveView;
 
   useEffect(() => {
     if (activeViewProp !== undefined) return;
     setInternalView("application");
   }, [row.id, activeViewProp]);
 
-  const showApplication = activeView === "application" || !showsScreening;
+  useEffect(() => {
+    if (activeView !== "background-check") return;
+    document.getElementById("application-background-check-section")?.scrollIntoView({
+      behavior: "smooth",
+      block: "start",
+    });
+  }, [activeView, row.id]);
+
+  void hideToggle;
+  void hasLinkedCosigner;
+  void showDownload;
 
   return (
     <div
       className={`${stretch ? "flex min-h-0 flex-1 flex-col gap-3" : "space-y-3"} ${className ?? ""}`.trim()}
       data-slot="application-review-inline"
     >
-      {showsScreening && !hideToggle ? (
-        <SegmentedTwo
-          value={activeView}
-          onChange={setActiveView}
-          left={{ id: "application", label: "Application" }}
-          right={{ id: "background-check", label: "Background check" }}
-          className="w-full shrink-0"
-        />
-      ) : null}
+      <section
+        id="application-readonly-review"
+        className={
+          stretch
+            ? "flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto overscroll-contain [-webkit-overflow-scrolling:touch]"
+            : "space-y-3"
+        }
+        data-testid="application-readonly-review"
+      >
+        {householdPanels}
+        {row.application ? (
+          <ManagerApplicationReadonlyReview
+            partial={row.application}
+            assignedPropertyId={row.assignedPropertyId}
+            assignedRoomChoice={row.assignedRoomChoice}
+            omitSections={omitReviewSections}
+          />
+        ) : (
+          <p className="rounded-2xl border border-border bg-card px-4 py-8 text-center text-sm text-muted">
+            Application details are not available for this record.
+          </p>
+        )}
+        <ApplicationVerificationPhotos row={row} />
 
-      {showApplication ? (
-        <section
-          className={
-            stretch
-              ? "flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto overscroll-contain [-webkit-overflow-scrolling:touch]"
-              : "space-y-3"
-          }
-          data-testid="application-readonly-review"
-        >
-          {householdPanels}
-          {row.application ? (
-            <ManagerApplicationReadonlyReview
-              partial={row.application}
-              assignedPropertyId={row.assignedPropertyId}
-              assignedRoomChoice={row.assignedRoomChoice}
-              omitSections={omitReviewSections}
+        {showsScreening ? (
+          <div id="application-background-check-section" className="scroll-mt-4">
+            <ApplicationScreeningPanel
+              row={row}
+              collapsible={false}
+              presentation="compact"
+              bareCanvas={bareCanvas}
+              stretch={false}
+              headerActionsPlacement="parent"
+              onHeaderActionsChange={onScreeningHeaderActionsChange}
+              onUpdated={onScreeningUpdated}
+              onOpenScreeningModal={onOpenScreeningModal}
+              cosignerSubmissions={cosignerSubmissions}
+              screeningSubjectId={screeningSubjectId}
+              onScreeningSubjectChange={onScreeningSubjectChange}
+              onRequestChecksForSubjects={onRequestChecksForSubjects}
             />
-          ) : (
-            <p className="rounded-2xl border border-border bg-card px-4 py-8 text-center text-sm text-muted">
-              Application details are not available for this record.
-            </p>
-          )}
-          <ApplicationVerificationPhotos row={row} />
-        </section>
-      ) : (
-        <ApplicationScreeningPanel
-          row={row}
-          collapsible={false}
-          presentation="full"
-          bareCanvas={bareCanvas}
-          stretch={stretch}
-          className={stretch ? "min-h-0 flex-1" : undefined}
-          headerActionsPlacement="parent"
-          onHeaderActionsChange={onScreeningHeaderActionsChange}
-          onUpdated={onScreeningUpdated}
-          onOpenScreeningModal={onOpenScreeningModal}
-          cosignerSubmissions={cosignerSubmissions}
-          screeningSubjectId={screeningSubjectId}
-          onScreeningSubjectChange={onScreeningSubjectChange}
-          onRequestChecksForSubjects={onRequestChecksForSubjects}
-        />
-      )}
+          </div>
+        ) : null}
+      </section>
     </div>
   );
 }

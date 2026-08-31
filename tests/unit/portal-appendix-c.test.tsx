@@ -16,7 +16,9 @@ import {
   parseWorkOrderBucket,
   PROPERTY_DETAIL_TABS,
   PROPERTY_DETAIL_TAB_LABELS,
+  PROPERTY_DETAIL_SCOPE_LABELS,
   propertyDetailHref,
+  propertyDetailTopNavId,
   residentDetailHref,
   managerResidentItemDetailHref,
   residentPaymentDetailHref,
@@ -56,6 +58,13 @@ describe("portal-detail-routes", () => {
     expect(PROPERTY_DETAIL_TABS).toContain("tours");
     expect(PROPERTY_DETAIL_TABS).not.toContain("calendar");
     expect(PROPERTY_DETAIL_TAB_LABELS.tours).toBe("Tours");
+  });
+
+  it("maps preview section tabs to the Preview top nav id", () => {
+    expect(propertyDetailTopNavId("preview")).toBe("preview");
+    expect(propertyDetailTopNavId("house-details")).toBe("preview");
+    expect(propertyDetailTopNavId("move-in")).toBe("preview");
+    expect(PROPERTY_DETAIL_SCOPE_LABELS.preview).toBe("Listing");
   });
 
   it("parses resident detail tabs with application fallback", () => {

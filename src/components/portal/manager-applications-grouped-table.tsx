@@ -7,7 +7,13 @@ import {
 } from "@/components/portal/application-household-list";
 import { Badge } from "@/components/ui/badge";
 import { DataList, type DataListRow } from "@/components/ui/data-list";
-import type { CosignerSubmission } from "@/lib/cosigner-submissions-storage";
+import { applicationShowsBackgroundCheck } from "@/lib/application-background-check";
+import {
+  screeningListTrailForApplicant,
+  screeningListTrailForCosigner,
+  screeningTrailToneClassName,
+} from "@/lib/application-screening-list-meta";
+import { cosignerShowsBackgroundCheck } from "@/lib/cosigner-screening";
 import {
   applicationPropertyMeta,
   applicationSubmittedLabel,
@@ -19,7 +25,15 @@ import { stripPropertyRoomCountSuffix } from "@/lib/portal-mobile-preview";
 
 type ApplicationTableRow =
   | { kind: "application"; row: DemoApplicantRow; nested: boolean }
-  | { kind: "cosigner"; parent: DemoApplicantRow; sub: CosignerSubmission; index: number; nested: boolean };
+  | { kind: "screening"; row: DemoApplicantRow; nested: boolean }
+  | { kind: "cosigner"; parent: DemoApplicantRow; sub: CosignerSubmission; index: number; nested: boolean }
+  | {
+      kind: "cosigner-screening";
+      parent: DemoApplicantRow;
+      sub: CosignerSubmission;
+      index: number;
+      nested: boolean;
+    };
 
 export function ManagerApplicationsGroupedTable({
   clusters,
@@ -46,10 +60,16 @@ export function ManagerApplicationsGroupedTable({
         const tableRows: ApplicationTableRow[] = [];
         for (const row of applicationRows) {
           tableRows.push({ kind: "application", row, nested });
+          if (applicationShowsBackgroundCheck(row)) {
+            tableRows.push({ kind: "screening", row, nested: true });
+          }
           const signerKey = row.id.trim().toUpperCase();
           const cosignerRows = cosignerSubmissionsBySigner.get(signerKey) ?? [];
           cosignerRows.forEach((sub, index) => {
             tableRows.push({ kind: "cosigner", parent: row, sub, index, nested });
+            if (cosignerShowsBackgroundCheck(sub)) {
+              tableRows.push({ kind: "cosigner-screening", parent: row, sub, index, nested: true });
+            }
           });
         }
 
@@ -84,13 +104,6 @@ export function ManagerApplicationsGroupedTable({
                   ? {
                       id: entry.row.id,
                       data: entry,
-                      // A `single` cluster already names the person in its header,
-                      // so repeating the identity here would print it twice — and
-                      // for a nameless draft, whose display name RESOLVES to its
-                      // own email, twice over the same address. A household
-                      // cluster's header is the house instead, so its members
-                      // carry their own names or they are an anonymous stack of
-                      // dates whose checkbox announces "Select Submitted Jul 19".
                       primary: entry.nested
                         ? applicantDisplayName(entry.row)
                         : applicationSubmittedLabel(entry.row),
@@ -107,11 +120,47 @@ export function ManagerApplicationsGroupedTable({
                           : undefined,
                       onClick: () => onOpenApplication(entry.row),
                     }
+                  : entry.kind === "screening"
+                    ? (() => {
+                        const trail = screeningListTrailForApplicant(entry.row);
+                        return {
+                          id: `${entry.row.id}-screening`,
+                          data: entry,
+                          primary: "Background check",
+                          meta: trail.sub,
+                          trailing: (
+                            <span
+                              className={`text-xs font-semibold ${screeningTrailToneClassName(trail.tone)}`}
+                            >
+                              {trail.label}
+                            </span>
+                          ),
+                          onClick: () => onOpenApplication(entry.row),
+                        };
+                      })()
+                    : entry.kind === "cosigner-screening"
+                      ? (() => {
+                          const trail = screeningListTrailForCosigner(entry.sub);
+                          return {
+                            id: `${entry.parent.id}-cosigner-screening-${entry.index}`,
+                            data: entry,
+                            primary: "Background check",
+                            meta: trail.sub,
+                            trailing: (
+                              <span
+                                className={`text-xs font-semibold ${screeningTrailToneClassName(trail.tone)}`}
+                              >
+                                {trail.label}
+                              </span>
+                            ),
+                            onClick: () => onOpenCosigner(entry.parent, entry.index),
+                          };
+                        })()
                   : {
                       id: `${entry.parent.id}-cosigner-${entry.index}`,
                       data: entry,
-                      primary: "Co-signer",
-                      meta: `Co-signer for ${applicantDisplayName(entry.parent)} · ${entry.sub.email || "—"}`,
+                      primary: entry.sub.fullName || "Co-signer",
+                      meta: entry.sub.email || `Co-signer for ${applicantDisplayName(entry.parent)}`,
                       onClick: () => onOpenCosigner(entry.parent, entry.index),
                     };
 
@@ -141,6 +190,10 @@ export function ManagerApplicationsGroupedTable({
                       cell: (item) =>
                         item.kind === "application" ? (
                           applicationSubmittedLabel(item.row)
+                        ) : item.kind === "screening" ? (
+                          screeningListTrailForApplicant(item.row).label
+                        ) : item.kind === "cosigner-screening" ? (
+                          screeningListTrailForCosigner(item.sub).label
                         ) : (
                           <Badge tone="info">Co-signer</Badge>
                         ),
@@ -151,13 +204,17 @@ export function ManagerApplicationsGroupedTable({
                       cell: (item) =>
                         item.kind === "application"
                           ? applicationPropertyMeta(item.row)
-                          : item.sub.email || "—",
+                          : item.kind === "screening"
+                            ? "—"
+                            : item.kind === "cosigner-screening"
+                              ? "—"
+                              : item.sub.email || "—",
                     },
                   ]}
                 />
               );
 
-              return entry.nested ? (
+              return entry.nested || entry.kind === "screening" || entry.kind === "cosigner-screening" ? (
                 <ApplicationNestedListRow key={rowContent.id} nested>
                   {inner}
                 </ApplicationNestedListRow>

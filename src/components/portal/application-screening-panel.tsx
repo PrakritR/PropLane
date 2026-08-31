@@ -577,7 +577,7 @@ export function ApplicationScreeningPanel({
                   data-attr="run-background-check"
                   onClick={() => onOpenScreeningModal?.()}
                 >
-                  {testButtonLabel}
+                  Get background check
                 </Button>
               ) : null}
               {canRunBackgroundCheckAgain ? (

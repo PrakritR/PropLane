@@ -33,13 +33,20 @@ export const PROPERTY_DETAIL_SECTION_TABS = [
 export type PropertyDetailSectionTabId = (typeof PROPERTY_DETAIL_SECTION_TABS)[number];
 
 export const PROPERTY_DETAIL_TOP_TAB_LABELS = {
-  details: "Details",
+  preview: "Preview",
   tours: "Tours",
   application: "Application",
   lease: "Lease",
   requests: "Services",
   promotion: "Promotion",
 } as const;
+
+/** In-content scope chips under the Preview top tab (listing gallery vs house vs move-in). */
+export const PROPERTY_DETAIL_SCOPE_LABELS: Record<PropertyDetailSectionTabId, string> = {
+  preview: "Listing",
+  "house-details": "House details",
+  "move-in": "Move-in",
+};
 
 export type PropertyDetailTopTabId = keyof typeof PROPERTY_DETAIL_TOP_TAB_LABELS;
 
@@ -56,8 +63,8 @@ export function propertyDetailTopNavId(tab: PropertyDetailTabId): PropertyDetail
   if (tab === "lease") return "lease";
   if (tab === "requests") return "requests";
   if (tab === "promotion") return "promotion";
-  if ((PROPERTY_DETAIL_SECTION_TABS as readonly string[]).includes(tab)) return "details";
-  return "details";
+  if ((PROPERTY_DETAIL_SECTION_TABS as readonly string[]).includes(tab)) return "preview";
+  return "preview";
 }
 
 /** Routed detail tabs for manager resident profile (Appendix C2). */

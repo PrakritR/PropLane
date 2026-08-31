@@ -14,6 +14,7 @@ import {
 } from "@/components/portal/portal-adaptive-action-row";
 import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
 import { PortalDetailDestinationNav } from "@/components/portal/portal-detail-destination-nav";
+import { PropertyPreviewScopeNav } from "@/components/portal/property-preview-scope-nav";
 import type { MockProperty } from "@/data/types";
 import { ListingDetailSections } from "@/components/marketing/listing-detail-sections";
 import { ListingStickySubnav } from "@/components/marketing/listing-detail-subnav";
@@ -665,14 +666,7 @@ function ManagerPropertyInlineDetails({
       });
     };
 
-    if (detailSectionTabs.length > 0) {
-      items.push({
-        id: "details",
-        label: PROPERTY_DETAIL_TOP_TAB_LABELS.details,
-        href: propertyDetailHref(propertiesBase, stage, propertyRouteKey, detailSectionTabs[0]!),
-        dataAttr: "property-detail-tab-details",
-      });
-    }
+    pushTopTab("preview", "preview");
     pushTopTab("tours", "tours");
     pushTopTab("application", "application");
     pushTopTab("lease", "lease");
@@ -681,7 +675,7 @@ function ManagerPropertyInlineDetails({
     return items;
   }, [availableTabs, detailSectionTabs, propertiesBase, propertyRouteKey, stage]);
   const activeTopNavId = propertyDetailTopNavId(activeDetailTab);
-  const isDetailsSection = activeTopNavId === "details";
+  const isPreviewSection = activeTopNavId === "preview";
   const detailsSubNavItems = useMemo(
     () =>
       detailSectionTabs.map((tab) => ({
@@ -928,44 +922,43 @@ function ManagerPropertyInlineDetails({
             ariaLabel="Property sections"
             denseEqualRow
           />
-
-          {isDetailsSection && detailsSubNavItems.length > 1 ? (
-            <PortalListControlStack
-              className="border-t border-border bg-accent/30 py-1"
-              destinations={detailsSubNavItems}
-              activeDestinationId={activeDetailTab}
-              destinationAriaLabel="Details sections"
-              stickyDestinations={false}
-              destinationInset
-            />
-          ) : null}
-
-          {isDetailsSection && activeDetailTab === "preview" && hasPreview ? (
-            <ListingStickySubnav
-              mode="portal"
-              appearance="portal"
-              className="shrink-0 rounded-none border-0 border-t border-border bg-accent/30 py-1.5 shadow-none"
-            />
-          ) : null}
         </div>
       </PortalPageChrome>
 
       <PortalPageScrollBody
         className={cn(
           "min-w-0 max-w-full",
-          activeDetailTab !== "preview" && "pt-3",
+          !isPreviewSection || activeDetailTab !== "preview" ? "pt-3" : undefined,
         )}
       >
-      {isDetailsSection && activeDetailTab === "preview" ? (
+      {isPreviewSection && detailsSubNavItems.length > 1 ? (
+        <PropertyPreviewScopeNav
+          items={detailsSubNavItems.map((item) => ({
+            id: item.id as PropertyDetailSectionTabId,
+            href: item.href,
+            dataAttr: item.dataAttr,
+          }))}
+          activeId={activeDetailTab as PropertyDetailSectionTabId}
+        />
+      ) : null}
+
+      {isPreviewSection && activeDetailTab === "preview" ? (
         hasPreview ? (
-          <ListingDetailSections
-            property={previewProperty!}
-            rich={rich!}
-            portalEmbedded
-            expandSectionsOnMobile
-            managerPreviewChrome
-            hidePortalSubnav
-          />
+          <>
+            <ListingStickySubnav
+              mode="portal"
+              appearance="portal"
+              className="mb-3 shrink-0 rounded-2xl border border-border bg-accent/30 py-1.5 shadow-sm"
+            />
+            <ListingDetailSections
+              property={previewProperty!}
+              rich={rich!}
+              portalEmbedded
+              expandSectionsOnMobile
+              managerPreviewChrome
+              hidePortalSubnav
+            />
+          </>
         ) : bucket === 3 || bucket === 5 ? (
           <p className="text-sm text-muted">
             {bucket === 5
@@ -975,7 +968,7 @@ function ManagerPropertyInlineDetails({
         ) : null
       ) : null}
 
-      {isDetailsSection && activeDetailTab === "house-details" && bucket !== 3 && bucket !== 5 ? (
+      {isPreviewSection && activeDetailTab === "house-details" && bucket !== 3 && bucket !== 5 ? (
         <ManagerPropertyHouseDetailsPanel
           noteKey={noteKey}
           sub={managerSubmission}
@@ -986,7 +979,7 @@ function ManagerPropertyInlineDetails({
         />
       ) : null}
 
-      {isDetailsSection && activeDetailTab === "move-in" && bucket !== 3 && bucket !== 5 ? (
+      {isPreviewSection && activeDetailTab === "move-in" && bucket !== 3 && bucket !== 5 ? (
         <ManagerPropertyRoomMoveInPanel
           sub={managerSubmission}
           saveTarget={houseSaveTarget}
