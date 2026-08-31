@@ -1,7 +1,8 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import Link from "next/link";
+import { Button } from "@/components/ui/button";
 import { useAppUi } from "@/components/providers/app-ui-provider";
 import type { MockProperty } from "@/data/types";
 import { PROPERTY_PIPELINE_EVENT } from "@/lib/property-pipeline-events";
@@ -150,21 +151,23 @@ function TourStepNavigationFooter({
   return (
     <div className={`flex w-full ${step > 1 ? "justify-between" : "justify-end"}`}>
       {step > 1 ? (
-        <button
+        <Button
           type="button"
+          variant="outline"
+          className="h-9 min-h-0 rounded-full px-4 text-[13px]"
           onClick={onBack}
-          className="rounded-full border border-border px-5 py-2 text-sm font-semibold text-muted hover:bg-accent/30"
         >
           Back
-        </button>
+        </Button>
       ) : null}
-      <button
+      <Button
         type="button"
+        variant="primary"
+        className="h-9 min-h-0 rounded-full px-6 text-[13px]"
         onClick={onContinue}
-        className="rounded-full bg-primary px-7 py-2 text-sm font-semibold text-white shadow-sm transition-all hover:brightness-105"
       >
         Continue
-      </button>
+      </Button>
     </div>
   );
 }
@@ -217,6 +220,7 @@ export function TourScheduleFlow({
   const [availabilityError, setAvailabilityError] = useState<string | null>(null);
   const [bookingTour, setBookingTour] = useState(false);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
+  const [step3Footer, setStep3Footer] = useState<ReactNode | null>(null);
 
   useEffect(() => {
     const sync = () => setTick((n) => n + 1);
@@ -329,13 +333,21 @@ export function TourScheduleFlow({
 
   useEffect(() => {
     if (!embeddedModalLayout || !onEmbeddedFooterChange) return;
-    if (submitted || step >= 3) {
+    if (submitted) {
       onEmbeddedFooterChange(null);
       return;
     }
-    onEmbeddedFooterChange(
-      <TourStepNavigationFooter step={step} onBack={goToPreviousStep} onContinue={goToNextStep} />,
-    );
+    if (step === 3) {
+      onEmbeddedFooterChange(step3Footer);
+      return () => onEmbeddedFooterChange(null);
+    }
+    if (step < 3) {
+      onEmbeddedFooterChange(
+        <TourStepNavigationFooter step={step} onBack={goToPreviousStep} onContinue={goToNextStep} />,
+      );
+      return () => onEmbeddedFooterChange(null);
+    }
+    onEmbeddedFooterChange(null);
     return () => onEmbeddedFooterChange(null);
   }, [
     embeddedModalLayout,
@@ -343,6 +355,7 @@ export function TourScheduleFlow({
     goToPreviousStep,
     onEmbeddedFooterChange,
     step,
+    step3Footer,
     submitted,
   ]);
 
@@ -559,6 +572,8 @@ export function TourScheduleFlow({
             submitting={bookingTour}
             fieldErrors={fieldErrors}
             returnAfterAuth={returnAfterAuth}
+            embeddedModalLayout={embeddedModalLayout}
+            onEmbeddedBookFooterChange={embeddedModalLayout ? setStep3Footer : undefined}
             onFieldChange={(key) =>
               setFieldErrors((prev) => {
                 if (!(key in prev)) return prev;
@@ -894,7 +909,7 @@ function Step2({
 
 function Step3({
   property, roomLabel, day, slotIndex, month, year, submitting, onSubmit, fieldErrors, onFieldChange,
-  returnAfterAuth, contactDefaults,
+  returnAfterAuth, contactDefaults, embeddedModalLayout, onEmbeddedBookFooterChange,
 }: {
   property: MockProperty; roomLabel: string; day: number | null; slotIndex: number | null;
   month: number;
@@ -903,6 +918,8 @@ function Step3({
   fieldErrors: Record<string, string>;
   returnAfterAuth: string;
   contactDefaults: ProspectContactAutofill;
+  embeddedModalLayout?: boolean;
+  onEmbeddedBookFooterChange?: (footer: ReactNode | null) => void;
   onFieldChange: (key: string) => void;
   onSubmit: (payload: { name: string; email: string; phone: string; notes: string; smsConsent: boolean }) => void | Promise<void>;
 }) {
@@ -912,6 +929,8 @@ function Step3({
   const [notes, setNotes] = useState("");
   const [smsConsent, setSmsConsent] = useState(false);
   const signInHref = residentSignInHref(returnAfterAuth);
+  const onSubmitRef = useRef(onSubmit);
+  onSubmitRef.current = onSubmit;
 
   useEffect(() => {
     if (!contactDefaults.ready) return;
@@ -919,6 +938,32 @@ function Step3({
     if (contactDefaults.email) setEmail((prev) => prev || contactDefaults.email);
     if (contactDefaults.phone) setPhone((prev) => prev || contactDefaults.phone);
   }, [contactDefaults.ready, contactDefaults.name, contactDefaults.email, contactDefaults.phone]);
+
+  useEffect(() => {
+    if (!embeddedModalLayout || !onEmbeddedBookFooterChange) return;
+    onEmbeddedBookFooterChange(
+      <Button
+        type="button"
+        variant="primary"
+        className="h-9 min-h-0 rounded-full px-6 text-[13px]"
+        disabled={submitting}
+        onClick={() => onSubmitRef.current({ name, email, phone, notes, smsConsent })}
+        data-attr="tour-book-submit"
+      >
+        {submitting ? "Booking…" : "Book tour"}
+      </Button>,
+    );
+    return () => onEmbeddedBookFooterChange(null);
+  }, [
+    embeddedModalLayout,
+    email,
+    name,
+    notes,
+    onEmbeddedBookFooterChange,
+    phone,
+    smsConsent,
+    submitting,
+  ]);
 
   return (
     <div className="space-y-5">
@@ -982,16 +1027,18 @@ function Step3({
 
       <SmsConsentCheckbox checked={smsConsent} onChange={setSmsConsent} inputId="tour-sms-consent" />
 
-      <button
-        type="button"
-        disabled={submitting}
-        onClick={() => onSubmit({ name, email, phone, notes, smsConsent })}
-        className="w-full rounded-2xl py-3.5 text-sm font-semibold text-white shadow-[0_0_20px_rgba(0,122,255,0.28)] transition-all hover:brightness-105 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-60"
-        style={{ background: "linear-gradient(135deg, var(--primary), var(--primary-alt))" }}
-        data-attr="tour-book-submit"
-      >
-        {submitting ? "Booking..." : "Book tour"}
-      </button>
+      {!embeddedModalLayout ? (
+        <button
+          type="button"
+          disabled={submitting}
+          onClick={() => onSubmit({ name, email, phone, notes, smsConsent })}
+          className="w-full rounded-2xl py-3.5 text-sm font-semibold text-white shadow-[0_0_20px_rgba(0,122,255,0.28)] transition-all hover:brightness-105 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-60"
+          style={{ background: "linear-gradient(135deg, var(--primary), var(--primary-alt))" }}
+          data-attr="tour-book-submit"
+        >
+          {submitting ? "Booking..." : "Book tour"}
+        </button>
+      ) : null}
     </div>
   );
 }

@@ -2,9 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { ManagerPortalStatusPills } from "@/components/portal/portal-metrics";
-import {
-  PortalDataTableEmpty,
-} from "@/components/portal/portal-data-table";
+import { PortalDataTableEmpty } from "@/components/portal/portal-data-table";
 import { PORTAL_LIST_PAGE_BODY } from "@/components/portal/portal-inbox-ui";
 import { DataList } from "@/components/ui/data-list";
 import {
@@ -154,6 +152,9 @@ export function ResidentLeaseListTable({
   emptyMessage = "Your lease will appear here once your manager sends it for review.",
   routePendingToLeaseSection = false,
   statusFilter,
+  selectable = false,
+  selectedIds,
+  onToggleSelected,
 }: {
   basePath: string;
   bucket?: ResidentLeaseBucketId;
@@ -162,6 +163,9 @@ export function ResidentLeaseListTable({
   routePendingToLeaseSection?: boolean;
   /** Documents tab only — when set, overrides `bucket`. */
   statusFilter?: ResidentLeaseStatusFilter;
+  selectable?: boolean;
+  selectedIds?: Set<string>;
+  onToggleSelected?: (id: string) => void;
 }) {
   const navigate = usePortalNavigate();
   const pipelineRow = useResidentLeasePipelineRow();
@@ -205,6 +209,7 @@ export function ResidentLeaseListTable({
       <DataList
         variant="resident"
         hideColumnHeaders
+        selectable={selectable}
         rows={documentRows.map((entry) => {
           const statusLabel = entry.status;
           const metaLabel = residentLeaseDetailSubtitle(statusLabel, safeFormatDateTime(entry.signedAt));
@@ -214,6 +219,8 @@ export function ResidentLeaseListTable({
             primary: RESIDENT_LEASE_LIST_LABEL,
             meta: [propertyLabel, metaLabel].filter(Boolean).join(" · "),
             trailing: <span className="text-xs text-muted">{statusLabel}</span>,
+            selected: selectedIds?.has(entry.id),
+            onSelectedChange: onToggleSelected ? () => onToggleSelected(entry.id) : undefined,
             onClick: () => openLease(entry),
           };
         })}
