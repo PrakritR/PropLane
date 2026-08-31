@@ -11,6 +11,7 @@ import {
   PORTAL_MODAL_FORM_FULL_ROW_CLASS,
   PORTAL_MODAL_FORM_GRID_CLASS,
 } from "@/components/ui/modal";
+import { PORTAL_MODAL_BODY_SCROLL_CLASS } from "@/components/ui/modal-styles";
 import { WorkAssignmentPicker } from "@/components/portal/work-assignment-picker";
 import { useAppUi } from "@/components/providers/app-ui-provider";
 import { useWorkAssignmentDirectory } from "@/hooks/use-work-assignment-directory";
@@ -444,6 +445,7 @@ export function ManagerTaskFormModal({
         </ModalFooter>
       }
     >
+      <div className={PORTAL_MODAL_BODY_SCROLL_CLASS}>
       <div className={PORTAL_MODAL_FORM_GRID_CLASS}>
         <div className={cn(PORTAL_MODAL_FORM_FIELD_CLASS, PORTAL_MODAL_FORM_FULL_ROW_CLASS)}>
           <label className={MODAL_FIELD_LABEL_CLASS} htmlFor="manager-task-kind">
@@ -874,6 +876,7 @@ export function ManagerTaskFormModal({
             ? " You can notify the guest or resident on the next screen."
             : null}
         </p>
+      </div>
       </div>
     </Modal>
   );

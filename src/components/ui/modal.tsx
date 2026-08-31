@@ -381,8 +381,12 @@ function ModalPanelInner({
             conversationInstance={assistantConversationInstance}
             onExpandedChange={onAssistantExpandedChange}
             defaultExpanded={assistantDefaultExpanded}
-            fillHeight={assistantExpanded || (!scrollableContent && Boolean(footer))}
-            className={cn(assistantExpanded ? "min-h-0 flex-1" : "shrink-0", dense ? "px-0" : undefined)}
+            fillHeight={assistantExpanded && !footer}
+            className={cn(
+              assistantExpanded && !footer ? "min-h-0 flex-1" : "shrink-0",
+              assistantExpanded && footer ? "max-h-[min(42vh,22rem)]" : undefined,
+              dense ? "px-0" : undefined,
+            )}
           />
         ) : null}
       </div>

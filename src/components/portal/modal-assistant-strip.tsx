@@ -116,35 +116,13 @@ export function ModalAssistantStrip({
               side === "left" ? "@2xl:pr-4" : "@2xl:pl-4",
             )}
           >
-            <div className="mb-2 flex flex-col gap-1.5">
-              <div className="flex items-center justify-between gap-2">
-                <p className="flex min-w-0 items-center gap-1.5 text-sm font-semibold text-primary">
-                  <AxisAssistantSparkleIcon className="h-4 w-4 shrink-0" />
-                  PropLane Assistant
-                </p>
-                {alwaysExpanded ? null : (
-                  <button
-                    type="button"
-                    onClick={() => toggle(false)}
-                    className="inline-flex shrink-0 items-center gap-1 rounded-lg px-2 py-1 text-xs font-medium text-muted transition hover:bg-foreground/5 hover:text-foreground"
-                    data-attr="modal-assistant-collapse"
-                    aria-expanded
-                  >
-                    Hide
-                    <ChevronDown className="h-3.5 w-3.5" aria-hidden />
-                  </button>
-                )}
-              </div>
-              {editHint?.trim() ? (
-                <p className="text-xs text-muted">{editHint.trim()}</p>
-              ) : null}
-            </div>
             <AssistantDockPanel
               managerName={config.managerName}
               endpoint={config.endpoint}
               contextHint={contextHint}
               compact
               pinnedComposer
+              onCollapse={alwaysExpanded ? undefined : () => toggle(false)}
               composerHint={
                 editHint?.trim() ||
                 "Ask below — PropLane uses this screen as context for your question."
