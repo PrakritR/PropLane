@@ -366,7 +366,14 @@ function ModalPanelInner({
                       ? "max-h-[min(42vh,calc(min(92dvh,56rem)-12rem))] shrink-0 @2xl:flex @2xl:min-h-0 @2xl:max-h-none @2xl:flex-1 @2xl:shrink"
                       : "shrink-0 max-h-[min(60vh,calc(min(92dvh,56rem)-11rem))]",
                   )
-                : "flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden"
+                : // `overflow-hidden` here clipped instead of scrolled. A modal with a
+                // footer has `scrollableContent` forced false on the assumption that
+                // children own their own scroll — most do not, so anything taller than
+                // the body became unreachable (Customize dashboard cut off mid-list with
+                // no way down). `overflow-y-auto` still lets a child that DOES manage its
+                // own scrolling fill this box and take over; it only engages when the
+                // content would otherwise be clipped.
+                "flex min-h-0 min-w-0 flex-1 flex-col overflow-y-auto overscroll-contain [-webkit-overflow-scrolling:touch]"
               : "min-w-0 shrink-0 flex-col",
             dense ? "pt-2" : "pt-4",
           )}

@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState, useRef } from "react";
 import { Input, Select } from "@/components/ui/input";
 import { useAppUi } from "@/components/providers/app-ui-provider";
 import {
@@ -481,18 +481,37 @@ export function ManagerLegacyServiceIntakeForm({
     showToast,
   ]);
 
+  // Always call the LATEST submit without making it a dependency. `submit` is a
+  // useCallback over derived lookups (selectedOffer/-Property/-Resident), so its
+  // identity changes on most renders; depending on it here re-ran this effect
+  // every render, and the effect sets PARENT state — "Maximum update depth
+  // exceeded" as soon as the modal opened on the service path.
+  const submitRef = useRef(submit);
+  useEffect(() => {
+    submitRef.current = submit;
+  }, [submit]);
+
+  // Re-register only when the footer's VALUE changes. Sending a fresh object
+  // every render is what fed the loop, since each one is a new parent state.
+  const registeredFooterRef = useRef<{ canSubmit: boolean; saving: boolean; label: string } | null>(null);
   useEffect(() => {
     if (!open) {
-      onRegisterFooter?.(null);
+      if (registeredFooterRef.current !== null) {
+        registeredFooterRef.current = null;
+        onRegisterFooter?.(null);
+      }
       return;
     }
+    const prev = registeredFooterRef.current;
+    if (prev && prev.canSubmit === canSubmit && prev.saving === busy && prev.label === submitLabel) return;
+    registeredFooterRef.current = { canSubmit, saving: busy, label: submitLabel };
     onRegisterFooter?.({
-      submit: () => void submit(),
+      submit: () => void submitRef.current(),
       canSubmit,
       saving: busy,
       label: submitLabel,
     });
-  }, [busy, canSubmit, onRegisterFooter, open, submit, submitLabel]);
+  }, [busy, canSubmit, onRegisterFooter, open, submitLabel]);
 
   const onCatalogSaved = (nextOfferId?: string) => {
     setTick((t) => t + 1);
