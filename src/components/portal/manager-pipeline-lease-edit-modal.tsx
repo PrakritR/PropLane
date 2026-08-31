@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useAppUi } from "@/components/providers/app-ui-provider";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
+import { Input, NativeSelect } from "@/components/ui/input";
 import {
   Modal,
   ModalFooter,
@@ -13,6 +13,7 @@ import {
 import { MODAL_LARGE_PANEL_CLASS, MODAL_TALL_PANEL_CLASS } from "@/components/ui/modal-styles";
 import { LeaseHtmlDirectEditor } from "@/components/portal/lease-html-direct-editor";
 import { LeaseAiReviewAcknowledgment } from "@/components/portal/lease-ai-review-acknowledgment";
+import { PortalRecordShareLinkButton } from "@/components/portal/portal-record-share-link-button";
 import {
   PropertyLeaseDocumentNotice,
   propertyLeaseNeedsAssistantReview,
@@ -25,10 +26,16 @@ import {
 } from "@/lib/lease-section-edit.client";
 import {
   leaseAllowsManagerDocumentEdits,
+  leaseApplicationSnapshotForRow,
+  leaseGenerationSupportedForRow,
+  resolveManagerLeaseGenerationRow,
   type LeasePipelineRow,
 } from "@/lib/lease-pipeline-storage";
+import { normalizeManagerListingSubmissionV1 } from "@/lib/manager-listing-submission";
 import { leaseUsesAiGeneratedHtml } from "@/lib/lease-templates/types";
+import { listLeaseTemplateGenerateChoices } from "@/lib/property-lease-template-sync";
 import { stripDisclosureReviewFromLeaseHtml } from "@/lib/property-lease-document-display";
+import { getPropertyById } from "@/lib/rental-application/data";
 import { useManagerUserId } from "@/hooks/use-manager-user-id";
 import { RESIDENT_DOCUMENTS_DETAIL_FOOTER_BTN } from "@/components/portal/portal-data-table";
 import { cn } from "@/lib/utils";
@@ -46,6 +53,11 @@ type ManagerPipelineLeaseEditModalProps = {
   uploadDisabled?: boolean;
   showDelete?: boolean;
   onDelete?: () => void;
+  showShare?: boolean;
+  showRegenerate?: boolean;
+  onRegenerate?: (templateId: string | null) => void;
+  regenerateLabel?: string;
+  regenerateDisabled?: boolean;
 };
 
 /** Resident / pipeline lease editor — same shell as the property Lease tab editor, but edits one lease packet. */
@@ -62,6 +74,11 @@ export function ManagerPipelineLeaseEditModal({
   uploadDisabled = false,
   showDelete = false,
   onDelete,
+  showShare = false,
+  showRegenerate = false,
+  onRegenerate,
+  regenerateLabel = "Regenerate",
+  regenerateDisabled = false,
 }: ManagerPipelineLeaseEditModalProps) {
   const { showToast } = useAppUi();
   const { userId: managerUserId } = useManagerUserId();
@@ -73,6 +90,41 @@ export function ManagerPipelineLeaseEditModal({
 
   const canEdit = leaseAllowsManagerDocumentEdits(row);
   const editableHtml = leaseDocumentHtmlForSectionEdit(row);
+  const generationSupported = leaseGenerationSupportedForRow(row).ok;
+
+  const actionRow = useMemo(
+    () => resolveManagerLeaseGenerationRow(row.id, managerUserId) ?? row,
+    [row, managerUserId],
+  );
+
+  const submission = useMemo(() => {
+    if (!actionRow.propertyId) return null;
+    const prop = getPropertyById(actionRow.propertyId);
+    if (!prop?.listingSubmission || prop.listingSubmission.v !== 1) return null;
+    return normalizeManagerListingSubmissionV1(prop.listingSubmission);
+  }, [actionRow.propertyId]);
+
+  const application = useMemo(
+    () => leaseApplicationSnapshotForRow(actionRow) ?? {},
+    [actionRow],
+  );
+
+  const generationChoices = useMemo(() => {
+    if (!submission) return [];
+    return listLeaseTemplateGenerateChoices(
+      submission,
+      application,
+      actionRow.leaseKind === "joint_bundle" ? "joint_bundle" : "individual",
+    );
+  }, [actionRow.leaseKind, application, submission]);
+
+  const defaultChoiceId = generationChoices[0]?.id ?? null;
+  const [selectedChoiceId, setSelectedChoiceId] = useState<string | null>(defaultChoiceId);
+
+  const selectedTemplateId = useMemo(
+    () => generationChoices.find((choice) => choice.id === selectedChoiceId)?.template.id ?? null,
+    [generationChoices, selectedChoiceId],
+  );
 
   const baselineHtml = useMemo(() => {
     if (!editableHtml) return "";
@@ -95,7 +147,8 @@ export function ManagerPipelineLeaseEditModal({
     setHtmlOverride(html ? stripDisclosureReviewFromLeaseHtml(html) : "");
     setSaveReviewOpen(false);
     setReviewAcknowledged(false);
-  }, [open, row.id, row.updatedAtIso, row.generatedHtml, row.managerSectionEdits]);
+    setSelectedChoiceId(defaultChoiceId);
+  }, [open, row.id, row.updatedAtIso, row.generatedHtml, row.managerSectionEdits, defaultChoiceId]);
 
   const assistantContext = useMemo(() => buildLeasePacketEditAssistantContext(row), [row]);
 
@@ -141,7 +194,9 @@ export function ManagerPipelineLeaseEditModal({
   };
 
   const showSave = canEdit && Boolean(editableHtml);
-  const hasDocumentActions = showDownload || showUpload || showDelete;
+  const showGenerationFormat = canEdit && generationSupported;
+  const hasFooterActions =
+    showSave || showDownload || showUpload || showDelete || showShare || showRegenerate;
   const footerBtnClass = cn(RESIDENT_DOCUMENTS_DETAIL_FOOTER_BTN, "rounded-full");
   const deleteBtnClass = cn(
     footerBtnClass,
@@ -163,48 +218,65 @@ export function ManagerPipelineLeaseEditModal({
       assistantEditHint="Type in chat to edit the lease — changes apply after you confirm."
       assistantStorageScopeKey={`Lease packet edit · ${row.id}`}
       footer={
-        showSave || hasDocumentActions ? (
+        hasFooterActions ? (
           <ModalFooter className="flex w-full flex-wrap items-center justify-between gap-2">
-            {hasDocumentActions ? (
-              <div className="flex flex-wrap items-center gap-2">
-                {showDelete ? (
-                  <Button
-                    type="button"
-                    variant="outline"
-                    className={deleteBtnClass}
-                    data-attr="resident-lease-delete"
-                    onClick={onDelete}
-                  >
-                    Delete
-                  </Button>
-                ) : null}
-                {showDownload ? (
-                  <Button
-                    type="button"
-                    variant="outline"
-                    className={footerBtnClass}
-                    data-attr="resident-lease-download"
-                    onClick={onDownload}
-                  >
-                    Download
-                  </Button>
-                ) : null}
-                {showUpload ? (
-                  <Button
-                    type="button"
-                    variant="outline"
-                    className={footerBtnClass}
-                    data-attr="resident-lease-upload"
-                    disabled={uploadDisabled}
-                    onClick={onUpload}
-                  >
-                    {uploadLabel}
-                  </Button>
-                ) : null}
-              </div>
-            ) : (
-              <span />
-            )}
+            <div className="flex flex-wrap items-center gap-2">
+              {showDelete ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  className={deleteBtnClass}
+                  data-attr="resident-lease-delete"
+                  onClick={onDelete}
+                >
+                  Delete
+                </Button>
+              ) : null}
+              {showDownload ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  className={footerBtnClass}
+                  data-attr="resident-lease-download"
+                  onClick={onDownload}
+                >
+                  Download
+                </Button>
+              ) : null}
+              {showUpload ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  className={footerBtnClass}
+                  data-attr="resident-lease-upload"
+                  disabled={uploadDisabled}
+                  onClick={onUpload}
+                >
+                  {uploadLabel}
+                </Button>
+              ) : null}
+              {showShare ? (
+                <PortalRecordShareLinkButton
+                  kind="lease"
+                  recordId={row.id}
+                  className={footerBtnClass}
+                  dataAttr="resident-lease-share"
+                  recordTitle={row.residentName?.trim() || row.unit?.trim() || row.propertyId}
+                />
+              ) : null}
+              {showRegenerate ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  className={footerBtnClass}
+                  data-attr="resident-lease-regenerate"
+                  disabled={regenerateDisabled}
+                  onClick={() => onRegenerate?.(selectedTemplateId)}
+                >
+                  {regenerateLabel}
+                </Button>
+              ) : null}
+            </div>
             {showSave ? (
               <Button
                 type="button"
@@ -221,7 +293,7 @@ export function ManagerPipelineLeaseEditModal({
         ) : null
       }
     >
-      <div className="grid h-full min-h-0 flex-1 grid-rows-[auto_minmax(0,1fr)] gap-2">
+      <div className="grid h-full min-h-0 flex-1 grid-rows-[auto_auto_minmax(0,1fr)] gap-2">
         <div className={cn(PORTAL_MODAL_FORM_FIELD_CLASS, "min-w-0")}>
           <label className={MODAL_FIELD_LABEL_CLASS} htmlFor="resident-lease-document-name">
             Lease document name
@@ -235,14 +307,41 @@ export function ManagerPipelineLeaseEditModal({
           />
         </div>
 
+        {showGenerationFormat ? (
+          <div className={cn(PORTAL_MODAL_FORM_FIELD_CLASS, "min-w-0")}>
+            <label className={MODAL_FIELD_LABEL_CLASS} htmlFor="resident-lease-generate-type">
+              Lease format to generate
+            </label>
+            {generationChoices.length === 0 ? (
+              <p className="text-sm text-muted">
+                No saved property lease formats — PropLane&apos;s standard template is used when you
+                regenerate.
+              </p>
+            ) : (
+              <NativeSelect
+                id="resident-lease-generate-type"
+                value={selectedChoiceId ?? ""}
+                onChange={(e) => setSelectedChoiceId(e.target.value || null)}
+                data-attr="resident-lease-generate-type-select"
+              >
+                {generationChoices.map((choice) => (
+                  <option key={choice.id} value={choice.id}>
+                    {choice.label}
+                  </option>
+                ))}
+              </NativeSelect>
+            )}
+          </div>
+        ) : null}
+
         {!canEdit ? (
           <div className="rounded-2xl border border-border bg-accent/30 px-4 py-6 text-center text-sm text-muted">
             This lease has entered signing and its document body is locked.
           </div>
         ) : !editableHtml ? (
           <div className="rounded-2xl border border-border bg-accent/30 px-4 py-6 text-center text-sm text-muted">
-            Generate a PropLane lease before editing. Uploaded PDF templates are preserved as the
-            manager&apos;s original document and cannot be edited here.
+            Generate or upload a lease document to edit it here. Use Regenerate with the format
+            above, or Upload in the footer.
           </div>
         ) : (
           <div className="grid min-h-0 grid-rows-[auto_minmax(0,1fr)] gap-1 overflow-hidden">
@@ -263,7 +362,7 @@ export function ManagerPipelineLeaseEditModal({
                   </p>
                 </div>
               ) : null}
-              <p className={MODAL_FIELD_LABEL_CLASS}>Lease format</p>
+              <p className={MODAL_FIELD_LABEL_CLASS}>Document view</p>
             </div>
             <LeaseHtmlDirectEditor
               className="min-h-0 h-full flex-1"

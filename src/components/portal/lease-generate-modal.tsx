@@ -41,6 +41,7 @@ export function LeaseGenerateModal({
   managerUserId,
   busy = false,
   replacesManagerEdits = false,
+  initialTemplateId = null,
   onClose,
   onGenerated,
 }: {
@@ -49,6 +50,7 @@ export function LeaseGenerateModal({
   managerUserId?: string | null;
   busy?: boolean;
   replacesManagerEdits?: boolean;
+  initialTemplateId?: string | null;
   onClose: () => void;
   /** Called after the draft is saved as this resident's lease. */
   onGenerated: (rowId: string) => void;
@@ -91,9 +93,13 @@ export function LeaseGenerateModal({
 
   useEffect(() => {
     if (!open) return;
-    setSelectedChoiceId(defaultChoiceId);
+    const preferred =
+      initialTemplateId && choices.some((choice) => choice.template.id === initialTemplateId)
+        ? choices.find((choice) => choice.template.id === initialTemplateId)?.id ?? defaultChoiceId
+        : defaultChoiceId;
+    setSelectedChoiceId(preferred);
     setReviewAcknowledged(false);
-  }, [open, defaultChoiceId, row?.id]);
+  }, [open, defaultChoiceId, initialTemplateId, row?.id, choices]);
 
   const selectedTemplateId = useMemo(
     () => choices.find((c) => c.id === selectedChoiceId)?.template.id ?? null,

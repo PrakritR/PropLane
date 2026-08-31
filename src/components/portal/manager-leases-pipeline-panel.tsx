@@ -133,6 +133,7 @@ export function ManagerLeasesPipelinePanel({
   const [renewInitialTerm, setRenewInitialTerm] = useState<string | undefined>(undefined);
   const [editLeaseRowId, setEditLeaseRowId] = useState<string | null>(null);
   const [generateLeaseRow, setGenerateLeaseRow] = useState<LeasePipelineRow | null>(null);
+  const [generateTemplateId, setGenerateTemplateId] = useState<string | null>(null);
   const [importReviewRowId, setImportReviewRowId] = useState<string | null>(null);
   const [bulkLeaseSendRows, setBulkLeaseSendRows] = useState<LeasePipelineRow[] | null>(null);
   const { selectedIds, setSelectedIds, toggleSelected } = usePortalRowSelection(tab);
@@ -247,7 +248,6 @@ export function ManagerLeasesPipelinePanel({
   const sendGateBlockerForRender = (row: LeasePipelineRow) =>
     leaseSendGateBlockerAmong(row, (renderPassApplicationRows ??= readManagerApplicationRows()));
 
-  const generationGate = (row: LeasePipelineRow) => leaseGenerationSupportedForRow(row);
   const hasLeaseDocument = (row: LeasePipelineRow) => Boolean(row.generatedHtml || row.managerUploadedPdf?.dataUrl);
   void refreshKey;
   const bucketRows = useMemo(() => rows.filter((r) => leaseRowMatchesManagerTab(r, tab)), [rows, tab]);
@@ -281,45 +281,12 @@ export function ManagerLeasesPipelinePanel({
     [leaseRowSendBlockedReason, selectedLeaseRows],
   );
 
-  const canBulkSendLeases = tab === "manager" && bulkSendableLeaseRows.length > 0;
-
   const singleSelectedLeaseRow = selectedLeaseRows.length === 1 ? selectedLeaseRows[0]! : null;
-  const canBulkEditLease = Boolean(
-    singleSelectedLeaseRow && leaseRowAllowsGeneratedBodyEdit(singleSelectedLeaseRow),
-  );
 
-  const deletableSelectedLeaseRows = useMemo(
-    () => selectedLeaseRows.filter((row) => row.status !== "Fully Signed"),
-    [selectedLeaseRows],
-  );
-
-  const deleteSelectedLeases = useCallback(() => {
-    if (deletableSelectedLeaseRows.length === 0) {
-      showToast("Fully signed leases can't be deleted.");
-      return;
-    }
-    const label =
-      deletableSelectedLeaseRows.length === 1
-        ? `${deletableSelectedLeaseRows[0]!.residentName} (${deletableSelectedLeaseRows[0]!.unit})`
-        : `${deletableSelectedLeaseRows.length} leases`;
-    if (
-      !window.confirm(
-        `Delete ${label}? Generate or upload can recreate ${deletableSelectedLeaseRows.length === 1 ? "it" : "them"}.`,
-      )
-    ) {
-      return;
-    }
-    let deleted = 0;
-    for (const row of deletableSelectedLeaseRows) {
-      if (deleteLeasePipelineRow(row.id, managerUserId)) deleted += 1;
-    }
-    if (deleted === 0) {
-      showToast("Could not delete lease.");
-      return;
-    }
-    setSelectedIds(new Set());
-    showToast(deleted === 1 ? "Lease document deleted." : `${deleted} lease documents deleted.`);
-  }, [deletableSelectedLeaseRows, managerUserId, setSelectedIds, showToast]);
+  const showBulkSendButton =
+    tab === "manager" &&
+    selectedLeaseRows.length > 0 &&
+    (selectedLeaseRows.length === 1 || bulkSendableLeaseRows.length > 0);
 
   const openBulkSendLeasePreview = useCallback(() => {
     if (bulkSendableLeaseRows.length === 0) {
@@ -333,6 +300,14 @@ export function ManagerLeasesPipelinePanel({
     }
     setBulkLeaseSendRows(bulkSendableLeaseRows);
   }, [bulkSendableLeaseRows, selectedLeaseRows.length, showToast]);
+
+  const openBulkOrSingleSend = useCallback(() => {
+    if (singleSelectedLeaseRow && selectedLeaseRows.length === 1) {
+      openSendLeasePreview(singleSelectedLeaseRow);
+      return;
+    }
+    openBulkSendLeasePreview();
+  }, [openBulkSendLeasePreview, selectedLeaseRows.length, singleSelectedLeaseRow]);
 
   const editLeaseRow = useMemo(
     () => (editLeaseRowId ? (rows.find((row) => row.id === editLeaseRowId) ?? null) : null),
@@ -425,13 +400,15 @@ export function ManagerLeasesPipelinePanel({
     onDetailOpenChange?.(Boolean(leaseIdProp && detailRow));
   }, [detailRow, leaseIdProp, onDetailOpenChange]);
 
-  const runGenerateLease = (row: LeasePipelineRow) => {
+  const runGenerateLease = (row: LeasePipelineRow, templateId?: string | null) => {
     if (generatingRowId) return;
+    setGenerateTemplateId(templateId ?? null);
     setGenerateLeaseRow(resolveManagerLeaseGenerationRow(row.id, managerUserId) ?? row);
   };
 
   const handleLeaseGenerated = (_rowId: string) => {
     setGenerateLeaseRow(null);
+    setGenerateTemplateId(null);
     void syncLeasePipelineFromServer(managerUserId, { force: true });
   };
 
@@ -598,7 +575,6 @@ export function ManagerLeasesPipelinePanel({
   };
 
   const renderLeaseDetailFooterActions = (row: LeasePipelineRow) => {
-    const generation = generationGate(row);
     const canEditDocument = leaseAllowsManagerDocumentEdits(row);
     const canEditGeneratedBody = leaseRowAllowsGeneratedBodyEdit(row);
     const showGenerate = canEditDocument;
@@ -616,12 +592,10 @@ export function ManagerLeasesPipelinePanel({
     const showReviewImport = Boolean(row.uploadedLeaseParse);
     const importNeedsReview = leaseNeedsUploadedLeaseReviewAction(row);
     const reviewImportLabel = importNeedsReview ? "Review import" : "Imported lease";
-    const regenerateLabel =
-      generatingRowId === row.id ? "Generating…" : hasLeaseDocument(row) ? "Regenerate" : "Generate lease";
     const actionBtnClass = RESIDENT_DOCUMENTS_DETAIL_FOOTER_BTN;
 
-    const showEditMenu =
-      canEditGeneratedBody || hasDocument || showGenerate || canEditDocument || showReviewImport;
+    const showEditButton =
+      canEditDocument || hasDocument || showGenerate || canEditGeneratedBody || showReviewImport;
 
     const actions: PortalFooterFitAction[] = [];
 
@@ -677,7 +651,7 @@ export function ManagerLeasesPipelinePanel({
       });
     }
 
-    if (showEditMenu) {
+    if (showEditButton) {
       actions.push({
         id: "edit",
         button: (
@@ -694,33 +668,6 @@ export function ManagerLeasesPipelinePanel({
         menuItem: (
           <DropdownMenuItem data-attr="lease-edit" onSelect={() => setEditLeaseRowId(row.id)}>
             Edit
-          </DropdownMenuItem>
-        ),
-      });
-    }
-
-    if (showGenerate) {
-      actions.push({
-        id: "generate",
-        button: (
-          <Button
-            type="button"
-            variant="outline"
-            className={actionBtnClass}
-            data-attr="lease-generate"
-            disabled={generatingRowId === row.id || !generation.ok}
-            onClick={() => runGenerateLease(row)}
-          >
-            {regenerateLabel}
-          </Button>
-        ),
-        menuItem: (
-          <DropdownMenuItem
-            data-attr="lease-generate"
-            disabled={generatingRowId === row.id || !generation.ok}
-            onSelect={() => runGenerateLease(row)}
-          >
-            {regenerateLabel}
           </DropdownMenuItem>
         ),
       });
@@ -1073,6 +1020,22 @@ export function ManagerLeasesPipelinePanel({
             onDeleteLease(editLeaseRow);
             setEditLeaseRowId(null);
           }}
+          showShare={hasLeaseDocument(editLeaseRow)}
+          showRegenerate={leaseAllowsManagerDocumentEdits(editLeaseRow)}
+          regenerateLabel={
+            generatingRowId === editLeaseRow.id
+              ? "Generating…"
+              : hasLeaseDocument(editLeaseRow)
+                ? "Regenerate"
+                : "Generate lease"
+          }
+          regenerateDisabled={
+            generatingRowId === editLeaseRow.id || !leaseGenerationSupportedForRow(editLeaseRow).ok
+          }
+          onRegenerate={(templateId) => {
+            runGenerateLease(editLeaseRow, templateId);
+            setEditLeaseRowId(null);
+          }}
         />
       ) : null}
 
@@ -1082,8 +1045,12 @@ export function ManagerLeasesPipelinePanel({
         managerUserId={managerUserId}
         busy={Boolean(generateLeaseRow && generatingRowId === generateLeaseRow.id)}
         replacesManagerEdits={Boolean(generateLeaseRow?.generatedHtml || generateLeaseRow?.managerUploadedPdf?.dataUrl)}
+        initialTemplateId={generateTemplateId}
         onClose={() => {
-          if (!generatingRowId) setGenerateLeaseRow(null);
+          if (!generatingRowId) {
+            setGenerateLeaseRow(null);
+            setGenerateTemplateId(null);
+          }
         }}
         onGenerated={handleLeaseGenerated}
       />
@@ -1190,36 +1157,35 @@ export function ManagerLeasesPipelinePanel({
                 disabled={!singleSelectedLeaseRow}
                 onClick={() => {
                   if (!singleSelectedLeaseRow) return;
-                  if (canBulkEditLease) {
-                    setEditLeaseRowId(singleSelectedLeaseRow.id);
-                    return;
-                  }
-                  openLeaseDetail(singleSelectedLeaseRow);
+                  setEditLeaseRowId(singleSelectedLeaseRow.id);
                 }}
               >
                 Edit
               </Button>
-              <Button
-                type="button"
-                variant="outline"
-                className={`${PORTAL_BULK_BAR_BTN} border-rose-200 text-rose-800 hover:bg-[var(--status-overdue-bg)] portal-danger-outline`}
-                data-attr="leases-bulk-delete"
-                disabled={deletableSelectedLeaseRows.length === 0}
-                onClick={deleteSelectedLeases}
-              >
-                Delete
-              </Button>
-              {tab === "manager" && canBulkSendLeases ? (
+              {showBulkSendButton ? (
                 <Button
                   type="button"
-                  variant="primary"
+                  variant="outline"
                   className={PORTAL_BULK_BAR_BTN}
                   data-attr="leases-bulk-send"
                   disabled={Boolean(sendingToResidentRowId)}
-                  onClick={openBulkSendLeasePreview}
+                  onClick={openBulkOrSingleSend}
                 >
-                  Send
+                  {sendingToResidentRowId ? "Sending…" : "Send"}
                 </Button>
+              ) : null}
+              {singleSelectedLeaseRow && hasLeaseDocument(singleSelectedLeaseRow) ? (
+                <PortalRecordShareLinkButton
+                  kind="lease"
+                  recordId={singleSelectedLeaseRow.id}
+                  className={PORTAL_BULK_BAR_BTN}
+                  dataAttr="leases-bulk-share"
+                  recordTitle={
+                    singleSelectedLeaseRow.residentName?.trim() ||
+                    singleSelectedLeaseRow.unit?.trim() ||
+                    singleSelectedLeaseRow.propertyId
+                  }
+                />
               ) : null}
             </>
           ) : null
