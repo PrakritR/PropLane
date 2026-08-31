@@ -667,11 +667,7 @@ export function ShareLeadLinkModal({
               ) : null}
 
               <div className="border-t border-border pt-3">
-                <p className="text-sm font-semibold text-foreground">Send to prospect</p>
-                <p className="mt-1 text-xs text-muted">
-                  Choose email and/or SMS. Messages send from PropLane when delivery is configured.
-                </p>
-                <div className="mt-3 space-y-3">
+                <div className="space-y-3">
                   <PortalMessageSendViaDropdown
                     selected={sendVia}
                     onChange={setSendVia}
