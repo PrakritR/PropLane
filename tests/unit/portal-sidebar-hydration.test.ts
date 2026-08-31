@@ -33,6 +33,8 @@ describe("portal sidebar native hydration", () => {
     expect(PORTAL_SIDEBAR_SOURCE).toContain("subItems:");
     expect(PORTAL_SIDEBAR_SOURCE).toContain("renderPaymentsNavGroup");
     expect(PORTAL_SIDEBAR_SOURCE).toContain("isPaymentSubNavActive");
+    expect(PORTAL_SIDEBAR_SOURCE).toContain("paymentsNavExpanded");
+    expect(PORTAL_SIDEBAR_SOURCE).toContain('aria-expanded={paymentsNavExpanded}');
   });
 
   it("the More sheet lists every section, not just overflow (e.g. Documents alongside Finances)", () => {

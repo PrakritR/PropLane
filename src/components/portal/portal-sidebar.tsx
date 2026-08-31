@@ -50,7 +50,7 @@ import { groupNavItems, isAppNavHiddenInNativeShell, isHiddenFromMobileNav } fro
 import { PAYMENT_BUCKETS } from "@/lib/portal-detail-routes";
 import type { PortalDefinition, PortalKind } from "@/lib/portal-types";
 import { cn } from "@/lib/utils";
-import { ChevronsLeft, ChevronsRight, ChevronRight } from "lucide-react";
+import { ChevronsLeft, ChevronsRight, ChevronDown, ChevronRight } from "lucide-react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -218,6 +218,7 @@ export function PortalSidebar({
   );
   const navCounts = usePortalNavCounts(definition.kind);
   const [collapsed, setCollapsed] = useState(initialCollapsed);
+  const [paymentsNavExpanded, setPaymentsNavExpanded] = useState(false);
 
   const activeSection = useMemo(() => {
     const parts = pathname.split("/").filter(Boolean);
@@ -236,6 +237,10 @@ export function PortalSidebar({
     const tab = parts[paymentsIdx + 1];
     return tab === "incoming" || tab === "outgoing" ? tab : "incoming";
   }, [activeSection, pathname]);
+
+  useEffect(() => {
+    if (activeSection === "payments") setPaymentsNavExpanded(true);
+  }, [activeSection]);
 
   const isNavItemActive = useCallback(
     (item: PortalSidebarNavItem) => {
@@ -603,10 +608,14 @@ export function PortalSidebar({
 
     return (
       <div key={`${item.section}-group`} className="flex flex-col gap-1">
-        <div
+        <button
+          type="button"
+          onClick={() => setPaymentsNavExpanded((open) => !open)}
+          aria-expanded={paymentsNavExpanded}
+          aria-controls="portal-payments-subnav"
           className={cn(
-            "flex min-h-8 items-center justify-between gap-2 rounded-[8px] px-2.5 py-1.5 text-[13px] font-medium tracking-[-0.01em]",
-            groupActive ? "text-foreground" : locked ? "text-muted/70" : "text-muted",
+            navLinkClass(groupActive, locked),
+            "w-full border-0 bg-transparent text-left",
           )}
         >
           <span className="flex min-w-0 flex-1 items-center gap-2.5">
@@ -620,10 +629,16 @@ export function PortalSidebar({
           <span className="flex shrink-0 items-center gap-1.5">
             {!locked ? <PortalNavCountBadge count={count} /> : null}
             {locked ? <NavLockIcon className="h-3.5 w-3.5 text-muted" /> : null}
+            {paymentsNavExpanded ? (
+              <ChevronDown className="h-3.5 w-3.5 shrink-0 text-muted/70" aria-hidden />
+            ) : (
+              <ChevronRight className="h-3.5 w-3.5 shrink-0 text-muted/70" aria-hidden />
+            )}
           </span>
-        </div>
-        <div className="ml-1 flex flex-col gap-1 border-l border-border/70 pl-2">
-          {item.subItems!.map((sub) => {
+        </button>
+        {paymentsNavExpanded ? (
+          <div id="portal-payments-subnav" className="ml-1 flex flex-col gap-1 border-l border-border/70 pl-2">
+            {item.subItems!.map((sub) => {
             const active = isPaymentSubNavActive(sub);
             const subLocked = locked;
             const subBody = (
@@ -679,7 +694,8 @@ export function PortalSidebar({
               </Link>
             );
           })}
-        </div>
+          </div>
+        ) : null}
       </div>
     );
   };
