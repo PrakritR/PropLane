@@ -19,7 +19,13 @@ const GROUP_MODE_OPTIONS = PORTAL_LIST_GROUP_MODES.map((mode) => ({
   label: PORTAL_LIST_GROUP_MODE_LABELS[mode],
 }));
 
-function GroupModeFilterFields({
+/**
+ * Group-by on its own, so a caller can put it FIRST and place the property
+ * scope wherever it belongs. Every portal list leads with Group by, then Sort
+ * by — bundling the two meant group-by could not lead without dragging the
+ * property field up with it.
+ */
+export function PortalListGroupModeField({
   groupMode,
   onGroupModeChange,
   dataAttr = "portal-filter-group-mode",
@@ -55,6 +61,32 @@ function GroupModeFilterFields({
   );
 }
 
+/** The property scope on its own, for callers that place it after their own fields. */
+export function PortalListPropertyField({
+  propertyOptions,
+  propertyFilters,
+  onPropertyFiltersChange,
+  propertyAllLabel = "All houses",
+  propertyDataAttr = "portal-filter-property",
+}: {
+  propertyOptions: { id: string; label: string }[];
+  propertyFilters: string[];
+  onPropertyFiltersChange: (next: string[]) => void;
+  propertyAllLabel?: string;
+  propertyDataAttr?: string;
+}) {
+  return (
+    <ApplicationFilterSortFields
+      propertyOptions={propertyOptions}
+      propertyFilters={propertyFilters}
+      onPropertyFiltersChange={onPropertyFiltersChange}
+      allLabel={propertyAllLabel}
+      dataAttr={propertyDataAttr}
+      selectionMode="single"
+    />
+  );
+}
+
 /** Filter sheet fields shared by manager list tabs: group-by plus optional property scope. */
 export function PortalListGroupFilterFields({
   groupMode,
@@ -87,7 +119,7 @@ export function PortalListGroupFilterFields({
   if (!hasPropertyFilter) {
     return (
       <FilterFieldsAccordion>
-        <GroupModeFilterFields
+        <PortalListGroupModeField
           groupMode={groupMode}
           onGroupModeChange={onGroupModeChange}
           dataAttr={groupModeDataAttr}
@@ -98,7 +130,7 @@ export function PortalListGroupFilterFields({
 
   return (
     <FilterFieldsAccordion>
-      <GroupModeFilterFields
+      <PortalListGroupModeField
         groupMode={groupMode}
         onGroupModeChange={onGroupModeChange}
         dataAttr={groupModeDataAttr}
