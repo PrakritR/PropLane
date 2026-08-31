@@ -1125,6 +1125,28 @@ the same rule as `resolveStayPricing`. It also makes the section render for a
 lease starting on the 1st, which the day-based math alone would have suppressed:
 a snapshot with a prorated amount means there IS something to disclose.
 
+**The snapshot COMPUTES that proration; it does not read it off the charge
+rows.** `buildLeaseBillingSnapshot` resolves the room's proration inputs through
+`resolveLeaseProrationInputForApplicant` (`src/lib/lease-proration-settings.ts`)
+— `prorateMethod`, `dailyRentRate` / `dailyUtilitiesRate`, and the
+`utilitiesOnly` collapse for a daily-priced room — which are the same inputs
+`household-charges.ts` uses, and feeds them to
+`computeProratedFirstMonthTotals`. A computed result WINS over a stored
+`prorated_rent` / `prorated_utilities` charge row, and the first first-period
+rent and utilities rows are substituted (never added twice) in the
+due-at-signing total, so a stale row written before the room's daily rate was
+set can no longer make the document and the ledger disagree. The stored rows are
+the fallback for a lease whose proration does not apply or cannot be computed.
+
+**Recurring surcharge lines in the document are term-gated.** `leaseDocumentFeeLines`
+takes the lease's billing context and drops the `mtm_surcharge` preset unless the
+term is Month-to-Month, and the `custom_lease_surcharge` preset unless the term is
+fixed AND its dates form a custom calendar span (`isCustomCalendarLease`); a
+`short_term` rental drops both. Those are the same predicates
+(`shouldBillMonthToMonthSurcharge` / `shouldBillCustomLeaseSurcharge`,
+`src/lib/custom-lease-billing.ts`) the ledger bills from, so neither surcharge can
+print on a lease that will never be charged it.
+
 **The deposit keys on `rentalType`, not on the resolved `stayKind`.** That asymmetry is
 deliberate and load-bearing: only an explicit short-term application is charged
 `sub.shortTermDeposit`; a daily-priced room on a standard application is charged

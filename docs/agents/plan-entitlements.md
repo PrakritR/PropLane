@@ -97,6 +97,21 @@ on an account with five listings and no paywall anywhere).
   product decision, not a bug to quietly fix. Their API routes are also ungated
   — a free manager can still read/write residents, leases and inbox rows over
   HTTP. Known gap, deliberately not closed alongside the property cap.
+- **The manager portal's NAV tier is not the billing tier.**
+  `getManagerPortalNavSubscriptionTier` (`manager-access-server.ts`) is the tier
+  `getProPortalRenderContext` resolves, so it feeds the `pro` portal's sidebar
+  locks and the `managerTierPaywall` that `renderPortalSection` applies to a
+  `pro` section. A manager who owns at least one property keeps their own plan,
+  but a *pure* co-manager (no owned property, ≥1 accepted
+  `account_link_invites` row) inherits the best tier among their inviters via
+  `pickManagerPortalNavSubscriptionTier`, ranked
+  `paid` > `null` (legacy full access) > `free`. Without it a Free-tier linked
+  account was padlocked out of the Pro modules its owner pays for. It is for
+  sidebar and section rendering ONLY — billing UI, quotas and every
+  `resolveEffectiveManagerSkuTier` caller still read the account's own plan, so
+  do not substitute it there. Coverage:
+  `tests/unit/manager-portal-nav-tier.test.ts`; the nav side of co-manager
+  scoping is in [`co-manager-access.md`](co-manager-access.md).
 - Coverage: `tests/unit/manager-effective-plan-tier.test.ts`,
   `property-records-plan-property-limit.test.ts`,
   `property-listing-slot-statuses.test.ts`,

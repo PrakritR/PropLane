@@ -1520,9 +1520,7 @@ export function ManagerHousePropertiesPanel({
                 summary={summary}
                 badge={
                   linked ? (
-                    <Badge tone="info" className="text-[10px] font-semibold uppercase tracking-wide">
-                      Co-managed
-                    </Badge>
+                    <Badge tone="info">Co-managed</Badge>
                   ) : undefined
                 }
                 checked={selectedIds.has(rowKey)}

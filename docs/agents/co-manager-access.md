@@ -60,6 +60,22 @@ downgrade. Same reasoning as the property cap in
 never treated as Free. Coverage: `tests/unit/co-manager-plan-reconcile.test.ts`,
 `tests/unit/manager-access.test.ts`.
 
+**The sidebar is NOT a permission surface.** Every manager account sees the same
+nav; `useCoManagerNavSections` returns the portal definition unchanged with an
+always-empty `restrictedSections` set, and `portalNavLockKind`'s
+`coManagerRestricted` input is deprecated dead weight. A co-manager's module and property grants are
+enforced where the data is — list APIs, `assertCoManagerModuleAccess`, and the
+client row filters below — so a tab that renders an empty (or owner-scoped) list
+is the intended outcome, not a hole. `coManagerPortalSectionAllowed` now returns
+true for every section mapped in `PORTAL_SECTION_CO_MANAGER_PERMISSION`; keep
+adding new sections to that map (`tours`, `task-list`, `bookings`, `vendors`
+already are) so the mapping stays the record of which permission covers which
+tab. Coverage: `tests/unit/co-manager-permissions.test.ts`,
+`tests/unit/portal-nav-locks.test.ts`.
+
+**A pure co-manager inherits the linked owner's plan for nav and paywalls** — see
+[`plan-entitlements.md`](plan-entitlements.md), which owns that rule.
+
 **Server scoping** — `src/lib/auth/co-manager-module-scope.ts`:
 `linkedPropertyIdsForModule` (property-keyed tables),
 `linkedOwnerScopeForModule` (owner-keyed tables like the vendor directory),

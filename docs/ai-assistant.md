@@ -70,9 +70,16 @@ target that unavoidably reads as an identity (`submit_vendor_invoice`'s
    `preview(ctx, input)` (READ-ONLY: validate against live data, build an
    `ActionPreview`). The preview signals failure by THROWING; the message is
    fed back as a `tool_result` error so the model self-corrects.
-2. The loop halts and returns `pendingAction`; the chat route persists it with
-   `createPendingAction` and sends the client only `{id, preview}` — never the
-   raw input. A preview that resolved something the user is approving (an
+2. The loop halts and returns `pendingAction`; the calling surface persists it
+   and sends the client only `{id, preview}` — never the raw input. The chat
+   routes use `createPendingAction`; a surface with no chat context of its own —
+   the resident inbox auto-reply agent
+   (`src/lib/agent/resident-inbox-agent.server.ts`) — uses
+   `createPendingActionForUser` with `portal: "resident"`, which is load-bearing
+   rather than decorative because the confirm gate is portal-bound. A surface
+   that RETURNS a proposal without storing one leaves the user a question they
+   cannot answer, so every new surface must persist or say it could not.
+   A preview that resolved something the user is approving (an
    auto-picked visit slot) pins it with `confirmedInput`, which
    `previewWriteTool` STRIPS out of the stored/returned preview and uses as the
    stored input, so the handler executes exactly what the card showed.

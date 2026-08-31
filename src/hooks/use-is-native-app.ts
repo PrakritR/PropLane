@@ -29,9 +29,8 @@ export function useIsNativeApp(): { isNative: boolean | null; platform: NativePl
     // this hook's async state) never rendered, leaving the native bar empty.
     const syncPlatform = detectNativePlatformSync();
     if (syncPlatform) {
-      // Deferred to a microtask (not a direct setState-in-effect) — same
-      // pattern as useCoManagerNavSections, avoids a cascading-render lint
-      // warning without reintroducing a render-phase check.
+      // Deferred to a microtask (not a direct setState-in-effect) — avoids a
+      // cascading-render lint warning without reintroducing a render-phase check.
       void Promise.resolve().then(() => {
         if (active) setState({ isNative: true, platform: syncPlatform });
       });
