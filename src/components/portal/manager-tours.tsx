@@ -2,12 +2,10 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { PortalListFab } from "@/components/portal/portal-list-fab";
-import { togglePortalListClusterSelection } from "@/components/portal/application-household-list";
 import { PortalListGroupFilterFields } from "@/components/portal/portal-list-group-filter-fields";
 import { ManagerAddScheduledTourModal } from "@/components/portal/manager-add-scheduled-tour-modal";
 import { ManagerToursGroupedTable } from "@/components/portal/manager-tours-grouped-table";
 import { Button } from "@/components/ui/button";
-import { BulkActionBar } from "@/components/ui/bulk-action-bar";
 import { Modal, ModalFooter } from "@/components/ui/modal";
 import { PortalBulkMessageCarouselModal } from "@/components/portal/portal-bulk-message-carousel-modal";
 import { Input } from "@/components/ui/input";
@@ -33,7 +31,6 @@ import { TourProposalsPanel } from "@/components/portal/tour-proposals-panel";
 import { useAppUi } from "@/components/providers/app-ui-provider";
 import { useManagerUserId } from "@/hooks/use-manager-user-id";
 import { useScheduledTourReminders } from "@/hooks/use-scheduled-tour-reminders";
-import { usePortalRowSelection } from "@/hooks/use-portal-row-selection";
 import { useWorkAssignmentDirectory } from "@/hooks/use-work-assignment-directory";
 import {
   acceptPartnerInquiryFromServer,
@@ -280,7 +277,6 @@ export function ManagerTours({
   const [shareTourOpen, setShareTourOpen] = useState(false);
   const [addTourOpen, setAddTourOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const { selectedIds, setSelectedIds, toggleSelected } = usePortalRowSelection(`${bucket}:${groupMode}`);
   const [notifyPreview, setNotifyPreview] = useState<TourNotifyPreview | null>(null);
   const [notifyBusy, setNotifyBusy] = useState(false);
   const [guestMessagePreview, setGuestMessagePreview] = useState<GuestMessagePreview | null>(null);
@@ -341,12 +337,6 @@ export function ManagerTours({
     }
     return sortManagerTourClustersForBucket(grouped, bucket);
   }, [rowsForBucket, bucket, groupMode]);
-
-  const selectedRows = useMemo(
-    () => rowsForBucket.filter((row) => selectedIds.has(row.id)),
-    [rowsForBucket, selectedIds],
-  );
-  const singleSelectedRow = selectedRows.length === 1 ? selectedRows[0]! : null;
 
   const detailRow = useMemo(() => {
     if (!tourIdProp) return null;
@@ -631,15 +621,6 @@ export function ManagerTours({
             }
           }
           setNotifyPreview(null);
-          if (scope === "all") {
-            setSelectedIds(new Set());
-          } else if (opts?.singleId) {
-            setSelectedIds((prev) => {
-              const next = new Set(prev);
-              next.delete(opts.singleId!);
-              return next;
-            });
-          }
           await refresh();
           if (tourIdProp) navigate(managerTourListHref(basePath, bucket));
           const count = targetRows.length;
@@ -669,15 +650,6 @@ export function ManagerTours({
             }
           }
           setNotifyPreview(null);
-          if (scope === "all") {
-            setSelectedIds(new Set());
-          } else if (opts?.singleId) {
-            setSelectedIds((prev) => {
-              const next = new Set(prev);
-              next.delete(opts.singleId!);
-              return next;
-            });
-          }
           await refresh();
           if (tourIdProp) navigate(managerTourListHref(basePath, bucket));
           const count = targetRows.length;
@@ -708,15 +680,6 @@ export function ManagerTours({
             }
           }
           setNotifyPreview(null);
-          if (scope === "all") {
-            setSelectedIds(new Set());
-          } else if (opts?.singleId) {
-            setSelectedIds((prev) => {
-              const next = new Set(prev);
-              next.delete(opts.singleId!);
-              return next;
-            });
-          }
           await refresh();
           if (tourIdProp) navigate(managerTourListHref(basePath, bucket));
           const count = targetRows.length;
@@ -770,15 +733,6 @@ export function ManagerTours({
             }
           }
           setNotifyPreview(null);
-          if (scope === "all") {
-            setSelectedIds(new Set());
-          } else if (opts?.singleId) {
-            setSelectedIds((prev) => {
-              const next = new Set(prev);
-              next.delete(opts.singleId!);
-              return next;
-            });
-          }
           await refresh();
           if (tourIdProp) navigate(managerTourListHref(basePath, bucket));
           const count = targetRows.length;
@@ -843,18 +797,11 @@ export function ManagerTours({
     [guestMessageBusy, guestMessagePreview, showToast],
   );
 
-  const toggleClusterSelection = useCallback(
-    (ids: readonly string[]) => togglePortalListClusterSelection(setSelectedIds, ids),
-    [setSelectedIds],
-  );
-
   const renderGroupedTours = () => (
     <ManagerToursGroupedTable
       clusters={clusters}
       groupMode={groupMode}
-      selectedIds={selectedIds}
-      onToggleSelected={toggleSelected}
-      onToggleCluster={toggleClusterSelection}
+      selectable={false}
       onRowClick={openTourDetail}
       tourReminders={tourReminders}
     />
@@ -898,69 +845,6 @@ export function ManagerTours({
       ) : null}
     </div>
   );
-
-  const multiSelect = selectedRows.length > 1;
-  const canBulkDecline = selectedRows.length > 0 && selectedRows.every(isPendingInquiry);
-  const canBulkCancelPlanned = selectedRows.length > 0 && selectedRows.every(isUpcomingPlanned);
-  const canBulkConfirm = canBulkDecline;
-  const canBulkReschedule =
-    selectedRows.length > 0 && selectedRows.every((row) => isPendingInquiry(row) || isUpcomingPlanned(row));
-
-  const renderBulkActions = () => (
-    <div className="flex min-w-0 flex-wrap items-center justify-start gap-2">
-      {!multiSelect && singleSelectedRow?.guestEmail?.includes("@") ? (
-        <Button
-          type="button"
-          variant="outline"
-          className={BULK_BAR_BTN}
-          data-attr="tours-bulk-message"
-          onClick={() => openGuestMessage(singleSelectedRow)}
-        >
-          Message
-        </Button>
-      ) : null}
-      {canBulkDecline || canBulkCancelPlanned ? (
-        <Button
-          type="button"
-          variant="outline"
-          className={`${BULK_BAR_BTN} text-rose-800`}
-          data-attr="tours-bulk-delete"
-          onClick={() => openDeletePreview(selectedRows)}
-        >
-          {multiSelect ? "Cancel" : "Delete"}
-        </Button>
-      ) : null}
-      {canBulkReschedule ? (
-        <Button
-          type="button"
-          variant="outline"
-          className={BULK_BAR_BTN}
-          data-attr="tours-bulk-reschedule"
-          onClick={() => openReschedulePreview(selectedRows)}
-        >
-          Reschedule
-        </Button>
-      ) : null}
-      {canBulkConfirm ? (
-        <Button
-          type="button"
-          variant="primary"
-          className={BULK_BAR_BTN}
-          data-attr="tours-bulk-approve"
-          onClick={() => openApprovePreview(selectedRows)}
-        >
-          {multiSelect ? "Confirm" : "Approve"}
-        </Button>
-      ) : null}
-    </div>
-  );
-
-  const bulkActionBar =
-    selectedIds.size > 0 ? (
-      <BulkActionBar count={selectedIds.size} hideCount variant="payments">
-        {renderBulkActions()}
-      </BulkActionBar>
-    ) : null;
 
   const detailActions = detailRow ? (
     <>
@@ -1178,7 +1062,6 @@ export function ManagerTours({
     return (
       <>
         {modals}
-        {bulkActionBar}
         <PortalRecordDetailPage
           pageTitle="Tours"
           title={detailRow.guestName}
@@ -1206,7 +1089,6 @@ export function ManagerTours({
       compactFilterRow
     >
       {modals}
-      {bulkActionBar}
 
       <PortalListControlStack
         className="mb-2"

@@ -240,9 +240,7 @@ describe("ManagerPaymentsLedgerPanel", () => {
 
     const mobileRow = container.querySelector('[data-slot="data-list-mobile-row"]');
     expect(mobileRow).toBeTruthy();
-    const recordButton = mobileRow?.querySelector("button");
-    expect(recordButton).toBeTruthy();
-    fireEvent.click(recordButton!);
+    fireEvent.click(mobileRow!);
     expect(navigate).toHaveBeenCalledWith("/portal/residents/approved/r1/payments/pending/hc_test_1");
   });
 });

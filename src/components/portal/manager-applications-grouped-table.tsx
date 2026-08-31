@@ -33,7 +33,7 @@ export function ManagerApplicationsGroupedTable({
   onOpenCosigner,
   selectedIds,
   onToggleSelected,
-  selectable = true,
+  selectable = false,
 }: {
   clusters: ApplicationListCluster[];
   cosignerSubmissionsBySigner: Map<string, CosignerSubmission[]>;

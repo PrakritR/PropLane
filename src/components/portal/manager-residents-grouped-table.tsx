@@ -39,7 +39,7 @@ export function ManagerResidentsGroupedTable({
   onOpenResident,
   selectedIds,
   onToggleSelected,
-  selectable = true,
+  selectable = false,
 }: {
   clusters: ManagerResidentListCluster[];
   showPropertyInRows: boolean;

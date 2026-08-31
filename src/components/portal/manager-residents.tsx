@@ -7,7 +7,6 @@ import { usePortalNavigate } from "@/lib/portal-nav-client";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useSearchParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
-import { BulkActionBar } from "@/components/ui/bulk-action-bar";
 import { PortalDetailDestinationNav } from "@/components/portal/portal-detail-destination-nav";
 import { PortalPageChrome, PortalPageScrollBody } from "@/lib/portal-page-chrome-layout";
 import {Input, Textarea, Select, NativeSelect} from "@/components/ui/input";
@@ -88,7 +87,6 @@ import {
 } from "@/lib/resident-document-import.client";
 import type { ParsedResidentDocument } from "@/lib/resident-document-import/types";
 import { useManagerUserId } from "@/hooks/use-manager-user-id";
-import { usePortalRowSelection } from "@/hooks/use-portal-row-selection";
 import { usePaidPortalBasePath } from "@/lib/portal-base-path-client";
 import {
   HOUSEHOLD_CHARGES_EVENT,
@@ -1081,16 +1079,6 @@ export function ManagerResidents({
     }
     return { current, past };
   }, [residentDirectoryRows]);
-
-  const { selectedIds, setSelectedIds, toggleSelected } = usePortalRowSelection(
-    `${residentsTab}:${propertyFilters.join(",")}`,
-  );
-  const selectedResidentRows = useMemo(
-    () => filtered.filter((resident) => selectedIds.has(resident.id)),
-    [filtered, selectedIds],
-  );
-  const singleSelectedResident =
-    selectedResidentRows.length === 1 ? selectedResidentRows[0]! : null;
 
   const applicationGroups = useMemo(() => {
     void hcTick;
@@ -3273,8 +3261,7 @@ export function ManagerResidents({
           <ManagerResidentsGroupedTable
             clusters={residentListClusters}
             showPropertyInRows={propertyFilters.length > 0}
-            selectedIds={selectedIds}
-            onToggleSelected={toggleSelected}
+            selectable={false}
             onOpenResident={(res) =>
               navigate(residentDetailHref(portalBase, residentsTab, res.id, resolvedDetailTab))
             }
@@ -3284,29 +3271,6 @@ export function ManagerResidents({
 
       </ManagerPortalPageShell>
       )}
-      {selectedIds.size > 0 && !residentIdProp ? (
-        <BulkActionBar count={selectedIds.size} hideCount variant="payments">
-          <div className="flex min-w-0 flex-wrap items-center justify-start gap-2">
-            {singleSelectedResident ? (
-              <Button
-                type="button"
-                variant="outline"
-                className={PORTAL_BULK_BAR_BTN}
-                data-attr="residents-bulk-message"
-                onClick={() => {
-                  navigate(
-                    residentDetailHref(portalBase, residentsTab, singleSelectedResident.id, "communication"),
-                  );
-                  setSelectedIds(new Set());
-                }}
-              >
-                Message
-              </Button>
-            ) : null}
-          </div>
-        </BulkActionBar>
-      ) : null}
-
       <ReminderSettingsModal
         open={residentReminderSettingsOpen}
         onClose={() => setResidentReminderSettingsOpen(false)}

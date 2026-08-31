@@ -110,7 +110,7 @@ describe("ManagerTaskList", () => {
       expect(screen.getByText("Fix the porch light")).toBeInTheDocument();
     });
     expect(screen.getByText("1 task")).toBeInTheDocument();
-    expect(screen.getByRole("checkbox", { name: "Select all" })).toBeInTheDocument();
+    expect(screen.queryByRole("checkbox", { name: /Select all/i })).not.toBeInTheDocument();
   });
 
   it("renders completed task rows", async () => {

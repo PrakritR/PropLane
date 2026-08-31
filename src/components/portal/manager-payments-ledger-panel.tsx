@@ -8,12 +8,10 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { BulkActionBar } from "@/components/ui/bulk-action-bar";
 import { Badge } from "@/components/ui/badge";
 import { useAppUi } from "@/components/providers/app-ui-provider";
 import {
   ApplicationHouseholdCluster,
-  PortalListSelectAllRow,
 } from "@/components/portal/application-household-list";
 
 import {
@@ -242,7 +240,7 @@ export function ManagerPaymentsLedgerPanel({
     () => selectedRows.filter(isRemindableRow),
     [selectedRows],
   );
-  const showSelection = rows.length > 0;
+  const showSelection = false;
   const allSelected = showSelection && rows.every((row) => selectedIds.has(row.id));
   const someSelected = selectedIds.size > 0 && !allSelected;
   const rowIdsKey = useMemo(() => rows.map((row) => row.id).join(","), [rows]);
@@ -1388,7 +1386,6 @@ export function ManagerPaymentsLedgerPanel({
       hideColumnHeaders
       selectable={showSelection}
       rows={listRows.map((row) => {
-        const isSelected = selectedIds.has(row.id);
         const isEditing = editingRowId === row.id && Boolean(row.householdChargeId);
         return {
           id: row.id,
@@ -1400,8 +1397,6 @@ export function ManagerPaymentsLedgerPanel({
           trailing: (
             <span className="text-sm font-semibold tabular-nums text-foreground">{row.lineAmount}</span>
           ),
-          selected: isSelected,
-          onSelectedChange: () => toggleSelected(row.id),
           onClick: isEditing ? undefined : () => openPaymentDetail(row),
           expanded: isEditing,
           expandedContent: isEditing ? renderInlineEditForm(row) : undefined,
@@ -1534,11 +1529,6 @@ export function ManagerPaymentsLedgerPanel({
         onConfirm={() => void doSendBulkReminders()}
       />
     ) : null}
-    {selectedIds.size > 0 && !(embeddedInResident && onEmbeddedBulkActions) ? (
-      <BulkActionBar count={selectedIds.size} hideCount variant="payments">
-        {bulkSelectionActions}
-      </BulkActionBar>
-    ) : null}
     {paymentIdProp && detailRow ? (
       embeddedInResident ? (
         renderPaymentDetailPanel(detailRow)
@@ -1568,15 +1558,6 @@ export function ManagerPaymentsLedgerPanel({
     ) : (
       <div className={PORTAL_LIST_PAGE_BODY}>
         <>
-          {showSelection && !embeddedInResident ? (
-            <PortalListSelectAllRow
-              allSelected={allSelected}
-              someSelected={someSelected}
-              onToggle={toggleSelectAll}
-              label="Select all"
-              dataAttr="payments-select-all"
-            />
-          ) : null}
           {embeddedInResident ? renderChargeDataList(rows) : renderManagerGroupedLedger()}
           {renderAddPaymentRow()}
         </>
