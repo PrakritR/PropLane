@@ -1,16 +1,10 @@
 "use client";
 
-import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { MANAGER_TABLE_TH, ManagerPortalStatusPills } from "@/components/portal/portal-metrics";
-import {
-  PORTAL_TABLE_TD,
-  PortalDataTableEmpty,
-  PortalMobileSummaryCard,
-  PortalTableInlineExpand,
-} from "@/components/portal/portal-data-table";
-import { DocumentsTableShell } from "@/components/portal/documents-table-shell";
+import { PortalDataTableEmpty } from "@/components/portal/portal-data-table";
+import { DataList } from "@/components/ui/data-list";
 import {
   RESIDENT_LEASE_LIST_LABEL,
   residentLeaseDetailSubtitle,
@@ -158,6 +152,9 @@ export function ResidentLeaseListTable({
   emptyMessage = "Your lease will appear here once your manager sends it for review.",
   routePendingToLeaseSection = false,
   statusFilter,
+  selectable = false,
+  selectedIds,
+  onToggleSelected,
 }: {
   basePath: string;
   bucket?: ResidentLeaseBucketId;
@@ -166,6 +163,9 @@ export function ResidentLeaseListTable({
   routePendingToLeaseSection?: boolean;
   /** Documents tab only — when set, overrides `bucket`. */
   statusFilter?: ResidentLeaseStatusFilter;
+  selectable?: boolean;
+  selectedIds?: Set<string>;
+  onToggleSelected?: (id: string) => void;
 }) {
   const router = useRouter();
   const navigate = usePortalNavigate();
@@ -206,56 +206,37 @@ export function ResidentLeaseListTable({
   }
 
   return (
-    <DocumentsTableShell
+    <DataList
       hideColumnHeaders
-      colSpan={3}
-      head={
-        <>
-          <th className={`${MANAGER_TABLE_TH} text-left`}>Name</th>
-          <th className={`${MANAGER_TABLE_TH} text-left`}>Status</th>
-          <th className={`${MANAGER_TABLE_TH} text-left`}>Property</th>
-        </>
-      }
+      selectable={selectable}
       rows={documentRows.map((entry) => {
-        const href = leaseDetailPath(entry);
-        const statusLabel = entry.status;
-        const metaLabel = residentLeaseDetailSubtitle(statusLabel, safeFormatDateTime(entry.signedAt));
+        const metaLabel = residentLeaseDetailSubtitle(entry.status, safeFormatDateTime(entry.signedAt));
         return {
-          key: entry.id,
-          expanded: false,
-          detail: null,
-          onToggle: () => openLease(entry),
-          cells: (
-            <>
-              <td className={`${PORTAL_TABLE_TD} align-middle`}>
-                <Link
-                  href={href}
-                  className="block min-w-0 text-left"
-                  onClick={portalNavClick(router, href)}
-                  onMouseEnter={() => prefetchPortalHref(router, href)}
-                  onFocus={() => prefetchPortalHref(router, href)}
-                >
-                  <PortalTableInlineExpand expanded={false} className="min-w-0 truncate font-medium text-foreground">
-                    <span className="truncate">{RESIDENT_LEASE_LIST_LABEL}</span>
-                  </PortalTableInlineExpand>
-                </Link>
-              </td>
-              <td className={`${PORTAL_TABLE_TD} align-middle`}>{statusLabel}</td>
-              <td className={`${PORTAL_TABLE_TD} align-middle`}>
-                <p className="min-w-0 truncate">{propertyLabel}</p>
-              </td>
-            </>
-          ),
-          card: (
-            <PortalMobileSummaryCard
-              title={RESIDENT_LEASE_LIST_LABEL}
-              subtitle={metaLabel}
-              meta={propertyLabel}
-              onClick={() => openLease(entry)}
-            />
-          ),
+          id: entry.id,
+          data: entry,
+          primary: RESIDENT_LEASE_LIST_LABEL,
+          meta: metaLabel,
+          trailing: <span className="text-xs text-muted">{entry.status}</span>,
+          selected: selectedIds?.has(entry.id),
+          onSelectedChange: onToggleSelected ? () => onToggleSelected(entry.id) : undefined,
+          onClick: () => openLease(entry),
         };
       })}
+      columns={[
+        { id: "name", header: "Name", cell: () => RESIDENT_LEASE_LIST_LABEL },
+        { id: "status", header: "Status", cell: (entry) => entry.status },
+        { id: "property", header: "Property", cell: () => propertyLabel },
+      ]}
+      emptyState={
+        <PortalDataTableEmpty
+          icon="lease"
+          message={
+            bucket || statusFilter
+              ? `No ${statusFilter && statusFilter !== "all" ? statusFilter : bucket === "signed" ? "signed" : "pending"} leases yet.`
+              : emptyMessage
+          }
+        />
+      }
     />
   );
 }

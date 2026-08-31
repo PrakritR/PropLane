@@ -17,8 +17,11 @@ import {
 } from "@/components/portal/portal-data-table";
 import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
 import { PortalSectionActionRow } from "@/components/portal/portal-section-action-row";
+import { ResidentPortalListBottomBar } from "@/components/portal/resident-portal-list-bottom-bar";
+import type { PortalAdaptiveAction } from "@/components/portal/portal-adaptive-action-row";
 import { PortalRecordDetailPage } from "@/components/portal/portal-record-detail-page";
 import { DataList } from "@/components/ui/data-list";
+import { DropdownMenuItem } from "@/components/ui/dropdown-menu";
 import { PORTAL_LIST_PAGE_BODY } from "@/components/portal/portal-inbox-ui";
 import { usePortalSession } from "@/hooks/use-portal-session";
 import { usePortalNavigate } from "@/lib/portal-nav-client";
@@ -75,6 +78,7 @@ import { ResidentManualPaymentPanel } from "@/components/portal/resident-manual-
 import { stageResidentComposePrefill } from "@/lib/resident-compose-prefill";
 import { residentChargeManagerMessageDraft } from "@/lib/resident-manager-message-draft";
 import { RESIDENT_PORTAL_BASE_PATH } from "@/lib/portals/resident-sections";
+import { PORTAL_BULK_BAR_BTN } from "@/lib/portal-bulk-bar";
 
 
 type PayConfirmState = {
@@ -1183,6 +1187,38 @@ export function ResidentPaymentsPanel({
     );
   };
 
+  const showPayActions =
+    paymentsUnlocked &&
+    unpaidPayableCharges.length > 0 &&
+    (bucket === "pending" || bucket === "overdue");
+
+  const payButtonLabel = selectedPayableIds.length > 0 ? "Pay" : "Pay all";
+
+  const paymentMethodButton =
+    paymentsUnlocked && unpaidAchCharges.length > 0 ? (
+      <Button
+        type="button"
+        variant="outline"
+        className={PORTAL_HEADER_ACTION_BTN}
+        data-attr="resident-payments-add-payment-method"
+        onClick={() => setPaymentMethodModalOpen(true)}
+      >
+        Payment method
+      </Button>
+    ) : null;
+
+  const payButton = showPayActions ? (
+    <Button
+      type="button"
+      variant="primary"
+      className={PORTAL_HEADER_ACTION_BTN}
+      data-attr={selectedPayableIds.length > 0 ? "resident-payments-pay-selected" : "resident-payments-pay-all"}
+      onClick={payHeaderAction}
+    >
+      {payButtonLabel}
+    </Button>
+  ) : null;
+
   const paymentsHeaderActions = !paymentsUnlocked ? (
     <>
       <Button
@@ -1204,42 +1240,40 @@ export function ResidentPaymentsPanel({
         Pay all
       </Button>
     </>
-  ) : unpaidPayableCharges.length > 0 ? (
+  ) : showPayActions ? (
     <>
-      {unpaidAchCharges.length > 0 ? (
-        <Button
-          type="button"
-          variant="outline"
-          className={PORTAL_HEADER_ACTION_BTN}
-          data-attr="resident-payments-add-payment-method"
-          onClick={() => setPaymentMethodModalOpen(true)}
-        >
-          Payment method
-        </Button>
-      ) : null}
-      <Button
-        type="button"
-        variant="primary"
-        className={PORTAL_HEADER_ACTION_BTN}
-        data-attr={hasPartialSelection ? "resident-payments-pay-selected" : "resident-payments-pay-all"}
-        onClick={payHeaderAction}
-      >
-        {hasPartialSelection ? "Pay" : "Pay all"}
-      </Button>
+      {paymentMethodButton}
+      {payButton}
     </>
   ) : null;
 
-  const paymentsLockedEmpty = Boolean(email) && !paymentsUnlocked;
+  const paySelectionActions = useMemo((): PortalAdaptiveAction[] => {
+    if (selectedPayableIds.length === 0) return [];
+    return [
+      {
+        id: "pay",
+        keepPriority: 10,
+        node: (
+          <Button
+            type="button"
+            variant="primary"
+            className={PORTAL_BULK_BAR_BTN}
+            data-attr="resident-payments-pay-selected"
+            onClick={payHeaderAction}
+          >
+            Pay
+          </Button>
+        ),
+        menuItem: (
+          <DropdownMenuItem data-attr="resident-payments-pay-selected" onSelect={payHeaderAction}>
+            Pay
+          </DropdownMenuItem>
+        ),
+      },
+    ];
+  }, [payHeaderAction, selectedPayableIds.length]);
 
-  const paymentsMobileActionsRow =
-    paymentsHeaderActions ? (
-      <div
-        className={`grid grid-cols-2 gap-2 md:hidden [&_button]:min-w-0${paymentsLockedEmpty ? "" : " mb-3"}`}
-        data-slot="resident-payments-mobile-actions"
-      >
-        {paymentsHeaderActions}
-      </div>
-    ) : null;
+  const paymentsLockedEmpty = Boolean(email) && !paymentsUnlocked;
 
   // On Paid, the outstanding balance is $0.00 by definition — showing it turns
   // every paid row into "$0.00" and hides what the resident actually paid. The
@@ -1332,8 +1366,8 @@ export function ResidentPaymentsPanel({
                 </p>
               </div>
               <p className="text-xs leading-relaxed text-muted sm:max-w-xs">
-                Select charges below or use <span className="font-semibold text-foreground">Pay all</span> to settle
-                everything in one checkout.
+                Select charges below, then tap <span className="font-semibold text-foreground">Pay</span> in the
+                bar below.
               </p>
             </div>
           ) : null}
@@ -1617,7 +1651,6 @@ export function ResidentPaymentsPanel({
         }
         compactFilterRow
       >
-        {paymentsMobileActionsRow}
         <PortalListControlStack
           className={paymentsLockedEmpty ? "mb-0" : "mb-3 max-lg:mb-4"}
           destinationInset
@@ -1634,6 +1667,18 @@ export function ResidentPaymentsPanel({
         />
         {paymentsBody}
       </ManagerPortalPageShell>
+      <ResidentPortalListBottomBar
+        showDefaultBar={showPayActions && selectedPayableIds.length === 0}
+        defaultActions={
+          <>
+            {paymentMethodButton}
+            {payButton}
+          </>
+        }
+        selectionCount={selectedPayableIds.length}
+        selectionActions={paySelectionActions}
+        selectionBarVariant="payments"
+      />
       {paymentModals}
     </>
   );

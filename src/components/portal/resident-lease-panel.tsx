@@ -2,6 +2,7 @@
 
 import { useCallback, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
+import { DropdownMenuItem } from "@/components/ui/dropdown-menu";
 import { useAppUi } from "@/components/providers/app-ui-provider";
 import { LeaseAmendMoveOutModal, LeaseRenewModal } from "@/components/portal/lease-amend-move-out-modal";
 import { LeaseSigningModal } from "@/components/portal/lease-signing-modal";
@@ -16,6 +17,8 @@ import {
 import { ResidentLeaseListTable, useResidentLeasePipelineRow } from "@/components/portal/resident-lease-list";
 import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
 import { LocalDestinationNav } from "@/components/ui/destination-nav";
+import { ResidentPortalListBottomBar } from "@/components/portal/resident-portal-list-bottom-bar";
+import type { PortalAdaptiveAction } from "@/components/portal/portal-adaptive-action-row";
 import {
   PortalDataTableEmpty,
   RESIDENT_DOCUMENTS_DETAIL_FOOTER_BTN,
@@ -26,11 +29,13 @@ import {
   residentLeaseListHref,
   type ResidentLeaseBucketId,
 } from "@/lib/portal-detail-routes";
-import { decodeLeaseDocumentDetailId, buildResidentLeaseDocumentRows, resolveResidentLeaseDocumentView } from "@/lib/resident-lease-documents";
+import { decodeLeaseDocumentDetailId, buildResidentLeaseDocumentRows, filterResidentLeaseDocumentRows, resolveResidentLeaseDocumentView } from "@/lib/resident-lease-documents";
 import { RESIDENT_PORTAL_BASE_PATH } from "@/lib/portals/resident-sections";
 import { stageResidentComposePrefill } from "@/lib/resident-compose-prefill";
 import { residentLeaseManagerMessageDraft } from "@/lib/resident-manager-message-draft";
 import { usePortalNavigate } from "@/lib/portal-nav-client";
+import { usePortalRowSelection } from "@/hooks/use-portal-row-selection";
+import { PORTAL_BULK_BAR_BTN } from "@/lib/portal-bulk-bar";
 import {
   shortToLongTermUpgradeBreakdown,
 } from "@/lib/household-charges";
@@ -70,6 +75,47 @@ export function ResidentLeasePanel({
   const uploadRef = useRef<HTMLInputElement>(null);
   const { email, residentAxisId, profileManagerId, axisResolved } = useResidentPortalAxisContext();
   const pipelineRow = useResidentLeasePipelineRow();
+  const { selectedIds, toggleSelected } = usePortalRowSelection(bucket);
+  const listDocumentRows = useMemo(() => {
+    if (!pipelineRow) return [];
+    return filterResidentLeaseDocumentRows(buildResidentLeaseDocumentRows(pipelineRow), bucket);
+  }, [bucket, pipelineRow]);
+
+  const openSelectedLease = useCallback(() => {
+    const id = [...selectedIds][0];
+    if (!id) return;
+    const entry = listDocumentRows.find((row) => row.id === id);
+    if (entry) {
+      navigate(residentLeaseDetailHref(basePath, entry.filterBucket, entry.id));
+    }
+  }, [basePath, listDocumentRows, navigate, selectedIds]);
+
+  const leaseSelectionActions = useMemo((): PortalAdaptiveAction[] => {
+    if (selectedIds.size !== 1) return [];
+    return [
+      {
+        id: "open",
+        keepPriority: 10,
+        alwaysVisible: true,
+        node: (
+          <Button
+            type="button"
+            variant="primary"
+            className={PORTAL_BULK_BAR_BTN}
+            data-attr="resident-lease-open-selected"
+            onClick={openSelectedLease}
+          >
+            Open
+          </Button>
+        ),
+        menuItem: (
+          <DropdownMenuItem data-attr="resident-lease-open-selected" onSelect={openSelectedLease}>
+            Open
+          </DropdownMenuItem>
+        ),
+      },
+    ];
+  }, [openSelectedLease, selectedIds.size]);
   const [showSigningModal, setShowSigningModal] = useState(false);
   const [uploadingPdf, setUploadingPdf] = useState(false);
   const [showMoveOutModal, setShowMoveOutModal] = useState(false);
@@ -487,9 +533,16 @@ export function ResidentLeasePanel({
               basePath={basePath}
               bucket={bucket}
               detailHref={residentLeaseDetailHref}
+              selectable={Boolean(email) && axisResolved}
+              selectedIds={selectedIds}
+              onToggleSelected={toggleSelected}
             />
           )}
         </ManagerPortalPageShell>
+        <ResidentPortalListBottomBar
+          selectionCount={selectedIds.size}
+          selectionActions={leaseSelectionActions}
+        />
       </>
     );
   }
