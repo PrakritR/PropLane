@@ -1,165 +1,24 @@
 "use client";
 
-import { forwardRef, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useMemo, useRef, type ReactNode } from "react";
 import { Button } from "@/components/ui/button";
 import {
-  DropdownMenu,
-  DropdownMenuContent,
   DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { PortalRecordShareLinkButton } from "@/components/portal/portal-record-share-link-button";
 import { PortalSectionActionRow } from "@/components/portal/portal-section-action-row";
+import {
+  PortalFooterFitActionRow,
+  type PortalFooterFitAction,
+} from "@/components/portal/portal-footer-fit-action-row";
 import { RESIDENT_DETAIL_HEADER_ACTION_BTN } from "@/components/portal/portal-metrics";
 import type { LeasePipelineRow } from "@/lib/lease-pipeline-storage";
 import { leaseNeedsUploadedLeaseReviewAction, residentHasSignedLease } from "@/lib/lease-pipeline-storage";
 import { cn } from "@/lib/utils";
 
-const FOOTER_ACTION_ROW =
-  "flex w-full min-w-0 flex-nowrap items-center justify-start gap-2";
 const FOOTER_ACTION_BTN = "h-10 min-w-0 whitespace-nowrap px-2.5 text-xs sm:px-3";
-const FOOTER_MORE_BTN =
-  "inline-flex h-10 min-h-0 w-10 min-w-10 shrink-0 items-center justify-center rounded-lg border border-border bg-card/80 p-0 text-base font-bold leading-none text-foreground shadow-[0_1px_2px_rgba(15,23,42,0.04)] hover:border-primary/30 hover:bg-card [html[data-theme=dark]_&]:portal-outline-control";
 
-type LeaseFooterAction = {
-  id: string;
-  button: ReactNode;
-  menuItem: ReactNode;
-};
-
-const LeaseFooterMoreTrigger = forwardRef<
-  HTMLButtonElement,
-  React.ButtonHTMLAttributes<HTMLButtonElement>
->(function LeaseFooterMoreTrigger(props, ref) {
-  return (
-    <button
-      ref={ref}
-      type="button"
-      className={FOOTER_MORE_BTN}
-      aria-label="More lease actions"
-      {...props}
-    >
-      <span aria-hidden>⋯</span>
-    </button>
-  );
-});
-
-function LeaseFitActionRow({ actions }: { actions: LeaseFooterAction[] }) {
-  const containerRef = useRef<HTMLDivElement>(null);
-  const measureRef = useRef<HTMLDivElement>(null);
-  const [visibleCount, setVisibleCount] = useState(actions.length);
-
-  useLayoutEffect(() => {
-    const container = containerRef.current;
-    const measure = measureRef.current;
-    if (!container || !measure || actions.length === 0) {
-      setVisibleCount(actions.length);
-      return;
-    }
-
-    const gap = 8;
-
-    const sync = () => {
-      const containerWidth = container.clientWidth;
-      if (containerWidth <= 0) return;
-
-      const buttons = [...measure.querySelectorAll<HTMLElement>("[data-lease-fit-action]")];
-      const widths = buttons.map((node) => node.offsetWidth);
-      if (widths.length === 0) return;
-
-      const moreNode = measure.querySelector<HTMLElement>("[data-lease-fit-more]");
-      const moreWidth = moreNode?.offsetWidth ?? 40;
-
-      const fitCount = (reserveMore: boolean) => {
-        let used = 0;
-        let count = 0;
-        for (let i = 0; i < widths.length; i++) {
-          const width = widths[i] ?? 0;
-          const gapBefore = count > 0 ? gap : 0;
-          const itemsAfter = widths.length - i - 1;
-          const moreReserve = reserveMore && itemsAfter > 0 ? gap + moreWidth : 0;
-          if (used + gapBefore + width + moreReserve <= containerWidth) {
-            used += gapBefore + width;
-            count++;
-          } else {
-            break;
-          }
-        }
-        return count;
-      };
-
-      let count = fitCount(false);
-      if (count < widths.length) {
-        count = fitCount(true);
-      }
-      setVisibleCount(Math.max(1, Math.min(count, widths.length)));
-    };
-
-    sync();
-    const ro = new ResizeObserver(sync);
-    ro.observe(container);
-    window.addEventListener("resize", sync);
-    return () => {
-      ro.disconnect();
-      window.removeEventListener("resize", sync);
-    };
-  }, [actions]);
-
-  if (actions.length === 0) return null;
-
-  const visible = actions.slice(0, visibleCount);
-  const overflow = actions.slice(visibleCount);
-
-  return (
-    <>
-      <div
-        ref={measureRef}
-        className="pointer-events-none invisible absolute left-0 top-0 -z-10 flex gap-2"
-        aria-hidden
-      >
-        {actions.map((action) => (
-          <div key={action.id} data-lease-fit-action>
-            {action.button}
-          </div>
-        ))}
-        <div data-lease-fit-more>
-          <LeaseFooterMoreTrigger />
-        </div>
-      </div>
-      <div ref={containerRef} className={FOOTER_ACTION_ROW}>
-        {visible.map((action) => (
-          <div key={action.id} className="shrink-0">
-            {action.button}
-          </div>
-        ))}
-        {overflow.length > 0 ? (
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <LeaseFooterMoreTrigger />
-            </DropdownMenuTrigger>
-            <DropdownMenuContent side="top" align="end" className="z-[60] min-w-[12rem]">
-              {overflow
-                .filter((action) => action.id !== "delete")
-                .map((action) => (
-                  <div key={action.id}>{action.menuItem}</div>
-                ))}
-              {overflow.some((action) => action.id !== "delete") &&
-              overflow.some((action) => action.id === "delete") ? (
-                <DropdownMenuSeparator />
-              ) : null}
-              {overflow
-                .filter((action) => action.id === "delete")
-                .map((action) => (
-                  <div key={action.id}>{action.menuItem}</div>
-                ))}
-            </DropdownMenuContent>
-          </DropdownMenu>
-        ) : null}
-      </div>
-    </>
-  );
-}
+type LeaseFooterAction = PortalFooterFitAction;
 
 type LeasePrimaryHeaderActionsProps = {
   row: LeasePipelineRow;
@@ -625,7 +484,7 @@ export function LeasePrimaryHeaderActions({
 
   const fitFooter = (
     <div className="relative w-full min-w-0">
-      <LeaseFitActionRow actions={footerActions} />
+      <PortalFooterFitActionRow actions={footerActions} moreLabel="More lease actions" />
     </div>
   );
 
@@ -634,7 +493,7 @@ export function LeasePrimaryHeaderActions({
       return (
         <>
           <div className="relative min-w-0 w-full">
-            <LeaseFitActionRow actions={footerActions} />
+            <PortalFooterFitActionRow actions={footerActions} moreLabel="More lease actions" />
           </div>
           {uploadInput}
         </>

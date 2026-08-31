@@ -1,21 +1,11 @@
 "use client";
 
-import { ClipboardList, Search, UserRound } from "lucide-react";
+import { ClipboardList, UserRound } from "lucide-react";
 import {
   ApplicationHouseholdCluster,
   householdClusterHeaderForRows,
 } from "@/components/portal/application-household-list";
-import {
-  ClusterNavRow,
-  applicationStatusPill,
-  screeningToneToBadge,
-} from "@/components/portal/application-review-nav-cluster";
-import { applicationShowsBackgroundCheck } from "@/lib/application-background-check";
-import {
-  screeningListTrailForApplicant,
-  screeningListTrailForCosigner,
-} from "@/lib/application-screening-list-meta";
-import { cosignerShowsBackgroundCheck } from "@/lib/cosigner-screening";
+import { ClusterNavRow, applicationStatusPill } from "@/components/portal/application-review-nav-cluster";
 import {
   applicationPropertyMeta,
   applicationSubmittedLabel,
@@ -100,25 +90,6 @@ export function ManagerApplicationsGroupedTable({
                 />,
               ];
 
-              if (applicationShowsBackgroundCheck(row)) {
-                const trail = screeningListTrailForApplicant(row);
-                rows.push(
-                  <ClusterNavRow
-                    key={`${row.id}-screening`}
-                    nested
-                    primary="Background check"
-                    meta={trail.sub}
-                    icon={<Search className="h-4 w-4" aria-hidden />}
-                    statusPill={{
-                      label: trail.label,
-                      tone: screeningToneToBadge(trail.tone),
-                    }}
-                    onOpen={() => onOpenApplication(row)}
-                    checkDataAttr={`application-screening-${row.id}`}
-                  />,
-                );
-              }
-
               const signerKey = row.id.trim().toUpperCase();
               const cosignerRows = cosignerSubmissionsBySigner.get(signerKey) ?? [];
               cosignerRows.forEach((sub, index) => {
@@ -134,24 +105,6 @@ export function ManagerApplicationsGroupedTable({
                     checkDataAttr={`application-cosigner-${row.id}-${index}`}
                   />,
                 );
-                if (cosignerShowsBackgroundCheck(sub)) {
-                  const trail = screeningListTrailForCosigner(sub);
-                  rows.push(
-                    <ClusterNavRow
-                      key={`${row.id}-cosigner-screening-${index}`}
-                      nested
-                      primary="Background check"
-                      meta={trail.sub}
-                      icon={<Search className="h-4 w-4" aria-hidden />}
-                      statusPill={{
-                        label: trail.label,
-                        tone: screeningToneToBadge(trail.tone),
-                      }}
-                      onOpen={() => onOpenCosigner(row, index)}
-                      checkDataAttr={`application-cosigner-screening-${row.id}-${index}`}
-                    />,
-                  );
-                }
               });
 
               return rows;

@@ -8,9 +8,9 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
-  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { ChevronDown } from "lucide-react";
 import { ListSkeleton } from "@/components/ui/list-skeleton";
 import { Badge } from "@/components/ui/badge";
 import { PortalRecordShareLinkButton } from "@/components/portal/portal-record-share-link-button";
@@ -24,20 +24,24 @@ import {
   PORTAL_COMMAND_PRIMARY_ACTION_BTN,
   PORTAL_COMMAND_PRIMARY_ACTION_STYLE,
   PORTAL_HEADER_ACTION_BTN,
-  RESIDENT_DETAIL_HEADER_ACTION_BTN,
-  RESIDENT_DETAIL_HEADER_ACTIONS_ROW,
 } from "@/components/portal/portal-metrics";
 import { ApplicationFilterSortFields } from "@/components/portal/application-filter-sort-fields";
 import { PortalFilterSortSheet, portalFilterActiveCount } from "@/components/portal/portal-filter-sort-sheet";
 import { armFilterSheetOpenSuppressFromOverlayDismiss } from "@/components/ui/field-select-portal-interaction";
 import { PortalActiveFilterChips } from "@/components/portal/portal-filter-chips";
 import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
-import { PortalSectionActionRow } from "@/components/portal/portal-section-action-row";
+import {
+  PortalFooterFitActionRow,
+  type PortalFooterFitAction,
+} from "@/components/portal/portal-footer-fit-action-row";
+import { ConfirmDeleteModal } from "@/components/portal/confirm-delete-modal";
 import { PortalRecordDetailPage } from "@/components/portal/portal-record-detail-page";
 import { PortalRecordListSurface } from "@/components/portal/portal-record-list-surface";
 import {
   PORTAL_DATA_TABLE_WRAP,
   PORTAL_DETAIL_BTN,
+  RESIDENT_DOCUMENTS_DETAIL_FOOTER_BTN,
+  ResidentDocumentsDetailFooter,
   PortalDataTableEmpty,
   PortalTableDetailActions,
 } from "@/components/portal/portal-data-table";
@@ -528,6 +532,8 @@ export function ManagerApplications({
     typeof window === "undefined" ? 0 : hasCachedPropertyPipeline() ? 1 : 0,
   );
   const [approvePreviewRow, setApprovePreviewRow] = useState<DemoApplicantRow | null>(null);
+  const [rejectPreviewRows, setRejectPreviewRows] = useState<DemoApplicantRow[] | null>(null);
+  const [rejectBusy, setRejectBusy] = useState(false);
   const [approveBusyId, setApproveBusyId] = useState<string | null>(null);
   const [reminderBusyId, setReminderBusyId] = useState<string | null>(null);
   const [reminderPreviewBusyId, setReminderPreviewBusyId] = useState<string | null>(null);
@@ -777,6 +783,44 @@ export function ManagerApplications({
   const { selectedIds, toggleSelected, clearSelection } = usePortalRowSelection(bucket);
   const listSelectedCount = selectedIds.size;
   const singleListSelectedId = listSelectedCount === 1 ? [...selectedIds][0]! : null;
+  const selectedListRows = useMemo(
+    () => rowsForBucket.filter((row) => selectedIds.has(row.id)),
+    [rowsForBucket, selectedIds],
+  );
+  const singleListSelectedRow = useMemo(
+    () =>
+      singleListSelectedId
+        ? selectedListRows.find((row) => row.id === singleListSelectedId) ?? null
+        : null,
+    [selectedListRows, singleListSelectedId],
+  );
+  const selectedPendingRows = useMemo(
+    () =>
+      selectedListRows.filter(
+        (row) =>
+          row.bucket === "pending" &&
+          !isWithdrawnApplicationRow(row) &&
+          !isInProgressApplicationRow(row),
+      ),
+    [selectedListRows],
+  );
+  const selectedRejectableRows = useMemo(
+    () => selectedListRows.filter((row) => row.bucket === "pending" || row.bucket === "approved"),
+    [selectedListRows],
+  );
+  const canBulkApprove = selectedPendingRows.length === 1;
+  const canBulkReject = selectedRejectableRows.length > 0;
+  const canBulkHoldingFee =
+    Boolean(singleListSelectedRow) &&
+    singleListSelectedRow.bucket === "pending" &&
+    !isWithdrawnApplicationRow(singleListSelectedRow);
+  const canBulkRunBackgroundCheck =
+    Boolean(singleListSelectedRow) &&
+    singleListSelectedRow.bucket === "pending" &&
+    applicationShowsBackgroundCheck(singleListSelectedRow) &&
+    Boolean(singleListSelectedRow.application?.consentCredit) &&
+    singleListSelectedRow.backgroundCheck?.status !== "pending" &&
+    singleListSelectedRow.backgroundCheck?.status !== "complete";
 
   const openDetailScreeningModal = useCallback((row: DemoApplicantRow, opts?: { showPackagePicker?: boolean; cosignerSubmissionId?: string }) => {
     setCheckrScreeningShowPicker(Boolean(opts?.showPackagePicker));
@@ -1000,22 +1044,29 @@ export function ManagerApplications({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [applicationAutomation.autoApproveApplications, rows, userId]);
 
-  const setRowBucket = async (id: string, nextBucket: ManagerApplicationBucket, opts?: { skipWelcomeEmail?: boolean }) => {
+  const setRowBucket = async (
+    id: string,
+    nextBucket: ManagerApplicationBucket,
+    opts?: { skipWelcomeEmail?: boolean; skipNavigate?: boolean; quiet?: boolean },
+  ) => {
     const result = await transitionApplicationBucket(id, nextBucket, {
       userId: userId ?? null,
       skipWelcomeEmail: opts?.skipWelcomeEmail,
-      // Without this a manager who switched automation on sees it do nothing when they approve
-      // from this surface.
       automation: applicationAutomation,
     });
     if (!result) return;
     setRows(readManagerApplicationRows());
     if (result.blocked) {
-      showToast(result.message ?? "That change could not be saved.");
+      if (!opts?.quiet) {
+        showToast(result.message ?? "That change could not be saved.");
+      }
       return;
     }
 
-    router.push(applicationsListHref(nextBucket));
+    if (!opts?.skipNavigate) {
+      router.push(applicationsListHref(nextBucket));
+    }
+    if (opts?.quiet) return;
     const msg =
       nextBucket === "approved"
         ? opts?.skipWelcomeEmail
@@ -1027,6 +1078,28 @@ export function ManagerApplications({
           ? "Application rejected."
           : "Moved to Pending.";
     showToast(msg);
+  };
+
+  const rejectApplications = async (rowsToReject: DemoApplicantRow[]) => {
+    if (rowsToReject.length === 0) return;
+    setRejectBusy(true);
+    try {
+      for (const row of rowsToReject) {
+        await setRowBucket(row.id, "rejected", { skipNavigate: true, quiet: true });
+      }
+      clearSelection();
+      setRejectPreviewRows(null);
+      if (applicationIdProp && rowsToReject.some((row) => row.id === detailRow?.id)) {
+        navigate(applicationsListHref("rejected"));
+      }
+      showToast(
+        rowsToReject.length === 1
+          ? "Application rejected."
+          : `${rowsToReject.length} applications rejected.`,
+      );
+    } finally {
+      setRejectBusy(false);
+    }
   };
 
   const purgeApplicationLocalData = (applicationId: string) => {
@@ -1209,20 +1282,8 @@ export function ManagerApplications({
     const screeningRow = row;
     const screeningCosignerId = activeCosignerSubmission ? activeScreeningCosignerId : undefined;
     const isPending = row.bucket === "pending";
+    const actionBtnClass = RESIDENT_DOCUMENTS_DETAIL_FOOTER_BTN;
     const showCompletionReminder = showCompletionReminderForRow(row);
-    const renderSendReminderButton = (className = RESIDENT_DETAIL_HEADER_ACTION_BTN) => (
-      <Button
-        type="button"
-        variant="outline"
-        className={className}
-        data-attr="application-send-reminder"
-        disabled={reminderPreviewBusyId !== null || reminderBusyId !== null}
-        onClick={() => openReminderPreview(row)}
-      >
-        {reminderPreviewBusyId === row.id ? "Loading…" : "Send reminder"}
-      </Button>
-    );
-    const sendReminderButton = showCompletionReminder ? renderSendReminderButton() : null;
     const showsRunCheck =
       applicationShowsBackgroundCheck(screeningRow) &&
       Boolean(screeningRow.application?.consentCredit) &&
@@ -1231,238 +1292,280 @@ export function ManagerApplications({
     const canDownloadScreening =
       screeningRow.backgroundCheck?.status === "complete" ||
       (isDemoModeActive() && applicationShowsBackgroundCheck(screeningRow));
-    const showsRunAgain =
-      applicationShowsBackgroundCheck(screeningRow) &&
-      Boolean(screeningRow.application?.consentCredit) &&
-      screeningRow.backgroundCheck?.status === "complete";
+    const recordTitle = row.name?.trim() || row.application?.fullLegalName?.trim() || row.property?.trim();
+    const actions: PortalFooterFitAction[] = [];
 
-    const approveButton =
-      isPending && !isWithdrawnApplicationRow(row) && !isInProgressApplicationRow(row) ? (
-        <Button
-          type="button"
-          variant="outline"
-          className={RESIDENT_DETAIL_HEADER_ACTION_BTN}
-          data-attr="application-approve"
-          onClick={() => setApprovePreviewRow(row)}
-        >
-          Approve
-        </Button>
-      ) : null;
-
-    const rejectButton = isPending ? (
-      <Button
-        type="button"
-        variant="outline"
-        className={RESIDENT_DETAIL_HEADER_ACTION_BTN}
-        data-attr="application-reject"
-        onClick={() => setRowBucket(row.id, "rejected")}
-      >
-        Reject
-      </Button>
-    ) : null;
-
-    const runCheckButton = showsRunCheck ? (
-      <Button
-        type="button"
-        variant="outline"
-        className={RESIDENT_DETAIL_HEADER_ACTION_BTN}
-        data-attr="run-background-check"
-        onClick={() =>
-          openDetailScreeningModal(row, {
-            cosignerSubmissionId: screeningCosignerId,
-          })
-        }
-      >
-        Run background check
-      </Button>
-    ) : null;
-
-    const runAgainButton = showsRunAgain ? (
-      <Button
-        type="button"
-        variant="outline"
-        className={RESIDENT_DETAIL_HEADER_ACTION_BTN}
-        data-attr="run-background-check-again"
-        onClick={() =>
-          openDetailScreeningModal(row, {
-            showPackagePicker: true,
-            cosignerSubmissionId: screeningCosignerId,
-          })
-        }
-      >
-        Run again
-      </Button>
-    ) : null;
-
-    const downloadApplicationButton = (
-      <Button
-        type="button"
-        variant="outline"
-        className={RESIDENT_DETAIL_HEADER_ACTION_BTN}
-        data-attr="application-pdf-download"
-        onClick={() => runApplicationPdfDownload(row, showToast)}
-      >
-        Download application
-      </Button>
-    );
-
-    const downloadScreeningButton = canDownloadScreening ? (
-      <Button
-        type="button"
-        variant="outline"
-        className={RESIDENT_DETAIL_HEADER_ACTION_BTN}
-        data-attr="screening-pdf-download"
-        onClick={() =>
-          downloadBackgroundCheckForApplication(screeningRow, {
-            cosignerSubmissionId: screeningCosignerId,
-          })
-        }
-      >
-        Download background check
-      </Button>
-    ) : null;
-
-    const moveToPendingButton = !isPending ? (
-      <Button
-        type="button"
-        variant="outline"
-        className={RESIDENT_DETAIL_HEADER_ACTION_BTN}
-        data-attr="application-move-pending"
-        onClick={() => setRowBucket(row.id, "pending")}
-      >
-        Move to pending
-      </Button>
-    ) : null;
-
-    const shareButton = (
-      <PortalRecordShareLinkButton
-        kind="application"
-        recordId={row.id}
-        className={RESIDENT_DETAIL_HEADER_ACTION_BTN}
-        dataAttr="application-share"
-        recordTitle={row.name?.trim() || row.application?.fullLegalName?.trim() || row.property?.trim()}
-      />
-    );
-
-    const deleteButton = (
-      <Button
-        type="button"
-        variant="outline"
-        className={`${RESIDENT_DETAIL_HEADER_ACTION_BTN} border-rose-200 text-rose-800 hover:bg-[var(--status-overdue-bg)] portal-danger-outline`}
-        data-attr="application-delete"
-        onClick={() => deleteApplication(row.id)}
-      >
-        Delete
-      </Button>
-    );
-
-    // Asking for a hold on a rejected or withdrawn application makes no sense,
-    // so the button is absent rather than disabled there.
-    const holdingFeeButton =
-      row.bucket === "rejected" || isWithdrawnApplicationRow(row) ? null : (
-        <Button
-          type="button"
-          variant="outline"
-          className={RESIDENT_DETAIL_HEADER_ACTION_BTN}
-          data-attr="application-holding-fee-open"
-          onClick={() => setHoldingFeeRowId(row.id)}
-        >
-          Holding fee
-        </Button>
-      );
-
-    const mobileOverflowMenu = (
-      <DropdownMenu>
-        <DropdownMenuTrigger asChild>
+    if (showCompletionReminder) {
+      actions.push({
+        id: "reminder",
+        button: (
           <Button
             type="button"
             variant="outline"
-            className={`${RESIDENT_DETAIL_HEADER_ACTION_BTN} max-md:px-2.5 max-md:text-base`}
-            data-attr="application-more-actions"
-            aria-label="More application actions"
+            className={actionBtnClass}
+            data-attr="application-send-reminder"
+            disabled={reminderPreviewBusyId !== null || reminderBusyId !== null}
+            onClick={() => openReminderPreview(row)}
           >
-            …
+            {reminderPreviewBusyId === row.id ? "Loading…" : "Send reminder"}
           </Button>
-        </DropdownMenuTrigger>
-        <DropdownMenuContent align="end" backdrop>
-          {showCompletionReminder ? (
-            <DropdownMenuItem
-              data-attr="application-send-reminder-menu"
-              disabled={reminderPreviewBusyId !== null || reminderBusyId !== null}
-              onSelect={() => void openReminderPreview(row)}
+        ),
+        menuItem: (
+          <DropdownMenuItem
+            data-attr="application-send-reminder"
+            disabled={reminderPreviewBusyId !== null || reminderBusyId !== null}
+            onSelect={() => openReminderPreview(row)}
+          >
+            Send reminder
+          </DropdownMenuItem>
+        ),
+      });
+    }
+
+    actions.push({
+      id: "share",
+      button: (
+        <PortalRecordShareLinkButton
+          kind="application"
+          recordId={row.id}
+          className={actionBtnClass}
+          dataAttr="application-share"
+          recordTitle={recordTitle}
+        />
+      ),
+      menuItem: (
+        <PortalRecordShareLinkButton
+          kind="application"
+          recordId={row.id}
+          menuItem
+          dataAttr="application-share"
+          recordTitle={recordTitle}
+        />
+      ),
+    });
+
+    if (isPending && !isWithdrawnApplicationRow(row) && !isInProgressApplicationRow(row)) {
+      actions.push({
+        id: "approve",
+        button: (
+          <Button
+            type="button"
+            variant="outline"
+            className={actionBtnClass}
+            data-attr="application-approve"
+            onClick={() => setApprovePreviewRow(row)}
+          >
+            Approve
+          </Button>
+        ),
+        menuItem: (
+          <DropdownMenuItem data-attr="application-approve" onSelect={() => setApprovePreviewRow(row)}>
+            Approve
+          </DropdownMenuItem>
+        ),
+      });
+    }
+
+    if (row.bucket === "pending") {
+      actions.push({
+        id: "reject",
+        button: (
+          <Button
+            type="button"
+            variant="outline"
+            className={actionBtnClass}
+            data-attr="application-reject"
+            onClick={() => setRejectPreviewRows([row])}
+          >
+            Reject
+          </Button>
+        ),
+        menuItem: (
+          <DropdownMenuItem data-attr="application-reject" onSelect={() => setRejectPreviewRows([row])}>
+            Reject
+          </DropdownMenuItem>
+        ),
+      });
+    }
+
+    if (showsRunCheck) {
+      actions.push({
+        id: "run-background-check",
+        button: (
+          <Button
+            type="button"
+            variant="outline"
+            className={actionBtnClass}
+            data-attr="run-background-check"
+            onClick={() =>
+              openDetailScreeningModal(row, {
+                cosignerSubmissionId: screeningCosignerId,
+              })
+            }
+          >
+            Run background check
+          </Button>
+        ),
+        menuItem: (
+          <DropdownMenuItem
+            data-attr="run-background-check"
+            onSelect={() =>
+              openDetailScreeningModal(row, {
+                cosignerSubmissionId: screeningCosignerId,
+              })
+            }
+          >
+            Run background check
+          </DropdownMenuItem>
+        ),
+      });
+    }
+
+    if (row.bucket !== "rejected" && !isWithdrawnApplicationRow(row)) {
+      actions.push({
+        id: "holding-fee",
+        button: (
+          <Button
+            type="button"
+            variant="outline"
+            className={actionBtnClass}
+            data-attr="application-holding-fee-open"
+            onClick={() => setHoldingFeeRowId(row.id)}
+          >
+            Holding fee
+          </Button>
+        ),
+        menuItem: (
+          <DropdownMenuItem
+            data-attr="application-holding-fee-open"
+            onSelect={() => setHoldingFeeRowId(row.id)}
+          >
+            Holding fee
+          </DropdownMenuItem>
+        ),
+      });
+    }
+
+    actions.push({
+      id: "download",
+      button: (
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button
+              type="button"
+              variant="outline"
+              className={actionBtnClass}
+              data-attr="application-download-menu"
             >
-              {reminderPreviewBusyId === row.id ? "Loading…" : "Send reminder"}
+              Download
+              <ChevronDown className="ml-1 h-4 w-4 shrink-0 opacity-60" aria-hidden />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent side="top" align="start" className="z-[60] min-w-[12rem]" backdrop>
+            <DropdownMenuItem
+              data-attr="application-pdf-download"
+              onSelect={() => runApplicationPdfDownload(row, showToast)}
+            >
+              Application
             </DropdownMenuItem>
-          ) : null}
-          <DropdownMenuItem data-attr="application-pdf-download" onSelect={() => runApplicationPdfDownload(row, showToast)}>
+            {canDownloadScreening ? (
+              <DropdownMenuItem
+                data-attr="screening-pdf-download"
+                onSelect={() =>
+                  downloadBackgroundCheckForApplication(screeningRow, {
+                    cosignerSubmissionId: screeningCosignerId,
+                  })
+                }
+              >
+                Background check
+              </DropdownMenuItem>
+            ) : null}
+          </DropdownMenuContent>
+        </DropdownMenu>
+      ),
+      menuItem: (
+        <>
+          <DropdownMenuItem
+            data-attr="application-pdf-download"
+            onSelect={() => runApplicationPdfDownload(row, showToast)}
+          >
             Download application
           </DropdownMenuItem>
-          <PortalRecordShareLinkButton
-            kind="application"
-            recordId={row.id}
-            menuItem
-            dataAttr="application-share-menu"
-            recordTitle={row.name?.trim() || row.application?.fullLegalName?.trim() || row.property?.trim()}
-          />
           {canDownloadScreening ? (
             <DropdownMenuItem
               data-attr="screening-pdf-download"
-              onSelect={() => downloadBackgroundCheckForApplication(row)}
+              onSelect={() =>
+                downloadBackgroundCheckForApplication(screeningRow, {
+                  cosignerSubmissionId: screeningCosignerId,
+                })
+              }
             >
               Download background check
             </DropdownMenuItem>
           ) : null}
-          {holdingFeeButton ? (
-            <DropdownMenuItem
-              data-attr="application-holding-fee-open"
-              onSelect={() => setHoldingFeeRowId(row.id)}
-            >
-              Holding fee
-            </DropdownMenuItem>
-          ) : null}
-          {moveToPendingButton ? (
-            <DropdownMenuItem data-attr="application-move-pending" onSelect={() => setRowBucket(row.id, "pending")}>
-              Move to pending
-            </DropdownMenuItem>
-          ) : null}
-          <DropdownMenuSeparator />
+        </>
+      ),
+    });
+
+    if (row.bucket === "approved") {
+      actions.push({
+        id: "move-pending",
+        button: (
+          <Button
+            type="button"
+            variant="outline"
+            className={actionBtnClass}
+            data-attr="application-move-pending"
+            onClick={() => setRowBucket(row.id, "pending")}
+          >
+            Move to pending
+          </Button>
+        ),
+        menuItem: (
           <DropdownMenuItem
+            data-attr="application-move-pending"
+            onSelect={() => setRowBucket(row.id, "pending")}
+          >
+            Move to pending
+          </DropdownMenuItem>
+        ),
+      });
+    }
+
+    if (row.bucket === "rejected") {
+      actions.push({
+        id: "delete",
+        button: (
+          <Button
+            type="button"
+            variant="outline"
+            className={`${actionBtnClass} border-rose-200 text-rose-800 hover:bg-[var(--status-overdue-bg)] portal-danger-outline`}
             data-attr="application-delete"
-            className="text-[var(--status-overdue-fg)] focus:text-[var(--status-overdue-fg)]"
-            onSelect={() => void deleteApplication(row.id)}
+            onClick={() => deleteApplication(row.id)}
+          >
+            Delete
+          </Button>
+        ),
+        menuItem: (
+          <DropdownMenuItem
+            className="text-rose-800 focus:text-rose-800"
+            data-attr="application-delete"
+            onSelect={() => deleteApplication(row.id)}
           >
             Delete
           </DropdownMenuItem>
-        </DropdownMenuContent>
-      </DropdownMenu>
-    );
+        ),
+      });
+    }
 
     return (
-      <div onClick={(e) => e.stopPropagation()} onKeyDown={(e) => e.stopPropagation()} role="presentation">
-        <PortalSectionActionRow variant="header" className={RESIDENT_DETAIL_HEADER_ACTIONS_ROW}>
-          <div className="flex w-full max-w-full flex-wrap items-center justify-end gap-1 md:hidden">
-            {sendReminderButton}
-            {shareButton}
-            {rejectButton}
-            {approveButton}
-            {runCheckButton}
-            {runAgainButton}
-            {mobileOverflowMenu}
-          </div>
-          <div className="hidden max-w-full flex-nowrap items-center gap-1 md:flex">
-            {sendReminderButton}
-            {shareButton}
-            {rejectButton}
-            {approveButton}
-            {runCheckButton}
-            {runAgainButton}
-            {holdingFeeButton}
-            {downloadApplicationButton}
-            {downloadScreeningButton}
-            {moveToPendingButton}
-            {deleteButton}
-          </div>
-        </PortalSectionActionRow>
+      <div
+        className="relative w-full min-w-0 flex-1"
+        onClick={(e) => e.stopPropagation()}
+        onKeyDown={(e) => e.stopPropagation()}
+        role="presentation"
+      >
+        <PortalFooterFitActionRow actions={actions} moreLabel="More application actions" />
       </div>
     );
   };
@@ -1477,9 +1580,6 @@ export function ManagerApplications({
     const canDownloadScreening =
       screeningRow.backgroundCheck?.status === "complete" ||
       (isDemoModeActive() && cosignerShowsBackgroundCheck(cosigner));
-    const showsRunAgain =
-      Boolean(screeningRow.application?.consentCredit) &&
-      screeningRow.backgroundCheck?.status === "complete";
 
     const openCosignerScreening = (opts?: { showPackagePicker?: boolean }) =>
       openDetailScreeningModal(signerRow, {
@@ -1487,45 +1587,66 @@ export function ManagerApplications({
         cosignerSubmissionId: cosigner.id,
       });
 
+    const actionBtnClass = RESIDENT_DOCUMENTS_DETAIL_FOOTER_BTN;
+    const actions: PortalFooterFitAction[] = [];
+
+    if (showsRunCheck) {
+      actions.push({
+        id: "run-background-check",
+        button: (
+          <Button
+            type="button"
+            variant="outline"
+            className={actionBtnClass}
+            data-attr="run-background-check"
+            onClick={() => openCosignerScreening()}
+          >
+            Run background check
+          </Button>
+        ),
+        menuItem: (
+          <DropdownMenuItem data-attr="run-background-check" onSelect={() => openCosignerScreening()}>
+            Run background check
+          </DropdownMenuItem>
+        ),
+      });
+    }
+
+    if (canDownloadScreening) {
+      actions.push({
+        id: "download-screening",
+        button: (
+          <Button
+            type="button"
+            variant="outline"
+            className={actionBtnClass}
+            data-attr="screening-pdf-download"
+            onClick={() => downloadBackgroundCheckForApplication(screeningRow)}
+          >
+            Download
+          </Button>
+        ),
+        menuItem: (
+          <DropdownMenuItem
+            data-attr="screening-pdf-download"
+            onSelect={() => downloadBackgroundCheckForApplication(screeningRow)}
+          >
+            Download background check
+          </DropdownMenuItem>
+        ),
+      });
+    }
+
+    if (actions.length === 0) return undefined;
+
     return (
-      <div onClick={(e) => e.stopPropagation()} onKeyDown={(e) => e.stopPropagation()} role="presentation">
-        <PortalSectionActionRow variant="header" className={RESIDENT_DETAIL_HEADER_ACTIONS_ROW}>
-          <div className="flex w-full max-w-full flex-wrap items-center justify-end gap-1">
-            {showsRunCheck ? (
-              <Button
-                type="button"
-                variant="outline"
-                className={RESIDENT_DETAIL_HEADER_ACTION_BTN}
-                data-attr="run-background-check"
-                onClick={() => openCosignerScreening()}
-              >
-                Run background check
-              </Button>
-            ) : null}
-            {showsRunAgain ? (
-              <Button
-                type="button"
-                variant="outline"
-                className={RESIDENT_DETAIL_HEADER_ACTION_BTN}
-                data-attr="run-background-check-again"
-                onClick={() => openCosignerScreening({ showPackagePicker: true })}
-              >
-                Run again
-              </Button>
-            ) : null}
-            {canDownloadScreening ? (
-              <Button
-                type="button"
-                variant="outline"
-                className={RESIDENT_DETAIL_HEADER_ACTION_BTN}
-                data-attr="screening-pdf-download"
-                onClick={() => downloadBackgroundCheckForApplication(screeningRow)}
-              >
-                Download background check
-              </Button>
-            ) : null}
-          </div>
-        </PortalSectionActionRow>
+      <div
+        className="relative w-full min-w-0"
+        onClick={(e) => e.stopPropagation()}
+        onKeyDown={(e) => e.stopPropagation()}
+        role="presentation"
+      >
+        <PortalFooterFitActionRow actions={actions} moreLabel="More cosigner actions" />
       </div>
     );
   };
@@ -1695,6 +1816,35 @@ export function ManagerApplications({
           void setRowBucket(row.id, "approved", { skipWelcomeEmail: skipMessage }).finally(() => setApproveBusyId(null));
         }}
       />
+      <ConfirmDeleteModal
+        open={rejectPreviewRows !== null}
+        title="Reject application"
+        description={
+          rejectPreviewRows?.length === 1 ? (
+            <>
+              Rejecting <span className="font-semibold">{applicantDisplayName(rejectPreviewRows[0]!)}</span>{" "}
+              will move this application to the Rejected tab. The applicant will not receive an automatic email.
+            </>
+          ) : rejectPreviewRows && rejectPreviewRows.length > 1 ? (
+            <>
+              Reject <span className="font-semibold">{rejectPreviewRows.length} applications</span>? They will move to
+              the Rejected tab and applicants will not receive an automatic email.
+            </>
+          ) : (
+            ""
+          )
+        }
+        confirmLabel="Reject"
+        busy={rejectBusy}
+        dataAttr="application-reject-confirm"
+        onClose={() => {
+          if (!rejectBusy) setRejectPreviewRows(null);
+        }}
+        onConfirm={() => {
+          if (!rejectPreviewRows?.length) return;
+          void rejectApplications(rejectPreviewRows);
+        }}
+      />
       <PortalNotificationPreviewModal
         open={reminderPreview !== null}
         title="Send application reminder"
@@ -1807,25 +1957,21 @@ export function ManagerApplications({
           hideBackText
           bareHeader
           dataAttrBack="application-detail-back"
-          inlineActions={false}
-          actions={
-            activeCosignerSubmission
-              ? renderCosignerDetailActions(detailRow, activeCosignerSubmission)
-              : renderApplicationRowActions(detailRow)
-          }
           pinScrollBody
           scrollBody={false}
+          footerOmitSpacer
+          footer={(() => {
+            const actions = activeCosignerSubmission
+              ? renderCosignerDetailActions(detailRow, activeCosignerSubmission)
+              : renderApplicationRowActions(detailRow);
+            if (!actions) return undefined;
+            return <ResidentDocumentsDetailFooter>{actions}</ResidentDocumentsDetailFooter>;
+          })()}
         >
           <div className="flex min-h-0 flex-1 flex-col">
-            <PortalPageScrollBody>
+            <PortalPageScrollBody className="min-w-0 max-w-full pt-3 pb-[calc(2.75rem+var(--portal-native-bottom-nav-inset,0px)+env(safe-area-inset-bottom,0px))] lg:pb-3">
               {activeCosignerSubmission ? (
                 <div className="space-y-3">
-                  <ManagerCosignerReadonlyReview
-                    sub={activeCosignerSubmission}
-                    onOpenSignerApplication={() =>
-                      navigate(applicationDetailHref(basePath, tabForRow(detailRow), detailRow.id))
-                    }
-                  />
                   {cosignerShowsBackgroundCheck(activeCosignerSubmission) ? (
                     <div id="application-background-check-section" className="scroll-mt-4">
                       <ApplicationScreeningPanel
@@ -1844,6 +1990,12 @@ export function ManagerApplications({
                       />
                     </div>
                   ) : null}
+                  <ManagerCosignerReadonlyReview
+                    sub={activeCosignerSubmission}
+                    onOpenSignerApplication={() =>
+                      navigate(applicationDetailHref(basePath, tabForRow(detailRow), detailRow.id))
+                    }
+                  />
                 </div>
               ) : (
                 renderApplicationDetail(detailRow)
@@ -1926,24 +2078,47 @@ export function ManagerApplications({
                 type="button"
                 variant="outline"
                 className={PORTAL_BULK_BAR_BTN}
-                data-attr="applications-bulk-edit"
-                disabled={!singleListSelectedId}
+                data-attr="applications-bulk-approve"
+                disabled={!canBulkApprove}
                 onClick={() => {
-                  if (!singleListSelectedId) return;
-                  const row = rowsForBucket.find((candidate) => candidate.id === singleListSelectedId);
-                  if (row) navigate(applicationDetailHref(basePath, tabForRow(row), row.id));
+                  if (selectedPendingRows.length === 1) setApprovePreviewRow(selectedPendingRows[0]!);
                 }}
               >
-                Edit
+                Approve
               </Button>
               <Button
                 type="button"
                 variant="outline"
-                className={`${PORTAL_BULK_BAR_BTN} border-rose-200 text-rose-800 hover:bg-[var(--status-overdue-bg)] portal-danger-outline`}
-                data-attr="applications-bulk-delete"
-                onClick={() => void deleteListSelectedApplications()}
+                className={PORTAL_BULK_BAR_BTN}
+                data-attr="applications-bulk-reject"
+                disabled={!canBulkReject}
+                onClick={() => setRejectPreviewRows(selectedRejectableRows)}
               >
-                Delete
+                Reject
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                className={PORTAL_BULK_BAR_BTN}
+                data-attr="applications-bulk-holding-fee"
+                disabled={!canBulkHoldingFee}
+                onClick={() => {
+                  if (singleListSelectedRow) setHoldingFeeRowId(singleListSelectedRow.id);
+                }}
+              >
+                Holding fee
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                className={PORTAL_BULK_BAR_BTN}
+                data-attr="applications-bulk-run-background-check"
+                disabled={!canBulkRunBackgroundCheck}
+                onClick={() => {
+                  if (singleListSelectedRow) openDetailScreeningModal(singleListSelectedRow);
+                }}
+              >
+                Run background check
               </Button>
             </>
           }

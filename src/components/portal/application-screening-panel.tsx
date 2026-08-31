@@ -402,10 +402,7 @@ export function ApplicationScreeningPanel({
     Boolean(onOpenScreeningModal);
 
   const canRunBackgroundCheckAgain =
-    showCompletedState &&
-    screeningAllowed &&
-    bgConfigured &&
-    Boolean(onOpenScreeningModal);
+    showCompletedState && screeningAllowed && Boolean(onOpenScreeningModal);
 
   const testButtonLabel = demo ? "Test" : "Run background check";
   const canViewReport = bg?.status === "complete";
@@ -563,7 +560,7 @@ export function ApplicationScreeningPanel({
                 </button>
               ) : null}
             </div>
-            <div className="flex shrink-0 flex-wrap items-center gap-2">
+            <div className="flex shrink-0 flex-nowrap items-center gap-2 overflow-x-auto overscroll-x-contain [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
               {canViewReport ? (
                 <Button type="button" variant="outline" className={PORTAL_HEADER_ACTION_BTN} onClick={() => setReportModalOpen(true)}>
                   View report

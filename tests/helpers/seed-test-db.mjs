@@ -49,6 +49,14 @@ import {
   householdChargeDbRow,
   rentProfileDbRow,
 } from "./build-seed-catalog-charges.mjs";
+import {
+  buildSeedInboxThreadsForPerson,
+  buildSeedServiceRequestsForPerson,
+  buildSeedWorkOrdersForPerson,
+  inboxThreadDbRow,
+  serviceRequestDbRow,
+  workOrderDbRow,
+} from "./build-seed-resident-portal-extras.mjs";
 
 const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -541,7 +549,6 @@ try {
     promo_code: "FREE100",
     paid_at: NOW.toISOString(),
     email: managerEmail,
-    manager_id: managerId,
     user_id: managerUserId,
   };
   if (managerPurchase?.id) {
@@ -555,6 +562,7 @@ try {
       supabase.from("manager_purchases").upsert(
         {
           ...managerPurchasePatch,
+          manager_id: managerId,
           stripe_checkout_session_id: checkoutSessionId,
         },
         { onConflict: "manager_id" },
@@ -1385,6 +1393,9 @@ try {
     { axisId: "AXIS-DEMMARCUSC", first: "Marcus", last: "Chen", propId: "mgr-demo-emerald", roomId: "room-1", bucket: "approved", leaseStage: "manager", income: 115000 },
     { axisId: "AXIS-DEMPRIYAS", first: "Priya", last: "Sharma", propId: "mgr-demo-cascade", roomId: "room-3", bucket: "approved", leaseStage: "manager", income: 108000 },
     { axisId: "AXIS-DEMOJORDL", first: "Jordan", last: "Lee", propId: "mgr-demo-pioneer", roomId: "room-1", bucket: "approved", leaseStage: "signed", income: 96000 },
+    { axisId: "AXIS-DEMOGRAP1", first: "Riley", last: "Group Lead", email: "riley.group.lead.workflow@test.proplane.local", propId: "mgr-demo-ballard", roomId: "room-2", bucket: "approved", leaseStage: "signed", income: 92000, demoGroupId: "PROPLANE-DEMOGRP2", groupRole: "first" },
+    { axisId: "AXIS-DEMOGRAP2", first: "Sam", last: "Group Mate", email: "sam.group.mate.workflow@test.proplane.local", propId: "mgr-demo-ballard", roomId: "room-3", bucket: "approved", leaseStage: "signed", income: 88000, demoGroupId: "PROPLANE-DEMOGRP2", groupRole: "joining" },
+    { axisId: "AXIS-DEMOCOSAP", first: "Casey", last: "Cosigner Host", email: "casey.cosigner.host.workflow@test.proplane.local", propId: "mgr-demo-cascade", roomId: "room-1", bucket: "approved", leaseStage: "signed", income: 82000, hasCosigner: true },
     { axisId: "AXIS-DEMOAVAN", first: "Ava", last: "Nguyen", propId: "mgr-demo-lakeview", roomId: "room-1", bucket: "approved", leaseStage: "manager_sign", income: 88000 },
     { axisId: "AXIS-DEMODIEGM", first: "Diego", last: "Morales", propId: "mgr-demo-cascade", roomId: "room-1", bucket: "approved", leaseStage: "resident_sign", income: 91000 },
     { axisId: "AXIS-DEMOSOFID", first: "Sofia", last: "Diaz", propId: "mgr-demo-ballard", roomId: "room-1", bucket: "approved", leaseStage: "signed", income: 104000 },
@@ -1416,7 +1427,7 @@ try {
       name: `${p.first} ${p.last}`,
       email: p.primaryE2e
         ? residentEmail
-        : `${p.first}.${p.last}.${suffix}@test.proplane.local`.toLowerCase(),
+        : (p.email ?? `${p.first}.${p.last}.${suffix}@test.proplane.local`.toLowerCase().replace(/\s+/g, "")),
       prop,
       room: roomDef,
       rent: roomDef.rent,
@@ -1510,6 +1521,16 @@ try {
       applicationFeeAcknowledged: true,
       applicationFeeZelleSentConfirmed: false,
     };
+    if (p.demoGroupId && p.groupRole) {
+      application.applyingAsGroup = "yes";
+      application.groupRole = p.groupRole;
+      application.groupId = p.demoGroupId;
+      application.groupSize = "2";
+    }
+    if (p.hasCosigner) {
+      application.hasCosigner = "yes";
+    }
+    return application;
   }
 
   // Completed (simulated) Checkr report stored the same way
@@ -1544,6 +1565,18 @@ try {
       },
       fullName: p.name,
     });
+    const { data: staleProfile } = await supabase
+      .from("profiles")
+      .select("id")
+      .eq("manager_id", p.axisId)
+      .neq("id", userId)
+      .maybeSingle();
+    if (staleProfile?.id) {
+      await must(
+        supabase.from("profiles").delete().eq("id", staleProfile.id),
+        `profiles(delete stale axis ${p.axisId})`,
+      );
+    }
     await must(
       supabase.from("profiles").upsert(
         {
@@ -1765,6 +1798,52 @@ try {
     );
   }
 
+  const approvedCosignerHost = people.find((p) => p.axisId === "AXIS-DEMOCOSAP");
+  if (approvedCosignerHost) {
+    await must(
+      supabase.from("cosigner_submission_records").upsert(
+        {
+          id: "cosigner-seed-axis-democosap",
+          signer_app_id: approvedCosignerHost.axisId,
+          manager_user_id: approvedCosignerHost.prop.ownerUserId,
+          row_data: {
+            signerAppId: approvedCosignerHost.axisId,
+            signerFullName: approvedCosignerHost.name,
+            fullName: "Taylor Cosigner",
+            email: "taylor.cosigner.approved@test.proplane.local",
+            phone: "(206) 555-0199",
+            dob: "1987-08-02",
+            dlNumber: "WA-DL-4821888",
+            ssn: "000-12-7890",
+            address: "220 Pine St",
+            city: "Seattle",
+            state: "WA",
+            zip: "98101",
+            notEmployed: false,
+            employerName: "Northwest Tech Co.",
+            employerAddress: "500 Union St, Seattle, WA",
+            supervisorName: "Dana Wells",
+            supervisorPhone: "(206) 555-0133",
+            jobTitle: "Director",
+            monthlyIncome: "9500",
+            annualIncome: "114000",
+            employmentStart: "2017-06-01",
+            otherIncome: "",
+            bankruptcy: "no",
+            criminal: "no",
+            consentCredit: true,
+            signature: "Taylor Cosigner",
+            dateSigned: isoDate(daysFromNow(-30)),
+            submittedAt: daysFromNow(-30).toISOString(),
+          },
+          updated_at: NOW.toISOString(),
+        },
+        { onConflict: "id" },
+      ),
+      "cosigner_submission_records(approved fixture)",
+    );
+  }
+
   const approvedPeople = people.filter((p) => p.bucket === "approved");
 
   // ── Leases: one per approved application, spread across pipeline stages.
@@ -1916,6 +1995,39 @@ try {
     await must(
       supabase.from("portal_recurring_rent_profile_records").upsert(rentProfileRows, { onConflict: "id" }),
       "portal_recurring_rent_profile_records(catalog)",
+    );
+  }
+
+  const showcaseResidents = approvedPeople.filter((p) => p.prop.ownerUserId === managerUserId);
+  const serviceRequestRows = [];
+  const workOrderRows = [];
+  const inboxThreadRows = [];
+  for (const p of showcaseResidents) {
+    const tagged = { ...p, testRunId };
+    serviceRequestRows.push(...buildSeedServiceRequestsForPerson(tagged, { now: NOW }).map(serviceRequestDbRow));
+    workOrderRows.push(...buildSeedWorkOrdersForPerson(tagged, { now: NOW }).map(workOrderDbRow));
+    inboxThreadRows.push(
+      ...buildSeedInboxThreadsForPerson(tagged, { now: NOW }).map((thread) =>
+        inboxThreadDbRow(thread, managerUserId),
+      ),
+    );
+  }
+  if (serviceRequestRows.length) {
+    await must(
+      supabase.from("portal_service_request_records").upsert(serviceRequestRows, { onConflict: "id" }),
+      "portal_service_request_records(catalog)",
+    );
+  }
+  if (workOrderRows.length) {
+    await must(
+      supabase.from("portal_work_order_records").upsert(workOrderRows, { onConflict: "id" }),
+      "portal_work_order_records(catalog)",
+    );
+  }
+  if (inboxThreadRows.length) {
+    await must(
+      supabase.from("portal_inbox_thread_records").upsert(inboxThreadRows, { onConflict: "id" }),
+      "portal_inbox_thread_records(catalog)",
     );
   }
 
@@ -2255,18 +2367,23 @@ try {
   //    with its rows, so strays never accumulate and prod accounts never live
   //    here. assertTestProjectUrl above guarantees this only ever runs against
   //    the dedicated test project.
-  const canonicalEmails = new Set([
-    adminEmail,
-    managerEmail,
-    manager2Email,
-    residentEmail,
-    vendorEmail,
-    everythingEmail,
-    ...people.map((p) => p.email),
-    ...incompleteFixturePeople.map((p) => p.email),
-    "taylor.cosigner.workflow@test.proplane.local",
-    ...DEMO_WORKFLOW_RESIDENT_EMAILS,
-  ]);
+  const canonicalEmails = new Set(
+    [
+      adminEmail,
+      managerEmail,
+      manager2Email,
+      residentEmail,
+      vendorEmail,
+      everythingEmail,
+      ...people.map((p) => p.email),
+      ...incompleteFixturePeople.map((p) => p.email),
+      "taylor.cosigner.workflow@test.proplane.local",
+      "taylor.cosigner.approved@test.proplane.local",
+      ...DEMO_WORKFLOW_RESIDENT_EMAILS,
+    ]
+      .map((email) => (email ?? "").trim().toLowerCase())
+      .filter(Boolean),
+  );
   if (canonicalEmails.has(PRODUCTION_ADMIN_EMAIL)) {
     throw new Error(`The production admin (${PRODUCTION_ADMIN_EMAIL}) can never be a canonical test account.`);
   }
@@ -2397,12 +2514,14 @@ try {
       applicationId: residentAxisId,
       vendorUserId,
       vendorEmail,
-      catalogTours: catalogTours.map((t) => t.id),
       catalogProperties: catalog.map((p) => p.id),
       catalogApplications: people.length,
       catalogLeases: leaseRows.length,
       catalogCharges: chargeRows.length,
       catalogRentProfiles: rentProfileRows.length,
+      catalogServiceRequests: serviceRequestRows.length,
+      catalogWorkOrders: workOrderRows.length,
+      catalogInboxThreads: inboxThreadRows.length,
       cleanedStaleProperties: staleIds,
       cleanedDanglingCalendarEvents: danglingEventIds,
       prunedAccounts,

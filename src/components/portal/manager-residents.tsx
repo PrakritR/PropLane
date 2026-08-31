@@ -22,9 +22,6 @@ import { useAppUi } from "@/components/providers/app-ui-provider";
 import {
   MANAGER_TABLE_TH,
   ManagerPortalPageShell,
-  PORTAL_COMMAND_PRIMARY_ACTION_BTN,
-  PORTAL_COMMAND_PRIMARY_ACTION_STYLE,
-  RESIDENT_DETAIL_HEADER_ACTION_BTN,
 } from "@/components/portal/portal-metrics";
 import {
   PORTAL_DATA_TABLE_SCROLL,
@@ -51,6 +48,7 @@ import { PortalListControlStack } from "@/components/portal/portal-list-control-
 import { PortalPageFooterActions, PortalSectionActionRow } from "@/components/portal/portal-section-action-row";
 import {
   RESIDENT_DETAIL_TAB_LABELS,
+  RESIDENT_DETAIL_TAB_SHORT_LABELS,
   RESIDENT_DIRECTORY_TABS,
   managerResidentItemDetailHref,
   residentDetailHref,
@@ -1110,6 +1108,13 @@ export function ManagerResidents({
   const { selectedIds, toggleSelected, clearSelection } = usePortalRowSelection(residentsTab);
   const listSelectedCount = selectedIds.size;
   const singleListSelectedId = listSelectedCount === 1 ? [...selectedIds][0]! : null;
+  const singleListSelectedResident = useMemo(
+    () =>
+      singleListSelectedId
+        ? residentDirectoryRows.find((row) => row.id === singleListSelectedId) ?? null
+        : null,
+    [residentDirectoryRows, singleListSelectedId],
+  );
 
   const activeResidentId = residentIdProp ? decodeURIComponent(residentIdProp) : null;
   const selected = useMemo(
@@ -2122,6 +2127,17 @@ export function ManagerResidents({
     })();
   }
 
+  function openResidentEmailSetup(resident: ActiveResident) {
+    const signupUrl = residentAccountCreationUrl(window.location.origin, resident.axisId);
+    const previewBody = buildResidentWelcomeEmailBody({
+      residentName: resident.name,
+      axisId: resident.axisId,
+      signupUrl,
+    });
+    setWelcomePreviewContent(previewBody);
+    setWelcomePreviewFor(resident);
+  }
+
   function openEditResidentModal(residentId?: string) {
     const targetId = residentId ?? selected?.id;
     if (!targetId) return;
@@ -2388,15 +2404,6 @@ export function ManagerResidents({
     return true;
   }
 
-  async function deleteSelectedResident() {
-    if (!selected) return;
-    if (!window.confirm(`Delete resident ${selected.name || selected.email}? This cannot be undone.`)) return;
-    const ok = await executeResidentDelete(selected);
-    if (!ok) return;
-    navigate(`${portalBase}/residents/${residentsTab}`);
-    showToast("Resident and all related portal data deleted.");
-  }
-
   async function deleteListSelectedResidents() {
     const ids = [...selectedIds];
     if (ids.length === 0) return;
@@ -2498,44 +2505,6 @@ export function ManagerResidents({
       return false;
     }
   }
-
-  const residentProfileHeaderActions = selected ? (
-    <>
-      <Button
-        type="button"
-        variant="outline"
-        className={RESIDENT_DETAIL_HEADER_ACTION_BTN}
-        data-attr="resident-email-setup"
-        onClick={() => {
-          const signupUrl = residentAccountCreationUrl(window.location.origin, selected.axisId);
-          const previewBody = buildResidentWelcomeEmailBody({ residentName: selected.name, axisId: selected.axisId, signupUrl });
-          setWelcomePreviewContent(previewBody);
-          setWelcomePreviewFor(selected);
-        }}
-      >
-        <span className="max-md:hidden">Email setup</span>
-        <span className="md:hidden">Email</span>
-      </Button>
-      <Button
-        type="button"
-        variant="outline"
-        className={RESIDENT_DETAIL_HEADER_ACTION_BTN}
-        data-attr="resident-edit"
-        onClick={openEditResidentModal}
-      >
-        Edit
-      </Button>
-      <Button
-        type="button"
-        variant="outline"
-        className={`${RESIDENT_DETAIL_HEADER_ACTION_BTN} border-rose-200 text-rose-800 hover:bg-[var(--status-overdue-bg)] portal-danger-outline`}
-        data-attr="resident-delete"
-        onClick={deleteSelectedResident}
-      >
-        Delete
-      </Button>
-    </>
-  ) : null;
 
   const residentApplicationTabFooterActions = selectedApplicationRow ? (
     <>
@@ -2777,28 +2746,35 @@ export function ManagerResidents({
     selected ? (
                           <div className="flex min-h-0 flex-1 flex-col gap-0">
                             <PortalPageChrome>
-                            <PortalDetailDestinationNav
-                                denseEqualRow
-                                items={(
-                                  [
-                                    showResidentApplication ? "application" : null,
-                                    showResidentLease ? "lease" : null,
-                                    showResidentTours ? "tours" : null,
-                                    "payments",
-                                    "services",
-                                    "communication",
-                                  ] as const
-                                )
-                                  .filter((tab): tab is ResidentDetailTabId => tab !== null)
-                                  .map((tab) => ({
-                                    id: tab,
-                                    label: RESIDENT_DETAIL_TAB_LABELS[tab],
-                                    href: residentDetailHref(portalBase, residentsTab, selected.id, tab),
-                                    dataAttr: `resident-detail-tab-${tab}`,
-                                  }))}
-                                activeId={resolvedDetailTab}
-                                ariaLabel="Resident profile sections"
-                              />
+                              <div
+                                className="border-b border-border/40 bg-background"
+                                data-portal-property-detail-chrome
+                              >
+                                <PortalDetailDestinationNav
+                                  denseEqualRow
+                                  items={(
+                                    [
+                                      showResidentApplication ? "application" : null,
+                                      showResidentLease ? "lease" : null,
+                                      showResidentTours ? "tours" : null,
+                                      "payments",
+                                      "services",
+                                      "communication",
+                                    ] as const
+                                  )
+                                    .filter((tab): tab is ResidentDetailTabId => tab !== null)
+                                    .map((tab) => ({
+                                      id: tab,
+                                      label: RESIDENT_DETAIL_TAB_LABELS[tab],
+                                      shortLabel: RESIDENT_DETAIL_TAB_SHORT_LABELS[tab],
+                                      href: residentDetailHref(portalBase, residentsTab, selected.id, tab),
+                                      dataAttr: `resident-detail-tab-${tab}`,
+                                    }))}
+                                  activeId={resolvedDetailTab}
+                                  ariaLabel="Resident profile sections"
+                                  appearance="command"
+                                />
+                              </div>
                             </PortalPageChrome>
 
                             {resolvedDetailTab === "communication" ? (
@@ -3139,18 +3115,6 @@ export function ManagerResidents({
                           </div>
     ) : null;
 
-  const residentsAddButton = (
-    <Button
-      type="button"
-      className={PORTAL_COMMAND_PRIMARY_ACTION_BTN}
-      style={PORTAL_COMMAND_PRIMARY_ACTION_STYLE}
-      onClick={() => setAddResidentOpen(true)}
-      data-attr="residents-list-add"
-    >
-      Add resident
-    </Button>
-  );
-
   const residentsFilterSheet =
     propertyOptions.length > 0 ? (
       <PortalFilterSortSheet
@@ -3247,14 +3211,11 @@ export function ManagerResidents({
           pageTitle="Residents"
           title={selected.name || "Resident"}
           subtitle={selected.email || undefined}
-          avatarName={selected.name || selected.email}
           backHref={residentDetailItemBackHref}
           backLabel={residentDetailItemBackLabel}
           hideBackText
           bareHeader
           dataAttrBack="resident-detail-back"
-          actions={residentProfileHeaderActions}
-          inlineActions
           // Communication is a fill-height chat; the lease and application tabs scroll
           // the document inside a bounded preview frame. Without fillBody both overflow a
           // clipped portal surface with no way to reach the rest of the document.
@@ -3288,12 +3249,7 @@ export function ManagerResidents({
         }))}
         activeDestinationId={residentsTab}
         destinationAriaLabel="Resident directory stage"
-        actions={
-          <>
-            {residentsFilterSheet}
-            {residentsAddButton}
-          </>
-        }
+        actions={residentsFilterSheet}
       />
       <PortalRecordListSurface
         isEmpty={filtered.length === 0}
@@ -3312,6 +3268,18 @@ export function ManagerResidents({
         bulkCount={listSelectedCount}
         bulkActions={
           <>
+            <Button
+              type="button"
+              variant="outline"
+              className={PORTAL_BULK_BAR_BTN}
+              data-attr="residents-bulk-email-setup"
+              disabled={!singleListSelectedResident}
+              onClick={() => {
+                if (singleListSelectedResident) openResidentEmailSetup(singleListSelectedResident);
+              }}
+            >
+              Email setup
+            </Button>
             <Button
               type="button"
               variant="outline"
