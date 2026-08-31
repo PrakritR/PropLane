@@ -4,7 +4,10 @@ import { getAdminPreviewFromCookies } from "@/lib/auth/admin-preview";
 import { getEffectiveUserIdForPortal } from "@/lib/auth/effective-session";
 import { getPortalAccessContext, hasAdminRole, hasRole } from "@/lib/auth/portal-access";
 import { isManagerFreePlan, managerTierDisplayLabel, paidWorkspacePortalTitle } from "@/lib/manager-access";
-import { getManagerPurchaseSku, getManagerSubscriptionTier } from "@/lib/manager-access-server";
+import {
+  getManagerPortalNavSubscriptionTier,
+  getManagerPurchaseSku,
+} from "@/lib/manager-access-server";
 import type { PortalDefinition } from "@/lib/portal-types";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { proPortal } from "./pro";
@@ -31,7 +34,7 @@ export const getProPortalRenderContext = cache(async () => {
   if (!effectiveUserId) redirect("/admin/dashboard");
 
   const purchase = await getManagerPurchaseSku(effectiveUserId);
-  const subscriptionTier = await getManagerSubscriptionTier(effectiveUserId);
+  const subscriptionTier = await getManagerPortalNavSubscriptionTier(effectiveUserId);
   const portalTitle = paidWorkspacePortalTitle(purchase.tier, purchase.stripeSubscriptionId);
   const isFree = isManagerFreePlan(subscriptionTier);
 

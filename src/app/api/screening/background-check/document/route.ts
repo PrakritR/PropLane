@@ -9,6 +9,7 @@ import { checkrApiFetch } from "@/lib/checkr/client";
 import { backgroundCheckConfigured, checkrSkipsManagerCardCharge } from "@/lib/checkr/config";
 import { fetchCheckrReportPdfBytes } from "@/lib/checkr/report-document";
 import { loadCheckrSampleReportPdfBytes } from "@/lib/checkr/sample-report-pdf";
+import type { CosignerSubmission } from "@/lib/cosigner-submissions-storage";
 import type { DemoApplicantRow } from "@/data/demo-portal";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
@@ -36,7 +37,11 @@ export async function GET(req: Request) {
 
     const url = new URL(req.url);
     const applicationId = url.searchParams.get("applicationId")?.trim();
+    const cosignerSubmissionId = url.searchParams.get("cosignerSubmissionId")?.trim();
     if (!applicationId) return NextResponse.json({ error: "applicationId is required." }, { status: 400 });
+    if (cosignerSubmissionId && !cosignerSubmissionId.startsWith("cosigner-")) {
+      return NextResponse.json({ error: "Invalid co-signer submission id." }, { status: 400 });
+    }
 
     if (!backgroundCheckConfigured()) {
       return NextResponse.json({ error: "Background checks are not configured." }, { status: 503 });
@@ -51,6 +56,21 @@ export async function GET(req: Request) {
 
     const row = (record?.row_data as DemoApplicantRow | null) ?? (await loadApplicationRow(applicationId));
     if (!row) return NextResponse.json({ error: "Application not found." }, { status: 404 });
+
+    let bc = row.backgroundCheck;
+    if (cosignerSubmissionId) {
+      const { data: cosignerRecord } = await db
+        .from("cosigner_submission_records")
+        .select("signer_app_id, row_data")
+        .eq("id", cosignerSubmissionId)
+        .maybeSingle();
+      const signerAppId = String(cosignerRecord?.signer_app_id ?? "").trim();
+      if (signerAppId !== applicationId) {
+        return NextResponse.json({ error: "Co-signer submission not found." }, { status: 404 });
+      }
+      const submission = cosignerRecord?.row_data as CosignerSubmission | null;
+      bc = submission?.backgroundCheck;
+    }
 
     const managerUserId =
       record?.manager_user_id?.trim() || row.managerUserId?.trim() || "";
@@ -68,28 +88,30 @@ export async function GET(req: Request) {
       }
     }
 
-    const bc = row.backgroundCheck;
-    if (!bc || bc.status !== "complete") {
+    const bcResolved = bc;
+    if (!bcResolved || bcResolved.status !== "complete") {
       return NextResponse.json({ error: "Report is not ready yet." }, { status: 404 });
     }
 
     const inline = url.searchParams.get("disposition") !== "attachment";
 
     let pdf: ArrayBuffer | null = null;
-    if (!(bc.simulated && checkrSkipsManagerCardCharge())) {
+    if (!(bcResolved.simulated && checkrSkipsManagerCardCharge())) {
       pdf = await fetchCheckrReportPdfBytes(checkrApiFetch, {
-        orderId: bc.reportId,
-        reportResourceId: bc.reportResourceId,
+        orderId: bcResolved.reportId,
+        reportResourceId: bcResolved.reportResourceId,
       });
     }
-    if (!pdf && bc.simulated) {
+    if (!pdf && bcResolved.simulated) {
       pdf = await loadCheckrSampleReportPdfBytes();
     }
     if (!pdf) {
       return NextResponse.json({ error: "Could not retrieve the Checkr report PDF." }, { status: 502 });
     }
 
-    const filename = `checkr-report-${applicationId}.pdf`;
+    const filename = cosignerSubmissionId
+      ? `checkr-report-${cosignerSubmissionId}.pdf`
+      : `checkr-report-${applicationId}.pdf`;
     return new NextResponse(pdf, {
       status: 200,
       headers: {

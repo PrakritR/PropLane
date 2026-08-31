@@ -20,7 +20,8 @@ import { MANAGER_PLAN_PORTAL_URL } from "@/lib/portals/manager-plan-path";
 import { replaceManagerApplicationRowInCache } from "@/lib/manager-applications-storage";
 import { patchCosignerBackgroundCheckInCache } from "@/lib/cosigner-submissions-storage";
 import { applicantDisplayName } from "@/lib/rental-application/applicant-name";
-import { BackgroundCheckCosignerNotice } from "@/components/portal/application-screening-panel";
+import { BackgroundCheckHouseholdTable } from "@/components/portal/background-check-household-table";
+import type { ScreeningSubject } from "@/lib/background-check-subjects";
 import type { DemoApplicantRow } from "@/data/demo-portal";
 
 const DEMO_SCREENING_RESOLVE_DELAY_MS = 1800;
@@ -98,7 +99,9 @@ export function CheckrScreeningModal({
   onClose,
   onUpdated,
   showPackagePickerInitially = false,
-  hasLinkedCosigner = false,
+  screeningSubjects = [],
+  screeningSubjectId,
+  onScreeningSubjectChange,
   cosignerSubmissionId = null,
 }: {
   row: DemoApplicantRow | null;
@@ -107,7 +110,9 @@ export function CheckrScreeningModal({
   onUpdated?: () => void;
   /** When true, skip the completed summary and show package/payment immediately (e.g. Run again). */
   showPackagePickerInitially?: boolean;
-  hasLinkedCosigner?: boolean;
+  screeningSubjects?: ScreeningSubject[];
+  screeningSubjectId?: string;
+  onScreeningSubjectChange?: (subjectId: string) => void;
   /** When set, the order runs against this co-signer submission instead of the primary applicant. */
   cosignerSubmissionId?: string | null;
 }) {
@@ -363,11 +368,20 @@ export function CheckrScreeningModal({
     ? `Background check · ${applicantDisplayName(row)}`
     : `Run screening · ${applicantDisplayName(row)}`;
 
+  const activeModalSubjectId = screeningSubjectId ?? row?.id ?? "";
+
   return (
     <Modal open={open} onClose={onClose} title={modalTitle} panelClassName="max-w-4xl max-h-[min(92vh,56rem)] overflow-y-auto">
       <div className="space-y-5 text-sm">
-        {hasLinkedCosigner && !cosignerSubmissionId ? (
-          <BackgroundCheckCosignerNotice applicantName={applicantDisplayName(row)} />
+        {screeningSubjects.length > 1 ? (
+          <BackgroundCheckHouseholdTable
+            mode="view-only"
+            subjects={screeningSubjects}
+            viewSubjectId={activeModalSubjectId}
+            onViewSubjectChange={(id) => onScreeningSubjectChange?.(id)}
+            selectedSubjectIds={new Set([activeModalSubjectId])}
+            onSelectedSubjectIdsChange={() => {}}
+          />
         ) : null}
         {!packagesLoaded ? (
           <p className="text-muted">Loading screening options…</p>

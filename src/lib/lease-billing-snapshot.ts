@@ -12,6 +12,7 @@ import { computeLeasePaymentAtSigning } from "@/lib/rental-application/listing-f
 import { normalizeManagerListingSubmissionV1 } from "@/lib/manager-listing-submission";
 import { getPropertyById } from "@/lib/rental-application/data";
 import { computeProratedFirstMonthTotals } from "@/lib/lease-first-period-proration";
+import { resolveLeaseProrationInputForApplicant } from "@/lib/lease-proration-settings";
 import type { LeaseGenerationContext } from "@/lib/generated-lease";
 import type { RentalWizardFormState } from "@/lib/rental-application/types";
 
@@ -44,6 +45,9 @@ const SIGNING_CHARGE_KINDS: HouseholdChargeKind[] = [
   "other_cost",
 ];
 
+const FIRST_PERIOD_RENT_KINDS: HouseholdChargeKind[] = ["first_month_rent", "prorated_rent"];
+const FIRST_PERIOD_UTIL_KINDS: HouseholdChargeKind[] = ["utilities", "prorated_utilities"];
+
 function chargeAmount(c: HouseholdCharge): number {
   return parseMoneyLabel(c.balanceLabel || c.amountLabel || "0");
 }
@@ -70,6 +74,42 @@ function sumByKind(charges: HouseholdCharge[], kind: HouseholdChargeKind): numbe
   if (!hits.length) return undefined;
   const total = hits.reduce((s, c) => s + chargeAmount(c), 0);
   return total > 0 ? total : undefined;
+}
+
+function dueAtSigningFromCharges(
+  charges: HouseholdCharge[],
+  computedProration: ReturnType<typeof computeProratedFirstMonthTotals> | null,
+  resolvedProratedRent: number | undefined,
+  resolvedProratedUtilities: number | undefined,
+): number {
+  let sum = 0;
+  let firstRentApplied = false;
+  let firstUtilApplied = false;
+  for (const c of charges) {
+    if (!SIGNING_CHARGE_KINDS.includes(c.kind)) continue;
+    if (FIRST_PERIOD_RENT_KINDS.includes(c.kind)) {
+      if (firstRentApplied) continue;
+      firstRentApplied = true;
+      if (computedProration?.applies && resolvedProratedRent != null && resolvedProratedRent > 0) {
+        sum += resolvedProratedRent;
+      } else {
+        sum += chargeAmount(c);
+      }
+      continue;
+    }
+    if (FIRST_PERIOD_UTIL_KINDS.includes(c.kind)) {
+      if (firstUtilApplied) continue;
+      firstUtilApplied = true;
+      if (computedProration?.applies && resolvedProratedUtilities != null && resolvedProratedUtilities >= 0) {
+        sum += resolvedProratedUtilities;
+      } else {
+        sum += chargeAmount(c);
+      }
+      continue;
+    }
+    sum += chargeAmount(c);
+  }
+  return sum;
 }
 
 export type LeaseRowBillingRef = {
@@ -99,6 +139,7 @@ export function buildLeaseBillingSnapshot(
     | "property"
     | "signedMonthlyRent"
     | "email"
+    | "manualResidentDetails"
   >,
   managerUserId: string | null | undefined,
 ): LeaseBillingSnapshot {
@@ -111,13 +152,10 @@ export function buildLeaseBillingSnapshot(
     sumByKind(charges, "security_deposit") ?? (placement.securityDeposit > 0 ? placement.securityDeposit : 0);
   const moveInFee = sumByKind(charges, "move_in_fee") ?? (placement.moveInFee > 0 ? placement.moveInFee : 0);
   const applicationFee = sumByKind(charges, "application_fee");
-  const proratedRent =
-    sumByKind(charges, "prorated_rent") ?? sumByKind(charges, "prorated_last_month_rent");
-  const proratedUtilities =
-    sumByKind(charges, "prorated_utilities") ?? sumByKind(charges, "prorated_last_month_utilities");
 
   const leaseStart = applicant.application?.leaseStart?.trim() ?? "";
   const leaseEnd = applicant.application?.leaseEnd?.trim() ?? "";
+  const prorationSettings = resolveLeaseProrationInputForApplicant(applicant);
   const computedProration =
     leaseStart && (monthlyRent > 0 || monthlyUtilities > 0)
       ? computeProratedFirstMonthTotals({
@@ -125,27 +163,31 @@ export function buildLeaseBillingSnapshot(
           monthlyUtilities,
           leaseStart,
           leaseEnd,
+          ...prorationSettings,
         })
       : null;
-  const resolvedProratedRent =
-    proratedRent ??
-    (computedProration?.applies && computedProration.proratedRent > 0
-      ? computedProration.proratedRent
-      : undefined);
-  const resolvedProratedUtilities =
-    proratedUtilities ??
-    (computedProration?.applies && computedProration.proratedUtilities > 0
-      ? computedProration.proratedUtilities
-      : undefined);
 
-  let dueAtSigning = 0;
-  for (const c of charges) {
-    if (SIGNING_CHARGE_KINDS.includes(c.kind)) dueAtSigning += chargeAmount(c);
-  }
+  const chargeProratedRent = sumByKind(charges, "prorated_rent");
+  const chargeProratedUtilities = sumByKind(charges, "prorated_utilities");
+
+  const resolvedProratedRent =
+    computedProration?.applies && computedProration.proratedRent > 0
+      ? computedProration.proratedRent
+      : chargeProratedRent;
+  const resolvedProratedUtilities =
+    computedProration?.applies
+      ? computedProration.proratedUtilities > 0
+        ? computedProration.proratedUtilities
+        : chargeProratedUtilities
+      : chargeProratedUtilities;
+
+  let dueAtSigning = dueAtSigningFromCharges(
+    charges,
+    computedProration,
+    resolvedProratedRent,
+    resolvedProratedUtilities,
+  );
   if (dueAtSigning <= 0) {
-    // `DemoApplicantRow.property` is the property LABEL (a string), not the property object —
-    // reading `.listingSubmission` off it did not compile and broke the production build. The
-    // listing has to be resolved by id, which `resolvePlacementValuesForRow` already gives us.
     const listing = placement.propertyId ? getPropertyById(placement.propertyId) : undefined;
     const sub =
       listing?.listingSubmission?.v === 1

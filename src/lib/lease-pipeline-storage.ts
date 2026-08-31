@@ -40,6 +40,7 @@ import {
   type PortalDownloadResult,
 } from "@/lib/portal-document-download";
 import { stripLeaseAiDisclaimerFromHtml, stripLeaseAiReviewDisclaimer } from "@/lib/lease-templates/types";
+import { stripDisclosureReviewFromLeaseHtml } from "@/lib/property-lease-document-display";
 import { effectiveApplicationForRow, enrichApplicationForLease, readManagerApplicationRows, signedRentLabelForRow, writeManagerApplicationRows } from "@/lib/manager-applications-storage";
 import { getPropertyById, getRoomChoiceLabel, getBundleChoiceLabel } from "@/lib/rental-application/data";
 import { cachedLandlordLegalName, LEASE_LANDLORD_PLACEHOLDER } from "@/lib/manager-landlord-profile";
@@ -2127,7 +2128,8 @@ export function getLeaseDocumentHtml(row: LeasePipelineRow): string | null {
           return { ...section, bodyHtml: renderLeaseSectionEdit(edit) };
         }),
       );
-  return hasAnyLeaseSignature(row) ? applyLeaseSignaturesToHtml(row, rendered) : rendered;
+  const body = hasAnyLeaseSignature(row) ? applyLeaseSignaturesToHtml(row, rendered) : rendered;
+  return stripDisclosureReviewFromLeaseHtml(body);
 }
 
 /**

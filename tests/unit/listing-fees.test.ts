@@ -5,6 +5,7 @@ import {
   defaultCoreListingFeeRows,
   defaultRemovedStandardListingFeeRowsForNewListing,
   legacyListingAmountsFromFees,
+  leaseDocumentFeeLines,
   listingFeeRowsForLeaseBasicsSection,
   listingFeesFromLegacyScalars,
   normalizeListingFeeRow,
@@ -174,5 +175,51 @@ describe("lease payment at signing", () => {
         monthlyUtilities: 200,
       }),
     ).toBe(600);
+  });
+
+  it("filters lease document monthly surcharges by lease context", () => {
+    let sub = createDefaultListingSubmission();
+    sub = applyListingFeesToSubmission(sub, [
+      {
+        id: "fee-mtm",
+        presetId: "mtm_surcharge",
+        label: "Month-to-month surcharge",
+        amount: "25",
+        frequency: "monthly",
+      },
+      {
+        id: "fee-custom",
+        presetId: "custom_lease_surcharge",
+        label: "Custom lease",
+        amount: "100",
+        frequency: "monthly",
+      },
+    ]);
+    const normalized = normalizeManagerListingSubmissionV1(sub);
+
+    const fixedTerm = leaseDocumentFeeLines(normalized, "long-term", {
+      leaseStart: "2026-06-01",
+      leaseEnd: "2027-05-31",
+      leaseTerm: "12-Month",
+      rentalType: "standard",
+    });
+    expect(fixedTerm.monthly.map((line) => line.label)).toEqual([]);
+
+    const mtm = leaseDocumentFeeLines(normalized, "long-term", {
+      leaseStart: "2026-06-01",
+      leaseEnd: "",
+      leaseTerm: "Month-to-Month",
+      rentalType: "standard",
+    });
+    expect(mtm.monthly.map((line) => line.label)).toContain("Month-to-month surcharge");
+
+    const custom = leaseDocumentFeeLines(normalized, "long-term", {
+      leaseStart: "2026-09-22",
+      leaseEnd: "2026-12-01",
+      leaseTerm: "Custom",
+      rentalType: "standard",
+    });
+    expect(custom.monthly.map((line) => line.label)).toContain("Custom lease");
+    expect(custom.monthly.map((line) => line.label)).not.toContain("Month-to-month surcharge");
   });
 });
