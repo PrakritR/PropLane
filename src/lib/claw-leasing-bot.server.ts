@@ -968,14 +968,11 @@ export async function handleClawLeasingInbound(args: {
                   from: from,
                   subject: `(${subjectLabel}${propertyLabel ? ` — ${propertyLabel}` : ""}) ${from}`,
                   preview: text.slice(0, 140) || "(empty)",
-                  body: [
-                    `(${subjectLabel}${propertyLabel ? ` — ${propertyLabel}` : ""}) ${from}`,
-                    "",
-                    text || "(empty message)",
-                    "",
-                    `— PropLane leasing assistant replied —`,
-                    agent.reply,
-                  ].join("\n"),
+                  // Thread body is ONLY the prospect's words. The leasing
+                  // assistant reply already went to their phone; the manager's
+                  // AI draft card is generated separately for an optional
+                  // follow-up — never paste the auto-reply into this notice.
+                  body: text || "(empty message)",
                   unread: true,
                 }),
               ),
@@ -1082,14 +1079,7 @@ export async function handleClawLeasingInbound(args: {
           from: from,
           subject: `(${subjectLabel}${propertyLabel ? ` — ${propertyLabel}` : ""}) ${from}`,
           preview: text.slice(0, 140) || "(empty)",
-          body: [
-            `(${subjectLabel}${propertyLabel ? ` — ${propertyLabel}` : ""}) ${from}`,
-            "",
-            text || "(empty message)",
-            "",
-            `— Auto-replied (${intent}) —`,
-            reply,
-          ].join("\n"),
+          body: text || "(empty message)",
           unread: true,
         }),
       ),
