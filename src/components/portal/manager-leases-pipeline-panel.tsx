@@ -15,7 +15,6 @@ import {
   ResidentDocumentsDetailFooter,
 } from "@/components/portal/portal-data-table";
 import { PortalPageScrollBody } from "@/lib/portal-page-chrome-layout";
-import { ChevronDown } from "lucide-react";
 import { deliverPortalInboxMessage } from "@/lib/portal-message-delivery";
 import { buildLeaseReadyForResidentMessage } from "@/lib/resident-portal-login-copy";
 import { PortalRecordDetailPage } from "@/components/portal/portal-record-detail-page";
@@ -28,10 +27,7 @@ import {
   sortManagerLeaseClustersForBucket,
 } from "@/lib/manager-lease-list";
 import {
-  DropdownMenu,
-  DropdownMenuContent,
   DropdownMenuItem,
-  DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import type { ManagerLeaseTab } from "@/data/demo-portal";
 import { LeaseDocumentPreview } from "@/components/portal/lease-document-preview";
@@ -96,7 +92,6 @@ export function ManagerLeasesPipelinePanel({
   refreshKey,
   managerUserId,
   residentAccountEmails,
-  onEmailAccountSetup,
   leaseId: leaseIdProp,
   listBasePath,
   onDetailOpenChange,
@@ -107,7 +102,6 @@ export function ManagerLeasesPipelinePanel({
   refreshKey: number;
   managerUserId?: string | null;
   residentAccountEmails: Set<string>;
-  onEmailAccountSetup?: (email: string, name: string, axisId?: string) => void;
   leaseId?: string;
   listBasePath?: string;
   onDetailOpenChange?: (open: boolean) => void;
@@ -120,7 +114,6 @@ export function ManagerLeasesPipelinePanel({
   const [pendingRowId, setPendingRowId] = useState<string | null>(null);
   const [generatingRowId, setGeneratingRowId] = useState<string | null>(null);
   const [signingRow, setSigningRow] = useState<LeasePipelineRow | null>(null);
-  const [emailBusyForRow, setEmailBusyForRow] = useState<string | null>(null);
   const [reminderBusyForRow, setReminderBusyForRow] = useState<string | null>(null);
   const [sendingToResidentRowId, setSendingToResidentRowId] = useState<string | null>(null);
   const [leaseSentPreview, setLeaseSentPreview] = useState<{
@@ -193,36 +186,6 @@ export function ManagerLeasesPipelinePanel({
       variant: "reminder",
       dateLine,
     });
-  }
-
-  async function sendAccountEmail(row: LeasePipelineRow) {
-    if (emailBusyForRow) return;
-    setEmailBusyForRow(row.id);
-    try {
-      const res = await fetch("/api/portal/send-resident-welcome", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify({ to: row.residentEmail, residentName: row.residentName, axisId: row.axisId }),
-      });
-      const data = (await res.json()) as { ok?: boolean; error?: string; mailtoHref?: string };
-      if (res.ok && data.ok) {
-        showToast("Account setup email sent.");
-        onEmailAccountSetup?.(row.residentEmail, row.residentName, row.axisId);
-        return;
-      }
-      if (typeof data.mailtoHref === "string") {
-        const { openMailtoHref } = await import("@/lib/resident-welcome-email");
-        openMailtoHref(data.mailtoHref);
-        showToast("Email provider not configured. Opened a draft in your mail app.");
-        return;
-      }
-      showToast(data.error ?? "Could not send account setup email.");
-    } catch {
-      showToast("Could not send account setup email.");
-    } finally {
-      setEmailBusyForRow(null);
-    }
   }
 
   async function sendLeaseSigningReminder(
@@ -639,10 +602,6 @@ export function ManagerLeasesPipelinePanel({
     const canEditDocument = leaseAllowsManagerDocumentEdits(row);
     const canEditGeneratedBody = leaseRowAllowsGeneratedBodyEdit(row);
     const showGenerate = canEditDocument;
-    const needsAccountEmail =
-      (row.status === "Manager Review" || row.status === "Draft") &&
-      !residentAccountEmails.has(row.residentEmail.trim().toLowerCase());
-
     const hasDocument = hasLeaseDocument(row);
     const sendBlockedReason = !residentAccountEmails.has(row.residentEmail.trim().toLowerCase())
       ? "Resident must create their PropLane resident account before you can send the lease."
@@ -650,7 +609,6 @@ export function ManagerLeasesPipelinePanel({
         ? "Generate or upload a lease document first."
         : sendGateBlockerForRender(row);
     const showSendToResident = row.status === "Manager Review" || row.status === "Draft";
-    const showDelete = row.status !== "Fully Signed";
     const showMoveToReview = row.status === "Resident Signature Pending";
     const showManagerSign = !row.managerSignature && residentHasSignedLease(row);
     const showSigningReminder = row.status === "Resident Signature Pending";
@@ -658,17 +616,9 @@ export function ManagerLeasesPipelinePanel({
     const showReviewImport = Boolean(row.uploadedLeaseParse);
     const importNeedsReview = leaseNeedsUploadedLeaseReviewAction(row);
     const reviewImportLabel = importNeedsReview ? "Review import" : "Imported lease";
-    const uploadLabel = pendingRowId === row.id ? "Uploading…" : hasDocument ? "Upload" : "Upload PDF";
     const regenerateLabel =
       generatingRowId === row.id ? "Generating…" : hasLeaseDocument(row) ? "Regenerate" : "Generate lease";
     const actionBtnClass = RESIDENT_DOCUMENTS_DETAIL_FOOTER_BTN;
-    const deleteBtnClass = `${actionBtnClass} border-rose-200 text-rose-800 hover:bg-[var(--status-overdue-bg)] portal-danger-outline`;
-
-    const triggerUpload = () => {
-      // eslint-disable-next-line react-hooks/refs
-      uploadTargetRowIdRef.current = row.id;
-      uploadRef.current?.click();
-    };
 
     const showEditMenu =
       canEditGeneratedBody || hasDocument || showGenerate || canEditDocument || showReviewImport;
@@ -731,91 +681,69 @@ export function ManagerLeasesPipelinePanel({
       actions.push({
         id: "edit",
         button: (
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button
-                type="button"
-                variant="outline"
-                className={actionBtnClass}
-                data-attr="lease-edit-menu"
-              >
-                Edit
-                <ChevronDown className="ml-1 h-4 w-4 shrink-0 opacity-60" aria-hidden />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent side="top" align="start" className="z-[60] min-w-[12rem]" backdrop>
-              {canEditGeneratedBody ? (
-                <DropdownMenuItem data-attr="lease-edit" onSelect={() => setEditLeaseRowId(row.id)}>
-                  Edit document
-                </DropdownMenuItem>
-              ) : null}
-              {hasDocument ? (
-                <DropdownMenuItem data-attr="lease-download" onSelect={() => onDownload(row)}>
-                  Download
-                </DropdownMenuItem>
-              ) : null}
-              {showGenerate ? (
-                <DropdownMenuItem
-                  data-attr="lease-generate"
-                  disabled={generatingRowId === row.id || !generation.ok}
-                  onSelect={() => runGenerateLease(row)}
-                >
-                  {regenerateLabel}
-                </DropdownMenuItem>
-              ) : null}
-              {canEditDocument ? (
-                <DropdownMenuItem
-                  data-attr="lease-upload"
-                  disabled={pendingRowId === row.id}
-                  onSelect={triggerUpload}
-                >
-                  {uploadLabel}
-                </DropdownMenuItem>
-              ) : null}
-              {showReviewImport ? (
-                <DropdownMenuItem data-attr="lease-review-import" onSelect={() => setImportReviewRowId(row.id)}>
-                  {reviewImportLabel}
-                </DropdownMenuItem>
-              ) : null}
-            </DropdownMenuContent>
-          </DropdownMenu>
+          <Button
+            type="button"
+            variant="outline"
+            className={actionBtnClass}
+            data-attr="lease-edit"
+            onClick={() => setEditLeaseRowId(row.id)}
+          >
+            Edit
+          </Button>
         ),
         menuItem: (
-          <>
-            {canEditGeneratedBody ? (
-              <DropdownMenuItem data-attr="lease-edit" onSelect={() => setEditLeaseRowId(row.id)}>
-                Edit document
-              </DropdownMenuItem>
-            ) : null}
-            {hasDocument ? (
-              <DropdownMenuItem data-attr="lease-download" onSelect={() => onDownload(row)}>
-                Download
-              </DropdownMenuItem>
-            ) : null}
-            {showGenerate ? (
-              <DropdownMenuItem
-                data-attr="lease-generate"
-                disabled={generatingRowId === row.id || !generation.ok}
-                onSelect={() => runGenerateLease(row)}
-              >
-                {regenerateLabel}
-              </DropdownMenuItem>
-            ) : null}
-            {canEditDocument ? (
-              <DropdownMenuItem
-                data-attr="lease-upload"
-                disabled={pendingRowId === row.id}
-                onSelect={triggerUpload}
-              >
-                {uploadLabel}
-              </DropdownMenuItem>
-            ) : null}
-            {showReviewImport ? (
-              <DropdownMenuItem data-attr="lease-review-import" onSelect={() => setImportReviewRowId(row.id)}>
-                {reviewImportLabel}
-              </DropdownMenuItem>
-            ) : null}
-          </>
+          <DropdownMenuItem data-attr="lease-edit" onSelect={() => setEditLeaseRowId(row.id)}>
+            Edit
+          </DropdownMenuItem>
+        ),
+      });
+    }
+
+    if (showGenerate) {
+      actions.push({
+        id: "generate",
+        button: (
+          <Button
+            type="button"
+            variant="outline"
+            className={actionBtnClass}
+            data-attr="lease-generate"
+            disabled={generatingRowId === row.id || !generation.ok}
+            onClick={() => runGenerateLease(row)}
+          >
+            {regenerateLabel}
+          </Button>
+        ),
+        menuItem: (
+          <DropdownMenuItem
+            data-attr="lease-generate"
+            disabled={generatingRowId === row.id || !generation.ok}
+            onSelect={() => runGenerateLease(row)}
+          >
+            {regenerateLabel}
+          </DropdownMenuItem>
+        ),
+      });
+    }
+
+    if (showReviewImport) {
+      actions.push({
+        id: "review-import",
+        button: (
+          <Button
+            type="button"
+            variant="outline"
+            className={actionBtnClass}
+            data-attr="lease-review-import"
+            onClick={() => setImportReviewRowId(row.id)}
+          >
+            {reviewImportLabel}
+          </Button>
+        ),
+        menuItem: (
+          <DropdownMenuItem data-attr="lease-review-import" onSelect={() => setImportReviewRowId(row.id)}>
+            {reviewImportLabel}
+          </DropdownMenuItem>
         ),
       });
     }
@@ -927,54 +855,6 @@ export function ManagerLeasesPipelinePanel({
           </Button>
         ),
         menuItem: <DropdownMenuItem onSelect={() => setAmendLeaseRow(row)}>Extend move-out</DropdownMenuItem>,
-      });
-    }
-
-    if (needsAccountEmail) {
-      actions.push({
-        id: "email-setup",
-        button: (
-          <Button
-            type="button"
-            variant="outline"
-            className={`${actionBtnClass} bg-primary/[0.06] text-primary hover:bg-primary/[0.12]`}
-            disabled={emailBusyForRow === row.id}
-            onClick={() => sendAccountEmail(row)}
-          >
-            {emailBusyForRow === row.id ? "Sending…" : "Email setup"}
-          </Button>
-        ),
-        menuItem: (
-          <DropdownMenuItem disabled={emailBusyForRow === row.id} onSelect={() => void sendAccountEmail(row)}>
-            {emailBusyForRow === row.id ? "Sending…" : "Email setup"}
-          </DropdownMenuItem>
-        ),
-      });
-    }
-
-    if (showDelete) {
-      actions.push({
-        id: "delete",
-        button: (
-          <Button
-            type="button"
-            variant="outline"
-            className={deleteBtnClass}
-            data-attr="lease-delete"
-            onClick={() => onDeleteLease(row)}
-          >
-            Delete
-          </Button>
-        ),
-        menuItem: (
-          <DropdownMenuItem
-            className="text-rose-800 focus:text-rose-800"
-            data-attr="lease-delete"
-            onSelect={() => onDeleteLease(row)}
-          >
-            Delete
-          </DropdownMenuItem>
-        ),
       });
     }
 
@@ -1173,6 +1053,26 @@ export function ManagerLeasesPipelinePanel({
           row={editLeaseRow}
           onClose={() => setEditLeaseRowId(null)}
           onDone={() => void syncLeasePipelineFromServer(managerUserId, { force: true })}
+          showDownload={hasLeaseDocument(editLeaseRow)}
+          onDownload={() => onDownload(editLeaseRow)}
+          showUpload={leaseAllowsManagerDocumentEdits(editLeaseRow)}
+          onUpload={() => {
+            uploadTargetRowIdRef.current = editLeaseRow.id;
+            uploadRef.current?.click();
+          }}
+          uploadLabel={
+            pendingRowId === editLeaseRow.id
+              ? "Uploading…"
+              : hasLeaseDocument(editLeaseRow)
+                ? "Upload"
+                : "Upload PDF"
+          }
+          uploadDisabled={pendingRowId === editLeaseRow.id}
+          showDelete={editLeaseRow.status !== "Fully Signed"}
+          onDelete={() => {
+            onDeleteLease(editLeaseRow);
+            setEditLeaseRowId(null);
+          }}
         />
       ) : null}
 

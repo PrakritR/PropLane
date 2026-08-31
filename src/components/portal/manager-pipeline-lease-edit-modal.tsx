@@ -30,7 +30,23 @@ import {
 import { leaseUsesAiGeneratedHtml } from "@/lib/lease-templates/types";
 import { stripDisclosureReviewFromLeaseHtml } from "@/lib/property-lease-document-display";
 import { useManagerUserId } from "@/hooks/use-manager-user-id";
+import { RESIDENT_DOCUMENTS_DETAIL_FOOTER_BTN } from "@/components/portal/portal-data-table";
 import { cn } from "@/lib/utils";
+
+type ManagerPipelineLeaseEditModalProps = {
+  open: boolean;
+  row: LeasePipelineRow;
+  onClose: () => void;
+  onDone: () => void;
+  showDownload?: boolean;
+  onDownload?: () => void;
+  showUpload?: boolean;
+  onUpload?: () => void;
+  uploadLabel?: string;
+  uploadDisabled?: boolean;
+  showDelete?: boolean;
+  onDelete?: () => void;
+};
 
 /** Resident / pipeline lease editor — same shell as the property Lease tab editor, but edits one lease packet. */
 export function ManagerPipelineLeaseEditModal({
@@ -38,12 +54,15 @@ export function ManagerPipelineLeaseEditModal({
   row,
   onClose,
   onDone,
-}: {
-  open: boolean;
-  row: LeasePipelineRow;
-  onClose: () => void;
-  onDone: () => void;
-}) {
+  showDownload = false,
+  onDownload,
+  showUpload = false,
+  onUpload,
+  uploadLabel = "Upload",
+  uploadDisabled = false,
+  showDelete = false,
+  onDelete,
+}: ManagerPipelineLeaseEditModalProps) {
   const { showToast } = useAppUi();
   const { userId: managerUserId } = useManagerUserId();
   const [htmlOverride, setHtmlOverride] = useState("");
@@ -121,6 +140,14 @@ export function ManagerPipelineLeaseEditModal({
     commitSave();
   };
 
+  const showSave = canEdit && Boolean(editableHtml);
+  const hasDocumentActions = showDownload || showUpload || showDelete;
+  const footerBtnClass = cn(RESIDENT_DOCUMENTS_DETAIL_FOOTER_BTN, "rounded-full");
+  const deleteBtnClass = cn(
+    footerBtnClass,
+    "border-rose-200 text-rose-800 hover:bg-[var(--status-overdue-bg)] portal-danger-outline",
+  );
+
   return (
     <Modal
       open={open}
@@ -136,18 +163,60 @@ export function ManagerPipelineLeaseEditModal({
       assistantEditHint="Type in chat to edit the lease — changes apply after you confirm."
       assistantStorageScopeKey={`Lease packet edit · ${row.id}`}
       footer={
-        canEdit && editableHtml ? (
-          <ModalFooter className="w-full">
-            <Button
-              type="button"
-              variant="primary"
-              className="ml-auto rounded-full"
-              disabled={saving || (usesAiHtml && !reviewAcknowledged)}
-              onClick={save}
-              data-attr="resident-lease-edit-save"
-            >
-              {saving ? "Saving…" : "Save"}
-            </Button>
+        showSave || hasDocumentActions ? (
+          <ModalFooter className="flex w-full flex-wrap items-center justify-between gap-2">
+            {hasDocumentActions ? (
+              <div className="flex flex-wrap items-center gap-2">
+                {showDelete ? (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className={deleteBtnClass}
+                    data-attr="resident-lease-delete"
+                    onClick={onDelete}
+                  >
+                    Delete
+                  </Button>
+                ) : null}
+                {showDownload ? (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className={footerBtnClass}
+                    data-attr="resident-lease-download"
+                    onClick={onDownload}
+                  >
+                    Download
+                  </Button>
+                ) : null}
+                {showUpload ? (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className={footerBtnClass}
+                    data-attr="resident-lease-upload"
+                    disabled={uploadDisabled}
+                    onClick={onUpload}
+                  >
+                    {uploadLabel}
+                  </Button>
+                ) : null}
+              </div>
+            ) : (
+              <span />
+            )}
+            {showSave ? (
+              <Button
+                type="button"
+                variant="primary"
+                className="ml-auto rounded-full"
+                disabled={saving || (usesAiHtml && !reviewAcknowledged)}
+                onClick={save}
+                data-attr="resident-lease-edit-save"
+              >
+                {saving ? "Saving…" : "Save"}
+              </Button>
+            ) : null}
           </ModalFooter>
         ) : null
       }

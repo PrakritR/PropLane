@@ -264,9 +264,6 @@ export function ManagerLeases({
           leaseId={leaseIdProp}
           listBasePath={basePath}
           onAddLease={() => setAddLeaseOpen(true)}
-          onEmailAccountSetup={(email) => {
-            setResidentAccountEmails((prev) => new Set([...prev, email.trim().toLowerCase()]));
-          }}
         />
         {modals}
       </>
@@ -325,9 +322,6 @@ export function ManagerLeases({
           leaseId={leaseIdProp}
           listBasePath={basePath}
           onAddLease={() => setAddLeaseOpen(true)}
-          onEmailAccountSetup={(email) => {
-            setResidentAccountEmails((prev) => new Set([...prev, email.trim().toLowerCase()]));
-          }}
         />
       </ManagerPortalPageShell>
       {modals}
