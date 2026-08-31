@@ -1,17 +1,13 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { BulkActionBar } from "@/components/ui/bulk-action-bar";
 import {
   DropdownMenuItem,
 } from "@/components/ui/dropdown-menu";
-import {
-  PortalAdaptiveActionRow,
-  type PortalAdaptiveAction,
-} from "@/components/portal/portal-adaptive-action-row";
+import type { PortalAdaptiveAction } from "@/components/portal/portal-adaptive-action-row";
 import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
 import { PortalDetailDestinationNav } from "@/components/portal/portal-detail-destination-nav";
 import { PropertyPreviewScopeNav } from "@/components/portal/property-preview-scope-nav";
@@ -29,7 +25,7 @@ import { ManagerPropertyTourPanel } from "@/components/portal/manager-property-t
 import { ConfirmDeleteModal } from "@/components/portal/confirm-delete-modal";
 import { ShareLeadLinkModal } from "@/components/portal/share-lead-link-modal";
 import { ManagerPortalSettingsModal } from "@/components/portal/manager-portal-settings-modal";
-import { PortalPageFooterActions, PortalSectionActionRow } from "@/components/portal/portal-section-action-row";
+import { PortalPageFooterActions } from "@/components/portal/portal-section-action-row";
 import { PortalPageChrome, PortalPageScrollBody } from "@/lib/portal-page-chrome-layout";
 import { cn } from "@/lib/utils";
 import { PORTAL_DETAIL_BTN } from "@/components/portal/portal-data-table";
@@ -53,7 +49,6 @@ import { PortalPropertyRecordRow } from "@/components/portal/portal-record-row";
 import { PortalDataTableEmpty } from "@/components/portal/portal-data-table";
 import { PORTAL_LIST_PAGE_BODY } from "@/components/portal/portal-inbox-ui";
 import { useManagerUserId } from "@/hooks/use-manager-user-id";
-import { usePortalRowSelection } from "@/hooks/use-portal-row-selection";
 import { useListingContactSmsPhone } from "@/hooks/use-listing-contact-sms-phone";
 import { isDemoModeActive, resolveManagerScopeUserId } from "@/lib/demo/demo-session";
 import {
@@ -84,7 +79,6 @@ import {
 import { isServerSyncOriginatedEvent } from "@/lib/property-pipeline-events";
 import { managerPropertyLimitMessage, managerTierPropertyLimitReached } from "@/lib/manager-access";
 import { isNativeRuntimeSync } from "@/lib/native/detect-native";
-import { PORTAL_BULK_BAR_BTN } from "@/lib/portal-bulk-bar";
 
 function propertyIdIsLinked(pid: string, linkedIds: Set<string>): boolean {
   if (!pid) return false;
@@ -381,137 +375,6 @@ function ManagerPropertyInlineDetails({
     applicationAddHandlerRef.current = handler;
   }, []);
 
-  const propertyTopHeaderActions = useMemo(
-    () => (
-      <PortalSectionActionRow variant="header">
-        {bucket === 2 && listingId ? (
-          <>
-            <Button
-              type="button"
-              variant="outline"
-              className={sectionHeaderBtn}
-              data-attr="listing-send-listing"
-              onClick={(e) => {
-                e.stopPropagation();
-                onSendToProspect?.(listingId);
-              }}
-            >
-              Send listing
-            </Button>
-            <Button
-              type="button"
-              variant="outline"
-              className={sectionHeaderBtn}
-              data-attr="listing-unlist"
-              onClick={(e) => {
-                e.stopPropagation();
-                setPendingDestructiveAction("unlist");
-              }}
-            >
-              Unlist
-            </Button>
-          </>
-        ) : null}
-
-        {bucket === 3 ? (
-          <>
-            <Button
-              type="button"
-              variant="outline"
-              className={sectionHeaderBtn}
-              data-attr="listing-relist"
-              onClick={(e) => {
-                e.stopPropagation();
-                if (!skuLoaded) {
-                  showToast("Loading subscription…");
-                  return;
-                }
-                if (managerTierPropertyLimitReached(skuTier, propCount)) {
-                  showToast(managerPropertyLimitMessage(skuTier, { omitUpgradeCta: isNativeRuntimeSync() }));
-                  return;
-                }
-                deferCatalogMutation(() => {
-                  if (!row) return;
-                  const id = listAdminRow(row, managerUserId);
-                  if (!id) {
-                    showToast("Could not relist.");
-                    return;
-                  }
-                  showToast("Listing is live again.");
-                  onUpdated();
-                });
-              }}
-            >
-              Relist property
-            </Button>
-            {canDeleteAction ? (
-              <Button
-                type="button"
-                variant="outline"
-                className={dangerBtnClass}
-                data-attr="listing-delete"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setPendingDestructiveAction("delete-queue");
-                }}
-              >
-                Delete from queue
-              </Button>
-            ) : null}
-          </>
-        ) : null}
-
-        {bucket === 5 ? (
-          <>
-            <Button
-              type="button"
-              variant="primary"
-              className={sectionHeaderBtn}
-              data-attr="draft-continue-editing"
-              onClick={(e) => {
-                e.stopPropagation();
-                if (!skuLoaded) {
-                  showToast("Loading subscription…");
-                  return;
-                }
-                setDraftEditorOpen(true);
-              }}
-            >
-              Continue editing
-            </Button>
-            <Button
-              type="button"
-              variant="outline"
-              className={dangerBtnClass}
-              data-attr="draft-delete"
-              onClick={(e) => {
-                e.stopPropagation();
-                setPendingDestructiveAction("delete-draft");
-              }}
-            >
-              Delete draft
-            </Button>
-          </>
-        ) : null}
-      </PortalSectionActionRow>
-    ),
-    [
-      bucket,
-      listingId,
-      canDeleteAction,
-      sectionHeaderBtn,
-      dangerBtnClass,
-      onSendToProspect,
-      row,
-      managerUserId,
-      showToast,
-      onUpdated,
-      skuLoaded,
-      skuTier,
-      propCount,
-    ],
-  );
-
   const confirmDestructiveAction = () => {
     if (!row || !pendingDestructiveAction) return;
     const action = pendingDestructiveAction;
@@ -680,158 +543,258 @@ function ManagerPropertyInlineDetails({
     [detailSectionTabs, propertiesBase, propertyRouteKey, stage],
   );
 
-  const previewHasToolbar = bucket === 2 || bucket === 3 || bucket === 5;
-
   const propertyTabFooterActions = useMemo(() => {
-    if (activeDetailTab === "preview") {
-      if (bucket === 2 && canEditAction) {
-        return (
-          <Button
-            type="button"
-            variant="outline"
-            className={PORTAL_DETAIL_BTN}
-            data-attr="listing-edit-full"
-            onClick={() => openFullListingEditor()}
-          >
-            Edit listing
-          </Button>
-        );
-      }
-      if (bucket === 3 && canEditListing && canEditAction) {
-        return (
-          <Button
-            type="button"
-            variant="outline"
-            className={PORTAL_DETAIL_BTN}
-            data-attr="listing-edit-full"
-            onClick={() => openFullListingEditor()}
-          >
-            Edit listing
-          </Button>
-        );
-      }
-      return null;
-    }
-    if (
-      (activeDetailTab === "application" || activeDetailTab === "lease") &&
-      bucket !== 3 &&
-      bucket !== 5
-    ) {
-      const openOnboard = () => setResidentOnboardOpen(true);
+    if (isPreviewSection) {
       const actions: PortalAdaptiveAction[] = [];
 
-      if (activeDetailTab === "application") {
+      if (bucket === 2 && listingId) {
+        if (canEditAction) {
+          actions.push({
+            id: "edit-listing",
+            node: (
+              <Button
+                type="button"
+                variant="primary"
+                className={PORTAL_DETAIL_BTN}
+                data-attr="listing-edit-full"
+                onClick={() => openFullListingEditor()}
+              >
+                Edit listing
+              </Button>
+            ),
+            menuItem: (
+              <DropdownMenuItem
+                data-attr="listing-edit-full"
+                onSelect={() => openFullListingEditor()}
+              >
+                Edit listing
+              </DropdownMenuItem>
+            ),
+          });
+        }
         actions.push({
-          id: "add-application",
+          id: "send-listing",
           node: (
             <Button
               type="button"
               variant="outline"
               className={PORTAL_DETAIL_BTN}
-              data-attr="property-application-add-footer"
-              onClick={openOnboard}
+              data-attr="listing-send-listing"
+              onClick={() => onSendToProspect?.(listingId)}
             >
-              Add application
+              Send listing
             </Button>
           ),
           menuItem: (
             <DropdownMenuItem
-              data-attr="property-application-add-footer"
-              onSelect={openOnboard}
+              data-attr="listing-send-listing"
+              onSelect={() => onSendToProspect?.(listingId)}
             >
-              Add application
+              Send listing
             </DropdownMenuItem>
           ),
         });
-        if (sharePropertyId) {
+        actions.push({
+          id: "unlist",
+          node: (
+            <Button
+              type="button"
+              variant="outline"
+              className={PORTAL_DETAIL_BTN}
+              data-attr="listing-unlist"
+              onClick={() => setPendingDestructiveAction("unlist")}
+            >
+              Unlist
+            </Button>
+          ),
+          menuItem: (
+            <DropdownMenuItem
+              data-attr="listing-unlist"
+              onSelect={() => setPendingDestructiveAction("unlist")}
+            >
+              Unlist
+            </DropdownMenuItem>
+          ),
+        });
+      }
+
+      if (bucket === 3) {
+        actions.push({
+          id: "relist",
+          node: (
+            <Button
+              type="button"
+              variant="primary"
+              className={PORTAL_DETAIL_BTN}
+              data-attr="listing-relist"
+              onClick={() => {
+                if (!skuLoaded) {
+                  showToast("Loading subscription…");
+                  return;
+                }
+                if (managerTierPropertyLimitReached(skuTier, propCount)) {
+                  showToast(managerPropertyLimitMessage(skuTier, { omitUpgradeCta: isNativeRuntimeSync() }));
+                  return;
+                }
+                deferCatalogMutation(() => {
+                  if (!row) return;
+                  const id = listAdminRow(row, managerUserId);
+                  if (!id) {
+                    showToast("Could not relist.");
+                    return;
+                  }
+                  showToast("Listing is live again.");
+                  onUpdated();
+                });
+              }}
+            >
+              Relist property
+            </Button>
+          ),
+          menuItem: (
+            <DropdownMenuItem
+              data-attr="listing-relist"
+              onSelect={() => {
+                if (!skuLoaded) {
+                  showToast("Loading subscription…");
+                  return;
+                }
+                if (managerTierPropertyLimitReached(skuTier, propCount)) {
+                  showToast(managerPropertyLimitMessage(skuTier, { omitUpgradeCta: isNativeRuntimeSync() }));
+                  return;
+                }
+                deferCatalogMutation(() => {
+                  if (!row) return;
+                  const id = listAdminRow(row, managerUserId);
+                  if (!id) {
+                    showToast("Could not relist.");
+                    return;
+                  }
+                  showToast("Listing is live again.");
+                  onUpdated();
+                });
+              }}
+            >
+              Relist property
+            </DropdownMenuItem>
+          ),
+        });
+        if (canEditListing && canEditAction) {
           actions.push({
-            id: "send-application",
+            id: "edit-listing",
             node: (
               <Button
                 type="button"
                 variant="outline"
                 className={PORTAL_DETAIL_BTN}
-                data-attr="property-application-send-footer"
-                onClick={() => setShareApplicationOpen(true)}
+                data-attr="listing-edit-full"
+                onClick={() => openFullListingEditor()}
               >
-                Send application
+                Edit listing
               </Button>
             ),
             menuItem: (
               <DropdownMenuItem
-                data-attr="property-application-send-footer"
-                onSelect={() => setShareApplicationOpen(true)}
+                data-attr="listing-edit-full"
+                onSelect={() => openFullListingEditor()}
               >
-                Send application
+                Edit listing
+              </DropdownMenuItem>
+            ),
+          });
+        }
+        if (canDeleteAction) {
+          actions.push({
+            id: "delete-queue",
+            node: (
+              <Button
+                type="button"
+                variant="outline"
+                className={dangerBtnClass}
+                data-attr="listing-delete"
+                onClick={() => setPendingDestructiveAction("delete-queue")}
+              >
+                Delete from queue
+              </Button>
+            ),
+            menuItem: (
+              <DropdownMenuItem
+                data-attr="listing-delete"
+                onSelect={() => setPendingDestructiveAction("delete-queue")}
+              >
+                Delete from queue
               </DropdownMenuItem>
             ),
           });
         }
       }
 
-      if (activeDetailTab === "lease") {
+      if (bucket === 5) {
         actions.push({
-          id: "add-lease",
+          id: "continue-draft",
           node: (
             <Button
               type="button"
-              variant="outline"
+              variant="primary"
               className={PORTAL_DETAIL_BTN}
-              data-attr="property-lease-add-footer"
-              onClick={openOnboard}
+              data-attr="draft-continue-editing"
+              onClick={() => {
+                if (!skuLoaded) {
+                  showToast("Loading subscription…");
+                  return;
+                }
+                setDraftEditorOpen(true);
+              }}
             >
-              Add lease
+              Continue editing
             </Button>
           ),
           menuItem: (
             <DropdownMenuItem
-              data-attr="property-lease-add-footer"
-              onSelect={openOnboard}
+              data-attr="draft-continue-editing"
+              onSelect={() => {
+                if (!skuLoaded) {
+                  showToast("Loading subscription…");
+                  return;
+                }
+                setDraftEditorOpen(true);
+              }}
             >
-              Add lease
+              Continue editing
+            </DropdownMenuItem>
+          ),
+        });
+        actions.push({
+          id: "delete-draft",
+          node: (
+            <Button
+              type="button"
+              variant="outline"
+              className={dangerBtnClass}
+              data-attr="draft-delete"
+              onClick={() => setPendingDestructiveAction("delete-draft")}
+            >
+              Delete draft
+            </Button>
+          ),
+          menuItem: (
+            <DropdownMenuItem
+              data-attr="draft-delete"
+              onSelect={() => setPendingDestructiveAction("delete-draft")}
+            >
+              Delete draft
             </DropdownMenuItem>
           ),
         });
       }
 
-      actions.push({
-        id: "add-resident",
-        node: (
-          <Button
-            type="button"
-            variant="primary"
-            className={PORTAL_DETAIL_BTN}
-            data-attr={
-              activeDetailTab === "lease"
-                ? "property-resident-onboard-footer-lease-tab"
-                : "property-resident-onboard-footer"
-            }
-            onClick={openOnboard}
-          >
-            Add resident
-          </Button>
-        ),
-        menuItem: (
-          <DropdownMenuItem
-            data-attr={
-              activeDetailTab === "lease"
-                ? "property-resident-onboard-footer-lease-tab"
-                : "property-resident-onboard-footer"
-            }
-            onSelect={openOnboard}
-          >
-            Add resident
-          </DropdownMenuItem>
-        ),
-      });
-
+      if (actions.length === 0) return null;
       return (
-        <PortalAdaptiveActionRow
-          actions={actions}
-          moreAriaLabel="More resident actions"
-          moreDataAttr="property-resident-footer-more"
-          gapPx={8}
-        />
+        <div className="flex w-full min-w-0 flex-nowrap items-stretch gap-2 [&_button]:min-w-0 [&_button]:flex-1 [&_button]:basis-0">
+          {actions.map((action) => (
+            <Fragment key={action.id}>{action.node}</Fragment>
+          ))}
+        </div>
       );
     }
     if (activeDetailTab === "requests" && bucket === 2 && stablePropertyId) {
@@ -862,14 +825,25 @@ function ManagerPropertyInlineDetails({
     }
     return null;
   }, [
+    isPreviewSection,
     activeDetailTab,
     bucket,
     listingId,
+    row,
+    managerUserId,
     stablePropertyId,
     canEditAction,
     canEditListing,
+    canDeleteAction,
     sharePropertyId,
     openFullListingEditor,
+    onSendToProspect,
+    showToast,
+    onUpdated,
+    skuLoaded,
+    skuTier,
+    propCount,
+    dangerBtnClass,
   ]);
 
   // Every hook above runs unconditionally. This guard used to sit ~470 lines earlier, so a
@@ -890,24 +864,12 @@ function ManagerPropertyInlineDetails({
             activeId={activeTopNavId}
             ariaLabel="Property sections"
             denseEqualRow
+            appearance="command"
           />
-          {previewHasToolbar ? (
-            <div
-              className="border-t border-border px-3 py-2"
-              data-attr="property-detail-toolbar-actions"
-            >
-              {propertyTopHeaderActions}
-            </div>
-          ) : null}
         </div>
       </PortalPageChrome>
 
-      <PortalPageScrollBody
-        className={cn(
-          "min-w-0 max-w-full",
-          !isPreviewSection || activeDetailTab !== "preview" ? "pt-3" : undefined,
-        )}
-      >
+      <PortalPageScrollBody className="min-w-0 max-w-full pt-3">
       {isPreviewSection && detailsSubNavItems.length > 1 ? (
         <PropertyPreviewScopeNav
           items={detailsSubNavItems.map((item) => ({
@@ -1118,11 +1080,6 @@ export function ManagerHousePropertiesPanel({
   const { userId: managerUserId, ready: authReady } = useManagerUserId();
   const scopeUserId = resolveManagerScopeUserId(managerUserId);
   const [tick, setTick] = useState(0);
-  const { selectedIds, setSelectedIds, toggleSelected } = usePortalRowSelection(activeStage);
-  const [pendingBulkDestructive, setPendingBulkDestructive] = useState<"unlist" | "delete-queue" | null>(
-    null,
-  );
-  const [bulkDestructiveBusy, setBulkDestructiveBusy] = useState(false);
   const handlePropertyUpdated = useCallback(() => setTick((t) => t + 1), []);
   const handleAfterUnlist = useCallback(
     (propertyKey: string) => {
@@ -1196,188 +1153,8 @@ export function ManagerHousePropertiesPanel({
   }, [tick, scopeUserId, activeStage]);
 
   const propertyRowKey = (row: AdminPropertyRow) => row.adminRefId + (row.listingId ?? "");
-
-  const selectedPropertyEntries = useMemo(
-    () => rows.filter((entry) => selectedIds.has(propertyRowKey(entry.row))),
-    [rows, selectedIds],
-  );
-
-  const canBulkEdit = selectedPropertyEntries.length === 1;
-
-  const canBulkShareProperties =
-    Boolean(onSendToProspect) && activeStage === "listed" && canBulkEdit;
-
-  const canBulkUnlist =
-    activeStage === "listed" &&
-    selectedPropertyEntries.length > 0 &&
-    selectedPropertyEntries.every(
-      ({ sourceBucket, row }) => sourceBucket === 2 && Boolean(row.listingId?.trim()),
-    );
-
-  const canBulkRelist =
-    activeStage === "unlisted" &&
-    selectedPropertyEntries.length > 0 &&
-    selectedPropertyEntries.every(({ sourceBucket }) => sourceBucket === 3);
-
-  const canBulkDeleteQueue =
-    activeStage === "unlisted" &&
-    selectedPropertyEntries.length > 0 &&
-    selectedPropertyEntries.every((entry) => propertyRowDeleteFromQueueAllowed(managerUserId, entry));
-
-  const canBulkDeleteDrafts =
-    activeStage === "drafts" &&
-    selectedPropertyEntries.length > 0 &&
-    selectedPropertyEntries.every(({ sourceBucket }) => sourceBucket === 5);
-
   const propertyKeyFromRow = (row: AdminPropertyRow) =>
     row.listingId?.trim() || row.adminRefId.trim();
-
-  const openSelectedPropertyDetail = useCallback(() => {
-    const first = selectedPropertyEntries[0];
-    if (!first) return;
-    router.push(
-      propertyDetailHref(
-        propertiesBase,
-        activeStage,
-        propertyKeyFromRow(first.row),
-        detailTabProp ?? "preview",
-      ),
-      { scroll: false },
-    );
-    setSelectedIds(new Set());
-  }, [
-    activeStage,
-    detailTabProp,
-    propertiesBase,
-    router,
-    selectedPropertyEntries,
-    setSelectedIds,
-  ]);
-
-  const runBulkRelist = useCallback(() => {
-    if (!canBulkRelist) return;
-    if (!skuLoaded) {
-      showToast("Loading subscription…");
-      return;
-    }
-    if (managerTierPropertyLimitReached(skuTier, propCount)) {
-      showToast(managerPropertyLimitMessage(skuTier, { omitUpgradeCta: isNativeRuntimeSync() }));
-      return;
-    }
-    deferCatalogMutation(() => {
-      let relisted = 0;
-      for (const { row } of selectedPropertyEntries) {
-        const id = listAdminRow(row, managerUserId);
-        if (id) relisted += 1;
-      }
-      setSelectedIds(new Set());
-      if (relisted === 0) {
-        showToast("Could not relist.");
-        return;
-      }
-      handlePropertyUpdated();
-      showToast(
-        relisted === 1 ? "Listing is live again." : `${relisted} properties relisted.`,
-      );
-    });
-  }, [
-    canBulkRelist,
-    handlePropertyUpdated,
-    managerUserId,
-    propCount,
-    selectedPropertyEntries,
-    setSelectedIds,
-    showToast,
-    skuLoaded,
-    skuTier,
-  ]);
-
-  const confirmBulkDestructive = useCallback(() => {
-    if (!pendingBulkDestructive || selectedPropertyEntries.length === 0) return;
-    const action = pendingBulkDestructive;
-    setBulkDestructiveBusy(true);
-    deferCatalogMutation(() => {
-      if (action === "delete-queue") {
-        let removed = 0;
-        for (const { row } of selectedPropertyEntries) {
-          if (deleteUnlistedManagerProperty(row.adminRefId, managerUserId)) removed += 1;
-        }
-        setBulkDestructiveBusy(false);
-        setPendingBulkDestructive(null);
-        setSelectedIds(new Set());
-        if (removed === 0) {
-          showToast("Action could not be completed.");
-          return;
-        }
-        handlePropertyUpdated();
-        showToast(
-          removed === 1 ? "Removed from queue." : `${removed} properties removed from queue.`,
-        );
-        return;
-      }
-      if (action === "unlist") {
-        let unlisted = 0;
-        let lastPropertyKey: string | null = null;
-        for (const { row } of selectedPropertyEntries) {
-          const listingId = row.listingId?.trim();
-          if (!listingId) continue;
-          if (unlistManagerListing(listingId, managerUserId)) {
-            unlisted += 1;
-            lastPropertyKey = listingId || row.adminRefId.trim();
-          }
-        }
-        setBulkDestructiveBusy(false);
-        setPendingBulkDestructive(null);
-        setSelectedIds(new Set());
-        if (unlisted === 0) {
-          showToast("Could not unlist.");
-          return;
-        }
-        handlePropertyUpdated();
-        showToast(unlisted === 1 ? "Listing unlisted." : `${unlisted} listings unlisted.`);
-        if (lastPropertyKey && unlisted === 1) {
-          handleAfterUnlist(lastPropertyKey);
-        } else if (unlisted > 1) {
-          onStageChange("unlisted");
-          router.push(propertyListHref(propertiesBase, "unlisted"), { scroll: false });
-        }
-      }
-    });
-  }, [
-    handleAfterUnlist,
-    handlePropertyUpdated,
-    managerUserId,
-    onStageChange,
-    pendingBulkDestructive,
-    propertiesBase,
-    router,
-    selectedPropertyEntries,
-    setSelectedIds,
-    showToast,
-  ]);
-
-  const bulkDestructiveModalCopy =
-    pendingBulkDestructive === "delete-queue"
-      ? {
-          title: "Delete from queue",
-          description:
-            selectedPropertyEntries.length === 1
-              ? `Remove ${managerPropertyRowTitle(selectedPropertyEntries[0]!.row, selectedPropertyEntries[0]!.sourceBucket)} from your unlisted queue permanently?`
-              : `Remove ${selectedPropertyEntries.length} properties from your unlisted queue permanently?`,
-          confirmLabel: "Delete from queue",
-          dataAttr: "properties-bulk-delete-queue-confirm",
-        }
-      : pendingBulkDestructive === "unlist"
-        ? {
-            title: selectedPropertyEntries.length === 1 ? "Unlist property" : "Unlist properties",
-            description:
-              selectedPropertyEntries.length === 1
-                ? `Unlist ${managerPropertyRowTitle(selectedPropertyEntries[0]!.row, selectedPropertyEntries[0]!.sourceBucket)}? It will be removed from the public listing and moved to your unlisted queue.`
-                : `Unlist ${selectedPropertyEntries.length} properties? They will be removed from public listings and moved to your unlisted queue.`,
-            confirmLabel: "Unlist",
-            dataAttr: "properties-bulk-unlist-confirm",
-          }
-        : null;
 
   const routePropertyEntry = useMemo(() => {
     if (!propertyKeyProp) return null;
@@ -1469,8 +1246,6 @@ export function ManagerHousePropertiesPanel({
                     </Badge>
                   ) : undefined
                 }
-                checked={selectedIds.has(rowKey)}
-                onSelectedChange={() => toggleSelected(rowKey)}
                 onOpen={() => {
                   const routeKey = propertyKeyFromRow(row);
                   router.push(
@@ -1489,118 +1264,6 @@ export function ManagerHousePropertiesPanel({
           })}
         </div>
       )}
-      {selectedIds.size > 0 ? (
-        <BulkActionBar count={selectedIds.size} hideCount variant="payments">
-          <div className="flex min-w-0 flex-wrap items-center justify-start gap-2">
-            {canBulkEdit ? (
-              <Button
-                type="button"
-                variant="outline"
-                className={PORTAL_BULK_BAR_BTN}
-                data-attr="properties-bulk-edit"
-                onClick={openSelectedPropertyDetail}
-              >
-                Edit
-              </Button>
-            ) : null}
-            {canBulkShareProperties ? (
-              <Button
-                type="button"
-                variant="outline"
-                className={PORTAL_BULK_BAR_BTN}
-                data-attr="properties-bulk-share"
-                onClick={() => {
-                  const first = selectedPropertyEntries[0];
-                  if (!first || !onSendToProspect) return;
-                  onSendToProspect(propertyKeyFromRow(first.row));
-                  setSelectedIds(new Set());
-                }}
-              >
-                Share
-              </Button>
-            ) : null}
-            {canBulkUnlist ? (
-              <Button
-                type="button"
-                variant="outline"
-                className={PORTAL_BULK_BAR_BTN}
-                data-attr="properties-bulk-unlist"
-                onClick={() => setPendingBulkDestructive("unlist")}
-              >
-                Unlist
-              </Button>
-            ) : null}
-            {canBulkRelist ? (
-              <Button
-                type="button"
-                variant="outline"
-                className={PORTAL_BULK_BAR_BTN}
-                data-attr="properties-bulk-relist"
-                onClick={runBulkRelist}
-              >
-                Relist
-              </Button>
-            ) : null}
-            {canBulkDeleteQueue ? (
-              <Button
-                type="button"
-                variant="outline"
-                className={`${PORTAL_BULK_BAR_BTN} text-rose-800`}
-                data-attr="properties-bulk-delete-queue"
-                onClick={() => setPendingBulkDestructive("delete-queue")}
-              >
-                Delete
-              </Button>
-            ) : null}
-            {canBulkDeleteDrafts ? (
-              <Button
-                type="button"
-                variant="outline"
-                className={`${PORTAL_BULK_BAR_BTN} text-rose-800`}
-                data-attr="properties-bulk-delete-draft"
-                onClick={() => {
-                  if (
-                    !window.confirm(
-                      `Delete ${selectedPropertyEntries.length} draft${selectedPropertyEntries.length === 1 ? "" : "s"}?`,
-                    )
-                  ) {
-                    return;
-                  }
-                  void (async () => {
-                    for (const { row } of selectedPropertyEntries) {
-                      await deleteManagerPropertyDraft(row.adminRefId, scopeUserId ?? undefined);
-                    }
-                    setSelectedIds(new Set());
-                    handlePropertyUpdated();
-                    showToast(
-                      selectedPropertyEntries.length === 1
-                        ? "Draft deleted."
-                        : `${selectedPropertyEntries.length} drafts deleted.`,
-                    );
-                  })();
-                }}
-              >
-                Delete draft
-              </Button>
-            ) : null}
-          </div>
-        </BulkActionBar>
-      ) : null}
-      {bulkDestructiveModalCopy ? (
-        <ConfirmDeleteModal
-          open={pendingBulkDestructive !== null}
-          title={bulkDestructiveModalCopy.title}
-          description={bulkDestructiveModalCopy.description}
-          confirmLabel={bulkDestructiveModalCopy.confirmLabel}
-          dataAttr={bulkDestructiveModalCopy.dataAttr}
-          busy={bulkDestructiveBusy}
-          onClose={() => {
-            if (bulkDestructiveBusy) return;
-            setPendingBulkDestructive(null);
-          }}
-          onConfirm={confirmBulkDestructive}
-        />
-      ) : null}
     </>
   );
 }

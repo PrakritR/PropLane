@@ -47,17 +47,20 @@ import { formatFriendlyReminderSchedule } from "@/lib/payment-reminder-presets";
 import { ApplicationFilterSortFields } from "@/components/portal/application-filter-sort-fields";
 import { PortalFormSingleSelect } from "@/components/portal/filter-field-lists";
 import { PortalFilterSortSheet, portalFilterActiveCount } from "@/components/portal/portal-filter-sort-sheet";
-import { PORTAL_PROPERTY_FILTER_SHEET_CLASS } from "@/components/portal/portal-filter-shell";
 import type { ManagerPaymentBucket } from "@/data/demo-portal";
 import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
 import { PortalPageFooterActions, PortalSectionActionRow } from "@/components/portal/portal-section-action-row";
 import {
   RESIDENT_DETAIL_TAB_LABELS,
+  RESIDENT_DIRECTORY_TABS,
   managerResidentItemDetailHref,
   residentDetailHref,
+  residentListHref,
   residentPaymentDetailHref,
   parseResidentDetailTab,
+  parseResidentsTab,
   type ResidentDetailTabId,
+  type ResidentsTabId,
 } from "@/lib/portal-detail-routes";
 import { PORTAL_BULK_BAR_BTN } from "@/lib/portal-bulk-bar";
 import { PortalRecordDetailPage } from "@/components/portal/portal-record-detail-page";
@@ -65,8 +68,11 @@ import { ManagerResidentsGroupedTable } from "@/components/portal/manager-reside
 import { ManagerResidentToursPanel } from "@/components/portal/manager-resident-tours-panel";
 import { buildManagerTourRows } from "@/lib/manager-tour-list";
 import { buildResidentListClusters } from "@/lib/manager-resident-list-grouping";
+import {
+  DEV_RESIDENT_LIST_FIXTURES,
+  shouldShowDevResidentListFixtures,
+} from "@/lib/dev/resident-list-fixtures";
 import { PORTAL_LIST_PAGE_BODY } from "@/components/portal/portal-inbox-ui";
-import { PortalListFab } from "@/components/portal/portal-list-fab";
 import { LeaseDocumentPreview } from "@/components/portal/lease-document-preview";
 import { LeasePrimaryHeaderActions } from "@/components/portal/lease-primary-header-actions";
 import { LeaseGenerateModal } from "@/components/portal/lease-generate-modal";
@@ -323,12 +329,8 @@ type ActiveResident = {
   isPrevious: boolean;
 };
 
-type ResidentsTabId = "current";
-
-const RESIDENTS_LIST_TAB: ResidentsTabId = "current";
-
 export function ManagerResidents({
-  tabId: _tabId = "current",
+  tabId: tabIdProp = "current",
   residentId: residentIdProp,
   detailTab: detailTabProp,
   paymentId: paymentIdProp,
@@ -367,8 +369,7 @@ export function ManagerResidents({
   const [srTick, setSrTick] = useState(0);
   const [inboxTick, setInboxTick] = useState(0);
   const [propertyFilters, setPropertyFilters] = useState<string[]>([]);
-  const [searchQuery, setSearchQuery] = useState("");
-  const residentsTab = RESIDENTS_LIST_TAB;
+  const residentsTab = parseResidentsTab(tabIdProp);
   const [chargeBucket, setChargeBucket] = useState<ManagerPaymentBucket>("pending");
   const [residentReminderSettingsOpen, setResidentReminderSettingsOpen] = useState(false);
   const [prevSelectedId, setPrevSelectedId] = useState<string | null>(null);
@@ -649,7 +650,7 @@ export function ManagerResidents({
     };
   }, [authReady, userId]);
 
-  const residents = useMemo<ActiveResident[]>(() => {
+  const residentDirectoryRows = useMemo<ActiveResident[]>(() => {
     void hcTick;
     // `propertyTick` is a cache-invalidation signal, not a value read here:
     // `applicationVisibleToPortalUser` consults the module-level property
@@ -686,12 +687,16 @@ export function ManagerResidents({
           isPrevious: isPreviousResidentDirectoryRow(row),
         };
       });
-    // One resident per email. This list is built 1:1 from approved application rows, so someone
-    // who applied twice — two rooms, or a second application after a move — became TWO residents
-    // sharing an address. Applications stay separate on purpose; only the resident identity
-    // collapses. Rows with no email are never merged (see the helper).
-    return dedupeResidentsByEmail(built);
+    if (built.length === 0 && shouldShowDevResidentListFixtures()) {
+      return DEV_RESIDENT_LIST_FIXTURES.map((row) => ({ ...row }));
+    }
+    return built;
   }, [userId, hcTick, propertyTick]);
+
+  const residents = useMemo(
+    () => dedupeResidentsByEmail(residentDirectoryRows),
+    [residentDirectoryRows],
+  );
 
   const propertyOptions = useMemo(() => {
     void propertyTick;
@@ -1029,22 +1034,14 @@ export function ManagerResidents({
   }
 
   const filtered = useMemo(() => {
-    const inTab = residents.filter((resident) => !resident.isPrevious);
+    const inTab = residentDirectoryRows.filter((resident) =>
+      residentsTab === "past" ? resident.isPrevious : !resident.isPrevious,
+    );
     const base = propertyFilters.length > 0
       ? inTab.filter((r) => propertyFilters.includes(r.propertyId))
       : inTab;
-    const q = searchQuery.trim().toLowerCase();
-    const searched = q
-      ? base.filter((r) =>
-          [r.name, r.email, r.roomLabel, r.propertyLabel, r.axisId]
-            .filter(Boolean)
-            .join(" ")
-            .toLowerCase()
-            .includes(q),
-        )
-      : base;
 
-    return [...searched].sort((a, b) => {
+    return [...base].sort((a, b) => {
       if (propertyFilters.length === 0) {
         const propCmp = a.propertyLabel.localeCompare(b.propertyLabel, undefined, { sensitivity: "base" });
         if (propCmp !== 0) return propCmp;
@@ -1057,7 +1054,33 @@ export function ManagerResidents({
       const bNum = parseInt(b.roomLabel.match(/\d+/)?.[0] ?? "0", 10);
       return aNum - bNum;
     });
-  }, [residents, propertyFilters, searchQuery]);
+  }, [residentDirectoryRows, propertyFilters, residentsTab]);
+
+  const hasResidentsInOtherTab = useMemo(
+    () =>
+      residentDirectoryRows.some((row) =>
+        residentsTab === "past" ? !row.isPrevious : row.isPrevious,
+      ),
+    [residentDirectoryRows, residentsTab],
+  );
+
+  const residentsListEmptyMessage = useMemo(() => {
+    if (propertyFilters.length > 0) return "No residents match this filter.";
+    if (hasResidentsInOtherTab) {
+      return residentsTab === "past" ? "No past residents yet." : "No current residents yet.";
+    }
+    return "No residents yet.";
+  }, [hasResidentsInOtherTab, propertyFilters.length, residentsTab]);
+
+  const residentTabCounts = useMemo(() => {
+    let current = 0;
+    let past = 0;
+    for (const row of residentDirectoryRows) {
+      if (row.isPrevious) past += 1;
+      else current += 1;
+    }
+    return { current, past };
+  }, [residentDirectoryRows]);
 
   const { selectedIds, setSelectedIds, toggleSelected } = usePortalRowSelection(
     `${residentsTab}:${propertyFilters.join(",")}`,
@@ -1093,8 +1116,8 @@ export function ManagerResidents({
 
   const activeResidentId = residentIdProp ? decodeURIComponent(residentIdProp) : null;
   const selected = useMemo(
-    () => (activeResidentId ? residents.find((r) => r.id === activeResidentId) ?? null : null),
-    [residents, activeResidentId],
+    () => (activeResidentId ? residentDirectoryRows.find((r) => r.id === activeResidentId) ?? null : null),
+    [residentDirectoryRows, activeResidentId],
   );
 
   if (activeResidentId !== prevSelectedId) {
@@ -3088,8 +3111,9 @@ export function ManagerResidents({
       className={PORTAL_COMMAND_PRIMARY_ACTION_BTN}
       style={PORTAL_COMMAND_PRIMARY_ACTION_STYLE}
       onClick={() => setAddResidentOpen(true)}
+      data-attr="residents-list-add"
     >
-      Add
+      Add resident
     </Button>
   );
 
@@ -3098,10 +3122,10 @@ export function ManagerResidents({
       <PortalFilterSortSheet
         activeCount={portalFilterActiveCount([propertyFilters])}
         compactPanel
+        commandStripTrigger
         filterFieldCount={1}
         constrainDropdownToTitleBand={false}
         mobileFlushBody
-        className={PORTAL_PROPERTY_FILTER_SHEET_CLASS}
         onReset={() => setPropertyFilters([])}
         dataAttr="residents-filter-sheet-open"
       >
@@ -3221,28 +3245,27 @@ export function ManagerResidents({
       <PortalListControlStack
         className="mb-2 max-lg:mb-1.5"
         variant="command"
+        destinations={RESIDENT_DIRECTORY_TABS.map((tab) => ({
+          id: tab,
+          label: tab === "current" ? "Current" : "Past",
+          href: residentListHref(portalBase, tab),
+          count: tab === "current" ? residentTabCounts.current : residentTabCounts.past,
+          dataAttr: `manager-residents-tab-${tab}`,
+        }))}
+        activeDestinationId={residentsTab}
+        destinationAriaLabel="Resident directory stage"
         actions={
           <>
             {residentsFilterSheet}
             {residentsAddButton}
           </>
         }
-        search={{
-          value: searchQuery,
-          onChange: setSearchQuery,
-          placeholder: "Search residents",
-          dataAttr: "residents-search",
-        }}
       />
       {filtered.length === 0 ? (
-        residents.length > 0 ? (
+        residentDirectoryRows.length > 0 || propertyFilters.length > 0 ? (
           <PortalDataTableEmpty
             icon="residents"
-            message={
-              searchQuery.trim()
-                ? "No residents match your search."
-                : "No residents match this filter."
-            }
+            message={residentsListEmptyMessage}
           />
         ) : null
       ) : (
@@ -3258,11 +3281,6 @@ export function ManagerResidents({
           />
         </div>
       )}
-      <PortalListFab
-        onClick={() => setAddResidentOpen(true)}
-        ariaLabel="Add resident"
-        dataAttr="residents-list-add"
-      />
 
       </ManagerPortalPageShell>
       )}

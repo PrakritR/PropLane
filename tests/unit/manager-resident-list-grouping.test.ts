@@ -77,4 +77,37 @@ describe("manager-resident-list-grouping", () => {
     expect(clusters).toHaveLength(1);
     expect(clusters[0]?.kind).toBe("resident");
   });
+
+  it("clusters multiple placements for the same resident under one header", () => {
+    const groups = buildApplicationGroups([]);
+    const clusters = buildResidentListClusters(
+      [
+        {
+          id: "RES-A1",
+          name: "Jordan Lee",
+          email: "jordan.lee@example.com",
+          propertyLabel: "Ballard House",
+          roomLabel: "Room 2",
+          leaseStart: "2026-03-01",
+          groupId: "",
+        },
+        {
+          id: "RES-A2",
+          name: "Jordan Lee",
+          email: "jordan.lee@example.com",
+          propertyLabel: "Ballard House",
+          roomLabel: "Room 5",
+          leaseStart: "2026-05-01",
+          groupId: "",
+        },
+      ],
+      groups,
+    );
+    expect(clusters).toHaveLength(1);
+    expect(clusters[0]?.kind).toBe("resident");
+    if (clusters[0]?.kind === "resident") {
+      expect(clusters[0].cluster.rows).toHaveLength(2);
+      expect(clusters[0].cluster.rows.map((row) => row.roomLabel)).toEqual(["Room 2", "Room 5"]);
+    }
+  });
 });

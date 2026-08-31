@@ -132,7 +132,7 @@ export function PortalListControlStack({
           {showActionRow ? (
             <div
               className={cn(
-                "flex min-w-0 flex-wrap items-center gap-2 px-2.5 py-2",
+                "flex min-w-0 flex-nowrap items-center gap-2 overflow-x-auto px-2.5 py-2 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden",
                 !showDestinations && showUtilityRow && "border-b border-border",
               )}
               data-attr="portal-list-command-actions"

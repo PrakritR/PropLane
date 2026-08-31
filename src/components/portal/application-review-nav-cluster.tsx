@@ -46,7 +46,7 @@ function NavCheckbox({
   );
 }
 
-function screeningToneToBadge(
+export function screeningToneToBadge(
   tone: "pending" | "ready" | "running" | "complete" | "muted",
 ): "info" | "warning" | "muted" | "success" {
   if (tone === "complete") return "success";
@@ -55,14 +55,14 @@ function screeningToneToBadge(
   return "muted";
 }
 
-function applicationStatusPill(row: DemoApplicantRow): { label: string; tone: "info" | "warning" | "muted" | "success" } {
+export function applicationStatusPill(row: DemoApplicantRow): { label: string; tone: "info" | "warning" | "muted" | "success" } {
   if (isWithdrawnApplicationRow(row)) return { label: "Withdrawn", tone: "muted" };
   if (row.bucket === "approved") return { label: "Approved", tone: "success" };
   if (row.bucket === "rejected") return { label: "Rejected", tone: "muted" };
   return { label: "Applied", tone: "info" };
 }
 
-function ClusterNavRow({
+export function ClusterNavRow({
   primary,
   meta,
   icon,

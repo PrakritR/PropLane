@@ -2130,7 +2130,13 @@ export function PortalCalendarPanels({
     const compactMobileTopGap = flowScroll ? "mt-0" : "mt-2 max-lg:mt-4";
     const availabilityFooterActions =
       !vendorMode && canEditAvailability ? (
-        <div className="flex w-full min-w-0 flex-wrap items-center justify-start gap-2">
+        <div
+          className={cn(
+            "flex w-full min-w-0 flex-nowrap items-center justify-start gap-2",
+            PORTAL_HORIZONTAL_SCROLL_ROW_CLASS,
+            "[&_button]:shrink-0",
+          )}
+        >
           <Button
             type="button"
             variant="outline"

@@ -795,7 +795,7 @@ export const INBOX_LIST_SCROLL =
 
 /** Full-page record lists — let #portal-main-content scroll (no nested panel). */
 export const PORTAL_LIST_PAGE_BODY =
-  "portal-list-page-body w-full min-w-0 pb-4 max-lg:pb-[calc(0.5rem+var(--portal-mobile-scroll-bottom-inset,0px))] lg:pb-5";
+  "portal-list-page-body w-full min-w-0 pb-4 max-lg:pb-[calc(5.5rem+var(--portal-mobile-scroll-bottom-inset,0px))] lg:pb-5";
 
 export function inboxInitials(name: string): string {
   const parts = name

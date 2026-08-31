@@ -98,7 +98,7 @@ export function ApplicationHouseholdCluster({
 }) {
   return (
     <div
-      className="overflow-hidden rounded-2xl border border-border/80 bg-accent/10"
+      className="overflow-hidden rounded-2xl border border-border/80 bg-card shadow-sm"
       data-attr="application-household-cluster"
     >
       {header || headerLeading ? (
@@ -120,7 +120,7 @@ export function ApplicationNestedListRow({
   nested?: boolean;
 }) {
   return (
-    <div className={nested ? "border-l-2 border-primary/25 bg-background/60 pl-1" : undefined} data-attr="application-nested-list-row">
+    <div className={nested ? "pl-1" : undefined} data-attr="application-nested-list-row">
       {children}
     </div>
   );

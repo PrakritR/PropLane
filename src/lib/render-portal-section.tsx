@@ -586,9 +586,10 @@ export async function renderPortalSection(
       const residentsTab = tabParts[0]!;
       if (residentsTab === "previous") {
         const tail = tabParts.slice(1);
-        redirect(`${def.basePath}/residents/current${tail.length ? `/${tail.join("/")}` : ""}`);
+        redirect(`${def.basePath}/residents/past${tail.length ? `/${tail.join("/")}` : ""}`);
       }
-      if (residentsTab !== "current") notFound();
+      const parsedResidentsTab = residentsTab === "past" ? "past" : residentsTab === "current" ? "current" : null;
+      if (!parsedResidentsTab) notFound();
       const residentId = tabParts.length >= 2 ? decodeURIComponent(tabParts[1]!) : undefined;
       const residentDetailTab = tabParts.length >= 3 ? tabParts[2]! : undefined;
       const residentDetailItemId =
@@ -602,7 +603,7 @@ export async function renderPortalSection(
       const ManagerResidents = await loadManagerResidents();
       return subscriptionGated(
         <ManagerResidents
-          tabId="current"
+          tabId={parsedResidentsTab}
           residentId={residentId}
           detailTab={residentDetailTab as import("@/lib/portal-detail-routes").ResidentDetailTabId | undefined}
           paymentId={residentPaymentId}

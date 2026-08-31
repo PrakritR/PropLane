@@ -157,6 +157,24 @@ export function propertyListHref(basePath: string, stage: string): string {
   return `${basePath}/properties/${stage}`;
 }
 
+/** Manager resident directory stages (current leases vs moved-out). */
+export const RESIDENT_DIRECTORY_TABS = ["current", "past"] as const;
+export type ResidentsTabId = (typeof RESIDENT_DIRECTORY_TABS)[number];
+
+export const RESIDENT_DIRECTORY_TAB_LABELS: Record<ResidentsTabId, string> = {
+  current: "Current",
+  past: "Past",
+};
+
+export function parseResidentsTab(raw: string | undefined | null): ResidentsTabId {
+  if (raw === "past" || raw === "previous") return "past";
+  return "current";
+}
+
+export function residentListHref(basePath: string, tab: ResidentsTabId): string {
+  return `${basePath}/residents/${tab}`;
+}
+
 export function residentDetailHref(
   basePath: string,
   residentsTab: string,

@@ -66,7 +66,6 @@ export function ManagerLeases({
   const [tick, setTick] = useState(0);
   const [propertyTick, setPropertyTick] = useState(0);
   const [propertyFilters, setPropertyFilters] = useState<string[]>([]);
-  const [searchQuery, setSearchQuery] = useState("");
   const [residentAccountEmails, setResidentAccountEmails] = useState<Set<string>>(new Set());
   const [clientReady, setClientReady] = useState(false);
   const [editLeasesOpen, setEditLeasesOpen] = useState(false);
@@ -135,18 +134,8 @@ export function ManagerLeases({
     return allRows.filter((row) => propertyFilters.includes(row.application?.propertyId?.trim() ?? ""));
   }, [clientReady, tick, propertyFilters, userId]);
 
-  const searchedRows = useMemo(() => {
-    const q = searchQuery.trim().toLowerCase();
-    if (!q) return rows;
-    return rows.filter((row) => {
-      const hay = [row.residentName, row.unit, row.residentEmail, row.status].join(" ").toLowerCase();
-      return hay.includes(q);
-    });
-  }, [rows, searchQuery]);
-
-
   useEffect(() => {
-    const emails = [...new Set(searchedRows.map((row) => row.residentEmail.trim().toLowerCase()).filter(Boolean))];
+    const emails = [...new Set(rows.map((row) => row.residentEmail.trim().toLowerCase()).filter(Boolean))];
     let cancelled = false;
     void Promise.resolve().then(() => {
       if (cancelled) return;
@@ -176,9 +165,9 @@ export function ManagerLeases({
     return () => {
       cancelled = true;
     };
-  }, [searchedRows]);
+  }, [rows]);
 
-  const counts = useMemo(() => countManagerLeaseTabs(searchedRows), [searchedRows]);
+  const counts = useMemo(() => countManagerLeaseTabs(rows), [rows]);
   const tabs = useMemo(
     () => LEASE_LABELS.map(({ id, label, dataAttr }) => ({ id, label, count: counts[id], dataAttr })),
     [counts],
@@ -324,12 +313,6 @@ export function ManagerLeases({
           destinationAriaLabel="Lease pipeline stage"
           filterRow={leasesFilterSheet}
           actions={leasesListActions}
-          search={{
-            value: searchQuery,
-            onChange: setSearchQuery,
-            placeholder: "Search residents or units",
-            dataAttr: "leases-search",
-          }}
           activeFilterChips={
             propertyFilters.length > 0 ? (
               <PortalActiveFilterChips
@@ -345,7 +328,7 @@ export function ManagerLeases({
           }
         />
         <ManagerLeasesPipelinePanel
-          rows={searchedRows}
+          rows={rows}
           tab={tab}
           refreshKey={tick}
           managerUserId={userId}

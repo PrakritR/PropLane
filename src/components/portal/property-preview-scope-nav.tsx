@@ -26,8 +26,9 @@ export function PropertyPreviewScopeNav({
       activeId={activeId}
       ariaLabel="Listing scope"
       itemLayout="equal"
+      denseEqualRow
       centerEqualRow
-      className="mb-3 rounded-2xl border border-border bg-card p-1 shadow-sm"
+      className="mb-3 max-lg:!rounded-2xl max-lg:!border max-lg:!border-border max-lg:!bg-card max-lg:!p-1 rounded-2xl border border-border bg-card p-1 shadow-sm"
       data-attr="property-preview-scope-nav"
     />
   );

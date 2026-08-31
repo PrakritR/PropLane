@@ -5,7 +5,6 @@ import {
   ApplicationNestedListRow,
   householdClusterHeaderForRows,
 } from "@/components/portal/application-household-list";
-import { Badge } from "@/components/ui/badge";
 import { DataList } from "@/components/ui/data-list";
 import {
   residentHousingMeta,
@@ -22,7 +21,7 @@ function shortDateLabel(iso: string): string {
 }
 
 function residentIdentityHeader(cluster: Extract<ManagerResidentListCluster, { kind: "resident" }>) {
-  const { residentLabel, residentEmail, propertyLabel, rows } = cluster.cluster;
+  const { residentLabel, residentEmail, propertyLabel } = cluster.cluster;
   return (
     <>
       <span className="truncate text-xs font-semibold text-foreground">{residentLabel}</span>
@@ -30,9 +29,6 @@ function residentIdentityHeader(cluster: Extract<ManagerResidentListCluster, { k
         <span className="truncate text-xs text-muted">{residentEmail}</span>
       ) : null}
       {propertyLabel ? <span className="truncate text-xs text-muted">{propertyLabel}</span> : null}
-      <Badge tone="info">
-        {rows.length === 1 ? "1 resident" : `${rows.length} residents`}
-      </Badge>
     </>
   );
 }

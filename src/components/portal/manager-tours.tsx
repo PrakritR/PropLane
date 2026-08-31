@@ -277,7 +277,6 @@ export function ManagerTours({
   const [propertyTick, setPropertyTick] = useState(0);
   const [propertyFilters, setPropertyFilters] = useState<string[]>([]);
   const [groupMode, setGroupMode] = useState<PortalListGroupMode>(DEFAULT_PORTAL_LIST_GROUP_MODE);
-  const [searchQuery, setSearchQuery] = useState("");
   const [shareTourOpen, setShareTourOpen] = useState(false);
   const [addTourOpen, setAddTourOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -331,8 +330,8 @@ export function ManagerTours({
   const counts = useMemo(() => countManagerTourRowsByBucket(allRows), [allRows]);
 
   const rowsForBucket = useMemo(
-    () => filterManagerTourRows(allRows, bucket, propertyFilters, searchQuery),
-    [allRows, bucket, propertyFilters, searchQuery],
+    () => filterManagerTourRows(allRows, bucket, propertyFilters, ""),
+    [allRows, bucket, propertyFilters],
   );
 
   const clusters = useMemo(() => {
@@ -1246,12 +1245,6 @@ export function ManagerTours({
             </Button>
           </>
         }
-        search={{
-          value: searchQuery,
-          onChange: setSearchQuery,
-          placeholder: "Search tours",
-          dataAttr: "tours-search",
-        }}
         activeFilterChips={activeFilterChips}
       />
 

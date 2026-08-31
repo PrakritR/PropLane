@@ -17,6 +17,7 @@ export function PortalDetailDestinationNav({
   className,
   denseEqualRow = false,
   centerEqualRow = false,
+  appearance = "segmented",
 }: {
   items: DestinationNavItem[];
   activeId?: string;
@@ -27,6 +28,8 @@ export function PortalDetailDestinationNav({
   denseEqualRow?: boolean;
   /** Center equal-width tabs (Preview / House details sub-row). */
   centerEqualRow?: boolean;
+  /** `command` = underline tabs (property detail top row). */
+  appearance?: "segmented" | "command";
 }) {
   const wrapRef = useRef<HTMLDivElement>(null);
 
@@ -65,8 +68,11 @@ export function PortalDetailDestinationNav({
         itemLayout="equal"
         denseEqualRow={denseEqualRow}
         centerEqualRow={centerEqualRow}
+        appearance={appearance}
         className={cn(
-          "max-lg:rounded-none max-lg:border-0 max-lg:border-b max-lg:border-border max-lg:bg-transparent max-lg:p-0",
+          appearance === "command"
+            ? "border-b border-border"
+            : "max-lg:rounded-none max-lg:border-0 max-lg:border-b max-lg:border-border max-lg:bg-transparent max-lg:p-0",
           className,
         )}
       />

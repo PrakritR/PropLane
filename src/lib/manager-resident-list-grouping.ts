@@ -65,9 +65,23 @@ export function buildResidentListClusters(
   }
 
   const clusters: ManagerResidentListCluster[] = [];
+  let pendingResidentRows: ManagerResidentListRowWithGroup[] = [];
+
+  const flushResidentClusters = () => {
+    if (pendingResidentRows.length === 0) return;
+    const identityClusters = clusterRowsByResident(
+      pendingResidentRows.map((row) => ({ ...row, residentName: row.name, residentEmail: row.email })),
+      (entry) => entry.propertyLabel || null,
+    );
+    for (const cluster of identityClusters) {
+      clusters.push({ kind: "resident", cluster });
+    }
+    pendingResidentRows = [];
+  };
 
   for (const unit of units) {
     if (unit.kind === "household") {
+      flushResidentClusters();
       clusters.push({
         kind: "household",
         groupId: unit.groupId,
@@ -76,15 +90,9 @@ export function buildResidentListClusters(
       });
       continue;
     }
-
-    const identityClusters = clusterRowsByResident(
-      unit.rows.map((row) => ({ ...row, residentName: row.name, residentEmail: row.email })),
-      (entry) => entry.propertyLabel || null,
-    );
-    for (const cluster of identityClusters) {
-      clusters.push({ kind: "resident", cluster });
-    }
+    pendingResidentRows.push(...unit.rows);
   }
+  flushResidentClusters();
 
   return clusters;
 }

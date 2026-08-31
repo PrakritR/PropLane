@@ -33,7 +33,6 @@ import {
 } from "@/components/portal/portal-metrics";
 import { ApplicationFilterSortFields } from "@/components/portal/application-filter-sort-fields";
 import { PortalFilterSortSheet, portalFilterActiveCount } from "@/components/portal/portal-filter-sort-sheet";
-import { PORTAL_PROPERTY_FILTER_SHEET_CLASS } from "@/components/portal/portal-filter-shell";
 import { armFilterSheetOpenSuppressFromOverlayDismiss } from "@/components/ui/field-select-portal-interaction";
 import { PortalActiveFilterChips } from "@/components/portal/portal-filter-chips";
 import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
@@ -526,7 +525,6 @@ export function ManagerApplications({
     if (bucket !== bucketProp) setBucket(bucketProp);
   }
   // propertyFilters derived from URL (see appliedPropertyFilters below)
-  const [searchQuery, setSearchQuery] = useState("");
   const [rows, setRows] = useState<DemoApplicantRow[]>(() =>
     typeof window === "undefined" ? [] : readManagerApplicationRows(),
   );
@@ -773,19 +771,8 @@ export function ManagerApplications({
   }, [propertyFilters, propertyOptions]);
 
   const rowsForBucket = useMemo(() => {
-    const inBucket = propertyFilteredRows.filter((r) => tabForRow(r) === bucket);
-    const q = searchQuery.trim().toLowerCase();
-    const searched = q
-      ? inBucket.filter((r) =>
-          [r.name, r.email, r.property, r.id, r.application?.email]
-            .filter(Boolean)
-            .join(" ")
-            .toLowerCase()
-            .includes(q),
-        )
-      : inBucket;
-    return searched;
-  }, [propertyFilteredRows, bucket, searchQuery]);
+    return propertyFilteredRows.filter((r) => tabForRow(r) === bucket);
+  }, [propertyFilteredRows, bucket]);
 
   const listClusters = useMemo(() => {
     const sortBucket = applicationListSortBucket(bucket);
@@ -1678,12 +1665,12 @@ export function ManagerApplications({
       onOpenChange={setApplicationsFilterOpen}
       activeCount={portalFilterActiveCount([propertyFilters])}
       compactPanel
+      commandStripTrigger
       filterFieldCount={1}
       constrainDropdownToTitleBand={false}
       mobileFlushBody
       onReset={() => setPropertyFilters([])}
       dataAttr="applications-filter-sheet-open"
-      className={PORTAL_PROPERTY_FILTER_SHEET_CLASS}
     >
       <ApplicationFilterSortFields
         propertyOptions={propertyOptions}
@@ -1722,6 +1709,7 @@ export function ManagerApplications({
 
   const applicationsListActions = (
     <>
+      {applicationsFilterSort}
       {applicationsSettingsButton}
       {applicationsAddButton}
     </>
@@ -2005,14 +1993,7 @@ export function ManagerApplications({
         }))}
         activeDestinationId={bucket}
         destinationAriaLabel="Application status"
-        filterRow={applicationsFilterSort}
         actions={applicationsListActions}
-        search={{
-          value: searchQuery,
-          onChange: setSearchQuery,
-          placeholder: "Search applicants",
-          dataAttr: "applications-search",
-        }}
         activeFilterChips={
           propertyFilters.length > 0 ? (
             <PortalActiveFilterChips
@@ -2045,7 +2026,7 @@ export function ManagerApplications({
           <PortalDataTableEmpty
             icon="default"
             message={
-              searchQuery.trim() || propertyFilters.length > 0
+              propertyFilters.length > 0
                 ? "No applications match your filters."
                 : "No applications in this bucket yet."
             }
