@@ -447,6 +447,8 @@ describe("manager messaging-number route", () => {
     "Twilio Messaging Service sender-pool attachment failed (code ETIMEDOUT). The purchased number was released.",
     "Twilio Messaging Service sender-pool attachment failed (HTTP 500). The purchased number was released.",
     "Messaging Service attachment is not configured. The purchased number release could not be confirmed; do not retry until PropLane reviews it.",
+    "Provider setup is awaiting reconciliation.",
+    "Provider cleanup requires review.",
   ])("preserves the curated actionable provisioning error %s", async (error) => {
     const db = dbFor({ mode: "automatic" });
     mocks.requireManagerRouteUser.mockResolvedValue({ db, userId: MANAGER });

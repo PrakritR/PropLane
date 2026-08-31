@@ -268,6 +268,8 @@ const PUBLIC_PROVISIONING_ERROR_PATTERNS: RegExp[] = [
   /^Messaging Service attachment is not configured\. The purchased number (?:was released|release could not be confirmed; do not retry until PropLane reviews it)\.$/,
   /^Twilio work-number purchase failed(?: \((?:code [\w-]+(?:, HTTP \d{3})?|HTTP \d{3})\))?\. Provider ownership is unconfirmed; do not retry until PropLane reviews it\.$/,
   /^No SMS-capable numbers are available (?:in area code \d{3} right now|right now — try again shortly)\.$/,
+  /^Provider setup is awaiting reconciliation\.$/,
+  /^Provider cleanup requires review\.$/,
 ];
 
 function publicProvisioningError(error: string): string {
