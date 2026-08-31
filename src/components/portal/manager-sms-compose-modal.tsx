@@ -303,7 +303,6 @@ export function ManagerSmsComposeModal({
                 ? "Pick Residents or Applicants first"
                 : "No people with phones in selected sections"
           }
-          peopleDataAttr="manager-sms-compose-person"
         />
 
         <div>

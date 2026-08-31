@@ -18,7 +18,7 @@ import {
   inboxBubbleClusterRadius,
   type InboxBubbleClusterPosition,
 } from "@/lib/inbox-message-timeline";
-import { ArrowUp, ChevronDown, ChevronLeft, ChevronRight, Check, Clock, FileText, Paperclip, Pencil, Sparkles, X } from "lucide-react";
+import { ArrowUp, ChevronDown, ChevronLeft, ChevronRight, Check, Clock, FileText, Paperclip, Pencil, Plus, Sparkles, X } from "lucide-react";
 import { PortalEmptyIcon, PortalEmptyState } from "@/components/portal/portal-empty-state";
 import { Button } from "@/components/ui/button";
 import { Input, Textarea } from "@/components/ui/input";
@@ -1085,6 +1085,8 @@ export function InboxReplyChannelPicker({
   onViaSmsChange,
   emailAvailable = true,
   smsAvailable = true,
+  onAddEmail,
+  onAddPhone,
 }: {
   viaEmail: boolean;
   viaSms: boolean;
@@ -1092,9 +1094,22 @@ export function InboxReplyChannelPicker({
   onViaSmsChange: (next: boolean) => void;
   emailAvailable?: boolean;
   smsAvailable?: boolean;
+  /** Offered when the thread has no address — opens the contact editor. */
+  onAddEmail?: () => void;
+  /** Offered when the thread has no number — opens the contact editor. */
+  onAddPhone?: () => void;
 }) {
+  /**
+   * Both channels are always listed. Hiding the one a thread cannot reach made
+   * the menu look like the conversation only ever had one option, with nothing
+   * saying what was missing or how to supply it.
+   */
   const options = [
-    ...(emailAvailable ? [{ value: "email", label: "Email" }] : []),
+    {
+      value: "email",
+      label: emailAvailable ? "Email" : "Email (no address)",
+      disabled: !emailAvailable,
+    },
     {
       value: "sms",
       label: smsAvailable ? "SMS" : "SMS (not enabled)",
@@ -1104,7 +1119,7 @@ export function InboxReplyChannelPicker({
 
   const selected = [
     ...(viaEmail && emailAvailable ? ["email"] : []),
-    ...(viaSms ? ["sms"] : []),
+    ...(viaSms && smsAvailable ? ["sms"] : []),
   ];
   const effectiveSelected =
     selected.length > 0 ? selected : emailAvailable ? ["email"] : smsAvailable ? ["sms"] : [];
@@ -1118,6 +1133,12 @@ export function InboxReplyChannelPicker({
           ? "Email"
           : undefined;
 
+  const addAction = !emailAvailable && onAddEmail
+    ? { label: "Add an email address", onClick: onAddEmail, dataAttr: "inbox-reply-add-email" }
+    : !smsAvailable && onAddPhone
+      ? { label: "Add a phone number", onClick: onAddPhone, dataAttr: "inbox-reply-add-phone" }
+      : null;
+
   return (
     <div className="flex shrink-0 flex-col gap-0.5" data-attr="inbox-reply-channel-picker">
       <CheckboxMultiSelect
@@ -1130,11 +1151,26 @@ export function InboxReplyChannelPicker({
         selectionTriggerLabel={selectionTriggerLabel}
         emptyLabel="Choose channels…"
         onChange={(next) => {
-          const enabled = next.filter((value) => value !== "sms" || smsAvailable);
+          const enabled = next.filter(
+            (value) => (value !== "sms" || smsAvailable) && (value !== "email" || emailAvailable),
+          );
           if (enabled.length === 0) return;
           onViaEmailChange(enabled.includes("email"));
           onViaSmsChange(enabled.includes("sms"));
         }}
+        menuFooter={
+          addAction ? (
+            <button
+              type="button"
+              className="flex w-full items-center gap-1.5 rounded-lg px-2 py-1.5 text-left text-xs font-semibold text-primary transition-colors hover:bg-primary/10"
+              data-attr={addAction.dataAttr}
+              onClick={addAction.onClick}
+            >
+              <Plus className="h-3.5 w-3.5" aria-hidden />
+              {addAction.label}
+            </button>
+          ) : undefined
+        }
         dataAttr="inbox-reply-send-via"
       />
     </div>

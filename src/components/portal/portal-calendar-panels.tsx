@@ -1551,31 +1551,47 @@ export function PortalCalendarPanels({
     [slotRowIndices, visibleStartSlot],
   );
 
-  const renderTimeWindowControl = (compact = false) => {
-    const maybeSaveDefaultHours = (nextStart: number, nextEndExclusive: number) => {
+  const saveDefaultTourHours = useCallback(
+    (nextStart: number, nextEndExclusive: number) => {
       if (!canEditDefaultTourHours) return;
       onDefaultTourHoursChange?.(nextStart, nextEndExclusive);
-    };
-    const onStartChange = (nextRaw: string) => {
+    },
+    [canEditDefaultTourHours, onDefaultTourHoursChange],
+  );
+
+  const onDefaultTourStartChange = useCallback(
+    (nextRaw: string) => {
       const nextStart = Number.parseInt(nextRaw, 10);
       if (!Number.isFinite(nextStart)) return;
+      const nextEnd =
+        visibleEndSlotExclusive <= nextStart
+          ? Math.min(nextStart + 1, SLOTS_PER_DAY)
+          : visibleEndSlotExclusive;
       setVisibleStartSlot(nextStart);
-      setVisibleEndSlotExclusive((current) => {
-        const nextEnd = current <= nextStart ? Math.min(nextStart + 1, SLOTS_PER_DAY) : current;
-        maybeSaveDefaultHours(nextStart, nextEnd);
-        return nextEnd;
-      });
-    };
-    const onEndChange = (nextRaw: string) => {
+      if (nextEnd !== visibleEndSlotExclusive) {
+        setVisibleEndSlotExclusive(nextEnd);
+      }
+      saveDefaultTourHours(nextStart, nextEnd);
+    },
+    [saveDefaultTourHours, visibleEndSlotExclusive],
+  );
+
+  const onDefaultTourEndChange = useCallback(
+    (nextRaw: string) => {
       const nextEnd = Number.parseInt(nextRaw, 10);
       if (!Number.isFinite(nextEnd)) return;
+      const nextStart =
+        visibleStartSlot >= nextEnd ? Math.max(0, nextEnd - 1) : visibleStartSlot;
       setVisibleEndSlotExclusive(nextEnd);
-      setVisibleStartSlot((current) => {
-        const nextStart = current >= nextEnd ? Math.max(0, nextEnd - 1) : current;
-        maybeSaveDefaultHours(nextStart, nextEnd);
-        return nextStart;
-      });
-    };
+      if (nextStart !== visibleStartSlot) {
+        setVisibleStartSlot(nextStart);
+      }
+      saveDefaultTourHours(nextStart, nextEnd);
+    },
+    [saveDefaultTourHours, visibleStartSlot],
+  );
+
+  const renderTimeWindowControl = (compact = false) => {
 
     if (compact) {
       return (
@@ -1603,7 +1619,7 @@ export function PortalCalendarPanels({
             wrapperClassName="w-[6.25rem] shrink-0 sm:w-[7rem]"
             triggerClassName={CALENDAR_TIME_FIELD_SELECT_TRIGGER}
             value={String(visibleStartSlot)}
-            onChange={onStartChange}
+            onChange={onDefaultTourStartChange}
             options={startTimeOptions}
           />
           <span className="text-[11px] font-medium text-muted sm:text-xs">–</span>
@@ -1613,7 +1629,7 @@ export function PortalCalendarPanels({
             wrapperClassName="w-[6.25rem] shrink-0 sm:w-[7rem]"
             triggerClassName={CALENDAR_TIME_FIELD_SELECT_TRIGGER}
             value={String(visibleEndSlotExclusive)}
-            onChange={onEndChange}
+            onChange={onDefaultTourEndChange}
             options={endTimeOptions}
           />
         </div>
@@ -1623,7 +1639,7 @@ export function PortalCalendarPanels({
     return (
       <div className="flex flex-wrap items-center gap-2">
         <span className="text-xs font-semibold uppercase tracking-[0.14em] text-muted">Show</span>
-        <Select value={String(visibleStartSlot)} onChange={(e) => onStartChange(e.target.value)}>
+        <Select value={String(visibleStartSlot)} onChange={(e) => onDefaultTourStartChange(e.target.value)}>
           {slotRowIndices.map((slot) => (
             <option key={`start-${slot}`} value={slot}>
               {formatAvailabilitySlotLabel(slot)}
@@ -1631,7 +1647,10 @@ export function PortalCalendarPanels({
           ))}
         </Select>
         <span className="text-sm font-medium text-muted">to</span>
-        <Select value={String(visibleEndSlotExclusive)} onChange={(e) => onEndChange(e.target.value)}>
+        <Select
+          value={String(visibleEndSlotExclusive)}
+          onChange={(e) => onDefaultTourEndChange(e.target.value)}
+        >
           {slotRowIndices
             .map((slot) => slot + 1)
             .filter((slot) => slot > visibleStartSlot && slot <= SLOTS_PER_DAY)

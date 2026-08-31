@@ -12,8 +12,16 @@ export type ManagerSmsContact = {
   phoneE164: string;
   counterpartyRole: SmsCounterpartyRole;
   displayName: string | null;
+  /** Manager-typed address for a text-only contact — a label, never verification. */
+  email: string | null;
   lastInboundAt: string | null;
 };
+
+/** Same shape the compose/other-recipient parser accepts; length matches the column check. */
+export function isSavableContactEmail(value: string): boolean {
+  const email = value.trim();
+  return email.length >= 3 && email.length <= 254 && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+}
 
 export function managerSmsContactKey(
   managerUserId: string,
@@ -32,7 +40,7 @@ export async function loadManagerSmsContactMap(
   if (owners.length === 0) return new Map();
   const { data, error } = await db
     .from("manager_sms_contacts")
-    .select("manager_user_id, phone_e164, counterparty_role, display_name, last_inbound_at")
+    .select("manager_user_id, phone_e164, counterparty_role, display_name, contact_email, last_inbound_at")
     .in("manager_user_id", owners)
     .limit(5000);
   if (error) {
@@ -51,6 +59,7 @@ export async function loadManagerSmsContactMap(
       phoneE164,
       counterpartyRole: role,
       displayName: String(row.display_name ?? "").trim() || null,
+      email: String(row.contact_email ?? "").trim().toLowerCase() || null,
       lastInboundAt: row.last_inbound_at ? String(row.last_inbound_at) : null,
     };
     out.set(managerSmsContactKey(managerUserId, phoneE164, role), contact);
@@ -65,15 +74,22 @@ export async function upsertManagerSmsContact(
     phone: string;
     counterpartyRole: SmsCounterpartyRole;
     displayName?: string | null;
+    /** `null` clears the saved address; omit it to leave the stored one alone. */
+    email?: string | null;
     lastInboundAt?: string | null;
   },
 ): Promise<{ ok: true } | { ok: false; error: string }> {
   const managerUserId = args.managerUserId.trim();
   const phoneE164 = normalizeE164(args.phone);
   const displayName = args.displayName == null ? undefined : args.displayName.trim();
+  const email =
+    args.email === undefined ? undefined : (args.email?.trim().toLowerCase() || null);
   if (!managerUserId || !phoneE164) return { ok: false, error: "invalid_contact" };
   if (displayName !== undefined && (displayName.length < 1 || displayName.length > 80)) {
     return { ok: false, error: "invalid_display_name" };
+  }
+  if (email != null && !isSavableContactEmail(email)) {
+    return { ok: false, error: "invalid_email" };
   }
   const now = new Date().toISOString();
   const row = {
@@ -81,6 +97,7 @@ export async function upsertManagerSmsContact(
     phone_e164: phoneE164,
     counterparty_role: args.counterpartyRole,
     ...(displayName !== undefined ? { display_name: displayName } : {}),
+    ...(email !== undefined ? { contact_email: email } : {}),
     ...(args.lastInboundAt ? { last_inbound_at: args.lastInboundAt } : {}),
     updated_at: now,
   };

@@ -12,10 +12,13 @@ import {
 } from "react";
 import { ChevronLeft, Pencil, Search, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Input, Select } from "@/components/ui/input";
-import { Modal, ModalFooter } from "@/components/ui/modal";
+import { Select } from "@/components/ui/input";
 import { useAppUi } from "@/components/providers/app-ui-provider";
 import { ManagerSmsComposeModal } from "@/components/portal/manager-sms-compose-modal";
+import {
+  PortalContactDetailsModal,
+  type PortalContactDetailsValues,
+} from "@/components/portal/portal-contact-details-modal";
 import {
   buildInboxThreadAssistantContext,
   InboxThreadAssistantStrip,
@@ -33,7 +36,6 @@ import {
 import {
   dispatchManagerSmsContactsChanged,
   MANAGER_SMS_SORT_OPTIONS,
-  isPhoneLikeLabel,
   normalizeManagerSmsConversationsPayload,
   smsConversationDisplayName,
   smsConversationSubtitle,
@@ -76,13 +78,6 @@ const SMS_HIDDEN_STORAGE_KEY = "axis_manager_sms_hidden_v2";
 /** Outbound bubble / send accent — the site primary (cobalt light / indigo dark). */
 /** Destructive red for swipe / delete affordances. */
 const DELETE_RED = "var(--status-overdue-fg)";
-
-function smsMessagesDeleteEndpoint(conversationsEndpoint: string): string {
-  if (conversationsEndpoint.endsWith("/sms-conversations")) {
-    return conversationsEndpoint.replace(/\/sms-conversations$/, "/sms-messages");
-  }
-  return "/api/manager/sms-messages";
-}
 
 function conversationId(resident: ManagerSmsResidentConversation): string {
   // The explicit conversation key separates two people on one shared line and
@@ -255,12 +250,9 @@ export const ManagerSmsPanel = forwardRef<
   const [sending, setSending] = useState(false);
   const [pendingOutboundByRow, setPendingOutboundByRow] = useState<Record<string, ManagerSmsMessageRow[]>>({});
   const [deletingId, setDeletingId] = useState<string | null>(null);
-  const [deletingMessageId, setDeletingMessageId] = useState<string | null>(null);
   const [contactNameOpen, setContactNameOpen] = useState(false);
-  const [contactName, setContactName] = useState("");
   const [contactNameError, setContactNameError] = useState<string | null>(null);
   const [savingContactName, setSavingContactName] = useState(false);
-  const messagesDeleteEndpoint = useMemo(() => smsMessagesDeleteEndpoint(endpoint), [endpoint]);
   // Keep the latest onConversationOpened without making it an effect dependency —
   // parents pass an inline callback that changes identity every render, and letting
   // that (or `rows` churn) retrigger the controlled-open sync causes an infinite
@@ -594,41 +586,6 @@ export const ManagerSmsPanel = forwardRef<
     [load, onArchived, setActiveId, showToast],
   );
 
-  const deleteMessage = useCallback(
-    async (message: ManagerSmsMessageRow) => {
-      if (!message.storageTable) {
-        showToast("Could not delete message.");
-        return;
-      }
-      const ok = window.confirm("Delete this message? This cannot be undone.");
-      if (!ok) return;
-      setDeletingMessageId(message.id);
-      try {
-        const res = await fetch(messagesDeleteEndpoint, {
-          method: "DELETE",
-          credentials: "include",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            messageId: message.id,
-            storageTable: message.storageTable,
-          }),
-        });
-        const body = (await res.json().catch(() => ({}))) as { error?: string };
-        if (!res.ok) {
-          showToast(body.error ?? "Could not delete message.");
-          return;
-        }
-        showToast("Message deleted.");
-        void load({ quiet: true });
-      } catch {
-        showToast("Could not delete message.");
-      } finally {
-        setDeletingMessageId(null);
-      }
-    },
-    [load, messagesDeleteEndpoint, showToast],
-  );
-
   useEffect(() => {
     setDraft("");
     setReplyViaEmail(false);
@@ -637,26 +594,21 @@ export const ManagerSmsPanel = forwardRef<
     replyAttemptRef.current = null;
   }, [activeId]);
 
-  const canEditContactName = Boolean(
-    active?.resident.conversationKey &&
-      active.resident.phone &&
-      (!active.resident.directoryName || isPhoneLikeLabel(active.resident.directoryName)),
-  );
+  /**
+   * The editor also carries the reply address, so it opens for a directory
+   * contact whose name is fixed — otherwise a text-only thread with a known
+   * name has no way to gain its email channel.
+   */
+  const canEditContact = Boolean(active?.resident.conversationKey && active.resident.phone);
 
   const openContactName = useCallback(() => {
-    if (!active || !canEditContactName) return;
-    setContactName(active.resident.savedContactName?.trim() || "");
+    if (!active || !canEditContact) return;
     setContactNameError(null);
     setContactNameOpen(true);
-  }, [active, canEditContactName]);
+  }, [active, canEditContact]);
 
-  const saveContactName = useCallback(async () => {
+  const saveContactDetails = useCallback(async (values: PortalContactDetailsValues) => {
     if (!active?.resident.conversationKey) return;
-    const displayName = contactName.trim();
-    if (!displayName || displayName.length > 80) {
-      setContactNameError("Enter a contact name up to 80 characters.");
-      return;
-    }
     setSavingContactName(true);
     setContactNameError(null);
     try {
@@ -666,31 +618,44 @@ export const ManagerSmsPanel = forwardRef<
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           conversationKey: active.resident.conversationKey,
-          displayName,
+          ...(values.name ? { displayName: values.name } : {}),
+          phone: values.phone,
+          email: values.email,
         }),
       });
       const body = (await res.json().catch(() => ({}))) as { error?: string };
-      if (!res.ok) throw new Error(body.error ?? "Could not save contact name.");
-      setData((current) => current
-        ? {
-            ...current,
-            residents: current.residents.map((resident) =>
-              resident.conversationKey === active.resident.conversationKey
-                ? { ...resident, savedContactName: displayName }
-                : resident,
-            ),
-          }
-        : current);
+      if (!res.ok) throw new Error(body.error ?? "Could not save contact details.");
+      const movedNumber = values.phone !== (active.resident.phone?.trim() || "");
+      if (!movedNumber) {
+        setData((current) => current
+          ? {
+              ...current,
+              residents: current.residents.map((resident) =>
+                resident.conversationKey === active.resident.conversationKey
+                  ? {
+                      ...resident,
+                      ...(values.name ? { savedContactName: values.name } : {}),
+                      residentEmail: values.email || null,
+                    }
+                  : resident,
+              ),
+            }
+          : current);
+      } else {
+        // The conversation key is derived from the number, so the old row is
+        // gone — let the refetch rebuild the list rather than patch a stale key.
+        setActiveId(null);
+      }
       setContactNameOpen(false);
-      showToast("Contact name saved.");
+      showToast("Contact details saved.");
       dispatchManagerSmsContactsChanged();
       void load({ quiet: true });
     } catch (e) {
-      setContactNameError(e instanceof Error ? e.message : "Could not save contact name.");
+      setContactNameError(e instanceof Error ? e.message : "Could not save contact details.");
     } finally {
       setSavingContactName(false);
     }
-  }, [active, contactName, load, showToast]);
+  }, [active, load, setActiveId, showToast]);
 
   async function sendReply() {
     if (replyIssue) return;
@@ -959,7 +924,6 @@ export const ManagerSmsPanel = forwardRef<
           aria-label="Back to conversations"
         >
           <ChevronLeft className="h-5 w-5" strokeWidth={2.25} />
-          <span>Messages</span>
         </button>
         <div className="min-w-0 flex-1 px-1">
           <p className="truncate text-sm font-semibold text-foreground">
@@ -969,11 +933,11 @@ export const ManagerSmsPanel = forwardRef<
             {smsConversationSubtitle(active.resident) || " "}
           </p>
         </div>
-        {canEditContactName ? (
+        {canEditContact ? (
           <button
             type="button"
             className="flex h-10 w-10 shrink-0 touch-manipulation items-center justify-center rounded-full text-muted transition-colors hover:bg-foreground/5 hover:text-foreground focus-visible:ring-2 focus-visible:ring-primary/40"
-            aria-label={active.resident.savedContactName ? "Edit contact name" : "Add contact name"}
+            aria-label="Edit contact details"
             data-attr="sms-contact-name-edit"
             onClick={openContactName}
           >
@@ -1058,8 +1022,6 @@ export const ManagerSmsPanel = forwardRef<
                         ? "first"
                         : "single"
                 }
-                deleting={deletingMessageId === msg.id}
-                onDelete={allowDelete && !msg.id.startsWith("pending-") ? () => void deleteMessage(msg) : undefined}
               />
             ))}
           </div>
@@ -1104,6 +1066,7 @@ export const ManagerSmsPanel = forwardRef<
             onViaSmsChange={setReplyViaSms}
             emailAvailable={activeEmailAvailable}
             smsAvailable
+            onAddEmail={canEditContact ? openContactName : undefined}
           />
         }
       />
@@ -1123,66 +1086,19 @@ export const ManagerSmsPanel = forwardRef<
         />
       ) : null}
 
-      <Modal
+      <PortalContactDetailsModal
         open={contactNameOpen}
-        onClose={() => {
-          if (!savingContactName) setContactNameOpen(false);
+        onClose={() => setContactNameOpen(false)}
+        initial={{
+          name: active?.resident.savedContactName?.trim() || "",
+          phone: active?.resident.phone?.trim() || "",
+          email: active?.resident.residentEmail?.trim() || "",
         }}
-        title={active?.resident.savedContactName ? "Edit contact name" : "Add contact name"}
-        description="This label is private to your PropLane workspace and does not verify the texter's identity."
-        dense
-        panelClassName="max-w-md"
-        footer={
-          <ModalFooter>
-            <Button
-              type="button"
-              variant="ghost"
-              onClick={() => setContactNameOpen(false)}
-              disabled={savingContactName}
-            >
-              Cancel
-            </Button>
-            <Button
-              type="submit"
-              form="sms-contact-name-form"
-              disabled={savingContactName}
-              aria-busy={savingContactName}
-              data-attr="sms-contact-name-save"
-            >
-              {savingContactName ? "Saving…" : "Save name"}
-            </Button>
-          </ModalFooter>
-        }
-      >
-        <form
-          id="sms-contact-name-form"
-          className="space-y-2"
-          onSubmit={(event) => {
-            event.preventDefault();
-            void saveContactName();
-          }}
-        >
-          <label htmlFor="sms-contact-name" className="text-sm font-medium text-foreground">
-            Contact name
-          </label>
-          <Input
-            id="sms-contact-name"
-            value={contactName}
-            onChange={(event) => setContactName(event.target.value)}
-            maxLength={80}
-            autoComplete="off"
-            spellCheck={false}
-            placeholder="e.g. Jordan from Unit 4"
-            aria-invalid={contactNameError ? true : undefined}
-            aria-describedby={contactNameError ? "sms-contact-name-error" : undefined}
-          />
-          {contactNameError ? (
-            <p id="sms-contact-name-error" className="text-xs text-danger" role="alert">
-              {contactNameError}
-            </p>
-          ) : null}
-        </form>
-      </Modal>
+        onSave={(values) => void saveContactDetails(values)}
+        saving={savingContactName}
+        error={contactNameError}
+        formId="sms-contact-details-form"
+      />
 
       {suppressListPane ? (
         <div className={pageScroll ? "flex flex-col" : "flex h-full min-h-0 flex-1 flex-col overflow-hidden"}>{threadPane}</div>
@@ -1195,14 +1111,10 @@ export const ManagerSmsPanel = forwardRef<
 
 function Bubble({
   message,
-  onDelete,
-  deleting,
   pending = false,
   cluster = "single",
 }: {
   message: ManagerSmsMessageRow;
-  onDelete?: () => void;
-  deleting?: boolean;
   pending?: boolean;
   cluster?: "single" | "first" | "middle" | "last";
 }) {
@@ -1242,18 +1154,6 @@ function Bubble({
           } ${pending ? "opacity-80" : ""}`}
           data-sms-bubble-align={outbound ? "end" : "start"}
         >
-        {onDelete ? (
-          <button
-            type="button"
-            className="absolute -right-2 -top-2 flex h-10 w-10 touch-manipulation items-center justify-center rounded-full border border-border bg-card text-muted opacity-70 shadow-sm transition-opacity hover:text-danger focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-primary/40 sm:opacity-0 sm:group-hover/msg:opacity-100 disabled:opacity-40"
-            aria-label="Delete message"
-            data-attr="sms-messages-bubble-delete"
-            disabled={deleting}
-            onClick={onDelete}
-          >
-            <Trash2 className="h-3.5 w-3.5" strokeWidth={2} />
-          </button>
-        ) : null}
         <p className="whitespace-pre-wrap break-words [overflow-wrap:anywhere]">{message.body || " "}</p>
         </div>
         {pending ? (

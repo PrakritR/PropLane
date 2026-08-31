@@ -92,11 +92,14 @@ describe("ManagerSmsPanel delete affordance", () => {
     expect(screen.queryByLabelText("Delete message")).toBeNull();
   });
 
-  it("shows per-message delete when a thread is open", async () => {
+  // Deleting a single text is gone from every surface: the transport record is
+  // the evidence of what was actually sent, and a per-bubble trash icon beside
+  // every message was mostly a misclick risk. Conversation-level delete stays.
+  it("offers no per-message delete once a thread is open", async () => {
     render(<ManagerSmsPanel />);
     await waitFor(() => expect(screen.getByText("Jane Resident")).toBeTruthy());
     screen.getByText("Jane Resident").click();
     await waitFor(() => expect(screen.getByText("hi it's Jane")).toBeTruthy());
-    expect(screen.getByLabelText("Delete message")).toBeTruthy();
+    expect(screen.queryByLabelText("Delete message")).toBeNull();
   });
 });

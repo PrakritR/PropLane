@@ -38,6 +38,45 @@ describe("InboxReplyChannelPicker", () => {
     expect(screen.queryByRole("option", { name: /Email & SMS/i })).toBeNull();
   });
 
+  it("still lists email when the thread has no address, and offers to add one", () => {
+    const onAddEmail = vi.fn();
+    render(
+      <InboxReplyChannelPicker
+        viaEmail={false}
+        viaSms
+        onViaEmailChange={vi.fn()}
+        onViaSmsChange={vi.fn()}
+        emailAvailable={false}
+        smsAvailable
+        onAddEmail={onAddEmail}
+      />,
+    );
+    fireEvent.click(screen.getByLabelText("Send via"));
+    // Hiding the unreachable channel made the menu look like SMS was the only
+    // option the conversation ever had.
+    expect(screen.getByRole("option", { name: /Email \(no address\)/i })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: /Add an email address/i }));
+    expect(onAddEmail).toHaveBeenCalled();
+  });
+
+  it("offers to add a phone number when the thread has no sms channel", () => {
+    const onAddPhone = vi.fn();
+    render(
+      <InboxReplyChannelPicker
+        viaEmail
+        viaSms={false}
+        onViaEmailChange={vi.fn()}
+        onViaSmsChange={vi.fn()}
+        emailAvailable
+        smsAvailable={false}
+        onAddPhone={onAddPhone}
+      />,
+    );
+    fireEvent.click(screen.getByLabelText("Send via"));
+    fireEvent.click(screen.getByRole("button", { name: /Add a phone number/i }));
+    expect(onAddPhone).toHaveBeenCalled();
+  });
+
   it("allows selecting email and sms independently when both channels are available", () => {
     const onEmail = vi.fn();
     const onSms = vi.fn();

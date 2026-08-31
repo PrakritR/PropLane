@@ -246,8 +246,10 @@ export function CheckboxMultiSelect({
           ) : !hasVisibleOptions ? (
             <p className="field-dropdown-menu-option px-3 py-2 text-sm text-muted">No matches</p>
           ) : groups?.length ? (
-            (filteredGroups ?? []).map((group) => (
-              <div key={group.label || "__leading__"}>
+            // Index-keyed: several unlabeled groups can coexist (a section list
+            // split around the people it reveals).
+            (filteredGroups ?? []).map((group, groupIndex) => (
+              <div key={`${group.label}-${groupIndex}`}>
                 {group.label ? (
                   <p className="field-dropdown-menu-option sticky top-0 z-[1] px-3 py-1.5 text-[10px] font-bold uppercase tracking-[0.12em] text-muted">
                     {group.label}

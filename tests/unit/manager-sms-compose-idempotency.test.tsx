@@ -34,23 +34,37 @@ vi.mock("@/components/ui/modal", () => ({
     <div>{children}</div>
   ),
 }));
+// One option per button so a test can pick a section and then a person from the
+// single merged To control.
 vi.mock("@/components/ui/checkbox-multi-select", () => ({
   CheckboxMultiSelect: ({
     label,
     options,
     groups,
+    selected,
     onChange,
   }: {
     label: string;
-    options?: Array<{ value: string }>;
-    groups?: Array<{ options: Array<{ value: string }> }>;
+    options?: Array<{ value: string; label?: string }>;
+    groups?: Array<{ options: Array<{ value: string; label?: string }> }>;
+    selected?: string[];
     onChange: (next: string[]) => void;
   }) => {
-    const first = options?.[0]?.value ?? groups?.[0]?.options[0]?.value;
+    const all = groups?.length ? groups.flatMap((g) => g.options) : (options ?? []);
     return (
-      <button type="button" onClick={() => first && onChange([first])}>
-        {label}
-      </button>
+      <div>
+        <span>{label}</span>
+        {all.map((option) => (
+          <button
+            key={option.value}
+            type="button"
+            data-option={option.value}
+            onClick={() => onChange([...(selected ?? []), option.value])}
+          >
+            {option.label ?? option.value}
+          </button>
+        ))}
+      </div>
     );
   },
 }));
@@ -95,8 +109,10 @@ describe("ManagerSmsComposeModal idempotency", () => {
     );
     await new Promise((resolve) => setTimeout(resolve, 0));
 
-    fireEvent.click(screen.getByRole("button", { name: "To" }));
-    fireEvent.click(screen.getByRole("button", { name: "Which people" }));
+    // Sections and their people share one To control now: pick the section,
+    // then the person it reveals.
+    fireEvent.click(document.querySelector('[data-option="section:resident"]')!);
+    fireEvent.click(document.querySelector('[data-option^="person:"]')!);
     fireEvent.change(screen.getByLabelText("Message"), {
       target: { value: "Hello" },
     });
