@@ -21,6 +21,7 @@ import {
   PORTAL_LIST_ADD_ROW_WRAP_CLASS,
 } from "@/components/portal/portal-list-add-row";
 import { ManagerPortalPageShell, PORTAL_HEADER_PRIMARY_ACTION_BTN_RESPONSIVE } from "@/components/portal/portal-metrics";
+import { ManagerPortalSettingsModal } from "@/components/portal/manager-portal-settings-modal";
 import { PortalFilterSortSheet, portalFilterActiveCount } from "@/components/portal/portal-filter-sort-sheet";
 import { PORTAL_PROPERTY_FILTER_SHEET_CLASS } from "@/components/portal/portal-filter-shell";
 import { PORTAL_LIST_PAGE_BODY } from "@/components/portal/portal-inbox-ui";
@@ -210,6 +211,8 @@ export function ManagerTaskList({
   const [assignedServices, setAssignedServices] = useState<ServiceRequest[]>([]);
   const [loading, setLoading] = useState(true);
   const [addOpen, setAddOpen] = useState(false);
+  const [remindersOpen, setRemindersOpen] = useState(false);
+  const [automationOpen, setAutomationOpen] = useState(false);
   const [composeOpen, setComposeOpen] = useState(false);
   const [composeDraft, setComposeDraft] = useState<ManagerComposePrefill | null>(null);
   const [propertyTick, setPropertyTick] = useState(0);
@@ -713,17 +716,40 @@ export function ManagerTaskList({
       hideTitleOnMobileNav
       titleInlineFilter={tasksFilterSheet}
       titleAside={
-        !loading && tabId === "in-progress" ? (
+        <>
+          {/* Two adjustable halves: Reminders decides when someone is told,
+              Settings decides which tasks are created at all. Both open the
+              settings modal scoped to their own tab. */}
           <Button
             type="button"
             variant="outline"
             className={PORTAL_HEADER_PRIMARY_ACTION_BTN_RESPONSIVE}
-            data-attr="manager-task-list-header-add"
-            onClick={openAddTask}
+            data-attr="manager-task-reminders-open"
+            onClick={() => setRemindersOpen(true)}
           >
-            Add
+            Reminders
           </Button>
-        ) : null
+          <Button
+            type="button"
+            variant="outline"
+            className={PORTAL_HEADER_PRIMARY_ACTION_BTN_RESPONSIVE}
+            data-attr="manager-task-automation-open"
+            onClick={() => setAutomationOpen(true)}
+          >
+            Settings
+          </Button>
+          {!loading && tabId === "in-progress" ? (
+            <Button
+              type="button"
+              variant="outline"
+              className={PORTAL_HEADER_PRIMARY_ACTION_BTN_RESPONSIVE}
+              data-attr="manager-task-list-header-add"
+              onClick={openAddTask}
+            >
+              Add
+            </Button>
+          ) : null}
+        </>
       }
       compactFilterRow
     >
@@ -816,6 +842,18 @@ export function ManagerTaskList({
           setComposeDraft(null);
           showToast("Message sent.");
         }}
+      />
+      <ManagerPortalSettingsModal
+        open={remindersOpen}
+        onClose={() => setRemindersOpen(false)}
+        initialTab="reminders"
+        scopedTitle="Reminders"
+      />
+      <ManagerPortalSettingsModal
+        open={automationOpen}
+        onClose={() => setAutomationOpen(false)}
+        initialTab="task-automation"
+        scopedTitle="Task automation"
       />
     </ManagerPortalPageShell>
   );
