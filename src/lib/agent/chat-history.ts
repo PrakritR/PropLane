@@ -103,31 +103,38 @@ export async function listAgentChatThreads(
         .filter(Boolean))];
       if (matchingSessionIds.length === 0) return { threads: [], nextCursor: null };
     }
-    const load = async (includeTitle: boolean) => {
-      let query = actor.db
-        .from("agent_sessions")
-        .select(includeTitle ? "id, title, updated_at" : "id, updated_at")
-        .eq("user_id", actor.userId)
-        .eq("portal", portal)
-        .eq("kind", PORTAL_CHAT_SESSION_KIND)
-        .order("updated_at", { ascending: false })
-        .limit(AGENT_CHAT_HISTORY_PAGE_SIZE + 1);
-      if (matchingSessionIds) query = query.in("id", matchingSessionIds);
-      const before = validCursor(cursor ?? null);
-      if (before) query = query.lt("updated_at", before);
-      return query;
-    };
-    let { data, error } = await load(true);
-    if (error && isMissingTitleColumn(error)) ({ data, error } = await load(false));
-    if (error || !data) {
-      reportArchiveFailure("list conversations", error);
-      return { threads: [], nextCursor: null, error: "Could not load conversations. Try again." };
-    }
-    const rows = data as { id: string; title?: string | null; updated_at?: string | null }[];
-    const candidateRows = rows.slice(0, AGENT_CHAT_HISTORY_PAGE_SIZE);
-    const sessionIds = candidateRows.map((row) => String(row.id));
-    const promptsBySession = new Map<string, string[]>();
-    if (sessionIds.length > 0) {
+    // Empty sessions still occupy `agent_sessions` rows (failed first turns,
+    // leftover eager New-chat threads). Keep scanning until this response has
+    // a full visible page, so orphans cannot hide older real conversations
+    // behind a cursor the client never auto-advances.
+    const visible: AgentChatThreadSummary[] = [];
+    let scanCursor = validCursor(cursor ?? null);
+    while (visible.length < AGENT_CHAT_HISTORY_PAGE_SIZE) {
+      const load = async (includeTitle: boolean) => {
+        let query = actor.db
+          .from("agent_sessions")
+          .select(includeTitle ? "id, title, updated_at" : "id, updated_at")
+          .eq("user_id", actor.userId)
+          .eq("portal", portal)
+          .eq("kind", PORTAL_CHAT_SESSION_KIND)
+          .order("updated_at", { ascending: false })
+          .limit(AGENT_CHAT_HISTORY_PAGE_SIZE + 1);
+        if (matchingSessionIds) query = query.in("id", matchingSessionIds);
+        if (scanCursor) query = query.lt("updated_at", scanCursor);
+        return query;
+      };
+      let { data, error } = await load(true);
+      if (error && isMissingTitleColumn(error)) ({ data, error } = await load(false));
+      if (error || !data) {
+        reportArchiveFailure("list conversations", error);
+        return { threads: [], nextCursor: null, error: "Could not load conversations. Try again." };
+      }
+      const rows = data as { id: string; title?: string | null; updated_at?: string | null }[];
+      const candidateRows = rows.slice(0, AGENT_CHAT_HISTORY_PAGE_SIZE);
+      if (candidateRows.length === 0) break;
+
+      const sessionIds = candidateRows.map((row) => String(row.id));
+      const promptsBySession = new Map<string, string[]>();
       const { data: promptRows, error: promptsError } = await actor.db
         .from("agent_messages")
         .select("session_id, content")
@@ -150,27 +157,34 @@ export async function listAgentChatThreads(
         prompts.push(row.content);
         promptsBySession.set(row.session_id, prompts);
       }
-    }
-    // Only surface conversations that carry at least one question. A session
-    // with no user message is an empty thread the user never sent into (or an
-    // orphan from a failed first turn) and must not appear in history.
-    const visible = candidateRows
-      .filter((row) => (promptsBySession.get(String(row.id)) ?? []).length > 0)
-      .map((row) => {
+
+      // Only surface conversations that carry at least one question. A session
+      // with no user message is an empty thread the user never sent into (or an
+      // orphan from a failed first turn) and must not appear in history.
+      for (let index = 0; index < candidateRows.length; index += 1) {
+        const row = candidateRows[index]!;
         const prompts = promptsBySession.get(String(row.id)) ?? [];
-        return {
+        if (prompts.length === 0) continue;
+        visible.push({
           id: String(row.id),
           title: readGeneratedAgentChatThreadTitle(row.title) ?? agentChatThreadTitleFromPrompts(prompts),
           updatedAt: String(row.updated_at ?? ""),
-        };
-      });
-    return {
-      threads: visible,
-      // Key the cursor off the last CANDIDATE row, not the last visible one, so
-      // filtering out empty threads never prematurely ends pagination.
-      nextCursor:
-        rows.length > AGENT_CHAT_HISTORY_PAGE_SIZE ? String(candidateRows.at(-1)?.updated_at ?? "") || null : null,
-    };
+        });
+        if (visible.length === AGENT_CHAT_HISTORY_PAGE_SIZE) {
+          const moreInThisFetch = index < candidateRows.length - 1 || rows.length > AGENT_CHAT_HISTORY_PAGE_SIZE;
+          return {
+            threads: visible,
+            nextCursor: moreInThisFetch ? String(row.updated_at ?? "") || null : null,
+          };
+        }
+      }
+
+      if (rows.length <= AGENT_CHAT_HISTORY_PAGE_SIZE) break;
+      const continueFrom = String(candidateRows.at(-1)?.updated_at ?? "");
+      if (!continueFrom || continueFrom === scanCursor) break;
+      scanCursor = continueFrom;
+    }
+    return { threads: visible, nextCursor: null };
   } catch (error) {
     reportArchiveFailure("list conversations", error);
     return { threads: [], nextCursor: null, error: "Could not load conversations. Try again." };

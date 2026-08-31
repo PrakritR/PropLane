@@ -44,7 +44,6 @@ import {
 } from "@/components/portal/portal-data-table";
 import { UploadedLeasePdfPreview } from "@/components/portal/uploaded-lease-pdf-preview";
 import { PortalCollapsibleSection } from "@/components/portal/portal-collapsible-section";
-import { DestinationNav } from "@/components/ui/destination-nav";
 import { SegmentedTwo } from "@/components/ui/segmented-control";
 import { ApplicationReviewLauncherRow, type ApplicationReviewView } from "@/components/portal/application-review-launcher-row";
 import { downloadBackgroundCheckForApplication, ApplicationScreeningPanel } from "@/components/portal/application-screening-panel";
@@ -2116,27 +2115,24 @@ export function ManagerApplications({
     <ManagerPortalPageShell
       title="Applications"
       hideTitleOnMobileNav
-      titleInlineFilter={applicationsFilterSort}
+      titleInlineFilter={null}
       titleAside={applicationsHeaderActions}
       compactFilterRow
     >
       <PortalListControlStack
         className="mb-2 max-lg:mb-2"
-        destinationRow={
-          <DestinationNav
-            items={tabs.map((t) => ({
-              id: t.id,
-              label: t.label,
-              href: applicationsListHref(t.id),
-              count: t.count,
-              dataAttr: `applications-bucket-${t.id}`,
-            }))}
-            activeId={bucket}
-            ariaLabel="Application status"
-            itemLayout="equal"
-            className="max-lg:rounded-none max-lg:border-0 max-lg:border-b max-lg:border-border max-lg:bg-transparent max-lg:p-0"
-          />
-        }
+        variant="command"
+        stickyDestinations={false}
+        filterRow={applicationsFilterSort}
+        destinations={tabs.map((t) => ({
+          id: t.id,
+          label: t.label,
+          href: applicationsListHref(t.id),
+          count: t.count,
+          dataAttr: `applications-bucket-${t.id}`,
+        }))}
+        activeDestinationId={bucket}
+        destinationAriaLabel="Application status"
         search={{
           value: searchQuery,
           onChange: setSearchQuery,

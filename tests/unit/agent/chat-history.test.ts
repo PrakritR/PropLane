@@ -392,6 +392,40 @@ describe("portal chat archive", () => {
     expect(db.tables.agent_pending_actions[0]).toMatchObject({ status: "denied" });
   });
 
+  it("fills a history page past empty sessions instead of returning an empty archive", async () => {
+    const empties = Array.from({ length: AGENT_CHAT_HISTORY_PAGE_SIZE }, (_, index) =>
+      portalSession(
+        `20000000-0000-4000-8000-${String(index + 1).padStart(12, "0")}`,
+        new Date(Date.UTC(2026, 7, 4, 12, 0, 0) - index * 1_000).toISOString(),
+      ),
+    );
+    const reals = Array.from({ length: AGENT_CHAT_HISTORY_PAGE_SIZE + 1 }, (_, index) =>
+      portalSession(
+        `30000000-0000-4000-8000-${String(index + 1).padStart(12, "0")}`,
+        new Date(Date.UTC(2026, 7, 1, 12, 0, 0) - index * 1_000).toISOString(),
+      ),
+    );
+    const db = makeDb({
+      agent_sessions: [...empties, ...reals],
+      agent_messages: reals.map((session, index) => ({
+        id: `real-msg-${index}`,
+        session_id: session.id,
+        role: "user",
+        content: `Question ${index}`,
+        created_at: session.updated_at as string,
+      })),
+    });
+
+    const first = await listAgentChatThreads({ userId: USER_A, db }, "manager");
+    expect(first.threads).toHaveLength(AGENT_CHAT_HISTORY_PAGE_SIZE);
+    expect(first.threads[0]?.id).toBe(reals[0]!.id);
+    expect(first.nextCursor).toBe(reals.at(-2)?.updated_at);
+
+    const second = await listAgentChatThreads({ userId: USER_A, db }, "manager", first.nextCursor);
+    expect(second.threads.map((thread) => thread.id)).toEqual([reals.at(-1)!.id]);
+    expect(second.nextCursor).toBeNull();
+  });
+
   it("lists only conversations that carry a question, even while an additive title migration is pending", async () => {
     const db = makeDb(
       {
