@@ -55,8 +55,10 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: blocked.message }, { status: 403 });
     }
 
+    const linkedSignerAppId = String(appRow.id ?? "").trim() || signerAppId;
+
     const submission: CosignerSubmission = {
-      signerAppId,
+      signerAppId: linkedSignerAppId,
       signerFullName: String(body.signerFullName ?? "").trim(),
       fullName: String(body.fullName).trim(),
       email: String(body.email).trim().toLowerCase(),
@@ -92,7 +94,7 @@ export async function POST(req: Request) {
 
     const { error } = await db.from("cosigner_submission_records").insert({
       id,
-      signer_app_id: signerAppId,
+      signer_app_id: linkedSignerAppId,
       manager_user_id: managerUserId,
       row_data: stored,
       updated_at: new Date().toISOString(),
@@ -102,7 +104,7 @@ export async function POST(req: Request) {
     const appData = appRow.row_data as { name?: string; property?: string } | null;
     void notifyManagerCosignerSubmitted({
       managerUserId,
-      signerAppId,
+      signerAppId: linkedSignerAppId,
       primaryApplicantName: appData?.name,
       propertyTitle: appData?.property,
       cosignerName: submission.fullName,

@@ -5,6 +5,7 @@
 import { NextResponse } from "next/server";
 import { isAdminUser } from "@/lib/auth/admin-preview";
 import { collectLinkedPropertyIdsForUser } from "@/lib/auth/manager-lease-scope";
+import { canonicalApplicationAxisId } from "@/lib/manager-applications-storage";
 import { checkrApiFetch } from "@/lib/checkr/client";
 import { backgroundCheckConfigured, checkrSkipsManagerCardCharge } from "@/lib/checkr/config";
 import { fetchCheckrReportPdfBytes } from "@/lib/checkr/report-document";
@@ -65,7 +66,7 @@ export async function GET(req: Request) {
         .eq("id", cosignerSubmissionId)
         .maybeSingle();
       const signerAppId = String(cosignerRecord?.signer_app_id ?? "").trim();
-      if (signerAppId !== applicationId) {
+      if (!signerAppId || canonicalApplicationAxisId(signerAppId) !== canonicalApplicationAxisId(applicationId)) {
         return NextResponse.json({ error: "Co-signer submission not found." }, { status: 404 });
       }
       const submission = cosignerRecord?.row_data as CosignerSubmission | null;

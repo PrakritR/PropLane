@@ -1,5 +1,5 @@
 import type { ApplicationBackgroundCheck } from "@/lib/checkr/types";
-import { normalizeApplicationAxisId } from "@/lib/manager-applications-storage";
+import { canonicalApplicationAxisId } from "@/lib/manager-applications-storage";
 
 export type CosignerSubmission = {
   /** Server row id (`cosigner_submission_records.id`). */
@@ -43,9 +43,9 @@ export function patchCosignerBackgroundCheckInCache(
   submittedAt?: string,
 ): void {
   hydrate();
-  const signerKey = normalizeApplicationAxisId(signerAppId).toUpperCase();
+  const signerKey = canonicalApplicationAxisId(signerAppId);
   memory = memory.map((sub) => {
-    const matchesSigner = normalizeApplicationAxisId(sub.signerAppId).toUpperCase() === signerKey;
+    const matchesSigner = canonicalApplicationAxisId(sub.signerAppId) === signerKey;
     if (!matchesSigner) return sub;
     if (cosignerSubmissionId) {
       if (sub.id !== cosignerSubmissionId) return sub;
@@ -114,7 +114,7 @@ export async function submitCosignerToServerAwait(
 export async function fetchCosignerSubmissionsForSignerAppId(
   signerAppId: string,
 ): Promise<CosignerSubmission[]> {
-  const id = normalizeApplicationAxisId(signerAppId).toUpperCase();
+  const id = canonicalApplicationAxisId(signerAppId);
   if (!id) return [];
   try {
     const res = await fetch(`/api/cosigner-submissions?signerAppId=${encodeURIComponent(id)}`, {
@@ -131,7 +131,7 @@ export async function fetchCosignerSubmissionsForSignerAppId(
 
 export function readCosignerSubmissionsForSignerAppId(signerAppId: string): CosignerSubmission[] {
   hydrate();
-  const id = normalizeApplicationAxisId(signerAppId).toUpperCase();
+  const id = canonicalApplicationAxisId(signerAppId);
   if (!id) return [];
-  return memory.filter((s) => normalizeApplicationAxisId(s.signerAppId).toUpperCase() === id);
+  return memory.filter((s) => canonicalApplicationAxisId(s.signerAppId) === id);
 }

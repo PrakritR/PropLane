@@ -41,6 +41,11 @@ export function normalizeApplicationAxisId(id: string): string {
   return `PROPLANE-${suffix || Date.now().toString(36).toUpperCase()}`;
 }
 
+/** Case-insensitive comparison key for an application id (co-signer links, lookups). */
+export function canonicalApplicationAxisId(id: string): string {
+  return normalizeApplicationAxisId(id).toUpperCase();
+}
+
 /** Opens Property Portal → Applications with this primary application expanded. */
 export function buildPortalApplicationOpenHref(axisId: string): string {
   const id = normalizeApplicationAxisId(axisId.trim()).toUpperCase();
