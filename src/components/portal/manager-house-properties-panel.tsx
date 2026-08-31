@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -50,11 +50,6 @@ import {
 import { ManagerPropertyRequestsPanel } from "@/components/portal/manager-property-requests-panel";
 import { PropertyResidentOnboardWizard } from "@/components/portal/property-resident-onboard-wizard";
 import { PortalPropertyRecordRow } from "@/components/portal/portal-record-row";
-import {
-  PortalListAddRow,
-  PORTAL_LIST_ADD_ICONS,
-  PORTAL_LIST_ADD_ROW_WRAP_CLASS,
-} from "@/components/portal/portal-list-add-row";
 import { PortalDataTableEmpty } from "@/components/portal/portal-data-table";
 import { PORTAL_LIST_PAGE_BODY } from "@/components/portal/portal-inbox-ui";
 import { useManagerUserId } from "@/hooks/use-manager-user-id";
@@ -196,7 +191,6 @@ function ManagerPropertyInlineDetails({
   propertiesBase,
   stage,
   detailTab: detailTabProp = "preview",
-  onDetailHeaderActions,
 }: {
   bucket: AdminPropertyBucketIndex;
   row: AdminPropertyRow | null;
@@ -213,7 +207,6 @@ function ManagerPropertyInlineDetails({
   propertiesBase: string;
   stage: ManagerStageKey;
   detailTab?: PropertyDetailTabId;
-  onDetailHeaderActions?: (key: string, actions: ReactNode) => void;
 }) {
   const mock = useMemo(() => (row ? resolveAdminPropertyRowPreview(row) : null), [row]);
   const contactSmsPhone = useListingContactSmsPhone({
@@ -879,30 +872,6 @@ function ManagerPropertyInlineDetails({
     openFullListingEditor,
   ]);
 
-  const propertyTopHeaderActionsRef = useRef(propertyTopHeaderActions);
-  useEffect(() => {
-    propertyTopHeaderActionsRef.current = propertyTopHeaderActions;
-  });
-
-  const detailHeaderKey = useMemo(() => {
-    if (!previewHasToolbar) return "none";
-    return `top:${bucket}:${listingId ?? ""}:${canDeleteAction}:${skuLoaded}`;
-  }, [previewHasToolbar, bucket, listingId, canDeleteAction, skuLoaded]);
-
-  useEffect(() => {
-    if (!onDetailHeaderActions) return;
-    const actions =
-      previewHasToolbar && activeDetailTab === "preview"
-        ? propertyTopHeaderActionsRef.current
-        : null;
-    onDetailHeaderActions(detailHeaderKey, actions);
-  }, [onDetailHeaderActions, detailHeaderKey, previewHasToolbar, activeDetailTab]);
-
-  useEffect(() => {
-    if (!onDetailHeaderActions) return;
-    return () => onDetailHeaderActions("none", null);
-  }, [onDetailHeaderActions]);
-
   // Every hook above runs unconditionally. This guard used to sit ~470 lines earlier, so a
   // row/mock/submission flipping between renders changed the hook COUNT, which is the
   // rules-of-hooks violation React throws "rendered more hooks than during the previous
@@ -922,6 +891,14 @@ function ManagerPropertyInlineDetails({
             ariaLabel="Property sections"
             denseEqualRow
           />
+          {previewHasToolbar ? (
+            <div
+              className="border-t border-border/40 px-3 py-2"
+              data-attr="property-detail-toolbar-actions"
+            >
+              {propertyTopHeaderActions}
+            </div>
+          ) : null}
         </div>
       </PortalPageChrome>
 
@@ -1141,13 +1118,11 @@ export function ManagerHousePropertiesPanel({
   const { userId: managerUserId, ready: authReady } = useManagerUserId();
   const scopeUserId = resolveManagerScopeUserId(managerUserId);
   const [tick, setTick] = useState(0);
-  const [detailHeaderActions, setDetailHeaderActions] = useState<ReactNode>(null);
   const { selectedIds, setSelectedIds, toggleSelected } = usePortalRowSelection(activeStage);
   const [pendingBulkDestructive, setPendingBulkDestructive] = useState<"unlist" | "delete-queue" | null>(
     null,
   );
   const [bulkDestructiveBusy, setBulkDestructiveBusy] = useState(false);
-  const detailHeaderKeyRef = useRef<string | null>(null);
   const handlePropertyUpdated = useCallback(() => setTick((t) => t + 1), []);
   const handleAfterUnlist = useCallback(
     (propertyKey: string) => {
@@ -1163,16 +1138,6 @@ export function ManagerHousePropertiesPanel({
     },
     [detailTabProp, onStageChange, propertiesBase, propertyKeyProp, router],
   );
-  const handleDetailHeaderActions = useCallback((key: string, actions: ReactNode) => {
-    if (key === "none") {
-      detailHeaderKeyRef.current = null;
-      setDetailHeaderActions(null);
-      return;
-    }
-    if (detailHeaderKeyRef.current === key) return;
-    detailHeaderKeyRef.current = key;
-    setDetailHeaderActions(actions);
-  }, []);
 
   const propCount = useMemo(() => {
     void tick;
@@ -1448,7 +1413,6 @@ export function ManagerHousePropertiesPanel({
       propertiesBase={propertiesBase}
       stage={activeStage}
       detailTab={detailTabProp}
-      onDetailHeaderActions={propertyKeyProp ? handleDetailHeaderActions : undefined}
     />
   );
 
@@ -1473,8 +1437,6 @@ export function ManagerHousePropertiesPanel({
         hideBackText
         bareHeader
         dataAttrBack="property-detail-back"
-        actions={detailHeaderActions}
-        inlineActions
         suppressMobileActions
         pinScrollBody
         scrollBody={false}
@@ -1487,18 +1449,7 @@ export function ManagerHousePropertiesPanel({
   return (
     <>
       {rows.length === 0 ? (
-        onAddProperty ? (
-          <div className={`${PORTAL_LIST_ADD_ROW_WRAP_CLASS} pt-5 sm:pt-6`}>
-            <PortalListAddRow
-              label="Add"
-              ariaLabel="Add property"
-              icon={PORTAL_LIST_ADD_ICONS.property}
-              onClick={onAddProperty}
-              disabled={addPropertyDisabled}
-              dataAttr="properties-list-add"
-            />
-          </div>
-        ) : null
+        <PortalDataTableEmpty message="No properties in this stage yet." icon="default" />
       ) : (
         <div className={PORTAL_LIST_PAGE_BODY}>
           {rows.map(({ sourceBucket, row, linked }) => {
@@ -1536,19 +1487,6 @@ export function ManagerHousePropertiesPanel({
               />
             );
           })}
-          {onAddProperty ? (
-            <div className={PORTAL_LIST_ADD_ROW_WRAP_CLASS}>
-              <PortalListAddRow
-                label="Add"
-                ariaLabel="Add property"
-                icon={PORTAL_LIST_ADD_ICONS.property}
-                onClick={onAddProperty}
-                disabled={addPropertyDisabled}
-                dataAttr="properties-list-add"
-                inline
-              />
-            </div>
-          ) : null}
         </div>
       )}
       {selectedIds.size > 0 ? (

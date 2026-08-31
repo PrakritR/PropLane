@@ -108,24 +108,41 @@ export function PortalListControlStack({
     );
 
   if (variant === "command") {
+    const showActionRow = Boolean(actions);
+    const showUtilityRow = Boolean(filterRow || search);
     return (
       <div
         className={cn("shrink-0 space-y-2", className)}
         data-slot="portal-list-control-stack"
         data-variant="command"
       >
-        <div className="flex min-w-0 flex-col rounded-xl border border-border bg-card/75 xl:flex-row xl:items-center">
+        <div className="flex min-w-0 flex-col rounded-xl border border-border bg-card/75">
           {showDestinations ? (
-            <HorizontalScrollCapture className="min-w-0 border-b border-border px-2 xl:flex-1 xl:border-b-0 xl:px-2.5">
+            <HorizontalScrollCapture className="min-w-0 px-2 pt-0.5">
               <div ref={destinationRef} data-portal-list-destination-nav>
                 {destinationContent}
               </div>
             </HorizontalScrollCapture>
           ) : null}
-          {showFindRow || actions ? (
-            <div className="flex min-w-0 flex-wrap items-center gap-2 p-2 xl:flex-nowrap xl:shrink-0 xl:pl-0">
+          {showActionRow ? (
+            <div
+              className={cn(
+                "flex min-w-0 flex-wrap items-center gap-2 px-2.5 py-2",
+                (showDestinations || showUtilityRow) && "border-t border-border",
+              )}
+            >
+              {actions}
+            </div>
+          ) : null}
+          {showUtilityRow ? (
+            <div
+              className={cn(
+                "flex min-w-0 flex-wrap items-center gap-2 p-2",
+                (showDestinations || showActionRow) && "border-t border-border",
+              )}
+            >
               {search ? (
-                <div className="relative min-w-0 flex-1 xl:w-64 xl:flex-none">
+                <div className="relative min-w-0 w-full flex-1 sm:min-w-[12rem]">
                   <Search
                     className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted"
                     strokeWidth={1.75}
@@ -143,14 +160,6 @@ export function PortalListControlStack({
                 </div>
               ) : null}
               {filterRow ? <div className="shrink-0">{filterRow}</div> : null}
-              {actions ? (
-                <div
-                  className="flex min-w-0 shrink-0 items-center gap-2 max-xl:w-full max-xl:overflow-x-auto max-xl:overscroll-x-contain max-xl:[scrollbar-width:none] max-xl:[&::-webkit-scrollbar]:hidden"
-                  {...{ [HORIZONTAL_SCROLL_ATTR]: "" }}
-                >
-                  {actions}
-                </div>
-              ) : null}
             </div>
           ) : null}
         </div>

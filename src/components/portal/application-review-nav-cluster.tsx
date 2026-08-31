@@ -1,5 +1,6 @@
 "use client";
 
+import { ClipboardList, Home, Search } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import {
   ApplicationHouseholdCluster,
@@ -10,7 +11,6 @@ import type { DemoApplicantRow } from "@/data/demo-portal";
 import {
   screeningListTrailForApplicant,
   screeningListTrailForCosigner,
-  screeningTrailToneClassName,
 } from "@/lib/application-screening-list-meta";
 import { applicationShowsBackgroundCheck } from "@/lib/application-background-check";
 import { cosignerShowsBackgroundCheck } from "@/lib/cosigner-screening";
@@ -19,7 +19,7 @@ import {
   applicationPropertyMeta,
   applicationSubmittedLabel,
 } from "@/lib/manager-application-list";
-import { applicantDisplayName } from "@/lib/rental-application/applicant-name";
+import { isWithdrawnApplicationRow } from "@/lib/rental-application/resident-application-list";
 import { cn } from "@/lib/utils";
 
 function NavCheckbox({
@@ -36,7 +36,7 @@ function NavCheckbox({
   return (
     <input
       type="checkbox"
-      className="mt-0.5 h-4 w-4 shrink-0 accent-primary"
+      className="h-4 w-4 shrink-0 accent-primary"
       checked={checked}
       aria-label={ariaLabel}
       data-attr={dataAttr}
@@ -46,11 +46,27 @@ function NavCheckbox({
   );
 }
 
+function screeningToneToBadge(
+  tone: "pending" | "ready" | "running" | "complete" | "muted",
+): "info" | "warning" | "muted" | "success" {
+  if (tone === "complete") return "success";
+  if (tone === "pending" || tone === "running") return "warning";
+  if (tone === "ready") return "info";
+  return "muted";
+}
+
+function applicationStatusPill(row: DemoApplicantRow): { label: string; tone: "info" | "warning" | "muted" | "success" } {
+  if (isWithdrawnApplicationRow(row)) return { label: "Withdrawn", tone: "muted" };
+  if (row.bucket === "approved") return { label: "Approved", tone: "success" };
+  if (row.bucket === "rejected") return { label: "Rejected", tone: "muted" };
+  return { label: "Applied", tone: "info" };
+}
+
 function ClusterNavRow({
   primary,
   meta,
-  trail,
-  trailTone,
+  icon,
+  statusPill,
   selected,
   checked,
   onCheck,
@@ -60,8 +76,8 @@ function ClusterNavRow({
 }: {
   primary: string;
   meta?: string;
-  trail?: string;
-  trailTone?: "pending" | "ready" | "running" | "complete" | "muted";
+  icon: React.ReactNode;
+  statusPill?: { label: string; tone: "info" | "warning" | "muted" | "success" };
   selected?: boolean;
   checked?: boolean;
   onCheck?: () => void;
@@ -74,9 +90,9 @@ function ClusterNavRow({
       type="button"
       onClick={onOpen}
       className={cn(
-        "flex w-full items-start gap-3 px-3 py-3 text-left transition-colors hover:bg-foreground/[0.03]",
+        "flex w-full items-center gap-2.5 px-3 py-2.5 text-left transition-colors hover:bg-foreground/[0.03]",
         selected && "bg-primary/5 shadow-[inset_3px_0_0_var(--color-primary)]",
-        nested && "max-md:pl-4",
+        nested && "pl-4",
       )}
     >
       {onCheck ? (
@@ -89,18 +105,14 @@ function ClusterNavRow({
       ) : (
         <span className="w-4 shrink-0" aria-hidden />
       )}
+      <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
+        {icon}
+      </span>
       <span className="min-w-0 flex-1">
-        <span className="block text-sm font-semibold text-foreground">{primary}</span>
+        <span className="block truncate text-sm font-semibold text-foreground">{primary}</span>
         {meta ? <span className="mt-0.5 block truncate text-xs text-muted">{meta}</span> : null}
       </span>
-      {trail ? (
-        <span className={cn("shrink-0 text-xs font-semibold", screeningTrailToneClassName(trailTone ?? "muted"))}>
-          {trail}
-        </span>
-      ) : null}
-      <span className="shrink-0 text-muted" aria-hidden>
-        ›
-      </span>
+      {statusPill ? <Badge tone={statusPill.tone}>{statusPill.label}</Badge> : null}
     </button>
   );
 
@@ -130,6 +142,12 @@ export function ApplicationPropertySummaryCard({ row }: { row: DemoApplicantRow 
   );
 }
 
+function propertyRowMeta(row: DemoApplicantRow): string {
+  const propertyMeta = applicationPropertyMeta(row);
+  const parts = propertyMeta.split(" · ").filter(Boolean);
+  return parts.slice(1).join(" · ") || parts[0] || "—";
+}
+
 export function ApplicationReviewNavCluster({
   row,
   cosignerSubmissions = [],
@@ -138,7 +156,7 @@ export function ApplicationReviewNavCluster({
   onOpenCosigner,
   selectedRowIds,
   onToggleRowId,
-  showPropertySummary = true,
+  showPropertySummary = false,
 }: {
   row: DemoApplicantRow;
   cosignerSubmissions?: CosignerSubmission[];
@@ -147,15 +165,19 @@ export function ApplicationReviewNavCluster({
   onOpenCosigner?: (index: number) => void;
   selectedRowIds?: Set<string>;
   onToggleRowId?: (id: string) => void;
+  /** Legacy applications list may still show the standalone summary card. */
   showPropertySummary?: boolean;
 }) {
-  const applicantName = applicantDisplayName(row);
   const showsScreening = applicationShowsBackgroundCheck(row);
   const screeningTrail = screeningListTrailForApplicant(row);
+  const propertyMeta = applicationPropertyMeta(row);
+  const propertyTitle = propertyMeta.split(" · ")[0] || row.property || "Property";
+  const applicationStatus = applicationStatusPill(row);
 
   const scrollToView = (view: ApplicationReviewView) => {
     onActiveViewChange(view);
-    const targetId = view === "background-check" ? "application-background-check-section" : "application-readonly-review";
+    const targetId =
+      view === "background-check" ? "application-background-check-section" : "application-readonly-review";
     requestAnimationFrame(() => {
       document.getElementById(targetId)?.scrollIntoView({ behavior: "smooth", block: "start" });
     });
@@ -165,20 +187,21 @@ export function ApplicationReviewNavCluster({
     <div className="space-y-3" data-attr="application-review-nav-cluster">
       {showPropertySummary ? <ApplicationPropertySummaryCard row={row} /> : null}
 
-      <ApplicationHouseholdCluster
-        header={
-          <>
-            <span className="w-full truncate text-sm font-semibold text-foreground">{applicantName}</span>
-            {row.email?.trim() ? (
-              <span className="truncate text-xs text-muted">{row.email.trim()}</span>
-            ) : null}
-            <Badge tone="info">1 application</Badge>
-          </>
-        }
-      >
+      <ApplicationHouseholdCluster>
         <ClusterNavRow
+          primary={propertyTitle}
+          meta={propertyRowMeta(row)}
+          icon={<Home className="h-4 w-4" aria-hidden />}
+          statusPill={{ label: "Current", tone: "info" }}
+          onOpen={() => scrollToView("application")}
+          checkDataAttr="application-review-select-property"
+        />
+        <ClusterNavRow
+          nested
           primary="Application"
-          meta={`${applicationSubmittedLabel(row)}${applicationPropertyMeta(row) !== "—" ? ` · ${applicationPropertyMeta(row)}` : ""}`}
+          meta={applicationSubmittedLabel(row)}
+          icon={<ClipboardList className="h-4 w-4" aria-hidden />}
+          statusPill={applicationStatus}
           selected={activeView === "application"}
           checked={selectedRowIds?.has(row.id)}
           onCheck={onToggleRowId ? () => onToggleRowId(row.id) : undefined}
@@ -191,13 +214,14 @@ export function ApplicationReviewNavCluster({
             nested
             primary="Background check"
             meta={screeningTrail.sub}
-            trail={screeningTrail.label}
-            trailTone={screeningTrail.tone}
+            icon={<Search className="h-4 w-4" aria-hidden />}
+            statusPill={{
+              label: screeningTrail.label,
+              tone: screeningToneToBadge(screeningTrail.tone),
+            }}
             selected={activeView === "background-check"}
             checked={selectedRowIds?.has(`${row.id}:screening`)}
-            onCheck={
-              onToggleRowId ? () => onToggleRowId(`${row.id}:screening`) : undefined
-            }
+            onCheck={onToggleRowId ? () => onToggleRowId(`${row.id}:screening`) : undefined}
             onOpen={() => scrollToView("background-check")}
             checkDataAttr="application-review-select-screening"
           />
@@ -216,6 +240,7 @@ export function ApplicationReviewNavCluster({
                     nested
                     primary={sub.fullName || "Co-signer"}
                     meta={sub.email || undefined}
+                    icon={<ClipboardList className="h-4 w-4" aria-hidden />}
                     onOpen={() => onOpenCosigner?.(index)}
                     checkDataAttr={`application-review-select-cosigner-${index}`}
                   />
@@ -224,8 +249,11 @@ export function ApplicationReviewNavCluster({
                       nested
                       primary="Background check"
                       meta={cosignerScreening.sub}
-                      trail={cosignerScreening.label}
-                      trailTone={cosignerScreening.tone}
+                      icon={<Search className="h-4 w-4" aria-hidden />}
+                      statusPill={{
+                        label: cosignerScreening.label,
+                        tone: screeningToneToBadge(cosignerScreening.tone),
+                      }}
                       onOpen={() => onOpenCosigner?.(index)}
                       checkDataAttr={`application-review-select-cosigner-screening-${index}`}
                     />

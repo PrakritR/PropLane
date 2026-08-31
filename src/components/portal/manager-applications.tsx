@@ -24,11 +24,13 @@ import { useManagerUserId } from "@/hooks/use-manager-user-id";
 import { usePortalRowSelection } from "@/hooks/use-portal-row-selection";
 import {
   ManagerPortalPageShell,
+  PORTAL_COMMAND_ACTION_BTN,
+  PORTAL_COMMAND_PRIMARY_ACTION_BTN,
+  PORTAL_COMMAND_PRIMARY_ACTION_STYLE,
   PORTAL_HEADER_ACTION_BTN,
   RESIDENT_DETAIL_HEADER_ACTION_BTN,
   RESIDENT_DETAIL_HEADER_ACTIONS_ROW,
 } from "@/components/portal/portal-metrics";
-import { PortalAdaptiveHeaderActions } from "@/components/portal/portal-adaptive-header-actions";
 import { ApplicationFilterSortFields } from "@/components/portal/application-filter-sort-fields";
 import { PortalFilterSortSheet, portalFilterActiveCount } from "@/components/portal/portal-filter-sort-sheet";
 import { PORTAL_PROPERTY_FILTER_SHEET_CLASS } from "@/components/portal/portal-filter-shell";
@@ -41,23 +43,19 @@ import { PORTAL_LIST_PAGE_BODY } from "@/components/portal/portal-inbox-ui";
 import {
   PORTAL_DATA_TABLE_WRAP,
   PORTAL_DETAIL_BTN,
+  PortalDataTableEmpty,
   PortalTableDetailActions,
 } from "@/components/portal/portal-data-table";
 import { UploadedLeasePdfPreview } from "@/components/portal/uploaded-lease-pdf-preview";
 import { PortalCollapsibleSection } from "@/components/portal/portal-collapsible-section";
-import { DestinationNav } from "@/components/ui/destination-nav";
 import { ApplicationReviewLauncherRow, type ApplicationReviewView } from "@/components/portal/application-review-launcher-row";
 import { downloadBackgroundCheckForApplication, ApplicationScreeningPanel } from "@/components/portal/application-screening-panel";
 import { ApplicationHoldingFeeModal } from "@/components/portal/application-holding-fee-box";
 import { ManagerEditApplicationModal } from "@/components/portal/manager-edit-application-modal";
 import { ManagerApplicationOnBehalfModal } from "@/components/portal/manager-application-on-behalf-modal";
-import {
-  PortalListAddRow,
-  PORTAL_LIST_ADD_ICONS,
-  PORTAL_LIST_ADD_ROW_WRAP_CLASS,
-} from "@/components/portal/portal-list-add-row";
+import { PortalListFab } from "@/components/portal/portal-list-fab";
 import { CheckrScreeningModal } from "@/components/portal/checkr-screening-modal";
-import { ManagerScreeningSettingsButton, ManagerScreeningSettingsModal } from "@/components/portal/manager-screening-settings";
+import { ManagerScreeningSettingsModal } from "@/components/portal/manager-screening-settings";
 import { ManagerPortalSettingsModal } from "@/components/portal/manager-portal-settings-modal";
 import type { DemoApplicantRow, ManagerApplicationBucket } from "@/data/demo-portal";
 import type { ApplicationBackgroundCheck } from "@/lib/checkr/types";
@@ -1681,7 +1679,7 @@ export function ManagerApplications({
       activeCount={portalFilterActiveCount([propertyFilters])}
       compactPanel
       filterFieldCount={1}
-      constrainDropdownToTitleBand
+      constrainDropdownToTitleBand={false}
       mobileFlushBody
       onReset={() => setPropertyFilters([])}
       dataAttr="applications-filter-sheet-open"
@@ -1696,38 +1694,23 @@ export function ManagerApplications({
     </PortalFilterSortSheet>
   );
 
-  const applicationsEditButton = (
+  const applicationsSettingsButton = (
     <Button
       type="button"
       variant="outline"
-      className={PORTAL_HEADER_ACTION_BTN}
-      data-attr="edit-application-open"
-      onClick={() => setEditApplicationOpen(true)}
-      disabled={propertyOptions.length === 0}
-      title={propertyOptions.length === 0 ? "Add a property before editing its application" : undefined}
+      className={PORTAL_COMMAND_ACTION_BTN}
+      data-attr="application-settings-open"
+      onClick={() => setApplicationSettingsOpen(true)}
     >
-      Edit
-    </Button>
-  );
-
-  const applicationsSendButton = (
-    <Button
-      type="button"
-      variant="outline"
-      className={PORTAL_HEADER_ACTION_BTN}
-      onClick={() => setInviteModalOpen(true)}
-      disabled={shareableProperties.length === 0}
-      title={shareableProperties.length === 0 ? "List a property as active before sending to prospects" : undefined}
-    >
-      Send
+      Settings
     </Button>
   );
 
   const applicationsAddButton = (
     <Button
       type="button"
-      variant="outline"
-      className={PORTAL_HEADER_ACTION_BTN}
+      className={PORTAL_COMMAND_PRIMARY_ACTION_BTN}
+      style={PORTAL_COMMAND_PRIMARY_ACTION_STYLE}
       data-attr="applications-add"
       onClick={openAddApplication}
       disabled={propertyOptions.length === 0}
@@ -1737,104 +1720,11 @@ export function ManagerApplications({
     </Button>
   );
 
-  const applicationsSettingsButton = (
-    <Button
-      type="button"
-      variant="outline"
-      className={PORTAL_HEADER_ACTION_BTN}
-      data-attr="application-settings-open"
-      onClick={() => setApplicationSettingsOpen(true)}
-    >
-      Settings
-    </Button>
-  );
-
-  const applicationsScreeningButton = (
-    <ManagerScreeningSettingsButton
-      className="w-full shrink-0 md:w-auto"
-      onClick={() => setScreeningModalOpen(true)}
-    />
-  );
-
-  const applicationsHeaderActions = (
-    <PortalAdaptiveHeaderActions
-      className="w-full min-w-0"
-      moreDataAttr="applications-more-actions"
-      moreAriaLabel="More application actions"
-      actions={[
-        {
-          id: "edit",
-          keepPriority: 4,
-          node: applicationsEditButton,
-          menuItem: (
-            <DropdownMenuItem
-              data-attr="edit-application-menu"
-              disabled={propertyOptions.length === 0}
-              onSelect={() => setEditApplicationOpen(true)}
-            >
-              Edit
-            </DropdownMenuItem>
-          ),
-        },
-        {
-          id: "send",
-          keepPriority: 3,
-          node: applicationsSendButton,
-          menuItem: (
-            <DropdownMenuItem
-              disabled={shareableProperties.length === 0}
-              onSelect={() => setInviteModalOpen(true)}
-            >
-              Send
-            </DropdownMenuItem>
-          ),
-        },
-        {
-          id: "settings",
-          keepPriority: 2,
-          node: applicationsSettingsButton,
-          menuItem: (
-            <DropdownMenuItem
-              data-attr="application-settings-menu"
-              onSelect={() => setApplicationSettingsOpen(true)}
-            >
-              Settings
-            </DropdownMenuItem>
-          ),
-        },
-        {
-          id: "screening",
-          keepPriority: 1,
-          node: applicationsScreeningButton,
-          menuItem: (
-            <DropdownMenuItem
-              data-attr="application-screening-menu"
-              onSelect={() => setScreeningModalOpen(true)}
-            >
-              Screening
-            </DropdownMenuItem>
-          ),
-        },
-        {
-          id: "add",
-          alwaysVisible: true,
-          pinEdge: "end",
-          node: applicationsAddButton,
-          menuItem: (
-            <DropdownMenuItem
-              data-attr="applications-add-menu"
-              disabled={propertyOptions.length === 0}
-              onSelect={(event) => {
-                event.preventDefault();
-                openAddApplication();
-              }}
-            >
-              Add
-            </DropdownMenuItem>
-          ),
-        },
-      ]}
-    />
+  const applicationsListActions = (
+    <>
+      {applicationsSettingsButton}
+      {applicationsAddButton}
+    </>
   );
 
   const applicationModals = (
@@ -2100,27 +1990,23 @@ export function ManagerApplications({
     <ManagerPortalPageShell
       title="Applications"
       hideTitleOnMobileNav
-      titleInlineFilter={applicationsFilterSort}
-      titleAside={applicationsHeaderActions}
+      titleInlineFilter={null}
       compactFilterRow
     >
       <PortalListControlStack
         className="mb-2 max-lg:mb-2"
-        destinationRow={
-          <DestinationNav
-            items={tabs.map((t) => ({
-              id: t.id,
-              label: t.label,
-              href: applicationsListHref(t.id),
-              count: t.count,
-              dataAttr: `applications-bucket-${t.id}`,
-            }))}
-            activeId={bucket}
-            ariaLabel="Application status"
-            itemLayout="equal"
-            className="max-lg:rounded-none max-lg:border-0 max-lg:border-b max-lg:border-border max-lg:bg-transparent max-lg:p-0"
-          />
-        }
+        variant="command"
+        destinations={tabs.map((t) => ({
+          id: t.id,
+          label: t.label,
+          href: applicationsListHref(t.id),
+          count: t.count,
+          dataAttr: `applications-bucket-${t.id}`,
+        }))}
+        activeDestinationId={bucket}
+        destinationAriaLabel="Application status"
+        filterRow={applicationsFilterSort}
+        actions={applicationsListActions}
         search={{
           value: searchQuery,
           onChange: setSearchQuery,
@@ -2155,16 +2041,14 @@ export function ManagerApplications({
           <ListSkeleton rows={5} showLeading={false} />
         </div>
       ) : rowsForBucket.length === 0 ? (
-        // Empty still belongs in the house body — otherwise this tab's gutters
-        // change the moment the bucket has nothing in it.
-        <div className={cn(PORTAL_LIST_PAGE_BODY, PORTAL_LIST_ADD_ROW_WRAP_CLASS)}>
-          <PortalListAddRow
-            label="Add"
-            ariaLabel="Add application"
-            icon={PORTAL_LIST_ADD_ICONS.application}
-            onClick={openAddApplication}
-            disabled={propertyOptions.length === 0}
-            dataAttr="applications-list-add"
+        <div className={PORTAL_LIST_PAGE_BODY}>
+          <PortalDataTableEmpty
+            icon="default"
+            message={
+              searchQuery.trim() || propertyFilters.length > 0
+                ? "No applications match your filters."
+                : "No applications in this bucket yet."
+            }
           />
         </div>
       ) : (
@@ -2179,20 +2063,15 @@ export function ManagerApplications({
               navigate(`${applicationDetailHref(basePath, tabForRow(row), row.id)}?cosigner=${index}`)
             }
           />
-          <div className={PORTAL_LIST_ADD_ROW_WRAP_CLASS}>
-            <PortalListAddRow
-              label="Add"
-              ariaLabel="Add application"
-              icon={PORTAL_LIST_ADD_ICONS.application}
-              onClick={openAddApplication}
-              disabled={propertyOptions.length === 0}
-              dataAttr="applications-list-add"
-              inline
-            />
-          </div>
         </div>
       )}
       </div>
+      <PortalListFab
+        onClick={openAddApplication}
+        disabled={propertyOptions.length === 0}
+        ariaLabel="Add application"
+        dataAttr="applications-list-add"
+      />
     </ManagerPortalPageShell>
       {selectedIds.size > 0 ? (
         <BulkActionBar count={selectedIds.size} hideCount variant="payments">

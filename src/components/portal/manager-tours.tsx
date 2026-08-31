@@ -1,11 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import {
-  PortalListAddRow,
-  PORTAL_LIST_ADD_ICONS,
-  PORTAL_LIST_ADD_ROW_WRAP_CLASS,
-} from "@/components/portal/portal-list-add-row";
+import { PortalListFab } from "@/components/portal/portal-list-fab";
 import { togglePortalListClusterSelection } from "@/components/portal/application-household-list";
 import { PortalListGroupFilterFields } from "@/components/portal/portal-list-group-filter-fields";
 import { ManagerAddScheduledTourModal } from "@/components/portal/manager-add-scheduled-tour-modal";
@@ -15,11 +11,12 @@ import { BulkActionBar } from "@/components/ui/bulk-action-bar";
 import { Modal, ModalFooter } from "@/components/ui/modal";
 import { PortalBulkMessageCarouselModal } from "@/components/portal/portal-bulk-message-carousel-modal";
 import { Input } from "@/components/ui/input";
-import { DestinationNav } from "@/components/ui/destination-nav";
 import { ManagerPortalSettingsModal } from "@/components/portal/manager-portal-settings-modal";
 import {
   ManagerPortalPageShell,
-  PORTAL_HEADER_ACTION_BTN,
+  PORTAL_COMMAND_ACTION_BTN,
+  PORTAL_COMMAND_PRIMARY_ACTION_BTN,
+  PORTAL_COMMAND_PRIMARY_ACTION_STYLE,
 } from "@/components/portal/portal-metrics";
 import { PortalActiveFilterChips } from "@/components/portal/portal-filter-chips";
 import { PortalFilterSortSheet } from "@/components/portal/portal-filter-sort-sheet";
@@ -377,7 +374,7 @@ export function ManagerTours({
       compactPanel
       filterFieldCount={propertyOptions.length > 1 ? 2 : 1}
       mobileFlushBody
-      constrainDropdownToTitleBand
+      constrainDropdownToTitleBand={false}
       className={PORTAL_PROPERTY_FILTER_SHEET_CLASS}
       onReset={() => {
         setPropertyFilters([]);
@@ -1206,53 +1203,48 @@ export function ManagerTours({
     <ManagerPortalPageShell
       title="Tours"
       hideTitleOnMobileNav
-      titleInlineFilter={filterSheet}
+      titleInlineFilter={null}
       compactFilterRow
-      titleAside={
-        <>
-          <Button
-            type="button"
-            variant="outline"
-            className={PORTAL_HEADER_ACTION_BTN}
-            data-attr="tours-settings-open"
-            onClick={() => setSettingsOpen(true)}
-          >
-            Settings
-          </Button>
-          <Button
-            type="button"
-            variant="outline"
-            className={PORTAL_HEADER_ACTION_BTN}
-            disabled={propertyOptions.length === 0}
-            data-attr="tours-share-open"
-            onClick={() => setShareTourOpen(true)}
-          >
-            Share tour
-          </Button>
-        </>
-      }
     >
       {modals}
       {bulkActionBar}
 
       <PortalListControlStack
         className="mb-2"
-        destinationRow={
-          <DestinationNav
-            items={tabs.map((tab) => ({
-              id: tab.id,
-              label: tab.label,
-              href: managerTourListHref(basePath, tab.id),
-              count: tab.count,
-              alert: tab.alert,
-              dataAttr: `tours-bucket-${tab.id}`,
-            }))}
-            activeId={bucket}
-            ariaLabel="Tour status"
-            itemLayout="equal"
-            denseEqualRow
-            className="max-w-none"
-          />
+        variant="command"
+        destinations={tabs.map((tab) => ({
+          id: tab.id,
+          label: tab.label,
+          href: managerTourListHref(basePath, tab.id),
+          count: tab.count,
+          alert: tab.alert,
+          dataAttr: `tours-bucket-${tab.id}`,
+        }))}
+        activeDestinationId={bucket}
+        destinationAriaLabel="Tour status"
+        filterRow={filterSheet}
+        actions={
+          <>
+            <Button
+              type="button"
+              variant="outline"
+              className={PORTAL_COMMAND_ACTION_BTN}
+              data-attr="tours-settings-open"
+              onClick={() => setSettingsOpen(true)}
+            >
+              Settings
+            </Button>
+            <Button
+              type="button"
+              className={PORTAL_COMMAND_PRIMARY_ACTION_BTN}
+              style={PORTAL_COMMAND_PRIMARY_ACTION_STYLE}
+              disabled={propertyOptions.length === 0}
+              data-attr="tours-share-open"
+              onClick={() => setShareTourOpen(true)}
+            >
+              Share tour
+            </Button>
+          </>
         }
         search={{
           value: searchQuery,
@@ -1268,34 +1260,16 @@ export function ManagerTours({
 
         {!authReady ? (
           <p className="text-sm text-muted">Loading tours…</p>
-        ) : rowsForBucket.length === 0 ? (
-          <div className={PORTAL_LIST_ADD_ROW_WRAP_CLASS}>
-            <PortalListAddRow
-              label="Add"
-              ariaLabel="Schedule tour"
-              icon={PORTAL_LIST_ADD_ICONS.application}
-              onClick={() => setAddTourOpen(true)}
-              disabled={propertyOptions.length === 0}
-              dataAttr="tours-list-add"
-            />
-          </div>
-        ) : (
-          <>
-            {renderGroupedTours()}
-            <div className={PORTAL_LIST_ADD_ROW_WRAP_CLASS}>
-              <PortalListAddRow
-                label="Add"
-                ariaLabel="Schedule tour"
-                icon={PORTAL_LIST_ADD_ICONS.application}
-                onClick={() => setAddTourOpen(true)}
-                disabled={propertyOptions.length === 0}
-                dataAttr="tours-list-add"
-                inline
-              />
-            </div>
-          </>
+        ) : rowsForBucket.length === 0 ? null : (
+          renderGroupedTours()
         )}
       </div>
+      <PortalListFab
+        onClick={() => setAddTourOpen(true)}
+        disabled={propertyOptions.length === 0}
+        ariaLabel="Schedule tour"
+        dataAttr="tours-list-add"
+      />
 
       <ShareLeadLinkModal
         open={shareTourOpen}
