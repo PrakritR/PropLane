@@ -222,6 +222,12 @@ Pill shape (`rounded-full`), min-height **44px**, 14px semibold. Variants in `Bu
 | **ghost** | Text only | Nav-adjacent, low emphasis |
 | **danger** | Red text, no fill | Reject, unlist — **never** filled red |
 
+**Portal command-strip primaries** (`Add property`, `Add resident`, …): compact
+`rounded-lg` cobalt fill with white text — not the pill primary above. Shared
+tokens: `PORTAL_COMMAND_PRIMARY_ACTION_BTN` + `PORTAL_COMMAND_PRIMARY_ACTION_STYLE`
+in `portal-metrics.tsx`. Full layout, pairing with outline actions, and per-section
+labels: [`docs/portal-ui-system.md` → Command-strip primary CTAs](portal-ui-system.md#command-strip-primary-ctas-add-property-add-resident).
+
 **Loading state.** A button doing async work shows an inline `currentColor` spinner before its
 label (so it reads on every variant), sets `aria-busy`, and is disabled until the work settles.
 It is automatic whenever `onClick` returns a promise, so a button that awaits its own work needs
