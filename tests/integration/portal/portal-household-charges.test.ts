@@ -11,10 +11,14 @@ vi.mock("@/lib/payment-automation-settings", () => ({
 vi.mock("@/lib/payment-reminder-bootstrap", () => ({
   ensureChargeDueDateForReminders: vi.fn((c: unknown) => c),
 }));
-vi.mock("@/lib/reports/ledger-sync", () => ({
-  reconcileDuplicateHouseholdChargeRecords: vi.fn().mockResolvedValue(undefined),
-  syncLedgerChargeEntry: vi.fn().mockResolvedValue(undefined),
-}));
+vi.mock("@/lib/reports/ledger-sync", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/reports/ledger-sync")>();
+  return {
+    ...actual,
+    reconcileDuplicateChargeList: vi.fn().mockResolvedValue({ removedChargeIds: [] }),
+    syncLedgerChargeEntry: vi.fn().mockResolvedValue(undefined),
+  };
+});
 vi.mock("@/lib/payment-reminder-lifecycle.server", () => ({
   cancelFuturePaymentRemindersForCharge: vi.fn().mockResolvedValue(undefined),
   restoreFuturePaymentRemindersForCharge: vi.fn().mockResolvedValue(undefined),
@@ -144,8 +148,6 @@ describe("portal-household-charges POST — paid is sticky", () => {
       hc_4: { status: "pending", manager_user_id: "mgr_1", property_id: "prop_1", row_data: { id: "hc_4", status: "pending" } },
     });
     vi.mocked(createSupabaseServiceRoleClient).mockReturnValue(db as never);
-    // A benign concurrent re-post of an already-persisted charge (e.g. a unique
-    // violation inside the GL posting) must not 500 the whole batch.
     vi.mocked(syncLedgerChargeEntry).mockRejectedValueOnce(new Error("duplicate ledger entry"));
 
     const res = await POST(
@@ -158,6 +160,33 @@ describe("portal-household-charges POST — paid is sticky", () => {
     expect(res.status).toBe(200);
     expect(syncLedgerChargeEntry).toHaveBeenCalled();
     expect(stored.get("hc_4")!.status).toBe("paid");
+  });
+
+  it("skips ledger sync when a mirror POST repeats unchanged charge rows", async () => {
+    const unchanged = {
+      id: "hc_5",
+      status: "pending",
+      propertyId: "prop_1",
+      residentEmail: "r@test.com",
+      amountLabel: "$500.00",
+      balanceLabel: "$500.00",
+      title: "Rent",
+      kind: "rent",
+    };
+    const { db } = makeDb({
+      hc_5: {
+        status: "pending",
+        manager_user_id: "mgr_1",
+        property_id: "prop_1",
+        row_data: unchanged,
+      },
+    });
+    vi.mocked(createSupabaseServiceRoleClient).mockReturnValue(db as never);
+
+    const res = await POST(jsonReq({ action: "replace", charges: [unchanged] }));
+
+    expect(res.status).toBe(200);
+    expect(syncLedgerChargeEntry).not.toHaveBeenCalled();
   });
 
   it("action:'unmarkPaid' explicitly reverts a paid charge to pending", async () => {

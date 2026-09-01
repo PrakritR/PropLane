@@ -334,8 +334,39 @@ function emit() {
   window.dispatchEvent(new Event(HOUSEHOLD_CHARGES_EVENT));
 }
 
+let householdMirrorInFlight: Promise<boolean> | null = null;
+let householdMirrorQueued = false;
+
+function scheduleHouseholdMirrorPost(): void {
+  if (!isBrowser() || isDemoModeActive()) return;
+  if (householdMirrorInFlight) {
+    householdMirrorQueued = true;
+    return;
+  }
+  householdMirrorInFlight = postHouseholdPayloadAwait({
+    action: "replace",
+    charges: readAll(),
+    rentProfiles: readRentProfiles(),
+  })
+    .catch(() => false)
+    .finally(() => {
+      householdMirrorInFlight = null;
+      if (householdMirrorQueued) {
+        householdMirrorQueued = false;
+        scheduleHouseholdMirrorPost();
+      }
+    });
+}
+
 function postHouseholdPayload(body: unknown) {
   if (!isBrowser() || isDemoModeActive()) return;
+  const action = (body as { action?: string }).action;
+  // Full-list mirrors fire on nearly every sync/write — collapse concurrent
+  // callers into one POST with the latest in-memory snapshot.
+  if (action === "replace") {
+    scheduleHouseholdMirrorPost();
+    return;
+  }
   void postHouseholdPayloadAwait(body).catch(() => { /* fire-and-forget */ });
 }
 

@@ -55,6 +55,24 @@ function dueDateFromCharge(charge: HouseholdCharge): string | null {
   return parseIsoDate(charge.createdAt);
 }
 
+/** Stable fingerprint of charge fields that drive ledger/GL rows — used to skip no-op mirrors. */
+export function householdChargeLedgerFingerprint(
+  charge: HouseholdCharge | Record<string, unknown>,
+): string {
+  const c = charge as HouseholdCharge;
+  return JSON.stringify({
+    status: c.status ?? null,
+    amountLabel: c.amountLabel ?? null,
+    balanceLabel: c.balanceLabel ?? null,
+    paidAt: c.paidAt ?? null,
+    kind: c.kind ?? null,
+    title: c.title ?? null,
+    dueDateLabel: c.dueDateLabel ?? null,
+    rentMonth: c.rentMonth ?? null,
+    propertyId: c.propertyId ?? null,
+  });
+}
+
 function throwIfLedgerError(error: { message: string } | null): void {
   if (error) throw new Error(`Ledger sync failed: ${error.message}`);
 }

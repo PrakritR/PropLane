@@ -13,10 +13,14 @@ vi.mock("@/lib/payment-automation-settings", () => ({
 vi.mock("@/lib/payment-reminder-bootstrap", () => ({
   ensureChargeDueDateForReminders: vi.fn((c: unknown) => c),
 }));
-vi.mock("@/lib/reports/ledger-sync", () => ({
-  reconcileDuplicateHouseholdChargeRecords: vi.fn().mockResolvedValue(undefined),
-  syncLedgerChargeEntry: vi.fn().mockResolvedValue(undefined),
-}));
+vi.mock("@/lib/reports/ledger-sync", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/reports/ledger-sync")>();
+  return {
+    ...actual,
+    reconcileDuplicateChargeList: vi.fn().mockResolvedValue({ removedChargeIds: [] }),
+    syncLedgerChargeEntry: vi.fn().mockResolvedValue(undefined),
+  };
+});
 vi.mock("@/lib/payment-reminder-lifecycle.server", () => ({
   cancelFuturePaymentRemindersForCharge: vi.fn().mockResolvedValue(undefined),
   restoreFuturePaymentRemindersForCharge: vi.fn().mockResolvedValue(undefined),

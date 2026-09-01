@@ -18,8 +18,11 @@ import {
   loadManagerAutomationSettings,
 } from "@/lib/payment-automation-settings";
 import { ensureChargeDueDateForReminders } from "@/lib/payment-reminder-bootstrap";
-import { reconcileDuplicateHouseholdChargeRecords } from "@/lib/reports/ledger-sync";
-import { syncLedgerChargeEntry } from "@/lib/reports/ledger-sync";
+import {
+  householdChargeLedgerFingerprint,
+  reconcileDuplicateChargeList,
+  syncLedgerChargeEntry,
+} from "@/lib/reports/ledger-sync";
 
 export const runtime = "nodejs";
 
@@ -228,18 +231,26 @@ export async function POST(req: Request) {
       const previousStatusById = new Map<string, string | null>();
       const existingOwnerById = new Map<string, string | null>();
       const existingPropertyById = new Map<string, string | null>();
+      const existingLedgerFingerprintById = new Map<string, string>();
       if (chargeIds.length > 0) {
         const { data: existingRows, error: existingRowsError } = await db
           .from("portal_household_charge_records")
-          .select("id, status, manager_user_id, property_id")
+          .select("id, status, manager_user_id, property_id, row_data")
           .in("id", chargeIds);
         if (existingRowsError) {
           return NextResponse.json({ error: existingRowsError.message }, { status: 500 });
         }
         for (const row of existingRows ?? []) {
-          previousStatusById.set(String(row.id), typeof row.status === "string" ? row.status : null);
-          existingOwnerById.set(String(row.id), row.manager_user_id ? String(row.manager_user_id) : null);
-          existingPropertyById.set(String(row.id), row.property_id ? String(row.property_id) : null);
+          const id = String(row.id);
+          previousStatusById.set(id, typeof row.status === "string" ? row.status : null);
+          existingOwnerById.set(id, row.manager_user_id ? String(row.manager_user_id) : null);
+          existingPropertyById.set(id, row.property_id ? String(row.property_id) : null);
+          if (row.row_data && typeof row.row_data === "object") {
+            existingLedgerFingerprintById.set(
+              id,
+              householdChargeLedgerFingerprint(row.row_data as Record<string, unknown>),
+            );
+          }
         }
       }
 
@@ -314,9 +325,13 @@ export async function POST(req: Request) {
       if (rows.length > 0) {
         const { error } = await db.from("portal_household_charge_records").upsert(rows, { onConflict: "id" });
         if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-        await reconcileDuplicateHouseholdChargeRecords(
+        // Batch-scoped dedupe only — a full-table sweep on every client mirror
+        // was taking tens of seconds and blocking the whole portal load.
+        await reconcileDuplicateChargeList(
           db,
+          mappedRows.map((row) => row.row_data as HouseholdCharge),
           user.role === "admin" ? undefined : user.id,
+          new Set(chargeIds),
         ).catch(() => undefined);
         // Reminders + ledger/GL sync run ONLY over rows that were actually
         // persisted (mappedRows) — NOT the full client list. A foreign charge a
@@ -330,6 +345,10 @@ export async function POST(req: Request) {
           if (!nextStatus) continue;
           const managerId = row.manager_user_id ?? user.id;
           const prevStatus = previousStatusById.get(chargeId) ?? null;
+          const nextFingerprint = householdChargeLedgerFingerprint(row.row_data);
+          const prevFingerprint = existingLedgerFingerprintById.get(chargeId);
+          const isNewRow = !existingOwnerById.has(chargeId);
+          if (!isNewRow && prevFingerprint === nextFingerprint) continue;
           if (nextStatus === "paid" && prevStatus !== "paid") {
             await cancelFuturePaymentRemindersForCharge(db, managerId, chargeId).catch(() => undefined);
           }
