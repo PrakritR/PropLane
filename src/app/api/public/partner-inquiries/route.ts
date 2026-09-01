@@ -15,6 +15,7 @@ import { proposeTourConfirmation } from "@/lib/tour-proposal.server";
 import { normalizeTourContactPhone, validateTourContactFields } from "@/lib/tour-contact-quality";
 import { linkTourInquiryToResident } from "@/lib/tour-resident-link.server";
 import { isActivePlannedTourEvent } from "@/lib/tour-slot-math";
+import { createApproveTourRequestTask } from "@/lib/manager-default-tasks.server";
 
 export const runtime = "nodejs";
 
@@ -325,6 +326,14 @@ export async function POST(req: Request) {
       if (managerUserId) {
         void notifyManagerTourRequest(db, req, row, requestedWindows[0]).catch(() => undefined);
         void notifyTenantTourRequestReceived(db, req, row, requestedWindows[0]).catch(() => undefined);
+        void createApproveTourRequestTask(db, managerUserId, {
+          inquiryId: id,
+          triggeredAt: String(row.createdAt ?? new Date().toISOString()),
+          guestName: textValue(row.name),
+          propertyTitle: textValue(row.propertyTitle),
+          propertyId: textValue(row.propertyId),
+          roomLabel: textValue(row.roomLabel),
+        }).catch(() => undefined);
         // Approval-first automated tours: when the manager opted in, propose
         // confirming this inquiry into its first open slot as an approval item.
         // Best-effort — a failure here must never fail the inquiry submission,

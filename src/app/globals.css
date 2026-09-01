@@ -2409,7 +2409,12 @@ html[data-native] [class*="PORTAL_SECTION_SURFACE"] {
   }
 
   html[data-bulk-action-bar] .axis-assistant-fab {
-    bottom: calc(var(--portal-native-bottom-nav-inset, 0px) + 6rem) !important;
+    bottom: calc(var(--portal-native-bottom-nav-inset, 0px) + 5.5rem) !important;
+    right: max(1rem, env(safe-area-inset-right)) !important;
+  }
+
+  html[data-bulk-action-bar] [data-bulk-action-actions] {
+    padding-right: 3.5rem;
   }
 
   /* Record detail footer actions — float FAB above the centered action row. */

@@ -228,6 +228,16 @@ export function sortApplicationListClustersForBucket(
   return sorted;
 }
 
+/** Flat list order matching the manager applications grouped table. */
+export function flattenApplicationListClusters(clusters: ApplicationListCluster[]): DemoApplicantRow[] {
+  const rows: DemoApplicantRow[] = [];
+  for (const cluster of clusters) {
+    if (cluster.kind === "single") rows.push(cluster.row);
+    else rows.push(...cluster.rows);
+  }
+  return rows;
+}
+
 /** Primary applications that may have linked co-signer submissions in this list. */
 export function signerAppIdsForCosignerLookup(rows: DemoApplicantRow[]): string[] {
   const ids = new Set<string>();

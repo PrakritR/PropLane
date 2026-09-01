@@ -1,13 +1,19 @@
 import { normalizeGroupId, type ApplicationGroup } from "@/lib/rental-application/application-groups";
 import { isMultiMemberHouseholdGroup } from "@/lib/rental-application/application-list-grouping";
 import {
+  clusterPortalListRows,
+  type PortalListGroupMode,
+} from "@/lib/portal-list-grouping";
+import {
   clusterRowsByResident,
+  type PropertyCluster,
   type ResidentCluster,
 } from "@/lib/resident-row-clustering";
 import type { ManagerResidentListRow } from "@/lib/manager-resident-list";
 
 export type ManagerResidentListRowWithGroup = ManagerResidentListRow & {
   groupId: string;
+  propertyId: string;
 };
 
 export type ManagerResidentListCluster =
@@ -18,6 +24,8 @@ export type ManagerResidentListCluster =
       group: ApplicationGroup | null;
       rows: ManagerResidentListRow[];
     };
+
+export type ManagerResidentHouseCluster = PropertyCluster<ManagerResidentListRowWithGroup>;
 
 function rowGroupId(row: ManagerResidentListRowWithGroup): string {
   if (!row.groupId.trim()) return "";
@@ -95,4 +103,30 @@ export function buildResidentListClusters(
   flushResidentClusters();
 
   return clusters;
+}
+
+/** Group residents under property headers (housemates share one card). */
+export function buildResidentHouseClusters(
+  rows: readonly ManagerResidentListRowWithGroup[],
+): ManagerResidentHouseCluster[] {
+  return clusterPortalListRows(
+    rows.map((row) => ({
+      ...row,
+      residentName: row.name,
+      residentEmail: row.email,
+      propertyLabel: row.propertyLabel,
+      propertyId: row.propertyId,
+    })),
+    "house",
+    (row) => row.propertyLabel || null,
+  );
+}
+
+export function buildResidentListClustersByMode(
+  rows: readonly ManagerResidentListRowWithGroup[],
+  groups: Map<string, ApplicationGroup>,
+  mode: PortalListGroupMode,
+): ManagerResidentListCluster[] | ManagerResidentHouseCluster[] {
+  if (mode === "house") return buildResidentHouseClusters(rows);
+  return buildResidentListClusters(rows, groups);
 }

@@ -3,6 +3,7 @@
 import { useCallback, useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { useAppUi } from "@/components/providers/app-ui-provider";
+import { ApplicationHouseholdCluster } from "@/components/portal/application-household-list";
 import { ManagerOutgoingPaymentDetail } from "@/components/portal/manager-outgoing-payment-detail";
 import {
   PORTAL_DETAIL_BTN,
@@ -16,14 +17,37 @@ import {
   PORTAL_LIST_ADD_ICONS,
   PORTAL_LIST_ADD_ROW_WRAP_CLASS,
 } from "@/components/portal/portal-list-add-row";
-import { PortalPersonRecordRow } from "@/components/portal/portal-record-row";
+import { Badge } from "@/components/ui/badge";
+import { DataList } from "@/components/ui/data-list";
 import type { DemoManagerOutgoingPaymentRow, DemoManagerWorkOrderRow, ManagerPaymentBucket } from "@/data/demo-portal";
 import { isDemoModeActive } from "@/lib/demo/demo-session";
+import {
+  clusterManagerOutgoingPaymentRowsByMode,
+  type ManagerOutgoingPayeeCluster,
+  type ManagerOutgoingPropertyCluster,
+} from "@/lib/manager-outgoing-payment-grouping";
 import { deleteManagerOutgoingExpense } from "@/lib/manager-outgoing-payments";
 import type { ManagerVendorRow } from "@/lib/manager-vendors-storage";
 import { readManagerWorkOrderRows } from "@/lib/manager-work-orders-storage";
+import { isPropertyClusterList, type PortalListGroupMode } from "@/lib/portal-list-grouping";
 import { paymentDetailHref, paymentListHref } from "@/lib/portal-detail-routes";
 import { usePortalNavigate } from "@/lib/portal-nav-client";
+
+function outgoingRowMeta(
+  row: DemoManagerOutgoingPaymentRow,
+  options?: { includeProperty?: boolean; includePayee?: boolean },
+): string {
+  const parts: string[] = [];
+  if (options?.includeProperty && row.propertyName?.trim()) {
+    parts.push(row.propertyName.trim());
+  }
+  if (options?.includePayee && row.payeeLabel?.trim() && row.payeeLabel.trim() !== "—") {
+    parts.push(row.payeeLabel.trim());
+  }
+  if (row.dueDate?.trim()) parts.push(row.dueDate.trim());
+  if (row.statusLabel?.trim()) parts.push(row.statusLabel.trim());
+  return parts.join(" · ") || "—";
+}
 
 export function ManagerOutgoingPaymentsPanel({
   rows,
@@ -33,6 +57,7 @@ export function ManagerOutgoingPaymentsPanel({
   paymentId: paymentIdProp,
   listBasePath,
   onAddPayment,
+  groupMode = "house",
 }: {
   rows: DemoManagerOutgoingPaymentRow[];
   activeBucket: ManagerPaymentBucket;
@@ -41,6 +66,7 @@ export function ManagerOutgoingPaymentsPanel({
   paymentId?: string;
   listBasePath?: string;
   onAddPayment?: () => void;
+  groupMode?: PortalListGroupMode;
 }) {
   const { showToast } = useAppUi();
   const navigate = usePortalNavigate();
@@ -72,6 +98,97 @@ export function ManagerOutgoingPaymentsPanel({
     },
     [activeBucket, listBasePath, navigate],
   );
+
+  const paymentClusters = useMemo(
+    () => clusterManagerOutgoingPaymentRowsByMode(rows, groupMode),
+    [rows, groupMode],
+  );
+
+  const renderPaymentDataList = (
+    listRows: DemoManagerOutgoingPaymentRow[],
+    options?: { omitPropertyInMeta?: boolean; omitPayeeInMeta?: boolean },
+  ) => (
+    <DataList
+      hideColumnHeaders
+      rows={listRows.map((row) => ({
+        id: row.id,
+        data: row,
+        primary: row.chargeTitle,
+        meta: outgoingRowMeta(row, {
+          includeProperty: !options?.omitPropertyInMeta,
+          includePayee: !options?.omitPayeeInMeta,
+        }),
+        trailing: (
+          <span className="text-sm font-semibold tabular-nums text-foreground">{row.amountLabel}</span>
+        ),
+        onClick: () => openPaymentDetail(row),
+      }))}
+      columns={[
+        { id: "payment", header: "Payment", cell: (row) => row.chargeTitle },
+        {
+          id: "amount",
+          header: "Amount",
+          cell: (row) => row.amountLabel,
+          headerClassName: "text-right",
+          cellClassName: "text-right tabular-nums",
+        },
+      ]}
+    />
+  );
+
+  const renderGroupedList = () => {
+    const dataAttr =
+      groupMode === "house" ? "outgoing-payments-house-groups" : "outgoing-payments-payee-groups";
+
+    if (isPropertyClusterList(groupMode, paymentClusters)) {
+      return (
+        <div className="space-y-3" data-attr={dataAttr}>
+          {(paymentClusters as ManagerOutgoingPropertyCluster[]).map((cluster) => (
+            <ApplicationHouseholdCluster
+              key={cluster.key}
+              header={
+                <>
+                  <span className="truncate text-xs font-semibold text-foreground">
+                    {cluster.propertyLabel}
+                  </span>
+                  <Badge tone="info">
+                    {cluster.rows.length === 1 ? "1 payment" : `${cluster.rows.length} payments`}
+                  </Badge>
+                </>
+              }
+            >
+              {renderPaymentDataList(cluster.rows, { omitPropertyInMeta: true, omitPayeeInMeta: false })}
+            </ApplicationHouseholdCluster>
+          ))}
+        </div>
+      );
+    }
+
+    return (
+      <div className="space-y-3" data-attr={dataAttr}>
+        {(paymentClusters as ManagerOutgoingPayeeCluster[]).map((cluster) => (
+          <ApplicationHouseholdCluster
+            key={cluster.key}
+            header={
+              <>
+                <span className="truncate text-xs font-semibold text-foreground">
+                  {cluster.residentLabel}
+                </span>
+                {cluster.propertyLabel ? (
+                  <span className="truncate text-xs text-muted">{cluster.propertyLabel}</span>
+                ) : null}
+                <Badge tone="info">
+                  {cluster.rows.length === 1 ? "1 payment" : `${cluster.rows.length} payments`}
+                </Badge>
+              </>
+            }
+          >
+            {renderPaymentDataList(cluster.rows, { omitPropertyInMeta: true, omitPayeeInMeta: true })}
+          </ApplicationHouseholdCluster>
+        ))}
+      </div>
+    );
+  };
 
   const deleteExpense = async (row: DemoManagerOutgoingPaymentRow) => {
     if (!row.expenseEntryId) {
@@ -222,17 +339,7 @@ export function ManagerOutgoingPaymentsPanel({
 
   return (
     <div className={PORTAL_LIST_PAGE_BODY}>
-      {rows.map((row) => (
-        <PortalPersonRecordRow
-          key={row.id}
-          name={row.chargeTitle}
-          subtitle={row.propertyName}
-          preview={row.payeeLabel}
-          meta={row.amountLabel}
-          onOpen={() => openPaymentDetail(row)}
-          dataAttr="outgoing-payment-list-row"
-        />
-      ))}
+      {renderGroupedList()}
       {onAddPayment ? (
         <div className={PORTAL_LIST_ADD_ROW_WRAP_CLASS}>
           <PortalListAddRow

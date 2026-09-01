@@ -75,7 +75,8 @@ export function propertyDetailTopNavId(tab: PropertyDetailTabId): PropertyDetail
 
 /** Routed detail tabs for manager resident profile (Appendix C2). */
 export const RESIDENT_DETAIL_TABS = [
-  "applicant",
+  "application",
+  "background-check",
   "lease",
   "tours",
   "payments",
@@ -86,7 +87,8 @@ export const RESIDENT_DETAIL_TABS = [
 export type ResidentDetailTabId = (typeof RESIDENT_DETAIL_TABS)[number];
 
 export const RESIDENT_DETAIL_TAB_LABELS: Record<ResidentDetailTabId, string> = {
-  applicant: "Applicant",
+  "background-check": "Background check",
+  application: "Application",
   lease: "Lease",
   tours: "Tours",
   payments: "Payments",
@@ -96,7 +98,8 @@ export const RESIDENT_DETAIL_TAB_LABELS: Record<ResidentDetailTabId, string> = {
 
 /** Compact labels for resident detail tabs on phone-width layouts. */
 export const RESIDENT_DETAIL_TAB_SHORT_LABELS: Record<ResidentDetailTabId, string> = {
-  applicant: "Applicant",
+  "background-check": "Screen",
+  application: "Apply",
   lease: "Lease",
   tours: "Tours",
   payments: "Pay",
@@ -104,16 +107,16 @@ export const RESIDENT_DETAIL_TAB_SHORT_LABELS: Record<ResidentDetailTabId, strin
   communication: "Comms",
 };
 
-/** Applicant sub-tabs under manager resident profile (background check left of application). */
-export const RESIDENT_APPLICANT_SUB_TABS = ["background-check", "application"] as const;
-export type ResidentApplicantSubTabId = (typeof RESIDENT_APPLICANT_SUB_TABS)[number];
+/** Sidebar subsection ids under Residents when viewing an applicant profile. */
+export const RESIDENT_APPLICANT_SIDEBAR_TABS = ["background-check", "application"] as const;
+export type ResidentApplicantSidebarTabId = (typeof RESIDENT_APPLICANT_SIDEBAR_TABS)[number];
 
-export const RESIDENT_APPLICANT_SUB_TAB_LABELS: Record<ResidentApplicantSubTabId, string> = {
+export const RESIDENT_APPLICANT_SIDEBAR_TAB_LABELS: Record<ResidentApplicantSidebarTabId, string> = {
   "background-check": "Background check",
   application: "Application",
 };
 
-export function parseResidentApplicantSubTab(raw: string | undefined | null): ResidentApplicantSubTabId {
+export function parseResidentApplicantSidebarTab(raw: string | undefined | null): ResidentApplicantSidebarTabId {
   if (raw === "background-check") return "background-check";
   return "application";
 }
@@ -147,11 +150,11 @@ export function parsePropertyCalendarSubTab(raw: string | undefined | null): Pro
 
 
 export function parseResidentDetailTab(raw: string | undefined | null): ResidentDetailTabId {
-  if (raw === "application") return "applicant";
+  if (raw === "applicant") return "application";
   if (raw && (RESIDENT_DETAIL_TABS as readonly string[]).includes(raw)) {
     return raw as ResidentDetailTabId;
   }
-  return "applicant";
+  return "application";
 }
 
 export function propertyDetailHref(
@@ -205,14 +208,6 @@ export function residentDetailHref(
   return `${basePath}/residents/${residentsTab}/${encodeURIComponent(residentId)}/${tab}`;
 }
 
-export function residentApplicantDetailHref(
-  basePath: string,
-  residentsTab: string,
-  residentId: string,
-  subTab: ResidentApplicantSubTabId,
-): string {
-  return `${basePath}/residents/${residentsTab}/${encodeURIComponent(residentId)}/applicant/${subTab}`;
-}
 /** One list item under a manager resident profile tab (payments, tours, services). */
 export function managerResidentItemDetailHref(
   basePath: string,
@@ -409,16 +404,65 @@ export function applicationListHref(basePath: string, tab: ApplicationListTabId)
   return `${basePath}/applications/${tab}`;
 }
 
+export const APPLICATION_DETAIL_TABS = ["application", "background-check"] as const;
+export type ApplicationDetailTabId = (typeof APPLICATION_DETAIL_TABS)[number];
+
+export const APPLICATION_DETAIL_TAB_LABELS: Record<ApplicationDetailTabId, string> = {
+  application: "Application",
+  "background-check": "Background check",
+};
+
+export function parseApplicationDetailTab(raw: string | undefined | null): ApplicationDetailTabId {
+  if (raw && (APPLICATION_DETAIL_TABS as readonly string[]).includes(raw)) {
+    return raw as ApplicationDetailTabId;
+  }
+  return "application";
+}
+
 export function applicationDetailHref(
   basePath: string,
   bucket: ApplicationBucketId,
   applicationId: string,
+  detailTab: ApplicationDetailTabId = "application",
 ): string {
-  return `${basePath}/applications/${bucket}/${encodeURIComponent(applicationId)}`;
+  const base = `${basePath}/applications/${bucket}/${encodeURIComponent(applicationId)}`;
+  return detailTab === "application" ? base : `${base}/${detailTab}`;
 }
 
 export function applicationScreeningDetailHref(basePath: string, applicationId: string): string {
-  return applicationDetailHref(basePath, "approved", applicationId);
+  return backgroundCheckDetailHref(basePath, "pending_review", applicationId);
+}
+
+/** Manager background-check list buckets (screening workflow). */
+export const BACKGROUND_CHECK_LIST_TABS = ["pending_review", "passed", "flagged"] as const;
+export type BackgroundCheckListTabId = (typeof BACKGROUND_CHECK_LIST_TABS)[number];
+
+export const BACKGROUND_CHECK_LIST_TAB_LABELS: Record<BackgroundCheckListTabId, string> = {
+  pending_review: "Pending",
+  passed: "Passed",
+  flagged: "Flagged",
+};
+
+export function parseBackgroundCheckListTab(raw: string | undefined | null): BackgroundCheckListTabId {
+  if (raw && (BACKGROUND_CHECK_LIST_TABS as readonly string[]).includes(raw)) {
+    return raw as BackgroundCheckListTabId;
+  }
+  return "pending_review";
+}
+
+export function backgroundCheckListHref(
+  basePath: string,
+  tab: BackgroundCheckListTabId = "pending_review",
+): string {
+  return `${basePath}/background-checks/${tab}`;
+}
+
+export function backgroundCheckDetailHref(
+  basePath: string,
+  tab: BackgroundCheckListTabId,
+  applicationId: string,
+): string {
+  return `${basePath}/background-checks/${tab}/${encodeURIComponent(applicationId)}`;
 }
 
 /** Resident application list buckets (Pending / Approved / Rejected). */

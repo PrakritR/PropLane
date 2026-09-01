@@ -10,7 +10,6 @@ import {
   CalendarSettingsPanel,
   CommunicationSettingsPanel,
   DEFAULT_APPLICATION_AUTOMATION,
-  DEFAULT_TASK_AUTOMATION,
   LeaseSettingsPanel,
   normalizeApplicationAutomation,
   PaymentsSettingsPanel,
@@ -20,12 +19,6 @@ import {
   type ManagerSettingsPanelFooter,
 } from "@/components/portal/manager-portal-settings-panels";
 import type { ApplicationAutomationPreferences } from "@/lib/application-automation-preferences";
-import type { ApplicationFeeChargePolicy } from "@/lib/manager-application-settings";
-import { DEFAULT_MANAGER_APPLICATION_SETTINGS } from "@/lib/manager-application-settings";
-import {
-  normalizeTaskAutomation,
-  type TaskAutomationPreferences,
-} from "@/lib/task-automation-preferences";
 import { useWorkAssignmentDirectory } from "@/hooks/use-work-assignment-directory";
 import { useManagerUserId } from "@/hooks/use-manager-user-id";
 import { CANONICAL_DEMO_MANAGER_NAME } from "@/lib/demo/demo-canonical-accounts";
@@ -88,14 +81,7 @@ export function ManagerPortalSettingsModal({
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [waiverCode, setWaiverCode] = useState("");
-  const [feeCents, setFeeCents] = useState<number | null>(null);
-  const [chargePolicy, setChargePolicy] = useState<ApplicationFeeChargePolicy>(
-    DEFAULT_MANAGER_APPLICATION_SETTINGS.applicationFeeChargePolicy,
-  );
-  const [otherInstructionsEnabled, setOtherInstructionsEnabled] = useState(false);
-  const [otherInstructions, setOtherInstructions] = useState("");
   const [automation, setAutomation] = useState<ApplicationAutomationPreferences>(DEFAULT_APPLICATION_AUTOMATION);
-  const [taskAutomation, setTaskAutomation] = useState<TaskAutomationPreferences>(DEFAULT_TASK_AUTOMATION);
   const [panelFooter, setPanelFooter] = useState<ManagerSettingsPanelFooter | null>(null);
 
   useEffect(() => {
@@ -109,12 +95,7 @@ export function ManagerPortalSettingsModal({
   const loadApplications = useCallback(async () => {
     if (demo) {
       setWaiverCode("WELCOME50");
-      setFeeCents(5000);
-      setChargePolicy("first_only");
-      setOtherInstructionsEnabled(false);
-      setOtherInstructions("");
       setAutomation(DEFAULT_APPLICATION_AUTOMATION);
-      setTaskAutomation(DEFAULT_TASK_AUTOMATION);
       cacheLandlordLegalName(CANONICAL_DEMO_MANAGER_NAME);
       return;
     }
@@ -122,14 +103,7 @@ export function ManagerPortalSettingsModal({
     try {
       const res = await fetch("/api/portal/manager-application-settings", { credentials: "include" });
       const data = (await res.json().catch(() => ({}))) as {
-        settings?: {
-          applicationFeeCents: number | null;
-          applicationFeeChargePolicy?: ApplicationFeeChargePolicy;
-          applicationFeeOtherEnabled?: boolean;
-          applicationFeeOtherInstructions?: string;
-        };
         automation?: unknown;
-        taskAutomation?: unknown;
         waiverCode?: string | null;
         error?: string;
       };
@@ -137,12 +111,7 @@ export function ManagerPortalSettingsModal({
         showToast(data.error ?? "Could not load settings.");
         return;
       }
-      setFeeCents(data.settings?.applicationFeeCents ?? null);
-      setChargePolicy(data.settings?.applicationFeeChargePolicy ?? "first_only");
-      setOtherInstructionsEnabled(Boolean(data.settings?.applicationFeeOtherEnabled));
-      setOtherInstructions((data.settings?.applicationFeeOtherInstructions ?? "").trim());
       setAutomation(normalizeApplicationAutomation(data.automation));
-      setTaskAutomation(normalizeTaskAutomation(data.taskAutomation));
       setWaiverCode((data.waiverCode ?? "").trim());
     } catch {
       showToast("Could not load settings.");
@@ -153,7 +122,7 @@ export function ManagerPortalSettingsModal({
 
   useEffect(() => {
     if (!open) return;
-    if (tab === "applications" || tab === "lease" || tab === "tasks") {
+    if (tab === "applications" || tab === "lease") {
       void loadApplications();
     }
   }, [open, tab, loadApplications]);
@@ -161,7 +130,6 @@ export function ManagerPortalSettingsModal({
   async function saveApplicationBundle(patch: {
     waiverCode?: string;
     automation?: ApplicationAutomationPreferences;
-    taskAutomation?: TaskAutomationPreferences;
   }) {
     if (demo) {
       showToast("Settings saved (demo).");
@@ -174,13 +142,8 @@ export function ManagerPortalSettingsModal({
         credentials: "include",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          applicationFeeCents: feeCents,
-          applicationFeeChargePolicy: chargePolicy,
-          applicationFeeOtherEnabled: otherInstructionsEnabled,
-          applicationFeeOtherInstructions: otherInstructions,
           waiverCode: patch.waiverCode ?? waiverCode.trim(),
           automation: patch.automation ?? automation,
-          taskAutomation: patch.taskAutomation ?? taskAutomation,
         }),
       });
       const data = (await res.json().catch(() => ({}))) as {
@@ -191,7 +154,6 @@ export function ManagerPortalSettingsModal({
         return;
       }
       if (patch.automation) setAutomation(patch.automation);
-      if (patch.taskAutomation) setTaskAutomation(patch.taskAutomation);
       showToast("Settings saved.");
     } catch {
       showToast("Could not save settings.");
@@ -209,9 +171,8 @@ export function ManagerPortalSettingsModal({
           void saveApplicationBundle({
             waiverCode: waiverCode.trim(),
             automation,
-            taskAutomation,
           }),
-        dataAttr: "manager-application-fee-save",
+        dataAttr: "manager-application-settings-save",
       };
     }
     if (tab === "lease") {
@@ -221,17 +182,9 @@ export function ManagerPortalSettingsModal({
         onSave: () => void saveApplicationBundle({ automation }),
       };
     }
-    if (tab === "tasks") {
-      return {
-        saving,
-        disabled: loading,
-        onSave: () => void saveApplicationBundle({ taskAutomation }),
-        dataAttr: "manager-task-automation-save",
-      };
-    }
     if (tab === "resident") return null;
     return panelFooter;
-  }, [automation, loading, panelFooter, saving, tab, taskAutomation, waiverCode]);
+  }, [automation, loading, panelFooter, saving, tab, waiverCode]);
 
   return (
     <Modal
@@ -282,23 +235,8 @@ export function ManagerPortalSettingsModal({
           loading={loading}
           saving={saving}
           waiverCode={waiverCode}
-          feeCents={feeCents}
-          onFeeCentsChange={setFeeCents}
-          chargePolicy={chargePolicy}
-          onChargePolicyChange={setChargePolicy}
-          otherInstructionsEnabled={otherInstructionsEnabled}
-          onOtherInstructionsEnabledChange={setOtherInstructionsEnabled}
-          otherInstructions={otherInstructions}
-          onOtherInstructionsChange={setOtherInstructions}
           onAutomationChange={setAutomation}
           onWaiverCodeChange={setWaiverCode}
-          onSave={() =>
-            void saveApplicationBundle({
-              waiverCode: waiverCode.trim(),
-              automation,
-              taskAutomation,
-            })
-          }
         />
       ) : null}
 
@@ -317,13 +255,7 @@ export function ManagerPortalSettingsModal({
       ) : null}
 
       {open && tab === "tasks" ? (
-        <TaskSettingsPanel
-          taskAutomation={taskAutomation}
-          teamMembers={teamMembers}
-          loading={loading}
-          saving={saving}
-          onTaskAutomationChange={setTaskAutomation}
-        />
+        <TaskSettingsPanel teamMembers={teamMembers} onFooterReady={setPanelFooter} />
       ) : null}
 
       {tab === "resident" ? <ResidentSettingsPanel /> : null}

@@ -16,6 +16,7 @@ import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { notifyTenantTourConfirmed } from "@/lib/tour-notification-delivery.server";
 import { isActivePlannedTourEvent } from "@/lib/tour-slot-math";
 import { canAssign, normalizeAssignee, type WorkAssignee } from "@/lib/work-assignment";
+import { createPrepareForTourTask } from "@/lib/manager-default-tasks.server";
 
 type Db = ReturnType<typeof createSupabaseServiceRoleClient>;
 
@@ -324,6 +325,16 @@ export async function confirmTourInquiry(db: Db, opts: ConfirmTourOptions): Prom
     attendeePhone: textField(row, "phone") || undefined,
     notes: textField(row, "notes") || undefined,
     instructions: instructions || undefined,
+  }).catch(() => undefined);
+
+  void createPrepareForTourTask(db, managerUserId, {
+    inquiryId: id,
+    tourStart: start,
+    guestName: textField(row, "name"),
+    propertyTitle: textField(row, "propertyTitle"),
+    propertyId: textField(row, "propertyId"),
+    roomLabel: textField(row, "roomLabel"),
+    plannedEventId: String(plannedEvent.id),
   }).catch(() => undefined);
 
   return { ok: true, plannedEvent, message: formatRangeLabel(start, end), tenantNotification };

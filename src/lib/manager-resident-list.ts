@@ -7,6 +7,7 @@ export type ManagerResidentListRow = {
   id: string;
   name: string;
   email: string;
+  propertyId: string;
   propertyLabel: string;
   roomLabel: string;
   leaseStart: string;

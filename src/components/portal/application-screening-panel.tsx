@@ -3,7 +3,6 @@
 import Link from "next/link";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Button } from "@/components/ui/button";
-import { Modal } from "@/components/ui/modal";
 import { PortalCollapsibleSection } from "@/components/portal/portal-collapsible-section";
 import { PORTAL_HEADER_ACTION_BTN } from "@/components/portal/portal-metrics";
 import { useAppUi } from "@/components/providers/app-ui-provider";
@@ -12,6 +11,7 @@ import { applicationShowsBackgroundCheck } from "@/lib/application-background-ch
 import type { DemoApplicantRow } from "@/data/demo-portal";
 import { isDemoModeActive } from "@/lib/demo/demo-session";
 import { isScreeningTestModeActive } from "@/lib/screening/screening-test-mode";
+import { applyDemoBackgroundCheckResolution } from "@/lib/screening/apply-demo-background-check";
 import { buildBackgroundCheckReportHtml } from "@/lib/background-check-report-html";
 import { MANAGER_PLAN_PORTAL_URL } from "@/lib/portals/manager-plan-path";
 import type { ManagerScreeningSettings } from "@/lib/screening/types";
@@ -158,13 +158,14 @@ export function BackgroundCheckReportFrame({
   }
 
   if (!reportHtml) {
-    return (
-      <div className="flex h-[min(24vh,200px)] items-center justify-center px-4 text-center text-sm text-muted">
-        {demo
-          ? "No screening report yet. Click Test to run a demo background check."
-          : "No screening report yet."}
-      </div>
-    );
+    if (demo) {
+      return (
+        <div className="flex h-[min(24vh,200px)] items-center justify-center px-4 text-center text-sm text-muted">
+          No screening report yet. Click Test to run a demo background check.
+        </div>
+      );
+    }
+    return null;
   }
 
   return frameShell(
@@ -267,7 +268,6 @@ export function ApplicationScreeningPanel({
   const [bgConfigured, setBgConfigured] = useState(demo);
   const [bgOverride, setBgOverride] = useState<ApplicationBackgroundCheck | undefined>();
   const [bgBusy, setBgBusy] = useState(false);
-  const [reportModalOpen, setReportModalOpen] = useState(false);
   const bg = bgOverride ?? activeRow.backgroundCheck;
 
   useEffect(() => {
@@ -395,20 +395,49 @@ export function ApplicationScreeningPanel({
   const backgroundCheckComplete = bg?.status === "complete";
   const showCompletedState =
     showsBackgroundCheck && backgroundCheckComplete && Boolean(activeRow.application?.consentCredit);
-  const canRunBackgroundCheck =
+
+  const canOfferRunBackgroundCheck =
     showsBackgroundCheck &&
     screeningAllowed &&
     bgConfigured &&
-    Boolean(activeRow.application?.consentCredit) &&
     bg?.status !== "pending" &&
     !backgroundCheckComplete &&
     Boolean(onOpenScreeningModal);
+
+  const openRunBackgroundCheck = useCallback(
+    (opts?: { showPackagePicker?: boolean }) => {
+      if (!demo && !activeRow.application?.consentCredit) {
+        showToast("Applicant must authorize a background check first.");
+        return;
+      }
+      onOpenScreeningModal?.(opts);
+    },
+    [activeRow.application?.consentCredit, demo, onOpenScreeningModal, showToast],
+  );
+
+  const resolveDemoPendingCheck = useCallback(() => {
+    const cosignerSub = activeCosignerSubmissionId
+      ? cosignerSubmissions.find((s) => s.id === activeCosignerSubmissionId)
+      : undefined;
+    const resolved = applyDemoBackgroundCheckResolution(row, {
+      cosignerSubmissionId: activeCosignerSubmissionId,
+      cosignerSub,
+    });
+    setBgOverride(resolved);
+    showToast("Test screening report updated.");
+    onUpdated?.();
+  }, [
+    activeCosignerSubmissionId,
+    cosignerSubmissions,
+    onUpdated,
+    row,
+    showToast,
+  ]);
 
   const canRunBackgroundCheckAgain =
     showCompletedState && screeningAllowed && Boolean(onOpenScreeningModal);
 
   const testButtonLabel = demo ? "Test" : "Run background check";
-  const canViewReport = bg?.status === "complete";
   const statusSummary =
     bg?.status === "complete"
       ? bg.result === "clear"
@@ -421,8 +450,8 @@ export function ApplicationScreeningPanel({
           ? "Demo check in progress…"
           : "Checkr is processing. This updates automatically."
         : activeRow.application?.consentCredit
-          ? "No report yet. Run a background check when you are ready."
-          : "Applicant must authorize a background check first.";
+          ? "No report yet."
+          : "";
   const headerActionBtnClass =
     headerActionsPlacement === "parent" ? PORTAL_HEADER_ACTION_BTN : "h-8 rounded-full px-4 text-xs";
 
@@ -440,13 +469,13 @@ export function ApplicationScreeningPanel({
             {headerActionsPlacement === "parent" ? "Download screening" : "Download PDF"}
           </Button>
         ) : null}
-        {canRunBackgroundCheck ? (
+        {canOfferRunBackgroundCheck ? (
           <Button
             type="button"
             variant="outline"
             data-attr="run-background-check"
             className={headerActionBtnClass}
-            onClick={() => onOpenScreeningModal?.()}
+            onClick={() => openRunBackgroundCheck()}
           >
             {testButtonLabel}
           </Button>
@@ -468,10 +497,11 @@ export function ApplicationScreeningPanel({
       bg?.status,
       busy,
       canOrder,
-      canRunBackgroundCheck,
+      canOfferRunBackgroundCheck,
+      openRunBackgroundCheck,
       handleDownload,
       headerActionBtnClass,
-      onOpenScreeningModal,
+      openRunBackgroundCheck,
       runScreening,
       screening?.status,
       testButtonLabel,
@@ -486,7 +516,7 @@ export function ApplicationScreeningPanel({
         bg?.status ?? "",
         busy,
         canOrder,
-        canRunBackgroundCheck,
+        canOfferRunBackgroundCheck,
         screening?.status ?? "",
         testButtonLabel,
       ].join("|"),
@@ -494,7 +524,7 @@ export function ApplicationScreeningPanel({
       bg?.status,
       busy,
       canOrder,
-      canRunBackgroundCheck,
+      canOfferRunBackgroundCheck,
       headerActionsPlacement,
       screening?.status,
       showsBackgroundCheck,
@@ -505,25 +535,15 @@ export function ApplicationScreeningPanel({
   const compactTabFooterActionButtons = useMemo(
     () => (
       <>
-        {canViewReport ? (
-          <Button
-            type="button"
-            variant="outline"
-            className={PORTAL_HEADER_ACTION_BTN}
-            onClick={() => setReportModalOpen(true)}
-          >
-            View report
-          </Button>
-        ) : null}
-        {canRunBackgroundCheck ? (
+        {canOfferRunBackgroundCheck ? (
           <Button
             type="button"
             variant="outline"
             className={PORTAL_HEADER_ACTION_BTN}
             data-attr="run-background-check"
-            onClick={() => onOpenScreeningModal?.()}
+            onClick={() => openRunBackgroundCheck()}
           >
-            Get background check
+            {testButtonLabel}
           </Button>
         ) : null}
         {canRunBackgroundCheckAgain ? (
@@ -537,38 +557,14 @@ export function ApplicationScreeningPanel({
             Run again
           </Button>
         ) : null}
-        {bg?.status === "complete" ? (
-          <Button
-            type="button"
-            variant="outline"
-            className={PORTAL_HEADER_ACTION_BTN}
-            data-attr="screening-pdf-download"
-            onClick={handleDownload}
-          >
-            Download
-          </Button>
-        ) : null}
       </>
     ),
-    [
-      bg?.status,
-      canRunBackgroundCheck,
-      canRunBackgroundCheckAgain,
-      canViewReport,
-      handleDownload,
-      onOpenScreeningModal,
-    ],
+    [canOfferRunBackgroundCheck, canRunBackgroundCheckAgain, openRunBackgroundCheck, onOpenScreeningModal, testButtonLabel],
   );
 
   const compactTabFooterActionsSignature = useMemo(
-    () =>
-      [
-        bg?.status ?? "",
-        canViewReport,
-        canRunBackgroundCheck,
-        canRunBackgroundCheckAgain,
-      ].join("|"),
-    [bg?.status, canRunBackgroundCheck, canRunBackgroundCheckAgain, canViewReport],
+    () => [bg?.status ?? "", canOfferRunBackgroundCheck, canRunBackgroundCheckAgain].join("|"),
+    [bg?.status, canOfferRunBackgroundCheck, canRunBackgroundCheckAgain],
   );
 
   const publishedParentActions = compactTabFooterActions
@@ -619,24 +615,6 @@ export function ApplicationScreeningPanel({
     };
   }, [headerActionsPlacement]);
 
-  const backgroundCheckReportModal = (
-    <Modal
-      open={reportModalOpen}
-      onClose={() => setReportModalOpen(false)}
-      title="Background check report"
-      panelClassName="flex max-h-[min(92vh,52rem)] w-[min(56rem,calc(100vw-2rem))] flex-col overflow-hidden"
-      scrollableContent
-      dense
-    >
-      <BackgroundCheckReportFrame
-        row={{ ...activeRow, backgroundCheck: bg }}
-        demo={demo}
-        bareCanvas
-        cosignerSubmissionId={activeCosignerSubmissionId}
-      />
-    </Modal>
-  );
-
   if (!showsBackgroundCheck) return null;
 
   if (presentation === "compact") {
@@ -649,7 +627,7 @@ export function ApplicationScreeningPanel({
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div className="min-w-0 space-y-1">
               <p className="text-sm font-semibold text-foreground">Background check</p>
-              <p className="text-sm text-muted">{statusSummary}</p>
+              {statusSummary ? <p className="text-sm text-muted">{statusSummary}</p> : null}
               {bg?.status === "pending" && !demo ? (
                 <button
                   type="button"
@@ -660,22 +638,27 @@ export function ApplicationScreeningPanel({
                   Refresh now
                 </button>
               ) : null}
+              {bg?.status === "pending" && demo ? (
+                <button
+                  type="button"
+                  className="text-xs font-semibold text-primary hover:underline"
+                  data-attr="update-test-data"
+                  onClick={resolveDemoPendingCheck}
+                >
+                  Update test data
+                </button>
+              ) : null}
             </div>
             <div className="flex shrink-0 flex-nowrap items-center gap-2 overflow-x-auto overscroll-x-contain [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-              {canViewReport ? (
-                <Button type="button" variant="outline" className={PORTAL_HEADER_ACTION_BTN} onClick={() => setReportModalOpen(true)}>
-                  View report
-                </Button>
-              ) : null}
-              {canRunBackgroundCheck ? (
+              {canOfferRunBackgroundCheck ? (
                 <Button
                   type="button"
                   variant="outline"
                   className={PORTAL_HEADER_ACTION_BTN}
                   data-attr="run-background-check"
-                  onClick={() => onOpenScreeningModal?.()}
+                  onClick={() => openRunBackgroundCheck()}
                 >
-                  Get background check
+                  {testButtonLabel}
                 </Button>
               ) : null}
               {canRunBackgroundCheckAgain ? (
@@ -689,21 +672,9 @@ export function ApplicationScreeningPanel({
                   Run again
                 </Button>
               ) : null}
-              {bg?.status === "complete" ? (
-                <Button
-                  type="button"
-                  variant="outline"
-                  className={PORTAL_HEADER_ACTION_BTN}
-                  data-attr="screening-pdf-download"
-                  onClick={handleDownload}
-                >
-                  Download
-                </Button>
-              ) : null}
             </div>
           </div>
         </div>
-        {backgroundCheckReportModal}
       </>
     );
   }
@@ -752,7 +723,16 @@ export function ApplicationScreeningPanel({
             >
               Refresh now
             </button>
-          ) : null}
+          ) : (
+            <button
+              type="button"
+              className="font-semibold text-primary hover:underline"
+              data-attr="update-test-data"
+              onClick={resolveDemoPendingCheck}
+            >
+              Update test data
+            </button>
+          )}
         </div>
       ) : null}
       {screening?.reportUrl ? (
@@ -767,32 +747,6 @@ export function ApplicationScreeningPanel({
       ) : null}
       {screeningAllowed && configured && settings?.mode === "off" && !demo ? (
         <p className="text-xs text-muted">Screening is off in Applications settings.</p>
-      ) : null}
-      {screeningAllowed && !activeRow.application?.consentCredit ? (
-        <p className="text-xs text-muted">Applicant must authorize a background check first.</p>
-      ) : null}
-
-      {showCompletedState ? (
-        <div
-          className="rounded-2xl border border-border bg-card px-4 py-3"
-          data-attr="background-check-completed-banner"
-        >
-          <p className="text-sm font-semibold text-foreground">Background check already completed</p>
-          <p className="mt-1 text-sm text-muted">
-            {statusSummary} Run again to order a new report or upgrade to a higher package.
-          </p>
-          {canRunBackgroundCheckAgain && headerActionsPlacement !== "parent" ? (
-            <Button
-              type="button"
-              variant="outline"
-              className={`${headerActionBtnClass} mt-3`}
-              data-attr="run-background-check-again"
-              onClick={() => onOpenScreeningModal?.({ showPackagePicker: true })}
-            >
-              Run again
-            </Button>
-          ) : null}
-        </div>
       ) : null}
     </>
   );
@@ -843,7 +797,6 @@ export function ApplicationScreeningPanel({
         ) : (
           panelBody
         )}
-        {backgroundCheckReportModal}
       </div>
     );
   }

@@ -116,6 +116,8 @@ export type ManagerTask = {
   dedupKey?: string;
   /** Last due-date reminder email sent (ISO). */
   reminderSentAt?: string;
+  /** Reminder offsets (minutes before due) already emailed for this task. */
+  advanceReminderSentOffsets?: number[];
   createdAt: string;
   updatedAt: string;
 };
@@ -218,6 +220,11 @@ function normalizeTask(raw: unknown): ManagerTask | null {
     dedupKey: typeof row.dedupKey === "string" ? row.dedupKey.trim() || undefined : undefined,
     reminderSentAt:
       typeof row.reminderSentAt === "string" ? row.reminderSentAt.trim() || undefined : undefined,
+    advanceReminderSentOffsets: Array.isArray(row.advanceReminderSentOffsets)
+      ? row.advanceReminderSentOffsets
+          .filter((n): n is number => typeof n === "number" && Number.isFinite(n))
+          .map((n) => Math.round(n))
+      : undefined,
     createdAt: String(row.createdAt ?? new Date().toISOString()),
     updatedAt: String(row.updatedAt ?? new Date().toISOString()),
   };

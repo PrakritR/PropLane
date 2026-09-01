@@ -90,15 +90,15 @@ export function ApplicationReviewLauncherRow({
 
   return (
     <div
-      className={`${stretch ? "flex min-h-0 flex-1 flex-col gap-3" : "space-y-3"} ${className ?? ""}`.trim()}
+      className={`${stretch ? "flex min-h-0 flex-1 flex-col gap-2" : "space-y-2"} ${className ?? ""}`.trim()}
       data-slot="application-review-inline"
     >
       <section
         id="application-readonly-review"
         className={
           stretch
-            ? "flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto overscroll-contain [-webkit-overflow-scrolling:touch]"
-            : "space-y-3"
+            ? "flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto overscroll-contain [-webkit-overflow-scrolling:touch]"
+            : "space-y-2"
         }
         data-testid="application-readonly-review"
       >
@@ -122,9 +122,24 @@ export function ApplicationReviewLauncherRow({
           </div>
         ) : null}
 
-        {householdPanels}
-
-        {row.application ? (
+        {householdPanels ? (
+          <div className="grid gap-2 xl:grid-cols-2">
+            {householdPanels}
+            {row.application ? (
+              <ManagerApplicationReadonlyReview
+                partial={row.application}
+                assignedPropertyId={row.assignedPropertyId}
+                assignedRoomChoice={row.assignedRoomChoice}
+                omitSections={omitReviewSections}
+                embedded
+              />
+            ) : (
+              <p className="rounded-2xl border border-border bg-card px-4 py-8 text-center text-sm text-muted">
+                Application details are not available for this record.
+              </p>
+            )}
+          </div>
+        ) : row.application ? (
           <ManagerApplicationReadonlyReview
             partial={row.application}
             assignedPropertyId={row.assignedPropertyId}

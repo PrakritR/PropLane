@@ -4,14 +4,17 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { DemoApplicantRow } from "@/data/demo-portal";
 import { loadManagerTasks, saveManagerTasks } from "@/lib/manager-tasks.server";
-import type { ManagerTask } from "@/lib/manager-tasks";
+import type { ManagerTask, ManagerTaskType } from "@/lib/manager-tasks";
+import type { LeasePipelineRow } from "@/lib/lease-pipeline-storage";
 import {
-  DEFAULT_TASK_TEMPLATE_LABELS,
-  dueDateFromDaysAfter,
-  loadTaskAutomation,
-  type DefaultTaskTemplateKey,
-  type TaskTemplateConfig,
-} from "@/lib/task-automation-preferences";
+  LIFECYCLE_TASK_KEYS,
+  LIFECYCLE_TASK_META,
+  lifecycleDueDate,
+  formatTaskReminderTimingLabel,
+  type LifecycleTaskKey,
+  type LifecycleTaskConfig,
+} from "@/lib/task-lifecycle-automation";
+import { loadLifecycleAutomation } from "@/lib/task-lifecycle-automation.server";
 import type { WorkAssignee } from "@/lib/work-assignment";
 import { resolveEmailLinkBaseUrl } from "@/lib/app-url";
 import { isManagerTaskLate } from "@/lib/manager-task-display";
@@ -20,19 +23,23 @@ import { shouldNotifyManagerOfApplicationSubmit } from "@/lib/application-submit
 
 type ServiceDb = SupabaseClient;
 
-function taskDedupKey(templateKey: DefaultTaskTemplateKey, sourceId: string): string {
+function taskDedupKey(templateKey: LifecycleTaskKey, sourceId: string): string {
   return `${templateKey}:${sourceId}`;
 }
 
-function existingAutoTask(tasks: ManagerTask[], templateKey: DefaultTaskTemplateKey, sourceId: string): boolean {
+function existingAutoTask(tasks: ManagerTask[], templateKey: LifecycleTaskKey, sourceId: string): boolean {
   const key = taskDedupKey(templateKey, sourceId);
   return tasks.some((task) => task.templateKey === templateKey && task.sourceId === sourceId && task.dedupKey === key);
+}
+
+function isLifecycleTemplateKey(key: string | undefined): key is LifecycleTaskKey {
+  return Boolean(key && (LIFECYCLE_TASK_KEYS as readonly string[]).includes(key));
 }
 
 async function resolveAssignee(
   db: ServiceDb,
   managerUserId: string,
-  config: TaskTemplateConfig,
+  config: LifecycleTaskConfig,
 ): Promise<WorkAssignee | undefined> {
   const assigneeId = config.defaultAssigneeUserId?.trim() || managerUserId;
   const { data: profile } = await db.from("profiles").select("full_name, email").eq("id", assigneeId).maybeSingle();
@@ -43,26 +50,38 @@ async function resolveAssignee(
   return { type: "team", id: assigneeId, name };
 }
 
-async function createAutoTask(input: {
+async function createLifecycleAutoTask(input: {
   db: ServiceDb;
   managerUserId: string;
-  templateKey: DefaultTaskTemplateKey;
+  templateKey: LifecycleTaskKey;
   sourceId: string;
-  triggerAt: string;
   title: string;
   notes?: string;
   propertyId?: string;
   propertyTitle?: string;
   roomLabel?: string;
-  config: TaskTemplateConfig;
+  linkedTourId?: string;
+  triggeredAt?: Date;
+  eventAt?: Date | null;
+  config: LifecycleTaskConfig;
+  taskType?: ManagerTaskType;
 }): Promise<ManagerTask | null> {
   if (!input.config.enabled) return null;
+  const due = lifecycleDueDate(input.templateKey, input.config, {
+    triggeredAt: input.triggeredAt,
+    eventAt: input.eventAt,
+  });
+  if (!due) return null;
+
   const tasks = await loadManagerTasks(input.db, input.managerUserId);
   if (existingAutoTask(tasks, input.templateKey, input.sourceId)) return null;
 
   const assignee = await resolveAssignee(input.db, input.managerUserId, input.config);
-  const dueDate = dueDateFromDaysAfter(input.triggerAt, input.config.daysAfterTrigger);
   const now = new Date().toISOString();
+  const meta = LIFECYCLE_TASK_META[input.templateKey];
+  const taskType =
+    input.taskType ??
+    (meta.section === "tours" ? "tour" : "general");
   const task: ManagerTask = {
     id: crypto.randomUUID(),
     title: input.title,
@@ -70,9 +89,12 @@ async function createAutoTask(input: {
     propertyId: input.propertyId,
     propertyTitle: input.propertyTitle,
     roomLabel: input.roomLabel,
-    dueDate,
+    dueDate: due.toISOString(),
     completed: false,
     assignee,
+    taskType,
+    urgency: "deadline",
+    linkedTourId: input.linkedTourId,
     templateKey: input.templateKey,
     sourceId: input.sourceId,
     dedupKey: taskDedupKey(input.templateKey, input.sourceId),
@@ -92,25 +114,95 @@ async function createAutoTask(input: {
   return task;
 }
 
+export async function createApproveTourRequestTask(
+  db: ServiceDb,
+  managerUserId: string,
+  input: {
+    inquiryId: string;
+    triggeredAt?: string;
+    guestName?: string;
+    propertyTitle?: string;
+    propertyId?: string;
+    roomLabel?: string;
+  },
+): Promise<ManagerTask | null> {
+  const automation = await loadLifecycleAutomation(db, managerUserId);
+  const guest = input.guestName?.trim() || "Guest";
+  const propertyTitle = input.propertyTitle?.trim() || "Property";
+  const triggeredAt = input.triggeredAt?.trim()
+    ? new Date(input.triggeredAt)
+    : new Date();
+  return createLifecycleAutoTask({
+    db,
+    managerUserId,
+    templateKey: "approve_tour_request",
+    sourceId: input.inquiryId.trim(),
+    triggeredAt,
+    title: LIFECYCLE_TASK_META.approve_tour_request.taskTitle,
+    notes: `Approve or decline the tour request from ${guest} for ${propertyTitle}.`,
+    propertyId: input.propertyId,
+    propertyTitle,
+    roomLabel: input.roomLabel,
+    linkedTourId: input.inquiryId.trim(),
+    config: automation.approve_tour_request,
+    taskType: "tour",
+  });
+}
+
+export async function createPrepareForTourTask(
+  db: ServiceDb,
+  managerUserId: string,
+  input: {
+    inquiryId: string;
+    tourStart: string;
+    guestName?: string;
+    propertyTitle?: string;
+    propertyId?: string;
+    roomLabel?: string;
+    plannedEventId?: string;
+  },
+): Promise<ManagerTask | null> {
+  const automation = await loadLifecycleAutomation(db, managerUserId);
+  const guest = input.guestName?.trim() || "Guest";
+  const propertyTitle = input.propertyTitle?.trim() || "Property";
+  const eventAt = new Date(input.tourStart);
+  if (!Number.isFinite(eventAt.getTime())) return null;
+  return createLifecycleAutoTask({
+    db,
+    managerUserId,
+    templateKey: "prepare_for_tour",
+    sourceId: input.inquiryId.trim(),
+    eventAt,
+    title: LIFECYCLE_TASK_META.prepare_for_tour.taskTitle,
+    notes: `Prepare for the tour with ${guest} at ${propertyTitle}.`,
+    propertyId: input.propertyId,
+    propertyTitle,
+    roomLabel: input.roomLabel,
+    linkedTourId: input.plannedEventId?.trim() || input.inquiryId.trim(),
+    config: automation.prepare_for_tour,
+    taskType: "tour",
+  });
+}
+
 export async function createReviewApplicationTask(
   db: ServiceDb,
   managerUserId: string,
   row: DemoApplicantRow,
 ): Promise<ManagerTask | null> {
-  const automation = await loadTaskAutomation(db, managerUserId);
+  const automation = await loadLifecycleAutomation(db, managerUserId);
   const submittedAt =
     (row.application as { submittedAt?: string } | undefined)?.submittedAt?.trim() ||
     (row as { submittedAt?: string }).submittedAt?.trim() ||
     new Date().toISOString();
   const name = row.name?.trim() || "Applicant";
   const propertyTitle = row.property?.trim() || "Property";
-  return createAutoTask({
+  return createLifecycleAutoTask({
     db,
     managerUserId,
     templateKey: "review_application",
     sourceId: row.id.trim(),
-    triggerAt: submittedAt,
-    title: DEFAULT_TASK_TEMPLATE_LABELS.review_application,
+    triggeredAt: new Date(submittedAt),
+    title: LIFECYCLE_TASK_META.review_application.taskTitle,
     notes: `Review the application from ${name} for ${propertyTitle}.`,
     propertyId: row.assignedPropertyId?.trim() || row.propertyId?.trim(),
     propertyTitle,
@@ -119,21 +211,48 @@ export async function createReviewApplicationTask(
   });
 }
 
+export async function createDecideApplicationTask(
+  db: ServiceDb,
+  managerUserId: string,
+  row: DemoApplicantRow,
+): Promise<ManagerTask | null> {
+  const automation = await loadLifecycleAutomation(db, managerUserId);
+  const submittedAt =
+    (row.application as { submittedAt?: string } | undefined)?.submittedAt?.trim() ||
+    (row as { submittedAt?: string }).submittedAt?.trim() ||
+    new Date().toISOString();
+  const name = row.name?.trim() || "Applicant";
+  const propertyTitle = row.property?.trim() || "Property";
+  return createLifecycleAutoTask({
+    db,
+    managerUserId,
+    templateKey: "decide_application",
+    sourceId: row.id.trim(),
+    triggeredAt: new Date(submittedAt),
+    title: LIFECYCLE_TASK_META.decide_application.taskTitle,
+    notes: `Approve or decline the application from ${name} for ${propertyTitle}.`,
+    propertyId: row.assignedPropertyId?.trim() || row.propertyId?.trim(),
+    propertyTitle,
+    roomLabel: row.assignedRoomChoice?.trim() || row.application?.roomChoice1?.trim(),
+    config: automation.decide_application,
+  });
+}
+
 export async function createReviewAndSendLeaseTask(
   db: ServiceDb,
   managerUserId: string,
   row: DemoApplicantRow,
 ): Promise<ManagerTask | null> {
-  const automation = await loadTaskAutomation(db, managerUserId);
+  const automation = await loadLifecycleAutomation(db, managerUserId);
   const name = row.name?.trim() || "Applicant";
   const propertyTitle = row.property?.trim() || "Property";
-  return createAutoTask({
+  return createLifecycleAutoTask({
     db,
     managerUserId,
     templateKey: "review_and_send_lease",
     sourceId: row.id.trim(),
-    triggerAt: new Date().toISOString(),
-    title: DEFAULT_TASK_TEMPLATE_LABELS.review_and_send_lease,
+    triggeredAt: new Date(),
+    title: LIFECYCLE_TASK_META.review_and_send_lease.taskTitle,
     notes: `Generate and send the lease to ${name} for ${propertyTitle}.`,
     propertyId: row.assignedPropertyId?.trim() || row.propertyId?.trim(),
     propertyTitle,
@@ -142,19 +261,51 @@ export async function createReviewAndSendLeaseTask(
   });
 }
 
+export async function createCountersignLeaseTask(
+  db: ServiceDb,
+  managerUserId: string,
+  row: LeasePipelineRow,
+): Promise<ManagerTask | null> {
+  const automation = await loadLifecycleAutomation(db, managerUserId);
+  const residentName =
+    row.residentSignature?.name?.trim() ||
+    row.residentName?.trim() ||
+    row.signatureName?.trim() ||
+    "Resident";
+  const propertyTitle = row.unit?.trim() || "Property";
+  const signedAt =
+    row.residentSignature?.signedAtIso?.trim() ||
+    row.residentSignedAt?.trim() ||
+    row.signedAtIso?.trim() ||
+    new Date().toISOString();
+  return createLifecycleAutoTask({
+    db,
+    managerUserId,
+    templateKey: "countersign_lease",
+    sourceId: row.id.trim(),
+    triggeredAt: new Date(signedAt),
+    title: LIFECYCLE_TASK_META.countersign_lease.taskTitle,
+    notes: `Countersign the lease for ${residentName} at ${propertyTitle}.`,
+    propertyId: row.propertyId?.trim(),
+    propertyTitle,
+    roomLabel: row.roomChoice?.trim(),
+    config: automation.countersign_lease,
+  });
+}
+
 export async function createCollectRentTask(
   db: ServiceDb,
   managerUserId: string,
   input: { sourceId: string; residentName: string; propertyTitle: string; propertyId?: string },
 ): Promise<ManagerTask | null> {
-  const automation = await loadTaskAutomation(db, managerUserId);
-  return createAutoTask({
+  const automation = await loadLifecycleAutomation(db, managerUserId);
+  return createLifecycleAutoTask({
     db,
     managerUserId,
     templateKey: "collect_rent",
     sourceId: input.sourceId,
-    triggerAt: new Date().toISOString(),
-    title: DEFAULT_TASK_TEMPLATE_LABELS.collect_rent,
+    triggeredAt: new Date(),
+    title: LIFECYCLE_TASK_META.collect_rent.taskTitle,
     notes: `Confirm rent is collected for ${input.residentName} at ${input.propertyTitle}.`,
     propertyId: input.propertyId,
     propertyTitle: input.propertyTitle,
@@ -188,9 +339,10 @@ export async function sendTaskAssigneeEmail(input: {
   managerUserId: string;
   task: ManagerTask;
   assignee: WorkAssignee;
-  kind: "created" | "due";
+  kind: "created" | "due" | "advance";
   subject?: string;
   text?: string;
+  minutesBeforeDue?: number;
 }): Promise<{ sent: boolean; error?: string }> {
   const to = await assigneeEmail(input.db, input.assignee);
   if (!to) return { sent: false, error: "assignee_email_missing" };
@@ -207,7 +359,13 @@ export async function sendTaskAssigneeEmail(input: {
     input.subject?.trim() ||
     (input.kind === "due"
       ? `Task due: ${input.task.title}`
-      : `New task assigned: ${input.task.title}`);
+      : input.kind === "advance"
+        ? `Reminder: ${input.task.title}`
+        : `New task assigned: ${input.task.title}`);
+  const advanceLine =
+    input.kind === "advance" && input.minutesBeforeDue
+      ? formatTaskReminderTimingLabel(input.minutesBeforeDue)
+      : null;
   const lines =
     input.text?.trim() ||
     [
@@ -215,7 +373,9 @@ export async function sendTaskAssigneeEmail(input: {
       "",
       input.kind === "due"
         ? `This task is due now: ${input.task.title}`
-        : `You have been assigned a task: ${input.task.title}`,
+        : input.kind === "advance"
+          ? `Reminder — ${advanceLine ?? "this task is due soon"}: ${input.task.title}`
+          : `You have been assigned a task: ${input.task.title}`,
       input.task.notes ? "" : null,
       input.task.notes ?? null,
       `Due: ${dueLabel}`,
@@ -244,6 +404,7 @@ export async function syncApplicationLifecycleTasks(
 
   if (shouldNotifyManagerOfApplicationSubmit(previousRow, row)) {
     void createReviewApplicationTask(db, managerUserId, row).catch(() => undefined);
+    void createDecideApplicationTask(db, managerUserId, row).catch(() => undefined);
   }
 
   const wasApproved = previousRow?.bucket === "approved";
@@ -259,12 +420,34 @@ export async function syncApplicationLifecycleTasks(
   }
 }
 
+/** Fire countersign task when the resident signs and the manager has not yet. */
+export async function syncLeaseLifecycleTasks(
+  db: ServiceDb,
+  managerUserId: string,
+  previousRow: LeasePipelineRow | null | undefined,
+  row: LeasePipelineRow,
+): Promise<void> {
+  const wasResidentSigned = Boolean(
+    previousRow?.residentSignature?.signedAtIso ||
+      previousRow?.signedAtIso ||
+      previousRow?.residentSignedAt,
+  );
+  const isResidentSigned = Boolean(
+    row.residentSignature?.signedAtIso || row.signedAtIso || row.residentSignedAt,
+  );
+  const managerSigned = Boolean(row.managerSignature?.signedAtIso || row.managerSignedAt);
+  if (isResidentSigned && !wasResidentSigned && !managerSigned) {
+    void createCountersignLeaseTask(db, managerUserId, row).catch(() => undefined);
+  }
+}
+
 export async function processDueTaskReminders(db: ServiceDb, managerUserId: string): Promise<number> {
-  const automation = await loadTaskAutomation(db, managerUserId);
+  const automation = await loadLifecycleAutomation(db, managerUserId);
   const tasks = await loadManagerTasks(db, managerUserId);
   const now = Date.now();
   const todayKey = new Date().toISOString().slice(0, 10);
   let sent = 0;
+  let changed = false;
   const updated: ManagerTask[] = [];
 
   for (const task of tasks) {
@@ -273,33 +456,72 @@ export async function processDueTaskReminders(db: ServiceDb, managerUserId: stri
       continue;
     }
     const dueMs = Date.parse(task.dueDate);
-    if (!Number.isFinite(dueMs) || dueMs > now) {
+    if (!Number.isFinite(dueMs)) {
       updated.push(task);
       continue;
     }
+
+    let nextTask = task;
     const templateKey = task.templateKey;
-    const remindersOn =
-      !templateKey || automation[templateKey as DefaultTaskTemplateKey]?.sendEmailReminder !== false;
-    const last = task.reminderSentAt?.slice(0, 10);
-    if (!remindersOn || last === todayKey) {
-      updated.push(task);
-      continue;
+    const lifecycleConfig = isLifecycleTemplateKey(templateKey) ? automation[templateKey] : null;
+
+    if (
+      lifecycleConfig?.sendEmailReminder &&
+      lifecycleConfig.reminderMinutesBeforeList.length > 0 &&
+      dueMs > now
+    ) {
+      const sentOffsets = new Set(nextTask.advanceReminderSentOffsets ?? []);
+      for (const minutesBefore of lifecycleConfig.reminderMinutesBeforeList) {
+        if (sentOffsets.has(minutesBefore)) continue;
+        const reminderAt = dueMs - minutesBefore * 60_000;
+        if (now < reminderAt) continue;
+        const result = await sendTaskAssigneeEmail({
+          db,
+          managerUserId,
+          task: nextTask,
+          assignee: nextTask.assignee!,
+          kind: "advance",
+          minutesBeforeDue: minutesBefore,
+        });
+        if (result.sent) {
+          sent += 1;
+          changed = true;
+          sentOffsets.add(minutesBefore);
+          nextTask = {
+            ...nextTask,
+            advanceReminderSentOffsets: [...sentOffsets].sort((a, b) => a - b),
+            updatedAt: new Date().toISOString(),
+          };
+        }
+      }
     }
-    const result = await sendTaskAssigneeEmail({
-      db,
-      managerUserId,
-      task,
-      assignee: task.assignee,
-      kind: "due",
-    });
-    if (result.sent) {
-      sent += 1;
-      updated.push({ ...task, reminderSentAt: new Date().toISOString(), updatedAt: new Date().toISOString() });
-    } else {
-      updated.push(task);
+
+    const remindersOn = !templateKey || lifecycleConfig?.sendEmailReminder !== false;
+    if (dueMs <= now && remindersOn) {
+      const last = nextTask.reminderSentAt?.slice(0, 10);
+      if (last !== todayKey) {
+        const result = await sendTaskAssigneeEmail({
+          db,
+          managerUserId,
+          task: nextTask,
+          assignee: nextTask.assignee!,
+          kind: "due",
+        });
+        if (result.sent) {
+          sent += 1;
+          changed = true;
+          nextTask = {
+            ...nextTask,
+            reminderSentAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
+          };
+        }
+      }
     }
+
+    updated.push(nextTask);
   }
 
-  if (sent > 0) await saveManagerTasks(db, managerUserId, updated);
+  if (changed) await saveManagerTasks(db, managerUserId, updated);
   return sent;
 }

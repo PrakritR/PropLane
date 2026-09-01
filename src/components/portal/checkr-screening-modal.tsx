@@ -8,17 +8,14 @@ import { Modal } from "@/components/ui/modal";
 import { ScreeningInlinePayment } from "@/components/portal/screening-inline-payment";
 import { useAppUi } from "@/components/providers/app-ui-provider";
 import { track } from "@/lib/analytics/track-client";
-import { backgroundCheckStatusFromCheckr } from "@/lib/application-background-check";
-import { buildDemoBackgroundCheck } from "@/lib/checkr/demo-simulate";
-import type { CheckrAddOnSlug } from "@/lib/checkr/packages";
 import { formatCheckrPrice, sumScreeningOrderCents } from "@/lib/checkr/packages";
+import type { CheckrAddOnSlug } from "@/lib/checkr/packages";
+import { applyDemoBackgroundCheckResolution } from "@/lib/screening/apply-demo-background-check";
 import type { CheckrPackage } from "@/lib/checkr/config";
 import type { ApplicationBackgroundCheck } from "@/lib/checkr/types";
 import { isDemoModeActive } from "@/lib/demo/demo-session";
 import { isScreeningTestModeActive } from "@/lib/screening/screening-test-mode";
 import { MANAGER_PLAN_PORTAL_URL } from "@/lib/portals/manager-plan-path";
-import { replaceManagerApplicationRowInCache } from "@/lib/manager-applications-storage";
-import { patchCosignerBackgroundCheckInCache } from "@/lib/cosigner-submissions-storage";
 import { applicantDisplayName } from "@/lib/rental-application/applicant-name";
 import { BackgroundCheckHouseholdTable } from "@/components/portal/background-check-household-table";
 import type { ScreeningSubject } from "@/lib/background-check-subjects";
@@ -342,17 +339,12 @@ export function CheckrScreeningModal({
       showToast("Demo screening started. No real charge. Results resolve in a few seconds.");
       if (demoResolveTimer.current) clearTimeout(demoResolveTimer.current);
       demoResolveTimer.current = setTimeout(() => {
-        const resolved = buildDemoBackgroundCheck(row, { packageSlug: selectedPackage, addOnProducts: selectedAddOns });
+        const resolved = applyDemoBackgroundCheckResolution(row, {
+          cosignerSubmissionId: cosignerSubmissionId ?? undefined,
+          packageSlug: selectedPackage,
+          addOnProducts: selectedAddOns,
+        });
         setBg(resolved);
-        if (cosignerSubmissionId) {
-          patchCosignerBackgroundCheckInCache(row.id, cosignerSubmissionId, resolved);
-        } else {
-          replaceManagerApplicationRowInCache({
-            ...row,
-            backgroundCheck: resolved,
-            backgroundCheckStatus: backgroundCheckStatusFromCheckr(resolved),
-          });
-        }
         handlePaymentComplete(resolved);
       }, DEMO_SCREENING_RESOLVE_DELAY_MS);
       return;
@@ -361,7 +353,11 @@ export function CheckrScreeningModal({
 
   if (!row) return null;
 
-  const canRun = screeningAllowed && configured && Boolean(row.application?.consentCredit) && bg?.status !== "pending";
+  const canRun =
+    screeningAllowed &&
+    configured &&
+    (isDemo || Boolean(row.application?.consentCredit)) &&
+    bg?.status !== "pending";
   const showInlinePayment = !isDemo && canRun && showPackagePicker;
   const backgroundCheckComplete = bg?.status === "complete";
   const modalTitle = backgroundCheckComplete && !showPackagePicker
@@ -402,7 +398,7 @@ export function CheckrScreeningModal({
           </>
         ) : !configured ? (
           <p className="text-muted">Background checks are not configured. Add CHECKR_API_KEY to enable Checkr Tenant.</p>
-        ) : !row.application?.consentCredit ? (
+        ) : !row.application?.consentCredit && !isDemo ? (
           <p className="text-muted">This applicant has not authorized a background check.</p>
         ) : backgroundCheckComplete && !showPackagePicker ? (
           <div className="space-y-4" data-attr="screening-completed-summary">
@@ -593,7 +589,26 @@ export function CheckrScreeningModal({
           data-portal-detail-actions=""
           className="flex flex-wrap items-center justify-end gap-3 border-t border-border py-6 sm:gap-4"
         >
-          {screeningAllowed && configured && row.application?.consentCredit && isDemo ? (
+          {isDemo && bg?.status === "pending" ? (
+            <Button
+              type="button"
+              variant="outline"
+              data-attr="update-test-data"
+              onClick={() => {
+                const resolved = applyDemoBackgroundCheckResolution(row, {
+                  cosignerSubmissionId: cosignerSubmissionId ?? undefined,
+                  packageSlug: selectedPackage,
+                  addOnProducts: selectedAddOns,
+                });
+                setBg(resolved);
+                handlePaymentComplete(resolved);
+                showToast("Test screening report updated.");
+              }}
+            >
+              Update test data
+            </Button>
+          ) : null}
+          {screeningAllowed && configured && isDemo && bg?.status !== "pending" ? (
             <Button
               type="button"
               data-attr="run-screening-checkr"

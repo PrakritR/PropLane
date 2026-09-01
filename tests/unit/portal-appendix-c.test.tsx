@@ -28,6 +28,9 @@ import {
   teamMemberDetailHref,
   applicationDetailHref,
   applicationListHref,
+  backgroundCheckListHref,
+  backgroundCheckDetailHref,
+  parseBackgroundCheckListTab,
   leaseDetailHref,
   leaseListHref,
   paymentDetailHref,
@@ -67,10 +70,21 @@ describe("portal-detail-routes", () => {
     expect(PROPERTY_DETAIL_SCOPE_LABELS.preview).toBe("Listing");
   });
 
-  it("parses resident detail tabs with applicant fallback", () => {
+  it("parses resident detail tabs with application fallback", () => {
     expect(parseResidentDetailTab("payments")).toBe("payments");
-    expect(parseResidentDetailTab("application")).toBe("applicant");
-    expect(parseResidentDetailTab("")).toBe("applicant");
+    expect(parseResidentDetailTab("background-check")).toBe("background-check");
+    expect(parseResidentDetailTab("application")).toBe("application");
+    expect(parseResidentDetailTab("applicant")).toBe("application");
+    expect(parseResidentDetailTab("")).toBe("application");
+  });
+
+  it("builds background check list hrefs", () => {
+    expect(parseBackgroundCheckListTab("passed")).toBe("passed");
+    expect(parseBackgroundCheckListTab("bogus")).toBe("pending_review");
+    expect(backgroundCheckListHref("/portal", "flagged")).toBe("/portal/background-checks/flagged");
+    expect(backgroundCheckDetailHref("/portal", "pending_review", "app-1")).toBe(
+      "/portal/background-checks/pending_review/app-1",
+    );
   });
 
   it("builds promotion detail hrefs", () => {
@@ -142,6 +156,9 @@ describe("portal-detail-routes", () => {
     );
     expect(applicationDetailHref("/portal", "pending", "mgr foo")).toBe(
       "/portal/applications/pending/mgr%20foo",
+    );
+    expect(applicationDetailHref("/portal", "pending", "AXIS-123", "background-check")).toBe(
+      "/portal/applications/pending/AXIS-123/background-check",
     );
   });
 });

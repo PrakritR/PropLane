@@ -1438,6 +1438,7 @@ export function ResidentApplicationsPanel({
           {activeCosignerSubmission ? (
             <ManagerCosignerReadonlyReview
               sub={activeCosignerSubmission}
+              signerRow={detailRow}
               onOpenSignerApplication={() =>
                 router.push(
                   residentApplicationDetailHref(

@@ -7,6 +7,7 @@ import {
   ReviewSection,
 } from "@/components/portal/manager-application-readonly-review";
 import type { CosignerSubmission } from "@/lib/cosigner-submissions-storage";
+import { normalizeApplicationAxisId } from "@/lib/manager-applications-storage";
 import type { ApplicationGroup } from "@/lib/rental-application/application-groups";
 import type { YesNo } from "@/lib/rental-application/types";
 
@@ -24,9 +25,34 @@ function groupIsYes(applyingAsGroup: string | null | undefined, group: Applicati
   return applyingAsGroup === "yes" || Boolean(group);
 }
 
+function applicationIdsMatch(a: string, b: string): boolean {
+  return normalizeApplicationAxisId(a).toUpperCase() === normalizeApplicationAxisId(b).toUpperCase();
+}
+
+function HouseholdTextLink({
+  children,
+  onClick,
+  dataAttr,
+}: {
+  children: React.ReactNode;
+  onClick: () => void;
+  dataAttr: string;
+}) {
+  return (
+    <button
+      type="button"
+      className="block w-full max-w-full text-left text-sm font-medium text-primary underline underline-offset-2 hover:text-primary/80"
+      data-attr={dataAttr}
+      onClick={onClick}
+    >
+      {children}
+    </button>
+  );
+}
+
 /**
- * Flat household summary at the top of the Application tab — co-signer and group
- * in a fixed order, matching the review card style without nested boxes.
+ * Household summary at the top of the Application tab — linked co-signers and
+ * group members when navigation handlers are provided.
  */
 export function ApplicationHouseholdInlinePanels({
   cosignerSubmissions = [],
@@ -60,7 +86,7 @@ export function ApplicationHouseholdInlinePanels({
           ) : cosignerSubmissions.length === 0 ? (
             "Yes · not submitted yet"
           ) : (
-            <ul className="space-y-1.5">
+            <ul className="flex flex-col gap-2">
               {cosignerSubmissions.map((sub, index) => {
                 const label = sub.fullName?.trim() || sub.email?.trim() || "Co-signer";
                 const detail = sub.email?.trim() && sub.fullName?.trim() ? sub.email.trim() : null;
@@ -73,16 +99,14 @@ export function ApplicationHouseholdInlinePanels({
                   );
                 }
                 return (
-                  <li key={`${sub.email}-${index}`}>
-                    <button
-                      type="button"
-                      className="text-left font-medium text-foreground underline-offset-2 hover:underline"
-                      data-attr="application-cosigner-inline-row"
+                  <li key={`${sub.email}-${index}`} className="min-w-0 max-w-full">
+                    <HouseholdTextLink
+                      dataAttr="application-cosigner-inline-row"
                       onClick={() => onOpenCosigner(index)}
                     >
-                      {label}
-                    </button>
-                    {detail ? <span className="block text-xs text-muted">{detail}</span> : null}
+                      <span className="truncate">{label}</span>
+                    </HouseholdTextLink>
+                    {detail ? <span className="mt-0.5 block text-xs text-muted">{detail}</span> : null}
                   </li>
                 );
               })}
@@ -96,20 +120,20 @@ export function ApplicationHouseholdInlinePanels({
           !groupYes ? (
             yesNoLabel(applyingAsGroup)
           ) : group && group.members.length > 0 ? (
-            <div className="space-y-2">
+            <div className="space-y-1.5">
               {groupId.trim() || group.groupId ? (
                 <p className="text-xs text-muted">
                   Group ID{" "}
                   <span className="font-mono text-foreground">{group.groupId || groupId.trim()}</span>
                 </p>
               ) : null}
-              <ul className="space-y-1.5">
+              <ul className="flex flex-col gap-2">
                 {group.members.map((member) => {
                   const pill = groupMemberStatusBadge(member.status);
-                  const isCurrent = member.id === currentRowId;
+                  const isCurrent = applicationIdsMatch(member.id, currentRowId);
                   const label = (
-                    <span className="inline-flex flex-wrap items-center gap-2">
-                      <span>{member.name}</span>
+                    <span className="inline-flex flex-wrap items-center gap-1.5">
+                      <span className="truncate">{member.name}</span>
                       {isCurrent ? <span className="text-xs text-muted">(this application)</span> : null}
                       {member.role === "first" ? <span className="text-xs text-muted">· organizer</span> : null}
                       <Badge tone={pill.tone}>{pill.label}</Badge>
@@ -117,21 +141,21 @@ export function ApplicationHouseholdInlinePanels({
                   );
                   if (onOpenApplication && !isCurrent) {
                     return (
-                      <li key={member.id}>
-                        <button
-                          type="button"
-                          className="text-left font-medium text-foreground underline-offset-2 hover:underline"
-                          data-attr="application-group-member-row"
+                      <li key={member.id} className="min-w-0 max-w-full">
+                        <HouseholdTextLink
+                          dataAttr="application-group-member-row"
                           onClick={() => onOpenApplication(member.id)}
                         >
                           {label}
-                        </button>
-                        {member.email ? <span className="block text-xs text-muted">{member.email}</span> : null}
+                          {member.email ? (
+                            <span className="mt-0.5 block text-xs text-muted">{member.email}</span>
+                          ) : null}
+                        </HouseholdTextLink>
                       </li>
                     );
                   }
                   return (
-                    <li key={member.id} className="text-foreground">
+                    <li key={member.id} className="min-w-0 text-foreground">
                       {label}
                       {member.email ? <span className="block text-xs text-muted">{member.email}</span> : null}
                     </li>

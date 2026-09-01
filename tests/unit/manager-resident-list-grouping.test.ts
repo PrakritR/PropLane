@@ -3,7 +3,7 @@ import { buildApplicationGroups } from "@/lib/rental-application/application-gro
 import { groupRowInputForRow } from "@/components/portal/application-group-section";
 import type { DemoApplicantRow } from "@/data/demo-portal";
 import type { RentalWizardFormState } from "@/lib/rental-application/types";
-import { buildResidentListClusters } from "@/lib/manager-resident-list-grouping";
+import { buildResidentListClusters, buildResidentHouseClusters } from "@/lib/manager-resident-list-grouping";
 
 const GROUP_ID = "PROPLANE-RESGRP01";
 
@@ -43,6 +43,7 @@ describe("manager-resident-list-grouping", () => {
         id: row.id,
         name: row.name,
         email: row.email,
+        propertyId: row.propertyId ?? "",
         propertyLabel: row.property,
         roomLabel: `Room ${row.id.split("-")[1]}`,
         leaseStart: "2026-09-01",
@@ -66,6 +67,7 @@ describe("manager-resident-list-grouping", () => {
           id: lone.id,
           name: lone.name,
           email: lone.email,
+          propertyId: lone.propertyId ?? "",
           propertyLabel: lone.property,
           roomLabel: "Room 9",
           leaseStart: "2026-09-01",
@@ -86,6 +88,7 @@ describe("manager-resident-list-grouping", () => {
           id: "RES-A1",
           name: "Jordan Lee",
           email: "jordan.lee@example.com",
+          propertyId: "ballard",
           propertyLabel: "Ballard House",
           roomLabel: "Room 2",
           leaseStart: "2026-03-01",
@@ -95,6 +98,7 @@ describe("manager-resident-list-grouping", () => {
           id: "RES-A2",
           name: "Jordan Lee",
           email: "jordan.lee@example.com",
+          propertyId: "ballard",
           propertyLabel: "Ballard House",
           roomLabel: "Room 5",
           leaseStart: "2026-05-01",
@@ -109,5 +113,43 @@ describe("manager-resident-list-grouping", () => {
       expect(clusters[0].cluster.rows).toHaveLength(2);
       expect(clusters[0].cluster.rows.map((row) => row.roomLabel)).toEqual(["Room 2", "Room 5"]);
     }
+  });
+
+  it("clusters co-tenants at the same property under one house header", () => {
+    const clusters = buildResidentHouseClusters([
+      {
+        id: "RES-1",
+        name: "Mason Clark",
+        email: "mason@example.com",
+        propertyId: "ballard",
+        propertyLabel: "Ballard House",
+        roomLabel: "Room 2",
+        leaseStart: "2026-09-01",
+        groupId: "",
+      },
+      {
+        id: "RES-2",
+        name: "Riley Group Lead",
+        email: "riley@example.com",
+        propertyId: "ballard",
+        propertyLabel: "Ballard House",
+        roomLabel: "Room 2",
+        leaseStart: "2026-09-01",
+        groupId: "",
+      },
+      {
+        id: "RES-3",
+        name: "Sofia Diaz",
+        email: "sofia@example.com",
+        propertyId: "ballard",
+        propertyLabel: "Ballard House",
+        roomLabel: "Room 1",
+        leaseStart: "2026-09-01",
+        groupId: "",
+      },
+    ]);
+    expect(clusters).toHaveLength(1);
+    expect(clusters[0]?.propertyLabel).toBe("Ballard House");
+    expect(clusters[0]?.rows).toHaveLength(3);
   });
 });
