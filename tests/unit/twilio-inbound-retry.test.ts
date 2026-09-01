@@ -9,6 +9,8 @@ const mocks = vi.hoisted(() => ({
   receiptUpdates: [] as Record<string, unknown>[],
   receipt: { status: "processing" } as Record<string, unknown>,
   rateLimit: vi.fn(() => ({ ok: true })),
+  detectSelfReply: vi.fn(async () => null),
+  handleManagerReply: vi.fn(),
 }));
 
 vi.mock("twilio", () => ({ default: { validateRequest: vi.fn(() => true) } }));
@@ -25,9 +27,9 @@ vi.mock("@/lib/agent/leasing-sms-agent.server", () => ({
 }));
 vi.mock("@/lib/sms-relay.server", () => ({ relayInboundSms: mocks.relayInbound }));
 vi.mock("@/lib/sms/manager-relay.server", () => ({
-  detectManagerSelfReply: vi.fn(async () => null),
+  detectManagerSelfReply: mocks.detectSelfReply,
   forwardResidentInboundToManagerCell: vi.fn(async () => ({ ok: true })),
-  handleManagerReplyInbound: vi.fn(),
+  handleManagerReplyInbound: mocks.handleManagerReply,
 }));
 vi.mock("@/lib/claw-leasing-links", () => ({ isClawSharedLineBridgeEnabled: () => true }));
 vi.mock("@/lib/supabase/service", () => ({
@@ -110,6 +112,8 @@ beforeEach(() => {
   mocks.receiptUpdates = [];
   mocks.receipt = { status: "processing" };
   mocks.rateLimit.mockReturnValue({ ok: true });
+  mocks.detectSelfReply.mockResolvedValue(null);
+  mocks.handleManagerReply.mockReset();
   vi.stubEnv("TWILIO_MESSAGING_SERVICE_SID", "MG11111111111111111111111111111111");
   vi.stubEnv("SMS_RUNTIME_ENABLED", "1");
   mocks.rpc.mockImplementation(async (name: string) => {
@@ -240,5 +244,27 @@ describe("managed Twilio inbound retry", () => {
 
     expect(response.status).toBe(200);
     expect(mocks.handleInbound).not.toHaveBeenCalled();
+  });
+
+  it("never SMS-replies to the manager when a self-reply has no active resident thread", async () => {
+    mocks.detectSelfReply.mockResolvedValue({
+      managerUserId: "11111111-1111-4111-8111-111111111111",
+      workNumber: "+12065559999",
+      managerPhone: "+12065552222",
+    });
+    mocks.handleManagerReply.mockResolvedValue({
+      ok: false,
+      error: "no_active_conversation",
+    });
+
+    const response = await POST(inboundRequest());
+    const twiml = await response.text();
+
+    expect(response.status).toBe(200);
+    expect(twiml).toContain("<Response></Response>");
+    expect(twiml).not.toContain("No active resident conversation");
+    expect(twiml).not.toContain("Open PropLane");
+    expect(mocks.handleInbound).not.toHaveBeenCalled();
+    expect(mocks.handleManagerReply).toHaveBeenCalledTimes(1);
   });
 });

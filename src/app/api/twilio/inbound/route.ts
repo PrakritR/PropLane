@@ -363,7 +363,11 @@ export async function POST(req: Request) {
   const workNumber = normalizeE164(toPhone) ?? toPhone;
   // Leg 2 — manager reply. If the sender is this manager's OWN verified cell
   // texting their own work number, route the text to their active resident
-  // conversation instead of treating the manager as a resident.
+  // conversation instead of treating the manager as a resident/prospect (which
+  // would run the leasing/resident agent AT the manager). On success the
+  // resident gets the reply; on failure stay silent — never SMS the manager.
+  // Work-number traffic is for tenants and prospects; managers use the portal
+  // (or a successful silent Leg 2 relay) and must not receive bot/system texts.
   const selfReply = await detectManagerSelfReply(db, { managerUserId: managerId, fromPhone, toPhone });
   if (selfReply) {
     const relayed = await handleManagerReplyInbound(db, {
@@ -372,6 +376,12 @@ export async function POST(req: Request) {
       body,
       messageSid,
     });
+    if (!relayed.ok) {
+      console.info("twilio inbound manager self-reply not delivered", {
+        managerUserId: managerId,
+        error: relayed.error,
+      });
+    }
     await db
       .from("inbound_sms_log")
       .insert({
@@ -384,19 +394,10 @@ export async function POST(req: Request) {
         ...inboundLogIdentityFields({ managerUserId: managerId, counterpartyRole: "manager", fromPhone }),
       })
       .then(() => undefined, () => undefined);
-    let notice: string | undefined;
-    if (!relayed.ok) {
-      notice =
-        relayed.error === "registration_pending"
-          ? "Your PropLane number isn't approved to send yet. We'll notify you when it's active."
-          : relayed.error === "no_active_conversation"
-            ? "No active resident conversation to reply to. Open PropLane to pick a recipient."
-            : "Couldn't send that reply. Open PropLane to try again.";
-    }
     if (!(await finishInboundClaim(db, messageSid, inboundWorkerId, "completed"))) {
       return NextResponse.json({ error: "Inbound completion unavailable." }, { status: 503 });
     }
-    return twimlOk(notice);
+    return twimlOk();
   }
 
   // Resident fork. A texter is only handed the resident tool catalog when their

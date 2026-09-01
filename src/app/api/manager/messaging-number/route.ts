@@ -5,6 +5,7 @@ import { requireManagerRouteUser } from "@/lib/manager-route-guard.server";
 import { getEffectiveManagerSkuTier } from "@/lib/manager-access-server";
 import {
   managerCarrierRegistrationNeedsAttention,
+  managerMessagingSenderPoolDiagnostic,
   type ManagerMessagingNumberStatus,
   type ManagerMessagingPlanTier,
   type ManagerMessagingRuntimeMode,
@@ -244,11 +245,39 @@ function publicStatus(
     sendingAvailable: status.sendingAvailable,
     planTier: status.planTier,
     entitlement: status.entitlement,
-    number: status.number,
+    number: status.number
+      ? {
+          ...status.number,
+          lastError: managerMessagingSenderPoolDiagnostic(
+            status.number.lastError,
+          ),
+        }
+      : null,
     canRequest: status.canRequest,
     canSend: status.canSend,
     personalPhone: status.personalPhone,
   };
+}
+
+// Curated, non-sensitive provisioning failures the manager can act on. Anything
+// not matched here (raw DB/provider text, internal sentinels) collapses to the
+// generic message so an unexpected internal error is never surfaced. Each family
+// tolerates the code/status identifiers being present, partial, or absent, since
+// `twilioOperationError` emits only whichever exist.
+const PUBLIC_PROVISIONING_ERROR_PATTERNS: RegExp[] = [
+  /^Messaging Service attachment is not configured\. The purchased number (?:was released|release could not be confirmed; do not retry until PropLane reviews it)\.$/,
+  /^Twilio work-number purchase failed(?: \((?:code [\w-]+(?:, HTTP \d{3})?|HTTP \d{3})\))?\. Provider ownership is unconfirmed; do not retry until PropLane reviews it\.$/,
+  /^No SMS-capable numbers are available (?:in area code \d{3} right now|right now — try again shortly)\.$/,
+  /^Provider setup is awaiting reconciliation\.$/,
+  /^Provider cleanup requires review\.$/,
+];
+
+function publicProvisioningError(error: string): string {
+  const value = error.trim();
+  if (managerMessagingSenderPoolDiagnostic(value)) return value;
+  if (PUBLIC_PROVISIONING_ERROR_PATTERNS.some((pattern) => pattern.test(value)))
+    return value;
+  return "We could not set up your messaging number. Try again later.";
 }
 
 /** Read-only manager messaging status. Never seeds a row or contacts a provider. */
@@ -406,7 +435,7 @@ export async function POST(req: Request) {
     return NextResponse.json(
       {
         ...next,
-        error: result.error,
+        error: publicProvisioningError(result.error),
       },
       { status: result.state === "pending_registration" ? 503 : 502 },
     );

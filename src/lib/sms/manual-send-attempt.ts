@@ -16,6 +16,11 @@ export function isManualSmsOutcomeUnknown(response: {
   );
 }
 
+/** True only when Twilio accepted the message (not queued/deferred). */
+export function isManualSmsSubmitted(response: { status?: string }): boolean {
+  return response.status === "submitted";
+}
+
 export const MANUAL_SMS_NETWORK_UNKNOWN_MESSAGE =
   "We could not confirm whether the provider received this message. Do not resend it. PropLane has kept the attempt for operator review; check the conversation later.";
 

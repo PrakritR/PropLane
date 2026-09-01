@@ -31,6 +31,7 @@ import { deliverPortalInboxMessage } from "@/lib/portal-message-delivery";
 import { track } from "@/lib/analytics/track-client";
 import {
   formatManagerMessagingPhone,
+  managerMessagingSenderPoolDiagnostic,
   type ManagerMessagingNumberStatus,
 } from "@/lib/sms/manager-messaging-number";
 
@@ -157,6 +158,22 @@ function inferredUsAreaCode(phone: string | null | undefined): string {
   return digits.length === 10 ? digits.slice(0, 3) : "";
 }
 
+function isMessagingNumberStatus(
+  value: unknown,
+): value is ManagerMessagingNumberStatus {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const candidate = value as Partial<ManagerMessagingNumberStatus>;
+  return (
+    typeof candidate.mode === "string" &&
+    typeof candidate.workspaceRole === "string" &&
+    typeof candidate.provisioningAvailable === "boolean" &&
+    typeof candidate.canRequest === "boolean" &&
+    typeof candidate.canSend === "boolean" &&
+    Boolean(candidate.personalPhone) &&
+    typeof candidate.personalPhone === "object"
+  );
+}
+
 export function ManagerMessagingSettingsPanel({
   personalPhoneRefreshKey = 0,
 }: {
@@ -275,13 +292,11 @@ export function ManagerMessagingSettingsPanel({
           error?: string;
         };
         if (!res.ok) {
-          setError(body.error ?? "Could not request a messaging number.");
           // Failed provision responses include the updated public status (e.g.
           // quarantined provisioning with canRequest: false). Apply it so Retry
           // does not stay enabled against a server that will refuse another buy.
-          if (typeof body.canRequest === "boolean") {
-            setStatus(body);
-          }
+          if (isMessagingNumberStatus(body)) setStatus(body);
+          setError(body.error ?? "Could not request a messaging number.");
           return;
         }
         setStatus(body);
@@ -464,6 +479,9 @@ export function ManagerMessagingSettingsPanel({
    * belonging to another account — is never advertised to residents.
    */
   const announceReady = Boolean(phoneNumber) && status.canSend;
+  const failureDiagnostic = managerMessagingSenderPoolDiagnostic(
+    status.number?.lastError,
+  );
   // An unchecked plan must stay actionable before a number exists - otherwise
   // the one account that sees "not checked yet" (a new one, with no number) is
   // the one account with no control that resolves it.
@@ -563,12 +581,12 @@ export function ManagerMessagingSettingsPanel({
                 not purchase another number automatically. Fix the issue below,
                 then retry setup when you&apos;re ready.
               </p>
-              {status.number.lastError ? (
+              {failureDiagnostic ? (
                 <p
                   className="break-words text-xs"
                   data-attr="messaging-number-failure-diagnostic"
                 >
-                  Diagnostic: {status.number.lastError}
+                  Diagnostic: {failureDiagnostic}
                 </p>
               ) : null}
             </div>

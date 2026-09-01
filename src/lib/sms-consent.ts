@@ -24,26 +24,23 @@ export function normalizeConsentPhone(phone: string): string {
   return digits;
 }
 
-/**
- * Common stored formats for one US number, so phone columns stored
- * un-normalized (`(555) 123-4567`, `5551234567`, `+15551234567`) can be
- * matched against any input format. The single shared variant set — the
- * inbound webhooks and the consent read both use it so they cannot drift.
- */
-export function profilePhoneVariants(phone: string): string[] {
+/** Values safe for `profiles.phone` lookups (Postgres numeric — no punctuation). */
+function profilePhoneDbLookupValues(phone: string): string[] {
   const raw = String(phone ?? "").trim();
   const key = normalizeConsentPhone(raw);
-  if (key.length !== 10) return [...new Set([raw, key])].filter(Boolean);
-  return [
-    ...new Set([
-      `+1${key}`,
-      key,
-      `1${key}`,
-      `(${key.slice(0, 3)}) ${key.slice(3, 6)}-${key.slice(6)}`,
-      `${key.slice(0, 3)}-${key.slice(3, 6)}-${key.slice(6)}`,
-      raw,
-    ]),
-  ].filter(Boolean);
+  const values = key.length === 10 ? [`+1${key}`, key, `1${key}`, raw] : [raw, key];
+  return [...new Set(values.filter((value) => /^\+?\d+$/.test(value)))];
+}
+
+/**
+ * Common stored formats for one US number so consent reads can match
+ * `profiles.phone` regardless of how the inbound webhook or profile row
+ * formats the digits. Only digit/E.164 forms are emitted: the column is
+ * numeric in Postgres, and punctuation variants make the whole `.in()`
+ * query fail with `invalid input syntax for type numeric`.
+ */
+export function profilePhoneVariants(phone: string): string[] {
+  return profilePhoneDbLookupValues(phone);
 }
 
 /** Opted out iff opted_out_at is set and no opt-in is at least as recent. */

@@ -83,12 +83,12 @@ describe("isPhoneOptedOut — unified across both stores", () => {
 
   it("blocks when only profiles.sms_opt_out_at recorded the STOP (vendor path)", async () => {
     // No ledger row at all — the vendor webhook wrote only the profiles column.
-    const db = makeDb({ profiles: [{ phone: "(555) 123-4567", sms_opt_out_at: NOW }] });
+    const db = makeDb({ profiles: [{ phone: "15551234567", sms_opt_out_at: NOW }] });
     expect(await isPhoneOptedOut(db, "+15551234567")).toBe(true);
   });
 
   it("matches the profiles column across stored phone formats", async () => {
-    for (const stored of ["+15551234567", "5551234567", "555-123-4567"]) {
+    for (const stored of ["15551234567", "5551234567", "+15551234567"]) {
       const db = makeDb({ profiles: [{ phone: stored, sms_opt_out_at: NOW }] });
       expect(await isPhoneOptedOut(db, "5551234567")).toBe(true);
     }
@@ -121,7 +121,7 @@ describe("cross-store re-opt-in — a later START on one store supersedes a STOP
     // manager work line, which records only a ledger opt-in.
     const db = makeDb({
       consent: [{ phone: "5551234567", opted_in_at: LATER }],
-      profiles: [{ phone: "(555) 123-4567", sms_opt_out_at: EARLIER }],
+      profiles: [{ phone: "15551234567", sms_opt_out_at: EARLIER }],
     });
     expect(await isPhoneOptedOut(db, "+15551234567")).toBe(false);
   });
