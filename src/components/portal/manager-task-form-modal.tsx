@@ -193,7 +193,6 @@ export function ManagerTaskFormModal({
   const showResidentPicker =
     workOrderNeedsResident || (isTurnover && Boolean(form.propertyId));
   const propertyRequired =
-    form.taskKind === "house" ||
     form.taskKind === "tour" ||
     form.taskKind === "work-order" ||
     isTurnover;
