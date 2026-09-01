@@ -4,7 +4,6 @@ import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { DestinationNav } from "@/components/ui/destination-nav";
 import { useShallowTabId } from "@/components/ui/tabs";
 import { useAppUi } from "@/components/providers/app-ui-provider";
 import { ApplicationHouseholdCluster } from "@/components/portal/application-household-list";
@@ -14,10 +13,14 @@ import {
   PORTAL_LIST_ADD_ICONS,
   PORTAL_LIST_ADD_ROW_WRAP_CLASS,
 } from "@/components/portal/portal-list-add-row";
-import { ManagerPortalPageShell, PORTAL_HEADER_PRIMARY_ACTION_BTN_RESPONSIVE } from "@/components/portal/portal-metrics";
+import {
+  ManagerPortalPageShell,
+  PORTAL_COMMAND_ACTION_BTN,
+  PORTAL_COMMAND_PRIMARY_ACTION_BTN,
+  PORTAL_COMMAND_PRIMARY_ACTION_STYLE,
+} from "@/components/portal/portal-metrics";
 import { ManagerPortalSettingsModal } from "@/components/portal/manager-portal-settings-modal";
 import { PortalFilterSortSheet, portalFilterActiveCount } from "@/components/portal/portal-filter-sort-sheet";
-import { PORTAL_PROPERTY_FILTER_SHEET_CLASS } from "@/components/portal/portal-filter-shell";
 import { PORTAL_LIST_PAGE_BODY } from "@/components/portal/portal-inbox-ui";
 import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
 import { ManagerTaskFormModal } from "@/components/portal/manager-task-form-modal";
@@ -35,7 +38,6 @@ import {
   serviceRequestLocationLabel,
   serviceRequestsAssignedToViewer,
   taskListRowMatchesFilter,
-  taskListRowMatchesSearch,
   type ManagerTaskListFilterId,
   type ManagerTaskListSortId,
 } from "@/lib/manager-task-display";
@@ -198,7 +200,6 @@ export function ManagerTaskList({
   const [groupMode, setGroupMode] = useState<PortalListGroupMode>(DEFAULT_PORTAL_LIST_GROUP_MODE);
   const [listFilter, setListFilter] = useState<ManagerTaskListFilterId>("all");
   const [sortId, setSortId] = useState<ManagerTaskListSortId>("due_soonest");
-  const [searchQuery, setSearchQuery] = useState("");
 
   const propertyOptions = useMemo(
     () => buildManagerPropertyFilterOptions(userId),
@@ -281,7 +282,6 @@ export function ManagerTaskList({
         : [];
     return [...taskRows, ...serviceRows]
       .filter((row) => taskListRowMatchesFilter(row, listFilter))
-      .filter((row) => taskListRowMatchesSearch(row, searchQuery))
       .sort((a, b) => compareManagerTaskListRows(a, b, sortId, propertyLabelForId));
   }, [
     assignedServices,
@@ -291,7 +291,6 @@ export function ManagerTaskList({
     matchesProperty,
     overdueTasks,
     propertyLabelForId,
-    searchQuery,
     sortId,
     tabId,
   ]);
@@ -319,10 +318,10 @@ export function ManagerTaskList({
     <PortalFilterSortSheet
       activeCount={taskFilterActiveCount}
       compactPanel
+      commandStripTrigger
       filterFieldCount={taskFilterFieldCount}
-      constrainDropdownToTitleBand
+      constrainDropdownToTitleBand={false}
       mobileFlushBody
-      className={PORTAL_PROPERTY_FILTER_SHEET_CLASS}
       onReset={() => {
         setListFilter("all");
         setPropertyFilterId("");
@@ -500,50 +499,40 @@ export function ManagerTaskList({
     <ManagerPortalPageShell
       title="Tasks"
       hideTitleOnMobileNav
-      titleInlineFilter={tasksFilterSheet}
-      titleAside={
-        <>          <Button
-            type="button"
-            variant="outline"
-            className={PORTAL_HEADER_PRIMARY_ACTION_BTN_RESPONSIVE}
-            data-attr="manager-task-automation-open"
-            onClick={() => setSettingsOpen(true)}
-          >
-            Settings
-          </Button>
-          {!loading && tabId === "in-progress" ? (
-            <Button
-              type="button"
-              variant="outline"
-              className={PORTAL_HEADER_PRIMARY_ACTION_BTN_RESPONSIVE}
-              data-attr="manager-task-list-header-add"
-              onClick={openAddTask}
-            >
-              Add
-            </Button>
-          ) : null}
-        </>
-      }
+      titleInlineFilter={null}
       compactFilterRow
     >
       <PortalListControlStack
-        className="mb-2"
-        destinationRow={
-          <DestinationNav
-            items={tabItems}
-            activeId={tabId}
-            ariaLabel="Task status"
-            itemLayout="equal"
-            denseEqualRow
-            className="max-w-none"
-          />
+        className="mb-2 max-lg:mb-1.5"
+        variant="command"
+        destinations={tabItems}
+        activeDestinationId={tabId}
+        destinationAriaLabel="Task status"
+        actions={
+          <>
+            {tasksFilterSheet}
+            <Button
+              type="button"
+              variant="outline"
+              className={PORTAL_COMMAND_ACTION_BTN}
+              data-attr="manager-task-automation-open"
+              onClick={() => setSettingsOpen(true)}
+            >
+              Settings
+            </Button>
+            {tabId === "in-progress" ? (
+              <Button
+                type="button"
+                className={PORTAL_COMMAND_PRIMARY_ACTION_BTN}
+                style={PORTAL_COMMAND_PRIMARY_ACTION_STYLE}
+                data-attr="manager-task-list-header-add"
+                onClick={openAddTask}
+              >
+                Add
+              </Button>
+            ) : null}
+          </>
         }
-        search={{
-          value: searchQuery,
-          onChange: setSearchQuery,
-          placeholder: "Search tasks",
-          dataAttr: "manager-task-list-search",
-        }}
       />
 
       <div className={PORTAL_LIST_PAGE_BODY}>
