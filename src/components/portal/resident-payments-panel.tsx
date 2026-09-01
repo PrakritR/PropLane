@@ -9,7 +9,16 @@ import { Modal } from "@/components/ui/modal";
 import { MODAL_LARGE_PANEL_CLASS } from "@/components/ui/modal-styles";
 import { useAppUi } from "@/components/providers/app-ui-provider";
 import { StripeEmbeddedCheckout } from "@/components/stripe-embedded-checkout";
-import { ManagerPortalPageShell, PORTAL_HEADER_ACTION_BTN, PORTAL_INLINE_STATUS_NOTICE_CLASS, PORTAL_INLINE_UNLOCK_NOTICE_CLASS, PORTAL_INLINE_UNLOCK_NOTICE_STACKED_CLASS, PORTAL_TOOLBAR_SELECT, PortalToolbarSelectWrap, formatCompactChargeLine } from "@/components/portal/portal-metrics";
+import {
+  ManagerPortalPageShell,
+  PORTAL_COMMAND_ACTION_BTN,
+  PORTAL_INLINE_STATUS_NOTICE_CLASS,
+  PORTAL_INLINE_UNLOCK_NOTICE_CLASS,
+  PORTAL_INLINE_UNLOCK_NOTICE_STACKED_CLASS,
+  PORTAL_TOOLBAR_SELECT,
+  PortalToolbarSelectWrap,
+  formatCompactChargeLine,
+} from "@/components/portal/portal-metrics";
 import {
   PortalDataTableEmpty,
   PORTAL_DETAIL_BTN,
@@ -1220,9 +1229,19 @@ export function ResidentPaymentsPanel({
       <Button
         type="button"
         variant="outline"
-        className={PORTAL_HEADER_ACTION_BTN}
+        className={PORTAL_COMMAND_ACTION_BTN}
         data-attr="resident-payments-add-payment-method"
         onClick={() => setPaymentMethodModalOpen(true)}
+      >
+        Payment method
+      </Button>
+    ) : !paymentsUnlocked ? (
+      <Button
+        type="button"
+        variant="outline"
+        className={PORTAL_COMMAND_ACTION_BTN}
+        disabled
+        onClick={() => showToast("Payments unlock after your application is approved.")}
       >
         Payment method
       </Button>
@@ -1239,20 +1258,6 @@ export function ResidentPaymentsPanel({
       {payButtonLabel}
     </Button>
   ) : null;
-
-  const paymentsTitleAction = !paymentsUnlocked ? (
-    <Button
-      type="button"
-      variant="outline"
-      className={PORTAL_HEADER_ACTION_BTN}
-      disabled
-      onClick={() => showToast("Payments unlock after your application is approved.")}
-    >
-      Payment method
-    </Button>
-  ) : (
-    paymentMethodButton
-  );
 
   const paySelectionActions = useMemo((): PortalAdaptiveAction[] => {
     if (selectedPayableIds.length === 0) return [];
@@ -1617,12 +1622,15 @@ export function ResidentPaymentsPanel({
     </>
   );
 
-  const paymentsCommandActions = paymentsUnlocked ? (
-    <>
-      {paymentsFilterSheet}
-      {paymentMethodButton}
-    </>
-  ) : null;
+  const paymentsCommandActions =
+    paymentsUnlocked ? (
+      <>
+        {paymentsFilterSheet}
+        {paymentMethodButton}
+      </>
+    ) : (
+      paymentMethodButton
+    );
 
   if (chargeIdProp && detailCharge) {
     return (
@@ -1655,15 +1663,11 @@ export function ResidentPaymentsPanel({
 
   return (
     <>
-      <ManagerPortalPageShell
-        title="Payments"
-        hideTitleOnMobileNav
-        titleAside={!paymentsUnlocked ? paymentsTitleAction : undefined}
-        compactFilterRow
-      >
+      <ManagerPortalPageShell title="Payments" hideTitleOnMobileNav compactFilterRow>
         <PortalListControlStack
           className={paymentsLockedEmpty ? "mb-0" : "mb-2 max-lg:mb-1.5"}
           variant="command"
+          stickyDestinations={false}
           destinations={statusTabs.map((t) => ({
             id: t.id,
             label: t.label,

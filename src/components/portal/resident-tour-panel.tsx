@@ -4,7 +4,11 @@ import { Calendar } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
-import { ManagerPortalPageShell, PORTAL_HEADER_PRIMARY_ACTION_BTN } from "@/components/portal/portal-metrics";
+import {
+  ManagerPortalPageShell,
+  PORTAL_COMMAND_PRIMARY_ACTION_BTN,
+  PORTAL_COMMAND_PRIMARY_ACTION_STYLE,
+} from "@/components/portal/portal-metrics";
 import { PortalRecordDetailPage } from "@/components/portal/portal-record-detail-page";
 import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
 import { PortalSectionActionRow } from "@/components/portal/portal-section-action-row";
@@ -385,12 +389,13 @@ export function ResidentTourPanel({
   const scheduleTourButton = (
     <Button
       type="button"
-      variant="primary"
-      className={`shrink-0 ${PORTAL_HEADER_PRIMARY_ACTION_BTN}`}
+      className={PORTAL_COMMAND_PRIMARY_ACTION_BTN}
+      style={PORTAL_COMMAND_PRIMARY_ACTION_STYLE}
       data-attr="resident-tour-schedule"
       onClick={openScheduleTour}
     >
-      Schedule a tour
+      <span className="sm:hidden" aria-hidden="true">Schedule</span>
+      <span className="hidden sm:inline">Schedule a tour</span>
     </Button>
   );
 
@@ -515,6 +520,7 @@ export function ResidentTourPanel({
         <PortalListControlStack
           className="mb-2 max-lg:mb-1.5"
           variant="command"
+          stickyDestinations={false}
           destinations={tabs.map((t) => ({
             id: t.id,
             label: t.label,

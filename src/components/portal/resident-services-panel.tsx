@@ -9,7 +9,7 @@ import { Input, Textarea } from "@/components/ui/input";
 import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
 import { DestinationNav } from "@/components/ui/destination-nav";
 import { PORTAL_LIST_PAGE_BODY } from "@/components/portal/portal-inbox-ui";
-import { PortalResidentListFab } from "@/components/portal/portal-resident-list-fab";
+import { PortalListAddRow, PORTAL_LIST_ADD_ICONS, PORTAL_LIST_ADD_ROW_WRAP_CLASS } from "@/components/portal/portal-list-add-row";
 import { ResidentAddServiceModal } from "@/components/portal/resident-add-service-modal";
 import { formatPacificDate } from "@/lib/pacific-time";
 import { Select } from "@/components/ui/input";
@@ -18,6 +18,8 @@ import { ConfirmDeleteModal } from "@/components/portal/confirm-delete-modal";
 import { useAppUi } from "@/components/providers/app-ui-provider";
 import {
   ManagerPortalPageShell,
+  PORTAL_COMMAND_PRIMARY_ACTION_BTN,
+  PORTAL_COMMAND_PRIMARY_ACTION_STYLE,
   PORTAL_INLINE_UNLOCK_NOTICE_CLASS,
   PORTAL_INLINE_UNLOCK_NOTICE_STACKED_CLASS,
 } from "@/components/portal/portal-metrics";
@@ -31,7 +33,6 @@ import { useResidentPortalListFilterState } from "@/components/portal/resident-p
 import type { PortalListGroupMode } from "@/lib/portal-list-grouping";
 import {
   PORTAL_DETAIL_BTN,
-  PortalDataTableEmpty,
   PortalTableDetailActions,
 } from "@/components/portal/portal-data-table";
 import { PreferredArrivalField } from "@/components/portal/preferred-arrival-field";
@@ -1190,8 +1191,9 @@ export function ResidentServicesPanel({
       ) : null}
 
       <PortalListControlStack
-        className={lockedEmpty ? "mb-0" : "mb-3 max-lg:mb-4"}
-        destinationInset
+        className={lockedEmpty ? "mb-0" : "mb-2 max-lg:mb-1.5"}
+        variant="command"
+        stickyDestinations={false}
         destinationRow={
           <LocalDestinationNav
             items={SERVICE_STATE_TABS.map(({ id, label }) => ({
@@ -1203,12 +1205,38 @@ export function ResidentServicesPanel({
             activeId={serviceStateFilter}
             onChange={(id) => setServiceStateFilter(id as ServiceRowState)}
             ariaLabel="Service status"
-            size="toolbar"
+            appearance="command"
             className="w-full"
           />
         }
+        actions={
+          <Button
+            type="button"
+            className={PORTAL_COMMAND_PRIMARY_ACTION_BTN}
+            style={PORTAL_COMMAND_PRIMARY_ACTION_STYLE}
+            data-attr="resident-services-add"
+            onClick={openAddService}
+            disabled={!servicesUnlocked}
+          >
+            <span className="sm:hidden" aria-hidden="true">Add</span>
+            <span className="hidden sm:inline">Add service</span>
+          </Button>
+        }
       />
 
+      {unifiedServiceRows.length === 0 && servicesUnlocked ? (
+        <div className={PORTAL_LIST_PAGE_BODY}>
+          <div className={PORTAL_LIST_ADD_ROW_WRAP_CLASS}>
+            <PortalListAddRow
+              label="Add"
+              ariaLabel="Add service"
+              icon={PORTAL_LIST_ADD_ICONS.service}
+              onClick={openAddService}
+              dataAttr="resident-services-list-add"
+            />
+          </div>
+        </div>
+      ) : (
       <div className={PORTAL_LIST_PAGE_BODY}>
         <DataList<ServiceRequest | DemoManagerWorkOrderRow>
           variant="resident"
@@ -1221,19 +1249,11 @@ export function ResidentServicesPanel({
           emptyState={
             filteredUnifiedRows.length === 0 && unifiedServiceRows.length > 0 ? (
               <p className="px-1 py-6 text-center text-sm text-muted">No services in this status yet.</p>
-            ) : filteredUnifiedRows.length === 0 ? (
-              <PortalDataTableEmpty icon="service" message="No services yet." variant="stacked" />
             ) : undefined
           }
         />
       </div>
-
-      <PortalResidentListFab
-        onClick={openAddService}
-        disabled={!servicesUnlocked}
-        ariaLabel="Add service"
-        dataAttr="resident-services-add"
-      />
+      )}
 
 
       <ResidentAddServiceModal
