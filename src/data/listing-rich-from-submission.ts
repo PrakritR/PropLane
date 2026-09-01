@@ -829,7 +829,7 @@ function buildPricingBreakdownLines(sub: ManagerListingSubmissionV1): ListingPri
 
   const skipNightlyPreset = !listingShortTermNightlyFeeRowNeeded(sub, rooms);
   const stExclude: ListingFeePresetId[] = [
-    ...(skipNightlyPreset ? ["short_term_nightly"] : []),
+    ...(skipNightlyPreset ? (["short_term_nightly"] as ListingFeePresetId[]) : []),
     "short_term_deposit",
     "short_term_move_in",
     "holding_deposit",

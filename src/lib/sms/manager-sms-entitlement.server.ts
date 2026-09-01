@@ -172,9 +172,6 @@ async function reconcileManagerSmsEntitlementDirect(
   return eligible ? { eligible: true, tier, source: "stripe" } : { eligible: false, reason: stripeIneligibleReason(subscription.status) };
 }
 
-  return eligible ? { eligible: true, tier, source: "stripe" } : { eligible: false, reason: stripeIneligibleReason(subscription.status) };
-}
-
 /** Stored entitlement, with co-manager inheritance from linked paid workspace owners. */
 export async function getEffectiveManagerSmsEntitlement(
   db: SupabaseClient,

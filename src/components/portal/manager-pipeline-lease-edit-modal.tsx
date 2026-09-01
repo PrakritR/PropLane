@@ -89,7 +89,8 @@ export function ManagerPipelineLeaseEditModal({
   regenerateDisabled = false,
 }: ManagerPipelineLeaseEditModalProps) {
   const { showToast } = useAppUi();
-  const { userId: managerUserId } = useManagerUserId();
+  const { userId: sessionManagerUserId } = useManagerUserId();
+  const resolvedManagerUserId = managerUserId ?? sessionManagerUserId;
   const [htmlOverride, setHtmlOverride] = useState("");
   const [saveReviewOpen, setSaveReviewOpen] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -102,8 +103,8 @@ export function ManagerPipelineLeaseEditModal({
   const generationSupported = leaseGenerationSupportedForRow(row).ok;
 
   const actionRow = useMemo(
-    () => resolveManagerLeaseGenerationRow(row.id, managerUserId) ?? row,
-    [row, managerUserId],
+    () => resolveManagerLeaseGenerationRow(row.id, resolvedManagerUserId) ?? row,
+    [row, resolvedManagerUserId],
   );
 
   const submission = useMemo(() => {
@@ -186,13 +187,13 @@ export function ManagerPipelineLeaseEditModal({
       onRegenerate(selectedTemplateId);
       return;
     }
-    if (!managerUserId) return;
+    if (!resolvedManagerUserId) return;
     if (landlordNameMissing || draftShowsPlaceholder) {
       showToast("Add your full name in Settings → Profile, then regenerate this lease.");
       return;
     }
     setRegenerating(true);
-    const res = generateLeaseHtmlForRow(row.id, managerUserId, {
+    const res = generateLeaseHtmlForRow(row.id, resolvedManagerUserId, {
       discardManagerEdits: Boolean(row.generatedHtml || row.managerUploadedPdf?.dataUrl),
       templateId: selectedTemplateId,
     });
@@ -210,7 +211,7 @@ export function ManagerPipelineLeaseEditModal({
   const commitSave = () => {
     if (!canEdit || !editableHtml) return;
     setSaving(true);
-    const result = saveLeaseDocumentHtml(row.id, editorHtml, managerUserId);
+    const result = saveLeaseDocumentHtml(row.id, editorHtml, resolvedManagerUserId);
     setSaving(false);
     if (!result.ok) {
       showToast(result.error);
