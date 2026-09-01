@@ -3251,6 +3251,7 @@ export function ManagerResidents({
         <ManagerPipelineLeaseEditModal
           open
           row={residentLeaseRows.find((row) => row.id === editResidentLeaseId)!}
+          managerUserId={userId}
           onClose={() => setEditResidentLeaseId(null)}
           onDone={() => {
             void syncLeasePipelineFromServer(userId, { force: true }).then(() => setLeaseTick((n) => n + 1));
