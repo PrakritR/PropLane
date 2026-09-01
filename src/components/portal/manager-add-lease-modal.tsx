@@ -7,7 +7,12 @@ import { Select } from "@/components/ui/input";
 import { useAppUi } from "@/components/providers/app-ui-provider";
 import { LeaseGenerateModal } from "@/components/portal/lease-generate-modal";
 import { UploadedLeaseReviewModal } from "@/components/portal/uploaded-lease-review-modal";
-import { applicationVisibleToPortalUser } from "@/lib/manager-portfolio-access";
+import {
+  applicationVisibleToPortalUser,
+  collectLinkedPropertyIdsForModule,
+  resolvePropertyLabelForId,
+  syncManagerPortfolioFromServer,
+} from "@/lib/manager-portfolio-access";
 import {
   MANAGER_APPLICATIONS_EVENT,
   readManagerApplicationRows,
@@ -29,7 +34,6 @@ import {
   PROPERTY_PIPELINE_EVENT,
   readExtraListingsForUser,
   readPendingManagerPropertiesForUser,
-  syncPropertyPipelineFromServer,
 } from "@/lib/demo-property-pipeline";
 import { PropertyResidentDocumentImportModal } from "@/components/portal/property-resident-document-import-modal";
 import type { ParsedResidentDocument } from "@/lib/resident-document-import/types";
@@ -72,6 +76,13 @@ function buildManagerPropertyOptions(managerUserId: string | null): PropertyLeas
     const propertyId = property.id.trim();
     if (!propertyId || seen.has(propertyId)) continue;
     const propertyLabel = displayPropertyLabel(property.buildingName.trim());
+    if (!propertyLabel) continue;
+    seen.set(propertyId, { propertyId, propertyLabel });
+  }
+
+  for (const propertyId of collectLinkedPropertyIdsForModule(managerUserId, "leases")) {
+    if (!propertyId || seen.has(propertyId)) continue;
+    const propertyLabel = displayPropertyLabel(resolvePropertyLabelForId(propertyId));
     if (!propertyLabel) continue;
     seen.set(propertyId, { propertyId, propertyLabel });
   }
@@ -170,7 +181,7 @@ export function ManagerAddLeaseModal({
     const onApplications = () => setApplicationTick((n) => n + 1);
     const onProperties = () => setPropertyTick((n) => n + 1);
     void syncManagerApplicationsFromServer({ force: true, managerUserId: managerUserId ?? undefined }).then(onApplications);
-    void syncPropertyPipelineFromServer({ force: true }).then(onProperties);
+    void syncManagerPortfolioFromServer(managerUserId ?? "", { force: true }).then(onProperties);
     window.addEventListener(MANAGER_APPLICATIONS_EVENT, onApplications);
     window.addEventListener(PROPERTY_PIPELINE_EVENT, onProperties);
     return () => {

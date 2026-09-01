@@ -10,7 +10,7 @@ import {
   MODAL_FIELD_LABEL_CLASS,
   PORTAL_MODAL_FORM_FIELD_CLASS,
 } from "@/components/ui/modal";
-import { MODAL_LARGE_PANEL_CLASS, MODAL_TALL_PANEL_CLASS } from "@/components/ui/modal-styles";
+import { MODAL_TALL_PANEL_CLASS, MODAL_XL_PANEL_CLASS } from "@/components/ui/modal-styles";
 import { LeaseHtmlDirectEditor } from "@/components/portal/lease-html-direct-editor";
 import { LeaseAiReviewAcknowledgment } from "@/components/portal/lease-ai-review-acknowledgment";
 import { PortalRecordShareLinkButton } from "@/components/portal/portal-record-share-link-button";
@@ -25,6 +25,11 @@ import {
   saveLeaseDocumentHtml,
 } from "@/lib/lease-section-edit.client";
 import {
+  cachedLandlordLegalName,
+  LEASE_LANDLORD_PLACEHOLDER,
+} from "@/lib/manager-landlord-profile";
+import {
+  generateLeaseHtmlForRow,
   leaseAllowsManagerDocumentEdits,
   leaseApplicationSnapshotForRow,
   leaseGenerationSupportedForRow,
@@ -43,6 +48,7 @@ import { cn } from "@/lib/utils";
 type ManagerPipelineLeaseEditModalProps = {
   open: boolean;
   row: LeasePipelineRow;
+  managerUserId?: string | null;
   onClose: () => void;
   onDone: () => void;
   showDownload?: boolean;
@@ -55,6 +61,7 @@ type ManagerPipelineLeaseEditModalProps = {
   onDelete?: () => void;
   showShare?: boolean;
   showRegenerate?: boolean;
+  /** @deprecated Prefer `managerUserId` — regenerate runs inside this editor without opening another modal. */
   onRegenerate?: (templateId: string | null) => void;
   regenerateLabel?: string;
   regenerateDisabled?: boolean;
@@ -64,6 +71,7 @@ type ManagerPipelineLeaseEditModalProps = {
 export function ManagerPipelineLeaseEditModal({
   open,
   row,
+  managerUserId,
   onClose,
   onDone,
   showDownload = false,
@@ -81,10 +89,12 @@ export function ManagerPipelineLeaseEditModal({
   regenerateDisabled = false,
 }: ManagerPipelineLeaseEditModalProps) {
   const { showToast } = useAppUi();
-  const { userId: managerUserId } = useManagerUserId();
+  const { userId: sessionManagerUserId } = useManagerUserId();
+  const resolvedManagerUserId = managerUserId ?? sessionManagerUserId;
   const [htmlOverride, setHtmlOverride] = useState("");
   const [saveReviewOpen, setSaveReviewOpen] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [regenerating, setRegenerating] = useState(false);
   const [reviewAcknowledged, setReviewAcknowledged] = useState(false);
   const usesAiHtml = leaseUsesAiGeneratedHtml(row);
 
@@ -93,8 +103,8 @@ export function ManagerPipelineLeaseEditModal({
   const generationSupported = leaseGenerationSupportedForRow(row).ok;
 
   const actionRow = useMemo(
-    () => resolveManagerLeaseGenerationRow(row.id, managerUserId) ?? row,
-    [row, managerUserId],
+    () => resolveManagerLeaseGenerationRow(row.id, resolvedManagerUserId) ?? row,
+    [row, resolvedManagerUserId],
   );
 
   const submission = useMemo(() => {
@@ -167,10 +177,41 @@ export function ManagerPipelineLeaseEditModal({
     onClose();
   };
 
+  const landlordLegalName = cachedLandlordLegalName();
+  const landlordNameMissing = !landlordLegalName.trim();
+  const draftShowsPlaceholder = Boolean(editorHtml.includes(LEASE_LANDLORD_PLACEHOLDER));
+
+  const runInPlaceRegenerate = () => {
+    if (regenerating || regenerateDisabled || saving) return;
+    if (onRegenerate) {
+      onRegenerate(selectedTemplateId);
+      return;
+    }
+    if (!resolvedManagerUserId) return;
+    if (landlordNameMissing || draftShowsPlaceholder) {
+      showToast("Add your full name in Settings → Profile, then regenerate this lease.");
+      return;
+    }
+    setRegenerating(true);
+    const res = generateLeaseHtmlForRow(row.id, resolvedManagerUserId, {
+      discardManagerEdits: Boolean(row.generatedHtml || row.managerUploadedPdf?.dataUrl),
+      templateId: selectedTemplateId,
+    });
+    setRegenerating(false);
+    if (!res.ok) {
+      showToast(res.error ?? "Could not regenerate lease.");
+      return;
+    }
+    showToast(`Lease regenerated (v${res.version}).`);
+    setReviewAcknowledged(false);
+    setSaveReviewOpen(false);
+    onDone();
+  };
+
   const commitSave = () => {
     if (!canEdit || !editableHtml) return;
     setSaving(true);
-    const result = saveLeaseDocumentHtml(row.id, editorHtml, managerUserId);
+    const result = saveLeaseDocumentHtml(row.id, editorHtml, resolvedManagerUserId);
     setSaving(false);
     if (!result.ok) {
       showToast(result.error);
@@ -209,10 +250,14 @@ export function ManagerPipelineLeaseEditModal({
       title="Edit lease"
       description="Update this resident's lease format below, or type in chat to edit with PropLane Assistant."
       onClose={handleClose}
-      dismissBlocked={saving}
+      dismissBlocked={saving || regenerating}
       dense
       scrollableContent={false}
-      panelClassName={cn(MODAL_LARGE_PANEL_CLASS, MODAL_TALL_PANEL_CLASS)}
+      panelClassName={cn(
+        MODAL_XL_PANEL_CLASS,
+        MODAL_TALL_PANEL_CLASS,
+        "min-h-[min(85dvh,52rem)]",
+      )}
       assistantDefaultExpanded={false}
       assistantContext={assistantContext}
       assistantEditHint="Type in chat to edit the lease — changes apply after you confirm."
@@ -270,10 +315,10 @@ export function ManagerPipelineLeaseEditModal({
                   variant="outline"
                   className={footerBtnClass}
                   data-attr="resident-lease-regenerate"
-                  disabled={regenerateDisabled}
-                  onClick={() => onRegenerate?.(selectedTemplateId)}
+                  disabled={regenerateDisabled || regenerating}
+                  onClick={runInPlaceRegenerate}
                 >
-                  {regenerateLabel}
+                  {regenerating ? "Generating…" : regenerateLabel}
                 </Button>
               ) : null}
             </div>
@@ -344,8 +389,8 @@ export function ManagerPipelineLeaseEditModal({
             above, or Upload in the footer.
           </div>
         ) : (
-          <div className="grid min-h-0 grid-rows-[auto_minmax(0,1fr)] gap-1 overflow-hidden">
-            <div className="flex flex-col gap-2">
+          <div className="grid min-h-[min(42vh,28rem)] min-h-0 grid-rows-[auto_minmax(12rem,1fr)] gap-1 overflow-hidden">
+            <div className="flex shrink-0 flex-col gap-2">
               <PropertyLeaseDocumentNotice html={noticeHtml} hideAiDraftBanner={usesAiHtml} />
               {usesAiHtml ? (
                 <LeaseAiReviewAcknowledgment
@@ -365,7 +410,7 @@ export function ManagerPipelineLeaseEditModal({
               <p className={MODAL_FIELD_LABEL_CLASS}>Document view</p>
             </div>
             <LeaseHtmlDirectEditor
-              className="min-h-0 h-full flex-1"
+              className="min-h-[min(38vh,24rem)] min-h-0 h-full flex-1"
               html={displayHtml}
               baselineHtml={baselineHtml}
               onChange={(next) => setHtmlOverride(next)}

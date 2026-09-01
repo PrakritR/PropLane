@@ -900,6 +900,9 @@ export function leaseDocumentFeeLines(
 ): { oneTime: LeaseDocumentFeeLine[]; monthly: LeaseDocumentFeeLine[] } {
   if (!sub?.v) return { oneTime: [], monthly: [] };
   const shortTermOn = Boolean(sub.shortTermRentalsAllowed);
+  const excludedRemovedPresets = presetIdsExcludedForRemovedListingFeeRows(
+    parseRemovedStandardListingFeeRows(sub),
+  );
   const oneTime: LeaseDocumentFeeLine[] = [];
   const monthly: LeaseDocumentFeeLine[] = [];
   const seen = new Set<string>();
@@ -923,6 +926,7 @@ export function leaseDocumentFeeLines(
     if (!feeBelongsInLeaseBasicsSection(fee, section, shortTermOn)) continue;
     const presetId = fee.presetId && fee.presetId !== "custom" ? fee.presetId : undefined;
     if (presetId && LEASE_DOCUMENT_EXCLUDED_PRESET_IDS.has(presetId)) continue;
+    if (presetId && excludedRemovedPresets.has(presetId)) continue;
     if (billingContext && presetId === "mtm_surcharge" && !shouldBillMonthToMonthSurcharge(billingContext)) {
       continue;
     }

@@ -181,18 +181,15 @@ export function buildLeaseBillingSnapshot(
         : chargeProratedUtilities
       : chargeProratedUtilities;
 
-  let dueAtSigning = dueAtSigningFromCharges(
-    charges,
-    computedProration,
-    resolvedProratedRent,
-    resolvedProratedUtilities,
-  );
-  if (dueAtSigning <= 0) {
-    const listing = placement.propertyId ? getPropertyById(placement.propertyId) : undefined;
-    const sub =
-      listing?.listingSubmission?.v === 1
-        ? normalizeManagerListingSubmissionV1(listing.listingSubmission)
-        : undefined;
+  const listing = placement.propertyId ? getPropertyById(placement.propertyId) : undefined;
+  const sub =
+    listing?.listingSubmission?.v === 1
+      ? normalizeManagerListingSubmissionV1(listing.listingSubmission)
+      : undefined;
+  const signingIncludes = sub?.paymentAtSigningIncludes ?? [];
+
+  let dueAtSigning: number;
+  if (signingIncludes.length > 0) {
     dueAtSigning = computeLeasePaymentAtSigning(sub, {
       securityDeposit,
       moveInFee,
@@ -202,6 +199,24 @@ export function buildLeaseBillingSnapshot(
       proratedUtilities: resolvedProratedUtilities,
       otherSigningCost: placement.otherCostAmount,
     });
+  } else {
+    dueAtSigning = dueAtSigningFromCharges(
+      charges,
+      computedProration,
+      resolvedProratedRent,
+      resolvedProratedUtilities,
+    );
+    if (dueAtSigning <= 0) {
+      dueAtSigning = computeLeasePaymentAtSigning(sub, {
+        securityDeposit,
+        moveInFee,
+        monthlyRent,
+        monthlyUtilities,
+        proratedRent: resolvedProratedRent,
+        proratedUtilities: resolvedProratedUtilities,
+        otherSigningCost: placement.otherCostAmount,
+      });
+    }
   }
 
   return {

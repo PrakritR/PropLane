@@ -990,6 +990,7 @@ export function ManagerLeasesPipelinePanel({
         <ManagerPipelineLeaseEditModal
           open
           row={editLeaseRow}
+          managerUserId={managerUserId}
           onClose={() => setEditLeaseRowId(null)}
           onDone={() => void syncLeasePipelineFromServer(managerUserId, { force: true })}
           showDownload={hasLeaseDocument(editLeaseRow)}
@@ -1015,19 +1016,9 @@ export function ManagerLeasesPipelinePanel({
           showShare={hasLeaseDocument(editLeaseRow)}
           showRegenerate={leaseAllowsManagerDocumentEdits(editLeaseRow)}
           regenerateLabel={
-            generatingRowId === editLeaseRow.id
-              ? "Generating…"
-              : hasLeaseDocument(editLeaseRow)
-                ? "Regenerate"
-                : "Generate lease"
+            hasLeaseDocument(editLeaseRow) ? "Regenerate" : "Generate lease"
           }
-          regenerateDisabled={
-            generatingRowId === editLeaseRow.id || !leaseGenerationSupportedForRow(editLeaseRow).ok
-          }
-          onRegenerate={(templateId) => {
-            runGenerateLease(editLeaseRow, templateId);
-            setEditLeaseRowId(null);
-          }}
+          regenerateDisabled={!leaseGenerationSupportedForRow(editLeaseRow).ok}
         />
       ) : null}
 

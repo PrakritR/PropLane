@@ -42,10 +42,8 @@ import {
 import {
   listingFeeRowsForLeaseBasicsSection,
   listingPresetFeeAmount,
-  customFeeBelongsInShortTermLeaseSection,
-  displayLeaseFeeTitle,
-  resolveListingFees,
   type ListingFeeDisplayRow,
+  type ListingFeePresetId,
 } from "@/lib/listing-fees";
 import { shortTermNightlyRate } from "@/lib/short-term-stay-pricing";
 
@@ -448,19 +446,59 @@ function shortTermPlacementFeeLeaseRows(
   return rows;
 }
 
-function shortTermCustomFeeBreakdownLines(sub: ManagerListingSubmissionV1): ListingPricingBreakdownLine[] {
-  const lines: ListingPricingBreakdownLine[] = [];
-  for (const fee of resolveListingFees(sub)) {
-    if (fee.presetId === "holding_deposit") continue;
-    if (!customFeeBelongsInShortTermLeaseSection(fee)) continue;
-    const amount =
-      typeof fee.shortTermAmount === "string" && fee.shortTermAmount.trim() ? fee.shortTermAmount : fee.amount;
-    if (!feeMeaningfulForListing(amount)) continue;
-    lines.push({
-      label: displayLeaseFeeTitle(fee.label),
-      value: formatListingFeeDisplay(amount),
-    });
+function listingFeeDisplayRowToBreakdownLine(row: ListingFeeDisplayRow): ListingPricingBreakdownLine {
+  let value = row.price;
+  if (row.status === "Monthly" && !/\/mo/i.test(value)) {
+    value = `${value}/mo`;
   }
+  return { label: row.title, value };
+}
+
+function shortTermNightlyBreakdownLine(
+  sub: ManagerListingSubmissionV1,
+  rooms: ManagerRoomSubmission[],
+): ListingPricingBreakdownLine | null {
+  const nightlyAmounts = uniquePositiveMoneyAmounts([
+    sub.shortTermDailyCost,
+    ...rooms.map((room) => room.shortTermRent),
+    ...(sub.bundles ?? []).map((bundle) => bundle.shortTermNightlyRent),
+  ]);
+  const nightlyLabel = shortTermMoneyRangeLabel(nightlyAmounts);
+  if (!nightlyLabel) return null;
+  const value = nightlyLabel.includes("/night") ? nightlyLabel : `${nightlyLabel}/night`;
+  return { label: "Nightly rate", value };
+}
+
+function shortTermPlacementBreakdownLines(
+  sub: ManagerListingSubmissionV1,
+  rooms: ManagerRoomSubmission[],
+): ListingPricingBreakdownLine[] {
+  const lines: ListingPricingBreakdownLine[] = [];
+
+  const depositLabel = shortTermMoneyRangeLabel(
+    uniquePositiveMoneyAmounts([
+      listingPresetFeeAmount(sub, "short_term_deposit"),
+      sub.shortTermDeposit,
+      ...rooms.map((room) => room.shortTermDeposit),
+      ...(sub.bundles ?? []).map((bundle) => bundle.shortTermDeposit),
+    ]),
+  );
+  if (depositLabel) {
+    lines.push({ label: "Short-term deposit", value: depositLabel });
+  }
+
+  const moveInLabel = shortTermMoneyRangeLabel(
+    uniquePositiveMoneyAmounts([
+      listingPresetFeeAmount(sub, "short_term_move_in"),
+      sub.shortTermMoveInFee,
+      ...rooms.map((room) => room.shortTermMoveInFee),
+      ...(sub.bundles ?? []).map((bundle) => bundle.shortTermMoveInFee),
+    ]),
+  );
+  if (moveInLabel) {
+    lines.push({ label: "Move-in / cleaning", value: moveInLabel });
+  }
+
   return lines;
 }
 
@@ -758,62 +796,49 @@ function shortTermBundleRentRows(
 function buildPricingBreakdownLines(sub: ManagerListingSubmissionV1): ListingPricingBreakdownLine[] {
   const lines: ListingPricingBreakdownLine[] = [];
   const rooms = sub.rooms ?? [];
+  const seen = new Set<string>();
+
+  const push = (line: ListingPricingBreakdownLine) => {
+    const key = `${line.label}|${line.value}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    lines.push(line);
+  };
 
   if (feeMeaningfulForListing(sub.applicationFee)) {
-    lines.push({ label: "Application fee", value: formatListingFeeDisplay(sub.applicationFee) });
+    push({ label: "Application fee", value: formatListingFeeDisplay(sub.applicationFee) });
   }
 
-  const security = listingPresetFeeAmount(sub, "security_deposit");
-  if (security > 0) {
-    lines.push({ label: "Security deposit", value: formatListingFeeDisplay(String(security)) });
+  for (const row of listingFeeRowsForLeaseBasicsSection(sub, "long-term", formatListingFeeDisplay)) {
+    push(listingFeeDisplayRowToBreakdownLine(row));
   }
 
-  const moveIn = listingPresetFeeAmount(sub, "move_in_fee");
-  if (moveIn > 0) {
-    lines.push({ label: "Move-in fee", value: formatListingFeeDisplay(String(moveIn)) });
+  if (!sub.shortTermRentalsAllowed) return lines;
+
+  const stApplication = shortTermApplicationLeaseRow(sub);
+  if (stApplication) {
+    push({ label: "Short-term application fee", value: stApplication.price });
   }
 
-  if (sub.shortTermRentalsAllowed) {
-    const stApp = sub.shortTermApplicationFee?.trim() ?? "";
-    if (feeMeaningfulForListing(stApp)) {
-      lines.push({ label: "Short-term application fee", value: formatListingFeeDisplay(stApp) });
-    }
+  const nightly = shortTermNightlyBreakdownLine(sub, rooms);
+  if (nightly) push(nightly);
 
-    const nightlyAmounts = uniquePositiveMoneyAmounts([
-      sub.shortTermDailyCost,
-      ...rooms.map((room) => room.shortTermRent),
-      ...(sub.bundles ?? []).map((bundle) => bundle.shortTermNightlyRent),
-    ]);
-    const nightlyLabel = shortTermMoneyRangeLabel(nightlyAmounts);
-    if (nightlyLabel) {
-      lines.push({ label: "Nightly rate", value: `${nightlyLabel}/night` });
-    }
+  for (const line of shortTermPlacementBreakdownLines(sub, rooms)) {
+    push(line);
+  }
 
-    const depositLabel = shortTermMoneyRangeLabel(
-      uniquePositiveMoneyAmounts([
-        listingPresetFeeAmount(sub, "short_term_deposit"),
-        sub.shortTermDeposit,
-        ...rooms.map((room) => room.shortTermDeposit),
-        ...(sub.bundles ?? []).map((bundle) => bundle.shortTermDeposit),
-      ]),
-    );
-    if (depositLabel) {
-      lines.push({ label: "Short-term deposit", value: depositLabel });
-    }
-
-    const moveInLabel = shortTermMoneyRangeLabel(
-      uniquePositiveMoneyAmounts([
-        listingPresetFeeAmount(sub, "short_term_move_in"),
-        sub.shortTermMoveInFee,
-        ...rooms.map((room) => room.shortTermMoveInFee),
-        ...(sub.bundles ?? []).map((bundle) => bundle.shortTermMoveInFee),
-      ]),
-    );
-    if (moveInLabel) {
-      lines.push({ label: "Move-in / cleaning", value: moveInLabel });
-    }
-
-    lines.push(...shortTermCustomFeeBreakdownLines(sub));
+  const skipNightlyPreset = !listingShortTermNightlyFeeRowNeeded(sub, rooms);
+  const stExclude: ListingFeePresetId[] = [
+    ...(skipNightlyPreset ? (["short_term_nightly"] as ListingFeePresetId[]) : []),
+    "short_term_deposit",
+    "short_term_move_in",
+    "holding_deposit",
+  ];
+  for (const row of listingFeeRowsForLeaseBasicsSection(sub, "short-term", formatListingFeeDisplay, {
+    excludePresetIds: stExclude,
+  })) {
+    if (row.title === "Application") continue;
+    push(listingFeeDisplayRowToBreakdownLine(row));
   }
 
   return lines;
@@ -1162,13 +1187,14 @@ export function listingRichFromManagerSubmission(
   const mids = entireRent > 0 ? [entireRent] : rooms.map(roomMonthlyEquivalent).filter((n) => n > 0);
   const monthlyTotals =
     entireRent > 0
-      ? rooms
-          .filter((r) => r.monthlyRent > 0)
-          .map((r) => {
-            const utilities = parseMoneyAmount(r.utilitiesEstimate ?? "");
-            return utilities > 0 ? entireRent + utilities : entireRent;
-          })
-          .slice(0, 1)
+      ? (() => {
+          const utilities = parseMoneyAmount(
+            sub.entireHomeUtilitiesEstimate?.trim() ||
+              sub.rooms.find((r) => r.name.trim())?.utilitiesEstimate ||
+              "",
+          );
+          return utilities > 0 ? [entireRent + utilities] : [];
+        })()
       : rooms
           .filter((r) => roomMonthlyEquivalent(r) > 0)
           .map((r) => {

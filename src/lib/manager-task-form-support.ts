@@ -23,7 +23,6 @@ import {
 
 export const MANAGER_TASK_FORM_KINDS = [
   "general",
-  "house",
   "check-in",
   "check-out",
   "tour",
@@ -32,8 +31,7 @@ export const MANAGER_TASK_FORM_KINDS = [
 export type ManagerTaskFormKind = (typeof MANAGER_TASK_FORM_KINDS)[number];
 
 export const MANAGER_TASK_FORM_KIND_LABELS: Record<ManagerTaskFormKind, string> = {
-  general: "General service",
-  house: "House service",
+  general: "General",
   "check-in": "Move in",
   "check-out": "Move out",
   tour: "Tour",
@@ -42,8 +40,6 @@ export const MANAGER_TASK_FORM_KIND_LABELS: Record<ManagerTaskFormKind, string> 
 
 export function managerTaskTypeFromFormKind(kind: ManagerTaskFormKind): ManagerTaskType {
   switch (kind) {
-    case "house":
-      return "house";
     case "tour":
       return "tour";
     case "work-order":
@@ -59,8 +55,6 @@ export function managerTaskTypeFromFormKind(kind: ManagerTaskFormKind): ManagerT
 
 export function managerTaskFormKindFromTaskType(taskType: ManagerTaskType | undefined): ManagerTaskFormKind {
   switch (taskType) {
-    case "house":
-      return "house";
     case "tour":
       return "tour";
     case "work_order":

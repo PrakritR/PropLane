@@ -3,9 +3,9 @@ import { createMemoryDb } from "./support/memory-supabase";
 
 const mocks = vi.hoisted(() => ({
   requireManagerRouteUser: vi.fn(),
-  getStoredManagerSmsEntitlement: vi.fn(),
+  getEffectiveManagerSmsEntitlement: vi.fn(),
   reconcileManagerSmsEntitlement: vi.fn(),
-  getEffectiveManagerSkuTier: vi.fn(),
+  getManagerPortalNavSubscriptionTier: vi.fn(),
   provisionManagerNumber: vi.fn(),
   track: vi.fn(),
 }));
@@ -14,10 +14,10 @@ vi.mock("@/lib/manager-route-guard.server", () => ({
   requireManagerRouteUser: mocks.requireManagerRouteUser,
 }));
 vi.mock("@/lib/manager-access-server", () => ({
-  getEffectiveManagerSkuTier: mocks.getEffectiveManagerSkuTier,
+  getManagerPortalNavSubscriptionTier: mocks.getManagerPortalNavSubscriptionTier,
 }));
 vi.mock("@/lib/sms/manager-sms-entitlement.server", () => ({
-  getStoredManagerSmsEntitlement: mocks.getStoredManagerSmsEntitlement,
+  getEffectiveManagerSmsEntitlement: mocks.getEffectiveManagerSmsEntitlement,
   reconcileManagerSmsEntitlement: mocks.reconcileManagerSmsEntitlement,
 }));
 vi.mock("@/lib/sms/manager-number-provisioning.server", () => ({
@@ -58,7 +58,14 @@ function dbFor(input?: {
     ],
     manager_property_records: [],
     account_link_invites: input?.coManager
-      ? [{ id: "link-1", invitee_user_id: MANAGER, status: "accepted" }]
+      ? [
+          {
+            id: "link-1",
+            invitee_user_id: MANAGER,
+            inviter_user_id: "00000000-0000-4000-8000-000000000099",
+            status: "accepted",
+          },
+        ]
       : [],
   });
 }
@@ -68,7 +75,7 @@ beforeEach(() => {
   delete process.env.SMS_PROVISIONING_ENABLED;
   const db = dbFor();
   mocks.requireManagerRouteUser.mockResolvedValue({ db, userId: MANAGER });
-  mocks.getStoredManagerSmsEntitlement.mockResolvedValue({
+  mocks.getEffectiveManagerSmsEntitlement.mockResolvedValue({
     eligible: true,
     tier: "pro",
     source: "stripe",
@@ -78,7 +85,7 @@ beforeEach(() => {
     tier: "pro",
     source: "stripe",
   });
-  mocks.getEffectiveManagerSkuTier.mockResolvedValue({ ok: true, tier: "pro" });
+  mocks.getManagerPortalNavSubscriptionTier.mockResolvedValue("paid");
 });
 
 afterEach(() => {
@@ -103,43 +110,33 @@ describe("manager messaging-number route", () => {
       number: null,
       personalPhone: { phone: "+15105550123", forwardInbound: true },
     });
-    expect(mocks.getStoredManagerSmsEntitlement).toHaveBeenCalledTimes(1);
+    expect(mocks.getEffectiveManagerSmsEntitlement).toHaveBeenCalledTimes(1);
     expect(mocks.reconcileManagerSmsEntitlement).not.toHaveBeenCalled();
     expect(mocks.provisionManagerNumber).not.toHaveBeenCalled();
   });
 
-  it("maps the authoritative plan class into planTier (free / unknown)", async () => {
-    mocks.getEffectiveManagerSkuTier.mockResolvedValueOnce({
-      ok: true,
-      tier: "free",
-    });
+  it("maps the nav subscription tier into planTier (free / unknown)", async () => {
+    mocks.getManagerPortalNavSubscriptionTier.mockResolvedValueOnce("free");
     expect((await (await GET()).json()).planTier).toBe("free");
 
-    // A null tier backed by a live subscription is paid, not free.
-    mocks.getEffectiveManagerSkuTier.mockResolvedValueOnce({
-      ok: true,
-      tier: null,
-    });
+    mocks.getManagerPortalNavSubscriptionTier.mockResolvedValueOnce("paid");
     expect((await (await GET()).json()).planTier).toBe("paid");
 
-    // An unreadable plan fails closed to "unknown" (never the free upsell).
-    mocks.getEffectiveManagerSkuTier.mockResolvedValueOnce({
-      ok: false,
-      error: "boom",
-    });
+    mocks.getManagerPortalNavSubscriptionTier.mockResolvedValueOnce(null);
     expect((await (await GET()).json()).planTier).toBe("unknown");
   });
 
-  it("exposes co-manager workspace context on read-only status", async () => {
-    const db = dbFor({ coManager: true });
+  it("exposes co-manager workspace role while allowing number setup when eligible", async () => {
+    const db = dbFor({ mode: "automatic", coManager: true });
     mocks.requireManagerRouteUser.mockResolvedValue({ db, userId: MANAGER });
+    process.env.SMS_PROVISIONING_ENABLED = "1";
 
     const response = await GET();
 
     expect(response.status).toBe(200);
     expect(await response.json()).toMatchObject({
       workspaceRole: "co_manager",
-      canRequest: false,
+      canRequest: true,
     });
   });
 
@@ -261,7 +258,7 @@ describe("manager messaging-number route", () => {
     // every press would re-hit billing. A stored snapshot closes it for good.
     const db = dbFor({ entitlementRow: true });
     mocks.requireManagerRouteUser.mockResolvedValue({ db, userId: MANAGER });
-    mocks.getStoredManagerSmsEntitlement.mockResolvedValue({
+    mocks.getEffectiveManagerSmsEntitlement.mockResolvedValue({
       eligible: false,
       reason: "plan_unreadable",
     });
@@ -281,7 +278,7 @@ describe("manager messaging-number route", () => {
   it("refreshes an unresolved plan even before a number exists", async () => {
     // The new-account shape: no entitlement row yet, so the stored read is
     // `plan_unreadable` and this is the only action that can settle it.
-    mocks.getStoredManagerSmsEntitlement.mockResolvedValue({
+    mocks.getEffectiveManagerSmsEntitlement.mockResolvedValue({
       eligible: false,
       reason: "plan_unreadable",
     });
@@ -318,9 +315,15 @@ describe("manager messaging-number route", () => {
     expect(mocks.provisionManagerNumber).not.toHaveBeenCalled();
   });
 
-  it("refuses a pure co-manager before billing reconciliation or provisioning", async () => {
+  it("provisions a co-manager work number after entitlement reconciliation", async () => {
     const db = dbFor({ mode: "automatic", coManager: true });
     mocks.requireManagerRouteUser.mockResolvedValue({ db, userId: MANAGER });
+    mocks.provisionManagerNumber.mockResolvedValue({
+      ok: true,
+      number: "+12065550123",
+      state: "active",
+      alreadyProvisioned: false,
+    });
     process.env.SMS_PROVISIONING_ENABLED = "1";
 
     const response = await POST(
@@ -330,10 +333,12 @@ describe("manager messaging-number route", () => {
       }),
     );
 
-    expect(response.status).toBe(409);
-    expect((await response.json()).error).toMatch(/primary property manager/i);
-    expect(mocks.reconcileManagerSmsEntitlement).not.toHaveBeenCalled();
-    expect(mocks.provisionManagerNumber).not.toHaveBeenCalled();
+    expect(response.status).toBe(200);
+    expect(mocks.reconcileManagerSmsEntitlement).toHaveBeenCalledWith(
+      db,
+      MANAGER,
+    );
+    expect(mocks.provisionManagerNumber).toHaveBeenCalledWith(db, MANAGER, undefined);
   });
 
   it("keeps the environment kill switch ahead of provider provisioning", async () => {

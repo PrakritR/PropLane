@@ -144,7 +144,13 @@ export function openTasksForListTab(tasks: ManagerTask[], tabId: ManagerTaskList
   return open.filter((task) => !isManagerTaskLate(task));
 }
 
-export const MANAGER_TASK_LIST_SORTS = ["due_soonest", "due_latest", "newest", "house"] as const;
+export const MANAGER_TASK_LIST_SORTS = [
+  "due_soonest",
+  "due_latest",
+  "newest",
+  "house",
+  "assignee",
+] as const;
 export type ManagerTaskListSortId = (typeof MANAGER_TASK_LIST_SORTS)[number];
 
 export const MANAGER_TASK_LIST_SORT_LABELS: Record<ManagerTaskListSortId, string> = {
@@ -152,6 +158,7 @@ export const MANAGER_TASK_LIST_SORT_LABELS: Record<ManagerTaskListSortId, string
   due_latest: "Due latest",
   newest: "Newest first",
   house: "House A–Z",
+  assignee: "Assignee A–Z",
 };
 
 type TaskListRowLike =
@@ -162,6 +169,11 @@ function taskListRowDueMs(row: TaskListRowLike): number | null {
   if (row.kind === "task") return managerTaskDueInstant(row.task);
   const requestedMs = Date.parse(row.request.requestedAt);
   return Number.isFinite(requestedMs) ? requestedMs : null;
+}
+
+function taskListRowAssigneeLabel(row: TaskListRowLike): string {
+  if (row.kind === "task") return row.task.assignee?.name?.trim() ?? "";
+  return row.request.residentName?.trim() ?? "";
 }
 
 function taskListRowHouseLabel(
@@ -190,6 +202,13 @@ export function compareManagerTaskListRows(
     const right = taskListRowHouseLabel(b, propertyLabelForId);
     const byHouse = left.localeCompare(right, undefined, { sensitivity: "base" });
     if (byHouse !== 0) return byHouse;
+  }
+
+  if (sortId === "assignee") {
+    const left = taskListRowAssigneeLabel(a);
+    const right = taskListRowAssigneeLabel(b);
+    const byAssignee = left.localeCompare(right, undefined, { sensitivity: "base" });
+    if (byAssignee !== 0) return byAssignee;
   }
 
   if (sortId === "newest") {

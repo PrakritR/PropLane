@@ -103,13 +103,14 @@ describe("ManagerTaskList", () => {
     expect(screen.queryByRole("button", { name: /^All\b/i })).not.toBeInTheDocument();
   });
 
-  it("renders task rows grouped into clusters", async () => {
+  it("renders task rows grouped into clusters with completion checkboxes", async () => {
     tasks.push(makeTask());
     render(<ManagerTaskList tabId="in-progress" basePath="/portal" />);
     await waitFor(() => {
       expect(screen.getByText("Fix the porch light")).toBeInTheDocument();
     });
     expect(screen.getByText("1 task")).toBeInTheDocument();
+    expect(screen.getByRole("checkbox", { name: /Select Fix the porch light/i })).toBeInTheDocument();
     expect(screen.queryByRole("checkbox", { name: /Select all/i })).not.toBeInTheDocument();
   });
 

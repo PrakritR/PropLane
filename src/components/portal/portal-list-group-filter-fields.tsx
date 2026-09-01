@@ -14,10 +14,6 @@ import {
   PORTAL_LIST_GROUP_MODES,
   type PortalListGroupMode,
 } from "@/lib/portal-list-grouping";
-const GROUP_MODE_OPTIONS = PORTAL_LIST_GROUP_MODES.map((mode) => ({
-  value: mode,
-  label: PORTAL_LIST_GROUP_MODE_LABELS[mode],
-}));
 
 /**
  * Group-by on its own, so a caller can put it FIRST and place the property
@@ -29,16 +25,24 @@ export function PortalListGroupModeField({
   groupMode,
   onGroupModeChange,
   dataAttr = "portal-filter-group-mode",
+  modeLabels = PORTAL_LIST_GROUP_MODE_LABELS,
+  defaultMode = DEFAULT_PORTAL_LIST_GROUP_MODE,
 }: {
   groupMode: PortalListGroupMode;
   onGroupModeChange: (next: PortalListGroupMode) => void;
   dataAttr?: string;
+  modeLabels?: Record<PortalListGroupMode, string>;
+  defaultMode?: PortalListGroupMode;
 }) {
   const closeFieldMenu = useFilterAccordionClose();
+  const groupModeOptions = PORTAL_LIST_GROUP_MODES.map((mode) => ({
+    value: mode,
+    label: modeLabels[mode],
+  }));
   const summary = filterSingleSelectSummary(
     groupMode,
-    GROUP_MODE_OPTIONS,
-    PORTAL_LIST_GROUP_MODE_LABELS[DEFAULT_PORTAL_LIST_GROUP_MODE],
+    groupModeOptions,
+    modeLabels[defaultMode],
   );
 
   return (
@@ -46,12 +50,12 @@ export function PortalListGroupModeField({
       sectionId="group-mode"
       label="Group by"
       summary={summary}
-      empty={groupMode === DEFAULT_PORTAL_LIST_GROUP_MODE}
-      menuOptionCount={GROUP_MODE_OPTIONS.length}
+      empty={groupMode === defaultMode}
+      menuOptionCount={groupModeOptions.length}
       dataAttr={`${dataAttr}-trigger`}
     >
       <FilterSingleSelectList
-        options={GROUP_MODE_OPTIONS}
+        options={groupModeOptions}
         value={groupMode}
         onChange={(next) => onGroupModeChange(next as PortalListGroupMode)}
         onPick={closeFieldMenu}

@@ -17,7 +17,41 @@ vi.mock("@/components/providers/app-ui-provider", () => ({
 }));
 
 import { ManagerMessagingSettingsPanel } from "@/components/portal/manager-messaging-settings-panel";
+import {
+  approvedResidentsForWorkNumberAnnounce,
+  formatWorkNumberAnnounceRecipientDisplay,
+} from "@/components/portal/manager-messaging-settings-panel";
 import type { ManagerMessagingNumberStatus } from "@/lib/sms/manager-messaging-number";
+
+vi.mock("@/hooks/use-manager-user-id", () => ({
+  useManagerUserId: () => ({ userId: "mgr-test", email: "mgr@example.com", ready: true }),
+}));
+
+vi.mock("@/lib/manager-inbox-contacts", () => ({
+  buildManagerInboxLiveContacts: vi.fn(() => [
+    {
+      id: "res-1",
+      name: "Alex Resident",
+      email: "alex@example.com",
+      role: "resident",
+      tenancyStatus: "resident",
+    },
+    {
+      id: "res-2",
+      name: "Jordan Resident",
+      email: "jordan@example.com",
+      role: "resident",
+      tenancyStatus: "resident",
+    },
+    {
+      id: "app-1",
+      name: "Pending Applicant",
+      email: "pending@example.com",
+      role: "resident",
+      tenancyStatus: "applicant",
+    },
+  ]),
+}));
 
 const pausedStatus: ManagerMessagingNumberStatus = {
   mode: "paused",
@@ -40,6 +74,20 @@ afterEach(() => {
   cleanup();
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
+});
+
+describe("work number resident announce recipients", () => {
+  it("lists only approved residents for the broadcast", () => {
+    const residents = approvedResidentsForWorkNumberAnnounce("mgr-test");
+    expect(residents.map((r) => r.email)).toEqual(["alex@example.com", "jordan@example.com"]);
+  });
+
+  it("formats resident emails for the To field", () => {
+    const residents = approvedResidentsForWorkNumberAnnounce("mgr-test");
+    expect(formatWorkNumberAnnounceRecipientDisplay(residents)).toBe(
+      "alex@example.com, jordan@example.com",
+    );
+  });
 });
 
 describe("ManagerMessagingSettingsPanel", () => {
@@ -103,44 +151,29 @@ describe("ManagerMessagingSettingsPanel", () => {
     expect(await screen.findByText("Request received")).toBeTruthy();
   });
 
-  it("explains that co-managers cannot configure the workspace number", async () => {
-    const actorScopedStatus: ManagerMessagingNumberStatus = {
+  it("lets co-managers request their own work number like any manager account", async () => {
+    const readyToRequest: ManagerMessagingNumberStatus = {
       ...pausedStatus,
+      mode: "automatic",
       workspaceRole: "co_manager",
-      number: {
-        state: "active",
-        registrationState: "approved",
-        carrierRegistrationState: "registered",
-        attachmentState: "attached",
-        phoneNumber: "+12065550999",
-        lastError: null,
-      },
+      provisioningAvailable: true,
+      canRequest: true,
     };
     vi.stubGlobal(
       "fetch",
-      vi.fn(async () => Response.json(actorScopedStatus)),
+      vi.fn(async () => Response.json(readyToRequest)),
     );
     render(<ManagerMessagingSettingsPanel />);
 
     expect(
-      await screen.findByText(
-        "The primary property manager manages messaging.",
-      ),
+      await screen.findByRole("button", { name: "Request work number" }),
     ).toBeTruthy();
     expect(
-      screen.getByText(
-        "Ask them to request or manage the work number for this workspace.",
-      ),
+      screen.getByText(/your dedicated PropLane number/i),
     ).toBeTruthy();
     expect(
-      screen.queryByRole("button", { name: "Request work number" }),
+      screen.queryByText("The primary property manager manages messaging."),
     ).toBeNull();
-    expect(screen.getByRole("heading", { name: "Work number" })).toBeTruthy();
-    expect(screen.queryByText("Carrier registration")).toBeNull();
-    expect(screen.queryByText("Personal phone")).toBeNull();
-    expect(screen.queryByText("Inbound forwarding")).toBeNull();
-    expect(screen.queryByText("+1 (206) 555-0999")).toBeNull();
-    expect(screen.queryByText("+1 (510) 555-0123 · Verified")).toBeNull();
   });
 
   it("opens a resident-announce dialog after a number is assigned", async () => {
@@ -178,6 +211,10 @@ describe("ManagerMessagingSettingsPanel", () => {
     const dialog = await screen.findByRole("dialog");
     expect(
       within(dialog).getByText("Want to send a message to all your residents to text this new number now?"),
+    ).toBeTruthy();
+    expect(within(dialog).getByText("To")).toBeTruthy();
+    expect(
+      within(dialog).getByText("alex@example.com, jordan@example.com"),
     ).toBeTruthy();
     expect(within(dialog).getByLabelText("Subject")).toBeTruthy();
     expect(within(dialog).getByLabelText("Message")).toBeTruthy();

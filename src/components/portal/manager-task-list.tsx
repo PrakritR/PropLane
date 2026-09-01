@@ -47,6 +47,7 @@ import {
   MANAGER_TASK_URGENCY_LABELS,
   fetchManagerTasks,
   inferManagerTaskUrgency,
+  updateManagerTask,
   type ManagerTask,
   type ManagerTaskPriority,
 } from "@/lib/manager-tasks";
@@ -200,6 +201,7 @@ export function ManagerTaskList({
   const [groupMode, setGroupMode] = useState<PortalListGroupMode>(DEFAULT_PORTAL_LIST_GROUP_MODE);
   const [listFilter, setListFilter] = useState<ManagerTaskListFilterId>("all");
   const [sortId, setSortId] = useState<ManagerTaskListSortId>("due_soonest");
+  const [completingTaskIds, setCompletingTaskIds] = useState<Set<string>>(() => new Set());
 
   const propertyOptions = useMemo(
     () => buildManagerPropertyFilterOptions(userId),
@@ -385,6 +387,24 @@ export function ManagerTaskList({
     setAddOpen(true);
   }
 
+  async function toggleTaskCompleted(task: ManagerTask, completed: boolean) {
+    if (!userId || completingTaskIds.has(task.id)) return;
+    setCompletingTaskIds((prev) => new Set(prev).add(task.id));
+    try {
+      await updateManagerTask(userId, task.id, { completed });
+      setTasks((prev) => prev.map((row) => (row.id === task.id ? { ...row, completed } : row)));
+      showToast(completed ? "Task completed." : "Task reopened.");
+    } catch (e) {
+      showToast(e instanceof Error ? e.message : "Could not update task.");
+    } finally {
+      setCompletingTaskIds((prev) => {
+        const next = new Set(prev);
+        next.delete(task.id);
+        return next;
+      });
+    }
+  }
+
   const taskListColumns = [
     { id: "task", header: "Task", cell: (row: TaskListRow) => (row.kind === "task" ? row.task.title : row.request.offerName) },
     { id: "meta", header: "Details", cell: (row: TaskListRow) => (row.kind === "task" ? taskRowMetaLine(row.task) : serviceRequestLocationLabel(row.request) ?? "") },
@@ -393,6 +413,7 @@ export function ManagerTaskList({
   const renderTaskDataList = (rows: TaskListClusterRow[]) => (
     <DataList
       hideColumnHeaders
+      selectable
       rows={rows.map((row) => {
         if (row.kind === "task") {
           const task = row.task;
@@ -402,6 +423,10 @@ export function ManagerTaskList({
             primary: task.title,
             meta: taskRowMetaLine(task) || undefined,
             trailing: taskRowTrailing(task),
+            selected: task.completed,
+            onSelectedChange: (checked) => {
+              void toggleTaskCompleted(task, checked);
+            },
             onClick: () => beginEdit(task),
           };
         }

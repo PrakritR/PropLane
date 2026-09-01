@@ -4,6 +4,10 @@ import { isWaiverGrantedManagerPurchase } from "@/lib/manager-access";
 import { getManagerPurchaseSku } from "@/lib/manager-access-server";
 import { isAdminManagedManagerPurchase } from "@/lib/manager-admin-purchase";
 import { getStripe } from "@/lib/stripe";
+import {
+  getAcceptedCoManagerInviterIds,
+  isPureCoManagerWorkspace,
+} from "@/lib/sms/manager-workspace-role.server";
 
 export type SmsEntitlementReason =
   | "free"
@@ -62,8 +66,29 @@ function stripeIneligibleReason(status: Stripe.Subscription.Status): SmsEntitlem
  * by explicit setup and billing webhooks, never by a browser-supplied owner id.
  * A transient billing/DB read failure returns ineligible without replacing a
  * previously observed state with invented data.
+ *
+ * Co-managers without their own paid plan may inherit eligibility from a linked
+ * workspace owner when requesting their own work number (per-account, not shared).
  */
 export async function reconcileManagerSmsEntitlement(
+  db: SupabaseClient,
+  managerUserId: string,
+  deps: {
+    loadPurchase?: (id: string) => Promise<PurchaseSku>;
+    loadStripeSubscription?: (id: string) => Promise<Stripe.Subscription>;
+  } = {},
+): Promise<SmsEntitlement> {
+  const own = await reconcileManagerSmsEntitlementDirect(db, managerUserId, deps);
+  if (own.eligible) return own;
+  if (!(await isPureCoManagerWorkspace(db, managerUserId))) return own;
+  for (const inviterId of await getAcceptedCoManagerInviterIds(db, managerUserId)) {
+    const inherited = await reconcileManagerSmsEntitlementDirect(db, inviterId, deps);
+    if (inherited.eligible) return inherited;
+  }
+  return own;
+}
+
+async function reconcileManagerSmsEntitlementDirect(
   db: SupabaseClient,
   managerUserId: string,
   deps: {
@@ -158,6 +183,21 @@ export async function reconcileManagerSmsEntitlement(
   });
   if (!persisted) return { eligible: false, reason: "plan_unreadable" };
   return eligible ? { eligible: true, tier, source: "stripe" } : { eligible: false, reason: stripeIneligibleReason(subscription.status) };
+}
+
+/** Stored entitlement, with co-manager inheritance from linked paid workspace owners. */
+export async function getEffectiveManagerSmsEntitlement(
+  db: SupabaseClient,
+  managerUserId: string,
+): Promise<SmsEntitlement> {
+  const own = await getStoredManagerSmsEntitlement(db, managerUserId);
+  if (own.eligible) return own;
+  if (!(await isPureCoManagerWorkspace(db, managerUserId))) return own;
+  for (const inviterId of await getAcceptedCoManagerInviterIds(db, managerUserId)) {
+    const inherited = await getStoredManagerSmsEntitlement(db, inviterId);
+    if (inherited.eligible) return inherited;
+  }
+  return own;
 }
 
 /** Fast, fail-closed dispatch-time read. Billing reconciliation happens outside the hot path. */
