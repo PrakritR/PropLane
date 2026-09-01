@@ -1,7 +1,7 @@
 import { LISTING_ROOM_CHOICE_SEP } from "@/lib/rental-application/data";
 import type { ManagerListingSubmissionV1, ManagerRoomSubmission } from "@/lib/manager-listing-submission";
 import { normalizeManagerListingSubmissionV1, PAYMENT_AT_SIGNING_OPTIONS, isEntireHomeListing, entireHomeMonthlyRentAmount } from "@/lib/manager-listing-submission";
-import { leaseDocumentFeeLines } from "@/lib/listing-fees";
+import { leaseDocumentFeeLines, listingPresetFeeAmount } from "@/lib/listing-fees";
 import { parseMoneyAmount } from "@/lib/parse-money";
 import {
   formatUtilitiesListingLine,
@@ -87,8 +87,8 @@ export function paymentAtSigningPriceLabel(sub: ListingSigningComputationInput):
   if (!includes.length) return "—";
 
   let sum = 0;
-  if (includes.includes("security_deposit")) sum += parseMoneyAmount(n.securityDeposit);
-  if (includes.includes("move_in_fee")) sum += parseMoneyAmount(n.moveInFee);
+  if (includes.includes("security_deposit")) sum += listingPresetFeeAmount(n, "security_deposit");
+  if (includes.includes("move_in_fee")) sum += listingPresetFeeAmount(n, "move_in_fee");
   if (includes.includes("first_month_rent")) {
     const rents = isEntireHomeListing(n)
       ? [entireHomeMonthlyRentAmount(n)].filter((x) => x > 0)
@@ -165,10 +165,12 @@ export function paymentAtSigningDetailBody(sub: ListingSigningComputationInput):
 
   const parts: string[] = [];
   if (includes.includes("security_deposit")) {
-    parts.push(`Security deposit (${n.securityDeposit.trim() || "—"}).`);
+    const dep = listingPresetFeeAmount(n, "security_deposit");
+    parts.push(`Security deposit (${dep > 0 ? `$${dep.toFixed(2)}` : n.securityDeposit.trim() || "—"}).`);
   }
   if (includes.includes("move_in_fee")) {
-    parts.push(`Move-in fee (${n.moveInFee.trim() || "—"}).`);
+    const moveIn = listingPresetFeeAmount(n, "move_in_fee");
+    parts.push(`Move-in fee (${moveIn > 0 ? `$${moveIn.toFixed(2)}` : n.moveInFee.trim() || "—"}).`);
   }
   if (includes.includes("first_month_rent")) {
     const rents = isEntireHomeListing(n)

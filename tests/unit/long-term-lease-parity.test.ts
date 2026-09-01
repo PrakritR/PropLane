@@ -232,7 +232,9 @@ describe("long-term lease parity", () => {
   });
 
   it("includes first partial month payment in the move-in payment summary", () => {
-    const ctx = longTermContext();
+    const ctx = longTermContext({
+      paymentAtSigningIncludes: ["security_deposit", "move_in_fee", "first_month_rent", "first_month_utilities"],
+    });
     ctx.application = {
       ...ctx.application,
       leaseStart: "2026-09-15",
@@ -248,7 +250,9 @@ describe("long-term lease parity", () => {
   });
 
   it("prorates the move-in payment summary for a custom mid-month term using flexible lease dates", () => {
-    const ctx = longTermContext();
+    const ctx = longTermContext({
+      paymentAtSigningIncludes: ["security_deposit", "move_in_fee", "first_month_rent", "first_month_utilities"],
+    });
     ctx.application = {
       ...ctx.application,
       leaseTerm: "Custom",

@@ -256,10 +256,16 @@ export function buildCompactRoomLeaseBody(input: CompactRoomLeaseInput): string 
     })
     .filter(Boolean)
     .join("\n");
-  const prorationLine =
-    input.firstPartialMonthPayment > 0
-      ? `<p>For the first partial month, Resident shall pay <strong>${fmtUsd(input.firstPartialMonthPayment)}</strong> (prorated rent and utilities).</p>`
-      : "";
+  const signingIncludes = new Set(input.paymentAtSigningIncludes ?? []);
+  const useSigningIncludesFilter = signingIncludes.size > 0;
+  const showProratedFirstMonth =
+    input.firstPartialMonthPayment > 0 &&
+    (!useSigningIncludesFilter ||
+      signingIncludes.has("first_month_rent") ||
+      signingIncludes.has("first_month_utilities"));
+  const prorationLine = showProratedFirstMonth
+    ? `<p>For the first partial month, Resident shall pay <strong>${fmtUsd(input.firstPartialMonthPayment)}</strong> (prorated rent and utilities).</p>`
+    : "";
 
   const rentNum = input.parseAmount(monthlyRentDisplay);
   const utilNum = input.parseAmount(utilitiesDisplay);
@@ -307,7 +313,7 @@ export function buildCompactRoomLeaseBody(input: CompactRoomLeaseInput): string 
   <p style="margin:0.2rem 0"><strong>Monthly Rent:</strong> ${monthlyRentDisplay}</p>
   <p style="margin:0.2rem 0"><strong>Utility:</strong> ${utilitiesDisplay}</p>
   ${totalMonthlyDisplay ? `<p style="margin:0.2rem 0"><strong>Total monthly payment:</strong> ${totalMonthlyDisplay}</p>` : ""}
-  ${firstPartialMonthPayment > 0 ? `<p style="margin:0.2rem 0"><strong>Prorated first month:</strong> ${fmtUsd(firstPartialMonthPayment)}</p>` : input.listingFeePreview ? `<p style="margin:0.2rem 0"><strong>Prorated first month:</strong> Calculated from the lease start date when it is not the 1st of the month</p>` : ""}
+  ${showProratedFirstMonth ? `<p style="margin:0.2rem 0"><strong>Prorated first month:</strong> ${fmtUsd(firstPartialMonthPayment)}</p>` : input.listingFeePreview ? `<p style="margin:0.2rem 0"><strong>Prorated first month:</strong> Calculated from the lease start date when it is not the 1st of the month</p>` : ""}
   <p style="margin:0.2rem 0"><strong>Security Deposit:</strong> ${secDep}</p>
   <p style="margin:0.2rem 0"><strong>Move-in Fee:</strong> ${moveInFee}</p>
   ${monthlyCustomFeeSummaryLines}
