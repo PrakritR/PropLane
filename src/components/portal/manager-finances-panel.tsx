@@ -43,13 +43,16 @@ import {
 } from "@/components/portal/reports/report-filter-bar";
 import { PortalPropertyRecordRow } from "@/components/portal/portal-record-row";
 import { PortalRecordListSurface } from "@/components/portal/portal-record-list-surface";
-import { PORTAL_DATA_TABLE, PORTAL_DATA_TABLE_WRAP,
+import {
+  PORTAL_DATA_TABLE,
+  PORTAL_DATA_TABLE_WRAP,
   PORTAL_DATA_TABLE_SCROLL,
   PORTAL_MOBILE_CARD_CLASS,
   PORTAL_TABLE_HEAD_ROW,
   PORTAL_TABLE_TR,
   PORTAL_TABLE_TD,
-  PortalDataTableEmpty,} from "@/components/portal/portal-data-table";
+  PortalDataTableEmpty,
+} from "@/components/portal/portal-data-table";
 import type { ReportColumn, ReportResult, ReportRow } from "@/lib/reports/types";
 import { useManagerUserId } from "@/hooks/use-manager-user-id";
 import { isDemoModeActive } from "@/lib/demo/demo-session";
@@ -98,7 +101,6 @@ function filterFinanceReport(
   report: ReportResult,
   tabId: string,
   rowFilters: FinanceRowFilterState,
-  searchQuery = "",
 ): ReportResult {
   if (LEDGER_TAB_IDS.has(tabId)) return report;
   let rows = report.rows;
@@ -108,16 +110,6 @@ function filterFinanceReport(
   } else {
     if (rowFilters.category) rows = rows.filter((row) => String(row.category ?? "") === rowFilters.category);
     if (rowFilters.vendor) rows = rows.filter((row) => String(row.vendor ?? "") === rowFilters.vendor);
-  }
-
-  const normalizedSearch = searchQuery.trim().toLocaleLowerCase();
-  if (normalizedSearch) {
-    rows = rows.filter((row) =>
-      Object.entries(row).some(
-        ([key, value]) =>
-          !HIDDEN_FINANCE_COLS.has(key) && String(value ?? "").toLocaleLowerCase().includes(normalizedSearch),
-      ),
-    );
   }
 
   if (!report.totals) return { ...report, rows };
@@ -722,7 +714,6 @@ export function ManagerFinancesPanel({
       setSortKey(defaults.key);
       setSortDir(defaults.dir);
       setRowFilters(emptyRowFilters());
-      setSearchQuery("");
     });
   }, [tabId]);
 

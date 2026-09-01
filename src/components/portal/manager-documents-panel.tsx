@@ -12,7 +12,9 @@ import {
   PORTAL_COMMAND_PRIMARY_ACTION_BTN,
   PORTAL_COMMAND_PRIMARY_ACTION_STYLE,
 } from "@/components/portal/portal-metrics";
-import { PORTAL_DATA_TABLE, PORTAL_DATA_TABLE_WRAP,
+import {
+  PORTAL_DATA_TABLE,
+  PORTAL_DATA_TABLE_WRAP,
   PORTAL_DATA_TABLE_SCROLL,
   PORTAL_MOBILE_CARD_CLASS,
   PORTAL_TABLE_HEAD_ROW,
@@ -24,7 +26,8 @@ import { PORTAL_DATA_TABLE, PORTAL_DATA_TABLE_WRAP,
   PortalTableDetailActions,
   PortalTableInlineExpand,
   PortalDataTableEmpty,
-  createPortalRowExpandClick,} from "@/components/portal/portal-data-table";
+  createPortalRowExpandClick,
+} from "@/components/portal/portal-data-table";
 import {
   ReportExportButtons,
   type ReportFilterState,
