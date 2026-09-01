@@ -2,10 +2,8 @@
 
 import { useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
-import { Input, Select } from "@/components/ui/input";
-import { CheckboxMultiSelect } from "@/components/ui/checkbox-multi-select";
-import { FieldSingleSelect } from "@/components/ui/checkbox-multi-select";
-import { REMINDER_FIELD_LABEL_CLASS } from "@/components/portal/reminder-settings-shared";
+import { Input } from "@/components/ui/input";
+import { CheckboxMultiSelect, FieldSingleSelect } from "@/components/ui/checkbox-multi-select";
 import type { WorkAssignmentTeamMember } from "@/hooks/use-work-assignment-directory";
 import {
   DEFAULT_LIFECYCLE_AUTOMATION,
@@ -135,42 +133,38 @@ export function TaskAutomationSettingsFields({
             </label>
 
             {config.enabled ? (
-              <>
-                <div className="grid gap-3 sm:grid-cols-2">
-                  <FieldSingleSelect
-                    label={meta.anchor === "before_event" ? "Due before event" : "Due after trigger"}
-                    value={String(config.offsetMinutes)}
-                    options={offsetSelectOptions()}
-                    onChange={(value) => {
-                      const minutes = Number.parseInt(value, 10);
-                      if (Number.isFinite(minutes)) patchTask(key, { offsetMinutes: minutes });
-                    }}
-                    disabled={loading || saving}
-                    dataAttr={`task-automation-${key}-offset`}
-                  />
-                  <label className="space-y-1 text-sm">
-                    <span className="font-medium text-foreground">Assign to</span>
-                    <Select
-                      value={config.defaultAssigneeUserId ?? ""}
-                      disabled={loading || saving}
-                      data-attr={`task-automation-${key}-assignee`}
-                      onChange={(e) =>
-                        patchTask(key, {
-                          defaultAssigneeUserId: e.target.value.trim() || null,
-                        })
-                      }
-                    >
-                      <option value="">Property manager (you)</option>
-                      {teamMembers.map((member) => (
-                        <option key={member.userId} value={member.userId}>
-                          {member.name?.trim() || member.email?.trim() || member.userId}
-                        </option>
-                      ))}
-                    </Select>
-                  </label>
-                </div>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <FieldSingleSelect
+                  label={meta.anchor === "before_event" ? "Due before event" : "Due after trigger"}
+                  value={String(config.offsetMinutes)}
+                  options={offsetSelectOptions()}
+                  onChange={(value) => {
+                    const minutes = Number.parseInt(value, 10);
+                    if (Number.isFinite(minutes)) patchTask(key, { offsetMinutes: minutes });
+                  }}
+                  disabled={loading || saving}
+                  dataAttr={`task-automation-${key}-offset`}
+                />
+                <FieldSingleSelect
+                  label="Assign to"
+                  value={config.defaultAssigneeUserId ?? ""}
+                  options={[
+                    { value: "", label: "Property manager (you)" },
+                    ...teamMembers.map((member) => ({
+                      value: member.userId,
+                      label: member.name?.trim() || member.email?.trim() || member.userId,
+                    })),
+                  ]}
+                  onChange={(value) =>
+                    patchTask(key, {
+                      defaultAssigneeUserId: value.trim() || null,
+                    })
+                  }
+                  disabled={loading || saving}
+                  dataAttr={`task-automation-${key}-assignee`}
+                />
 
-                <label className="flex items-start gap-3">
+                <label className="flex items-start gap-3 sm:col-span-2">
                   <input
                     type="checkbox"
                     className="mt-0.5 h-4 w-4 shrink-0 accent-primary"
@@ -184,61 +178,41 @@ export function TaskAutomationSettingsFields({
                   </span>
                 </label>
 
-                <div className="space-y-2">
-                  <CheckboxMultiSelect
-                    label="Remind before due"
-                    labelClassName={REMINDER_FIELD_LABEL_CLASS}
-                    options={reminderSelectOptions(reminderSorted)}
-                    selected={reminderTokens}
-                    selectionTriggerLabel={reminderTriggerLabel}
-                    onChange={(tokens) =>
-                      patchTask(key, {
-                        reminderMinutesBeforeList: normalizeTaskReminderMinutesBeforeList(
-                          tokens.map((t) => Number(t)),
-                          [],
-                        ),
-                      })
-                    }
-                    disabled={loading || saving}
-                    emptyLabel="Choose reminder times…"
-                    dataAttr={`task-automation-${key}-reminder-before`}
-                    menuFooter={
-                      <div className="px-3 py-2">
-                        <p className="mb-1.5 text-[10px] font-bold uppercase tracking-[0.12em] text-muted">
-                          Custom minutes
-                        </p>
-                        <div className="flex gap-2">
-                          <Input
-                            type="number"
-                            min={5}
-                            max={1440}
-                            className="h-9 min-h-0 flex-1"
-                            placeholder="Minutes before due"
-                            value={customReminderMinutes}
-                            disabled={loading || saving}
-                            data-attr={`task-automation-${key}-reminder-custom`}
-                            onChange={(e) => setCustomReminderMinutes(e.target.value)}
-                            onKeyDown={(e) => {
-                              if (e.key === "Enter") {
-                                e.preventDefault();
-                                const minutes = Math.round(Number(customReminderMinutes.trim()));
-                                if (!Number.isFinite(minutes) || minutes < 5 || minutes > 1440) return;
-                                patchTask(key, {
-                                  reminderMinutesBeforeList: normalizeTaskReminderMinutesBeforeList(
-                                    [...reminderSorted, minutes],
-                                    [],
-                                  ),
-                                });
-                                setCustomReminderMinutes("");
-                              }
-                            }}
-                          />
-                          <Button
-                            type="button"
-                            variant="outline"
-                            className="h-9 shrink-0 rounded-full px-3 text-xs"
-                            disabled={loading || saving}
-                            onClick={() => {
+                <CheckboxMultiSelect
+                  label="Remind before due"
+                  options={reminderSelectOptions(reminderSorted)}
+                  selected={reminderTokens}
+                  selectionTriggerLabel={reminderTriggerLabel}
+                  onChange={(tokens) =>
+                    patchTask(key, {
+                      reminderMinutesBeforeList: normalizeTaskReminderMinutesBeforeList(
+                        tokens.map((t) => Number(t)),
+                        [],
+                      ),
+                    })
+                  }
+                  disabled={loading || saving}
+                  emptyLabel="Choose reminder times…"
+                  dataAttr={`task-automation-${key}-reminder-before`}
+                  menuFooter={
+                    <div className="px-3 py-2">
+                      <p className="mb-1.5 text-[10px] font-bold uppercase tracking-[0.12em] text-muted">
+                        Custom minutes
+                      </p>
+                      <div className="flex gap-2">
+                        <Input
+                          type="number"
+                          min={5}
+                          max={1440}
+                          className="h-9 min-h-0 flex-1"
+                          placeholder="Minutes before due"
+                          value={customReminderMinutes}
+                          disabled={loading || saving}
+                          data-attr={`task-automation-${key}-reminder-custom`}
+                          onChange={(e) => setCustomReminderMinutes(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") {
+                              e.preventDefault();
                               const minutes = Math.round(Number(customReminderMinutes.trim()));
                               if (!Number.isFinite(minutes) || minutes < 5 || minutes > 1440) return;
                               patchTask(key, {
@@ -248,16 +222,33 @@ export function TaskAutomationSettingsFields({
                                 ),
                               });
                               setCustomReminderMinutes("");
-                            }}
-                          >
-                            Add
-                          </Button>
-                        </div>
+                            }
+                          }}
+                        />
+                        <Button
+                          type="button"
+                          variant="outline"
+                          className="h-9 shrink-0 rounded-full px-3 text-xs"
+                          disabled={loading || saving}
+                          onClick={() => {
+                            const minutes = Math.round(Number(customReminderMinutes.trim()));
+                            if (!Number.isFinite(minutes) || minutes < 5 || minutes > 1440) return;
+                            patchTask(key, {
+                              reminderMinutesBeforeList: normalizeTaskReminderMinutesBeforeList(
+                                [...reminderSorted, minutes],
+                                [],
+                              ),
+                            });
+                            setCustomReminderMinutes("");
+                          }}
+                        >
+                          Add
+                        </Button>
                       </div>
-                    }
-                  />
-                </div>
-              </>
+                    </div>
+                  }
+                />
+              </div>
             ) : null}
           </div>
         );

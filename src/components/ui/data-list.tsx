@@ -61,6 +61,10 @@ export type DataListRow<T> = {
 export const DATA_LIST_MOBILE_ROW_CLASS =
   "flex min-h-[56px] max-h-[56px] items-center gap-3 border-b border-border/80 px-3 py-2 last:border-0";
 
+/** Mobile payment-style rows with a leading slot (scheduled sends) — no fixed max height. */
+export const DATA_LIST_MOBILE_ROW_WITH_LEADING_CLASS =
+  "flex min-h-[56px] items-start gap-3 border-b border-border/80 px-3 py-2.5 last:border-0";
+
 /** Resident portal lists — taller rows, no max height, selection tint (Payments-style). */
 export const DATA_LIST_RESIDENT_MOBILE_ROW_CLASS =
   "flex min-h-[56px] items-center gap-3 border-b border-border/80 px-4 py-3 last:border-0 transition-colors";
@@ -109,7 +113,11 @@ function DataListMobileRow<T>({
 }) {
   const clickable = Boolean(row.onClick);
   const rowClass = cn(
-    variant === "resident" ? DATA_LIST_RESIDENT_MOBILE_ROW_CLASS : DATA_LIST_MOBILE_ROW_CLASS,
+    row.leading && variant !== "resident"
+      ? DATA_LIST_MOBILE_ROW_WITH_LEADING_CLASS
+      : variant === "resident"
+        ? DATA_LIST_RESIDENT_MOBILE_ROW_CLASS
+        : DATA_LIST_MOBILE_ROW_CLASS,
     clickable && variant === "resident" ? "hover:bg-accent/30" : clickable ? "hover:bg-accent/40" : "",
     variant === "resident" && row.selected ? "bg-primary/[0.06]" : "",
   );
@@ -194,7 +202,11 @@ function DataListDesktopRow<T>({
 }) {
   return (
     <tr
-      className={cn(PORTAL_TABLE_TR, DATA_LIST_DESKTOP_ROW_CLASS, row.onClick && "cursor-pointer")}
+      className={cn(
+        PORTAL_TABLE_TR,
+        row.leading ? "min-h-11" : DATA_LIST_DESKTOP_ROW_CLASS,
+        row.onClick && "cursor-pointer",
+      )}
       onClick={(e) => {
         if (!row.onClick || isPortalRowClickIgnored(e.target)) return;
         row.onClick();
