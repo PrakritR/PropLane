@@ -7,6 +7,7 @@ import { PreferredArrivalField } from "@/components/portal/preferred-arrival-fie
 import { ENTRY_PERMISSION_OPTIONS } from "@/lib/work-order-entry";
 import type { DemoManagerWorkOrderRow } from "@/data/demo-portal";
 import type { ManagerListingServiceOption } from "@/lib/manager-listing-submission";
+import { mergeResidentServiceCatalogOffers } from "@/lib/manager-listing-submission";
 import { hasDeposit } from "@/lib/service-requests-storage";
 import {
   buildServiceIntakeOptions,
@@ -62,7 +63,7 @@ export function ServiceIntakeFormFields({
   disabled?: boolean;
   photoSlot?: ReactNode;
 }) {
-  const options = buildServiceIntakeOptions(catalogOffers);
+  const options = buildServiceIntakeOptions(mergeResidentServiceCatalogOffers(catalogOffers));
   const selected = findServiceIntakeOption(options, form.optionKey);
   const isRepair = selected?.kind === "repair";
   const isCustomAddOn = serviceIntakeIsCustomAddOn(selected);
@@ -89,7 +90,9 @@ export function ServiceIntakeFormFields({
             const next = findServiceIntakeOption(options, e.target.value);
             onChange({
               optionKey: e.target.value,
-              categoryLabel: next?.categoryLabel ?? form.categoryLabel,
+              categoryLabel:
+                next?.categoryLabel ??
+                (next?.kind === "repair" ? "General" : form.categoryLabel),
               title: next?.kind === "repair" ? "" : form.title,
             });
           }}
@@ -107,7 +110,7 @@ export function ServiceIntakeFormFields({
             </optgroup>
           ) : null}
           {grouped.repair.length > 0 ? (
-            <optgroup label="Repairs">
+            <optgroup label="Maintenance">
               {grouped.repair.map((option) => (
                 <option key={option.key} value={option.key}>
                   {option.label}

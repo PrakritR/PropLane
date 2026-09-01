@@ -1099,21 +1099,21 @@ export function ResidentApplicationsPanel({
 
   const canOpenPropertyPicker = sessionReady;
 
-  const newApplicationButton =
+  const renderApplicationAddRow = () =>
     sessionReady && canOpenPropertyPicker ? (
-      <Button
-        type="button"
-        variant="primary"
-        className={`shrink-0 ${PORTAL_HEADER_PRIMARY_ACTION_BTN}`}
-        data-attr="resident-applications-apply"
+      <PortalListAddRow
+        label="Apply"
+        ariaLabel={
+          workspace.mode === "in_progress"
+            ? "Apply to property"
+            : workspace.mode === "submitted"
+              ? "Apply to another property"
+              : "Apply to a property"
+        }
+        icon={PORTAL_LIST_ADD_ICONS.application}
         onClick={openPropertyPicker}
-      >
-        {workspace.mode === "in_progress"
-          ? "Apply to property"
-          : workspace.mode === "submitted"
-            ? "Apply to another property"
-            : "Apply to a property"}
-      </Button>
+        dataAttr="resident-applications-apply"
+      />
     ) : null;
 
   const applicationListControlStack = (
@@ -1129,7 +1129,6 @@ export function ResidentApplicationsPanel({
       }))}
       activeDestinationId={bucket}
       destinationAriaLabel="Application status"
-      actions={sessionReady ? newApplicationButton : undefined}
     />
   );
 
@@ -1172,6 +1171,7 @@ export function ResidentApplicationsPanel({
       actions.push({
         id: "withdraw",
         keepPriority: 5,
+        alwaysVisible: true,
         node: (
           <Button
             type="button"
@@ -1180,12 +1180,12 @@ export function ResidentApplicationsPanel({
             data-attr="resident-application-withdraw"
             onClick={() => setWithdrawTarget(row)}
           >
-            Withdraw
+            Withdraw application
           </Button>
         ),
         menuItem: (
           <DropdownMenuItem data-attr="resident-application-withdraw" onSelect={() => setWithdrawTarget(row)}>
-            Withdraw
+            Withdraw application
           </DropdownMenuItem>
         ),
       });
@@ -1222,6 +1222,8 @@ export function ResidentApplicationsPanel({
   if (embedded) return tableBody;
 
   const renderResidentApplicationList = () => {
+    const listRows = rowsForBucket;
+
     return (
       <>
         {applicationListControlStack}
@@ -1230,10 +1232,16 @@ export function ResidentApplicationsPanel({
           <div className={PORTAL_DATA_TABLE_WRAP}>
             <div className="flex items-center justify-center px-6 py-16 text-sm text-muted">Loading applications…</div>
           </div>
-        ) : rowsForBucket.length === 0 ? (
-          <PortalDataTableEmpty icon="application" message="No applications in this tab yet." />
+        ) : listRows.length === 0 ? (
+          <>
+            <PortalDataTableEmpty icon="application" message="No applications in this tab yet." />
+            <div className={PORTAL_LIST_ADD_ROW_WRAP_CLASS}>{renderApplicationAddRow()}</div>
+          </>
         ) : (
-          <div className={PORTAL_LIST_PAGE_BODY}>{renderRoutedList(rowsForBucket)}</div>
+          <div className={PORTAL_LIST_PAGE_BODY}>
+            {renderRoutedList(listRows)}
+            <div className={PORTAL_LIST_ADD_ROW_WRAP_CLASS}>{renderApplicationAddRow()}</div>
+          </div>
         )}
 
         {withdrawModal}
@@ -1251,6 +1259,7 @@ export function ResidentApplicationsPanel({
         <ResidentPortalListBottomBar
           selectionCount={selectedIds.size}
           selectionActions={applicationSelectionActions}
+          selectionBarVariant="payments"
         />
       </>
     );
@@ -1285,6 +1294,7 @@ export function ResidentApplicationsPanel({
             <>
               {renderStandaloneApplySurface()}
               {rowsForBucket.length > 0 ? renderRoutedList(rowsForBucket) : null}
+              <div className={PORTAL_LIST_ADD_ROW_WRAP_CLASS}>{renderApplicationAddRow()}</div>
             </>
           )}
           {withdrawModal}
@@ -1293,6 +1303,7 @@ export function ResidentApplicationsPanel({
         <ResidentPortalListBottomBar
           selectionCount={selectedIds.size}
           selectionActions={applicationSelectionActions}
+          selectionBarVariant="payments"
         />
       </>
     );

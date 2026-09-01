@@ -81,7 +81,9 @@ export function DestinationNav({
                 : destinationNavItemWidthClass(compactItems, appearance),
               "portal-pressable inline-flex items-center justify-center gap-1.5 font-semibold transition-[color,border-color,background-color] duration-100",
               appearance === "command"
-                ? "min-h-11 rounded-none border-b-2 px-2.5 py-2 text-sm sm:px-3"
+                ? itemLayout === "equal" && denseEqualRow
+                  ? "min-h-11 rounded-none border-b-2 px-0 py-2 text-center leading-none lg:min-h-11 lg:px-2 lg:py-2 lg:text-sm"
+                  : "min-h-11 rounded-none border-b-2 px-2.5 py-2 text-sm sm:px-3"
                 : itemLayout === "equal"
                 ? denseEqualRow
                   ? "min-h-9 min-w-0 px-0 py-1 text-center leading-none lg:min-h-11 lg:px-2 lg:py-2 lg:text-sm"
@@ -154,11 +156,17 @@ function destinationNavShellClassName(
 ) {
   return cn(
     appearance === "command"
-      ? cn(
-          "flex w-full gap-1 border-0 bg-transparent p-0",
-          PORTAL_HORIZONTAL_SCROLL_ROW_CLASS,
-          "snap-x snap-mandatory scroll-px-2",
-        )
+      ? itemLayout === "equal"
+        ? denseEqualRow
+          ? "grid w-full min-w-0 auto-cols-fr grid-flow-col gap-0 border-0 bg-transparent p-0"
+          : centerEqualRow
+            ? "mx-auto grid w-full min-w-0 max-w-2xl auto-cols-fr grid-flow-col gap-0 border-0 bg-transparent p-0 max-lg:max-w-none"
+            : "grid w-full min-w-0 auto-cols-fr grid-flow-col gap-0 border-0 bg-transparent p-0"
+        : cn(
+            "flex w-full gap-1 border-0 bg-transparent p-0",
+            PORTAL_HORIZONTAL_SCROLL_ROW_CLASS,
+            "snap-x snap-mandatory scroll-px-2",
+          )
       : itemLayout === "equal"
       ? denseEqualRow
         ? "grid w-full min-w-0 auto-cols-fr grid-flow-col gap-0.5 rounded-2xl border border-border bg-accent/30 p-1 max-lg:gap-0.5 max-lg:p-0 max-lg:rounded-none max-lg:border-0 max-lg:bg-transparent"

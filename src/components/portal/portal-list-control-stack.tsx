@@ -29,6 +29,9 @@ export function PortalListControlStack({
   stickyDestinations = true,
   /** `toolbar` renders compact segment tabs (Communication Active / Unread / Archived). */
   destinationNavSize = "default",
+  /** Equal-width destination tabs that fit one row on phones (house details, property detail). */
+  destinationItemLayout = "auto",
+  destinationDenseEqualRow = false,
   /** `command` composes destinations, search, filters, and utilities into one adaptive surface. */
   variant = "stacked",
   actions,
@@ -53,6 +56,8 @@ export function PortalListControlStack({
   destinationInset?: boolean;
   stickyDestinations?: boolean;
   destinationNavSize?: "default" | "toolbar";
+  destinationItemLayout?: "auto" | "equal";
+  destinationDenseEqualRow?: boolean;
   variant?: "stacked" | "command";
   /** Low-frequency utility controls that follow search/filter in the command layout. */
   actions?: ReactNode;
@@ -92,6 +97,8 @@ export function PortalListControlStack({
         activeId={activeDestinationId}
         ariaLabel={destinationAriaLabel}
         size={destinationNavSize}
+        itemLayout={destinationItemLayout}
+        denseEqualRow={destinationDenseEqualRow}
         appearance={variant === "command" ? "command" : "segmented"}
         className={cn(
           destinationNavSize === "toolbar"

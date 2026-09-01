@@ -6,8 +6,6 @@ import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import {
   ManagerPortalPageShell,
-  PORTAL_COMMAND_PRIMARY_ACTION_BTN,
-  PORTAL_COMMAND_PRIMARY_ACTION_STYLE,
 } from "@/components/portal/portal-metrics";
 import { PortalRecordDetailPage } from "@/components/portal/portal-record-detail-page";
 import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
@@ -15,14 +13,12 @@ import { PortalSectionActionRow } from "@/components/portal/portal-section-actio
 import { PortalEmptyState } from "@/components/portal/portal-empty-state";
 import { ResidentScheduleTourModal } from "@/components/portal/resident-schedule-tour-modal";
 import { PORTAL_LIST_PAGE_BODY } from "@/components/portal/portal-inbox-ui";
+import { PortalListAddRow, PORTAL_LIST_ADD_ICONS, PORTAL_LIST_ADD_ROW_WRAP_CLASS } from "@/components/portal/portal-list-add-row";
 import {
   ResidentPortalGroupedDataList,
   RESIDENT_PORTAL_DEFAULT_GROUP_MODE,
   type ResidentPortalGroupableRow,
 } from "@/components/portal/resident-portal-grouped-data-list";
-import { useResidentPortalListFilterState } from "@/components/portal/resident-portal-list-filter";
-import type { PortalListGroupMode } from "@/lib/portal-list-grouping";
-import { PortalDataTableEmpty } from "@/components/portal/portal-data-table";
 import { LocalDestinationNav } from "@/components/ui/destination-nav";
 import { formatRangeLabel } from "@/lib/demo-admin-scheduling";
 import { formatTourContactPhoneDisplay } from "@/lib/tour-contact-quality";
@@ -221,8 +217,6 @@ export function ResidentTourPanel({
   const [bucket, setBucket] = useState<ResidentTourBucketId>(bucketProp);
   const [prevBucketProp, setPrevBucketProp] = useState(bucketProp);
   const [scheduleTourOpen, setScheduleTourOpen] = useState(false);
-  const [groupMode, setGroupMode] = useState<PortalListGroupMode>(RESIDENT_PORTAL_DEFAULT_GROUP_MODE);
-  const [propertyFilters, setPropertyFilters] = useState<string[]>([]);
 
   if (bucketProp !== prevBucketProp) {
     setPrevBucketProp(bucketProp);
@@ -328,35 +322,9 @@ export function ResidentTourPanel({
     [bucket, tours],
   );
 
-  const tourPropertyOptions = useMemo(() => {
-    const byId = new Map<string, string>();
-    for (const tour of tours) {
-      const propertyId = tour.propertyId?.trim() || "";
-      if (!propertyId || byId.has(propertyId)) continue;
-      byId.set(propertyId, stripPropertyRoomCountSuffix(tour.propertyTitle ?? propertyId));
-    }
-    return [...byId.entries()].map(([id, label]) => ({ id, label }));
-  }, [tours]);
-
-  const { filterSheet: tourFilterSheet, activeFilterChips: tourActiveFilterChips } =
-    useResidentPortalListFilterState({
-      groupMode,
-      onGroupModeChange: setGroupMode,
-      propertyOptions: tourPropertyOptions,
-      propertyFilters,
-      onPropertyFiltersChange: setPropertyFilters,
-      groupModeDataAttr: "resident-tour-filter-group-mode",
-      propertyDataAttr: "resident-tour-filter-property",
-    });
-
-  const filteredToursForBucket = useMemo(() => {
-    if (propertyFilters.length === 0) return toursForBucket;
-    return toursForBucket.filter((tour) => propertyFilters.includes(tour.propertyId?.trim() || ""));
-  }, [propertyFilters, toursForBucket]);
-
   const tourGroupedItems = useMemo((): ResidentPortalGroupableRow<ResidentTourView>[] => {
-    const showPropertyInMeta = groupMode !== "house";
-    return filteredToursForBucket.map((tour) => {
+    const showPropertyInMeta = RESIDENT_PORTAL_DEFAULT_GROUP_MODE !== "house";
+    return toursForBucket.map((tour) => {
       const address = [
         tour.roomLabel
           ? /^(room|studio|unit|suite|apt|apartment)\b/i.test(tour.roomLabel.trim())
@@ -384,26 +352,16 @@ export function ResidentTourPanel({
         },
       };
     });
-  }, [basePath, filteredToursForBucket, groupMode, navigate]);
+  }, [basePath, toursForBucket, navigate]);
 
-  const scheduleTourButton = (
-    <Button
-      type="button"
-      className={PORTAL_COMMAND_PRIMARY_ACTION_BTN}
-      style={PORTAL_COMMAND_PRIMARY_ACTION_STYLE}
-      data-attr="resident-tour-schedule"
+  const renderTourAddRow = () => (
+    <PortalListAddRow
+      label="Schedule tour"
+      ariaLabel="Schedule a tour"
+      icon={PORTAL_LIST_ADD_ICONS.tour}
       onClick={openScheduleTour}
-    >
-      <span className="sm:hidden" aria-hidden="true">Schedule</span>
-      <span className="hidden sm:inline">Schedule a tour</span>
-    </Button>
-  );
-
-  const tourCommandActions = (
-    <>
-      {tourFilterSheet}
-      {scheduleTourButton}
-    </>
+      dataAttr="resident-tour-schedule"
+    />
   );
 
   const renderTourList = () => (
@@ -431,25 +389,19 @@ export function ResidentTourPanel({
             Try again
           </Button>
         </div>
-      ) : filteredToursForBucket.length === 0 ? (
-        <PortalDataTableEmpty
-          icon="default"
-          message={
-            propertyFilters.length > 0 ? "No tours match these filters." : "No tours in this tab yet."
-          }
-          variant="stacked"
-        />
+      ) : toursForBucket.length === 0 ? (
+        <div className={PORTAL_LIST_PAGE_BODY}>
+          <div className={PORTAL_LIST_ADD_ROW_WRAP_CLASS}>{renderTourAddRow()}</div>
+        </div>
       ) : (
         <div className={PORTAL_LIST_PAGE_BODY} data-attr="resident-tour-list">
           <ResidentPortalGroupedDataList
             items={tourGroupedItems}
-            groupMode={groupMode}
+            groupMode={RESIDENT_PORTAL_DEFAULT_GROUP_MODE}
             dataAttr="resident-tour-grouped-list"
             columns={[{ id: "tour", header: "Tour", cell: () => "—" }]}
-            emptyState={
-              <PortalDataTableEmpty icon="default" message="No tours in this tab yet." variant="stacked" />
-            }
           />
+          <div className={PORTAL_LIST_ADD_ROW_WRAP_CLASS}>{renderTourAddRow()}</div>
         </div>
       )}
     </>
@@ -530,8 +482,6 @@ export function ResidentTourPanel({
           }))}
           activeDestinationId={bucket}
           destinationAriaLabel="Tour status"
-          actions={tourCommandActions}
-          activeFilterChips={tourActiveFilterChips}
         />
         {renderTourList()}
       </ManagerPortalPageShell>

@@ -13,6 +13,7 @@ import {
 } from "@/components/portal/service-intake-form-fields";
 import type { DemoManagerWorkOrderRow } from "@/data/demo-portal";
 import type { ManagerListingServiceOption } from "@/lib/manager-listing-submission";
+import { mergeResidentServiceCatalogOffers } from "@/lib/manager-listing-submission";
 import { parseMoneyAmount } from "@/lib/household-charges";
 import { getPropertyById } from "@/lib/rental-application/data";
 import { track } from "@/lib/analytics/track-client";
@@ -67,7 +68,11 @@ export function ResidentAddServiceModal({
   onSubmitted: () => void;
 }) {
   const { showToast } = useAppUi();
-  const intakeOptions = useMemo(() => buildServiceIntakeOptions(availableOffers), [availableOffers]);
+  const catalogOffers = useMemo(
+    () => mergeResidentServiceCatalogOffers(availableOffers),
+    [availableOffers],
+  );
+  const intakeOptions = useMemo(() => buildServiceIntakeOptions(catalogOffers), [catalogOffers]);
   const [form, setForm] = useState<ServiceIntakeFormState>(() =>
     createEmptyServiceIntakeFormState(intakeOptions),
   );
@@ -247,7 +252,7 @@ export function ResidentAddServiceModal({
           priceLimit = limitLabel;
           deposit = "";
         } else {
-          const currentOffer = availableOffers.find((offer) => offer.id === option.offerId) ?? null;
+          const currentOffer = catalogOffers.find((offer) => offer.id === option.offerId) ?? null;
           if (!currentOffer) {
             showToast("That service is no longer available. Please choose another.");
             return;
@@ -318,7 +323,7 @@ export function ResidentAddServiceModal({
       </p>
       <div className="mt-4">
         <ServiceIntakeFormFields
-          catalogOffers={availableOffers}
+          catalogOffers={catalogOffers}
           form={form}
           onChange={patchForm}
           disabled={submitting || !servicesUnlocked}

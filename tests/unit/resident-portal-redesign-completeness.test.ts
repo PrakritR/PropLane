@@ -152,8 +152,10 @@ describe("resident portal redesign completeness", () => {
       // `portal-inline-title-band-duplicate-controls.test.tsx`, which is the guard
       // that actually enforces "header actions reach a phone exactly once" — so
       // that one owns the shape, and this one just checks the button is present.
-      expect(src).toContain("communicationNewMessageButton");
       expect(src).toContain('data-attr="communication-new-message"');
+      expect(src).toContain("PortalTextNotificationsBlock");
+      expect(src).toContain("communicationSettingsOpen");
+      expect(src).not.toContain("PortalFilterSortSheet");
       expect(src).not.toContain("PortalPageHeaderMobileActionsRow");
     });
 
@@ -202,6 +204,8 @@ describe("resident portal redesign completeness", () => {
       expect(moveIn).toContain('variant="command"');
       expect(moveIn).toContain("RESIDENT_MOVE_IN_TABS");
       expect(moveIn).toContain("RESIDENT_MOVE_IN_TAB_LABELS");
+      expect(moveIn).toContain("RESIDENT_MOVE_IN_TAB_SHORT_LABELS");
+      expect(moveIn).toContain("destinationDenseEqualRow");
       expect(moveIn).toContain("residentMoveInHref");
       expect(moveIn).toContain("Assigned room");
       expect(moveIn).toContain("InstructionsTabContent");
@@ -217,6 +221,7 @@ describe("resident portal redesign completeness", () => {
       const tour = readPanel("resident-tour-panel.tsx");
       expect(tour).toContain('variant="command"');
       expect(tour).toContain("ResidentPortalGroupedDataList");
+      expect(tour).toContain("PortalListAddRow");
       const applications = readPanel("resident-applications-panel.tsx");
       expect(applications).toContain('variant="command"');
       expect(applications).toContain("ResidentPortalGroupedDataList");
@@ -224,7 +229,6 @@ describe("resident portal redesign completeness", () => {
       const services = readPanel("resident-services-panel.tsx");
       expect(services).toContain('variant="command"');
       expect(services).toContain("ResidentPortalGroupedDataList");
-      expect(services).toContain("PortalListAddRow");
       expect(services).not.toContain("useResidentPortalListFilterState");
     });
 
@@ -250,32 +254,31 @@ describe("resident portal redesign completeness", () => {
       // Services uses a dashed list-footer add row, not a command-strip action.
       const services = readPanel("resident-services-panel.tsx");
       expect(services).toContain("ResidentAddServiceModal");
-      expect(services).toContain('dataAttr="resident-services-add"');
-      expect(services).not.toContain("PORTAL_COMMAND_PRIMARY_ACTION_BTN");
+      expect(services).toContain("renderServiceAddRow");
+      expect(services).toContain('dataAttr="resident-services-apply"');
+      expect(services).toContain('label="Service"');
       expect(services).not.toContain("ResidentServicesAddActions");
       expect(services).not.toContain("PortalPageHeaderMobileActionsRow");
 
       const tour = readPanel("resident-tour-panel.tsx");
-      expect(tour).toContain("tourCommandActions");
+      expect(tour).toContain("renderTourAddRow");
+      expect(tour).toContain("PortalListAddRow");
+      expect(tour).toContain('label="Schedule tour"');
+      expect(tour).not.toContain("useResidentPortalListFilterState");
       expect(tour).not.toContain("titleAside={scheduleTourButton}");
       expect(tour).not.toContain("PortalResidentListFab");
       expect(tour).not.toContain("PortalPageHeaderMobileActionsRow");
+      expect(tour).not.toContain("PORTAL_COMMAND_PRIMARY_ACTION_BTN");
 
       const applications = readPanel("resident-applications-panel.tsx");
       expect(applications).toContain("applicationListControlStack");
-      expect(applications).toContain('data-attr="resident-applications-apply"');
+      expect(applications).toContain("renderApplicationAddRow");
+      expect(applications).toContain('label="Apply"');
+      expect(applications).not.toContain("hint={");
       expect(applications).not.toContain("ResidentApplicationWorkspaceActions");
       expect(applications).not.toContain("ResidentApplicationWorkspaceMobileApply");
       expect(applications).not.toContain("PortalPageHeaderMobileActionsRow");
 
-      expect(tour).toContain("scheduleTourButton");
-
-      // (b) Lease moved to the band-only shape: its actions now live in the
-      // DETAIL page's footer rather than a list-header pairing, so there is no
-      // `titleAside`/mobile-row pair left to balance. The control must still
-      // reach a phone — it does, from the footer — so that is what we assert.
-      // (Was `leaseMobileActionsRow` + `hidden gap-2 md:flex`; both went with
-      // the redesign and left this guard failing against shipped code.)
       const lease = readPanel("resident-lease-panel.tsx");
       expect(lease).toContain("leaseDetailFooter");
       expect(lease).toContain("ResidentDocumentsDetailFooter");

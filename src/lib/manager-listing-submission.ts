@@ -1994,6 +1994,33 @@ export const LISTING_SERVICE_QUICK_ADDS: ListingServiceQuickAdd[] = [
   },
 ];
 
+/** Stable preset rows for resident intake when a listing has no configured add-ons yet. */
+export function listingServiceQuickAddsAsOptions(): ManagerListingServiceOption[] {
+  return LISTING_SERVICE_QUICK_ADDS.map((quick) => ({
+    id: `preset-${quick.name.trim().toLowerCase().replace(/[^a-z0-9]+/g, "-")}`,
+    name: quick.name,
+    description: quick.description,
+    price: quick.price?.trim() ?? "",
+    deposit: quick.deposit?.trim() ?? "",
+    available: true,
+    createdAt: "preset",
+  }));
+}
+
+export function mergeResidentServiceCatalogOffers(
+  catalogOffers: readonly ManagerListingServiceOption[],
+): ManagerListingServiceOption[] {
+  const merged = [...catalogOffers];
+  const names = new Set(merged.map((offer) => offer.name.trim().toLowerCase()).filter(Boolean));
+  for (const preset of listingServiceQuickAddsAsOptions()) {
+    const key = preset.name.trim().toLowerCase();
+    if (!key || names.has(key)) continue;
+    merged.push(preset);
+    names.add(key);
+  }
+  return merged;
+}
+
 /** Price/deposit for an offering — uses saved values, then preset defaults by name. */
 export function resolveServiceOfferPricing(offer: {
   name: string;

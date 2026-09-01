@@ -252,15 +252,12 @@ export function buildServiceIntakeOptions(
     });
   }
 
-  for (const category of RESIDENT_SERVICE_REPAIR_CATEGORIES) {
-    options.push({
-      key: `repair:${category}`,
-      label: category,
-      kind: "repair",
-      group: "repair",
-      categoryLabel: category,
-    });
-  }
+  options.push({
+    key: `repair:${MAINTENANCE_SERVICE_OFFER_ID}`,
+    label: "Maintenance",
+    kind: "repair",
+    group: "repair",
+  });
 
   options.push({
     key: "addon:custom",

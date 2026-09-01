@@ -49,7 +49,7 @@ import {
   syncPropertyPipelineFromServer,
 } from "@/lib/demo-property-pipeline";
 import type { ManagerListingServiceOption } from "@/lib/manager-listing-submission";
-import { normalizeManagerListingSubmissionV1 } from "@/lib/manager-listing-submission";
+import { normalizeManagerListingSubmissionV1, mergeResidentServiceCatalogOffers } from "@/lib/manager-listing-submission";
 import { pickPrimaryFilingScope } from "@/lib/resident-filing-scope";
 import { getPropertyById } from "@/lib/rental-application/data";
 import { RESIDENT_WORK_ORDER_REMINDER_COOLDOWN_MS } from "@/lib/resident-work-order-reminder-email";
@@ -640,20 +640,24 @@ export function ResidentServicesPanel({
   // cached property lookup while the hydrate is in flight.
   const offersForResident = useMemo(() => {
     void propertyTick;
+    let catalog: ManagerListingServiceOption[] = [];
     if (serverCatalogOffers) {
-      return serverCatalogOffers.filter(visibleToResident);
+      catalog = serverCatalogOffers.filter(visibleToResident);
+    } else if (residentApplication) {
+      const propertyId =
+        residentApplication.assignedPropertyId?.trim() ||
+        residentApplication.propertyId?.trim() ||
+        residentApplication.application?.propertyId?.trim() ||
+        "";
+      if (propertyId) {
+        const property = getPropertyById(propertyId);
+        if (property?.listingSubmission && property.listingSubmission.v === 1) {
+          catalog = (normalizeManagerListingSubmissionV1(property.listingSubmission).serviceRequestOptions ?? [])
+            .filter(visibleToResident);
+        }
+      }
     }
-    if (!residentApplication) return [];
-    const propertyId =
-      residentApplication.assignedPropertyId?.trim() ||
-      residentApplication.propertyId?.trim() ||
-      residentApplication.application?.propertyId?.trim() ||
-      "";
-    if (!propertyId) return [];
-    const property = getPropertyById(propertyId);
-    if (!property?.listingSubmission || property.listingSubmission.v !== 1) return [];
-    const options = normalizeManagerListingSubmissionV1(property.listingSubmission).serviceRequestOptions ?? [];
-    return options.filter(visibleToResident);
+    return mergeResidentServiceCatalogOffers(catalog);
   }, [propertyTick, residentApplication, residentEmail, serverCatalogOffers]);
 
   const availableOffers = offersForResident;
@@ -1157,19 +1161,18 @@ export function ResidentServicesPanel({
     workOrderById,
   ]);
 
-  const lockedEmpty = !servicesUnlocked && unifiedServiceRows.length === 0;
-
-  const renderServiceAddRow = (inline: boolean) =>
+  const renderServiceAddRow = () =>
     servicesUnlocked ? (
       <PortalListAddRow
-        label="Add"
+        label="Service"
         ariaLabel="Add service"
         icon={PORTAL_LIST_ADD_ICONS.service}
         onClick={openAddService}
-        inline={inline}
-        dataAttr="resident-services-add"
+        dataAttr="resident-services-apply"
       />
     ) : null;
+
+  const lockedEmpty = !servicesUnlocked && unifiedServiceRows.length === 0;
 
   const serviceGroupedList =
     unifiedServiceRows.length > 0 ? (
@@ -1229,12 +1232,16 @@ export function ResidentServicesPanel({
       />
 
       {servicesUnlocked ? (
-        <div className={PORTAL_LIST_PAGE_BODY}>
-          {serviceGroupedList}
-          <div className={PORTAL_LIST_ADD_ROW_WRAP_CLASS}>
-            {renderServiceAddRow(unifiedServiceRows.length > 0)}
+        unifiedServiceRows.length === 0 ? (
+          <div className={PORTAL_LIST_PAGE_BODY}>
+            <div className={PORTAL_LIST_ADD_ROW_WRAP_CLASS}>{renderServiceAddRow()}</div>
           </div>
-        </div>
+        ) : (
+          <div className={PORTAL_LIST_PAGE_BODY}>
+            {serviceGroupedList}
+            <div className={PORTAL_LIST_ADD_ROW_WRAP_CLASS}>{renderServiceAddRow()}</div>
+          </div>
+        )
       ) : serviceGroupedList ? (
         <div className={PORTAL_LIST_PAGE_BODY}>{serviceGroupedList}</div>
       ) : null}

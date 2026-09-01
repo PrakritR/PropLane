@@ -108,7 +108,7 @@ describe("splitNativeBottomNavItems", () => {
     const { primary, overflow } = splitNativeBottomNavItems(items, "resident", "post_approval_pre_lease");
     expect(primary.map((item) => item.section)).toEqual([...NATIVE_BOTTOM_NAV_RESIDENT_POST_APPROVAL_PRIMARY]);
     expect(overflow.map((item) => item.section)).toContain("dashboard");
-    expect(overflow.map((item) => item.section)).not.toContain("tour");
+    expect(overflow.map((item) => item.section)).not.toContain("applications");
     expect(overflow.map((item) => item.section)).toContain("documents");
     expect(primary.length + overflow.length).toBe(items.length - 1);
   });
@@ -125,7 +125,7 @@ describe("splitNativeBottomNavItems", () => {
     expect(primary.map((item) => item.section)).toEqual([...NATIVE_BOTTOM_NAV_RESIDENT_PRIMARY]);
     expect(overflow.map((item) => item.section)).toContain("documents");
     expect(overflow.map((item) => item.section)).toContain("dashboard");
-    expect(overflow.map((item) => item.section)).not.toContain("tour");
+    expect(overflow.map((item) => item.section)).not.toContain("applications");
     expect(primary.length + overflow.length).toBe(items.length - 1);
   });
 

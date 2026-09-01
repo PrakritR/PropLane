@@ -609,6 +609,15 @@ export const RESIDENT_MOVE_IN_TAB_LABELS: Record<ResidentMoveInTabId, string> = 
   instructions: "Move-in",
 };
 
+/** Compact labels for house-details sub-tabs on phone-width layouts. */
+export const RESIDENT_MOVE_IN_TAB_SHORT_LABELS: Record<ResidentMoveInTabId, string> = {
+  placement: "Placement",
+  housemates: "Mates",
+  info: "Rules",
+  amenities: "Amenity",
+  instructions: "Move-in",
+};
+
 export function parseResidentMoveInTab(raw: string | undefined | null): ResidentMoveInTabId {
   if (raw && (RESIDENT_MOVE_IN_TABS as readonly string[]).includes(raw)) {
     return raw as ResidentMoveInTabId;
