@@ -486,30 +486,9 @@ export function ManagerMessagingSettingsPanel({
   // the one account that sees "not checked yet" (a new one, with no number) is
   // the one account with no control that resolves it.
   const canRefreshEligibility =
-    isCoManager === false &&
     !status.entitlement.eligible &&
     (Boolean(phoneNumber) || unverifiedEntitlement);
   const requestPending = numberInProgress;
-
-  if (isCoManager) {
-    return (
-      <PortalSettingsSection
-        title="Work number"
-        description="Messaging access for this manager workspace."
-      >
-        <PortalSettingsGroup>
-          <div className="space-y-1 px-4 py-5">
-            <p className="text-sm font-medium text-foreground">
-              The primary property manager manages messaging.
-            </p>
-            <p className="text-sm leading-relaxed text-muted">
-              Ask them to request or manage the work number for this workspace.
-            </p>
-          </div>
-        </PortalSettingsGroup>
-      </PortalSettingsSection>
-    );
-  }
 
   return (
     <>
@@ -519,7 +498,11 @@ export function ManagerMessagingSettingsPanel({
     />
     <PortalSettingsSection
       title="Work number"
-      description="Request and manage the dedicated number residents and prospects use to reach your workspace."
+      description={
+        isCoManager
+          ? "Your dedicated PropLane number for resident and prospect texts on properties you help manage."
+          : "Request and manage the dedicated number residents and prospects use to reach your workspace."
+      }
     >
       <PortalSettingsGroup>
         <PortalSettingsField
@@ -620,8 +603,9 @@ export function ManagerMessagingSettingsPanel({
                 aria-hidden
               />
               <p>
-                Request one number for your manager workspace. It cannot be
-                edited after assignment.
+                Request one number for your manager account. Outbound texts from
+                Communication, applications, tasks, and reminders use this line.
+                It cannot be edited after assignment.
               </p>
             </div>
           )}

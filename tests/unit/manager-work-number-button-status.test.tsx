@@ -83,33 +83,20 @@ describe("ManagerWorkNumberButton", () => {
     );
   });
 
-  it("does not show the free upsell to a co-manager (no billing control)", async () => {
+  it("links co-managers to messaging setup when no number is assigned", async () => {
     vi.stubGlobal(
       "fetch",
       vi.fn(async () =>
         Response.json({
           ...status,
-          planTier: "free",
           workspaceRole: "co_manager",
+          planTier: "paid",
         }),
       ),
     );
     render(<ManagerWorkNumberButton />);
 
-    const link = await screen.findByRole("link", { name: "View messaging" });
-    expect(link.getAttribute("href")).toBe("/portal/profile?tab=messaging");
-  });
-
-  it("links co-managers to honest read-only messaging details", async () => {
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async () =>
-        Response.json({ ...status, workspaceRole: "co_manager" }),
-      ),
-    );
-    render(<ManagerWorkNumberButton />);
-
-    const link = await screen.findByRole("link", { name: "View messaging" });
+    const link = await screen.findByRole("link", { name: "Set up messaging" });
     expect(link.getAttribute("href")).toBe("/portal/profile?tab=messaging");
   });
 

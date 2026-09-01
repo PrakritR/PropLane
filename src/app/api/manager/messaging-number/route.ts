@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { track } from "@/lib/analytics/posthog";
 import { requireManagerRouteUser } from "@/lib/manager-route-guard.server";
-import { getEffectiveManagerSkuTier } from "@/lib/manager-access-server";
+import { getManagerPortalNavSubscriptionTier } from "@/lib/manager-access-server";
 import {
   managerCarrierRegistrationNeedsAttention,
   managerMessagingSenderPoolDiagnostic,
@@ -11,9 +11,10 @@ import {
   type ManagerMessagingRuntimeMode,
 } from "@/lib/sms/manager-messaging-number";
 import {
-  getStoredManagerSmsEntitlement,
+  getEffectiveManagerSmsEntitlement,
   reconcileManagerSmsEntitlement,
 } from "@/lib/sms/manager-sms-entitlement.server";
+import { isPureCoManagerWorkspace } from "@/lib/sms/manager-workspace-role.server";
 import { provisionManagerNumber } from "@/lib/sms/manager-number-provisioning.server";
 import {
   effectiveRegistrationState,
@@ -30,35 +31,6 @@ export const runtime = "nodejs";
 
 const NUMBER_SELECT =
   "phone_number, provision_state, registration_state, registration_ref, attachment_state, number_registration_state, registration_submitted_at, last_provider_event_at, grace_started_at, grace_expires_at, quarantined_at, quarantine_reason, last_error";
-
-async function isPureCoManager(
-  db: SupabaseClient,
-  userId: string,
-): Promise<boolean> {
-  const [
-    { data: owned, error: ownedError },
-    { data: incoming, error: incomingError },
-  ] = await Promise.all([
-    db
-      .from("manager_property_records")
-      .select("id")
-      .eq("manager_user_id", userId)
-      .limit(1),
-    db
-      .from("account_link_invites")
-      .select("id")
-      .eq("invitee_user_id", userId)
-      .eq("status", "accepted")
-      .limit(1),
-  ]);
-
-  if ((owned ?? []).length > 0) return false;
-  // Fail closed: when the route cannot prove workspace ownership, it must not
-  // provision a number under a possible co-manager's personal account id.
-  if (ownedError || incomingError) return true;
-  // New managers with no links still own their empty workspace and may proceed.
-  return (incoming ?? []).length > 0;
-}
 
 /**
  * Whether this manager has ANY stored entitlement snapshot. Distinguishes "we
@@ -96,11 +68,9 @@ async function buildStatus(
       .select("mode, pilot_manager_user_ids")
       .eq("singleton", true)
       .maybeSingle(),
-    getStoredManagerSmsEntitlement(db, userId),
-    // Authoritative plan class, independent of the reconcile-dependent
-    // entitlement row. This is what the free/paid UI keys off, so a paid manager
-    // who never requested a number is never shown the free-tier upsell.
-    getEffectiveManagerSkuTier(userId),
+    getEffectiveManagerSmsEntitlement(db, userId),
+  // Nav tier inherits linked-owner paid plans for co-managers (matches portal locks).
+    getManagerPortalNavSubscriptionTier(userId),
     db
       .from("manager_sms_numbers")
       .select(NUMBER_SELECT)
@@ -111,7 +81,7 @@ async function buildStatus(
       .select("phone, phone_verified_at, sms_forward_inbound")
       .eq("id", userId)
       .maybeSingle(),
-    isPureCoManager(db, userId),
+    isPureCoManagerWorkspace(db, userId),
   ]);
 
   const configuredMode = runtimeResult.error
@@ -178,11 +148,8 @@ async function buildStatus(
   // Unreadable plan → "unknown" (fail closed to no upsell, never the Free cap);
   // an explicit "free" tier → "free"; anything else (pro/business, or a null
   // tier backed by a live subscription) → "paid".
-  const planTier: ManagerMessagingPlanTier = !planTierResult.ok
-    ? "unknown"
-    : planTierResult.tier === "free"
-      ? "free"
-      : "paid";
+  const planTier: ManagerMessagingPlanTier =
+    planTierResult === "free" ? "free" : planTierResult === null ? "unknown" : "paid";
 
   const requestableState =
     number === null ||
@@ -211,14 +178,12 @@ async function buildStatus(
       entitlementCanBeReconciled &&
       provisioningEnvEnabled &&
       modeAllowsManager &&
-      requestableState &&
-      !pureCoManager,
+      requestableState,
     canSend:
       entitlement.eligible &&
       sendEnvEnabled &&
       modeAllowsManager &&
-      strictNumberReady &&
-      !pureCoManager,
+      strictNumberReady,
     personalPhone: {
       phone:
         typeof profileResult.data?.phone === "string"
@@ -301,16 +266,6 @@ export async function POST(req: Request) {
   const actor = await requireManagerRouteUser();
   if (!actor)
     return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
-
-  if (await isPureCoManager(actor.db, actor.userId)) {
-    return NextResponse.json(
-      {
-        error:
-          "Messaging numbers must be set up by the primary property manager for this workspace.",
-      },
-      { status: 409 },
-    );
-  }
 
   const parsedBody = await req.json().catch(() => ({}) as unknown);
   if (

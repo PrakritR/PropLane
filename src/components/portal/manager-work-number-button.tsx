@@ -19,8 +19,8 @@ import {
  *
  * `planTier === "unknown"` (a transient plan-read failure) falls to the setup
  * link, never the free upsell, so a paying manager is never shown an upgrade
- * prompt on a billing-read blip. A co-manager owns neither billing nor the
- * number, so they get the read-only settings link instead of the upsell.
+ * prompt on a billing-read blip. Co-managers inherit paid nav tier from linked
+ * workspace owners when their own plan is Free.
  */
 export function ManagerWorkNumberButton({ className }: { className?: string }) {
   const [status, setStatus] = useState<ManagerMessagingNumberStatus | null>(
@@ -94,9 +94,7 @@ export function ManagerWorkNumberButton({ className }: { className?: string }) {
   // Once a number is assigned, the CTA has done its job and disappears.
   if (status.number?.phoneNumber) return null;
 
-  const isCoManager = status.workspaceRole === "co_manager";
-
-  if (status.planTier === "free" && !isCoManager) {
+  if (status.planTier === "free") {
     return (
       <span
         className="inline-flex shrink-0"
@@ -128,16 +126,11 @@ export function ManagerWorkNumberButton({ className }: { className?: string }) {
       className={btnClass}
       data-attr="messaging-open-settings"
     >
-      <Link
-        href={MANAGER_MESSAGING_SETTINGS_HREF}
-        aria-label={isCoManager ? "View messaging" : "Set up messaging"}
-      >
+      <Link href={MANAGER_MESSAGING_SETTINGS_HREF} aria-label="Set up messaging">
         <span className="sm:hidden" aria-hidden="true">
           Messaging
         </span>
-        <span className="hidden sm:inline">
-          {isCoManager ? "View messaging" : "Set up messaging"}
-        </span>
+        <span className="hidden sm:inline">Set up messaging</span>
       </Link>
     </Button>
   );

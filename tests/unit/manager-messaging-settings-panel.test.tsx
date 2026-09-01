@@ -103,44 +103,29 @@ describe("ManagerMessagingSettingsPanel", () => {
     expect(await screen.findByText("Request received")).toBeTruthy();
   });
 
-  it("explains that co-managers cannot configure the workspace number", async () => {
-    const actorScopedStatus: ManagerMessagingNumberStatus = {
+  it("lets co-managers request their own work number like any manager account", async () => {
+    const readyToRequest: ManagerMessagingNumberStatus = {
       ...pausedStatus,
+      mode: "automatic",
       workspaceRole: "co_manager",
-      number: {
-        state: "active",
-        registrationState: "approved",
-        carrierRegistrationState: "registered",
-        attachmentState: "attached",
-        phoneNumber: "+12065550999",
-        lastError: null,
-      },
+      provisioningAvailable: true,
+      canRequest: true,
     };
     vi.stubGlobal(
       "fetch",
-      vi.fn(async () => Response.json(actorScopedStatus)),
+      vi.fn(async () => Response.json(readyToRequest)),
     );
     render(<ManagerMessagingSettingsPanel />);
 
     expect(
-      await screen.findByText(
-        "The primary property manager manages messaging.",
-      ),
+      await screen.findByRole("button", { name: "Request work number" }),
     ).toBeTruthy();
     expect(
-      screen.getByText(
-        "Ask them to request or manage the work number for this workspace.",
-      ),
+      screen.getByText(/your dedicated PropLane number/i),
     ).toBeTruthy();
     expect(
-      screen.queryByRole("button", { name: "Request work number" }),
+      screen.queryByText("The primary property manager manages messaging."),
     ).toBeNull();
-    expect(screen.getByRole("heading", { name: "Work number" })).toBeTruthy();
-    expect(screen.queryByText("Carrier registration")).toBeNull();
-    expect(screen.queryByText("Personal phone")).toBeNull();
-    expect(screen.queryByText("Inbound forwarding")).toBeNull();
-    expect(screen.queryByText("+1 (206) 555-0999")).toBeNull();
-    expect(screen.queryByText("+1 (510) 555-0123 · Verified")).toBeNull();
   });
 
   it("opens a resident-announce dialog after a number is assigned", async () => {

@@ -271,7 +271,7 @@ export function PortalProfileClient({
       list.push({
         id: "messaging",
         label: "Messaging",
-        description: "Dedicated work number and texting readiness.",
+        description: "Personal mobile verification and your dedicated work number for texts.",
         icon: MessagesSquare,
         group: "Workspace",
       });
