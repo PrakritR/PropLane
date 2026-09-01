@@ -33,7 +33,7 @@ import type { ManagerLeaseTab } from "@/data/demo-portal";
 import { LeaseDocumentPreview } from "@/components/portal/lease-document-preview";
 import { ManagerPipelineLeaseEditModal } from "@/components/portal/manager-pipeline-lease-edit-modal";
 import { LeaseGenerateModal } from "@/components/portal/lease-generate-modal";
-import { LeaseAmendMoveOutModal, LeaseRenewModal } from "@/components/portal/lease-amend-move-out-modal";
+import { LeaseAmendMoveOutModal } from "@/components/portal/lease-amend-move-out-modal";
 import { applySignedLeaseRenewal } from "@/lib/lease-renewal-payments";
 import { LeaseSigningModal } from "@/components/portal/lease-signing-modal";
 import { PortalNotificationPreviewModal } from "@/components/portal/portal-notification-preview-modal";
@@ -129,8 +129,6 @@ export function ManagerLeasesPipelinePanel({
     body: string;
   } | null>(null);
   const [amendLeaseRow, setAmendLeaseRow] = useState<LeasePipelineRow | null>(null);
-  const [renewLeaseRow, setRenewLeaseRow] = useState<LeasePipelineRow | null>(null);
-  const [renewInitialTerm, setRenewInitialTerm] = useState<string | undefined>(undefined);
   const [editLeaseRowId, setEditLeaseRowId] = useState<string | null>(null);
   const [generateLeaseRow, setGenerateLeaseRow] = useState<LeasePipelineRow | null>(null);
   const [generateTemplateId, setGenerateTemplateId] = useState<string | null>(null);
@@ -983,12 +981,12 @@ export function ManagerLeasesPipelinePanel({
           checkUrl="/api/manager/amend-lease"
           amendUrl="/api/manager/amend-lease"
           amendBody={{ leaseId: amendLeaseRow.id }}
-          onOpenRenew={(leaseTerm) => {
-            const row = amendLeaseRow;
-            setAmendLeaseRow(null);
-            if (!row) return;
-            setRenewLeaseRow(row);
-            setRenewInitialTerm(leaseTerm);
+          renew={{
+            leaseId: amendLeaseRow.id,
+            currentTerm: amendLeaseRow.application?.leaseTerm ?? "",
+            currentRentLabel: amendLeaseRow.signedRentLabel ?? amendLeaseRow.application?.managerRentOverride ?? "",
+            currentRentalType: amendLeaseRow.application?.rentalType,
+            renewUrl: "/api/manager/amend-lease",
           }}
           onSuccess={() => void handleAmendLeaseSuccess()}
         />
@@ -1055,23 +1053,6 @@ export function ManagerLeasesPipelinePanel({
         onGenerated={handleLeaseGenerated}
       />
 
-      {renewLeaseRow ? (
-        <LeaseRenewModal
-          open
-          onClose={() => {
-            setRenewLeaseRow(null);
-            setRenewInitialTerm(undefined);
-          }}
-          initialLeaseTerm={renewInitialTerm}
-          currentEnd={renewLeaseRow.application?.leaseEnd ?? ""}
-          currentTerm={renewLeaseRow.application?.leaseTerm ?? ""}
-          currentRentLabel={renewLeaseRow.signedRentLabel ?? renewLeaseRow.application?.managerRentOverride ?? ""}
-          propertyId={renewLeaseRow.propertyId ?? renewLeaseRow.application?.propertyId ?? ""}
-          currentRentalType={renewLeaseRow.application?.rentalType}
-          leaseId={renewLeaseRow.id}
-          onSuccess={() => void handleAmendLeaseSuccess()}
-        />
-      ) : null}
     </>
   );
 

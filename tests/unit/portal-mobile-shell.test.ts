@@ -60,6 +60,8 @@ describe("portal mobile shell conventions", () => {
     expect(GLOBALS_CSS).toContain("html[data-native] .portal-native-bottom-nav");
     expect(GLOBALS_CSS).toContain("bottom: 0");
     expect(GLOBALS_CSS).toContain("padding-right: max(0.5rem, var(--native-safe-right))");
+    expect(GLOBALS_CSS).toContain("padding-left: max(0.5rem, var(--native-safe-left))");
+    expect(GLOBALS_CSS).toContain("max-width: 100%");
   });
 
   it("evenly distributes Instagram-style bottom tabs instead of scrolling", () => {
