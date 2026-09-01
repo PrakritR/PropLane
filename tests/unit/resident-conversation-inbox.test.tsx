@@ -65,21 +65,21 @@ afterEach(() => {
 });
 
 describe("resident conversation inbox", () => {
-    it("shows Active and Archived segments like the property portal", () => {
+    it("shows Active and Archived segments like the property portal", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => new Response("{}", { status: 200 })));
     render(<ResidentCommunication />);
 
     expect(screen.getByRole("link", { name: /^Active$/i })).toBeTruthy();
     expect(screen.getByRole("link", { name: /Archived/i })).toBeTruthy();
     expect(screen.queryByRole("link", { name: /Unread/i })).toBeNull();
-    expect(screen.getByText("Property manager")).toBeTruthy();
+    await waitFor(() => expect(screen.getByText("Property manager")).toBeTruthy());
     expect(screen.queryByText("Old notice")).toBeNull();
   });
 
-  it("lists archived conversations on the Archived segment", () => {
+  it("lists archived conversations on the Archived segment", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => new Response("{}", { status: 200 })));
     render(<ResidentCommunication listSegment="archived" />);
-    expect(screen.getByText("Old notice")).toBeTruthy();
+    await waitFor(() => expect(screen.getByText("Old notice")).toBeTruthy());
     expect(screen.queryByText("Property manager")).toBeNull();
   });
 

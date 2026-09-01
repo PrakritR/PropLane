@@ -48,6 +48,8 @@ import {
   type ManagerSmsBucketId,
   type ManagerSmsMessageRow,
 } from "@/lib/manager-sms-messages";
+import { formatPacificDate } from "@/lib/pacific-time";
+import type { PersistedInboxThread } from "@/lib/portal-inbox-storage";
 
 const SMS_THREAD_ID = "text-messages";
 const SMS_OPENED_KEY = "axis_role_sms_opened_resident";
@@ -92,15 +94,18 @@ function ResidentUnifiedInbox({
   commBase: string;
   onAddConversation?: () => void;
 }) {
-  const [emailThreads, setEmailThreads] = useState(() => loadPersistedInbox(RESIDENT_INBOX_STORAGE_KEY, []));
+  // Inbox rows hydrate from sessionStorage — never read them in useState initializers (SSR mismatch).
+  const [emailThreads, setEmailThreads] = useState<PersistedInboxThread[]>([]);
   const [smsMessages, setSmsMessages] = useState<ManagerSmsMessageRow[]>([]);
-  const [smsOpened] = useState<Set<string>>(() => loadOpenedIds());
+  const [smsOpened, setSmsOpened] = useState<Set<string>>(() => new Set());
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
 
   useEffect(() => {
-    const sync = () => setEmailThreads(loadPersistedInbox(RESIDENT_INBOX_STORAGE_KEY, []));
-    window.addEventListener(PORTAL_INBOX_CHANGED_EVENT, sync as EventListener);
-    return () => window.removeEventListener(PORTAL_INBOX_CHANGED_EVENT, sync as EventListener);
+    const syncEmail = () => setEmailThreads(loadPersistedInbox(RESIDENT_INBOX_STORAGE_KEY, []));
+    syncEmail();
+    setSmsOpened(loadOpenedIds());
+    window.addEventListener(PORTAL_INBOX_CHANGED_EVENT, syncEmail as EventListener);
+    return () => window.removeEventListener(PORTAL_INBOX_CHANGED_EVENT, syncEmail as EventListener);
   }, []);
 
   useEffect(() => {
@@ -173,7 +178,7 @@ function ResidentUnifiedInbox({
       subtitle: "Property manager",
       preview: previewLine(last.body, 80),
       previewPrefix: last.direction === "outbound" ? "You: " : undefined,
-      time: new Date(last.createdAt).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" }),
+      time: formatPacificDate(last.createdAt, { hour: "numeric", minute: "2-digit" }),
       unread,
       sortMs: Date.parse(last.createdAt) || 0,
     };
