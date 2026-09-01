@@ -34,7 +34,6 @@ import {
   type PortalListGroupMode,
 } from "@/lib/portal-list-grouping";
 import { PORTAL_BULK_BAR_BTN } from "@/lib/portal-bulk-bar";
-import { cn } from "@/lib/utils";
 import {
   serviceRequestDetailHref,
   serviceRequestListHref,
@@ -50,7 +49,6 @@ import {
 } from "@/components/portal/portal-metrics";
 import { PortalActiveFilterChips, type PortalActiveFilterChip } from "@/components/portal/portal-filter-chips";
 import { PortalRecordDetailPage } from "@/components/portal/portal-record-detail-page";
-import { INBOX_LIST_SCROLL } from "@/components/portal/portal-inbox-ui";
 import { useManagerUserId } from "@/hooks/use-manager-user-id";
 import {
   buildManagerPropertyFilterOptions,
@@ -531,7 +529,7 @@ export function ManagerAllServicesPanel({
             opens its OWN record — an add-on goes to the request detail, maintenance to the work
             order detail — so the merge stays presentational and the stores never mix.
           */}
-          <div className={cn(INBOX_LIST_SCROLL, "space-y-3")} data-attr="services-resident-groups">
+          <div className="space-y-3" data-attr="services-resident-groups">
             {isPropertyClusterList(groupMode, serviceClusters)
               ? serviceClusters.map((cluster) => (
                   <ApplicationHouseholdCluster
