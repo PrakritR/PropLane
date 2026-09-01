@@ -14,7 +14,7 @@ export const PORTAL_MOBILE_CHROME_CLASS =
 
 /** Native app bottom tab bar — Instagram-style icon row, subtle top hairline in every mode. */
 export const PORTAL_NATIVE_BOTTOM_NAV_CLASS =
-  "portal-native-bottom-nav fixed inset-x-0 bottom-0 z-50 border-t border-border bg-background/95 backdrop-blur-xl lg:hidden pb-[max(0.125rem,env(safe-area-inset-bottom,0px))] ps-[max(0px,env(safe-area-inset-left,0px))] pe-[max(0px,env(safe-area-inset-right,0px))] [html[data-native]_&]:pb-0 [html[data-native]_&]:ps-[max(0px,var(--native-safe-left))]";
+  "portal-native-bottom-nav fixed inset-x-0 bottom-0 z-50 w-full max-w-full border-t border-border bg-background backdrop-blur-xl lg:hidden pb-[max(0.125rem,env(safe-area-inset-bottom,0px))] [html[data-native]_&]:pb-0";
 
 /** One bottom-tab cell — fixed icon + label slots keep every tab on the same baseline. */
 export const PORTAL_NATIVE_BOTTOM_NAV_ITEM_CLASS =

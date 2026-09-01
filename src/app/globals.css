@@ -2131,12 +2131,15 @@ html[data-native] .portal-native-bottom-nav {
   bottom: 0;
   z-index: 50;
   display: block;
+  width: 100%;
+  max-width: 100%;
   overflow: hidden;
   -webkit-user-select: none;
   user-select: none;
   border-top: 1px solid var(--border);
   padding-top: 0;
   padding-bottom: max(4px, calc(var(--native-safe-bottom) * 0.45));
+  padding-left: max(0.5rem, var(--native-safe-left));
   padding-right: max(0.5rem, var(--native-safe-right));
   box-sizing: border-box;
 }
@@ -2154,6 +2157,8 @@ html[data-native] .portal-native-bottom-nav-scroll {
   display: grid;
   width: 100%;
   min-width: 0;
+  max-width: 100%;
+  overflow-x: clip;
   align-items: end;
 }
 
@@ -2223,12 +2228,15 @@ html[data-native] .portal-mobile-nav-bar {
     bottom: 0;
     z-index: 50;
     display: block;
+    width: 100%;
+    max-width: 100%;
     overflow: hidden;
     -webkit-user-select: none;
     user-select: none;
     border-top: 1px solid var(--border);
     padding-top: 0;
     padding-bottom: max(4px, calc(env(safe-area-inset-bottom, 0px) * 0.45));
+    padding-left: max(0.5rem, env(safe-area-inset-left, 0px));
     padding-right: max(0.5rem, env(safe-area-inset-right, 0px));
     box-sizing: border-box;
   }
@@ -2246,6 +2254,8 @@ html[data-native] .portal-mobile-nav-bar {
     display: grid;
     width: 100%;
     min-width: 0;
+    max-width: 100%;
+    overflow-x: clip;
     align-items: end;
   }
 

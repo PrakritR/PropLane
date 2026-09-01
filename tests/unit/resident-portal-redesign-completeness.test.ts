@@ -282,7 +282,24 @@ describe("resident portal redesign completeness", () => {
       const lease = readPanel("resident-lease-panel.tsx");
       expect(lease).toContain("leaseDetailFooter");
       expect(lease).toContain("ResidentDocumentsDetailFooter");
+      expect(lease).not.toContain("Request edits");
+      expect(lease).not.toContain("resident-lease-request-edits");
       expect(lease).not.toContain("PortalPageHeaderMobileActionsRow");
+    });
+
+    it("lease renewal uses one modal — renew fields expand in place", () => {
+      const amend = readPanel("lease-amend-move-out-modal.tsx");
+      expect(amend).toContain("assistantStrip={false}");
+      expect(amend).toContain("ModalAssistantStrip");
+      expect(amend).toContain('data-attr="lease-amend-intent"');
+      expect(amend).toContain('data-attr="lease-amend-extend-type"');
+      expect(amend).toContain("activeRenewTerm");
+      expect(amend).toContain("Change renewal option");
+      expect(amend).not.toContain("extendTypeChipClass");
+      const lease = readPanel("resident-lease-panel.tsx");
+      expect(lease).toContain("renewUrl: \"/api/resident/renew-lease\"");
+      expect(lease).not.toContain("LeaseRenewModal");
+      expect(lease).not.toContain("onOpenRenew");
     });
 
     it("application phase includes dashboard; limited omits services; approved adds it", () => {
