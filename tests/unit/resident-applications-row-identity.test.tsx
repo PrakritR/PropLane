@@ -73,9 +73,15 @@ function submittedRow(id: string, propertyId: string, property: string): DemoApp
 }
 
 function desktopRow(id: string): HTMLElement {
-  const el = [...document.querySelectorAll<HTMLElement>(`tr#resident-application-${id}`)][0];
+  const el = document.querySelector<HTMLElement>(`#resident-application-${id}`);
   if (!el) throw new Error(`row ${id} not rendered`);
   return el;
+}
+
+function clickDesktopRow(id: string) {
+  const row = desktopRow(id);
+  const openButton = row.querySelector("button");
+  fireEvent.click(openButton ?? row);
 }
 
 afterEach(() => {
@@ -119,7 +125,7 @@ describe("ResidentApplicationsPanel — each row opens its OWN application", () 
     });
     portalNavigate.mockClear();
     await act(async () => {
-      fireEvent.click(desktopRow("PROPLANE-CCCC0003"));
+      clickDesktopRow("PROPLANE-CCCC0003");
     });
     expect(portalNavigate).toHaveBeenCalledWith("/resident/applications/pending/PROPLANE-CCCC0003");
   });
@@ -138,7 +144,7 @@ describe("ResidentApplicationsPanel — each row opens its OWN application", () 
 
     portalNavigate.mockClear();
     await act(async () => {
-      fireEvent.click(desktopRow("PROPLANE-BBBB0002"));
+      clickDesktopRow("PROPLANE-BBBB0002");
     });
     expect(portalNavigate).toHaveBeenCalledWith("/resident/applications/pending/PROPLANE-BBBB0002");
   });

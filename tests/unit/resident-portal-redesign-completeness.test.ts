@@ -239,9 +239,14 @@ describe("resident portal redesign completeness", () => {
       expect(tour).not.toContain("PortalPageHeaderMobileActionsRow");
 
       const applications = readPanel("resident-applications-panel.tsx");
-      expect(applications).toContain("ResidentApplicationWorkspaceActions");
+      expect(applications).toContain("PortalListControlStack");
+      expect(applications).toContain('variant="command"');
+      expect(applications).toContain("data-attr=\"resident-applications-apply\"");
+      expect(applications).toContain("data-slot=\"resident-applications-mobile-actions\"");
+      expect(applications).not.toContain("ResidentApplicationWorkspaceActions");
       expect(applications).not.toContain("ResidentApplicationWorkspaceMobileApply");
       expect(applications).not.toContain("PortalPageHeaderMobileActionsRow");
+      expect(applications).not.toContain("titleAside=");
 
       expect(tour).toContain("scheduleTourButton");
 

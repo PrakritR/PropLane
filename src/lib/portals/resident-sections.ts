@@ -109,7 +109,7 @@ export const RESIDENT_APPROVED_PORTAL_SECTIONS: PortalSection[] = [
   { section: "dashboard", label: "Dashboard", tabs: [] },
   { section: "tour", label: "Tour", tabs: [] },
   { section: "communication", label: "Communication", tabs: [] },
-  { section: "applications", label: "Applications", tabs: [] },
+  { section: "applications", label: "Application", tabs: [] },
   { section: "lease", label: "Lease", tabs: [] },
   { section: "move-in", label: "House details", tabs: [] },
   { section: "documents", label: "Documents", tabs: [...DOCUMENTS_TABS] },

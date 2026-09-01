@@ -160,6 +160,16 @@ function buildPortalNavItems(
       }
       if (section.section === "applications") {
         const appBase = `${definition.basePath}/applications/pending`;
+        if (definition.kind === "resident") {
+          return [
+            {
+              section: section.section,
+              label: section.label,
+              href: appBase,
+              prefetchHrefs: [appBase],
+            },
+          ];
+        }
         const bgBase = `${definition.basePath}/background-checks/pending_review`;
         return [
           {

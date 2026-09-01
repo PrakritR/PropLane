@@ -369,6 +369,9 @@ export async function renderPortalSection(
   }
   const residentWorkspaceUnlocked =
     kind === "resident" ? (residentAccess?.fullPortalAccess ?? false) : false;
+  if (kind === "resident" && section === "background-checks") {
+    redirect(`${def.basePath}/applications/pending`);
+  }
   if (kind === "resident" && section === "applications") {
     const RESIDENT_APP_BUCKETS = ["pending", "approved", "rejected"] as const;
     if (!tabParts?.length) {

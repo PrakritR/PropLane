@@ -17,6 +17,7 @@ export function PortalPersonRecordRow({
   onOpen,
   dataAttr,
   trailing,
+  rowId,
 }: {
   name: string;
   subtitle?: string;
@@ -30,12 +31,14 @@ export function PortalPersonRecordRow({
   onOpen: () => void;
   dataAttr?: string;
   trailing?: ReactNode;
+  /** Stable id for tests and deep links (e.g. `resident-application-AXIS-…`). */
+  rowId?: string;
 }) {
   // Opt-in, mirroring PortalPropertyRecordRow: a list that does not pass a
   // handler keeps exactly the layout it had before.
   const selectable = Boolean(onSelectedChange);
   return (
-    <div data-attr={dataAttr}>
+    <div data-attr={dataAttr} id={rowId}>
       <InboxConversationRow
         name={name}
         subtitle={subtitle}
