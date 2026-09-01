@@ -1220,7 +1220,11 @@ export function ResidentPaymentsPanel({
     <Button
       type="button"
       variant="primary"
-      className={cn(PORTAL_COMMAND_PRIMARY_ACTION_BTN, "w-full justify-center")}
+      className={cn(
+        PORTAL_BULK_BAR_BTN,
+        PORTAL_COMMAND_PRIMARY_ACTION_BTN,
+        "!w-auto max-w-none shrink-0 justify-start",
+      )}
       style={PORTAL_COMMAND_PRIMARY_ACTION_STYLE}
       data-attr={selectedPayableIds.length > 0 ? "resident-payments-pay-selected" : "resident-payments-pay-all"}
       onClick={payHeaderAction}
