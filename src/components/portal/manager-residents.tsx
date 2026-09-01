@@ -54,8 +54,12 @@ import {
   residentDetailHref,
   residentListHref,
   residentPaymentDetailHref,
+  residentApplicantDetailHref,
   parseResidentDetailTab,
+  parseResidentApplicantSubTab,
   parseResidentsTab,
+  RESIDENT_APPLICANT_SUB_TAB_LABELS,
+  type ResidentApplicantSubTabId,
   type ResidentDetailTabId,
   type ResidentsTabId,
 } from "@/lib/portal-detail-routes";
@@ -229,9 +233,8 @@ import { useCosignerSubmissionsMap } from "@/hooks/use-cosigner-submissions-map"
 import { signerAppIdsForCosignerLookup } from "@/lib/rental-application/application-list-grouping";
 import {
   ApplicationReviewLauncherRow,
-  type ApplicationReviewView,
 } from "@/components/portal/application-review-launcher-row";
-import { ApplicationReviewNavCluster } from "@/components/portal/application-review-nav-cluster";
+import { ApplicationScreeningPanel } from "@/components/portal/application-screening-panel";
 import { runApplicationPdfDownload } from "@/components/portal/manager-applications";
 import { applicationShowsBackgroundCheck } from "@/lib/application-background-check";
 import { ResidentApplicationEditor } from "@/components/portal/resident-application-editor";
@@ -333,6 +336,7 @@ export function ManagerResidents({
   tabId: tabIdProp = "current",
   residentId: residentIdProp,
   detailTab: detailTabProp,
+  applicantSubTab: applicantSubTabProp,
   paymentId: paymentIdProp,
   tourId: tourIdProp,
   serviceItemId: serviceItemIdProp,
@@ -341,6 +345,7 @@ export function ManagerResidents({
   tabId?: ResidentsTabId;
   residentId?: string;
   detailTab?: ResidentDetailTabId;
+  applicantSubTab?: string;
   paymentId?: string;
   tourId?: string;
   serviceItemId?: string;
@@ -407,7 +412,7 @@ export function ManagerResidents({
   const [checkrScreeningRowId, setCheckrScreeningRowId] = useState<string | null>(null);
   const [holdingFeeRowId, setHoldingFeeRowId] = useState<string | null>(null);
   const [checkrScreeningShowPicker, setCheckrScreeningShowPicker] = useState(false);
-  const [applicationReviewView, setApplicationReviewView] = useState<ApplicationReviewView>("application");
+  const [applicantScreeningFooterActions, setApplicantScreeningFooterActions] = useState<ReactNode>(null);
   const [approveBusyId, setApproveBusyId] = useState<string | null>(null);
   const [applicationReminderPreview, setApplicationReminderPreview] = useState<{
     row: DemoApplicantRow;
@@ -423,6 +428,10 @@ export function ManagerResidents({
     useState<ResidentUnifiedServicesBucket>("pending");
 
   const activeDetailTab = parseResidentDetailTab(detailTabProp);
+  const resolvedApplicantSubTab = parseResidentApplicantSubTab(applicantSubTabProp);
+  const handleApplicantScreeningFooterActions = useCallback((actions: ReactNode | null) => {
+    setApplicantScreeningFooterActions(actions);
+  }, []);
   const [applicationEditOpen, setApplicationEditOpen] = useState(false);
   const [residentPaymentSetupOpen, setResidentPaymentSetupOpen] = useState(false);
   const [addResidentPaymentOpen, setAddResidentPaymentOpen] = useState(false);
@@ -1127,7 +1136,6 @@ export function ManagerResidents({
     if (activeResidentId) {
       setChargeBucket("pending");
       setResidentServicesBucket("pending");
-      setApplicationReviewView("application");
     }
   }
 
@@ -1294,7 +1302,7 @@ export function ManagerResidents({
 
   const residentDetailTabsAvailable = useMemo((): ResidentDetailTabId[] => {
     const tabs: ResidentDetailTabId[] = [];
-    if (showResidentApplication) tabs.push("application");
+    if (showResidentApplication) tabs.push("applicant");
     if (showResidentLease) tabs.push("lease");
     if (showResidentTours) tabs.push("tours");
     tabs.push("payments", "services", "communication");
@@ -1304,6 +1312,56 @@ export function ManagerResidents({
   const resolvedDetailTab = residentDetailTabsAvailable.includes(activeDetailTab)
     ? activeDetailTab
     : (residentDetailTabsAvailable[0] ?? "payments");
+
+  const applicantSubNavItems = useMemo(() => {
+    if (!selected) return [];
+    const items: Array<{
+      id: ResidentApplicantSubTabId;
+      label: string;
+      href: string;
+      dataAttr: string;
+    }> = [];
+    if (selectedApplicationRow && applicationShowsBackgroundCheck(selectedApplicationRow)) {
+      items.push({
+        id: "background-check",
+        label: RESIDENT_APPLICANT_SUB_TAB_LABELS["background-check"],
+        href: residentApplicantDetailHref(portalBase, residentsTab, selected.id, "background-check"),
+        dataAttr: "resident-applicant-subtab-background-check",
+      });
+    }
+    items.push({
+      id: "application",
+      label: RESIDENT_APPLICANT_SUB_TAB_LABELS.application,
+      href: residentApplicantDetailHref(portalBase, residentsTab, selected.id, "application"),
+      dataAttr: "resident-applicant-subtab-application",
+    });
+    return items;
+  }, [portalBase, residentsTab, selected, selectedApplicationRow]);
+
+  useEffect(() => {
+    if (!selected || resolvedDetailTab !== "applicant") return;
+    if (
+      resolvedApplicantSubTab === "background-check" &&
+      selectedApplicationRow &&
+      !applicationShowsBackgroundCheck(selectedApplicationRow)
+    ) {
+      navigate(residentApplicantDetailHref(portalBase, residentsTab, selected.id, "application"));
+    }
+  }, [
+    navigate,
+    portalBase,
+    residentsTab,
+    resolvedApplicantSubTab,
+    resolvedDetailTab,
+    selected,
+    selectedApplicationRow,
+  ]);
+
+  useEffect(() => {
+    if (resolvedDetailTab !== "applicant" || resolvedApplicantSubTab !== "background-check") {
+      setApplicantScreeningFooterActions(null);
+    }
+  }, [resolvedDetailTab, resolvedApplicantSubTab]);
 
   // `threadReading` must stay FALSE here. Under
   // `html[data-communication-thread-reading]` globals.css hides the mobile nav
@@ -2521,6 +2579,23 @@ export function ManagerResidents({
           Approve
         </Button>
       ) : null}
+      <Button
+        type="button"
+        variant="outline"
+        className={PORTAL_DETAIL_BTN}
+        data-attr="resident-application-download-footer"
+        onClick={() => {
+          runApplicationPdfDownload(selectedApplicationRow, showToast);
+        }}
+      >
+        Download
+      </Button>
+    </>
+  ) : null;
+
+  const residentBackgroundCheckTabFooterActions = selectedApplicationRow ? (
+    <>
+      {applicantScreeningFooterActions}
       {applicationShowsBackgroundCheck(selectedApplicationRow) ? (
         <Button
           type="button"
@@ -2541,17 +2616,6 @@ export function ManagerResidents({
           Request screening
         </Button>
       ) : null}
-      <Button
-        type="button"
-        variant="outline"
-        className={PORTAL_DETAIL_BTN}
-        data-attr="resident-application-download-footer"
-        onClick={() => {
-          runApplicationPdfDownload(selectedApplicationRow, showToast);
-        }}
-      >
-        Download
-      </Button>
     </>
   ) : null;
 
@@ -2679,7 +2743,10 @@ export function ManagerResidents({
   );
 
   const residentDetailBottomBarActions = useMemo(() => {
-    if (resolvedDetailTab === "application" && showResidentApplication) {
+    if (resolvedDetailTab === "applicant" && showResidentApplication) {
+      if (resolvedApplicantSubTab === "background-check") {
+        return residentBackgroundCheckTabFooterActions;
+      }
       return residentApplicationTabFooterActions;
     }
     if (resolvedDetailTab === "lease" && showResidentLease) {
@@ -2697,8 +2764,10 @@ export function ManagerResidents({
   }, [
     resolvedDetailTab,
     showResidentApplication,
+    resolvedApplicantSubTab,
     showResidentLease,
     residentApplicationTabFooterActions,
+    residentBackgroundCheckTabFooterActions,
     residentLeaseTabFooterActions,
     paymentIdProp,
     embeddedPaymentFooterActions,
@@ -2745,7 +2814,7 @@ export function ManagerResidents({
   const residentDetailViewportFill =
     resolvedDetailTab === "communication" ||
     (showResidentTours && resolvedDetailTab === "tours") ||
-    (showResidentApplication && resolvedDetailTab === "application");
+    (showResidentApplication && resolvedDetailTab === "applicant");
 
   const residentDetailPanel =
     selected ? (
@@ -2759,7 +2828,7 @@ export function ManagerResidents({
                                   denseEqualRow
                                   items={(
                                     [
-                                      showResidentApplication ? "application" : null,
+                                      showResidentApplication ? "applicant" : null,
                                       showResidentLease ? "lease" : null,
                                       showResidentTours ? "tours" : null,
                                       "payments",
@@ -2779,6 +2848,17 @@ export function ManagerResidents({
                                   ariaLabel="Resident profile sections"
                                   appearance="command"
                                 />
+                                {showResidentApplication && resolvedDetailTab === "applicant" ? (
+                                  <div className="w-full border-t border-border/60 bg-accent/30 px-1 py-1">
+                                    <PortalDetailDestinationNav
+                                      denseEqualRow
+                                      items={applicantSubNavItems}
+                                      activeId={resolvedApplicantSubTab}
+                                      ariaLabel="Applicant sections"
+                                      appearance="command"
+                                    />
+                                  </div>
+                                ) : null}
                               </div>
                             </PortalPageChrome>
 
@@ -2829,32 +2909,45 @@ export function ManagerResidents({
                               )}
                             </ResidentDetailTabPanel>
                             </div>
-                            ) : showResidentApplication && resolvedDetailTab === "application" ? (
+                            ) : showResidentApplication && resolvedDetailTab === "applicant" ? (
                             <div className="flex min-h-0 flex-1 flex-col">
                             <ResidentDetailTabPanel fill>
                               {selectedApplicationRow ? (
-                                activeCosignerSubmission ? (
+                                activeCosignerSubmission && resolvedApplicantSubTab === "application" ? (
                                   <ManagerCosignerReadonlyReview
                                     sub={activeCosignerSubmission}
                                     onOpenSignerApplication={() =>
                                       navigate(
-                                        residentDetailHref(portalBase, residentsTab, selected.id, "application"),
+                                        residentApplicantDetailHref(
+                                          portalBase,
+                                          residentsTab,
+                                          selected.id,
+                                          "application",
+                                        ),
                                       )
                                     }
                                   />
+                                ) : resolvedApplicantSubTab === "background-check" &&
+                                  applicationShowsBackgroundCheck(selectedApplicationRow) ? (
+                                  <ApplicationScreeningPanel
+                                    row={selectedApplicationRow}
+                                    collapsible={false}
+                                    presentation="full"
+                                    bareCanvas
+                                    stretch
+                                    headerActionsPlacement="parent"
+                                    compactTabFooterActions
+                                    onHeaderActionsChange={handleApplicantScreeningFooterActions}
+                                    onUpdated={handleScreeningUpdated}
+                                    onOpenScreeningModal={(opts) => {
+                                      setCheckrScreeningShowPicker(Boolean(opts?.showPackagePicker));
+                                      setCheckrScreeningRowId(selectedApplicationRow.id);
+                                    }}
+                                    cosignerSubmissions={selectedApplicationCosigners}
+                                    className="min-h-0 flex-1"
+                                  />
                                 ) : (
                                 <div className="flex min-h-0 flex-1 flex-col gap-3">
-                                  <ApplicationReviewNavCluster
-                                    row={selectedApplicationRow}
-                                    cosignerSubmissions={selectedApplicationCosigners}
-                                    activeView={applicationReviewView}
-                                    onActiveViewChange={setApplicationReviewView}
-                                    onOpenCosigner={(index) => {
-                                      navigate(
-                                        `${residentDetailHref(portalBase, residentsTab, selected.id, "application")}?cosigner=${index}`,
-                                      );
-                                    }}
-                                  />
                                   <ApplicationReviewLauncherRow
                                     row={selectedApplicationRow}
                                     group={selectedApplicationGroup}
@@ -2862,8 +2955,7 @@ export function ManagerResidents({
                                     stretch
                                     hideToggle
                                     showDownload={false}
-                                    activeView={applicationReviewView}
-                                    onActiveViewChange={setApplicationReviewView}
+                                    content="application"
                                     onScreeningUpdated={handleScreeningUpdated}
                                     onOpenScreeningModal={(opts) => {
                                       setCheckrScreeningShowPicker(Boolean(opts?.showPackagePicker));
@@ -2878,14 +2970,24 @@ export function ManagerResidents({
                                         groupId={groupIdForRow(selectedApplicationRow)}
                                         onOpenCosigner={(index) => {
                                           navigate(
-                                            `${residentDetailHref(portalBase, residentsTab, selected.id, "application")}?cosigner=${index}`,
+                                            `${residentApplicantDetailHref(
+                                              portalBase,
+                                              residentsTab,
+                                              selected.id,
+                                              "application",
+                                            )}?cosigner=${index}`,
                                           );
                                         }}
                                         group={selectedApplicationGroup}
                                         currentRowId={selectedApplicationRow.id}
                                         onOpenApplication={(applicationId) => {
                                           navigate(
-                                            residentDetailHref(portalBase, residentsTab, applicationId, "application"),
+                                            residentApplicantDetailHref(
+                                              portalBase,
+                                              residentsTab,
+                                              applicationId,
+                                              "application",
+                                            ),
                                           );
                                         }}
                                       />

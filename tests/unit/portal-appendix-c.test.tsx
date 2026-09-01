@@ -67,9 +67,10 @@ describe("portal-detail-routes", () => {
     expect(PROPERTY_DETAIL_SCOPE_LABELS.preview).toBe("Listing");
   });
 
-  it("parses resident detail tabs with application fallback", () => {
+  it("parses resident detail tabs with applicant fallback", () => {
     expect(parseResidentDetailTab("payments")).toBe("payments");
-    expect(parseResidentDetailTab("")).toBe("application");
+    expect(parseResidentDetailTab("application")).toBe("applicant");
+    expect(parseResidentDetailTab("")).toBe("applicant");
   });
 
   it("builds promotion detail hrefs", () => {

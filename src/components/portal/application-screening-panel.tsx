@@ -203,6 +203,7 @@ export function ApplicationScreeningPanel({
   stretch = false,
   headerActionsPlacement = "section",
   onHeaderActionsChange,
+  compactTabFooterActions = false,
   presentation = "full",
   className,
   cosignerSubmissions = [],
@@ -222,6 +223,8 @@ export function ApplicationScreeningPanel({
   /** When `parent`, header buttons render via `onHeaderActionsChange` instead of the Screening sub-section. */
   headerActionsPlacement?: "section" | "parent";
   onHeaderActionsChange?: (actions: React.ReactNode) => void;
+  /** When true with `headerActionsPlacement="parent"`, publish View report / Run again / Download for a tab footer. */
+  compactTabFooterActions?: boolean;
   presentation?: "full" | "compact";
   className?: string;
   cosignerSubmissions?: CosignerSubmission[];
@@ -499,15 +502,91 @@ export function ApplicationScreeningPanel({
     ],
   );
 
+  const compactTabFooterActionButtons = useMemo(
+    () => (
+      <>
+        {canViewReport ? (
+          <Button
+            type="button"
+            variant="outline"
+            className={PORTAL_HEADER_ACTION_BTN}
+            onClick={() => setReportModalOpen(true)}
+          >
+            View report
+          </Button>
+        ) : null}
+        {canRunBackgroundCheck ? (
+          <Button
+            type="button"
+            variant="outline"
+            className={PORTAL_HEADER_ACTION_BTN}
+            data-attr="run-background-check"
+            onClick={() => onOpenScreeningModal?.()}
+          >
+            Get background check
+          </Button>
+        ) : null}
+        {canRunBackgroundCheckAgain ? (
+          <Button
+            type="button"
+            variant="outline"
+            className={PORTAL_HEADER_ACTION_BTN}
+            data-attr="run-background-check-again"
+            onClick={() => onOpenScreeningModal?.({ showPackagePicker: true })}
+          >
+            Run again
+          </Button>
+        ) : null}
+        {bg?.status === "complete" ? (
+          <Button
+            type="button"
+            variant="outline"
+            className={PORTAL_HEADER_ACTION_BTN}
+            data-attr="screening-pdf-download"
+            onClick={handleDownload}
+          >
+            Download
+          </Button>
+        ) : null}
+      </>
+    ),
+    [
+      bg?.status,
+      canRunBackgroundCheck,
+      canRunBackgroundCheckAgain,
+      canViewReport,
+      handleDownload,
+      onOpenScreeningModal,
+    ],
+  );
+
+  const compactTabFooterActionsSignature = useMemo(
+    () =>
+      [
+        bg?.status ?? "",
+        canViewReport,
+        canRunBackgroundCheck,
+        canRunBackgroundCheckAgain,
+      ].join("|"),
+    [bg?.status, canRunBackgroundCheck, canRunBackgroundCheckAgain, canViewReport],
+  );
+
+  const publishedParentActions = compactTabFooterActions
+    ? compactTabFooterActionButtons
+    : headerActions;
+  const publishedParentActionsSignature = compactTabFooterActions
+    ? compactTabFooterActionsSignature
+    : headerActionsSignature;
+
   // Assigned in a LAYOUT effect, not during render: a render-phase ref write is unsafe under
   // concurrent rendering. It has to be `useLayoutEffect` rather than `useEffect` because the
   // consumer below is one too, and layout effects run in declaration order — a plain effect
   // here would land after the consumer and feed it the previous render's values.
-  const headerActionsRef = useRef(headerActions);
+  const headerActionsRef = useRef(publishedParentActions);
   const publishedHeaderActionsSignatureRef = useRef<string | null>(null);
   const onHeaderActionsChangeRef = useRef(onHeaderActionsChange);
   useLayoutEffect(() => {
-    headerActionsRef.current = headerActions;
+    headerActionsRef.current = publishedParentActions;
     onHeaderActionsChangeRef.current = onHeaderActionsChange;
   });
 
@@ -523,10 +602,14 @@ export function ApplicationScreeningPanel({
       return;
     }
 
-    if (publishedHeaderActionsSignatureRef.current === headerActionsSignature) return;
-    publishedHeaderActionsSignatureRef.current = headerActionsSignature;
+    if (publishedHeaderActionsSignatureRef.current === publishedParentActionsSignature) return;
+    publishedHeaderActionsSignatureRef.current = publishedParentActionsSignature;
     notify(headerActionsRef.current);
-  }, [headerActionsPlacement, headerActionsSignature, showsBackgroundCheck]);
+  }, [
+    headerActionsPlacement,
+    publishedParentActionsSignature,
+    showsBackgroundCheck,
+  ]);
 
   useEffect(() => {
     if (headerActionsPlacement !== "parent") return;
@@ -535,6 +618,24 @@ export function ApplicationScreeningPanel({
       onHeaderActionsChangeRef.current?.(null);
     };
   }, [headerActionsPlacement]);
+
+  const backgroundCheckReportModal = (
+    <Modal
+      open={reportModalOpen}
+      onClose={() => setReportModalOpen(false)}
+      title="Background check report"
+      panelClassName="flex max-h-[min(92vh,52rem)] w-[min(56rem,calc(100vw-2rem))] flex-col overflow-hidden"
+      scrollableContent
+      dense
+    >
+      <BackgroundCheckReportFrame
+        row={{ ...activeRow, backgroundCheck: bg }}
+        demo={demo}
+        bareCanvas
+        cosignerSubmissionId={activeCosignerSubmissionId}
+      />
+    </Modal>
+  );
 
   if (!showsBackgroundCheck) return null;
 
@@ -602,21 +703,7 @@ export function ApplicationScreeningPanel({
             </div>
           </div>
         </div>
-        <Modal
-          open={reportModalOpen}
-          onClose={() => setReportModalOpen(false)}
-          title="Background check report"
-          panelClassName="flex max-h-[min(92vh,52rem)] w-[min(56rem,calc(100vw-2rem))] flex-col overflow-hidden"
-          scrollableContent
-          dense
-        >
-          <BackgroundCheckReportFrame
-            row={{ ...activeRow, backgroundCheck: bg }}
-            demo={demo}
-            bareCanvas
-            cosignerSubmissionId={activeCosignerSubmissionId}
-          />
-        </Modal>
+        {backgroundCheckReportModal}
       </>
     );
   }
@@ -756,6 +843,7 @@ export function ApplicationScreeningPanel({
         ) : (
           panelBody
         )}
+        {backgroundCheckReportModal}
       </div>
     );
   }

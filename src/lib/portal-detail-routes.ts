@@ -75,7 +75,7 @@ export function propertyDetailTopNavId(tab: PropertyDetailTabId): PropertyDetail
 
 /** Routed detail tabs for manager resident profile (Appendix C2). */
 export const RESIDENT_DETAIL_TABS = [
-  "application",
+  "applicant",
   "lease",
   "tours",
   "payments",
@@ -86,7 +86,7 @@ export const RESIDENT_DETAIL_TABS = [
 export type ResidentDetailTabId = (typeof RESIDENT_DETAIL_TABS)[number];
 
 export const RESIDENT_DETAIL_TAB_LABELS: Record<ResidentDetailTabId, string> = {
-  application: "Application",
+  applicant: "Applicant",
   lease: "Lease",
   tours: "Tours",
   payments: "Payments",
@@ -96,13 +96,27 @@ export const RESIDENT_DETAIL_TAB_LABELS: Record<ResidentDetailTabId, string> = {
 
 /** Compact labels for resident detail tabs on phone-width layouts. */
 export const RESIDENT_DETAIL_TAB_SHORT_LABELS: Record<ResidentDetailTabId, string> = {
-  application: "Apply",
+  applicant: "Applicant",
   lease: "Lease",
   tours: "Tours",
   payments: "Pay",
   services: "Svc",
   communication: "Comms",
 };
+
+/** Applicant sub-tabs under manager resident profile (background check left of application). */
+export const RESIDENT_APPLICANT_SUB_TABS = ["background-check", "application"] as const;
+export type ResidentApplicantSubTabId = (typeof RESIDENT_APPLICANT_SUB_TABS)[number];
+
+export const RESIDENT_APPLICANT_SUB_TAB_LABELS: Record<ResidentApplicantSubTabId, string> = {
+  "background-check": "Background check",
+  application: "Application",
+};
+
+export function parseResidentApplicantSubTab(raw: string | undefined | null): ResidentApplicantSubTabId {
+  if (raw === "background-check") return "background-check";
+  return "application";
+}
 
 export function parsePropertyDetailTab(raw: string | undefined | null): PropertyDetailTabId {
   if (raw === "tour-calendar" || raw === "calendar" || raw === "booking-calendars") return "tours";
@@ -133,10 +147,11 @@ export function parsePropertyCalendarSubTab(raw: string | undefined | null): Pro
 
 
 export function parseResidentDetailTab(raw: string | undefined | null): ResidentDetailTabId {
+  if (raw === "application") return "applicant";
   if (raw && (RESIDENT_DETAIL_TABS as readonly string[]).includes(raw)) {
     return raw as ResidentDetailTabId;
   }
-  return "application";
+  return "applicant";
 }
 
 export function propertyDetailHref(
@@ -188,6 +203,15 @@ export function residentDetailHref(
   tab: ResidentDetailTabId,
 ): string {
   return `${basePath}/residents/${residentsTab}/${encodeURIComponent(residentId)}/${tab}`;
+}
+
+export function residentApplicantDetailHref(
+  basePath: string,
+  residentsTab: string,
+  residentId: string,
+  subTab: ResidentApplicantSubTabId,
+): string {
+  return `${basePath}/residents/${residentsTab}/${encodeURIComponent(residentId)}/applicant/${subTab}`;
 }
 /** One list item under a manager resident profile tab (payments, tours, services). */
 export function managerResidentItemDetailHref(

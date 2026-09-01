@@ -600,9 +600,25 @@ export async function renderPortalSection(
       const parsedResidentsTab = residentsTab === "past" ? "past" : residentsTab === "current" ? "current" : null;
       if (!parsedResidentsTab) notFound();
       const residentId = tabParts.length >= 2 ? decodeURIComponent(tabParts[1]!) : undefined;
-      const residentDetailTab = tabParts.length >= 3 ? tabParts[2]! : undefined;
+      const residentDetailTabRaw = tabParts.length >= 3 ? tabParts[2]! : undefined;
+      if (residentDetailTabRaw === "application") {
+        const tail = tabParts.slice(3).join("/");
+        redirect(
+          `${def.basePath}/residents/${parsedResidentsTab}/${encodeURIComponent(residentId!)}/applicant/application${tail ? `/${tail}` : ""}`,
+        );
+      }
+      const residentDetailTab = residentDetailTabRaw;
+      const residentApplicantSubTab =
+        residentDetailTab === "applicant" && tabParts.length >= 4 ? tabParts[3]! : undefined;
+      if (residentDetailTab === "applicant" && tabParts.length === 3) {
+        redirect(
+          `${def.basePath}/residents/${parsedResidentsTab}/${encodeURIComponent(residentId!)}/applicant/application`,
+        );
+      }
       const residentDetailItemId =
-        tabParts.length >= 4 ? decodeURIComponent(tabParts[3]!) : undefined;
+        residentDetailTab !== "applicant" && tabParts.length >= 4
+          ? decodeURIComponent(tabParts[3]!)
+          : undefined;
       const residentPaymentId =
         residentDetailTab === "payments" ? residentDetailItemId : undefined;
       const residentTourId = residentDetailTab === "tours" ? residentDetailItemId : undefined;
@@ -615,6 +631,7 @@ export async function renderPortalSection(
           tabId={parsedResidentsTab}
           residentId={residentId}
           detailTab={residentDetailTab as import("@/lib/portal-detail-routes").ResidentDetailTabId | undefined}
+          applicantSubTab={residentApplicantSubTab}
           paymentId={residentPaymentId}
           tourId={residentTourId}
           serviceItemId={residentServiceItemId}

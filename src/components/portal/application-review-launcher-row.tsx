@@ -37,6 +37,7 @@ export function ApplicationReviewLauncherRow({
   hideToggle = false,
   householdPanels,
   className,
+  content = "all",
 }: {
   row: DemoApplicantRow;
   bareCanvas?: boolean;
@@ -57,6 +58,8 @@ export function ApplicationReviewLauncherRow({
   hideToggle?: boolean;
   householdPanels?: ReactNode;
   className?: string;
+  /** When `application`, omit the inline background-check section (dedicated applicant sub-tab). */
+  content?: "application" | "all";
 }) {
   const showsScreening = applicationShowsBackgroundCheck(row);
   const [internalView, setInternalView] = useState<ApplicationReviewView>("application");
@@ -99,7 +102,7 @@ export function ApplicationReviewLauncherRow({
         }
         data-testid="application-readonly-review"
       >
-        {showsScreening ? (
+        {showsScreening && content === "all" ? (
           <div id="application-background-check-section" className="scroll-mt-4">
             <ApplicationScreeningPanel
               row={row}
