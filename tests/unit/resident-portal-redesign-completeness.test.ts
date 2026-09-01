@@ -152,10 +152,7 @@ describe("resident portal redesign completeness", () => {
       // `portal-inline-title-band-duplicate-controls.test.tsx`, which is the guard
       // that actually enforces "header actions reach a phone exactly once" — so
       // that one owns the shape, and this one just checks the button is present.
-<<<<<<< HEAD
       expect(src).toContain("communicationNewMessageButton");
-=======
->>>>>>> origin/cursor-1
       expect(src).toContain('data-attr="communication-new-message"');
       expect(src).not.toContain("PortalPageHeaderMobileActionsRow");
     });
@@ -223,7 +220,7 @@ describe("resident portal redesign completeness", () => {
       const applications = readPanel("resident-applications-panel.tsx");
       expect(applications).toContain('variant="command"');
       expect(applications).toContain("ResidentPortalGroupedDataList");
-      expect(applications).toContain("PortalListAddRow");
+      expect(applications).not.toContain("useResidentPortalListFilterState");
       const services = readPanel("resident-services-panel.tsx");
       expect(services).toContain('variant="command"');
       expect(services).toContain("ResidentPortalGroupedDataList");

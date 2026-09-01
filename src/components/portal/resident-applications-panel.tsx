@@ -12,10 +12,10 @@ import { SignedInResidentAccountPrompt } from "@/components/marketing/signed-in-
 import { RentalApplicationWizard } from "@/components/marketing/rental-application-wizard";
 import {
   ManagerPortalPageShell,
+  PORTAL_HEADER_PRIMARY_ACTION_BTN,
 } from "@/components/portal/portal-metrics";
 import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
 import { PORTAL_LIST_PAGE_BODY } from "@/components/portal/portal-inbox-ui";
-import { PortalListAddRow, PORTAL_LIST_ADD_ICONS, PORTAL_LIST_ADD_ROW_WRAP_CLASS } from "@/components/portal/portal-list-add-row";
 import { PortalSectionActionRow } from "@/components/portal/portal-section-action-row";
 import { ResidentPortalListBottomBar } from "@/components/portal/resident-portal-list-bottom-bar";
 import {
@@ -23,6 +23,7 @@ import {
   RESIDENT_PORTAL_DEFAULT_GROUP_MODE,
   type ResidentPortalGroupableRow,
 } from "@/components/portal/resident-portal-grouped-data-list";
+import type { PortalListGroupMode } from "@/lib/portal-list-grouping";
 import type { PortalAdaptiveAction } from "@/components/portal/portal-adaptive-action-row";
 import { DropdownMenuItem } from "@/components/ui/dropdown-menu";
 import { usePortalRowSelection } from "@/hooks/use-portal-row-selection";
@@ -288,6 +289,7 @@ export function ResidentApplicationsPanel({
     setPrevBucketProp(bucketProp);
     setBucket(bucketProp);
   }
+  const groupMode: PortalListGroupMode = RESIDENT_PORTAL_DEFAULT_GROUP_MODE;
   const [expandedId, setExpandedId] = useState<string | null>(null);
   // The ONE row this apply session's inline wizard is bound to — the row the
   // auto-expand effect resolved for the URL target (or the sole bare-/apply
@@ -1020,7 +1022,7 @@ export function ResidentApplicationsPanel({
 
   const buildApplicationGroupedItems = useCallback(
     (listRows: DemoApplicantRow[]): ResidentPortalGroupableRow<DemoApplicantRow>[] => {
-      const showPropertyInMeta = RESIDENT_PORTAL_DEFAULT_GROUP_MODE !== "house";
+      const showPropertyInMeta = groupMode !== "house";
       return listRows.map((row) => {
         const room = displayRoomForRow(row);
         const subtitle = [
@@ -1050,13 +1052,13 @@ export function ResidentApplicationsPanel({
         };
       });
     },
-    [openApplicationRow, selectedIds, toggleSelected],
+    [groupMode, openApplicationRow, selectedIds, toggleSelected],
   );
 
   const renderRoutedList = (listRows: DemoApplicantRow[]) => (
     <ResidentPortalGroupedDataList
       items={buildApplicationGroupedItems(listRows)}
-      groupMode={RESIDENT_PORTAL_DEFAULT_GROUP_MODE}
+      groupMode={groupMode}
       selectable={sessionReady}
       selectedIds={selectedIds}
       onToggleSelected={toggleSelected}
@@ -1085,24 +1087,21 @@ export function ResidentApplicationsPanel({
 
   const canOpenPropertyPicker = sessionReady;
 
-  const applyAddHint =
-    workspace.mode === "in_progress"
-      ? "Apply to property"
-      : workspace.mode === "submitted"
-        ? "Apply to another property"
-        : "Apply to a property";
-
-  const renderApplicationAddRow = (inline: boolean) =>
+  const newApplicationButton =
     sessionReady && canOpenPropertyPicker ? (
-      <PortalListAddRow
-        label="Application"
-        ariaLabel={applyAddHint}
-        hint={applyAddHint}
-        icon={PORTAL_LIST_ADD_ICONS.application}
+      <Button
+        type="button"
+        variant="primary"
+        className={`shrink-0 ${PORTAL_HEADER_PRIMARY_ACTION_BTN}`}
+        data-attr="resident-applications-apply"
         onClick={openPropertyPicker}
-        inline={inline}
-        dataAttr="resident-applications-apply"
-      />
+      >
+        {workspace.mode === "in_progress"
+          ? "Apply to property"
+          : workspace.mode === "submitted"
+            ? "Apply to another property"
+            : "Apply to a property"}
+      </Button>
     ) : null;
 
   const applicationListControlStack = (
@@ -1118,6 +1117,7 @@ export function ResidentApplicationsPanel({
       }))}
       activeDestinationId={bucket}
       destinationAriaLabel="Application status"
+      actions={sessionReady ? newApplicationButton : undefined}
     />
   );
 
@@ -1197,6 +1197,8 @@ export function ResidentApplicationsPanel({
         <PortalDataTableEmpty icon="application" message="No applications in this tab yet." />
       ) : applyMode || embedded ? (
         rowsForBucket.length > 0 ? renderRoutedList(rowsForBucket) : null
+      ) : rowsForBucket.length === 0 ? (
+        <PortalDataTableEmpty icon="application" message="No applications in this tab yet." />
       ) : (
         renderRoutedList(rowsForBucket)
       )}
@@ -1208,8 +1210,6 @@ export function ResidentApplicationsPanel({
   if (embedded) return tableBody;
 
   const renderResidentApplicationList = () => {
-    const listRows = rowsForBucket;
-
     return (
       <>
         {applicationListControlStack}
@@ -1218,16 +1218,10 @@ export function ResidentApplicationsPanel({
           <div className={PORTAL_DATA_TABLE_WRAP}>
             <div className="flex items-center justify-center px-6 py-16 text-sm text-muted">Loading applications…</div>
           </div>
-        ) : listRows.length === 0 ? (
-          <>
-            <PortalDataTableEmpty icon="application" message="No applications in this tab yet." />
-            <div className={PORTAL_LIST_ADD_ROW_WRAP_CLASS}>{renderApplicationAddRow(false)}</div>
-          </>
+        ) : rowsForBucket.length === 0 ? (
+          <PortalDataTableEmpty icon="application" message="No applications in this tab yet." />
         ) : (
-          <div className={PORTAL_LIST_PAGE_BODY}>
-            {renderRoutedList(listRows)}
-            {renderApplicationAddRow(true)}
-          </div>
+          <div className={PORTAL_LIST_PAGE_BODY}>{renderRoutedList(rowsForBucket)}</div>
         )}
 
         {withdrawModal}
