@@ -323,16 +323,26 @@ export function ManagerPipelineLeaseEditModal({
               ) : null}
             </div>
             {showSave ? (
-              <Button
-                type="button"
-                variant="primary"
-                className="ml-auto rounded-full"
-                disabled={saving || (usesAiHtml && !reviewAcknowledged)}
-                onClick={save}
-                data-attr="resident-lease-edit-save"
-              >
-                {saving ? "Saving…" : "Save"}
-              </Button>
+              <div className="ml-auto flex items-center gap-3">
+                {/* A dead button with no stated reason reads as a broken feature:
+                    the review tick is REQUIRED before an AI-drafted lease can be
+                    saved, so name that instead of leaving the manager clicking. */}
+                {usesAiHtml && !reviewAcknowledged ? (
+                  <span className="text-xs text-muted" data-attr="resident-lease-save-blocked-reason">
+                    Confirm you have reviewed the draft above to save.
+                  </span>
+                ) : null}
+                <Button
+                  type="button"
+                  variant="primary"
+                  className="rounded-full"
+                  disabled={saving || (usesAiHtml && !reviewAcknowledged)}
+                  onClick={save}
+                  data-attr="resident-lease-edit-save"
+                >
+                  {saving ? "Saving…" : "Save"}
+                </Button>
+              </div>
             ) : null}
           </ModalFooter>
         ) : null

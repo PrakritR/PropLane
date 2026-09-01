@@ -174,12 +174,7 @@ import {
   validateListingWizardStep,
 } from "@/lib/listing-wizard-validation";
 import { roomHeadlinePriceLabel } from "@/lib/room-pricing";
-import {
-  listingOtherFeesPreviewLines,
-  listingRoomPricingSummaryLabel,
-  paymentAtSigningIncludedLabels,
-  paymentAtSigningPriceLabel,
-} from "@/lib/rental-application/listing-fees-display";
+import { listingRoomPricingSummaryLabel } from "@/lib/rental-application/listing-fees-display";
 import {
   scrollToFirstWizardFieldError,
   wizardFieldErrorClass,
@@ -3981,31 +3976,10 @@ export function ManagerAddListingForm({
                       </label>
                     ))}
                   </div>
-                  {sub.paymentAtSigningIncludes.length > 0 ? (
-                    <div className="rounded-xl border border-border/80 bg-muted/30 px-3 py-2.5 text-sm text-muted">
-                      <p className="font-medium text-foreground">Payment due at signing (listing)</p>
-                      <p className="mt-1">
-                        {paymentAtSigningPriceLabel(sub)}
-                        {paymentAtSigningIncludedLabels(sub)
-                          ? ` — includes ${paymentAtSigningIncludedLabels(sub)}`
-                          : ""}
-                      </p>
-                      <p className="mt-1 text-xs">
-                        Prorated first-month rent and utilities appear on the lease when the resident&apos;s start date
-                        is not the 1st. Each room row above shows deposit, move-in, and signing totals for that room.
-                      </p>
-                    </div>
-                  ) : null}
-                  {listingOtherFeesPreviewLines(sub).length > 0 ? (
-                    <div className="rounded-xl border border-border/80 bg-muted/30 px-3 py-2.5 text-sm">
-                      <p className="font-medium text-foreground">Other fees on the lease</p>
-                      <ul className="mt-1 list-inside list-disc text-muted">
-                        {listingOtherFeesPreviewLines(sub).map((line, idx) => (
-                          <li key={`other-fee-${idx}`}>{line}</li>
-                        ))}
-                      </ul>
-                    </div>
-                  ) : null}
+                  {/* The signing-total and other-fees recaps were removed: every
+                      figure in them is already stated by the checkboxes above and
+                      by each room row, so they only restated the form back to the
+                      manager. */}
                 </div>
 
                 <div className="mt-4 grid gap-3 border-t border-border pt-4 sm:grid-cols-2">
