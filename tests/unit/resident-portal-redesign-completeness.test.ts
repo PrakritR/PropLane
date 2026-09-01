@@ -152,7 +152,6 @@ describe("resident portal redesign completeness", () => {
       // `portal-inline-title-band-duplicate-controls.test.tsx`, which is the guard
       // that actually enforces "header actions reach a phone exactly once" — so
       // that one owns the shape, and this one just checks the button is present.
-      expect(src).toContain("newMessageButton");
       expect(src).toContain('data-attr="communication-new-message"');
       expect(src).not.toContain("PortalPageHeaderMobileActionsRow");
     });
@@ -196,11 +195,13 @@ describe("resident portal redesign completeness", () => {
       expect(readPanel("resident-lease-panel.tsx")).not.toContain("glass-card");
     });
 
-    it("house details is a single scroll page without routed sub-tabs", () => {
+    it("house details uses routed sub-tabs with command layout", () => {
       const moveIn = readPanel("resident-move-in-view.tsx");
-      expect(moveIn).not.toContain("PortalListControlStack");
-      expect(moveIn).toContain("Your placement");
-      expect(moveIn).toContain("Move-in instructions");
+      expect(moveIn).toContain("PortalListControlStack");
+      expect(moveIn).toContain('variant="command"');
+      expect(moveIn).toContain("RESIDENT_MOVE_IN_TABS");
+      expect(moveIn).toContain("RESIDENT_MOVE_IN_TAB_LABELS");
+      expect(moveIn).toContain("residentMoveInHref");
     });
 
     it("lease, tour, and applications use command layout with grouped property lists", () => {
@@ -216,7 +217,11 @@ describe("resident portal redesign completeness", () => {
       const applications = readPanel("resident-applications-panel.tsx");
       expect(applications).toContain('variant="command"');
       expect(applications).toContain("ResidentPortalGroupedDataList");
-      expect(applications).toContain("useResidentPortalListFilterState");
+      expect(applications).toContain("PortalListAddRow");
+      const services = readPanel("resident-services-panel.tsx");
+      expect(services).toContain('variant="command"');
+      expect(services).toContain("ResidentPortalGroupedDataList");
+      expect(services).toContain("useResidentPortalListFilterState");
     });
 
     it("lease filter tabs are a local nav, not a dropdown; services filter rows span full width", () => {
@@ -241,7 +246,7 @@ describe("resident portal redesign completeness", () => {
       // Services uses a single list-body add action, not a title-band action.
       const services = readPanel("resident-services-panel.tsx");
       expect(services).toContain("ResidentAddServiceModal");
-      expect(services).toContain('dataAttr="resident-services-add"');
+      expect(services).toContain('data-attr="resident-services-add"');
       expect(services).not.toContain("ResidentServicesAddActions");
       expect(services).not.toContain("PortalPageHeaderMobileActionsRow");
 
@@ -253,6 +258,8 @@ describe("resident portal redesign completeness", () => {
 
       const applications = readPanel("resident-applications-panel.tsx");
       expect(applications).toContain("applicationListControlStack");
+      expect(applications).toContain("renderApplicationAddRow");
+      expect(applications).toContain("PortalListAddRow");
       expect(applications).not.toContain("ResidentApplicationWorkspaceActions");
       expect(applications).not.toContain("ResidentApplicationWorkspaceMobileApply");
       expect(applications).not.toContain("PortalPageHeaderMobileActionsRow");

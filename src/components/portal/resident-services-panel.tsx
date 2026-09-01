@@ -3,11 +3,10 @@
 import Image from "next/image";
 import { useEffect, useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
-import { DataList, type DataListRow } from "@/components/ui/data-list";
 import { DropdownMenuItem } from "@/components/ui/dropdown-menu";
 import { Input, Textarea } from "@/components/ui/input";
 import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
-import { DestinationNav } from "@/components/ui/destination-nav";
+import { LocalDestinationNav } from "@/components/ui/destination-nav";
 import { PORTAL_LIST_PAGE_BODY } from "@/components/portal/portal-inbox-ui";
 import { PortalListAddRow, PORTAL_LIST_ADD_ICONS, PORTAL_LIST_ADD_ROW_WRAP_CLASS } from "@/components/portal/portal-list-add-row";
 import { ResidentAddServiceModal } from "@/components/portal/resident-add-service-modal";
@@ -999,8 +998,10 @@ export function ResidentServicesPanel({
   };
 
   const serviceGroupedItems = useMemo((): ResidentPortalGroupableRow<ServiceRequest | DemoManagerWorkOrderRow>[] => {
+    const showPropertyInMeta = groupMode !== "house";
     return propertyFilteredUnifiedRows.flatMap((unified): ResidentPortalGroupableRow<ServiceRequest | DemoManagerWorkOrderRow>[] => {
       const rowKey = unifiedServiceRowKey(unified);
+      const propertyLabel = unified.propertyLabel?.trim() || unified.propertyId || "Property";
       if (unified.kind === "add-on") {
         const req = serviceRequestById.get(unified.id);
         if (!req) return [];
@@ -1008,27 +1009,36 @@ export function ResidentServicesPanel({
         return [
           {
             id: rowKey,
-            data: req,
-            primary: req.offerName,
-            meta: [unified.statusLabel, req.notes?.trim()].filter(Boolean).join(" · ") || unified.statusLabel,
-            trailing: (
-              <span className="text-sm font-semibold tabular-nums text-foreground">
-                {displayServiceRequestCost(req)}
-              </span>
-            ),
-            selected: selectedIds.has(rowKey),
-            onSelectedChange: () => toggleSelected(rowKey),
-            expanded: isExpanded,
-            onClick: () => setExpandedId((current) => (current === rowKey ? null : rowKey)),
-            expandedContent: (
-              <ServiceRequestCard
-                req={req}
-                onDelete={reloadServiceRequests}
-                onEdit={() => openRequestEdit(req)}
-                onSendReminder={() => void sendServiceRequestReminder(req)}
-                reminderSending={requestReminderSendingId === req.id}
-              />
-            ),
+            propertyId: unified.propertyId,
+            propertyLabel,
+            dataListRow: {
+              id: rowKey,
+              data: req,
+              primary: req.offerName,
+              meta: [
+                showPropertyInMeta ? propertyLabel : null,
+                unified.statusLabel,
+                req.notes?.trim(),
+              ]
+                .filter(Boolean)
+                .join(" · ") || unified.statusLabel,
+              trailing: (
+                <span className="text-sm font-semibold tabular-nums text-foreground">
+                  {displayServiceRequestCost(req)}
+                </span>
+              ),
+              expanded: isExpanded,
+              onClick: () => setExpandedId((current) => (current === rowKey ? null : rowKey)),
+              expandedContent: (
+                <ServiceRequestCard
+                  req={req}
+                  onDelete={reloadServiceRequests}
+                  onEdit={() => openRequestEdit(req)}
+                  onSendReminder={() => void sendServiceRequestReminder(req)}
+                  reminderSending={requestReminderSendingId === req.id}
+                />
+              ),
+            },
           },
         ];
       }
@@ -1038,41 +1048,49 @@ export function ResidentServicesPanel({
       return [
         {
           id: rowKey,
-          data: row,
-          primary: row.title,
-          meta: [unified.statusLabel, row.description?.trim()].filter(Boolean).join(" · ") || unified.statusLabel,
-          trailing: (
-            <span
-              className={`inline-flex rounded-full px-2 py-0.5 text-[10px] font-semibold ${priorityClass(row.priority)}`}
-            >
-              {row.priority}
-            </span>
-          ),
-          selected: selectedIds.has(rowKey),
-          onSelectedChange: () => toggleSelected(rowKey),
-          expanded: isExpanded,
-          onClick: () => setExpandedId((current) => (current === rowKey ? null : rowKey)),
-          expandedContent: (
-            <WorkOrderDetail
-              row={row}
-              onEdit={() => openWorkOrderEdit(row)}
-              onCancel={() => cancelWorkOrder(row.id)}
-              onSendReminder={() => void sendWorkOrderReminder(row)}
-              reminderSending={reminderSendingId === row.id}
-            />
-          ),
+          propertyId: unified.propertyId,
+          propertyLabel,
+          dataListRow: {
+            id: rowKey,
+            data: row,
+            primary: row.title,
+            meta: [
+              showPropertyInMeta ? propertyLabel : null,
+              unified.statusLabel,
+              row.description?.trim(),
+            ]
+              .filter(Boolean)
+              .join(" · ") || unified.statusLabel,
+            trailing: (
+              <span
+                className={`inline-flex rounded-full px-2 py-0.5 text-[10px] font-semibold ${priorityClass(row.priority)}`}
+              >
+                {row.priority}
+              </span>
+            ),
+            expanded: isExpanded,
+            onClick: () => setExpandedId((current) => (current === rowKey ? null : rowKey)),
+            expandedContent: (
+              <WorkOrderDetail
+                row={row}
+                onEdit={() => openWorkOrderEdit(row)}
+                onCancel={() => cancelWorkOrder(row.id)}
+                onSendReminder={() => void sendWorkOrderReminder(row)}
+                reminderSending={reminderSendingId === row.id}
+              />
+            ),
+          },
         },
       ];
     });
   }, [
-    filteredUnifiedRows,
+    groupMode,
+    propertyFilteredUnifiedRows,
     serviceRequestById,
     workOrderById,
     expandedId,
     requestReminderSendingId,
     reminderSendingId,
-    selectedIds,
-    toggleSelected,
   ]);
 
   const deleteSelectedServices = () => {
@@ -1210,18 +1228,22 @@ export function ResidentServicesPanel({
           />
         }
         actions={
-          <Button
-            type="button"
-            className={PORTAL_COMMAND_PRIMARY_ACTION_BTN}
-            style={PORTAL_COMMAND_PRIMARY_ACTION_STYLE}
-            data-attr="resident-services-add"
-            onClick={openAddService}
-            disabled={!servicesUnlocked}
-          >
-            <span className="sm:hidden" aria-hidden="true">Add</span>
-            <span className="hidden sm:inline">Add service</span>
-          </Button>
+          <>
+            {servicesFilterSheet}
+            <Button
+              type="button"
+              className={PORTAL_COMMAND_PRIMARY_ACTION_BTN}
+              style={PORTAL_COMMAND_PRIMARY_ACTION_STYLE}
+              data-attr="resident-services-add"
+              onClick={openAddService}
+              disabled={!servicesUnlocked}
+            >
+              <span className="sm:hidden" aria-hidden="true">Add</span>
+              <span className="hidden sm:inline">Add service</span>
+            </Button>
+          </>
         }
+        activeFilterChips={servicesActiveFilterChips}
       />
 
       {unifiedServiceRows.length === 0 && servicesUnlocked ? (
@@ -1238,14 +1260,14 @@ export function ResidentServicesPanel({
         </div>
       ) : (
       <div className={PORTAL_LIST_PAGE_BODY}>
-        <DataList<ServiceRequest | DemoManagerWorkOrderRow>
-          variant="resident"
-          hideColumnHeaders
+        <ResidentPortalGroupedDataList
+          items={serviceGroupedItems}
+          groupMode={groupMode}
           selectable={servicesUnlocked}
-          rows={serviceListRows}
-          columns={[
-            { id: "service", header: "Service", cell: () => "—" },
-          ]}
+          selectedIds={selectedIds}
+          onToggleSelected={toggleSelected}
+          dataAttr="resident-services-grouped-list"
+          columns={[{ id: "service", header: "Service", cell: () => "—" }]}
           emptyState={
             filteredUnifiedRows.length === 0 && unifiedServiceRows.length > 0 ? (
               <p className="px-1 py-6 text-center text-sm text-muted">No services in this status yet.</p>
