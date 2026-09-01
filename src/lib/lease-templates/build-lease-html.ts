@@ -1093,6 +1093,13 @@ ${customTermsAddendumHtml(subNorm, "Additional Provisions from Owner/Host", prop
     proratedFirstMonthTotals?.applies && proratedFirstMonthTotals.total > 0
       ? proratedFirstMonthTotals.total
       : 0;
+  const signingIncludesForProration = new Set(subNorm?.paymentAtSigningIncludes ?? []);
+  const useSigningIncludesFilter = signingIncludesForProration.size > 0;
+  const showProratedFirstMonth =
+    firstPartialMonthPayment > 0 &&
+    (!useSigningIncludesFilter ||
+      signingIncludesForProration.has("first_month_rent") ||
+      signingIncludesForProration.has("first_month_utilities"));
   const customFeeSummaryRows = billableOneTimeCustomFees
     .map(
       (f) =>
@@ -1123,7 +1130,7 @@ ${customTermsAddendumHtml(subNorm, "Additional Provisions from Owner/Host", prop
     <tr><th>Monthly rent</th><td class="amount"><strong>${summaryMonthlyRent}</strong></td></tr>
     <tr><th>Monthly utilities</th><td class="amount"><strong>${summaryMonthlyUtilities}</strong></td></tr>
     ${summaryTotalMonthly ? `<tr class="total-row"><th>Total monthly payment</th><td class="amount"><strong>${summaryTotalMonthly}</strong></td></tr>` : ""}
-    ${firstPartialMonthPayment > 0 ? `<tr><th>Prorated first month</th><td class="amount">${fmtUsd(firstPartialMonthPayment)}</td></tr>` : ""}
+    ${showProratedFirstMonth ? `<tr><th>Prorated first month</th><td class="amount">${fmtUsd(firstPartialMonthPayment)}</td></tr>` : ""}
     <tr><th>Security deposit</th><td class="amount">${secDep}</td></tr>
     <tr><th>Move-in fee</th><td class="amount">${moveInFee}</td></tr>
     ${monthlyCustomFeeSummaryRows}
@@ -1280,7 +1287,7 @@ ${isDailyBasis ? `<p>Rent for this Premises is charged <strong>by the day</stron
 ${lateFeeUsd != null ? `<p><strong>Late fee:</strong> If rent is not received after the listing's configured grace period, a late fee of <strong>${fmtUsd(lateFeeUsd)}</strong> (non-refundable) may be assessed. Acceptance of late payment does not waive Landlord&apos;s right to enforce late fees or pursue other remedies under this Agreement or applicable law.</p>` : ""}
 ${rentDisclosureHtml}
 
-${proratedSection ? proratedSection.replace(PRORATED_SECTION_TOKEN, String(nextSection())) : ""}
+${showProratedFirstMonth && proratedSection ? proratedSection.replace(PRORATED_SECTION_TOKEN, String(nextSection())) : ""}
 
 <h2>${nextSection()}. Security Deposit &amp; Move-In Charges</h2>
 <table class="fee-table">

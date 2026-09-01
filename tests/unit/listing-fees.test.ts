@@ -161,6 +161,21 @@ describe("lease payment at signing", () => {
     expect(paymentAtSigningPriceLabel(sub)).toBe("$400.00");
   });
 
+  it("reads move-in fee from unified fee rows for the listing preview", () => {
+    let sub = createDefaultListingSubmission();
+    sub.securityDeposit = "";
+    sub.moveInFee = "";
+    sub = normalizeManagerListingSubmissionV1(sub);
+    const fees = (sub.customFees ?? []).map((fee) => {
+      if (fee.presetId === "move_in_fee") return { ...fee, amount: "150" };
+      if (fee.presetId === "security_deposit") return { ...fee, amount: "400" };
+      return fee;
+    });
+    sub = normalizeManagerListingSubmissionV1({ ...sub, customFees: fees });
+    sub.paymentAtSigningIncludes = ["security_deposit", "move_in_fee"];
+    expect(paymentAtSigningPriceLabel(sub)).toBe("$550.00");
+  });
+
   it("formats bare fee amounts for lease tables", () => {
     expect(formatListingFeeDisplay("50")).toBe("$50.00");
     expect(formatListingFeeDisplay("$75")).toBe("$75");
@@ -221,5 +236,11 @@ describe("lease payment at signing", () => {
     });
     expect(custom.monthly.map((line) => line.label)).toContain("Custom lease");
     expect(custom.monthly.map((line) => line.label)).not.toContain("Month-to-month surcharge");
+  });
+
+  it("omits removed holding deposit from lease document fee lines", () => {
+    const sub = normalizeManagerListingSubmissionV1(createNewListingWizardSubmission());
+    const lines = leaseDocumentFeeLines(sub, "long-term");
+    expect(lines.oneTime.map((line) => line.label)).not.toContain("Holding deposit");
   });
 });

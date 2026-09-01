@@ -154,4 +154,36 @@ describe("buildLeaseBillingSnapshot", () => {
       true,
     );
   });
+
+  it("honors payment-at-signing checkboxes instead of summing every pending charge", () => {
+    const propertyId = "prop-signing-includes";
+    const email = "signing-includes@example.com";
+    removeResidentHouseholdPaymentData(email);
+
+    let sub = createDefaultListingSubmission();
+    sub.rooms = [
+      {
+        ...emptyRoom(0),
+        id: "room-1",
+        name: "Room 1",
+        monthlyRent: 800,
+        utilitiesEstimate: "200",
+        prorateMethod: "auto",
+      },
+    ];
+    sub.securityDeposit = "400";
+    sub.moveInFee = "100";
+    sub.holdingDeposit = "$100";
+    sub.applicationFee = "50";
+    sub.paymentAtSigningIncludes = ["security_deposit", "move_in_fee"];
+    sub = normalizeManagerListingSubmissionV1(sub);
+    seedListing(propertyId, sub);
+
+    const row = applicantRow(propertyId, email);
+    recordApprovedApplicationCharges(row, MANAGER_ID, true);
+
+    const billing = buildLeaseBillingSnapshot(row, MANAGER_ID);
+    expect(billing.dueAtSigning).toBe(500);
+    expect(billing.proratedRent).toBe(240);
+  });
 });
