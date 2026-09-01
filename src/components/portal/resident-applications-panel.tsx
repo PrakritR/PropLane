@@ -13,7 +13,6 @@ import { RentalApplicationWizard } from "@/components/marketing/rental-applicati
 import { ModalAssistantStrip } from "@/components/portal/modal-assistant-strip";
 import {
   ManagerPortalPageShell,
-  PORTAL_HEADER_PRIMARY_ACTION_BTN,
 } from "@/components/portal/portal-metrics";
 import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
 import {
