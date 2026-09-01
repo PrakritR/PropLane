@@ -225,6 +225,33 @@ describe("handleClawLeasingInbound — known resident thread", () => {
     expect(sendFromManager).not.toHaveBeenCalled();
   });
 
+  it("answers a work-number text instead of stranding it when the resident thread cannot open", async () => {
+    // Regression: `openClawResidentThread` refuses for ordinary reasons — the
+    // texter's own number is a registered manager/admin cell, or the owning
+    // manager has no personal phone on file. That refusal used to return
+    // ok:false, which made /api/twilio/inbound answer 503 forever: Twilio
+    // retried three times, gave up, and the sender never got a reply while the
+    // manager saw nothing in Communication. Scoped to one work number the
+    // leasing responder is pinned to that same manager, so answering is safe.
+    findThreadByResidentPhone.mockResolvedValue(null);
+    openClawResidentThread.mockResolvedValue(null);
+
+    const { handleClawLeasingInbound } = await import("@/lib/claw-leasing-bot.server");
+    const result = await handleClawLeasingInbound({
+      from: "+15105794001",
+      text: "Hi",
+      messageId: "inbound-thread-refused-scoped-test",
+      workNumber: "+12053690702",
+      managerUserId: "mgr-1",
+    });
+
+    expect(result.ok).toBe(true);
+    expect(result.replied).toBe(true);
+    expect(sendFromManager).toHaveBeenCalledWith(
+      expect.objectContaining({ to: "+15105794001", managerUserId: "mgr-1" }),
+    );
+  });
+
   it("preserves the authoritative manager thread topic when a newer thread belongs to another manager", async () => {
     findThreadByResidentPhone
       .mockResolvedValueOnce({

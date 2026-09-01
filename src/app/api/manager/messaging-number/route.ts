@@ -228,8 +228,11 @@ async function buildStatus(
         typeof profileResult.data?.phone_verified_at === "string"
           ? profileResult.data.phone_verified_at
           : null,
+      // Mirrors of inbound texts go to the manager's own verified cell. The
+      // number must be verified (an unverified `profiles.phone` is editable
+      // free text) and the manager must not have opted out.
       forwardInbound:
-        process.env.SMS_RUNTIME_ENABLED?.trim() !== "1" &&
+        Boolean(profileResult.data?.phone_verified_at) &&
         profileResult.data?.sms_forward_inbound !== false,
     },
   };

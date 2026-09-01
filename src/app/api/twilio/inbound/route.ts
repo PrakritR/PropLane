@@ -485,6 +485,19 @@ export async function POST(req: Request) {
         }),
       })
       .then(() => undefined, () => undefined);
+
+    // Leg 1 for the resident agent fork. Without this, only prospect/leasing
+    // traffic reached the manager's cell and a known resident's text — the one
+    // most likely to need a human — was portal-only.
+    if (!isClawSharedLineBridgeEnabled()) {
+      await forwardResidentInboundToManagerCell(db, {
+        managerUserId: managerId,
+        workNumber,
+        fromPhone,
+        body,
+        messageSid,
+      }).catch(() => undefined);
+    }
     if (turn) return twimlOk();
     if (!(await finishInboundClaim(db, messageSid, inboundWorkerId, "completed"))) {
       return NextResponse.json({ error: "Inbound completion unavailable." }, { status: 503 });
@@ -550,6 +563,7 @@ export async function POST(req: Request) {
       workNumber,
       fromPhone,
       body,
+      messageSid,
     }).catch(() => undefined);
   }
 

@@ -717,7 +717,23 @@ export async function handleClawLeasingInbound(args: {
         residentEmail: residentProfile?.email,
         topic: "general",
       });
-      if (!thread) {
+      // A refusal to open the legacy resident thread is NOT a failure to
+      // handle the text. `openClawResidentThread` returns null for ordinary,
+      // non-exceptional reasons — the sender's own number is a registered
+      // manager/admin cell, or the owning manager has no personal phone on
+      // file — and answering `ok: false` makes /api/twilio/inbound reply 503,
+      // which Twilio retries a few times and then drops. The texter got
+      // silence, nothing reached `inbound_sms_log`, and the message never
+      // appeared in Communication.
+      //
+      // When the text arrived on ONE manager's work number (scopedManagerId),
+      // falling through to the leasing responder is safe and strictly better:
+      // that responder is pinned to the same manager, so it cannot misroute to
+      // another landlord, and it logs both sides and replies from that number.
+      // Without a scope (the retired shared line) the responder picks a
+      // manager from the roster, so keep failing loudly there rather than
+      // risk handing one landlord's resident to another.
+      if (!thread && !scopedManagerId) {
         releaseInboundMessageClaims(claimedMessageIds);
         return { ok: false, intent: "unknown", replied: false, error: "Resident SMS thread resolution failed." };
       }

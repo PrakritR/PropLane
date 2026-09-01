@@ -1,7 +1,16 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { normalizeE164 } from "@/lib/phone-e164";
 import { sendFromManagerWorkNumber } from "@/lib/proplane-sms-transport.server";
+import { readScopedSmsConsentState, recordScopedSmsConsent } from "@/lib/sms-consent";
 import { resolveActiveManagerSendNumber } from "@/lib/sms/manager-number-provisioning.server";
+
+/** Consent + outbox scope for manager-cell mirrors, distinct from resident traffic. */
+const MANAGER_FORWARD_PURPOSE = "manager_inbound_forward";
+
+/** One stable thread identity per manager for their own mirror copies. */
+function managerForwardConversationKey(managerUserId: string): string {
+  return `${managerUserId}:manager:${managerUserId}`;
+}
 
 /**
  * Per-manager SMS proxy relay. Each manager has ONE PropLane-owned number that
@@ -197,12 +206,87 @@ export async function senderLabelForInbound(
  */
 export async function forwardResidentInboundToManagerCell(
   db: SupabaseClient,
-  args: { managerUserId: string; workNumber: string; fromPhone: string; body: string },
+  args: {
+    managerUserId: string;
+    workNumber: string;
+    fromPhone: string;
+    body: string;
+    /** Twilio's inbound MessageSid — pins the dedupe key so a webhook retry
+     * cannot text the manager the same message twice. */
+    messageSid?: string | null;
+  },
 ): Promise<boolean> {
-  // Manager-cell forwarding is deliberately disabled in the managed-number
-  // control plane. It creates an ambiguous reply target and needs its own
-  // verified consent scope. Managers read/reply in the PropLane inbox instead.
-  void db;
-  void args;
-  return false;
+  const managerUserId = args.managerUserId.trim();
+  if (!managerUserId) return false;
+
+  const { data, error } = await db
+    .from("profiles")
+    .select("phone, phone_verified_at, sms_forward_inbound")
+    .eq("id", managerUserId)
+    .maybeSingle();
+  // Fail closed: an unreadable profile is not permission to text a cell.
+  if (error) return false;
+  // The forward goes to the manager's OWN number, so it is only ever sent to a
+  // number that account proved it controls via the verification code. An
+  // unverified `profiles.phone` is user-editable free text and could name a
+  // stranger's cell, which is why verification — not presence — is the gate.
+  if (!data?.phone_verified_at) return false;
+  // Opt-out lives on the manager's own profile (Settings → Messaging).
+  if (data.sms_forward_inbound === false) return false;
+  const managerPhone = normalizeE164(String(data.phone ?? "").trim());
+  if (!managerPhone) return false;
+  // A manager texting their own work number is Leg 2, already handled upstream;
+  // forwarding it back would text them their own words.
+  if (samePhone(managerPhone, args.fromPhone)) return false;
+
+  const sendNumber = await resolveActiveManagerSendNumber(db, managerUserId);
+  if (!sendNumber) return false;
+
+  // Scoped consent for a DIFFERENT purpose than resident traffic, so a manager
+  // who stops the forwards keeps their outbound conversation rails. The grant
+  // is materialized from their own phone verification, and — exactly like the
+  // rental-application grant — a prior revoke on this scope always wins over
+  // re-materializing it here.
+  const scope = {
+    managerUserId,
+    purpose: MANAGER_FORWARD_PURPOSE,
+    sendClass: "transactional" as const,
+    conversationKey: managerForwardConversationKey(managerUserId),
+    messagingServiceSid: process.env.TWILIO_MESSAGING_SERVICE_SID?.trim() || null,
+  };
+  const consent = await readScopedSmsConsentState(db, managerPhone, scope);
+  if (!consent.ok || consent.state === "revoked") return false;
+  if (consent.state === "none") {
+    const granted = await recordScopedSmsConsent(db, managerPhone, {
+      ...scope,
+      eventType: "granted",
+      source: "manager_phone_verification",
+      occurredAt: String(data.phone_verified_at),
+      evidence: { managerUserId },
+    });
+    if (!granted.ok) return false;
+  }
+
+  const label = await senderLabelForInbound(db, {
+    managerUserId,
+    fromPhone: args.fromPhone,
+  });
+  const text = `${label}: ${args.body.trim() || "(no text)"}\n\nReply to this text to answer them.`;
+
+  const sent = await sendFromManagerWorkNumber({
+    managerUserId,
+    to: managerPhone,
+    text,
+    fromNumber: sendNumber,
+    source: "work_number",
+    counterpartyRole: "manager",
+    conversationKey: scope.conversationKey,
+    purpose: MANAGER_FORWARD_PURPOSE,
+    dedupeKey: args.messageSid?.trim() ? `manager_forward_${args.messageSid.trim()}` : null,
+    // The resident's own words are already stored in their thread by the
+    // inbound path. Logging this copy too would render the manager's mirror as
+    // an outbound message to the resident that they never received.
+    skipLog: true,
+  });
+  return sent.ok;
 }
