@@ -131,6 +131,26 @@ function buildPortalNavItems(
           },
         ];
       }
+      if (
+        section.section === "teams" &&
+        section.tabs.some((tab) => tab.id === "managers" || tab.id === "vendors")
+      ) {
+        const tabs = section.tabs.filter((tab) => tab.id === "managers" || tab.id === "vendors");
+        return [
+          {
+            section: section.section,
+            label: section.label,
+            href: `${definition.basePath}/teams/managers`,
+            prefetchHrefs: tabs.map((tab) => `${definition.basePath}/teams/${tab.id}`),
+            subItems: tabs.map((tab) => ({
+              sectionTabId: tab.id,
+              label: tab.label,
+              href: `${definition.basePath}/teams/${tab.id}`,
+              prefetchHrefs: [`${definition.basePath}/teams/${tab.id}`],
+            })),
+          },
+        ];
+      }
       return [
         {
           section: section.section,
@@ -218,7 +238,7 @@ export function PortalSidebar({
   );
   const navCounts = usePortalNavCounts(definition.kind);
   const [collapsed, setCollapsed] = useState(initialCollapsed);
-  const [paymentsNavExpanded, setPaymentsNavExpanded] = useState(false);
+  const [expandableNavOpen, setExpandableNavOpen] = useState<Record<string, boolean>>({});
 
   const activeSection = useMemo(() => {
     const parts = pathname.split("/").filter(Boolean);
@@ -230,41 +250,50 @@ export function PortalSidebar({
     [definition, residentNavStage, visibleSections, showNativeChrome],
   );
 
-  const activePaymentTab = useMemo(() => {
-    if (activeSection !== "payments") return null;
+  const activeSectionSubTab = useMemo(() => {
     const parts = pathname.split("/").filter(Boolean);
-    const paymentsIdx = parts.indexOf("payments");
-    const tab = parts[paymentsIdx + 1];
-    return tab === "incoming" || tab === "outgoing" ? tab : "incoming";
+    if (activeSection === "payments") {
+      const paymentsIdx = parts.indexOf("payments");
+      const tab = parts[paymentsIdx + 1];
+      return tab === "incoming" || tab === "outgoing" ? tab : "incoming";
+    }
+    if (activeSection === "teams") {
+      const teamsIdx = parts.indexOf("teams");
+      const tab = parts[teamsIdx + 1];
+      return tab === "managers" || tab === "vendors" ? tab : "managers";
+    }
+    return null;
   }, [activeSection, pathname]);
 
   useEffect(() => {
-    if (activeSection === "payments") setPaymentsNavExpanded(true);
+    if (activeSection === "payments" || activeSection === "teams") {
+      setExpandableNavOpen((prev) => ({ ...prev, [activeSection]: true }));
+    }
   }, [activeSection]);
 
   const isNavItemActive = useCallback(
     (item: PortalSidebarNavItem) => {
       if (activeSection !== item.section) return false;
       if (item.subItems?.length) {
-        return item.subItems.some((sub) => sub.sectionTabId === activePaymentTab);
+        return item.subItems.some((sub) => sub.sectionTabId === activeSectionSubTab);
       }
-      if (item.sectionTabId) return item.sectionTabId === activePaymentTab;
+      if (item.sectionTabId) return item.sectionTabId === activeSectionSubTab;
       return true;
     },
-    [activePaymentTab, activeSection],
+    [activeSectionSubTab, activeSection],
   );
 
-  const isPaymentSubNavActive = useCallback(
-    (sub: PortalSidebarNavSubItem) =>
-      activeSection === "payments" && sub.sectionTabId === activePaymentTab,
-    [activePaymentTab, activeSection],
+  const isSubNavActive = useCallback(
+    (section: string, sub: PortalSidebarNavSubItem) =>
+      activeSection === section && sub.sectionTabId === activeSectionSubTab,
+    [activeSectionSubTab, activeSection],
   );
 
   const resolveNavItemHref = useCallback((item: PortalSidebarNavItem) => {
     if (!item.subItems?.length) return item.href;
-    const activeSub = item.subItems.find((sub) => sub.sectionTabId === activePaymentTab);
+    const activeSub = item.subItems.find((sub) => sub.sectionTabId === activeSectionSubTab);
     return activeSub?.href ?? item.subItems[0]?.href ?? item.href;
-  }, [activePaymentTab]);
+  }, [activeSectionSubTab]);
 
   const navGroups = useMemo(() => groupNavItems(definition.kind, navItems), [definition.kind, navItems]);
   const firstTrailingGroupIdx = useMemo(
@@ -603,18 +632,22 @@ export function PortalSidebar({
     );
   };
 
-  const renderPaymentsNavGroup = (item: PortalSidebarNavItem) => {
+  const renderExpandableNavGroup = (item: PortalSidebarNavItem) => {
     const locked = isSectionLocked(item.section);
     const count = navCounts[item.section] ?? 0;
     const groupActive = isNavItemActive(item);
+    const expanded = expandableNavOpen[item.section] ?? false;
+    const subnavId = `portal-${item.section}-subnav`;
 
     return (
       <div key={`${item.section}-group`} className="flex flex-col gap-1">
         <button
           type="button"
-          onClick={() => setPaymentsNavExpanded((open) => !open)}
-          aria-expanded={paymentsNavExpanded}
-          aria-controls="portal-payments-subnav"
+          onClick={() =>
+            setExpandableNavOpen((prev) => ({ ...prev, [item.section]: !expanded }))
+          }
+          aria-expanded={expanded}
+          aria-controls={subnavId}
           className={cn(
             navLinkClass(groupActive, locked),
             "w-full border-0 bg-transparent text-left",
@@ -631,17 +664,17 @@ export function PortalSidebar({
           <span className="flex shrink-0 items-center gap-1.5">
             {!locked ? <PortalNavCountBadge count={count} /> : null}
             {locked ? <NavLockIcon className="h-3.5 w-3.5 text-muted" /> : null}
-            {paymentsNavExpanded ? (
+            {expanded ? (
               <ChevronDown className="h-3.5 w-3.5 shrink-0 text-muted/70" aria-hidden />
             ) : (
               <ChevronRight className="h-3.5 w-3.5 shrink-0 text-muted/70" aria-hidden />
             )}
           </span>
         </button>
-        {paymentsNavExpanded ? (
-          <div id="portal-payments-subnav" className="ml-1 flex flex-col gap-1 border-l border-border/70 pl-2">
+        {expanded ? (
+          <div id={subnavId} className="ml-1 flex flex-col gap-1 border-l border-border/70 pl-2">
             {item.subItems!.map((sub) => {
-            const active = isPaymentSubNavActive(sub);
+            const active = isSubNavActive(item.section, sub);
             const subLocked = locked;
             const subBody = (
               <span className="flex min-w-0 flex-1 items-center gap-2">
@@ -695,7 +728,7 @@ export function PortalSidebar({
   };
 
   const renderDesktopLink = (s: PortalSidebarNavItem) => {
-    if (s.subItems?.length) return renderPaymentsNavGroup(s);
+    if (s.subItems?.length) return renderExpandableNavGroup(s);
     const active = isNavItemActive(s);
     const locked = isSectionLocked(s.section);
     const count = navCounts[s.section] ?? 0;

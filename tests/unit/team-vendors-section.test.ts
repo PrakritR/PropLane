@@ -1,16 +1,7 @@
 /**
- * Vendors moved out of Services and into Team.
- *
- * They are PEOPLE a manager works with, which is what Team is about; under Services they sat
- * beside the work those people do, behind a permanent "(soon)" placeholder tab.
- *
- * Two things have to hold together or the move breaks navigation silently — the class of bug
- * AGENTS.md warns about, where a section compiles and tests pass while the URL goes nowhere:
- *
- *   1. the old `/services/vendors` path must still RESOLVE, because it is in bookmarks and in
- *      links already sent to people;
- *   2. the link builders must point at the NEW path, so a click does not pay a redirect and
- *      briefly light up the wrong nav section.
+ * Teams groups Managers and Vendors under one sidebar entry (like Payments
+ * incoming/outgoing). Vendors used to live under Services; the retired paths must
+ * still resolve so bookmarks and sent links keep working.
  */
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -19,23 +10,18 @@ import { vendorDetailHref, vendorListHref } from "@/lib/portal-detail-routes";
 import { PORTAL_NAV_GROUPS } from "@/lib/portals/nav-groups";
 import { proPortal } from "@/lib/portals/pro";
 
-describe("Team is two sidebar entries, not one tabbed page", () => {
-  it("lists Managers and Vendors as separate sections", () => {
-    // Same shape Tenancy uses for Residents / Payments / Services — two nav rows under one
-    // heading, rather than a tab strip inside a single page.
-    const managers = proPortal.sections.find((s) => s.section === "relationships");
-    const vendors = proPortal.sections.find((s) => s.section === "vendors");
-    expect(managers?.label).toBe("Managers");
-    expect(vendors?.label).toBe("Vendors");
-    // Neither carries sub-tabs — the split IS the navigation.
-    expect(managers?.tabs ?? []).toEqual([]);
-    expect(vendors?.tabs ?? []).toEqual([]);
+describe("Teams sidebar dropdown (Managers + Vendors)", () => {
+  it("lists Managers and Vendors as tabs on the Teams section", () => {
+    const teams = proPortal.sections.find((s) => s.section === "teams");
+    expect(teams?.label).toBe("Teams");
+    expect(teams?.tabs.map((tab) => tab.id)).toEqual(["managers", "vendors"]);
+    expect(teams?.tabs.map((tab) => tab.label)).toEqual(["Managers", "Vendors"]);
   });
 
-  it("groups both under the Team heading, in order", () => {
+  it("groups Teams under the Team heading", () => {
     const group = PORTAL_NAV_GROUPS.pro.find((g) => g.id === "team");
     expect(group?.label).toBe("Team");
-    expect(group?.sections).toEqual(["relationships", "vendors"]);
+    expect(group?.sections).toEqual(["teams"]);
   });
 });
 
@@ -68,13 +54,11 @@ describe("Calendar and Bookings are separate sidebar entries", () => {
 
 describe("Services no longer carries Vendors", () => {
   it("has no sub-tabs of its own", () => {
-    // Add-on services and work orders are presented as ONE queue; the vendors placeholder is gone.
     const services = proPortal.sections.find((s) => s.section === "services");
     expect(services?.tabs ?? []).toEqual([]);
   });
 
   it("keeps the two data models separate, as AGENTS.md requires", () => {
-    // Presentation merged, storage NOT. Two stores must still exist independently.
     const agents = readFileSync(join(process.cwd(), "AGENTS.md"), "utf8");
     expect(agents).toContain("portal_service_request_records");
     expect(agents).toContain("portal_work_order_records");
@@ -82,21 +66,27 @@ describe("Services no longer carries Vendors", () => {
 });
 
 describe("vendor links", () => {
-  it("point at the Vendors section, not the old Services path", () => {
-    expect(vendorListHref("/portal")).toBe("/portal/vendors");
-    expect(vendorDetailHref("/portal", "vend-1")).toBe("/portal/vendors/vend-1");
+  it("point at the Teams vendors tab, not the old Services path", () => {
+    expect(vendorListHref("/portal")).toBe("/portal/teams/vendors");
+    expect(vendorDetailHref("/portal", "vend-1")).toBe("/portal/teams/vendors/vend-1");
   });
 
   it("encodes a vendor id with awkward characters", () => {
-    expect(vendorDetailHref("/portal", "a b/c")).toBe("/portal/vendors/a%20b%2Fc");
+    expect(vendorDetailHref("/portal", "a b/c")).toBe("/portal/teams/vendors/a%20b%2Fc");
   });
 
   it("still resolves the retired /services/vendors path", () => {
-    // A redirect, not a 404 — the old URL is in bookmarks and in links already sent.
     const src = readFileSync(join(process.cwd(), "src/lib/render-portal-section.tsx"), "utf8");
     expect(src).toContain('if (servicesTab === "vendors")');
-    expect(src).toContain("/vendors");
-    // And it must not still be treated as a live services tab.
+    expect(src).toContain("/teams/vendors");
     expect(src).not.toContain('!["requests", "work-orders", "vendors"].includes(servicesTab)');
+  });
+
+  it("redirects legacy /vendors and /relationships paths", () => {
+    const src = readFileSync(join(process.cwd(), "src/lib/render-portal-section.tsx"), "utf8");
+    expect(src).toContain('section === "vendors"');
+    expect(src).toContain('section === "relationships"');
+    expect(src).toContain("/teams/vendors");
+    expect(src).toContain("/teams/managers");
   });
 });

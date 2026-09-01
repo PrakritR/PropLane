@@ -145,9 +145,14 @@ describe("coManagerPortalSectionAllowed", () => {
     }
   });
 
-  it("always shows the Co-managers (relationships) section, even for a pure co-manager", () => {
-    // The Co-managers tab lets any manager view/manage their own links; it is
-    // never gated by primary-manager status or a module permission.
+  it("always shows the Teams section, even for a pure co-manager", () => {
+    expect(
+      coManagerPortalSectionAllowed({
+        section: "teams",
+        isPrimaryManager: false,
+        mergedPermissions: {},
+      }),
+    ).toBe(true);
     expect(
       coManagerPortalSectionAllowed({
         section: "relationships",

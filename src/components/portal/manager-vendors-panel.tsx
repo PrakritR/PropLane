@@ -3,7 +3,9 @@
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useState } from "react";
 import {
   ManagerPortalPageShell,
-  PORTAL_HEADER_PRIMARY_ACTION_BTN_RESPONSIVE,
+  PORTAL_COMMAND_ACTION_BTN,
+  PORTAL_COMMAND_PRIMARY_ACTION_BTN,
+  PORTAL_COMMAND_PRIMARY_ACTION_STYLE,
 } from "@/components/portal/portal-metrics";
 import { Button } from "@/components/ui/button";
 import { useAppUi } from "@/components/providers/app-ui-provider";
@@ -72,11 +74,11 @@ export function ManagerVendorsToolbar({
   onAdd: () => void;
 }) {
   return (
-    <div className="flex flex-wrap items-center gap-2">
+    <>
       <Button
         type="button"
         variant="outline"
-        className={PORTAL_HEADER_PRIMARY_ACTION_BTN_RESPONSIVE}
+        className={PORTAL_COMMAND_ACTION_BTN}
         onClick={onCatalog}
         data-attr="manager-vendor-catalog-open"
       >
@@ -85,7 +87,7 @@ export function ManagerVendorsToolbar({
       <Button
         type="button"
         variant="outline"
-        className={PORTAL_HEADER_PRIMARY_ACTION_BTN_RESPONSIVE}
+        className={PORTAL_COMMAND_ACTION_BTN}
         onClick={onDefaults}
         data-attr="manager-vendor-defaults-open"
       >
@@ -93,14 +95,14 @@ export function ManagerVendorsToolbar({
       </Button>
       <Button
         type="button"
-        variant="outline"
-        className={PORTAL_HEADER_PRIMARY_ACTION_BTN_RESPONSIVE}
+        className={PORTAL_COMMAND_PRIMARY_ACTION_BTN}
+        style={PORTAL_COMMAND_PRIMARY_ACTION_STYLE}
         onClick={onAdd}
         data-attr="manager-vendor-add"
       >
         Add
       </Button>
-    </div>
+    </>
   );
 }
 
@@ -604,7 +606,7 @@ export const ManagerVendorsPanel = forwardRef(function ManagerVendorsPanel(
       <>
         {modals}
         <PortalRecordDetailPage
-          pageTitle="Vendors"
+          pageTitle="Teams"
           title={routeVendor.name}
           subtitle={routeVendor.trade || undefined}
           avatarName={routeVendor.name}
@@ -733,21 +735,21 @@ export const ManagerVendorsPanel = forwardRef(function ManagerVendorsPanel(
     </>
   );
 
+  const vendorToolbar = (
+    <ManagerVendorsToolbar
+      onCatalog={openCatalogForm}
+      onDefaults={() => openDefaultsForm()}
+      onAdd={() => openAddVendorForm()}
+    />
+  );
+
   if (embedded) {
     return (
-      <ManagerPortalPageShell
-        title="Vendors"
-        hideTitleOnMobileNav
-        titleAside={
-          <ManagerVendorsToolbar
-            onCatalog={openCatalogForm}
-            onDefaults={() => openDefaultsForm()}
-            onAdd={() => openAddVendorForm()}
-          />
-        }
-      >
+      <ManagerPortalPageShell title="Teams" hideTitleOnMobileNav compactFilterRow>
         <PortalListControlStack
-          className="mb-2"
+          className="mb-2 max-lg:mb-1.5"
+          variant="command"
+          actions={vendorToolbar}
         />
         {body}
       </ManagerPortalPageShell>
@@ -755,16 +757,12 @@ export const ManagerVendorsPanel = forwardRef(function ManagerVendorsPanel(
   }
 
   return (
-    <ManagerPortalPageShell
-      title="Vendors"
-      titleAside={
-        <ManagerVendorsToolbar
-          onCatalog={openCatalogForm}
-          onDefaults={() => openDefaultsForm()}
-          onAdd={() => openAddVendorForm()}
-        />
-      }
-    >
+    <ManagerPortalPageShell title="Teams" hideTitleOnMobileNav compactFilterRow>
+      <PortalListControlStack
+        className="mb-2 max-lg:mb-1.5"
+        variant="command"
+        actions={vendorToolbar}
+      />
       {body}
     </ManagerPortalPageShell>
   );

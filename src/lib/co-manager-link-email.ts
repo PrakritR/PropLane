@@ -6,7 +6,7 @@
 import { resolveEmailLinkBaseUrl } from "@/lib/app-url";
 
 function portalRelationshipsUrl(): string {
-  return `${resolveEmailLinkBaseUrl()}/portal/relationships`;
+  return `${resolveEmailLinkBaseUrl()}/portal/teams/managers`;
 }
 
 export function coManagerInviteSubject(inviterName: string): string {

@@ -28,7 +28,7 @@ export type WorkspaceModel = {
 
 function actionsFor(portal: PortalKind, section: string): WorkspaceAction[] {
   if (portal === "manager" || portal === "pro") {
-    if (section === "relationships") {
+    if (section === "relationships" || section === "teams") {
       return [];
     }
     if (section === "properties") {

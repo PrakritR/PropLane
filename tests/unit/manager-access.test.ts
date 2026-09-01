@@ -65,6 +65,7 @@ describe("manager-access", () => {
   it("marks paid-only sections as locked on free tier", () => {
     expect(managerSectionLockedForTier("residents", "free")).toBe(true);
     expect(managerSectionLockedForTier("relationships", "free")).toBe(true);
+    expect(managerSectionLockedForTier("teams", "free")).toBe(true);
     expect(managerSectionLockedForTier("documents", "free")).toBe(true);
     expect(managerSectionLockedForTier("properties", "free")).toBe(false);
     expect(managerSectionLockedForTier("residents", "paid")).toBe(false);

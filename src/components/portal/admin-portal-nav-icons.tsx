@@ -59,6 +59,7 @@ const SECTION_ICONS: Record<string, LucideIcon> = {
   profile: Settings,
   settings: Settings,
   plan: CreditCard,
+  teams: Users,
   relationships: UserCog,
   "move-in": LogIn,
   promotion: Megaphone,

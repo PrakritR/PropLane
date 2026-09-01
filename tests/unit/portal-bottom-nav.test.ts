@@ -32,7 +32,7 @@ describe("orderNativeBottomNavItems", () => {
     const items = proPortal.sections.map((s) => ({ section: s.section, label: s.label }));
     const ordered = orderNativeBottomNavItems(items, "pro").map((item) => item.section);
     expect(ordered).toEqual(sectionIds(proPortal.sections));
-    expect(ordered.indexOf("relationships")).toBeLessThan(ordered.indexOf("bugs-feedback"));
+    expect(ordered.indexOf("teams")).toBeLessThan(ordered.indexOf("bugs-feedback"));
     expect(ordered.at(-1)).toBe("profile");
   });
 

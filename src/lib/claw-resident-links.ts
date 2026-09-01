@@ -109,7 +109,7 @@ export function managerPortalPath(kind: ManagerPortalLinkKind): string {
     case "inbox":
       return "/portal/communication/inbox/unopened";
     case "relationships":
-      return "/portal/relationships";
+      return "/portal/teams/managers";
     case "promotion":
       return "/portal/promotion";
     default:

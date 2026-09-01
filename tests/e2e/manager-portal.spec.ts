@@ -19,7 +19,7 @@ const PAID_MANAGER_NAV = [
   { label: "Tasks", path: "/portal/tasks" },
   { label: "Communication", path: "/portal/communication/active" },
   { label: "Feedback", path: "/portal/bugs-feedback" },
-  { label: "Team", path: "/portal/relationships" },
+  { label: "Team", path: "/portal/teams/managers" },
   { label: "Settings", path: "/portal/profile" },
 ] as const;
 
@@ -152,8 +152,8 @@ test.describe("Manager portal", () => {
     await expect(page).toHaveURL(/\/portal\/profile/, { timeout: 15_000 });
   });
 
-  test("team (relationships) tab loads", async ({ page }) => {
-    await page.goto("/portal/relationships");
+  test("team (managers) tab loads", async ({ page }) => {
+    await page.goto("/portal/teams/managers");
     await expect(page.getByRole("heading").first()).toBeVisible();
   });
 
