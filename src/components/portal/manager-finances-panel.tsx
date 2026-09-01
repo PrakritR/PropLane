@@ -13,8 +13,8 @@ import {
 } from "@/components/portal/finance-filter-sort-fields";
 import { PortalFilterSortSheet, portalFilterActiveCount } from "@/components/portal/portal-filter-sort-sheet";
 import { PortalActiveFilterChips, type PortalActiveFilterChip } from "@/components/portal/portal-filter-chips";
-import { FinanceDestinationNav } from "@/components/portal/finance-destination-nav";
 import { ExpenseTaxStatusToggle } from "@/components/portal/expense-tax-status-toggle";
+import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
 import {
   ManagerPortalPageShell,
   MANAGER_TABLE_TH,
@@ -1016,19 +1016,17 @@ export function ManagerFinancesPanel({
       />
     ) : null;
 
-  const financesDestinationNav = <FinanceDestinationNav tabId={tabId} tabItems={financeTabItems} />;
-
-  const financesToolbarActions =
+  const financesCommandActions =
     financesFilterControl ||
     financesFormalPdfLink ||
     financesExportButtons ||
     financesBankStatementButton ? (
-      <div className="flex flex-wrap items-center justify-end gap-2">
+      <>
         {financesFilterControl}
         {financesFormalPdfLink}
         {financesExportButtons}
         {financesBankStatementButton}
-      </div>
+      </>
     ) : null;
 
   return (
@@ -1038,13 +1036,25 @@ export function ManagerFinancesPanel({
       hideTitleOnMobileNav
       compactFilterRow
     >
-      <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:gap-6">
-        {financesDestinationNav}
-        <div className="min-w-0 flex-1 space-y-4">
-          {financesToolbarActions}
-          {activeFinanceFilterChips.length > 0 ? (
+      <PortalListControlStack
+        className="mb-2 max-lg:mb-1.5"
+        variant="command"
+        stickyDestinations={false}
+        destinations={financeTabItems.map((tab) => ({
+          id: tab.id,
+          label: tab.label,
+          href: tab.href,
+          dataAttr: `finances-tab-${tab.id}`,
+        }))}
+        activeDestinationId={tabId}
+        destinationAriaLabel="Finance view"
+        actions={financesCommandActions}
+        activeFilterChips={
+          activeFinanceFilterChips.length > 0 ? (
             <PortalActiveFilterChips chips={activeFinanceFilterChips} />
-          ) : null}
+          ) : null
+        }
+      />
       {tabId === "bills" ? (
         <ManagerBillsPanel ref={billsRef} />
       ) : tabId === "bank-reconciliation" ? (
@@ -1113,9 +1123,6 @@ export function ManagerFinancesPanel({
         )}
       </div>
       )}
-
-        </div>
-      </div>
 
       <Modal
         open={expenseModal}

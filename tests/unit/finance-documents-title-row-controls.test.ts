@@ -16,8 +16,8 @@ describe("Finance and Documents command layout", () => {
     expect(documents).not.toContain("leasingDocumentsFilterSheet");
     expect(documents).not.toContain("leasingPropertyFilter");
     expect(documents).toContain("titleInlineFilter={null}");
-    expect(documents).toContain("DocumentsDestinationNav");
-    expect(documents).not.toContain("PortalListControlStack");
+    expect(documents).toContain('variant="command"');
+    expect(documents).toContain("documentsCommandActions");
     expect(documents).not.toContain("document-search");
     expect(documents).not.toContain('data-attr="document-upload-open"');
     expect(leasingTabs).not.toContain("<PortalFilterSortSheet");
@@ -31,10 +31,9 @@ describe("Finance and Documents command layout", () => {
     const bank = portalSource("manager-bank-reconciliation-panel.tsx");
     const distributions = portalSource("manager-owner-distributions-panel.tsx");
 
-    expect(finances).toContain("FinanceDestinationNav");
     expect(finances).toContain("titleInlineFilter={null}");
-    expect(finances).toContain("financesToolbarActions");
-    expect(finances).not.toContain("PortalListControlStack");
+    expect(finances).toContain('variant="command"');
+    expect(finances).toContain("financesCommandActions");
     expect(finances).not.toContain("finances-search");
     expect(finances).not.toContain('data-attr="finances-add-income"');
     expect(finances).toContain('data-attr="bank-add-statement"');

@@ -4,7 +4,7 @@ import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "rea
 import { Button } from "@/components/ui/button";
 import { useShallowTabId } from "@/components/ui/tabs";
 import { useAppUi } from "@/components/providers/app-ui-provider";
-import { DocumentsDestinationNav } from "@/components/portal/documents-destination-nav";
+import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
 import {
   ManagerPortalPageShell,
   MANAGER_TABLE_TH,
@@ -309,9 +309,9 @@ export function ManagerDocumentsPanel({
       (tabId === "expense-documents" && generated) ||
       Boolean(incomeReceiptExportHref && generated));
 
-  const documentsReportActions =
+  const documentsCommandActions =
     !isLeasingDocumentsTab && !isLibraryTab && !isTemplatesTab ? (
-      <div className="flex flex-wrap items-center justify-end gap-2">
+      <>
         {hasExportActions ? exportActions : null}
         <Button
           type="button"
@@ -323,12 +323,8 @@ export function ManagerDocumentsPanel({
         >
           {loading ? "Generating…" : "Generate report"}
         </Button>
-      </div>
+      </>
     ) : null;
-
-  const documentsDestinationNav = (
-    <DocumentsDestinationNav tabId={tabId} tabItems={documentTabItems} />
-  );
 
   if (tabId === "applications" && applicationId) {
     return (
@@ -348,11 +344,21 @@ export function ManagerDocumentsPanel({
       hideTitleOnMobileNav
       compactFilterRow
     >
-      <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:gap-6">
-        {documentsDestinationNav}
-        <div className="min-w-0 flex-1 space-y-4">
-          {documentsReportActions}
-          {tabId === "library" ? (
+      <PortalListControlStack
+        className="mb-2 max-lg:mb-1.5"
+        variant="command"
+        stickyDestinations={false}
+        destinations={documentTabItems.map((tab) => ({
+          id: tab.id,
+          label: tab.label,
+          href: tab.href,
+          dataAttr: `documents-tab-${tab.id}`,
+        }))}
+        activeDestinationId={tabId}
+        destinationAriaLabel="Document view"
+        actions={documentsCommandActions}
+      />
+      {tabId === "library" ? (
             <ManagerDocumentLibrary ref={libraryRef} userId={userId ?? null} hideFilterChrome />
           ) : tabId === "templates" ? (
           <ManagerDocumentTemplatesPanel />
@@ -519,8 +525,6 @@ export function ManagerDocumentsPanel({
         ) : (
           <ReportTable report={report} loading={loading} generated={generated} />
         )}
-        </div>
-      </div>
 
       <VendorTaxProfileModal
         open={Boolean(taxVendorId)}
