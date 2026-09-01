@@ -224,7 +224,8 @@ describe("resident portal redesign completeness", () => {
       const services = readPanel("resident-services-panel.tsx");
       expect(services).toContain('variant="command"');
       expect(services).toContain("ResidentPortalGroupedDataList");
-      expect(services).toContain("useResidentPortalListFilterState");
+      expect(services).toContain("PortalListAddRow");
+      expect(services).not.toContain("useResidentPortalListFilterState");
     });
 
     it("lease filter tabs are a local nav, not a dropdown; services filter rows span full width", () => {
@@ -246,10 +247,11 @@ describe("resident portal redesign completeness", () => {
      * Never both an ungated title band AND a mobile row.
      */
     it("header actions reach mobile exactly once — band OR mobile row, never both", () => {
-      // Services uses a single list-body add action, not a title-band action.
+      // Services uses a dashed list-footer add row, not a command-strip action.
       const services = readPanel("resident-services-panel.tsx");
       expect(services).toContain("ResidentAddServiceModal");
-      expect(services).toContain('data-attr="resident-services-add"');
+      expect(services).toContain('dataAttr="resident-services-add"');
+      expect(services).not.toContain("PORTAL_COMMAND_PRIMARY_ACTION_BTN");
       expect(services).not.toContain("ResidentServicesAddActions");
       expect(services).not.toContain("PortalPageHeaderMobileActionsRow");
 
@@ -261,8 +263,7 @@ describe("resident portal redesign completeness", () => {
 
       const applications = readPanel("resident-applications-panel.tsx");
       expect(applications).toContain("applicationListControlStack");
-      expect(applications).toContain("renderApplicationAddRow");
-      expect(applications).toContain("PortalListAddRow");
+      expect(applications).toContain('data-attr="resident-applications-apply"');
       expect(applications).not.toContain("ResidentApplicationWorkspaceActions");
       expect(applications).not.toContain("ResidentApplicationWorkspaceMobileApply");
       expect(applications).not.toContain("PortalPageHeaderMobileActionsRow");

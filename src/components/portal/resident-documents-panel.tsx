@@ -41,7 +41,6 @@ import {
 } from "@/components/portal/portal-data-table";
 import { Button } from "@/components/ui/button";
 import { ResidentLeaseDocumentsListSection } from "@/components/portal/resident-lease-list";
-import { ResidentDocumentsInfoCallout } from "@/components/portal/resident-documents-info-callout";
 import {
   RESIDENT_LEASE_LIST_LABEL,
   ResidentLeaseBareDocumentPreview,
@@ -868,7 +867,6 @@ export function ResidentDocumentsPanel({
   const [addOpen, setAddOpen] = useState(false);
   const [uploads, setUploads] = useState<UploadedOwnLease[]>([]);
   const [uploadsLoading, setUploadsLoading] = useState(true);
-  const [infoDismissed, setInfoDismissed] = useState(false);
   const [receiptRange, setReceiptRange] = useState<ReceiptDateRange>(() => residentLedgerReceiptRange());
 
   const refreshUploads = useCallback(async () => {
@@ -960,9 +958,6 @@ export function ResidentDocumentsPanel({
           ) : null
         }
       />
-      {!infoDismissed ? (
-        <ResidentDocumentsInfoCallout onDismiss={() => setInfoDismissed(true)} />
-      ) : null}
       {tabId === "application" ? <ApplicationDocumentsTable basePath={basePath} /> : null}
 
       {tabId === "lease" ? <SignedLeaseDocumentsTable basePath={basePath} /> : null}

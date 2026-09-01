@@ -17,8 +17,6 @@ import { ConfirmDeleteModal } from "@/components/portal/confirm-delete-modal";
 import { useAppUi } from "@/components/providers/app-ui-provider";
 import {
   ManagerPortalPageShell,
-  PORTAL_COMMAND_PRIMARY_ACTION_BTN,
-  PORTAL_COMMAND_PRIMARY_ACTION_STYLE,
   PORTAL_INLINE_UNLOCK_NOTICE_CLASS,
   PORTAL_INLINE_UNLOCK_NOTICE_STACKED_CLASS,
 } from "@/components/portal/portal-metrics";
@@ -28,7 +26,6 @@ import {
   RESIDENT_PORTAL_DEFAULT_GROUP_MODE,
   type ResidentPortalGroupableRow,
 } from "@/components/portal/resident-portal-grouped-data-list";
-import { useResidentPortalListFilterState } from "@/components/portal/resident-portal-list-filter";
 import type { PortalListGroupMode } from "@/lib/portal-list-grouping";
 import {
   PORTAL_DETAIL_BTN,
@@ -544,8 +541,7 @@ export function ResidentServicesPanel({
   const session = usePortalSession();
 
   const [serviceStateFilter, setServiceStateFilter] = useState<ServiceRowState>("open");
-  const [groupMode, setGroupMode] = useState<PortalListGroupMode>(RESIDENT_PORTAL_DEFAULT_GROUP_MODE);
-  const [propertyFilters, setPropertyFilters] = useState<string[]>([]);
+  const groupMode: PortalListGroupMode = RESIDENT_PORTAL_DEFAULT_GROUP_MODE;
   const { selectedIds, toggleSelected, clearSelection, setSelectedIds } = usePortalRowSelection(serviceStateFilter);
   const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false);
   const [expandedId, setExpandedId] = useState<string | null>(null);
@@ -780,32 +776,6 @@ export function ResidentServicesPanel({
     [unifiedServiceRows, serviceStateFilter],
   );
 
-  const servicePropertyOptions = useMemo(() => {
-    const byId = new Map<string, string>();
-    for (const row of unifiedServiceRows) {
-      const propertyId = row.propertyId?.trim() ?? "";
-      if (!propertyId || byId.has(propertyId)) continue;
-      byId.set(propertyId, row.propertyLabel?.trim() || propertyId);
-    }
-    return [...byId.entries()].map(([id, label]) => ({ id, label }));
-  }, [unifiedServiceRows]);
-
-  const propertyFilteredUnifiedRows = useMemo(() => {
-    if (propertyFilters.length === 0) return filteredUnifiedRows;
-    const allowed = new Set(propertyFilters);
-    return filteredUnifiedRows.filter((row) => allowed.has(row.propertyId));
-  }, [filteredUnifiedRows, propertyFilters]);
-
-  const { filterSheet: servicesFilterSheet, activeFilterChips: servicesActiveFilterChips } =
-    useResidentPortalListFilterState({
-      groupMode,
-      onGroupModeChange: setGroupMode,
-      propertyOptions: servicePropertyOptions,
-      propertyFilters,
-      onPropertyFiltersChange: setPropertyFilters,
-      groupModeDataAttr: "resident-services-filter-group-mode",
-      propertyDataAttr: "resident-services-filter-property",
-    });
 
   const serviceRequestById = useMemo(
     () => new Map(sortedRequests.map((req) => [req.id, req])),
@@ -999,7 +969,7 @@ export function ResidentServicesPanel({
 
   const serviceGroupedItems = useMemo((): ResidentPortalGroupableRow<ServiceRequest | DemoManagerWorkOrderRow>[] => {
     const showPropertyInMeta = groupMode !== "house";
-    return propertyFilteredUnifiedRows.flatMap((unified): ResidentPortalGroupableRow<ServiceRequest | DemoManagerWorkOrderRow>[] => {
+    return filteredUnifiedRows.flatMap((unified): ResidentPortalGroupableRow<ServiceRequest | DemoManagerWorkOrderRow>[] => {
       const rowKey = unifiedServiceRowKey(unified);
       const propertyLabel = unified.propertyLabel?.trim() || unified.propertyId || "Property";
       if (unified.kind === "add-on") {
@@ -1084,8 +1054,7 @@ export function ResidentServicesPanel({
       ];
     });
   }, [
-    groupMode,
-    propertyFilteredUnifiedRows,
+    filteredUnifiedRows,
     serviceRequestById,
     workOrderById,
     expandedId,
@@ -1190,6 +1159,36 @@ export function ResidentServicesPanel({
 
   const lockedEmpty = !servicesUnlocked && unifiedServiceRows.length === 0;
 
+  const renderServiceAddRow = (inline: boolean) =>
+    servicesUnlocked ? (
+      <PortalListAddRow
+        label="Add"
+        ariaLabel="Add service"
+        icon={PORTAL_LIST_ADD_ICONS.service}
+        onClick={openAddService}
+        inline={inline}
+        dataAttr="resident-services-add"
+      />
+    ) : null;
+
+  const serviceGroupedList =
+    unifiedServiceRows.length > 0 ? (
+      <ResidentPortalGroupedDataList
+        items={serviceGroupedItems}
+        groupMode={groupMode}
+        selectable={servicesUnlocked}
+        selectedIds={selectedIds}
+        onToggleSelected={toggleSelected}
+        dataAttr="resident-services-grouped-list"
+        columns={[{ id: "service", header: "Service", cell: () => "—" }]}
+        emptyState={
+          filteredUnifiedRows.length === 0 && unifiedServiceRows.length > 0 ? (
+            <p className="px-1 py-6 text-center text-sm text-muted">No services in this status yet.</p>
+          ) : undefined
+        }
+      />
+    ) : null;
+
   return (
     <>
     <ManagerPortalPageShell
@@ -1227,55 +1226,18 @@ export function ResidentServicesPanel({
             className="w-full"
           />
         }
-        actions={
-          <>
-            {servicesFilterSheet}
-            <Button
-              type="button"
-              className={PORTAL_COMMAND_PRIMARY_ACTION_BTN}
-              style={PORTAL_COMMAND_PRIMARY_ACTION_STYLE}
-              data-attr="resident-services-add"
-              onClick={openAddService}
-              disabled={!servicesUnlocked}
-            >
-              <span className="sm:hidden" aria-hidden="true">Add</span>
-              <span className="hidden sm:inline">Add service</span>
-            </Button>
-          </>
-        }
-        activeFilterChips={servicesActiveFilterChips}
       />
 
-      {unifiedServiceRows.length === 0 && servicesUnlocked ? (
+      {servicesUnlocked ? (
         <div className={PORTAL_LIST_PAGE_BODY}>
+          {serviceGroupedList}
           <div className={PORTAL_LIST_ADD_ROW_WRAP_CLASS}>
-            <PortalListAddRow
-              label="Add"
-              ariaLabel="Add service"
-              icon={PORTAL_LIST_ADD_ICONS.service}
-              onClick={openAddService}
-              dataAttr="resident-services-list-add"
-            />
+            {renderServiceAddRow(unifiedServiceRows.length > 0)}
           </div>
         </div>
-      ) : (
-      <div className={PORTAL_LIST_PAGE_BODY}>
-        <ResidentPortalGroupedDataList
-          items={serviceGroupedItems}
-          groupMode={groupMode}
-          selectable={servicesUnlocked}
-          selectedIds={selectedIds}
-          onToggleSelected={toggleSelected}
-          dataAttr="resident-services-grouped-list"
-          columns={[{ id: "service", header: "Service", cell: () => "—" }]}
-          emptyState={
-            filteredUnifiedRows.length === 0 && unifiedServiceRows.length > 0 ? (
-              <p className="px-1 py-6 text-center text-sm text-muted">No services in this status yet.</p>
-            ) : undefined
-          }
-        />
-      </div>
-      )}
+      ) : serviceGroupedList ? (
+        <div className={PORTAL_LIST_PAGE_BODY}>{serviceGroupedList}</div>
+      ) : null}
 
 
       <ResidentAddServiceModal
