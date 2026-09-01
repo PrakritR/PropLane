@@ -4,7 +4,7 @@ import { Calendar } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
-import { ManagerPortalPageShell, PORTAL_HEADER_PRIMARY_ACTION_BTN } from "@/components/portal/portal-metrics";
+import { ManagerPortalPageShell, PORTAL_COMMAND_PRIMARY_ACTION_BTN, PORTAL_COMMAND_PRIMARY_ACTION_STYLE } from "@/components/portal/portal-metrics";
 import { PortalRecordDetailPage } from "@/components/portal/portal-record-detail-page";
 import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
 import { PortalSectionActionRow } from "@/components/portal/portal-section-action-row";
@@ -12,7 +12,6 @@ import { PortalEmptyState } from "@/components/portal/portal-empty-state";
 import { ResidentScheduleTourModal } from "@/components/portal/resident-schedule-tour-modal";
 import { PORTAL_LIST_PAGE_BODY } from "@/components/portal/portal-inbox-ui";
 import { DataList } from "@/components/ui/data-list";
-import { PortalResidentListFab } from "@/components/portal/portal-resident-list-fab";
 import { PortalDataTableEmpty } from "@/components/portal/portal-data-table";
 import { LocalDestinationNav } from "@/components/ui/destination-nav";
 import { formatRangeLabel } from "@/lib/demo-admin-scheduling";
@@ -317,39 +316,36 @@ export function ResidentTourPanel({
     [bucket, tours],
   );
 
-  const scheduleTourButton = (
+  const scheduleTourAction = (
     <Button
       type="button"
-      variant="primary"
-      className={`shrink-0 ${PORTAL_HEADER_PRIMARY_ACTION_BTN}`}
+      className={PORTAL_COMMAND_PRIMARY_ACTION_BTN}
+      style={PORTAL_COMMAND_PRIMARY_ACTION_STYLE}
       data-attr="resident-tour-schedule"
       onClick={openScheduleTour}
     >
-      Schedule a tour
+      <span className="sm:hidden" aria-hidden="true">Schedule</span>
+      <span className="hidden sm:inline">Schedule a tour</span>
     </Button>
-  );
-
-  const filterRow = (
-    <LocalDestinationNav
-      items={tabs.map((t) => ({
-        id: t.id,
-        label: t.label,
-        count: t.count,
-        dataAttr: `resident-tour-bucket-${t.id}`,
-      }))}
-      activeId={bucket}
-      onChange={(id) => {
-        const next = id as ResidentTourBucketId;
-        setBucket(next);
-        navigate(residentTourListHref(basePath, next));
-      }}
-      ariaLabel="Tour status"
-    />
   );
 
   const renderTourList = () => (
     <>
-      <PortalListControlStack className="mb-2 max-lg:mb-2" destinationRow={filterRow} />
+      <PortalListControlStack
+        className="mb-2 max-lg:mb-1.5"
+        variant="command"
+        stickyDestinations={false}
+        destinations={tabs.map((t) => ({
+          id: t.id,
+          label: t.label,
+          href: residentTourListHref(basePath, t.id),
+          count: t.count,
+          dataAttr: `resident-tour-bucket-${t.id}`,
+        }))}
+        activeDestinationId={bucket}
+        destinationAriaLabel="Tour status"
+        actions={scheduleTourAction}
+      />
 
       {loading ? (
         <PortalEmptyState title="Loading your tours…" icon={<Calendar className="h-[26px] w-[26px]" strokeWidth={1.75} />} />
@@ -408,11 +404,6 @@ export function ResidentTourPanel({
               }
             />
           </div>
-          <PortalResidentListFab
-            onClick={openScheduleTour}
-            ariaLabel="Schedule a tour"
-            dataAttr="resident-tour-schedule-add"
-          />
         </>
       )}
     </>
@@ -479,12 +470,7 @@ export function ResidentTourPanel({
         onClose={() => setScheduleTourOpen(false)}
         onScheduled={() => void loadTours()}
       />
-      <ManagerPortalPageShell
-      title="Tour"
-      hideTitleOnMobileNav
-      titleAside={scheduleTourButton}
-      compactFilterRow
-    >
+      <ManagerPortalPageShell title="Tour" hideTitleOnMobileNav compactFilterRow>
       {renderTourList()}
     </ManagerPortalPageShell>
     </>

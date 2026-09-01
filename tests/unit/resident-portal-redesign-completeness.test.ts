@@ -225,12 +225,14 @@ describe("resident portal redesign completeness", () => {
       // Services uses a single list-body add action, not a title-band action.
       const services = readPanel("resident-services-panel.tsx");
       expect(services).toContain("ResidentAddServiceModal");
-      expect(services).toContain('dataAttr="resident-services-add"');
+      expect(services).toContain("resident-services-add");
       expect(services).not.toContain("ResidentServicesAddActions");
       expect(services).not.toContain("PortalPageHeaderMobileActionsRow");
 
       const tour = readPanel("resident-tour-panel.tsx");
-      expect(tour).toContain("titleAside={scheduleTourButton}");
+      expect(tour).toContain('variant="command"');
+      expect(tour).toContain("PORTAL_COMMAND_PRIMARY_ACTION_BTN");
+      expect(tour).not.toContain("titleAside=");
       expect(tour).not.toContain("PortalPageHeaderMobileActionsRow");
 
       const applications = readPanel("resident-applications-panel.tsx");
@@ -243,7 +245,7 @@ describe("resident portal redesign completeness", () => {
       expect(applications).not.toContain("PortalPageHeaderMobileActionsRow");
       expect(applications).not.toContain("titleAside=");
 
-      expect(tour).toContain("scheduleTourButton");
+      expect(tour).toContain("resident-tour-schedule");
 
       // (b) Lease moved to the band-only shape: its actions now live in the
       // DETAIL page's footer rather than a list-header pairing, so there is no
