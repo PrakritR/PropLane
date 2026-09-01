@@ -1,6 +1,8 @@
 import type Stripe from "stripe";
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { isWaiverGrantedManagerPurchase } from "@/lib/manager-access";
 import { getManagerPurchaseSku } from "@/lib/manager-access-server";
+import { isAdminManagedManagerPurchase } from "@/lib/manager-admin-purchase";
 import { getStripe } from "@/lib/stripe";
 
 export type SmsEntitlementReason =
@@ -101,7 +103,18 @@ export async function reconcileManagerSmsEntitlement(
   // Stripe subscription to revalidate, but they are still paid-plan eligible for
   // messaging. Persist as source "none" so GET can trust the entitlement row
   // without inventing a Stripe subscription id.
-  if (purchase.billing === "admin" && tier) {
+  //
+  // Recognise the SAME three grant shapes the portal's own plan resolver does
+  // (`resolveManagerSubscriptionTierFromPurchase`). Keying only on
+  // `billing === "admin"` left a waiver-granted Business account reading back
+  // as `legacy_unknown`: the portal showed them a paid plan and every other
+  // paid feature worked, while Settings -> Messaging refused their number with
+  // "a paid Pro or Business plan is required".
+  const isCompGrant =
+    purchase.billing === "admin" ||
+    isAdminManagedManagerPurchase(purchase.stripeCheckoutSessionId) ||
+    isWaiverGrantedManagerPurchase(purchase.promoCode);
+  if (isCompGrant && tier) {
     const persisted = await persistEntitlement(db, ownerId, {
       tier,
       source: "none",

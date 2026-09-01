@@ -301,7 +301,13 @@ server state machine in `src/lib/sms/manager-number-provisioning.server.ts`.
   (`releaseManagerNumber` → `released`, history kept; `restoreManagerNumber`).
 - **Paid entitlement is enforced.** Explicit setup reconciles Stripe/Apple into
   `sms_manager_entitlements`; trialing, past-due,
-  canceled, legacy-unknown, and unreadable plans fail closed. Dispatch uses the
+  canceled, legacy-unknown, and unreadable plans fail closed. Comp grants carry
+  no Stripe subscription to revalidate, so `reconcileManagerSmsEntitlement`
+  recognises all THREE shapes the portal's own plan resolver does — `billing =
+  'admin'`, an `admin_`-prefixed checkout session, and a payment waiver
+  (`promo_code`). Recognising only the first read a waiver-granted Business
+  manager back as `legacy_unknown`: every other paid feature worked while
+  Settings → Messaging refused their number as unpaid. Dispatch uses the
   persisted state and never calls billing providers in the hot path. The pilot
   allowlist controls rollout only; it is never accepted as proof of payment.
   Stripe and RevenueCat lifecycle webhooks refresh this cache.
@@ -318,12 +324,21 @@ messages, consented lifecycle acknowledgements, weekly rent reminders, inbound
 messages and replies, STOP/START/HELP controls, delivery receipts, and explicit
 manager number setup. Those sends are owner-scoped and use the durable outbox.
 
-Personal-cell forwarding and manager-directed alert SMS (tour alerts, work-order
-alerts, manager assistant introductions, and other platform-to-manager notices)
-are deliberately outside this first slice. Managers continue to receive those
-notices through the durable portal inbox, email, and push paths. They must not be
-silently moved onto a manager work number until a separate manager-cell consent
-scope and unambiguous reply model exist. The legacy pooled proxy-number relay is
+Personal-cell forwarding of INBOUND resident/prospect texts is now part of the
+slice — the two conditions it was waiting on are both met. It has its own
+consent scope (purpose `manager_inbound_forward`, materialized from the
+manager's own phone verification, revocable without touching their conversation
+traffic) and an unambiguous reply model (Leg 2 below pins the reply to the
+manager's active resident conversation). It goes only to a number that account
+proved it controls via the verification code, honours
+`profiles.sms_forward_inbound`, and dedupes on the inbound MessageSid so a
+webhook retry cannot text twice.
+
+Manager-directed ALERT SMS (tour alerts, work-order alerts, manager assistant
+introductions, and other platform-to-manager notices) are still outside it.
+Managers receive those through the durable portal inbox, email, and push paths,
+and they must not be silently moved onto a manager work number until they have
+a consent scope of their own. The legacy pooled proxy-number relay is
 also not a managed-runtime launch rail; `/api/twilio/inbound` bypasses it while
 `SMS_RUNTIME_ENABLED=1` and uses `sms_inbound_receipts` as the execution
 idempotency authority.
@@ -409,10 +424,16 @@ per-number carrier registration must all agree.
 One PropLane number can carry both legs of a resident conversation, wired into
 `/api/twilio/inbound`:
 
-- **Leg 1 (resident → manager):** stored in the PropLane thread. Personal-cell
-  forwarding is intentionally off during the managed-number pilot: it needs a
-  separate manager-cell consent scope and replies are ambiguous unless a thread
-  is pinned. Managers reply from the portal for the first slice.
+- **Leg 1 (resident → manager):** stored in the PropLane thread AND mirrored to
+  the manager's own verified cell from the work number
+  (`forwardResidentInboundToManagerCell`), for the resident-agent fork as well
+  as leasing traffic. The mirror is labelled with `senderLabelForInbound` and
+  never carries the texter's raw number, is sent with `skipLog` so it does not
+  render as an outbound the resident never received, and is gated on: a
+  verified `profiles.phone` (an unverified one is editable free text and could
+  name a stranger's cell), `profiles.sms_forward_inbound`, a sendable
+  registered number, and granted `manager_inbound_forward` consent. Managers
+  can still read and reply in the portal.
 - **Leg 2 (manager → resident):** the manager texts the SAME PropLane number from
   their cell. `detectManagerSelfReply` (From = manager's verified phone, To =
   their work number — the To pins the manager, so it is cross-tenant safe) routes
@@ -537,6 +558,20 @@ non-empty buffer loses at most one quiet window of prospect texts. Frequent
 gateway restarts make duplicate replies a worse failure mode than that rare
 <=150s loss window; durable webhook-side messageId idempotency is the
 prerequisite for flipping `CLAW_MESSENGER_PROCESS_REPLAYS` on later.
+
+**A refusal to open a thread is not a failure to handle the text.**
+`handleClawLeasingInbound` answers `ok: false` only when it genuinely could not
+take responsibility for the message, because `/api/twilio/inbound` turns that
+into a 503 — Twilio retries three times and then DROPS the message, so the
+texter gets silence, nothing reaches `inbound_sms_log`, and Communication shows
+nothing. `openClawResidentThread` returns null for ordinary reasons (the
+sender's own number is a registered manager/admin cell; the owning manager has
+no personal phone on file), so when the text arrived on ONE manager's work
+number that falls through to the leasing responder, which is pinned to the same
+manager and logs both sides. Unscoped shared-line traffic still fails loudly:
+there the responder picks a manager from the roster, and misrouting one
+landlord's resident to another is worse than a retry. Coverage:
+`tests/unit/claw-resident-inbound-logging.test.ts`.
 
 **Two-way logging is the single persistence model.** Every message on the
 Claw line — inbound (prospect or resident) and outbound (agent or manager) —

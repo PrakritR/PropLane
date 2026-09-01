@@ -11,6 +11,8 @@ const PURCHASE = {
   billing: "monthly",
   stripeCustomerId: "cus_1",
   stripeSubscriptionId: "sub_1",
+  stripeCheckoutSessionId: "cs_1",
+  promoCode: null,
   appleOriginalTransactionId: null,
   readFailed: false,
 };
@@ -51,6 +53,53 @@ describe("manager SMS entitlement", () => {
     });
 
     expect(result).toEqual({ eligible: false, reason: "free" });
+  });
+
+  it("treats a comp grant as paid however it was granted", async () => {
+    // The portal's own plan resolver reads three grant shapes that carry no
+    // Stripe subscription. Messaging used to recognise only the first, so a
+    // waiver-granted Business manager saw a paid plan everywhere except
+    // Settings → Messaging, which refused their number outright.
+    const grants = [
+      { label: "admin billing", patch: { billing: "admin" } },
+      { label: "admin-managed checkout", patch: { stripeCheckoutSessionId: "admin_abc" } },
+      { label: "payment waiver", patch: { promoCode: "FREE100" } },
+    ];
+    for (const grant of grants) {
+      const db = createMemoryDb({ sms_manager_entitlements: [] });
+      const result = await reconcileManagerSmsEntitlement(db as never, MANAGER, {
+        loadPurchase: async () => ({
+          ...PURCHASE,
+          tier: "business",
+          stripeSubscriptionId: null,
+          stripeCheckoutSessionId: null,
+          ...grant.patch,
+        }),
+        loadStripeSubscription: async () => {
+          throw new Error(`${grant.label} must never reach Stripe`);
+        },
+      });
+
+      expect(result, grant.label).toEqual({ eligible: true, tier: "business", source: "stripe" });
+      expect(db.__tables.sms_manager_entitlements[0], grant.label).toEqual(
+        expect.objectContaining({ eligible: true, status: "active", source: "none" }),
+      );
+    }
+  });
+
+  it("still refuses a paid tier with no grant and no subscription", async () => {
+    const db = createMemoryDb({ sms_manager_entitlements: [] });
+    const result = await reconcileManagerSmsEntitlement(db as never, MANAGER, {
+      loadPurchase: async () => ({
+        ...PURCHASE,
+        tier: "business",
+        stripeSubscriptionId: null,
+        stripeCheckoutSessionId: null,
+        promoCode: null,
+      }),
+    });
+
+    expect(result).toEqual({ eligible: false, reason: "legacy_unknown" });
   });
 
   it("revalidates an Apple entitlement against the current purchase mirror", async () => {

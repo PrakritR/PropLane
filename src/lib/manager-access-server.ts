@@ -298,6 +298,8 @@ export async function getManagerPurchaseSku(userId: string): Promise<{
   billing: string | null;
   stripeCustomerId: string | null;
   stripeSubscriptionId: string | null;
+  stripeCheckoutSessionId: string | null;
+  promoCode: string | null;
   appleOriginalTransactionId: string | null;
   readFailed: boolean;
 }> {
@@ -307,6 +309,10 @@ export async function getManagerPurchaseSku(userId: string): Promise<{
     billing: row.billing,
     stripeCustomerId: row.stripeCustomerId,
     stripeSubscriptionId: row.stripeSubscriptionId,
+    // Carried so callers can recognise the two comp grants that have no Stripe
+    // subscription to revalidate, exactly as the plan resolver does.
+    stripeCheckoutSessionId: row.stripeCheckoutSessionId,
+    promoCode: row.promoCode,
     appleOriginalTransactionId: row.appleOriginalTransactionId,
     readFailed: row.readFailed,
   };
