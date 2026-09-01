@@ -36,7 +36,7 @@ const PORTAL_SECTIONS = [
   { name: "documents", path: "/portal/documents/income-documents" },
   { name: "finances", path: "/portal/financials/income" },
   { name: "promotion", path: "/portal/promotion" },
-  { name: "team", path: "/portal/relationships" },
+  { name: "team", path: "/portal/teams/managers" },
   { name: "settings", path: "/portal/profile" },
   { name: "feedback", path: "/portal/bugs-feedback" },
 ] as const;
@@ -137,7 +137,7 @@ test.describe("New manager — full journey from scratch", () => {
     await shot(page, "09-drafts-tab-has-listing");
 
     // ── 5. Team tab — empty co-managers state ───────────────────────────────
-    await page.goto("/portal/relationships");
+    await page.goto("/portal/teams/managers");
     await expect(page.getByText(/no co-managers yet/i)).toBeVisible({ timeout: 15_000 });
     await shot(page, "10-team-empty-state");
 

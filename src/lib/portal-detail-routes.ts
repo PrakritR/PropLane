@@ -351,11 +351,11 @@ export function parseTeamLinkTab(raw: string | undefined | null): TeamLinkTabId 
 }
 
 export function teamLinkHref(basePath: string, _tab?: TeamLinkTabId): string {
-  return `${basePath}/relationships`;
+  return `${basePath}/teams/managers`;
 }
 
 export function teamMemberDetailHref(basePath: string, linkId: string): string {
-  return `${basePath}/relationships/${encodeURIComponent(linkId)}`;
+  return `${basePath}/teams/managers/${encodeURIComponent(linkId)}`;
 }
 
 /** Manager applications list buckets (Appendix D5). */
@@ -669,11 +669,11 @@ export function workOrderDetailHref(
 // on the compatibility redirect from /services/vendors — a link that redirects on every click
 // costs a round trip and briefly shows the wrong section as active.
 export function vendorListHref(basePath: string): string {
-  return `${basePath}/vendors`;
+  return `${basePath}/teams/vendors`;
 }
 
 export function vendorDetailHref(basePath: string, vendorId: string): string {
-  return `${basePath}/vendors/${encodeURIComponent(vendorId)}`;
+  return `${basePath}/teams/vendors/${encodeURIComponent(vendorId)}`;
 }
 
 /** Legacy promotion content filters — routes now redirect to the unified list. */

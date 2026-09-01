@@ -533,28 +533,28 @@ export async function renderPortalSection(
       redirect(`${def.basePath}/services/work-orders`);
     }
 
-    // Vendors is its own section under the Team heading, beside Managers.
+    // Vendors moved to Teams — they are people a manager works with, not work items.
     if ((kind === "manager" || kind === "pro") && section === "vendors") {
-      const ManagerVendorsPanel = await loadManagerVendorsPanel();
-      return subscriptionGated(
-        <ManagerVendorsPanel
-          listBasePath={def.basePath}
-          vendorId={tabParts?.length ? decodeURIComponent(tabParts[0]!) : undefined}
-        />,
-        kind,
-        "vendors",
-        managerOwnerSubscriptionTier,
-      );
+      const tail =
+        tabParts?.map((part) => `/${encodeURIComponent(decodeURIComponent(part))}`).join("") ?? "";
+      redirect(`${def.basePath}/teams/vendors${tail}`);
     }
 
-    if (kind === "pro" && section === "relationships") {
-      if (tabParts?.length) {
-        const teamTabRaw = tabParts[0]!;
-        if (teamTabRaw === "vendors") {
-          const vendorId = tabParts.length > 1 ? `/${encodeURIComponent(tabParts[1]!)}` : "";
-          redirect(`${def.basePath}/vendors${vendorId}`);
-        }
-        const linkId = decodeURIComponent(teamTabRaw);
+    if ((kind === "manager" || kind === "pro") && section === "relationships") {
+      const tail =
+        tabParts?.map((part) => `/${encodeURIComponent(decodeURIComponent(part))}`).join("") ?? "";
+      redirect(`${def.basePath}/teams/managers${tail}`);
+    }
+
+    if ((kind === "manager" || kind === "pro") && section === "teams") {
+      if (!tabParts?.length) {
+        redirect(`${def.basePath}/teams/managers`);
+      }
+      const teamTab = tabParts[0]!;
+      if (teamTab === "managers") {
+        const linkId =
+          tabParts.length >= 2 ? decodeURIComponent(tabParts[1]!) : undefined;
+        if (tabParts.length > 2) notFound();
         const ProAccountLinksPanel = await loadProAccountLinksPanel();
         return subscriptionGated(
           <ProAccountLinksPanel userId={effectiveWorkspaceUserId!} linkId={linkId} />,
@@ -563,13 +563,22 @@ export async function renderPortalSection(
           managerOwnerSubscriptionTier,
         );
       }
-      const ProAccountLinksPanel = await loadProAccountLinksPanel();
-      return subscriptionGated(
-        <ProAccountLinksPanel userId={effectiveWorkspaceUserId!} />,
-        kind,
-        "relationships",
-        managerOwnerSubscriptionTier,
-      );
+      if (teamTab === "vendors") {
+        const vendorId =
+          tabParts.length >= 2 ? decodeURIComponent(tabParts[1]!) : undefined;
+        if (tabParts.length > 2) notFound();
+        const ManagerVendorsPanel = await loadManagerVendorsPanel();
+        return subscriptionGated(
+          <ManagerVendorsPanel
+            listBasePath={def.basePath}
+            vendorId={vendorId}
+          />,
+          kind,
+          "vendors",
+          managerOwnerSubscriptionTier,
+        );
+      }
+      notFound();
     }
 
     if (kind === "pro") {
@@ -685,7 +694,7 @@ export async function renderPortalSection(
       if (servicesTab === "vendors") {
         const vendorId =
           tabParts.length > 1 ? `/${encodeURIComponent(decodeURIComponent(tabParts[1]!))}` : "";
-        redirect(`${def.basePath}/relationships/vendors${vendorId}`);
+        redirect(`${def.basePath}/teams/vendors${vendorId}`);
       }
       if (!["requests", "work-orders"].includes(servicesTab)) notFound();
 

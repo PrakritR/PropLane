@@ -267,6 +267,7 @@ export const PORTAL_SECTION_CO_MANAGER_PERMISSION: Partial<Record<string, CoMana
   tasks: "calendar",
   bookings: "calendar",
   vendors: "services",
+  teams: "services",
 };
 
 
@@ -310,7 +311,7 @@ export function coManagerPortalSectionAllowed(input: {
   // The Co-managers section is ALWAYS shown — every manager (primary or
   // co-manager) can view/manage their own links from it. It is never gated by a
   // module permission.
-  if (input.section === "relationships") return true;
+  if (input.section === "relationships" || input.section === "teams") return true;
   if (CO_MANAGER_ALWAYS_ALLOWED_SECTIONS.has(input.section)) return true;
   // Every mapped module tab stays navigable; property + module grants are
   // enforced in APIs and row filters (see co-manager-module-scope).

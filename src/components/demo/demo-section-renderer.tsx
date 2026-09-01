@@ -169,7 +169,7 @@ export function DemoSectionRenderer({
         return <ManagerFinancesPanel tabId={tabId} basePath={basePath} />;
       case "documents":
         return <ManagerDocumentsPanel tabId={tabId} basePath={basePath} />;
-      case "relationships":
+      case "teams":
         if (tabId === "vendors") {
           return (
             <Placeholder
@@ -178,6 +178,8 @@ export function DemoSectionRenderer({
             />
           );
         }
+        return <ProAccountLinksPanel userId={managerUserId} />;
+      case "relationships":
         return <ProAccountLinksPanel userId={managerUserId} />;
       case "promotion":
         return <ManagerPromotion />;

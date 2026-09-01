@@ -56,12 +56,12 @@ describe("pro portal documents section", () => {
     expect(sections.indexOf("payments")).toBeLessThan(sections.indexOf("services"));
     expect(sections.indexOf("services")).toBeLessThan(sections.indexOf("tasks"));
     expect(sections.indexOf("tasks")).toBeLessThan(sections.indexOf("communication"));
-    expect(sections.indexOf("communication")).toBeLessThan(sections.indexOf("relationships"));
-    expect(sections.indexOf("relationships")).toBeLessThan(sections.indexOf("promotion"));
+    expect(sections.indexOf("communication")).toBeLessThan(sections.indexOf("teams"));
+    expect(sections.indexOf("teams")).toBeLessThan(sections.indexOf("promotion"));
     expect(sections.indexOf("promotion")).toBeLessThan(sections.indexOf("financials"));
     expect(sections.indexOf("financials")).toBeLessThan(sections.indexOf("documents"));
     expect(sections.indexOf("documents")).toBeLessThan(sections.indexOf("bugs-feedback"));
-    expect(sections.indexOf("relationships")).toBeLessThan(sections.indexOf("bugs-feedback"));
+    expect(sections.indexOf("teams")).toBeLessThan(sections.indexOf("bugs-feedback"));
     // Feedback comes before profile — that is the ordering rule this case is
     // named for. It is deliberately NOT an adjacency check: the "app" section
     // now sits between them, and a new tail section landing there is a normal
@@ -74,7 +74,8 @@ describe("pro portal documents section", () => {
     // The Requests / Work orders split became the `kind` on each row, and Vendors moved to Team.
     const services = proPortal.sections.find((s) => s.section === "services");
     expect(services?.tabs.map((t) => t.id)).toEqual([]);
-    expect(proPortal.sections.find((s) => s.section === "vendors")?.label).toBe("Vendors");
+    const teams = proPortal.sections.find((s) => s.section === "teams");
+    expect(teams?.tabs.find((tab) => tab.id === "vendors")?.label).toBe("Vendors");
   });
 
   it("locks documents and financials for free tier", () => {

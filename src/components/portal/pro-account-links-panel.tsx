@@ -12,7 +12,8 @@ import { ApplicationFilterSortFields } from "@/components/portal/application-fil
 import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
 import {
   ManagerPortalPageShell,
-  PORTAL_HEADER_PRIMARY_ACTION_BTN,
+  PORTAL_COMMAND_PRIMARY_ACTION_BTN,
+  PORTAL_COMMAND_PRIMARY_ACTION_STYLE,
 } from "@/components/portal/portal-metrics";
 import {
   PortalDataTableEmpty,
@@ -1866,8 +1867,8 @@ export function ProAccountLinksPanel({ userId, linkId: linkIdProp }: { userId: s
   const teamLinkButton = (
     <Button
       type="button"
-      variant="primary"
-      className={`shrink-0 ${PORTAL_HEADER_PRIMARY_ACTION_BTN}`}
+      className={PORTAL_COMMAND_PRIMARY_ACTION_BTN}
+      style={PORTAL_COMMAND_PRIMARY_ACTION_STYLE}
       disabled={linkAccountBlocked}
       onClick={openLinkModal}
       title={
@@ -2322,7 +2323,7 @@ export function ProAccountLinksPanel({ userId, linkId: linkIdProp }: { userId: s
       return (
         <>
           {teamModals}
-          <ManagerPortalPageShell title="Managers" titleInlineFilter={teamFilterSheet} hideTitleOnMobileNav compactFilterRow>
+          <ManagerPortalPageShell title="Teams" hideTitleOnMobileNav compactFilterRow>
             <PortalDataTableEmpty icon="team" message="Team member not found." />
           </ManagerPortalPageShell>
         </>
@@ -2332,7 +2333,7 @@ export function ProAccountLinksPanel({ userId, linkId: linkIdProp }: { userId: s
       <>
         {teamModals}
         <PortalRecordDetailPage
-          pageTitle="Managers"
+          pageTitle="Teams"
           title={routeEntry.name}
           subtitle={routeEntry.axisId}
           avatarName={routeEntry.name}
@@ -2365,14 +2366,21 @@ export function ProAccountLinksPanel({ userId, linkId: linkIdProp }: { userId: s
 
   return (
     <ManagerPortalPageShell
-      title="Managers"
-      titleInlineFilter={teamFilterSheet}
-      titleAside={teamLinkButton}
+      title="Teams"
       hideTitleOnMobileNav
       compactFilterRow
     >
-      <PortalListControlStack className="mb-2" />
-      {teamActiveFilterChips}
+      <PortalListControlStack
+        className="mb-2 max-lg:mb-1.5"
+        variant="command"
+        actions={
+          <>
+            {teamFilterSheet}
+            {teamLinkButton}
+          </>
+        }
+        activeFilterChips={teamActiveFilterChips}
+      />
       <div className="space-y-4">
         {teamListAlerts}
         {teamListBody}

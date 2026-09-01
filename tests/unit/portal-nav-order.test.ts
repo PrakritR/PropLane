@@ -27,7 +27,7 @@ describe("portal nav order contracts", () => {
     const items = proPortal.sections.map((s) => ({ section: s.section, label: s.label }));
     const ordered = orderNativeBottomNavItems(items, "pro").map((item) => item.section);
     expect(ordered).toEqual(sectionIds(proPortal.sections));
-    expect(ordered.indexOf("relationships")).toBeLessThan(ordered.indexOf("bugs-feedback"));
+    expect(ordered.indexOf("teams")).toBeLessThan(ordered.indexOf("bugs-feedback"));
     expect(ordered.at(-1)).toBe("profile");
   });
 
@@ -88,7 +88,7 @@ describe("pro portal nav grouping (leasing → tenancy → operations → market
   });
 
   it("groups operations before marketing", () => {
-    expectContiguousBlock(sections, operationsBlock, "services", "relationships");
+    expectContiguousBlock(sections, operationsBlock, "services", "teams");
   });
 
   it("groups finances after team sections", () => {
@@ -104,7 +104,7 @@ describe("pro portal nav grouping (leasing → tenancy → operations → market
   });
 
   it("free operational sections precede the finances block", () => {
-    expect(sections.slice(0, 15)).toEqual([
+    expect(sections.slice(0, 14)).toEqual([
       "dashboard",
       "properties",
       "tours",
@@ -117,8 +117,7 @@ describe("pro portal nav grouping (leasing → tenancy → operations → market
       "calendar",
       "bookings",
       "communication",
-      "relationships",
-      "vendors",
+      "teams",
       "promotion",
     ]);
   });
@@ -200,11 +199,9 @@ describe("pro portal documents section", () => {
     const services = proPortal.sections.find((s) => s.section === "services");
     expect(services?.tabs.map((t) => t.id)).toEqual([]);
 
-    // Managers and Vendors are two sidebar entries under the Team heading, not tabs.
-    const managers = proPortal.sections.find((s) => s.section === "relationships");
-    const vendors = proPortal.sections.find((s) => s.section === "vendors");
-    expect(managers?.label).toBe("Managers");
-    expect(vendors?.label).toBe("Vendors");
+    const teams = proPortal.sections.find((s) => s.section === "teams");
+    expect(teams?.label).toBe("Teams");
+    expect(teams?.tabs.map((tab) => tab.id)).toEqual(["managers", "vendors"]);
   });
 
   it("locks documents and financials for free tier", () => {

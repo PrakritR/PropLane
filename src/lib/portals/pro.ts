@@ -60,16 +60,12 @@ export const proPortal: PortalDefinition = {
       tabs: [],
     },
     {
-      section: "relationships",
-      label: "Managers",
-      tabs: [],
-    },
-    {
-      // Its own sidebar entry beside Managers under the Team heading — the same shape Tenancy
-      // uses for Residents / Payments / Services, rather than a tab strip inside one page.
-      section: "vendors",
-      label: "Vendors",
-      tabs: [],
+      section: "teams",
+      label: "Teams",
+      tabs: [
+        { id: "managers", label: "Managers" },
+        { id: "vendors", label: "Vendors" },
+      ],
     },
     { section: "promotion", label: "Promotion", tabs: [] },
     {
@@ -130,8 +126,8 @@ export const MANAGER_PORTAL_SMOKE_PATHS = [
   { label: "Communication", path: "/portal/communication/active" },
   { label: "Calendar", path: "/portal/calendar" },
   { label: "Bookings", path: "/portal/bookings" },
-  { label: "Managers", path: "/portal/relationships" },
-  { label: "Vendors", path: "/portal/vendors" },
+  { label: "Teams (managers)", path: "/portal/teams/managers" },
+  { label: "Teams (vendors)", path: "/portal/teams/vendors" },
   { label: "Promotion", path: "/portal/promotion" },
   { label: "Finances", path: "/portal/financials/income" },
   { label: "Documents", path: "/portal/documents/library" },
