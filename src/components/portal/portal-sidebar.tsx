@@ -969,7 +969,7 @@ export function PortalSidebar({
         items={moreSheetItems}
         kind={definition.kind}
         activeSection={activeSection}
-        activeSectionTabId={activePaymentTab}
+        activeSectionTabId={activeSectionSubTab}
         showNavIcons={showNavIcons}
       />
 
