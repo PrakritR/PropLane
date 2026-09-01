@@ -152,7 +152,7 @@ describe("resident portal redesign completeness", () => {
       // `portal-inline-title-band-duplicate-controls.test.tsx`, which is the guard
       // that actually enforces "header actions reach a phone exactly once" — so
       // that one owns the shape, and this one just checks the button is present.
-      expect(src).toContain("newMessageButton");
+      expect(src).toContain("communicationNewMessageButton");
       expect(src).toContain('data-attr="communication-new-message"');
       expect(src).not.toContain("PortalPageHeaderMobileActionsRow");
     });
@@ -196,11 +196,12 @@ describe("resident portal redesign completeness", () => {
       expect(readPanel("resident-lease-panel.tsx")).not.toContain("glass-card");
     });
 
-    it("house details is a single scroll page without routed sub-tabs", () => {
+    it("house details uses command sub-tabs for placement, housemates, and instructions", () => {
       const moveIn = readPanel("resident-move-in-view.tsx");
-      expect(moveIn).not.toContain("PortalListControlStack");
-      expect(moveIn).toContain("Your placement");
-      expect(moveIn).toContain("Move-in instructions");
+      expect(moveIn).toContain('variant="command"');
+      expect(moveIn).toContain("PortalListControlStack");
+      expect(moveIn).toContain("Assigned room");
+      expect(moveIn).toContain("InstructionsTabContent");
     });
 
     it("lease, tour, and applications use command layout with grouped property lists", () => {
