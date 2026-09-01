@@ -2,7 +2,6 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
-import { DropdownMenuItem } from "@/components/ui/dropdown-menu";
 import { Input, Select } from "@/components/ui/input";
 import { Modal, ModalFooter } from "@/components/ui/modal";
 import { useShallowTabId } from "@/components/ui/tabs";
@@ -16,16 +15,11 @@ import { PortalFilterSortSheet, portalFilterActiveCount } from "@/components/por
 import { PortalActiveFilterChips, type PortalActiveFilterChip } from "@/components/portal/portal-filter-chips";
 import { FinanceDestinationNav } from "@/components/portal/finance-destination-nav";
 import { ExpenseTaxStatusToggle } from "@/components/portal/expense-tax-status-toggle";
-import { PortalAdaptiveHeaderActions } from "@/components/portal/portal-adaptive-header-actions";
-import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
 import {
   ManagerPortalPageShell,
   MANAGER_TABLE_TH,
   PORTAL_COMMAND_ACTION_BTN,
-  PORTAL_COMMAND_PRIMARY_ACTION_BTN,
-  PORTAL_COMMAND_PRIMARY_ACTION_STYLE,
   PORTAL_HEADER_ACTION_BTN,
-  PORTAL_HEADER_PRIMARY_ACTION_BTN,
 } from "@/components/portal/portal-metrics";
 import {
   ManagerBankReconciliationPanel,
@@ -600,7 +594,6 @@ export function ManagerFinancesPanel({
   const [report, setReport] = useState<ReportResult | null>(null);
   const [loading, setLoading] = useState(false);
   const [rowFilters, setRowFilters] = useState(emptyRowFilters);
-  const [searchQuery, setSearchQuery] = useState("");
   const [expenseModal, setExpenseModal] = useState(false);
   const [incomeModal, setIncomeModal] = useState(false);
   const billsRef = useRef<ManagerBillsPanelHandle>(null);
@@ -630,8 +623,8 @@ export function ManagerFinancesPanel({
   const [sortDir, setSortDir] = useState<"asc" | "desc">(DEFAULT_SORT[tabId]?.dir ?? "desc");
 
   const filteredReport = useMemo(
-    () => (report ? filterFinanceReport(report, tabId, rowFilters, searchQuery) : null),
-    [report, tabId, rowFilters, searchQuery],
+    () => (report ? filterFinanceReport(report, tabId, rowFilters) : null),
+    [report, tabId, rowFilters],
   );
 
   const monthlyProfitPoints = useMemo(() => {
@@ -845,9 +838,6 @@ export function ManagerFinancesPanel({
 
   const specialFinancePanels = new Set(["bills", "bank-reconciliation", "security-deposits", "owner-distributions"]);
   const showScopedReportFilters = !specialFinancePanels.has(tabId);
-  const showTransactionSearch = tabId === "income" || tabId === "expenses";
-  // Only the transaction tabs are record lists. Every other finance tab is an
-  // accounting report whose columns ARE the data, so it stays a table.
   const isTransactionTab = tabId === "income" || tabId === "expenses";
   const activeDefaultSort = DEFAULT_SORT[tabId] ?? { key: "date", dir: "desc" as const };
   const financeSortOptions = (report?.columns ?? [])
@@ -1002,59 +992,6 @@ export function ManagerFinancesPanel({
       <ReportExportButtons reportId={reportId} query={query} formats={["quickbooks"]} />
     ) : null;
 
-  const financesAddButton =
-    tabId === "income" ? (
-      <Button
-        type="button"
-        className={PORTAL_COMMAND_PRIMARY_ACTION_BTN}
-        style={PORTAL_COMMAND_PRIMARY_ACTION_STYLE}
-        onClick={openAddIncome}
-        data-attr="finances-add-income"
-      >
-        Add
-      </Button>
-    ) : tabId === "expenses" ? (
-      <Button
-        type="button"
-        className={PORTAL_COMMAND_PRIMARY_ACTION_BTN}
-        style={PORTAL_COMMAND_PRIMARY_ACTION_STYLE}
-        onClick={openAddExpense}
-        data-attr="finances-add-expense"
-      >
-        Add
-      </Button>
-    ) : tabId === "bills" ? (
-      <Button
-        type="button"
-        className={PORTAL_COMMAND_PRIMARY_ACTION_BTN}
-        style={PORTAL_COMMAND_PRIMARY_ACTION_STYLE}
-        onClick={() => billsRef.current?.openAddBill()}
-        data-attr="finances-add-bill"
-      >
-        Add bill
-      </Button>
-    ) : tabId === "bank-reconciliation" ? (
-      <Button
-        type="button"
-        className={PORTAL_COMMAND_PRIMARY_ACTION_BTN}
-        style={PORTAL_COMMAND_PRIMARY_ACTION_STYLE}
-        onClick={() => bankReconciliationRef.current?.openAddAccount()}
-        data-attr="bank-add-account"
-      >
-        Add account
-      </Button>
-    ) : tabId === "owner-distributions" ? (
-      <Button
-        type="button"
-        className={PORTAL_COMMAND_PRIMARY_ACTION_BTN}
-        style={PORTAL_COMMAND_PRIMARY_ACTION_STYLE}
-        onClick={() => ownerDistributionsRef.current?.openNewDistribution()}
-        data-attr="finances-add-distribution"
-      >
-        New distribution
-      </Button>
-    ) : null;
-
   const financesBankStatementButton =
     tabId === "bank-reconciliation" ? (
       <Button
@@ -1079,102 +1016,19 @@ export function ManagerFinancesPanel({
       />
     ) : null;
 
-  const financesDestinationRow = (
-    <FinanceDestinationNav tabId={tabId} tabItems={financeTabItems} />
-  );
+  const financesDestinationNav = <FinanceDestinationNav tabId={tabId} tabItems={financeTabItems} />;
 
-  const financesSecondaryActions =
+  const financesToolbarActions =
+    financesFilterControl ||
     financesFormalPdfLink ||
     financesExportButtons ||
-    financesAddButton ||
     financesBankStatementButton ? (
-      <PortalAdaptiveHeaderActions
-        className="w-full min-w-0"
-        moreDataAttr="finances-more-actions"
-        moreAriaLabel="More finance actions"
-        actions={[
-          ...(financesFormalPdfLink
-            ? [
-                {
-                  id: "formal-pdf",
-                  keepPriority: 2,
-                  node: financesFormalPdfLink,
-                  menuItem: (
-                    <DropdownMenuItem asChild>
-                      <a href={`/api/reports/owner-statement/formal-export?${query}`} data-attr="owner-statement-formal-pdf-menu">
-                        Formal PDF
-                      </a>
-                    </DropdownMenuItem>
-                  ),
-                },
-              ]
-            : []),
-          ...(financesExportButtons
-            ? [
-                {
-                  id: "export",
-                  keepPriority: 2,
-                  node: financesExportButtons,
-                  menuItem: (
-                    <DropdownMenuItem disabled className="text-muted">
-                      Export options
-                    </DropdownMenuItem>
-                  ),
-                },
-              ]
-            : []),
-          ...(financesBankStatementButton
-            ? [
-                {
-                  id: "bank-statement",
-                  keepPriority: 2,
-                  node: financesBankStatementButton,
-                  menuItem: (
-                    <DropdownMenuItem
-                      data-attr="bank-add-statement-menu"
-                      disabled={!canAddBankStatement}
-                      onSelect={() => bankReconciliationRef.current?.openAddStatement()}
-                    >
-                      Add statement
-                    </DropdownMenuItem>
-                  ),
-                },
-              ]
-            : []),
-          ...(financesAddButton
-            ? [
-                {
-                  id: "add",
-                  alwaysVisible: true,
-                  pinEdge: "end" as const,
-                  node: financesAddButton,
-                  menuItem: (
-                    <DropdownMenuItem
-                      data-attr="finances-add-menu"
-                      onSelect={() => {
-                        if (tabId === "income") openAddIncome();
-                        else if (tabId === "expenses") openAddExpense();
-                        else if (tabId === "bills") billsRef.current?.openAddBill();
-                        else if (tabId === "bank-reconciliation") bankReconciliationRef.current?.openAddAccount();
-                        else if (tabId === "owner-distributions") ownerDistributionsRef.current?.openNewDistribution();
-                      }}
-                    >
-                      {tabId === "owner-distributions" ? "New distribution" : tabId === "bills" ? "Add bill" : tabId === "bank-reconciliation" ? "Add account" : "Add"}
-                    </DropdownMenuItem>
-                  ),
-                },
-              ]
-            : []),
-        ]}
-      />
-    ) : null;
-
-  const financesCommandActions =
-    financesFilterControl || financesSecondaryActions ? (
-      <>
+      <div className="flex flex-wrap items-center justify-end gap-2">
         {financesFilterControl}
-        {financesSecondaryActions}
-      </>
+        {financesFormalPdfLink}
+        {financesExportButtons}
+        {financesBankStatementButton}
+      </div>
     ) : null;
 
   return (
@@ -1184,28 +1038,13 @@ export function ManagerFinancesPanel({
       hideTitleOnMobileNav
       compactFilterRow
     >
-      <PortalListControlStack
-        className="mb-2 max-lg:mb-1.5"
-        variant="command"
-        destinationRow={financesDestinationRow}
-        stickyDestinations={false}
-        actions={financesCommandActions}
-        search={
-          showTransactionSearch
-            ? {
-                value: searchQuery,
-                onChange: setSearchQuery,
-                placeholder: `Search ${tabId}`,
-                dataAttr: "finances-search",
-              }
-            : undefined
-        }
-        activeFilterChips={
-          activeFinanceFilterChips.length > 0 ? (
+      <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:gap-6">
+        {financesDestinationNav}
+        <div className="min-w-0 flex-1 space-y-4">
+          {financesToolbarActions}
+          {activeFinanceFilterChips.length > 0 ? (
             <PortalActiveFilterChips chips={activeFinanceFilterChips} />
-          ) : null
-        }
-      />
+          ) : null}
       {tabId === "bills" ? (
         <ManagerBillsPanel ref={billsRef} />
       ) : tabId === "bank-reconciliation" ? (
@@ -1274,6 +1113,9 @@ export function ManagerFinancesPanel({
         )}
       </div>
       )}
+
+        </div>
+      </div>
 
       <Modal
         open={expenseModal}

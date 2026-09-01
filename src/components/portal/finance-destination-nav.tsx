@@ -1,55 +1,36 @@
 "use client";
 
-import { DestinationNav } from "@/components/ui/destination-nav";
+import Link from "next/link";
+import { HORIZONTAL_SCROLL_ATTR, PORTAL_HORIZONTAL_SCROLL_ROW_CLASS } from "@/lib/horizontal-scroll";
+import { cn } from "@/lib/utils";
 
-/** Top-level finance areas — keeps the tab bar from cramming 16 views into one row. */
-export const FINANCE_NAV_GROUPS = [
-  {
-    id: "transactions",
-    label: "Transactions",
-    tabIds: ["income", "expenses"],
-  },
-  {
-    id: "reports",
-    label: "Reports",
-    tabIds: [
-      "trial-balance",
-      "balance-sheet",
-      "general-ledger",
-      "cash-flow-statement",
-      "payout-history",
-      "owner-statement",
-      "financial-diagnostics",
-      "ap-aging",
-      "budget-vs-actual",
-    ],
-  },
-  {
-    id: "operations",
-    label: "Operations",
-    tabIds: ["trust-account-balance", "security-deposits", "bills", "bank-reconciliation", "owner-distributions"],
-  },
+export const FINANCE_NAV_TAB_IDS = [
+  "income",
+  "expenses",
+  "trial-balance",
+  "balance-sheet",
+  "general-ledger",
+  "cash-flow-statement",
+  "payout-history",
+  "trust-account-balance",
+  "security-deposits",
+  "financial-diagnostics",
+  "ap-aging",
+  "bills",
+  "budget-vs-actual",
+  "bank-reconciliation",
+  "owner-statement",
+  "owner-distributions",
 ] as const;
-
-export function financeGroupIdForTab(tabId: string): string {
-  for (const group of FINANCE_NAV_GROUPS) {
-    if ((group.tabIds as readonly string[]).includes(tabId)) return group.id;
-  }
-  return FINANCE_NAV_GROUPS[0].id;
-}
 
 type FinanceTabItem = { id: string; label: string; href: string };
 
-const FINANCE_GROUP_NAV_CLASS =
-  "gap-2 border-b border-border px-0 [&_a]:min-h-9 [&_a]:px-3 max-lg:scroll-px-0";
-
-const FINANCE_VIEW_NAV_CLASS =
-  "gap-2 border-b border-border px-0 [&_a]:min-h-9 [&_a]:px-3 max-lg:scroll-px-0";
+const FINANCE_NAV_LINK_CLASS =
+  "block rounded-lg px-3 py-2 text-[13px] font-medium tracking-[-0.01em] transition-colors duration-150";
 
 /**
- * Category navigation stays visually quiet; the contextual row carries the
- * actual finance view. This avoids turning every navigational choice into a
- * large, equal-width button.
+ * One flat list of finance views — no Transactions/Reports/Operations tiers.
+ * Desktop: left rail; mobile: horizontal scroll above the active panel.
  */
 export function FinanceDestinationNav({
   tabId,
@@ -58,40 +39,57 @@ export function FinanceDestinationNav({
   tabId: string;
   tabItems: FinanceTabItem[];
 }) {
-  const activeGroupId = financeGroupIdForTab(tabId);
-  const subItems = tabItems.filter((item) => {
-    const group = FINANCE_NAV_GROUPS.find((entry) => entry.id === activeGroupId) ?? FINANCE_NAV_GROUPS[0];
-    return (group.tabIds as readonly string[]).includes(item.id);
-  });
-
-  const groupItems = FINANCE_NAV_GROUPS.map((group) => {
-    const targetTab = (group.tabIds as readonly string[]).includes(tabId) ? tabId : group.tabIds[0];
-    const href = tabItems.find((item) => item.id === targetTab)?.href ?? tabItems[0]?.href ?? "";
-    return {
-      id: group.id,
-      label: group.label,
-      href,
-    };
-  });
+  const orderedItems = FINANCE_NAV_TAB_IDS.map((id) => tabItems.find((item) => item.id === id)).filter(
+    (item): item is FinanceTabItem => Boolean(item),
+  );
+  const items = orderedItems.length > 0 ? orderedItems : tabItems;
 
   return (
-    <div className="flex w-full min-w-0 flex-col gap-2">
-      <DestinationNav
-        items={groupItems}
-        activeId={activeGroupId}
-        ariaLabel="Finance section"
-        appearance="command"
-        className={FINANCE_GROUP_NAV_CLASS}
-      />
-      {subItems.length > 0 ? (
-        <DestinationNav
-          items={subItems}
-          activeId={tabId}
-          ariaLabel="Finance view"
-          appearance="command"
-          className={FINANCE_VIEW_NAV_CLASS}
-        />
-      ) : null}
-    </div>
+    <>
+      <nav className="hidden min-w-[11.5rem] shrink-0 flex-col gap-0.5 lg:flex" aria-label="Finance views">
+        {items.map((item) => {
+          const active = item.id === tabId;
+          return (
+            <Link
+              key={item.id}
+              href={item.href}
+              className={cn(
+                FINANCE_NAV_LINK_CLASS,
+                active
+                  ? "bg-[var(--secondary)] text-foreground"
+                  : "text-muted hover:bg-[var(--secondary)]/60 hover:text-foreground",
+              )}
+              aria-current={active ? "page" : undefined}
+            >
+              {item.label}
+            </Link>
+          );
+        })}
+      </nav>
+      <nav
+        className={cn(PORTAL_HORIZONTAL_SCROLL_ROW_CLASS, "flex gap-1 border-b border-border pb-2 lg:hidden")}
+        aria-label="Finance views"
+        {...{ [HORIZONTAL_SCROLL_ATTR]: "" }}
+      >
+        {items.map((item) => {
+          const active = item.id === tabId;
+          return (
+            <Link
+              key={item.id}
+              href={item.href}
+              className={cn(
+                "shrink-0 whitespace-nowrap border-b-2 px-3 py-1.5 text-[13px] font-medium transition-colors",
+                active
+                  ? "border-primary text-foreground"
+                  : "border-transparent text-muted hover:text-foreground",
+              )}
+              aria-current={active ? "page" : undefined}
+            >
+              {item.label}
+            </Link>
+          );
+        })}
+      </nav>
+    </>
   );
 }

@@ -1,53 +1,26 @@
+// @vitest-environment jsdom
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { financeGroupIdForTab } from "@/components/portal/finance-destination-nav";
+import { FINANCE_NAV_TAB_IDS } from "@/components/portal/finance-destination-nav";
 
-describe("financeGroupIdForTab", () => {
-  it("maps transaction tabs", () => {
-    expect(financeGroupIdForTab("income")).toBe("transactions");
-    expect(financeGroupIdForTab("expenses")).toBe("transactions");
+describe("finance destination nav", () => {
+  it("lists every finance view in one flat rail", () => {
+    expect(FINANCE_NAV_TAB_IDS).toContain("income");
+    expect(FINANCE_NAV_TAB_IDS).toContain("expenses");
+    expect(FINANCE_NAV_TAB_IDS).toContain("trial-balance");
+    expect(FINANCE_NAV_TAB_IDS).toContain("owner-distributions");
+    expect(FINANCE_NAV_TAB_IDS.indexOf("income")).toBeLessThan(FINANCE_NAV_TAB_IDS.indexOf("trial-balance"));
   });
 
-  it("maps report tabs", () => {
-    expect(financeGroupIdForTab("trial-balance")).toBe("reports");
-    expect(financeGroupIdForTab("budget-vs-actual")).toBe("reports");
-  });
-
-  it("maps operations tabs", () => {
-    expect(financeGroupIdForTab("bills")).toBe("operations");
-    expect(financeGroupIdForTab("owner-distributions")).toBe("operations");
-  });
-
-  it("falls back to transactions for unknown ids", () => {
-    expect(financeGroupIdForTab("unknown")).toBe("transactions");
-  });
-});
-
-describe("FinanceDestinationNav layout", () => {
-  it("uses a quiet category row and compact contextual view controls", () => {
+  it("uses a left rail on desktop and a single mobile row (no grouped tiers)", () => {
     const source = readFileSync(
       join(process.cwd(), "src/components/portal/finance-destination-nav.tsx"),
       "utf8",
     );
-    expect(source).toContain('appearance="command"');
-    expect(source).toContain("FINANCE_GROUP_NAV_CLASS");
-    expect(source).toContain("FINANCE_VIEW_NAV_CLASS");
-    expect(source).not.toContain('itemLayout="equal"');
-    expect(source).not.toContain("LocalDestinationNav");
-    expect(source).not.toContain("SUB_NAV_WRAP_CLASS");
-  });
-
-  it("orders group tabs transactions, reports, then operations", () => {
-    const source = readFileSync(
-      join(process.cwd(), "src/components/portal/finance-destination-nav.tsx"),
-      "utf8",
-    );
-    const transactionsIdx = source.indexOf('id: "transactions"');
-    const reportsIdx = source.indexOf('id: "reports"');
-    const operationsIdx = source.indexOf('id: "operations"');
-    expect(transactionsIdx).toBeGreaterThan(-1);
-    expect(reportsIdx).toBeGreaterThan(transactionsIdx);
-    expect(operationsIdx).toBeGreaterThan(reportsIdx);
+    expect(source).toContain("hidden min-w-[11.5rem] shrink-0 flex-col gap-0.5 lg:flex");
+    expect(source).toContain("lg:hidden");
+    expect(source).not.toContain("FINANCE_NAV_GROUPS");
+    expect(source).not.toContain('appearance="command"');
   });
 });

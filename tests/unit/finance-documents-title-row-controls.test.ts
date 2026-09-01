@@ -25,25 +25,23 @@ describe("Finance and Documents command layout", () => {
     expect(leasingTabs).toContain("<DataList");
   });
 
-  it("renders Finance actions through the command strip instead of the title row", () => {
+  it("renders Finance through a flat left nav without search or header Add", () => {
     const finances = portalSource("manager-finances-panel.tsx");
     const bills = portalSource("manager-bills-panel.tsx");
     const bank = portalSource("manager-bank-reconciliation-panel.tsx");
     const distributions = portalSource("manager-owner-distributions-panel.tsx");
 
-    expect(finances).toContain("const financesAddButton =");
-    expect(finances).toContain("PortalAdaptiveHeaderActions");
+    expect(finances).toContain("FinanceDestinationNav");
     expect(finances).toContain("titleInlineFilter={null}");
-    expect(finances).toContain("financesCommandActions");
-    expect(finances).toContain('variant="command"');
-    expect(finances).toContain('data-attr="finances-add-bill"');
-    expect(finances).toContain('data-attr="bank-add-account"');
+    expect(finances).toContain("financesToolbarActions");
+    expect(finances).not.toContain("PortalListControlStack");
+    expect(finances).not.toContain("finances-search");
+    expect(finances).not.toContain('data-attr="finances-add-income"');
     expect(finances).toContain('data-attr="bank-add-statement"');
-    expect(finances).toContain('data-attr="finances-add-distribution"');
+    expect(finances).toContain("finances-list-add-income");
 
     expect(bills).not.toContain("<PortalSectionActionRow");
     expect(bank).not.toContain('data-attr="bank-add-account"');
-    expect(bank).not.toContain('data-attr="bank-add-statement"');
     expect(distributions).not.toContain("<PortalSectionActionRow");
   });
 
