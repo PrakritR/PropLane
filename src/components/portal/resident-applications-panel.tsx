@@ -16,6 +16,11 @@ import {
   PORTAL_HEADER_PRIMARY_ACTION_BTN,
 } from "@/components/portal/portal-metrics";
 import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
+import {
+  PortalListAddRow,
+  PORTAL_LIST_ADD_ICONS,
+  PORTAL_LIST_ADD_ROW_WRAP_CLASS,
+} from "@/components/portal/portal-list-add-row";
 import { PORTAL_LIST_PAGE_BODY } from "@/components/portal/portal-inbox-ui";
 import { PortalSectionActionRow } from "@/components/portal/portal-section-action-row";
 import { ResidentPortalListBottomBar } from "@/components/portal/resident-portal-list-bottom-bar";
