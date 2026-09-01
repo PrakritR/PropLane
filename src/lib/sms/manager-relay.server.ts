@@ -214,6 +214,11 @@ export async function forwardResidentInboundToManagerCell(
     /** Twilio's inbound MessageSid — pins the dedupe key so a webhook retry
      * cannot text the manager the same message twice. */
     messageSid?: string | null;
+    /** The texter's capacity. Decides whether the mirror may invite a reply:
+     * Leg 2 routes a manager's texted-back reply to their newest RESIDENT
+     * thread and deliberately skips prospect threads, so inviting a reply to a
+     * prospect's mirror would hand that reply to an unrelated resident. */
+    counterpartyRole?: "resident" | "prospect";
   },
 ): Promise<boolean> {
   const managerUserId = args.managerUserId.trim();
@@ -271,7 +276,11 @@ export async function forwardResidentInboundToManagerCell(
     managerUserId,
     fromPhone: args.fromPhone,
   });
-  const text = `${label}: ${args.body.trim() || "(no text)"}\n\nReply to this text to answer them.`;
+  const replyHint =
+    args.counterpartyRole === "resident"
+      ? "Reply to this text to answer them."
+      : "Reply in PropLane to answer them.";
+  const text = `${label}: ${args.body.trim() || "(no text)"}\n\n${replyHint}`;
 
   const sent = await sendFromManagerWorkNumber({
     managerUserId,

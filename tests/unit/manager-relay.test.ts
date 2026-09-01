@@ -153,6 +153,7 @@ describe("forwardResidentInboundToManagerCell — leg 1", () => {
       fromPhone: "+12065552222",
       body: "leak in unit 4",
       messageSid: "SMinbound1",
+      counterpartyRole: "resident",
     });
 
     expect(ok).toBe(true);
@@ -173,6 +174,34 @@ describe("forwardResidentInboundToManagerCell — leg 1", () => {
     expect(sent.text).toContain("leak in unit 4");
     // Never hand the manager a number we labelled around.
     expect(sent.text).not.toContain("+12065552222");
+  });
+
+  it("only invites a texted-back reply when the mirror is a resident's", async () => {
+    // Leg 2 routes a manager's reply to their newest RESIDENT thread and skips
+    // prospect threads, so telling them to reply to a prospect's mirror would
+    // deliver that reply to an unrelated resident.
+    const db = seededDb();
+    await forwardResidentInboundToManagerCell(db, {
+      managerUserId: "mgrA",
+      workNumber: "+12065559000",
+      fromPhone: "+12065552222",
+      body: "is the unit still available?",
+      counterpartyRole: "prospect",
+    });
+    const [[prospect]] = sendFromWorkNumberMock.mock.calls as unknown as [[{ text: string }]];
+    expect(prospect.text).toContain("Reply in PropLane");
+    expect(prospect.text).not.toContain("Reply to this text");
+
+    sendFromWorkNumberMock.mockClear();
+    await forwardResidentInboundToManagerCell(seededDb(), {
+      managerUserId: "mgrA",
+      workNumber: "+12065559000",
+      fromPhone: "+12065552222",
+      body: "leak in unit 4",
+      counterpartyRole: "resident",
+    });
+    const [[resident]] = sendFromWorkNumberMock.mock.calls as unknown as [[{ text: string }]];
+    expect(resident.text).toContain("Reply to this text");
   });
 
   it("records the manager's own verification as the consent evidence for the mirror scope", async () => {

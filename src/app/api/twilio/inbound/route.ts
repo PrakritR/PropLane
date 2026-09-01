@@ -496,6 +496,7 @@ export async function POST(req: Request) {
         fromPhone,
         body,
         messageSid,
+        counterpartyRole: "resident",
       }).catch(() => undefined);
     }
     if (turn) return twimlOk();
@@ -558,12 +559,15 @@ export async function POST(req: Request) {
   // never the raw number). Only in the per-manager Twilio regime; the Claw
   // shared line has its own forward path, so this avoids a double forward.
   if (!isClawSharedLineBridgeEnabled()) {
+    // The leasing responder handles prospects and anyone whose resident thread
+    // could not be opened, so this mirror must not invite a texted-back reply.
     await forwardResidentInboundToManagerCell(db, {
       managerUserId: managerId,
       workNumber,
       fromPhone,
       body,
       messageSid,
+      counterpartyRole: "prospect",
     }).catch(() => undefined);
   }
 
