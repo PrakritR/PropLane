@@ -83,7 +83,7 @@ import { Button } from "@/components/ui/button";
 import { DropdownMenuItem } from "@/components/ui/dropdown-menu";
 import { usePortalRowSelection } from "@/hooks/use-portal-row-selection";
 import { useShallowTabId } from "@/components/ui/tabs";
-import { Plus } from "lucide-react";
+import { PORTAL_LIST_ADD_ICONS } from "@/components/portal/portal-list-add-row";
 
 type FilterType = "requests" | "work-orders";
 
@@ -465,7 +465,7 @@ export function ManagerAllServicesPanel({
 
   const servicesListAdd = {
     ariaLabel: "Add service",
-    icon: Plus,
+    icon: PORTAL_LIST_ADD_ICONS.service,
     onClick: () => setAddServiceOpen(true),
     dataAttr: "services-list-add",
   };

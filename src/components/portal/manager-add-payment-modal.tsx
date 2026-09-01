@@ -11,6 +11,7 @@ import { MANAGER_PAYMENT_PRESETS, type ManagerPaymentPresetId } from "@/lib/paym
 import { defaultDueIsoForReminderSettings } from "@/lib/payment-reminder-bootstrap";
 import { buildNewChargeNoticeBody, deliverPortalInboxMessage } from "@/lib/portal-message-delivery";
 import { PortalNotificationPreviewModal } from "@/components/portal/portal-notification-preview-modal";
+import { restoreFutureRemindersForPendingCharge } from "@/components/portal/payment-schedule-ui";
 import { isCurrentResidentApplicationRow } from "@/lib/current-resident";
 import {
   MANAGER_APPLICATIONS_EVENT,
@@ -302,6 +303,10 @@ export function ManagerAddPaymentModal({
       if (!result) {
         showToast("Could not add charge. Check all fields.");
         return;
+      }
+
+      if (noticePreview.bucket !== "paid") {
+        await restoreFutureRemindersForPendingCharge(result.id).catch(() => undefined);
       }
 
       reset();

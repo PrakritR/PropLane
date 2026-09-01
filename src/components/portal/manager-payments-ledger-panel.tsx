@@ -12,6 +12,9 @@ import { Badge } from "@/components/ui/badge";
 import { useAppUi } from "@/components/providers/app-ui-provider";
 import {
   ApplicationHouseholdCluster,
+  PortalListClusterSelectCheckbox,
+  PortalListSelectAllRow,
+  togglePortalListClusterSelection,
 } from "@/components/portal/application-household-list";
 
 import {
@@ -53,8 +56,11 @@ import {
 } from "@/components/portal/portal-notification-preview-modal";
 import {
   cancelFutureRemindersForPaidCharge,
+  ChargeRemindersModal,
+  patchScheduledMessage,
   restoreFutureRemindersForPendingCharge,
 } from "@/components/portal/payment-schedule-ui";
+import { PaymentScheduledMessagesLead } from "@/components/portal/payment-scheduled-lead";
 import type { ScheduledPaymentMessage } from "@/lib/scheduled-payment-messages";
 import { manageableRemindersForCharge, formatScheduledSendAt } from "@/lib/scheduled-payment-messages";
 import { scheduledSendBadgeLabel, summariseScheduledSends } from "@/lib/scheduled-send-summary";
@@ -124,9 +130,10 @@ function formatDueMeta(due: string): string {
 function ledgerRowMetaLine(
   row: DemoManagerPaymentLedgerRow,
   scheduledMessages: ScheduledPaymentMessage[],
-  options?: { includeProperty?: boolean },
+  options?: { includeProperty?: boolean; includeReminder?: boolean },
 ): string {
   const includeProperty = options?.includeProperty ?? true;
+  const includeReminder = options?.includeReminder ?? true;
   const parts: string[] = [];
   if (includeProperty) {
     const property = ledgerRowPropertyLine(row);
@@ -134,8 +141,10 @@ function ledgerRowMetaLine(
   }
   const due = formatDueMeta(row.dueDate ?? "");
   if (due) parts.push(due);
-  const reminder = paymentReminderMetaHint(row, scheduledMessages);
-  if (reminder) parts.push(reminder);
+  if (includeReminder) {
+    const reminder = paymentReminderMetaHint(row, scheduledMessages);
+    if (reminder) parts.push(reminder);
+  }
   return parts.join(" · ");
 }
 
@@ -225,6 +234,7 @@ export function ManagerPaymentsLedgerPanel({
   const [sendingReminderId, setSendingReminderId] = useState<string | null>(null);
   const [reminderPreview, setReminderPreview] = useState<{ row: DemoManagerPaymentLedgerRow; subject: string; body: string } | null>(null);
   const [bulkReminderPreview, setBulkReminderPreview] = useState<BulkPaymentReminderPreviewItem[] | null>(null);
+  const [chargeRemindersRow, setChargeRemindersRow] = useState<DemoManagerPaymentLedgerRow | null>(null);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
 
   const selectedRows = useMemo(
@@ -285,6 +295,18 @@ export function ManagerPaymentsLedgerPanel({
       else next.add(id);
       return next;
     });
+  };
+
+  const toggleClusterSelection = (ids: readonly string[]) => {
+    togglePortalListClusterSelection(setSelectedIds, ids);
+  };
+
+  const openChargeRemindersModal = (row: DemoManagerPaymentLedgerRow) => {
+    if (!row.householdChargeId) {
+      showToast("This payment has no charge id yet. Sync payments and try again.");
+      return;
+    }
+    setChargeRemindersRow(row);
   };
 
   const toggleSelectAll = useCallback(() => {
@@ -1377,7 +1399,15 @@ export function ManagerPaymentsLedgerPanel({
           primary: ledgerRowPrimaryLabel(row),
           meta: ledgerRowMetaLine(row, scheduledMessages, {
             includeProperty: !options?.omitPropertyInMeta,
+            includeReminder: false,
           }),
+          leading: (
+            <PaymentScheduledMessagesLead
+              row={row}
+              scheduledMessages={scheduledMessages}
+              onOpenReminders={openChargeRemindersModal}
+            />
+          ),
           trailing: (
             <span className="text-sm font-semibold tabular-nums text-foreground">{row.lineAmount}</span>
           ),
@@ -1402,6 +1432,16 @@ export function ManagerPaymentsLedgerPanel({
         ? (ledgerClusters as ManagerPaymentPropertyCluster[]).map((cluster) => (
             <ApplicationHouseholdCluster
               key={cluster.key}
+              headerLeading={
+                showSelection ? (
+                  <PortalListClusterSelectCheckbox
+                    ids={cluster.rows.map((row) => row.id)}
+                    selectedIds={selectedIds}
+                    onToggleCluster={toggleClusterSelection}
+                    ariaLabel={`Select all charges for ${cluster.propertyLabel}`}
+                  />
+                ) : null
+              }
               header={
                 <>
                   <span className="truncate text-xs font-semibold text-foreground">
@@ -1434,6 +1474,16 @@ export function ManagerPaymentsLedgerPanel({
         : (ledgerClusters as ManagerPaymentResidentCluster[]).map((cluster) => (
             <ApplicationHouseholdCluster
               key={cluster.key}
+              headerLeading={
+                showSelection ? (
+                  <PortalListClusterSelectCheckbox
+                    ids={cluster.rows.map((row) => row.id)}
+                    selectedIds={selectedIds}
+                    onToggleCluster={toggleClusterSelection}
+                    ariaLabel={`Select all charges for ${cluster.residentLabel}`}
+                  />
+                ) : null
+              }
               header={
                 <>
                   <span className="truncate text-xs font-semibold text-foreground">{cluster.residentLabel}</span>
@@ -1516,6 +1566,28 @@ export function ManagerPaymentsLedgerPanel({
         onConfirm={() => void doSendBulkReminders()}
       />
     ) : null}
+    {chargeRemindersRow ? (
+      <ChargeRemindersModal
+        open
+        onClose={() => setChargeRemindersRow(null)}
+        residentName={chargeRemindersRow.residentName}
+        chargeTitle={chargeRemindersRow.chargeTitle}
+        dueDate={chargeRemindersRow.dueDate ?? "—"}
+        messages={manageableRemindersForCharge(
+          scheduledMessages,
+          chargeRemindersRow.householdChargeId ?? "",
+          24,
+        )}
+        scheduleSummary={reminderScheduleSummary}
+        onMessageSaved={() => {
+          onScheduleChanged?.();
+        }}
+        onToggleCancel={async (message, cancelled) => {
+          await patchScheduledMessage(message.id, { cancelled });
+        }}
+        onOpenSettings={onOpenReminderSettings}
+      />
+    ) : null}
     {paymentIdProp && detailRow ? (
       embeddedInResident ? (
         renderPaymentDetailPanel(detailRow)
@@ -1570,6 +1642,14 @@ export function ManagerPaymentsLedgerPanel({
         bulkActions={embeddedInResident ? undefined : bulkSelectionActions}
         dataAttr="payments-ledger-list"
       >
+        {showSelection && rows.length > 0 ? (
+          <PortalListSelectAllRow
+            allSelected={allSelected}
+            someSelected={someSelected}
+            onToggle={toggleSelectAll}
+            dataAttr="payments-select-all"
+          />
+        ) : null}
         {embeddedInResident ? renderChargeDataList(rows) : renderManagerGroupedLedger()}
       </PortalRecordListSurface>
     )}

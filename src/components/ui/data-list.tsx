@@ -52,6 +52,8 @@ export type DataListRow<T> = {
   overflowActions?: DataListRowAction[];
   /** Inline primary action (visible on row). */
   inlineAction?: ReactNode;
+  /** Leading slot between selection and primary label (scheduled sends, status icons). */
+  leading?: ReactNode;
   expanded?: boolean;
   expandedContent?: ReactNode;
 };
@@ -143,6 +145,7 @@ function DataListMobileRow<T>({
     return (
       <div className={rowClass} data-slot="data-list-mobile-row">
         {selection}
+        {row.leading ? <div className="shrink-0" data-portal-row-ignore>{row.leading}</div> : null}
         {recordContent}
         {trailingActions}
       </div>
@@ -151,10 +154,11 @@ function DataListMobileRow<T>({
 
   // Selection and row actions are siblings of the record button. A checkbox or
   // menu nested inside a row <button> is invalid HTML and breaks keyboard use.
-  if (selection || row.inlineAction || row.overflowActions?.length) {
+  if (selection || row.leading || row.inlineAction || row.overflowActions?.length) {
     return (
       <div className={cn(rowClass, "w-full")} data-slot="data-list-mobile-row">
         {selection}
+        {row.leading ? <div className="shrink-0" data-portal-row-ignore>{row.leading}</div> : null}
         <button
           type="button"
           className="flex min-h-10 min-w-0 flex-1 items-center rounded-lg text-left transition-colors duration-100 hover:bg-accent/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
@@ -208,6 +212,11 @@ function DataListDesktopRow<T>({
             data-portal-row-ignore
             aria-label={`Select ${row.primary}`}
           />
+        </td>
+      ) : null}
+      {row.leading ? (
+        <td className={cn(PORTAL_TABLE_TD, "w-0 py-2.5")} data-portal-row-ignore>
+          {row.leading}
         </td>
       ) : null}
       {columns.map((col, index) => (
