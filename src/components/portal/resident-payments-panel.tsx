@@ -33,7 +33,7 @@ import {
 import { useResidentPortalListFilterState } from "@/components/portal/resident-portal-list-filter";
 import type { PortalListGroupMode } from "@/lib/portal-list-grouping";
 import { PortalRecordDetailPage } from "@/components/portal/portal-record-detail-page";
-import { PORTAL_LIST_PAGE_BODY } from "@/components/portal/portal-inbox-ui";
+import { cn } from "@/lib/utils";
 import { usePortalSession } from "@/hooks/use-portal-session";
 import { usePortalNavigate } from "@/lib/portal-nav-client";
 import { useNativePlatform } from "@/hooks/use-native-platform";
@@ -1287,7 +1287,12 @@ export function ResidentPaymentsPanel({
   ]);
 
   const renderChargeList = () => (
-    <div className={PORTAL_LIST_PAGE_BODY}>
+    <div
+      className={cn(
+        "portal-list-page-body w-full min-w-0 pb-4 lg:pb-5",
+        !showPayActions && "max-lg:pb-[calc(5.5rem+var(--portal-mobile-scroll-bottom-inset,0px))]",
+      )}
+    >
       <ResidentPortalGroupedDataList
         items={paymentGroupedItems}
         groupMode={groupMode}

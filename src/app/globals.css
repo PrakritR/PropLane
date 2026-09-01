@@ -2413,6 +2413,11 @@ html[data-native] [class*="PORTAL_SECTION_SURFACE"] {
     right: max(1rem, env(safe-area-inset-right)) !important;
   }
 
+  /* Resident payments keeps a persistent Pay bar — float the assistant above it. */
+  html[data-bulk-action-bar][data-bulk-action-variant="payments"] .axis-assistant-fab {
+    bottom: calc(var(--portal-native-bottom-nav-inset, 0px) + 8.25rem) !important;
+  }
+
   html[data-bulk-action-bar] [data-bulk-action-actions] {
     padding-right: 3.5rem;
   }
@@ -2431,6 +2436,10 @@ html[data-native] [class*="PORTAL_SECTION_SURFACE"] {
 @media (min-width: 1024px) {
   html[data-bulk-action-bar] .axis-assistant-fab {
     bottom: 5.5rem !important;
+  }
+
+  html[data-bulk-action-bar][data-bulk-action-variant="payments"] .axis-assistant-fab {
+    bottom: 7.5rem !important;
   }
 
   /* Pinned record-detail footer (resident profile sections) — sit above the action row. */

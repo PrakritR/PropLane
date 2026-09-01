@@ -10,6 +10,7 @@ import { GroupShareCallout } from "@/components/marketing/rental-application-fin
 import { PublicApplyAccountPrompt } from "@/components/marketing/public-apply-account-prompt";
 import { SignedInResidentAccountPrompt } from "@/components/marketing/signed-in-resident-account-prompt";
 import { RentalApplicationWizard } from "@/components/marketing/rental-application-wizard";
+import { ModalAssistantStrip } from "@/components/portal/modal-assistant-strip";
 import {
   ManagerPortalPageShell,
   PORTAL_HEADER_PRIMARY_ACTION_BTN,
@@ -307,6 +308,7 @@ export function ResidentApplicationsPanel({
   // happens in place (a searchable modal), then the wizard opens INLINE under
   // its own row in this same list — no round-trip out to the browse page.
   const [pickerOpen, setPickerOpen] = useState(false);
+  const [pickerAssistantInstance, setPickerAssistantInstance] = useState(0);
   const [pickedPropertyId, setPickedPropertyId] = useState<string | null>(null);
   const openHandled = useRef(false);
   // Which application the apply-mode auto-expand has already opened. Guards the
@@ -371,6 +373,11 @@ export function ResidentApplicationsPanel({
     const on = () => setTick((t) => t + 1);
     window.addEventListener(PROPERTY_PIPELINE_EVENT, on);
     return () => window.removeEventListener(PROPERTY_PIPELINE_EVENT, on);
+  }, [pickerOpen]);
+
+  useEffect(() => {
+    if (!pickerOpen) return;
+    setPickerAssistantInstance((instance) => instance + 1);
   }, [pickerOpen]);
 
   const rows = useMemo(() => {
@@ -833,46 +840,51 @@ export function ResidentApplicationsPanel({
       title="Apply to a property"
       onClose={() => setPickerOpen(false)}
       panelClassName="max-w-lg"
-    >
-      <div className="space-y-4">
-        <p className="text-sm text-muted">
-          Choose the home you want to apply for. Your application opens right here in your list — you can add
-          another property anytime.
-        </p>
-        <PropertySearchPicker
-          options={propertyPickerOptions}
-          value={pickedPropertyId}
-          onChange={setPickedPropertyId}
-          placeholder="Search by address, neighborhood, or property name…"
-          emptyMessage="No properties match your search."
-          listEmptyMessage="No properties are available to apply for right now."
-          ariaLabel="Search properties to apply for"
-        />
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <Button
-            type="button"
-            variant="outline"
-            className="rounded-full px-4 text-[13px]"
-            data-attr="resident-applications-browse-homes"
-            onClick={() => {
-              setPickerOpen(false);
-              portalNavigate(residentBrowseFromApplicationHref());
-            }}
-          >
-            Browse homes
-          </Button>
-          <Button
-            type="button"
-            variant="primary"
-            className="rounded-full"
-            data-attr="resident-applications-start"
-            disabled={!pickedPropertyId}
-            onClick={() => pickedPropertyId && startApplicationForProperty(pickedPropertyId)}
-          >
-            Start application
-          </Button>
+      assistantStrip={false}
+      footer={
+        <div className="flex flex-col gap-0">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              className="rounded-full px-4 text-[13px]"
+              data-attr="resident-applications-browse-homes"
+              onClick={() => {
+                setPickerOpen(false);
+                portalNavigate(residentBrowseFromApplicationHref());
+              }}
+            >
+              Browse homes
+            </Button>
+            <Button
+              type="button"
+              variant="primary"
+              className="rounded-full"
+              data-attr="resident-applications-start"
+              disabled={!pickedPropertyId}
+              onClick={() => pickedPropertyId && startApplicationForProperty(pickedPropertyId)}
+            >
+              Start application
+            </Button>
+          </div>
+          <ModalAssistantStrip
+            contextHint="Apply to a property"
+            storageScopeKey="Apply to a property"
+            conversationInstance={pickerAssistantInstance}
+            className="mt-3 border-t border-border pt-0"
+          />
         </div>
-      </div>
+      }
+    >
+      <PropertySearchPicker
+        options={propertyPickerOptions}
+        value={pickedPropertyId}
+        onChange={setPickedPropertyId}
+        placeholder="Search by address, neighborhood, or property name…"
+        emptyMessage="No properties match your search."
+        listEmptyMessage="No properties are available to apply for right now."
+        ariaLabel="Search properties to apply for"
+      />
     </Modal>
   );
 

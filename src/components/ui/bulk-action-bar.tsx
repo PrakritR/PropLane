@@ -25,10 +25,14 @@ export function BulkActionBar({
   useEffect(() => {
     if (count <= 0) return;
     document.documentElement.setAttribute("data-bulk-action-bar", "");
+    if (variant !== "default") {
+      document.documentElement.setAttribute("data-bulk-action-variant", variant);
+    }
     return () => {
       document.documentElement.removeAttribute("data-bulk-action-bar");
+      document.documentElement.removeAttribute("data-bulk-action-variant");
     };
-  }, [count]);
+  }, [count, variant]);
 
   if (count <= 0) return null;
 
