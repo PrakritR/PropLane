@@ -18,6 +18,7 @@ import {
   MessageSquare,
   MessagesSquare,
   ScrollText,
+  ShieldCheck,
   UserCog,
   Settings,
   Smartphone,
@@ -48,6 +49,8 @@ const SECTION_ICONS: Record<string, LucideIcon> = {
   events: Calendar,
   applications: ClipboardList,
   "resident-application": ClipboardList,
+  "background-check": ShieldCheck,
+  "background-checks": ShieldCheck,
   payments: CreditCard,
   documents: Folder,
   financials: BarChart3,
@@ -61,11 +64,21 @@ const SECTION_ICONS: Record<string, LucideIcon> = {
   settings: Settings,
   plan: CreditCard,
   teams: Users,
+  managers: UserCog,
   relationships: UserCog,
   "move-in": LogIn,
   promotion: Megaphone,
   app: Smartphone,
 };
+
+/** Sub-nav rows (Teams › Vendors, Application › Background check) get their own glyph. */
+export function resolvePortalNavIconSection(section: string, sectionTabId?: string): string {
+  if (sectionTabId === "vendors") return "vendors";
+  if (sectionTabId === "managers") return "managers";
+  if (sectionTabId === "background-check") return "background-check";
+  if (sectionTabId === "application") return "resident-application";
+  return section;
+}
 
 /**
  * Portal nav icon — Lucide outline by default; filled when `active` (Instagram tab convention).
@@ -73,17 +86,19 @@ const SECTION_ICONS: Record<string, LucideIcon> = {
  */
 export function PortalNavIcon({
   section,
+  sectionTabId,
   className,
   strokeWidth,
   active = false,
 }: {
   section: string;
+  sectionTabId?: string;
   className?: string;
   strokeWidth?: number;
   /** Selected tab / active nav destination — outline → filled. */
   active?: boolean;
 }) {
-  const Icon = SECTION_ICONS[section] ?? Circle;
+  const Icon = SECTION_ICONS[resolvePortalNavIconSection(section, sectionTabId)] ?? Circle;
   const resolvedStroke = strokeWidth ?? (active ? 2.25 : 1.75);
   return (
     <Icon

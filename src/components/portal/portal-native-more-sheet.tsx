@@ -107,7 +107,7 @@ function MoreNavRow({
     >
       {showNavIcons ? (
         <span className={`shrink-0 ${item.locked ? "opacity-60" : ""}`} aria-hidden>
-          <PortalNavIcon section={item.section} active={active} />
+          <PortalNavIcon section={item.section} sectionTabId={item.sectionTabId} active={active} />
         </span>
       ) : null}
       <span className="min-w-0 flex-1 truncate">{item.label}</span>

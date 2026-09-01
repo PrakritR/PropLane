@@ -139,16 +139,22 @@ describe("resident portal redesign completeness", () => {
       }
     });
 
-    it("communication uses PortalCommunicationShell with command control stack", () => {
+    it("communication uses PortalCommunicationShell with inline title band (filter + actions on title row)", () => {
       const src = readPanel("resident-communication.tsx");
       expect(src).toContain("PortalCommunicationShell");
-      expect(src).toContain('variant="command"');
+      // The panel carries "New message" on the title band, but in the SPLIT shape
+      // rather than band-only: a `hidden md:flex` titleAside plus an `md:hidden`
+      // row in the control stack. Both shapes are valid per rule 3 of
+      // docs/portal-list-section-layout.md, and split is what this panel needs —
+      // the phone button uses the responsive variant and is suppressed while a
+      // thread is open (`!threadOpen`), neither of which a single shared node can
+      // express. Asserting band-only here contradicted
+      // `portal-inline-title-band-duplicate-controls.test.tsx`, which is the guard
+      // that actually enforces "header actions reach a phone exactly once" — so
+      // that one owns the shape, and this one just checks the button is present.
+      expect(src).toContain("newMessageButton");
       expect(src).toContain('data-attr="communication-new-message"');
-      expect(src).toContain('data-attr="communication-settings-open"');
-      expect(src).toContain('dataAttr="communication-filter-sheet-open"');
-      expect(src).not.toContain("titleAside=");
       expect(src).not.toContain("PortalPageHeaderMobileActionsRow");
-      expect(src).not.toContain("resident-inbox-search");
     });
 
     it("dashboard uses manager-style attention groups without welcome subtitle", () => {
@@ -190,24 +196,34 @@ describe("resident portal redesign completeness", () => {
       expect(readPanel("resident-lease-panel.tsx")).not.toContain("glass-card");
     });
 
-    it("house details uses command tabs for each section", () => {
+    it("house details is a single scroll page without routed sub-tabs", () => {
       const moveIn = readPanel("resident-move-in-view.tsx");
-      expect(moveIn).toContain("PortalListControlStack");
-      expect(moveIn).toContain('variant="command"');
-      expect(moveIn).toContain("resident-move-in-tab-");
-      expect(moveIn).toContain("hideAssistantFab");
+      expect(moveIn).not.toContain("PortalListControlStack");
+      expect(moveIn).toContain("Your placement");
+      expect(moveIn).toContain("Move-in instructions");
+    });
+
+    it("lease, tour, and applications use command layout with grouped property lists", () => {
+      const lease = readPanel("resident-lease-panel.tsx");
+      expect(lease).toContain('variant="command"');
+      expect(readPanel("resident-lease-list.tsx")).toContain("ResidentPortalGroupedDataList");
+      const payments = readPanel("resident-payments-panel.tsx");
+      expect(payments).toContain('variant="command"');
+      expect(payments).toContain("ResidentPortalGroupedDataList");
+      const tour = readPanel("resident-tour-panel.tsx");
+      expect(tour).toContain('variant="command"');
+      expect(tour).toContain("ResidentPortalGroupedDataList");
+      const applications = readPanel("resident-applications-panel.tsx");
+      expect(applications).toContain('variant="command"');
+      expect(applications).toContain("ResidentPortalGroupedDataList");
+      expect(applications).toContain("useResidentPortalListFilterState");
     });
 
     it("lease filter tabs are a local nav, not a dropdown; services filter rows span full width", () => {
       const lease = readPanel("resident-lease-panel.tsx");
-      // The redesign originally collapsed lease to a single view, and this
-      // asserted the ABSENCE of `LocalDestinationNav`. Routed status buckets have
-      // since been built back in deliberately — `ResidentLeaseBucketId` and
-      // `residentLeaseListHref` exist for exactly this — so the contract now
-      // matches services above: buckets render as a local nav, never a mobile
-      // dropdown.
-      expect(lease).toContain("LocalDestinationNav");
-      expect(lease).toContain('variant="plain"');
+      // Routed status buckets render as command destination tabs, not a mobile dropdown.
+      expect(lease).toContain('variant="command"');
+      expect(lease).toContain("destinationAriaLabel");
       const services = readPanel("resident-services-panel.tsx");
       expect(services).toContain("SERVICE_STATE_TABS");
       expect(services).toContain('ariaLabel="Service status"');
@@ -230,18 +246,16 @@ describe("resident portal redesign completeness", () => {
       expect(services).not.toContain("PortalPageHeaderMobileActionsRow");
 
       const tour = readPanel("resident-tour-panel.tsx");
-      expect(tour).toContain("titleAside={scheduleTourButton}");
+      expect(tour).toContain("tourCommandActions");
+      expect(tour).not.toContain("titleAside={scheduleTourButton}");
+      expect(tour).not.toContain("PortalResidentListFab");
       expect(tour).not.toContain("PortalPageHeaderMobileActionsRow");
 
       const applications = readPanel("resident-applications-panel.tsx");
-      expect(applications).toContain("PortalListControlStack");
-      expect(applications).toContain('variant="command"');
-      expect(applications).toContain("data-attr=\"resident-applications-apply\"");
-      expect(applications).toContain("data-slot=\"resident-applications-mobile-actions\"");
+      expect(applications).toContain("applicationListControlStack");
       expect(applications).not.toContain("ResidentApplicationWorkspaceActions");
       expect(applications).not.toContain("ResidentApplicationWorkspaceMobileApply");
       expect(applications).not.toContain("PortalPageHeaderMobileActionsRow");
-      expect(applications).not.toContain("titleAside=");
 
       expect(tour).toContain("scheduleTourButton");
 

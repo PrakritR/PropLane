@@ -1943,6 +1943,7 @@ export function ProAccountLinksPanel({ userId, linkId: linkIdProp }: { userId: s
     <PortalFilterSortSheet
       activeCount={portalFilterActiveCount([teamPropertyFilters])}
       compactPanel
+      commandStripTrigger
       filterFieldCount={1}
       constrainDropdownToTitleBand
       mobileFlushBody

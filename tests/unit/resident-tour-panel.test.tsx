@@ -89,7 +89,7 @@ describe("ResidentTourPanel", () => {
     expect(screen.getByText("Looking for a quiet room.")).toBeTruthy();
   });
 
-  it("shows schedule tour FAB when the tour list is empty", async () => {
+  it("shows schedule tour control when the tour list is empty", async () => {
     vi.stubGlobal(
       "fetch",
       vi.fn().mockResolvedValue({
@@ -101,7 +101,7 @@ describe("ResidentTourPanel", () => {
     render(<ResidentTourPanel basePath="/resident" bucket="pending" />);
 
     expect(await screen.findByRole("button", { name: "Schedule a tour" })).toBeTruthy();
-    expect(document.querySelector('[data-attr="resident-tour-schedule-add"]')).toBeTruthy();
+    expect(document.querySelector('[data-attr="resident-tour-schedule"]')).toBeTruthy();
     expect(screen.getByText("Pending")).toBeTruthy();
     expect(screen.getByText("Confirmed")).toBeTruthy();
     expect(screen.queryByText("Your scheduled property tours and requested times.")).toBeNull();
@@ -119,10 +119,8 @@ describe("ResidentTourPanel", () => {
 
     render(<ResidentTourPanel basePath="/resident" bucket="declined" />);
 
-    await screen.findByRole("button", { name: "Schedule a tour" });
-    const fab = document.querySelector('[data-attr="resident-tour-schedule-add"]');
-    expect(fab).toBeTruthy();
-    fireEvent.click(fab as HTMLElement);
+    const scheduleButton = await screen.findByRole("button", { name: "Schedule a tour" });
+    fireEvent.click(scheduleButton);
     expect(await screen.findByRole("dialog", { name: "Choose a home to tour" })).toBeTruthy();
     expect(screen.getByLabelText("Search homes to tour")).toBeTruthy();
   });
