@@ -125,7 +125,12 @@ async function renderManagerFinancesSection(
   if (!tabParts?.length) {
     redirect(`${basePath}/financials/income`);
   }
-  if (tabParts.length > 1) notFound();
+  if (tabParts.length > 1) {
+    if (tabParts.length === 2 && tabParts[1] === "pending") {
+      redirect(`${basePath}/financials/${tabParts[0]}`);
+    }
+    notFound();
+  }
   const finTab = tabParts[0]!;
   if (!FINANCIALS_TABS.includes(finTab as (typeof FINANCIALS_TABS)[number])) {
     const docsRedirect = legacyTabMapLookup(LEGACY_FINANCIALS_TO_DOCUMENTS, finTab);
@@ -163,11 +168,16 @@ async function renderManagerDocumentsSection(
     redirect(`${basePath}/financials/${financesRedirect}`);
   }
   if (!DOCUMENTS_TABS.includes(docTab as (typeof DOCUMENTS_TABS)[number])) notFound();
+  if (tabParts.length === 2 && docTab !== "applications") {
+    if (tabParts[1] === "pending") {
+      redirect(`${basePath}/documents/${docTab}`);
+    }
+    notFound();
+  }
   const applicationId =
     docTab === "applications" && tabParts.length === 2
       ? decodeURIComponent(tabParts[1]!)
       : undefined;
-  if (tabParts.length === 2 && docTab !== "applications") notFound();
   const ManagerDocumentsPanel = await loadManagerDocumentsPanel();
   return subscriptionGated(
     <ManagerDocumentsPanel tabId={docTab} basePath={basePath} applicationId={applicationId} />,
@@ -1372,7 +1382,12 @@ export async function renderPortalSection(
     if (!tabParts?.length) {
       redirect(`${def.basePath}/financials/income`);
     }
-    if (tabParts.length > 1) notFound();
+    if (tabParts.length > 1) {
+      if (tabParts.length === 2 && tabParts[1] === "pending") {
+        redirect(`${def.basePath}/financials/${tabParts[0]}`);
+      }
+      notFound();
+    }
     const finTab = tabParts[0]!;
     if (!meta.tabs.some((tab) => tab.id === finTab)) notFound();
     return <VendorFinancesPanel tabId={finTab} basePath={def.basePath} />;
@@ -1387,6 +1402,12 @@ export async function renderPortalSection(
     if (!meta.tabs.length) notFound();
     if (!tabParts?.length) {
       redirect(`${def.basePath}/${section}/${meta.tabs[0]!.id}`);
+    }
+    if (tabParts.length > 1) {
+      if (tabParts.length === 2 && tabParts[1] === "pending") {
+        redirect(`${def.basePath}/${section}/${tabParts[0]}`);
+      }
+      notFound();
     }
     const documentsTab = tabParts[0]!;
     if (!meta.tabs.some((tab) => tab.id === documentsTab)) notFound();
