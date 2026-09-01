@@ -25,16 +25,14 @@ import {
   PortalTableDetailActions,
 } from "@/components/portal/portal-data-table";
 import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
-import { ResidentPortalListBottomBar } from "@/components/portal/resident-portal-list-bottom-bar";
+import { BulkActionBar } from "@/components/ui/bulk-action-bar";
 import {
   ResidentPortalGroupedDataList,
   type ResidentPortalGroupableRow,
 } from "@/components/portal/resident-portal-grouped-data-list";
 import { useResidentPortalListFilterState } from "@/components/portal/resident-portal-list-filter";
 import type { PortalListGroupMode } from "@/lib/portal-list-grouping";
-import type { PortalAdaptiveAction } from "@/components/portal/portal-adaptive-action-row";
 import { PortalRecordDetailPage } from "@/components/portal/portal-record-detail-page";
-import { DropdownMenuItem } from "@/components/ui/dropdown-menu";
 import { PORTAL_LIST_PAGE_BODY } from "@/components/portal/portal-inbox-ui";
 import { usePortalSession } from "@/hooks/use-portal-session";
 import { usePortalNavigate } from "@/lib/portal-nav-client";
@@ -764,33 +762,28 @@ export function ResidentPaymentsPanel({
 
   const toggleSelectedCharge = toggleSelected;
 
-  const selectedPayableIds = useMemo(
-    () =>
-      [...selectedIds].filter((id) => {
-        const charge = unpaidPayableCharges.find((c) => c.id === id);
-        return charge && filterChargesForPayMethod([charge], paymentMethod).length > 0;
-      }),
-    [selectedIds, unpaidPayableCharges, paymentMethod],
-  );
-
-  const hasPartialSelection =
-    selectedPayableIds.length > 0 && selectedPayableIds.length < unpaidPayableCharges.length;
-
-  const payHeaderAction = () => {
+  const payHeaderAction = useCallback(() => {
     const pool = filterChargesForPayMethod(unpaidPayableCharges, paymentMethod);
-    const ids = hasPartialSelection
-      ? filterChargesForPayMethod(
-          unpaidPayableCharges.filter((c) => selectedPayableIds.includes(c.id)),
-          paymentMethod,
-        ).map((c) => c.id)
-      : pool.map((c) => c.id);
+    const ids =
+      selectedIds.size > 0
+        ? filterChargesForPayMethod(
+            unpaidPayableCharges.filter((c) => selectedIds.has(c.id)),
+            paymentMethod,
+          ).map((c) => c.id)
+        : pool.map((c) => c.id);
     if (ids.length === 0) {
-      showToast(`No selected charges can be paid with ${isStripeResidentPayMethod(paymentMethod) ? residentPaymentMethodLabel(paymentMethod) : residentManualPaymentMethodLabel(paymentMethod)}.`);
+      showToast(
+        `No selected charges can be paid with ${
+          isStripeResidentPayMethod(paymentMethod)
+            ? residentPaymentMethodLabel(paymentMethod)
+            : residentManualPaymentMethodLabel(paymentMethod)
+        }.`,
+      );
       return;
     }
-    if (!hasPartialSelection) setSelectedIds(new Set(ids));
+    if (selectedIds.size === 0) setSelectedIds(new Set(ids));
     openPayConfirm(ids, paymentMethod);
-  };
+  }, [openPayConfirm, paymentMethod, selectedIds, setSelectedIds, showToast, unpaidPayableCharges]);
 
   const showCheckoutInExpandedRow = Boolean(
     payConfirm === null && checkout && expandedId && checkout.chargeIds.includes(expandedId),
@@ -1222,7 +1215,7 @@ export function ResidentPaymentsPanel({
     unpaidPayableCharges.length > 0 &&
     (bucket === "pending" || bucket === "overdue");
 
-  const payButtonLabel = selectedPayableIds.length > 0 ? "Pay" : "Pay all";
+  const payButtonLabel = selectedIds.size > 0 ? "Pay" : "Pay all";
 
   const paymentMethodButton =
     paymentsUnlocked && unpaidAchCharges.length > 0 ? (
@@ -1246,44 +1239,6 @@ export function ResidentPaymentsPanel({
         Payment method
       </Button>
     ) : null;
-
-  const payButton = showPayActions ? (
-    <Button
-      type="button"
-      variant="primary"
-      className={PORTAL_BULK_BAR_BTN}
-      data-attr={selectedPayableIds.length > 0 ? "resident-payments-pay-selected" : "resident-payments-pay-all"}
-      onClick={payHeaderAction}
-    >
-      {payButtonLabel}
-    </Button>
-  ) : null;
-
-  const paySelectionActions = useMemo((): PortalAdaptiveAction[] => {
-    if (selectedPayableIds.length === 0) return [];
-    return [
-      {
-        id: "pay",
-        keepPriority: 10,
-        node: (
-          <Button
-            type="button"
-            variant="primary"
-            className={PORTAL_BULK_BAR_BTN}
-            data-attr="resident-payments-pay-selected"
-            onClick={payHeaderAction}
-          >
-            Pay
-          </Button>
-        ),
-        menuItem: (
-          <DropdownMenuItem data-attr="resident-payments-pay-selected" onSelect={payHeaderAction}>
-            Pay
-          </DropdownMenuItem>
-        ),
-      },
-    ];
-  }, [payHeaderAction, selectedPayableIds.length]);
 
   const paymentsLockedEmpty = Boolean(email) && !paymentsUnlocked;
 
@@ -1683,13 +1638,25 @@ export function ResidentPaymentsPanel({
         />
         {paymentsBody}
       </ManagerPortalPageShell>
-      <ResidentPortalListBottomBar
-        showDefaultBar={showPayActions && selectedPayableIds.length === 0}
-        defaultActions={payButton}
-        selectionCount={selectedPayableIds.length}
-        selectionActions={paySelectionActions}
-        selectionBarVariant="payments"
-      />
+      {showPayActions ? (
+        <BulkActionBar
+          count={Math.max(selectedIds.size, 1)}
+          hideCount
+          variant="payments"
+        >
+          <div className="flex min-w-0 flex-wrap items-center justify-start gap-2" data-bulk-action-actions>
+            <Button
+              type="button"
+              variant="primary"
+              className={PORTAL_BULK_BAR_BTN}
+              data-attr={selectedIds.size > 0 ? "resident-payments-pay-selected" : "resident-payments-pay-all"}
+              onClick={payHeaderAction}
+            >
+              {payButtonLabel}
+            </Button>
+          </div>
+        </BulkActionBar>
+      ) : null}
       {paymentModals}
     </>
   );

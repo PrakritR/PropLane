@@ -217,7 +217,7 @@ describe("resident portal redesign completeness", () => {
       const applications = readPanel("resident-applications-panel.tsx");
       expect(applications).toContain('variant="command"');
       expect(applications).toContain("ResidentPortalGroupedDataList");
-      expect(applications).toContain("useResidentPortalListFilterState");
+      expect(applications).not.toContain("useResidentPortalListFilterState");
     });
 
     it("lease filter tabs are a local nav, not a dropdown; services filter rows span full width", () => {

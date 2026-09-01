@@ -23,7 +23,6 @@ import {
   RESIDENT_PORTAL_DEFAULT_GROUP_MODE,
   type ResidentPortalGroupableRow,
 } from "@/components/portal/resident-portal-grouped-data-list";
-import { useResidentPortalListFilterState } from "@/components/portal/resident-portal-list-filter";
 import type { PortalListGroupMode } from "@/lib/portal-list-grouping";
 import type { PortalAdaptiveAction } from "@/components/portal/portal-adaptive-action-row";
 import { DropdownMenuItem } from "@/components/ui/dropdown-menu";
@@ -290,9 +289,7 @@ export function ResidentApplicationsPanel({
     setPrevBucketProp(bucketProp);
     setBucket(bucketProp);
   }
-  const [searchQuery, setSearchQuery] = useState("");
-  const [groupMode, setGroupMode] = useState<PortalListGroupMode>(RESIDENT_PORTAL_DEFAULT_GROUP_MODE);
-  const [propertyFilters, setPropertyFilters] = useState<string[]>([]);
+  const groupMode: PortalListGroupMode = RESIDENT_PORTAL_DEFAULT_GROUP_MODE;
   const [expandedId, setExpandedId] = useState<string | null>(null);
   // The ONE row this apply session's inline wizard is bound to — the row the
   // auto-expand effect resolved for the URL target (or the sole bare-/apply
@@ -500,53 +497,6 @@ export function ResidentApplicationsPanel({
   );
 
   const rowsForBucket = useMemo(() => rows.filter((row) => row.bucket === bucket), [rows, bucket]);
-
-  const filteredRowsForBucket = useMemo(() => {
-    const q = searchQuery.trim().toLowerCase();
-    let list = rowsForBucket;
-    if (q) {
-      list = list.filter((row) => {
-        const hay = [
-          row.name,
-          row.property,
-          row.id,
-          displayRoomForRow(row),
-          rowStatusLabel(row),
-        ]
-          .join(" ")
-          .toLowerCase();
-        return hay.includes(q);
-      });
-    }
-    if (propertyFilters.length > 0) {
-      list = list.filter((row) => {
-        const propertyId = row.propertyId?.trim() || row.application?.propertyId?.trim() || "";
-        return propertyFilters.includes(propertyId);
-      });
-    }
-    return list;
-  }, [propertyFilters, rowsForBucket, searchQuery]);
-
-  const applicationPropertyOptions = useMemo(() => {
-    const byId = new Map<string, string>();
-    for (const row of rows) {
-      const propertyId = row.propertyId?.trim() || row.application?.propertyId?.trim() || "";
-      if (!propertyId || byId.has(propertyId)) continue;
-      byId.set(propertyId, stripPropertyRoomCountSuffix(row.property || propertyId));
-    }
-    return [...byId.entries()].map(([id, label]) => ({ id, label }));
-  }, [rows]);
-
-  const { filterSheet: applicationsFilterSheet, activeFilterChips: applicationsActiveFilterChips } =
-    useResidentPortalListFilterState({
-      groupMode,
-      onGroupModeChange: setGroupMode,
-      propertyOptions: applicationPropertyOptions,
-      propertyFilters,
-      onPropertyFiltersChange: setPropertyFilters,
-      groupModeDataAttr: "resident-applications-filter-group-mode",
-      propertyDataAttr: "resident-applications-filter-property",
-    });
 
   const applicationGroups = useMemo(
     () => buildApplicationGroups(rows.map(groupRowInputForRow)),
@@ -1130,14 +1080,7 @@ export function ResidentApplicationsPanel({
         { id: "started", header: "Date", cell: (row) => applicationStartedLabel(row) || "—" },
       ]}
       emptyState={
-        <PortalDataTableEmpty
-          icon="application"
-          message={
-            searchQuery.trim() || propertyFilters.length > 0
-              ? "No applications match your filters."
-              : "No applications in this tab yet."
-          }
-        />
+        <PortalDataTableEmpty icon="application" message="No applications in this tab yet." />
       }
     />
   );
@@ -1174,24 +1117,9 @@ export function ResidentApplicationsPanel({
       }))}
       activeDestinationId={bucket}
       destinationAriaLabel="Application status"
-      actions={
-        sessionReady ? (
-          <>
-            {applicationsFilterSheet}
-            {newApplicationButton}
-          </>
-        ) : undefined
-      }
-      activeFilterChips={applicationsActiveFilterChips}
+      actions={sessionReady ? newApplicationButton : undefined}
     />
   );
-
-  const applyButtonLabel =
-    workspace.mode === "in_progress"
-      ? "Apply to property"
-      : workspace.mode === "submitted"
-        ? "Apply to another property"
-        : "Apply to a property";
 
   const applicationSelectionActions = useMemo((): PortalAdaptiveAction[] => {
     if (selectedIds.size !== 1) return [];
@@ -1269,17 +1197,10 @@ export function ResidentApplicationsPanel({
         <PortalDataTableEmpty icon="application" message="No applications in this tab yet." />
       ) : applyMode || embedded ? (
         rowsForBucket.length > 0 ? renderRoutedList(rowsForBucket) : null
-      ) : filteredRowsForBucket.length === 0 ? (
-        <PortalDataTableEmpty
-          icon="application"
-          message={
-            searchQuery.trim()
-              ? "No applications match your search."
-              : "No applications in this tab yet."
-          }
-        />
+      ) : rowsForBucket.length === 0 ? (
+        <PortalDataTableEmpty icon="application" message="No applications in this tab yet." />
       ) : (
-        renderRoutedList(filteredRowsForBucket)
+        renderRoutedList(rowsForBucket)
       )}
       {withdrawModal}
       {propertyPickerModal}
@@ -1289,8 +1210,6 @@ export function ResidentApplicationsPanel({
   if (embedded) return tableBody;
 
   const renderResidentApplicationList = () => {
-    const listRows = searchQuery.trim() ? filteredRowsForBucket : rowsForBucket;
-
     return (
       <>
         {applicationListControlStack}
@@ -1299,17 +1218,10 @@ export function ResidentApplicationsPanel({
           <div className={PORTAL_DATA_TABLE_WRAP}>
             <div className="flex items-center justify-center px-6 py-16 text-sm text-muted">Loading applications…</div>
           </div>
-        ) : listRows.length === 0 ? (
-          <PortalDataTableEmpty
-            icon="application"
-            message={
-              searchQuery.trim() || propertyFilters.length > 0
-                ? "No applications match your filters."
-                : "No applications in this tab yet."
-            }
-          />
+        ) : rowsForBucket.length === 0 ? (
+          <PortalDataTableEmpty icon="application" message="No applications in this tab yet." />
         ) : (
-          <div className={PORTAL_LIST_PAGE_BODY}>{renderRoutedList(listRows)}</div>
+          <div className={PORTAL_LIST_PAGE_BODY}>{renderRoutedList(rowsForBucket)}</div>
         )}
 
         {withdrawModal}
@@ -1318,19 +1230,6 @@ export function ResidentApplicationsPanel({
     );
   };
 
-  const applyMobileButton =
-    sessionReady && canOpenPropertyPicker ? (
-      <Button
-        type="button"
-        variant="primary"
-        className={PORTAL_HEADER_PRIMARY_ACTION_BTN}
-        data-attr="resident-applications-apply"
-        onClick={openPropertyPicker}
-      >
-        {applyButtonLabel}
-      </Button>
-    ) : null;
-
   if (!applicationIdProp && !applyMode) {
     return (
       <>
@@ -1338,8 +1237,6 @@ export function ResidentApplicationsPanel({
           {renderResidentApplicationList()}
         </ManagerPortalPageShell>
         <ResidentPortalListBottomBar
-          showDefaultBar={Boolean(applyMobileButton) && selectedIds.size === 0}
-          defaultActions={applyMobileButton}
           selectionCount={selectedIds.size}
           selectionActions={applicationSelectionActions}
         />
@@ -1382,8 +1279,6 @@ export function ResidentApplicationsPanel({
           {propertyPickerModal}
         </ManagerPortalPageShell>
         <ResidentPortalListBottomBar
-          showDefaultBar={Boolean(newApplicationButton) && selectedIds.size === 0}
-          defaultActions={newApplicationButton}
           selectionCount={selectedIds.size}
           selectionActions={applicationSelectionActions}
         />

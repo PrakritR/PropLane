@@ -1,9 +1,16 @@
 "use client";
 
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
+import { DropdownMenuItem } from "@/components/ui/dropdown-menu";
 import { useAppUi } from "@/components/providers/app-ui-provider";
-import { ApplicationHouseholdCluster } from "@/components/portal/application-household-list";
+import {
+  ApplicationHouseholdCluster,
+  PortalListClusterSelectCheckbox,
+  togglePortalListClusterSelection,
+} from "@/components/portal/application-household-list";
+import type { PortalAdaptiveAction } from "@/components/portal/portal-adaptive-action-row";
+import { PortalAdaptiveActionRow } from "@/components/portal/portal-adaptive-action-row";
 import { ManagerOutgoingPaymentDetail } from "@/components/portal/manager-outgoing-payment-detail";
 import {
   PORTAL_DETAIL_BTN,
@@ -11,12 +18,8 @@ import {
   PortalTableDetailActions,
 } from "@/components/portal/portal-data-table";
 import { PortalRecordDetailPage } from "@/components/portal/portal-record-detail-page";
-import { PORTAL_LIST_PAGE_BODY } from "@/components/portal/portal-inbox-ui";
-import {
-  PortalListAddRow,
-  PORTAL_LIST_ADD_ICONS,
-  PORTAL_LIST_ADD_ROW_WRAP_CLASS,
-} from "@/components/portal/portal-list-add-row";
+import { PortalRecordListSurface } from "@/components/portal/portal-record-list-surface";
+import { PORTAL_LIST_ADD_ICONS } from "@/components/portal/portal-list-add-row";
 import { Badge } from "@/components/ui/badge";
 import { DataList } from "@/components/ui/data-list";
 import type { DemoManagerOutgoingPaymentRow, DemoManagerWorkOrderRow, ManagerPaymentBucket } from "@/data/demo-portal";
@@ -32,6 +35,7 @@ import { readManagerWorkOrderRows } from "@/lib/manager-work-orders-storage";
 import { isPropertyClusterList, type PortalListGroupMode } from "@/lib/portal-list-grouping";
 import { paymentDetailHref, paymentListHref } from "@/lib/portal-detail-routes";
 import { usePortalNavigate } from "@/lib/portal-nav-client";
+import { PORTAL_BULK_BAR_BTN } from "@/lib/portal-bulk-bar";
 
 function outgoingRowMeta(
   row: DemoManagerOutgoingPaymentRow,
@@ -72,6 +76,18 @@ export function ManagerOutgoingPaymentsPanel({
   const navigate = usePortalNavigate();
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [payModalRowId, setPayModalRowId] = useState<string | null>(null);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
+
+  const showSelection = !paymentIdProp;
+  const rowIdsKey = useMemo(() => rows.map((row) => row.id).join(","), [rows]);
+  const selectedRows = useMemo(
+    () => rows.filter((row) => selectedIds.has(row.id)),
+    [rows, selectedIds],
+  );
+
+  useEffect(() => {
+    setSelectedIds(new Set());
+  }, [activeBucket, rowIdsKey]);
 
   const workOrderById = useMemo(() => {
     const map = new Map<string, DemoManagerWorkOrderRow>();
@@ -104,12 +120,26 @@ export function ManagerOutgoingPaymentsPanel({
     [rows, groupMode],
   );
 
+  const toggleSelected = useCallback((id: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }, []);
+
+  const toggleClusterSelection = useCallback((ids: readonly string[]) => {
+    togglePortalListClusterSelection(setSelectedIds, ids);
+  }, []);
+
   const renderPaymentDataList = (
     listRows: DemoManagerOutgoingPaymentRow[],
     options?: { omitPropertyInMeta?: boolean; omitPayeeInMeta?: boolean },
   ) => (
     <DataList
       hideColumnHeaders
+      selectable={showSelection}
       rows={listRows.map((row) => ({
         id: row.id,
         data: row,
@@ -121,6 +151,8 @@ export function ManagerOutgoingPaymentsPanel({
         trailing: (
           <span className="text-sm font-semibold tabular-nums text-foreground">{row.amountLabel}</span>
         ),
+        selected: showSelection ? selectedIds.has(row.id) : undefined,
+        onSelectedChange: showSelection ? () => toggleSelected(row.id) : undefined,
         onClick: () => openPaymentDetail(row),
       }))}
       columns={[
@@ -146,6 +178,16 @@ export function ManagerOutgoingPaymentsPanel({
           {(paymentClusters as ManagerOutgoingPropertyCluster[]).map((cluster) => (
             <ApplicationHouseholdCluster
               key={cluster.key}
+              headerLeading={
+                showSelection ? (
+                  <PortalListClusterSelectCheckbox
+                    ids={cluster.rows.map((row) => row.id)}
+                    selectedIds={selectedIds}
+                    onToggleCluster={toggleClusterSelection}
+                    ariaLabel={`Select all payments for ${cluster.propertyLabel}`}
+                  />
+                ) : null
+              }
               header={
                 <>
                   <span className="truncate text-xs font-semibold text-foreground">
@@ -169,6 +211,16 @@ export function ManagerOutgoingPaymentsPanel({
         {(paymentClusters as ManagerOutgoingPayeeCluster[]).map((cluster) => (
           <ApplicationHouseholdCluster
             key={cluster.key}
+            headerLeading={
+              showSelection ? (
+                <PortalListClusterSelectCheckbox
+                  ids={cluster.rows.map((row) => row.id)}
+                  selectedIds={selectedIds}
+                  onToggleCluster={toggleClusterSelection}
+                  ariaLabel={`Select all payments for ${cluster.residentLabel}`}
+                />
+              ) : null
+            }
             header={
               <>
                 <span className="truncate text-xs font-semibold text-foreground">
@@ -190,27 +242,30 @@ export function ManagerOutgoingPaymentsPanel({
     );
   };
 
-  const deleteExpense = async (row: DemoManagerOutgoingPaymentRow) => {
+  const deleteExpense = async (
+    row: DemoManagerOutgoingPaymentRow,
+    options?: { confirm?: boolean; navigateAfter?: boolean },
+  ) => {
     if (!row.expenseEntryId) {
       showToast("This payment cannot be deleted.");
-      return;
+      return false;
     }
-    if (row.fromAxisFee) return;
+    if (row.fromAxisFee) return false;
     if (row.workOrderId && !row.fromExpense) {
       showToast("Work-order expenses are managed from Services.");
-      return;
+      return false;
     }
-    if (!window.confirm(`Delete "${row.chargeTitle}"?`)) return;
+    if (options?.confirm !== false && !window.confirm(`Delete "${row.chargeTitle}"?`)) return false;
 
     if (isDemoModeActive()) {
       if (!deleteManagerOutgoingExpense(row.expenseEntryId)) {
         showToast("Could not delete expense.");
-        return;
+        return false;
       }
-      navigateToList();
+      if (options?.navigateAfter !== false) navigateToList();
       showToast("Expense removed.");
       onRowsChanged?.();
-      return;
+      return true;
     }
 
     setDeletingId(row.id);
@@ -222,11 +277,13 @@ export function ManagerOutgoingPaymentsPanel({
       const data = (await res.json()) as { error?: string };
       if (!res.ok) throw new Error(data.error ?? "Could not delete expense.");
       deleteManagerOutgoingExpense(row.expenseEntryId);
-      navigateToList();
+      if (options?.navigateAfter !== false) navigateToList();
       showToast("Expense removed.");
       onRowsChanged?.();
+      return true;
     } catch (e) {
       showToast(e instanceof Error ? e.message : "Could not delete expense.");
+      return false;
     } finally {
       setDeletingId(null);
     }
@@ -237,6 +294,94 @@ export function ManagerOutgoingPaymentsPanel({
 
   const isPayableWorkOrder = (row: DemoManagerOutgoingPaymentRow) =>
     Boolean(row.workOrderId && row.bucket !== "paid");
+
+  const deleteSelectedExpenses = useCallback(async () => {
+    const targets = selectedRows.filter(canDeleteExpense);
+    if (targets.length === 0) return;
+    const noun = targets.length === 1 ? "payment" : `${targets.length} payments`;
+    if (!window.confirm(`Delete ${noun}?`)) return;
+    let ok = 0;
+    for (const row of targets) {
+      if (await deleteExpense(row, { confirm: false, navigateAfter: false })) ok += 1;
+    }
+    setSelectedIds(new Set());
+    if (ok > 0) {
+      onRowsChanged?.();
+      showToast(ok === 1 ? "Expense removed." : `Removed ${ok} expenses.`);
+    }
+  }, [onRowsChanged, selectedRows, showToast]);
+
+  const bulkSelectionActions = useMemo(() => {
+    if (!showSelection || selectedIds.size === 0) return null;
+
+    const actions: PortalAdaptiveAction[] = [];
+    const payableSelected = selectedRows.filter(isPayableWorkOrder);
+
+    if (payableSelected.length === 1) {
+      const row = payableSelected[0]!;
+      const openPayModal = () => {
+        setPayModalRowId(row.id);
+        openPaymentDetail(row);
+      };
+      actions.push({
+        id: "mark-paid",
+        keepPriority: 5,
+        node: (
+          <Button
+            type="button"
+            variant="outline"
+            className={PORTAL_BULK_BAR_BTN}
+            data-attr="outgoing-payments-mark-selected-paid"
+            onClick={openPayModal}
+          >
+            Mark as paid
+          </Button>
+        ),
+        menuItem: (
+          <DropdownMenuItem data-attr="outgoing-payments-mark-selected-paid" onSelect={openPayModal}>
+            Mark as paid
+          </DropdownMenuItem>
+        ),
+      });
+    }
+
+    if (selectedRows.length > 0 && selectedRows.every(canDeleteExpense)) {
+      actions.push({
+        id: "delete",
+        keepPriority: 3,
+        node: (
+          <Button
+            type="button"
+            variant="outline"
+            className={PORTAL_BULK_BAR_BTN}
+            data-attr="outgoing-payments-delete-selected"
+            onClick={() => void deleteSelectedExpenses()}
+          >
+            Delete
+          </Button>
+        ),
+        menuItem: (
+          <DropdownMenuItem
+            data-attr="outgoing-payments-delete-selected"
+            onSelect={() => void deleteSelectedExpenses()}
+          >
+            Delete
+          </DropdownMenuItem>
+        ),
+      });
+    }
+
+    if (actions.length === 0) return null;
+
+    return (
+      <PortalAdaptiveActionRow
+        actions={actions}
+        moreAriaLabel="More bulk actions"
+        moreDataAttr="outgoing-payments-bulk-more-actions"
+        gapPx={4}
+      />
+    );
+  }, [deleteSelectedExpenses, openPaymentDetail, selectedIds.size, selectedRows, showSelection]);
 
   const renderHeaderActions = (row: DemoManagerOutgoingPaymentRow) => {
     const payable = isPayableWorkOrder(row);
@@ -303,19 +448,22 @@ export function ManagerOutgoingPaymentsPanel({
   };
 
   if (rows.length === 0) {
-    if (onAddPayment) {
-      return (
-        <div className={`${PORTAL_LIST_ADD_ROW_WRAP_CLASS} pt-5 sm:pt-6`}>
-          <PortalListAddRow
-            label="Add"
-            icon={PORTAL_LIST_ADD_ICONS.payment}
-            onClick={onAddPayment}
-            dataAttr="payments-list-add"
-          />
-        </div>
-      );
+    if (!onAddPayment) {
+      return <PortalDataTableEmpty message="No outgoing payments in this bucket yet." icon="payment" />;
     }
-    return <PortalDataTableEmpty message="No outgoing payments in this bucket yet." icon="payment" />;
+    return (
+      <PortalRecordListSurface
+        isEmpty
+        add={{
+          ariaLabel: "Add outgoing payment",
+          icon: PORTAL_LIST_ADD_ICONS.payment,
+          onClick: onAddPayment,
+          dataAttr: "payments-list-add",
+        }}
+        className="pt-5 sm:pt-6"
+        dataAttr="outgoing-payments-list-empty"
+      />
+    );
   }
 
   if (paymentIdProp && detailRow) {
@@ -338,19 +486,22 @@ export function ManagerOutgoingPaymentsPanel({
   }
 
   return (
-    <div className={PORTAL_LIST_PAGE_BODY}>
+    <PortalRecordListSurface
+      add={
+        onAddPayment
+          ? {
+              ariaLabel: "Add outgoing payment",
+              icon: PORTAL_LIST_ADD_ICONS.payment,
+              onClick: onAddPayment,
+              dataAttr: "payments-list-add",
+            }
+          : undefined
+      }
+      bulkCount={showSelection ? selectedIds.size : 0}
+      bulkActions={bulkSelectionActions}
+      dataAttr="outgoing-payments-list"
+    >
       {renderGroupedList()}
-      {onAddPayment ? (
-        <div className={PORTAL_LIST_ADD_ROW_WRAP_CLASS}>
-          <PortalListAddRow
-            label="Add"
-            icon={PORTAL_LIST_ADD_ICONS.payment}
-            onClick={onAddPayment}
-            dataAttr="payments-list-add"
-            inline
-          />
-        </div>
-      ) : null}
-    </div>
+    </PortalRecordListSurface>
   );
 }
