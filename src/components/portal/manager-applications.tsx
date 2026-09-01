@@ -808,7 +808,7 @@ export function ManagerApplications({
   const canBulkApprove = selectedPendingRows.length === 1;
   const canBulkReject = selectedRejectableRows.length > 0;
   const canBulkHoldingFee =
-    Boolean(singleListSelectedRow) &&
+    singleListSelectedRow != null &&
     singleListSelectedRow.bucket === "pending" &&
     !isWithdrawnApplicationRow(singleListSelectedRow);
 
