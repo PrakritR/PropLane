@@ -4,6 +4,14 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { ManagerPortalStatusPills } from "@/components/portal/portal-metrics";
 import { PortalDataTableEmpty } from "@/components/portal/portal-data-table";
 import { PORTAL_LIST_PAGE_BODY } from "@/components/portal/portal-inbox-ui";
+import { ResidentPortalDataList } from "@/components/portal/resident-portal-data-list";
+import { ResidentPortalListBottomBar } from "@/components/portal/resident-portal-list-bottom-bar";
+import {
+  residentDocumentsDownloadAction,
+  residentDocumentsOpenAction,
+  useResidentDocumentSelection,
+} from "@/components/portal/resident-documents-bulk";
+import { useAppUi } from "@/components/providers/app-ui-provider";
 import { DataList } from "@/components/ui/data-list";
 import {
   RESIDENT_LEASE_LIST_LABEL,
@@ -15,6 +23,7 @@ import {
   LEASE_PIPELINE_EVENT,
   findLeaseForResidentEmail,
   residentLeaseAuthorized,
+  runLeaseDownload,
   syncLeasePipelineFromServer,
   type LeasePipelineRow,
 } from "@/lib/lease-pipeline-storage";
@@ -155,6 +164,7 @@ export function ResidentLeaseListTable({
   selectable = false,
   selectedIds,
   onToggleSelected,
+  documentsListSurface = false,
 }: {
   basePath: string;
   bucket?: ResidentLeaseBucketId;
@@ -166,8 +176,11 @@ export function ResidentLeaseListTable({
   selectable?: boolean;
   selectedIds?: Set<string>;
   onToggleSelected?: (id: string) => void;
+  /** Portal record list + floating bulk bar (Documents tab). */
+  documentsListSurface?: boolean;
 }) {
   const navigate = usePortalNavigate();
+  const { showToast } = useAppUi();
   const pipelineRow = useResidentLeasePipelineRow();
   const documentRows = useMemo(() => {
     const rows = buildResidentLeaseDocumentRows(pipelineRow);
@@ -190,6 +203,51 @@ export function ResidentLeaseListTable({
     [leaseDetailPath, navigate],
   );
 
+  const rowIds = useMemo(() => documentRows.map((row) => row.id), [documentRows]);
+  const internalSelection = useResidentDocumentSelection(documentsListSurface ? rowIds : []);
+  const activeSelectedIds = documentsListSurface ? internalSelection.selectedIds : selectedIds;
+  const activeToggleSelected = documentsListSurface
+    ? internalSelection.toggleSelected
+    : onToggleSelected;
+
+  const selectedEntries = useMemo(
+    () => documentRows.filter((row) => activeSelectedIds?.has(row.id)),
+    [activeSelectedIds, documentRows],
+  );
+  const singleSelected = selectedEntries.length === 1 ? selectedEntries[0]! : null;
+
+  const bulkActions = useMemo(() => {
+    if (!documentsListSurface || !activeSelectedIds || activeSelectedIds.size === 0) return [];
+    const actions = [];
+    if (singleSelected) {
+      const downloadTarget = singleSelected.pipelineRow ?? pipelineRow;
+      actions.push(
+        residentDocumentsOpenAction(
+          "Open",
+          () => openLease(singleSelected),
+          "resident-documents-lease-open",
+        ),
+        residentDocumentsDownloadAction(
+          "Download",
+          () => {
+            if (downloadTarget) runLeaseDownload(downloadTarget, showToast);
+            else showToast("Lease document is not ready to download yet.");
+          },
+          "resident-documents-lease-download",
+          !downloadTarget,
+        ),
+      );
+    }
+    return actions;
+  }, [
+    activeSelectedIds,
+    documentsListSurface,
+    openLease,
+    pipelineRow,
+    showToast,
+    singleSelected,
+  ]);
+
   if (documentRows.length === 0) {
     const bucketLabel = bucket === "signed" ? "signed" : "pending";
     return (
@@ -205,6 +263,38 @@ export function ResidentLeaseListTable({
           }
         />
       </div>
+    );
+  }
+
+  if (documentsListSurface) {
+    return (
+      <>
+        <div className={PORTAL_LIST_PAGE_BODY} data-attr="resident-documents-lease-list">
+          <ResidentPortalDataList
+            selectable
+            rows={documentRows.map((entry) => {
+              const statusLabel = entry.status;
+              const metaLabel = residentLeaseDetailSubtitle(statusLabel, safeFormatDateTime(entry.signedAt));
+              return {
+                id: entry.id,
+                data: entry,
+                primary: RESIDENT_LEASE_LIST_LABEL,
+                meta: [propertyLabel, metaLabel].filter(Boolean).join(" · "),
+                trailing: <span className="text-xs font-medium text-muted">{statusLabel}</span>,
+                selected: activeSelectedIds?.has(entry.id) ?? false,
+                onSelectedChange: () => activeToggleSelected?.(entry.id),
+                onClick: () => openLease(entry),
+              };
+            })}
+            columns={[{ id: "lease", header: "Lease", cell: () => "—" }]}
+          />
+        </div>
+        <ResidentPortalListBottomBar
+          selectionCount={activeSelectedIds?.size ?? 0}
+          selectionActions={bulkActions}
+          selectionBarVariant="payments"
+        />
+      </>
     );
   }
 
@@ -271,6 +361,7 @@ export function ResidentLeaseDocumentsListSection({ basePath }: { basePath: stri
         detailHref={(base, _bucket, leaseDetailId) => residentDocumentsLeaseDetailHref(base, leaseDetailId)}
         routePendingToLeaseSection
         statusFilter={statusFilter}
+        documentsListSurface
         emptyMessage="Your signed lease will appear here once it's signed."
       />
     </div>

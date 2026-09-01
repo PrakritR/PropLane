@@ -69,6 +69,10 @@ export const DATA_LIST_MOBILE_ROW_WITH_LEADING_CLASS =
 export const DATA_LIST_RESIDENT_MOBILE_ROW_CLASS =
   "flex min-h-[56px] items-center gap-3 border-b border-border/80 px-4 py-3 last:border-0 transition-colors";
 
+/** Payments-style circular checkbox for resident selectable lists. */
+export const PORTAL_RESIDENT_LIST_CHECKBOX_CLASS =
+  "h-4 w-4 shrink-0 rounded-full border-border accent-primary";
+
 export const DATA_LIST_DESKTOP_ROW_CLASS = "h-11 max-h-11";
 
 function DataListOverflowMenu({ actions }: { actions: DataListRowAction[] }) {
@@ -125,7 +129,11 @@ function DataListMobileRow<T>({
     selectable && row.onSelectedChange ? (
       <input
         type="checkbox"
-        className="h-4 w-4 shrink-0 rounded border-border"
+        className={
+          variant === "resident"
+            ? PORTAL_RESIDENT_LIST_CHECKBOX_CLASS
+            : "h-4 w-4 shrink-0 rounded border-border"
+        }
         checked={row.selected ?? false}
         onChange={(e) => row.onSelectedChange?.(e.target.checked)}
         onClick={(e) => e.stopPropagation()}

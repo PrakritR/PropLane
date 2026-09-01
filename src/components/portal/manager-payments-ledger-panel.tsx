@@ -13,7 +13,6 @@ import { useAppUi } from "@/components/providers/app-ui-provider";
 import {
   ApplicationHouseholdCluster,
   PortalListClusterSelectCheckbox,
-  PortalListSelectAllRow,
   togglePortalListClusterSelection,
 } from "@/components/portal/application-household-list";
 
@@ -247,8 +246,6 @@ export function ManagerPaymentsLedgerPanel({
     [selectedRows],
   );
   const showSelection = !paymentIdProp;
-  const allSelected = showSelection && rows.every((row) => selectedIds.has(row.id));
-  const someSelected = selectedIds.size > 0 && !allSelected;
   const rowIdsKey = useMemo(() => rows.map((row) => row.id).join(","), [rows]);
   const ledgerClusters = useMemo(
     () =>
@@ -308,13 +305,6 @@ export function ManagerPaymentsLedgerPanel({
     }
     setChargeRemindersRow(row);
   };
-
-  const toggleSelectAll = useCallback(() => {
-    setSelectedIds((prev) => {
-      const all = rows.length > 0 && rows.every((row) => prev.has(row.id));
-      return all ? new Set() : new Set(rows.map((row) => row.id));
-    });
-  }, [rows]);
 
   const markSelectedAsPaid = async () => {
     const targets = rows.filter((row) => selectedIds.has(row.id) && isMarkableAsPaid(row));
@@ -1642,14 +1632,6 @@ export function ManagerPaymentsLedgerPanel({
         bulkActions={embeddedInResident ? undefined : bulkSelectionActions}
         dataAttr="payments-ledger-list"
       >
-        {showSelection && rows.length > 0 ? (
-          <PortalListSelectAllRow
-            allSelected={allSelected}
-            someSelected={someSelected}
-            onToggle={toggleSelectAll}
-            dataAttr="payments-select-all"
-          />
-        ) : null}
         {embeddedInResident ? renderChargeDataList(rows) : renderManagerGroupedLedger()}
       </PortalRecordListSurface>
     )}

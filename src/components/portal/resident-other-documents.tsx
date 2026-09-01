@@ -1,31 +1,28 @@
 "use client";
 
-import { Fragment, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { Badge } from "@/components/ui/badge";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Button } from "@/components/ui/button";
 import { Modal, MODAL_FIELD_LABEL_CLASS, ModalFooter } from "@/components/ui/modal";
 import { useAppUi } from "@/components/providers/app-ui-provider";
 import { useNativeCamera } from "@/lib/native/use-native-camera";
 import type { ManagerDocumentDTO } from "@/lib/documents/manager-documents";
-import { PortalPageFooterActions } from "@/components/portal/portal-section-action-row";
-import { PORTAL_DATA_TABLE, PORTAL_DATA_TABLE_SCROLL,
-  PORTAL_DATA_TABLE_WRAP,
-  PORTAL_TABLE_DETAIL_CELL,
-  PORTAL_TABLE_DETAIL_ROW,
-  PORTAL_TABLE_TD,
-  PORTAL_TABLE_TR_EXPANDABLE,
-  PortalDataTableEmpty,
-  PortalMobileSummaryCard,
-  PortalTableDetailActions,
-  PortalTableInlineExpand,
-  PORTAL_DETAIL_BTN,
-  RESIDENT_DOCUMENTS_DETAIL_FOOTER_BTN,
-  ResidentDocumentsDetailFooter,
-} from "@/components/portal/portal-data-table";
+import { ResidentPortalDataList } from "@/components/portal/resident-portal-data-list";
+import { ResidentPortalListBottomBar } from "@/components/portal/resident-portal-list-bottom-bar";
+import { PORTAL_LIST_PAGE_BODY } from "@/components/portal/portal-inbox-ui";
+import {
+  residentDocumentsDownloadAction,
+  residentDocumentsOpenAction,
+  residentDocumentsRemoveAction,
+  useResidentDocumentSelection,
+} from "@/components/portal/resident-documents-bulk";
 import { addUploadedOwnLease, type UploadedOwnLease } from "@/lib/resident-lease-upload";
 import { UploadedLeasePdfPreview } from "@/components/portal/uploaded-lease-pdf-preview";
+import {
+  PORTAL_DATA_TABLE_WRAP,
+  PORTAL_DETAIL_BTN,
+  PortalTableDetailActions,
+} from "@/components/portal/portal-data-table";
 import { safeFormatDateTime } from "@/lib/pacific-time";
-import { cn } from "@/lib/utils";
 
 function isPdfDocumentSrc(src: string): boolean {
   return src.startsWith("data:application/pdf") || /\.pdf(\?|$)/i.test(src);
@@ -407,28 +404,6 @@ export function ResidentAddDocumentModal({
   );
 }
 
-/** Mime type parsed from the upload's data URL. */
-function uploadedMimeType(row: UploadedOwnLease): string {
-  return /^data:([^;,]+)/.exec(row.dataUrl)?.[1] ?? "";
-}
-
-/**
- * Decode a base64 data URL's payload to plain text, for safe (escaped) React
- * rendering. Never returns markup — callers must render the result as text
- * (e.g. inside a `<pre>`), never via innerHTML/srcDoc/iframe src.
- */
-function decodeDataUrlText(dataUrl: string): string | null {
-  const match = /^data:[^;,]*;base64,([\s\S]*)$/.exec(dataUrl);
-  if (!match) return null;
-  try {
-    const binary = atob(match[1]);
-    const bytes = Uint8Array.from(binary, (c) => c.charCodeAt(0));
-    return new TextDecoder("utf-8", { fatal: false }).decode(bytes);
-  } catch {
-    return null;
-  }
-}
-
 const SHARED_DOCUMENTS_LIST_URL = "/api/resident/shared-documents";
 const SHARED_DOCUMENTS_SIGNED_URL_BASE = "/api/resident/shared-documents";
 
@@ -451,23 +426,17 @@ export function ResidentOtherDocumentsTable({
   uploads,
   loading,
   onRemove,
-  onAdd,
   demo = false,
 }: {
   uploads: UploadedOwnLease[];
   loading: boolean;
   onRemove: (id: string) => void;
-  onAdd?: () => void;
   demo?: boolean;
 }) {
   const { showToast } = useAppUi();
-  const [selectedId, setSelectedId] = useState<string | null>(null);
   const [sharedDocs, setSharedDocs] = useState<ManagerDocumentDTO[]>([]);
   const [sharedLoading, setSharedLoading] = useState(!demo);
 
-  // Documents a manager shared with this resident — the same list the standalone
-  // "Shared with you" tab used to fetch. Skipped in the /demo sandbox, where the
-  // initial state (empty list, not loading) is already the right answer.
   useEffect(() => {
     if (demo) return;
     let cancelled = false;
@@ -509,44 +478,73 @@ export function ResidentOtherDocumentsTable({
     return [...own, ...shared].sort((a, b) => String(b.dateIso).localeCompare(String(a.dateIso)));
   }, [uploads, sharedDocs]);
 
-  const selected = useMemo(
-    () => (selectedId ? rows.find((row) => row.id === selectedId) ?? null : null),
-    [rows, selectedId],
+  const rowIds = useMemo(() => rows.map((row) => row.id), [rows]);
+  const { selectedIds, toggleSelected, clearSelection } = useResidentDocumentSelection(rowIds);
+
+  const openRow = useCallback(
+    async (row: CombinedDocRow) => {
+      if (row.source === "own") {
+        const opened = openDocumentInNewTab({ src: row.upload.dataUrl });
+        if (!opened) showToast("Could not open document.");
+        return;
+      }
+      try {
+        const res = await fetch(`${SHARED_DOCUMENTS_SIGNED_URL_BASE}/${row.doc.id}/signed-url`, {
+          credentials: "include",
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data.error ?? "Could not load document.");
+        const url = String(data.url ?? "");
+        if (!url || !openDocumentInNewTab({ src: url })) {
+          showToast("Could not open document.");
+        }
+      } catch (e) {
+        showToast(e instanceof Error ? e.message : "Could not open document.");
+      }
+    },
+    [showToast],
   );
 
-  // Shared docs are private storage objects — fetch a fresh signed URL when one
-  // is opened, exactly like the old Shared-with-you preview. Own uploads carry
-  // their bytes inline (data URL) and need no fetch.
-  const selectedSharedId = selected?.source === "shared" ? selected.doc.id : null;
-  const [sharedUrl, setSharedUrl] = useState<string | null>(null);
-  const [sharedUrlLoading, setSharedUrlLoading] = useState(false);
-  useEffect(() => {
-    if (!selectedSharedId) {
-      setSharedUrl(null);
-      setSharedUrlLoading(false);
+  const downloadRow = useCallback((row: CombinedDocRow) => {
+    if (row.source === "own") {
+      triggerDocumentDownload(row.upload.dataUrl, row.name);
       return;
     }
-    let cancelled = false;
-    setSharedUrl(null);
-    setSharedUrlLoading(true);
-    void fetch(`${SHARED_DOCUMENTS_SIGNED_URL_BASE}/${selectedSharedId}/signed-url`, { credentials: "include" })
-      .then(async (res) => {
-        const data = await res.json().catch(() => ({}));
-        if (!res.ok) throw new Error(data.error ?? "Could not load preview.");
-        if (!cancelled) setSharedUrl(String(data.url ?? ""));
-      })
-      .catch((e) => {
-        if (!cancelled) showToast(e instanceof Error ? e.message : "Could not load preview.");
-      })
-      .finally(() => {
-        if (!cancelled) setSharedUrlLoading(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [selectedSharedId, showToast]);
+    triggerDocumentDownload(`${SHARED_DOCUMENTS_SIGNED_URL_BASE}/${row.doc.id}/signed-url?download=1`, row.name);
+  }, []);
 
-  const toggleRow = (id: string) => setSelectedId((cur) => (cur === id ? null : id));
+  const selectedRows = useMemo(
+    () => rows.filter((row) => selectedIds.has(row.id)),
+    [rows, selectedIds],
+  );
+  const singleSelected = selectedRows.length === 1 ? selectedRows[0]! : null;
+
+  const bulkActions = useMemo(() => {
+    const actions = [];
+    if (singleSelected) {
+      actions.push(
+        residentDocumentsOpenAction(
+          "Open",
+          () => void openRow(singleSelected),
+          "resident-documents-other-open",
+        ),
+        residentDocumentsDownloadAction(
+          "Download",
+          () => downloadRow(singleSelected),
+          "resident-documents-other-download",
+        ),
+      );
+      if (singleSelected.source === "own") {
+        actions.push(
+          residentDocumentsRemoveAction(() => {
+            onRemove(singleSelected.upload.id);
+            clearSelection();
+          }, "resident-document-remove"),
+        );
+      }
+    }
+    return actions;
+  }, [clearSelection, downloadRow, onRemove, openRow, singleSelected]);
 
   if (rows.length === 0) {
     if (loading || sharedLoading) {
@@ -559,170 +557,32 @@ export function ResidentOtherDocumentsTable({
     return null;
   }
 
-  const sourceBadge = (row: CombinedDocRow) =>
-    row.source === "own" ? <Badge tone="neutral">You</Badge> : <Badge tone="info">Shared</Badge>;
-
-  // Own-upload preview vars (only meaningful when an own row is open).
-  const ownMime = selected?.source === "own" ? uploadedMimeType(selected.upload) : "";
-  const ownIsImage = ownMime.startsWith("image/");
-  const ownIsPdf = ownMime === "application/pdf";
-  // Plain-text previews are rendered as escaped text (never framed as HTML) —
-  // an uploaded file's declared mime type is attacker-controlled, so a
-  // "text/html" upload must never reach an iframe `src`/`srcDoc`.
-  const ownIsText = ownMime.startsWith("text/");
-  const ownText = selected?.source === "own" && ownIsText ? decodeDataUrlText(selected.upload.dataUrl) : null;
-
-  // Shared-doc preview vars.
-  const sharedMime = selected?.source === "shared" ? selected.doc.mimeType : "";
-  const sharedIsImage = sharedMime.startsWith("image/");
-  const sharedIsPdf = sharedMime === "application/pdf";
-
-  // Inline detail for the OPEN row — own upload (bytes inline) or shared doc
-  // (signed URL). Rendered directly beneath its row/card, never below the table.
-  const detailNode: ReactNode =
-    selected == null ? null : selected.source === "own" ? (
-      <DocumentInlineViewer
-        embedded
-        hideActions
-        title={selected.name}
-        src={ownIsPdf ? selected.upload.dataUrl : null}
-        onDownload={() => triggerDocumentDownload(selected.upload.dataUrl, selected.name)}
-      >
-        {ownIsImage ? (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img
-            src={selected.upload.dataUrl}
-            alt={selected.name}
-            className="max-h-[720px] w-full bg-white object-contain"
-          />
-        ) : ownIsText ? (
-          <pre className="max-h-[720px] overflow-auto whitespace-pre-wrap break-words bg-white p-4 text-sm text-foreground">
-            {ownText ?? "Preview isn't available for this file. Use Download to open it."}
-          </pre>
-        ) : ownIsPdf ? null : (
-          <div className="flex h-64 items-center justify-center px-4 text-center text-sm text-neutral-500">
-            Preview isn&apos;t available for this file type. Use Download to open it.
-          </div>
-        )}
-      </DocumentInlineViewer>
-    ) : (
-      <DocumentInlineViewer
-        embedded
-        hideActions
-        title={selected.name}
-        src={!sharedUrlLoading && sharedIsPdf ? sharedUrl : null}
-        downloadAttr="resident-shared-document-download"
-        onDownload={() =>
-          triggerDocumentDownload(`${SHARED_DOCUMENTS_SIGNED_URL_BASE}/${selected.doc.id}/signed-url?download=1`)
-        }
-      >
-        {sharedUrlLoading ? (
-          <div className="flex h-64 items-center justify-center px-4 text-center text-sm text-neutral-500">
-            Loading preview…
-          </div>
-        ) : sharedIsImage && sharedUrl ? (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img src={sharedUrl} alt={selected.name} className="max-h-[720px] w-full bg-white object-contain" />
-        ) : sharedIsPdf ? null : (
-          <div className="flex h-64 items-center justify-center px-4 text-center text-sm text-neutral-500">
-            Preview isn&apos;t available for this file type. Use Download to open it.
-          </div>
-        )}
-      </DocumentInlineViewer>
-    );
-
-  const selectedFooterActions =
-    selected == null ? null : selected.source === "own" ? (
-      <>
-        <Button
-          type="button"
-          variant="outline"
-          className={RESIDENT_DOCUMENTS_DETAIL_FOOTER_BTN}
-          data-attr="resident-document-download"
-          onClick={() => triggerDocumentDownload(selected.upload.dataUrl, selected.name)}
-        >
-          Download
-        </Button>
-        <Button
-          type="button"
-          variant="outline"
-          className={cn(RESIDENT_DOCUMENTS_DETAIL_FOOTER_BTN, "text-danger")}
-          data-attr="resident-document-remove"
-          onClick={() => {
-            setSelectedId(null);
-            onRemove(selected.upload.id);
-          }}
-        >
-          Remove
-        </Button>
-      </>
-    ) : (
-      <Button
-        type="button"
-        variant="outline"
-        className={RESIDENT_DOCUMENTS_DETAIL_FOOTER_BTN}
-        data-attr="resident-shared-document-download"
-        onClick={() =>
-          triggerDocumentDownload(`${SHARED_DOCUMENTS_SIGNED_URL_BASE}/${selected.doc.id}/signed-url?download=1`)
-        }
-      >
-        Download
-      </Button>
-    );
-
   return (
     <>
-      <div className="space-y-2 lg:hidden">
-        {rows.map((row) => (
-          <Fragment key={row.id}>
-            <PortalMobileSummaryCard
-              title={row.name}
-              subtitle={`${row.source === "own" ? "You" : "Shared"} · ${row.kind} · ${safeFormatDateTime(row.dateIso)}`}
-              expanded={selectedId === row.id}
-              onClick={() => toggleRow(row.id)}
-            />
-            {selectedId === row.id ? detailNode : null}
-          </Fragment>
-        ))}
+      <div className={PORTAL_LIST_PAGE_BODY} data-attr="resident-documents-other-list">
+        <ResidentPortalDataList
+          selectable
+          rows={rows.map((row) => ({
+            id: row.id,
+            data: row,
+            primary: row.name,
+            meta: [
+              row.source === "own" ? "You" : "Shared",
+              row.kind,
+              safeFormatDateTime(row.dateIso),
+            ].join(" · "),
+            selected: selectedIds.has(row.id),
+            onSelectedChange: () => toggleSelected(row.id),
+            onClick: () => void openRow(row),
+          }))}
+          columns={[{ id: "document", header: "Document", cell: () => "—" }]}
+        />
       </div>
-      <div className={`${PORTAL_DATA_TABLE_WRAP} hidden lg:block`}>
-        <div className={PORTAL_DATA_TABLE_SCROLL}>
-          <table className={PORTAL_DATA_TABLE}>
-            <tbody>
-              {rows.map((row) => (
-                <Fragment key={row.id}>
-                  <tr
-                    className={PORTAL_TABLE_TR_EXPANDABLE}
-                    aria-expanded={selectedId === row.id}
-                    onClick={() => toggleRow(row.id)}
-                  >
-                    <td className={`${PORTAL_TABLE_TD} align-middle`}>
-                      <PortalTableInlineExpand expanded={selectedId === row.id} className="min-w-0 truncate font-medium text-foreground">
-                        <span title={row.name}>{row.name}</span>
-                      </PortalTableInlineExpand>
-                    </td>
-                    <td className={`${PORTAL_TABLE_TD} align-middle`}>{sourceBadge(row)}</td>
-                    <td className={`${PORTAL_TABLE_TD} align-middle`}>{row.kind}</td>
-                    <td className={`${PORTAL_TABLE_TD} align-middle`}>{safeFormatDateTime(row.dateIso)}</td>
-                  </tr>
-                  {selectedId === row.id ? (
-                    <tr className={PORTAL_TABLE_DETAIL_ROW}>
-                      <td colSpan={4} className={PORTAL_TABLE_DETAIL_CELL}>
-                        {detailNode}
-                      </td>
-                    </tr>
-                  ) : null}
-                </Fragment>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </div>
-      {selectedFooterActions ? (
-        <PortalPageFooterActions pinned rowVariant="header">
-          <ResidentDocumentsDetailFooter>{selectedFooterActions}</ResidentDocumentsDetailFooter>
-        </PortalPageFooterActions>
-      ) : null}
+      <ResidentPortalListBottomBar
+        selectionCount={selectedIds.size}
+        selectionActions={bulkActions}
+        selectionBarVariant="payments"
+      />
     </>
   );
 }

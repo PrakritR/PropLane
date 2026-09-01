@@ -3,10 +3,18 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ManagerPortalPageShell,
+  PORTAL_COMMAND_PRIMARY_ACTION_BTN,
+  PORTAL_COMMAND_PRIMARY_ACTION_STYLE,
 } from "@/components/portal/portal-metrics";
 import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
+import { ResidentPortalDataList } from "@/components/portal/resident-portal-data-list";
+import { ResidentPortalListBottomBar } from "@/components/portal/resident-portal-list-bottom-bar";
+import {
+  residentDocumentsDownloadAction,
+  residentDocumentsOpenAction,
+  useResidentDocumentSelection,
+} from "@/components/portal/resident-documents-bulk";
 import { PORTAL_LIST_PAGE_BODY } from "@/components/portal/portal-inbox-ui";
-import { DataList } from "@/components/ui/data-list";
 import { ReportGeneratePrompt } from "@/components/portal/reports/report-generate-prompt";
 import {
   PortalDataTableEmpty,
@@ -17,9 +25,16 @@ import {
   ResidentOtherDocumentsTable,
   triggerDocumentDownload,
 } from "@/components/portal/resident-other-documents";
-import { ApplicationDocumentPreview, ApplicationPdfDownloadButton } from "@/components/portal/manager-applications";
+import {
+  ApplicationDocumentPreview,
+  ApplicationPdfDownloadButton,
+  runApplicationPdfDownload,
+} from "@/components/portal/manager-applications";
 import { PortalRecordDetailPage } from "@/components/portal/portal-record-detail-page";
-import { RESIDENT_DOCUMENTS_DETAIL_FOOTER_BTN, ResidentDocumentsDetailFooter } from "@/components/portal/portal-data-table";
+import {
+  RESIDENT_DOCUMENTS_DETAIL_FOOTER_BTN,
+  ResidentDocumentsDetailFooter,
+} from "@/components/portal/portal-data-table";
 import { Button } from "@/components/ui/button";
 import { ResidentLeaseDocumentsListSection } from "@/components/portal/resident-lease-list";
 import {
@@ -83,10 +98,11 @@ function applicationStatusLabel(bucket: ManagerApplicationBucket): string {
   return "Pending review";
 }
 
-/** Documents › Application — the resident's applications as table rows; tap opens a detail page. */
+/** Documents › Application — the resident's applications as selectable rows. */
 function ApplicationDocumentsTable({ basePath }: { basePath: string }) {
   const session = usePortalSession();
   const navigate = usePortalNavigate();
+  const { showToast } = useAppUi();
   const email = session.email?.trim().toLowerCase() ?? "";
   const userId = session.userId;
   const [tick, setTick] = useState(0);
@@ -109,6 +125,9 @@ function ApplicationDocumentsTable({ basePath }: { basePath: string }) {
     );
   }, [email, userId, tick]);
 
+  const rowIds = useMemo(() => rows.map((row) => row.id), [rows]);
+  const { selectedIds, toggleSelected } = useResidentDocumentSelection(rowIds);
+
   const openApplication = useCallback(
     (row: DemoApplicantRow) => {
       navigate(residentDocumentsApplicationDetailHref(basePath, row.id));
@@ -116,30 +135,60 @@ function ApplicationDocumentsTable({ basePath }: { basePath: string }) {
     [basePath, navigate],
   );
 
-  if (rows.length === 0) {
-    return <PortalDataTableEmpty icon="application" message="No applications are linked to your account yet." />;
-  }
+  const selectedRows = useMemo(
+    () => rows.filter((row) => selectedIds.has(row.id)),
+    [rows, selectedIds],
+  );
+  const singleSelected = selectedRows.length === 1 ? selectedRows[0]! : null;
+
+  const bulkActions = useMemo(() => {
+    const actions = [];
+    if (singleSelected) {
+      actions.push(
+        residentDocumentsOpenAction(
+          "Open",
+          () => openApplication(singleSelected),
+          "resident-documents-application-open",
+        ),
+        residentDocumentsDownloadAction(
+          "Download",
+          () => runApplicationPdfDownload(singleSelected, showToast),
+          "resident-documents-application-download",
+        ),
+      );
+    }
+    return actions;
+  }, [openApplication, showToast, singleSelected]);
 
   return (
-    <div className={PORTAL_LIST_PAGE_BODY}>
-      <DataList
-        variant="resident"
-        hideColumnHeaders
-        rows={rows.map((row) => ({
-          id: row.id,
-          data: row,
-          primary: "Rental application",
-          meta: row.property || "—",
-          trailing: <span className="text-xs text-muted">{applicationStatusLabel(row.bucket)}</span>,
-          onClick: () => openApplication(row),
-        }))}
-        columns={[
-          { id: "name", header: "Name", cell: () => "Rental application" },
-          { id: "status", header: "Status", cell: (row) => applicationStatusLabel(row.bucket) },
-          { id: "property", header: "Property", cell: (row) => row.property || "—" },
-        ]}
+    <>
+      <div className={PORTAL_LIST_PAGE_BODY} data-attr="resident-documents-application-list">
+        <ResidentPortalDataList
+          selectable
+          rows={rows.map((row) => ({
+            id: row.id,
+            data: row,
+            primary: "Rental application",
+            meta: [row.property || "—", applicationStatusLabel(row.bucket)].join(" · "),
+            trailing: (
+              <span className="text-xs font-medium text-muted">{applicationStatusLabel(row.bucket)}</span>
+            ),
+            selected: selectedIds.has(row.id),
+            onSelectedChange: () => toggleSelected(row.id),
+            onClick: () => openApplication(row),
+          }))}
+          columns={[{ id: "application", header: "Application", cell: () => "—" }]}
+          emptyState={
+            <PortalDataTableEmpty icon="application" message="No applications are linked to your account yet." />
+          }
+        />
+      </div>
+      <ResidentPortalListBottomBar
+        selectionCount={selectedIds.size}
+        selectionActions={bulkActions}
+        selectionBarVariant="payments"
       />
-    </div>
+    </>
   );
 }
 
@@ -629,6 +678,63 @@ function RentReceiptsTab({ basePath }: { basePath: string }) {
     [basePath, navigate],
   );
 
+  const demoPdfCache = useRef(new Map<string, string>());
+
+  const buildDemoReceipt = useCallback(async (row: ReceiptRow): Promise<string> => {
+    const key = `${row.date}:${row.amount}`;
+    const cached = demoPdfCache.current.get(key);
+    if (cached) return cached;
+    const { buildDemoReceiptPdfDataUrl } = await import("@/lib/demo/demo-document-files");
+    const url = await buildDemoReceiptPdfDataUrl({
+      residentName: DEMO_RESIDENT_NAME,
+      description: row.description,
+      amountLabel: row.amount,
+      dateLabel: row.date,
+    });
+    demoPdfCache.current.set(key, url);
+    return url;
+  }, []);
+
+  const downloadReceipt = useCallback(
+    (row: ReceiptRow) => {
+      if (demoMode) {
+        void buildDemoReceipt(row).then((url) =>
+          triggerDocumentDownload(url, `payment-receipt-${row.date}.pdf`),
+        );
+        return;
+      }
+      triggerDocumentDownload(receiptPdfHref(row.date), `payment-receipt-${row.date}.pdf`);
+    },
+    [demoMode, buildDemoReceipt],
+  );
+
+  const rowIds = useMemo(() => receipts.map((row) => row.id), [receipts]);
+  const { selectedIds, toggleSelected } = useResidentDocumentSelection(rowIds);
+  const selectedRows = useMemo(
+    () => receipts.filter((row) => selectedIds.has(row.id)),
+    [receipts, selectedIds],
+  );
+  const singleSelected = selectedRows.length === 1 ? selectedRows[0]! : null;
+
+  const bulkActions = useMemo(() => {
+    const actions = [];
+    if (singleSelected) {
+      actions.push(
+        residentDocumentsOpenAction(
+          "Open",
+          () => openReceipt(singleSelected),
+          "resident-documents-receipt-open",
+        ),
+        residentDocumentsDownloadAction(
+          "Download",
+          () => downloadReceipt(singleSelected),
+          "resident-documents-receipt-download",
+        ),
+      );
+    }
+    return actions;
+  }, [downloadReceipt, openReceipt, singleSelected]);
+
   return (
     <>
       <div className="space-y-4">
@@ -655,29 +761,28 @@ function RentReceiptsTab({ basePath }: { basePath: string }) {
         ) : receipts.length === 0 ? (
           <PortalDataTableEmpty icon="default" message="No rent receipts in this date range yet." />
         ) : (
-          <div className={PORTAL_LIST_PAGE_BODY}>
-            <DataList
-              variant="resident"
-              hideColumnHeaders
+          <div className={PORTAL_LIST_PAGE_BODY} data-attr="resident-documents-receipt-list">
+            <ResidentPortalDataList
+              selectable
               rows={receipts.map((row) => ({
                 id: row.id,
                 data: row,
                 primary: receiptRowLabel(row.description),
                 meta: row.date,
-                trailing: (
-                  <span className="text-sm font-semibold tabular-nums text-foreground">{row.amount}</span>
-                ),
+                selected: selectedIds.has(row.id),
+                onSelectedChange: () => toggleSelected(row.id),
                 onClick: () => openReceipt(row),
               }))}
-              columns={[
-                { id: "name", header: "Name", cell: (row) => receiptRowLabel(row.description) },
-                { id: "amount", header: "Amount", cell: (row) => row.amount },
-                { id: "date", header: "Date", cell: (row) => row.date },
-              ]}
+              columns={[{ id: "receipt", header: "Receipt", cell: () => "—" }]}
             />
           </div>
         )}
       </div>
+      <ResidentPortalListBottomBar
+        selectionCount={selectedIds.size}
+        selectionActions={bulkActions}
+        selectionBarVariant="payments"
+      />
     </>
   );
 }
@@ -775,8 +880,9 @@ export function ResidentDocumentsPanel({
   return (
     <ManagerPortalPageShell title="Documents" hideTitleOnMobileNav compactFilterRow>
       <PortalListControlStack
-        className="mb-3 max-lg:mb-4"
-        destinationInset
+        className="mb-2 max-lg:mb-1.5"
+        variant="command"
+        stickyDestinations={false}
         destinations={tabItems.map((tab) => ({
           id: tab.id,
           label: tab.label,
@@ -785,6 +891,20 @@ export function ResidentDocumentsPanel({
         }))}
         activeDestinationId={tabId}
         destinationAriaLabel="Documents"
+        actions={
+          tabId === "other" ? (
+            <Button
+              type="button"
+              className={PORTAL_COMMAND_PRIMARY_ACTION_BTN}
+              style={PORTAL_COMMAND_PRIMARY_ACTION_STYLE}
+              data-attr="resident-documents-upload"
+              onClick={openAdd}
+            >
+              <span className="sm:hidden" aria-hidden="true">Upload</span>
+              <span className="hidden sm:inline">Upload document</span>
+            </Button>
+          ) : null
+        }
       />
       {tabId === "application" ? <ApplicationDocumentsTable basePath={basePath} /> : null}
 
@@ -799,7 +919,6 @@ export function ResidentDocumentsPanel({
             loading={uploadsLoading}
             onRemove={onRemoveUpload}
             demo={isDemoModeActive()}
-            onAdd={openAdd}
           />
           <ResidentAddDocumentModal
             key={addOpen ? "open" : "closed"}

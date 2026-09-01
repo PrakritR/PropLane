@@ -83,7 +83,7 @@ describe("DocumentsTableShell — detail is nested under its own row", () => {
   });
 });
 
-describe("ResidentOtherDocumentsTable — detail is nested under its own row", () => {
+describe("ResidentOtherDocumentsTable — list surface with selection", () => {
   const PNG =
     "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAC0lEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
   const uploads: UploadedOwnLease[] = [
@@ -91,31 +91,14 @@ describe("ResidentOtherDocumentsTable — detail is nested under its own row", (
     { id: "u2", dataUrl: PNG, fileName: "Renters insurance.png", uploadedAt: "2026-07-01T10:00:00.000Z" },
   ];
 
-  it("opens the second row's preview directly beneath that row", () => {
-    const { container } = render(
+  it("renders selectable list rows without inline table detail rows", () => {
+    const { container, getByLabelText } = render(
       <ResidentOtherDocumentsTable uploads={uploads} loading={false} onRemove={() => {}} demo />,
     );
 
-    const dataRows = tbodyRows(container).filter((tr) => tr.getAttribute("aria-expanded") !== null);
-    expect(dataRows).toHaveLength(2);
-    const rowTwo = dataRows.find((tr) => tr.textContent?.includes("Renters insurance.png"))!;
-    fireEvent.click(rowTwo);
-
-    // Detail row is directly after the clicked row, in the same tbody, and holds
-    // the actual preview — not an empty or misplaced node.
-    //
-    // This used to look for a "Download" control. The viewer is now mounted with
-    // `hideActions`, and Download/Remove moved to the detail FOOTER strip
-    // (`selectedFooterActions`), which renders outside this `<tr>` — so that
-    // probe could never pass again. The fixture is a PNG, so the rendered preview
-    // image is the direct evidence the detail is populated.
-    const detailRow = rowTwo.nextElementSibling as HTMLElement;
-    expect(detailRow.tagName).toBe("TR");
-    expect(detailRow.parentElement).toBe(rowTwo.parentElement);
-    expect(within(detailRow).getByAltText("Renters insurance.png")).toBeTruthy();
-
-    // The first row did NOT gain a detail (its next sibling is still a data row).
-    const rowOne = dataRows.find((tr) => tr.textContent?.includes("Move-in photo.png"))!;
-    expect((rowOne.nextElementSibling as HTMLElement).getAttribute("aria-expanded")).not.toBeNull();
+    expect(container.querySelector('[data-attr="resident-documents-other-list"]')).toBeTruthy();
+    expect(container.querySelector("table")).toBeNull();
+    expect(getByLabelText("Select Move-in photo.png")).toBeTruthy();
+    expect(getByLabelText("Select Renters insurance.png")).toBeTruthy();
   });
 });

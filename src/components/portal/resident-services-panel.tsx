@@ -1326,6 +1326,7 @@ export function ResidentServicesPanel({
     <ResidentPortalListBottomBar
       selectionCount={selectedIds.size}
       selectionActions={serviceSelectionActions}
+      selectionBarVariant="payments"
     />
     <ConfirmDeleteModal
       open={bulkDeleteOpen}

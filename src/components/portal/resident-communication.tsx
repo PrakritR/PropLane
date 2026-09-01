@@ -13,16 +13,20 @@ import {
 } from "@/components/portal/portal-inbox-ui";
 import { PortalCommunicationShell } from "@/components/portal/portal-communication-shell";
 import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
+import { PortalFilterSortSheet } from "@/components/portal/portal-filter-sort-sheet";
+import { PortalActiveFilterChips, type PortalActiveFilterChip } from "@/components/portal/portal-filter-chips";
+import { FilterSingleSelectList } from "@/components/portal/filter-field-lists";
 import {
-  PORTAL_HEADER_PRIMARY_ACTION_BTN,
-  PORTAL_HEADER_PRIMARY_ACTION_BTN_RESPONSIVE,
+  PORTAL_COMMAND_ACTION_BTN,
+  PORTAL_COMMAND_PRIMARY_ACTION_BTN,
+  PORTAL_COMMAND_PRIMARY_ACTION_STYLE,
 } from "@/components/portal/portal-metrics";
-import { PortalSectionActionRow } from "@/components/portal/portal-section-action-row";
 import { filterEmailInboxThreads } from "@/lib/communication-inbox-filters";
 import {
   mergeUnifiedInboxItems,
   parseUnifiedInboxKey,
   unifiedInboxKey,
+  type CommunicationListSort,
   type UnifiedInboxListItem,
 } from "@/lib/unified-inbox-merge";
 import {
@@ -37,6 +41,7 @@ import {
   selectCommunicationThreadUrl,
 } from "@/lib/portal-communication-nav";
 import { useCommunicationThreadId } from "@/hooks/use-communication-thread-id";
+import { usePortalNavigate } from "@/lib/portal-nav-client";
 import { RESIDENT_PORTAL_BASE_PATH } from "@/lib/portals/resident-sections";
 import {
   normalizeRoleSmsPayload,
@@ -47,6 +52,11 @@ import {
 
 const SMS_THREAD_ID = "text-messages";
 const SMS_OPENED_KEY = "axis_role_sms_opened_resident";
+
+const COMMUNICATION_SORT_OPTIONS: { value: CommunicationListSort; label: string }[] = [
+  { value: "recent", label: "Most recent" },
+  { value: "resident", label: "Name (A–Z)" },
+];
 
 function previewLine(body: string, max = 80) {
   const t = body.trim().replace(/\s+/g, " ");
@@ -73,7 +83,7 @@ function ResidentUnifiedInbox({
   listSegment,
   routeThreadId,
   onRouteThreadChange,
-  searchQuery,
+  listSort,
   onThreadOpenChange,
   onThreadSelectedChange,
   commBase,
@@ -84,7 +94,7 @@ function ResidentUnifiedInbox({
   listSegment: InboxListSegment;
   routeThreadId?: string;
   onRouteThreadChange?: (threadId: string | undefined) => void;
-  searchQuery: string;
+  listSort: CommunicationListSort;
   onThreadOpenChange?: (open: boolean) => void;
   onThreadSelectedChange?: (selected: boolean) => void;
   commBase: string;
@@ -125,15 +135,8 @@ function ResidentUnifiedInbox({
   );
 
   const emailItems = useMemo((): UnifiedInboxListItem[] => {
-    const q = searchQuery.trim().toLowerCase();
     let rows = filteredEmail;
-    if (q) {
-      rows = rows.filter((t) => {
-        if (t.folder === "trash") return false;
-        const hay = [t.from, t.email, t.subject, t.body, t.preview].filter(Boolean).join(" ").toLowerCase();
-        return hay.includes(q);
-      });
-    } else if (listSegment === "archived") {
+    if (listSegment === "archived") {
       rows = rows.filter((t) => t.folder === "trash");
     } else if (listSegment === "unread") {
       rows = rows.filter((t) => t.folder !== "trash" && t.folder === "inbox" && t.unread);
@@ -162,7 +165,7 @@ function ResidentUnifiedInbox({
     });
     if (listSegment === "unread") return items.filter((item) => item.unread);
     return items;
-  }, [filteredEmail, searchQuery, listSegment]);
+  }, [filteredEmail, listSegment]);
 
   const smsItems = useMemo((): UnifiedInboxListItem[] => {
     if (!smsUiEnabled || listSegment === "archived") return [];
@@ -182,13 +185,14 @@ function ResidentUnifiedInbox({
       unread,
       sortMs: Date.parse(last.createdAt) || 0,
     };
-    const q = searchQuery.trim().toLowerCase();
-    if (q && !["text messages", "property manager", last.body].join(" ").toLowerCase().includes(q)) return [];
     if (listSegment === "unread" && !unread) return [];
     return [item];
-  }, [listSegment, searchQuery, smsMessages, smsOpened, smsUiEnabled]);
+  }, [listSegment, smsMessages, smsOpened, smsUiEnabled]);
 
-  const merged = useMemo(() => mergeUnifiedInboxItems([...emailItems, ...smsItems]), [emailItems, smsItems]);
+  const merged = useMemo(
+    () => mergeUnifiedInboxItems([...emailItems, ...smsItems], listSort),
+    [emailItems, listSort, smsItems],
+  );
   const selection = useMemo(() => (selectedKey ? parseUnifiedInboxKey(selectedKey) : null), [selectedKey]);
 
   useEffect(() => {
@@ -207,18 +211,9 @@ function ResidentUnifiedInbox({
 
   const listPane = (
     <div className="flex min-h-0 flex-1 flex-col">
-      {merged.length > 0 && searchQuery.trim() ? (
-        <p className="mb-2 hidden px-1 text-[11px] text-muted sm:block">
-          {merged.length} conversation{merged.length === 1 ? "" : "s"} matching “{searchQuery.trim()}”
-        </p>
-      ) : null}
       <div className={INBOX_LIST_SCROLL}>
         {merged.length === 0 ? (
-          searchQuery.trim() ? (
-            <div className="p-4">
-              <PortalInboxEmptyState title={`No messages match “${searchQuery.trim()}”.`} />
-            </div>
-          ) : listSegment === "archived" ? (
+          listSegment === "archived" ? (
             <div className="p-4">
               <PortalInboxEmptyState title="No archived conversations." />
             </div>
@@ -321,78 +316,106 @@ export function ResidentCommunication({
   smsUiEnabled?: boolean;
 }) {
   const commBase = `${RESIDENT_PORTAL_BASE_PATH}/communication`;
+  const navigate = usePortalNavigate();
   const inboxRef = useRef<ResidentInboxPanelHandle>(null);
   const { activeThreadId, setActiveThreadId } = useCommunicationThreadId(commBase, threadId);
   const [threadOpen, setThreadOpen] = useState(Boolean(threadId));
   const [threadSelected, setThreadSelected] = useState(Boolean(threadId));
-  const [searchQuery, setSearchQuery] = useState("");
+  const [listSort, setListSort] = useState<CommunicationListSort>("recent");
 
   const openCompose = () => inboxRef.current?.openCompose();
 
-  const newMessageButton = (
+  const filterTouchCount = listSort !== "recent" ? 1 : 0;
+
+  const activeFilterChips = useMemo((): PortalActiveFilterChip[] => {
+    if (listSort === "recent") return [];
+    const label =
+      COMMUNICATION_SORT_OPTIONS.find((option) => option.value === listSort)?.label ?? listSort;
+    return [
+      {
+        id: "sort",
+        label: `Sort: ${label}`,
+        onRemove: () => setListSort("recent"),
+      },
+    ];
+  }, [listSort]);
+
+  const communicationFilterSheet = (
+    <PortalFilterSortSheet
+      activeCount={filterTouchCount}
+      compactPanel
+      commandStripTrigger
+      filterFieldCount={1}
+      constrainDropdownToTitleBand={false}
+      className="flex-none"
+      mobileFlushBody={true}
+      onReset={() => setListSort("recent")}
+      dataAttr="communication-filter-sheet-open"
+    >
+      <FilterSingleSelectList
+        options={COMMUNICATION_SORT_OPTIONS}
+        value={listSort}
+        onChange={(value) => setListSort(value as CommunicationListSort)}
+        dataAttr="communication-filter-sort"
+      />
+    </PortalFilterSortSheet>
+  );
+
+  const communicationNewMessageButton = (
     <Button
       type="button"
-      variant="primary"
-      className={`shrink-0 ${PORTAL_HEADER_PRIMARY_ACTION_BTN}`}
+      className={PORTAL_COMMAND_PRIMARY_ACTION_BTN}
+      style={PORTAL_COMMAND_PRIMARY_ACTION_STYLE}
       data-attr="communication-new-message"
+      aria-label="New message"
       onClick={openCompose}
     >
-      New message
+      <span className="sm:hidden" aria-hidden="true">
+        Message
+      </span>
+      <span className="hidden sm:inline">New message</span>
     </Button>
   );
 
+  const communicationCommandActions = (
+    <>
+      {communicationFilterSheet}
+      <Button
+        type="button"
+        variant="outline"
+        className={PORTAL_COMMAND_ACTION_BTN}
+        data-attr="communication-settings-open"
+        onClick={() => navigate(`${RESIDENT_PORTAL_BASE_PATH}/profile?tab=messaging`)}
+      >
+        Settings
+      </Button>
+      {communicationNewMessageButton}
+    </>
+  );
+
   const controlStack = (
-    <div className="space-y-2">
-      <PortalListControlStack
-        destinations={[
-          { id: "active", label: "Active", href: `${commBase}/active`, dataAttr: "communication-segment-active" },
-          {
-            id: "unread",
-            label: "Unread",
-            href: `${commBase}/unread`,
-            dataAttr: "communication-segment-unread",
-          },
-          {
-            id: "archived",
-            label: "Archived",
-            href: `${commBase}/archived`,
-            dataAttr: "communication-segment-archived",
-          },
-        ]}
-        activeDestinationId={listSegment}
-        destinationAriaLabel="Conversation folders"
-        destinationNavSize="toolbar"
-        search={{
-          value: searchQuery,
-          onChange: setSearchQuery,
-          placeholder: "Search messages",
-          dataAttr: "resident-inbox-search",
-        }}
-      />
-      {!threadOpen ? (
-        <div className="flex justify-end md:hidden" data-slot="resident-communication-mobile-actions">
-          <Button
-            type="button"
-            variant="primary"
-            className={`shrink-0 ${PORTAL_HEADER_PRIMARY_ACTION_BTN_RESPONSIVE}`}
-            data-attr="communication-new-message"
-            onClick={openCompose}
-          >
-            New message
-          </Button>
-        </div>
-      ) : null}
-    </div>
+    <PortalListControlStack
+      variant="command"
+      stickyDestinations={false}
+      destinations={[
+        { id: "active", label: "Active", href: `${commBase}/active`, dataAttr: "communication-segment-active" },
+        {
+          id: "archived",
+          label: "Archived",
+          href: `${commBase}/archived`,
+          dataAttr: "communication-segment-archived",
+        },
+      ]}
+      activeDestinationId={listSegment === "unread" ? "active" : listSegment}
+      destinationAriaLabel="Conversation folders"
+      actions={communicationCommandActions}
+      activeFilterChips={<PortalActiveFilterChips chips={activeFilterChips} />}
+    />
   );
 
   return (
     <PortalCommunicationShell
       title="Communication"
-      titleAside={
-        <PortalSectionActionRow variant="header" className="hidden gap-2 md:flex">
-          {newMessageButton}
-        </PortalSectionActionRow>
-      }
       hideTitleOnMobileNav
       controlStack={controlStack}
       hideMobileFilterRow={threadOpen}
@@ -406,7 +429,7 @@ export function ResidentCommunication({
         listSegment={listSegment}
         routeThreadId={activeThreadId}
         onRouteThreadChange={setActiveThreadId}
-        searchQuery={searchQuery}
+        listSort={listSort}
         onThreadOpenChange={setThreadOpen}
         onThreadSelectedChange={setThreadSelected}
         commBase={commBase}

@@ -139,22 +139,16 @@ describe("resident portal redesign completeness", () => {
       }
     });
 
-    it("communication uses PortalCommunicationShell with inline title band (filter + actions on title row)", () => {
+    it("communication uses PortalCommunicationShell with command control stack", () => {
       const src = readPanel("resident-communication.tsx");
       expect(src).toContain("PortalCommunicationShell");
-      // The panel carries "New message" on the title band, but in the SPLIT shape
-      // rather than band-only: a `hidden md:flex` titleAside plus an `md:hidden`
-      // row in the control stack. Both shapes are valid per rule 3 of
-      // docs/portal-list-section-layout.md, and split is what this panel needs —
-      // the phone button uses the responsive variant and is suppressed while a
-      // thread is open (`!threadOpen`), neither of which a single shared node can
-      // express. Asserting band-only here contradicted
-      // `portal-inline-title-band-duplicate-controls.test.tsx`, which is the guard
-      // that actually enforces "header actions reach a phone exactly once" — so
-      // that one owns the shape, and this one just checks the button is present.
-      expect(src).toContain("newMessageButton");
+      expect(src).toContain('variant="command"');
       expect(src).toContain('data-attr="communication-new-message"');
+      expect(src).toContain('data-attr="communication-settings-open"');
+      expect(src).toContain('dataAttr="communication-filter-sheet-open"');
+      expect(src).not.toContain("titleAside=");
       expect(src).not.toContain("PortalPageHeaderMobileActionsRow");
+      expect(src).not.toContain("resident-inbox-search");
     });
 
     it("dashboard uses manager-style attention groups without welcome subtitle", () => {

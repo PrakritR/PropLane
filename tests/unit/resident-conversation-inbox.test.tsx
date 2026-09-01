@@ -34,6 +34,10 @@ vi.mock("next/navigation", () => ({
   useSearchParams: () => new URLSearchParams(),
 }));
 
+vi.mock("@/lib/portal-nav-client", () => ({
+  usePortalNavigate: () => vi.fn(),
+}));
+
 vi.mock("@/lib/portal-inbox-storage", async () => {
   const actual = await vi.importActual<typeof import("@/lib/portal-inbox-storage")>(
     "@/lib/portal-inbox-storage",
@@ -61,13 +65,13 @@ afterEach(() => {
 });
 
 describe("resident conversation inbox", () => {
-  it("shows Active, Unread, and Archived segments like the manager portal", () => {
+    it("shows Active and Archived segments like the property portal", () => {
     vi.stubGlobal("fetch", vi.fn(async () => new Response("{}", { status: 200 })));
     render(<ResidentCommunication />);
 
     expect(screen.getByRole("link", { name: /^Active$/i })).toBeTruthy();
-    expect(screen.getByRole("link", { name: /Unread/i })).toBeTruthy();
     expect(screen.getByRole("link", { name: /Archived/i })).toBeTruthy();
+    expect(screen.queryByRole("link", { name: /Unread/i })).toBeNull();
     expect(screen.getByText("Property manager")).toBeTruthy();
     expect(screen.queryByText("Old notice")).toBeNull();
   });
