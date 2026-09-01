@@ -6,9 +6,10 @@ import { Modal, MODAL_FIELD_LABEL_CLASS, ModalFooter } from "@/components/ui/mod
 import { useAppUi } from "@/components/providers/app-ui-provider";
 import { useNativeCamera } from "@/lib/native/use-native-camera";
 import type { ManagerDocumentDTO } from "@/lib/documents/manager-documents";
-import { ResidentPortalDataList } from "@/components/portal/resident-portal-data-list";
 import { ResidentPortalListBottomBar } from "@/components/portal/resident-portal-list-bottom-bar";
 import { PORTAL_LIST_PAGE_BODY } from "@/components/portal/portal-inbox-ui";
+import { PortalListAddRow, PORTAL_LIST_ADD_ICONS, PORTAL_LIST_ADD_ROW_WRAP_CLASS } from "@/components/portal/portal-list-add-row";
+import { ResidentPortalDataList } from "@/components/portal/resident-portal-data-list";
 import {
   residentDocumentsDownloadAction,
   residentDocumentsOpenAction,
@@ -426,11 +427,13 @@ export function ResidentOtherDocumentsTable({
   uploads,
   loading,
   onRemove,
+  onAdd,
   demo = false,
 }: {
   uploads: UploadedOwnLease[];
   loading: boolean;
   onRemove: (id: string) => void;
+  onAdd?: () => void;
   demo?: boolean;
 }) {
   const { showToast } = useAppUi();
@@ -554,7 +557,20 @@ export function ResidentOtherDocumentsTable({
         </div>
       );
     }
-    return null;
+    if (!onAdd) return null;
+    return (
+      <div className={PORTAL_LIST_PAGE_BODY}>
+        <div className={PORTAL_LIST_ADD_ROW_WRAP_CLASS}>
+          <PortalListAddRow
+            label="Upload"
+            ariaLabel="Upload document"
+            icon={PORTAL_LIST_ADD_ICONS.lease}
+            onClick={onAdd}
+            dataAttr="resident-documents-list-add"
+          />
+        </div>
+      </div>
+    );
   }
 
   return (

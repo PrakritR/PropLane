@@ -5,7 +5,7 @@ import type { ReactNode } from "react";
 import { useMemo, useSyncExternalStore } from "react";
 import { ManagerPortalPageShell } from "@/components/portal/portal-metrics";
 import { PortalDataTableEmpty } from "@/components/portal/portal-data-table";
-import { ResidentMoveInResolvedView } from "@/components/portal/resident-move-in-view";
+import { ResidentMoveInShell } from "@/components/portal/resident-move-in-view";
 import { readExtraListingsForUser } from "@/lib/demo-property-pipeline";
 import { readManagerApplicationRows } from "@/lib/manager-applications-storage";
 import {
@@ -30,6 +30,7 @@ import {
   subscribeDemoRole,
 } from "@/lib/demo/demo-session";
 import type { PortalSection } from "@/lib/portal-types";
+import { parseResidentMoveInTab } from "@/lib/portal-detail-routes";
 import { resolveResidentMoveInFromApplications } from "@/lib/resident-move-in-resolve";
 
 const loading = () => (
@@ -231,7 +232,7 @@ export function DemoSectionRenderer({
       // Payments is Charges-only now — no sub-tabs to forward.
       return <ResidentPaymentsPanel />;
     case "move-in":
-      return <ResidentMoveInDemo />;
+      return <ResidentMoveInDemo tabId={tabId} basePath={basePath} />;
     case "services":
       return <ResidentServicesPanel basePath={basePath} />;
     case "inbox":
@@ -253,7 +254,13 @@ export function DemoSectionRenderer({
  * view fed by the shared resolver, over the browser-local demo data
  * (the real portal resolves the identical shape server-side).
  */
-function ResidentMoveInDemo() {
+function ResidentMoveInDemo({
+  tabId,
+  basePath,
+}: {
+  tabId: string;
+  basePath: string;
+}) {
   const resolved = useMemo(() => {
     const propertiesById = Object.fromEntries(
       readExtraListingsForUser(resolveDemoPortfolioScopeUserId()).map((p) => [p.id, p]),
@@ -265,15 +272,20 @@ function ResidentMoveInDemo() {
     );
   }, []);
 
+  const activeTab = parseResidentMoveInTab(tabId);
+
   return (
-    <ManagerPortalPageShell title="House details">
-      <div className="space-y-6 text-sm leading-relaxed text-muted">
-        {resolved ? (
-          <ResidentMoveInResolvedView resolved={resolved} />
-        ) : (
-          <PortalDataTableEmpty message="House details appear here once a placement is assigned." icon="default" />
-        )}
-      </div>
+    <ManagerPortalPageShell title="House details" hideTitleOnMobileNav compactFilterRow>
+      {resolved ? (
+        <ResidentMoveInShell
+          basePath={basePath}
+          resolved={resolved}
+          email={DEMO_RESIDENT_EMAIL}
+          activeTab={activeTab}
+        />
+      ) : (
+        <PortalDataTableEmpty message="House details appear here once a placement is assigned." icon="default" />
+      )}
     </ManagerPortalPageShell>
   );
 }

@@ -592,19 +592,23 @@ export function residentTourDetailHref(
   return `${basePath}/tour/${bucket}/${encodeURIComponent(inquiryId)}`;
 }
 
-/** @deprecated House details is a single page — legacy tab URLs redirect to `/move-in`. */
-export const RESIDENT_MOVE_IN_TABS = ["placement", "housemates", "info", "instructions"] as const;
+export const RESIDENT_MOVE_IN_TABS = [
+  "placement",
+  "housemates",
+  "info",
+  "amenities",
+  "instructions",
+] as const;
 export type ResidentMoveInTabId = (typeof RESIDENT_MOVE_IN_TABS)[number];
 
-/** @deprecated */
 export const RESIDENT_MOVE_IN_TAB_LABELS: Record<ResidentMoveInTabId, string> = {
   placement: "Your placement",
   housemates: "Housemates",
   info: "Info & rules",
-  instructions: "Instructions",
+  amenities: "Amenities",
+  instructions: "Move-in",
 };
 
-/** @deprecated */
 export function parseResidentMoveInTab(raw: string | undefined | null): ResidentMoveInTabId {
   if (raw && (RESIDENT_MOVE_IN_TABS as readonly string[]).includes(raw)) {
     return raw as ResidentMoveInTabId;
@@ -612,9 +616,11 @@ export function parseResidentMoveInTab(raw: string | undefined | null): Resident
   return "placement";
 }
 
-/** @deprecated Use `${basePath}/move-in` */
-export function residentMoveInHref(basePath: string, _tab?: ResidentMoveInTabId): string {
-  return `${basePath}/move-in`;
+export function residentMoveInHref(
+  basePath: string,
+  tab: ResidentMoveInTabId = "placement",
+): string {
+  return `${basePath}/move-in/${tab}`;
 }
 
 /** Manager lease pipeline tabs (Appendix D5). */

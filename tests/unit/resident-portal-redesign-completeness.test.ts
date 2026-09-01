@@ -190,11 +190,12 @@ describe("resident portal redesign completeness", () => {
       expect(readPanel("resident-lease-panel.tsx")).not.toContain("glass-card");
     });
 
-    it("house details is a single scroll page without routed sub-tabs", () => {
+    it("house details uses command tabs for each section", () => {
       const moveIn = readPanel("resident-move-in-view.tsx");
-      expect(moveIn).not.toContain("PortalListControlStack");
-      expect(moveIn).toContain("Your placement");
-      expect(moveIn).toContain("Move-in instructions");
+      expect(moveIn).toContain("PortalListControlStack");
+      expect(moveIn).toContain('variant="command"');
+      expect(moveIn).toContain("resident-move-in-tab-");
+      expect(moveIn).toContain("hideAssistantFab");
     });
 
     it("lease filter tabs are a local nav, not a dropdown; services filter rows span full width", () => {

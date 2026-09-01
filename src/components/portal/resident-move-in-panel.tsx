@@ -1,27 +1,31 @@
 import { ManagerPortalPageShell } from "@/components/portal/portal-metrics";
 import { ResidentMoveInShell } from "@/components/portal/resident-move-in-view";
+import type { PortalTab } from "@/lib/portal-types";
 import { RESIDENT_PORTAL_BASE_PATH } from "@/lib/portals/resident-sections";
 import { loadResidentMoveInForEmail } from "@/lib/resident-move-in-info";
-
-type ResidentMoveInPanelProps = {
-  residentEmail?: string | null;
-  basePath?: string;
-};
 
 export async function ResidentMoveInPanel({
   residentEmail,
   basePath = RESIDENT_PORTAL_BASE_PATH,
+  tabId = "placement",
+  tabs: _tabs,
 }: {
   residentEmail?: string | null;
-  tab?: string;
   basePath?: string;
+  tabId?: string;
+  tabs?: PortalTab[];
 }) {
   const email = residentEmail?.trim().toLowerCase() || "";
   const resolved = email ? await loadResidentMoveInForEmail(email) : null;
 
   return (
-    <ManagerPortalPageShell title="House details" hideTitleOnMobileNav>
-      <ResidentMoveInShell basePath={basePath} resolved={resolved} email={email} />
+    <ManagerPortalPageShell title="House details" hideTitleOnMobileNav compactFilterRow>
+      <ResidentMoveInShell
+        basePath={basePath}
+        resolved={resolved}
+        email={email}
+        activeTab={tabId}
+      />
     </ManagerPortalPageShell>
   );
 }

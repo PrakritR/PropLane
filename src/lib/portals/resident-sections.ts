@@ -1,4 +1,8 @@
 import type { PortalSection } from "@/lib/portal-types";
+import {
+  RESIDENT_MOVE_IN_TAB_LABELS,
+  RESIDENT_MOVE_IN_TABS,
+} from "@/lib/portal-detail-routes";
 
 /** Base path for resident portal — shared by web and Capacitor WebView. */
 export const RESIDENT_PORTAL_BASE_PATH = "/resident";
@@ -29,6 +33,11 @@ const DOCUMENTS_TABS = [
   // The legacy /documents/shared route redirects here (render-portal-section).
   { id: "other", label: "Other documents" },
 ] as const;
+
+const MOVE_IN_TABS = RESIDENT_MOVE_IN_TABS.map((id) => ({
+  id,
+  label: RESIDENT_MOVE_IN_TAB_LABELS[id],
+}));
 
 /**
  * Payments is Charges-only — there is no tab switcher, so its section entries
@@ -77,7 +86,7 @@ export const RESIDENT_UNIFIED_PORTAL_SECTIONS: PortalSection[] = [
   { section: "services", label: "Services", tabs: [] },
   { section: "payments", label: "Payments", tabs: [] },
   { section: "communication", label: "Communication", tabs: [] },
-  { section: "move-in", label: "House details", tabs: [] },
+  { section: "move-in", label: "House details", tabs: [...MOVE_IN_TABS] },
   { section: "documents", label: "Documents", tabs: [...DOCUMENTS_TABS] },
   { section: "profile", label: "Settings", tabs: [] },
 ];
@@ -111,7 +120,7 @@ export const RESIDENT_APPROVED_PORTAL_SECTIONS: PortalSection[] = [
   { section: "communication", label: "Communication", tabs: [] },
   { section: "applications", label: "Application", tabs: [] },
   { section: "lease", label: "Lease", tabs: [] },
-  { section: "move-in", label: "House details", tabs: [] },
+  { section: "move-in", label: "House details", tabs: [...MOVE_IN_TABS] },
   { section: "documents", label: "Documents", tabs: [...DOCUMENTS_TABS] },
   { section: "profile", label: "Settings", tabs: [] },
 ];

@@ -3,10 +3,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ManagerPortalPageShell,
+  PORTAL_COMMAND_ACTION_BTN,
   PORTAL_COMMAND_PRIMARY_ACTION_BTN,
   PORTAL_COMMAND_PRIMARY_ACTION_STYLE,
 } from "@/components/portal/portal-metrics";
 import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
+import { PortalFilterSortSheet, portalFilterActiveCount } from "@/components/portal/portal-filter-sort-sheet";
+import { usePortalFilterDraft } from "@/lib/portal-filter-draft";
+import { Input } from "@/components/ui/input";
 import { ResidentPortalDataList } from "@/components/portal/resident-portal-data-list";
 import { ResidentPortalListBottomBar } from "@/components/portal/resident-portal-list-bottom-bar";
 import {
@@ -37,6 +41,7 @@ import {
 } from "@/components/portal/portal-data-table";
 import { Button } from "@/components/ui/button";
 import { ResidentLeaseDocumentsListSection } from "@/components/portal/resident-lease-list";
+import { ResidentDocumentsInfoCallout } from "@/components/portal/resident-documents-info-callout";
 import {
   RESIDENT_LEASE_LIST_LABEL,
   ResidentLeaseBareDocumentPreview,
@@ -96,6 +101,64 @@ function applicationStatusLabel(bucket: ManagerApplicationBucket): string {
   if (bucket === "approved") return "Approved";
   if (bucket === "rejected") return "Rejected";
   return "Pending review";
+}
+
+type ReceiptDateRange = { from: string; to: string };
+
+function RentReceiptDateRangeFilter({
+  range,
+  onRangeChange,
+}: {
+  range: ReceiptDateRange;
+  onRangeChange: (next: ReceiptDateRange) => void;
+}) {
+  const defaultRange = residentLedgerReceiptRange();
+  const activeCount = portalFilterActiveCount([
+    range.from !== defaultRange.from ? range.from : "",
+    range.to !== defaultRange.to ? range.to : "",
+  ]);
+
+  const [draftRange, setDraftRange] = usePortalFilterDraft(range, onRangeChange, defaultRange);
+
+  const resetRange = useCallback(() => {
+    const next = residentLedgerReceiptRange();
+    onRangeChange(next);
+  }, [onRangeChange]);
+
+  return (
+    <PortalFilterSortSheet
+      activeCount={activeCount}
+      compactPanel
+      commandStripTrigger
+      filterFieldCount={2}
+      mobileFlushBody
+      onReset={resetRange}
+      dataAttr="resident-documents-receipt-filter-open"
+    >
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+        <label className="flex min-w-0 flex-col gap-1.5 text-xs font-medium text-muted">
+          From
+          <Input
+            type="date"
+            className="h-10 w-full min-w-0 portal-modal-date-input"
+            value={draftRange.from}
+            onChange={(e) => setDraftRange({ ...draftRange, from: e.target.value })}
+            data-attr="resident-documents-receipt-from"
+          />
+        </label>
+        <label className="flex min-w-0 flex-col gap-1.5 text-xs font-medium text-muted">
+          To
+          <Input
+            type="date"
+            className="h-10 w-full min-w-0 portal-modal-date-input"
+            value={draftRange.to}
+            onChange={(e) => setDraftRange({ ...draftRange, to: e.target.value })}
+            data-attr="resident-documents-receipt-to"
+          />
+        </label>
+      </div>
+    </PortalFilterSortSheet>
+  );
 }
 
 /** Documents › Application — the resident's applications as selectable rows. */
@@ -622,13 +685,18 @@ function ResidentReceiptDocumentDetail({ receiptId, basePath }: { receiptId: str
 }
 
 /** Documents › Rent receipts — one row per recorded payment; tap opens a detail page with download. */
-function RentReceiptsTab({ basePath }: { basePath: string }) {
+function RentReceiptsTab({
+  basePath,
+  range,
+}: {
+  basePath: string;
+  range: ReceiptDateRange;
+}) {
   const session = usePortalSession();
   const navigate = usePortalNavigate();
   const [ledgerReport, setLedgerReport] = useState<ReportResult | null>(null);
   const [loading, setLoading] = useState(true);
   const [generated, setGenerated] = useState(false);
-  const [range, setRange] = useState(() => residentLedgerReceiptRange());
   const demoMode = isDemoModeActive();
   const sessionEmail = session.email?.trim().toLowerCase() ?? "";
   const sessionUserId = session.userId ?? null;
@@ -738,24 +806,6 @@ function RentReceiptsTab({ basePath }: { basePath: string }) {
   return (
     <>
       <div className="space-y-4">
-        <div className="flex flex-wrap gap-3">
-          <label className="flex flex-col gap-1 text-xs font-medium text-muted">
-            From
-            <input
-              type="date"
-              value={range.from}
-              onChange={(e) => setRange((r) => ({ ...r, from: e.target.value }))}
-            />
-          </label>
-          <label className="flex flex-col gap-1 text-xs font-medium text-muted">
-            To
-            <input
-              type="date"
-              value={range.to}
-              onChange={(e) => setRange((r) => ({ ...r, to: e.target.value }))}
-            />
-          </label>
-        </div>
         {loading && !generated ? (
           <ReportGeneratePrompt loading loadingTitle="Loading rent receipts…" />
         ) : receipts.length === 0 ? (
@@ -818,6 +868,8 @@ export function ResidentDocumentsPanel({
   const [addOpen, setAddOpen] = useState(false);
   const [uploads, setUploads] = useState<UploadedOwnLease[]>([]);
   const [uploadsLoading, setUploadsLoading] = useState(true);
+  const [infoDismissed, setInfoDismissed] = useState(false);
+  const [receiptRange, setReceiptRange] = useState<ReceiptDateRange>(() => residentLedgerReceiptRange());
 
   const refreshUploads = useCallback(async () => {
     if (!email) {
@@ -903,14 +955,19 @@ export function ResidentDocumentsPanel({
               <span className="sm:hidden" aria-hidden="true">Upload</span>
               <span className="hidden sm:inline">Upload document</span>
             </Button>
+          ) : tabId === "receipts" ? (
+            <RentReceiptDateRangeFilter range={receiptRange} onRangeChange={setReceiptRange} />
           ) : null
         }
       />
+      {!infoDismissed ? (
+        <ResidentDocumentsInfoCallout onDismiss={() => setInfoDismissed(true)} />
+      ) : null}
       {tabId === "application" ? <ApplicationDocumentsTable basePath={basePath} /> : null}
 
       {tabId === "lease" ? <SignedLeaseDocumentsTable basePath={basePath} /> : null}
 
-      {tabId === "receipts" ? <RentReceiptsTab basePath={basePath} /> : null}
+      {tabId === "receipts" ? <RentReceiptsTab basePath={basePath} range={receiptRange} /> : null}
 
       {tabId === "other" ? (
         <>
@@ -918,6 +975,7 @@ export function ResidentDocumentsPanel({
             uploads={uploads}
             loading={uploadsLoading}
             onRemove={onRemoveUpload}
+            onAdd={openAdd}
             demo={isDemoModeActive()}
           />
           <ResidentAddDocumentModal

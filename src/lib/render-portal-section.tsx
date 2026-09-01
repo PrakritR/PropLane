@@ -1231,9 +1231,7 @@ export async function renderPortalSection(
 
   if (kind === "resident" && section === "move-in") {
     const moveInEmail = residentCtx?.profile?.email ?? residentCtx?.user?.email ?? null;
-    if (tabParts?.length) {
-      redirect(`${def.basePath}/move-in`);
-    }
+    const allowedTabs = meta.tabs.map((t) => t.id);
     const leaseSigned = moveInEmail ? await loadResidentLeaseSignedStatus(moveInEmail) : false;
     if (!leaseSigned) {
       return (
@@ -1247,8 +1245,19 @@ export async function renderPortalSection(
         </ManagerPortalPageShell>
       );
     }
+    if (!tabParts?.length) {
+      redirect(`${def.basePath}/move-in/${allowedTabs[0] ?? "placement"}`);
+    }
+    if (tabParts.length > 1) notFound();
+    const moveInTab = tabParts[0]!;
+    if (!allowedTabs.includes(moveInTab)) notFound();
     return (
-      <ResidentMoveInPanel residentEmail={moveInEmail} basePath={def.basePath} />
+      <ResidentMoveInPanel
+        residentEmail={moveInEmail}
+        basePath={def.basePath}
+        tabId={moveInTab}
+        tabs={meta.tabs}
+      />
     );
   }
 
