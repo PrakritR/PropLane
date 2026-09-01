@@ -4,11 +4,7 @@ import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "rea
 import { Button } from "@/components/ui/button";
 import { useShallowTabId } from "@/components/ui/tabs";
 import { useAppUi } from "@/components/providers/app-ui-provider";
-import { PortalActiveFilterChips, type PortalActiveFilterChip } from "@/components/portal/portal-filter-chips";
-import { PortalFilterSortSheet, portalFilterActiveCount } from "@/components/portal/portal-filter-sort-sheet";
-import { PORTAL_MULTI_FIELD_FILTER_SHEET_CLASS } from "@/components/portal/portal-filter-shell";
 import { DocumentsDestinationNav } from "@/components/portal/documents-destination-nav";
-import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
 import {
   ManagerPortalPageShell,
   MANAGER_TABLE_TH,
@@ -55,20 +51,18 @@ import {
   ManagerLeaseDocumentsTab,
 } from "@/components/portal/manager-documents-leasing-tabs";
 import {
-  DocumentLibraryFilterFields,
   ManagerDocumentLibrary,
   type ManagerDocumentLibraryHandle,
 } from "@/components/portal/manager-document-library";
 import { ManagerDocumentTemplatesPanel } from "@/components/portal/manager-document-templates-panel";
-import { DOCUMENT_CATEGORIES, DOCUMENT_CATEGORY_LABELS } from "@/lib/documents/manager-documents";
 
 export const DOCUMENT_TABS = [
-  { id: "library", label: "Library" },
-  { id: "templates", label: "Templates" },
   { id: "applications", label: "Applications" },
   { id: "leases", label: "Leases" },
-  { id: "income-documents", label: "Income documents" },
+  { id: "income-documents", label: "Rent documents" },
   { id: "expense-documents", label: "Expense documents" },
+  { id: "library", label: "All files" },
+  { id: "templates", label: "Templates" },
   { id: "occupancy", label: "Occupancy" },
   { id: "1099", label: "1099 forms" },
   { id: "tax-summary", label: "Tax summary" },
@@ -133,17 +127,6 @@ export function ManagerDocumentsPanel({
   const [expanded1099Id, setExpanded1099Id] = useState<string | null>(null);
   const [generateModalOpen, setGenerateModalOpen] = useState(false);
   const libraryRef = useRef<ManagerDocumentLibraryHandle>(null);
-  const [librarySearch, setLibrarySearch] = useState("");
-  const [libraryCategoryFilter, setLibraryCategoryFilter] = useState("");
-  const [libraryScopeFilter, setLibraryScopeFilter] = useState("");
-  const [libraryPropertyFilter, setLibraryPropertyFilter] = useState("");
-  const [libraryExpiryFilter, setLibraryExpiryFilter] = useState("");
-  const [libraryExpiryPills, setLibraryExpiryPills] = useState([
-    { id: "", label: "All", count: 0 },
-    { id: "expired", label: "Expired", count: 0 },
-    { id: "expiring30", label: "Expiring ≤30d", count: 0 },
-    { id: "expiring90", label: "Expiring ≤90d", count: 0 },
-  ]);
 
   const propertyOptions = useMemo(() => {
     void propertyTick;
@@ -281,72 +264,9 @@ export function ManagerDocumentsPanel({
   const showTaxYear = tabId === "1099";
   const showScope = tabId === "income-documents" || tabId === "expense-documents";
   const isLeasingDocumentsTab = tabId === "applications" || tabId === "leases";
-  // The Library tab manages its own upload toolbar; it has no "Generate report".
   const isLibraryTab = tabId === "library";
   const isTemplatesTab = tabId === "templates";
   const activeTabLabel = DOCUMENT_TABS.find((tab) => tab.id === tabId)?.label ?? "Documents";
-
-  const libraryCategoryOptions = useMemo(
-    () => DOCUMENT_CATEGORIES.map((c) => ({ id: c, label: DOCUMENT_CATEGORY_LABELS[c] })),
-    [],
-  );
-
-  const libraryScopeOptions = useMemo(
-    () => [
-      { id: "", label: "All scopes" },
-      { id: "manager", label: "Manager-level" },
-      { id: "property", label: "Property" },
-      { id: "lease", label: "Lease" },
-      { id: "resident", label: "Resident" },
-      { id: "vendor", label: "Vendor" },
-      { id: "work_order", label: "Work order" },
-    ],
-    [],
-  );
-
-  const libraryPropertyOptions = useMemo(
-    () => propertyOptions.map((p) => ({ id: p.id, label: p.label })),
-    [propertyOptions],
-  );
-
-  const resetLibraryFilters = useCallback(() => {
-    setLibraryCategoryFilter("");
-    setLibraryScopeFilter("");
-    setLibraryPropertyFilter("");
-    setLibraryExpiryFilter("");
-  }, []);
-
-  const libraryFilterActiveChips = useMemo((): PortalActiveFilterChip[] => {
-    if (!isLibraryTab) return [];
-    const chips: PortalActiveFilterChip[] = [];
-    if (libraryCategoryFilter) {
-      const categoryLabel = libraryCategoryOptions.find((category) => category.id === libraryCategoryFilter)?.label ?? libraryCategoryFilter;
-      chips.push({ id: "category", label: `Category: ${categoryLabel}`, onRemove: () => setLibraryCategoryFilter("") });
-    }
-    if (libraryScopeFilter) {
-      const scopeLabel = libraryScopeOptions.find((s) => s.id === libraryScopeFilter)?.label ?? libraryScopeFilter;
-      chips.push({ id: "scope", label: `Scope: ${scopeLabel}`, onRemove: () => setLibraryScopeFilter("") });
-    }
-    if (libraryPropertyFilter) {
-      const propLabel = libraryPropertyOptions.find((p) => p.id === libraryPropertyFilter)?.label ?? libraryPropertyFilter;
-      chips.push({ id: "property", label: `Property: ${propLabel}`, onRemove: () => setLibraryPropertyFilter("") });
-    }
-    if (libraryExpiryFilter) {
-      const expiryLabel = libraryExpiryPills.find((pill) => pill.id === libraryExpiryFilter)?.label ?? libraryExpiryFilter;
-      chips.push({ id: "expiry", label: `Expiry: ${expiryLabel}`, onRemove: () => setLibraryExpiryFilter("") });
-    }
-    return chips;
-  }, [
-    isLibraryTab,
-    libraryCategoryFilter,
-    libraryScopeFilter,
-    libraryPropertyFilter,
-    libraryExpiryFilter,
-    libraryScopeOptions,
-    libraryPropertyOptions,
-    libraryCategoryOptions,
-    libraryExpiryPills,
-  ]);
 
   const handleGenerateReport = useCallback(() => {
     setGenerateModalOpen(false);
@@ -389,76 +309,24 @@ export function ManagerDocumentsPanel({
       (tabId === "expense-documents" && generated) ||
       Boolean(incomeReceiptExportHref && generated));
 
-  const documentsFilterSheet = isLibraryTab ? (
-    <PortalFilterSortSheet
-      activeCount={portalFilterActiveCount([
-        libraryCategoryFilter,
-        libraryScopeFilter,
-        libraryPropertyFilter,
-        libraryExpiryFilter,
-      ])}
-      compactPanel
-      filterFieldCount={3}
-      constrainDropdownToTitleBand
-      mobileFlushBody
-      className={PORTAL_MULTI_FIELD_FILTER_SHEET_CLASS}
-      onReset={resetLibraryFilters}
-      dataAttr="documents-filter-sheet-open"
-    >
-      <DocumentLibraryFilterFields
-        categoryFilter={libraryCategoryFilter}
-        onCategoryFilterChange={setLibraryCategoryFilter}
-        scopeFilter={libraryScopeFilter}
-        onScopeFilterChange={setLibraryScopeFilter}
-        propertyFilter={libraryPropertyFilter}
-        onPropertyFilterChange={setLibraryPropertyFilter}
-        expiryFilter={libraryExpiryFilter}
-        onExpiryFilterChange={setLibraryExpiryFilter}
-        expiryPills={libraryExpiryPills}
-        categoryFilterOptions={libraryCategoryOptions}
-        scopeFilterOptions={libraryScopeOptions}
-        propertyFilterOptions={libraryPropertyOptions}
-        propertyOptions={libraryPropertyOptions}
-      />
-    </PortalFilterSortSheet>
-  ) : null;
-
-  const documentsUploadButton = isLibraryTab ? (
-    <Button
-      type="button"
-      className={PORTAL_COMMAND_PRIMARY_ACTION_BTN}
-      style={PORTAL_COMMAND_PRIMARY_ACTION_STYLE}
-      onClick={() => libraryRef.current?.openUpload()}
-      disabled={isDemoModeActive()}
-      data-attr="document-upload-open"
-    >
-      Add
-    </Button>
-  ) : null;
-
-  const documentsGenerateButton =
+  const documentsReportActions =
     !isLeasingDocumentsTab && !isLibraryTab && !isTemplatesTab ? (
-      <Button
-        type="button"
-        className={PORTAL_COMMAND_PRIMARY_ACTION_BTN}
-        style={PORTAL_COMMAND_PRIMARY_ACTION_STYLE}
-        onClick={() => setGenerateModalOpen(true)}
-        disabled={loading}
-        data-attr="documents-generate-report"
-      >
-        {loading ? "Generating…" : "Generate report"}
-      </Button>
+      <div className="flex flex-wrap items-center justify-end gap-2">
+        {hasExportActions ? exportActions : null}
+        <Button
+          type="button"
+          className={PORTAL_COMMAND_PRIMARY_ACTION_BTN}
+          style={PORTAL_COMMAND_PRIMARY_ACTION_STYLE}
+          onClick={() => setGenerateModalOpen(true)}
+          disabled={loading}
+          data-attr="documents-generate-report"
+        >
+          {loading ? "Generating…" : "Generate report"}
+        </Button>
+      </div>
     ) : null;
 
-  const documentsCommandActions = (
-    <>
-      {documentsFilterSheet}
-      {hasExportActions ? exportActions : null}
-      {documentsUploadButton ?? documentsGenerateButton}
-    </>
-  );
-
-  const documentsDestinationRow = (
+  const documentsDestinationNav = (
     <DocumentsDestinationNav tabId={tabId} tabItems={documentTabItems} />
   );
 
@@ -480,47 +348,13 @@ export function ManagerDocumentsPanel({
       hideTitleOnMobileNav
       compactFilterRow
     >
-      <PortalListControlStack
-        className="mb-2 max-lg:mb-1.5"
-        variant="command"
-        destinationRow={documentsDestinationRow}
-        stickyDestinations={false}
-        actions={documentsCommandActions}
-        search={
-          isLibraryTab
-            ? {
-                value: librarySearch,
-                onChange: setLibrarySearch,
-                placeholder: "Search documents",
-                dataAttr: "document-search",
-              }
-            : undefined
-        }
-        activeFilterChips={
-          libraryFilterActiveChips.length > 0 ? (
-            <PortalActiveFilterChips chips={libraryFilterActiveChips} />
-          ) : null
-        }
-      />
-      <div className="space-y-4">
-        {tabId === "library" ? (
-          <ManagerDocumentLibrary
-            ref={libraryRef}
-            userId={userId ?? null}
-            hideFilterChrome
-            search={librarySearch}
-            onSearchChange={setLibrarySearch}
-            categoryFilter={libraryCategoryFilter}
-            onCategoryFilterChange={setLibraryCategoryFilter}
-            scopeFilter={libraryScopeFilter}
-            onScopeFilterChange={setLibraryScopeFilter}
-            propertyFilter={libraryPropertyFilter}
-            onPropertyFilterChange={setLibraryPropertyFilter}
-            expiryFilter={libraryExpiryFilter}
-            onExpiryFilterChange={setLibraryExpiryFilter}
-            onExpiryPillsChange={setLibraryExpiryPills}
-          />
-        ) : tabId === "templates" ? (
+      <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:gap-6">
+        {documentsDestinationNav}
+        <div className="min-w-0 flex-1 space-y-4">
+          {documentsReportActions}
+          {tabId === "library" ? (
+            <ManagerDocumentLibrary ref={libraryRef} userId={userId ?? null} hideFilterChrome />
+          ) : tabId === "templates" ? (
           <ManagerDocumentTemplatesPanel />
         ) : tabId === "applications" ? (
           <ManagerApplicationDocumentsTab userId={userId ?? null} basePath={basePath} />
@@ -685,6 +519,7 @@ export function ManagerDocumentsPanel({
         ) : (
           <ReportTable report={report} loading={loading} generated={generated} />
         )}
+        </div>
       </div>
 
       <VendorTaxProfileModal

@@ -16,8 +16,10 @@ describe("Finance and Documents command layout", () => {
     expect(documents).not.toContain("leasingDocumentsFilterSheet");
     expect(documents).not.toContain("leasingPropertyFilter");
     expect(documents).toContain("titleInlineFilter={null}");
-    expect(documents).toContain("documentsCommandActions");
-    expect(documents).toContain('variant="command"');
+    expect(documents).toContain("DocumentsDestinationNav");
+    expect(documents).not.toContain("PortalListControlStack");
+    expect(documents).not.toContain("document-search");
+    expect(documents).not.toContain('data-attr="document-upload-open"');
     expect(leasingTabs).not.toContain("<PortalFilterSortSheet");
     expect(leasingTabs).toContain("hideColumnHeaders");
     expect(leasingTabs).toContain("<DataList");
@@ -45,11 +47,9 @@ describe("Finance and Documents command layout", () => {
     expect(distributions).not.toContain("<PortalSectionActionRow");
   });
 
-  it("constrains Finance and Documents filter sheets away from adjacent portal rails", () => {
-    const documents = portalSource("manager-documents-panel.tsx");
+  it("constrains Finance filter sheets away from adjacent portal rails", () => {
     const finances = portalSource("manager-finances-panel.tsx");
 
-    expect(documents).toContain("constrainDropdownToTitleBand");
     expect(finances).toContain("constrainDropdownToTitleBand");
   });
 

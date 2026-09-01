@@ -1,45 +1,30 @@
 "use client";
 
-import { DestinationNav } from "@/components/ui/destination-nav";
+import Link from "next/link";
+import { HORIZONTAL_SCROLL_ATTR, PORTAL_HORIZONTAL_SCROLL_ROW_CLASS } from "@/lib/horizontal-scroll";
+import { cn } from "@/lib/utils";
 
-/** Keeps nine document views out of one overflowing tab row. */
-export const DOCUMENT_NAV_GROUPS = [
-  {
-    id: "files",
-    label: "Files",
-    tabIds: ["library", "templates"],
-  },
-  {
-    id: "leasing",
-    label: "Leasing",
-    tabIds: ["applications", "leases"],
-  },
-  {
-    id: "reports",
-    label: "Reports",
-    tabIds: ["income-documents", "expense-documents", "occupancy", "1099", "tax-summary"],
-  },
+export const DOCUMENT_NAV_TAB_IDS = [
+  "applications",
+  "leases",
+  "income-documents",
+  "expense-documents",
+  "library",
+  "templates",
+  "occupancy",
+  "1099",
+  "tax-summary",
 ] as const;
-
-export function documentGroupIdForTab(tabId: string): string {
-  for (const group of DOCUMENT_NAV_GROUPS) {
-    if ((group.tabIds as readonly string[]).includes(tabId)) return group.id;
-  }
-  return DOCUMENT_NAV_GROUPS[0].id;
-}
 
 type DocumentTabItem = { id: string; label: string; href: string };
 
-const DOCUMENT_GROUP_NAV_CLASS =
-  "gap-2 border-b border-border px-0 [&_a]:min-h-9 [&_a]:px-3 max-lg:scroll-px-0";
-
-const DOCUMENT_VIEW_NAV_CLASS =
-  "gap-2 border-b border-border px-0 [&_a]:min-h-9 [&_a]:px-3 max-lg:scroll-px-0";
+const DOCUMENT_NAV_LINK_CLASS =
+  "block rounded-lg px-3 py-2 text-[13px] font-medium tracking-[-0.01em] transition-colors duration-150";
 
 /**
- * Two-tier document navigation: category labels establish context; the compact
- * contextual row switches views. Equal-width button grids made both levels
- * look like primary actions and overwhelmed the document list.
+ * One flat list of document views — no Files/Leasing/Reports grouping. On
+ * desktop the list sits in a left rail; on phones it scrolls horizontally above
+ * the active panel.
  */
 export function DocumentsDestinationNav({
   tabId,
@@ -48,38 +33,65 @@ export function DocumentsDestinationNav({
   tabId: string;
   tabItems: DocumentTabItem[];
 }) {
-  const activeGroupId = documentGroupIdForTab(tabId);
-  const activeGroup = DOCUMENT_NAV_GROUPS.find((group) => group.id === activeGroupId) ?? DOCUMENT_NAV_GROUPS[0];
-  const subItems = tabItems.filter((item) => (activeGroup.tabIds as readonly string[]).includes(item.id));
-
-  const groupItems = DOCUMENT_NAV_GROUPS.map((group) => {
-    const targetTab = (group.tabIds as readonly string[]).includes(tabId) ? tabId : group.tabIds[0];
-    const href = tabItems.find((item) => item.id === targetTab)?.href ?? tabItems[0]?.href ?? "";
-    return {
-      id: group.id,
-      label: group.label,
-      href,
-    };
-  });
+  const orderedItems = DOCUMENT_NAV_TAB_IDS.map((id) => tabItems.find((item) => item.id === id)).filter(
+    (item): item is DocumentTabItem => Boolean(item),
+  );
+  const items = orderedItems.length > 0 ? orderedItems : tabItems;
 
   return (
-    <div className="flex w-full min-w-0 flex-col gap-2">
-      <DestinationNav
-        items={groupItems}
-        activeId={activeGroupId}
-        ariaLabel="Document section"
-        appearance="command"
-        className={DOCUMENT_GROUP_NAV_CLASS}
-      />
-      {subItems.length > 0 ? (
-        <DestinationNav
-          items={subItems}
-          activeId={tabId}
-          ariaLabel="Document view"
-          appearance="command"
-          className={DOCUMENT_VIEW_NAV_CLASS}
-        />
-      ) : null}
-    </div>
+    <>
+      <nav
+        className={cn(
+          "hidden min-w-[11.5rem] shrink-0 flex-col gap-0.5 lg:flex",
+        )}
+        aria-label="Document types"
+      >
+        {items.map((item) => {
+          const active = item.id === tabId;
+          return (
+            <Link
+              key={item.id}
+              href={item.href}
+              className={cn(
+                DOCUMENT_NAV_LINK_CLASS,
+                active
+                  ? "bg-[var(--secondary)] text-foreground"
+                  : "text-muted hover:bg-[var(--secondary)]/60 hover:text-foreground",
+              )}
+              aria-current={active ? "page" : undefined}
+            >
+              {item.label}
+            </Link>
+          );
+        })}
+      </nav>
+      <nav
+        className={cn(
+          PORTAL_HORIZONTAL_SCROLL_ROW_CLASS,
+          "flex gap-1 border-b border-border pb-2 lg:hidden",
+        )}
+        aria-label="Document types"
+        {...{ [HORIZONTAL_SCROLL_ATTR]: "" }}
+      >
+        {items.map((item) => {
+          const active = item.id === tabId;
+          return (
+            <Link
+              key={item.id}
+              href={item.href}
+              className={cn(
+                "shrink-0 whitespace-nowrap border-b-2 px-3 py-1.5 text-[13px] font-medium transition-colors",
+                active
+                  ? "border-primary text-foreground"
+                  : "border-transparent text-muted hover:text-foreground",
+              )}
+              aria-current={active ? "page" : undefined}
+            >
+              {item.label}
+            </Link>
+          );
+        })}
+      </nav>
+    </>
   );
 }

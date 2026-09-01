@@ -2,27 +2,26 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { DOCUMENT_NAV_GROUPS, documentGroupIdForTab } from "@/components/portal/documents-destination-nav";
+import { DOCUMENT_NAV_TAB_IDS } from "@/components/portal/documents-destination-nav";
+import { DOCUMENT_TABS } from "@/components/portal/manager-documents-panel";
 
 describe("documents destination nav", () => {
-  it("maps every document tab to a group", () => {
-    const allTabIds = DOCUMENT_NAV_GROUPS.flatMap((group) => group.tabIds);
-    expect(allTabIds).toContain("library");
-    expect(allTabIds).toContain("tax-summary");
-    expect(documentGroupIdForTab("library")).toBe("files");
-    expect(documentGroupIdForTab("leases")).toBe("leasing");
-    expect(documentGroupIdForTab("1099")).toBe("reports");
+  it("lists every document view in one flat rail", () => {
+    expect(DOCUMENT_NAV_TAB_IDS).toEqual(DOCUMENT_TABS.map((tab) => tab.id));
+    expect(DOCUMENT_NAV_TAB_IDS).toContain("applications");
+    expect(DOCUMENT_NAV_TAB_IDS).toContain("leases");
+    expect(DOCUMENT_NAV_TAB_IDS).toContain("income-documents");
+    expect(DOCUMENT_NAV_TAB_IDS).toContain("expense-documents");
   });
 
-  it("uses a quiet category row and compact contextual view controls", () => {
+  it("uses a left rail on desktop and a single mobile row (no grouped tiers)", () => {
     const source = readFileSync(
       join(process.cwd(), "src/components/portal/documents-destination-nav.tsx"),
       "utf8",
     );
-    expect(source).toContain('appearance="command"');
-    expect(source).toContain("DOCUMENT_GROUP_NAV_CLASS");
-    expect(source).toContain("DOCUMENT_VIEW_NAV_CLASS");
-    expect(source).not.toContain('itemLayout="equal"');
-    expect(source).not.toContain("LocalDestinationNav");
+    expect(source).toContain("hidden min-w-[11.5rem] shrink-0 flex-col gap-0.5 lg:flex");
+    expect(source).toContain("lg:hidden");
+    expect(source).not.toContain("DOCUMENT_NAV_GROUPS");
+    expect(source).not.toContain('appearance="command"');
   });
 });
