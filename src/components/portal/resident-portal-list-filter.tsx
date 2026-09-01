@@ -48,6 +48,7 @@ export function useResidentPortalListFilterState({
         propertyFilters,
       ])}
       dataAttr="resident-portal-filter-open"
+      commandStripTrigger
     >
       {filterFields}
     </PortalFilterSortSheet>
