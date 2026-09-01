@@ -23,6 +23,11 @@ import type { PortalListGroupMode } from "@/lib/portal-list-grouping";
 import type { ManagerTaskListTabId } from "@/lib/portal-detail-routes";
 import { usePortalFilterDraft } from "@/lib/portal-filter-draft";
 
+const MANAGER_TASK_GROUP_MODE_LABELS: Record<PortalListGroupMode, string> = {
+  resident: "Sort by assignee",
+  house: "Sort by house",
+};
+
 function taskListFilterOptions(tabId: ManagerTaskListTabId) {
   return MANAGER_TASK_LIST_FILTERS.filter(
     (id) => (tabId === "in-progress" || id !== "service_orders"),
@@ -107,6 +112,8 @@ export function ManagerTaskFilterFields({
         groupMode={groupMode}
         onGroupModeChange={onGroupModeChange}
         dataAttr="tasks-filter-group-mode"
+        modeLabels={MANAGER_TASK_GROUP_MODE_LABELS}
+        defaultMode="resident"
       />
       <FilterCollapsibleSection
         sectionId="sort"
