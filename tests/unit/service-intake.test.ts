@@ -9,7 +9,6 @@ import {
   serviceIntakeIsCustomAddOn,
   serviceIntakeSuggestedTitle,
   vendorTradeForMaintenanceCategory,
-  RESIDENT_SERVICE_REPAIR_CATEGORIES,
 } from "@/lib/service-intake";
 import {
   saveManagerVendorCategorySettings,
@@ -61,27 +60,24 @@ describe("maintenance service intake (legacy manager path)", () => {
 });
 
 describe("buildServiceIntakeOptions", () => {
-  it("includes property catalog, repair categories, and custom add-on", () => {
+  it("includes property catalog, maintenance, and custom add-on", () => {
     const options = buildServiceIntakeOptions([catalogOffer]);
     expect(options.some((option) => option.key === "addon:offer-parking")).toBe(true);
-    expect(options.some((option) => option.key === "repair:Plumbing")).toBe(true);
+    expect(options.some((option) => option.key === `repair:${MAINTENANCE_SERVICE_OFFER_ID}`)).toBe(true);
+    expect(options.some((option) => option.label === "Maintenance")).toBe(true);
     expect(options.some((option) => option.key === "addon:custom")).toBe(true);
-    expect(
-      RESIDENT_SERVICE_REPAIR_CATEGORIES.every((category) =>
-        options.some((option) => option.categoryLabel === category),
-      ),
-    ).toBe(true);
+    expect(options.some((option) => option.key === "repair:Plumbing")).toBe(false);
   });
 });
 
 describe("service intake helpers", () => {
   const options = buildServiceIntakeOptions([catalogOffer]);
 
-  it("routes repair categories to work-order taxonomy", () => {
-    const electrical = findServiceIntakeOption(options, "repair:Electrical");
-    expect(electrical?.kind).toBe("repair");
-    expect(serviceIntakeCategoryForOption(electrical, "General")).toBe("electrical");
-    expect(serviceIntakeSuggestedTitle(electrical, "Electrical")).toContain("electrical");
+  it("routes maintenance category to work-order taxonomy", () => {
+    const maintenance = findServiceIntakeOption(options, `repair:${MAINTENANCE_SERVICE_OFFER_ID}`);
+    expect(maintenance?.kind).toBe("repair");
+    expect(serviceIntakeCategoryForOption(maintenance, "Electrical")).toBe("electrical");
+    expect(serviceIntakeSuggestedTitle(maintenance, "Electrical")).toContain("electrical");
   });
 
   it("detects custom add-on option", () => {

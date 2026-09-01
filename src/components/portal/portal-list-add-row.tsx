@@ -18,10 +18,10 @@ import { cn } from "@/lib/utils";
 
 /** Outer padding around dashed add rows in list panes — scales with viewport. */
 export const PORTAL_LIST_ADD_ROW_WRAP_CLASS =
-  "portal-list-add-row-wrap px-3 py-4 max-md:px-2.5 sm:py-5 max-lg:[&:has(.portal-list-add-row--inline)]:px-2.5 max-lg:[&:has(.portal-list-add-row--inline)]:py-2";
+  "portal-list-add-row-wrap px-3 py-4 max-md:px-2.5 sm:py-6 max-lg:[&:has(.portal-list-add-row--inline)]:px-2.5 max-lg:[&:has(.portal-list-add-row--inline)]:py-2";
 
 export const PORTAL_LIST_ADD_ROW_CLASS =
-  "portal-list-add-row flex w-full min-h-[9.25rem] flex-col items-center justify-center gap-3 rounded-2xl border-2 border-dashed border-border bg-accent/10 px-4 py-10 text-center transition-colors sm:min-h-[10rem] sm:gap-3.5 sm:py-12 max-lg:min-h-[9.75rem] max-lg:py-11 hover:border-primary/40 hover:bg-primary/[0.05] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50";
+  "portal-list-add-row flex w-full min-h-[12rem] flex-col items-center justify-center gap-3.5 rounded-2xl border-2 border-dashed border-border bg-accent/10 px-5 py-12 text-center transition-colors sm:min-h-[13rem] sm:gap-4 sm:py-14 max-lg:min-h-[12.5rem] max-lg:py-12 hover:border-primary/40 hover:bg-primary/[0.05] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50";
 
 /** Compact dashed row when a list already has items (mobile list footers). */
 export const PORTAL_LIST_ADD_ROW_INLINE_CLASS =
@@ -80,7 +80,7 @@ export function PortalListAddRow({
       {bare ? null : (
         <>
           <Icon
-            className={cn("text-primary", inline ? "h-5 w-5" : "h-8 w-8")}
+            className={cn("text-primary", inline ? "h-5 w-5" : "h-9 w-9 sm:h-10 sm:w-10")}
             strokeWidth={1.35}
             aria-hidden
           />
@@ -88,7 +88,7 @@ export function PortalListAddRow({
             <span
               className={cn(
                 "font-bold uppercase tracking-[0.16em] text-primary",
-                inline ? "text-[10px] tracking-[0.12em]" : "text-[11px]",
+                inline ? "text-[10px] tracking-[0.12em]" : "text-xs sm:text-sm",
               )}
             >
               {displayLabel}

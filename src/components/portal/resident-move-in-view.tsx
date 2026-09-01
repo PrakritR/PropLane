@@ -9,6 +9,7 @@ import { PORTAL_INLINE_UNLOCK_NOTICE_CLASS } from "@/components/portal/portal-me
 import type { ResidentMoveInResolved } from "@/lib/resident-move-in-resolve";
 import {
   RESIDENT_MOVE_IN_TAB_LABELS,
+  RESIDENT_MOVE_IN_TAB_SHORT_LABELS,
   RESIDENT_MOVE_IN_TABS,
   residentMoveInHref,
   parseResidentMoveInTab,
@@ -197,6 +198,7 @@ export function ResidentMoveInShell({
       RESIDENT_MOVE_IN_TABS.map((id) => ({
         id,
         label: RESIDENT_MOVE_IN_TAB_LABELS[id],
+        shortLabel: RESIDENT_MOVE_IN_TAB_SHORT_LABELS[id],
         href: residentMoveInHref(basePath, id),
         dataAttr: `resident-move-in-tab-${id}`,
       })),
@@ -238,6 +240,8 @@ export function ResidentMoveInShell({
             destinations={destinations}
             activeDestinationId={tabId}
             destinationAriaLabel="House details"
+            destinationItemLayout="equal"
+            destinationDenseEqualRow
           />
           <ResidentMoveInTabContent activeTab={tabId} resolved={resolved} />
         </>

@@ -12,6 +12,8 @@ import { StripeEmbeddedCheckout } from "@/components/stripe-embedded-checkout";
 import {
   ManagerPortalPageShell,
   PORTAL_COMMAND_ACTION_BTN,
+  PORTAL_COMMAND_PRIMARY_ACTION_BTN,
+  PORTAL_COMMAND_PRIMARY_ACTION_STYLE,
   PORTAL_INLINE_STATUS_NOTICE_CLASS,
   PORTAL_INLINE_UNLOCK_NOTICE_CLASS,
   PORTAL_INLINE_UNLOCK_NOTICE_STACKED_CLASS,
@@ -28,10 +30,9 @@ import { PortalListControlStack } from "@/components/portal/portal-list-control-
 import { ResidentPortalListBottomBar } from "@/components/portal/resident-portal-list-bottom-bar";
 import {
   ResidentPortalGroupedDataList,
+  RESIDENT_PORTAL_DEFAULT_GROUP_MODE,
   type ResidentPortalGroupableRow,
 } from "@/components/portal/resident-portal-grouped-data-list";
-import { useResidentPortalListFilterState } from "@/components/portal/resident-portal-list-filter";
-import type { PortalListGroupMode } from "@/lib/portal-list-grouping";
 import type { PortalAdaptiveAction } from "@/components/portal/portal-adaptive-action-row";
 import { PortalRecordDetailPage } from "@/components/portal/portal-record-detail-page";
 import { DropdownMenuItem } from "@/components/ui/dropdown-menu";
@@ -92,6 +93,7 @@ import { stageResidentComposePrefill } from "@/lib/resident-compose-prefill";
 import { residentChargeManagerMessageDraft } from "@/lib/resident-manager-message-draft";
 import { RESIDENT_PORTAL_BASE_PATH } from "@/lib/portals/resident-sections";
 import { PORTAL_BULK_BAR_BTN } from "@/lib/portal-bulk-bar";
+import { cn } from "@/lib/utils";
 import { usePortalRowSelection } from "@/hooks/use-portal-row-selection";
 
 
@@ -202,8 +204,6 @@ export function ResidentPaymentsPanel({
   }
   const [bucketTouched, setBucketTouched] = useState(false);
   const { selectedIds, setSelectedIds, toggleSelected } = usePortalRowSelection(bucket);
-  const [groupMode, setGroupMode] = useState<PortalListGroupMode>("house");
-  const [propertyFilters, setPropertyFilters] = useState<string[]>([]);
   const [paymentMethod, setPaymentMethod] = useState<ResidentPayMethod>("ach");
   const [payConfirm, setPayConfirm] = useState<PayConfirmState | null>(null);
   const [manualPayConfirm, setManualPayConfirm] = useState<PayConfirmState | null>(null);
@@ -543,32 +543,6 @@ export function ResidentPaymentsPanel({
     if (bucket === "pending") return upcomingPendingRows;
     return paidRows;
   }, [bucket, overdueRows, upcomingPendingRows, paidRows]);
-
-  const paymentPropertyOptions = useMemo(() => {
-    const byId = new Map<string, string>();
-    for (const row of rows) {
-      const propertyId = row.propertyId?.trim() || "";
-      if (!propertyId || byId.has(propertyId)) continue;
-      byId.set(propertyId, row.propertyLabel?.trim() || propertyId);
-    }
-    return [...byId.entries()].map(([id, label]) => ({ id, label }));
-  }, [rows]);
-
-  const { filterSheet: paymentsFilterSheet, activeFilterChips: paymentsActiveFilterChips } =
-    useResidentPortalListFilterState({
-      groupMode,
-      onGroupModeChange: setGroupMode,
-      propertyOptions: paymentPropertyOptions,
-      propertyFilters,
-      onPropertyFiltersChange: setPropertyFilters,
-      groupModeDataAttr: "resident-payments-filter-group-mode",
-      propertyDataAttr: "resident-payments-filter-property",
-    });
-
-  const filteredRowsForBucket = useMemo(() => {
-    if (propertyFilters.length === 0) return rowsForBucket;
-    return rowsForBucket.filter((row) => propertyFilters.includes(row.propertyId));
-  }, [propertyFilters, rowsForBucket]);
 
   const detailCharge = chargeIdProp ? charges.find((c) => c.id === chargeIdProp) : undefined;
 
@@ -1053,7 +1027,7 @@ export function ResidentPaymentsPanel({
     );
   };
 
-  const showSelectCol = filteredRowsForBucket.length > 0;
+  const showSelectCol = rowsForBucket.length > 0;
 
   const residentPayeeLabel = isDemoModeActive() ? CANONICAL_DEMO_MANAGER_NAME : "Property manager";
 
@@ -1251,7 +1225,8 @@ export function ResidentPaymentsPanel({
     <Button
       type="button"
       variant="primary"
-      className={PORTAL_BULK_BAR_BTN}
+      className={cn(PORTAL_COMMAND_PRIMARY_ACTION_BTN, "w-full justify-center")}
+      style={PORTAL_COMMAND_PRIMARY_ACTION_STYLE}
       data-attr={selectedPayableIds.length > 0 ? "resident-payments-pay-selected" : "resident-payments-pay-all"}
       onClick={payHeaderAction}
     >
@@ -1294,8 +1269,8 @@ export function ResidentPaymentsPanel({
     row.status === "paid" ? row.amountLabel || row.balanceLabel : row.balanceLabel;
 
   const paymentGroupedItems = useMemo((): ResidentPortalGroupableRow<HouseholdCharge>[] => {
-    const showPropertyInMeta = groupMode !== "house";
-    return filteredRowsForBucket.map((row) => ({
+    const showPropertyInMeta = RESIDENT_PORTAL_DEFAULT_GROUP_MODE !== "house";
+    return rowsForBucket.map((row) => ({
       id: row.id,
       propertyId: row.propertyId,
       propertyLabel: row.propertyLabel,
@@ -1324,8 +1299,7 @@ export function ResidentPaymentsPanel({
   }, [
     basePath,
     bucket,
-    filteredRowsForBucket,
-    groupMode,
+    rowsForBucket,
     portalNavigate,
     selectedIds,
     toggleSelectedCharge,
@@ -1335,7 +1309,7 @@ export function ResidentPaymentsPanel({
     <div className={PORTAL_LIST_PAGE_BODY}>
       <ResidentPortalGroupedDataList
         items={paymentGroupedItems}
-        groupMode={groupMode}
+        groupMode={RESIDENT_PORTAL_DEFAULT_GROUP_MODE}
         selectable={showSelectCol}
         selectedIds={selectedIds}
         onToggleSelected={toggleSelectedCharge}
@@ -1410,8 +1384,6 @@ export function ResidentPaymentsPanel({
                     : "No payments in this tab yet."
               }
             />
-          ) : filteredRowsForBucket.length === 0 ? (
-            <PortalDataTableEmpty icon="payment" message="No charges match these filters." />
           ) : chargeIdProp ? null : (
             renderChargeList()
           )}
@@ -1622,15 +1594,7 @@ export function ResidentPaymentsPanel({
     </>
   );
 
-  const paymentsCommandActions =
-    paymentsUnlocked ? (
-      <>
-        {paymentsFilterSheet}
-        {paymentMethodButton}
-      </>
-    ) : (
-      paymentMethodButton
-    );
+  const paymentsCommandActions = paymentMethodButton;
 
   if (chargeIdProp && detailCharge) {
     return (
@@ -1679,7 +1643,6 @@ export function ResidentPaymentsPanel({
           activeDestinationId={bucket}
           destinationAriaLabel="Payment status"
           actions={paymentsCommandActions ?? undefined}
-          activeFilterChips={paymentsUnlocked ? paymentsActiveFilterChips : undefined}
         />
         {paymentsBody}
       </ManagerPortalPageShell>

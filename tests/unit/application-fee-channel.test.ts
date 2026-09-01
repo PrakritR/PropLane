@@ -4,9 +4,11 @@ import {
   createDefaultListingSubmission,
   isListingFeeAmountFilled,
   LISTING_SERVICE_QUICK_ADDS,
+  mergeResidentServiceCatalogOffers,
   normalizeManagerListingSubmissionV1,
   resolveAllowedLeaseTerms,
 } from "@/lib/manager-listing-submission";
+import { buildServiceIntakeOptions } from "@/lib/service-intake";
 import {
   listingApplicationFeeChannels,
   resolveApplicationFeePayChannel,
@@ -36,6 +38,18 @@ describe("manager-listing-submission new fields", () => {
     expect(names).toContain("Weekly cleaning");
     expect(names).toContain("Linen refresh");
     expect(names).toContain("Storage locker");
+  });
+
+  it("mergeResidentServiceCatalogOffers adds house presets when the catalog is empty", () => {
+    const merged = mergeResidentServiceCatalogOffers([]);
+    expect(merged.map((offer) => offer.name)).toEqual([
+      "Weekly cleaning",
+      "Linen refresh",
+      "Storage locker",
+    ]);
+    const intake = buildServiceIntakeOptions(merged);
+    expect(intake.some((option) => option.label.includes("Weekly cleaning"))).toBe(true);
+    expect(intake.some((option) => option.label === "Maintenance")).toBe(true);
   });
 });
 

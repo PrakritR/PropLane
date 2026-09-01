@@ -1085,22 +1085,19 @@ export function ResidentApplicationsPanel({
 
   const canOpenPropertyPicker = sessionReady;
 
-  const applyAddHint =
-    workspace.mode === "in_progress"
-      ? "Apply to property"
-      : workspace.mode === "submitted"
-        ? "Apply to another property"
-        : "Apply to a property";
-
-  const renderApplicationAddRow = (inline: boolean) =>
+  const renderApplicationAddRow = () =>
     sessionReady && canOpenPropertyPicker ? (
       <PortalListAddRow
-        label="Application"
-        ariaLabel={applyAddHint}
-        hint={applyAddHint}
+        label="Apply"
+        ariaLabel={
+          workspace.mode === "in_progress"
+            ? "Apply to property"
+            : workspace.mode === "submitted"
+              ? "Apply to another property"
+              : "Apply to a property"
+        }
         icon={PORTAL_LIST_ADD_ICONS.application}
         onClick={openPropertyPicker}
-        inline={inline}
         dataAttr="resident-applications-apply"
       />
     ) : null;
@@ -1160,6 +1157,7 @@ export function ResidentApplicationsPanel({
       actions.push({
         id: "withdraw",
         keepPriority: 5,
+        alwaysVisible: true,
         node: (
           <Button
             type="button"
@@ -1168,12 +1166,12 @@ export function ResidentApplicationsPanel({
             data-attr="resident-application-withdraw"
             onClick={() => setWithdrawTarget(row)}
           >
-            Withdraw
+            Withdraw application
           </Button>
         ),
         menuItem: (
           <DropdownMenuItem data-attr="resident-application-withdraw" onSelect={() => setWithdrawTarget(row)}>
-            Withdraw
+            Withdraw application
           </DropdownMenuItem>
         ),
       });
@@ -1221,12 +1219,12 @@ export function ResidentApplicationsPanel({
         ) : listRows.length === 0 ? (
           <>
             <PortalDataTableEmpty icon="application" message="No applications in this tab yet." />
-            <div className={PORTAL_LIST_ADD_ROW_WRAP_CLASS}>{renderApplicationAddRow(false)}</div>
+            <div className={PORTAL_LIST_ADD_ROW_WRAP_CLASS}>{renderApplicationAddRow()}</div>
           </>
         ) : (
           <div className={PORTAL_LIST_PAGE_BODY}>
             {renderRoutedList(listRows)}
-            {renderApplicationAddRow(true)}
+            <div className={PORTAL_LIST_ADD_ROW_WRAP_CLASS}>{renderApplicationAddRow()}</div>
           </div>
         )}
 
@@ -1245,6 +1243,7 @@ export function ResidentApplicationsPanel({
         <ResidentPortalListBottomBar
           selectionCount={selectedIds.size}
           selectionActions={applicationSelectionActions}
+          selectionBarVariant="payments"
         />
       </>
     );
@@ -1279,6 +1278,7 @@ export function ResidentApplicationsPanel({
             <>
               {renderStandaloneApplySurface()}
               {rowsForBucket.length > 0 ? renderRoutedList(rowsForBucket) : null}
+              <div className={PORTAL_LIST_ADD_ROW_WRAP_CLASS}>{renderApplicationAddRow()}</div>
             </>
           )}
           {withdrawModal}
@@ -1287,6 +1287,7 @@ export function ResidentApplicationsPanel({
         <ResidentPortalListBottomBar
           selectionCount={selectedIds.size}
           selectionActions={applicationSelectionActions}
+          selectionBarVariant="payments"
         />
       </>
     );

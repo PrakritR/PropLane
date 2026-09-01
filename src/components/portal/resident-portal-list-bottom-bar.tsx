@@ -45,7 +45,7 @@ export function ResidentPortalListBottomBar({
         )}
         rowVariant="header"
       >
-        <div className="flex w-full min-w-0 flex-nowrap items-center justify-start gap-2">{defaultActions}</div>
+        <div className="flex w-full min-w-0 [&_button]:!w-full [&_button]:justify-center">{defaultActions}</div>
       </PortalPageFooterActions>
     );
   }
