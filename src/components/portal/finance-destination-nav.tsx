@@ -44,7 +44,7 @@ const FINANCE_GROUP_NAV_CLASS =
   "gap-2 border-b border-border px-0 [&_a]:min-h-9 [&_a]:px-3 max-lg:scroll-px-0";
 
 const FINANCE_VIEW_NAV_CLASS =
-  "max-w-none rounded-xl border border-border bg-accent/30 p-1 [&_a]:!flex-none [&_a]:!basis-auto max-lg:rounded-xl max-lg:border max-lg:bg-accent/30";
+  "gap-2 border-b border-border px-0 [&_a]:min-h-9 [&_a]:px-3 max-lg:scroll-px-0";
 
 /**
  * Category navigation stays visually quiet; the contextual row carries the
@@ -88,7 +88,7 @@ export function FinanceDestinationNav({
           items={subItems}
           activeId={tabId}
           ariaLabel="Finance view"
-          size="toolbar"
+          appearance="command"
           className={FINANCE_VIEW_NAV_CLASS}
         />
       ) : null}

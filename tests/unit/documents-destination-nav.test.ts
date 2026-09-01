@@ -22,7 +22,6 @@ describe("documents destination nav", () => {
     expect(source).toContain('appearance="command"');
     expect(source).toContain("DOCUMENT_GROUP_NAV_CLASS");
     expect(source).toContain("DOCUMENT_VIEW_NAV_CLASS");
-    expect(source).toContain("[&_a]:!flex-none");
     expect(source).not.toContain('itemLayout="equal"');
     expect(source).not.toContain("LocalDestinationNav");
   });

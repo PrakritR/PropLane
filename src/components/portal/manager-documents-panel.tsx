@@ -9,11 +9,12 @@ import { PortalFilterSortSheet, portalFilterActiveCount } from "@/components/por
 import { PORTAL_MULTI_FIELD_FILTER_SHEET_CLASS } from "@/components/portal/portal-filter-shell";
 import { DocumentsDestinationNav } from "@/components/portal/documents-destination-nav";
 import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
-import { PortalSectionActionRow } from "@/components/portal/portal-section-action-row";
 import {
   ManagerPortalPageShell,
   MANAGER_TABLE_TH,
-  PORTAL_HEADER_ACTION_BTN,
+  PORTAL_COMMAND_ACTION_BTN,
+  PORTAL_COMMAND_PRIMARY_ACTION_BTN,
+  PORTAL_COMMAND_PRIMARY_ACTION_STYLE,
 } from "@/components/portal/portal-metrics";
 import { PORTAL_DATA_TABLE, PORTAL_DATA_TABLE_WRAP,
   PORTAL_DATA_TABLE_SCROLL,
@@ -362,7 +363,7 @@ export function ManagerDocumentsPanel({
       {tabId === "1099" ? (
         <a
           href={`/api/reports/1099-nec/export?taxYear=${filters.taxYear}&all=1`}
-          className="inline-flex h-10 items-center rounded-full border border-border bg-card px-4 text-xs font-medium text-foreground shadow-[var(--shadow-sm)] hover:bg-accent/40"
+          className={`inline-flex items-center justify-center ${PORTAL_COMMAND_ACTION_BTN}`}
         >
           Download all 1099s
         </a>
@@ -373,7 +374,7 @@ export function ManagerDocumentsPanel({
       {incomeReceiptExportHref && generated ? (
         <a
           href={incomeReceiptExportHref}
-          className="inline-flex h-10 items-center rounded-full border border-border bg-card px-4 text-xs font-medium text-foreground shadow-[var(--shadow-sm)] hover:bg-accent/40"
+          className={`inline-flex items-center justify-center ${PORTAL_COMMAND_ACTION_BTN}`}
         >
           Download PDF
         </a>
@@ -425,12 +426,13 @@ export function ManagerDocumentsPanel({
   const documentsUploadButton = isLibraryTab ? (
     <Button
       type="button"
-      className={`shrink-0 ${PORTAL_HEADER_ACTION_BTN}`}
+      className={PORTAL_COMMAND_PRIMARY_ACTION_BTN}
+      style={PORTAL_COMMAND_PRIMARY_ACTION_STYLE}
       onClick={() => libraryRef.current?.openUpload()}
       disabled={isDemoModeActive()}
       data-attr="document-upload-open"
     >
-      + Add
+      Add
     </Button>
   ) : null;
 
@@ -438,7 +440,8 @@ export function ManagerDocumentsPanel({
     !isLeasingDocumentsTab && !isLibraryTab && !isTemplatesTab ? (
       <Button
         type="button"
-        className={`shrink-0 ${PORTAL_HEADER_ACTION_BTN}`}
+        className={PORTAL_COMMAND_PRIMARY_ACTION_BTN}
+        style={PORTAL_COMMAND_PRIMARY_ACTION_STYLE}
         onClick={() => setGenerateModalOpen(true)}
         disabled={loading}
         data-attr="documents-generate-report"
@@ -447,24 +450,13 @@ export function ManagerDocumentsPanel({
       </Button>
     ) : null;
 
-  const documentsPrimaryButton = documentsUploadButton ?? documentsGenerateButton;
-
-  const documentsTitleAside =
-    hasExportActions || documentsPrimaryButton ? (
-      <PortalSectionActionRow
-        variant="header"
-        className="ml-auto gap-2 [&>div]:flex-nowrap [&_a]:shrink-0 [&_a]:whitespace-nowrap"
-      >
-        {hasExportActions ? exportActions : null}
-        {documentsPrimaryButton}
-      </PortalSectionActionRow>
-    ) : null;
-
-  const documentsInlineFilter = isLibraryTab
-    ? documentsFilterSheet
-    : documentsTitleAside
-      ? null
-      : undefined;
+  const documentsCommandActions = (
+    <>
+      {documentsFilterSheet}
+      {hasExportActions ? exportActions : null}
+      {documentsUploadButton ?? documentsGenerateButton}
+    </>
+  );
 
   const documentsDestinationRow = (
     <DocumentsDestinationNav tabId={tabId} tabItems={documentTabItems} />
@@ -484,16 +476,16 @@ export function ManagerDocumentsPanel({
   return (
     <ManagerPortalPageShell
       title="Documents"
-      titleInlineFilter={documentsInlineFilter}
-      titleAside={documentsTitleAside}
+      titleInlineFilter={null}
       hideTitleOnMobileNav
       compactFilterRow
     >
       <PortalListControlStack
         className="mb-2 max-lg:mb-1.5"
+        variant="command"
         destinationRow={documentsDestinationRow}
         stickyDestinations={false}
-        destinationInset
+        actions={documentsCommandActions}
         search={
           isLibraryTab
             ? {

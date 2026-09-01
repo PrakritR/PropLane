@@ -33,7 +33,6 @@ describe("FinanceDestinationNav layout", () => {
     expect(source).toContain('appearance="command"');
     expect(source).toContain("FINANCE_GROUP_NAV_CLASS");
     expect(source).toContain("FINANCE_VIEW_NAV_CLASS");
-    expect(source).toContain("[&_a]:!flex-none");
     expect(source).not.toContain('itemLayout="equal"');
     expect(source).not.toContain("LocalDestinationNav");
     expect(source).not.toContain("SUB_NAV_WRAP_CLASS");

@@ -8,21 +8,22 @@ function portalSource(file: string): string {
   return readFileSync(join(PORTAL_DIR, file), "utf8");
 }
 
-describe("Finance and Documents title-row controls", () => {
+describe("Finance and Documents command layout", () => {
   it("keeps Applications and Leases free of title-row property filters", () => {
     const documents = portalSource("manager-documents-panel.tsx");
     const leasingTabs = portalSource("manager-documents-leasing-tabs.tsx");
 
     expect(documents).not.toContain("leasingDocumentsFilterSheet");
     expect(documents).not.toContain("leasingPropertyFilter");
-    expect(documents).toContain("titleInlineFilter={documentsInlineFilter}");
-    expect(documents).toContain("titleAside={documentsTitleAside}");
+    expect(documents).toContain("titleInlineFilter={null}");
+    expect(documents).toContain("documentsCommandActions");
+    expect(documents).toContain('variant="command"');
     expect(leasingTabs).not.toContain("<PortalFilterSortSheet");
     expect(leasingTabs).toContain("hideColumnHeaders");
     expect(leasingTabs).toContain("<DataList");
   });
 
-  it("renders special Finance actions through the Finance header instead of a body toolbar", () => {
+  it("renders Finance actions through the command strip instead of the title row", () => {
     const finances = portalSource("manager-finances-panel.tsx");
     const bills = portalSource("manager-bills-panel.tsx");
     const bank = portalSource("manager-bank-reconciliation-panel.tsx");
@@ -30,8 +31,9 @@ describe("Finance and Documents title-row controls", () => {
 
     expect(finances).toContain("const financesAddButton =");
     expect(finances).toContain("PortalAdaptiveHeaderActions");
-    expect(finances).toContain("titleInlineFilter={financesInlineFilter}");
-    expect(finances).toContain("titleAside={financesTitleAside}");
+    expect(finances).toContain("titleInlineFilter={null}");
+    expect(finances).toContain("financesCommandActions");
+    expect(finances).toContain('variant="command"');
     expect(finances).toContain('data-attr="finances-add-bill"');
     expect(finances).toContain('data-attr="bank-add-account"');
     expect(finances).toContain('data-attr="bank-add-statement"');
@@ -43,7 +45,7 @@ describe("Finance and Documents title-row controls", () => {
     expect(distributions).not.toContain("<PortalSectionActionRow");
   });
 
-  it("constrains both title-row filters away from adjacent portal rails", () => {
+  it("constrains Finance and Documents filter sheets away from adjacent portal rails", () => {
     const documents = portalSource("manager-documents-panel.tsx");
     const finances = portalSource("manager-finances-panel.tsx");
 

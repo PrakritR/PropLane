@@ -34,7 +34,7 @@ const DOCUMENT_GROUP_NAV_CLASS =
   "gap-2 border-b border-border px-0 [&_a]:min-h-9 [&_a]:px-3 max-lg:scroll-px-0";
 
 const DOCUMENT_VIEW_NAV_CLASS =
-  "max-w-none rounded-xl border border-border bg-accent/30 p-1 [&_a]:!flex-none [&_a]:!basis-auto max-lg:rounded-xl max-lg:border max-lg:bg-accent/30";
+  "gap-2 border-b border-border px-0 [&_a]:min-h-9 [&_a]:px-3 max-lg:scroll-px-0";
 
 /**
  * Two-tier document navigation: category labels establish context; the compact
@@ -76,7 +76,7 @@ export function DocumentsDestinationNav({
           items={subItems}
           activeId={tabId}
           ariaLabel="Document view"
-          size="toolbar"
+          appearance="command"
           className={DOCUMENT_VIEW_NAV_CLASS}
         />
       ) : null}

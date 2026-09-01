@@ -21,6 +21,9 @@ import { PortalListControlStack } from "@/components/portal/portal-list-control-
 import {
   ManagerPortalPageShell,
   MANAGER_TABLE_TH,
+  PORTAL_COMMAND_ACTION_BTN,
+  PORTAL_COMMAND_PRIMARY_ACTION_BTN,
+  PORTAL_COMMAND_PRIMARY_ACTION_STYLE,
   PORTAL_HEADER_ACTION_BTN,
   PORTAL_HEADER_PRIMARY_ACTION_BTN,
 } from "@/components/portal/portal-metrics";
@@ -1003,8 +1006,8 @@ export function ManagerFinancesPanel({
     tabId === "income" ? (
       <Button
         type="button"
-        variant="outline"
-        className={PORTAL_HEADER_PRIMARY_ACTION_BTN}
+        className={PORTAL_COMMAND_PRIMARY_ACTION_BTN}
+        style={PORTAL_COMMAND_PRIMARY_ACTION_STYLE}
         onClick={openAddIncome}
         data-attr="finances-add-income"
       >
@@ -1013,8 +1016,8 @@ export function ManagerFinancesPanel({
     ) : tabId === "expenses" ? (
       <Button
         type="button"
-        variant="outline"
-        className={PORTAL_HEADER_PRIMARY_ACTION_BTN}
+        className={PORTAL_COMMAND_PRIMARY_ACTION_BTN}
+        style={PORTAL_COMMAND_PRIMARY_ACTION_STYLE}
         onClick={openAddExpense}
         data-attr="finances-add-expense"
       >
@@ -1023,8 +1026,8 @@ export function ManagerFinancesPanel({
     ) : tabId === "bills" ? (
       <Button
         type="button"
-        variant="outline"
-        className={PORTAL_HEADER_PRIMARY_ACTION_BTN}
+        className={PORTAL_COMMAND_PRIMARY_ACTION_BTN}
+        style={PORTAL_COMMAND_PRIMARY_ACTION_STYLE}
         onClick={() => billsRef.current?.openAddBill()}
         data-attr="finances-add-bill"
       >
@@ -1033,8 +1036,8 @@ export function ManagerFinancesPanel({
     ) : tabId === "bank-reconciliation" ? (
       <Button
         type="button"
-        variant="outline"
-        className={PORTAL_HEADER_PRIMARY_ACTION_BTN}
+        className={PORTAL_COMMAND_PRIMARY_ACTION_BTN}
+        style={PORTAL_COMMAND_PRIMARY_ACTION_STYLE}
         onClick={() => bankReconciliationRef.current?.openAddAccount()}
         data-attr="bank-add-account"
       >
@@ -1043,8 +1046,8 @@ export function ManagerFinancesPanel({
     ) : tabId === "owner-distributions" ? (
       <Button
         type="button"
-        variant="outline"
-        className={PORTAL_HEADER_PRIMARY_ACTION_BTN}
+        className={PORTAL_COMMAND_PRIMARY_ACTION_BTN}
+        style={PORTAL_COMMAND_PRIMARY_ACTION_STYLE}
         onClick={() => ownerDistributionsRef.current?.openNewDistribution()}
         data-attr="finances-add-distribution"
       >
@@ -1057,7 +1060,7 @@ export function ManagerFinancesPanel({
       <Button
         type="button"
         variant="outline"
-        className={PORTAL_HEADER_ACTION_BTN}
+        className={PORTAL_COMMAND_ACTION_BTN}
         disabled={!canAddBankStatement}
         onClick={() => bankReconciliationRef.current?.openAddStatement()}
         data-attr="bank-add-statement"
@@ -1166,27 +1169,27 @@ export function ManagerFinancesPanel({
       />
     ) : null;
 
-  const financesTitleAside = financesSecondaryActions;
-
-  const financesInlineFilter = showScopedReportFilters
-    ? financesFilterControl
-    : financesTitleAside
-      ? null
-      : undefined;
+  const financesCommandActions =
+    financesFilterControl || financesSecondaryActions ? (
+      <>
+        {financesFilterControl}
+        {financesSecondaryActions}
+      </>
+    ) : null;
 
   return (
     <ManagerPortalPageShell
       title="Finances"
-      titleInlineFilter={financesInlineFilter}
-      titleAside={financesTitleAside}
+      titleInlineFilter={null}
       hideTitleOnMobileNav
       compactFilterRow
     >
       <PortalListControlStack
         className="mb-2 max-lg:mb-1.5"
+        variant="command"
         destinationRow={financesDestinationRow}
         stickyDestinations={false}
-        destinationInset
+        actions={financesCommandActions}
         search={
           showTransactionSearch
             ? {
