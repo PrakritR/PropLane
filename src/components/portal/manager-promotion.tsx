@@ -4,12 +4,15 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import {
   ManagerPortalPageShell,
+  PORTAL_COMMAND_ACTION_BTN,
+  PORTAL_COMMAND_PRIMARY_ACTION_BTN,
+  PORTAL_COMMAND_PRIMARY_ACTION_STYLE,
   PORTAL_HEADER_PRIMARY_ACTION_BTN,
 } from "@/components/portal/portal-metrics";
+import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
 import { ApplicationHouseholdCluster } from "@/components/portal/application-household-list";
 import { PortalListGroupFilterFields } from "@/components/portal/portal-list-group-filter-fields";
 import { PortalFilterSortSheet, portalFilterActiveCount } from "@/components/portal/portal-filter-sort-sheet";
-import { PORTAL_PROPERTY_FILTER_SHEET_CLASS } from "@/components/portal/portal-filter-shell";
 import { PortalRecordDetailPage } from "@/components/portal/portal-record-detail-page";
 import { ListSkeleton } from "@/components/ui/list-skeleton";
 import {
@@ -873,10 +876,10 @@ export function ManagerPromotion({
     <PortalFilterSortSheet
       activeCount={portalFilterActiveCount([propertyFilters])}
       compactPanel
+      commandStripTrigger
       filterFieldCount={filterPropertyOptions.length > 1 ? 2 : 1}
-      constrainDropdownToTitleBand
+      constrainDropdownToTitleBand={false}
       mobileFlushBody
-      className={PORTAL_PROPERTY_FILTER_SHEET_CLASS}
       onReset={() => {
         setPropertyFilters([]);
         setGroupMode(DEFAULT_PORTAL_LIST_GROUP_MODE);
@@ -895,16 +898,19 @@ export function ManagerPromotion({
     </PortalFilterSortSheet>
   );
 
-  const promotionNewButton = (
-    <Button
-      type="button"
-      variant="primary"
-      className={`shrink-0 ${PORTAL_HEADER_PRIMARY_ACTION_BTN}`}
-      onClick={() => openNewPromotion()}
-      data-attr="promotion-new"
-    >
-      + New promotion
-    </Button>
+  const promotionCommandActions = (
+    <>
+      {promotionFilterSheet}
+      <Button
+        type="button"
+        className={PORTAL_COMMAND_PRIMARY_ACTION_BTN}
+        style={PORTAL_COMMAND_PRIMARY_ACTION_STYLE}
+        onClick={() => openNewPromotion()}
+        data-attr="promotion-new"
+      >
+        New promotion
+      </Button>
+    </>
   );
 
   const promotionListAddRow = (
@@ -919,11 +925,15 @@ export function ManagerPromotion({
   return (
     <ManagerPortalPageShell
       title="Promotion"
-      titleInlineFilter={promotionFilterSheet}
-      titleAside={promotionNewButton}
+      titleInlineFilter={null}
       hideTitleOnMobileNav
       compactFilterRow
     >
+      <PortalListControlStack
+        className="mb-2 max-lg:mb-1.5"
+        variant="command"
+        actions={promotionCommandActions}
+      />
       <div data-attr="promotion-content-direct">
         {propertyScopedAssets.length === 0 ? (
           <div className="space-y-3">

@@ -29,7 +29,7 @@ export function GoogleCalendarConnectDialog({
       <Button
         type="button"
         variant="outline"
-        className={className ? `${PORTAL_HEADER_ACTION_BTN} ${className}` : `shrink-0 ${PORTAL_HEADER_ACTION_BTN}`}
+        className={className ?? `shrink-0 ${PORTAL_HEADER_ACTION_BTN}`}
         onClick={() => setOpen(true)}
         data-attr="google-calendar-header-btn"
       >

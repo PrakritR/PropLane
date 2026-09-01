@@ -4,12 +4,11 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { ApplicationFilterSortFields } from "@/components/portal/application-filter-sort-fields";
 import { PortalFilterSortSheet, portalFilterActiveCount } from "@/components/portal/portal-filter-sort-sheet";
-import { PORTAL_PROPERTY_FILTER_SHEET_CLASS } from "@/components/portal/portal-filter-shell";
 import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
 import { BookingsCalendarFooterBar } from "@/components/portal/bookings-calendar-footer-bar";
 import {
   ManagerPortalPageShell,
-  PORTAL_HEADER_ACTION_BTN,
+  PORTAL_COMMAND_ACTION_BTN,
 } from "./portal-metrics";
 import { PortalCalendarPanels } from "./portal-calendar-panels";
 import {
@@ -505,10 +504,10 @@ export function PortalCalendar({
       <PortalFilterSortSheet
         activeCount={portalFilterActiveCount([activeCalendarPropertyFilters])}
         compactPanel
+        commandStripTrigger
         filterFieldCount={1}
-        constrainDropdownToTitleBand
+        constrainDropdownToTitleBand={false}
         mobileFlushBody
-        className={PORTAL_PROPERTY_FILTER_SHEET_CLASS}
         onReset={() => setCalendarPropertyFilters([])}
         dataAttr="calendar-filter-sheet-open"
       >
@@ -524,7 +523,7 @@ export function PortalCalendar({
   const calendarGoogleCalendarButton =
     portal === "manager" && !bookingsView ? (
       <GoogleCalendarConnectDialog
-        className={`shrink-0 ${PORTAL_HEADER_ACTION_BTN}`}
+        className={PORTAL_COMMAND_ACTION_BTN}
         onConnectionChange={() => setGoogleCalendarTick((n) => n + 1)}
       />
     ) : null;
@@ -534,7 +533,7 @@ export function PortalCalendar({
       <Button
         type="button"
         variant="outline"
-        className={`shrink-0 ${PORTAL_HEADER_ACTION_BTN}`}
+        className={PORTAL_COMMAND_ACTION_BTN}
         disabled={shareableProperties.length === 0}
         title={
           shareableProperties.length === 0
@@ -553,7 +552,7 @@ export function PortalCalendar({
       <Button
         type="button"
         variant="outline"
-        className={`shrink-0 ${PORTAL_HEADER_ACTION_BTN}`}
+        className={PORTAL_COMMAND_ACTION_BTN}
         data-attr="calendar-settings-open"
         onClick={() => setCalendarSettingsOpen(true)}
       >
@@ -561,9 +560,10 @@ export function PortalCalendar({
       </Button>
     ) : null;
 
-  const calendarHeaderActions =
+  const calendarCommandActions =
     portal === "manager" ? (
       <>
+        {calendarFilterSheet}
         {calendarSettingsButton}
         {calendarGoogleCalendarButton}
         {calendarShareTourButton}
@@ -599,16 +599,27 @@ export function PortalCalendar({
       <ManagerPortalPageShell
         title={pageTitle}
         hideTitleOnMobileNav
-        titleInlineFilter={portal === "manager" ? calendarFilterSheet : undefined}
-        titleAside={calendarHeaderActions ?? undefined}
+        titleInlineFilter={null}
         compactFilterRow={portal === "manager"}
       >
-        {portal === "manager" && schedulingHub ? (
+        {portal === "manager" ? (
           <PortalListControlStack
-            className="mb-2"
-            destinations={calendarTabs}
-            activeDestinationId={toursHubTab}
-            destinationAriaLabel="Tours views"
+            className="mb-2 max-lg:mb-1.5"
+            variant="command"
+            destinations={
+              schedulingHub
+                ? calendarTabs.map((tab) => ({
+                    id: tab.id,
+                    label: tab.label,
+                    href: tab.href,
+                    count: tab.count,
+                    dataAttr: tab.dataAttr,
+                  }))
+                : undefined
+            }
+            activeDestinationId={schedulingHub ? toursHubTab : undefined}
+            destinationAriaLabel={schedulingHub ? "Tours views" : undefined}
+            actions={calendarCommandActions}
           />
         ) : null}
         {portal === "manager" ? (
