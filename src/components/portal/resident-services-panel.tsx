@@ -7,6 +7,7 @@ import { DataList, type DataListRow } from "@/components/ui/data-list";
 import { DropdownMenuItem } from "@/components/ui/dropdown-menu";
 import { Input, Textarea } from "@/components/ui/input";
 import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
+import { DestinationNav } from "@/components/ui/destination-nav";
 import { PORTAL_LIST_PAGE_BODY } from "@/components/portal/portal-inbox-ui";
 import { PortalResidentListFab } from "@/components/portal/portal-resident-list-fab";
 import { ResidentAddServiceModal } from "@/components/portal/resident-add-service-modal";
@@ -20,7 +21,14 @@ import {
   PORTAL_INLINE_UNLOCK_NOTICE_CLASS,
   PORTAL_INLINE_UNLOCK_NOTICE_STACKED_CLASS,
 } from "@/components/portal/portal-metrics";
-import { LocalDestinationNav } from "@/components/ui/destination-nav";
+import { ResidentPortalListBottomBar } from "@/components/portal/resident-portal-list-bottom-bar";
+import {
+  ResidentPortalGroupedDataList,
+  RESIDENT_PORTAL_DEFAULT_GROUP_MODE,
+  type ResidentPortalGroupableRow,
+} from "@/components/portal/resident-portal-grouped-data-list";
+import { useResidentPortalListFilterState } from "@/components/portal/resident-portal-list-filter";
+import type { PortalListGroupMode } from "@/lib/portal-list-grouping";
 import {
   PORTAL_DETAIL_BTN,
   PortalDataTableEmpty,
@@ -66,7 +74,6 @@ import {
   type ServiceRowState,
   type UnifiedServiceRow,
 } from "@/lib/unified-service-rows";
-import { ResidentPortalListBottomBar } from "@/components/portal/resident-portal-list-bottom-bar";
 import type { PortalAdaptiveAction } from "@/components/portal/portal-adaptive-action-row";
 import { PORTAL_BULK_BAR_BTN } from "@/lib/portal-bulk-bar";
 import { usePortalRowSelection } from "@/hooks/use-portal-row-selection";
@@ -537,7 +544,9 @@ export function ResidentServicesPanel({
   const session = usePortalSession();
 
   const [serviceStateFilter, setServiceStateFilter] = useState<ServiceRowState>("open");
-  const { selectedIds, toggleSelected, clearSelection } = usePortalRowSelection(serviceStateFilter);
+  const [groupMode, setGroupMode] = useState<PortalListGroupMode>(RESIDENT_PORTAL_DEFAULT_GROUP_MODE);
+  const [propertyFilters, setPropertyFilters] = useState<string[]>([]);
+  const { selectedIds, toggleSelected, clearSelection, setSelectedIds } = usePortalRowSelection(serviceStateFilter);
   const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [addServiceOpen, setAddServiceOpen] = useState(false);
@@ -771,6 +780,33 @@ export function ResidentServicesPanel({
     [unifiedServiceRows, serviceStateFilter],
   );
 
+  const servicePropertyOptions = useMemo(() => {
+    const byId = new Map<string, string>();
+    for (const row of unifiedServiceRows) {
+      const propertyId = row.propertyId?.trim() ?? "";
+      if (!propertyId || byId.has(propertyId)) continue;
+      byId.set(propertyId, row.propertyLabel?.trim() || propertyId);
+    }
+    return [...byId.entries()].map(([id, label]) => ({ id, label }));
+  }, [unifiedServiceRows]);
+
+  const propertyFilteredUnifiedRows = useMemo(() => {
+    if (propertyFilters.length === 0) return filteredUnifiedRows;
+    const allowed = new Set(propertyFilters);
+    return filteredUnifiedRows.filter((row) => allowed.has(row.propertyId));
+  }, [filteredUnifiedRows, propertyFilters]);
+
+  const { filterSheet: servicesFilterSheet, activeFilterChips: servicesActiveFilterChips } =
+    useResidentPortalListFilterState({
+      groupMode,
+      onGroupModeChange: setGroupMode,
+      propertyOptions: servicePropertyOptions,
+      propertyFilters,
+      onPropertyFiltersChange: setPropertyFilters,
+      groupModeDataAttr: "resident-services-filter-group-mode",
+      propertyDataAttr: "resident-services-filter-property",
+    });
+
   const serviceRequestById = useMemo(
     () => new Map(sortedRequests.map((req) => [req.id, req])),
     [sortedRequests],
@@ -961,8 +997,8 @@ export function ResidentServicesPanel({
     setAddServiceOpen(true);
   };
 
-  const serviceListRows = useMemo((): DataListRow<ServiceRequest | DemoManagerWorkOrderRow>[] => {
-    return filteredUnifiedRows.flatMap((unified): DataListRow<ServiceRequest | DemoManagerWorkOrderRow>[] => {
+  const serviceGroupedItems = useMemo((): ResidentPortalGroupableRow<ServiceRequest | DemoManagerWorkOrderRow>[] => {
+    return propertyFilteredUnifiedRows.flatMap((unified): ResidentPortalGroupableRow<ServiceRequest | DemoManagerWorkOrderRow>[] => {
       const rowKey = unifiedServiceRowKey(unified);
       if (unified.kind === "add-on") {
         const req = serviceRequestById.get(unified.id);

@@ -4,7 +4,11 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { ManagerPortalStatusPills } from "@/components/portal/portal-metrics";
 import { PortalDataTableEmpty } from "@/components/portal/portal-data-table";
 import { PORTAL_LIST_PAGE_BODY } from "@/components/portal/portal-inbox-ui";
-import { DataList } from "@/components/ui/data-list";
+import {
+  ResidentPortalGroupedDataList,
+  type ResidentPortalGroupableRow,
+} from "@/components/portal/resident-portal-grouped-data-list";
+import type { PortalListGroupMode } from "@/lib/portal-list-grouping";
 import {
   RESIDENT_LEASE_LIST_LABEL,
   residentLeaseDetailSubtitle,
@@ -120,6 +124,30 @@ export function useResidentLeasePipelineRow(): LeasePipelineRow | null {
   }, [axisResolved, email, profileManagerId, residentAxisId, tick]);
 }
 
+function leaseDocumentPropertyFields(
+  entry: ResidentLeaseDocumentRow,
+  fallbackPipelineRow: LeasePipelineRow | null,
+): { propertyId: string; propertyLabel: string } {
+  const row = entry.pipelineRow ?? fallbackPipelineRow;
+  const propertyId = row?.propertyId?.trim() || row?.application?.propertyId?.trim() || "";
+  return {
+    propertyId,
+    propertyLabel: leaseDocumentPropertyLabel(row),
+  };
+}
+
+function filterLeaseRowsByProperty(
+  rows: ResidentLeaseDocumentRow[],
+  pipelineRow: LeasePipelineRow | null,
+  propertyFilters: string[],
+): ResidentLeaseDocumentRow[] {
+  if (propertyFilters.length === 0) return rows;
+  const allowed = new Set(propertyFilters);
+  return rows.filter((entry) => {
+    const { propertyId } = leaseDocumentPropertyFields(entry, pipelineRow);
+    return allowed.has(propertyId);
+  });
+}
 function leaseDocumentPropertyLabel(pipelineRow: LeasePipelineRow | null): string {
   if (!pipelineRow) return "—";
   const propertyId = pipelineRow.propertyId ?? pipelineRow.application?.propertyId ?? "";
@@ -155,6 +183,8 @@ export function ResidentLeaseListTable({
   selectable = false,
   selectedIds,
   onToggleSelected,
+  groupMode = "house",
+  propertyFilters = [],
 }: {
   basePath: string;
   bucket?: ResidentLeaseBucketId;
@@ -166,16 +196,21 @@ export function ResidentLeaseListTable({
   selectable?: boolean;
   selectedIds?: Set<string>;
   onToggleSelected?: (id: string) => void;
+  groupMode?: PortalListGroupMode;
+  propertyFilters?: string[];
 }) {
   const navigate = usePortalNavigate();
   const pipelineRow = useResidentLeasePipelineRow();
   const documentRows = useMemo(() => {
     const rows = buildResidentLeaseDocumentRows(pipelineRow);
-    if (statusFilter) return filterResidentLeaseDocumentRows(rows, statusFilter);
-    if (bucket) return filterResidentLeaseDocumentRows(rows, bucket);
-    return rows;
-  }, [bucket, pipelineRow, statusFilter]);
-  const propertyLabel = useMemo(() => leaseDocumentPropertyLabel(pipelineRow), [pipelineRow]);
+    const filtered =
+      statusFilter != null
+        ? filterResidentLeaseDocumentRows(rows, statusFilter)
+        : bucket
+          ? filterResidentLeaseDocumentRows(rows, bucket)
+          : rows;
+    return filterLeaseRowsByProperty(filtered, pipelineRow, propertyFilters);
+  }, [bucket, pipelineRow, propertyFilters, statusFilter]);
 
   const leaseDetailPath = useCallback(
     (entry: ResidentLeaseDocumentRow) =>
@@ -189,6 +224,28 @@ export function ResidentLeaseListTable({
     },
     [leaseDetailPath, navigate],
   );
+
+  const groupedItems = useMemo((): ResidentPortalGroupableRow<ResidentLeaseDocumentRow>[] => {
+    return documentRows.map((entry) => {
+      const statusLabel = entry.status;
+      const metaLabel = residentLeaseDetailSubtitle(statusLabel, safeFormatDateTime(entry.signedAt));
+      const { propertyId, propertyLabel } = leaseDocumentPropertyFields(entry, pipelineRow);
+      const showPropertyInMeta = groupMode !== "house";
+      return {
+        id: entry.id,
+        propertyId,
+        propertyLabel,
+        dataListRow: {
+          id: entry.id,
+          data: entry,
+          primary: RESIDENT_LEASE_LIST_LABEL,
+          meta: [showPropertyInMeta ? propertyLabel : null, metaLabel].filter(Boolean).join(" · "),
+          trailing: <span className="text-xs text-muted">{statusLabel}</span>,
+          onClick: () => openLease(entry),
+        },
+      };
+    });
+  }, [documentRows, groupMode, openLease, pipelineRow]);
 
   if (documentRows.length === 0) {
     const bucketLabel = bucket === "signed" ? "signed" : "pending";
@@ -210,28 +267,21 @@ export function ResidentLeaseListTable({
 
   return (
     <div className={PORTAL_LIST_PAGE_BODY}>
-      <DataList
-        variant="resident"
-        hideColumnHeaders
+      <ResidentPortalGroupedDataList
+        items={groupedItems}
+        groupMode={groupMode}
         selectable={selectable}
-        rows={documentRows.map((entry) => {
-          const statusLabel = entry.status;
-          const metaLabel = residentLeaseDetailSubtitle(statusLabel, safeFormatDateTime(entry.signedAt));
-          return {
-            id: entry.id,
-            data: entry,
-            primary: RESIDENT_LEASE_LIST_LABEL,
-            meta: [propertyLabel, metaLabel].filter(Boolean).join(" · "),
-            trailing: <span className="text-xs text-muted">{statusLabel}</span>,
-            selected: selectedIds?.has(entry.id),
-            onSelectedChange: onToggleSelected ? () => onToggleSelected(entry.id) : undefined,
-            onClick: () => openLease(entry),
-          };
-        })}
+        selectedIds={selectedIds}
+        onToggleSelected={onToggleSelected}
+        dataAttr="resident-lease-grouped-list"
         columns={[
           { id: "name", header: "Name", cell: () => RESIDENT_LEASE_LIST_LABEL },
           { id: "status", header: "Status", cell: (row) => row.status },
-          { id: "property", header: "Property", cell: () => propertyLabel },
+          {
+            id: "property",
+            header: "Property",
+            cell: (row) => leaseDocumentPropertyFields(row, pipelineRow).propertyLabel,
+          },
         ]}
       />
     </div>

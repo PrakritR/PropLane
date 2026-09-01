@@ -16,8 +16,13 @@ import {
 } from "@/components/portal/resident-lease-document-preview";
 import { ResidentLeaseListTable, useResidentLeasePipelineRow } from "@/components/portal/resident-lease-list";
 import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
-import { LocalDestinationNav } from "@/components/ui/destination-nav";
 import { ResidentPortalListBottomBar } from "@/components/portal/resident-portal-list-bottom-bar";
+import {
+  RESIDENT_PORTAL_DEFAULT_GROUP_MODE,
+  ResidentPortalGroupedDataList,
+} from "@/components/portal/resident-portal-grouped-data-list";
+import { useResidentPortalListFilterState } from "@/components/portal/resident-portal-list-filter";
+import type { PortalListGroupMode } from "@/lib/portal-list-grouping";
 import type { PortalAdaptiveAction } from "@/components/portal/portal-adaptive-action-row";
 import {
   PortalDataTableEmpty,
@@ -55,6 +60,7 @@ import {
   syncLeasePipelineFromServer,
 } from "@/lib/lease-pipeline-storage";
 import { safeFormatDateTime } from "@/lib/pacific-time";
+import { getPropertyById } from "@/lib/rental-application/data";
 import { useResidentPortalAxisContext } from "@/hooks/use-resident-portal-axis";
 
 /**
@@ -75,7 +81,7 @@ export function ResidentLeasePanel({
   const uploadRef = useRef<HTMLInputElement>(null);
   const { email, residentAxisId, profileManagerId, axisResolved } = useResidentPortalAxisContext();
   const pipelineRow = useResidentLeasePipelineRow();
-  const { selectedIds, toggleSelected } = usePortalRowSelection(bucket);
+  const { selectedIds, toggleSelected, setSelectedIds } = usePortalRowSelection(bucket);
   const listDocumentRows = useMemo(() => {
     if (!pipelineRow) return [];
     return filterResidentLeaseDocumentRows(buildResidentLeaseDocumentRows(pipelineRow), bucket);
@@ -121,6 +127,32 @@ export function ResidentLeasePanel({
   const [showMoveOutModal, setShowMoveOutModal] = useState(false);
   const [showRenewModal, setShowRenewModal] = useState(false);
   const [renewInitialTerm, setRenewInitialTerm] = useState<string | undefined>(undefined);
+  const [groupMode, setGroupMode] = useState<PortalListGroupMode>(RESIDENT_PORTAL_DEFAULT_GROUP_MODE);
+  const [propertyFilters, setPropertyFilters] = useState<string[]>([]);
+
+  const allLeaseRows = useMemo(() => buildResidentLeaseDocumentRows(pipelineRow), [pipelineRow]);
+  const leasePropertyOptions = useMemo(() => {
+    const byId = new Map<string, string>();
+    for (const entry of allLeaseRows) {
+      const row = entry.pipelineRow ?? pipelineRow;
+      const propertyId = row?.propertyId?.trim() || row?.application?.propertyId?.trim() || "";
+      if (!propertyId || byId.has(propertyId)) continue;
+      const prop = getPropertyById(propertyId);
+      byId.set(propertyId, prop?.title?.trim() || row?.unit?.trim() || propertyId);
+    }
+    return [...byId.entries()].map(([id, label]) => ({ id, label }));
+  }, [allLeaseRows, pipelineRow]);
+
+  const { filterSheet: leaseFilterSheet, activeFilterChips: leaseActiveFilterChips } =
+    useResidentPortalListFilterState({
+      groupMode,
+      onGroupModeChange: setGroupMode,
+      propertyOptions: leasePropertyOptions,
+      propertyFilters,
+      onPropertyFiltersChange: setPropertyFilters,
+      groupModeDataAttr: "resident-lease-filter-group-mode",
+      propertyDataAttr: "resident-lease-filter-property",
+    });
 
   const detailEntry = useMemo(() => {
     if (!leaseDetailId || !pipelineRow) return null;
@@ -492,38 +524,38 @@ export function ResidentLeasePanel({
   );
 
   if (!leaseDetailId) {
-    const allRows = buildResidentLeaseDocumentRows(pipelineRow);
     const filterTabs = [
       {
         id: "pending" as const,
         label: "Pending",
-        count: allRows.filter((row) => row.filterBucket === "pending").length,
+        count: allLeaseRows.filter((row) => row.filterBucket === "pending").length,
       },
       {
         id: "signed" as const,
         label: "Signed",
-        count: allRows.filter((row) => row.filterBucket === "signed").length,
+        count: allLeaseRows.filter((row) => row.filterBucket === "signed").length,
       },
     ];
-    const filterRow = (
-      <LocalDestinationNav
-        items={filterTabs.map((tab) => ({
-          id: tab.id,
-          label: tab.label,
-          count: tab.count,
-          dataAttr: `resident-lease-bucket-${tab.id}`,
-        }))}
-        activeId={bucket}
-        onChange={(id) => navigate(residentLeaseListHref(basePath, id as ResidentLeaseBucketId))}
-        ariaLabel="Lease status"
-      />
-    );
 
     return (
       <>
         {modals}
         <ManagerPortalPageShell title="Lease" hideTitleOnMobileNav compactFilterRow>
-          <PortalListControlStack className="mb-2 max-lg:mb-2" destinationRow={filterRow} />
+          <PortalListControlStack
+            className="mb-2 max-lg:mb-1.5"
+            variant="command"
+            destinations={filterTabs.map((tab) => ({
+              id: tab.id,
+              label: tab.label,
+              href: residentLeaseListHref(basePath, tab.id),
+              count: tab.count,
+              dataAttr: `resident-lease-bucket-${tab.id}`,
+            }))}
+            activeDestinationId={bucket}
+            destinationAriaLabel="Lease status"
+            actions={leaseFilterSheet}
+            activeFilterChips={leaseActiveFilterChips}
+          />
           {!email ? (
             <p className="text-sm text-muted">Sign in to view your lease.</p>
           ) : !axisResolved ? (
@@ -536,6 +568,8 @@ export function ResidentLeasePanel({
               selectable={Boolean(email) && axisResolved}
               selectedIds={selectedIds}
               onToggleSelected={toggleSelected}
+              groupMode={groupMode}
+              propertyFilters={propertyFilters}
             />
           )}
         </ManagerPortalPageShell>

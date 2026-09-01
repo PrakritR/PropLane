@@ -661,7 +661,7 @@ export function PortalSidebar({
       >
         {showNavIcons ? (
           <span className={`shrink-0 ${locked ? "opacity-60" : "opacity-90"}`} aria-hidden>
-            <PortalNavIcon section={s.section} active={active} />
+            <PortalNavIcon section={s.section} sectionTabId={s.sectionTabId} active={active} />
           </span>
         ) : null}
         {s.label}
@@ -719,7 +719,12 @@ export function PortalSidebar({
               <span className="flex min-w-0 flex-1 items-center gap-2">
                 {showNavIcons ? (
                   <span className={active ? "text-primary" : subLocked ? "opacity-60" : "opacity-80"} aria-hidden>
-                    <PortalNavIcon section={item.section} className="h-[15px] w-[15px] shrink-0" active={active} />
+                    <PortalNavIcon
+                      section={item.section}
+                      sectionTabId={sub.sectionTabId}
+                      className="h-[15px] w-[15px] shrink-0"
+                      active={active}
+                    />
                   </span>
                 ) : null}
                 <span className="min-w-0 truncate">{sub.label}</span>
@@ -776,7 +781,7 @@ export function PortalSidebar({
         <span className="flex min-w-0 flex-1 items-center gap-2.5">
           {showNavIcons ? (
             <span className={active ? "text-primary" : locked ? "opacity-60" : "opacity-80"} aria-hidden>
-              <PortalNavIcon section={s.section} className="h-[17px] w-[17px] shrink-0" active={active} />
+              <PortalNavIcon section={s.section} sectionTabId={s.sectionTabId} className="h-[17px] w-[17px] shrink-0" active={active} />
             </span>
           ) : null}
           <span className="min-w-0 truncate">{s.label}</span>
@@ -843,7 +848,7 @@ export function PortalSidebar({
     );
     const icon = (
       <>
-        <PortalNavIcon section={s.section} className="h-[17px] w-[17px] shrink-0" active={active} />
+        <PortalNavIcon section={s.section} sectionTabId={s.sectionTabId} className="h-[17px] w-[17px] shrink-0" active={active} />
         {!locked && count > 0 ? (
           <span className="absolute right-0.5 top-0.5 h-1.5 w-1.5 rounded-full bg-primary" aria-hidden />
         ) : null}

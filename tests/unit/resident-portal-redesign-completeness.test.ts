@@ -203,16 +203,27 @@ describe("resident portal redesign completeness", () => {
       expect(moveIn).toContain("Move-in instructions");
     });
 
+    it("lease, tour, and applications use command layout with grouped property lists", () => {
+      const lease = readPanel("resident-lease-panel.tsx");
+      expect(lease).toContain('variant="command"');
+      expect(readPanel("resident-lease-list.tsx")).toContain("ResidentPortalGroupedDataList");
+      const payments = readPanel("resident-payments-panel.tsx");
+      expect(payments).toContain('variant="command"');
+      expect(payments).toContain("ResidentPortalGroupedDataList");
+      const tour = readPanel("resident-tour-panel.tsx");
+      expect(tour).toContain('variant="command"');
+      expect(tour).toContain("ResidentPortalGroupedDataList");
+      const applications = readPanel("resident-applications-panel.tsx");
+      expect(applications).toContain('variant="command"');
+      expect(applications).toContain("ResidentPortalGroupedDataList");
+      expect(applications).toContain("useResidentPortalListFilterState");
+    });
+
     it("lease filter tabs are a local nav, not a dropdown; services filter rows span full width", () => {
       const lease = readPanel("resident-lease-panel.tsx");
-      // The redesign originally collapsed lease to a single view, and this
-      // asserted the ABSENCE of `LocalDestinationNav`. Routed status buckets have
-      // since been built back in deliberately — `ResidentLeaseBucketId` and
-      // `residentLeaseListHref` exist for exactly this — so the contract now
-      // matches services above: buckets render as a local nav, never a mobile
-      // dropdown.
-      expect(lease).toContain("LocalDestinationNav");
-      expect(lease).toContain('variant="plain"');
+      // Routed status buckets render as command destination tabs, not a mobile dropdown.
+      expect(lease).toContain('variant="command"');
+      expect(lease).toContain("destinationAriaLabel");
       const services = readPanel("resident-services-panel.tsx");
       expect(services).toContain("SERVICE_STATE_TABS");
       expect(services).toContain('ariaLabel="Service status"');
@@ -235,11 +246,14 @@ describe("resident portal redesign completeness", () => {
       expect(services).not.toContain("PortalPageHeaderMobileActionsRow");
 
       const tour = readPanel("resident-tour-panel.tsx");
-      expect(tour).toContain("titleAside={scheduleTourButton}");
+      expect(tour).toContain("tourCommandActions");
+      expect(tour).not.toContain("titleAside={scheduleTourButton}");
+      expect(tour).not.toContain("PortalResidentListFab");
       expect(tour).not.toContain("PortalPageHeaderMobileActionsRow");
 
       const applications = readPanel("resident-applications-panel.tsx");
-      expect(applications).toContain("ResidentApplicationWorkspaceActions");
+      expect(applications).toContain("applicationListControlStack");
+      expect(applications).not.toContain("ResidentApplicationWorkspaceActions");
       expect(applications).not.toContain("ResidentApplicationWorkspaceMobileApply");
       expect(applications).not.toContain("PortalPageHeaderMobileActionsRow");
 

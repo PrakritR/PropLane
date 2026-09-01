@@ -67,7 +67,15 @@ describe("nav icons", () => {
   });
 
   it("keeps a fallback for unknown sections", () => {
-    expect(ICONS).toContain("SECTION_ICONS[section] ?? Circle");
+    expect(ICONS).toContain("SECTION_ICONS[resolvePortalNavIconSection(section, sectionTabId)] ?? Circle");
+  });
+
+  it("maps Teams sub-nav tabs to distinct glyphs", () => {
+    expect(ICONS).toMatch(/^\s*managers: UserCog,/m);
+    expect(ICONS).toMatch(/^\s*vendors: Truck,/m);
+    expect(ICONS).toContain('if (sectionTabId === "vendors") return "vendors"');
+    expect(ICONS).toContain('if (sectionTabId === "background-check") return "background-check"');
+    expect(ICONS).toMatch(/^\s*"background-check": ShieldCheck,/m);
   });
 
   it("gives Bookings a real glyph instead of the fallback circle", () => {

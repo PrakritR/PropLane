@@ -11,8 +11,13 @@ import { PortalSectionActionRow } from "@/components/portal/portal-section-actio
 import { PortalEmptyState } from "@/components/portal/portal-empty-state";
 import { ResidentScheduleTourModal } from "@/components/portal/resident-schedule-tour-modal";
 import { PORTAL_LIST_PAGE_BODY } from "@/components/portal/portal-inbox-ui";
-import { DataList } from "@/components/ui/data-list";
-import { PortalResidentListFab } from "@/components/portal/portal-resident-list-fab";
+import {
+  ResidentPortalGroupedDataList,
+  RESIDENT_PORTAL_DEFAULT_GROUP_MODE,
+  type ResidentPortalGroupableRow,
+} from "@/components/portal/resident-portal-grouped-data-list";
+import { useResidentPortalListFilterState } from "@/components/portal/resident-portal-list-filter";
+import type { PortalListGroupMode } from "@/lib/portal-list-grouping";
 import { PortalDataTableEmpty } from "@/components/portal/portal-data-table";
 import { LocalDestinationNav } from "@/components/ui/destination-nav";
 import { formatRangeLabel } from "@/lib/demo-admin-scheduling";
@@ -212,6 +217,8 @@ export function ResidentTourPanel({
   const [bucket, setBucket] = useState<ResidentTourBucketId>(bucketProp);
   const [prevBucketProp, setPrevBucketProp] = useState(bucketProp);
   const [scheduleTourOpen, setScheduleTourOpen] = useState(false);
+  const [groupMode, setGroupMode] = useState<PortalListGroupMode>(RESIDENT_PORTAL_DEFAULT_GROUP_MODE);
+  const [propertyFilters, setPropertyFilters] = useState<string[]>([]);
 
   if (bucketProp !== prevBucketProp) {
     setPrevBucketProp(bucketProp);
@@ -317,6 +324,64 @@ export function ResidentTourPanel({
     [bucket, tours],
   );
 
+  const tourPropertyOptions = useMemo(() => {
+    const byId = new Map<string, string>();
+    for (const tour of tours) {
+      const propertyId = tour.propertyId?.trim() || "";
+      if (!propertyId || byId.has(propertyId)) continue;
+      byId.set(propertyId, stripPropertyRoomCountSuffix(tour.propertyTitle ?? propertyId));
+    }
+    return [...byId.entries()].map(([id, label]) => ({ id, label }));
+  }, [tours]);
+
+  const { filterSheet: tourFilterSheet, activeFilterChips: tourActiveFilterChips } =
+    useResidentPortalListFilterState({
+      groupMode,
+      onGroupModeChange: setGroupMode,
+      propertyOptions: tourPropertyOptions,
+      propertyFilters,
+      onPropertyFiltersChange: setPropertyFilters,
+      groupModeDataAttr: "resident-tour-filter-group-mode",
+      propertyDataAttr: "resident-tour-filter-property",
+    });
+
+  const filteredToursForBucket = useMemo(() => {
+    if (propertyFilters.length === 0) return toursForBucket;
+    return toursForBucket.filter((tour) => propertyFilters.includes(tour.propertyId?.trim() || ""));
+  }, [propertyFilters, toursForBucket]);
+
+  const tourGroupedItems = useMemo((): ResidentPortalGroupableRow<ResidentTourView>[] => {
+    const showPropertyInMeta = groupMode !== "house";
+    return filteredToursForBucket.map((tour) => {
+      const address = [
+        tour.roomLabel
+          ? /^(room|studio|unit|suite|apt|apartment)\b/i.test(tour.roomLabel.trim())
+            ? tour.roomLabel.trim()
+            : `Room ${tour.roomLabel.trim()}`
+          : null,
+        tour.managerLabel ? `Host ${tour.managerLabel}` : null,
+      ]
+        .filter(Boolean)
+        .join(" · ");
+      const when = tourWhenLabel(tour);
+      const propertyLabel = stripPropertyRoomCountSuffix(tour.propertyTitle ?? "Property tour");
+      return {
+        id: tour.inquiryId,
+        propertyId: tour.propertyId,
+        propertyLabel,
+        dataListRow: {
+          id: tour.inquiryId,
+          data: tour,
+          primary: propertyLabel,
+          meta: [showPropertyInMeta ? propertyLabel : null, address || when].filter(Boolean).join(" · "),
+          trailing: <span className="text-xs text-muted">{when}</span>,
+          onClick: () =>
+            navigate(residentTourDetailHref(basePath, residentTourBucketForView(tour), tour.inquiryId)),
+        },
+      };
+    });
+  }, [basePath, filteredToursForBucket, groupMode, navigate]);
+
   const scheduleTourButton = (
     <Button
       type="button"
@@ -329,28 +394,15 @@ export function ResidentTourPanel({
     </Button>
   );
 
-  const filterRow = (
-    <LocalDestinationNav
-      items={tabs.map((t) => ({
-        id: t.id,
-        label: t.label,
-        count: t.count,
-        dataAttr: `resident-tour-bucket-${t.id}`,
-      }))}
-      activeId={bucket}
-      onChange={(id) => {
-        const next = id as ResidentTourBucketId;
-        setBucket(next);
-        navigate(residentTourListHref(basePath, next));
-      }}
-      ariaLabel="Tour status"
-    />
+  const tourCommandActions = (
+    <>
+      {tourFilterSheet}
+      {scheduleTourButton}
+    </>
   );
 
   const renderTourList = () => (
     <>
-      <PortalListControlStack className="mb-2 max-lg:mb-2" destinationRow={filterRow} />
-
       {loading ? (
         <PortalEmptyState title="Loading your tours…" icon={<Calendar className="h-[26px] w-[26px]" strokeWidth={1.75} />} />
       ) : loadFailed ? (
@@ -374,46 +426,26 @@ export function ResidentTourPanel({
             Try again
           </Button>
         </div>
+      ) : filteredToursForBucket.length === 0 ? (
+        <PortalDataTableEmpty
+          icon="default"
+          message={
+            propertyFilters.length > 0 ? "No tours match these filters." : "No tours in this tab yet."
+          }
+          variant="stacked"
+        />
       ) : (
-        <>
-          <div className={PORTAL_LIST_PAGE_BODY} data-attr="resident-tour-list">
-            <DataList
-              variant="resident"
-              hideColumnHeaders
-              rows={toursForBucket.map((tour) => {
-                const address = [
-                  tour.roomLabel
-                    ? /^(room|studio|unit|suite|apt|apartment)\b/i.test(tour.roomLabel.trim())
-                      ? tour.roomLabel.trim()
-                      : `Room ${tour.roomLabel.trim()}`
-                    : null,
-                  tour.managerLabel ? `Host ${tour.managerLabel}` : null,
-                ]
-                  .filter(Boolean)
-                  .join(" · ");
-                const when = tourWhenLabel(tour);
-                return {
-                  id: tour.inquiryId,
-                  data: tour,
-                  primary: stripPropertyRoomCountSuffix(tour.propertyTitle ?? "Property tour"),
-                  meta: address || when,
-                  trailing: <span className="text-xs text-muted">{when}</span>,
-                  onClick: () =>
-                    navigate(residentTourDetailHref(basePath, residentTourBucketForView(tour), tour.inquiryId)),
-                };
-              })}
-              columns={[{ id: "tour", header: "Tour", cell: () => "—" }]}
-              emptyState={
-                <PortalDataTableEmpty icon="default" message="No tours in this tab yet." variant="stacked" />
-              }
-            />
-          </div>
-          <PortalResidentListFab
-            onClick={openScheduleTour}
-            ariaLabel="Schedule a tour"
-            dataAttr="resident-tour-schedule-add"
+        <div className={PORTAL_LIST_PAGE_BODY} data-attr="resident-tour-list">
+          <ResidentPortalGroupedDataList
+            items={tourGroupedItems}
+            groupMode={groupMode}
+            dataAttr="resident-tour-grouped-list"
+            columns={[{ id: "tour", header: "Tour", cell: () => "—" }]}
+            emptyState={
+              <PortalDataTableEmpty icon="default" message="No tours in this tab yet." variant="stacked" />
+            }
           />
-        </>
+        </div>
       )}
     </>
   );
@@ -479,14 +511,24 @@ export function ResidentTourPanel({
         onClose={() => setScheduleTourOpen(false)}
         onScheduled={() => void loadTours()}
       />
-      <ManagerPortalPageShell
-      title="Tour"
-      hideTitleOnMobileNav
-      titleAside={scheduleTourButton}
-      compactFilterRow
-    >
-      {renderTourList()}
-    </ManagerPortalPageShell>
+      <ManagerPortalPageShell title="Tour" hideTitleOnMobileNav compactFilterRow>
+        <PortalListControlStack
+          className="mb-2 max-lg:mb-1.5"
+          variant="command"
+          destinations={tabs.map((t) => ({
+            id: t.id,
+            label: t.label,
+            href: residentTourListHref(basePath, t.id),
+            count: t.count,
+            dataAttr: `resident-tour-bucket-${t.id}`,
+          }))}
+          activeDestinationId={bucket}
+          destinationAriaLabel="Tour status"
+          actions={tourCommandActions}
+          activeFilterChips={tourActiveFilterChips}
+        />
+        {renderTourList()}
+      </ManagerPortalPageShell>
     </>
   );
 }
