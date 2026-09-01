@@ -93,7 +93,6 @@ import { stageResidentComposePrefill } from "@/lib/resident-compose-prefill";
 import { residentChargeManagerMessageDraft } from "@/lib/resident-manager-message-draft";
 import { RESIDENT_PORTAL_BASE_PATH } from "@/lib/portals/resident-sections";
 import { PORTAL_BULK_BAR_BTN } from "@/lib/portal-bulk-bar";
-import { cn } from "@/lib/utils";
 import { usePortalRowSelection } from "@/hooks/use-portal-row-selection";
 
 
