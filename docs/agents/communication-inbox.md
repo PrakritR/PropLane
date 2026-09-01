@@ -76,6 +76,28 @@ conversations) plus the archive toggle. Invariants:
   crashed Send now / Cancel / Edit on automation messages. Use btoa/atob + the
   `base64` transform only (`tests/unit/scheduled-message-path-id.test.ts` guards
   this with a throwing-Buffer shim).
+- **One person is ONE conversation, across channels.** `mergeUnifiedInboxItems`
+  (`src/lib/unified-inbox-merge.ts`) groups list rows on a `personKey` — the
+  counterparty's lowercased email — so a resident's email thread and their text
+  thread collapse into a single row instead of appearing twice. The newest
+  contributing row supplies preview / stamp / sort position and decides which
+  thread the row opens; the row is unread if ANY channel is; `channels` drives
+  the "Email · SMS" badge; and `memberKeys` carries every folded key, which is
+  what selection and any destructive action must cover — an SMS delete is an
+  irreversible hard delete, and scoping it to the winner alone would leave the
+  other half stored and still rendering.
+  **A row with no `personKey` NEVER merges.** An unknown texter has no resolved
+  address, and guessing their number onto a resident would show a stranger's
+  messages — and the manager's replies — to the wrong person. Linking happens
+  the honest way, by saving a phone contact, which is an address-book write.
+  A merged conversation renders through `ResidentDirectChatPane`, which already
+  speaks both channels for one person; its timeline interleaves email and SMS
+  bubbles, reducing BOTH sides to milliseconds with `parseInboxStampMs` (the
+  canonical inbox stamp carries no year and is Pacific — a bare `Date.parse`
+  on it let an older email outrank a newer text). Channel tags are decided by
+  `buildInboxMessageTimeline`, which tags only when the thread truly spans
+  channels, so single-channel threads stay untagged with no flag to keep in
+  sync. Coverage: `tests/unit/unified-inbox-person-merge.test.ts`.
 - **Thread messages are channel-tagged** (`InboxBubbleMessage.channel`,
   `InboxChannel = email|sms|whatsapp|gmail`). Email is the only live channel; the
   tag exists so SMS/WhatsApp/Gmail tag into the SAME per-person thread (built on

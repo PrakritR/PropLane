@@ -848,7 +848,12 @@ export function InboxConversationRow({
   /** e.g. "You: " when the last message was outbound. */
   previewPrefix?: string;
   /** Small label for unified email + SMS lists. */
-  channelBadge?: "Email" | "SMS";
+  /**
+   * Channels this conversation spans. A merged row reaches one person on both,
+   * so the badge names both ("Email · SMS") rather than picking a winner and
+   * quietly implying the other channel is absent.
+   */
+  channelBadge?: "Email" | "SMS" | "Email · SMS";
   /** Optional slot after the row body (e.g. a quick action button). */
   trailing?: ReactNode;
 }) {
