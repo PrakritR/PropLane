@@ -16,6 +16,7 @@ import { PortalActiveFilterChips, type PortalActiveFilterChip } from "@/componen
 import { PaymentFilterSortFields } from "@/components/portal/payment-filter-sort-fields";
 import {
   DEFAULT_PORTAL_LIST_GROUP_MODE,
+  PORTAL_LIST_GROUP_MODE_LABELS,
   type PortalListGroupMode,
 } from "@/lib/portal-list-grouping";
 import { useAppUi } from "@/components/providers/app-ui-provider";
@@ -84,17 +85,22 @@ const PAY_LABELS: { id: ManagerPaymentBucket; label: string }[] = [
 type PaymentListSort = "dueSoon" | "dueLatest" | "amountDesc" | "amountAsc" | "resident";
 
 const DEFAULT_PAYMENT_LIST_SORT: PaymentListSort = "dueSoon";
+const OUTGOING_DEFAULT_GROUP_MODE: PortalListGroupMode = "house";
 
 function paymentFilterTouches(
   propertyFilters: string[],
   residentFilters: string[],
   listSort: PaymentListSort,
   groupMode: PortalListGroupMode,
+  direction: ManagerPaymentDirection,
 ): number {
   let count = 0;
   if (propertyFilters.length > 0) count += 1;
   if (residentFilters.length > 0) count += 1;
   if (listSort !== DEFAULT_PAYMENT_LIST_SORT) count += 1;
+  const defaultGroupMode =
+    direction === "outgoing" ? OUTGOING_DEFAULT_GROUP_MODE : DEFAULT_PORTAL_LIST_GROUP_MODE;
+  if (groupMode !== defaultGroupMode) count += 1;
   return count;
 }
 
@@ -274,7 +280,15 @@ export function ManagerPayments({
   const [paymentsFilterOpen, setPaymentsFilterOpen] = useState(false);
   const [checkingManualPayments, setCheckingManualPayments] = useState(false);
   const [listSort, setListSort] = useState<PaymentListSort>(DEFAULT_PAYMENT_LIST_SORT);
-  const [groupMode, setGroupMode] = useState<PortalListGroupMode>(DEFAULT_PORTAL_LIST_GROUP_MODE);
+  const [incomingGroupMode, setIncomingGroupMode] = useState<PortalListGroupMode>(
+    DEFAULT_PORTAL_LIST_GROUP_MODE,
+  );
+  const [outgoingGroupMode, setOutgoingGroupMode] = useState<PortalListGroupMode>(
+    OUTGOING_DEFAULT_GROUP_MODE,
+  );
+  const groupMode = direction === "incoming" ? incomingGroupMode : outgoingGroupMode;
+  const setGroupMode =
+    direction === "incoming" ? setIncomingGroupMode : setOutgoingGroupMode;
   // Per-payment reminder lists show the full saved default schedule, so bypass
   // the Inbox schedule-visibility window (which only gates Inbox → Schedule).
   const { messages: scheduledMessages, settings: reminderSettings, reload: reloadSchedule, setSettings: setReminderSettings } = useScheduledPaymentMessages({ includeHidden: true });
@@ -536,7 +550,13 @@ export function ManagerPayments({
     return sortLedgerRows(filtered, bucket, listSort);
   }, [mergedRows, bucket, propertyFilters, residentFilters, listSort]);
 
-  const filterTouchCount = paymentFilterTouches(propertyFilters, residentFilters, listSort, groupMode);
+  const filterTouchCount = paymentFilterTouches(
+    propertyFilters,
+    residentFilters,
+    listSort,
+    groupMode,
+    direction,
+  );
 
   const sortOptions = useMemo(
     () => [
@@ -560,7 +580,11 @@ export function ManagerPayments({
       setPropertyFilters([]);
       setResidentFilters([]);
       setListSort(DEFAULT_PAYMENT_LIST_SORT);
-      setGroupMode(DEFAULT_PORTAL_LIST_GROUP_MODE);
+      if (direction === "incoming") {
+        setIncomingGroupMode(DEFAULT_PORTAL_LIST_GROUP_MODE);
+      } else {
+        setOutgoingGroupMode(OUTGOING_DEFAULT_GROUP_MODE);
+      }
     },
     propertyOptions: propertyOptionsForFilter,
     propertyFilters,
@@ -728,8 +752,27 @@ export function ManagerPayments({
         onRemove: () => setListSort(DEFAULT_PAYMENT_LIST_SORT),
       });
     }
+    const defaultGroupMode =
+      direction === "outgoing" ? OUTGOING_DEFAULT_GROUP_MODE : DEFAULT_PORTAL_LIST_GROUP_MODE;
+    if (groupMode !== defaultGroupMode) {
+      chips.push({
+        id: "group-mode",
+        label: PORTAL_LIST_GROUP_MODE_LABELS[groupMode],
+        onRemove: () => setGroupMode(defaultGroupMode),
+      });
+    }
     return chips;
-  }, [propertyFilters, residentFilters, listSort, sortOptions, propertyLabelById, residentOptions]);
+  }, [
+    propertyFilters,
+    residentFilters,
+    listSort,
+    sortOptions,
+    propertyLabelById,
+    residentOptions,
+    direction,
+    groupMode,
+    setGroupMode,
+  ]);
 
   const paymentsPanel =
     direction === "incoming" ? (
@@ -755,6 +798,7 @@ export function ManagerPayments({
         vendorById={vendorById}
         paymentId={paymentId}
         listBasePath={basePath}
+        groupMode={outgoingGroupMode}
         onAddPayment={() => setAddOutgoingOpen(true)}
         onRowsChanged={() => {
           setOutgoingTick((n) => n + 1);

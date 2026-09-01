@@ -15,7 +15,12 @@ import type { PortalKind } from "@/lib/portal-types";
 export type NavGroupConfig = { id: string; label: string | null; sections: string[] };
 
 /** Sections never rendered in the desktop sidebar (Settings → account menu). */
-export const SIDEBAR_EXCLUDED_SECTIONS = new Set<string>(["profile", "bugs-feedback"]);
+export const SIDEBAR_EXCLUDED_SECTIONS = new Set<string>([
+  "profile",
+  "bugs-feedback",
+  /** Nested under Leasing → Application submenu; not a second sidebar row. */
+  "background-checks",
+]);
 
 /**
  * Feedback is embedded inside Settings for manager/resident/vendor. Admin has a

@@ -111,6 +111,9 @@ function buildPortalNavItems(
       return true;
     })
     .flatMap((section) => {
+      if (section.section === "background-checks") {
+        return [];
+      }
       if (
         section.section === "payments" &&
         section.tabs.some((tab) => tab.id === "incoming" || tab.id === "outgoing")
@@ -152,6 +155,32 @@ function buildPortalNavItems(
               href: `${definition.basePath}/teams/${tab.id}`,
               prefetchHrefs: [`${definition.basePath}/teams/${tab.id}`],
             })),
+          },
+        ];
+      }
+      if (section.section === "applications") {
+        const appBase = `${definition.basePath}/applications/pending`;
+        const bgBase = `${definition.basePath}/background-checks/pending_review`;
+        return [
+          {
+            section: section.section,
+            label: section.label,
+            href: appBase,
+            prefetchHrefs: [appBase, bgBase],
+            subItems: [
+              {
+                sectionTabId: "application",
+                label: "Application",
+                href: appBase,
+                prefetchHrefs: [appBase],
+              },
+              {
+                sectionTabId: "background-check",
+                label: "Background check",
+                href: bgBase,
+                prefetchHrefs: [bgBase],
+              },
+            ],
           },
         ];
       }
@@ -246,13 +275,14 @@ export function PortalSidebar({
 
   const activeSection = useMemo(() => {
     const parts = pathname.split("/").filter(Boolean);
-    return parts[1] ?? "dashboard";
+    const section = parts[1] ?? "dashboard";
+    if (section === "background-checks") return "applications";
+    return section;
   }, [pathname]);
 
-  const navItems = useMemo(
-    () => buildPortalNavItems(definition, visibleSections, showNativeChrome, residentNavStage),
-    [definition, residentNavStage, visibleSections, showNativeChrome],
-  );
+  const navItems = useMemo(() => {
+    return buildPortalNavItems(definition, visibleSections, showNativeChrome, residentNavStage);
+  }, [definition, residentNavStage, visibleSections, showNativeChrome]);
 
   const activeSectionSubTab = useMemo(() => {
     const parts = pathname.split("/").filter(Boolean);
@@ -266,11 +296,16 @@ export function PortalSidebar({
       const tab = parts[teamsIdx + 1];
       return tab === "managers" || tab === "vendors" ? tab : "managers";
     }
+    if (activeSection === "applications") {
+      const bgIdx = parts.indexOf("background-checks");
+      if (bgIdx >= 0) return "background-check";
+      return "application";
+    }
     return null;
   }, [activeSection, pathname]);
 
   useEffect(() => {
-    if (activeSection === "payments" || activeSection === "teams") {
+    if (activeSection === "payments" || activeSection === "teams" || activeSection === "applications") {
       setExpandableNavOpen((prev) => ({ ...prev, [activeSection]: true }));
     }
   }, [activeSection]);

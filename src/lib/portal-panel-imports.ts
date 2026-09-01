@@ -8,6 +8,10 @@ export async function loadManagerScreenings() {
   return (await import("@/components/portal/manager-screenings")).ManagerScreenings;
 }
 
+export async function loadManagerBackgroundChecks() {
+  return (await import("@/components/portal/manager-background-checks")).ManagerBackgroundChecks;
+}
+
 export async function loadManagerApplications() {
   return (await import("@/components/portal/manager-applications")).ManagerApplications;
 }

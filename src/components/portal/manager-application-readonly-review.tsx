@@ -37,8 +37,8 @@ export function ReviewSection({
       className="overflow-hidden rounded-2xl border border-border bg-card shadow-sm"
       data-attr={dataAttr}
     >
-      <div className="border-b border-border bg-accent/30 px-4 py-3.5 sm:px-5">
-        <h3 className="text-[0.8125rem] font-semibold text-muted">{title}</h3>
+      <div className="border-b border-border bg-accent/30 px-3 py-2 sm:px-4">
+        <h3 className="text-xs font-semibold text-muted">{title}</h3>
       </div>
       <dl className="divide-y divide-border text-sm">{children}</dl>
     </section>
@@ -47,9 +47,9 @@ export function ReviewSection({
 
 export function ReviewRow({ k, v }: { k: string; v: ReactNode }) {
   return (
-    <div className="flex flex-col gap-1 px-4 py-3.5 sm:flex-row sm:items-start sm:gap-5 sm:px-5 sm:py-3.5">
-      <dt className="w-full shrink-0 text-xs font-medium leading-5 text-muted sm:w-36">{k}</dt>
-      <dd className="min-w-0 flex-1 break-words leading-relaxed text-foreground">{v}</dd>
+    <div className="flex flex-col gap-0.5 px-3 py-2 sm:flex-row sm:items-start sm:gap-4 sm:px-4">
+      <dt className="w-full shrink-0 text-xs font-medium leading-5 text-muted sm:w-32">{k}</dt>
+      <dd className="min-w-0 flex-1 break-words text-sm leading-snug text-foreground">{v}</dd>
     </div>
   );
 }
@@ -88,20 +88,47 @@ export function ManagerApplicationReadonlyReview({
   assignedPropertyId,
   assignedRoomChoice,
   omitSections,
+  embedded = false,
 }: {
   partial: Partial<RentalWizardFormState>;
   assignedPropertyId?: string;
   assignedRoomChoice?: string;
   /** Hide roster-style sections when the parent already shows household cards above the toggle. */
-  omitSections?: Array<"group" | "cosigner" | "placement">;
+  omitSections?: Array<
+    | "group"
+    | "cosigner"
+    | "placement"
+    | "housing"
+    | "property"
+    | "personal"
+    | "address"
+    | "employment"
+    | "references"
+    | "additional"
+    | "custom"
+    | "consent"
+  >;
+  /** When true, sections render without the outer 2-column grid (parent supplies the grid). */
+  embedded?: boolean;
 }) {
   const form: RentalWizardFormState = { ...createInitialRentalWizardState(), ...partial };
   const omit = new Set(omitSections ?? []);
   const prop = getPropertyById(form.propertyId);
   const roomLabel = (id: string) => getRoomChoiceLabel(id);
 
-  return (
-    <div className="grid gap-3 xl:grid-cols-2">
+  const housingChargesSection = prop?.listingSubmission?.v === 1 ? (
+    <ReviewSection title="Housing charges (listing)">
+      <ReviewRow k="Application fee" v={displayOrDash(prop.listingSubmission.applicationFee)} />
+      <ReviewRow k="Security deposit" v={displayOrDash(prop.listingSubmission.securityDeposit)} />
+      <ReviewRow k="Move-in fee" v={displayOrDash(prop.listingSubmission.moveInFee)} />
+      <ReviewRow k="Payment due at signing" v={displayOrDash(paymentAtSigningPriceLabel(prop.listingSubmission))} />
+      <ReviewRow k="Utilities (estimate, by room)" v={displayOrDash(utilitiesListingEstimateLabel(prop.listingSubmission))} />
+    </ReviewSection>
+  ) : null;
+
+  const sections = (
+    <>
+      {!omit.has("housing") ? housingChargesSection : null}
       {!omit.has("placement") && (assignedPropertyId || assignedRoomChoice) ? (
         <ApplicationManagerPlacementCard
           assignedPropertyId={assignedPropertyId}
@@ -123,6 +150,7 @@ export function ManagerApplicationReadonlyReview({
       {!omit.has("cosigner") ? (
       <ApplicationCosignerPlannedCard hasCosigner={form.hasCosigner} />
       ) : null}
+      {!omit.has("property") ? (
       <ReviewSection title="Property information">
         <ReviewRow k="Property" v={displayOrDash(prop?.title)} />
         {form.bundleId.trim() ? (
@@ -142,15 +170,8 @@ export function ManagerApplicationReadonlyReview({
           <ReviewRow k="Lease end" v={displayOrDash(formatLeaseDateLabel(form.leaseEnd) || form.leaseEnd)} />
         ) : null}
       </ReviewSection>
-      {prop?.listingSubmission?.v === 1 ? (
-        <ReviewSection title="Housing charges (listing)">
-          <ReviewRow k="Application fee" v={displayOrDash(prop.listingSubmission.applicationFee)} />
-          <ReviewRow k="Security deposit" v={displayOrDash(prop.listingSubmission.securityDeposit)} />
-          <ReviewRow k="Move-in fee" v={displayOrDash(prop.listingSubmission.moveInFee)} />
-          <ReviewRow k="Payment due at signing" v={displayOrDash(paymentAtSigningPriceLabel(prop.listingSubmission))} />
-          <ReviewRow k="Utilities (estimate, by room)" v={displayOrDash(utilitiesListingEstimateLabel(prop.listingSubmission))} />
-        </ReviewSection>
       ) : null}
+      {!omit.has("personal") ? (
       <ReviewSection title="Personal information">
         <ReviewRow k="Legal name" v={displayOrDash(form.fullLegalName)} />
         <ReviewRow k="Date of birth" v={displayOrDash(form.dateOfBirth)} />
@@ -159,6 +180,8 @@ export function ManagerApplicationReadonlyReview({
         <ReviewRow k="Phone" v={displayOrDash(form.phone)} />
         <ReviewRow k="Email" v={displayOrDash(form.email)} />
       </ReviewSection>
+      ) : null}
+      {!omit.has("address") ? (
       <ReviewSection title="Address history">
         <ReviewRow
           k="Current address"
@@ -185,6 +208,8 @@ export function ManagerApplicationReadonlyReview({
           </>
         )}
       </ReviewSection>
+      ) : null}
+      {!omit.has("employment") ? (
       <ReviewSection title="Employment">
         <ReviewRow k="Not employed" v={form.notEmployed ? "Yes" : "No"} />
         <ReviewRow k="Employer" v={displayOrDash(form.employer)} />
@@ -196,6 +221,8 @@ export function ManagerApplicationReadonlyReview({
         <ReviewRow k="Annual income" v={displayOrDash(form.annualIncome)} />
         <ReviewRow k="Other income" v={displayOrDash(form.otherIncome)} />
       </ReviewSection>
+      ) : null}
+      {!omit.has("references") ? (
       <ReviewSection title="References">
         <ReviewRow k="Reference 1" v={displayOrDash(`${form.ref1Name} · ${form.ref1Relationship} · ${form.ref1Phone}`)} />
         <ReviewRow
@@ -203,6 +230,8 @@ export function ManagerApplicationReadonlyReview({
           v={form.ref2Name.trim() ? displayOrDash(`${form.ref2Name} · ${form.ref2Relationship} · ${form.ref2Phone}`) : displayOrDash("")}
         />
       </ReviewSection>
+      ) : null}
+      {!omit.has("additional") ? (
       <ReviewSection title="Additional details">
         <ReviewRow k="Occupants" v={displayOrDash(form.occupancyCount)} />
         <ReviewRow k="Pets" v={displayOrDash(form.pets)} />
@@ -210,13 +239,15 @@ export function ManagerApplicationReadonlyReview({
         <ReviewRow k="Bankruptcy" v={form.bankruptcyHistory === "yes" ? `Yes: ${form.bankruptcyDetails}` : form.bankruptcyHistory === "no" ? "No" : "—"} />
         <ReviewRow k="Criminal history" v={form.criminalHistory === "yes" ? `Yes: ${form.criminalDetails}` : form.criminalHistory === "no" ? "No" : "—"} />
       </ReviewSection>
-      {displayableCustomFieldAnswers(form.customFieldAnswers).length > 0 ? (
+      ) : null}
+      {!omit.has("custom") && displayableCustomFieldAnswers(form.customFieldAnswers).length > 0 ? (
         <ReviewSection title="Manager questions">
           {displayableCustomFieldAnswers(form.customFieldAnswers).map((answer) => (
             <ReviewRow key={answer.key} k={answer.label} v={displayOrDash(formatCustomFieldAnswerDisplay(answer))} />
           ))}
         </ReviewSection>
       ) : null}
+      {!omit.has("consent") ? (
       <ReviewSection title="Consent & signature">
         <ReviewRow k="Credit / background" v={form.consentCredit ? "Authorized" : "Not checked"} />
         <ReviewRow k="Accuracy confirmed" v={form.consentTruth ? "Yes" : "Not checked"} />
@@ -224,6 +255,10 @@ export function ManagerApplicationReadonlyReview({
         <ReviewRow k="Date signed" v={displayOrDash(form.dateSigned)} />
         <ReviewRow k="Application fee acknowledged" v={form.applicationFeeAcknowledged ? "Yes" : "No"} />
       </ReviewSection>
-    </div>
+      ) : null}
+    </>
   );
+
+  if (embedded) return sections;
+  return <div className="grid gap-2 xl:grid-cols-2">{sections}</div>;
 }

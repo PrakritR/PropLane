@@ -5,12 +5,17 @@ import {
   ApplicationNestedListRow,
   householdClusterHeaderForRows,
 } from "@/components/portal/application-household-list";
+import { Badge } from "@/components/ui/badge";
 import { DataList } from "@/components/ui/data-list";
 import {
   residentHousingMeta,
   type ManagerResidentListRow,
 } from "@/lib/manager-resident-list";
-import type { ManagerResidentListCluster } from "@/lib/manager-resident-list-grouping";
+import type {
+  ManagerResidentHouseCluster,
+  ManagerResidentListCluster,
+} from "@/lib/manager-resident-list-grouping";
+import { isPropertyClusterList, type PortalListGroupMode } from "@/lib/portal-list-grouping";
 
 function shortDateLabel(iso: string): string {
   const parts = iso.trim().split("-").map(Number);
@@ -33,24 +38,108 @@ function residentIdentityHeader(cluster: Extract<ManagerResidentListCluster, { k
   );
 }
 
+function residentRowMeta(
+  row: ManagerResidentListRow,
+  showPropertyInRows: boolean,
+  groupMode: PortalListGroupMode,
+): string {
+  if (groupMode === "house") {
+    return [row.roomLabel, row.email].filter(Boolean).join(" · ") || "—";
+  }
+  return residentHousingMeta(row, showPropertyInRows);
+}
+
 export function ManagerResidentsGroupedTable({
   clusters,
+  groupMode,
   showPropertyInRows,
   onOpenResident,
   selectedIds,
   onToggleSelected,
+  onToggleCluster,
   selectable = false,
 }: {
-  clusters: ManagerResidentListCluster[];
+  clusters: ManagerResidentListCluster[] | ManagerResidentHouseCluster[];
+  groupMode: PortalListGroupMode;
   showPropertyInRows: boolean;
   onOpenResident: (row: ManagerResidentListRow) => void;
   selectedIds?: Set<string>;
   onToggleSelected?: (id: string) => void;
+  onToggleCluster?: (ids: readonly string[]) => void;
   selectable?: boolean;
 }) {
+  const unitHeader = groupMode === "house" ? "Room" : "Unit";
+
+  const renderResidentDataList = (listRows: ManagerResidentListRow[]) => (
+    <DataList
+      hideColumnHeaders
+      selectable={selectable && Boolean(onToggleSelected)}
+      rows={listRows.map((row) => ({
+        id: row.id,
+        data: row,
+        primary: groupMode === "house" ? row.name : residentHousingMeta(row, showPropertyInRows),
+        meta:
+          groupMode === "house"
+            ? residentRowMeta(row, showPropertyInRows, groupMode)
+            : row.email && listRows.length === 1
+              ? row.email
+              : undefined,
+        selected: selectedIds?.has(row.id),
+        onSelectedChange:
+          selectable && onToggleSelected ? () => onToggleSelected(row.id) : undefined,
+        trailing: row.leaseStart ? (
+          <span className="text-sm tabular-nums text-muted">{shortDateLabel(row.leaseStart)}</span>
+        ) : undefined,
+        onClick: () => onOpenResident(row),
+      }))}
+      columns={[
+        {
+          id: groupMode === "house" ? "resident" : "unit",
+          header: groupMode === "house" ? "Resident" : unitHeader,
+          cell: (row) =>
+            groupMode === "house" ? row.name : residentHousingMeta(row, showPropertyInRows),
+        },
+        {
+          id: "leaseStart",
+          header: "Lease start",
+          cell: (row) => (row.leaseStart ? shortDateLabel(row.leaseStart) : "—"),
+          headerClassName: "text-right",
+          cellClassName: "text-right tabular-nums text-muted",
+        },
+      ]}
+    />
+  );
+
+  const dataAttr =
+    groupMode === "house" ? "residents-house-groups" : "residents-resident-groups";
+
+  if (isPropertyClusterList(groupMode, clusters)) {
+    return (
+      <div className="space-y-3" data-attr={dataAttr}>
+        {clusters.map((cluster) => (
+          <ApplicationHouseholdCluster
+            key={cluster.key}
+            header={
+              <>
+                <span className="truncate text-xs font-semibold text-foreground">
+                  {cluster.propertyLabel}
+                </span>
+                <Badge tone="info">
+                  {cluster.rows.length === 1 ? "1 resident" : `${cluster.rows.length} residents`}
+                </Badge>
+              </>
+            }
+          >
+            {renderResidentDataList(cluster.rows)}
+          </ApplicationHouseholdCluster>
+        ))}
+      </div>
+    );
+  }
+
   return (
-    <div className="space-y-3" data-attr="residents-resident-groups">
-      {clusters.map((cluster) => {
+    <div className="space-y-3" data-attr={dataAttr}>
+      {(clusters as ManagerResidentListCluster[]).map((cluster) => {
         if (cluster.kind === "resident") {
           const { cluster: residentCluster } = cluster;
           return (
@@ -62,7 +151,8 @@ export function ManagerResidentsGroupedTable({
                   id: row.id,
                   data: row,
                   primary: residentHousingMeta(row, showPropertyInRows),
-                  meta: row.email && row.email !== residentCluster.residentEmail ? row.email : undefined,
+                  meta:
+                    row.email && row.email !== residentCluster.residentEmail ? row.email : undefined,
                   selected: selectedIds?.has(row.id),
                   onSelectedChange:
                     selectable && onToggleSelected ? () => onToggleSelected(row.id) : undefined,
@@ -74,7 +164,7 @@ export function ManagerResidentsGroupedTable({
                 columns={[
                   {
                     id: "unit",
-                    header: "Unit",
+                    header: unitHeader,
                     cell: (row) => residentHousingMeta(row, showPropertyInRows),
                   },
                   {
@@ -93,7 +183,10 @@ export function ManagerResidentsGroupedTable({
         return (
           <ApplicationHouseholdCluster
             key={cluster.groupId}
-            header={householdClusterHeaderForRows(cluster.group, cluster.rows.map((row) => ({ property: row.propertyLabel })))}
+            header={householdClusterHeaderForRows(
+              cluster.group,
+              cluster.rows.map((row) => ({ property: row.propertyLabel })),
+            )}
           >
             {cluster.rows.map((row) => (
               <ApplicationNestedListRow key={row.id} nested>
@@ -104,9 +197,6 @@ export function ManagerResidentsGroupedTable({
                     {
                       id: row.id,
                       data: row,
-                      // A household cluster's header is the house, not a person,
-                      // so the resident has to be named on their own row — the
-                      // per-resident branch above gets this from its header.
                       primary: row.name,
                       meta: [residentHousingMeta(row, showPropertyInRows), row.email]
                         .map((part) => part?.trim())
@@ -129,7 +219,7 @@ export function ManagerResidentsGroupedTable({
                     },
                     {
                       id: "unit",
-                      header: "Unit",
+                      header: unitHeader,
                       cell: (item) => residentHousingMeta(item, showPropertyInRows),
                     },
                     {

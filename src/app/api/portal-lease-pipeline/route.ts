@@ -20,6 +20,7 @@ import {
 import { leaseBodyMatchesManagerFiledLease } from "@/lib/lease-manager-filed-document.server";
 import { sanitizeLeaseDocumentHtml, sanitizeManagerLeaseDocumentEdit } from "@/lib/lease-document-sanitizer";
 import type { LeasePipelineRow } from "@/lib/lease-pipeline-storage";
+import { syncLeaseLifecycleTasks } from "@/lib/manager-default-tasks.server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 
@@ -373,6 +374,7 @@ export async function POST(req: Request) {
         record: ReturnType<typeof buildUpsert>;
         previouslySigned: boolean;
         untrustedDocument: boolean;
+        previousRow: LeasePipelineRow | null;
       }
     >();
 
@@ -652,6 +654,7 @@ export async function POST(req: Request) {
           (existingRecord?.row_data as { fullySignedAt?: unknown } | undefined)?.fullySignedAt,
         ),
         untrustedDocument,
+        previousRow: storedRow ?? null,
       });
     }
 
@@ -669,6 +672,16 @@ export async function POST(req: Request) {
       const nowSigned = Boolean((plan.row as { fullySignedAt?: unknown }).fullySignedAt);
       if (nowSigned && !plan.previouslySigned && !plan.untrustedDocument) {
         await autoFileLeaseDocument(ctx.db, plan.record.row_data as AutoFileLeaseRow).catch(() => undefined);
+      }
+
+      const managerUserId = plan.record.manager_user_id;
+      if (managerUserId) {
+        void syncLeaseLifecycleTasks(
+          ctx.db,
+          managerUserId,
+          plan.previousRow,
+          plan.row as LeasePipelineRow,
+        ).catch(() => undefined);
       }
     }
 

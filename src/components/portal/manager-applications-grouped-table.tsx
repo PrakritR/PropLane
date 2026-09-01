@@ -1,5 +1,6 @@
 "use client";
 
+import type { ReactNode } from "react";
 import { ClipboardList, UserRound } from "lucide-react";
 import {
   ApplicationHouseholdCluster,
@@ -13,7 +14,9 @@ import {
 import type { ApplicationListCluster } from "@/lib/rental-application/application-list-grouping";
 import type { DemoApplicantRow } from "@/data/demo-portal";
 import type { CosignerSubmission } from "@/lib/cosigner-submissions-storage";
+import { cosignerListSelectionId } from "@/lib/cosigner-list-selection";
 import { applicantDisplayName } from "@/lib/rental-application/applicant-name";
+import { normalizeApplicationAxisId } from "@/lib/manager-applications-storage";
 import { stripPropertyRoomCountSuffix } from "@/lib/portal-mobile-preview";
 
 export function ManagerApplicationsGroupedTable({
@@ -24,6 +27,8 @@ export function ManagerApplicationsGroupedTable({
   selectedIds,
   onToggleSelected,
   selectable = false,
+  statusPillFn,
+  rowIcon,
 }: {
   clusters: ApplicationListCluster[];
   cosignerSubmissionsBySigner: Map<string, CosignerSubmission[]>;
@@ -32,6 +37,8 @@ export function ManagerApplicationsGroupedTable({
   selectedIds?: Set<string>;
   onToggleSelected?: (id: string) => void;
   selectable?: boolean;
+  statusPillFn?: (row: DemoApplicantRow) => { label: string; tone: "info" | "warning" | "muted" | "success" };
+  rowIcon?: ReactNode;
 }) {
   return (
     <div className="space-y-3" data-attr="applications-resident-groups">
@@ -79,8 +86,11 @@ export function ManagerApplicationsGroupedTable({
                           .join(" · ")
                       : applicationPropertyMeta(row)
                   }
-                  icon={<ClipboardList className="h-4 w-4" aria-hidden />}
-                  statusPill={householdNested ? applicationStatusPill(row) : undefined}
+                  icon={rowIcon ?? <ClipboardList className="h-4 w-4" aria-hidden />}
+                  statusPill={
+                    statusPillFn?.(row) ??
+                    (householdNested ? applicationStatusPill(row) : undefined)
+                  }
                   checked={selectable && selectedIds?.has(row.id)}
                   onCheck={
                     selectable && onToggleSelected ? () => onToggleSelected(row.id) : undefined
@@ -90,9 +100,10 @@ export function ManagerApplicationsGroupedTable({
                 />,
               ];
 
-              const signerKey = row.id.trim().toUpperCase();
+              const signerKey = normalizeApplicationAxisId(row.id).toUpperCase();
               const cosignerRows = cosignerSubmissionsBySigner.get(signerKey) ?? [];
               cosignerRows.forEach((sub, index) => {
+                const selectionId = cosignerListSelectionId(row.id, sub, index);
                 rows.push(
                   <ClusterNavRow
                     key={`${row.id}-cosigner-${index}`}
@@ -101,6 +112,10 @@ export function ManagerApplicationsGroupedTable({
                     meta={sub.email || `Co-signer for ${applicantDisplayName(row)}`}
                     icon={<UserRound className="h-4 w-4" aria-hidden />}
                     statusPill={{ label: "Co-signer", tone: "info" }}
+                    checked={selectable && selectedIds?.has(selectionId)}
+                    onCheck={
+                      selectable && onToggleSelected ? () => onToggleSelected(selectionId) : undefined
+                    }
                     onOpen={() => onOpenCosigner(row, index)}
                     checkDataAttr={`application-cosigner-${row.id}-${index}`}
                   />,

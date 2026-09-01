@@ -47,6 +47,7 @@ const SECTION_ICONS: Record<string, LucideIcon> = {
   tour: DoorOpen,
   events: Calendar,
   applications: ClipboardList,
+  "resident-application": ClipboardList,
   payments: CreditCard,
   documents: Folder,
   financials: BarChart3,

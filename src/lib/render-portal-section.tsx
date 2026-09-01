@@ -43,6 +43,7 @@ import {
   loadManagerTaskList,
   loadManagerTours,
   loadManagerApplications,
+  loadManagerBackgroundChecks,
   loadManagerDocumentsPanel,
   loadManagerFinancesPanel,
   loadManagerCommunication,
@@ -67,7 +68,7 @@ import { MANAGER_PLAN_PORTAL_URL } from "@/lib/portals/manager-plan-path";
 import { RESIDENT_PAYMENTS_LEGACY_TABS } from "@/lib/portals/resident-sections";
 import { getProPortalRenderContext } from "@/lib/portals/pro-nav";
 import { buildPortalWorkspaceModel } from "@/lib/portal-workspace-model";
-import { legacyManagerPortalSectionPath } from "@/lib/portal-detail-routes";
+import { legacyManagerPortalSectionPath, parseApplicationDetailTab } from "@/lib/portal-detail-routes";
 import type { PortalKind } from "@/lib/portal-types";
 import { notFound, redirect } from "next/navigation";
 import { DEFERRED_SECTIONS } from "@/lib/portals/nav-locks";
@@ -611,24 +612,18 @@ export async function renderPortalSection(
       if (!parsedResidentsTab) notFound();
       const residentId = tabParts.length >= 2 ? decodeURIComponent(tabParts[1]!) : undefined;
       const residentDetailTabRaw = tabParts.length >= 3 ? tabParts[2]! : undefined;
-      if (residentDetailTabRaw === "application") {
-        const tail = tabParts.slice(3).join("/");
+      if (residentDetailTabRaw === "applicant") {
+        const applicantTail = tabParts[3];
+        const legacyApplicantTab =
+          applicantTail === "background-check" ? "background-check" : "application";
+        const tail = tabParts.slice(4).join("/");
         redirect(
-          `${def.basePath}/residents/${parsedResidentsTab}/${encodeURIComponent(residentId!)}/applicant/application${tail ? `/${tail}` : ""}`,
+          `${def.basePath}/residents/${parsedResidentsTab}/${encodeURIComponent(residentId!)}/${legacyApplicantTab}${tail ? `/${tail}` : ""}`,
         );
       }
       const residentDetailTab = residentDetailTabRaw;
-      const residentApplicantSubTab =
-        residentDetailTab === "applicant" && tabParts.length >= 4 ? tabParts[3]! : undefined;
-      if (residentDetailTab === "applicant" && tabParts.length === 3) {
-        redirect(
-          `${def.basePath}/residents/${parsedResidentsTab}/${encodeURIComponent(residentId!)}/applicant/application`,
-        );
-      }
       const residentDetailItemId =
-        residentDetailTab !== "applicant" && tabParts.length >= 4
-          ? decodeURIComponent(tabParts[3]!)
-          : undefined;
+        tabParts.length >= 4 ? decodeURIComponent(tabParts[3]!) : undefined;
       const residentPaymentId =
         residentDetailTab === "payments" ? residentDetailItemId : undefined;
       const residentTourId = residentDetailTab === "tours" ? residentDetailItemId : undefined;
@@ -641,7 +636,6 @@ export async function renderPortalSection(
           tabId={parsedResidentsTab}
           residentId={residentId}
           detailTab={residentDetailTab as import("@/lib/portal-detail-routes").ResidentDetailTabId | undefined}
-          applicantSubTab={residentApplicantSubTab}
           paymentId={residentPaymentId}
           tourId={residentTourId}
           serviceItemId={residentServiceItemId}
@@ -906,12 +900,35 @@ export async function renderPortalSection(
       );
     }
 
+    if (section === "background-checks") {
+      const BG_TABS = ["pending_review", "passed", "flagged"] as const;
+      if (!tabParts?.length) {
+        redirect(`${def.basePath}/background-checks/pending_review`);
+      }
+      if (tabParts.length > 2) notFound();
+      const tabRaw = tabParts[0]!;
+      const bgTab = BG_TABS.includes(tabRaw as typeof BG_TABS[number])
+        ? (tabRaw as typeof BG_TABS[number])
+        : "pending_review";
+      if (tabRaw !== bgTab) {
+        redirect(`${def.basePath}/background-checks/${bgTab}`);
+      }
+      const applicationId = tabParts.length >= 2 ? decodeURIComponent(tabParts[1]!) : undefined;
+      const ManagerBackgroundChecks = await loadManagerBackgroundChecks();
+      return subscriptionGated(
+        <ManagerBackgroundChecks tab={bgTab} basePath={def.basePath} applicationId={applicationId} />,
+        kind,
+        "background-checks",
+        managerOwnerSubscriptionTier,
+      );
+    }
+
     if (section === "applications") {
       const APPLICATION_TABS = ["incomplete", "pending", "approved", "rejected"] as const;
       if (!tabParts?.length) {
         redirect(`${def.basePath}/applications/pending`);
       }
-      if (tabParts.length > 2) notFound();
+      if (tabParts.length > 3) notFound();
       const tabRaw = tabParts[0]!;
       if (tabRaw === "screenings") {
         const legacyId = tabParts.length >= 2 ? `/${encodeURIComponent(decodeURIComponent(tabParts[1]!))}` : "";
@@ -924,12 +941,15 @@ export async function renderPortalSection(
         redirect(`${def.basePath}/applications/${applicationTab}`);
       }
       const applicationId = tabParts.length >= 2 ? decodeURIComponent(tabParts[1]!) : undefined;
+      const applicationDetailTab =
+        tabParts.length >= 3 ? parseApplicationDetailTab(tabParts[2]) : "application";
       const ManagerApplications = await loadManagerApplications();
       return subscriptionGated(
         <ManagerApplications
           bucket={applicationTab}
           basePath={def.basePath}
           applicationId={applicationId}
+          applicationDetailTab={applicationDetailTab}
         />,
         kind,
         "applications",

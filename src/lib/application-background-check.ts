@@ -81,6 +81,26 @@ export function resolveBackgroundCheckStatus(row: {
   );
 }
 
+export function backgroundCheckStatusPill(row: {
+  manuallyAdded?: boolean;
+  application?: unknown;
+  backgroundCheckStatus?: ApplicationBackgroundCheckStatus;
+}): { label: string; tone: "info" | "warning" | "muted" | "success" } {
+  const status = resolveBackgroundCheckStatus(row);
+  const tone = backgroundCheckStatusTone(status);
+  const label =
+    status === "passed"
+      ? "Passed"
+      : status === "flagged"
+        ? "Flagged"
+        : status === "not_applicable"
+          ? "N/A"
+          : "Pending";
+  const mappedTone: "info" | "warning" | "muted" | "success" =
+    tone === "success" ? "success" : tone === "warning" ? "warning" : tone === "muted" ? "muted" : "info";
+  return { label, tone: mappedTone };
+}
+
 export function applicationShowsBackgroundCheck(row: {
   manuallyAdded?: boolean;
   application?: unknown;

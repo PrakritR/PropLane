@@ -280,13 +280,13 @@ describe("household and resident list shells", () => {
     dump("applications-resident-clusters", container.innerHTML);
   });
 
-  it("Residents clusters each person in the Tours-style resident shell", () => {
+  it("Residents groups approved residents under property headers by default", () => {
     const html = renderToStaticMarkup(<ManagerResidents />);
 
-    expect(html).toContain('data-attr="residents-resident-groups"');
+    expect(html).toContain('data-attr="residents-house-groups"');
     expect(html).toContain("Jordan Reyes");
     expect(html).toContain("Taylor Brooks");
-    dump("residents-resident-clusters", html);
+    dump("residents-house-clusters", html);
   });
 
   it("Leases clusters each resident in the Tours-style table shell", async () => {

@@ -49,6 +49,8 @@ export type LifecycleTaskConfig = {
   defaultAssigneeUserId: string | null;
   /** Email the assignee when the task is created and again when it comes due. */
   sendEmailReminder: boolean;
+  /** Additional reminder emails before the due time (minutes before due). */
+  reminderMinutesBeforeList: number[];
 };
 
 export type LifecycleTaskAutomation = Record<LifecycleTaskKey, LifecycleTaskConfig>;
@@ -143,6 +145,7 @@ export const MAX_OFFSET_MINUTES = 30 * DAY;
 
 /** Offered in Settings. A stored value outside these is still honoured if clamped. */
 export const OFFSET_PRESETS = [
+  10 * MINUTE,
   15 * MINUTE,
   30 * MINUTE,
   1 * HOUR,
@@ -153,6 +156,26 @@ export const OFFSET_PRESETS = [
   3 * DAY,
   7 * DAY,
 ] as const;
+
+/** Reminder emails before the task due time — offered in Tasks settings. */
+export const TASK_REMINDER_TIMING_PRESETS = [10, 15, 30, 60, 120, 1440] as const;
+
+export function normalizeTaskReminderMinutesBeforeList(raw: unknown, fallback: number[]): number[] {
+  if (!Array.isArray(raw)) return [...fallback];
+  const out = raw
+    .filter((n): n is number => typeof n === "number" && Number.isFinite(n))
+    .map((n) => Math.round(n))
+    .filter((n) => n >= 5 && n <= 1440);
+  return [...new Set(out)].sort((a, b) => a - b);
+}
+
+export function formatTaskReminderTimingLabel(minutes: number): string {
+  if (minutes < 60) return `${minutes} minutes before due`;
+  const hours = Math.floor(minutes / 60);
+  const remainder = minutes % 60;
+  if (remainder === 0) return `${hours} hour${hours === 1 ? "" : "s"} before due`;
+  return `${hours}h ${remainder}m before due`;
+}
 
 export function clampOffsetMinutes(value: number): number {
   if (!Number.isFinite(value)) return MIN_OFFSET_MINUTES;
@@ -167,13 +190,55 @@ export function clampOffsetMinutes(value: number): number {
  * while there is still time to act, so it sits three hours ahead of the visit.
  */
 export const DEFAULT_LIFECYCLE_AUTOMATION: LifecycleTaskAutomation = {
-  approve_tour_request: { enabled: true, offsetMinutes: 1 * HOUR, defaultAssigneeUserId: null, sendEmailReminder: true },
-  prepare_for_tour: { enabled: true, offsetMinutes: 3 * HOUR, defaultAssigneeUserId: null, sendEmailReminder: true },
-  review_application: { enabled: true, offsetMinutes: 1 * DAY, defaultAssigneeUserId: null, sendEmailReminder: true },
-  decide_application: { enabled: true, offsetMinutes: 2 * DAY, defaultAssigneeUserId: null, sendEmailReminder: true },
-  review_and_send_lease: { enabled: true, offsetMinutes: 2 * DAY, defaultAssigneeUserId: null, sendEmailReminder: true },
-  countersign_lease: { enabled: true, offsetMinutes: 1 * DAY, defaultAssigneeUserId: null, sendEmailReminder: true },
-  collect_rent: { enabled: true, offsetMinutes: 3 * DAY, defaultAssigneeUserId: null, sendEmailReminder: true },
+  approve_tour_request: {
+    enabled: true,
+    offsetMinutes: 1 * HOUR,
+    defaultAssigneeUserId: null,
+    sendEmailReminder: true,
+    reminderMinutesBeforeList: [],
+  },
+  prepare_for_tour: {
+    enabled: true,
+    offsetMinutes: 3 * HOUR,
+    defaultAssigneeUserId: null,
+    sendEmailReminder: true,
+    reminderMinutesBeforeList: [60],
+  },
+  review_application: {
+    enabled: true,
+    offsetMinutes: 1 * DAY,
+    defaultAssigneeUserId: null,
+    sendEmailReminder: true,
+    reminderMinutesBeforeList: [],
+  },
+  decide_application: {
+    enabled: true,
+    offsetMinutes: 2 * DAY,
+    defaultAssigneeUserId: null,
+    sendEmailReminder: true,
+    reminderMinutesBeforeList: [],
+  },
+  review_and_send_lease: {
+    enabled: true,
+    offsetMinutes: 2 * DAY,
+    defaultAssigneeUserId: null,
+    sendEmailReminder: true,
+    reminderMinutesBeforeList: [],
+  },
+  countersign_lease: {
+    enabled: true,
+    offsetMinutes: 1 * DAY,
+    defaultAssigneeUserId: null,
+    sendEmailReminder: true,
+    reminderMinutesBeforeList: [],
+  },
+  collect_rent: {
+    enabled: true,
+    offsetMinutes: 3 * DAY,
+    defaultAssigneeUserId: null,
+    sendEmailReminder: true,
+    reminderMinutesBeforeList: [],
+  },
 };
 
 /** "1 hour", "3 hours", "2 days", "30 minutes". */
@@ -219,6 +284,10 @@ function normalizeConfig(raw: unknown, fallback: LifecycleTaskConfig): Lifecycle
     defaultAssigneeUserId: assignee || null,
     sendEmailReminder:
       typeof row.sendEmailReminder === "boolean" ? row.sendEmailReminder : fallback.sendEmailReminder,
+    reminderMinutesBeforeList: normalizeTaskReminderMinutesBeforeList(
+      row.reminderMinutesBeforeList,
+      fallback.reminderMinutesBeforeList,
+    ),
   };
 }
 

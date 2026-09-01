@@ -4,13 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { cn } from "@/lib/utils";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
-import { ChevronDown } from "lucide-react";
+import { DropdownMenuItem } from "@/components/ui/dropdown-menu";
 import { ListSkeleton } from "@/components/ui/list-skeleton";
 import { Badge } from "@/components/ui/badge";
 import { PortalRecordShareLinkButton } from "@/components/portal/portal-record-share-link-button";
@@ -47,7 +41,7 @@ import {
 } from "@/components/portal/portal-data-table";
 import { UploadedLeasePdfPreview } from "@/components/portal/uploaded-lease-pdf-preview";
 import { PortalCollapsibleSection } from "@/components/portal/portal-collapsible-section";
-import { ApplicationReviewLauncherRow, type ApplicationReviewView } from "@/components/portal/application-review-launcher-row";
+import { ApplicationDetailReviewBody } from "@/components/portal/application-detail-review-body";
 import { downloadBackgroundCheckForApplication, ApplicationScreeningPanel } from "@/components/portal/application-screening-panel";
 import { ApplicationHoldingFeeModal } from "@/components/portal/application-holding-fee-box";
 import { ManagerEditApplicationModal } from "@/components/portal/manager-edit-application-modal";
@@ -105,7 +99,6 @@ import {
 import { isWithdrawnApplicationRow } from "@/lib/rental-application/resident-application-list";
 import { applicantDisplayName, applicantSecondaryEmail } from "@/lib/rental-application/applicant-name";
 import { ManagerApplicationsGroupedTable } from "@/components/portal/manager-applications-grouped-table";
-import { ApplicationHouseholdInlinePanels } from "@/components/portal/application-household-inline-panels";
 import {
   groupIdForRow,
   groupRowInputForRow,
@@ -153,6 +146,7 @@ import { usePortalNavigate } from "@/lib/portal-nav-client";
 import {
   applicationDetailHref,
   applicationListHref,
+  type ApplicationDetailTabId,
   type ApplicationListTabId,
 } from "@/lib/portal-detail-routes";
 import {
@@ -503,10 +497,12 @@ export function ManagerApplications({
   bucket: bucketProp = "pending",
   basePath = "/portal",
   applicationId: applicationIdProp,
+  applicationDetailTab: applicationDetailTabProp = "application",
 }: {
   bucket?: ManagerApplicationTabId;
   basePath?: string;
   applicationId?: string;
+  applicationDetailTab?: ApplicationDetailTabId;
 }) {
   const { showToast } = useAppUi();
   const { userId, ready: authReady } = useManagerUserId();
@@ -568,7 +564,6 @@ export function ManagerApplications({
   // applicant's own answers below the fold.
   const [holdingFeeRowId, setHoldingFeeRowId] = useState<string | null>(null);
   const [checkrScreeningShowPicker, setCheckrScreeningShowPicker] = useState(false);
-  const [applicationReviewView, setApplicationReviewView] = useState<ApplicationReviewView>("application");
   const [screeningSubjectId, setScreeningSubjectId] = useState<string | null>(null);
   useEffect(() => {
     if (!authReady) return;
@@ -605,8 +600,6 @@ export function ManagerApplications({
     };
 
     if (screening === "return" || screening === "paid") {
-      setApplicationReviewView("background-check");
-
       const sessionId = params.get("session_id")?.trim();
       if (screening === "return" && sessionId && !processedScreeningReturnSessions.has(sessionId)) {
         processedScreeningReturnSessions.add(sessionId);
@@ -677,7 +670,6 @@ export function ManagerApplications({
 
   const handleScreeningFlowComplete = useCallback(() => {
     handleScreeningUpdated();
-    setApplicationReviewView("background-check");
     if (checkrScreeningCosignerId) {
       setCosignerSubmissionsTick((tick) => tick + 1);
     }
@@ -819,13 +811,6 @@ export function ManagerApplications({
     Boolean(singleListSelectedRow) &&
     singleListSelectedRow.bucket === "pending" &&
     !isWithdrawnApplicationRow(singleListSelectedRow);
-  const canBulkRunBackgroundCheck =
-    Boolean(singleListSelectedRow) &&
-    singleListSelectedRow.bucket === "pending" &&
-    applicationShowsBackgroundCheck(singleListSelectedRow) &&
-    Boolean(singleListSelectedRow.application?.consentCredit) &&
-    singleListSelectedRow.backgroundCheck?.status !== "pending" &&
-    singleListSelectedRow.backgroundCheck?.status !== "complete";
 
   const openDetailScreeningModal = useCallback((row: DemoApplicantRow, opts?: { showPackagePicker?: boolean; cosignerSubmissionId?: string }) => {
     setCheckrScreeningShowPicker(Boolean(opts?.showPackagePicker));
@@ -886,6 +871,13 @@ export function ManagerApplications({
     activeCosignerIndex != null && activeCosignerIndex >= 0 && activeCosignerIndex < detailCosignerSubmissions.length
       ? detailCosignerSubmissions[activeCosignerIndex]!
       : null;
+
+  useEffect(() => {
+    if (!applicationIdProp || !detailRow) return;
+    if (applicationDetailTabProp === "background-check") {
+      navigate(applicationDetailHref(basePath, tabForRow(detailRow), detailRow.id, "application"));
+    }
+  }, [applicationIdProp, applicationDetailTabProp, detailRow, navigate, basePath]);
 
   useEffect(() => {
     setScreeningSubjectId(null);
@@ -1284,19 +1276,9 @@ export function ManagerApplications({
   };
 
   const renderApplicationRowActions = (row: DemoApplicantRow) => {
-    const screeningRow = row;
-    const screeningCosignerId = activeCosignerSubmission ? activeScreeningCosignerId : undefined;
     const isPending = row.bucket === "pending";
     const actionBtnClass = RESIDENT_DOCUMENTS_DETAIL_FOOTER_BTN;
     const showCompletionReminder = showCompletionReminderForRow(row);
-    const showsRunCheck =
-      applicationShowsBackgroundCheck(screeningRow) &&
-      Boolean(screeningRow.application?.consentCredit) &&
-      screeningRow.backgroundCheck?.status !== "pending" &&
-      screeningRow.backgroundCheck?.status !== "complete";
-    const canDownloadScreening =
-      screeningRow.backgroundCheck?.status === "complete" ||
-      (isDemoModeActive() && applicationShowsBackgroundCheck(screeningRow));
     const recordTitle = row.name?.trim() || row.application?.fullLegalName?.trim() || row.property?.trim();
     const actions: PortalFooterFitAction[] = [];
 
@@ -1393,39 +1375,6 @@ export function ManagerApplications({
       });
     }
 
-    if (showsRunCheck) {
-      actions.push({
-        id: "run-background-check",
-        button: (
-          <Button
-            type="button"
-            variant="outline"
-            className={actionBtnClass}
-            data-attr="run-background-check"
-            onClick={() =>
-              openDetailScreeningModal(row, {
-                cosignerSubmissionId: screeningCosignerId,
-              })
-            }
-          >
-            Run background check
-          </Button>
-        ),
-        menuItem: (
-          <DropdownMenuItem
-            data-attr="run-background-check"
-            onSelect={() =>
-              openDetailScreeningModal(row, {
-                cosignerSubmissionId: screeningCosignerId,
-              })
-            }
-          >
-            Run background check
-          </DropdownMenuItem>
-        ),
-      });
-    }
-
     if (row.bucket !== "rejected" && !isWithdrawnApplicationRow(row)) {
       actions.push({
         id: "holding-fee",
@@ -1454,61 +1403,15 @@ export function ManagerApplications({
     actions.push({
       id: "download",
       button: (
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button
-              type="button"
-              variant="outline"
-              className={actionBtnClass}
-              data-attr="application-download-menu"
-            >
-              Download
-              <ChevronDown className="ml-1 h-4 w-4 shrink-0 opacity-60" aria-hidden />
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent side="top" align="start" className="z-[60] min-w-[12rem]" backdrop>
-            <DropdownMenuItem
-              data-attr="application-pdf-download"
-              onSelect={() => runApplicationPdfDownload(row, showToast)}
-            >
-              Application
-            </DropdownMenuItem>
-            {canDownloadScreening ? (
-              <DropdownMenuItem
-                data-attr="screening-pdf-download"
-                onSelect={() =>
-                  downloadBackgroundCheckForApplication(screeningRow, {
-                    cosignerSubmissionId: screeningCosignerId,
-                  })
-                }
-              >
-                Background check
-              </DropdownMenuItem>
-            ) : null}
-          </DropdownMenuContent>
-        </DropdownMenu>
+        <ApplicationPdfDownloadButton row={row} label="Download" className={actionBtnClass} />
       ),
       menuItem: (
-        <>
-          <DropdownMenuItem
-            data-attr="application-pdf-download"
-            onSelect={() => runApplicationPdfDownload(row, showToast)}
-          >
-            Download application
-          </DropdownMenuItem>
-          {canDownloadScreening ? (
-            <DropdownMenuItem
-              data-attr="screening-pdf-download"
-              onSelect={() =>
-                downloadBackgroundCheckForApplication(screeningRow, {
-                  cosignerSubmissionId: screeningCosignerId,
-                })
-              }
-            >
-              Download background check
-            </DropdownMenuItem>
-          ) : null}
-        </>
+        <DropdownMenuItem
+          data-attr="application-pdf-download"
+          onSelect={() => runApplicationPdfDownload(row, showToast)}
+        >
+          Download application
+        </DropdownMenuItem>
       ),
     });
 
@@ -1673,24 +1576,6 @@ export function ManagerApplications({
         : undefined;
     const showPaidDepositNote = paidDepositCharge?.status === "paid";
     const group = groupForRow(applicationGroups, { groupId: groupIdForRow(row) });
-    const showHouseholdSections = true;
-    const householdPanels = showHouseholdSections ? (
-        <ApplicationHouseholdInlinePanels
-          cosignerSubmissions={cosignerSubmissions}
-          hasCosigner={row.application?.hasCosigner}
-          applyingAsGroup={row.application?.applyingAsGroup}
-          groupId={groupIdForRow(row)}
-          onOpenCosigner={(index) => {
-            const href = `${applicationDetailHref(basePath, tabForRow(row), row.id)}?cosigner=${index}`;
-            navigate(href);
-          }}
-          group={group}
-          currentRowId={row.id}
-          onOpenApplication={(applicationId) =>
-            navigate(applicationDetailHref(basePath, tabForRow(row), applicationId))
-          }
-        />
-      ) : null;
     return (
     <>
       {showPaidDepositNote ? (
@@ -1702,14 +1587,13 @@ export function ManagerApplications({
         </div>
       ) : null}
 
-      <ApplicationReviewLauncherRow
+      <ApplicationDetailReviewBody
         row={row}
         group={group}
+        cosignerSubmissions={cosignerSubmissions}
         bareCanvas
+        stretch
         showDownload={false}
-        hideToggle
-        activeView={applicationReviewView}
-        onActiveViewChange={setApplicationReviewView}
         onScreeningUpdated={handleScreeningFlowComplete}
         onOpenScreeningModal={(opts) =>
           openDetailScreeningModal(row, {
@@ -1717,12 +1601,32 @@ export function ManagerApplications({
             cosignerSubmissionId: activeScreeningCosignerId,
           })
         }
-        cosignerSubmissions={cosignerSubmissions}
         screeningSubjectId={resolvedScreeningSubjectId}
         onScreeningSubjectChange={setScreeningSubjectId}
         onRequestChecksForSubjects={openScreeningForSubjectIds}
-        householdPanels={householdPanels}
-        omitReviewSections={["cosigner", "group"]}
+        householdNav={{
+          onOpenCosigner: (index) => {
+            const href = `${applicationDetailHref(basePath, tabForRow(row), row.id, "application")}?cosigner=${index}`;
+            navigate(href);
+          },
+          onOpenApplication: (applicationId) => {
+            const target =
+              scopedRows.find(
+                (r) =>
+                  normalizeApplicationAxisId(r.id).toUpperCase() ===
+                  normalizeApplicationAxisId(applicationId).toUpperCase(),
+              ) ?? null;
+            navigate(
+              applicationDetailHref(
+                basePath,
+                target ? tabForRow(target) : tabForRow(row),
+                applicationId,
+                "application",
+              ),
+            );
+          },
+        }}
+        className="min-h-0 flex-1"
       />
 
     </>
@@ -1966,9 +1870,12 @@ export function ManagerApplications({
           scrollBody={false}
           footerOmitSpacer
           footer={(() => {
-            const actions = activeCosignerSubmission
-              ? renderCosignerDetailActions(detailRow, activeCosignerSubmission)
-              : renderApplicationRowActions(detailRow);
+            if (activeCosignerSubmission) {
+              const actions = renderCosignerDetailActions(detailRow, activeCosignerSubmission);
+              if (!actions) return undefined;
+              return <ResidentDocumentsDetailFooter>{actions}</ResidentDocumentsDetailFooter>;
+            }
+            const actions = renderApplicationRowActions(detailRow);
             if (!actions) return undefined;
             return <ResidentDocumentsDetailFooter>{actions}</ResidentDocumentsDetailFooter>;
           })()}
@@ -1976,34 +1883,17 @@ export function ManagerApplications({
           <div className="flex min-h-0 flex-1 flex-col">
             <PortalPageScrollBody className="min-w-0 max-w-full pt-3 pb-[calc(2.75rem+var(--portal-native-bottom-nav-inset,0px)+env(safe-area-inset-bottom,0px))] lg:pb-3">
               {activeCosignerSubmission ? (
-                <div className="space-y-3">
-                  {cosignerShowsBackgroundCheck(activeCosignerSubmission) ? (
-                    <div id="application-background-check-section" className="scroll-mt-4">
-                      <ApplicationScreeningPanel
-                        row={buildCosignerScreeningRow(detailRow, activeCosignerSubmission)}
-                        cosignerSubmissionId={activeCosignerSubmission.id}
-                        bareCanvas
-                        collapsible={false}
-                        presentation="compact"
-                        onUpdated={handleScreeningFlowComplete}
-                        onOpenScreeningModal={(opts) =>
-                          openDetailScreeningModal(detailRow, {
-                            showPackagePicker: opts?.showPackagePicker,
-                            cosignerSubmissionId: activeCosignerSubmission.id,
-                          })
-                        }
-                      />
-                    </div>
-                  ) : null}
-                  <ManagerCosignerReadonlyReview
-                    sub={activeCosignerSubmission}
-                    onOpenSignerApplication={() =>
-                      navigate(applicationDetailHref(basePath, tabForRow(detailRow), detailRow.id))
-                    }
-                  />
-                </div>
+                <ManagerCosignerReadonlyReview
+                  sub={activeCosignerSubmission}
+                  signerRow={detailRow}
+                  onOpenSignerApplication={() =>
+                    navigate(applicationDetailHref(basePath, tabForRow(detailRow), detailRow.id))
+                  }
+                />
               ) : (
-                renderApplicationDetail(detailRow)
+                <div className="flex min-h-0 flex-1 flex-col">
+                  {renderApplicationDetail(detailRow)}
+                </div>
               )}
             </PortalPageScrollBody>
           </div>
@@ -2112,18 +2002,6 @@ export function ManagerApplications({
                 }}
               >
                 Holding fee
-              </Button>
-              <Button
-                type="button"
-                variant="outline"
-                className={PORTAL_BULK_BAR_BTN}
-                data-attr="applications-bulk-run-background-check"
-                disabled={!canBulkRunBackgroundCheck}
-                onClick={() => {
-                  if (singleListSelectedRow) openDetailScreeningModal(singleListSelectedRow);
-                }}
-              >
-                Run background check
               </Button>
             </>
           }

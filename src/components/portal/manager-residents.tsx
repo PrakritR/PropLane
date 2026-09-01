@@ -40,8 +40,10 @@ import {
   useScheduledPaymentMessages,
 } from "@/components/portal/payment-schedule-ui";
 import { formatFriendlyReminderSchedule } from "@/lib/payment-reminder-presets";
-import { ApplicationFilterSortFields } from "@/components/portal/application-filter-sort-fields";
+import { togglePortalListClusterSelection } from "@/components/portal/application-household-list";
 import { PortalFormSingleSelect } from "@/components/portal/filter-field-lists";
+import { PortalListGroupFilterFields } from "@/components/portal/portal-list-group-filter-fields";
+import { PortalActiveFilterChips } from "@/components/portal/portal-filter-chips";
 import { PortalFilterSortSheet, portalFilterActiveCount } from "@/components/portal/portal-filter-sort-sheet";
 import type { ManagerPaymentBucket } from "@/data/demo-portal";
 import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
@@ -54,12 +56,8 @@ import {
   residentDetailHref,
   residentListHref,
   residentPaymentDetailHref,
-  residentApplicantDetailHref,
   parseResidentDetailTab,
-  parseResidentApplicantSubTab,
   parseResidentsTab,
-  RESIDENT_APPLICANT_SUB_TAB_LABELS,
-  type ResidentApplicantSubTabId,
   type ResidentDetailTabId,
   type ResidentsTabId,
 } from "@/lib/portal-detail-routes";
@@ -70,7 +68,12 @@ import { PortalRecordDetailPage } from "@/components/portal/portal-record-detail
 import { ManagerResidentsGroupedTable } from "@/components/portal/manager-residents-grouped-table";
 import { ManagerResidentToursPanel } from "@/components/portal/manager-resident-tours-panel";
 import { buildManagerTourRows } from "@/lib/manager-tour-list";
-import { buildResidentListClusters } from "@/lib/manager-resident-list-grouping";
+import { buildResidentListClustersByMode } from "@/lib/manager-resident-list-grouping";
+import {
+  PORTAL_LIST_GROUP_MODE_LABELS,
+  portalListGroupModeActiveCount,
+  type PortalListGroupMode,
+} from "@/lib/portal-list-grouping";
 import {
   DEV_RESIDENT_LIST_FIXTURES,
   shouldShowDevResidentListFixtures,
@@ -225,15 +228,12 @@ import {
 } from "@/lib/existing-resident-welcome-email";
 import { LocalDestinationNav } from "@/components/ui/destination-nav";
 import { groupIdForRow, groupRowInputForRow } from "@/components/portal/application-group-section";
-import { ApplicationHouseholdInlinePanels } from "@/components/portal/application-household-inline-panels";
 import { ManagerCosignerReadonlyReview } from "@/components/portal/manager-cosigner-readonly-review";
 import { dedupeResidentsByEmail } from "@/lib/resident-directory-dedupe";
 import { ApplicationHoldingFeeModal } from "@/components/portal/application-holding-fee-box";
 import { useCosignerSubmissionsMap } from "@/hooks/use-cosigner-submissions-map";
 import { signerAppIdsForCosignerLookup } from "@/lib/rental-application/application-list-grouping";
-import {
-  ApplicationReviewLauncherRow,
-} from "@/components/portal/application-review-launcher-row";
+import { ApplicationDetailReviewBody } from "@/components/portal/application-detail-review-body";
 import { ApplicationScreeningPanel } from "@/components/portal/application-screening-panel";
 import { runApplicationPdfDownload } from "@/components/portal/manager-applications";
 import { applicationShowsBackgroundCheck } from "@/lib/application-background-check";
@@ -336,7 +336,6 @@ export function ManagerResidents({
   tabId: tabIdProp = "current",
   residentId: residentIdProp,
   detailTab: detailTabProp,
-  applicantSubTab: applicantSubTabProp,
   paymentId: paymentIdProp,
   tourId: tourIdProp,
   serviceItemId: serviceItemIdProp,
@@ -345,7 +344,6 @@ export function ManagerResidents({
   tabId?: ResidentsTabId;
   residentId?: string;
   detailTab?: ResidentDetailTabId;
-  applicantSubTab?: string;
   paymentId?: string;
   tourId?: string;
   serviceItemId?: string;
@@ -374,6 +372,8 @@ export function ManagerResidents({
   const [srTick, setSrTick] = useState(0);
   const [inboxTick, setInboxTick] = useState(0);
   const [propertyFilters, setPropertyFilters] = useState<string[]>([]);
+  const RESIDENT_LIST_DEFAULT_GROUP_MODE: PortalListGroupMode = "house";
+  const [groupMode, setGroupMode] = useState<PortalListGroupMode>(RESIDENT_LIST_DEFAULT_GROUP_MODE);
   const residentsTab = parseResidentsTab(tabIdProp);
   const [chargeBucket, setChargeBucket] = useState<ManagerPaymentBucket>("pending");
   const [residentReminderSettingsOpen, setResidentReminderSettingsOpen] = useState(false);
@@ -428,7 +428,6 @@ export function ManagerResidents({
     useState<ResidentUnifiedServicesBucket>("pending");
 
   const activeDetailTab = parseResidentDetailTab(detailTabProp);
-  const resolvedApplicantSubTab = parseResidentApplicantSubTab(applicantSubTabProp);
   const handleApplicantScreeningFooterActions = useCallback((actions: ReactNode | null) => {
     setApplicantScreeningFooterActions(actions);
   }, []);
@@ -1099,22 +1098,30 @@ export function ManagerResidents({
 
   const residentListClusters = useMemo(
     () =>
-      buildResidentListClusters(
+      buildResidentListClustersByMode(
         filtered.map((res) => ({
           id: res.id,
           name: res.name,
           email: res.email,
+          propertyId: res.propertyId,
           propertyLabel: res.propertyLabel,
           roomLabel: res.roomLabel,
           leaseStart: res.leaseStart,
           groupId: res.groupId,
         })),
         applicationGroups,
+        groupMode,
       ),
-    [filtered, applicationGroups],
+    [filtered, applicationGroups, groupMode],
   );
 
-  const { selectedIds, toggleSelected, clearSelection } = usePortalRowSelection(residentsTab);
+  const propertyFilterLabel = useMemo(() => {
+    const id = propertyFilters[0];
+    if (!id) return "";
+    return propertyOptions.find((p) => p.id === id)?.label ?? id;
+  }, [propertyFilters, propertyOptions]);
+
+  const { selectedIds, setSelectedIds, toggleSelected, clearSelection } = usePortalRowSelection(residentsTab);
   const listSelectedCount = selectedIds.size;
   const singleListSelectedId = listSelectedCount === 1 ? [...selectedIds][0]! : null;
   const singleListSelectedResident = useMemo(
@@ -1302,66 +1309,43 @@ export function ManagerResidents({
 
   const residentDetailTabsAvailable = useMemo((): ResidentDetailTabId[] => {
     const tabs: ResidentDetailTabId[] = [];
-    if (showResidentApplication) tabs.push("applicant");
+    if (showResidentApplication) tabs.push("application");
+    if (
+      showResidentApplication &&
+      selectedApplicationRow &&
+      applicationShowsBackgroundCheck(selectedApplicationRow)
+    ) {
+      tabs.push("background-check");
+    }
     if (showResidentLease) tabs.push("lease");
     if (showResidentTours) tabs.push("tours");
     tabs.push("payments", "services", "communication");
     return tabs;
-  }, [showResidentApplication, showResidentLease, showResidentTours]);
+  }, [showResidentApplication, showResidentLease, showResidentTours, selectedApplicationRow]);
 
   const resolvedDetailTab = residentDetailTabsAvailable.includes(activeDetailTab)
     ? activeDetailTab
     : (residentDetailTabsAvailable[0] ?? "payments");
 
-  const applicantSubNavItems = useMemo(() => {
-    if (!selected) return [];
-    const items: Array<{
-      id: ResidentApplicantSubTabId;
-      label: string;
-      href: string;
-      dataAttr: string;
-    }> = [];
-    if (selectedApplicationRow && applicationShowsBackgroundCheck(selectedApplicationRow)) {
-      items.push({
-        id: "background-check",
-        label: RESIDENT_APPLICANT_SUB_TAB_LABELS["background-check"],
-        href: residentApplicantDetailHref(portalBase, residentsTab, selected.id, "background-check"),
-        dataAttr: "resident-applicant-subtab-background-check",
-      });
-    }
-    items.push({
-      id: "application",
-      label: RESIDENT_APPLICANT_SUB_TAB_LABELS.application,
-      href: residentApplicantDetailHref(portalBase, residentsTab, selected.id, "application"),
-      dataAttr: "resident-applicant-subtab-application",
-    });
-    return items;
-  }, [portalBase, residentsTab, selected, selectedApplicationRow]);
-
   useEffect(() => {
-    if (!selected || resolvedDetailTab !== "applicant") return;
-    if (
-      resolvedApplicantSubTab === "background-check" &&
-      selectedApplicationRow &&
-      !applicationShowsBackgroundCheck(selectedApplicationRow)
-    ) {
-      navigate(residentApplicantDetailHref(portalBase, residentsTab, selected.id, "application"));
+    if (!selected || resolvedDetailTab !== "background-check") return;
+    if (selectedApplicationRow && !applicationShowsBackgroundCheck(selectedApplicationRow)) {
+      navigate(residentDetailHref(portalBase, residentsTab, selected.id, "application"));
     }
   }, [
     navigate,
     portalBase,
     residentsTab,
-    resolvedApplicantSubTab,
     resolvedDetailTab,
     selected,
     selectedApplicationRow,
   ]);
 
   useEffect(() => {
-    if (resolvedDetailTab !== "applicant" || resolvedApplicantSubTab !== "background-check") {
+    if (resolvedDetailTab !== "background-check") {
       setApplicantScreeningFooterActions(null);
     }
-  }, [resolvedDetailTab, resolvedApplicantSubTab]);
+  }, [resolvedDetailTab]);
 
   // `threadReading` must stay FALSE here. Under
   // `html[data-communication-thread-reading]` globals.css hides the mobile nav
@@ -2743,10 +2727,10 @@ export function ManagerResidents({
   );
 
   const residentDetailBottomBarActions = useMemo(() => {
-    if (resolvedDetailTab === "applicant" && showResidentApplication) {
-      if (resolvedApplicantSubTab === "background-check") {
-        return residentBackgroundCheckTabFooterActions;
-      }
+    if (resolvedDetailTab === "background-check" && showResidentApplication) {
+      return residentBackgroundCheckTabFooterActions;
+    }
+    if (resolvedDetailTab === "application" && showResidentApplication) {
       return residentApplicationTabFooterActions;
     }
     if (resolvedDetailTab === "lease" && showResidentLease) {
@@ -2764,7 +2748,6 @@ export function ManagerResidents({
   }, [
     resolvedDetailTab,
     showResidentApplication,
-    resolvedApplicantSubTab,
     showResidentLease,
     residentApplicationTabFooterActions,
     residentBackgroundCheckTabFooterActions,
@@ -2814,7 +2797,8 @@ export function ManagerResidents({
   const residentDetailViewportFill =
     resolvedDetailTab === "communication" ||
     (showResidentTours && resolvedDetailTab === "tours") ||
-    (showResidentApplication && resolvedDetailTab === "applicant");
+    (showResidentApplication &&
+      (resolvedDetailTab === "application" || resolvedDetailTab === "background-check"));
 
   const residentDetailPanel =
     selected ? (
@@ -2828,7 +2812,12 @@ export function ManagerResidents({
                                   denseEqualRow
                                   items={(
                                     [
-                                      showResidentApplication ? "applicant" : null,
+                                      showResidentApplication ? "application" : null,
+                                      showResidentApplication &&
+                                      selectedApplicationRow &&
+                                      applicationShowsBackgroundCheck(selectedApplicationRow)
+                                        ? "background-check"
+                                        : null,
                                       showResidentLease ? "lease" : null,
                                       showResidentTours ? "tours" : null,
                                       "payments",
@@ -2848,17 +2837,6 @@ export function ManagerResidents({
                                   ariaLabel="Resident profile sections"
                                   appearance="command"
                                 />
-                                {showResidentApplication && resolvedDetailTab === "applicant" ? (
-                                  <div className="w-full border-t border-border/60 bg-accent/30 px-1 py-1">
-                                    <PortalDetailDestinationNav
-                                      denseEqualRow
-                                      items={applicantSubNavItems}
-                                      activeId={resolvedApplicantSubTab}
-                                      ariaLabel="Applicant sections"
-                                      appearance="command"
-                                    />
-                                  </div>
-                                ) : null}
                               </div>
                             </PortalPageChrome>
 
@@ -2909,90 +2887,84 @@ export function ManagerResidents({
                               )}
                             </ResidentDetailTabPanel>
                             </div>
-                            ) : showResidentApplication && resolvedDetailTab === "applicant" ? (
+                            ) : showResidentApplication && resolvedDetailTab === "background-check" ? (
+                            <div className="flex min-h-0 flex-1 flex-col">
+                            <ResidentDetailTabPanel fill>
+                              {selectedApplicationRow &&
+                              applicationShowsBackgroundCheck(selectedApplicationRow) ? (
+                                <ApplicationScreeningPanel
+                                  row={selectedApplicationRow}
+                                  collapsible={false}
+                                  presentation="full"
+                                  bareCanvas
+                                  stretch
+                                  headerActionsPlacement="parent"
+                                  compactTabFooterActions
+                                  onHeaderActionsChange={handleApplicantScreeningFooterActions}
+                                  onUpdated={handleScreeningUpdated}
+                                  onOpenScreeningModal={(opts) => {
+                                    setCheckrScreeningShowPicker(Boolean(opts?.showPackagePicker));
+                                    setCheckrScreeningRowId(selectedApplicationRow.id);
+                                  }}
+                                  cosignerSubmissions={selectedApplicationCosigners}
+                                  className="min-h-0 flex-1"
+                                />
+                              ) : (
+                                <p className="text-sm text-muted">No background check for this resident.</p>
+                              )}
+                            </ResidentDetailTabPanel>
+                            </div>
+                            ) : showResidentApplication && resolvedDetailTab === "application" ? (
                             <div className="flex min-h-0 flex-1 flex-col">
                             <ResidentDetailTabPanel fill>
                               {selectedApplicationRow ? (
-                                activeCosignerSubmission && resolvedApplicantSubTab === "application" ? (
+                                activeCosignerSubmission ? (
                                   <ManagerCosignerReadonlyReview
                                     sub={activeCosignerSubmission}
+                                    signerRow={selectedApplicationRow}
                                     onOpenSignerApplication={() =>
                                       navigate(
-                                        residentApplicantDetailHref(
-                                          portalBase,
-                                          residentsTab,
-                                          selected.id,
-                                          "application",
-                                        ),
+                                        residentDetailHref(portalBase, residentsTab, selected.id, "application"),
                                       )
                                     }
                                   />
-                                ) : resolvedApplicantSubTab === "background-check" &&
-                                  applicationShowsBackgroundCheck(selectedApplicationRow) ? (
-                                  <ApplicationScreeningPanel
-                                    row={selectedApplicationRow}
-                                    collapsible={false}
-                                    presentation="full"
-                                    bareCanvas
-                                    stretch
-                                    headerActionsPlacement="parent"
-                                    compactTabFooterActions
-                                    onHeaderActionsChange={handleApplicantScreeningFooterActions}
-                                    onUpdated={handleScreeningUpdated}
-                                    onOpenScreeningModal={(opts) => {
-                                      setCheckrScreeningShowPicker(Boolean(opts?.showPackagePicker));
-                                      setCheckrScreeningRowId(selectedApplicationRow.id);
-                                    }}
-                                    cosignerSubmissions={selectedApplicationCosigners}
-                                    className="min-h-0 flex-1"
-                                  />
                                 ) : (
                                 <div className="flex min-h-0 flex-1 flex-col gap-3">
-                                  <ApplicationReviewLauncherRow
+                                  <ApplicationDetailReviewBody
                                     row={selectedApplicationRow}
                                     group={selectedApplicationGroup}
                                     bareCanvas
                                     stretch
-                                    hideToggle
                                     showDownload={false}
-                                    content="application"
                                     onScreeningUpdated={handleScreeningUpdated}
                                     onOpenScreeningModal={(opts) => {
                                       setCheckrScreeningShowPicker(Boolean(opts?.showPackagePicker));
                                       setCheckrScreeningRowId(selectedApplicationRow.id);
                                     }}
                                     cosignerSubmissions={selectedApplicationCosigners}
-                                    householdPanels={
-                                      <ApplicationHouseholdInlinePanels
-                                        cosignerSubmissions={selectedApplicationCosigners}
-                                        hasCosigner={selectedApplicationRow.application?.hasCosigner}
-                                        applyingAsGroup={selectedApplicationRow.application?.applyingAsGroup}
-                                        groupId={groupIdForRow(selectedApplicationRow)}
-                                        onOpenCosigner={(index) => {
-                                          navigate(
-                                            `${residentApplicantDetailHref(
-                                              portalBase,
-                                              residentsTab,
-                                              selected.id,
-                                              "application",
-                                            )}?cosigner=${index}`,
-                                          );
-                                        }}
-                                        group={selectedApplicationGroup}
-                                        currentRowId={selectedApplicationRow.id}
-                                        onOpenApplication={(applicationId) => {
-                                          navigate(
-                                            residentApplicantDetailHref(
-                                              portalBase,
-                                              residentsTab,
-                                              applicationId,
-                                              "application",
-                                            ),
-                                          );
-                                        }}
-                                      />
-                                    }
-                                    omitReviewSections={["cosigner", "group"]}
+                                    householdNav={{
+                                      onOpenCosigner: (index) => {
+                                        navigate(
+                                          `${residentDetailHref(portalBase, residentsTab, selected.id, "application")}?cosigner=${index}`,
+                                        );
+                                      },
+                                      onOpenApplication: (applicationId) => {
+                                        const normalized = normalizeApplicationAxisId(applicationId).toUpperCase();
+                                        const targetId =
+                                          readManagerApplicationRows().find(
+                                            (appRow) =>
+                                              normalizeApplicationAxisId(appRow.id).toUpperCase() === normalized,
+                                          )?.id ?? applicationId;
+                                        navigate(
+                                          residentDetailHref(
+                                            portalBase,
+                                            residentsTab,
+                                            targetId,
+                                            "application",
+                                          ),
+                                        );
+                                      },
+                                    }}
                                     className="min-h-0 flex-1"
                                   />
                                 </div>
@@ -3221,26 +3193,34 @@ export function ManagerResidents({
                           </div>
     ) : null;
 
-  const residentsFilterSheet =
-    propertyOptions.length > 0 ? (
-      <PortalFilterSortSheet
-        activeCount={portalFilterActiveCount([propertyFilters])}
-        compactPanel
-        commandStripTrigger
-        filterFieldCount={1}
-        constrainDropdownToTitleBand={false}
-        mobileFlushBody
-        onReset={() => setPropertyFilters([])}
-        dataAttr="residents-filter-sheet-open"
-      >
-        <ApplicationFilterSortFields
-          propertyOptions={propertyOptions}
-          propertyFilters={propertyFilters}
-          onPropertyFiltersChange={setPropertyFilters}
-          dataAttr="residents-filter-property"
-        />
-      </PortalFilterSortSheet>
-    ) : null;
+  const residentsFilterSheet = (
+    <PortalFilterSortSheet
+      activeCount={portalFilterActiveCount([
+        propertyFilters,
+        portalListGroupModeActiveCount(groupMode, RESIDENT_LIST_DEFAULT_GROUP_MODE),
+      ])}
+      compactPanel
+      commandStripTrigger
+      filterFieldCount={propertyOptions.length > 1 ? 2 : 1}
+      constrainDropdownToTitleBand={false}
+      mobileFlushBody
+      onReset={() => {
+        setPropertyFilters([]);
+        setGroupMode(RESIDENT_LIST_DEFAULT_GROUP_MODE);
+      }}
+      dataAttr="residents-filter-sheet-open"
+    >
+      <PortalListGroupFilterFields
+        groupMode={groupMode}
+        onGroupModeChange={setGroupMode}
+        propertyOptions={propertyOptions}
+        propertyFilters={propertyFilters}
+        onPropertyFiltersChange={setPropertyFilters}
+        propertyDataAttr="residents-filter-property"
+        groupModeDataAttr="residents-filter-group-mode"
+      />
+    </PortalFilterSortSheet>
+  );
 
   return (
     <>
@@ -3350,6 +3330,32 @@ export function ManagerResidents({
         activeDestinationId={residentsTab}
         destinationAriaLabel="Resident directory stage"
         actions={residentsFilterSheet}
+        activeFilterChips={
+          propertyFilters.length > 0 || groupMode !== RESIDENT_LIST_DEFAULT_GROUP_MODE ? (
+            <PortalActiveFilterChips
+              chips={[
+                ...(groupMode !== RESIDENT_LIST_DEFAULT_GROUP_MODE
+                  ? [
+                      {
+                        id: "group-mode",
+                        label: PORTAL_LIST_GROUP_MODE_LABELS[groupMode],
+                        onRemove: () => setGroupMode(RESIDENT_LIST_DEFAULT_GROUP_MODE),
+                      },
+                    ]
+                  : []),
+                ...(propertyFilters.length > 0
+                  ? [
+                      {
+                        id: "property",
+                        label: `Property: ${propertyFilterLabel}`,
+                        onRemove: () => setPropertyFilters([]),
+                      },
+                    ]
+                  : []),
+              ]}
+            />
+          ) : null
+        }
       />
       <PortalRecordListSurface
         isEmpty={filtered.length === 0}
@@ -3406,10 +3412,12 @@ export function ManagerResidents({
       >
         <ManagerResidentsGroupedTable
           clusters={residentListClusters}
-          showPropertyInRows={propertyFilters.length > 0}
+          groupMode={groupMode}
+          showPropertyInRows={propertyFilters.length > 0 || groupMode === "resident"}
           selectable
           selectedIds={selectedIds}
           onToggleSelected={toggleSelected}
+          onToggleCluster={(ids) => togglePortalListClusterSelection(setSelectedIds, ids)}
           onOpenResident={(res) =>
             navigate(residentDetailHref(portalBase, residentsTab, res.id, resolvedDetailTab))
           }
