@@ -219,6 +219,8 @@ export function LocalDestinationNav({
   className,
   size = "default",
   tone = "default",
+  /** `command` is the low-chrome list-page treatment: text tabs with an active underline. */
+  appearance = "segmented",
 }: {
   items: LocalDestinationNavItem[];
   activeId: string;
@@ -227,12 +229,13 @@ export function LocalDestinationNav({
   className?: string;
   size?: "default" | "toolbar";
   tone?: "default" | "monochrome";
+  appearance?: "segmented" | "command";
 }) {
   const compactItems = items.length > 4;
 
   return (
     <nav
-      className={destinationNavShellClassName(className)}
+      className={destinationNavShellClassName(className, "auto", false, false, appearance)}
       aria-label={ariaLabel}
       data-slot="local-destination-nav"
       {...{ [HORIZONTAL_SCROLL_ATTR]: "" }}
@@ -245,13 +248,33 @@ export function LocalDestinationNav({
             type="button"
             data-attr={item.dataAttr}
             className={cn(
-              destinationNavItemWidthClass(compactItems),
-              destinationNavItemClassName({ active, alert: item.alert, size, tone }),
+              destinationNavItemWidthClass(compactItems, appearance),
+              appearance === "command"
+                ? cn(
+                    "portal-pressable inline-flex min-h-11 items-center justify-center gap-1.5 rounded-none border-b-2 px-2.5 py-2 text-sm font-semibold transition-[color,border-color,background-color] duration-100 sm:px-3",
+                    "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                    active
+                      ? "border-primary text-primary"
+                      : "border-transparent text-muted hover:border-border hover:text-foreground",
+                    item.alert && !active && "text-[var(--status-overdue-fg)]",
+                  )
+                : destinationNavItemClassName({ active, alert: item.alert, size, tone }),
             )}
             aria-current={active ? "page" : undefined}
             onClick={() => onChange(item.id)}
           >
             <span>{item.label}</span>
+            {appearance === "command" && item.count != null ? (
+              <span
+                className={cn(
+                  "inline-flex min-w-5 items-center justify-center rounded-full px-1.5 py-0.5 text-[11px] font-semibold tabular-nums",
+                  active ? "bg-primary/10 text-primary" : "bg-accent text-muted",
+                )}
+                aria-label={`${item.count} ${item.count === 1 ? "item" : "items"}`}
+              >
+                {item.count}
+              </span>
+            ) : null}
           </button>
         );
       })}

@@ -44,8 +44,9 @@ import { PORTAL_PROPERTY_FILTER_SHEET_CLASS } from "@/components/portal/portal-f
 import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
 import {
   ManagerPortalPageShell,
-  PORTAL_HEADER_ACTION_BTN,
-  PORTAL_HEADER_PRIMARY_ACTION_BTN_RESPONSIVE,
+  PORTAL_COMMAND_ACTION_BTN,
+  PORTAL_COMMAND_PRIMARY_ACTION_BTN,
+  PORTAL_COMMAND_PRIMARY_ACTION_STYLE,
 } from "@/components/portal/portal-metrics";
 import { PortalActiveFilterChips, type PortalActiveFilterChip } from "@/components/portal/portal-filter-chips";
 import { PortalRecordDetailPage } from "@/components/portal/portal-record-detail-page";
@@ -126,7 +127,6 @@ export function ManagerAllServicesPanel({
   const [dataTick, setDataTick] = useState(0);
   const [propertyFilters, setPropertyFilters] = useState<string[]>([]);
   const [groupMode, setGroupMode] = useState<PortalListGroupMode>(DEFAULT_PORTAL_LIST_GROUP_MODE);
-  const [searchQuery, setSearchQuery] = useState("");
   const [woBucket, setWoBucket] = useState<ManagerWorkOrderBucket>(workOrderBucketProp);
   const [prevWoBucketProp, setPrevWoBucketProp] = useState(workOrderBucketProp);
   if (workOrderBucketProp !== prevWoBucketProp) {
@@ -209,16 +209,8 @@ export function ManagerAllServicesPanel({
   const filteredWorkOrders = useMemo(() => {
     let rows = workOrders;
     if (propertyFilters.length > 0) rows = rows.filter((r) => propertyFilters.some((id) => r.propertyId === id || r.assignedPropertyId === id));
-    const q = searchQuery.trim().toLowerCase();
-    if (!q) return rows;
-    return rows.filter((r) =>
-      [r.title, r.propertyName, r.unit, r.residentName, r.priority, r.description]
-        .filter(Boolean)
-        .join(" ")
-        .toLowerCase()
-        .includes(q),
-    );
-  }, [workOrders, propertyFilters, searchQuery]);
+    return rows;
+  }, [workOrders, propertyFilters]);
 
   const filteredRequests = useMemo(() => {
     let rows = serviceRequests;
@@ -227,16 +219,8 @@ export function ManagerAllServicesPanel({
         (r) => propertyFilters.some((id) => samePropertyId(r.propertyId, id)) || !r.propertyId?.trim(),
       );
     }
-    const q = searchQuery.trim().toLowerCase();
-    if (!q) return rows;
-    return rows.filter((r) =>
-      [r.offerName, r.residentName, r.notes, r.residentEmail]
-        .filter(Boolean)
-        .join(" ")
-        .toLowerCase()
-        .includes(q),
-    );
-  }, [serviceRequests, propertyFilters, searchQuery]);
+    return rows;
+  }, [serviceRequests, propertyFilters]);
 
   const resolveRequestPropertyLabel = (req: ServiceRequest) =>
     req.propertyId && propertyOptions.find((p) => p.id === req.propertyId)
@@ -277,8 +261,9 @@ export function ManagerAllServicesPanel({
     <PortalFilterSortSheet
         activeCount={servicesFilterActiveCount}
         compactPanel
+        commandStripTrigger
         filterFieldCount={filterPropertyOptions.length > 1 ? 2 : 1}
-        constrainDropdownToTitleBand
+        constrainDropdownToTitleBand={false}
         mobileFlushBody
         className={PORTAL_PROPERTY_FILTER_SHEET_CLASS}
         onReset={resetServicesFilters}
@@ -321,31 +306,6 @@ export function ManagerAllServicesPanel({
       />
     );
   };
-
-  const servicesAddButton = (
-    <div className="flex w-full shrink-0 flex-col gap-2 md:w-auto md:flex-row md:items-center">
-      <Button
-        type="button"
-        variant="outline"
-        className={PORTAL_HEADER_ACTION_BTN}
-        data-attr="edit-service-requests-open"
-        onClick={() => setEditServiceRequestsOpen(true)}
-        disabled={propertyOptions.length === 0}
-        title={propertyOptions.length === 0 ? "Add a property before editing its service types" : undefined}
-      >
-        Edit
-      </Button>
-      <Button
-        type="button"
-        variant="outline"
-        className={PORTAL_HEADER_PRIMARY_ACTION_BTN_RESPONSIVE}
-        data-attr="manager-service-add"
-        onClick={() => setAddServiceOpen(true)}
-      >
-        Add service
-      </Button>
-    </div>
-  );
 
   // Hoisted above the early returns below. It sat after them, so on a render that took an
   // early return this hook did not run and the hook COUNT changed between renders, which
@@ -513,40 +473,56 @@ export function ManagerAllServicesPanel({
   };
 
   const servicesListDestinations = (
-    <div className="flex w-full min-w-0 flex-col gap-2">
-      <LocalDestinationNav
-        items={SERVICE_STATE_TABS.map((tab) => ({
-          id: tab.id,
-          label: tab.label,
-          count: unifiedCounts[tab.id],
-          dataAttr: `manager-services-state-${tab.id}`,
-        }))}
-        activeId={serviceState}
-        onChange={(id) => setServiceState(id as ServiceRowState)}
-        ariaLabel="Service status"
-      />
-    </div>
+    <LocalDestinationNav
+      items={SERVICE_STATE_TABS.map((tab) => ({
+        id: tab.id,
+        label: tab.label,
+        count: unifiedCounts[tab.id],
+        dataAttr: `manager-services-state-${tab.id}`,
+      }))}
+      activeId={serviceState}
+      onChange={(id) => setServiceState(id as ServiceRowState)}
+      ariaLabel="Service status"
+      appearance="command"
+    />
   );
 
   return (
     <ManagerPortalPageShell
       title="Services"
-      titleInlineFilter={servicesFilterSheet}
-      titleAside={servicesAddButton}
       hideTitleOnMobileNav
+      titleInlineFilter={null}
       compactFilterRow
     >
       <PortalListControlStack
-        className="mb-2"
+        className="mb-2 max-lg:mb-1.5"
+        variant="command"
         destinationRow={servicesListDestinations}
-        search={{
-          value: searchQuery,
-          onChange: setSearchQuery,
-          placeholder:
-            "Search services",
-          dataAttr:
-            typeFilter === "work-orders" ? "services-work-orders-search" : "services-requests-search",
-        }}
+        actions={
+          <>
+            {servicesFilterSheet}
+            <Button
+              type="button"
+              variant="outline"
+              className={PORTAL_COMMAND_ACTION_BTN}
+              data-attr="edit-service-requests-open"
+              onClick={() => setEditServiceRequestsOpen(true)}
+              disabled={propertyOptions.length === 0}
+              title={propertyOptions.length === 0 ? "Add a property before editing its service types" : undefined}
+            >
+              Edit
+            </Button>
+            <Button
+              type="button"
+              className={PORTAL_COMMAND_PRIMARY_ACTION_BTN}
+              style={PORTAL_COMMAND_PRIMARY_ACTION_STYLE}
+              data-attr="manager-service-add"
+              onClick={() => setAddServiceOpen(true)}
+            >
+              Add service
+            </Button>
+          </>
+        }
         activeFilterChips={<PortalActiveFilterChips chips={activeFilterChips} />}
       />
       <PortalRecordListSurface isEmpty={visibleUnifiedRows.length === 0} add={servicesListAdd}>
