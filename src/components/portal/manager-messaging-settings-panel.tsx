@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { AlertCircle, CheckCircle2, MessageSquareText } from "lucide-react";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useAppUi } from "@/components/providers/app-ui-provider";
 import {
   PortalSettingsField,
@@ -16,10 +16,14 @@ import {
   PORTAL_MESSAGE_COMPOSE_TWO_COL_CLASS,
   PortalMessageBodyField,
   PortalMessageComposeModalBody,
+  PortalMessageRecipientReadonly,
   PortalMessageSendViaDropdown,
   PortalMessageSubjectField,
   portalMessageChannelsFromSelection,
 } from "@/components/portal/portal-message-compose-fields";
+import type { InboxScopedContact } from "@/data/inbox-scoped-directory";
+import { useManagerUserId } from "@/hooks/use-manager-user-id";
+import { buildManagerInboxLiveContacts } from "@/lib/manager-inbox-contacts";
 import { ManagerMessagingOutboundDefaults } from "@/components/portal/manager-messaging-outbound-defaults";
 import { ManagerSmsWorkNumberHint } from "@/components/portal/manager-sms-work-number-hint";
 import { useManagerCommunicationDeliverVia } from "@/hooks/use-manager-communication-deliver-via";
@@ -39,6 +43,25 @@ const ENDPOINT = "/api/manager/messaging-number";
 
 function announceStorageKey(phone: string): string {
   return `axis_work_number_announce_v1:${phone}`;
+}
+
+/** Approved residents only — matches server broadcast resolution for `toBroadcast: ["resident"]`. */
+export function approvedResidentsForWorkNumberAnnounce(
+  userId: string | null,
+): InboxScopedContact[] {
+  return buildManagerInboxLiveContacts(userId).filter(
+    (contact) => contact.role === "resident" && contact.tenancyStatus === "resident",
+  );
+}
+
+export function formatWorkNumberAnnounceRecipientDisplay(
+  residents: InboxScopedContact[],
+): string {
+  if (residents.length === 0) return "No residents to notify yet";
+  return residents
+    .map((resident) => resident.email.trim())
+    .filter((email) => email.includes("@"))
+    .join(", ");
 }
 
 export function buildWorkNumberResidentAnnounceCopy(phone: string): {
@@ -180,6 +203,7 @@ export function ManagerMessagingSettingsPanel({
   personalPhoneRefreshKey?: number;
 }) {
   const { showToast } = useAppUi();
+  const { userId } = useManagerUserId();
   const [status, setStatus] = useState<ManagerMessagingNumberStatus | null>(
     null,
   );
@@ -334,6 +358,11 @@ export function ManagerMessagingSettingsPanel({
 
   const announceChannels = portalMessageChannelsFromSelection(announceSendVia);
   const announceSmsBlocked = announceChannels.viaSms && !status?.canSend;
+  const announceResidents = useMemo(
+    () => approvedResidentsForWorkNumberAnnounce(userId),
+    [userId, announceOpen],
+  );
+  const announceRecipientDisplay = formatWorkNumberAnnounceRecipientDisplay(announceResidents);
 
   const sendResidentAnnounce = useCallback(async () => {
     const phone = status?.number?.phoneNumber?.trim();
@@ -739,6 +768,10 @@ export function ManagerMessagingSettingsPanel({
         <p className="text-sm leading-relaxed text-muted">
           Want to send a message to all your residents to text this new number now?
         </p>
+        <PortalMessageRecipientReadonly
+          recipient={announceRecipientDisplay}
+          wrap={announceResidents.length > 1}
+        />
         <div className={PORTAL_MESSAGE_COMPOSE_TWO_COL_CLASS}>
           <PortalMessageSubjectField
             id="work-number-announce-subject"

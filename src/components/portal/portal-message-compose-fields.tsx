@@ -236,11 +236,25 @@ export function defaultPortalMessageChannelSelection(
   return selected;
 }
 
-export function PortalMessageRecipientReadonly({ recipient }: { recipient: string }) {
+export function PortalMessageRecipientReadonly({
+  recipient,
+  wrap = false,
+}: {
+  recipient: string;
+  /** Allow multiple comma-separated recipients to wrap instead of truncating. */
+  wrap?: boolean;
+}) {
   return (
     <div>
       <p className={portalMessageFieldLabel()}>To</p>
-      <p className={cn("mt-1 truncate text-sm text-foreground", MODAL_INSET_BOX_CLASS, "py-2")}>
+      <p
+        className={cn(
+          "mt-1 text-sm text-foreground",
+          MODAL_INSET_BOX_CLASS,
+          "py-2",
+          wrap ? "whitespace-pre-wrap break-words" : "truncate",
+        )}
+      >
         {recipient}
       </p>
     </div>
