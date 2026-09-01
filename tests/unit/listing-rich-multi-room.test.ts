@@ -71,6 +71,54 @@ describe("listing multi-room lease basics", () => {
     expect(rich.pricingBreakdown?.some((line) => line.label === "Due at signing")).toBe(false);
   });
 
+  it("includes unified long-term fees in the pricing sidebar breakdown", () => {
+    const sub = createDefaultListingSubmission();
+    sub.applicationFee = "50";
+    sub.monthToMonthSurcharge = "25";
+    sub.customLeaseSurcharge = "100";
+    sub.holdingDeposit = "50";
+    const property = mockProperty({ id: "unified-fees-sidebar", listingSubmission: sub });
+    const rich = listingRichFromManagerSubmission(property, sub);
+
+    expect(rich.pricingBreakdown?.some((line) => line.label === "Application fee" && line.value === "$50.00")).toBe(true);
+    expect(rich.pricingBreakdown?.some((line) => line.label === "Month-to-month surcharge" && line.value === "$25.00/mo")).toBe(true);
+    expect(rich.pricingBreakdown?.some((line) => line.label === "Custom lease" && line.value === "$100.00/mo")).toBe(true);
+    expect(rich.pricingBreakdown?.some((line) => line.label === "Holding deposit")).toBe(false);
+  });
+
+  it("uses entire-home utilities estimate in the sidebar monthly total", () => {
+    const sub = createDefaultListingSubmission();
+    sub.listingPlaceCategoryId = "entire_home";
+    sub.entireHomeMonthlyRent = 1200;
+    sub.entireHomeUtilitiesEstimate = "200";
+    sub.rooms = [{ ...sub.rooms[0]!, id: "bed-1", name: "Bedroom 1", monthlyRent: 1200 }];
+    const property = mockProperty({ id: "entire-home-utilities-sidebar", listingSubmission: sub });
+    const rich = listingRichFromManagerSubmission(property, sub);
+
+    expect(rich.startingRentLabel).toBe("$1200/mo");
+    expect(rich.estimatedMonthlyTotalLabel).toBe("$1400/mo");
+  });
+
+  it("reflects entire-home short-term prices from the fees form in the sidebar", () => {
+    const sub = createDefaultListingSubmission();
+    sub.listingPlaceCategoryId = "entire_home";
+    sub.entireHomeMonthlyRent = 1200;
+    sub.entireHomeUtilitiesEstimate = "200";
+    sub.shortTermRentalsAllowed = true;
+    sub.shortTermDailyCost = "75";
+    sub.shortTermApplicationFee = "50";
+    sub.shortTermDeposit = "200";
+    sub.shortTermMoveInFee = "75";
+    sub.rooms = [{ ...sub.rooms[0]!, id: "bed-1", name: "Bedroom 1", monthlyRent: 1200 }];
+    const property = mockProperty({ id: "entire-home-st-sidebar", listingSubmission: sub });
+    const rich = listingRichFromManagerSubmission(property, sub);
+
+    expect(rich.pricingBreakdown?.some((line) => line.label === "Short-term application fee" && line.value === "$50.00")).toBe(true);
+    expect(rich.pricingBreakdown?.some((line) => line.label === "Nightly rate" && line.value === "$75.00/night")).toBe(true);
+    expect(rich.pricingBreakdown?.some((line) => line.label === "Short-term deposit" && line.value === "$200.00")).toBe(true);
+    expect(rich.pricingBreakdown?.some((line) => line.label === "Move-in / cleaning" && line.value === "$75.00")).toBe(true);
+  });
+
   it("shows short-term room nightly rates and placement fees on listing", () => {
     const sub = createDefaultListingSubmission();
     sub.shortTermRentalsAllowed = true;
