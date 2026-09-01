@@ -83,6 +83,11 @@ import {
 import { scheduledItemsForRecipient } from "@/lib/inbox-scheduled-thread";
 import { readPortalApiError } from "@/lib/portal-api-error";
 import { MANAGER_APPLICATIONS_EVENT } from "@/lib/manager-applications-storage";
+import {
+  inboxThreadHasEmail,
+  resolveManagerInboxReplyChannels,
+  resolveManagerInboxSmsTarget,
+} from "@/lib/manager-inbox-reply-channels";
 import { buildManagerInboxLiveContacts } from "@/lib/manager-inbox-contacts";
 import {
   isUpcomingScheduledInboxMessage,
@@ -105,6 +110,7 @@ import {
   MANUAL_SMS_NETWORK_UNKNOWN_MESSAGE,
   MANUAL_SMS_UNKNOWN_MESSAGE,
   isManualSmsOutcomeUnknown,
+  isManualSmsSubmitted,
   resolveManualSmsAttempt,
   type ManualSmsAttempt,
 } from "@/lib/sms/manual-send-attempt";
@@ -248,6 +254,27 @@ export const ManagerInbox = forwardRef<
     );
   }, [manualScheduledMessages, scheduledMessages]);
   const { userId } = useManagerUserId();
+  const [smsCanSend, setSmsCanSend] = useState(false);
+  /** Work-number replies stay live when canSend even if the global SMS comm UI flag is off. */
+  const smsOutboundEnabled = smsUiEnabled || smsCanSend;
+
+  useEffect(() => {
+    if (isDemoModeActive()) return;
+    let cancelled = false;
+    void fetch("/api/manager/messaging-number", { credentials: "include", cache: "no-store" })
+      .then((res) => (res.ok ? res.json() : null))
+      .then((body) => {
+        if (cancelled || !body || typeof body !== "object") return;
+        setSmsCanSend((body as { canSend?: boolean }).canSend === true);
+      })
+      .catch(() => {
+        if (!cancelled) setSmsCanSend(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   const [local, setLocal] = useState<InboxThread[]>(() => loadPersistedInbox(MANAGER_INBOX_STORAGE_KEY, []) as InboxThread[]);
   const localRef = useRef(local);
   const replySmsAttemptRef = useRef<ManualSmsAttempt | null>(null);
@@ -644,8 +671,16 @@ export const ManagerInbox = forwardRef<
     ) => {
       const thread = localRef.current.find((t) => t.id === rowId);
       if (!thread) return;
-      if (!channels.email && !channels.sms) {
-        throw new InboxSendRefusal(null);
+      const emailAllowed = channels.email && inboxThreadHasEmail(thread.email);
+      const smsAllowed =
+        channels.sms &&
+        Boolean(resolveManagerInboxSmsTarget(thread, smsRecipients, smsOutboundEnabled)?.phone?.trim());
+      if (!emailAllowed && !smsAllowed) {
+        throw new InboxSendRefusal(
+          channels.email && !inboxThreadHasEmail(thread.email)
+            ? "This conversation has no email address. Send via SMS instead."
+            : null,
+        );
       }
 
       const replyId = `reply-${Date.now().toString(36)}`;
@@ -706,7 +741,7 @@ export const ManagerInbox = forwardRef<
       let smsUnknown = false;
       let failureMessage = "";
       try {
-        if (channels.email) {
+        if (emailAllowed) {
           try {
             const res = await fetch("/api/portal/send-inbox-message", {
               method: "POST",
@@ -736,12 +771,11 @@ export const ManagerInbox = forwardRef<
           }
         }
 
-        if (channels.sms) {
-          const norm = thread.email.trim().toLowerCase();
-          const smsTarget = smsRecipients.find(
-            (resident) =>
-              resident.residentEmail?.trim().toLowerCase() === norm &&
-              resident.phone?.trim(),
+        if (smsAllowed) {
+          const smsTarget = resolveManagerInboxSmsTarget(
+            thread,
+            smsRecipients,
+            smsOutboundEnabled,
           );
           if (!smsTarget?.phone?.trim()) {
             failureMessage ||= "No phone is available for this conversation.";
@@ -779,12 +813,15 @@ export const ManagerInbox = forwardRef<
                 code?: string;
                 status?: string;
               };
-              smsOk = res.ok;
-              smsUnknown = !smsOk && isManualSmsOutcomeUnknown(data);
+              smsUnknown = isManualSmsOutcomeUnknown(data);
+              smsOk = res.ok && isManualSmsSubmitted(data);
               if (smsOk) {
                 replySmsAttemptRef.current = null;
               } else if (smsUnknown) {
                 failureMessage = MANUAL_SMS_UNKNOWN_MESSAGE;
+              } else if (res.ok && data.status && data.status !== "submitted") {
+                failureMessage =
+                  "Text message is queued but has not been delivered yet. Check Settings → Messaging or try again shortly.";
               } else {
                 failureMessage = data.error?.trim() || failureMessage;
               }
@@ -829,14 +866,14 @@ export const ManagerInbox = forwardRef<
         force: true,
       }).catch(() => {});
       return {
-        emailRequested: channels.email,
-        smsRequested: channels.sms,
+        emailRequested: emailAllowed,
+        smsRequested: smsAllowed,
         emailOk,
         smsOk,
         smsUnknown,
       };
     },
-    [smsRecipients],
+    [smsRecipients, smsOutboundEnabled],
   );
 
   const handleComposeSend = useCallback(
@@ -1020,11 +1057,19 @@ export const ManagerInbox = forwardRef<
   const [threadPhoneError, setThreadPhoneError] = useState<string | null>(null);
   const [savingThreadPhone, setSavingThreadPhone] = useState(false);
 
-  const activeSmsAvailable = useMemo(() => {
-    if (!smsUiEnabled || !activeThread?.email) return false;
-    const norm = activeThread.email.trim().toLowerCase();
-    return smsRecipients.some((r) => r.residentEmail?.trim().toLowerCase() === norm && r.phone?.trim());
-  }, [activeThread, smsRecipients, smsUiEnabled]);
+  const activeEmailAvailable = useMemo(
+    () => Boolean(activeThread && inboxThreadHasEmail(activeThread.email)),
+    [activeThread],
+  );
+
+  const activeSmsTarget = useMemo(
+    () =>
+      activeThread
+        ? resolveManagerInboxSmsTarget(activeThread, smsRecipients, smsOutboundEnabled)
+        : null,
+    [activeThread, smsRecipients, smsOutboundEnabled],
+  );
+  const activeSmsAvailable = Boolean(activeSmsTarget?.phone?.trim());
 
   /**
    * An email-only conversation has no SMS channel until someone supplies a
@@ -1079,12 +1124,17 @@ export const ManagerInbox = forwardRef<
 
 
   useEffect(() => {
-    const defaults = channelsFor("inbox_default");
-    setReplyViaEmail(defaults.viaEmail || !activeSmsAvailable);
-    setReplyViaSms(defaults.viaSms && activeSmsAvailable);
-    setAiDraftViaEmail(defaults.viaEmail || !activeSmsAvailable);
-    setAiDraftViaSms(defaults.viaSms && activeSmsAvailable);
-  }, [expandedId, channelsFor, activeSmsAvailable]);
+    const preferred = channelsFor("inbox_default");
+    const next = resolveManagerInboxReplyChannels({
+      emailAvailable: activeEmailAvailable,
+      smsAvailable: activeSmsAvailable,
+      preferred,
+    });
+    setReplyViaEmail(next.viaEmail);
+    setReplyViaSms(next.viaSms);
+    setAiDraftViaEmail(next.viaEmail);
+    setAiDraftViaSms(next.viaSms);
+  }, [expandedId, channelsFor, activeEmailAvailable, activeSmsAvailable]);
 
   const activeIsSent = activeThread?.folder === "sent";
   const activeFolder = activeThread
@@ -1407,16 +1457,27 @@ export const ManagerInbox = forwardRef<
 
   const approveActiveDraft = useCallback(async () => {
     if (!activeThread?.aiDraft?.text?.trim()) return;
-    const viaEmail = aiDraftViaEmail || !activeSmsAvailable;
-    const viaSms = aiDraftViaSms && activeSmsAvailable;
-    if (!viaEmail && !viaSms) {
+    // Resolve against live availability so auto-send (and a stale picker
+    // state right after opening a phone-only thread) still picks SMS when
+    // email is impossible — never toast "choose a channel" and stick the
+    // auto-send latch forever.
+    const channels = resolveManagerInboxReplyChannels({
+      emailAvailable: activeEmailAvailable,
+      smsAvailable: activeSmsAvailable,
+      preferred: { viaEmail: aiDraftViaEmail, viaSms: aiDraftViaSms },
+    });
+    if (!channels.viaEmail && !channels.viaSms) {
       showToast("Choose Email, SMS, or both.");
-      return;
+      return false;
     }
     setApprovingDraft(true);
     try {
-      const outcome = await handleReply(activeThread.id, activeThread.aiDraft.text.trim(), { email: viaEmail, sms: viaSms });
+      const outcome = await handleReply(activeThread.id, activeThread.aiDraft.text.trim(), {
+        email: channels.viaEmail,
+        sms: channels.viaSms,
+      });
       if (outcome) showToast(inboxReplySentToastMessage(outcome));
+      return true;
     } catch (error) {
       autoSentDraftRef.current = null;
       showToast(
@@ -1424,16 +1485,30 @@ export const ManagerInbox = forwardRef<
           ? (error.reason ?? "Could not send reply.")
           : "Could not send reply.",
       );
+      return false;
     } finally {
       setApprovingDraft(false);
     }
-  }, [activeSmsAvailable, activeThread, aiDraftViaEmail, aiDraftViaSms, handleReply, showToast]);
+  }, [activeEmailAvailable, activeSmsAvailable, activeThread, aiDraftViaEmail, aiDraftViaSms, handleReply, showToast]);
 
   useEffect(() => {
     if (!activeThread?.aiDraft?.text || activeThread.aiDraft.status !== "pending_approval") return;
-    setAiDraftViaEmail(true);
-    setAiDraftViaSms(false);
-  }, [activeThread?.aiDraft?.text, activeThread?.aiDraft?.status, activeThread?.id]);
+    const preferred = channelsFor("inbox_default");
+    const next = resolveManagerInboxReplyChannels({
+      emailAvailable: activeEmailAvailable,
+      smsAvailable: activeSmsAvailable,
+      preferred,
+    });
+    setAiDraftViaEmail(next.viaEmail);
+    setAiDraftViaSms(next.viaSms);
+  }, [
+    activeThread?.aiDraft?.text,
+    activeThread?.aiDraft?.status,
+    activeThread?.id,
+    activeEmailAvailable,
+    activeSmsAvailable,
+    channelsFor,
+  ]);
 
   useEffect(() => {
     autoSentDraftRef.current = null;
@@ -1443,15 +1518,20 @@ export const ManagerInbox = forwardRef<
     if (!aiAutoSend || !activeThread?.aiDraft?.text) return;
     if (activeThread.aiDraft.status !== "pending_approval") return;
     if (approvingDraft || draftingIds.has(activeThread.id)) return;
+    if (!activeEmailAvailable && !activeSmsAvailable) return;
     const key = `${activeThread.id}:${activeThread.aiDraft.text}`;
     if (autoSentDraftRef.current === key) return;
     autoSentDraftRef.current = key;
-    void approveActiveDraft();
+    void approveActiveDraft().then((sent) => {
+      if (!sent) autoSentDraftRef.current = null;
+    });
   }, [
     aiAutoSend,
     activeThread?.id,
     activeThread?.aiDraft?.text,
     activeThread?.aiDraft?.status,
+    activeEmailAvailable,
+    activeSmsAvailable,
     approvingDraft,
     draftingIds,
     approveActiveDraft,
@@ -1463,7 +1543,7 @@ export const ManagerInbox = forwardRef<
       viaSms={replyViaSms}
       onViaEmailChange={setReplyViaEmail}
       onViaSmsChange={setReplyViaSms}
-      emailAvailable
+      emailAvailable={activeEmailAvailable}
       smsAvailable={activeSmsAvailable}
       onAddPhone={canAddThreadPhone ? openThreadPhone : undefined}
     />
@@ -1475,7 +1555,7 @@ export const ManagerInbox = forwardRef<
       viaSms={aiDraftViaSms}
       onViaEmailChange={setAiDraftViaEmail}
       onViaSmsChange={setAiDraftViaSms}
-      emailAvailable
+      emailAvailable={activeEmailAvailable}
       smsAvailable={activeSmsAvailable}
       onAddPhone={canAddThreadPhone ? openThreadPhone : undefined}
     />
@@ -1763,7 +1843,7 @@ export const ManagerInbox = forwardRef<
             channel={item.channel}
             deliverViaEmail={item.deliverViaEmail}
             deliverViaSms={item.deliverViaSms}
-            emailAvailable
+            emailAvailable={activeEmailAvailable}
             smsAvailable={activeSmsAvailable}
             channelEditable={item.source === "manual" && item.editable}
             source={item.source}
