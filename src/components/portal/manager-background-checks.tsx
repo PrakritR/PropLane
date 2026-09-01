@@ -43,6 +43,7 @@ import {
   applicationVisibleToPortalUser,
   buildManagerPropertyFilterOptions,
 } from "@/lib/manager-portfolio-access";
+import { groupRowInputForRow } from "@/components/portal/application-group-section";
 import { buildApplicationGroups } from "@/lib/rental-application/application-groups";
 import { signerAppIdsForCosignerLookup } from "@/lib/rental-application/application-list-grouping";
 import { resolveCosignerListSelection } from "@/lib/cosigner-list-selection";
@@ -172,7 +173,10 @@ export function ManagerBackgroundChecks({
     return scopedRows.filter((row) => propertyFilters.includes(applicationRowPropertyId(row)));
   }, [scopedRows, propertyFilters]);
 
-  const applicationGroups = useMemo(() => buildApplicationGroups(propertyFilteredRows), [propertyFilteredRows]);
+  const applicationGroups = useMemo(
+    () => buildApplicationGroups(propertyFilteredRows.map(groupRowInputForRow)),
+    [propertyFilteredRows],
+  );
 
   const counts = useMemo(() => {
     const c: Record<BackgroundCheckListTabId, number> = {

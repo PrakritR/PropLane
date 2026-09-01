@@ -15,7 +15,7 @@ import type {
   ManagerResidentHouseCluster,
   ManagerResidentListCluster,
 } from "@/lib/manager-resident-list-grouping";
-import { isPropertyClusterList, type PortalListGroupMode } from "@/lib/portal-list-grouping";
+import type { PortalListGroupMode } from "@/lib/portal-list-grouping";
 
 function shortDateLabel(iso: string): string {
   const parts = iso.trim().split("-").map(Number);
@@ -113,10 +113,11 @@ export function ManagerResidentsGroupedTable({
   const dataAttr =
     groupMode === "house" ? "residents-house-groups" : "residents-resident-groups";
 
-  if (isPropertyClusterList(groupMode, clusters)) {
+  if (groupMode === "house") {
+    const houseClusters = clusters as ManagerResidentHouseCluster[];
     return (
       <div className="space-y-3" data-attr={dataAttr}>
-        {clusters.map((cluster) => (
+        {houseClusters.map((cluster) => (
           <ApplicationHouseholdCluster
             key={cluster.key}
             header={

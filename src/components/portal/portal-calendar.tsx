@@ -70,8 +70,10 @@ import {
   type ToursHubTabId,
 } from "@/lib/portal-detail-routes";
 
+import { resolveDefaultTourAvailabilityConfig } from "@/lib/tour-slot-math";
+
 const MANAGER_PORTAL_BASE = "/portal";
-const NO_DEFAULT_TOUR_AVAILABILITY = { enabled: false as const };
+const NO_DEFAULT_TOUR_AVAILABILITY = resolveDefaultTourAvailabilityConfig({ enabled: false });
 
 export function PortalCalendar({
   portal,

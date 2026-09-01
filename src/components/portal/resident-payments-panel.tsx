@@ -1225,7 +1225,7 @@ export function ResidentPaymentsPanel({
         "!w-auto max-w-none shrink-0 justify-start",
       )}
       style={PORTAL_COMMAND_PRIMARY_ACTION_STYLE}
-      data-attr={selectedPayableIds.length > 0 ? "resident-payments-pay-selected" : "resident-payments-pay-all"}
+      data-attr={selectedIds.size > 0 ? "resident-payments-pay-selected" : "resident-payments-pay-all"}
       onClick={payHeaderAction}
     >
       {payButtonLabel}
@@ -1233,7 +1233,7 @@ export function ResidentPaymentsPanel({
   ) : null;
 
   const paySelectionActions = useMemo((): PortalAdaptiveAction[] => {
-    if (selectedPayableIds.length === 0) return [];
+    if (selectedIds.size === 0) return [];
     return [
       {
         id: "pay",
@@ -1256,7 +1256,7 @@ export function ResidentPaymentsPanel({
         ),
       },
     ];
-  }, [payHeaderAction, selectedPayableIds.length]);
+  }, [payHeaderAction, selectedIds.size]);
 
   const paymentsLockedEmpty = Boolean(email) && !paymentsUnlocked;
 
@@ -1650,9 +1650,9 @@ export function ResidentPaymentsPanel({
         {paymentsBody}
       </ManagerPortalPageShell>
       <ResidentPortalListBottomBar
-        showDefaultBar={showPayActions && selectedPayableIds.length === 0}
+        showDefaultBar={showPayActions && selectedIds.size === 0}
         defaultActions={payButton}
-        selectionCount={selectedPayableIds.length}
+        selectionCount={selectedIds.size}
         selectionActions={paySelectionActions}
         selectionBarVariant="payments"
       />

@@ -439,11 +439,12 @@ export function addExplicitTourSlotKeys(
       if (slotIsBookable(defaultKey, now)) next.add(defaultKey);
     }
     for (const excludedSlot of excludedOnDate) {
-      next.delete(defaultTourSlotExclusionKey(excludedSlot));
+      const match = /^(\d{4}-\d{2}-\d{2}):(\d+)$/.exec(excludedSlot);
+      if (match) next.delete(defaultTourSlotExclusionKey(match[1], Number(match[2])));
     }
   }
   next.add(key);
-  next.delete(defaultTourSlotExclusionKey(key));
+  next.delete(defaultTourSlotExclusionKey(dateStr, slotIdx));
   return [...next];
 }
 

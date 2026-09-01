@@ -772,10 +772,7 @@ export function ManagerLeasesPipelinePanel({
             variant="outline"
             className={actionBtnClass}
             data-attr="lease-renew"
-            onClick={() => {
-              setRenewInitialTerm(undefined);
-              setRenewLeaseRow(row);
-            }}
+            onClick={() => setAmendLeaseRow(row)}
           >
             Renew lease
           </Button>
@@ -783,10 +780,7 @@ export function ManagerLeasesPipelinePanel({
         menuItem: (
           <DropdownMenuItem
             data-attr="lease-renew"
-            onSelect={() => {
-              setRenewInitialTerm(undefined);
-              setRenewLeaseRow(row);
-            }}
+            onSelect={() => setAmendLeaseRow(row)}
           >
             Renew lease
           </DropdownMenuItem>

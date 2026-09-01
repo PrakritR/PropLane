@@ -21,7 +21,9 @@ import {
   useGoogleCalendarBusyMeetings,
 } from "@/hooks/use-google-calendar-busy";
 
-const NO_DEFAULT_TOUR_AVAILABILITY = { enabled: false as const };
+import { resolveDefaultTourAvailabilityConfig } from "@/lib/tour-slot-math";
+
+const NO_DEFAULT_TOUR_AVAILABILITY = resolveDefaultTourAvailabilityConfig({ enabled: false });
 
 export function ManagerPropertyTourPanel({
   listingId,
