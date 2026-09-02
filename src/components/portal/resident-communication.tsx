@@ -6,6 +6,7 @@ import { Modal } from "@/components/ui/modal";
 import { MODAL_LARGE_PANEL_CLASS } from "@/components/ui/modal-styles";
 import { ResidentInboxPanel, type ResidentInboxPanelHandle } from "@/components/portal/resident-inbox-panel";
 import { RoleSmsPanel } from "@/components/portal/role-sms-panel";
+import { ResidentManagerNumberCard } from "@/components/portal/resident-manager-number-card";
 import {
   INBOX_LIST_SCROLL,
   InboxConversationRow,
@@ -208,6 +209,9 @@ function ResidentUnifiedInbox({
 
   const listPane = (
     <div className="flex min-h-0 flex-1 flex-col">
+      {/* Above the list on purpose: the first thing on the screen they opened in
+          order to reach someone, and it does not scroll away inside a thread. */}
+      <ResidentManagerNumberCard />
       <div className={INBOX_LIST_SCROLL}>
         {merged.length === 0 ? (
           listSegment === "archived" ? (
