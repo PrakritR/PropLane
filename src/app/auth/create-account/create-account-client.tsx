@@ -97,6 +97,12 @@ export default function CreateAccountClient() {
   const [email, setEmail] = useState("");
   const [fullName, setFullName] = useState("");
   const [phone, setPhone] = useState("");
+  /**
+   * Managers are offered a PropLane work number during setup. Defaults ON
+   * because almost every manager wants one, but ticking it only records the
+   * intent — signup never buys a number (see the register route).
+   */
+  const [wantsWorkNumber, setWantsWorkNumber] = useState(true);
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [axisId, setAxisId] = useState(axisIdFromUrl);
@@ -383,7 +389,13 @@ export default function CreateAccountClient() {
         const res = await fetch("/api/auth/manager-register", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ email: email.trim(), password, fullName: fullName.trim(), phone: phone.trim() }),
+          body: JSON.stringify({
+            email: email.trim(),
+            password,
+            fullName: fullName.trim(),
+            phone: phone.trim(),
+            wantsWorkNumber,
+          }),
         });
         const body = (await res.json()) as { error?: string; redirectTo?: string; existingAccount?: boolean };
         if (!res.ok) {
@@ -878,6 +890,26 @@ export default function CreateAccountClient() {
               />
               <p className="mt-1 text-xs text-muted/70">Used for account and tenancy text updates. Reply STOP anytime.</p>
             </div>
+            {role === "manager" ? (
+              <div className="rounded-xl border border-border bg-muted/20 px-3.5 py-3">
+                <label className="flex cursor-pointer items-start gap-2.5">
+                  <input
+                    type="checkbox"
+                    className="mt-0.5"
+                    checked={wantsWorkNumber}
+                    onChange={(e) => setWantsWorkNumber(e.target.checked)}
+                    data-attr="signup-wants-work-number"
+                  />
+                  <span>
+                    <span className="text-sm font-medium text-foreground">Set up a PropLane phone number</span>
+                    <span className="mt-0.5 block text-xs text-muted">
+                      A number your residents and applicants can text. Messages land in your PropLane inbox, and you can
+                      reply from your own phone. You can turn this on later in Settings → Messaging.
+                    </span>
+                  </span>
+                </label>
+              </div>
+            ) : null}
             <div>
               <label className={FIELD_LABEL_CLASS} htmlFor="pw">
                 {passwordLabel}

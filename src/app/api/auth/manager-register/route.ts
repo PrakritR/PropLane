@@ -1,3 +1,8 @@
+import type { SupabaseClient } from "@supabase/supabase-js";
+import {
+  loadManagerAutomationSettings,
+  saveManagerAutomationSettings,
+} from "@/lib/payment-automation-settings";
 import { normalizeE164 } from "@/lib/twilio";
 import { findAuthUserIdByEmail } from "@/lib/auth/find-auth-user-id-by-email";
 import {
@@ -15,11 +20,40 @@ import { NextResponse } from "next/server";
 
 export const runtime = "nodejs";
 
+/**
+ * Remember that they asked for a work number during setup — nothing more.
+ *
+ * Signup deliberately does NOT buy the number: the plan may not be settled at
+ * this point, and a provider failure here would derail account creation for a
+ * reason that has nothing to do with creating an account. Settings → Messaging
+ * reads this so a "yes" that could not be honoured yet stays visible instead of
+ * being silently dropped. Never blocks signup — a failed write costs the note,
+ * not the account.
+ */
+async function recordWorkNumberSignupIntent(
+  db: SupabaseClient,
+  userId: string,
+  wants: boolean,
+): Promise<void> {
+  if (!wants) return;
+  try {
+    const current = await loadManagerAutomationSettings(db, userId);
+    await saveManagerAutomationSettings(db, userId, {
+      ...current,
+      workNumberRequestedAtSignup: true,
+    });
+  } catch {
+    /* intent is a convenience, never a gate on account creation */
+  }
+}
+
 type Body = {
   email?: string;
   password?: string;
   fullName?: string;
   phone?: string;
+  /** They ticked "yes, set one up" on the messaging step. Intent only. */
+  wantsWorkNumber?: boolean;
   tier?: string;
 };
 
@@ -108,6 +142,7 @@ export async function POST(req: Request) {
           .update({ user_id: userId })
           .eq("id", existingPurchase.id);
       }
+      await recordWorkNumberSignupIntent(supabase, userId, body.wantsWorkNumber === true);
       return NextResponse.json({
         ok: true,
         managerId: existingPurchase.manager_id,
@@ -123,6 +158,8 @@ export async function POST(req: Request) {
     });
     // Notifications text this number automatically (STOP always honored).
     await supabase.from("profiles").update({ phone }).eq("id", userId);
+
+    await recordWorkNumberSignupIntent(supabase, userId, body.wantsWorkNumber === true);
 
     const trialTier = isManagerSignupTrialTier(tierRaw) ? tierRaw : "pro";
     await completeManagerSignupTrial(supabase, { userId, email, fullName, tier: trialTier });

@@ -15,6 +15,7 @@ import {
   reconcileManagerSmsEntitlement,
 } from "@/lib/sms/manager-sms-entitlement.server";
 import { isPureCoManagerWorkspace } from "@/lib/sms/manager-workspace-role.server";
+import { loadManagerAutomationSettings } from "@/lib/payment-automation-settings";
 import { provisionManagerNumber } from "@/lib/sms/manager-number-provisioning.server";
 import {
   effectiveRegistrationState,
@@ -62,6 +63,7 @@ async function buildStatus(
     numberResult,
     profileResult,
     pureCoManager,
+    automationSettings,
   ] = await Promise.all([
     db
       .from("sms_runtime_config")
@@ -82,6 +84,7 @@ async function buildStatus(
       .eq("id", userId)
       .maybeSingle(),
     isPureCoManagerWorkspace(db, userId),
+    loadManagerAutomationSettings(db, userId).catch(() => null),
   ]);
 
   const configuredMode = runtimeResult.error
@@ -174,6 +177,7 @@ async function buildStatus(
     number,
     // A missing/stale entitlement row must not deadlock a genuinely paid
     // manager: POST performs the authoritative Stripe/Apple reconciliation.
+    requestedAtSignup: automationSettings?.workNumberRequestedAtSignup === true,
     canRequest:
       entitlementCanBeReconciled &&
       provisioningEnvEnabled &&
@@ -221,6 +225,7 @@ function publicStatus(
           ),
         }
       : null,
+    requestedAtSignup: status.requestedAtSignup,
     canRequest: status.canRequest,
     canSend: status.canSend,
     personalPhone: status.personalPhone,

@@ -68,6 +68,14 @@ export type ManagerAutomationSettings = {
    * waiting for Approve — same checkbox as on the draft card in Communication.
    */
   inboxAiDraftAutoSend: boolean;
+  /**
+   * They asked for a PropLane work number while creating the account. Intent
+   * only — it never buys anything. Signup is the wrong place to spend money: the
+   * plan may not be settled yet and a failed purchase would derail account
+   * creation. Settings → Messaging reads this so a "yes" that could not be
+   * honoured yet is visible rather than silently dropped.
+   */
+  workNumberRequestedAtSignup: boolean;
   templates: {
     preDue: ReminderTemplate;
     overdue: ReminderTemplate;
@@ -154,6 +162,7 @@ export const DEFAULT_MANAGER_AUTOMATION_SETTINGS: ManagerAutomationSettings = {
   maintenanceDeliverViaEmail: true,
   maintenanceDeliverViaSms: false,
   inboxAiDraftAutoSend: false,
+  workNumberRequestedAtSignup: false,
   templates: {
     preDue: {
       subject: "Payment due {daysUntilDuePhrase}: {chargeTitle}",
@@ -370,6 +379,7 @@ export function normalizeManagerAutomationSettings(raw: unknown): ManagerAutomat
     maintenanceDeliverViaEmail: row.maintenanceDeliverViaEmail !== false,
     maintenanceDeliverViaSms: row.maintenanceDeliverViaSms === true,
     inboxAiDraftAutoSend: row.inboxAiDraftAutoSend === true,
+    workNumberRequestedAtSignup: row.workNumberRequestedAtSignup === true,
     templates: {
       preDue: normalizeTemplate(templatesRaw.preDue, base.templates.preDue),
       overdue: normalizeTemplate(templatesRaw.overdue, base.templates.overdue),
