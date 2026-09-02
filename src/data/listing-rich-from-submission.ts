@@ -39,6 +39,7 @@ import {
   paymentAtSigningPriceLabel,
   utilitiesListingEstimateLabel,
 } from "@/lib/rental-application/listing-fees-display";
+import { deriveListingStFeeToggles } from "@/lib/listing-fee-term-toggles";
 import {
   listingFeeRowsForLeaseBasicsSection,
   listingPresetFeeAmount,
@@ -343,6 +344,38 @@ function uniquePositiveMoneyAmounts(values: Array<string | number | null | undef
   return [...new Set(nums)];
 }
 
+function hasExplicitShortTermDeposit(value: string | undefined | null): boolean {
+  const t = (value ?? "").trim();
+  return t.length > 0 && parseMoneyAmount(t) > 0;
+}
+
+/** Listing-level short-term deposit is for entire-home stays only — per-room nightly rows use placement deposits. */
+function listingLevelShortTermDepositApplies(sub: ManagerListingSubmissionV1): boolean {
+  return isEntireHomeListing(sub);
+}
+
+/** Listing-level + per-placement short-term deposits the manager actually configured. */
+function explicitShortTermDepositAmounts(
+  sub: ManagerListingSubmissionV1,
+  rooms: ManagerRoomSubmission[],
+): number[] {
+  const values: Array<string | number | null | undefined> = [];
+  if (
+    listingLevelShortTermDepositApplies(sub) &&
+    deriveListingStFeeToggles(sub).securityDeposit &&
+    hasExplicitShortTermDeposit(sub.shortTermDeposit)
+  ) {
+    values.push(sub.shortTermDeposit);
+  }
+  for (const room of rooms) {
+    if (hasExplicitShortTermDeposit(room.shortTermDeposit)) values.push(room.shortTermDeposit);
+  }
+  for (const bundle of sub.bundles ?? []) {
+    if (hasExplicitShortTermDeposit(bundle.shortTermDeposit)) values.push(bundle.shortTermDeposit);
+  }
+  return uniquePositiveMoneyAmounts(values);
+}
+
 function shortTermMoneyRangeLabel(amounts: number[]): string | null {
   if (amounts.length === 0) return null;
   const min = Math.min(...amounts);
@@ -403,13 +436,7 @@ function shortTermPlacementFeeLeaseRows(
   if (!sub.shortTermRentalsAllowed) return [];
   const rows: LeaseBasicRow[] = [];
 
-  const depositAmounts = uniquePositiveMoneyAmounts([
-    listingPresetFeeAmount(sub, "short_term_deposit"),
-    sub.shortTermDeposit,
-    ...rooms.map((room) => room.shortTermDeposit),
-    ...(sub.bundles ?? []).map((bundle) => bundle.shortTermDeposit),
-  ]);
-  const depositLabel = shortTermMoneyRangeLabel(depositAmounts);
+  const depositLabel = shortTermMoneyRangeLabel(explicitShortTermDepositAmounts(sub, rooms));
   if (depositLabel) {
     rows.push({
       id: "lease-st-deposit",
@@ -475,14 +502,7 @@ function shortTermPlacementBreakdownLines(
 ): ListingPricingBreakdownLine[] {
   const lines: ListingPricingBreakdownLine[] = [];
 
-  const depositLabel = shortTermMoneyRangeLabel(
-    uniquePositiveMoneyAmounts([
-      listingPresetFeeAmount(sub, "short_term_deposit"),
-      sub.shortTermDeposit,
-      ...rooms.map((room) => room.shortTermDeposit),
-      ...(sub.bundles ?? []).map((bundle) => bundle.shortTermDeposit),
-    ]),
-  );
+  const depositLabel = shortTermMoneyRangeLabel(explicitShortTermDepositAmounts(sub, rooms));
   if (depositLabel) {
     lines.push({ label: "Short-term deposit", value: depositLabel });
   }

@@ -123,11 +123,10 @@ describe("listing multi-room lease basics", () => {
     const sub = createDefaultListingSubmission();
     sub.shortTermRentalsAllowed = true;
     sub.shortTermApplicationFee = "50";
-    sub.shortTermDeposit = "200";
     sub.shortTermMoveInFee = "75";
     sub.rooms = [
-      { ...sub.rooms[0]!, id: "room-1", name: "Room 1", floor: "2nd floor", monthlyRent: 800, shortTermRent: "50" },
-      { ...sub.rooms[0]!, id: "room-2", name: "Room 2", floor: "2nd floor", monthlyRent: 800, shortTermRent: "50" },
+      { ...sub.rooms[0]!, id: "room-1", name: "Room 1", floor: "2nd floor", monthlyRent: 800, shortTermRent: "50", shortTermDeposit: "200" },
+      { ...sub.rooms[0]!, id: "room-2", name: "Room 2", floor: "2nd floor", monthlyRent: 800, shortTermRent: "50", shortTermDeposit: "200" },
     ];
     const property = mockProperty({ id: "st-room-costs", listingSubmission: sub });
     const rich = listingRichFromManagerSubmission(property, sub);
@@ -141,6 +140,33 @@ describe("listing multi-room lease basics", () => {
     expect(rich.pricingBreakdown?.some((line) => line.label === "Nightly rate" && line.value === "$50.00/night")).toBe(true);
     expect(rich.pricingBreakdown?.some((line) => line.label === "Short-term deposit")).toBe(true);
     expect(rich.pricingBreakdown?.some((line) => line.label === "Move-in / cleaning")).toBe(true);
+  });
+
+  it("does not show short-term deposit when none is configured on the listing", () => {
+    const sub = createDefaultListingSubmission();
+    sub.shortTermRentalsAllowed = true;
+    sub.shortTermDailyCost = "50";
+    sub.shortTermApplicationFee = "25";
+    sub.securityDeposit = "400";
+    sub.shortTermDeposit = "";
+    sub.rooms = [
+      { ...sub.rooms[0]!, id: "room-1", name: "Room 1", monthlyRent: 800, shortTermRent: "50" },
+    ];
+  sub.customFees = [
+    {
+      id: "st-dep-ghost",
+      presetId: "short_term_deposit",
+      label: "Short-term deposit",
+      amount: "250",
+      frequency: "one-time",
+      cadence: "one-time",
+    },
+  ];
+    const property = mockProperty({ id: "st-no-deposit", listingSubmission: sub });
+    const rich = listingRichFromManagerSubmission(property, sub);
+
+    expect(rich.pricingBreakdown?.some((line) => line.label === "Short-term deposit")).toBe(false);
+    expect(rich.leaseBasics.some((row) => row.title === "Short-term deposit")).toBe(false);
   });
 
   it("routes short-term custom fees to the short-term lease basics section", () => {
