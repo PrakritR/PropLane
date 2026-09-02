@@ -212,6 +212,52 @@ describe("book_tour — the manager's own calendar only", () => {
     expect(await previewWrite(bookTourTool, makeCtx(), BOOK_INPUT)).toMatchObject({ ok: false });
   });
 
+  it("on a delegated SMS turn refuses a house that is not assigned", async () => {
+    offerSlot(MGR);
+    const auditRows: Record<string, unknown>[] = [];
+    const ctx: AgentContext = {
+      landlordId: MGR,
+      userId: "co-1",
+      email: "co@example.com",
+      roles: ["manager"],
+      isAdmin: false,
+      managerSmsAccess: {
+        mode: "delegated",
+        workNumberOwnerId: MGR,
+        actorUserId: "co-1",
+        dataOwnerIds: [MGR],
+        assignedPropertyIds: ["prop-assigned"],
+      },
+      db: {
+        from: (table: string) => {
+          if (table === "manager_property_records") {
+            return {
+              select: () => ({
+                eq: (_col: string, id: string) => ({
+                  limit: async () => ({
+                    data: [{ id, manager_user_id: MGR }],
+                    error: null,
+                  }),
+                }),
+              }),
+            };
+          }
+          return {
+            insert: async (row: Record<string, unknown>) => {
+              auditRows.push(row);
+              return { error: null };
+            },
+            update: () => ({ eq: () => ({ eq: async () => ({ error: null }) }) }),
+          };
+        },
+      } as unknown as AgentContext["db"],
+    };
+    const res = await previewWrite(bookTourTool, ctx, { ...BOOK_INPUT, propertyId: "prop-other" });
+    expect(res).toMatchObject({ ok: false });
+    if (!res.ok) expect(res.error).toMatch(/list_properties/i);
+    expect(createManualPlannedTour).not.toHaveBeenCalled();
+  });
+
   it("warns that booking takes the slot off the public page", async () => {
     offerSlot();
     const res = await previewWrite(bookTourTool, makeCtx(), BOOK_INPUT);

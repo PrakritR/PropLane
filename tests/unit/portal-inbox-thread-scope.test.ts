@@ -8,6 +8,12 @@ describe("portalInboxThreadScopeFilter", () => {
     );
   });
 
+  it("includes extra co-manager owner ids as an in() clause", () => {
+    expect(
+      portalInboxThreadScopeFilter({ id: "co-1", email: "co@example.com", role: "manager" }, ["owner-1"]),
+    ).toBe("owner_user_id.in.(co-1,owner-1),participant_email.eq.co@example.com");
+  });
+
   it("omits empty participant_email clause", () => {
     expect(portalInboxThreadScopeFilter({ id: "mgr-1", email: null, role: "manager" })).toBe("owner_user_id.eq.mgr-1");
   });

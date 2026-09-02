@@ -147,6 +147,14 @@ conversations) plus the archive toggle. Invariants:
   so copy the resident panel's shape rather than theirs. Coverage:
   `tests/unit/resident-refused-send-not-delivered.test.tsx`,
   `tests/integration/portal/send-inbox-message.test.ts`.
+- **Co-managers share an owner's Communication at inbox module level.** Email
+  and SMS threads are owner-keyed (`owner_user_id`), not per-property. A
+  co-manager with Communication on ≥1 assigned property of that owner is in
+  `viewerAndLinkedOwnerIdsForModule(..., "inbox", level)`: `read` lists those
+  threads, `edit` replies and sends (including
+  `resolveInboxThreadReplyTarget`), `delete` deletes. Empty permissions still
+  mean a full grant. Coverage: `tests/unit/portal-inbox-thread-scope.test.ts`,
+  `tests/unit/portal-inbox-thread-reply.test.ts`.
 - **A conversation's `time` is BOTH its label and its sort key, so every writer
   must stamp it identically.** The canonical shape is `formatInboxStamp`
   (`portal-inbox-storage.ts`) — `"Aug 3, 5:31 PM"`, en-US and pinned to

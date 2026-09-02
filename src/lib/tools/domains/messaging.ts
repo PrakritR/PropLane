@@ -14,7 +14,7 @@ import { writeAuditLog, updateAuditResult, auditDayBucket } from "../audit";
 import { filterRecipientsBySenderScope, type InboxScopeSender } from "@/lib/inbox-recipient-scope";
 import { deliverPortalInboxMessage, resolveBroadcastRecipients } from "@/lib/portal-inbox-delivery";
 import { MANAGER_INBOX_SCOPE } from "@/lib/portal-inbox-thread-scope";
-import { smsDataOwnerIds } from "@/lib/sms/manager-sms-access";
+import { smsInboxOwnerIds } from "@/lib/sms/manager-sms-access.server";
 import type { PersistedInboxThread } from "@/lib/portal-inbox-storage";
 import {
   createScheduledInboxMessage,
@@ -313,7 +313,7 @@ type OwnThreadRow = {
 
 /** Load ONE inbox thread the actor can see (own or SMS-delegated owner). */
 async function loadOwnInboxThread(ctx: AgentContext, threadId: string): Promise<OwnThreadRow | null> {
-  const ownerIds = ctx.managerSmsAccess ? smsDataOwnerIds(ctx) : [ctx.userId];
+  const ownerIds = await smsInboxOwnerIds(ctx, "edit");
   for (const ownerId of ownerIds) {
     const { data, error } = await ctx.db
       .from("portal_inbox_thread_records")

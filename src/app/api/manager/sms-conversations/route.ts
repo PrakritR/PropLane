@@ -111,17 +111,17 @@ export async function DELETE(req: Request) {
 
   const ownerManagerUserId =
     String(match.ownerManagerUserId ?? auth.user.id).trim() || auth.user.id;
-  // Deleting an owner's conversation needs an edit-level inbox grant —
-  // read-level co-manager access only allows viewing.
+  // Deleting an owner's conversation needs a delete-level inbox grant —
+  // read-level co-manager access only allows viewing, edit allows replies.
   if (ownerManagerUserId !== auth.user.id) {
-    const editScope = await resolveSmsScopeManagerIds(
+    const deleteScope = await resolveSmsScopeManagerIds(
       auth.db,
       auth.user.id,
-      "edit",
+      "delete",
     );
-    if (!editScope.includes(ownerManagerUserId)) {
+    if (!deleteScope.includes(ownerManagerUserId)) {
       return NextResponse.json(
-        { error: "You do not have edit access to this conversation." },
+        { error: "You do not have delete access to this conversation." },
         { status: 403 },
       );
     }
