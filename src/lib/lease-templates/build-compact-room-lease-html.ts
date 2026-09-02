@@ -198,20 +198,6 @@ function moveInPaymentSummaryHtml(input: CompactRoomLeaseInput): string {
       pushSigning(`<strong>${fmtUsd(amount)}</strong> ${label}`);
     }
   }
-  for (const fee of supplementalOneTimeLeaseFees ?? []) {
-    const amount = parseAmount(fee.amount);
-    if (amount != null && amount > 0) {
-      const label = escapeHtml(fee.label?.trim() || "Fee");
-      pushSchedule(`${label}: <strong>${fmtUsd(amount)}</strong> (one-time)`);
-    }
-  }
-  for (const fee of billableMonthlyCustomFees) {
-    const amount = parseAmount(fee.amount);
-    if (amount != null && amount > 0) {
-      const label = escapeHtml(fee.label?.trim() || "Custom fee");
-      pushSchedule(`${label}: <strong>${fmtUsd(amount)}/mo</strong> (recurring monthly)`);
-    }
-  }
 
   if (!scheduleLines.length && paySigningNum <= 0) {
     return "<p>No move-in charges are due beyond recurring monthly rent and utilities.</p>";
@@ -325,7 +311,6 @@ export function buildCompactRoomLeaseBody(input: CompactRoomLeaseInput): string 
     })
     .filter(Boolean)
     .join("\n");
-  const signingIncludes = new Set(input.paymentAtSigningIncludes ?? []);
   const showProratedFirstMonth = input.firstPartialMonthPayment > 0;
   const prorationLine = showProratedFirstMonth
     ? input.proratedRentAmount != null &&

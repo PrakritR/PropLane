@@ -1093,10 +1093,12 @@ ${customTermsAddendumHtml(subNorm, "Additional Provisions from Owner/Host", prop
     proratedFirstMonthTotals?.applies && proratedFirstMonthTotals.total > 0
       ? proratedFirstMonthTotals.total
       : 0;
-  const proratedRentAmount =
-    proratedFirstMonthTotals?.proratedRent ?? leaseBilling?.proratedRent ?? 0;
-  const proratedUtilitiesAmount =
-    proratedFirstMonthTotals?.proratedUtilities ?? leaseBilling?.proratedUtilities ?? 0;
+  const proratedRentAmount = stripPreviewFinancials
+    ? 0
+    : proratedFirstMonthTotals?.proratedRent ?? leaseBilling?.proratedRent ?? 0;
+  const proratedUtilitiesAmount = stripPreviewFinancials
+    ? 0
+    : proratedFirstMonthTotals?.proratedUtilities ?? leaseBilling?.proratedUtilities ?? 0;
   const showProratedFirstMonth = firstPartialMonthPayment > 0;
   const customFeeSummaryRows = billableOneTimeCustomFees
     .map(

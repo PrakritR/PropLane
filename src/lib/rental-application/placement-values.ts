@@ -16,7 +16,7 @@ import {
   isEntireHomeListing,
   normalizeManagerListingSubmissionV1,
 } from "@/lib/manager-listing-submission";
-import { listingPresetFeeAmount } from "@/lib/listing-fees";
+import { listingPresetFeeAmount, resolvedShortTermPlacementDeposit } from "@/lib/listing-fees";
 import { parseMoneyAmount } from "@/lib/parse-money";
 import { utilitiesBillableMonthlyAmount } from "@/lib/listing-utilities-payment";
 import { residentLeaseTermToApplicationFields } from "@/lib/resident-manual-lease-terms";
@@ -276,10 +276,9 @@ export function resolveManualResidentPlacementValues(input: {
   if (rentalType === "short_term") {
     const stRentRaw = (room?.shortTermRent ?? "").trim() || sub.shortTermDailyCost;
     const nightly = shortTermNightlyRate(stRentRaw);
-    const securityDeposit =
-      room?.shortTermDeposit?.trim()
-        ? parseMoneyAmount(room.shortTermDeposit)
-        : listingPresetFeeAmount(sub, "short_term_deposit") || parseMoneyAmount(sub.shortTermDeposit ?? "");
+    const securityDeposit = parseMoneyAmount(
+      resolvedShortTermPlacementDeposit(sub, room),
+    );
     const moveInFee =
       room?.shortTermMoveInFee?.trim()
         ? parseMoneyAmount(room.shortTermMoveInFee)

@@ -1,5 +1,6 @@
 import {
   PAYMENT_AT_SIGNING_OPTIONS,
+  isEntireHomeListing,
   type ManagerCustomFeeRow,
   type ManagerListingSubmissionV1,
   type PaymentAtSigningOptionId,
@@ -738,6 +739,19 @@ export function listingPresetFeeAmount(
   const row = resolveListingFees(sub).find((fee) => fee.presetId === presetId);
   if (!row || !isListingFeeAmountFilled(row.amount)) return 0;
   return parseMoneyAmount(row.amount);
+}
+
+/** Per-room short-term deposit wins; listing-level fallback only for entire-home stays. */
+export function resolvedShortTermPlacementDeposit(
+  sub: ManagerListingSubmissionV1,
+  room?: { shortTermDeposit?: string } | null,
+): string {
+  const roomDep = (room?.shortTermDeposit ?? "").trim();
+  if (roomDep) return roomDep;
+  if (!isEntireHomeListing(sub)) return "";
+  return String(
+    listingPresetFeeAmount(sub, "short_term_deposit") || parseMoneyAmount(sub.shortTermDeposit ?? ""),
+  );
 }
 
 export type ListingFeeDisplayRow = {

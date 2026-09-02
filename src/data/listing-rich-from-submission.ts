@@ -39,7 +39,6 @@ import {
   paymentAtSigningPriceLabel,
   utilitiesListingEstimateLabel,
 } from "@/lib/rental-application/listing-fees-display";
-import { deriveListingStFeeToggles } from "@/lib/listing-fee-term-toggles";
 import {
   listingFeeRowsForLeaseBasicsSection,
   listingPresetFeeAmount,
@@ -362,7 +361,6 @@ function explicitShortTermDepositAmounts(
   const values: Array<string | number | null | undefined> = [];
   if (
     listingLevelShortTermDepositApplies(sub) &&
-    deriveListingStFeeToggles(sub).securityDeposit &&
     hasExplicitShortTermDeposit(sub.shortTermDeposit)
   ) {
     values.push(sub.shortTermDeposit);

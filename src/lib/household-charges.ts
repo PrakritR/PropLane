@@ -17,7 +17,7 @@ import {
   type ManagerListingSubmissionV1,
   type ManagerRoomSubmission,
 } from "@/lib/manager-listing-submission";
-import { listingPresetFeeAmount } from "@/lib/listing-fees";
+import { listingPresetFeeAmount, resolvedShortTermPlacementDeposit } from "@/lib/listing-fees";
 import { formatRoomPriceAmount, resolveStayPricing, roomDailyRentPrice } from "@/lib/room-pricing";
 import { resolveSubmissionRoom } from "@/lib/listing-room-resolution";
 import { utilitiesBillableMonthlyAmount } from "@/lib/listing-utilities-payment";
@@ -2918,7 +2918,9 @@ function patchPendingApprovedChargeAmount(applicationId: string, draft: Approved
   const current = matches.reduce((best, charge) => {
     const bestTime = new Date(best.createdAt).getTime();
     const chargeTime = new Date(charge.createdAt).getTime();
-    return Number.isFinite(chargeTime) && chargeTime >= bestTime ? charge : best;
+    if (!Number.isFinite(bestTime)) return charge;
+    if (!Number.isFinite(chargeTime)) return best;
+    return chargeTime >= bestTime ? charge : best;
   });
   const canonicalId = approvedChargeId(applicationId, draft.kind);
   if (
@@ -3159,10 +3161,7 @@ function syncPendingApprovedChargesFromListing(
             row.manualResidentDetails?.securityDeposit != null
               ? String(row.manualResidentDetails.securityDeposit)
               : allowListingDefaults
-                ? (stayRoom?.shortTermDeposit ?? "").trim() ||
-                  String(
-                    listingPresetFeeAmount(sub, "short_term_deposit") || parseMoneyAmount(sub.shortTermDeposit ?? ""),
-                  )
+                ? resolvedShortTermPlacementDeposit(sub, stayRoom)
                 : undefined,
           );
           if (shortDeposit > 0) {
@@ -3333,6 +3332,7 @@ export function recordApprovedApplicationCharges(row: DemoApplicantRow, managerU
         (charge) =>
           charge.status === "pending" &&
           isPendingUpfrontMoveInCharge(charge) &&
+          !isManagerAddedOneOffCharge(charge) &&
           charge.residentEmail.trim().toLowerCase() === emailLowerForFilter &&
           charge.propertyId === propertyId &&
           charge.applicationId?.trim() !== applicationId,
@@ -3347,6 +3347,7 @@ export function recordApprovedApplicationCharges(row: DemoApplicantRow, managerU
     if (
       charge.status === "pending" &&
       isPendingUpfrontMoveInCharge(charge) &&
+      !isManagerAddedOneOffCharge(charge) &&
       charge.residentEmail.trim().toLowerCase() === emailLowerForFilter &&
       charge.propertyId === propertyId
     ) {
@@ -3452,9 +3453,8 @@ export function recordApprovedApplicationCharges(row: DemoApplicantRow, managerU
       row.manualResidentDetails?.securityDeposit != null
         ? String(row.manualResidentDetails.securityDeposit)
         : allowListingDefaults
-          ? // per-room short-term deposit wins; else the listing's short-term deposit (unified fee → legacy)
-            (room?.shortTermDeposit ?? "").trim() ||
-            (sub ? String(listingPresetFeeAmount(sub, "short_term_deposit") || parseMoneyAmount(sub.shortTermDeposit ?? "")) : "")
+          ? // per-room short-term deposit wins; else entire-home listing deposit
+            resolvedShortTermPlacementDeposit(sub, room)
           : undefined,
     );
     if (shortDeposit > 0) {
