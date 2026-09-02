@@ -57,6 +57,18 @@ const completedRow: DemoApplicantRow = {
 };
 
 describe("CheckrScreeningModal — completed check", () => {
+/**
+ * This file is the home of the completed-check flow.
+ *
+ * Two older tests asserted the same behaviour against surfaces that no longer
+ * own it: `manager-applications-screening-modal` drove it from the Applications
+ * DETAIL route, and `application-screening-panel-completed` expected the banner
+ * on the screening panel. Screening moved to the Background checks section
+ * (3c23cfc2), where the panel runs `headerActionsPlacement="parent"` and
+ * publishes its controls to an adaptive footer, and the completed banner moved
+ * into this modal. Both were removed as superseded rather than re-pointed,
+ * because the assertions they made are the two below.
+ */
   it("shows completed summary first, then package picker after Run again", async () => {
     vi.stubGlobal(
       "fetch",

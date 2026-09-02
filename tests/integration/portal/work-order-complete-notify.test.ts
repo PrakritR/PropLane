@@ -16,7 +16,7 @@ import { getReportsAuthContext, assertManagerFinancialsAccess } from "@/lib/repo
 import { deliverPortalInboxMessage } from "@/lib/portal-inbox-delivery";
 import { POST } from "@/app/api/portal/work-orders/complete/route";
 
-type WorkOrderStoreRow = { id: string; row_data: Record<string, unknown> };
+type WorkOrderStoreRow = { id: string; manager_user_id?: string; row_data: Record<string, unknown> };
 
 function mockDb(seed: WorkOrderStoreRow[]) {
   const store = new Map(seed.map((r) => [r.id, r]));
@@ -83,6 +83,11 @@ describe("POST /api/portal/work-orders/complete resident notify", () => {
     const { client } = mockDb([
       {
         id: "WO-2",
+        // The completion route gates on ownership (`existing.manager_user_id !==
+        // auth.userId` is a 403), so a seeded row has to carry the owner column
+        // a real row would, or a retried completion is refused rather than
+        // being the no-op this test is about.
+        manager_user_id: "mgr-1",
         row_data: {
           id: "WO-2",
           title: "Leaky faucet",
