@@ -147,9 +147,14 @@ export function PortalFilterDeferProvider({
     snapshotFromApplied,
   };
 
-  if (controllerRef) {
+  // Published in a layout effect rather than during render: writing a ref while
+  // rendering is unsafe under concurrent rendering (a render can be thrown away
+  // after the write). Layout timing keeps the controller available to consumers
+  // before paint, which is when the commit/reset buttons can first be pressed.
+  useLayoutEffect(() => {
+    if (!controllerRef) return;
     controllerRef.current = controller;
-  }
+  });
 
   const value = useMemo<PortalFilterDeferContextValue>(
     () => ({
@@ -201,9 +206,15 @@ export function usePortalFilterDraft<T>(
   const onApplyRef = useRef(onApply);
   const resetValueRef = useRef(resetValue);
 
-  appliedRef.current = applied;
-  onApplyRef.current = onApply;
-  resetValueRef.current = resetValue;
+  // Latest-value refs, synced in a layout effect for the same reason. It must be
+  // `useLayoutEffect` rather than `useEffect`: `ensureRegistered` below reads
+  // these from layout effects, and layout effects run in declaration order, so a
+  // plain effect here would feed the consumer the previous render's values.
+  useLayoutEffect(() => {
+    appliedRef.current = applied;
+    onApplyRef.current = onApply;
+    resetValueRef.current = resetValue;
+  });
 
   const ensureRegistered = useCallback(() => {
     if (!ctx) return;

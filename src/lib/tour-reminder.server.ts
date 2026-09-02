@@ -240,7 +240,7 @@ export async function upsertTourReminderForPlannedEvent(
         : tourReminderSendAtIso(input.tourStartIso, minutesBefore);
     if (!sendAt) continue;
 
-    let prior = keyedRows.get(minutesBefore) ?? legacyRows.shift();
+    const prior = keyedRows.get(minutesBefore) ?? legacyRows.shift();
     if (prior?.status === "sent") {
       keptIds.add(prior.id);
       continue;

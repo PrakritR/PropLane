@@ -27,7 +27,12 @@ export function useResidentManualPaymentCheck({
   const [error, setError] = useState<string | null>(null);
   const [paid, setPaid] = useState(false);
   const onPaidRef = useRef(onPaid);
-  onPaidRef.current = onPaid;
+  // Synced in an effect: writing a ref during render is unsafe under concurrent
+  // rendering. `runCheck` only reads it from an async callback the resident
+  // triggers, which is long after the effect has flushed.
+  useEffect(() => {
+    onPaidRef.current = onPaid;
+  }, [onPaid]);
 
   const runCheck = useCallback(
     async (options?: { silent?: boolean }) => {

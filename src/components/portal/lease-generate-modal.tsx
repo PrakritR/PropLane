@@ -62,12 +62,16 @@ export function LeaseGenerateModal({
   const landlordLegalName = cachedLandlordLegalName();
   const landlordNameMissing = !landlordLegalName.trim();
 
+  // Hoisted so the memo's inferred dependency matches its declared one. Reading
+  // `row.propertyId` inside the body makes the compiler infer the whole `row`,
+  // which is broader than the `[row?.propertyId]` the memo actually wants.
+  const rowPropertyId = row?.propertyId;
   const submission = useMemo(() => {
-    if (!row?.propertyId) return null;
-    const prop = getPropertyById(row.propertyId);
+    if (!rowPropertyId) return null;
+    const prop = getPropertyById(rowPropertyId);
     if (!prop?.listingSubmission || prop.listingSubmission.v !== 1) return null;
     return normalizeManagerListingSubmissionV1(prop.listingSubmission);
-  }, [row?.propertyId]);
+  }, [rowPropertyId]);
 
   const actionRow = useMemo(() => {
     if (!row) return row;
@@ -115,10 +119,11 @@ export function LeaseGenerateModal({
     return { html: outcome.html };
   }, [actionRow, open, managerUserId, selectedTemplateId]);
 
+  const draftHtml = draft?.html;
   const baselineHtml = useMemo(() => {
-    if (!draft?.html) return "";
-    return stripDisclosureReviewFromLeaseHtml(draft.html);
-  }, [draft?.html]);
+    if (!draftHtml) return "";
+    return stripDisclosureReviewFromLeaseHtml(draftHtml);
+  }, [draftHtml]);
 
   useEffect(() => {
     if (!open) return;

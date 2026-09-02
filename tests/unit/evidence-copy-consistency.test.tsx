@@ -170,7 +170,7 @@ describe("F-DRAFT-2 — a listing never prints a price band that contradicts its
     expect(normal.startingRentLabel).toBe("$1850/mo");
     expect(normal.priceRangeLabel).toBe("from $1725–$1950/mo");
 
-    // eslint-disable-next-line no-console
+     
     console.log(
       "\nF-DRAFT-2 evidence — listing price band\n" +
         `    no rent     → ${draft.startingRentLabel} / ${draft.priceRangeLabel}\n` +

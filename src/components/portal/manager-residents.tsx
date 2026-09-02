@@ -1297,13 +1297,17 @@ export function ManagerResidents({
     return collectLinkedPropertyIdsForModule(userId, "leases").has(pid);
   }, [selected, userId, hcTick]);
 
+  // Hoisted so the memo's inferred dependency matches its declared one: reading
+  // `selected.email` inside the body makes the compiler infer the whole
+  // `selected`, which is broader than the `[selected?.email, userId]` intended.
+  const selectedEmail = selected?.email;
   const residentTourRows = useMemo(() => {
-    if (!userId || !selected?.email?.trim()) return [];
-    const email = selected.email.trim().toLowerCase();
+    if (!userId || !selectedEmail?.trim()) return [];
+    const email = selectedEmail.trim().toLowerCase();
     return buildManagerTourRows({ viewerUserId: userId, propertyIds: [] }).filter(
       (row) => row.guestEmail?.trim().toLowerCase() === email,
     );
-  }, [selected?.email, userId]);
+  }, [selectedEmail, userId]);
 
   const showResidentTours = residentTourRows.length > 0;
 
