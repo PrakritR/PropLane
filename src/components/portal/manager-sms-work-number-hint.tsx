@@ -1,13 +1,73 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { Check, Copy } from "lucide-react";
+import { useAppUi } from "@/components/providers/app-ui-provider";
 import { MODAL_INSET_BOX_CLASS } from "@/components/ui/modal";
 import { portalMessageFieldLabel } from "@/components/portal/portal-message-compose-fields";
+import { copyTextToClipboard } from "@/lib/manager-property-links";
 import { formatManagerMessagingPhone } from "@/lib/sms/manager-messaging-number";
 import { cn } from "@/lib/utils";
 
 const MESSAGING_SETTINGS_PATH = "/portal/profile";
+
+export function ManagerWorkNumberCopyControl({
+  phone,
+  className,
+  dataAttr = "work-number-copy",
+}: {
+  phone: string;
+  className?: string;
+  dataAttr?: string;
+}) {
+  const { showToast } = useAppUi();
+  const [copied, setCopied] = useState(false);
+  const trimmed = phone.trim();
+  const formatted = formatManagerMessagingPhone(trimmed);
+
+  useEffect(() => {
+    if (!copied) return;
+    const timer = window.setTimeout(() => setCopied(false), 2000);
+    return () => window.clearTimeout(timer);
+  }, [copied]);
+
+  async function copyNumber() {
+    const ok = await copyTextToClipboard(trimmed);
+    showToast(ok ? "Work number copied." : "Could not copy work number.");
+    if (ok) setCopied(true);
+  }
+
+  return (
+    <div className={className}>
+      <p className={portalMessageFieldLabel()}>Work number</p>
+      <button
+        type="button"
+        onClick={() => void copyNumber()}
+        data-attr={dataAttr}
+        title="Copy work number"
+        aria-label={`Copy work number ${formatted}`}
+        className={cn(
+          "mt-1 flex w-full cursor-pointer items-center gap-2 text-left",
+          MODAL_INSET_BOX_CLASS,
+          "py-2 text-sm text-foreground transition-colors hover:border-primary/40 hover:bg-accent/60",
+          "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+        )}
+      >
+        <span className="min-w-0 flex-1 truncate">{formatted}</span>
+        {copied ? (
+          <Check className="h-3.5 w-3.5 shrink-0 text-primary" aria-hidden />
+        ) : (
+          <Copy className="h-3.5 w-3.5 shrink-0 text-muted" aria-hidden />
+        )}
+      </button>
+      <p className="mt-1.5 text-xs text-muted" aria-live="polite">
+        {copied ? "Copied to clipboard." : "Click the number to copy. Outbound texts use this PropLane number."}
+      </p>
+    </div>
+  );
+}
 
 export function ManagerSmsWorkNumberHint({
   show,
@@ -25,17 +85,7 @@ export function ManagerSmsWorkNumberHint({
   if (!show) return null;
 
   if (canSend && phone?.trim()) {
-    return (
-      <div className={className}>
-        <p className={portalMessageFieldLabel()}>Work number (SMS)</p>
-        <p className={cn("mt-1 truncate text-sm text-foreground", MODAL_INSET_BOX_CLASS, "py-2")}>
-          {formatManagerMessagingPhone(phone)}
-        </p>
-        <p className="mt-1.5 text-xs text-muted">
-          Outbound texts to residents use this PropLane work number.
-        </p>
-      </div>
-    );
+    return <ManagerWorkNumberCopyControl phone={phone} className={className} />;
   }
 
   // This hint renders inside the messaging settings page itself as well as in
