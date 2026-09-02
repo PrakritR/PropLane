@@ -4,20 +4,12 @@ vi.mock("@/lib/push-notifications.server", () => ({
   sendPushToUser: vi.fn().mockResolvedValue({ sent: 1 }),
 }));
 
-vi.mock("@/lib/twilio", () => ({
-  sendSms: vi.fn().mockResolvedValue({ sent: false }),
+vi.mock("@/lib/agent-notify.server", () => ({
+  notifyManagerFromAgent: vi.fn().mockResolvedValue(undefined),
 }));
 
-vi.mock("@/lib/proplane-sms-transport.server", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("@/lib/proplane-sms-transport.server")>();
-  return {
-    ...actual,
-    sendPropLaneSms: vi.fn().mockResolvedValue({ ok: true, channel: "twilio", sid: "SM-managed" }),
-  };
-});
-
 import { sendPushToUser } from "@/lib/push-notifications.server";
-import { sendPropLaneSms } from "@/lib/proplane-sms-transport.server";
+import { notifyManagerFromAgent } from "@/lib/agent-notify.server";
 import { deliverPaymentReminder, reminderHtmlFromText } from "@/lib/payment-reminder-delivery";
 import type { HouseholdCharge } from "@/lib/household-charges";
 
@@ -109,8 +101,7 @@ describe("deliverPaymentReminder", () => {
     });
   });
 
-  it("routes the manager notification through the managed outbox", async () => {
-    vi.stubEnv("SMS_RUNTIME_ENABLED", "1");
+  it("routes the manager notification through the shared preference-aware channel", async () => {
     const residentProfile = {
       id: "user-res-1",
       phone: null,
@@ -150,18 +141,12 @@ describe("deliverPaymentReminder", () => {
       slotLabel: "3_days_before",
     });
 
-    expect(sendPropLaneSms).toHaveBeenCalledWith({
-      to: "+12065550112",
-      text: "(Rent due in 3 days) Reminder sent to resident@example.com.",
-      fromNumber: "+12065550111",
-      sendClass: "control",
-      purpose: "payment_reminder_manager_notification",
-      log: {
-        managerUserId: "mgr-1",
-        residentPhone: "+12065550112",
-        source: "automated",
-        counterpartyRole: "manager",
-      },
+    expect(notifyManagerFromAgent).toHaveBeenCalledWith(expect.anything(), {
+      landlordId: "mgr-1",
+      subject: "Payment reminder sent",
+      text: "Rent due in 3 days was sent to resident@example.com.",
+      category: "payment_reminders",
+      url: "/portal/payments",
     });
   });
 

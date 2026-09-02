@@ -37,6 +37,7 @@ import { PortalTextNotificationsBlock } from "@/components/portal/portal-text-no
 import { MANAGER_PLAN_PORTAL_HASH } from "@/lib/portals/manager-plan-path";
 import { AssistantDisplaySetting } from "@/components/portal/assistant-display-setting";
 import { AssistantCustomInstructionsSetting } from "@/components/portal/assistant-custom-instructions-setting";
+import { ManagerNotificationRoutingSetting } from "@/components/portal/manager-notification-routing-setting";
 import { NotificationsToggle } from "@/components/native/notifications-toggle";
 import { ThemeToggle } from "@/components/layout/theme-toggle";
 import { useAppUi } from "@/components/providers/app-ui-provider";
@@ -432,6 +433,7 @@ export function PortalProfileClient({
             </PortalSettingsSection>
             <AssistantDisplaySetting />
             <AssistantCustomInstructionsSetting role={variant} />
+            {variant === "manager" ? <ManagerNotificationRoutingSetting /> : null}
             <NotificationsToggle />
           </>
         );

@@ -18,6 +18,7 @@ import {
 export type ReminderRecipient = {
   email: string;
   role: "manager" | "counterparty";
+  userId?: string | null;
   /** Shown in the greeting. Falls back to a neutral phrase when unknown. */
   name?: string | null;
 };
@@ -108,7 +109,13 @@ export async function materializeReminders(
         leadMinutes,
         recipient: recipient.email,
       }),
-      payload: { ...input.payload, recipientName: recipient.name ?? null, leadMinutes },
+      payload: {
+        ...input.payload,
+        recipientName: recipient.name ?? null,
+        recipientUserId: recipient.userId ?? null,
+        anchorIso: input.anchorIso,
+        leadMinutes,
+      },
     })),
   );
 

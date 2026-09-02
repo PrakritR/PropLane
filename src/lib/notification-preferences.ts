@@ -39,9 +39,9 @@ export type ResolvedChannels = {
 };
 
 /**
- * Channel matrix: every category delivers to inbox, email, and SMS. Delivery
- * is not user-tunable — `resolveChannels` gates SMS only on having a phone on
- * file and STOP opt-out.
+ * Resident/vendor channel matrix: every category delivers to inbox, email, and
+ * SMS. Manager recipients are routed separately through the manager alert
+ * destination and topic preferences in `manager-notification-routing.server`.
  */
 export const DEFAULT_NOTIFICATION_PREFERENCES: NotificationPreferences = {
   messages: { inbox: true, email: true, sms: true },
@@ -105,13 +105,18 @@ export async function saveNotificationPreferences(
 type RecipientProfile = {
   phone?: string | null;
   phone_verified_at?: string | null;
+  role?: string | null;
+  sms_from_number?: string | null;
+  sms_forward_inbound?: boolean | null;
 };
 
 /**
  * Resolve the effective delivery channels for a given recipient + category,
  * combining the recipient's saved preferences with hard delivery constraints:
  *
- * - `inbox` is ALWAYS true (durable record, non-suppressible).
+ * - For residents/vendors, `inbox` is ALWAYS true (durable record).
+ * - For managers, `inbox` represents an Assistant notification; the underlying
+ *   communication/audit record remains durable even when that alert is quiet.
  * - `email` follows the stored preference (default when no row exists).
  * - `sms` requires a phone on the profile (collected at signup) that has not
  *   texted STOP. Verification OTP is not required for resident delivery.
@@ -125,21 +130,25 @@ export async function resolveChannels(
   category: NotificationCategory,
   recipientProfile?: RecipientProfile | null,
 ): Promise<ResolvedChannels> {
-  // Product decision: notifications are NOT user-tunable — every category
-  // always delivers to inbox + email + SMS. The only gates on SMS are hard
-  // constraints: the recipient must have a phone on their profile (collected
-  // at signup) and must not have texted STOP (sms-consent). The category
-  // param stays so future carve-outs need no call-site changes.
-  void category;
+  // Resident/vendor delivery remains always-on. Manager recipients branch to
+  // the preference-aware Assistant/SMS router below.
 
   let profile = recipientProfile ?? null;
   if (!profile) {
     const { data } = await db
       .from("profiles")
-      .select("phone, phone_verified_at")
+      .select("phone, phone_verified_at, role, sms_from_number, sms_forward_inbound")
       .eq("id", userId)
       .maybeSingle();
     profile = (data as RecipientProfile | null) ?? null;
+  }
+
+  const role = String(profile?.role ?? "").trim().toLowerCase();
+  if (["manager", "owner", "pro", "admin"].includes(role)) {
+    const { resolveManagerNotificationChannels } = await import(
+      "@/lib/manager-notification-routing.server"
+    );
+    return resolveManagerNotificationChannels(db, userId, category, profile);
   }
 
   const phone = String(profile?.phone ?? "").trim();

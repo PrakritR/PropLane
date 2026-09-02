@@ -1,0 +1,565 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>OTA messaging bot research — Airbnb, VRBO, PadSplit</title>
+  <style>
+    :root {
+      --ink: #1c1917;
+      --muted: #57534e;
+      --line: #e7e5e4;
+      --paper: #fafaf9;
+      --card: #ffffff;
+      --accent: #1d4e4a;
+      --accent-soft: #ecf4f3;
+      --warn: #9a3412;
+      --warn-soft: #fff7ed;
+      --ok: #166534;
+      --ok-soft: #f0fdf4;
+      --bad: #991b1b;
+      --bad-soft: #fef2f2;
+      --mid: #92400e;
+      --mid-soft: #fffbeb;
+    }
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body {
+      margin: 0;
+      font-family: "Iowan Old Style", "Palatino Linotype", Palatino, "Book Antiqua", Georgia, serif;
+      color: var(--ink);
+      background: var(--paper);
+      line-height: 1.55;
+    }
+    .shell {
+      display: grid;
+      grid-template-columns: 240px 1fr;
+      min-height: 100vh;
+    }
+    nav {
+      position: sticky;
+      top: 0;
+      height: 100vh;
+      overflow: auto;
+      padding: 28px 18px 40px;
+      border-right: 1px solid var(--line);
+      background: #fff;
+    }
+    nav h1 {
+      font-size: 13px;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      color: var(--muted);
+      font-family: ui-sans-serif, system-ui, sans-serif;
+      font-weight: 600;
+      margin: 0 0 16px;
+    }
+    nav a {
+      display: block;
+      color: var(--ink);
+      text-decoration: none;
+      font-family: ui-sans-serif, system-ui, sans-serif;
+      font-size: 13px;
+      padding: 6px 8px;
+      border-radius: 6px;
+    }
+    nav a:hover { background: var(--accent-soft); }
+    nav .sub { padding-left: 16px; color: var(--muted); }
+    main { max-width: 820px; padding: 40px 48px 96px; }
+    header.hero { margin-bottom: 40px; }
+    .kicker {
+      font-family: ui-sans-serif, system-ui, sans-serif;
+      font-size: 12px;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--accent);
+      font-weight: 700;
+    }
+    h1.doc {
+      font-size: 34px;
+      line-height: 1.15;
+      margin: 8px 0 12px;
+      font-weight: 700;
+    }
+    .lede { font-size: 18px; color: var(--muted); margin: 0; }
+    .meta {
+      font-family: ui-sans-serif, system-ui, sans-serif;
+      font-size: 13px;
+      color: var(--muted);
+      margin-top: 14px;
+    }
+    h2 {
+      font-size: 24px;
+      margin: 48px 0 12px;
+      padding-top: 8px;
+      border-top: 1px solid var(--line);
+    }
+    h3 { font-size: 18px; margin: 28px 0 8px; }
+    h4 { font-size: 15px; margin: 20px 0 6px; font-family: ui-sans-serif, system-ui, sans-serif; }
+    p, li { font-size: 16.5px; }
+    ul, ol { padding-left: 1.2em; }
+    li { margin: 4px 0; }
+    .callout {
+      border: 1px solid var(--line);
+      background: var(--card);
+      padding: 14px 16px;
+      border-radius: 10px;
+      margin: 16px 0;
+    }
+    .callout.accent { border-color: #b7d4d1; background: var(--accent-soft); }
+    .callout.warn { border-color: #fed7aa; background: var(--warn-soft); }
+    .callout.bad { border-color: #fecaca; background: var(--bad-soft); }
+    .callout p { margin: 0; }
+    .callout strong { font-family: ui-sans-serif, system-ui, sans-serif; font-size: 13px; }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-family: ui-sans-serif, system-ui, sans-serif;
+      font-size: 13.5px;
+      margin: 14px 0 20px;
+      background: #fff;
+    }
+    th, td {
+      border: 1px solid var(--line);
+      text-align: left;
+      padding: 8px 10px;
+      vertical-align: top;
+    }
+    th { background: #f5f5f4; font-weight: 600; }
+    code, pre {
+      font-family: ui-monospace, "SF Mono", Menlo, monospace;
+      font-size: 12.5px;
+    }
+    code {
+      background: #f5f5f4;
+      padding: 1px 5px;
+      border-radius: 4px;
+    }
+    pre {
+      background: #1c1917;
+      color: #fafaf9;
+      padding: 14px 16px;
+      border-radius: 10px;
+      overflow: auto;
+      line-height: 1.45;
+    }
+    .pills { display: flex; flex-wrap: wrap; gap: 8px; margin: 16px 0 8px; }
+    .pill {
+      font-family: ui-sans-serif, system-ui, sans-serif;
+      font-size: 12px;
+      font-weight: 700;
+      padding: 5px 10px;
+      border-radius: 999px;
+    }
+    .pill.ok { background: var(--ok-soft); color: var(--ok); }
+    .pill.mid { background: var(--mid-soft); color: var(--mid); }
+    .pill.bad { background: var(--bad-soft); color: var(--bad); }
+    .pill.neutral { background: #f5f5f4; color: var(--muted); }
+    .cards {
+      display: grid;
+      grid-template-columns: 1fr 1fr 1fr;
+      gap: 10px;
+      margin: 18px 0;
+    }
+    .card {
+      background: #fff;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      padding: 12px 14px;
+    }
+    .card h3 { margin: 6px 0 8px; font-size: 16px; }
+    .card p { margin: 0; font-size: 14px; color: var(--muted); font-family: ui-sans-serif, system-ui, sans-serif; }
+    .flow {
+      font-family: ui-monospace, Menlo, monospace;
+      font-size: 12.5px;
+      background: #fff;
+      border: 1px dashed #d6d3d1;
+      padding: 14px 16px;
+      border-radius: 10px;
+      white-space: pre;
+      overflow-x: auto;
+    }
+    footer {
+      margin-top: 56px;
+      padding-top: 16px;
+      border-top: 1px solid var(--line);
+      font-family: ui-sans-serif, system-ui, sans-serif;
+      font-size: 12px;
+      color: var(--muted);
+    }
+    @media (max-width: 900px) {
+      .shell { grid-template-columns: 1fr; }
+      nav { position: relative; height: auto; border-right: 0; border-bottom: 1px solid var(--line); }
+      main { padding: 28px 20px 72px; }
+      .cards { grid-template-columns: 1fr; }
+    }
+    @media print {
+      nav { display: none; }
+      .shell { display: block; }
+      main { max-width: none; padding: 0; }
+      h2 { break-before: page; }
+      h2:first-of-type { break-before: auto; }
+    }
+  </style>
+</head>
+<body>
+  <div class="shell">
+    <nav>
+      <h1>Contents</h1>
+      <a href="#verdict">Verdict</a>
+      <a href="#what-we-have">What we already have</a>
+      <a href="#shape">Integration shape</a>
+      <a href="#airbnb">Airbnb</a>
+      <a class="sub" href="#airbnb-api">Official API</a>
+      <a class="sub" href="#airbnb-policy">Policy conflict</a>
+      <a class="sub" href="#airbnb-paths">Practical paths</a>
+      <a href="#vrbo">VRBO</a>
+      <a class="sub" href="#vrbo-apis">Two Expedia APIs</a>
+      <a class="sub" href="#vrbo-graphql">Supply GraphQL</a>
+      <a href="#padsplit">PadSplit</a>
+      <a href="#invariants">PropLane invariants</a>
+      <a href="#strategy">Recommended strategy</a>
+      <a href="#build">What to build first</a>
+      <a href="#sources">Sources</a>
+    </nav>
+    <main>
+      <header class="hero">
+        <div class="kicker">Internal research brief</div>
+        <h1 class="doc">Integrating PropLane’s messaging AI into Airbnb, VRBO, and PadSplit</h1>
+        <p class="lede">This is a partner-and-policy problem first, not a model problem. The existing leasing SMS bot cannot be pointed at these inboxes as-is.</p>
+        <p class="meta">Researched 31 Aug 2026 · PropLane / AXIS-2 codebase + live platform docs</p>
+      </header>
+
+      <section id="verdict">
+        <h2>Verdict</h2>
+        <div class="cards">
+          <div class="card">
+            <span class="pill mid">VRBO</span>
+            <h3>Most open official door</h3>
+            <p>Expedia Connectivity Partner Program is accepting software providers. Lodging Supply GraphQL already has retrieve-thread and AddMessage. Certification usually includes listings, rates, and reservations, not messaging alone.</p>
+          </div>
+          <div class="card">
+            <span class="pill bad">Airbnb</span>
+            <h3>API exists, program is closed</h3>
+            <p>Homes API has messages and webhooks, but Airbnb is not taking new partner applications. Invitation-only. Practical 2026 path is Hospitable / Guesty / Hostaway as middleware.</p>
+          </div>
+          <div class="card">
+            <span class="pill bad">PadSplit</span>
+            <h3>No public messaging API</h3>
+            <p>Messenger is web/app only. Threads auto-close after 24 hours. PadPulse sync is unaffiliated. Do not scrape. Path is BD, or keep AI on PropLane channels after the member is on our platform.</p>
+          </div>
+        </div>
+        <div class="callout warn">
+          <p><strong>Do not ship the current leasing bot into OTA threads.</strong> Its system prompt requires PropLane apply/tour links. Airbnb (and VRBO) scan for off-platform contact and payment. That is a ban path, not a feature.</p>
+        </div>
+      </section>
+
+      <section id="what-we-have">
+        <h2>What we already have</h2>
+        <p>The “messaging AI bot” is not one widget. It is several <strong>channel adapters</strong> around one agent loop: <code>runAgentTurn</code> in <code>src/lib/agent/loop.ts</code>. Each surface has its own context resolver, tool registry, and delivery path. That is the right shape to copy.</p>
+        <table>
+          <thead>
+            <tr><th>Surface</th><th>Trigger</th><th>Registry</th><th>Reply delivery</th></tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>Leasing SMS</td>
+              <td>Twilio inbound on a manager work number</td>
+              <td><code>leasingSmsAgentRegistry</code></td>
+              <td><code>deliverLeasingSmsReply</code> → Twilio</td>
+            </tr>
+            <tr>
+              <td>Resident SMS</td>
+              <td>Same webhook, only if phone is verified and belongs to that manager</td>
+              <td>Resident tools</td>
+              <td><code>deliverResidentSmsReply</code></td>
+            </tr>
+            <tr>
+              <td>Resident Communication assistant</td>
+              <td>In-app inbox, labeled PropLane Assistant</td>
+              <td>Resident tools; writes only proposed</td>
+              <td>Inbox thread write</td>
+            </tr>
+            <tr>
+              <td>Vendor SMS</td>
+              <td>Inbound webhook, one work order</td>
+              <td><code>vendorWorkOrderAgentRegistry</code></td>
+              <td>Twilio</td>
+            </tr>
+          </tbody>
+        </table>
+        <h3>Leasing SMS path (closest analog to guest chat)</h3>
+        <ol>
+          <li>Webhook proves the message is real (<code>x-twilio-signature</code>).</li>
+          <li><code>claim_sms_inbound</code> makes retries idempotent.</li>
+          <li>Identity is resolved <em>before</em> the model runs: work-number owner = manager; From phone = prospect or resident.</li>
+          <li><code>runLeasingSmsAgentTurn</code> loads history from <code>agent_sessions</code> / <code>agent_messages</code>, calls tools, traces in Langfuse.</li>
+          <li>The model never sends. Code sends. The only inline write is <code>escalate_to_manager</code>.</li>
+          <li>Threads key as <code>owner:role:person_ref</code>, not “this phone pair.”</li>
+        </ol>
+        <h3>Leasing tools today</h3>
+        <ul>
+          <li><code>list_live_listings</code> / <code>get_listing_details</code> — live PropLane catalog</li>
+          <li><code>build_prospect_links</code> / <code>get_site_links</code> — apply, tour, listing, portal URLs on <code>prop-lane.space</code></li>
+          <li><code>escalate_to_manager</code></li>
+        </ul>
+        <p>The system prompt requires those PropLane links on every useful reply. This is a conversion bot for our own listings, not an OTA inbox bot.</p>
+        <div class="callout">
+          <p><strong>Existing Airbnb code is calendar only.</strong> <code>src/lib/channel-calendar/</code> imports <code>https://www.airbnb.com/calendar/ical/…</code> URLs. iCal has no messages, no guest identity, no send path. VRBO and PadSplit have no code at all.</p>
+        </div>
+      </section>
+
+      <section id="shape">
+        <h2>The integration shape (same for all three)</h2>
+        <p>Do not fork a second agent. Add a channel adapter that looks like <code>/api/twilio/inbound</code>.</p>
+        <div class="flow">OTA webhook / poll
+  → verify signature
+  → durable claim (MessageSid analog)
+  → map listing/reservation → PropLane manager + property
+  → pick surface (inquiry vs in-stay)
+  → runAgentTurn (channel-specific prompt + tools)
+  → send via that platform’s message API
+  → log into Communication under a new conversation_key</div>
+        <p>Identity has to grow past phones:</p>
+        <pre>conversation_key = &lt;manager_id&gt;:&lt;role&gt;:&lt;channel&gt;:&lt;thread_or_reservation_id&gt;</pre>
+        <p>Roles stay <code>prospect | applicant | resident</code>. An Airbnb inquiry is a prospect. A confirmed stay is closer to the resident SMS agent. PadSplit messenger opening at booking/move-in is mostly in-stay.</p>
+        <div class="callout accent">
+          <p><strong>Hard rule from this codebase.</strong> Landlord id and listing ownership come from the mapping table and the webhook, never from guest text.</p>
+        </div>
+      </section>
+
+      <section id="airbnb">
+        <h2>Airbnb</h2>
+        <div class="pills">
+          <span class="pill bad">Not self-serve</span>
+          <span class="pill mid">Homes API is real</span>
+          <span class="pill bad">Off-platform links banned pre-booking</span>
+        </div>
+
+        <h3 id="airbnb-api">Official API</h3>
+        <p>Airbnb’s Homes API (docs at <a href="https://developer.withairbnb.com/">developer.withairbnb.com</a>) is the real supply-side API: listings, availability, reservations, guest messages, webhooks. Messaging is reservation-thread scoped (list/send), OAuth 2.0, scopes like <code>messages:read</code> / <code>messages:write</code>. Webhooks include <code>message.created</code>.</p>
+        <p>Access is not a signup. As of 2026:</p>
+        <ul>
+          <li>No public developer portal you can self-serve.</li>
+          <li>Hospitable and Elfsight both report Airbnb is <strong>not taking new API/partnership requests</strong>; partner managers invite companies based on supply volume, security review, and support capacity.</li>
+          <li>Preferred Software Partners (as of 24 Aug 2026): about 40 companies, Preferred / Preferred+.</li>
+          <li>Partners must pass data-security + API-quality review and implement <strong>mandatory API features within six months of each release</strong>. Messaging-only is usually not enough; they expect calendar, rates, reservations.</li>
+        </ul>
+        <p>Reconstructed Activities Messages pattern (not Homes, same shape):</p>
+        <pre>GET/POST https://api.airbnb.com/v2/reservations/{reservation_id}/messages
+body: { "message": "..." }   maxLength 5000</pre>
+        <p>Homes inquiry threads are a separate resource in partner docs. Hospitable’s public API still splits <strong>inquiry</strong> vs <strong>reservation</strong> send endpoints.</p>
+
+        <h3 id="airbnb-policy">Policy conflict with our current bot</h3>
+        <p>Airbnb scans every message for phone numbers, emails, personal sites, and off-platform payment. Pre-booking contact sharing is forbidden. PMS-sent automated messages get the same scan.</p>
+        <p>Our leasing prompt telling the model to always include a <code>prop-lane.space</code> apply/tour link, plus <code>build_prospect_links</code> prefilling a phone, is exactly what their filter is built to catch. Post-booking, some contact sharing is allowed, still on-platform first.</p>
+
+        <h3>What this would look like in our code</h3>
+        <ul>
+          <li>Mapping table: PropLane <code>property_id</code> / room ↔ Airbnb listing id (today we only store an iCal URL).</li>
+          <li><code>/api/webhooks/airbnb</code> mirroring Twilio: signature, claim, no double-reply.</li>
+          <li>A <strong>new registry</strong>, not <code>leasingSmsAgentRegistry</code>. Strip <code>build_prospect_links</code> and <code>get_site_links</code> for pre-booking. Ground answers on the Airbnb listing/reservation payload plus our listing facts. Escalate anything about exceptions, refunds, or “text me at …”.</li>
+          <li>Dual-mode: inquiry → leasing-like Q&amp;A with <strong>no off-platform links</strong>; confirmed reservation → resident-like tools (check-in, house rules) still without leaking phones until policy allows.</li>
+          <li>Communication: new channel so Airbnb threads do not merge with SMS.</li>
+        </ul>
+
+        <h3 id="airbnb-paths">Practical paths</h3>
+        <table>
+          <thead>
+            <tr><th>Path</th><th>Reality</th></tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>Direct Homes API</td>
+              <td>Unlikely until Airbnb invites PropLane. Need real STR supply, PCI/security review, full channel-manager surface.</td>
+            </tr>
+            <tr>
+              <td>Ride an existing partner</td>
+              <td>Hospitable, Guesty, Hostaway already have Airbnb+VRBO messaging. Hospitable: <code>POST /v2/reservations/{uuid}/messages</code>, inquiry send when <code>reservation_id</code> is null, OAuth <code>message:write</code> (approval-gated). Guesty: <code>reservation.messageReceived</code> / <code>messageSent</code> webhooks.</td>
+            </tr>
+            <tr>
+              <td>Scraping / unofficial inbox tools</td>
+              <td>Breaks, ToS risk, Airbnb revokes. Do not do this.</td>
+            </tr>
+            <tr>
+              <td>Keep iCal + SMS after the guest is on PropLane</td>
+              <td>Already possible. Does not put the bot in the Airbnb inbox.</td>
+            </tr>
+          </tbody>
+        </table>
+        <p>If the goal is “our bot answers Airbnb guests this year,” the honest route is <strong>vendor on Hospitable/Guesty</strong>, not pretending we will get Homes API access.</p>
+      </section>
+
+      <section id="vrbo">
+        <h2>VRBO (Expedia Group)</h2>
+        <div class="pills">
+          <span class="pill ok">Software partners can apply</span>
+          <span class="pill ok">GraphQL messaging is live</span>
+          <span class="pill mid">Usually not messaging-only</span>
+        </div>
+
+        <h3 id="vrbo-apis">Two Expedia APIs (do not mix them up)</h3>
+        <table>
+          <thead>
+            <tr><th>API</th><th>Audience</th><th>Messaging</th></tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>Rapid API (<code>supply_source=vrbo</code>)</td>
+              <td>Demand partners booking VRBO inventory</td>
+              <td><strong>Not</strong> compatible with Property Message Center. Email/phone on the booking only.</td>
+            </tr>
+            <tr>
+              <td><strong>Lodging Supply GraphQL</strong> (Connectivity Partner Program)</td>
+              <td>PMS / channel managers pushing <em>your</em> listings to VRBO/Expedia</td>
+              <td><strong>Yes.</strong> This is the one we want.</td>
+            </tr>
+          </tbody>
+        </table>
+
+        <h3 id="vrbo-graphql">Supply messaging</h3>
+        <p>Live in EG Connectivity Hub, official Node SDK:</p>
+        <ul>
+          <li><code>PropertyMessageThreads</code> — threads for a property (<code>propertyId</code> + filters)</li>
+          <li><code>MessageThread</code> / <code>Message</code> — fetch by id</li>
+          <li><code>AddMessage</code> — <code>messageThreadId</code> + <code>AddMessageThreadMessageInput</code></li>
+          <li><code>SetMessageThreadSpamStatus</code></li>
+        </ul>
+        <p>Hostaway’s production notes (they are a VRBO Elite partner):</p>
+        <ul>
+          <li>API messages show in both the PMS inbox and VRBO’s inbox.</li>
+          <li>Plain text only: no HTML, no attachments.</li>
+          <li>Thread can lag minutes after inquiry/reservation create; send too early and it fails.</li>
+          <li>Incoming relies on VRBO webhooks.</li>
+          <li>Expedia-sourced VRBO bookings (<code>expediaIntegrated</code>) often cannot use the VRBO messaging API and fall back to email proxy.</li>
+        </ul>
+        <h3>Partner program (2026)</h3>
+        <ol>
+          <li>Software provider contacts Expedia connectivity (<a href="https://developers.expediagroup.com/supply/lodging">Connectivity Hub</a>).</li>
+          <li>PCI + license agreement.</li>
+          <li>Consult, build, sandbox, soft launch, go live.</li>
+          <li>Individual properties <strong>cannot</strong> connect directly.</li>
+          <li>Email historically used: <code>vrboconnectivity@expediagroup.com</code> / <code>connectivitypartner@expediagroup.com</code>.</li>
+          <li>Tiers: Integrated → Preferred → Elite. Messaging is a real capability, not a secret add-on.</li>
+        </ol>
+        <p>Expedia’s Rapid “Property Message Center” is a different product (hotels / Rapid bookings). VRBO Rapid bookings still do not use it.</p>
+        <h3>What this would look like in our code</h3>
+        <ul>
+          <li>Same adapter pattern as Twilio, GraphQL instead of REST.</li>
+          <li>New <code>vrbo-inbox-agent.server.ts</code> + <code>/api/webhooks/vrbo</code> (or poll <code>PropertyMessageThreads</code> if webhooks are delayed in certification).</li>
+          <li>Official SDK: <code>ExpediaGroup/lodging-connectivity-nodejs-sdk</code> <code>SupplyClient</code>.</li>
+          <li>Mapping: PropLane property/room ↔ Expedia/VRBO <code>propertyId</code>.</li>
+          <li>Reply cap: plain text, no markdown (our SMS prompt already does this).</li>
+          <li>Same off-platform filter: do not ship apply URLs in inquiry threads.</li>
+          <li>Certification is usually listings + rates + availability + reservations + messaging. That is a product decision: become a channel manager for those houses, or only message listings already connected through someone else.</li>
+        </ul>
+        <p>VRBO is the right <strong>first official partnership</strong> if we want a first-party API. Timeline is months, not a sprint.</p>
+      </section>
+
+      <section id="padsplit">
+        <h2>PadSplit</h2>
+        <div class="pills">
+          <span class="pill bad">0 public APIs</span>
+          <span class="pill mid">Messenger is product-native</span>
+          <span class="pill bad">24h thread auto-close</span>
+        </div>
+        <p>APIs.io (scored 27 Aug 2026) lists PadSplit as 0 APIs, no developer program, agent-readiness 0.</p>
+        <p>What hosts actually get (PadSplit Help, updated 13 Apr 2026):</p>
+        <ul>
+          <li>PadSplit Messenger (web + iOS/Android).</li>
+          <li>Thread opens when a member <strong>requests a booking</strong> or has a <strong>move-in date</strong> (instant book).</li>
+          <li>Inactive threads <strong>auto-close after 24 hours</strong>. Member is pushed to maintenance tickets / support. Host can reopen.</li>
+          <li>Host features: mute, notification prefs, close/open chat, <strong>pre-written move-in messages</strong> (app only).</li>
+          <li>Maintenance, billing, and safety are supposed to leave messenger for other PadSplit channels.</li>
+        </ul>
+        <p>June 2026: PadSplit’s first external API work is <strong>outbound listing distribution</strong> to Furnished Finder (supply APIs Furnished Finder owns). That is inventory, not messenger. Hosts were told “no action required.”</p>
+        <div class="callout bad">
+          <p><strong>PadPulse</strong> advertises bi-directional PadSplit auto-sync including messages. Their own terms say they are not affiliated with PadSplit. That almost always means a private/session integration. Replicating it (browser login, scraping Messenger) would violate PadSplit ToS and our security bar. Do not build that.</p>
+        </div>
+        <h3>If PadSplit ever opened a partner API</h3>
+        <ul>
+          <li>Closest existing surface: <strong>resident SMS agent</strong>, not leasing. Messenger is post-request / post-move-in.</li>
+          <li>24-hour auto-close means: reply in seconds, no “wait for the manager to confirm in the portal” for the first answer. Use the SMS posture (<code>readOnly</code> + allowlisted escalate), not the Communication-tab proposal card.</li>
+          <li>Do not route maintenance/payment into the bot as if they were PropLane work orders unless PadSplit’s ticket APIs exist.</li>
+          <li><code>conversation_key</code> would use PadSplit member/thread id. Phone may not be visible.</li>
+        </ul>
+        <h3>Until they open an API</h3>
+        <ol>
+          <li>Business development with PadSplit (they just proved they will do partner APIs for distribution). Ask specifically for a host messenger webhook + send.</li>
+          <li>After a member is on PropLane (lease/account), our existing SMS/inbox bots already cover them. PadSplit Messenger stays native.</li>
+          <li>Use PadSplit’s own move-in auto-messages for dumb templates; keep the AI on PropLane channels.</li>
+        </ol>
+      </section>
+
+      <section id="invariants">
+        <h2>How this collides with PropLane invariants</h2>
+        <p>These are not optional polish. They decide whether a channel adapter is safe.</p>
+        <h3>1. Off-platform conversion vs OTA lock-in</h3>
+        <p>The leasing bot’s job is to move people onto PropLane URLs. Airbnb/VRBO’s job is to keep the guest on their platform until (and often after) booking. One prompt cannot serve both. You need <code>channel: "sms" | "airbnb" | "vrbo" | "padsplit"</code> in context and a prompt/tool allowlist per channel.</p>
+        <h3>2. Facts stay tool-grounded</h3>
+        <p>OTA messages will mention wifi, lock codes, fees, “the other listing.” Those must come from tools or the reservation payload. Do not let the model invent check-in instructions. Reuse <code>publicListingProjection</code>. Do not dump <code>row_data</code>.</p>
+        <h3>3. Untrusted guest text</h3>
+        <p>Guest body never changes identity, never triggers an unconfirmed write. OTA webhooks must resolve manager from <em>our</em> listing map.</p>
+        <h3>4. Conversation identity</h3>
+        <p>Do not key OTA threads on guest phone even if the payload includes one. Two guests can share a number. Airbnb identity is the reservation/thread. PadSplit identity is the member.</p>
+        <h3>5. Communication inbox</h3>
+        <p>One conversation inbox, no folder tabs. OTA threads should appear as another conversation in Communication, with channel in the subtitle, not a new “Airbnb” tab.</p>
+        <h3>6. Observability</h3>
+        <p>Stamp <code>channel</code> on Langfuse the way leasing SMS already stamps <code>channel: "sms"</code>. Reuse event names; add a <code>channel</code> property. Do not invent a parallel taxonomy.</p>
+        <h3>7. Web + native</h3>
+        <p>A unified inbox change is a portal nav/inbox change. Keep web-native parity. The native app is the same WebView.</p>
+        <h3>8. We are not a channel manager today</h3>
+        <p>Airbnb iCal is one-way occupancy. Becoming an Airbnb/VRBO connectivity partner usually means two-way calendar, rates, content, reservations, then messaging. That is a much larger product than “wire the SMS bot to their inbox.”</p>
+      </section>
+
+      <section id="strategy">
+        <h2>Recommended strategy</h2>
+        <p>Do not try to “integrate the existing leasing SMS bot” as-is. The prompt, tools, and identity model would violate Airbnb/VRBO policy on day one.</p>
+        <h3>If the goal is “AI replies in the guest’s Airbnb/VRBO thread”</h3>
+        <ol>
+          <li><strong>Near term (engineering, no partner wait):</strong> treat Hospitable or Guesty as the channel. Manager already connected to Airbnb/VRBO → OAuth PropLane as a messaging vendor → webhook in, <code>runAgentTurn</code>, send body back. One adapter covers both Airbnb and VRBO. Cost: those managers must live in that PMS; we take their API ToS and latency.</li>
+          <li><strong>Official VRBO:</strong> start Expedia Connectivity Partner intake now. Messaging GraphQL is documented and shipping. Expect full supply integration, PCI, sandbox certification.</li>
+          <li><strong>Official Airbnb:</strong> relationship + supply story, not a GitHub PR. Keep the adapter interface so a future Homes API drops in next to the Hospitable adapter. Do not scrape.</li>
+          <li><strong>PadSplit:</strong> talk to them. No API to implement until they offer one. Do not copy PadPulse’s unofficial sync.</li>
+        </ol>
+        <h3>If the goal is “managers stop missing OTA messages” without becoming a PMS</h3>
+        <p>Ship Communication as a unified human inbox first (pull via Hospitable/Guesty), with AI drafts behind the existing confirm gate — same as resident inbox proposals — rather than auto-send. Auto-send on OTAs is how people get policy-banned.</p>
+        <h3>PadSplit vs the other two</h3>
+        <p>Airbnb and VRBO are short-term guest threads tied to a reservation. PadSplit is co-living member ops with a 24h thread TTL and a platform that wants maintenance/billing off messenger. Same agent core, different registry, different SLA.</p>
+      </section>
+
+      <section id="build">
+        <h2>What to build first (when leaving research)</h2>
+        <p>A channel-agnostic inbox worker, then one adapter:</p>
+        <ul>
+          <li><code>src/lib/channel-inbox/types.ts</code> — <code>Channel = airbnb | vrbo | padsplit | sms</code></li>
+          <li><code>src/lib/channel-inbox/identity.ts</code> — extend <code>buildConversationKey</code> with channel + external thread id</li>
+          <li><code>src/lib/channel-inbox/compliance.ts</code> — block phones, emails, <code>prop-lane.space</code> apply links, payment asks on pre-stay OTA</li>
+          <li><code>src/lib/agent/channel-inbox-agent.server.ts</code> — copy <code>runLeasingSmsAgentTurn</code> (session, rate cap, history, <code>readOnly</code>, escalate allowlist, Langfuse)</li>
+          <li><code>src/app/api/webhooks/&lt;partner&gt;/route.ts</code> — copy Twilio claim/replay</li>
+          <li>Mapping: extend <code>channel-calendar</code> beyond iCal, or a new <code>channel_listing_connections</code> table</li>
+        </ul>
+        <p>Hospitable as the first partner would let you prove the agent loop on real Airbnb+VRBO threads without waiting on Airbnb’s invite.</p>
+      </section>
+
+      <section id="sources">
+        <h2>Primary sources</h2>
+        <ul>
+          <li>PropLane: <code>src/lib/agent/leasing-sms-agent.server.ts</code>, <code>src/app/api/twilio/inbound/route.ts</code>, <code>src/lib/tools/domains/leasing-sms.ts</code>, <code>src/lib/agent/inbox-auto-respond.server.ts</code>, <code>src/lib/channel-calendar/</code>, <code>docs/ai-assistant.md</code>, <code>docs/agents/sms-system.md</code></li>
+          <li>Airbnb developer hub: <a href="https://developer.withairbnb.com/">developer.withairbnb.com</a></li>
+          <li>Airbnb API terms / off-platform policy: Help Center + 2026 partner writeups (Hospitable, Elfsight, Rental Scale-Up)</li>
+          <li>Expedia Connectivity Hub: <a href="https://developers.expediagroup.com/supply/lodging">developers.expediagroup.com/supply/lodging</a></li>
+          <li>Expedia Node SDK: <a href="https://github.com/ExpediaGroup/lodging-connectivity-nodejs-sdk">lodging-connectivity-nodejs-sdk</a></li>
+          <li>Hospitable Public API: <a href="https://developer.hospitable.com">developer.hospitable.com</a></li>
+          <li>PadSplit Help: Messaging your Members (13 Apr 2026); June 2026 Host Success brief (Furnished Finder)</li>
+          <li>APIs.io PadSplit provider profile (scored 27 Aug 2026)</li>
+        </ul>
+      </section>
+
+      <footer>
+        Research brief. Path: <code>docs/vrbo_airbnb_padsplit_integration_research.html</code>
+      </footer>
+    </main>
+  </div>
+</body>
+</html>
