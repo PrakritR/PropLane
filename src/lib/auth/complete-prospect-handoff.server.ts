@@ -90,7 +90,7 @@ export async function completeProspectHandoffForUser(
   const email = trustedContact.contactEmail;
   const authEmail = trustedContact.authEmail;
 
-  let phone =
+  const phone =
     normalizeTourContactPhone(input.phone ?? "") ??
     normalizeTourContactPhone(textField(inquiry, "phone")) ??
     "";

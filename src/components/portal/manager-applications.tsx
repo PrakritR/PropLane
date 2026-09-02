@@ -1009,37 +1009,6 @@ export function ManagerApplications({
    * `selectAutoApprovals` caps the pass, so switching this on with a backlog does not provision a
    * pile of accounts at once; the rest come on the next load.
    */
-  useEffect(() => {
-    if (autoApproveRanRef.current) return;
-    if (!applicationAutomation.autoApproveApplications || !userId || rows.length === 0) return;
-    autoApproveRanRef.current = true;
-    const picked = selectAutoApprovals(
-      rows.map((row) => ({
-        id: row.id,
-        bucket: row.bucket,
-        withdrawnAt: row.withdrawnAt,
-        complete: !isInProgressApplicationRow(row),
-        screeningStatus: row.backgroundCheck?.status,
-      })),
-      { enabled: true, isDemo: isDemoModeActive() },
-    );
-    if (picked.length === 0) return;
-    void (async () => {
-      for (const candidate of picked) {
-        // Sequential on purpose: each approval writes charges and provisions an account, and the
-        // shared transition is not built to run concurrently against the same local store.
-        await setRowBucket(candidate.id, "approved");
-      }
-      showToast(
-        picked.length === 1
-          ? "1 application auto-approved."
-          : `${picked.length} applications auto-approved.`,
-      );
-    })();
-    // Deliberately keyed on the automation flag and the row set only — `setRowBucket` is redefined
-    // every render and would retrigger the pass.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [applicationAutomation.autoApproveApplications, rows, userId]);
 
   const setRowBucket = async (
     id: string,
@@ -1076,6 +1045,41 @@ export function ManagerApplications({
           : "Moved to Pending.";
     showToast(msg);
   };
+
+  // Declared AFTER `setRowBucket`, which it calls. It used to sit above the
+  // definition and relied on hoisting, which stops the compiler tracking the
+  // dependency. The dep list is unchanged and still deliberately omits it.
+  useEffect(() => {
+    if (autoApproveRanRef.current) return;
+    if (!applicationAutomation.autoApproveApplications || !userId || rows.length === 0) return;
+    autoApproveRanRef.current = true;
+    const picked = selectAutoApprovals(
+      rows.map((row) => ({
+        id: row.id,
+        bucket: row.bucket,
+        withdrawnAt: row.withdrawnAt,
+        complete: !isInProgressApplicationRow(row),
+        screeningStatus: row.backgroundCheck?.status,
+      })),
+      { enabled: true, isDemo: isDemoModeActive() },
+    );
+    if (picked.length === 0) return;
+    void (async () => {
+      for (const candidate of picked) {
+        // Sequential on purpose: each approval writes charges and provisions an account, and the
+        // shared transition is not built to run concurrently against the same local store.
+        await setRowBucket(candidate.id, "approved");
+      }
+      showToast(
+        picked.length === 1
+          ? "1 application auto-approved."
+          : `${picked.length} applications auto-approved.`,
+      );
+    })();
+    // Deliberately keyed on the automation flag and the row set only — `setRowBucket` is redefined
+    // every render and would retrigger the pass.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [applicationAutomation.autoApproveApplications, rows, userId]);
 
   const rejectApplications = async (rowsToReject: DemoApplicantRow[]) => {
     if (rowsToReject.length === 0) return;

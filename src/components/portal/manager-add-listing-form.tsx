@@ -2868,6 +2868,12 @@ export function ManagerAddListingForm({
     void submitListingRef.current();
   }, [demoAutofillSubmitPending, sub]);
 
+  // Hoisted above the `!mounted` early return: every hook has to run in the same
+  // order on every render, and this sat ~460 lines below the return, so an
+  // unmounted first paint called one fewer hook than a mounted one.
+  const presentation = useModalPresentation();
+  const isDrawer = presentation === "drawer";
+
   if (!mounted) return null;
 
   // ── Unified Fees UI sections ──
@@ -3330,8 +3336,6 @@ export function ManagerAddListingForm({
     bundlesFeeSection,
   ].filter((s): s is FeeExpandableSection => s !== null);
 
-  const presentation = useModalPresentation();
-  const isDrawer = presentation === "drawer";
 
   const requestWizardClose = () => {
     if (busy || closingDraft) return;

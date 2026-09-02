@@ -494,12 +494,18 @@ function ManagerPropertyInlineDetails({
   // Falls back to "" only in the render that returns null below (no row), where it is
   // never read. Keeps the type a plain string for every href builder downstream.
   const propertyRouteKey = stablePropertyId || row?.adminRefId || "";
-  const availableTabs: PropertyDetailTabId[] =
-    bucket === 3 || bucket === 5
-      ? ["preview"]
-      : bucket === 2 && listingId
-        ? ["preview", "house-details", "move-in", "application", "lease", "tours", "requests", "promotion"]
-        : ["preview", "house-details", "move-in", "application", "lease"];
+  // Memoized so `topNavItems` below has a stable dependency. Rebuilt inline it
+  // was a fresh array every render, which the compiler reads as a value that may
+  // be mutated later and refuses to preserve the manual memo around.
+  const availableTabs = useMemo<PropertyDetailTabId[]>(
+    () =>
+      bucket === 3 || bucket === 5
+        ? ["preview"]
+        : bucket === 2 && listingId
+          ? ["preview", "house-details", "move-in", "application", "lease", "tours", "requests", "promotion"]
+          : ["preview", "house-details", "move-in", "application", "lease"],
+    [bucket, listingId],
+  );
   const activeDetailTab = availableTabs.includes(detailTab) ? detailTab : availableTabs[0]!;
   const topNavItems = useMemo(() => {
     const items: Array<{
