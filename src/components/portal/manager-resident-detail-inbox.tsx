@@ -29,8 +29,10 @@ import { useAppUi } from "@/components/providers/app-ui-provider";
 import {
   MANAGER_INBOX_STORAGE_KEY,
   PORTAL_INBOX_CHANGED_EVENT,
+  formatInboxStamp,
   inboxThreadMessages,
   loadPersistedInbox,
+  parseInboxStampMs,
   type PersistedInboxThread,
 } from "@/lib/portal-inbox-storage";
 import { filterEmailInboxThreads } from "@/lib/communication-inbox-filters";
@@ -73,11 +75,48 @@ function loadResidentThreadBubbles(email: string): InboxBubbleMessage[] {
       });
     }
   }
-  return bubbles.sort((a, b) => {
-    const ta = Date.parse(a.at ?? "") || 0;
-    const tb = Date.parse(b.at ?? "") || 0;
-    return ta - tb;
+  return bubbles;
+}
+
+/** This person's texts as thread bubbles, stamped like the email ones. */
+function smsThreadBubbles(
+  resident: ManagerSmsResidentConversation | null | undefined,
+  displayName: string,
+): InboxBubbleMessage[] {
+  const messages = Array.isArray(resident?.messages) ? resident.messages : [];
+  return messages.map((message, index) => {
+    const at = Date.parse(message.createdAt);
+    return {
+      // Message ids come from a different store than the email ones, so keep
+      // them namespaced or a collision would drop a bubble from the timeline.
+      id: `sms:${message.id ?? `${message.createdAt}:${index}`}`,
+      author: message.direction === "outbound" ? "You" : displayName,
+      body: message.body,
+      // Render through the SAME stamp the email side uses, so one timeline does
+      // not mix two date formats.
+      at: Number.isNaN(at) ? "" : formatInboxStamp(new Date(at)),
+      direction: message.direction === "outbound" ? "outbound" : "inbound",
+      channel: "sms" as const,
+    };
   });
+}
+
+/**
+ * One person, one conversation: email and text history interleaved in time.
+ *
+ * Both sides must be reduced to milliseconds the SAME way before sorting. Email
+ * bubbles carry the canonical inbox stamp ("Aug 3, 5:31 PM" — no year, Pacific)
+ * which only `parseInboxStampMs` reads correctly; a bare `Date.parse` on it is
+ * timezone- and year-dependent, so sorting raw strings from two stores let an
+ * older email outrank a newer text.
+ */
+function mergeThreadBubbles(
+  emailBubbles: InboxBubbleMessage[],
+  smsBubbles: InboxBubbleMessage[],
+): InboxBubbleMessage[] {
+  return [...emailBubbles, ...smsBubbles].sort(
+    (a, b) => (parseInboxStampMs(a.at) ?? 0) - (parseInboxStampMs(b.at) ?? 0),
+  );
 }
 
 /** Direct chat when this resident has no inbox thread yet — same shell as Communication. */
@@ -158,8 +197,12 @@ export function ResidentDirectChatPane({
 
   const messages = useMemo(() => {
     void inboxTick;
-    return loadResidentThreadBubbles(email);
-  }, [email, inboxTick]);
+    return mergeThreadBubbles(loadResidentThreadBubbles(email), smsThreadBubbles(smsResident, displayName));
+  }, [displayName, email, inboxTick, smsResident]);
+
+  // Channel tags are decided by the timeline primitive itself: it tags bubbles
+  // only when the thread actually spans more than one channel, so a plain email
+  // conversation stays untagged with no flag to keep in sync here.
 
   const threadScheduledItems = useMemo(
     () => scheduledItemsForRecipient(email, manualScheduledMessages, scheduledPaymentMessages),

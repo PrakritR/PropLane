@@ -1,4 +1,5 @@
 import {
+  PAYMENT_AT_SIGNING_OPTIONS,
   type ManagerCustomFeeRow,
   type ManagerListingSubmissionV1,
   type PaymentAtSigningOptionId,
@@ -464,6 +465,44 @@ export function listingFeesForWizard(
     }
     return true;
   });
+}
+
+/**
+ * Record a "Payment at signing" tick on BOTH representations of the same fact.
+ *
+ * Whether the deposit / move-in fee is due at signing is stored twice: as this
+ * checkbox list, and as `dueAtSigning` on the fee row (which the Pricing table
+ * also toggles). `listingFeeRowsFromSubmission` derives the row from the list,
+ * and `derivePaymentAtSigningIncludes` derives the list back from the row — so
+ * writing only the list left a materialized row saying the opposite, and the
+ * next fee edit recomputed the list from that stale row and silently dropped
+ * the manager's tick. That is the "I check Move-in fee and it does not save"
+ * bug: the checkbox did save, and was then overwritten.
+ *
+ * Updating both keeps whichever control the manager touched last authoritative.
+ * A row that does not exist yet needs no patch — the row is derived from the
+ * list until something materializes it.
+ */
+export function applyPaymentAtSigningSelection<
+  T extends Pick<ManagerListingSubmissionV1, "paymentAtSigningIncludes" | "customFees">,
+>(sub: T, id: PaymentAtSigningOptionId, on: boolean): T {
+  const order = PAYMENT_AT_SIGNING_OPTIONS.map((o) => o.id);
+  const set = new Set(sub.paymentAtSigningIncludes ?? []);
+  if (on) set.add(id);
+  else set.delete(id);
+  const paymentAtSigningIncludes = order.filter((key) => set.has(key));
+
+  const presetId = id === "security_deposit" ? "security_deposit" : id === "move_in_fee" ? "move_in_fee" : null;
+  const rows = sub.customFees ?? [];
+  const index = presetId
+    ? rows.findIndex((row) => (row as { presetId?: string }).presetId === presetId)
+    : -1;
+  const customFees =
+    index >= 0
+      ? rows.map((row, i) => (i === index ? { ...row, dueAtSigning: on } : row))
+      : sub.customFees;
+
+  return { ...sub, paymentAtSigningIncludes, customFees };
 }
 
 export function derivePaymentAtSigningIncludes(

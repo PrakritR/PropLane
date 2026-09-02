@@ -41,6 +41,7 @@ import {
   mergeUnifiedInboxItems,
   parseUnifiedInboxKey,
   unifiedInboxKey,
+  unifiedInboxPersonKey,
   type CommunicationListSort,
   type UnifiedInboxListItem,
 } from "@/lib/unified-inbox-merge";
@@ -369,6 +370,9 @@ export function ManagerUnifiedInbox({
         key: unifiedInboxKey("email", t.id),
         channel: "email" as const,
         threadId: t.id,
+        // Who this is with, so a text thread with the same person folds in.
+        personKey: unifiedInboxPersonKey(t.email),
+        personEmail: t.email?.trim() || undefined,
         name: displayName,
         subtitle: t.subject,
         preview: previewLine(lastMsg?.body ?? t.preview ?? "", 80),
@@ -420,6 +424,11 @@ export function ManagerUnifiedInbox({
           key: unifiedInboxKey("sms", rowId),
           channel: "sms",
           threadId: rowId,
+          // Only a resolved address merges. An unknown number carries none, so
+          // it stays its own conversation rather than being guessed onto a
+          // resident.
+          personKey: unifiedInboxPersonKey(resident.residentEmail),
+          personEmail: resident.residentEmail?.trim() || undefined,
           // Prefer person name / unit / email; fall back to a readable phone.
           name: smsConversationDisplayName(resident),
           subtitle: smsConversationSubtitle(resident) || undefined,
@@ -493,6 +502,31 @@ export function ManagerUnifiedInbox({
   );
 
   const selection = useMemo(() => (selectedKey ? parseUnifiedInboxKey(selectedKey) : null), [selectedKey]);
+
+  /**
+   * The selected row, matched on ANY key it folded in — a merged conversation
+   * is reachable by the key of either channel (a deep link minted before the
+   * merge still resolves).
+   */
+  const selectedRow = useMemo(
+    () =>
+      selectedKey
+        ? (mergedRows.find(
+            (row) => row.key === selectedKey || (row.memberKeys ?? []).includes(selectedKey),
+          ) ?? null)
+        : null,
+    [mergedRows, selectedKey],
+  );
+
+  /**
+   * A conversation that spans both channels renders as ONE thread — the direct
+   * chat pane, which already speaks email and SMS for a single person — rather
+   * than picking one channel's pane and hiding the other half of the history.
+   */
+  const mergedPersonEmail = useMemo(() => {
+    if (!selectedRow || (selectedRow.channels?.length ?? 1) < 2) return null;
+    return selectedRow.personEmail?.trim() || null;
+  }, [selectedRow]);
   const placeholderContact = useMemo(() => {
     if (!selection || !filterContacts) return null;
     const contactId = parseContactInboxThreadId(selection.threadId);
@@ -667,7 +701,13 @@ export function ManagerUnifiedInbox({
               time={row.time}
               unread={row.unread}
               selected={selectedKey === row.key}
-              channelBadge={row.channel === "email" ? "Email" : "SMS"}
+              channelBadge={
+                (row.channels?.length ?? 1) > 1
+                  ? "Email · SMS"
+                  : row.channel === "email"
+                    ? "Email"
+                    : "SMS"
+              }
               onOpen={() => {
                 setSelectedKey(row.key);
                 setMobileThreadOpen(true);
@@ -684,14 +724,15 @@ export function ManagerUnifiedInbox({
     </div>
   );
 
-  const threadPane = placeholderContact ? (
+  const directChatEmail = placeholderContact?.email ?? mergedPersonEmail;
+  const threadPane = directChatEmail ? (
     <ResidentDirectChatPane
-      residentEmail={placeholderContact.email}
-      residentName={placeholderContact.name}
+      residentEmail={directChatEmail}
+      residentName={placeholderContact?.name ?? selectedRow?.name}
       smsResident={
         smsResidents.find(
           (resident) =>
-            resident.residentEmail?.trim().toLowerCase() === placeholderContact.email.trim().toLowerCase(),
+            resident.residentEmail?.trim().toLowerCase() === directChatEmail.trim().toLowerCase(),
         ) ?? null
       }
       smsUiEnabled={smsUiEnabled}

@@ -5,6 +5,7 @@ import {
 } from "@/lib/communication-thread-filters";
 import {
   unifiedInboxKey,
+  unifiedInboxPersonKey,
   type UnifiedInboxListItem,
 } from "@/lib/unified-inbox-merge";
 
@@ -63,6 +64,8 @@ export function buildResidentPlaceholderInboxItems(args: {
         key: unifiedInboxKey("email", threadId),
         channel: "email" as const,
         threadId,
+        personKey: unifiedInboxPersonKey(contact.email),
+        personEmail: contact.email.trim() || undefined,
         name: contact.name.trim() || contact.email.trim(),
         subtitle: contact.propertyLabel?.trim() || undefined,
         preview: "No messages yet.",
