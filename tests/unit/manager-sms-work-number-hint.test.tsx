@@ -1,17 +1,26 @@
 // @vitest-environment jsdom
 
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 
 const pathname = vi.fn(() => "/portal/communication");
+const showToast = vi.fn();
 
 vi.mock("next/navigation", () => ({ usePathname: () => pathname() }));
+vi.mock("@/components/providers/app-ui-provider", () => ({
+  useAppUi: () => ({ showToast }),
+}));
 
-import { ManagerSmsWorkNumberHint } from "@/components/portal/manager-sms-work-number-hint";
+import {
+  ManagerSmsWorkNumberHint,
+  ManagerWorkNumberCopyControl,
+} from "@/components/portal/manager-sms-work-number-hint";
 
 afterEach(() => {
   cleanup();
+  showToast.mockReset();
   pathname.mockReturnValue("/portal/communication");
+  vi.unstubAllGlobals();
 });
 
 describe("ManagerSmsWorkNumberHint", () => {
@@ -55,5 +64,20 @@ describe("ManagerSmsWorkNumberHint", () => {
 
     expect(screen.queryByRole("alert")).toBeNull();
     expect(screen.getByText("+1 (855) 916-8031")).toBeTruthy();
+    expect(
+      screen.getByRole("button", { name: "Copy work number +1 (855) 916-8031" }),
+    ).toBeTruthy();
+  });
+
+  it("copies the work number to the clipboard when clicked", async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    vi.stubGlobal("navigator", { clipboard: { writeText } });
+
+    render(<ManagerWorkNumberCopyControl phone="+18559168031" />);
+    fireEvent.click(screen.getByRole("button", { name: "Copy work number +1 (855) 916-8031" }));
+
+    await waitFor(() => expect(writeText).toHaveBeenCalledWith("+18559168031"));
+    expect(showToast).toHaveBeenCalledWith("Work number copied.");
+    expect(screen.getByText("Copied to clipboard.")).toBeTruthy();
   });
 });
