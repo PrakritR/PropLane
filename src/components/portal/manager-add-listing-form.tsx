@@ -155,6 +155,7 @@ import {
   type ListingStFeeToggles,
 } from "@/lib/listing-fee-term-toggles";
 import {
+  applyPaymentAtSigningSelection,
   ensureSubmissionListingFees,
   parseRemovedStandardListingFeeRows,
   removedStandardListingFeeRowSet,
@@ -343,17 +344,6 @@ function ListingWizardCollapsibleCard({
       {expanded ? <div className={bodyClassName}>{children}</div> : null}
     </div>
   );
-}
-
-function togglePaymentAtSigning(
-  current: PaymentAtSigningOptionId[],
-  id: PaymentAtSigningOptionId,
-  on: boolean,
-): PaymentAtSigningOptionId[] {
-  const set = new Set(current);
-  if (on) set.add(id);
-  else set.delete(id);
-  return PAYMENT_AT_SIGNING_OPTIONS.map((o) => o.id).filter((k) => set.has(k));
 }
 
 const MAX_IMG_BYTES = 10 * 1024 * 1024;
@@ -3966,10 +3956,10 @@ export function ManagerAddListingForm({
                           className="h-4 w-4 rounded border-border"
                           checked={sub.paymentAtSigningIncludes.includes(opt.id)}
                           onChange={(e) =>
-                            setSub((s) => ({
-                              ...s,
-                              paymentAtSigningIncludes: togglePaymentAtSigning(s.paymentAtSigningIncludes, opt.id, e.target.checked),
-                            }))
+                            // Writes the checkbox list AND the matching fee row,
+                            // which are two stores of one fact — see
+                            // applyPaymentAtSigningSelection.
+                            setSub((s) => applyPaymentAtSigningSelection(s, opt.id, e.target.checked))
                           }
                         />
                         {opt.label}
