@@ -254,6 +254,32 @@ export function ManagerPaymentsLedgerPanel({
         : clusterManagerPaymentLedgerRowsByMode(rows, groupMode),
     [embeddedInResident, groupMode, rows],
   );
+
+  /**
+   * A resident's own Payments tab groups by WHERE THE MONEY STANDS, not by
+   * resident — there is only one. Grouping by anything else left every charge
+   * in one undifferentiated list, so "what does this person still owe, and what
+   * is late" had to be read off individual due dates.
+   *
+   * The rows arrive already sorted overdue → pending → paid, so the sections
+   * follow that order and an empty one is omitted rather than rendering a
+   * header over nothing.
+   */
+  const residentStatusSections = useMemo(() => {
+    if (!embeddedInResident) return [];
+    const order: { bucket: ManagerPaymentBucket; label: string }[] = [
+      { bucket: "overdue", label: "Overdue" },
+      { bucket: "pending", label: "Pending" },
+      { bucket: "paid", label: "Paid" },
+    ];
+    return order
+      .map(({ bucket, label }) => ({
+        bucket,
+        label,
+        rows: rows.filter((row) => row.bucket === bucket),
+      }))
+      .filter((section) => section.rows.length > 0);
+  }, [embeddedInResident, rows]);
   const detailRow = useMemo(() => {
     if (!paymentIdProp) return null;
     const decoded = decodeURIComponent(paymentIdProp);
@@ -1413,6 +1439,30 @@ export function ManagerPaymentsLedgerPanel({
     />
   );
 
+  const renderResidentStatusSections = () => {
+    // One section only (or none) reads better as the plain list it already was.
+    if (residentStatusSections.length <= 1) return renderChargeDataList(rows);
+    return (
+      <div className="space-y-4" data-attr="payments-resident-status-sections">
+        {residentStatusSections.map((section) => (
+          <div key={section.bucket} data-attr={`payments-status-section-${section.bucket}`}>
+            <div className="mb-1.5 flex items-baseline gap-2 px-1">
+              <span
+                className={`text-xs font-semibold uppercase tracking-wide ${
+                  section.bucket === "overdue" ? "text-danger" : "text-muted"
+                }`}
+              >
+                {section.label}
+              </span>
+              <span className="text-xs text-muted tabular-nums">{section.rows.length}</span>
+            </div>
+            {renderChargeDataList(section.rows)}
+          </div>
+        ))}
+      </div>
+    );
+  };
+
   const renderManagerGroupedLedger = () => (
     <div
       className="space-y-3"
@@ -1632,7 +1682,7 @@ export function ManagerPaymentsLedgerPanel({
         bulkActions={embeddedInResident ? undefined : bulkSelectionActions}
         dataAttr="payments-ledger-list"
       >
-        {embeddedInResident ? renderChargeDataList(rows) : renderManagerGroupedLedger()}
+        {embeddedInResident ? renderResidentStatusSections() : renderManagerGroupedLedger()}
       </PortalRecordListSurface>
     )}
     </>
