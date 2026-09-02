@@ -464,11 +464,19 @@ describe("generated-lease", () => {
     const midMonth = { leaseStart: "2026-06-15", managerRentOverride: "$1800" };
     const withResidentPaid = leaseHtmlWithUtilities(residentPaid, midMonth);
     expect(withResidentPaid).toContain("For the first partial month");
-    expect(withResidentPaid).toContain("prorated rent and utilities");
+    // The proration line has TWO shapes now: itemized when both a prorated rent
+    // and a prorated utilities figure are known, and a combined
+    // "(prorated rent and utilities)" otherwise. Both name rent and utilities,
+    // which is what this assertion is actually about.
+    expect(withResidentPaid).toMatch(/prorated rent and (utilities|<strong>[^<]*<\/strong> prorated utilities)/);
 
     const withNoneResidentPaid = leaseHtmlWithUtilities(allIncluded, midMonth);
     expect(withNoneResidentPaid).toContain("For the first partial month");
-    expect(withNoneResidentPaid).toContain("prorated rent and utilities");
+    // The proration line has TWO shapes now: itemized when both a prorated rent
+    // and a prorated utilities figure are known, and a combined
+    // "(prorated rent and utilities)" otherwise. Both name rent and utilities,
+    // which is what this assertion is actually about.
+    expect(withNoneResidentPaid).toMatch(/prorated rent and (utilities|<strong>[^<]*<\/strong> prorated utilities)/);
     expect(withNoneResidentPaid).toContain(UTILITIES_FIGURE);
   });
 

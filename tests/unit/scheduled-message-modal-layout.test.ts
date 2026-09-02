@@ -10,7 +10,10 @@ describe("scheduled message modal layout", () => {
     const source = portalSource("manager-inbox-schedule-panel.tsx");
     const threadList = portalSource("portal-inbox-ui.tsx");
 
-    expect(source).toContain('title="Scheduled message"');
+    // The panel opens the SHARED detail modal, which owns the title as a default
+    // prop (`portal-inbox-ui.tsx`) instead of each caller repeating the literal.
+    expect(source).toContain("<ScheduledMessageDetailModal");
+    expect(portalSource("portal-inbox-ui.tsx")).toContain('title = "Scheduled message"');
     expect(source).toContain("InboxScheduledCard");
     expect(source).toContain('aria-haspopup="dialog"');
     expect(source).not.toContain("PORTAL_TABLE_DETAIL_ROW");

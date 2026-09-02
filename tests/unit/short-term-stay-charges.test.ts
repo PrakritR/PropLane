@@ -41,7 +41,11 @@ function seedShortTermListing(
   sub.shortTermDeposit = opts?.deposit ?? "";
   sub.shortTermMoveInFee = opts?.moveIn ?? "";
   sub.applicationFee = "";
-  sub.rooms = [room({ monthlyRent: 1200 })];
+  // This is a per-ROOM listing, and `resolvedShortTermPlacementDeposit` gates the
+  // listing-level short-term deposit on `isEntireHomeListing` so billing matches
+  // what the public page shows (2b82d7aa). Configure the deposit where it
+  // actually drives billing here: on the room.
+  sub.rooms = [room({ monthlyRent: 1200, shortTermDeposit: opts?.deposit ?? "" })];
   sub.allowedLeaseTerms = ["12-Month"];
   const property: MockProperty = {
     id: propertyId,

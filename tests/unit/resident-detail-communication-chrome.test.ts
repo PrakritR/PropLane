@@ -38,7 +38,14 @@ describe("resident detail Communication keeps a way back on a phone", () => {
     // (they scroll a document inside a bounded preview frame and otherwise overflow a clipped
     // portal surface), so pinning the old single-tab literal failed a legitimate widening while
     // the behaviour it guards was intact.
-    expect(RESIDENTS).toMatch(/fillBody=\{[\s\S]{0,400}?resolvedDetailTab === "communication"/);
+    // The expression was extracted into a named `residentDetailViewportFill`
+    // const, so `fillBody={...}` no longer sits next to the tab check. Assert the
+    // contract where it now lives: communication opts into the fill, and the
+    // detail page is handed that value.
+    expect(RESIDENTS).toMatch(
+      /const residentDetailViewportFill =[\s\S]{0,400}?resolvedDetailTab === "communication"/,
+    );
+    expect(RESIDENTS).toContain("fillBody={residentDetailViewportFill}");
     // The rule (AGENTS.md, portal-ui-system) is an UNBROKEN flex-1 + min-h-0
     // chain — one `display: block` link pushes the page header off-screen. The
     // ternary that used to express it was refactored into a derived `bodyFill`,

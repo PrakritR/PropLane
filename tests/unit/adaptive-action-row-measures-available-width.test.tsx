@@ -41,8 +41,11 @@ describe("detail footer measures available width, not its own content", () => {
 });
 
 describe("lease footer fit calculation", () => {
+  // The fit calculation moved out of `lease-primary-header-actions.tsx` into the
+  // shared `portal-footer-fit-action-row.tsx`, which every adaptive footer now
+  // uses. The rules below are unchanged; only the file that owns them moved.
   const SRC = readFileSync(
-    join(process.cwd(), "src/components/portal/lease-primary-header-actions.tsx"),
+    join(process.cwd(), "src/components/portal/portal-footer-fit-action-row.tsx"),
     "utf8",
   );
 

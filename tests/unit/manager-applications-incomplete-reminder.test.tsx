@@ -74,7 +74,10 @@ describe("manager Applications — incomplete detail reminder", () => {
     expect(screen.getAllByRole("button", { name: "Send reminder" }).length).toBeGreaterThan(0);
     expect(screen.queryByText("Approve")).toBeNull();
     expect(screen.getAllByText("Reject").length).toBeGreaterThan(0);
-    expect(screen.getAllByText("Download application").length).toBeGreaterThan(0);
+    // The download control is no longer on the detail body: 3c23cfc2 set
+    // `showDownload={false}` there and folded it into the footer's combined
+    // download menu, which opens on click. This test is about Send reminder and
+    // the absence of Approve, so it no longer asserts a download affordance.
 
     const sendReminder = screen.getAllByRole("button", { name: "Send reminder" })[0]!;
     const reject = screen.getAllByRole("button", { name: "Reject" })[0]!;
