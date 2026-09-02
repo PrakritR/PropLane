@@ -35,12 +35,12 @@ describe("claw-resident-links", () => {
     );
   });
 
-  it("prefers CLAW_MESSENGER_LINK_ORIGIN over localhost app url", () => {
+  it("uses the canonical PropLane host when legacy overrides remain configured", () => {
     process.env.NEXT_PUBLIC_APP_URL = "http://localhost:3000";
     process.env.CLAW_MESSENGER_LINK_ORIGIN = "https://www.axis-seattle-housing.com";
-    expect(residentSmsLinkOrigin()).toBe("https://www.axis-seattle-housing.com");
+    expect(residentSmsLinkOrigin()).toBe("https://prop-lane.space");
     expect(residentPortalUrl("payments")).toBe(
-      "https://www.axis-seattle-housing.com/resident/payments/pending",
+      "https://prop-lane.space/resident/payments/pending",
     );
   });
 

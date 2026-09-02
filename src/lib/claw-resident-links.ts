@@ -3,7 +3,7 @@
  * Always phone-reachable — never localhost.
  */
 
-import { PRODUCTION_APP_ORIGIN, resolveEmailLinkBaseUrl } from "@/lib/app-url";
+import { PRODUCTION_APP_ORIGIN } from "@/lib/app-url";
 
 export type ResidentSmsLinkKind =
   | "payments"
@@ -18,12 +18,8 @@ export type ResidentSmsLinkKind =
   | "browse"
   | "apply";
 
-/** Origin for links embedded in SMS (same rules as email + optional Claw override). */
+/** Canonical origin for links embedded in resident-facing agent SMS. */
 export function residentSmsLinkOrigin(): string {
-  const claw = (process.env.CLAW_MESSENGER_LINK_ORIGIN ?? "").trim().replace(/\/$/, "");
-  if (claw && !/localhost|127\.0\.0\.1/i.test(claw)) return claw;
-  const emailBase = resolveEmailLinkBaseUrl();
-  if (emailBase && !/localhost|127\.0\.0\.1/i.test(emailBase)) return emailBase;
   return PRODUCTION_APP_ORIGIN;
 }
 
