@@ -55,6 +55,7 @@ import {
   runManagerSmsAgentTurn,
 } from "@/lib/agent/manager-sms-agent.server";
 import { normalizeE164 } from "@/lib/twilio";
+import { PRODUCTION_APP_ORIGIN } from "@/lib/app-url";
 
 export {
   buildSmsDeepLink,
@@ -68,16 +69,9 @@ export {
 export { clawMappedManagerEmails } from "@/lib/claw-resident-messaging.server";
 
 export function publicAppOrigin(): string {
-  // SMS links must be phone-reachable — never localhost.
-  const explicit =
-    process.env.PROPLANE_SMS_LINK_ORIGIN?.trim() ||
-    process.env.CLAW_MESSENGER_LINK_ORIGIN?.trim();
-  if (explicit) return explicit.replace(/\/$/, "");
-  const app = process.env.NEXT_PUBLIC_APP_URL?.trim();
-  if (app && !/localhost|127\.0\.0\.1/i.test(app)) return app.replace(/\/$/, "");
-  const production = process.env.VERCEL_PROJECT_PRODUCTION_URL?.trim();
-  if (production) return `https://${production}`.replace(/\/$/, "");
-  return "https://prop-lane.space";
+  // Agent-generated SMS must use the branded canonical origin even if a
+  // legacy host is still configured for compatibility elsewhere.
+  return PRODUCTION_APP_ORIGIN;
 }
 
 type ManagerTarget = {
