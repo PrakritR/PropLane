@@ -31,6 +31,7 @@ import { createManualPlannedTour } from "@/lib/manual-planned-tour.server";
 import { cancelPlannedTour, reschedulePlannedTour } from "@/lib/tour-planned-change.server";
 import { formatTourRangeLabel } from "@/lib/tour-inquiry.server";
 import { slotStartMs, TOUR_CALENDAR_TIME_ZONE } from "@/lib/tour-slot-math";
+import { smsAccessAllowsPropertyRecord } from "@/lib/sms/manager-sms-access";
 
 /** Slots are a grid; a page of them is plenty for a chat reply or a text. */
 const SLOT_LIMIT = 40;
@@ -283,6 +284,20 @@ type BookTourInput = z.infer<typeof bookTourInputSchema>;
  * availability rules or a pending request from a prospect.
  */
 async function assertBookableForLandlord(ctx: AgentContext, input: BookTourInput): Promise<void> {
+  if (ctx.managerSmsAccess) {
+    const { data, error } = await ctx.db
+      .from("manager_property_records")
+      .select("id, manager_user_id")
+      .eq("id", input.propertyId)
+      .limit(1);
+    if (error) throw new Error(error.message);
+    const rec = ((data ?? []) as { id: string; manager_user_id?: string | null }[])[0];
+    if (!rec || !smsAccessAllowsPropertyRecord(ctx, rec)) {
+      throw new Error(
+        "That property is not in the houses this number can act on. Call list_properties and pick one it returns.",
+      );
+    }
+  }
   const { slots } = await loadOfferedSlots(ctx.db, { propertyId: input.propertyId });
   const match = slots.find(
     (slot) => slot.start === input.start && slot.end === input.end && slot.hostUserId === ctx.landlordId,

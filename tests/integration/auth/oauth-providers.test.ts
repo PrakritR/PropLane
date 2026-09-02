@@ -25,6 +25,7 @@ describe("GET /api/auth/oauth-providers", () => {
     const { status, data } = await parseJsonResponse<{
       googleEnabled: boolean | null;
       hint: string | null;
+      httpsCallbackUrls: string[];
     }>(res);
     expect(status).toBe(200);
     expect(data.googleEnabled).toBeNull();
@@ -63,7 +64,11 @@ describe("GET /api/auth/oauth-providers", () => {
     expect(data.googleEnabled).toBe(false);
     expect(data.supabaseUrl).toBe("https://example.supabase.co");
     expect(data.googleRedirectUri).toBe("https://example.supabase.co/auth/v1/callback");
-    expect(data.hint).toContain("https://axis.example/auth/callback");
+    // The callback URLs moved out of the hint copy into their own
+    // `httpsCallbackUrls` field; the hint now points at that list rather than
+    // inlining one URL. Assert the URL where it actually lives.
+    expect(data.httpsCallbackUrls).toContain("https://axis.example/auth/callback");
+    expect(data.hint).toContain("httpsCallbackUrls");
     expect(data.nativeCallbackUrls[0]).toContain("space.proplane.app://auth/callback");
     expect(data.nativeRedirectHint).toContain("Redirect URLs");
     expect(data.googleRedirectHint).toContain("redirect_uri_mismatch");

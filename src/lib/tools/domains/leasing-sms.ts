@@ -15,6 +15,7 @@ import {
   buildManagerTourUrl,
 } from "@/lib/manager-property-links";
 import { residentPortalUrl } from "@/lib/claw-resident-links";
+import { PRODUCTION_APP_ORIGIN } from "@/lib/app-url";
 import { getPublicListings } from "@/lib/public-listings.server";
 import { normalizeManagerListingSubmissionV1 } from "@/lib/manager-listing-submission";
 import { roomDailyRentPrice, roomHeadlinePriceLabel, roomIsDailyPriced } from "@/lib/room-pricing";
@@ -34,19 +35,12 @@ function str(obj: Record<string, unknown> | null, key: string): string | null {
 
 /**
  * Origin for links embedded in SMS. Phone-reachable only — never localhost.
- * Prefers the explicit Claw/SMS override so the shared line always deep-links to
- * the real production domain regardless of where the code runs.
+ * Always uses the canonical PropLane production domain. Legacy Axis-host
+ * environment values may remain for old infrastructure, but must never leak
+ * into a prospect-facing agent reply.
  */
 export function publicOrigin(): string {
-  const explicit =
-    process.env.PROPLANE_SMS_LINK_ORIGIN?.trim() ||
-    process.env.CLAW_MESSENGER_LINK_ORIGIN?.trim();
-  if (explicit) return explicit.replace(/\/$/, "");
-  const app = process.env.NEXT_PUBLIC_APP_URL?.trim();
-  if (app && !/localhost|127\.0\.0\.1/i.test(app)) return app.replace(/\/$/, "");
-  const production = process.env.VERCEL_PROJECT_PRODUCTION_URL?.trim();
-  if (production) return `https://${production}`.replace(/\/$/, "");
-  return "https://prop-lane.space";
+  return PRODUCTION_APP_ORIGIN;
 }
 
 export type RawPropertyRecord = {

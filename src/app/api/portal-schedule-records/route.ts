@@ -4,6 +4,7 @@ import {
   managerScheduleRecordIdOwnedByUser,
   vendorScheduleRecordTypes,
 } from "@/lib/portal-schedule-record-scope";
+import { reconcileManagerPlannedEventsWrite } from "@/lib/planned-events-write-scope";
 
 export const runtime = "nodejs";
 
@@ -51,6 +52,12 @@ const route = createJsonRecordRoute({
     // Only stamp ownership on manager-scoped types; shared singleton records
     // (partner inquiries, planned events) keep their existing owner handling.
     return managerScoped ? { ...record, manager_user_id: user.id } : record;
+  },
+  reconcileExisting: (record, user, existing) => {
+    if (user.role === "admin" || String(record.id) !== "axis_admin_planned_events_v1") {
+      return record;
+    }
+    return reconcileManagerPlannedEventsWrite(record, user.id, existing);
   },
   assertInsertAllowed: (record, user) => {
     if (user.role === "admin") return null;

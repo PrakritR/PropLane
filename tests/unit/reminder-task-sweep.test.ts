@@ -6,7 +6,11 @@
  * per task for tasks that could never produce one.
  */
 import { describe, expect, it } from "vitest";
-import { remindableTasks, taskAnchorIso } from "@/lib/reminders/subjects/tasks.server";
+import {
+  remindableTasks,
+  taskAnchorIso,
+} from "@/lib/reminders/subjects/tasks.server";
+import { managerNotificationCategoryForTask } from "@/lib/manager-notification-preferences";
 import type { ManagerTask } from "@/lib/manager-tasks";
 
 const NOW = new Date("2026-08-30T12:00:00.000Z");
@@ -79,5 +83,27 @@ describe("remindableTasks", () => {
       task({ id: "no-clock", start: undefined, dueDate: undefined }),
     ];
     expect(remindableTasks(list, NOW).map((t) => t.id)).toEqual(["keep-a", "keep-b"]);
+  });
+});
+
+describe("manager task reminder categories", () => {
+  it("routes lease lifecycle tasks through leasing preferences", () => {
+    expect(
+      managerNotificationCategoryForTask(
+        task({ templateKey: "countersign_lease", title: "Countersign lease" }),
+      ),
+    ).toBe("leasing");
+  });
+
+  it("routes linked work-order tasks through maintenance preferences", () => {
+    expect(
+      managerNotificationCategoryForTask(
+        task({ taskType: "work_order", linkedWorkOrderId: "wo-1" }),
+      ),
+    ).toBe("maintenance");
+  });
+
+  it("keeps ordinary operational tasks in messages", () => {
+    expect(managerNotificationCategoryForTask(task({ title: "Call insurance" }))).toBe("messages");
   });
 });

@@ -5,9 +5,10 @@ import { makeWritableCtx } from "./tools/fake-agent-ctx";
 
 /**
  * appendInboxThreadReply carries the ownership check that used to live inline
- * in the send-inbox-message route: only the thread's owner or its participant
- * may append; anything else is a silent no-op. These tests pin that behavior
- * now that both the route and the agent messaging tool call it.
+ * in the send-inbox-message route: the thread's owner, its participant, or a
+ * co-manager with Communication edit on that owner may append; anything else
+ * is a silent no-op. These tests pin that behavior now that both the route
+ * and the agent messaging tool call it.
  */
 
 function makeDb(threads: Record<string, unknown>[]) {
@@ -73,6 +74,84 @@ describe("appendInboxThreadReply", () => {
     const result = await appendInboxThreadReply(db, { ...baseOpts, threadId: "t1" });
     expect(result.ok).toBe(false);
     expect((store.portal_inbox_thread_records![0]!.row_data as { messages: unknown[] }).messages).toHaveLength(0);
+  });
+
+  it("appends when the sender is a co-manager with Communication edit on the thread owner", async () => {
+    const { ctx, store } = makeWritableCtx({
+      portal_inbox_thread_records: [
+        {
+          id: "t1",
+          owner_user_id: "owner_1",
+          participant_email: "resident@example.com",
+          scope: "axis_portal_inbox_manager_v1",
+          row_data: { messages: [] },
+        },
+      ],
+      profiles: [
+        { id: "co_mgr", email: "co@axis.test" },
+        { id: "owner_1", email: "owner@axis.test" },
+      ],
+      account_link_invites: [
+        {
+          id: "link-1",
+          status: "accepted",
+          inviter_user_id: "owner_1",
+          invitee_user_id: "co_mgr",
+          assigned_property_ids: ["prop-1"],
+          property_co_manager_permissions: {},
+        },
+      ],
+    });
+    const result = await appendInboxThreadReply(ctx.db as unknown as SupabaseClient, {
+      threadId: "t1",
+      senderUserId: "co_mgr",
+      senderEmail: "co@axis.test",
+      fromName: "Co-manager",
+      text: "reply as co-manager",
+    });
+    expect(result.ok).toBe(true);
+    expect(
+      (store.portal_inbox_thread_records![0]!.row_data as { messages: unknown[] }).messages,
+    ).toHaveLength(1);
+  });
+
+  it("is a no-op when the co-manager only has Communication read on the thread owner", async () => {
+    const { ctx, store } = makeWritableCtx({
+      portal_inbox_thread_records: [
+        {
+          id: "t1",
+          owner_user_id: "owner_1",
+          participant_email: "resident@example.com",
+          scope: "axis_portal_inbox_manager_v1",
+          row_data: { messages: [] },
+        },
+      ],
+      profiles: [
+        { id: "co_mgr", email: "co@axis.test" },
+        { id: "owner_1", email: "owner@axis.test" },
+      ],
+      account_link_invites: [
+        {
+          id: "link-1",
+          status: "accepted",
+          inviter_user_id: "owner_1",
+          invitee_user_id: "co_mgr",
+          assigned_property_ids: ["prop-1"],
+          property_co_manager_permissions: { "prop-1": { inbox: { read: true } } },
+        },
+      ],
+    });
+    const result = await appendInboxThreadReply(ctx.db as unknown as SupabaseClient, {
+      threadId: "t1",
+      senderUserId: "co_mgr",
+      senderEmail: "co@axis.test",
+      fromName: "Co-manager",
+      text: "should not land",
+    });
+    expect(result.ok).toBe(false);
+    expect(
+      (store.portal_inbox_thread_records![0]!.row_data as { messages: unknown[] }).messages,
+    ).toHaveLength(0);
   });
 
   it("is a no-op for unknown or blank thread ids", async () => {

@@ -3,6 +3,7 @@ import { defineTool, defineWriteTool } from "../registry";
 import type { AgentContext } from "../context";
 import type { PersistedInboxThread } from "@/lib/portal-inbox-storage";
 import { MANAGER_INBOX_SCOPE } from "@/lib/portal-inbox-thread-scope";
+import { smsInboxOwnerIds } from "@/lib/sms/manager-sms-access.server";
 import { writeAuditLog } from "../audit";
 
 const PAGE_SIZE = 1000;
@@ -30,37 +31,47 @@ function summarizeThread(t: PersistedInboxThread) {
 
 type ThreadRow = { row_data: unknown; updated_at?: string | null };
 
-/** Load every manager-scope thread row the current user owns (paginated). */
+/** Load every manager-scope thread row the current actor can see (paginated). */
 async function loadOwnThreadRows(ctx: AgentContext): Promise<ThreadRow[]> {
   const all: ThreadRow[] = [];
-  for (let from = 0; ; from += PAGE_SIZE) {
-    const { data, error } = await ctx.db
-      .from("portal_inbox_thread_records")
-      .select("row_data, updated_at")
-      .eq("scope", MANAGER_INBOX_SCOPE)
-      .eq("owner_user_id", ctx.userId)
-      .order("id", { ascending: true })
-      .range(from, from + PAGE_SIZE - 1);
-    if (error) throw new Error(error.message);
-    const page = (data ?? []) as ThreadRow[];
-    all.push(...page);
-    if (page.length < PAGE_SIZE) break;
+  for (const ownerId of await smsInboxOwnerIds(ctx, "read")) {
+    for (let from = 0; ; from += PAGE_SIZE) {
+      const { data, error } = await ctx.db
+        .from("portal_inbox_thread_records")
+        .select("row_data, updated_at")
+        .eq("scope", MANAGER_INBOX_SCOPE)
+        .eq("owner_user_id", ownerId)
+        .order("id", { ascending: true })
+        .range(from, from + PAGE_SIZE - 1);
+      if (error) throw new Error(error.message);
+      const page = (data ?? []) as ThreadRow[];
+      all.push(...page);
+      if (page.length < PAGE_SIZE) break;
+    }
   }
   return all;
 }
 
-/** Load ONE of the current user's own manager-scope threads, or null. */
-async function loadOwnThread(ctx: AgentContext, threadId: string): Promise<PersistedInboxThread | null> {
-  const { data, error } = await ctx.db
-    .from("portal_inbox_thread_records")
-    .select("row_data")
-    .eq("scope", MANAGER_INBOX_SCOPE)
-    .eq("owner_user_id", ctx.userId)
-    .eq("id", threadId)
-    .limit(1);
-  if (error) throw new Error(error.message);
-  const row = ((data ?? []) as { row_data: unknown }[])[0];
-  return row ? ((row.row_data as PersistedInboxThread) ?? null) : null;
+/** Load ONE manager-scope thread the current actor can see, or null. */
+async function loadOwnThread(
+  ctx: AgentContext,
+  threadId: string,
+  level: "read" | "edit" = "read",
+): Promise<PersistedInboxThread | null> {
+  const ownerIds = await smsInboxOwnerIds(ctx, level);
+  for (const ownerId of ownerIds) {
+    const { data, error } = await ctx.db
+      .from("portal_inbox_thread_records")
+      .select("row_data")
+      .eq("scope", MANAGER_INBOX_SCOPE)
+      .eq("owner_user_id", ownerId)
+      .eq("id", threadId)
+      .limit(1);
+    if (error) throw new Error(error.message);
+    const row = ((data ?? []) as { row_data: unknown }[])[0];
+    if (row) return (row.row_data as PersistedInboxThread) ?? null;
+  }
+  return null;
 }
 
 export const listInboxThreadsTool = defineTool({
@@ -184,7 +195,7 @@ export const updateThreadTool = defineWriteTool({
     })
     .strict(),
   preview: async (ctx, input) => {
-    const thread = await loadOwnThread(ctx, input.threadId);
+    const thread = await loadOwnThread(ctx, input.threadId, "edit");
     if (!thread) {
       throw new Error(`No inbox thread ${input.threadId} in this landlord's inbox. Use list_inbox_threads to get valid thread ids.`);
     }
@@ -203,7 +214,7 @@ export const updateThreadTool = defineWriteTool({
   handler: async (ctx, input) => {
     // Re-resolve under the same scope filters — the stored thread id is never
     // trusted as ownership proof.
-    const thread = await loadOwnThread(ctx, input.threadId);
+    const thread = await loadOwnThread(ctx, input.threadId, "edit");
     if (!thread) {
       throw new Error("That thread no longer exists in this landlord's inbox.");
     }
@@ -240,7 +251,6 @@ export const updateThreadTool = defineWriteTool({
       .from("portal_inbox_thread_records")
       .update({ row_data: next, updated_at: new Date().toISOString() })
       .eq("scope", MANAGER_INBOX_SCOPE)
-      .eq("owner_user_id", ctx.userId)
       .eq("id", input.threadId);
     if (error) throw new Error(String(error.message ?? "The thread could not be updated."));
 

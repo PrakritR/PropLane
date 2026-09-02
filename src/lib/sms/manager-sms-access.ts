@@ -35,6 +35,20 @@ export function smsDataOwnerIds(ctx: Pick<AgentContext, "landlordId" | "managerS
   return [...new Set(ids)];
 }
 
+/**
+ * Intersect Communication-granted owner ids with this SMS turn's data owners.
+ * Delegated turns drop the actor's own inbox; a missing inbox grant drops the
+ * work-number owner. Portal turns (no access) ignore this helper.
+ */
+export function filterSmsInboxOwnerIds(
+  ctx: Pick<AgentContext, "landlordId" | "userId" | "managerSmsAccess">,
+  communicationOwnerIds: string[],
+): string[] {
+  if (!ctx.managerSmsAccess) return [ctx.userId];
+  const allowed = new Set(smsDataOwnerIds(ctx));
+  return [...new Set(communicationOwnerIds.map((id) => id.trim()).filter((id) => allowed.has(id)))];
+}
+
 export function propertyIdFromToolRow(rowData: unknown): string | null {
   if (!rowData || typeof rowData !== "object") return null;
   const row = rowData as Record<string, unknown>;

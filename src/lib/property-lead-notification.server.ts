@@ -9,6 +9,7 @@ import {
   resolveManagerRecipientProfiles,
   resolvePropertyLeadRecipientIds,
 } from "@/lib/co-manager-notification-recipients.server";
+import { sendManagerNotificationSms } from "@/lib/manager-notification-routing.server";
 
 type Db = ReturnType<typeof import("@/lib/supabase/service").createSupabaseServiceRoleClient>;
 
@@ -100,5 +101,12 @@ export async function notifyManagerPropertyLeadMessage(input: {
       fromEmail: input.email,
       topic: input.topic,
     });
+    await sendManagerNotificationSms(db, {
+      managerUserId: recipient.userId,
+      category: "leasing",
+      subject,
+      text: `New message from ${input.name} about ${property}. Open PropLane to reply.`,
+      purpose: "property_lead_manager_notification",
+    }).catch(() => undefined);
   }
 }

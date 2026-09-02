@@ -13,6 +13,22 @@ vi.mock("@/lib/supabase/service", () => ({
   createSupabaseServiceRoleClient: vi.fn(),
 }));
 
+// Three dependencies the route gained since this test was written. Unmocked they
+// run for real (including a live Supabase auth read) and the handler answers 500.
+vi.mock("@/lib/property-lead-prospect-handoff.server", () => ({
+  notifyProspectPropertyMessageHandoff: vi.fn().mockResolvedValue(undefined),
+}));
+
+vi.mock("@/lib/tour-resident-link.server", () => ({
+  reconcileProspectInboxThreadsForResident: vi.fn().mockResolvedValue(undefined),
+}));
+
+vi.mock("@/lib/supabase/server", () => ({
+  createSupabaseServerClient: vi.fn().mockResolvedValue({
+    auth: { getUser: vi.fn().mockResolvedValue({ data: { user: null } }) },
+  }),
+}));
+
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { POST as propertyLeadMessage } from "@/app/api/public/property-lead-message/route";
 

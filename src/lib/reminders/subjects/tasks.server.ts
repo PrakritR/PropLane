@@ -19,6 +19,7 @@ import { normalizeManagerTasks, type ManagerTask } from "@/lib/manager-tasks";
 import { materializeReminders } from "@/lib/reminders/queue.server";
 import type { ReminderSettings } from "@/lib/reminders/rules";
 import { loadReminderSettingsForManagers } from "@/lib/reminders/settings.server";
+import { managerNotificationCategoryForTask } from "@/lib/manager-notification-preferences";
 
 /** How far ahead to look. Comfortably past the longest lead time a rule allows. */
 const HORIZON_DAYS = 31;
@@ -82,6 +83,7 @@ async function sweepManagerTasks(
     // one query per task in the sweep, so it stays behind every cheap check.
     const to = await assigneeEmail(db, task.assignee);
     if (!to) continue;
+    const isManagerAssignee = task.assignee.type === "team";
 
     queued += await materializeReminders(
       db,
@@ -91,7 +93,12 @@ async function sweepManagerTasks(
         subjectId: task.id,
         anchorIso,
         recipients: [
-          { email: to, role: "counterparty", name: task.assignee.name },
+          {
+            email: to,
+            role: isManagerAssignee ? "manager" : "counterparty",
+            userId: isManagerAssignee ? task.assignee.id : null,
+            name: task.assignee.name,
+          },
         ],
         payload: {
           title: task.title,
@@ -100,6 +107,7 @@ async function sweepManagerTasks(
           counterpartyName: task.assignee.name,
           notes: task.notes ?? null,
           url: `${origin}${managerTaskListHref("/portal", "in-progress")}`,
+          notificationCategory: managerNotificationCategoryForTask(task),
         },
       },
       settings,

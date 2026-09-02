@@ -477,7 +477,10 @@ property-filtered (`DELEGATED_SMS_UNSCOPED_TOOLS`: financial reports, dashboard,
 calendar list/create, co-managers list, …) are withheld on **delegated** turns
 only. Combined writes against another owner's row still fail closed if the write
 keys on `ctx.landlordId` (the actor); act on those houses by texting **that
-owner's** number.
+owner's** number. Inbox tools on an SMS turn intersect Communication grants
+with the number's data owners (`smsInboxOwnerIds`), so an assignment without
+inbox cannot dump the owner's threads. `book_tour` re-checks assigned
+properties on delegated/combined turns.
 
 **Communication in the portal** is a separate grant: inbox `read` views the
 owner's SMS and email threads, `edit` replies/sends, `delete` deletes. Empty

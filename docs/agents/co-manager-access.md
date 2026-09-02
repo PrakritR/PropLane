@@ -115,3 +115,19 @@ silently fell back to localStorage-only mode ("Save link (local)") — that was
 the entire "co-manager does nothing" bug. `20260716120000` restores the column.
 The panel now defaults to remote mode and only downgrades on a confirmed
 missing table (`migrationRequired`), never on transient errors.
+
+**Work numbers and Communication.** Each property-owning manager provisions
+their own PropLane number; a pure co-manager does not. SMS and email for a
+house use the **owner's** number/inbox. A co-manager with Communication
+(`inbox`) on ≥1 assigned property of that owner can view those threads
+(`read`), reply and send (`edit`), and delete (`delete`) in PropLane
+Communication — `viewerAndLinkedOwnerIdsForModule(..., "inbox", level)`.
+Empty permissions remain a full grant on assigned properties.
+
+The SMS assistant follows the number that was texted, not the portal session:
+texting their **own** work number answers about owned houses plus assigned
+co-managed houses (`combined`); texting an **owner's** work number is scoped
+only to that owner's assigned houses (`delegated`) and never includes the
+co-manager's personally owned houses. Identity is
+`resolveManagerSmsInboundIdentity` — details in
+[`sms-system.md`](sms-system.md#a-manager-texting-a-work-number-gets-the-ai).

@@ -11,16 +11,27 @@ export const ADMIN_INBOX_SCOPE = "admin";
 export type InboxScopeUser = { id: string; email: string | null; role: string };
 
 /** PostgREST OR filter for inbox row ownership (matches GET visibility). */
-export function portalInboxThreadScopeFilter(user: InboxScopeUser): string {
-  const clauses: string[] = [`owner_user_id.eq.${user.id}`];
+export function portalInboxThreadScopeFilter(
+  user: InboxScopeUser,
+  extraOwnerIds: string[] = [],
+): string {
+  const ownerIds = [...new Set([user.id, ...extraOwnerIds.map((id) => id.trim()).filter(Boolean)])];
+  const clauses: string[] =
+    ownerIds.length <= 1
+      ? [`owner_user_id.eq.${ownerIds[0] ?? user.id}`]
+      : [`owner_user_id.in.(${ownerIds.join(",")})`];
   if (user.email) clauses.push(`participant_email.eq.${user.email}`);
   if (user.role === "admin") clauses.push(`scope.eq.${ADMIN_INBOX_SCOPE}`);
   return clauses.join(",");
 }
 
-export function applyPortalInboxThreadScope<T>(query: T, user: InboxScopeUser): T {
+export function applyPortalInboxThreadScope<T>(
+  query: T,
+  user: InboxScopeUser,
+  extraOwnerIds: string[] = [],
+): T {
   const q = query as { or: (expr: string) => unknown };
-  return q.or(portalInboxThreadScopeFilter(user)) as T;
+  return q.or(portalInboxThreadScopeFilter(user, extraOwnerIds)) as T;
 }
 
 function portalForScope(scope: string): "manager" | "resident" | "vendor" | null {

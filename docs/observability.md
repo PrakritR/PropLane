@@ -139,7 +139,10 @@ the `safe()` wrapper. Traces are tagged with environment
 
 ### Prompt versioning
 
-Prompts stay repo-owned (`src/lib/agent/*-system-prompt.ts`). Each turn stamps:
+Prompts stay repo-owned. `src/lib/agent/system-prompts.ts` is the assembled
+catalog and applies the shared standing response policy to every conversational
+surface; the adjacent `*-system-prompt.ts` files hold detailed role/tool
+instructions. Each turn stamps:
 
 | Field | Meaning |
 | --- | --- |
@@ -148,7 +151,9 @@ Prompts stay repo-owned (`src/lib/agent/*-system-prompt.ts`). Each turn stamps:
 | `release` | `VERCEL_GIT_COMMIT_SHA` (or `AXIS_RELEASE_SHA` / `local`) |
 
 When quality drops, group traces by `promptHash` / `release` to see whether a
-prompt edit or a deploy caused it. This is **not** Langfuse Prompt Management.
+prompt edit or a deploy caused it. The hash covers the exact assembled prompt,
+including any user custom-instruction block. This is **not** Langfuse Prompt
+Management.
 
 ### Scores (the quality series)
 

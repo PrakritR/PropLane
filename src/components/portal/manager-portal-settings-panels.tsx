@@ -23,7 +23,10 @@ import {
   deliverViaFromManagerSettings,
   patchDeliverViaForKind,
 } from "@/lib/manager-communication-deliver-via";
-import { ManagerSmsWorkNumberHint } from "@/components/portal/manager-sms-work-number-hint";
+import {
+  ManagerSmsWorkNumberHint,
+  ManagerWorkNumberCopyControl,
+} from "@/components/portal/manager-sms-work-number-hint";
 import type { ManagerMessagingNumberStatus } from "@/lib/sms/manager-messaging-number";
 import {
   PAYMENT_REMINDER_PRESETS,
@@ -732,13 +735,35 @@ export function CommunicationSettingsPanel({
       setLoading(true);
       try {
         if (demo) {
-          if (!cancelled) setDraft(DEFAULT_MANAGER_AUTOMATION_SETTINGS);
+          if (!cancelled) {
+            setDraft(DEFAULT_MANAGER_AUTOMATION_SETTINGS);
+            setSmsSetup(null);
+          }
           return;
         }
-        const res = await fetch("/api/portal/automation-settings", { credentials: "include", cache: "no-store" });
-        if (!res.ok) throw new Error("Could not load communication settings.");
-        const body = (await res.json()) as { settings: ManagerAutomationSettings };
+        const [settingsRes, numberRes] = await Promise.all([
+          fetch("/api/portal/automation-settings", { credentials: "include", cache: "no-store" }),
+          fetch("/api/manager/messaging-number", { credentials: "include", cache: "no-store" }).catch(
+            () => null,
+          ),
+        ]);
+        if (!settingsRes.ok) throw new Error("Could not load communication settings.");
+        const body = (await settingsRes.json()) as { settings: ManagerAutomationSettings };
         if (!cancelled) setDraft(normalizeManagerAutomationSettings(body.settings));
+        if (!cancelled) {
+          const status =
+            numberRes && numberRes.ok
+              ? ((await numberRes.json()) as ManagerMessagingNumberStatus)
+              : null;
+          setSmsSetup(
+            status
+              ? {
+                  phone: status.number?.phoneNumber?.trim() || null,
+                  canSend: status.canSend,
+                }
+              : null,
+          );
+        }
       } catch (e) {
         showToast(e instanceof Error ? e.message : "Could not load communication settings.");
       } finally {
@@ -749,29 +774,6 @@ export function CommunicationSettingsPanel({
       cancelled = true;
     };
   }, [demo, showToast]);
-
-  useEffect(() => {
-    if (!anySmsEnabled || demo) {
-      setSmsSetup(null);
-      return;
-    }
-    let cancelled = false;
-    void fetch("/api/manager/messaging-number", { credentials: "include", cache: "no-store" })
-      .then(async (res) => (res.ok ? ((await res.json()) as ManagerMessagingNumberStatus) : null))
-      .then((status) => {
-        if (cancelled || !status) return;
-        setSmsSetup({
-          phone: status.number?.phoneNumber?.trim() || null,
-          canSend: status.canSend,
-        });
-      })
-      .catch(() => {
-        if (!cancelled) setSmsSetup(null);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [anySmsEnabled, demo]);
 
   const save = useCallback(async () => {
     for (const section of MANAGER_COMMUNICATION_SEND_VIA_SECTIONS) {
@@ -843,6 +845,13 @@ export function CommunicationSettingsPanel({
 
   return (
     <div className="space-y-5">
+      {smsSetup?.phone ? (
+        <ManagerWorkNumberCopyControl
+          phone={smsSetup.phone}
+          className="rounded-xl border border-border bg-accent/30 px-3 py-2.5"
+          dataAttr="communication-work-number-copy"
+        />
+      ) : null}
       <label className="flex items-start gap-3">
         <input
           type="checkbox"
@@ -862,7 +871,7 @@ export function CommunicationSettingsPanel({
         </span>
       </label>
       <ManagerSmsWorkNumberHint
-        show={anySmsEnabled}
+        show={anySmsEnabled && !(smsSetup?.canSend === true && Boolean(smsSetup?.phone))}
         phone={smsSetup?.phone ?? null}
         canSend={smsSetup?.canSend === true}
         className="rounded-xl border border-border bg-accent/30 px-3 py-2.5"

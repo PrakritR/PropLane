@@ -2,8 +2,10 @@ import "server-only";
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { isCrossSandboxPortalPair } from "@/lib/portal-sandbox-accounts";
+import { viewerAndLinkedOwnerIdsForModule } from "@/lib/auth/co-manager-module-scope";
 import { samePhone, detectManagerSelfReply } from "@/lib/sms/manager-relay.server";
-import type { ManagerSmsAccess } from "@/lib/sms/manager-sms-access";
+import { filterSmsInboxOwnerIds, type ManagerSmsAccess } from "@/lib/sms/manager-sms-access";
+import type { AgentContext } from "@/lib/tools/context";
 import { normalizeE164 } from "@/lib/phone-e164";
 
 type LinkRow = {
@@ -198,4 +200,23 @@ export async function resolveManagerSmsInboundIdentity(
     actorPhone: String(matches[0]?.phone ?? "").trim() || args.fromPhone,
     access,
   };
+}
+
+/**
+ * Owner ids whose inbox this SMS turn may read or edit. Portal turns stay
+ * actor-only. SMS turns intersect Communication grants with the number's data
+ * owners so an assignment without inbox cannot dump the owner's threads.
+ */
+export async function smsInboxOwnerIds(
+  ctx: AgentContext,
+  level: "read" | "edit" | "delete" = "read",
+): Promise<string[]> {
+  if (!ctx.managerSmsAccess) return [ctx.userId];
+  const granted = await viewerAndLinkedOwnerIdsForModule(
+    ctx.db as Parameters<typeof viewerAndLinkedOwnerIdsForModule>[0],
+    ctx.userId,
+    "inbox",
+    level,
+  );
+  return filterSmsInboxOwnerIds(ctx, granted);
 }
