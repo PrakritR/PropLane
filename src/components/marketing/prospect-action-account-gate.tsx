@@ -14,6 +14,7 @@ import {
 } from "@/lib/prospect-public-gate";
 import {
   residentPortalListingMessagePath,
+  residentPortalTourSchedulePath,
   stageResidentListingMessageCompose,
 } from "@/lib/prospect-public-nav";
 import { useProspectContactAutofill } from "@/hooks/use-prospect-contact-autofill";
@@ -34,7 +35,7 @@ const COPY: Record<
     title: "Create your resident account",
     body: (listing) =>
       `Track your tour for ${listing} in the resident portal — create an account to see updates and message your manager in one place. Already have an account? Sign in. Or continue as a guest and we'll ask again after your request is sent.`,
-    guestLabel: "Continue as a guest",
+    guestLabel: "Schedule as a guest",
   },
   message: {
     eyebrow: "Before you send",
@@ -140,6 +141,47 @@ export function ProspectGuestAccountGate({
       >
         {copy.guestLabel}
       </Button>
+    </div>
+  );
+}
+
+/** Signed-in resident — schedule tours from the resident portal, not the public form. */
+export function ProspectResidentPortalTourPrompt({
+  propertyId,
+  propertyTitle,
+}: {
+  propertyId: string;
+  propertyTitle?: string;
+}) {
+  const listing = propertyTitle?.trim() || "this listing";
+  const portalPath = residentPortalTourSchedulePath(propertyId);
+
+  return (
+    <div className="mx-auto w-full max-w-3xl py-2 sm:py-4">
+      <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-primary">Resident account</p>
+      <h2 className="mt-2 text-lg font-bold tracking-tight text-foreground sm:text-xl">
+        Schedule your tour in the resident portal
+      </h2>
+      <p className="mt-2 text-sm leading-relaxed text-muted">
+        You already have a resident account — pick a room and time for {listing} from your tour schedule in the
+        resident portal.
+      </p>
+      <div className={`mt-4 ${gateButtonRowClass()}`}>
+        <Link
+          href={portalPath}
+          className={gatePrimaryBtnClass()}
+          data-attr="prospect-tour-open-portal-schedule"
+        >
+          Schedule tour
+        </Link>
+        <Link
+          href="/resident/tour/schedule"
+          className={gateSecondaryBtnClass()}
+          data-attr="prospect-tour-open-tour-inbox"
+        >
+          Go to tours
+        </Link>
+      </div>
     </div>
   );
 }
