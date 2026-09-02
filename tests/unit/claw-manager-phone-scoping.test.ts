@@ -12,8 +12,12 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
  */
 
 const sendFromManager = vi.fn(async () => ({ ok: true, channel: "twilio" as const, sid: "SM1" }));
-const runManagerAgentCommand = vi.fn(async () => null);
-const tryRelayManagerReplyViaClaw = vi.fn(async () => ({ relayed: false }));
+const resolveManagerSmsAgentContext = vi.fn(async () => ({
+  ok: true as const,
+  ctx: { landlordId: "mgr-A", userId: "mgr-A" },
+}));
+const runManagerSmsAgentTurn = vi.fn(async () => ({ reply: "here you go", sessionId: "s1" }));
+const deliverManagerSmsReply = vi.fn(async () => ({ ok: true as const }));
 const isMappedManagerPhone = vi.fn(async () => true); // simulates: this phone IS registered as SOME manager on the shared line
 
 vi.mock("@/lib/proplane-sms-transport.server", () => ({
@@ -21,14 +25,19 @@ vi.mock("@/lib/proplane-sms-transport.server", () => ({
   sendFromManagerWorkNumber: (...args: unknown[]) => sendFromManager(...(args as [unknown])),
 }));
 
-vi.mock("@/lib/claw-manager-actions.server", () => ({
-  runManagerAgentCommand: (...args: unknown[]) => runManagerAgentCommand(...(args as [unknown])),
+vi.mock("@/lib/tools/manager-sms-context", () => ({
+  resolveManagerSmsAgentContext: (...args: unknown[]) =>
+    resolveManagerSmsAgentContext(...(args as [unknown, unknown])),
+}));
+
+vi.mock("@/lib/agent/manager-sms-agent.server", () => ({
+  runManagerSmsAgentTurn: (...args: unknown[]) => runManagerSmsAgentTurn(...(args as [unknown, unknown])),
+  deliverManagerSmsReply: (...args: unknown[]) => deliverManagerSmsReply(...(args as [unknown])),
 }));
 
 vi.mock("@/lib/claw-relay.server", () => ({
   forwardClawInboundToManagers: vi.fn(async () => ({ forwardedTo: [] })),
   isMappedManagerPhone: (...args: unknown[]) => isMappedManagerPhone(...(args as [unknown])),
-  tryRelayManagerReplyViaClaw: (...args: unknown[]) => tryRelayManagerReplyViaClaw(...(args as [unknown])),
 }));
 
 vi.mock("@/lib/claw-resident-messaging.server", () => ({
@@ -96,8 +105,12 @@ describe("handleClawLeasingInbound — per-manager work number stays scoped", ()
     const { __resetClawInboundSeenForTests } = await import("@/lib/claw-leasing-bot.server");
     __resetClawInboundSeenForTests();
     sendFromManager.mockResolvedValue({ ok: true, channel: "twilio", sid: "SM1" });
-    runManagerAgentCommand.mockResolvedValue(null);
-    tryRelayManagerReplyViaClaw.mockResolvedValue({ relayed: false });
+    resolveManagerSmsAgentContext.mockResolvedValue({
+      ok: true,
+      ctx: { landlordId: "mgr-A", userId: "mgr-A" },
+    });
+    runManagerSmsAgentTurn.mockResolvedValue({ reply: "here you go", sessionId: "s1" });
+    deliverManagerSmsReply.mockResolvedValue({ ok: true });
     isMappedManagerPhone.mockResolvedValue(true);
   });
 
@@ -115,9 +128,10 @@ describe("handleClawLeasingInbound — per-manager work number stays scoped", ()
     });
 
     expect(result.ok).toBe(true);
-    // Must NOT be routed into the manager-command / manager-relay surface.
-    expect(runManagerAgentCommand).not.toHaveBeenCalled();
-    expect(tryRelayManagerReplyViaClaw).not.toHaveBeenCalled();
+    // Must NOT be handed the manager agent — that would give one manager's
+    // phone the whole portfolio of a DIFFERENT manager.
+    expect(runManagerSmsAgentTurn).not.toHaveBeenCalled();
+    expect(deliverManagerSmsReply).not.toHaveBeenCalled();
     // Instead falls through to the ordinary prospect/leasing auto-reply.
     expect(sendFromManager).toHaveBeenCalledWith(
       expect.objectContaining({ to: "+15105559999", managerUserId: "mgr-A" }),
@@ -134,6 +148,26 @@ describe("handleClawLeasingInbound — per-manager work number stays scoped", ()
       workNumber: "+14258909021",
     });
 
-    expect(runManagerAgentCommand).toHaveBeenCalled();
+    expect(runManagerSmsAgentTurn).toHaveBeenCalled();
+    expect(deliverManagerSmsReply).toHaveBeenCalledWith(
+      expect.objectContaining({ managerUserId: "mgr-A", toPhone: "+14255551111" }),
+    );
+  });
+
+  it("stays silent rather than answering as a stranger when the manager context will not resolve", async () => {
+    resolveManagerSmsAgentContext.mockResolvedValue({ ok: false, reason: "not_a_manager" });
+    const { handleClawLeasingInbound } = await import("@/lib/claw-leasing-bot.server");
+    const result = await handleClawLeasingInbound({
+      from: "+14255551111",
+      text: "hey",
+      messageId: "scoping-test-3",
+      managerUserId: "mgr-A",
+      workNumber: "+14258909021",
+    });
+
+    expect(result.ok).toBe(true);
+    expect(result.replied).toBe(false);
+    expect(runManagerSmsAgentTurn).not.toHaveBeenCalled();
+    expect(sendFromManager).not.toHaveBeenCalled();
   });
 });

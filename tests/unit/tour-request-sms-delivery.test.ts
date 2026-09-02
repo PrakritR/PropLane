@@ -1,8 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const sendPropLaneSms = vi.fn(async () => ({ ok: true }));
-vi.mock("@/lib/proplane-sms-transport.server", () => ({
-  sendPropLaneSms: (...args: unknown[]) => sendPropLaneSms(...(args as [])),
+const sendManagerNotificationSms = vi.fn(async () => ({ sent: true }));
+vi.mock("@/lib/manager-notification-routing.server", () => ({
+  sendManagerNotificationSms: (...args: unknown[]) =>
+    sendManagerNotificationSms(...(args as [])),
 }));
 
 const recipients: Array<{ userId: string; email: string; fullName: string | null; phone: string | null }> = [];
@@ -45,11 +46,11 @@ const inquiry = {
 
 describe("notifyManagerTourRequest SMS leg", () => {
   beforeEach(() => {
-    sendPropLaneSms.mockClear();
+    sendManagerNotificationSms.mockClear();
     recipients.length = 0;
   });
 
-  it("texts every recipient with a forward-enabled phone on file", async () => {
+  it("routes every recipient through their own manager alert preference", async () => {
     recipients.push(
       { userId: "admin-1", email: "admin@test.proplane.local", fullName: "admin", phone: "+15103098345" },
       { userId: "co-1", email: "co@test.proplane.local", fullName: null, phone: "+12065551234" },
@@ -58,17 +59,20 @@ describe("notifyManagerTourRequest SMS leg", () => {
     const res = await notifyManagerTourRequest(makeDb(), req, inquiry);
     expect(res.ok).toBe(true);
 
-    const targets = sendPropLaneSms.mock.calls.map((c) => (c[0] as { to: string }).to);
-    expect(targets).toEqual(["+15103098345", "+12065551234"]);
-    for (const call of sendPropLaneSms.mock.calls) {
-      const { text } = call[0] as { text: string };
+    const targets = sendManagerNotificationSms.mock.calls.map(
+      (c) => (c[1] as { managerUserId: string }).managerUserId,
+    );
+    expect(targets).toEqual(["admin-1", "co-1"]);
+    for (const call of sendManagerNotificationSms.mock.calls) {
+      const { text, category } = call[1] as { text: string; category: string };
+      expect(category).toBe("leasing");
       expect(text).toContain("new tour request");
       expect(text).toContain("Maple House");
       expect(text).toContain("Jordan Guest");
     }
   });
 
-  it("skips recipients without a phone (none on file or sms_forward_inbound opt-out)", async () => {
+  it("lets the shared router decide fallback for recipients without an SMS connection", async () => {
     recipients.push(
       { userId: "admin-1", email: "admin@test.proplane.local", fullName: "admin", phone: "+15103098345" },
       { userId: "co-optout", email: "optout@test.proplane.local", fullName: null, phone: null },
@@ -76,15 +80,15 @@ describe("notifyManagerTourRequest SMS leg", () => {
 
     const res = await notifyManagerTourRequest(makeDb(), req, inquiry);
     expect(res.ok).toBe(true);
-    expect(sendPropLaneSms).toHaveBeenCalledTimes(1);
-    expect((sendPropLaneSms.mock.calls[0]![0] as { to: string }).to).toBe("+15103098345");
+    expect(sendManagerNotificationSms).toHaveBeenCalledTimes(2);
   });
 
-  it("still succeeds when no recipient has a phone (email-only path unchanged)", async () => {
+  it("still succeeds when the router falls back to Assistant", async () => {
+    sendManagerNotificationSms.mockResolvedValueOnce({ sent: false });
     recipients.push({ userId: "admin-1", email: "admin@test.proplane.local", fullName: "admin", phone: null });
 
     const res = await notifyManagerTourRequest(makeDb(), req, inquiry);
     expect(res.ok).toBe(true);
-    expect(sendPropLaneSms).not.toHaveBeenCalled();
+    expect(sendManagerNotificationSms).toHaveBeenCalledTimes(1);
   });
 });

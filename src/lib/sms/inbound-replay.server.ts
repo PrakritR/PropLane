@@ -2,6 +2,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 
 export type SmsInboundRouteKind =
   | "manager_self_reply"
+  | "manager_agent"
   | "resident_agent"
   | "leasing_agent"
   | "leasing_template";

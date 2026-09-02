@@ -3,7 +3,7 @@ import { resolveVendorAgentContext } from "@/lib/tools/vendor-context";
 import { vendorAgentRegistry } from "@/lib/tools/vendor-index";
 import { runAgentTurn } from "@/lib/agent/loop";
 import type { ActionPreview } from "@/lib/tools/registry";
-import { VENDOR_SYSTEM_PROMPT } from "@/lib/agent/vendor-system-prompt";
+import { VENDOR_PORTAL_SYSTEM_PROMPT } from "@/lib/agent/system-prompts";
 import { sanitizeChatMessages, lastUserText, applyChatAttachments } from "@/lib/agent/chat-handler";
 import { createPendingAction } from "@/lib/tools/pending-actions";
 import { handlePendingActionDecision } from "@/lib/agent/pending-action-decision";
@@ -98,7 +98,8 @@ export async function POST(req: Request) {
   const customInstructions = await loadAgentCustomInstructions(ctx.db, ctx.userId);
 
   try {
-    const promptMeta = resolvePromptMeta(PROMPT_IDS.vendorAssistant, VENDOR_SYSTEM_PROMPT);
+    const system = withAgentCustomInstructions(VENDOR_PORTAL_SYSTEM_PROMPT, customInstructions);
+    const promptMeta = resolvePromptMeta(PROMPT_IDS.vendorAssistant, system);
     const traceActor = {
       userId: ctx.userId,
       sessionId: sessionId ?? undefined,
@@ -120,7 +121,7 @@ export async function POST(req: Request) {
         runAgentTurn({
           ctx,
           registry: vendorAgentRegistry,
-          system: withAgentCustomInstructions(VENDOR_SYSTEM_PROMPT, customInstructions),
+          system,
           messages,
           observer,
           model: routing,

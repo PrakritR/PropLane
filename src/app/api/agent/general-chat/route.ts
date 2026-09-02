@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { GENERAL_SYSTEM_PROMPT } from "@/lib/agent/general-system-prompt";
+import { GENERAL_ASSISTANT_SYSTEM_PROMPT } from "@/lib/agent/system-prompts";
 import { applyChatAttachments, sanitizeChatMessages } from "@/lib/agent/chat-handler";
 import { selectAgentRoute } from "@/lib/agent/model";
 import { completeAgentModel } from "@/lib/agent/provider";
@@ -75,7 +75,7 @@ export async function POST(req: Request) {
         route,
         ...(fallbackModel ? { fallbackModel } : {}),
       },
-      system: GENERAL_SYSTEM_PROMPT,
+      system: GENERAL_ASSISTANT_SYSTEM_PROMPT,
       tools: [],
       messages,
     });

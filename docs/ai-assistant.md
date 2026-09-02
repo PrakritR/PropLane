@@ -6,6 +6,15 @@ portal-scoped tool registry per surface. Users ask in natural language; the
 assistant answers from live data and **proposes** actions that only execute
 after the user explicitly confirms.
 
+All conversational surfaces assemble their runtime prompt through
+`src/lib/agent/system-prompts.ts`. It is the catalog for portal, public-site,
+leasing SMS, resident SMS, vendor work-order SMS, and resident inbox agents.
+Role-specific tool and safety instructions remain in the adjacent prompt files,
+while the catalog applies one standing natural-response policy everywhere and a
+stricter no-markdown policy to SMS. Personal instructions are appended only
+after that assembled platform prompt on surfaces that support them. Traced
+surfaces hash the exact final string in Langfuse.
+
 ## Architecture
 
 ```
@@ -250,7 +259,10 @@ inbox (`list_inbox_threads` R, `get_thread_messages` R, `reply_to_thread` W,
 calendar (`list_calendar_events` R, `list_tour_inquiries` R,
 `update_manager_availability` W, `create_calendar_event` W,
 `cancel_calendar_event` W, `accept_tour_inquiry` W, `confirm_tour_inquiry` W —
-backs the approval-first auto-tour proposals), work orders
+backs the approval-first auto-tour proposals), tours (`list_open_tour_slots` R —
+the ONE source of bookable times; `book_tour` W from scratch, `reschedule_tour` W,
+`cancel_tour` W, both of which email the guest; see
+`docs/agents/tours-scheduling.md`), work orders
 (`list_work_orders` R, `list_work_order_bids` R, `suggest_vendors_for_work_order` R,
 `create_work_order` W, `assign_vendor` W, `offer_to_vendors` W,
 `schedule_vendor_visit` W, `accept_bid` W, `complete_work_order` W,
@@ -282,17 +294,34 @@ Reads: `get_my_balance`, `list_my_charges`, `get_my_lease`,
 `get_my_application_status`, `list_my_service_requests`,
 `list_my_work_orders`, `get_move_in_info`, `list_my_inbox_threads`,
 `get_my_payment_methods`, `get_my_scheduled_messages`,
-`list_my_shared_documents`. Writes:
+`list_my_shared_documents`, `list_open_tour_slots`. Writes:
 `create_service_request`, `add_service_request_note`,
 `report_maintenance_issue`, `send_message_to_manager`, `report_manual_payment`,
 `request_lease_extension`, `schedule_message`, `cancel_scheduled_message`,
+`request_tour` (files a pending inquiry; the manager still confirms),
 `start_rent_payment` (returns a hosted Stripe Checkout link — the agent never
-completes a payment). Application-phase residents get only
-`get_my_application_status` + `send_message_to_manager`; a free-tier manager
+completes a payment). Application-phase residents get
+`get_my_application_status` + `send_message_to_manager` + the two tour tools
+(touring is exactly what a pre-approval resident does); a free-tier manager
 hides services/inbox tools.
 
 Deliberately NOT tools: lease signing (legal ceremony — deep-link to
 `/resident/lease`), autopay (feature doesn't exist).
+
+### Manager SMS (`buildManagerSmsRegistry()` in `src/lib/tools/index.ts`)
+
+The manager catalog above MINUS every tool flagged `destructive`, for a manager
+texting their own work number from their verified cell. Derived from the flag,
+never a name list. Reasoning and the upgrade path:
+[`docs/agents/sms-system.md`](agents/sms-system.md).
+
+### Prospect leasing SMS (`leasingSmsAgentRegistry`)
+
+Reads: `list_live_listings`, `get_listing_details`, `build_prospect_links`,
+`get_site_links`, `list_open_tour_slots`. Writes, both inline allow-listed via
+`LEASING_SMS_INLINE_WRITE_TOOLS` because an anonymous texter has no `user_id` to
+claim a pending action on: `escalate_to_manager`, `request_tour`. Both only
+notify the manager; nothing here books, charges, or reads personal data.
 
 ### Vendor (`src/lib/tools/vendor-index.ts`)
 
@@ -304,6 +333,13 @@ Reads: `list_my_jobs`, `get_job_details`, `list_my_bids`, `list_my_offers`,
 (refuses once a bid is accepted), `mark_job_done`, `update_my_availability`,
 `send_message_to_manager`, `submit_vendor_invoice`. Stripe Connect onboarding,
 W-9/tax, and document uploads stay on the Profile page (deep-link only).
+
+## What the agent still cannot do
+
+The audited gap list — resident maintenance depth, the resident work-order
+lifecycle, the remaining tour tools, and the ceilings that are deliberate — is
+[`docs/agents/agent-capability-backlog.md`](agents/agent-capability-backlog.md).
+Check it before adding a tool, and prune the row you close.
 
 ## How to add a new tool (checklist)
 

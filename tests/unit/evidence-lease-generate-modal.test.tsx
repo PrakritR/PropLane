@@ -4,8 +4,8 @@
  * modal for a property that holds lease formats and for one that holds none,
  * writing the markup to EVIDENCE_DIR (when set) for screenshotting.
  */
-import { describe, expect, it, vi } from "vitest";
-import { render } from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { cleanup, render } from "@testing-library/react";
 import { mkdirSync, writeFileSync } from "node:fs";
 
 vi.mock("@/components/providers/app-ui-provider", () => ({
@@ -17,7 +17,7 @@ vi.mock("@/lib/rental-application/data", () => ({
   getPropertyById: () => ({ listingSubmission: SUBMISSION }),
 }));
 vi.mock("@/lib/lease-pipeline-storage", () => ({
-  resolveManagerLeaseGenerationRow: (_id: string) => ROW,
+  resolveManagerLeaseGenerationRow: () => ROW,
   leaseApplicationSnapshotForRow: () => ({ leaseTerm: "12-Month", rentalType: "long-term" }),
   leaseGenerationPreviewContextForRow: () => ({ ok: true }),
   generateLeaseHtmlForRow: () => ({ ok: true, version: 1 }),
@@ -42,6 +42,11 @@ import { LeaseGenerateModal } from "@/components/portal/lease-generate-modal";
 import { createDefaultListingSubmission } from "@/lib/manager-listing-submission";
 import { addLeaseTemplateFromSeed } from "@/lib/property-lease-template-sync";
 
+// Unmount between tests rather than wiping `document.body`. Clearing innerHTML
+// detaches React's committed tree without unmounting it, so its scheduler later
+// runs against a torn-down `window` and kills the whole worker.
+afterEach(cleanup);
+
 const ROW = {
   id: "lease-1",
   propertyId: "mgr-evidence-house",
@@ -49,7 +54,7 @@ const ROW = {
   resident: "Priya Raman",
 } as never;
 
-// Same convention as `evidence-manager-money-agreement.test.tsx`: the render is
+// Same convention as `evidence-pinned-footer.test.tsx`: the render is
 // always exercised, the HTML is only written when EVIDENCE_DIR asks for it.
 const OUT = process.env.EVIDENCE_DIR ?? "";
 
@@ -81,7 +86,6 @@ describe("evidence · generate-lease picker follows the property's real formats"
       "E · Generate lease — the picker lists the formats this property actually holds (no permanently greyed-out 'Lease bundle' buttons).",
       document.body.innerHTML,
     );
-    document.body.innerHTML = "";
   });
 
   it("explains the fallback when the property holds none", () => {
@@ -102,6 +106,5 @@ describe("evidence · generate-lease picker follows the property's real formats"
       "F · Same modal on a property with no saved formats — it says the draft uses PropLane's standard lease template, and Generate stays enabled.",
       document.body.innerHTML,
     );
-    document.body.innerHTML = "";
   });
 });

@@ -11,8 +11,9 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { track } from "@/lib/analytics/posthog";
 import { runAgentTurn } from "@/lib/agent/loop";
 import { TIER_MODELS } from "@/lib/agent/model";
-import { VENDOR_AGENT_SYSTEM_PROMPT } from "@/lib/agent/vendor-agent-system-prompt";
-import { traceAgentTurn } from "@/lib/observability/langfuse";
+import { VENDOR_WORK_ORDER_SMS_SYSTEM_PROMPT } from "@/lib/agent/system-prompts";
+import { PROMPT_IDS, resolvePromptMeta } from "@/lib/agent/prompt-metadata";
+import { traceAgentTurn, type TraceActor } from "@/lib/observability/langfuse";
 import { buildVendorAgentContext } from "@/lib/tools/context";
 import { vendorWorkOrderAgentRegistry } from "@/lib/tools";
 import { ESCALATE_TOOL_NAME } from "@/lib/tools/domains/vendor-work-order";
@@ -36,6 +37,22 @@ export type VendorAgentSessionRow = {
   status: string;
   inbox_thread_id: string | null;
 };
+
+/** ID-only attribution for a job-bound vendor conversation. */
+export function vendorWorkOrderTraceActor(
+  session: VendorAgentSessionRow,
+  channel: "sms" | "inbox",
+): TraceActor {
+  return {
+    userId: session.vendor_user_id ?? session.landlord_id,
+    metadata: {
+      landlordId: session.landlord_id,
+      role: "vendor",
+      managerIds: [session.landlord_id],
+      channel,
+    },
+  };
+}
 
 const SESSION_COLUMNS =
   "id, landlord_id, kind, vendor_user_id, vendor_directory_id, work_order_id, vendor_phone_e164, status, inbox_thread_id";
@@ -239,8 +256,9 @@ export async function runVendorAgentSessionTurn(
     },
   });
 
+  let traceId: string | null = null;
   const result = await traceAgentTurn(
-    ctx,
+    vendorWorkOrderTraceActor(session, channel),
     history as { role: string; content: string }[],
     (observer) =>
       runAgentTurn({
@@ -248,12 +266,19 @@ export async function runVendorAgentSessionTurn(
         registry: vendorWorkOrderAgentRegistry,
         messages: history,
         observer,
-        system: VENDOR_AGENT_SYSTEM_PROMPT,
+        system: VENDOR_WORK_ORDER_SMS_SYSTEM_PROMPT,
         model: { model: TIER_MODELS.standard, tier: "standard" },
         readOnly: true,
         allowWriteTools: [ESCALATE_TOOL_NAME],
       }),
-    { name: "vendor-agent-turn", sessionId: session.id },
+    {
+      name: "vendor-agent-turn",
+      sessionId: session.id,
+      promptMeta: resolvePromptMeta(PROMPT_IDS.vendorSmsAgent, VENDOR_WORK_ORDER_SMS_SYSTEM_PROMPT),
+      onTraceId: (id) => {
+        traceId = id;
+      },
+    },
   );
 
   await db.from("agent_messages").insert({
@@ -263,6 +288,7 @@ export async function runVendorAgentSessionTurn(
     content: result.reply,
     channel: "agent",
     tool_trace: result.toolTrace,
+    trace_id: traceId,
   });
   await db.from("agent_sessions").update({ updated_at: nowIso }).eq("id", session.id);
   track("vendor_agent_message_out", session.landlord_id, {

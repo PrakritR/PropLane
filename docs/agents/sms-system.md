@@ -145,6 +145,14 @@ manager loading their OWN tab may provision on demand. Guarded by
 
 **Design: outbound sends from a per-manager work number; replies land in PropLane.**
 Carriers do not allow sending SMS *from* a personal number — do not fake it.
+- Manager-facing operational alerts use one preference-aware router
+  (`manager-notification-routing.server.ts`). Settings → Preferences stores a
+  destination of `assistant` (default), `personal_number`, or `both`, plus
+  topic-level SMS switches for messages, maintenance, payment reminders,
+  applications, and leasing. The default falls back to PropLane Assistant until
+  the manager has both an eligible work number and a personal phone; it switches
+  to the manager-cell connection automatically once both are ready. New
+  manager-alert call sites must use this router instead of sending directly.
 - Outbound manager-owned traffic enters `owner-sms-dispatcher.server.ts`; the
   sender, campaign/service identity, consent, entitlement, segment budget, and
   outbox state are server-derived. `profiles.sms_from_number` is display/cache
@@ -175,8 +183,8 @@ Carriers do not allow sending SMS *from* a personal number — do not fake it.
   same patch.** Verification belongs to the NUMBER, not the row: leaving the
   stamp in place hands a brand-new, unverified number the previous number's
   authority — a deliverable SMS destination to `portal-inbox-delivery` and an
-  authorized inbound-SMS identity to `claw-manager-actions`, agent commands
-  included. The non-obvious writer is
+  authorized inbound-SMS identity to the manager SMS agent — that is, the whole
+  portfolio. The non-obvious writer is
   `applyProspectMessagingContactToProfile` (`src/lib/tour-resident-link.server.ts`),
   which `/api/auth/create-resident-account` reaches with a caller-supplied
   `phone`, so this cannot be closed at a call site.
@@ -419,10 +427,16 @@ Applying migrations or setting environment variables is not activation by
 itself: the DB mode, provisioning flag, send flag, entitlement, attachment, and
 per-number carrier registration must all agree.
 
-## Per-manager SMS proxy relay (`src/lib/sms/manager-relay.server.ts`)
+## A manager texting a work number gets the AI
 
-One PropLane number can carry both legs of a resident conversation, wired into
-`/api/twilio/inbound`:
+`/api/twilio/inbound` forks on `resolveManagerSmsInboundIdentity`
+(`src/lib/sms/manager-sms-access.server.ts`). **The To number pins the
+work-number owner first** (from `manager_sms_numbers`), then From must be that
+owner's verified `profiles.phone` **or** a verified invitee of that owner with a
+current accepted assignment. Candidates are taken from THIS owner's invitees,
+never a global phone search, so a random verified manager cannot hop onto
+someone else's number. `detectManagerSelfReply` still handles the owner-cell
+match inside that resolver; do not remove it.
 
 - **Leg 1 (resident → manager):** stored in the PropLane thread AND mirrored to
   the manager's own verified cell from the work number
@@ -434,13 +448,83 @@ One PropLane number can carry both legs of a resident conversation, wired into
   name a stranger's cell), `profiles.sms_forward_inbound`, a sendable
   registered number, and granted `manager_inbound_forward` consent. Managers
   can still read and reply in the portal.
-- **Leg 2 (manager → resident):** the manager texts the SAME PropLane number from
-  their cell. `detectManagerSelfReply` (From = manager's verified phone, To =
-  their work number — the To pins the manager, so it is cross-tenant safe) routes
-  it to their **active resident conversation**. DETERMINISTIC RULE: the
-  resident-role thread with the newest message in either direction. Delivered to
-  the resident FROM the PropLane number (manager cell never exposed), stored in
-  the same thread.
+
+That fork runs the **manager SMS agent**
+(`src/lib/agent/manager-sms-agent.server.ts`) — the manager portal's tool
+catalog, over text, with proposals confirmed by a `YES` reply. Session kind
+`manager_sms`, portal `manager`, so a proposal is an ordinary
+`agent_pending_actions` row executed by the same confirm gate the portal chat
+route uses.
+
+**Who gets a work number.** Only accounts that own properties can provision a
+PropLane number (`isPureCoManager` in `/api/manager/messaging-number` refuses
+the rest). A co-manager of someone else's house texts **that owner's** number
+for those houses. Resident-facing SMS for a house also sends from the owner's
+number.
+
+**Three access modes** (`ManagerSmsAccess` in `src/lib/sms/manager-sms-access.ts`):
+
+| Who texts | What number | Mode | Assistant scope |
+| --- | --- | --- | --- |
+| Property-owning manager, no incoming co-manage links | Own work number | `owner` | Full owned portfolio |
+| Manager who also co-manages | Own work number | `combined` | Owned houses plus assigned co-managed houses |
+| Co-manager (pure or not) | Owner's work number | `delegated` | Only that owner's assigned houses |
+
+Delegated turns set `landlordId` to the work-number owner (data tenant) and
+`userId` to the co-manager (actor). Combined turns keep both as the texter so
+owned-house tools stay unchanged. Landlord-wide tools that cannot be
+property-filtered (`DELEGATED_SMS_UNSCOPED_TOOLS`: financial reports, dashboard,
+calendar list/create, co-managers list, …) are withheld on **delegated** turns
+only. Combined writes against another owner's row still fail closed if the write
+keys on `ctx.landlordId` (the actor); act on those houses by texting **that
+owner's** number.
+
+**Communication in the portal** is a separate grant: inbox `read` views the
+owner's SMS and email threads, `edit` replies/sends, `delete` deletes. Empty
+co-manager permissions still mean a full grant on assigned properties. Sharing
+is owner-level (inbox on ≥1 assigned property of that owner), matching existing
+SMS scope — there is no per-thread `property_id` on inbox rows.
+
+**Two things it replaced, both deliberately deleted:**
+
+- A **blind relay**. `handleManagerReplyInbound` forwarded whatever the manager
+  typed to their most-recently-active resident thread, chosen by recency alone.
+  Leg 1 mirroring means the manager may well have seen A forwarded text, but
+  never *which thread a bare reply would land in* — with two conversations
+  moving, "on my way" went to whoever wrote last. Reaching a resident is now an
+  explicit, named proposal: "text Jane that the plumber comes Tuesday" previews
+  the recipient and the exact body, and `YES` sends it. Replying to a Leg 1
+  mirror is therefore a question to the agent, not a silent relay.
+- A **four-intent regex** (`claw-manager-actions.server.ts` /
+  `claw-manager-intents.ts`, `agent mark paid` and friends) whose `mark_paid`
+  wrote `portal_household_charge_records` directly with the service-role
+  client: no tool layer, no preview, no confirmation, on the money path. It was
+  also unreachable on the modern work-number route, because `detectManagerSelfReply`
+  ran first.
+
+**The registry is narrower than the portal's, on purpose.**
+`buildManagerSmsRegistry` (`src/lib/tools/index.ts`) is `agentRegistry` minus
+every tool flagged `destructive` — today `approve_and_pay_work_order`,
+`void_lease`, `delete_charge`, `delete_promotion`, `revoke_resident_access`,
+`cancel_calendar_event`. The Twilio `From` header is attacker-influencable and
+the confirmation is one word with no card to re-read; before this surface
+existed a spoofed manager cell bought a text relay, and handing it irreversible
+writes is a different blast radius. The exclusion is derived from the FLAG, never
+a name list, so a newly destructive tool is withheld automatically. The system
+prompt tells the manager those actions are portal-only.
+
+Resident-facing traffic is unchanged: **Leg 1 (resident → manager)** is still
+stored in the PropLane thread, and personal-cell forwarding stays off during the
+managed-number pilot (it needs its own manager-cell consent scope). Managers
+read those threads in the portal, or ask the agent.
+
+The turn body is shared with the resident SMS agent
+(`src/lib/agent/sms-agent-turn.server.ts`) so the write gate, the
+one-open-proposal invariant, and confirmation-before-the-model cannot drift
+between the two surfaces. Coverage: `tests/unit/manager-sms-agent.test.ts`,
+`tests/unit/manager-sms-access.test.ts`,
+`tests/unit/twilio-inbound-retry.test.ts`,
+`tests/unit/claw-manager-phone-scoping.test.ts`.
 
 ## Consent + quiet hours are transport-level (never bypassed)
 
@@ -675,3 +759,22 @@ listing SMS uses the listing manager's verified phone; managed messaging uses
 the manager's own registered Twilio number. The Claw sections below are retained
 only as historical implementation notes while the old modules and tables are
 removed incrementally.
+
+## Manager agent reminders
+
+Proactive reminders to the owning manager use the same `notifyManagerFromAgent`
+delivery path as other PropLane Assistant notices. Preferences → Manager alerts
+is authoritative: `none` sends nothing, `assistant` writes the in-app Assistant
+notice and push, `personal_number` sends the grounded reminder from the
+manager's active work number to their personal phone (falling back to Assistant
+until both phone legs are ready), and `both` sends both copies.
+
+`/api/cron/dispatch-reminders` runs every five minutes. Tour, manager-assigned
+task, service-order, and work-order sweeps enqueue manager-role copies alongside
+counterparty reminders. The dispatcher never self-sends those rows through the
+ordinary inbox transport; it renders the snapshotted payload and hands the
+result to `notifyManagerFromAgent`. Lifecycle task metadata maps lease/tour
+actions to `leasing`, application review to `applications`, work-order tasks to
+`maintenance`, and rent collection to `payment_reminders`, so the topic-level
+phone choices remain effective. A resident-signature transition also produces
+an immediate leasing reminder for the manager to countersign.
