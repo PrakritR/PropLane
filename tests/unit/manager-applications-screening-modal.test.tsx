@@ -48,7 +48,11 @@ vi.mock("@/lib/cosigner-submissions-storage", () => ({
 vi.mock("@/lib/household-charges", () => ({
   findHoldingDepositCharge: () => undefined,
 }));
-vi.mock("@/lib/demo/demo-session", () => ({
+// Spread the real module and override only the demo flags. A hand-listed mock
+// breaks the file the moment the module grows an export a component imports —
+// which is what `DEMO_NAVIGATE_EVENT` did.
+vi.mock("@/lib/demo/demo-session", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/demo/demo-session")>()),
   isDemoModeActive: () => true,
   DEMO_GUIDED_USER_ID: "demo-everything",
   resolveManagerScopeUserId: (id: string | null) => id,

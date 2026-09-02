@@ -81,10 +81,11 @@ describe("F7 — two applications for one room must not render identically", () 
       html: (view.container.firstElementChild as HTMLElement).innerHTML,
     });
 
-    const rowText = Array.from(view.container.querySelectorAll("tbody tr")).map((tr) =>
-      (tr.textContent ?? "").replace(/\s+/g, " ").trim(),
-    );
-    // eslint-disable-next-line no-console
+    // These lists render as DataList card rows, not a <tbody> table. The
+    // assertion is about what a resident can READ on each row, so read the rows.
+    const rowText = Array.from(
+      view.container.querySelectorAll('[data-slot="data-list-mobile-row"]'),
+    ).map((row) => (row.textContent ?? "").replace(/\s+/g, " ").trim());
     console.log("\nF7 evidence — resident application rows\n" + rowText.map((t) => `    ${t}`).join("\n") + "\n");
 
     expect(rowText).toHaveLength(2);

@@ -21,7 +21,10 @@ vi.mock("@/lib/portal-nav-client", () => ({
 vi.mock("@/components/providers/app-ui-provider", () => ({
   useAppUi: () => ({ showToast: () => {} }),
 }));
-vi.mock("@/components/ui/modal", () => ({
+// Spread the real module and stub only `Modal`. A hand-listed mock takes the
+// whole file down the moment the module grows an export the component imports.
+vi.mock("@/components/ui/modal", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/components/ui/modal")>()),
   Modal: ({ open, title, children }: { open: boolean; title: string; children: ReactNode }) =>
     open ? (
       <div role="dialog" aria-label={title}>
@@ -115,9 +118,15 @@ describe("ResidentTourPanel surfaces a failed read instead of an empty list", ()
     await waitFor(() => {
       expect(document.querySelector('[data-attr="resident-tour-schedule"]')).not.toBeNull();
     });
+    // "no tours" and "we could not read your tours" must never look the same:
+    // an empty read shows the ordinary empty state and NO error.
     expect(screen.queryByRole("alert")).toBeNull();
+    expect(document.querySelector('[data-attr="resident-tour-load-error"]')).toBeNull();
     expect(document.querySelector('[data-attr="resident-tour-list"]')).toBeNull();
+    // A genuine zero DOES get a count — that is the whole distinction this file
+    // draws. The sibling test above pins the other half: when the read FAILED,
+    // no count is printed, because "0" would be a lie rather than a fact.
     const pendingTab = document.querySelector('[data-attr="resident-tour-bucket-pending"]');
-    expect(pendingTab?.textContent ?? "").toBe("Pending");
+    expect(pendingTab?.textContent ?? "").toBe("Pending0");
   });
 });

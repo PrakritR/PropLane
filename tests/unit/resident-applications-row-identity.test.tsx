@@ -72,14 +72,24 @@ function submittedRow(id: string, propertyId: string, property: string): DemoApp
   } as DemoApplicantRow;
 }
 
-function desktopRow(id: string): HTMLElement {
-  const el = document.querySelector<HTMLElement>(`#resident-application-${id}`);
-  if (!el) throw new Error(`row ${id} not rendered`);
-  return el;
+/**
+ * The row for one application, found the way a resident finds it: by the
+ * application id printed on the row. Deliberately NOT a DOM-id selector —
+ * these lists render through `DataList`, which emits no per-row `id`, and it
+ * should not: the responsive shell renders mobile and desktop trees together,
+ * so a shared id would be a duplicate. Selecting on visible text is also the
+ * stronger assertion for audit F7.
+ */
+function applicationRow(id: string): HTMLElement {
+  const rows = [...document.querySelectorAll<HTMLElement>('[data-slot="data-list-mobile-row"]')];
+  const matches = rows.filter((el) => (el.textContent ?? "").includes(id));
+  if (matches.length === 0) throw new Error(`row ${id} not rendered`);
+  if (matches.length > 1) throw new Error(`row ${id} matched ${matches.length} rows — ids must be unique`);
+  return matches[0];
 }
 
 function clickDesktopRow(id: string) {
-  const row = desktopRow(id);
+  const row = applicationRow(id);
   const openButton = row.querySelector("button");
   fireEvent.click(openButton ?? row);
 }
@@ -171,8 +181,8 @@ describe("ResidentApplicationsPanel — the embedded table distinguishes its row
       render(<ResidentApplicationsPanel applyMode />);
     });
 
-    const first = desktopRow("PROPLANE-AAAA0001").textContent ?? "";
-    const second = desktopRow("PROPLANE-BBBB0002").textContent ?? "";
+    const first = applicationRow("PROPLANE-AAAA0001").textContent ?? "";
+    const second = applicationRow("PROPLANE-BBBB0002").textContent ?? "";
     expect(first).toContain("Started 8/1/2026, 7:48:40 PM");
     expect(second).toContain("Submitted 8/3/2026, 5:24:39 PM");
     // Same property and room — the rows still have to read differently.

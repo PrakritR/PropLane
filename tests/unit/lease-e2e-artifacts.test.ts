@@ -307,7 +307,11 @@ describe("lease documents: generation, formatting and ledger agreement", () => {
     save("11-seattle-prorated-crossref", body);
 
     expect(body).toContain("For the first partial month");
-    expect(body).toContain("prorated rent and utilities");
+    // The proration line has TWO shapes now: itemized when both a prorated rent
+    // and a prorated utilities figure are known, and a combined
+    // "(prorated rent and utilities)" otherwise. Both name rent and utilities,
+    // which is what this assertion is actually about.
+    expect(body).toMatch(/prorated rent and (utilities|<strong>[^<]*<\/strong> prorated utilities)/);
     const h = headings(body);
     expect(h.some((x) => /Rent and Utilities/i.test(x))).toBe(true);
   });

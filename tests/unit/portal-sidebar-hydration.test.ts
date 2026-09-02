@@ -30,11 +30,19 @@ describe("portal sidebar native hydration", () => {
   });
 
   it("nests Payments incoming/outgoing links under a Payments parent row", () => {
+    // The nesting is built inline from the section's own tabs now; there is no
+    // named `renderPaymentsNavGroup` helper any more. What matters is unchanged:
+    // Payments is a parent row with incoming/outgoing children beneath it.
     expect(PORTAL_SIDEBAR_SOURCE).toContain("subItems:");
-    expect(PORTAL_SIDEBAR_SOURCE).toContain("renderPaymentsNavGroup");
-    expect(PORTAL_SIDEBAR_SOURCE).toContain("isPaymentSubNavActive");
-    expect(PORTAL_SIDEBAR_SOURCE).toContain("paymentsNavExpanded");
-    expect(PORTAL_SIDEBAR_SOURCE).toContain('aria-expanded={paymentsNavExpanded}');
+    expect(PORTAL_SIDEBAR_SOURCE).toMatch(/section\.section === "payments"/);
+    expect(PORTAL_SIDEBAR_SOURCE).toContain("/payments/incoming/pending");
+    // The payments-specific helpers (`isPaymentSubNavActive`, `paymentsNavExpanded`)
+    // were generalised: any section with `subItems` is expandable, active state
+    // comes from `isNavItemActive`, and open state from `expandableNavOpen`
+    // keyed by section. Payments is now one case of a general mechanism.
+    expect(PORTAL_SIDEBAR_SOURCE).toContain("isNavItemActive");
+    expect(PORTAL_SIDEBAR_SOURCE).toContain("expandableNavOpen");
+    expect(PORTAL_SIDEBAR_SOURCE).toContain("aria-expanded={expanded}");
   });
 
   it("the More sheet lists every section, not just overflow (e.g. Documents alongside Finances)", () => {

@@ -35,17 +35,21 @@ const PORTAL_DIR = join(process.cwd(), "src/components/portal");
  * contributes nothing on a phone and the mobile row is the ONLY control there — deleting it
  * would leave the section with zero controls, not one.
  */
-const SPLIT_SHAPE_PANELS = [
-  // `resident-lease-panel.tsx` is deliberately NOT here. Its Request edits /
-  // Sign / Renew / Move-out buttons moved into the detail page's footer
-  // (`leaseDetailFooter` → `PortalRecordDetailPage`), so the list renders
-  // `ManagerPortalPageShell` with no `titleAside` and no mobile row — the
-  // band-only shape, with nothing lost on a phone. Listing it here kept this
-  // guard red against a shipped redesign; re-add it only if the panel goes back
-  // to rendering its own `hidden md:flex` titleAside.
-  "resident-payments-panel.tsx",
+const SPLIT_SHAPE_PANELS: string[] = [
+  // Currently EMPTY, and that is a real state rather than an oversight: every
+  // portal panel has migrated to the band-only shape, where an ungated
+  // `titleAside` renders in the title band at every breakpoint and reaches a
+  // phone exactly once. `resident-lease-panel.tsx` moved its buttons into the
+  // detail footer; `resident-payments-panel.tsx` dropped its `titleAside`
+  // entirely. Listing a migrated panel here keeps this guard permanently red
+  // against a shipped redesign.
+  //
+  // Add a panel here only if it goes back to the split shape: a
+  // `hidden md:flex` titleAside PLUS its own `md:hidden` actions row. The
+  // dangerous direction — a band-only panel that also ships a mobile row, so
+  // controls draw twice on a phone — is covered automatically by the scan over
+  // every portal source above, which needs no list.
 ];
-
 /**
  * A hand-rolled mobile row is identified by its `data-slot` alone, NOT by scanning the
  * className for `md:hidden`. Panels build that className however they like — a template
@@ -445,6 +449,18 @@ describe("header controls reach mobile exactly once", () => {
   });
 
   it("the split-shape panels still render their mobile row (never zero controls)", () => {
+    // Guard the guard: an empty list must not read as a silent pass. When the
+    // list is empty the invariant is carried entirely by the scan above.
+    if (SPLIT_SHAPE_PANELS.length === 0) {
+      // `portal-section-action-row.tsx` DEFINES the mobile row, so it matches
+      // its own pattern; every other match would be a consumer.
+      expect(
+        PORTAL_SOURCES.filter(({ src }) => RENDERS_MOBILE_ROW.test(src))
+          .map(({ file }) => file)
+          .filter((file) => file !== "portal-section-action-row.tsx"),
+      ).toEqual([]);
+      return;
+    }
     for (const file of SPLIT_SHAPE_PANELS) {
       const src = readFileSync(join(PORTAL_DIR, file), "utf8");
       expect(src, `${file} lost its mobile actions row`).toMatch(RENDERS_MOBILE_ROW);

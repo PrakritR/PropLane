@@ -141,7 +141,14 @@ describe("per-room short-term set drives the booking", () => {
     );
     const stay = charges.find((c) => c.kind === "stay_total");
     expect(stay?.amountLabel).toBe("$510.00"); // 6 × $85 listing fallback
-    expect(charges.find((c) => c.kind === "security_deposit")?.amountLabel).toBe("$100.00");
+    // The NIGHTLY RATE falls back to the listing; the deposit and move-in fee do
+    // not. `resolvedShortTermPlacementDeposit` gates the listing-level figure on
+    // `isEntireHomeListing`, so on a per-ROOM listing only the room's own figure
+    // applies (2b82d7aa, "align short-term deposit billing with public listing
+    // display"). A listing-level deposit is ambiguous across rooms, and billing
+    // one the public page never showed is exactly the mismatch that change closed.
+    expect(charges.some((c) => c.kind === "security_deposit")).toBe(false);
+    // The move-in fee is NOT gated the same way and still falls back.
     expect(charges.find((c) => c.kind === "move_in_fee")?.amountLabel).toBe("$40.00");
     expect(charges.some((c) => c.kind === "utilities")).toBe(false);
   });

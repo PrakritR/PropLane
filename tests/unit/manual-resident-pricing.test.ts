@@ -120,7 +120,11 @@ describe("resolveManualResidentPlacementValues", () => {
       leaseTermCustomMode: false,
     });
     expect(v?.rent).toBe("200");
-    expect(v?.securityDeposit).toBe("75");
+    // The nightly rate and move-in fee fall back to the listing; the DEPOSIT does
+    // not. `resolvedShortTermPlacementDeposit` gates the listing-level short-term
+    // deposit on `isEntireHomeListing` so billing matches what the public page
+    // shows (2b82d7aa), and this fixture is a per-room listing.
+    expect(v?.securityDeposit).toBe("0");
     expect(v?.moveInFee).toBe("25");
   });
 

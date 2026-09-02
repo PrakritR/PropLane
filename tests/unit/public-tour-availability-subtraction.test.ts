@@ -1,8 +1,13 @@
 /**
  * The public booking grid's one rule:
  *
- *     offered = (published availability, or the 9-5 default when none is
- *                published) MINUS calendar-busy MINUS already-booked
+ *     offered = published availability MINUS calendar-busy MINUS already-booked
+ *
+ * The implicit 9-5 default was REMOVED in 09af3348 ("Remove implicit default
+ * tour availability"), so a property whose manager has published nothing now
+ * offers nothing. The tests that asserted the default went with it; what
+ * remains is the subtraction half, which is what stops the same half hour
+ * being sold to three prospects.
  *
  * The subtraction half is what stops the same half hour being sold to three
  * prospects. A confirmed tour left its own slot on offer, and the manager's
@@ -68,7 +73,7 @@ vi.mock("@/lib/public-host-label", () => ({
 }));
 
 import { GET as getAvailability } from "@/app/api/public/property-tour-availability/route";
-import { DEFAULT_TOUR_HORIZON_DAYS, slotStartMs } from "@/lib/tour-slot-math";
+import { slotStartMs } from "@/lib/tour-slot-math";
 
 function availabilityRow(recordType: string, slots: string[]) {
   return {
@@ -207,6 +212,8 @@ function pinNow(ms: number): void {
 const DAY = "2099-08-06";
 /** 10:00-10:30 am Pacific on {@link DAY}. */
 const TEN_AM = `${DAY}:20`;
+/** A published slot on a DIFFERENT day, to prove one blocked day is not all of them. */
+const OTHER_DAY_SLOT = "2099-08-07:20";
 const TEN_AM_START = "2099-08-06T17:00:00.000Z";
 const TEN_AM_END = "2099-08-06T17:30:00.000Z";
 
@@ -232,17 +239,8 @@ describe("public tour availability subtracts what is already taken", () => {
     const slots = await offeredSlots();
     expect(slots.has(TEN_AM)).toBe(true);
     expect([...slots].filter((slot) => slot.startsWith(`${DAY}:`)).length).toBe(4);
-    expect(slots.size).toBeGreaterThan(4);
-  });
-
-  it("still offers the 9-5 default on other days when one day is published", async () => {
-    pinNow(Date.parse("2026-08-04T15:00:00.000Z"));
-    PROPERTY_AVAILABILITY_SLOTS = [TEN_AM];
-    const slots = await offeredSlots();
-    const days = new Set([...slots].map((slot) => slot.split(":")[0]));
-    expect(slots.has(TEN_AM)).toBe(true);
-    expect(days.size).toBeGreaterThan(1);
-    expect(slots.size).toBeGreaterThan(4);
+    // Exactly the four published slots: there is no implicit default to pad it.
+    expect(slots.size).toBe(4);
   });
 
   it("offers a live property's global availability when it has published none of its own", async () => {
@@ -251,7 +249,7 @@ describe("public tour availability subtracts what is already taken", () => {
     const slots = await offeredSlots();
     expect(slots.has(TEN_AM)).toBe(true);
     expect([...slots].filter((slot) => slot.startsWith(`${DAY}:`)).length).toBe(2);
-    expect(slots.size).toBeGreaterThan(2);
+    expect(slots.size).toBe(2);
   });
 
   it.each(["draft", "pending", "review", "unlisted"])(
@@ -351,7 +349,8 @@ describe("public tour availability subtracts what is already taken", () => {
     ];
     const slots = await offeredSlots();
     expect([...slots].filter((slot) => slot.startsWith(`${DAY}:`)).length).toBe(4);
-    expect(slots.size).toBeGreaterThan(4);
+    // Exactly the four published slots: there is no implicit default to pad it.
+    expect(slots.size).toBe(4);
   });
 
   it("ignores an invite the manager declined", async () => {
@@ -366,21 +365,26 @@ describe("public tour availability subtracts what is already taken", () => {
     ];
     const slots = await offeredSlots();
     expect([...slots].filter((slot) => slot.startsWith(`${DAY}:`)).length).toBe(4);
-    expect(slots.size).toBeGreaterThan(4);
+    // Exactly the four published slots: there is no implicit default to pad it.
+    expect(slots.size).toBe(4);
   });
 
   it("still blocks an all-day entry — a trip is exactly when a manager cannot host", async () => {
+    PROPERTY_AVAILABILITY_SLOTS = [...(PROPERTY_AVAILABILITY_SLOTS ?? []), OTHER_DAY_SLOT];
     GOOGLE_BUSY = [
       { id: "g-allday", summary: "Out of town", start: `${DAY}T00:00:00`, end: `${DAY}T23:59:59`, allDay: true },
     ];
     const slots = await offeredSlots();
     expect([...slots].some((slot) => slot.startsWith(`${DAY}:`))).toBe(false);
-    expect(slots.size).toBeGreaterThan(0);
+    // The blocked day is gone but a day the manager published elsewhere
+    // survives: an all-day block must not blank the whole grid.
+    expect(slots.has(OTHER_DAY_SLOT)).toBe(true);
   });
 
   it("blocks an all-day entry even though Google reports it Free", async () => {
     // Google Calendar DEFAULTS all-day events to Free, so honouring transparency
     // ahead of the all-day flag would quietly un-block every trip and holiday.
+    PROPERTY_AVAILABILITY_SLOTS = [...(PROPERTY_AVAILABILITY_SLOTS ?? []), OTHER_DAY_SLOT];
     GOOGLE_BUSY = [
       {
         id: "g-allday-free",
@@ -393,7 +397,9 @@ describe("public tour availability subtracts what is already taken", () => {
     ];
     const slots = await offeredSlots();
     expect([...slots].some((slot) => slot.startsWith(`${DAY}:`))).toBe(false);
-    expect(slots.size).toBeGreaterThan(0);
+    // The blocked day is gone but a day the manager published elsewhere
+    // survives: an all-day block must not blank the whole grid.
+    expect(slots.has(OTHER_DAY_SLOT)).toBe(true);
   });
 
   it("does not block an all-day invite the manager declined", async () => {
@@ -409,7 +415,8 @@ describe("public tour availability subtracts what is already taken", () => {
     ];
     const slots = await offeredSlots();
     expect([...slots].filter((slot) => slot.startsWith(`${DAY}:`)).length).toBe(4);
-    expect(slots.size).toBeGreaterThan(4);
+    // Exactly the four published slots: there is no implicit default to pad it.
+    expect(slots.size).toBe(4);
   });
 
   it("reads busy time across the ENTIRE range it can offer, not the default horizon", async () => {
@@ -480,7 +487,8 @@ describe("public tour availability subtracts what is already taken", () => {
     GOOGLE_THROWS = true;
     const slots = await offeredSlots();
     expect([...slots].filter((slot) => slot.startsWith(`${DAY}:`)).length).toBe(4);
-    expect(slots.size).toBeGreaterThan(4);
+    // Exactly the four published slots: there is no implicit default to pad it.
+    expect(slots.size).toBe(4);
   });
 
   it("removes a slot a pending request already holds", async () => {
@@ -523,7 +531,7 @@ describe("public tour availability subtracts what is already taken", () => {
   });
 });
 
-describe("a property with no published availability still offers the 9-5 default", () => {
+describe("a property with no published availability offers nothing", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     managerCounter += 1;
@@ -541,52 +549,13 @@ describe("a property with no published availability still offers the 9-5 default
     if (vi.isMockFunction(Date.now)) vi.mocked(Date.now).mockRestore();
   });
 
-  it("bounds the default grid to the 21-day horizon", async () => {
-    // The response is `no-store`, so every request pays for the whole grid.
+  it("offers nothing at all — the implicit default was removed", async () => {
+    // 09af3348 removed implicit default tour availability. A manager who has
+    // published nothing now offers nothing, rather than ~336 half hours nobody
+    // opted into. `resolveDefaultTourAvailabilityConfig` reflects this: `enabled`
+    // is false unless a caller explicitly turns it on.
     const slots = await offeredSlots();
-    const days = new Set([...slots].map((slot) => slot.split(":")[0]));
-    expect(days.size).toBeLessThanOrEqual(DEFAULT_TOUR_HORIZON_DAYS);
-    expect(days.size).toBeGreaterThanOrEqual(DEFAULT_TOUR_HORIZON_DAYS - 1);
-  });
-
-  it("offers a 9 am - 5 pm day rather than nothing", async () => {
-    const slots = await offeredSlots();
-    expect(slots.size).toBeGreaterThan(0);
-    const slotIndices = new Set([...slots].map((slot) => Number(slot.split(":")[1])));
-    expect(Math.min(...slotIndices)).toBe(18); // 9:00 am
-    expect(Math.max(...slotIndices)).toBe(33); // 4:30 pm, ending at 5:00 pm
-  });
-
-  it("subtracts calendar-busy time from the DEFAULT grid too", async () => {
-    // The default is a starting point, not a promise of open time.
-    const tomorrow = new Date(Date.now() + 24 * 60 * 60 * 1000);
-    const pad = (n: number) => String(n).padStart(2, "0");
-    const day = `${tomorrow.getUTCFullYear()}-${pad(tomorrow.getUTCMonth() + 1)}-${pad(tomorrow.getUTCDate())}`;
-    GOOGLE_BUSY = [
-      { id: "g1", summary: "Busy all day", start: `${day}T00:00:00`, end: `${day}T23:59:59` },
-    ];
-    const slots = await offeredSlots();
-    expect([...slots].some((slot) => slot.startsWith(`${day}:`))).toBe(false);
-  });
-
-  it("subtracts an already-booked tour from the DEFAULT grid too", async () => {
-    const soon = new Date(Date.now() + 3 * 24 * 60 * 60 * 1000);
-    const pad = (n: number) => String(n).padStart(2, "0");
-    const day = `${soon.getFullYear()}-${pad(soon.getMonth() + 1)}-${pad(soon.getDate())}`;
-    const slotKey = `${day}:20`;
-    PLANNED_EVENTS = [
-      {
-        id: "planned-default",
-        kind: "tour",
-        managerUserId: MANAGER,
-        start: new Date(new Date(`${day}T10:00:00`).getTime()).toISOString(),
-        end: new Date(new Date(`${day}T10:30:00`).getTime()).toISOString(),
-        slotKey,
-      },
-    ];
-    const slots = await offeredSlots();
-    expect(slots.has(slotKey)).toBe(false);
-    expect(slots.has(`${day}:22`)).toBe(true);
+    expect(slots.size).toBe(0);
   });
 
   it.each(["draft", "pending", "review", "unlisted", ""])(

@@ -60,3 +60,26 @@ if (typeof window !== "undefined" && !window.matchMedia) {
   });
 }
 
+
+// jsdom does not implement `ResizeObserver` either, and portal components that
+// measure their own container to decide what fits (`portal-footer-fit-action-row`)
+// construct one on mount. Without this, every test that renders such a component
+// dies with "ResizeObserver is not defined" — an error about the test
+// environment, not the component, that reads as a wall of unrelated failures.
+//
+// Observe/disconnect are no-ops: the component calls `sync()` once before
+// constructing the observer, so the measured-layout path is still exercised and
+// jsdom reports zero-width elements consistently either way. A test that wants
+// real resize behaviour should stub its own.
+if (typeof globalThis !== "undefined" && !("ResizeObserver" in globalThis)) {
+  class TestResizeObserver implements ResizeObserver {
+    observe(): void {}
+    unobserve(): void {}
+    disconnect(): void {}
+  }
+  Object.defineProperty(globalThis, "ResizeObserver", {
+    configurable: true,
+    writable: true,
+    value: TestResizeObserver,
+  });
+}

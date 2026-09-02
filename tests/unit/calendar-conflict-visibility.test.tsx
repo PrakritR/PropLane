@@ -30,11 +30,18 @@ vi.mock("@/components/portal/portal-calendar-panels", () => ({
     return null;
   },
 }));
-vi.mock("@/components/portal/portal-property-detail-section", () => ({
+// Spread the real module and override only the section shell. A hand-listed
+// mock silently takes the whole file down the moment the module grows an export
+// the component imports — which is what `PropertyDetailFooterActions` did.
+vi.mock("@/components/portal/portal-property-detail-section", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/components/portal/portal-property-detail-section")>()),
   PortalPropertyDetailSection: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
 }));
 vi.mock("@/components/portal/share-lead-link-modal", () => ({
   ShareLeadLinkModal: () => null,
+}));
+vi.mock("@/components/providers/app-ui-provider", () => ({
+  useAppUi: () => ({ showToast: () => {} }),
 }));
 vi.mock("@/lib/portal-nav-client", () => ({ usePortalNavigate: () => () => {} }));
 

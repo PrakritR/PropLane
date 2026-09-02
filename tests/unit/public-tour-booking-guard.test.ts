@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from "vitest";
+import { describe, expect, it } from "vitest";
 import { managerHasPublishedSlot } from "@/lib/public-tour-booking-guard";
 import { buildDefaultTourSlotKeys } from "@/lib/tour-slot-math";
 
@@ -34,7 +34,11 @@ function makeDb(publishedSlots: string[]) {
 }
 
 describe("managerHasPublishedSlot", () => {
-  it("accepts a default 9-5 slot when the manager has published nothing", async () => {
+  it("refuses a default 9-5 slot when the manager has published nothing", async () => {
+    // 09af3348 removed implicit default tour availability, so an unpublished
+    // slot is not bookable just because it falls in the old 9-5 band. The guard
+    // has to agree with the public grid or a prospect could book a time the
+    // grid never offered.
     const defaultSlot = buildDefaultTourSlotKeys()[0];
     expect(defaultSlot).toBeTruthy();
     const allowed = await managerHasPublishedSlot(makeDb([]) as never, {
@@ -42,7 +46,7 @@ describe("managerHasPublishedSlot", () => {
       slotKey: defaultSlot!,
       propertyId: PROPERTY_ID,
     });
-    expect(allowed).toBe(true);
+    expect(allowed).toBe(false);
   });
 
   it("still requires an explicitly published slot on a day the manager painted", async () => {
