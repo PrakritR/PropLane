@@ -743,12 +743,19 @@ export function listingPresetFeeAmount(
 
 /** Per-room short-term deposit wins; listing-level fallback only for entire-home stays. */
 export function resolvedShortTermPlacementDeposit(
-  sub: ManagerListingSubmissionV1,
+  /**
+   * Nullable because a placement can exist without a listing submission (a
+   * manually entered resident, a property whose listing was never filled in).
+   * The room's own figure still applies; there is simply no listing-level
+   * default to fall back to, which is the same answer as a non-entire-home
+   * listing already gave.
+   */
+  sub: ManagerListingSubmissionV1 | null | undefined,
   room?: { shortTermDeposit?: string } | null,
 ): string {
   const roomDep = (room?.shortTermDeposit ?? "").trim();
   if (roomDep) return roomDep;
-  if (!isEntireHomeListing(sub)) return "";
+  if (!sub || !isEntireHomeListing(sub)) return "";
   return String(
     listingPresetFeeAmount(sub, "short_term_deposit") || parseMoneyAmount(sub.shortTermDeposit ?? ""),
   );
