@@ -125,6 +125,20 @@ describe("resident lease billing sync", () => {
     expect(charges.some((c) => c.kind === "first_month_rent")).toBe(true);
   });
 
+  it("drops stale proration when lease start moves mid-month (16-day then 9-day)", () => {
+    recordApprovedApplicationCharges(residentRow("2026-09-15"), MANAGER_ID, true);
+    let charges = readHouseholdCharges();
+    expect(charges.filter((c) => c.kind === "prorated_rent")).toHaveLength(1);
+    expect(charges.find((c) => c.kind === "prorated_rent")?.title).toContain("16 days");
+
+    recordApprovedApplicationCharges(residentRow("2026-09-21"), MANAGER_ID, false);
+    charges = readHouseholdCharges();
+    const proratedRent = charges.filter((c) => c.kind === "prorated_rent");
+    expect(proratedRent).toHaveLength(1);
+    expect(proratedRent[0]?.title).toContain("10 days");
+    expect(proratedRent[0]?.title).not.toContain("16 days");
+  });
+
   it("keeps pending resident charges when payment schedules reconcile", () => {
     const pending = { ...residentRow("2026-09-01"), bucket: "pending" as const, stage: "Submitted" };
     writeManagerApplicationRows([pending]);

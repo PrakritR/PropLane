@@ -1093,13 +1093,11 @@ ${customTermsAddendumHtml(subNorm, "Additional Provisions from Owner/Host", prop
     proratedFirstMonthTotals?.applies && proratedFirstMonthTotals.total > 0
       ? proratedFirstMonthTotals.total
       : 0;
-  const signingIncludesForProration = new Set(subNorm?.paymentAtSigningIncludes ?? []);
-  const useSigningIncludesFilter = signingIncludesForProration.size > 0;
-  const showProratedFirstMonth =
-    firstPartialMonthPayment > 0 &&
-    (!useSigningIncludesFilter ||
-      signingIncludesForProration.has("first_month_rent") ||
-      signingIncludesForProration.has("first_month_utilities"));
+  const proratedRentAmount =
+    proratedFirstMonthTotals?.proratedRent ?? leaseBilling?.proratedRent ?? 0;
+  const proratedUtilitiesAmount =
+    proratedFirstMonthTotals?.proratedUtilities ?? leaseBilling?.proratedUtilities ?? 0;
+  const showProratedFirstMonth = firstPartialMonthPayment > 0;
   const customFeeSummaryRows = billableOneTimeCustomFees
     .map(
       (f) =>
@@ -1130,7 +1128,9 @@ ${customTermsAddendumHtml(subNorm, "Additional Provisions from Owner/Host", prop
     <tr><th>Monthly rent</th><td class="amount"><strong>${summaryMonthlyRent}</strong></td></tr>
     <tr><th>Monthly utilities</th><td class="amount"><strong>${summaryMonthlyUtilities}</strong></td></tr>
     ${summaryTotalMonthly ? `<tr class="total-row"><th>Total monthly payment</th><td class="amount"><strong>${summaryTotalMonthly}</strong></td></tr>` : ""}
-    ${showProratedFirstMonth ? `<tr><th>Prorated first month</th><td class="amount">${fmtUsd(firstPartialMonthPayment)}</td></tr>` : ""}
+    ${showProratedFirstMonth && proratedRentAmount <= 0 && proratedUtilitiesAmount <= 0 ? `<tr><th>Prorated first month</th><td class="amount">${fmtUsd(firstPartialMonthPayment)}</td></tr>` : ""}
+    ${proratedRentAmount > 0 ? `<tr><th>Prorated rent (first partial month)</th><td class="amount">${fmtUsd(proratedRentAmount)}</td></tr>` : ""}
+    ${proratedUtilitiesAmount > 0 ? `<tr><th>Prorated utilities (first partial month)</th><td class="amount">${fmtUsd(proratedUtilitiesAmount)}</td></tr>` : ""}
     <tr><th>Security deposit</th><td class="amount">${secDep}</td></tr>
     <tr><th>Move-in fee</th><td class="amount">${moveInFee}</td></tr>
     ${monthlyCustomFeeSummaryRows}
@@ -1161,6 +1161,8 @@ ${customTermsAddendumHtml(subNorm, "Additional Provisions from Owner/Host", prop
       paySigning,
       paySigningNum,
       firstPartialMonthPayment,
+      proratedRentAmount,
+      proratedUtilitiesAmount,
       billableOneTimeCustomFees,
       billableMonthlyCustomFees,
       supplementalOneTimeLeaseFees,
@@ -1472,6 +1474,8 @@ ${longTermDisputeVenue ? `<p>Venue for a dispute arising from this Agreement is 
   <tr><td>${rentRowLabel}</td><td class="amount"><strong>${escapeHtml(typeof monthlyRentStr === "string" ? monthlyRentStr : String(monthlyRentStr))}</strong></td><td>${isDailyBasis ? "Per day, billed each month by actual days" : "Monthly, due 1st"}</td></tr>
   <tr><td>Utilities / services estimate</td><td class="amount">${documentUtilitiesDisplay}</td><td>Monthly</td></tr>
   ${totalMonthly ? `<tr class="total-row"><td><strong>Total monthly payment</strong></td><td class="amount"><strong>${totalMonthly}</strong></td><td>Monthly</td></tr>` : ""}
+  ${proratedRentAmount > 0 ? `<tr><td>Prorated first month&apos;s rent</td><td class="amount">${fmtUsd(proratedRentAmount)}</td><td>One-time (partial month)</td></tr>` : ""}
+  ${proratedUtilitiesAmount > 0 ? `<tr><td>Prorated utilities</td><td class="amount">${fmtUsd(proratedUtilitiesAmount)}</td><td>One-time (partial month)</td></tr>` : ""}
   <tr><td>Application fee</td><td class="amount">${appFee}</td><td>One-time</td></tr>
   <tr><td>Security deposit</td><td class="amount">${secDep}</td><td>One-time (refundable)</td></tr>
   <tr><td>Move-in fee</td><td class="amount">${moveInFee}</td><td>One-time (non-refundable)</td></tr>

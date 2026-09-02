@@ -211,8 +211,33 @@ describe("long-term lease parity", () => {
     ctx.leaseBilling = { ...ctx.leaseBilling!, dueAtSigning: 400 };
     const html = buildLeaseHtml(ctx, SEATTLE_LEASE_CONFIG);
     expect(html).toContain("Total payment due at signing: <strong>$400.00</strong>");
+    expect(html).toContain("Due at signing");
     expect(html).toContain("<strong>$400.00</strong> security deposit");
-    expect(html).not.toContain("move-in fee");
+    expect(html).not.toMatch(/Due at signing[\s\S]*move-in fee/);
+    expect(html).toContain("Move-in fee");
+  });
+
+  it("discloses prorated amounts in the lease even when excluded from signing total", () => {
+    const ctx = longTermContext({
+      paymentAtSigningIncludes: ["security_deposit", "move_in_fee"],
+    });
+    ctx.application = {
+      ...ctx.application,
+      leaseStart: "2026-09-21",
+      leaseEnd: "2026-09-30",
+    };
+    ctx.leaseBilling = {
+      ...ctx.leaseBilling!,
+      proratedRent: 270,
+      proratedUtilities: 45,
+      dueAtSigning: 550,
+    };
+    const html = buildLeaseHtml(ctx, SEATTLE_LEASE_CONFIG);
+    expect(html).toContain("Prorated first month&apos;s rent");
+    expect(html).toContain("$270.00");
+    expect(html).toContain("Prorated utilities");
+    expect(html).toContain("$45.00");
+    expect(html).not.toContain("Total payment due at signing: <strong>$865.00</strong>");
   });
 
   it("renders a configured returned-payment clause without an unset jurisdiction citation", () => {
@@ -246,7 +271,9 @@ describe("long-term lease parity", () => {
       proratedUtilities: 116.67,
     };
     const html = buildLeaseHtml(ctx, SEATTLE_LEASE_CONFIG);
-    expect(html).toContain("For the first partial month, Resident shall pay <strong>$666.67</strong>");
+    expect(html).toContain("Prorated first month&apos;s rent");
+    expect(html).toContain("$550.00");
+    expect(html).toContain("$666.67");
   });
 
   it("prorates the move-in payment summary for a custom mid-month term using flexible lease dates", () => {
@@ -271,7 +298,8 @@ describe("long-term lease parity", () => {
       dueAtSigning: 850,
     };
     const html = buildLeaseHtml(ctx, SEATTLE_LEASE_CONFIG);
-    expect(html).toContain("For the first partial month, Resident shall pay <strong>$300.00</strong>");
+    expect(html).toContain("Payment schedule");
+    expect(html).toContain("$300.00");
   });
 
   it("uses the long-form standard document for California", () => {
