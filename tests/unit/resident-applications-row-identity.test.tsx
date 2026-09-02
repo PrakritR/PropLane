@@ -72,10 +72,35 @@ function submittedRow(id: string, propertyId: string, property: string): DemoApp
   } as DemoApplicantRow;
 }
 
-function desktopRow(id: string): HTMLElement {
-  const el = [...document.querySelectorAll<HTMLElement>(`tr#resident-application-${id}`)][0];
-  if (!el) throw new Error(`row ${id} not rendered`);
-  return el;
+/**
+ * The row for one application, found the way a resident finds it: by the
+ * application id printed on the row itself.
+ *
+ * Deliberately NOT a DOM-id selector. These lists render through `DataList`,
+ * which emits no per-row `id` — and it should not, because the responsive
+ * shell renders the mobile and desktop trees together, so a shared id would be
+ * a duplicate. Selecting on visible text is also the stronger assertion for
+ * what this file is about (audit F7: two applications for one room must not
+ * read the same). If the id stops being printed, these tests SHOULD fail.
+ */
+function applicationRow(id: string): HTMLElement {
+  const rows = [...document.querySelectorAll<HTMLElement>('[data-slot="data-list-mobile-row"]')];
+  const matches = rows.filter((el) => (el.textContent ?? "").includes(id));
+  if (matches.length === 0) throw new Error(`row ${id} not rendered`);
+  if (matches.length > 1) throw new Error(`row ${id} matched ${matches.length} rows — ids must be unique`);
+  return matches[0];
+}
+
+/**
+ * Click a row the way a person does. A selectable row is a wrapper div whose
+ * record area is an inner button (a checkbox nested inside a row <button> would
+ * be invalid HTML), so the click target is not always the row element itself.
+ */
+function clickApplicationRow(id: string): void {
+  const row = applicationRow(id);
+  const target = row.tagName === "BUTTON" ? row : row.querySelector("button");
+  if (!target) throw new Error(`row ${id} has no clickable target`);
+  fireEvent.click(target);
 }
 
 afterEach(() => {
@@ -119,7 +144,7 @@ describe("ResidentApplicationsPanel — each row opens its OWN application", () 
     });
     portalNavigate.mockClear();
     await act(async () => {
-      fireEvent.click(desktopRow("PROPLANE-CCCC0003"));
+      clickApplicationRow("PROPLANE-CCCC0003");
     });
     expect(portalNavigate).toHaveBeenCalledWith("/resident/applications/pending/PROPLANE-CCCC0003");
   });
@@ -138,7 +163,7 @@ describe("ResidentApplicationsPanel — each row opens its OWN application", () 
 
     portalNavigate.mockClear();
     await act(async () => {
-      fireEvent.click(desktopRow("PROPLANE-BBBB0002"));
+      clickApplicationRow("PROPLANE-BBBB0002");
     });
     expect(portalNavigate).toHaveBeenCalledWith("/resident/applications/pending/PROPLANE-BBBB0002");
   });
@@ -165,8 +190,8 @@ describe("ResidentApplicationsPanel — the embedded table distinguishes its row
       render(<ResidentApplicationsPanel applyMode />);
     });
 
-    const first = desktopRow("PROPLANE-AAAA0001").textContent ?? "";
-    const second = desktopRow("PROPLANE-BBBB0002").textContent ?? "";
+    const first = applicationRow("PROPLANE-AAAA0001").textContent ?? "";
+    const second = applicationRow("PROPLANE-BBBB0002").textContent ?? "";
     expect(first).toContain("Started 8/1/2026, 7:48:40 PM");
     expect(second).toContain("Submitted 8/3/2026, 5:24:39 PM");
     // Same property and room — the rows still have to read differently.

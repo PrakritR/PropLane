@@ -59,14 +59,22 @@ describe("Finance and Documents title-row controls", () => {
     expect(filterFields).toContain("PORTAL_FILTER_PANEL_FOUR_FIELD_HEIGHT_CLASS");
   });
 
-  it("keeps Payments in the title band while Applications uses the command strip", () => {
+  /**
+   * Both of these list sections put their filter/sort in the TITLE BAND. An
+   * earlier revision of this test asserted Applications had moved to the
+   * command strip (`titleInlineFilter={null}` + `variant="command"`), but that
+   * change only ever landed in the test — `manager-applications.tsx` has never
+   * contained either string. Assert the contract that actually ships.
+   * `variant="command"` is real and is exercised by `manager-properties.tsx`;
+   * if Applications should adopt it, change the component first.
+   */
+  it("keeps Payments and Applications filters in the title band, not a body toolbar", () => {
     const payments = portalSource("manager-payments.tsx");
     const applications = portalSource("manager-applications.tsx");
 
     expect(payments).toContain("titleInlineFilter={paymentsFilterSheet}");
     expect(payments).not.toContain('desktopPresentation="inline"');
-    expect(applications).toContain("titleInlineFilter={null}");
-    expect(applications).toContain('variant="command"');
-    expect(applications).toContain("filterRow={applicationsFilterSort}");
+    expect(applications).toContain("titleInlineFilter={applicationsFilterSort}");
+    expect(applications).not.toContain('desktopPresentation="inline"');
   });
 });

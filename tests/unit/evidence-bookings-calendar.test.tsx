@@ -4,7 +4,7 @@
  * calendar with BOTH channels — a PropLane lease and an Airbnb import — plus
  * the "Link Airbnb" modal, and dumps the markup for screenshotting.
  */
-import { describe, expect, it, vi } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { act, fireEvent, render } from "@testing-library/react";
 import { mkdirSync, writeFileSync } from "node:fs";
 
@@ -63,7 +63,7 @@ const submission = (() => {
   } as typeof sub;
 })();
 
-// Same convention as `evidence-manager-money-agreement.test.tsx`: the render is
+// Same convention as `evidence-pinned-footer.test.tsx`: the render is
 // always exercised, the HTML is only written when EVIDENCE_DIR asks for it.
 const OUT = process.env.EVIDENCE_DIR ?? "";
 
@@ -79,6 +79,20 @@ function writeShot(name: string, caption: string, body: string) {
 ${body}</div></body></html>`,
   );
 }
+
+/**
+ * The calendar opens on the CURRENT month and has no prop to override it, while
+ * both fixtures below sit in August 2026. Without a pinned clock this file
+ * passed only during August and has failed every day since — so fake `Date`
+ * only (React's own timers stay real) and put "now" inside the fixture month.
+ */
+beforeAll(() => {
+  vi.useFakeTimers({ toFake: ["Date"] });
+  vi.setSystemTime(new Date("2026-08-10T12:00:00.000Z"));
+});
+afterAll(() => {
+  vi.useRealTimers();
+});
 
 describe("evidence · one house's Bookings calendar shows both channels", () => {
   it("draws PropLane stays alongside Airbnb imports", async () => {

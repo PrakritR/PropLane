@@ -4,8 +4,8 @@
  * action on a real application detail route and dumps the modal markup to
  * EVIDENCE_DIR (when set) for screenshotting.
  */
-import { describe, expect, it, vi } from "vitest";
-import { fireEvent, render } from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { cleanup, fireEvent, render } from "@testing-library/react";
 import { mkdirSync, writeFileSync } from "node:fs";
 import type { DemoApplicantRow } from "@/data/demo-portal";
 
@@ -68,7 +68,13 @@ vi.mock("@/lib/demo/demo-session", () => ({
 
 import { ManagerApplications } from "@/components/portal/manager-applications";
 
-// Same convention as `evidence-manager-money-agreement.test.tsx`: the render is
+// Unmount between tests. Without this, React keeps scheduled work alive past the
+// jsdom teardown and `performWorkUntilDeadline` fires against a torn-down
+// `window`, killing the whole worker — which took an unrelated test file down
+// with it and made the suite's totals flap run to run.
+afterEach(cleanup);
+
+// Same convention as `evidence-pinned-footer.test.tsx`: the render is
 // always exercised, the HTML is only written when EVIDENCE_DIR asks for it.
 const OUT = process.env.EVIDENCE_DIR ?? "";
 
@@ -111,7 +117,6 @@ describe("evidence · holding fee is a header action on the application detail",
       "G · Application detail → 'Holding fee' header action opens the modal (it used to be an inline card, and on the detail route the button opened nothing).",
       document.body.innerHTML,
     );
-    document.body.innerHTML = "";
   });
 
   it("explains itself when the application has no house yet", () => {
@@ -139,6 +144,5 @@ describe("evidence · holding fee is a header action on the application detail",
       "H · Same action on an application with no house selected — the modal says why instead of showing an empty body.",
       document.body.innerHTML,
     );
-    document.body.innerHTML = "";
   });
 });

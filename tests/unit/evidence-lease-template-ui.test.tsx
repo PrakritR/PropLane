@@ -36,7 +36,7 @@ import {
 } from "@/lib/property-lease-template-sync";
 import type { ManagerListingSubmissionV1 } from "@/lib/manager-listing-submission";
 
-// Same convention as `evidence-manager-money-agreement.test.tsx`: the render is
+// Same convention as `evidence-pinned-footer.test.tsx`: the render is
 // always exercised, the HTML is only written when EVIDENCE_DIR asks for it.
 const OUT = process.env.EVIDENCE_DIR ?? "";
 

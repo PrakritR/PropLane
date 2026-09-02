@@ -16,7 +16,7 @@ import {
   runReadTool,
   previewWriteTool,
 } from "@/lib/tools/registry";
-import { SYSTEM_PROMPT } from "./system-prompt";
+import { MANAGER_SYSTEM_PROMPT } from "./system-prompts";
 import { selectModel, type ModelTier, type AgentProvider, type AgentRoute, type AgentModelSelection } from "./model";
 import { completeAgentModel } from "./provider";
 
@@ -133,7 +133,7 @@ export async function runAgentTurn<Ctx = AgentContext>(opts: {
    */
   readOnly?: boolean;
 }): Promise<AgentTurnResult> {
-  const system = opts.system ?? SYSTEM_PROMPT;
+  const system = opts.system ?? MANAGER_SYSTEM_PROMPT;
   const allowWrite = opts.allowWriteTools ?? [];
   const allTools = toAnthropicTools(opts.registry, { allowWrite, readOnly: opts.readOnly });
   const tools = opts.toolNames ? allTools.filter((tool) => opts.toolNames!.includes(tool.name)) : allTools;

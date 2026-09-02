@@ -107,8 +107,13 @@ describe("splitNativeBottomNavItems", () => {
     const items = RESIDENT_LIMITED_PORTAL_SECTIONS.map((s) => ({ section: s.section, label: s.label }));
     const { primary, overflow } = splitNativeBottomNavItems(items, "resident", "post_approval_pre_lease");
     expect(primary.map((item) => item.section)).toEqual([...NATIVE_BOTTOM_NAV_RESIDENT_POST_APPROVAL_PRIMARY]);
-    expect(overflow.map((item) => item.section)).toContain("dashboard");
-    expect(overflow.map((item) => item.section)).not.toContain("tour");
+    // Dashboard is the home tab at every stage, so it belongs on the bar, not
+    // in the More sheet.
+    expect(primary.map((item) => item.section)).toContain("dashboard");
+    expect(overflow.map((item) => item.section)).not.toContain("dashboard");
+    // Touring is not a phone tab once there is a lease to sign, but it stays
+    // REACHABLE in the More sheet — a section must never vanish entirely.
+    expect(overflow.map((item) => item.section)).toContain("tour");
     expect(overflow.map((item) => item.section)).toContain("documents");
     expect(primary.length + overflow.length).toBe(items.length - 1);
   });
@@ -124,8 +129,9 @@ describe("splitNativeBottomNavItems", () => {
     const { primary, overflow } = splitNativeBottomNavItems(items, "resident", "post_lease");
     expect(primary.map((item) => item.section)).toEqual([...NATIVE_BOTTOM_NAV_RESIDENT_PRIMARY]);
     expect(overflow.map((item) => item.section)).toContain("documents");
-    expect(overflow.map((item) => item.section)).toContain("dashboard");
-    expect(overflow.map((item) => item.section)).not.toContain("tour");
+    expect(primary.map((item) => item.section)).toContain("dashboard");
+    expect(overflow.map((item) => item.section)).not.toContain("dashboard");
+    expect(overflow.map((item) => item.section)).toContain("tour");
     expect(primary.length + overflow.length).toBe(items.length - 1);
   });
 

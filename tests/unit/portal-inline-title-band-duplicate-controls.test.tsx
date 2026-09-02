@@ -43,7 +43,14 @@ const SPLIT_SHAPE_PANELS = [
   // band-only shape, with nothing lost on a phone. Listing it here kept this
   // guard red against a shipped redesign; re-add it only if the panel goes back
   // to rendering its own `hidden md:flex` titleAside.
-  "resident-payments-panel.tsx",
+  //
+  // `resident-payments-panel.tsx` left for the same reason: its
+  // `titleAside={paymentsTitleAction}` is a bare Button with no `hidden md:flex`
+  // wrapper, so the band renders it at EVERY breakpoint — the band-only shape,
+  // reaching a phone exactly once. It has no mobile row and must not grow one.
+  // The scan above is what holds that half: any panel that adds a mobile row
+  // while keeping an ungated titleAside fails there, automatically.
+  "resident-communication.tsx",
 ];
 
 /**

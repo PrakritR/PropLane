@@ -21,7 +21,12 @@ vi.mock("@/lib/portal-nav-client", () => ({
 vi.mock("@/components/providers/app-ui-provider", () => ({
   useAppUi: () => ({ showToast: () => {} }),
 }));
-vi.mock("@/components/ui/modal", () => ({
+// Only `Modal` is stubbed (to skip the portal/animation shell); everything else
+// stays real. A hand-listed mock silently breaks the whole file the moment the
+// modal module grows an export the component imports — which is what happened
+// with `ModalFooter`.
+vi.mock("@/components/ui/modal", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/components/ui/modal")>()),
   Modal: ({ open, title, children }: { open: boolean; title: string; children: ReactNode }) =>
     open ? (
       <div role="dialog" aria-label={title}>
@@ -115,8 +120,12 @@ describe("ResidentTourPanel surfaces a failed read instead of an empty list", ()
     await waitFor(() => {
       expect(document.querySelector('[data-attr="resident-tour-schedule"]')).not.toBeNull();
     });
+    // The whole point of this file: "no tours" and "we could not read your
+    // tours" must never look the same. An empty read shows the ordinary empty
+    // state and NO alert.
     expect(screen.queryByRole("alert")).toBeNull();
-    expect(document.querySelector('[data-attr="resident-tour-list"]')).toBeNull();
+    expect(document.querySelector('[data-attr="resident-tour-load-error"]')).toBeNull();
+    expect(screen.getByText(/No tours in this tab yet/i)).toBeTruthy();
     const pendingTab = document.querySelector('[data-attr="resident-tour-bucket-pending"]');
     expect(pendingTab?.textContent ?? "").toBe("Pending");
   });

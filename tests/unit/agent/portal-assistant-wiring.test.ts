@@ -5,9 +5,11 @@ import { agentRegistry } from "@/lib/tools";
 import { residentAgentRegistry } from "@/lib/tools/resident-index";
 import { vendorAgentRegistry } from "@/lib/tools/vendor-index";
 import { vendorWorkOrderAgentRegistry, leasingSmsAgentRegistry } from "@/lib/tools";
-import { SYSTEM_PROMPT } from "@/lib/agent/system-prompt";
-import { RESIDENT_SYSTEM_PROMPT } from "@/lib/agent/resident-system-prompt";
-import { VENDOR_SYSTEM_PROMPT } from "@/lib/agent/vendor-system-prompt";
+import {
+  MANAGER_SYSTEM_PROMPT,
+  RESIDENT_SYSTEM_PROMPT,
+  VENDOR_PORTAL_SYSTEM_PROMPT,
+} from "@/lib/agent/system-prompts";
 
 /**
  * Per-portal assistant wiring. `resolveAgentContext` REJECTS non-managers by
@@ -52,13 +54,15 @@ describe("portal assistant endpoints", () => {
 
 describe("portal chat routes bind their own registry + persona", () => {
   it.each([
-    ["src/app/api/agent/chat/route.ts", "agentRegistry", "SYSTEM_PROMPT", '"manager"'],
+    ["src/app/api/agent/chat/route.ts", "agentRegistry", "MANAGER_SYSTEM_PROMPT", '"manager"'],
     ["src/app/api/agent/resident-chat/route.ts", "buildResidentRegistry(ctx)", "RESIDENT_SYSTEM_PROMPT", '"resident"'],
-    ["src/app/api/agent/vendor-chat/route.ts", "vendorAgentRegistry", "VENDOR_SYSTEM_PROMPT", '"vendor"'],
+    ["src/app/api/agent/vendor-chat/route.ts", "vendorAgentRegistry", "VENDOR_PORTAL_SYSTEM_PROMPT", '"vendor"'],
   ])("%s", (file, registry, prompt, portal) => {
     const source = read(file);
     expect(source).toContain(`registry: ${registry}`);
-    expect(source).toContain(`system: withAgentCustomInstructions(${prompt}, customInstructions)`);
+    expect(source).toContain(`const system = withAgentCustomInstructions(${prompt}, customInstructions)`);
+    expect(source).toContain("resolvePromptMeta(");
+    expect(source).toContain("system,");
     expect(source).toContain("loadAgentCustomInstructions(ctx.db, ctx.userId)");
     expect(source).toContain("handleAgentChatHistoryRequest");
     // The session is created lazily on the first message via ensureAgentSession,
@@ -127,14 +131,34 @@ describe("role registries never cross", () => {
     }
   });
 
+  /**
+   * Tour availability and filing a tour request are PUBLIC-shaped capabilities:
+   * the same grid the website shows anonymously, and the same request the
+   * website's form files. They are the only names allowed to appear on an SMS
+   * surface and in a portal registry. Everything else on an SMS surface must be
+   * unique to it — that is what keeps a texting prospect or a one-job vendor
+   * away from a manager's financials and a resident's records.
+   */
+  const SMS_SHARED_PUBLIC_TOOLS = new Set(["list_open_tour_slots", "request_tour"]);
+
   it("the SMS registries stay tiny and see no manager financials or resident data", () => {
     const smsNames = [...vendorWorkOrderAgentRegistry.keys(), ...leasingSmsAgentRegistry.keys()];
     for (const name of smsNames) {
+      if (SMS_SHARED_PUBLIC_TOOLS.has(name)) continue;
       expect(manager.has(name), `${name} is a manager tool`).toBe(false);
       expect(resident.has(name), `${name} is a resident tool`).toBe(false);
     }
     expect(vendorWorkOrderAgentRegistry.size).toBeLessThanOrEqual(6);
-    expect(leasingSmsAgentRegistry.size).toBeLessThanOrEqual(6);
+    expect(leasingSmsAgentRegistry.size).toBeLessThanOrEqual(8);
+  });
+
+  it("the one-job vendor SMS agent shares nothing at all", () => {
+    // The exemption above is scoped to leasing. A vendor texting about one work
+    // order has no business seeing tour availability either.
+    for (const name of vendorWorkOrderAgentRegistry.keys()) {
+      expect(manager.has(name), `${name} is a manager tool`).toBe(false);
+      expect(resident.has(name), `${name} is a resident tool`).toBe(false);
+    }
   });
 
   it("every write tool in every registry is confirm-gated behind a preview", () => {
@@ -155,9 +179,9 @@ describe("role registries never cross", () => {
 
 describe("personas are role-scoped", () => {
   it("each portal gets its own persona, and none of them is the manager one", () => {
-    expect(RESIDENT_SYSTEM_PROMPT).not.toBe(SYSTEM_PROMPT);
-    expect(VENDOR_SYSTEM_PROMPT).not.toBe(SYSTEM_PROMPT);
-    expect(RESIDENT_SYSTEM_PROMPT).not.toBe(VENDOR_SYSTEM_PROMPT);
+    expect(RESIDENT_SYSTEM_PROMPT).not.toBe(MANAGER_SYSTEM_PROMPT);
+    expect(VENDOR_PORTAL_SYSTEM_PROMPT).not.toBe(MANAGER_SYSTEM_PROMPT);
+    expect(RESIDENT_SYSTEM_PROMPT).not.toBe(VENDOR_PORTAL_SYSTEM_PROMPT);
   });
 
   it("the resident persona addresses a resident, never a landlord", () => {
@@ -167,26 +191,26 @@ describe("personas are role-scoped", () => {
   });
 
   it("the vendor persona addresses a vendor, never a landlord", () => {
-    expect(VENDOR_SYSTEM_PROMPT).toMatch(/vendor/i);
-    expect(VENDOR_SYSTEM_PROMPT).not.toMatch(/\blandlord\b/i);
+    expect(VENDOR_PORTAL_SYSTEM_PROMPT).toMatch(/vendor/i);
+    expect(VENDOR_PORTAL_SYSTEM_PROMPT).not.toMatch(/\blandlord\b/i);
   });
 
   it("every persona names the product PropLane, never the legacy Axis brand", () => {
-    for (const prompt of [SYSTEM_PROMPT, RESIDENT_SYSTEM_PROMPT, VENDOR_SYSTEM_PROMPT]) {
+    for (const prompt of [MANAGER_SYSTEM_PROMPT, RESIDENT_SYSTEM_PROMPT, VENDOR_PORTAL_SYSTEM_PROMPT]) {
       expect(prompt).toContain("PropLane");
       expect(prompt).not.toMatch(/Axis (Assistant|Housing)/);
     }
   });
 
   it("manager persona allows promotion tools inside the New promotion modal", () => {
-    expect(SYSTEM_PROMPT).toMatch(/New promotion modal/i);
-    expect(SYSTEM_PROMPT).toContain("create_promotion");
-    expect(SYSTEM_PROMPT).toContain("referenceImageUrls");
+    expect(MANAGER_SYSTEM_PROMPT).toMatch(/New promotion modal/i);
+    expect(MANAGER_SYSTEM_PROMPT).toContain("create_promotion");
+    expect(MANAGER_SYSTEM_PROMPT).toContain("referenceImageUrls");
   });
 
   it("manager persona allows lease config updates inside the Lease modal", () => {
-    expect(SYSTEM_PROMPT).toContain("update_property_lease_config");
-    expect(SYSTEM_PROMPT).toMatch(/Lease modal/i);
+    expect(MANAGER_SYSTEM_PROMPT).toContain("update_property_lease_config");
+    expect(MANAGER_SYSTEM_PROMPT).toMatch(/Lease modal/i);
   });
 });
 
