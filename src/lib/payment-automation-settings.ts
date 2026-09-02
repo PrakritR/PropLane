@@ -1,4 +1,12 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import {
+  DEFAULT_MANAGER_NOTIFICATION_CATEGORIES,
+  DEFAULT_MANAGER_NOTIFICATION_DESTINATION,
+  normalizeManagerNotificationCategories,
+  normalizeManagerNotificationDestination,
+  type ManagerNotificationCategoryPreferences,
+  type ManagerNotificationDestination,
+} from "@/lib/manager-notification-preferences";
 
 export type PaymentReminderKind = "pre_due" | "same_day" | "post_due" | "overdue_daily" | "late_fee" | "set_date";
 
@@ -10,6 +18,10 @@ export type ReminderTemplate = {
 };
 
 export type ManagerAutomationSettings = {
+  /** Where manager-facing operational alerts should notify the manager. */
+  managerNotificationDestination: ManagerNotificationDestination;
+  /** Topics eligible for manager-cell SMS when the selected destination includes it. */
+  managerNotificationCategories: ManagerNotificationCategoryPreferences;
   preDueReminderDays: number[];
   /** One-time reminders after the due date (legacy; day 1 migrates to overdueDailyEnabled). */
   postDueReminderDays: number[];
@@ -111,6 +123,8 @@ export const DEFAULT_TOUR_REMINDER_TEMPLATE: ReminderTemplate = {
 };
 
 export const DEFAULT_MANAGER_AUTOMATION_SETTINGS: ManagerAutomationSettings = {
+  managerNotificationDestination: DEFAULT_MANAGER_NOTIFICATION_DESTINATION,
+  managerNotificationCategories: { ...DEFAULT_MANAGER_NOTIFICATION_CATEGORIES },
   preDueReminderDays: [...DEFAULT_PRE_DUE_REMINDER_DAYS],
   postDueReminderDays: [...DEFAULT_POST_DUE_REMINDER_DAYS],
   setDateReminders: [],
@@ -306,6 +320,12 @@ export function normalizeManagerAutomationSettings(raw: unknown): ManagerAutomat
   }
 
   return {
+    managerNotificationDestination: normalizeManagerNotificationDestination(
+      row.managerNotificationDestination,
+    ),
+    managerNotificationCategories: normalizeManagerNotificationCategories(
+      row.managerNotificationCategories,
+    ),
     preDueReminderDays: normalizePreDueDays(row.preDueReminderDays),
     postDueReminderDays,
     setDateReminders: normalizeSetDateReminders(row.setDateReminders),

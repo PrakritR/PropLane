@@ -246,7 +246,28 @@ route — and they must never be crossed:
 | Vendor (signed in) | `resolveVendorAgentContext` | `vendorAgentRegistry` | `/api/agent/vendor-chat` |
 | Vendor SMS (one job) | `buildVendorAgentContext` | `vendorWorkOrderAgentRegistry` | inbound webhook |
 | Prospect SMS | `buildLeasingSmsAgentContext` | `leasingSmsAgentRegistry` | inbound webhook |
+| Manager SMS (verified cell → work number) | `resolveManagerSmsAgentContext` | `buildManagerSmsRegistry(access?)` | inbound webhook |
 
+- **The manager SMS registry is the portal catalog MINUS every `destructive`
+  tool.** Over SMS the only credential is the Twilio `From` header, which is
+  attacker-influencable, and the confirmation is a bare `YES` with no card to
+  re-read. The exclusion is derived from the flag, never a name list, so a newly
+  destructive tool is withheld automatically — do not widen it by hand. Details
+  and the upgrade path: [`docs/agents/sms-system.md`](docs/agents/sms-system.md).
+  Identity is `resolveManagerSmsInboundIdentity`: `To` pins the work-number
+  owner; `From` is that owner's verified cell or a verified invitee of that
+  owner. Combined (own number + assigned co-managed houses) vs delegated
+  (owner's number, assigned houses only). Pure co-managers do not get a work
+  number. Landlord-wide tools that cannot be property-filtered are withheld on
+  delegated turns. Portal Communication uses inbox `read`/`edit`/`delete` via
+  `viewerAndLinkedOwnerIdsForModule`.
+- **The prospect leasing SMS agent inline-allows exactly two writes**
+  (`LEASING_SMS_INLINE_WRITE_TOOLS`: `escalate_to_manager`, `request_tour`). A
+  texting prospect is anonymous, so there is no `user_id` a pending action could
+  be claimed on — a confirmation card there is impossible, not merely absent.
+  Both entries only NOTIFY the manager and change nothing he has not then seen.
+  Nothing that books, charges, sends on the manager's behalf, or reads personal
+  data may join them.
 - `resolveAgentContext` REJECTS non-managers by design. A portal that mounts
   `AxisAssistant` without passing its own `endpoint` therefore answers 401 to
   every question — that is exactly how the resident and vendor assistants were
@@ -932,7 +953,7 @@ below always apply; the files carry the full rationale, schemas, and gotchas.
 | Plan entitlements & the property cap | `docs/agents/plan-entitlements.md` | `resolveEffectiveManagerSkuTier` is the ONLY plan a quota may read — a raw `manager_purchases.tier` of `null` means "no committed SKU", not "Free". The cap gates the TRANSITION INTO a listing slot, never the state of being over it: block creation, never delete or hide a manager's records. A plan that cannot be read is a 500 / `planUnknown`, never the Free cap. |
 | Property ownership & the records route | `docs/agents/property-ownership.md` | `POST /api/property-records` never MOVES an owned row from the request body — ownership changes only via `transferPropertyOwnership`. A DELETE of a missing row is 404, refused before owner resolution, never a create. Only Properties reads ownership, so drift is nearly invisible — diff the two sources before touching either. |
 | Property drafts (add-property wizard) | `docs/agents/property-drafts.md` | A draft is `status: "draft"` on the existing record — never a parallel store and never `"unlisted"`. The draft's record id IS the eventual live listing id, so publishing re-upserts in place; a re-key writes BEFORE it deletes. The wizard is the only editor of a draft, and closing it saves. |
-| Tours, availability & slot math | `docs/agents/tours-scheduling.md` | A `slotKey` is WALL TIME pinned to Pacific — never construct a Date from it (UTC on Vercel silently double-books). Offered = published (or the 9-5 default) − calendar-busy − already-booked, and only for a `live` property. Approval-first tours PROPOSE through the existing confirm gate; they never auto-book or email. |
+| Tours, availability & slot math | `docs/agents/tours-scheduling.md` | A `slotKey` is WALL TIME pinned to Pacific — never construct a Date from it (UTC on Vercel silently double-books). `listOpenTourSlots` (`tour-availability.server.ts`) is the ONE answer to "what is open" (published or the 9-5 default − calendar-busy − already-booked, `live` only) and `createTourInquiry` (`tour-inquiry-create.server.ts`) the ONE way to file a request; the public routes and every tour tool call them, so nothing can offer a slot the public grid would not. Only a `kind: "tour"` planned event subtracts from availability. Approval-first tours PROPOSE through the existing confirm gate; they never auto-book or email. |
 | Group applications & lease bundles | `docs/agents/group-applications.md` | A group application is SEVERAL independent applications tied by a shared `AXISGRP-…` id — never one merged record. Each member keeps their own account, screening, and login; a group never blocks, and approvals stay per-member. |
 | Per-room rent basis (monthly vs daily) | `docs/agents/rent-basis.md` | `rentBasis` alone decides which rate is active, and daily NEVER wins unless the manager explicitly set it. Read prices through `src/lib/room-pricing.ts`, never `monthlyRent` directly. Do not conflate `rentBasis` with `prorateMethod` or `shortTermDailyCost`. |
 | Send listing modal (share to a prospect) | `docs/agents/send-listing-modal.md` | One listing → the listing page, several → a filtered browse link; the room selector shows only for exactly one property. The server re-authorizes EVERY requested id and rejects the whole send if any fails — never silently drops one. |

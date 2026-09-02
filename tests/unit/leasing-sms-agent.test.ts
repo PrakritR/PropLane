@@ -5,8 +5,8 @@ vi.mock("@/lib/public-listings.server", () => ({
 }));
 
 import { getPublicListings } from "@/lib/public-listings.server";
-import { LEASING_SMS_SYSTEM_PROMPT } from "@/lib/agent/leasing-sms-system-prompt";
-import { leasingSmsAgentRegistry } from "@/lib/tools";
+import { LEASING_SMS_AGENT_SYSTEM_PROMPT } from "@/lib/agent/system-prompts";
+import { leasingSmsAgentRegistry, LEASING_SMS_INLINE_WRITE_TOOLS } from "@/lib/tools";
 import type { AgentContext } from "@/lib/tools/context";
 import {
   __resetLeasingCatalogCache,
@@ -92,32 +92,45 @@ describe("leasing SMS agent registry", () => {
         "get_listing_details",
         "get_site_links",
         "list_live_listings",
+        "list_open_tour_slots",
+        "request_tour",
       ].sort(),
     );
   });
 
-  it("marks escalate as the only write tool", () => {
+  /**
+   * A texting prospect is anonymous, so there is no `user_id` for a pending
+   * action to be claimed on: a confirmation card here is not merely absent, it
+   * is impossible. Every write on this surface therefore has to be one that
+   * only NOTIFIES the manager — an escalation, or a tour REQUEST the manager
+   * still confirms. Nothing that books, charges, sends on the manager's behalf,
+   * or reads personal data may join them.
+   */
+  it("allows only request-shaped writes, and allow-lists exactly those", () => {
     const writes = [...leasingSmsAgentRegistry.values()].filter((t) => t.kind === "write");
-    expect(writes.map((t) => t.name)).toEqual([LEASING_ESCALATE_TOOL_NAME]);
+    expect(writes.map((t) => t.name).sort()).toEqual([LEASING_ESCALATE_TOOL_NAME, "request_tour"].sort());
+    // Every write in the registry is inline allow-listed, and nothing else is:
+    // a write that is neither would be invisible AND unconfirmable.
+    expect([...LEASING_SMS_INLINE_WRITE_TOOLS].sort()).toEqual(writes.map((t) => t.name).sort());
   });
 });
 
 describe("leasing SMS system prompt", () => {
   it("requires tool-grounded facts, SMS style, and untrusted-input posture", () => {
-    expect(LEASING_SMS_SYSTEM_PROMPT).toMatch(/ONLY from tool results/i);
-    expect(LEASING_SMS_SYSTEM_PROMPT).toMatch(/SMS-short/i);
-    expect(LEASING_SMS_SYSTEM_PROMPT).toMatch(/untrusted input/i);
+    expect(LEASING_SMS_AGENT_SYSTEM_PROMPT).toMatch(/ONLY from tool results/i);
+    expect(LEASING_SMS_AGENT_SYSTEM_PROMPT).toMatch(/SMS-short/i);
+    expect(LEASING_SMS_AGENT_SYSTEM_PROMPT).toMatch(/untrusted input/i);
   });
 
   it("teaches cross-catalog lookup and per-message property re-resolution", () => {
-    expect(LEASING_SMS_SYSTEM_PROMPT).toMatch(/ANY live PropLane listing/i);
-    expect(LEASING_SMS_SYSTEM_PROMPT).toMatch(/re-resolve/i);
-    expect(LEASING_SMS_SYSTEM_PROMPT).toMatch(/discussed earlier/i);
+    expect(LEASING_SMS_AGENT_SYSTEM_PROMPT).toMatch(/ANY live PropLane listing/i);
+    expect(LEASING_SMS_AGENT_SYSTEM_PROMPT).toMatch(/re-resolve/i);
+    expect(LEASING_SMS_AGENT_SYSTEM_PROMPT).toMatch(/discussed earlier/i);
   });
 
   it("carries product knowledge and never says Axis", () => {
-    expect(LEASING_SMS_SYSTEM_PROMPT).toMatch(/get_site_links/);
-    expect(LEASING_SMS_SYSTEM_PROMPT).not.toMatch(/\bAxis\b/);
+    expect(LEASING_SMS_AGENT_SYSTEM_PROMPT).toMatch(/get_site_links/);
+    expect(LEASING_SMS_AGENT_SYSTEM_PROMPT).not.toMatch(/\bAxis\b/);
   });
 });
 

@@ -3,7 +3,7 @@ import { resolveResidentAgentContext } from "@/lib/tools/resident-context";
 import { buildResidentRegistry } from "@/lib/tools/resident-index";
 import { runAgentTurn } from "@/lib/agent/loop";
 import type { ActionPreview } from "@/lib/tools/registry";
-import { RESIDENT_SYSTEM_PROMPT } from "@/lib/agent/resident-system-prompt";
+import { RESIDENT_SYSTEM_PROMPT } from "@/lib/agent/system-prompts";
 import { sanitizeChatMessages, lastUserText, applyChatAttachments } from "@/lib/agent/chat-handler";
 import { createPendingAction } from "@/lib/tools/pending-actions";
 import { handlePendingActionDecision } from "@/lib/agent/pending-action-decision";
@@ -99,7 +99,8 @@ export async function POST(req: Request) {
 
   try {
     const registry = buildResidentRegistry(ctx);
-    const promptMeta = resolvePromptMeta(PROMPT_IDS.residentAssistant, RESIDENT_SYSTEM_PROMPT);
+    const system = withAgentCustomInstructions(RESIDENT_SYSTEM_PROMPT, customInstructions);
+    const promptMeta = resolvePromptMeta(PROMPT_IDS.residentAssistant, system);
     const traceActor = {
       userId: ctx.userId,
       sessionId: sessionId ?? undefined,
@@ -121,7 +122,7 @@ export async function POST(req: Request) {
         runAgentTurn({
           ctx,
           registry,
-          system: withAgentCustomInstructions(RESIDENT_SYSTEM_PROMPT, customInstructions),
+          system,
           messages,
           observer,
           model: routing,

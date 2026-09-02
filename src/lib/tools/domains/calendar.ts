@@ -543,7 +543,7 @@ async function resolveCreateEventInput(
 export const createCalendarEventTool = defineWriteTool({
   name: "create_calendar_event",
   description:
-    "Create a calendar event (tour, inspection, meeting, …) on the current landlord's calendar with a title, start/end time, and optional property (id from list_properties), attendee, and notes. No email is sent — this only places the event on the calendar.",
+    "Create a calendar event (inspection, meeting, blocked time, …) on the current landlord's calendar with a title, start/end time, and optional property (id from list_properties), attendee, and notes. No email is sent — this only places the event on the calendar. To book a TOUR with a guest, use book_tour instead; it notifies nobody here.",
   inputSchema: z
     .object({
       title: z.string().min(1).max(200).describe("Event title shown on the calendar, e.g. 'Roof inspection · 12 Main'."),
@@ -553,6 +553,12 @@ export const createCalendarEventTool = defineWriteTool({
       attendeeName: z.string().max(120).optional().describe("Optional attendee/guest name shown on the event."),
       attendeeEmail: z.string().max(200).optional().describe("Optional attendee email stored on the event (not emailed)."),
       notes: z.string().max(2000).optional().describe("Optional free-form notes stored on the event."),
+      blocksTours: z
+        .boolean()
+        .optional()
+        .describe(
+          "Set true when this event should make the time unbookable for tours (default false). Use it whenever the landlord is blocking time they cannot show a property in.",
+        ),
     })
     .strict(),
   preview: async (ctx, input) => {
@@ -565,6 +571,10 @@ export const createCalendarEventTool = defineWriteTool({
     if (resolved.property) lines.push({ label: "Property", value: resolved.property.title });
     if (input.attendeeName?.trim()) lines.push({ label: "Attendee", value: input.attendeeName.trim() });
     if (input.attendeeEmail?.trim()) lines.push({ label: "Attendee email", value: input.attendeeEmail.trim().toLowerCase() });
+    lines.push({
+      label: "Tour availability",
+      value: input.blocksTours === true ? "Blocked for this time" : "Still bookable by prospects",
+    });
     return {
       kind: "create_calendar_event",
       title: "Create calendar event",
@@ -608,6 +618,13 @@ export const createCalendarEventTool = defineWriteTool({
       attendeeName: input.attendeeName?.trim() || undefined,
       attendeeEmail: input.attendeeEmail?.trim().toLowerCase() || undefined,
       notes: input.notes?.trim() || undefined,
+      // `kind: "tour"` is what makes an event subtract from tour availability —
+      // both `loadManagerTourBlocks` and `listOpenTourSlots` ignore every other
+      // kind. Without this flag a manager could block their morning here and
+      // still be booked over it from the public page, which is exactly the
+      // double-book this whole subsystem exists to prevent. Default stays off:
+      // an ordinary meeting should not silently close a booking window.
+      ...(input.blocksTours === true ? { kind: "tour" as const } : {}),
     };
     const { error: writeError } = await writePlannedEventsPayload(ctx, rowData, [...items, event], {
       startsAt: input.startsAtIso,

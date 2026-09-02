@@ -24,6 +24,7 @@ import {
   cancelScheduledMessageTool,
 } from "./domains/resident/messaging";
 import { reportManualPaymentTool, startRentPaymentTool } from "./domains/resident/payments";
+import { residentListOpenTourSlotsTool, residentRequestTourTool } from "./domains/tours";
 import {
   listMyServiceRequestsTool,
   listMyWorkOrdersTool,
@@ -61,6 +62,10 @@ const ALL_RESIDENT_TOOLS: ResidentTool[] = [
   // Payments
   reportManualPaymentTool,
   startRentPaymentTool,
+  // Tours. Available in the application phase too — touring is exactly what a
+  // resident does before they are approved.
+  residentListOpenTourSlotsTool,
+  residentRequestTourTool,
 ];
 
 /**
@@ -85,6 +90,8 @@ const TOOL_SECTION: Record<string, string> = {
 /** Tools available while the resident is still in the application phase. */
 const APPLICATION_PHASE_TOOLS = new Set([
   "get_my_application_status",
+  "list_open_tour_slots",
+  "request_tour",
   "list_my_inbox_threads",
   "get_my_scheduled_messages",
   "send_message_to_manager",

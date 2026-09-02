@@ -5,11 +5,13 @@ import { handleClawLeasingInbound } from "@/lib/claw-leasing-bot.server";
 import { rateLimit } from "@/lib/rate-limit";
 import { normalizeConsentPhone, readSmsSuppressionState } from "@/lib/sms-consent";
 import { isClawSharedLineBridgeEnabled } from "@/lib/claw-leasing-links";
+import { forwardResidentInboundToManagerCell } from "@/lib/sms/manager-relay.server";
+import { resolveManagerSmsInboundIdentity } from "@/lib/sms/manager-sms-access.server";
+import { resolveManagerSmsAgentContext } from "@/lib/tools/manager-sms-context";
 import {
-  detectManagerSelfReply,
-  forwardResidentInboundToManagerCell,
-  handleManagerReplyInbound,
-} from "@/lib/sms/manager-relay.server";
+  deliverManagerSmsReply,
+  runManagerSmsAgentTurn,
+} from "@/lib/agent/manager-sms-agent.server";
 import { twilioMediaUrls } from "@/lib/sms-media.server";
 import { inboundLogIdentityFields } from "@/lib/manager-sms-messages.server";
 import { relayInboundSms } from "@/lib/sms-relay.server";
@@ -332,6 +334,17 @@ export async function POST(req: Request) {
         durablyAccepted: true,
       });
     }
+    if (replay.receipt.routeKind === "manager_agent") {
+      const delivered = await deliverManagerSmsReply({
+        managerUserId: managerId,
+        toPhone: fromPhone,
+        text: replay.receipt.replyBody,
+        workNumber: normalizeE164(toPhone) ?? toPhone,
+        inboundMessageSid: messageSid,
+        traceId: replay.receipt.turnTraceId,
+      });
+      return finishPreparedDelivery(replay.receipt, delivered);
+    }
     if (replay.receipt.routeKind === "resident_agent" && replay.receipt.counterpartyUserId) {
       const delivered = await deliverResidentSmsReply({
         ownerManagerUserId: managerId,
@@ -361,26 +374,83 @@ export async function POST(req: Request) {
   }
 
   const workNumber = normalizeE164(toPhone) ?? toPhone;
-  // Leg 2 — manager reply. If the sender is this manager's OWN verified cell
-  // texting their own work number, route the text to their active resident
-  // conversation instead of treating the manager as a resident/prospect (which
-  // would run the leasing/resident agent AT the manager). On success the
-  // resident gets the reply; on failure stay silent — never SMS the manager.
-  // Work-number traffic is for tenants and prospects; managers use the portal
-  // (or a successful silent Leg 2 relay) and must not receive bot/system texts.
-  const selfReply = await detectManagerSelfReply(db, { managerUserId: managerId, fromPhone, toPhone });
-  if (selfReply) {
-    const relayed = await handleManagerReplyInbound(db, {
-      managerUserId: managerId,
-      workNumber: selfReply.workNumber,
-      body,
-      messageSid,
+  // Manager fork. When the sender is the work-number owner's verified cell, or
+  // a verified co-manager of that owner, hand them the manager assistant rather
+  // than treating them as a resident/prospect.
+  //
+  // `resolveManagerSmsInboundIdentity` is the identity gate (work number pins
+  // the owner, then a verified `profiles.phone` must match `From` as that owner
+  // or an assigned co-manager); the context resolver only fills in roles. On any
+  // failure stay silent rather than texting an error to a phone we could not
+  // attribute.
+  const managerInbound = await resolveManagerSmsInboundIdentity(db, {
+    workNumberOwnerId: managerId,
+    fromPhone,
+    toPhone,
+  });
+  if (managerInbound) {
+    const managerIdentity = await resolveManagerSmsAgentContext(db, {
+      managerUserId: managerInbound.workNumberOwnerId,
+      actorUserId: managerInbound.actorUserId,
+      access: managerInbound.access,
     });
-    if (!relayed.ok) {
-      console.info("twilio inbound manager self-reply not delivered", {
+    const turn = managerIdentity.ok
+      ? await runManagerSmsAgentTurn(db, {
+          ctx: managerIdentity.ctx,
+          managerPhoneE164: normalizeE164(fromPhone) ?? fromPhone,
+          inboundText: body,
+          inboundMessageSid: messageSid,
+        })
+      : null;
+    if (!managerIdentity.ok) {
+      console.info("twilio inbound manager agent identity unresolved", {
         managerUserId: managerId,
-        error: relayed.error,
+        actorUserId: managerInbound.actorUserId,
+        reason: managerIdentity.reason,
       });
+    }
+    if (turn) {
+      const prepared = await prepareInboundReply(db, {
+        messageSid,
+        workerId: inboundWorkerId,
+        routeKind: "manager_agent",
+        counterpartyUserId: managerInbound.actorUserId,
+        agentSessionId: turn.sessionId,
+        inboundAgentMessageId: turn.inboundMessageId,
+        assistantAgentMessageId: turn.assistantMessageId,
+        pendingActionId: turn.pendingActionId,
+        turnTraceId: turn.traceId,
+        replyBody: turn.reply,
+      });
+      if (!prepared) {
+        await finishInboundClaim(db, messageSid, inboundWorkerId, "retryable");
+        return NextResponse.json({ error: "Reply preparation failed." }, { status: 503 });
+      }
+      const delivered = await deliverManagerSmsReply({
+        managerUserId: managerInbound.workNumberOwnerId,
+        actorUserId: managerInbound.actorUserId,
+        toPhone: fromPhone,
+        text: turn.reply,
+        workNumber,
+        inboundMessageSid: messageSid,
+        traceId: turn.traceId,
+      });
+      const finished = await finishPreparedDelivery(
+        {
+          status: "processing",
+          routeKind: "manager_agent",
+          counterpartyUserId: managerInbound.actorUserId,
+          agentSessionId: turn.sessionId,
+          inboundAgentMessageId: turn.inboundMessageId ?? null,
+          assistantAgentMessageId: turn.assistantMessageId ?? null,
+          pendingActionId: turn.pendingActionId ?? null,
+          turnTraceId: turn.traceId ?? null,
+          replyBody: turn.reply,
+          outboxId: null,
+        },
+        delivered,
+      );
+      if (finished.status !== 200) return finished;
     }
     await db
       .from("inbound_sms_log")
@@ -388,12 +458,13 @@ export async function POST(req: Request) {
         manager_user_id: managerId,
         from_phone: fromPhone,
         to_phone: toPhone,
-        matched_sender_user_id: managerId,
+        matched_sender_user_id: managerInbound.actorUserId,
         body,
         message_sid: messageSid,
         ...inboundLogIdentityFields({ managerUserId: managerId, counterpartyRole: "manager", fromPhone }),
       })
       .then(() => undefined, () => undefined);
+    if (turn) return twimlOk();
     if (!(await finishInboundClaim(db, messageSid, inboundWorkerId, "completed"))) {
       return NextResponse.json({ error: "Inbound completion unavailable." }, { status: 503 });
     }

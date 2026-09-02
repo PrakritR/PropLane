@@ -151,6 +151,7 @@ export async function runResidentInboxAgentTurn(
     residentEmail,
     incomingText,
     history: priorHistory,
+    sessionId: target.threadId,
   });
   if (!result.ok) return { replied: false, reason: result.reason };
 
@@ -168,6 +169,7 @@ export async function runResidentInboxAgentTurn(
       input: result.pendingAction.input,
       preview: result.pendingAction.preview,
       portal: "resident",
+      proposalTraceId: result.traceId,
     });
     const label = result.pendingAction.preview?.title ?? result.pendingAction.toolName;
     body = actionId

@@ -10,7 +10,9 @@ const mocks = vi.hoisted(() => ({
   receipt: { status: "processing" } as Record<string, unknown>,
   rateLimit: vi.fn(() => ({ ok: true })),
   detectSelfReply: vi.fn(async () => null),
-  handleManagerReply: vi.fn(),
+  resolveManagerCtx: vi.fn(),
+  runManagerTurn: vi.fn(),
+  deliverManagerReply: vi.fn(),
 }));
 
 vi.mock("twilio", () => ({ default: { validateRequest: vi.fn(() => true) } }));
@@ -29,7 +31,16 @@ vi.mock("@/lib/sms-relay.server", () => ({ relayInboundSms: mocks.relayInbound }
 vi.mock("@/lib/sms/manager-relay.server", () => ({
   detectManagerSelfReply: mocks.detectSelfReply,
   forwardResidentInboundToManagerCell: vi.fn(async () => ({ ok: true })),
-  handleManagerReplyInbound: mocks.handleManagerReply,
+}));
+vi.mock("@/lib/sms/manager-sms-access.server", () => ({
+  resolveManagerSmsInboundIdentity: mocks.detectSelfReply,
+}));
+vi.mock("@/lib/tools/manager-sms-context", () => ({
+  resolveManagerSmsAgentContext: mocks.resolveManagerCtx,
+}));
+vi.mock("@/lib/agent/manager-sms-agent.server", () => ({
+  runManagerSmsAgentTurn: mocks.runManagerTurn,
+  deliverManagerSmsReply: mocks.deliverManagerReply,
 }));
 vi.mock("@/lib/claw-leasing-links", () => ({ isClawSharedLineBridgeEnabled: () => true }));
 vi.mock("@/lib/supabase/service", () => ({
@@ -113,7 +124,9 @@ beforeEach(() => {
   mocks.receipt = { status: "processing" };
   mocks.rateLimit.mockReturnValue({ ok: true });
   mocks.detectSelfReply.mockResolvedValue(null);
-  mocks.handleManagerReply.mockReset();
+  mocks.resolveManagerCtx.mockReset();
+  mocks.runManagerTurn.mockReset();
+  mocks.deliverManagerReply.mockReset();
   vi.stubEnv("TWILIO_MESSAGING_SERVICE_SID", "MG11111111111111111111111111111111");
   vi.stubEnv("SMS_RUNTIME_ENABLED", "1");
   mocks.rpc.mockImplementation(async (name: string) => {
@@ -246,25 +259,69 @@ describe("managed Twilio inbound retry", () => {
     expect(mocks.handleInbound).not.toHaveBeenCalled();
   });
 
-  it("never SMS-replies to the manager when a self-reply has no active resident thread", async () => {
+  it("hands a manager's own verified cell to the manager agent and texts the reply back", async () => {
     mocks.detectSelfReply.mockResolvedValue({
-      managerUserId: "11111111-1111-4111-8111-111111111111",
+      workNumberOwnerId: "11111111-1111-4111-8111-111111111111",
+      actorUserId: "11111111-1111-4111-8111-111111111111",
       workNumber: "+12065559999",
-      managerPhone: "+12065552222",
+      actorPhone: "+12065552222",
+      access: {
+        mode: "owner",
+        workNumberOwnerId: "11111111-1111-4111-8111-111111111111",
+        actorUserId: "11111111-1111-4111-8111-111111111111",
+        dataOwnerIds: ["11111111-1111-4111-8111-111111111111"],
+        assignedPropertyIds: [],
+      },
     });
-    mocks.handleManagerReply.mockResolvedValue({
-      ok: false,
-      error: "no_active_conversation",
+    mocks.resolveManagerCtx.mockResolvedValue({
+      ok: true,
+      ctx: { landlordId: "11111111-1111-4111-8111-111111111111", userId: "11111111-1111-4111-8111-111111111111" },
     });
+    mocks.runManagerTurn.mockResolvedValue({
+      reply: "3 charges are overdue, $4,150 total.",
+      sessionId: "22222222-2222-4222-8222-222222222222",
+    });
+    mocks.deliverManagerReply.mockResolvedValue({ ok: true, durablyAccepted: true });
+
+    const response = await POST(inboundRequest());
+
+    expect(response.status).toBe(200);
+    // The leasing/prospect path must never see a manager's own text.
+    expect(mocks.handleInbound).not.toHaveBeenCalled();
+    expect(mocks.runManagerTurn).toHaveBeenCalledTimes(1);
+    expect(mocks.deliverManagerReply).toHaveBeenCalledWith(
+      expect.objectContaining({
+        managerUserId: "11111111-1111-4111-8111-111111111111",
+        text: "3 charges are overdue, $4,150 total.",
+      }),
+    );
+  });
+
+  it("stays silent when the manager identity cannot be resolved, and never falls through to leasing", async () => {
+    mocks.detectSelfReply.mockResolvedValue({
+      workNumberOwnerId: "11111111-1111-4111-8111-111111111111",
+      actorUserId: "11111111-1111-4111-8111-111111111111",
+      workNumber: "+12065559999",
+      actorPhone: "+12065552222",
+      access: {
+        mode: "owner",
+        workNumberOwnerId: "11111111-1111-4111-8111-111111111111",
+        actorUserId: "11111111-1111-4111-8111-111111111111",
+        dataOwnerIds: ["11111111-1111-4111-8111-111111111111"],
+        assignedPropertyIds: [],
+      },
+    });
+    mocks.resolveManagerCtx.mockResolvedValue({ ok: false, reason: "not_a_manager" });
 
     const response = await POST(inboundRequest());
     const twiml = await response.text();
 
     expect(response.status).toBe(200);
     expect(twiml).toContain("<Response></Response>");
-    expect(twiml).not.toContain("No active resident conversation");
-    expect(twiml).not.toContain("Open PropLane");
+    expect(mocks.runManagerTurn).not.toHaveBeenCalled();
+    expect(mocks.deliverManagerReply).not.toHaveBeenCalled();
+    // Critically: it does NOT retry the text as a prospect/resident, which
+    // would run the leasing agent AT the manager.
     expect(mocks.handleInbound).not.toHaveBeenCalled();
-    expect(mocks.handleManagerReply).toHaveBeenCalledTimes(1);
   });
 });
