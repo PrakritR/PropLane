@@ -22,6 +22,8 @@ export type CompactRoomLeaseInput = {
   paySigning: string;
   paySigningNum: number;
   firstPartialMonthPayment: number;
+  proratedRentAmount?: number;
+  proratedUtilitiesAmount?: number;
   billableOneTimeCustomFees: ReadonlyArray<{ label?: string; amount?: string }>;
   billableMonthlyCustomFees: ReadonlyArray<{ label?: string; amount?: string }>;
   /** Preset one-time fees (application, holding deposit, etc.) not due at signing. */
@@ -124,7 +126,11 @@ function moveInPaymentSummaryHtml(input: CompactRoomLeaseInput): string {
     moveInFee,
     paySigningNum,
     firstPartialMonthPayment,
+    proratedRentAmount = 0,
+    proratedUtilitiesAmount = 0,
     billableOneTimeCustomFees,
+    billableMonthlyCustomFees,
+    supplementalOneTimeLeaseFees,
     paySigning,
     paymentAtSigningIncludes,
   } = input;
@@ -133,33 +139,96 @@ function moveInPaymentSummaryHtml(input: CompactRoomLeaseInput): string {
   }
   const includes = new Set(paymentAtSigningIncludes ?? []);
   const useIncludesFilter = includes.size > 0;
-  const lines: string[] = [];
-  if (firstPartialMonthPayment > 0 && (!useIncludesFilter || includes.has("first_month_rent") || includes.has("first_month_utilities"))) {
-    lines.push(`<strong>${fmtUsd(firstPartialMonthPayment)}</strong> for the first partial month (prorated rent and utilities)`);
+  const scheduleLines: string[] = [];
+  const signingLines: string[] = [];
+
+  const pushSchedule = (line: string) => {
+    scheduleLines.push(line);
+  };
+  const pushSigning = (line: string) => {
+    signingLines.push(line);
+  };
+
+  if (proratedRentAmount > 0) {
+    pushSchedule(`Prorated first month&apos;s rent: <strong>${fmtUsd(proratedRentAmount)}</strong>`);
+    if (!useIncludesFilter || includes.has("first_month_rent")) {
+      pushSigning(`<strong>${fmtUsd(proratedRentAmount)}</strong> prorated first month&apos;s rent`);
+    }
   }
+  if (proratedUtilitiesAmount > 0) {
+    pushSchedule(`Prorated utilities: <strong>${fmtUsd(proratedUtilitiesAmount)}</strong>`);
+    if (!useIncludesFilter || includes.has("first_month_utilities")) {
+      pushSigning(`<strong>${fmtUsd(proratedUtilitiesAmount)}</strong> prorated utilities`);
+    }
+  }
+  if (
+    firstPartialMonthPayment > 0 &&
+    proratedRentAmount <= 0 &&
+    proratedUtilitiesAmount <= 0
+  ) {
+    pushSchedule(`Prorated first month (rent and utilities): <strong>${fmtUsd(firstPartialMonthPayment)}</strong>`);
+    if (
+      !useIncludesFilter ||
+      includes.has("first_month_rent") ||
+      includes.has("first_month_utilities")
+    ) {
+      pushSigning(`<strong>${fmtUsd(firstPartialMonthPayment)}</strong> for the first partial month (prorated rent and utilities)`);
+    }
+  }
+
   const secDepNum = parseAmount(secDep);
-  if (secDepNum != null && secDepNum > 0 && (!useIncludesFilter || includes.has("security_deposit"))) {
-    lines.push(`<strong>${secDep}</strong> security deposit`);
+  if (secDepNum != null && secDepNum > 0) {
+    pushSchedule(`Security deposit: <strong>${secDep}</strong>`);
+    if (!useIncludesFilter || includes.has("security_deposit")) {
+      pushSigning(`<strong>${secDep}</strong> security deposit`);
+    }
   }
   const moveInNum = parseAmount(moveInFee);
-  if (moveInNum != null && moveInNum > 0 && (!useIncludesFilter || includes.has("move_in_fee"))) {
-    lines.push(`<strong>${moveInFee}</strong> move-in fee (non-refundable)`);
+  if (moveInNum != null && moveInNum > 0) {
+    pushSchedule(`Move-in fee (non-refundable): <strong>${moveInFee}</strong>`);
+    if (!useIncludesFilter || includes.has("move_in_fee")) {
+      pushSigning(`<strong>${moveInFee}</strong> move-in fee (non-refundable)`);
+    }
   }
   for (const fee of billableOneTimeCustomFees) {
     const amount = parseAmount(fee.amount);
     if (amount != null && amount > 0) {
-      lines.push(`<strong>${fmtUsd(amount)}</strong> ${escapeHtml(fee.label?.trim() || "custom fee")}`);
+      const label = escapeHtml(fee.label?.trim() || "custom fee");
+      pushSchedule(`${label}: <strong>${fmtUsd(amount)}</strong>`);
+      pushSigning(`<strong>${fmtUsd(amount)}</strong> ${label}`);
     }
   }
-  if (!lines.length && paySigningNum <= 0) {
+  for (const fee of supplementalOneTimeLeaseFees ?? []) {
+    const amount = parseAmount(fee.amount);
+    if (amount != null && amount > 0) {
+      const label = escapeHtml(fee.label?.trim() || "Fee");
+      pushSchedule(`${label}: <strong>${fmtUsd(amount)}</strong> (one-time)`);
+    }
+  }
+  for (const fee of billableMonthlyCustomFees) {
+    const amount = parseAmount(fee.amount);
+    if (amount != null && amount > 0) {
+      const label = escapeHtml(fee.label?.trim() || "Custom fee");
+      pushSchedule(`${label}: <strong>${fmtUsd(amount)}/mo</strong> (recurring monthly)`);
+    }
+  }
+
+  if (!scheduleLines.length && paySigningNum <= 0) {
     return "<p>No move-in charges are due beyond recurring monthly rent and utilities.</p>";
   }
-  const detail = lines.length ? `<ul>${lines.map((line) => `<li>${line}</li>`).join("")}</ul>` : "";
+  const schedule =
+    scheduleLines.length > 0
+      ? `<p style="margin:0 0 0.35rem;font-weight:700">Payment schedule</p><ul>${scheduleLines.map((line) => `<li>${line}</li>`).join("")}</ul>`
+      : "";
+  const signingDetail =
+    signingLines.length > 0
+      ? `<p style="margin:0.75rem 0 0.35rem;font-weight:700">Due at signing</p><ul>${signingLines.map((line) => `<li>${line}</li>`).join("")}</ul>`
+      : "";
   const total =
     paySigningNum > 0
-      ? `<p>Total payment due at signing: <strong>${paySigning}</strong></p>`
+      ? `<p style="margin:0.75rem 0 0">Total payment due at signing: <strong>${paySigning}</strong></p>`
       : "";
-  return `${detail}${total}`;
+  return `${schedule}${signingDetail}${total}`;
 }
 
 function defaultHouseRulesBullets(): string {
@@ -257,14 +326,14 @@ export function buildCompactRoomLeaseBody(input: CompactRoomLeaseInput): string 
     .filter(Boolean)
     .join("\n");
   const signingIncludes = new Set(input.paymentAtSigningIncludes ?? []);
-  const useSigningIncludesFilter = signingIncludes.size > 0;
-  const showProratedFirstMonth =
-    input.firstPartialMonthPayment > 0 &&
-    (!useSigningIncludesFilter ||
-      signingIncludes.has("first_month_rent") ||
-      signingIncludes.has("first_month_utilities"));
+  const showProratedFirstMonth = input.firstPartialMonthPayment > 0;
   const prorationLine = showProratedFirstMonth
-    ? `<p>For the first partial month, Resident shall pay <strong>${fmtUsd(input.firstPartialMonthPayment)}</strong> (prorated rent and utilities).</p>`
+    ? input.proratedRentAmount != null &&
+      input.proratedRentAmount > 0 &&
+      input.proratedUtilitiesAmount != null &&
+      input.proratedUtilitiesAmount > 0
+      ? `<p>For the first partial month, Resident shall pay <strong>${fmtUsd(input.proratedRentAmount)}</strong> prorated rent and <strong>${fmtUsd(input.proratedUtilitiesAmount)}</strong> prorated utilities (total <strong>${fmtUsd(input.firstPartialMonthPayment)}</strong>).</p>`
+      : `<p>For the first partial month, Resident shall pay <strong>${fmtUsd(input.firstPartialMonthPayment)}</strong> (prorated rent and utilities).</p>`
     : "";
 
   const rentNum = input.parseAmount(monthlyRentDisplay);

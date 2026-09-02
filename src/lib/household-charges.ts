@@ -682,21 +682,46 @@ function backfillMonthlyUtilitiesOnRentProfiles(): void {
   mirrorRentProfiles(normalized);
 }
 
-function upfrontApprovedChargeSlotKey(charge: Pick<HouseholdCharge, "kind" | "applicationId" | "recurringRentProfileId">): string | null {
-  if (!charge.applicationId?.trim()) return null;
+const PENDING_UPFRONT_MOVE_IN_KINDS = new Set<HouseholdChargeKind>([
+  "first_month_rent",
+  "prorated_rent",
+  "prorated_last_month_rent",
+  "prorated_utilities",
+  "prorated_last_month_utilities",
+  "security_deposit",
+  "move_in_fee",
+  "other_cost",
+  "stay_total",
+]);
+
+function isPendingUpfrontMoveInCharge(
+  charge: Pick<HouseholdCharge, "kind" | "recurringRentProfileId" | "rentMonth">,
+): boolean {
+  if (charge.recurringRentProfileId) return false;
+  if (charge.kind === "rent") return false;
+  if (charge.kind === "utilities" && charge.rentMonth) return false;
+  return (
+    PENDING_UPFRONT_MOVE_IN_KINDS.has(charge.kind) ||
+    (charge.kind === "utilities" && !charge.rentMonth)
+  );
+}
+
+function upfrontApprovedChargeSlotKey(
+  charge: Pick<HouseholdCharge, "kind" | "applicationId" | "recurringRentProfileId" | "residentEmail" | "propertyId" | "rentMonth">,
+): string | null {
+  if (charge.recurringRentProfileId) return null;
+  const email = charge.residentEmail.trim().toLowerCase();
+  if (!email || !charge.propertyId) return null;
   if (charge.kind === "first_month_rent" || charge.kind === "prorated_rent") {
-    return `upfront_first_rent|${charge.applicationId.trim()}`;
+    return `upfront_first_rent|${email}|${charge.propertyId}`;
   }
-  if (
-    (charge.kind === "utilities" || charge.kind === "prorated_utilities") &&
-    !charge.recurringRentProfileId
-  ) {
-    return `upfront_first_utilities|${charge.applicationId.trim()}`;
+  if ((charge.kind === "utilities" || charge.kind === "prorated_utilities") && !charge.rentMonth) {
+    return `upfront_first_utilities|${email}|${charge.propertyId}`;
   }
-  if (charge.kind === "prorated_last_month_rent") {
+  if (charge.applicationId?.trim() && charge.kind === "prorated_last_month_rent") {
     return `upfront_last_rent|${charge.applicationId.trim()}`;
   }
-  if (charge.kind === "prorated_last_month_utilities") {
+  if (charge.applicationId?.trim() && charge.kind === "prorated_last_month_utilities") {
     return `upfront_last_utilities|${charge.applicationId.trim()}`;
   }
   return null;
@@ -2850,22 +2875,54 @@ type ApprovedChargeDraft = {
   dueDateLabel: string;
 };
 
+function removeStalePendingUpfrontDuplicates(
+  rows: HouseholdCharge[],
+  applicationId: string,
+  keepId: string,
+  kind: HouseholdChargeKind,
+  residentEmail: string,
+  propertyId: string,
+): HouseholdCharge[] {
+  const slot = upfrontApprovedChargeSlotKey({
+    kind,
+    applicationId,
+    recurringRentProfileId: undefined,
+    residentEmail,
+    propertyId,
+  });
+  const aliasIds = new Set(approvedChargeIdAliases(applicationId, kind));
+  return rows.filter((charge) => {
+    if (charge.status !== "pending") return true;
+    if (charge.id === keepId) return true;
+    if (aliasIds.has(charge.id) || (charge.applicationId === applicationId && charge.kind === kind)) {
+      return false;
+    }
+    if (!slot) return true;
+    return upfrontApprovedChargeSlotKey(charge) !== slot;
+  });
+}
+
 function patchPendingApprovedChargeAmount(applicationId: string, draft: ApprovedChargeDraft): boolean {
   if (!(draft.amount > 0)) return false;
   const aliasIds = new Set(approvedChargeIdAliases(applicationId, draft.kind));
   const rows = readAll();
-  const idx = rows.findIndex(
+  const matches = rows.filter(
     (charge) =>
       charge.status === "pending" &&
       charge.kind === draft.kind &&
       (aliasIds.has(charge.id) ||
         (charge.applicationId === applicationId && charge.kind === draft.kind)),
   );
-  if (idx === -1) return false;
+  if (!matches.length) return false;
   const label = moneyAmountLabel(Number(draft.amount.toFixed(2)));
-  const current = rows[idx]!;
+  const current = matches.reduce((best, charge) => {
+    const bestTime = new Date(best.createdAt).getTime();
+    const chargeTime = new Date(charge.createdAt).getTime();
+    return Number.isFinite(chargeTime) && chargeTime >= bestTime ? charge : best;
+  });
   const canonicalId = approvedChargeId(applicationId, draft.kind);
   if (
+    matches.length === 1 &&
     current.id === canonicalId &&
     current.amountLabel === label &&
     current.title === draft.title &&
@@ -2873,8 +2930,10 @@ function patchPendingApprovedChargeAmount(applicationId: string, draft: Approved
   ) {
     return false;
   }
-  const next = [...rows];
-  next[idx] = {
+  const idx = rows.findIndex((charge) => charge.id === current.id);
+  if (idx === -1) return false;
+  const next = removeStalePendingUpfrontDuplicates(
+  [...rows.slice(0, idx), {
     ...current,
     id: canonicalId,
     applicationId,
@@ -2882,7 +2941,13 @@ function patchPendingApprovedChargeAmount(applicationId: string, draft: Approved
     balanceLabel: label,
     title: draft.title,
     dueDateLabel: draft.dueDateLabel,
-  };
+  }, ...rows.slice(idx + 1)],
+    applicationId,
+    canonicalId,
+    draft.kind,
+    current.residentEmail,
+    current.propertyId,
+  );
   writeAll(next);
   return true;
 }
@@ -3244,22 +3309,49 @@ export function recordApprovedApplicationCharges(row: DemoApplicantRow, managerU
       const draftMismatch = drafts.some((draft) => {
         if (!(draft.amount > 0)) return false;
         const aliasIds = new Set(approvedChargeIdAliases(applicationId, draft.kind));
-        const match = pendingForApp.find(
+        const matches = pendingForApp.filter(
           (charge) =>
             charge.kind === draft.kind &&
             (aliasIds.has(charge.id) || charge.applicationId === applicationId),
         );
-        if (!match) return true;
+        if (!matches.length) return true;
+        if (matches.length > 1) return true;
+        const match = matches[0]!;
         const label = moneyAmountLabel(Number(draft.amount.toFixed(2)));
         return match.amountLabel !== label || match.title !== draft.title;
       });
-      if (!staleKind && !draftMismatch) return synced;
+      const duplicateUpfrontSlot = (() => {
+        const slotCounts = new Map<string, number>();
+        for (const charge of pendingForApp) {
+          const slot = upfrontApprovedChargeSlotKey(charge);
+          if (!slot) continue;
+          slotCounts.set(slot, (slotCounts.get(slot) ?? 0) + 1);
+        }
+        return [...slotCounts.values()].some((count) => count > 1);
+      })();
+      const staleOrphanUpfront = readAll().some(
+        (charge) =>
+          charge.status === "pending" &&
+          isPendingUpfrontMoveInCharge(charge) &&
+          charge.residentEmail.trim().toLowerCase() === emailLowerForFilter &&
+          charge.propertyId === propertyId &&
+          charge.applicationId?.trim() !== applicationId,
+      );
+      if (!staleKind && !draftMismatch && !duplicateUpfrontSlot && !staleOrphanUpfront) return synced;
     }
   }
   // Preserve paid charges — only wipe pending ones so they can be regenerated with correct amounts.
   // Also wipe pending recurring rent/utilities for this resident+property so updated amounts are used.
   const rows = readAll().filter((charge) => {
     if (charge.applicationId === applicationId && charge.kind !== "application_fee" && charge.kind !== "holding_deposit" && charge.status === "pending") return false;
+    if (
+      charge.status === "pending" &&
+      isPendingUpfrontMoveInCharge(charge) &&
+      charge.residentEmail.trim().toLowerCase() === emailLowerForFilter &&
+      charge.propertyId === propertyId
+    ) {
+      return false;
+    }
     if (
       (charge.kind === "rent" || charge.kind === "utilities") &&
       charge.status === "pending" &&

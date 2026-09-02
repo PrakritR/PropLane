@@ -374,6 +374,34 @@ describe("mergeHouseholdChargesWithServer", () => {
     expect(duplicateHouseholdChargeIds([fullMonth, prorated])).toEqual(["hc_app_app123_first_month_rent"]);
   });
 
+  it("dedupes orphan prorated rent rows for the same resident and property", () => {
+    const stale = makeCharge({
+      id: "legacy-prorated-rent",
+      kind: "prorated_rent",
+      residentEmail: "res@test.com",
+      propertyId: "prop-1",
+      amountLabel: "$480.00",
+      balanceLabel: "$480.00",
+      title: "Prorated first month's rent (16 days × $30/day)",
+      createdAt: "2026-08-01T00:00:00.000Z",
+    });
+    const current = makeCharge({
+      id: "hc_app_app123_prorated_rent",
+      kind: "prorated_rent",
+      applicationId: "app123",
+      residentEmail: "res@test.com",
+      propertyId: "prop-1",
+      amountLabel: "$270.00",
+      balanceLabel: "$270.00",
+      title: "Prorated first month's rent (9 days × $30/day)",
+      createdAt: "2026-08-02T00:00:00.000Z",
+    });
+
+    const merged = dedupeHouseholdCharges([stale, current]);
+    expect(merged).toHaveLength(1);
+    expect(merged[0]?.amountLabel).toBe("$270.00");
+  });
+
   it("merges duplicate upfront rent rows from server sync", () => {
     const serverFull = makeCharge({
       id: "hc_app_app123_first_month_rent",
