@@ -7,17 +7,19 @@
 import { describe, expect, it } from "vitest";
 import { createMemoryDb } from "./support/memory-supabase";
 import {
-  resolveManagerSmsAccess,
-  resolveManagerSmsInboundIdentity,
-} from "@/lib/sms/manager-sms-access.server";
-import {
   DELEGATED_SMS_UNSCOPED_TOOLS,
+  filterSmsInboxOwnerIds,
   propertyIdFromToolRow,
   smsAccessAllowsProperty,
   smsAccessAllowsRow,
   smsDataOwnerIds,
   type ManagerSmsAccess,
 } from "@/lib/sms/manager-sms-access";
+import {
+  resolveManagerSmsAccess,
+  resolveManagerSmsInboundIdentity,
+  smsInboxOwnerIds,
+} from "@/lib/sms/manager-sms-access.server";
 
 const OWNER = "owner-1";
 const CO = "co-1";
@@ -357,6 +359,27 @@ describe("smsAccessAllowsRow / smsAccessAllowsProperty", () => {
       }),
     ).toEqual([CO, OWNER]);
   });
+
+  it("filterSmsInboxOwnerIds keeps Communication owners that are also data owners", () => {
+    expect(
+      filterSmsInboxOwnerIds(
+        { landlordId: OWNER, userId: CO, managerSmsAccess: delegated },
+        [CO, OWNER],
+      ),
+    ).toEqual([OWNER]);
+    expect(
+      filterSmsInboxOwnerIds(
+        { landlordId: OWNER, userId: CO, managerSmsAccess: delegated },
+        [CO],
+      ),
+    ).toEqual([]);
+    expect(
+      filterSmsInboxOwnerIds(
+        { landlordId: CO, userId: CO, managerSmsAccess: undefined },
+        [OWNER],
+      ),
+    ).toEqual([CO]);
+  });
 });
 
 describe("DELEGATED_SMS_UNSCOPED_TOOLS", () => {
@@ -369,5 +392,57 @@ describe("DELEGATED_SMS_UNSCOPED_TOOLS", () => {
         "list_co_managers",
       ]),
     );
+  });
+});
+
+describe("smsInboxOwnerIds", () => {
+  function ctxFor(db: ReturnType<typeof seed>, access: ManagerSmsAccess) {
+    return {
+      landlordId: access.workNumberOwnerId,
+      userId: access.actorUserId,
+      email: "co@axis.test",
+      roles: ["manager"],
+      isAdmin: false,
+      db,
+      managerSmsAccess: access,
+    } as never;
+  }
+
+  it("includes the work-number owner when Communication is granted (empty perms = full grant)", async () => {
+    expect(await smsInboxOwnerIds(ctxFor(seed(), delegated), "edit")).toEqual([OWNER]);
+  });
+
+  it("drops the owner when the assignment excludes Communication", async () => {
+    const db = seed({
+      account_link_invites: [
+        {
+          id: "link-1",
+          status: "accepted",
+          inviter_user_id: OWNER,
+          invitee_user_id: CO,
+          assigned_property_ids: [ASSIGNED],
+          property_co_manager_permissions: { [ASSIGNED]: { applications: true } },
+        },
+      ],
+    });
+    expect(await smsInboxOwnerIds(ctxFor(db, delegated), "read")).toEqual([]);
+    expect(await smsInboxOwnerIds(ctxFor(db, delegated), "edit")).toEqual([]);
+  });
+
+  it("read-only Communication cannot edit", async () => {
+    const db = seed({
+      account_link_invites: [
+        {
+          id: "link-1",
+          status: "accepted",
+          inviter_user_id: OWNER,
+          invitee_user_id: CO,
+          assigned_property_ids: [ASSIGNED],
+          property_co_manager_permissions: { [ASSIGNED]: { inbox: { read: true } } },
+        },
+      ],
+    });
+    expect(await smsInboxOwnerIds(ctxFor(db, delegated), "read")).toEqual([OWNER]);
+    expect(await smsInboxOwnerIds(ctxFor(db, delegated), "edit")).toEqual([]);
   });
 });

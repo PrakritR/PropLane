@@ -1,3 +1,4 @@
+import { viewerAndLinkedOwnerIdsForModule } from "@/lib/auth/co-manager-module-scope";
 import { shouldSkipOutboundEmail } from "@/lib/portal-sandbox-accounts";
 import { sendPortalConversationEmails } from "@/lib/portal-email-send.server";
 import type { SupabaseClient } from "@supabase/supabase-js";
@@ -94,10 +95,10 @@ export type InboxThreadReplyTarget = {
 };
 
 /**
- * Resolve the thread a reply targets and authorize the sender against it: only
- * the thread's owner or its participant (matched by email) may append, and
- * anything else resolves to `null` (a silent no-op, mirroring the
- * send-inbox-message route's historic behavior).
+ * Resolve the thread a reply targets and authorize the sender against it: the
+ * thread's owner, its participant (matched by email), or a co-manager with
+ * Communication edit on that owner. Anything else resolves to `null` (a silent
+ * no-op, mirroring the send-inbox-message route's historic behavior).
  *
  * READ-ONLY on purpose. Thread ownership is not the only gate a send has to
  * clear — the recipient-scope check in send-inbox-message can still refuse the
@@ -119,13 +120,25 @@ export async function resolveInboxThreadReplyTarget(
     .select("id, row_data, owner_user_id, participant_email, scope, thread_type")
     .eq("id", threadId)
     .maybeSingle();
-  if (
-    !threadRow ||
-    (threadRow.owner_user_id !== opts.senderUserId &&
-      String(threadRow.participant_email ?? "").toLowerCase() !== senderEmail)
-  ) {
-    return null;
+  if (!threadRow) return null;
+  const ownerUserId = (threadRow.owner_user_id as string | null) ?? null;
+  const isOwner = ownerUserId === opts.senderUserId;
+  const isParticipant = String(threadRow.participant_email ?? "").toLowerCase() === senderEmail;
+  let delegatedOwner = false;
+  if (!isOwner && !isParticipant && ownerUserId) {
+    try {
+      const ownerIds = await viewerAndLinkedOwnerIdsForModule(
+        db as Parameters<typeof viewerAndLinkedOwnerIdsForModule>[0],
+        opts.senderUserId,
+        "inbox",
+        "edit",
+      );
+      delegatedOwner = ownerIds.includes(ownerUserId);
+    } catch {
+      delegatedOwner = false;
+    }
   }
+  if (!isOwner && !isParticipant && !delegatedOwner) return null;
   const rowData = (threadRow.row_data ?? {}) as Record<string, unknown>;
   return {
     threadId,
@@ -512,16 +525,28 @@ export async function deliverPortalInboxMessage(
     const recipientUserIds = recipients
       .map((r) => r.userId)
       .filter((id): id is string => Boolean(id));
-    const profileById = new Map<string, { phone: string | null; phone_verified_at: string | null }>();
+    const profileById = new Map<
+      string,
+      {
+        phone: string | null;
+        phone_verified_at: string | null;
+        role: string | null;
+        sms_from_number: string | null;
+        sms_forward_inbound: boolean | null;
+      }
+    >();
     if (recipientUserIds.length) {
       const { data: recProfiles } = await db
         .from("profiles")
-        .select("id, phone, phone_verified_at")
+        .select("id, phone, phone_verified_at, role, sms_from_number, sms_forward_inbound")
         .in("id", recipientUserIds);
       for (const p of recProfiles ?? []) {
         profileById.set(String(p.id), {
           phone: (p.phone as string | null) ?? null,
           phone_verified_at: (p.phone_verified_at as string | null) ?? null,
+          role: (p.role as string | null) ?? null,
+          sms_from_number: (p.sms_from_number as string | null) ?? null,
+          sms_forward_inbound: (p.sms_forward_inbound as boolean | null) ?? null,
         });
       }
     }
@@ -623,6 +648,9 @@ export async function deliverPortalInboxMessage(
         recipients.map((r) => {
           const uid = r.userId ?? resolvedIds.get(r.email);
           if (!uid) return Promise.resolve();
+          if (channelByEmail && channelByEmail.get(r.email)?.inbox !== true) {
+            return Promise.resolve();
+          }
           return sendPushToUser(uid, {
             title: `New message from ${fromName}`,
             body: "You have a new message in your PropLane inbox.",

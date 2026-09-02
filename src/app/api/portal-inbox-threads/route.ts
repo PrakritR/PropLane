@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { viewerAndLinkedOwnerIdsForModule } from "@/lib/auth/co-manager-module-scope";
 import { buildPortalInboxThreadUpsert } from "@/lib/portal-inbox-thread-upsert";
 import {
   ADMIN_INBOX_SCOPE,
@@ -59,7 +60,11 @@ export async function GET(request: Request) {
     if (scopeParam === ADMIN_INBOX_SCOPE && ctx.user.role === "admin") {
       query = query.eq("scope", ADMIN_INBOX_SCOPE) as typeof query;
     } else {
-      query = applyPortalInboxThreadScope(query, ctx.user) as typeof query;
+      const extraOwnerIds =
+        scopeParam === MANAGER_INBOX_SCOPE
+          ? await viewerAndLinkedOwnerIdsForModule(ctx.db, ctx.user.id, "inbox", "read")
+          : [];
+      query = applyPortalInboxThreadScope(query, ctx.user, extraOwnerIds) as typeof query;
       if (scopeParam) {
         query = query.eq("scope", scopeParam) as typeof query;
       }
@@ -115,10 +120,14 @@ export async function POST(req: Request) {
       if (ids.length === 0 || ids.some((id) => !id)) {
         return NextResponse.json({ error: "id required" }, { status: 400 });
       }
+      const extraOwnerIds =
+        scopeKey === MANAGER_INBOX_SCOPE
+          ? await viewerAndLinkedOwnerIdsForModule(ctx.db, ctx.user.id, "inbox", "delete")
+          : [];
       let deleted = 0;
       for (const id of ids) {
         let deleteQuery = ctx.db.from("portal_inbox_thread_records").delete().eq("id", id).select("id");
-        deleteQuery = applyPortalInboxThreadScope(deleteQuery, ctx.user) as typeof deleteQuery;
+        deleteQuery = applyPortalInboxThreadScope(deleteQuery, ctx.user, extraOwnerIds) as typeof deleteQuery;
         const { data, error } = await deleteQuery;
         if (error) return NextResponse.json({ error: error.message }, { status: 500 });
         deleted += Array.isArray(data) ? data.length : 0;
@@ -144,8 +153,12 @@ export async function POST(req: Request) {
 
       const recordExists = Array.isArray(existing) && existing.length > 0;
       if (recordExists) {
+        const extraOwnerIds =
+          scopeKey === MANAGER_INBOX_SCOPE
+            ? await viewerAndLinkedOwnerIdsForModule(ctx.db, ctx.user.id, "inbox", "edit")
+            : [];
         let visibleQuery = ctx.db.from("portal_inbox_thread_records").select("id").eq("id", id).limit(1);
-        visibleQuery = applyPortalInboxThreadScope(visibleQuery, ctx.user) as typeof visibleQuery;
+        visibleQuery = applyPortalInboxThreadScope(visibleQuery, ctx.user, extraOwnerIds) as typeof visibleQuery;
         const { data: visible, error: visibleError } = await visibleQuery;
         if (visibleError) return NextResponse.json({ error: visibleError.message }, { status: 500 });
         if (!Array.isArray(visible) || visible.length === 0) {

@@ -1,7 +1,7 @@
 import "server-only";
 
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { linkedOwnerScopeForModule } from "@/lib/auth/co-manager-module-scope";
+import { viewerAndLinkedOwnerIdsForModule } from "@/lib/auth/co-manager-module-scope";
 import type {
   ManagerSmsConversationsPayload,
   ManagerSmsMessageRow,
@@ -34,23 +34,19 @@ function phoneKey(raw: string): string {
 
 /**
  * Viewer + owners who granted this user Communication (inbox) co-manager
- * access at the given level ("read" for viewing, "edit" for send/delete).
+ * access at the given level (read to view, edit to reply, delete to delete).
  */
 export async function resolveSmsScopeManagerIds(
   db: SupabaseClient,
   viewerUserId: string,
-  level: "read" | "edit" = "read",
+  level: "read" | "edit" | "delete" = "read",
 ): Promise<string[]> {
-  const ids = new Set<string>([viewerUserId.trim()].filter(Boolean));
   try {
-    const { ownerIds } = await linkedOwnerScopeForModule(db, viewerUserId, "inbox", level);
-    for (const id of ownerIds) {
-      if (id.trim()) ids.add(id.trim());
-    }
+    return await viewerAndLinkedOwnerIdsForModule(db, viewerUserId, "inbox", level);
   } catch (e) {
     console.error("resolveSmsScopeManagerIds failed", e instanceof Error ? e.message : e);
+    return [viewerUserId.trim()].filter(Boolean);
   }
-  return [...ids];
 }
 
 /**
