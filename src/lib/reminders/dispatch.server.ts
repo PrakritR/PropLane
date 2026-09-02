@@ -27,6 +27,9 @@ import {
 } from "@/lib/reminders/rules";
 import { loadReminderSettingsForManagers } from "@/lib/reminders/settings.server";
 import type { NotificationCategory } from "@/lib/notification-preferences";
+import { notifyManagerFromAgent } from "@/lib/agent-notify.server";
+import { managerNotificationCategoryForEvent } from "@/lib/manager-notification-preferences";
+import { reminderIsCurrent } from "@/lib/reminders/current.server";
 
 export type DispatchSummary = {
   claimed: number;
@@ -109,10 +112,17 @@ export async function dispatchReminderRow(
     await resolveReminder(db, row.id, workerId, "failed", "manager profile has no email");
     return "failed";
   }
+  if (!(await reminderIsCurrent(db, row))) {
+    await resolveReminder(db, row.id, workerId, "failed", "subject changed or is no longer active");
+    return "failed";
+  }
   // The manager's own copy would be a message from themselves to themselves,
   // which `deliverPortalInboxMessage` drops as a self-send. Skip it cleanly
   // instead of letting it look like a delivery failure.
-  if (row.recipientEmail.trim().toLowerCase() === sender.email) {
+  if (
+    row.recipientRole === "counterparty" &&
+    row.recipientEmail.trim().toLowerCase() === sender.email
+  ) {
     await resolveReminder(db, row.id, workerId, "sent");
     return "sent";
   }
@@ -123,6 +133,41 @@ export async function dispatchReminderRow(
     recipientRole: row.recipientRole,
     payload: row.payload as ReminderPayload,
   });
+
+  // Manager reminders are a PropLane Assistant surface, not a manager sending
+  // a message to themselves. Route them through the shared manager notifier so
+  // Preferences decides Assistant, work-number SMS, both, or no updates.
+  if (row.recipientRole === "manager") {
+    try {
+      const category = managerNotificationCategoryForEvent(
+        String(row.payload.notificationCategory ?? CATEGORY_BY_KIND[row.kind]),
+      );
+      await notifyManagerFromAgent(db, {
+        landlordId:
+          typeof row.payload.recipientUserId === "string" && row.payload.recipientUserId.trim()
+            ? row.payload.recipientUserId.trim()
+            : row.managerUserId,
+        subject,
+        text: body,
+        externalText: "Open PropLane to review this reminder.",
+        threadType: "agent_reminder",
+        url: typeof row.payload.url === "string" ? row.payload.url : undefined,
+        category,
+        idempotencyKey: row.id,
+      });
+      await resolveReminder(db, row.id, workerId, "sent");
+      return "sent";
+    } catch (error) {
+      await resolveReminder(
+        db,
+        row.id,
+        workerId,
+        "scheduled",
+        error instanceof Error ? error.message : "manager reminder delivery threw",
+      );
+      return "retried";
+    }
+  }
 
   const outcome: SendOutcome = await (async () => {
     try {

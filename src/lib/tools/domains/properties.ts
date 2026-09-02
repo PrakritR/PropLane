@@ -38,6 +38,7 @@ import {
   resolvePropertyLeaseTemplateHtml,
 } from "@/lib/property-lease-template-html";
 import { sectionSourceFromHtml } from "@/lib/lease-section-text";
+import { smsAccessAllowsPropertyRecord, smsDataOwnerIds } from "@/lib/sms/manager-sms-access";
 
 /**
  * Property records vary in shape by lifecycle status: `property_data` holds the
@@ -50,6 +51,7 @@ type RawPropertyRecord = {
   status: string | null;
   row_data: unknown;
   property_data: unknown;
+  manager_user_id?: string | null;
 };
 
 function asObject(value: unknown): Record<string, unknown> | null {
@@ -97,32 +99,42 @@ export const listPropertiesTool = defineTool({
     })
     .strict(),
   handler: async (ctx, input) => {
-    const { data, error } = await ctx.db
-      .from("manager_property_records")
-      .select("id, status, row_data, property_data")
-      .eq("manager_user_id", ctx.landlordId)
-      .limit(1000);
-    if (error) throw new Error(error.message);
+    const ownerIds = smsDataOwnerIds(ctx);
+    const byId = new Map<string, RawPropertyRecord>();
+    for (const ownerId of ownerIds) {
+      const { data, error } = await ctx.db
+        .from("manager_property_records")
+        .select("id, status, row_data, property_data, manager_user_id")
+        .eq("manager_user_id", ownerId)
+        .limit(1000);
+      if (error) throw new Error(error.message);
+      for (const rec of (data ?? []) as (RawPropertyRecord & { manager_user_id?: string | null })[]) {
+        if (!smsAccessAllowsPropertyRecord(ctx, rec)) continue;
+        byId.set(rec.id, rec);
+      }
+    }
     const wantStatus = input.status?.trim().toLowerCase();
-    const properties = ((data ?? []) as RawPropertyRecord[])
+    const properties = [...byId.values()]
       .filter((r) => !wantStatus || String(r.status ?? "").toLowerCase() === wantStatus)
       .map(summarizeProperty);
     return { count: properties.length, properties };
   },
 });
 
-/** Server-side single-record read, always scoped by manager_user_id. */
+/** Server-side single-record read, scoped to owned or assigned SMS-accessible properties. */
 async function loadOwnedPropertyRecord(ctx: AgentContext, propertyId: string): Promise<RawPropertyRecord | null> {
   const id = propertyId.trim();
   if (!id) return null;
   const { data, error } = await ctx.db
     .from("manager_property_records")
-    .select("id, status, row_data, property_data")
+    .select("id, status, row_data, property_data, manager_user_id")
     .eq("id", id)
-    .eq("manager_user_id", ctx.landlordId)
     .limit(1);
   if (error) throw new Error(error.message);
-  return (((data ?? []) as RawPropertyRecord[])[0] as RawPropertyRecord | undefined) ?? null;
+  const rec = (((data ?? []) as RawPropertyRecord[])[0] as RawPropertyRecord | undefined) ?? null;
+  if (!rec) return null;
+  if (!smsAccessAllowsPropertyRecord(ctx, rec)) return null;
+  return rec;
 }
 
 /** The full listing submission for a record (published payload first, then draft). */

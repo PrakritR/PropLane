@@ -14,6 +14,7 @@ import { resolveEmailLinkBaseUrl } from "@/lib/app-url";
 import { deliverPortalMessageThreadSide } from "@/lib/portal-inbox-delivery";
 import { getBundleChoiceLabel, getPropertyById, getRoomChoiceLabel } from "@/lib/rental-application/data";
 import { isSubmittedPendingApplicationRow } from "@/lib/rental-application/in-progress-application";
+import { sendManagerNotificationSms } from "@/lib/manager-notification-routing.server";
 
 const MANAGER_INBOX_SCOPE = "axis_portal_inbox_manager_v1";
 
@@ -150,6 +151,18 @@ export async function notifyManagerApplicationSubmitted(
     recipients.map((r) => r.email),
     subject,
     text,
+  );
+
+  await Promise.all(
+    recipients.map((recipient) =>
+      sendManagerNotificationSms(db, {
+        managerUserId: recipient.userId,
+        category: "applications",
+        subject,
+        text: `A new application from ${applicantName} is ready to review in PropLane.`,
+        purpose: "application_submitted_manager_notification",
+      }).catch(() => undefined),
+    ),
   );
 
   return { ok: true };

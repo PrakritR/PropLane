@@ -1,4 +1,12 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import {
+  DEFAULT_MANAGER_NOTIFICATION_CATEGORIES,
+  DEFAULT_MANAGER_NOTIFICATION_DESTINATION,
+  normalizeManagerNotificationCategories,
+  normalizeManagerNotificationDestination,
+  type ManagerNotificationCategoryPreferences,
+  type ManagerNotificationDestination,
+} from "@/lib/manager-notification-preferences";
 
 export type PaymentReminderKind = "pre_due" | "same_day" | "post_due" | "overdue_daily" | "late_fee" | "set_date";
 
@@ -10,6 +18,10 @@ export type ReminderTemplate = {
 };
 
 export type ManagerAutomationSettings = {
+  /** Where manager-facing operational alerts should notify the manager. */
+  managerNotificationDestination: ManagerNotificationDestination;
+  /** Topics eligible for manager-cell SMS when the selected destination includes it. */
+  managerNotificationCategories: ManagerNotificationCategoryPreferences;
   preDueReminderDays: number[];
   /** One-time reminders after the due date (legacy; day 1 migrates to overdueDailyEnabled). */
   postDueReminderDays: number[];
@@ -56,6 +68,14 @@ export type ManagerAutomationSettings = {
    * waiting for Approve — same checkbox as on the draft card in Communication.
    */
   inboxAiDraftAutoSend: boolean;
+  /**
+   * They asked for a PropLane work number while creating the account. Intent
+   * only — it never buys anything. Signup is the wrong place to spend money: the
+   * plan may not be settled yet and a failed purchase would derail account
+   * creation. Settings → Messaging reads this so a "yes" that could not be
+   * honoured yet is visible rather than silently dropped.
+   */
+  workNumberRequestedAtSignup: boolean;
   templates: {
     preDue: ReminderTemplate;
     overdue: ReminderTemplate;
@@ -111,6 +131,8 @@ export const DEFAULT_TOUR_REMINDER_TEMPLATE: ReminderTemplate = {
 };
 
 export const DEFAULT_MANAGER_AUTOMATION_SETTINGS: ManagerAutomationSettings = {
+  managerNotificationDestination: DEFAULT_MANAGER_NOTIFICATION_DESTINATION,
+  managerNotificationCategories: { ...DEFAULT_MANAGER_NOTIFICATION_CATEGORIES },
   preDueReminderDays: [...DEFAULT_PRE_DUE_REMINDER_DAYS],
   postDueReminderDays: [...DEFAULT_POST_DUE_REMINDER_DAYS],
   setDateReminders: [],
@@ -140,6 +162,7 @@ export const DEFAULT_MANAGER_AUTOMATION_SETTINGS: ManagerAutomationSettings = {
   maintenanceDeliverViaEmail: true,
   maintenanceDeliverViaSms: false,
   inboxAiDraftAutoSend: false,
+  workNumberRequestedAtSignup: false,
   templates: {
     preDue: {
       subject: "Payment due {daysUntilDuePhrase}: {chargeTitle}",
@@ -306,6 +329,12 @@ export function normalizeManagerAutomationSettings(raw: unknown): ManagerAutomat
   }
 
   return {
+    managerNotificationDestination: normalizeManagerNotificationDestination(
+      row.managerNotificationDestination,
+    ),
+    managerNotificationCategories: normalizeManagerNotificationCategories(
+      row.managerNotificationCategories,
+    ),
     preDueReminderDays: normalizePreDueDays(row.preDueReminderDays),
     postDueReminderDays,
     setDateReminders: normalizeSetDateReminders(row.setDateReminders),
@@ -350,6 +379,7 @@ export function normalizeManagerAutomationSettings(raw: unknown): ManagerAutomat
     maintenanceDeliverViaEmail: row.maintenanceDeliverViaEmail !== false,
     maintenanceDeliverViaSms: row.maintenanceDeliverViaSms === true,
     inboxAiDraftAutoSend: row.inboxAiDraftAutoSend === true,
+    workNumberRequestedAtSignup: row.workNumberRequestedAtSignup === true,
     templates: {
       preDue: normalizeTemplate(templatesRaw.preDue, base.templates.preDue),
       overdue: normalizeTemplate(templatesRaw.overdue, base.templates.overdue),

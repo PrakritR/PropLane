@@ -4,7 +4,12 @@
 axis-crm-outreach/
 
 # Dependencies
-node_modules/
+# Matches the directory AND a symlink to one. A trailing slash matches only a
+# directory, so a `node_modules` symlink (how a scratch worktree shares one
+# install) sailed past this and got committed twice, from two different
+# laptops, each time pointing at an absolute path that means nothing anywhere
+# else and breaking the build.
+node_modules
 .pnp
 .pnp.*
 .yarn/*

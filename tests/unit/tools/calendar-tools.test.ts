@@ -504,6 +504,44 @@ describe("create_calendar_event", () => {
     if (again.ok) expect(again.reply).toContain("Already");
     expect(rowData.payload.filter((e) => e.title === "Roof inspection")).toHaveLength(1);
   });
+
+  /**
+   * `kind: "tour"` is the ONLY thing that makes a planned event subtract from
+   * tour availability — `loadManagerTourBlocks` and `listOpenTourSlots` both
+   * ignore every other kind. Before `blocksTours` existed, a manager blocking
+   * their morning with this tool left the slot on offer and could be booked
+   * over from the public page.
+   */
+  it("blocksTours stamps kind: tour, which is what removes the time from the public grid", async () => {
+    const tables = seedTables();
+    const ctx = makeCtx(tables);
+    const res = await executeWrite(createCalendarEventTool, ctx, { ...input, blocksTours: true });
+    expect(res.ok).toBe(true);
+    const rowData = tables.portal_schedule_records.find((r) => r.id === PLANNED_ID)!.row_data as {
+      payload: Record<string, unknown>[];
+    };
+    expect(rowData.payload.find((e) => e.title === "Roof inspection")!.kind).toBe("tour");
+  });
+
+  it("defaults to NOT blocking, so an ordinary meeting never silently closes a booking window", async () => {
+    const tables = seedTables();
+    const res = await executeWrite(createCalendarEventTool, makeCtx(tables), input);
+    expect(res.ok).toBe(true);
+    const rowData = tables.portal_schedule_records.find((r) => r.id === PLANNED_ID)!.row_data as {
+      payload: Record<string, unknown>[];
+    };
+    expect(rowData.payload.find((e) => e.title === "Roof inspection")!.kind).toBeUndefined();
+  });
+
+  it("says in the preview whether the time stays bookable", async () => {
+    const ctx = makeCtx(seedTables());
+    const open = await previewWrite(createCalendarEventTool, ctx, input);
+    expect(open.ok).toBe(true);
+    if (open.ok) expect(open.preview.fields.map((f) => f.value)).toContain("Still bookable by prospects");
+    const blocked = await previewWrite(createCalendarEventTool, ctx, { ...input, blocksTours: true });
+    expect(blocked.ok).toBe(true);
+    if (blocked.ok) expect(blocked.preview.fields.map((f) => f.value)).toContain("Blocked for this time");
+  });
 });
 
 describe("cancel_calendar_event", () => {

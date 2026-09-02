@@ -7,7 +7,7 @@ import {
   saveAgentCustomInstructions,
   withAgentCustomInstructions,
 } from "@/lib/agent/user-preferences";
-import { LEASING_SMS_SYSTEM_PROMPT } from "@/lib/agent/leasing-sms-system-prompt";
+import { LEASING_SMS_AGENT_SYSTEM_PROMPT } from "@/lib/agent/system-prompts";
 import { leasingSmsSystemPromptForWorkNumberOwner } from "@/lib/agent/leasing-sms-custom-instructions";
 
 type PreferenceRow = { user_id: string; custom_instructions: string; updated_at?: string };
@@ -86,7 +86,7 @@ describe("assistant custom instructions", () => {
       { user_id: "different-manager", custom_instructions: "Never include this." },
     ]);
     const prompt = await leasingSmsSystemPromptForWorkNumberOwner(db, "work-number-owner");
-    expect(prompt).toContain(LEASING_SMS_SYSTEM_PROMPT);
+    expect(prompt).toContain(LEASING_SMS_AGENT_SYSTEM_PROMPT);
     expect(prompt).toContain("Sign prospect replies with - Jordan.");
     expect(prompt).not.toContain("Never include this.");
     // The base SMS guardrails remain before the user preference block.

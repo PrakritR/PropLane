@@ -37,7 +37,11 @@ function describeError(error: unknown): string {
 
 function isAuthorized(req: Request): boolean {
   const cronSecret = process.env.CRON_SECRET?.trim();
-  if (!cronSecret) return !isProductionRuntime();
+  if (!cronSecret) {
+    // Preview deployments are public and hold real service-role credentials.
+    // Secretless access is only a localhost/test convenience.
+    return !process.env.VERCEL_ENV && !isProductionRuntime();
+  }
   return req.headers.get("authorization") === `Bearer ${cronSecret}`;
 }
 

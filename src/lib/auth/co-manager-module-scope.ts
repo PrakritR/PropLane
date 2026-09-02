@@ -156,6 +156,26 @@ export async function linkedOwnerScopeForModule(
 }
 
 /**
+ * The viewer plus every owner who granted them `module` at `level` on at least
+ * one assigned property. Used by Communication (SMS and email) so a co-manager
+ * sees the same owner-keyed threads the permission already covers.
+ */
+export async function viewerAndLinkedOwnerIdsForModule(
+  db: ServiceClient,
+  userId: string,
+  module: CoManagerPermissionId,
+  level: CoManagerPermissionLevel = "read",
+): Promise<string[]> {
+  const viewer = userId.trim();
+  const ids = new Set<string>(viewer ? [viewer] : []);
+  const { ownerIds } = await linkedOwnerScopeForModule(db, userId, module, level);
+  for (const id of ownerIds) {
+    if (id.trim()) ids.add(id.trim());
+  }
+  return [...ids];
+}
+
+/**
  * Merge owned rows with linked-property rows for a `row_data`-shaped table.
  * `propertyColumns` are checked in order via `.in(column, ids)` queries; rows
  * are deduped by id with owned rows winning.

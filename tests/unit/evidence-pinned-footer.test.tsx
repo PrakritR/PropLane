@@ -8,8 +8,8 @@ import { render } from "@testing-library/react";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { PortalPageFooterActions } from "@/components/portal/portal-section-action-row";
 
-// Same convention as `evidence-manager-money-agreement.test.tsx`: the render is
-// always exercised, the HTML is only written when EVIDENCE_DIR asks for it.
+// Evidence-harness convention: the render is always exercised, the HTML is
+// only written when EVIDENCE_DIR asks for it.
 const OUT = process.env.EVIDENCE_DIR ?? "";
 
 describe("evidence · pinned footer actions", () => {

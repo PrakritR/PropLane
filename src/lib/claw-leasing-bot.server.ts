@@ -28,7 +28,6 @@ import { normalizeE164Us } from "@/lib/claw-messenger.server";
 import {
   forwardClawInboundToManagers,
   isMappedManagerPhone,
-  tryRelayManagerReplyViaClaw,
 } from "@/lib/claw-relay.server";
 import {
   findResidentProfileByPhone,
@@ -48,7 +47,15 @@ import { buildConversationKey, type SmsCounterpartyRole } from "@/lib/sms-conver
 import { recordScopedSmsConsent } from "@/lib/sms-consent";
 import { upsertManagerInboxNotice } from "@/lib/sms-inbox-notice.server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
+import { isPortalSandboxEmail } from "@/lib/portal-sandbox-accounts";
+import { resolveManagerSmsInboundIdentity } from "@/lib/sms/manager-sms-access.server";
+import { resolveManagerSmsAgentContext } from "@/lib/tools/manager-sms-context";
+import {
+  deliverManagerSmsReply,
+  runManagerSmsAgentTurn,
+} from "@/lib/agent/manager-sms-agent.server";
 import { normalizeE164 } from "@/lib/twilio";
+import { PRODUCTION_APP_ORIGIN } from "@/lib/app-url";
 
 export {
   buildSmsDeepLink,
@@ -62,16 +69,9 @@ export {
 export { clawMappedManagerEmails } from "@/lib/claw-resident-messaging.server";
 
 export function publicAppOrigin(): string {
-  // SMS links must be phone-reachable — never localhost.
-  const explicit =
-    process.env.PROPLANE_SMS_LINK_ORIGIN?.trim() ||
-    process.env.CLAW_MESSENGER_LINK_ORIGIN?.trim();
-  if (explicit) return explicit.replace(/\/$/, "");
-  const app = process.env.NEXT_PUBLIC_APP_URL?.trim();
-  if (app && !/localhost|127\.0\.0\.1/i.test(app)) return app.replace(/\/$/, "");
-  const production = process.env.VERCEL_PROJECT_PRODUCTION_URL?.trim();
-  if (production) return `https://${production}`.replace(/\/$/, "");
-  return "https://prop-lane.space";
+  // Agent-generated SMS must use the branded canonical origin even if a
+  // legacy host is still configured for compatibility elsewhere.
+  return PRODUCTION_APP_ORIGIN;
 }
 
 type ManagerTarget = {
@@ -179,6 +179,42 @@ async function resolveManagerTarget(managerUserId: string): Promise<ManagerTarge
  * per-manager isolation this scoped path exists for). The shared Claw line's
  * own inbound path already checks `isMappedManagerPhone` directly.
  */
+/**
+ * The manager behind a verified personal phone on the SHARED line, where the
+ * inbound number cannot pin one. Moved here from the deleted regex command
+ * module; the rules it encodes are the load-bearing part:
+ *
+ *  - Inside the mapped trial roster, an exact personal-phone match wins.
+ *  - Outside it, `profiles.phone` alone is user-editable and forgeable, so the
+ *    row must be OTP-verified and hold a manager-ish role.
+ *  - Sandbox/demo accounts never match — a test manager's phone must never
+ *    speak for real tenant data.
+ *  - Ambiguity resolves to NOBODY. Two accounts claiming one number means we
+ *    cannot say who is texting, and answering as the wrong manager is worse
+ *    than not answering.
+ */
+async function resolveManagerUserIdFromVerifiedPhone(fromE164: string): Promise<string | null> {
+  const managers = await resolveMappedManagerContacts();
+  const roster = managers.filter((m) => m.personalPhone === fromE164 && m.userId);
+  if (roster.length > 1) return null;
+  if (roster.length === 1) return roster[0].userId;
+
+  const db = createSupabaseServiceRoleClient();
+  const { data } = await db
+    .from("profiles")
+    .select("id, email, phone_verified_at")
+    .eq("phone", fromE164)
+    .in("role", ["manager", "pro", "admin", "owner"])
+    .limit(5);
+  const verified = (data ?? []).filter(
+    (row) =>
+      Boolean((row as { phone_verified_at?: string | null }).phone_verified_at) &&
+      !isPortalSandboxEmail(String((row as { email?: unknown }).email ?? "")),
+  );
+  if (verified.length !== 1) return null;
+  return String((verified[0] as { id?: unknown }).id ?? "").trim() || null;
+}
+
 async function isManagerPersonalPhone(fromE164: string, managerUserId: string): Promise<boolean> {
   const db = createSupabaseServiceRoleClient();
   const { data } = await db
@@ -631,37 +667,60 @@ export async function handleClawLeasingInbound(args: {
   // Listing CTAs (tour/apply/more info) fall through to the leasing assistant so
   // managers can test the same flow prospects see.
   // Other freeform text relays to the open resident thread.
-  const fromIsManager = scopedManagerId
+  const fromIsOwnerPhone = scopedManagerId
     ? await isManagerPersonalPhone(from, scopedManagerId)
     : await isMappedManagerPhone(from);
+  const dbForManager = fromIsOwnerPhone || scopedManagerId ? createSupabaseServiceRoleClient() : null;
+  const managerInbound = scopedManagerId && dbForManager
+    ? await resolveManagerSmsInboundIdentity(dbForManager, {
+        workNumberOwnerId: scopedManagerId,
+        fromPhone: from,
+        toPhone: workNumber ?? "",
+      })
+    : null;
+  const fromIsManager = Boolean(managerInbound) || (!scopedManagerId && fromIsOwnerPhone);
   if (fromIsManager && !looksLikeProspectLeasingCta(text)) {
-    const { runManagerAgentCommand } = await import("@/lib/claw-manager-actions.server");
-    const agent = await runManagerAgentCommand({ fromPhone: from, text });
-    if (agent) {
-      const send = await replySms({
-        to: from,
-        text: agent.reply,
-        managerUserId: scopedManagerId,
-        workNumber,
-      });
-      return {
-        ok: send.ok,
-        intent: "unknown",
-        replied: send.ok,
-        error: send.ok ? undefined : send.error,
-      };
-    }
-    const relay = await tryRelayManagerReplyViaClaw({
-      from,
-      text,
-      managerUserId: scopedManagerId,
+    // The manager assistant, same one the per-manager work number serves. It
+    // replaced a four-intent regex whose `mark paid` wrote charge rows directly
+    // with the service-role client — no tool layer, no preview, no confirm —
+    // and a relay that guessed at the resident thread. Asking to text someone
+    // is now a named proposal the manager confirms with YES.
+    //
+    // On the shared line `scopedManagerId` is null, so the manager is resolved
+    // from their verified personal phone; an ambiguous or unverified match
+    // resolves to nobody and we stay silent rather than answer as a stranger.
+    const db = dbForManager ?? createSupabaseServiceRoleClient();
+    const managerUserId = managerInbound?.workNumberOwnerId
+      || scopedManagerId
+      || (await resolveManagerUserIdFromVerifiedPhone(from));
+    if (!managerUserId) return { ok: true, intent: "unknown", replied: false };
+    const identity = await resolveManagerSmsAgentContext(db, {
+      managerUserId,
+      actorUserId: managerInbound?.actorUserId ?? managerUserId,
+      access: managerInbound?.access,
+    });
+    if (!identity.ok) return { ok: true, intent: "unknown", replied: false };
+    const turn = await runManagerSmsAgentTurn(db, {
+      ctx: identity.ctx,
+      managerPhoneE164: from,
+      inboundText: text,
+      inboundMessageSid: messageId || null,
+    });
+    if (!turn) return { ok: true, intent: "unknown", replied: false };
+    const send = await deliverManagerSmsReply({
+      managerUserId,
+      actorUserId: managerInbound?.actorUserId ?? managerUserId,
+      toPhone: from,
+      text: turn.reply,
       workNumber,
+      inboundMessageSid: messageId || null,
+      traceId: turn.traceId,
     });
     return {
-      ok: relay.relayed || relay.error === "no_open_thread",
+      ok: send.ok,
       intent: "unknown",
-      replied: relay.relayed,
-      error: relay.relayed ? undefined : relay.error,
+      replied: send.ok,
+      error: send.ok ? undefined : send.error,
     };
   }
 

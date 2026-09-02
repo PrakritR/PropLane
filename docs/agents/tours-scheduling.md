@@ -46,10 +46,21 @@ tour carries its `slotKey` and `slotBlocked` matches that first.
 
 ## What a prospect is offered = published − busy − booked
 
-The one rule behind `/api/public/property-tour-availability`:
+The one rule, and now literally one function — `listOpenTourSlots`
+(`src/lib/tour-availability.server.ts`):
 
     offered = (published availability, or the 9-5 default when none is
                published) MINUS calendar-busy MINUS already-booked
+
+`GET /api/public/property-tour-availability` is a thin caller of it, and so is
+every tour tool (`list_open_tour_slots`, and the re-checks inside `request_tour`
+and `book_tour`). That is the point: **nothing may offer a slot the public grid
+would not.** It used to live inline in the route, which meant an agent had only
+`loadManagerTourBlocks` (`tour-proposal.server.ts`) to compute from — and that
+one only mirrors this exclusion set by hand and omits Google-busy entirely, so
+it would have handed out times the manager's calendar says they are busy for.
+Folding the approval-first proposal flow onto `listOpenTourSlots` too would
+remove the last place two definitions of "open" can drift.
 
 - **The 9-5 default is intended**, not a bug — a property whose manager has not
   opened a calendar still offers a day (`buildDefaultTourSlotKeys`), and the same
@@ -121,3 +132,55 @@ assignee with `canAssign`, and syncs to Google Calendar. This is the one booking
 path that is NOT the proposal gate above — it is the manager entering something
 that already happened offline, so there is nobody to propose to. The demo branch
 (`manual-planned-tour.client.ts`) writes locally and never calls the route.
+
+## Filing a tour request: `createTourInquiry`
+
+`src/lib/tour-inquiry-create.server.ts` is the ONE way a tour request is
+created. `POST /api/public/partner-inquiries` (the website form) and the agent's
+`request_tour` both call it, so the contact validation, the host and
+published-slot guards (`managerMayHostPropertyTour`, `managerHasPublishedSlot`,
+`adminHasPublishedSlot`), the double-book check, the consent opt-in, the manager
+and guest notifications, and the approval-first `proposeTourConfirmation` cannot
+differ by entry point.
+
+**A caller naming a manager and a time is a request, never an authorization.**
+`hostUserId` arrives from the model on the agent path; everything that decides
+access is re-derived from the database inside the function.
+
+It never books. A request is `status: "pending"` until a human confirms it.
+
+## Tour tools, and who may do what
+
+| Tool | Registries | What it does |
+| --- | --- | --- |
+| `list_open_tour_slots` | manager, resident, leasing SMS | The offered set, above. The only source of a time any other tool may accept. |
+| `request_tour` | resident, leasing SMS | Files a pending inquiry via `createTourInquiry`. Books nothing. |
+| `book_tour` | manager | `createManualPlannedTour` — a booking from scratch, no inquiry needed. |
+| `confirm_tour_inquiry` | manager | Accepts an existing request (this is what the approval-first proposal targets). |
+| `reschedule_tour` / `cancel_tour` | manager | `tour-planned-change.server.ts`; both email the guest. |
+
+- **The agent never invents a time.** Every write takes `start`/`end` copied
+  verbatim from `list_open_tour_slots`, and re-checks the slot is still on offer
+  in the HANDLER as well as the preview — a slot open when a proposal was written
+  can be taken before anyone confirms it. `book_tour` additionally requires the
+  slot's host to be the acting landlord.
+- **`request_tour` is inline allow-listed on the leasing SMS surface**
+  (`LEASING_SMS_INLINE_WRITE_TOOLS`), the second entry ever after
+  `escalate_to_manager`. A texting prospect is anonymous, so there is no
+  `user_id` a pending action could be claimed on: a confirmation card is
+  impossible, not merely absent. It is safe inline because it is the same risk
+  class as an escalation — it files a request and notifies the manager, and books
+  nothing.
+- **`create_calendar_event` does not block a tour slot unless you say so.** Only
+  a `kind: "tour"` planned event subtracts from availability; every other kind is
+  ignored by `loadManagerTourBlocks` and `listOpenTourSlots` alike. That made the
+  tool a trap — a manager blocking their morning with it stayed bookable from the
+  public page — so it takes `blocksTours` (default false, since an ordinary
+  meeting should not silently close a booking window) and stamps `kind: "tour"`
+  when set. Use `book_tour` for an actual tour with a guest.
+- **Still missing: `decline_tour_inquiry`.** Its logic is inline in
+  `/api/portal-tour-inquiries/delete` and needs the same extraction the two
+  functions above got. Tracked in
+  [`docs/agents/agent-capability-backlog.md`](agent-capability-backlog.md).
+
+Coverage: `tests/unit/tools/tours.test.ts`, `tests/unit/tools/calendar-tools.test.ts`.

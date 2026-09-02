@@ -276,7 +276,12 @@ describe("household and resident list shells", () => {
     await waitFor(() => expect(screen.getAllByText("Jordan Reyes").length).toBeGreaterThan(0));
 
     expect(document.querySelector("[data-attr='applications-resident-groups']")).toBeTruthy();
-    expect(screen.getAllByText("1 application").length).toBeGreaterThan(0);
+    // The per-cluster "N application(s)" count copy is gone; clusters now carry a
+    // group heading instead. What this test is about is the CLUSTERING, so assert
+    // the applicant appears exactly once under the resident groups rather than
+    // pinning a count string the UI no longer prints.
+    const groups = document.querySelector("[data-attr='applications-resident-groups']")!;
+    expect((groups.textContent ?? "").match(/Jordan Reyes/g) ?? []).toHaveLength(1);
     dump("applications-resident-clusters", container.innerHTML);
   });
 

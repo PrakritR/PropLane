@@ -4,13 +4,13 @@ import { appendManualPaymentInstructions } from "@/lib/manual-payment-instructio
 import { sendPushToUser } from "@/lib/push-notifications.server";
 import type { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { canSendResidentOutboundSms, sendResidentOutboundSms } from "@/lib/resident-outbound-sms.server";
-import { sendPropLaneSms } from "@/lib/proplane-sms-transport.server";
 import {
   DEFAULT_NOTIFICATION_PREFERENCES,
   resolveChannels,
   type NotificationCategory,
 } from "@/lib/notification-preferences";
 import { deliverPortalMessageThreadSide } from "@/lib/portal-inbox-delivery";
+import { notifyManagerFromAgent } from "@/lib/agent-notify.server";
 
 type ServiceDb = ReturnType<typeof createSupabaseServiceRoleClient>;
 
@@ -214,38 +214,13 @@ export async function deliverPaymentReminder(input: {
 
   try {
     if (managerId) {
-      const { data: managerProfile } = await db
-        .from("profiles")
-        .select("phone, sms_forward_inbound")
-        .eq("id", managerId)
-        .maybeSingle();
-      const managerPhone = String(managerProfile?.phone ?? "").trim();
-      if (managerPhone && managerProfile?.sms_forward_inbound !== false) {
-        const managerNotification = `(${subject}) Reminder sent to ${residentLower}.`;
-        if (process.env.SMS_RUNTIME_ENABLED?.trim() === "1") {
-          // Managed Twilio traffic must use the owner-scoped outbox so number
-          // readiness, entitlement, suppression, delivery state, and budget
-          // checks cannot be bypassed by this manager-only notification.
-          await sendPropLaneSms({
-            to: managerPhone,
-            text: managerNotification,
-            fromNumber: managerSmsFromNumber,
-            sendClass: "control",
-            purpose: "payment_reminder_manager_notification",
-            log: {
-              managerUserId: managerId,
-              residentPhone: managerPhone,
-              source: "automated",
-              counterpartyRole: "manager",
-            },
-          }).catch(() => undefined);
-        } else {
-          // Preserve the legacy shared/standalone Twilio behavior until the
-          // managed runtime is explicitly enabled.
-          const { sendSms } = await import("@/lib/twilio");
-          await sendSms(managerPhone, managerNotification, managerSmsFromNumber).catch(() => undefined);
-        }
-      }
+      await notifyManagerFromAgent(db, {
+        landlordId: managerId,
+        subject: "Payment reminder sent",
+        text: `${subject} was sent to ${residentLower}.`,
+        category: "payment_reminders",
+        url: "/portal/payments",
+      });
     }
   } catch {
     /* non-critical */

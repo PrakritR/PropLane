@@ -236,3 +236,123 @@ describe("get_property_details", () => {
     expect(res.found).toBe(false);
   });
 });
+
+describe("manager SMS property scope", () => {
+  const rec = (
+    managerUserId: string,
+    id: string,
+    status: string,
+    data: Record<string, unknown>,
+  ): FakeRecord =>
+    ({
+      id,
+      manager_user_id: managerUserId,
+      status,
+      row_data: {},
+      property_data: data,
+    }) as unknown as FakeRecord;
+
+  it("delegated: lists only assigned houses of the work-number owner", async () => {
+    const ctx = makeManagerRowsCtx(
+      {
+        manager_property_records: [
+          rec("owner_1", "p_assigned", "live", { id: "p_assigned", title: "Assigned" }),
+          rec("owner_1", "p_other", "live", { id: "p_other", title: "Owner other" }),
+          rec("co_mgr", "p_own", "live", { id: "p_own", title: "Co own" }),
+        ],
+      },
+      {
+        landlordId: "owner_1",
+        userId: "co_mgr",
+        managerSmsAccess: {
+          mode: "delegated",
+          workNumberOwnerId: "owner_1",
+          actorUserId: "co_mgr",
+          dataOwnerIds: ["owner_1"],
+          assignedPropertyIds: ["p_assigned"],
+        },
+      },
+    );
+    const all = (await listPropertiesTool.handler(ctx, {})) as { properties: { id: string }[] };
+    expect(all.properties.map((p) => p.id)).toEqual(["p_assigned"]);
+    expect((await getPropertyDetailsTool.handler(ctx, { propertyId: "p_assigned" }))).toMatchObject({
+      found: true,
+    });
+    expect((await getPropertyDetailsTool.handler(ctx, { propertyId: "p_own" }))).toMatchObject({
+      found: false,
+    });
+    expect((await getPropertyDetailsTool.handler(ctx, { propertyId: "p_other" }))).toMatchObject({
+      found: false,
+    });
+  });
+
+  it("combined: lists owned houses plus assigned co-managed houses", async () => {
+    const ctx = makeManagerRowsCtx(
+      {
+        manager_property_records: [
+          rec("co_mgr", "p_own", "live", { id: "p_own", title: "Co own" }),
+          rec("owner_1", "p_assigned", "live", { id: "p_assigned", title: "Assigned" }),
+          rec("owner_1", "p_other", "live", { id: "p_other", title: "Owner other" }),
+        ],
+      },
+      {
+        landlordId: "co_mgr",
+        userId: "co_mgr",
+        managerSmsAccess: {
+          mode: "combined",
+          workNumberOwnerId: "co_mgr",
+          actorUserId: "co_mgr",
+          dataOwnerIds: ["co_mgr", "owner_1"],
+          assignedPropertyIds: ["p_assigned"],
+        },
+      },
+    );
+    const all = (await listPropertiesTool.handler(ctx, {})) as { properties: { id: string }[] };
+    expect(all.properties.map((p) => p.id).sort()).toEqual(["p_assigned", "p_own"]);
+  });
+});
+
+describe("manager SMS application row scope", () => {
+  it("delegated: hides unassigned owner applications and the actor's own houses", async () => {
+    const ctx = makeManagerRowsCtx(
+      {
+        manager_application_records: [
+          managerRow("owner_1", {
+            id: "a_assigned",
+            name: "Pat",
+            bucket: "approved",
+            propertyId: "p_assigned",
+          }),
+          managerRow("owner_1", {
+            id: "a_other",
+            name: "Sam",
+            bucket: "approved",
+            propertyId: "p_other",
+          }),
+          managerRow("co_mgr", {
+            id: "a_own",
+            name: "Own",
+            bucket: "approved",
+            propertyId: "p_own",
+          }),
+        ],
+      },
+      {
+        landlordId: "owner_1",
+        userId: "co_mgr",
+        managerSmsAccess: {
+          mode: "delegated",
+          workNumberOwnerId: "owner_1",
+          actorUserId: "co_mgr",
+          dataOwnerIds: ["owner_1"],
+          assignedPropertyIds: ["p_assigned"],
+        },
+      },
+    );
+    const res = (await listResidentsTool.handler(ctx, {})) as { residents: { id: string }[] };
+    expect(res.residents.map((r) => r.id)).toEqual(["a_assigned"]);
+    expect(
+      await getApplicationDetailsTool.handler(ctx, { applicationId: "a_other" }),
+    ).toMatchObject({ found: false });
+  });
+});

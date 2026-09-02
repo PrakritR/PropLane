@@ -12,6 +12,7 @@ import { setResidentApprovalForManager } from "@/lib/resident-approval.server";
 import { screeningConfigured, screeningCostCents } from "@/lib/screening/config";
 import { orderScreeningForApplication } from "@/lib/screening/order-screening";
 import { loadAllManagerRows } from "./load-manager-rows";
+import { smsAccessAllowsRow } from "@/lib/sms/manager-sms-access";
 import { writeAuditLog, updateAuditResult } from "../audit";
 
 /** Server-side read of the landlord's applications, scoped by manager_user_id. */
@@ -90,12 +91,23 @@ async function loadOwnedApplicationRecord(
   if (!id) return null;
   const { data, error } = await ctx.db
     .from("manager_application_records")
-    .select("id, resident_email, row_data")
+    .select("id, resident_email, row_data, manager_user_id")
     .eq("id", id)
     .eq("manager_user_id", ctx.landlordId)
     .limit(1);
   if (error) throw new Error(error.message);
-  return (((data ?? []) as OwnedApplicationRecord[])[0] as OwnedApplicationRecord | undefined) ?? null;
+  const rec = (((data ?? []) as (OwnedApplicationRecord & { manager_user_id?: string | null })[])[0]) ?? null;
+  if (!rec) return null;
+  if (
+    !smsAccessAllowsRow(ctx.managerSmsAccess, {
+      dataOwnerId: String(rec.manager_user_id ?? ctx.landlordId).trim() || ctx.landlordId,
+      rowData: rec.row_data,
+      table: "manager_application_records",
+    })
+  ) {
+    return null;
+  }
+  return rec;
 }
 
 export const getApplicationDetailsTool = defineTool({

@@ -14,6 +14,8 @@ import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { isAdminUser } from "@/lib/auth/admin-preview";
 
+import type { ManagerSmsAccess } from "@/lib/sms/manager-sms-access";
+
 export type AgentContext = {
   /** Authenticated manager_user_id. The per-landlord scope key for every tool. */
   landlordId: string;
@@ -31,6 +33,12 @@ export type AgentContext = {
   vendorScope?: VendorAgentScope;
   /** Present only on leasing SMS agent turns; pins links to the prospect phone. */
   leasingScope?: LeasingSmsAgentScope;
+  /**
+   * Present only on manager-SMS turns. Delegated turns keep `landlordId` as
+   * the work-number owner and `userId` as the verified co-manager. Combined
+   * turns keep both as the texter and add assigned co-managed houses.
+   */
+  managerSmsAccess?: ManagerSmsAccess;
 };
 
 /** The single work-order conversation a vendor-agent turn is allowed to see. */

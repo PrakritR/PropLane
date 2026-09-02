@@ -4,7 +4,7 @@
  * calendar with BOTH channels — a PropLane lease and an Airbnb import — plus
  * the "Link Airbnb" modal, and dumps the markup for screenshotting.
  */
-import { describe, expect, it, vi } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { act, fireEvent, render } from "@testing-library/react";
 import { mkdirSync, writeFileSync } from "node:fs";
 
@@ -79,6 +79,19 @@ function writeShot(name: string, caption: string, body: string) {
 ${body}</div></body></html>`,
   );
 }
+
+/**
+ * The calendar opens on the CURRENT month and has no prop to override it, while
+ * both fixtures below sit in August 2026. Without a pinned clock this file
+ * passed only during August. Fake `Date` only, so React's timers stay real.
+ */
+beforeAll(() => {
+  vi.useFakeTimers({ toFake: ["Date"] });
+  vi.setSystemTime(new Date("2026-08-10T12:00:00.000Z"));
+});
+afterAll(() => {
+  vi.useRealTimers();
+});
 
 describe("evidence · one house's Bookings calendar shows both channels", () => {
   it("draws PropLane stays alongside Airbnb imports", async () => {

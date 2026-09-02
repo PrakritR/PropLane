@@ -170,8 +170,11 @@ describe("ManagerPaymentsLedgerPanel", () => {
     );
 
     const mobileRow = container.querySelector('[data-slot="data-list-mobile-row"]');
-    expect(mobileRow?.textContent).toContain("Next reminder");
-    expect(mobileRow?.textContent).toContain("(+1 more)");
+    // The copy got shorter again: the "Next reminder" prefix went, and the
+    // overflow count lost its parentheses. What the test is about is unchanged —
+    // the row shows the next send compactly, not a verbose list.
+    expect(mobileRow?.textContent).toContain("Aug 28, 2026");
+    expect(mobileRow?.textContent).toContain("+1 more");
     expect(mobileRow?.textContent).not.toContain("Reminders scheduled:");
     expect(mobileRow?.textContent).not.toContain("The Magnolia");
     } finally {
@@ -240,7 +243,14 @@ describe("ManagerPaymentsLedgerPanel", () => {
       />,
     );
 
-    fireEvent.click(screen.getByRole("checkbox"));
+    // A group "Select all charges for …" checkbox now sits alongside the per-row
+    // ones, so `getByRole("checkbox")` is ambiguous. This test is about selecting
+    // ONE charge, so pick the row checkbox rather than the group toggle.
+    const rowCheckbox = screen
+      .getAllByRole("checkbox")
+      .find((el) => !/^Select all/i.test(el.getAttribute("aria-label") ?? ""));
+    expect(rowCheckbox).toBeTruthy();
+    fireEvent.click(rowCheckbox!);
     expect(screen.getByRole("button", { name: /Mark as paid/i })).toBeTruthy();
   });
 

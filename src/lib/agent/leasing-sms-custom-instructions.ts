@@ -1,5 +1,5 @@
 import type { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
-import { LEASING_SMS_SYSTEM_PROMPT } from "@/lib/agent/leasing-sms-system-prompt";
+import { LEASING_SMS_AGENT_SYSTEM_PROMPT } from "@/lib/agent/system-prompts";
 import { loadAgentCustomInstructions, withAgentCustomInstructions } from "@/lib/agent/user-preferences";
 
 type Db = ReturnType<typeof createSupabaseServiceRoleClient>;
@@ -11,5 +11,5 @@ type Db = ReturnType<typeof createSupabaseServiceRoleClient>;
  */
 export async function leasingSmsSystemPromptForWorkNumberOwner(db: Db, ownerUserId: string): Promise<string> {
   const instructions = await loadAgentCustomInstructions(db, ownerUserId);
-  return withAgentCustomInstructions(LEASING_SMS_SYSTEM_PROMPT, instructions);
+  return withAgentCustomInstructions(LEASING_SMS_AGENT_SYSTEM_PROMPT, instructions);
 }

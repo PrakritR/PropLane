@@ -21,6 +21,12 @@ type RecordConfig = {
   assignOwnership?: (record: Record<string, unknown>, user: RecordUser) => Record<string, unknown>;
   /** Reject INSERT when the record id is not owned by the caller (returns error message). */
   assertInsertAllowed?: (record: Record<string, unknown>, user: RecordUser) => string | null;
+  /** Reconcile an upsert with server-stored state before it is persisted. */
+  reconcileExisting?: (
+    record: Record<string, unknown>,
+    user: RecordUser,
+    existing: Record<string, unknown> | null,
+  ) => Record<string, unknown>;
 };
 
 async function sessionUser() {
@@ -121,7 +127,11 @@ export function createJsonRecordRoute(config: RecordConfig) {
           const record = config.buildUpsert(normalized, ctx.user);
           if (!record.id) return NextResponse.json({ error: "row id required" }, { status: 400 });
           const id = String(record.id);
-          const { data: existing, error: existingError } = await ctx.db.from(config.table).select("id").eq("id", id).limit(1);
+          const { data: existing, error: existingError } = await ctx.db
+            .from(config.table)
+            .select("id, manager_user_id, row_data")
+            .eq("id", id)
+            .limit(1);
           if (existingError) return NextResponse.json({ error: existingError.message }, { status: 500 });
           const recordExists = Array.isArray(existing) && existing.length > 0;
           if (recordExists && config.scope) {
@@ -135,7 +145,14 @@ export function createJsonRecordRoute(config: RecordConfig) {
           }
           // On INSERT, stamp server-trusted ownership so client-supplied owner
           // ids cannot be used to write rows under another tenant.
-          const finalRecord = !recordExists && config.assignOwnership ? config.assignOwnership(record, ctx.user) : record;
+          const ownedRecord = !recordExists && config.assignOwnership ? config.assignOwnership(record, ctx.user) : record;
+          const finalRecord = config.reconcileExisting
+            ? config.reconcileExisting(
+                ownedRecord,
+                ctx.user,
+                recordExists ? ((existing?.[0] as Record<string, unknown>) ?? null) : null,
+              )
+            : ownedRecord;
           if (!recordExists && config.assertInsertAllowed) {
             const insertError = config.assertInsertAllowed(finalRecord, ctx.user);
             if (insertError) return NextResponse.json({ error: insertError }, { status: 403 });

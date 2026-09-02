@@ -9,7 +9,12 @@
  * vendor registries to their own scoped context types, so a manager tool cannot
  * even typecheck into a resident registry.
  */
-import { buildRegistry } from "./registry";
+import { buildRegistry, type ToolRegistry } from "./registry";
+import type { AgentContext } from "./context";
+import {
+  delegatedSmsWithholdsTool,
+  type ManagerSmsAccess,
+} from "@/lib/sms/manager-sms-access";
 import { getOverdueChargesTool, listChargesTool, sendRentReminderTool } from "./domains/payments";
 import {
   createChargeTool,
@@ -112,6 +117,13 @@ import { managerFinancialsWriteTools } from "./domains/financials-write";
 import { managerServicesWriteTools } from "./domains/services-write";
 import { confirmTourInquiryTool } from "./domains/tours-write";
 import {
+  bookTourTool,
+  cancelTourTool,
+  leasingRequestTourTool,
+  listOpenTourSlotsTool,
+  rescheduleTourTool,
+} from "./domains/tours";
+import {
   escalateToManagerTool,
   getJobAccessInfoTool,
   getJobDetailsTool as getSmsJobDetailsTool,
@@ -150,6 +162,9 @@ export const agentRegistry = buildRegistry([
   listCalendarEventsTool,
   listScheduledMessagesTool,
   listTourInquiriesTool,
+  // What is actually open: published minus calendar-busy minus booked, the same
+  // grid the public booking page draws. Every tour write reads from it.
+  listOpenTourSlotsTool,
   listServiceRequestsTool,
   listDocumentsTool,
   getManagerProfileTool,
@@ -181,6 +196,11 @@ export const agentRegistry = buildRegistry([
   // Confirm a proposed tour into a booked event + notify the guest. Backs the
   // approval-first auto-tour flow, executed only through the confirm gate.
   confirmTourInquiryTool,
+  // Book / move / cancel a tour outright. `confirm_tour_inquiry` above needs an
+  // existing request; these do not, so "book Jane Thursday at 3" is reachable.
+  bookTourTool,
+  rescheduleTourTool,
+  cancelTourTool,
   createWorkOrderTool,
   assignVendorTool,
   offerToVendorsTool,
@@ -240,6 +260,44 @@ export const agentRegistry = buildRegistry([
 export const MANAGER_INLINE_WRITE_TOOLS: readonly string[] = [updateThreadTool.name];
 
 /**
+ * The MANAGER SMS agent's registry: everything the manager portal assistant has,
+ * minus every tool flagged `destructive`.
+ *
+ * The line is drawn by the flag, never by a hand-typed name list, so a
+ * destructive tool added later is withheld automatically rather than silently
+ * becoming textable.
+ *
+ * Why withhold anything at all when the portal grants it: over SMS the only
+ * credential is the Twilio `From` header, which is attacker-influencable (the
+ * same reasoning `resident-sms-context.ts` spells out). Before this surface
+ * existed, a spoofed manager cell bought a text relay; letting it reach
+ * `approve_and_pay_work_order`, `void_lease`, `delete_charge`,
+ * `revoke_resident_access`, `delete_promotion` or `cancel_calendar_event` —
+ * behind a one-word "YES" with no card to re-read — is a materially different
+ * blast radius. Those stay portal-only, and the system prompt says so.
+ *
+ * ponytail: one flat exclusion rule. If a manager ever needs a destructive
+ * action by text, add a per-manager opt-in plus a stronger confirmation token
+ * than YES; do not weaken this filter.
+ */
+let managerSmsRegistry: ToolRegistry<AgentContext> | null = null;
+
+export function buildManagerSmsRegistry(
+  access?: ManagerSmsAccess | null,
+): ToolRegistry<AgentContext> {
+  // Memoized: the filter is static, and `buildRegistry` runs `zodToJsonSchema`
+  // over every write tool to enforce the identity-field rule. That is real work
+  // to repeat on each inbound text.
+  managerSmsRegistry ??= buildRegistry(
+    [...agentRegistry.values()].filter((tool) => !(tool.kind === "write" && tool.destructive)),
+  );
+  if (access?.mode !== "delegated") return managerSmsRegistry;
+  return buildRegistry(
+    [...managerSmsRegistry.values()].filter((tool) => !delegatedSmsWithholdsTool(tool.name)),
+  );
+}
+
+/**
  * The 24/7 vendor work-order agent's registry: three reads pinned to ONE work
  * order via ctx.vendorScope plus escalate_to_manager (the only write, allow-
  * listed for autonomous calls). Deliberately tiny and separate from every other
@@ -263,7 +321,26 @@ export const leasingSmsAgentRegistry = buildRegistry([
   buildProspectLinksTool,
   getSiteLinksTool,
   escalateLeasingToManagerTool,
+  // A texting prospect can see real open times and file a tour REQUEST. It
+  // books nothing — the manager still confirms. See LEASING_SMS_INLINE_WRITE_TOOLS.
+  listOpenTourSlotsTool,
+  leasingRequestTourTool,
 ]);
+
+/**
+ * Write tools the prospect-facing leasing SMS agent may run inline.
+ *
+ * A texting prospect is anonymous: there is no `user_id` for a pending action
+ * to be claimed on, so a confirmation card is not merely absent, it is
+ * impossible. Both entries here are therefore chosen for being the same risk
+ * class — each files a request and notifies the manager, and neither changes
+ * anything the manager has not then seen and acted on. Nothing that books,
+ * charges, sends on the manager's behalf, or reads personal data may join them.
+ */
+export const LEASING_SMS_INLINE_WRITE_TOOLS: readonly string[] = [
+  escalateLeasingToManagerTool.name,
+  leasingRequestTourTool.name,
+];
 
 /**
  * The manager-financials WRITE tools on their own, for tests and for any caller

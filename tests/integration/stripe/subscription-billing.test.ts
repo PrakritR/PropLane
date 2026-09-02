@@ -50,6 +50,23 @@ import { POST as checkoutPortal } from "@/app/api/stripe/checkout-portal/route";
 import { POST as billingPortal } from "@/app/api/stripe/billing-portal/route";
 import { POST as webhook } from "@/app/api/stripe/webhook/route";
 
+/**
+ * The subscription webhook reads `manager_purchases` to find the manager behind
+ * the subscription before doing anything else, so a mock that only models
+ * `update` makes the handler throw and answer 500. `rows` is what that lookup
+ * returns; `update` is captured so the deleted-event test can assert on it.
+ */
+function serviceRoleDbMock(opts: { user_id?: string | null; update?: ReturnType<typeof vi.fn> } = {}) {
+  const maybeSingle = vi.fn().mockResolvedValue({
+    data: opts.user_id === undefined ? null : { user_id: opts.user_id },
+    error: null,
+  });
+  const select = vi.fn().mockReturnValue({ eq: vi.fn().mockReturnValue({ maybeSingle }) });
+  return {
+    from: vi.fn().mockReturnValue({ select, update: opts.update ?? vi.fn().mockReturnValue({ eq: vi.fn().mockResolvedValue({ error: null }) }) }),
+  };
+}
+
 describe("Stripe subscription billing", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -206,6 +223,8 @@ describe("Stripe subscription billing", () => {
       },
     } as never);
 
+    vi.mocked(createSupabaseServiceRoleClient).mockReturnValue(serviceRoleDbMock() as never);
+
     const req = new Request("http://localhost/api/stripe/webhook", {
       method: "POST",
       body: "{}",
@@ -219,9 +238,7 @@ describe("Stripe subscription billing", () => {
   it("webhook downgrades manager_purchases on customer.subscription.deleted", async () => {
     const eq = vi.fn().mockResolvedValue({ error: null });
     const update = vi.fn().mockReturnValue({ eq });
-    vi.mocked(createSupabaseServiceRoleClient).mockReturnValue({
-      from: vi.fn().mockReturnValue({ update }),
-    } as never);
+    vi.mocked(createSupabaseServiceRoleClient).mockReturnValue(serviceRoleDbMock({ update }) as never);
 
     vi.mocked(getStripe).mockReturnValue({
       webhooks: {

@@ -408,30 +408,43 @@ export async function POST(req: Request) {
     // Per-recipient channel resolution (category mode) mirrors core delivery:
     // email/SMS follow each recipient's saved prefs; account-less (no userId)
     // recipients get the category-default email and never SMS.
-    const channelByEmail = new Map<string, { email: boolean; sms: boolean }>();
+    const channelByEmail = new Map<string, { inbox: boolean; email: boolean; sms: boolean }>();
     if (eventCategory) {
       const recipientUserIds = recipients
         .map((r) => r.userId)
         .filter((id): id is string => Boolean(id));
-      const phoneById = new Map<string, { phone: string | null; phone_verified_at: string | null }>();
+      const phoneById = new Map<
+        string,
+        {
+          phone: string | null;
+          phone_verified_at: string | null;
+          role: string | null;
+          sms_from_number: string | null;
+          sms_forward_inbound: boolean | null;
+        }
+      >();
       if (recipientUserIds.length) {
         const { data: recProfiles } = await db
           .from("profiles")
-          .select("id, phone, phone_verified_at")
+          .select("id, phone, phone_verified_at, role, sms_from_number, sms_forward_inbound")
           .in("id", recipientUserIds);
         for (const p of recProfiles ?? []) {
           phoneById.set(String(p.id), {
             phone: (p.phone as string | null) ?? null,
             phone_verified_at: (p.phone_verified_at as string | null) ?? null,
+            role: (p.role as string | null) ?? null,
+            sms_from_number: (p.sms_from_number as string | null) ?? null,
+            sms_forward_inbound: (p.sms_forward_inbound as boolean | null) ?? null,
           });
         }
       }
       for (const r of recipients) {
         if (r.userId) {
           const ch = await resolveChannels(db, r.userId, eventCategory, phoneById.get(r.userId) ?? null);
-          channelByEmail.set(r.email, { email: ch.email, sms: ch.sms });
+          channelByEmail.set(r.email, { inbox: ch.inbox, email: ch.email, sms: ch.sms });
         } else {
           channelByEmail.set(r.email, {
+            inbox: true,
             email: DEFAULT_NOTIFICATION_PREFERENCES[eventCategory].email,
             sms: false,
           });
@@ -621,6 +634,9 @@ export async function POST(req: Request) {
           pushCandidates.map((r) => {
             const uid = r.userId ?? resolvedIds.get(r.email);
             if (!uid) return Promise.resolve();
+            if (eventCategory && channelByEmail.get(r.email)?.inbox !== true) {
+              return Promise.resolve();
+            }
             return sendPushToUser(uid, {
               title: `New message from ${fromName}`,
               body: "You have a new message in your PropLane inbox.",

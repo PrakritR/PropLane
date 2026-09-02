@@ -1,10 +1,13 @@
 /**
  * Exhaustive resident SMS command matrix — every keyword the help menu
- * advertises plus manager-facing parity checks.
+ * advertises, plus the leasing prospect intents.
+ *
+ * The manager rows are gone with the regex command layer they tested: a manager
+ * texting their work number now reaches the full manager agent, covered by
+ * tests/unit/manager-sms-agent.test.ts.
  */
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { classifyResidentSmsIntent } from "@/lib/claw-resident-intents";
-import { classifyManagerAgentCommand } from "@/lib/claw-manager-intents";
 import { classifyLeasingIntent } from "@/lib/claw-leasing-links";
 
 /** Resident commands advertised in help / common phrasing. */
@@ -42,20 +45,6 @@ const RESIDENT_COMMAND_MATRIX: Array<{
   { text: "thanks for yesterday", intent: "unknown", domain: "Inbox" },
 ];
 
-const MANAGER_AGENT_MATRIX: Array<{
-  text: string;
-  isCommand: boolean;
-  intent: ReturnType<typeof classifyManagerAgentCommand>["intent"];
-}> = [
-  { text: "agent", isCommand: true, intent: "help" },
-  { text: "agent help", isCommand: true, intent: "help" },
-  { text: "AGENT: mark payment for Jane paid", isCommand: true, intent: "mark_paid" },
-  { text: "agent mark paid", isCommand: true, intent: "mark_paid" },
-  { text: "agent lease for Bob", isCommand: true, intent: "lease_link" },
-  { text: "agent payments for Ada", isCommand: true, intent: "payments" },
-  { text: "Please tell the resident I'll be there at 3", isCommand: false, intent: "unknown" },
-];
-
 const LEASING_COMMAND_MATRIX: Array<{
   text: string;
   intent: ReturnType<typeof classifyLeasingIntent>;
@@ -75,16 +64,6 @@ describe("resident SMS command matrix", () => {
       expect(c.intent).toBe(row.intent);
       if (row.domain) expect(c.domain).toBe(row.domain);
       if (row.skipBrief !== undefined) expect(c.skipManagerBrief).toBe(row.skipBrief);
-    });
-  }
-});
-
-describe("manager agent command matrix", () => {
-  for (const row of MANAGER_AGENT_MATRIX) {
-    it(`"${row.text}" → command=${row.isCommand}, intent=${row.intent}`, () => {
-      const c = classifyManagerAgentCommand(row.text);
-      expect(c.isCommand).toBe(row.isCommand);
-      expect(c.intent).toBe(row.intent);
     });
   }
 });

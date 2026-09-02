@@ -40,6 +40,10 @@ class FakeQuery {
     this.filters.push([col, val]);
     return this;
   }
+  in(col: string, vals: unknown[]) {
+    this.filters.push([`in:${col}`, vals]);
+    return this;
+  }
   neq(col: string, val: unknown) {
     this.filters.push([`!${col}`, val]);
     return this;
@@ -65,6 +69,11 @@ class FakeQuery {
         if (col.startsWith("<=")) {
           const c = col.slice(2);
           return !(c in r) || String(rec[c] ?? "") <= String(val ?? "");
+        }
+        if (col.startsWith("in:")) {
+          const c = col.slice(3);
+          const allowed = new Set((val as unknown[]).map((v) => String(v)));
+          return allowed.has(String(rec[c] ?? ""));
         }
         // Unknown projected columns (e.g. JSON path filters) are not modeled.
         if (!(col in r)) return true;
@@ -158,6 +167,11 @@ class FakeWriteQuery {
   }
   eq(col: string, val: unknown) {
     this.filters.push((r) => r[col] === val);
+    return this;
+  }
+  in(col: string, vals: unknown[]) {
+    const set = new Set(vals.map((v) => String(v)));
+    this.filters.push((r) => set.has(String(r[col] ?? "")));
     return this;
   }
   gt(col: string, val: unknown) {

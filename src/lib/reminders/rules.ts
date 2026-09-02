@@ -218,7 +218,7 @@ export const DEFAULT_REMINDER_RULES: ReminderRules = {
   task: {
     enabled: true,
     leadMinutes: [1 * DAY],
-    audience: { manager: false, counterparty: true },
+    audience: { manager: true, counterparty: true },
     inbox: true,
     email: true,
     sms: false,
@@ -234,7 +234,7 @@ export const DEFAULT_REMINDER_RULES: ReminderRules = {
   work_order: {
     enabled: true,
     leadMinutes: [1 * DAY, 30 * MINUTE],
-    audience: { manager: false, counterparty: true },
+    audience: { manager: true, counterparty: true },
     inbox: true,
     email: true,
     sms: false,

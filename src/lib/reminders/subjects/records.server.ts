@@ -15,6 +15,7 @@ import { resolveEmailLinkBaseUrl } from "@/lib/app-url";
 import { materializeReminders } from "@/lib/reminders/queue.server";
 import type { ReminderSettings, ReminderSubjectKind } from "@/lib/reminders/rules";
 import { loadReminderSettingsForManagers } from "@/lib/reminders/settings.server";
+import { loadManagerReminderRecipients } from "@/lib/reminders/manager-recipients.server";
 
 const HORIZON_DAYS = 31;
 /** Ceiling on rows examined per sweep, so one tick can never run unbounded. */
@@ -69,6 +70,7 @@ async function sweepRecordTable(
     residentName: string | null;
     notes: string | null;
     url: string;
+    active: boolean;
   },
 ): Promise<number> {
   const { data, error } = await db
@@ -84,22 +86,24 @@ async function sweepRecordTable(
   );
   if (rows.length === 0) return 0;
 
-  const settingsByManager = await loadReminderSettingsForManagers(
-    db,
-    rows.map((row) => row.manager_user_id),
-  );
+  const managerIds = rows.map((row) => row.manager_user_id);
+  const [settingsByManager, managerRecipients] = await Promise.all([
+    loadReminderSettingsForManagers(db, managerIds),
+    loadManagerReminderRecipients(db, managerIds),
+  ]);
 
   let queued = 0;
   for (const row of rows) {
     const settings: ReminderSettings | undefined = settingsByManager.get(row.manager_user_id);
     if (!settings?.rules[kind]?.enabled) continue;
+    const managerRecipient = managerRecipients.get(row.manager_user_id);
 
     const parsed = read(row);
-    if (!parsed.subjectId) continue;
+    if (!parsed.subjectId || !parsed.active) continue;
     if (!withinHorizon(parsed.anchorIso, now)) continue;
 
     const residentEmail = (row.resident_email ?? "").trim().toLowerCase();
-    if (!residentEmail.includes("@")) continue;
+    const hasResidentRecipient = residentEmail.includes("@");
 
     queued += await materializeReminders(
       db,
@@ -108,7 +112,14 @@ async function sweepRecordTable(
         kind,
         subjectId: parsed.subjectId,
         anchorIso: parsed.anchorIso!,
-        recipients: [{ email: residentEmail, role: "counterparty", name: parsed.residentName }],
+        recipients: [
+          ...(managerRecipient
+            ? [{ email: managerRecipient.email, role: "manager" as const, name: managerRecipient.name, userId: row.manager_user_id }]
+            : []),
+          ...(hasResidentRecipient
+            ? [{ email: residentEmail, role: "counterparty" as const, name: parsed.residentName }]
+            : []),
+        ],
         payload: {
           title: parsed.title,
           whenLabel: whenLabel(parsed.anchorIso!),
@@ -116,6 +127,7 @@ async function sweepRecordTable(
           counterpartyName: parsed.residentName,
           notes: parsed.notes,
           url: parsed.url,
+          notificationCategory: "maintenance",
         },
       },
       settings,
@@ -137,6 +149,7 @@ export async function sweepWorkOrderReminders(db: SupabaseClient, now: Date = ne
     residentName: str(row.row_data, "residentName"),
     notes: str(row.row_data, "description"),
     url: `${origin}/portal/services`,
+    active: str(row.row_data, "bucket") !== "completed" && str(row.row_data, "status") !== "Completed",
   }));
 }
 
@@ -156,5 +169,6 @@ export async function sweepServiceOrderReminders(db: SupabaseClient, now: Date =
     residentName: str(row.row_data, "residentName"),
     notes: str(row.row_data, "notes"),
     url: `${origin}/portal/services`,
+    active: str(row.row_data, "status") === "approved",
   }));
 }

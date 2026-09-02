@@ -13,8 +13,7 @@ import { leasingSmsSystemPromptForWorkNumberOwner } from "@/lib/agent/leasing-sm
 import { PROMPT_IDS, resolvePromptMeta } from "@/lib/agent/prompt-metadata";
 import { traceAgentTurn, type TraceActor } from "@/lib/observability/langfuse";
 import { buildLeasingSmsAgentContext } from "@/lib/tools/context";
-import { leasingSmsAgentRegistry } from "@/lib/tools";
-import { LEASING_ESCALATE_TOOL_NAME } from "@/lib/tools/domains/leasing-sms";
+import { leasingSmsAgentRegistry, LEASING_SMS_INLINE_WRITE_TOOLS } from "@/lib/tools";
 import { sendFromManagerWorkNumber } from "@/lib/proplane-sms-transport.server";
 import { buildConversationKey } from "@/lib/sms-conversation-identity";
 import { normalizeE164 } from "@/lib/twilio";
@@ -238,7 +237,7 @@ export async function runLeasingSmsAgentTurn(
           system,
           model: { model: TIER_MODELS.standard, tier: "standard" },
           readOnly: true,
-          allowWriteTools: [LEASING_ESCALATE_TOOL_NAME],
+          allowWriteTools: LEASING_SMS_INLINE_WRITE_TOOLS,
         }),
       {
         name: "leasing-sms-agent-turn",

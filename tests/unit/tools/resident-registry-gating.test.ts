@@ -38,6 +38,11 @@ const INBOX_TOOLS = [
 ];
 
 const UNGATED_TOOLS = [
+  // Tours are on no tier gate and no stage gate: touring is exactly what a
+  // pre-approval resident does, and the availability grid it reads is the same
+  // one the public website shows anonymously.
+  "list_open_tour_slots",
+  "request_tour",
   "get_my_balance",
   "list_my_charges",
   "get_my_payment_methods",
@@ -60,6 +65,8 @@ describe("resident registry gating", () => {
         "send_message_to_manager",
         "schedule_message",
         "cancel_scheduled_message",
+        "list_open_tour_slots",
+        "request_tour",
       ].sort(),
     );
   });

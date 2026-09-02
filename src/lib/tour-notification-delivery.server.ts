@@ -5,7 +5,7 @@
 import { resolveEmailLinkBaseUrl } from "@/lib/app-url";
 import { formatPacificDateTime } from "@/lib/pacific-time";
 import { appendResidentPropertyManagerInboxMessage, appendManagerPropertyLeadInboxMessage } from "@/lib/property-manager-inbox-thread.server";
-import { sendPropLaneSms } from "@/lib/proplane-sms-transport.server";
+import { sendManagerNotificationSms } from "@/lib/manager-notification-routing.server";
 import { sendResidentOutboundSms } from "@/lib/resident-outbound-sms.server";
 import { recordScopedSmsConsent } from "@/lib/sms-consent";
 import { buildConversationKey } from "@/lib/sms-conversation-identity";
@@ -32,7 +32,6 @@ import {
   buildTourRequestTenantBody,
 } from "@/lib/tour-notifications";
 
-const MANAGER_INBOX_SCOPE = "axis_portal_inbox_manager_v1";
 const RESIDENT_INBOX_SCOPE = "axis_portal_inbox_resident_v1";
 
 type Db = ReturnType<typeof import("@/lib/supabase/service").createSupabaseServiceRoleClient>;
@@ -275,7 +274,8 @@ export type TourInquiryPayload = {
 
 export async function notifyManagerTourRequest(
   db: Db,
-  req: Request,
+  /** Unused: origins come from `app-url.ts`, never the incoming request (see below). */
+  req: Request | null,
   inquiry: TourInquiryPayload,
   window?: { start: string; end: string },
 ): Promise<{ ok: boolean; skipped?: boolean; error?: string }> {
@@ -346,9 +346,15 @@ export async function notifyManagerTourRequest(
     ctx.tourStartIso ? ` (${formatTourTimeRange(ctx.tourStartIso, ctx.tourEndIso)})` : ""
   }. ${ctx.guestName} requested a tour. Check your PropLane inbox for details.`;
   await Promise.all(
-    recipients
-      .filter((recipient) => recipient.phone)
-      .map((recipient) => sendPropLaneSms({ to: recipient.phone!, text: smsText, log: null }).catch(() => undefined)),
+    recipients.map((recipient) =>
+      sendManagerNotificationSms(db, {
+        managerUserId: recipient.userId,
+        category: "leasing",
+        subject: "New tour request",
+        text: smsText,
+        purpose: "tour_request_manager_notification",
+      }).catch(() => undefined),
+    ),
   );
 
   if (email.error) return { ok: true, skipped: true, error: email.error };
@@ -416,7 +422,8 @@ function inquirySmsConsent(inquiry: TourInquiryPayload): boolean {
 
 export async function notifyTenantTourRequestReceived(
   db: Db,
-  req: Request,
+  /** Unused: origins come from `app-url.ts`, never the incoming request (see below). */
+  req: Request | null,
   inquiry: TourInquiryPayload,
   window?: { start: string; end: string },
 ): Promise<{ ok: boolean; skipped?: boolean; error?: string }> {
@@ -485,7 +492,8 @@ export async function notifyTenantTourRequestReceived(
 /** Tell the guest a pending tour request was removed before it was confirmed. */
 export async function notifyTenantTourRequestRemoved(
   db: Db,
-  req: Request,
+  /** Unused: origins come from `app-url.ts`, never the incoming request (see below). */
+  req: Request | null,
   inquiry: TourInquiryPayload,
   window?: { start: string; end: string },
   opts?: { subject?: string; body?: string },
@@ -561,7 +569,8 @@ export async function notifyTenantTourRequestRemoved(
  */
 async function notifyTenantTourChanged(
   db: Db,
-  req: Request,
+  /** Unused: origins come from `app-url.ts`, never the incoming request (see below). */
+  req: Request | null,
   inquiry: TourInquiryPayload,
   input: {
     kind: "canceled" | "rescheduled";
@@ -658,7 +667,8 @@ async function notifyTenantTourChanged(
 
 export async function notifyTenantTourCanceled(
   db: Db,
-  req: Request,
+  /** Unused: origins come from `app-url.ts`, never the incoming request (see below). */
+  req: Request | null,
   inquiry: TourInquiryPayload,
   window: { start: string; end: string; adminLabel?: string },
   reason?: string | null,
@@ -669,7 +679,8 @@ export async function notifyTenantTourCanceled(
 
 export async function notifyTenantTourRescheduled(
   db: Db,
-  req: Request,
+  /** Unused: origins come from `app-url.ts`, never the incoming request (see below). */
+  req: Request | null,
   inquiry: TourInquiryPayload,
   input: {
     window: { start: string; end: string; managerUserId?: string; adminLabel?: string };
@@ -685,7 +696,8 @@ export async function notifyTenantTourRescheduled(
 
 export async function notifyTenantTourConfirmed(
   db: Db,
-  req: Request,
+  /** Unused: origins come from `app-url.ts`, never the incoming request (see below). */
+  req: Request | null,
   inquiry: TourInquiryPayload,
   window: { start: string; end: string; managerUserId: string; adminLabel?: string },
   instructions?: string,

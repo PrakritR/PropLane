@@ -16,6 +16,7 @@ import { resolveEmailLinkBaseUrl } from "@/lib/app-url";
 import { isActivePlannedEvent, type PlannedEvent } from "@/lib/demo-admin-scheduling";
 import { materializeReminders } from "@/lib/reminders/queue.server";
 import { loadReminderSettingsForManagers } from "@/lib/reminders/settings.server";
+import { loadManagerReminderRecipients } from "@/lib/reminders/manager-recipients.server";
 
 const PLANNED_EVENTS_RECORD = "axis_admin_planned_events_v1";
 const HORIZON_DAYS = 31;
@@ -69,10 +70,11 @@ export async function sweepTourReminders(db: SupabaseClient, now: Date = new Dat
   const tours = remindableTours(events, now);
   if (tours.length === 0) return 0;
 
-  const settingsByManager = await loadReminderSettingsForManagers(
-    db,
-    tours.map((tour) => tour.managerUserId!),
-  );
+  const managerIds = tours.map((tour) => tour.managerUserId!);
+  const [settingsByManager, managerRecipients] = await Promise.all([
+    loadReminderSettingsForManagers(db, managerIds),
+    loadManagerReminderRecipients(db, managerIds),
+  ]);
   const origin = resolveEmailLinkBaseUrl().replace(/\/$/, "");
 
   let queued = 0;
@@ -80,7 +82,7 @@ export async function sweepTourReminders(db: SupabaseClient, now: Date = new Dat
     const managerUserId = tour.managerUserId!;
     const settings = settingsByManager.get(managerUserId);
     if (!settings?.rules.tour.enabled) continue;
-
+    const managerRecipient = managerRecipients.get(managerUserId);
     queued += await materializeReminders(
       db,
       {
@@ -89,6 +91,9 @@ export async function sweepTourReminders(db: SupabaseClient, now: Date = new Dat
         subjectId: tour.id,
         anchorIso: new Date(Date.parse(tour.start)).toISOString(),
         recipients: [
+          ...(managerRecipient
+            ? [{ email: managerRecipient.email, role: "manager" as const, name: managerRecipient.name, userId: managerUserId }]
+            : []),
           {
             email: tour.attendeeEmail!.trim().toLowerCase(),
             role: "counterparty",
@@ -103,6 +108,7 @@ export async function sweepTourReminders(db: SupabaseClient, now: Date = new Dat
           counterpartyName: tour.attendeeName ?? null,
           notes: tour.instructions ?? tour.notes ?? null,
           url: `${origin}/portal/tours`,
+          notificationCategory: "leasing",
         },
       },
       settings,

@@ -17,8 +17,13 @@ const INCOMPLETE_ROW: DemoApplicantRow = {
   property: "5257 Brooklyn",
   propertyId: "mgr-brooklyn-room1",
   managerUserId: "mgr-self",
-  stage: "In progress",
-  bucket: "pending",
+  // Delete is a STATUS-SPECIFIC action after 3c23cfc2 ("status-specific
+  // actions"): the detail footer offers it on a rejected application only, not
+  // on an in-progress draft. The behaviour under test is the cache write — that
+  // deleting drops the row so a later sync cannot resurrect it — so the row is
+  // staged in the status where the control actually exists.
+  stage: "Rejected",
+  bucket: "rejected",
   detail: "Started",
 };
 
@@ -137,7 +142,7 @@ afterEach(() => {
 describe("manager Applications — delete incomplete draft", () => {
   it("drops the row from the session cache when Delete is pressed so sync cannot resurrect it", async () => {
     // Applications are a list → detail route now; actions (including Delete) live on the detail page.
-    render(<ManagerApplications bucket="incomplete" applicationId={INCOMPLETE_ROW.id} />);
+    render(<ManagerApplications bucket="rejected" applicationId={INCOMPLETE_ROW.id} />);
 
     const deleteBtn = document.querySelector('[data-attr="application-delete"]');
     expect(deleteBtn).not.toBeNull();

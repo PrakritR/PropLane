@@ -1,6 +1,8 @@
 /**
  * Regression coverage for the CodeQL high-severity hardening pass:
- *   - js/polynomial-redos on the leasing / manager-intent / geocode / pdf regexes
+ *   - js/polynomial-redos on the leasing / geocode / pdf regexes
+ *     (the manager-intent regexes went with the regex command layer they backed;
+ *     the manager SMS surface is an LLM agent now, no hint extraction)
  *   - js/incomplete-url-substring-sanitization on the Apple OAuth diagnostic
  *
  * Each ReDoS case proves two things:
@@ -12,7 +14,6 @@
  */
 import { describe, expect, it } from "vitest";
 import { listingGeocodeQuery } from "@/lib/geocode-address";
-import { classifyManagerAgentCommand } from "@/lib/claw-manager-intents";
 import { extractPropertyIdHint, extractPropertyLabelHint } from "@/lib/claw-leasing-links";
 import { htmlToBlocks } from "@/lib/reports/export/document-pdf";
 // @ts-expect-error — plain .mjs diagnostic script, no type declarations.
@@ -44,26 +45,6 @@ describe("geocode listingGeocodeQuery — unit-strip ReDoS", () => {
   it("runs in linear time on a long whitespace run", () => {
     const pathological = `123 Main St${"\t".repeat(60_000)}`;
     expectFast(() => strip(pathological));
-  });
-});
-
-describe("manager-intent resident-hint ReDoS", () => {
-  const hint = (text: string): string | null => classifyManagerAgentCommand(text).residentHint;
-
-  it("extracts the resident hint and trims trailing punctuation as before", () => {
-    expect(hint("agent mark payment for John Smith paid")).toBe("John Smith");
-    expect(hint("agent mark Jane paid")).toBe("Jane");
-    expect(hint("agent lease for Alex Rivera")).toBe("Alex Rivera");
-    expect(hint("agent payments for Dana!!!")).toBe("Dana");
-    expect(hint("agent mark payment for   Kai   Lee   paid")).toBe("Kai   Lee");
-  });
-
-  it("runs in linear time on whitespace and punctuation floods", () => {
-    // Old `\s+(.+?)\s+paid` AND old `[.?!,]+$` both backtracked here.
-    const spaces = `agent mark payment for${" ".repeat(60_000)}`;
-    const bangs = `agent mark ${"!".repeat(60_000)}a paid`;
-    expectFast(() => classifyManagerAgentCommand(spaces));
-    expectFast(() => classifyManagerAgentCommand(bangs));
   });
 });
 

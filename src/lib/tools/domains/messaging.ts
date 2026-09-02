@@ -14,6 +14,7 @@ import { writeAuditLog, updateAuditResult, auditDayBucket } from "../audit";
 import { filterRecipientsBySenderScope, type InboxScopeSender } from "@/lib/inbox-recipient-scope";
 import { deliverPortalInboxMessage, resolveBroadcastRecipients } from "@/lib/portal-inbox-delivery";
 import { MANAGER_INBOX_SCOPE } from "@/lib/portal-inbox-thread-scope";
+import { smsInboxOwnerIds } from "@/lib/sms/manager-sms-access.server";
 import type { PersistedInboxThread } from "@/lib/portal-inbox-storage";
 import {
   createScheduledInboxMessage,
@@ -124,10 +125,31 @@ function recipientLabel(r: { name: string; email: string }): string {
   return r.name === r.email ? r.email : `${r.name} (${r.email})`;
 }
 
+/** One phrasing for the channel set, shared by the preview and the reply. */
+function describeDelivery(email: boolean, sms: boolean): string {
+  const extra = [email ? "email" : null, sms ? "text" : null].filter(Boolean);
+  return extra.length > 0 ? `Portal inbox + ${extra.join(" + ")}` : "Portal inbox only";
+}
+
+/**
+ * A text lands on someone's phone, so the confirmer must see that the channel
+ * escalated — an SMS is not undoable the way an unread inbox message is, and
+ * the delivery layer only reaches verified, non-opted-out phones.
+ */
+function withSmsWarning(
+  base: { warnings?: string[] },
+  sms: boolean,
+): { warnings?: string[] } {
+  if (!sms) return base;
+  const note =
+    "This also sends a real text message. Only recipients with a verified phone who have not opted out will receive it.";
+  return { warnings: [...(base.warnings ?? []), note] };
+}
+
 export const sendMessageTool = defineWriteTool({
   name: "send_message",
   description:
-    "Send a message from the landlord to specific recipients by email and/or to all of their current residents at once, delivered to each recipient's portal inbox and optionally by email. Recipients must be connected to the landlord (their residents, co-managers, or vendors) — get emails from list_residents or list_vendors.",
+    "Send a message from the landlord to specific recipients by email and/or to all of their current residents at once, delivered to each recipient's portal inbox and optionally by email and/or SMS text. Recipients must be connected to the landlord (their residents, co-managers, or vendors) — get emails from list_residents or list_vendors. Use deliverViaSms when the landlord asks you to TEXT someone.",
   inputSchema: z
     .object({
       toEmails: z
@@ -146,6 +168,12 @@ export const sendMessageTool = defineWriteTool({
         .boolean()
         .optional()
         .describe("Also send a real email to each recipient (default true). When false, delivers to portal inboxes only."),
+      deliverViaSms: z
+        .boolean()
+        .optional()
+        .describe(
+          "Also text each recipient (default false). Only reaches recipients with a verified, non-opted-out phone; the rest still get the inbox copy. Use this when the landlord says to text someone.",
+        ),
     })
     .strict(),
   preview: async (ctx, input) => {
@@ -161,6 +189,7 @@ export const sendMessageTool = defineWriteTool({
     const subject = input.subject.trim();
     const body = input.body.trim();
     const deliverViaEmail = input.deliverViaEmail !== false;
+    const deliverViaSms = input.deliverViaSms === true;
 
     const lines = allowed.slice(0, PREVIEW_LINE_CAP).map((r) => ({ label: r.name, value: r.email }));
     if (allowed.length > PREVIEW_LINE_CAP) {
@@ -168,7 +197,7 @@ export const sendMessageTool = defineWriteTool({
     }
     lines.push({ label: "Subject", value: subject });
     lines.push({ label: "Message", value: body });
-    lines.push({ label: "Delivery", value: deliverViaEmail ? "Portal inbox + email" : "Portal inbox only" });
+    lines.push({ label: "Delivery", value: describeDelivery(deliverViaEmail, deliverViaSms) });
     if (blocked.length > 0) {
       // Surface — never silently drop — recipients the scope filter rejected.
       lines.push({ label: "Skipped (not connected)", value: blocked.map((b) => b.email).join(", ") });
@@ -185,6 +214,7 @@ export const sendMessageTool = defineWriteTool({
         subject,
         body,
         ...(input.deliverViaEmail === undefined ? {} : { deliverViaEmail: input.deliverViaEmail }),
+        ...(input.deliverViaSms === undefined ? {} : { deliverViaSms: input.deliverViaSms }),
       },
       kind: "send_message",
       title: allowed.length === 1 ? "Send message" : `Send message to ${allowed.length} recipients`,
@@ -196,7 +226,7 @@ export const sendMessageTool = defineWriteTool({
           ? ` ${blocked.length} requested recipient${blocked.length === 1 ? " is" : "s are"} not connected to you and will be skipped.`
           : ""),
       fields: lines,
-      ...withBodyWarnings(body),
+      ...withSmsWarning(withBodyWarnings(body), deliverViaSms),
       confirmLabel: allowed.length === 1 ? "Send message" : `Send to ${allowed.length} recipients`,
       ...(allowed.length > 1 ? { batchCount: allowed.length } : {}),
     };
@@ -211,6 +241,7 @@ export const sendMessageTool = defineWriteTool({
     const subject = input.subject.trim();
     const body = input.body.trim();
     const deliverViaEmail = input.deliverViaEmail !== false;
+    const deliverViaSms = input.deliverViaSms === true;
     const sortedEmails = allowed.map((r) => r.email).sort();
 
     // Record intent first, idempotent per identical content + recipient set
@@ -219,7 +250,12 @@ export const sendMessageTool = defineWriteTool({
     const audit = await writeAuditLog(ctx, {
       action: "send_message",
       toolName: "send_message",
-      inputSummary: { recipientCount: allowed.length, broadcast: input.toAllResidents === true, deliverViaEmail },
+      inputSummary: {
+        recipientCount: allowed.length,
+        broadcast: input.toAllResidents === true,
+        deliverViaEmail,
+        deliverViaSms,
+      },
       dedupeKey,
     });
     if (!audit.recorded) {
@@ -251,6 +287,7 @@ export const sendMessageTool = defineWriteTool({
       ...(toEmails.length > 0 ? { toEmails } : {}),
       ...(toUserIds.length > 0 ? { toUserIds } : {}),
       deliverViaEmail,
+      deliverViaSms,
       senderRole: "manager",
     });
     if (!delivery.ok) {
@@ -259,7 +296,10 @@ export const sendMessageTool = defineWriteTool({
       throw new Error(delivery.error);
     }
     await updateAuditResult(ctx, dedupeKey, { delivered: true, recipientCount: delivery.recipientCount });
-    return { reply: `Sent "${subject}" to ${delivery.recipientCount} recipient${delivery.recipientCount === 1 ? "" : "s"} ${deliverViaEmail ? "(portal inbox + email)" : "(portal inbox only)"}.`, resultSummary: { recipientCount: delivery.recipientCount, deliverViaEmail } };
+    return {
+      reply: `Sent "${subject}" to ${delivery.recipientCount} recipient${delivery.recipientCount === 1 ? "" : "s"} (${describeDelivery(deliverViaEmail, deliverViaSms).toLowerCase()}).`,
+      resultSummary: { recipientCount: delivery.recipientCount, deliverViaEmail, deliverViaSms },
+    };
   },
 });
 
@@ -271,17 +311,21 @@ type OwnThreadRow = {
   row_data: PersistedInboxThread;
 };
 
-/** Load ONE of the landlord's own inbox threads (scope + owner filtered), or null. */
+/** Load ONE inbox thread the actor can see (own or SMS-delegated owner). */
 async function loadOwnInboxThread(ctx: AgentContext, threadId: string): Promise<OwnThreadRow | null> {
-  const { data, error } = await ctx.db
-    .from("portal_inbox_thread_records")
-    .select("id, owner_user_id, participant_email, scope, row_data")
-    .eq("scope", MANAGER_INBOX_SCOPE)
-    .eq("owner_user_id", ctx.userId)
-    .eq("id", threadId)
-    .maybeSingle();
-  if (error) throw new Error(error.message);
-  return (data as OwnThreadRow | null) ?? null;
+  const ownerIds = await smsInboxOwnerIds(ctx, "edit");
+  for (const ownerId of ownerIds) {
+    const { data, error } = await ctx.db
+      .from("portal_inbox_thread_records")
+      .select("id, owner_user_id, participant_email, scope, row_data")
+      .eq("scope", MANAGER_INBOX_SCOPE)
+      .eq("owner_user_id", ownerId)
+      .eq("id", threadId)
+      .maybeSingle();
+    if (error) throw new Error(error.message);
+    if (data) return data as OwnThreadRow;
+  }
+  return null;
 }
 
 /** The counterparty address of a thread: sender for received mail, recipient for sent. */

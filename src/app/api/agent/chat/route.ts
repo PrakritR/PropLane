@@ -3,7 +3,7 @@ import { resolveAgentContext } from "@/lib/tools/context";
 import { agentRegistry, MANAGER_INLINE_WRITE_TOOLS } from "@/lib/tools";
 import { runAgentTurn } from "@/lib/agent/loop";
 import type { ActionPreview } from "@/lib/tools/registry";
-import { SYSTEM_PROMPT } from "@/lib/agent/system-prompt";
+import { MANAGER_SYSTEM_PROMPT } from "@/lib/agent/system-prompts";
 import { sanitizeChatMessages, lastUserText, applyChatAttachments } from "@/lib/agent/chat-handler";
 import { createPendingAction } from "@/lib/tools/pending-actions";
 import { handlePendingActionDecision } from "@/lib/agent/pending-action-decision";
@@ -138,7 +138,8 @@ export async function POST(req: Request) {
   const customInstructions = await loadAgentCustomInstructions(ctx.db, ctx.userId);
 
   try {
-    const promptMeta = resolvePromptMeta(PROMPT_IDS.managerAssistant, SYSTEM_PROMPT);
+    const system = withAgentCustomInstructions(MANAGER_SYSTEM_PROMPT, customInstructions);
+    const promptMeta = resolvePromptMeta(PROMPT_IDS.managerAssistant, system);
     const traceActor = {
       userId: ctx.userId,
       sessionId: sessionId ?? undefined,
@@ -164,7 +165,7 @@ export async function POST(req: Request) {
         runAgentTurn({
           ctx,
           registry: agentRegistry,
-          system: withAgentCustomInstructions(SYSTEM_PROMPT, customInstructions),
+          system,
           messages,
           observer,
           allowWriteTools: MANAGER_INLINE_WRITE_TOOLS,

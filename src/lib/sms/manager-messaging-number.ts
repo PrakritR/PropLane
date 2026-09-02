@@ -59,6 +59,12 @@ export type ManagerMessagingNumberStatus = {
   entitlement: ManagerMessagingEntitlement;
   number: ManagerMessagingNumber | null;
   canRequest: boolean;
+  /**
+   * They ticked "set up a PropLane number" while creating the account. Carried
+   * on the status the panel already loads rather than a second round trip, so
+   * there is one read and one source for what Settings renders.
+   */
+  requestedAtSignup: boolean;
   canSend: boolean;
   personalPhone: {
     phone: string | null;
