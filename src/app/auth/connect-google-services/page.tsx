@@ -7,9 +7,21 @@ import { Button } from "@/components/ui/button";
 import { MANAGER_GOOGLE_SERVICES_ONBOARDING_PATH } from "@/lib/auth/manager-google-services-onboarding";
 import { formatGoogleCalendarConnectError } from "@/lib/google-calendar/connect-errors";
 import { portalDashboardPath } from "@/lib/auth/portal-roles";
+import {
+  shouldOfferWorkNumberSetup,
+  workNumberOnboardingPhone,
+  type WorkNumberOnboardingStatus,
+} from "@/lib/sms/work-number-onboarding";
 import { BANNER_INFO_CLASS, BANNER_NEUTRAL_CLASS } from "@/lib/ui-styles";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useCallback, useEffect, useState } from "react";
+
+/**
+ * The full provisioning flow (area code, plan gate, retry diagnostics) stays in
+ * Settings — this step SHOWS the state and routes there, rather than growing a
+ * second copy of a flow that buys a real phone number.
+ */
+const MESSAGING_SETTINGS_PATH = "/portal/profile";
 
 type GoogleServicesStatus = {
   dismissed: boolean;
@@ -37,6 +49,7 @@ function ConnectGoogleServicesContent() {
   const [status, setStatus] = useState<GoogleServicesStatus | null>(null);
   const [loading, setLoading] = useState(true);
   const [skipping, setSkipping] = useState(false);
+  const [workNumber, setWorkNumber] = useState<WorkNumberOnboardingStatus | null>(null);
 
   const loadStatus = useCallback(async () => {
     const res = await fetch("/api/auth/manager-google-services", { credentials: "include", cache: "no-store" });
@@ -52,6 +65,25 @@ function ConnectGoogleServicesContent() {
     setStatus(body);
     return body;
   }, [router, showToast]);
+
+  useEffect(() => {
+    // Best-effort: a failure here must never block the Google step, so the card
+    // simply does not render rather than surfacing an error the manager did not
+    // ask for during signup.
+    void (async () => {
+      try {
+        const res = await fetch("/api/manager/messaging-number", {
+          credentials: "include",
+          cache: "no-store",
+        });
+        if (!res.ok) return;
+        const body = (await res.json()) as WorkNumberOnboardingStatus;
+        setWorkNumber(body);
+      } catch {
+        /* ignore */
+      }
+    })();
+  }, []);
 
   useEffect(() => {
     void (async () => {
@@ -151,6 +183,37 @@ function ConnectGoogleServicesContent() {
       ? status.calendarEmail
       : null;
 
+  const provisionedNumber = workNumberOnboardingPhone(workNumber);
+  const workNumberCard = shouldOfferWorkNumberSetup(workNumber) ? (
+    <div className="rounded-xl border border-border bg-card p-4">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="min-w-0 flex-1">
+          <p className="text-sm font-semibold text-foreground">PropLane work number</p>
+          <p className="mt-1 text-xs leading-relaxed text-muted">
+            A dedicated number for texting residents and prospects, with replies landing in your
+            PropLane inbox.
+          </p>
+          {provisionedNumber ? (
+            <p className="mt-2 text-xs font-medium text-[var(--status-confirmed-fg)]">
+              Active · {provisionedNumber}
+            </p>
+          ) : null}
+        </div>
+        {!provisionedNumber ? (
+          <Button
+            type="button"
+            variant="primary"
+            className="rounded-full"
+            data-attr="onboarding-set-up-work-number"
+            onClick={() => router.push(MESSAGING_SETTINGS_PATH)}
+          >
+            Set up work number
+          </Button>
+        ) : null}
+      </div>
+    </div>
+  ) : null;
+
   return (
     <AuthCard wide variant="blend">
       <div className="auth-plan-picker auth-plan-picker-wide">
@@ -231,6 +294,8 @@ function ConnectGoogleServicesContent() {
               ) : null}
             </div>
           </div>
+
+          {workNumberCard}
         </div>
 
         {!status.calendarConfigured && !status.gmailConfigured ? (
