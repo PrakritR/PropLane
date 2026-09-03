@@ -214,8 +214,12 @@ describe("DataList", () => {
       />,
     );
     const mobileRow = container.querySelector("[data-slot=data-list-mobile-row]");
+    // The invariant: the checkbox is never nested inside the record <button>
+    // (invalid HTML, breaks keyboard use). It now sits in a sibling <label> that
+    // widens the touch target to ~40px — see PORTAL_LIST_CHECKBOX_HIT_CLASS and
+    // AXI-157, where a near-miss on the 16px box opened the record instead.
     expect(mobileRow?.querySelector("button input")).toBeNull();
-    expect(mobileRow?.querySelector(":scope > input[type=checkbox]")).toBeTruthy();
+    expect(mobileRow?.querySelector(":scope > label > input[type=checkbox]")).toBeTruthy();
     expect(mobileRow?.querySelector(":scope > button")).toBeTruthy();
   });
 });
