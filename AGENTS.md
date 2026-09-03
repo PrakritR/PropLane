@@ -592,14 +592,27 @@ user explicitly waives a named step. The gate itself — the four reviews, the
 feature-testing template, the e2e procedure, and the promote checklist — lives in
 **[`docs/ship-gate.md`](docs/ship-gate.md)**; run `npm run ship:preflight` first.
 
-One fact worth carrying here because it silently reads as coverage: **a green PR
-run is NOT e2e coverage.** The `e2e` job in `.github/workflows/test.yml` runs only
-on `push` to `main` and on `schedule`, so it is **skipped on every pull request** —
-a PR whose Test workflow is green has had zero e2e signal, and the first real run
-happens after the merge lands. Run the suite locally before promoting anything
+One fact worth carrying here because it silently reads as coverage: **neither a
+green PR run NOR a green `main` run is full e2e coverage.** There are two browser
+jobs in `.github/workflows/test.yml` and neither runs on a pull request:
+
+- **`e2e`** runs only on `push` to `main`, and it is a **9-case public smoke**
+  (`npm run test:e2e:smoke` — ladder, landing page, public tours) plus the
+  globalSetup credential preflight. Green here says the production build boots
+  and the public path works, nothing about the portals.
+- **`e2e-full`** is the complete 158-case suite, and it runs only on the nightly
+  `schedule` or a manual `workflow_dispatch`.
+
+So a PR whose Test workflow is green has had **zero** e2e signal, and the merge
+to `main` buys only the smoke. Run the suite locally before promoting anything
 that touches portal UI or routes; the command, its dev/test pinning, and the
 known-failing / flaky specs (do not re-triage those) are in
 [`docs/ship-gate.md`](docs/ship-gate.md#run-e2e-locally-before-you-promote).
+
+The workflow's `check` job is the stable branch-protection status name, but it
+**runs no validation itself** — it is an `if: always()` aggregator over `unit`,
+`integration`, `lint`, and `build` that fails unless all four succeeded. Add a
+new validation job to its `needs` list or it gates nothing.
 
 # The PostgREST surface is public — RLS row predicates are not a column gate
 

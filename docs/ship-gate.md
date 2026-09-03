@@ -97,7 +97,10 @@ PLAYWRIGHT_SKIP_WEBSERVER=1 PLAYWRIGHT_BASE_URL=http://localhost:<port> \
 ```
 
 Both local runs and the two CI E2E jobs use zero retries so a flaky failure stays
-visible and does not multiply the suite's memory/time cost. Prefer a targeted
+visible and does not multiply the suite's memory/time cost. `retries: 0` in
+`playwright.config.ts` is the single source of that — no npm script or CI step
+passes `--retries`, and `tests/unit/ci-test-workflow.test.ts` fails if one starts
+to. Prefer a targeted
 spec list locally; use `npm run test:e2e:smoke` for the same bounded slice as
 `main`. Avoid `next dev` for broad E2E runs: cold Turbopack route compilation can
 exceed assertion timeouts on a constrained machine. Let Playwright build and
