@@ -5,6 +5,7 @@ import { GeneralAssistant } from "@/components/general/general-assistant";
 import { NativeAppGate } from "@/components/native/native-app-gate";
 import { NativeBridge } from "@/components/native/native-bridge";
 import { CAPACITOR_BOOTSTRAP_SCRIPT, THEME_BOOTSTRAP_SCRIPT } from "@/lib/bootstrap-scripts";
+import { brandSans } from "./fonts";
 import type { Metadata, Viewport } from "next";
 import Script from "next/script";
 import "./globals.css";
@@ -32,7 +33,12 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en" className="h-full antialiased" data-scroll-behavior="smooth" suppressHydrationWarning>
+    <html
+      lang="en"
+      className={`h-full antialiased ${brandSans.variable}`}
+      data-scroll-behavior="smooth"
+      suppressHydrationWarning
+    >
       <body className="min-h-full overflow-x-clip bg-background text-foreground">
         <Script id="axis-theme-bootstrap" strategy="beforeInteractive">
           {THEME_BOOTSTRAP_SCRIPT}

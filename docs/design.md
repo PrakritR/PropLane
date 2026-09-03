@@ -92,11 +92,29 @@ Shared across all portals. Use `Badge` tones — do not invent new status colors
 
 ## Typography
 
-**Sans stack:** `-apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "Helvetica Neue", ui-sans-serif, system-ui, sans-serif`
+**Sans:** **Schibsted Grotesk** (SIL Open Font License), variable 400–900,
+self-hosted and subset — `src/app/fonts.ts`, loaded in `src/app/layout.tsx`.
+The token is `--font-sans` (`globals.css`), composed as
+`var(--font-brand-sans), <former system stack>`.
 
-**Mono stack:** `ui-monospace, "SF Mono", "Cascadia Code", monospace` — table headers, KPI captions, section labels, IDs, status chips
+⚠️ **Two rules for anyone replacing this face.**
 
-**Base:** 15px body (`text-sm` / default), line-height **1.52**, antialiased, `optimizeLegibility`
+1. **It must have real tabular figures (`tnum`).** `tabular-nums` is used ~133
+   times across ~46 files — every payment ledger, rent table and KPI tile. A
+   face without a `tnum` GSUB feature makes all of that a SILENT no-op: money
+   columns rag and nothing fails anywhere. Verify with fontTools *after*
+   subsetting, since subsetting is where the feature usually gets dropped:
+   `python -c "from fontTools.ttLib import TTFont; print(sorted({r.FeatureTag for r in TTFont('f.woff2')['GSUB'].table.FeatureList.FeatureRecord}))"`
+2. **Never name next/font's variable `--font-sans`.** Tailwind v4 emits that
+   token itself from `@theme inline`; the two definitions collide and the loser
+   is not obvious. Use a private variable and compose it in, as `fonts.ts` does.
+
+The former system stack is retained as the fallback, so a failed font load
+degrades to the previous rendering rather than to a default serif.
+
+**Mono stack:** `ui-monospace, "SF Mono", "Cascadia Code", monospace` — table headers, KPI captions, section labels, IDs, status chips. Deliberately still a system stack: it costs zero bytes and holds the numeric/label channel.
+
+**Base:** browser default root (16px) with `text-sm` doing most of the work — there is **no** `font-size` on `html`/`body`. Line-height **1.52**, antialiased, `optimizeLegibility`.
 
 ### Scale (common patterns)
 
