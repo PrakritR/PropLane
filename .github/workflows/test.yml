@@ -52,14 +52,15 @@ jobs:
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
           STRIPE_WEBHOOK_SECRET: ${{ secrets.STRIPE_WEBHOOK_SECRET }}
 
+  # Fast production-path smoke for main. `--no-deps` skips the three storage-state
+  # setup tests, but Playwright globalSetup still proves that the admin, manager,
+  # and resident credentials can authenticate before these public flows run.
+  # The complete 158-case suite is intentionally a separate scheduled/manual job:
+  # running it serially with CI retries exceeded this job's budget on every push.
   e2e:
     runs-on: ubuntu-latest
-    # Backstop so a hung suite costs minutes, not GitHub's 6h job default. The
-    # real guards against hanging are Playwright's globalSetup preflight and
-    # globalTimeout (see playwright.config.ts); this is the outer safety net that
-    # also covers the setup steps (npm ci, browser install, build).
-    timeout-minutes: 30
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main' || github.event_name == 'schedule'
+    timeout-minutes: 15
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -68,7 +69,40 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npx playwright install --with-deps chromium
-      - run: npm run test:e2e
+      - run: npm run test:e2e:smoke
+        env:
+          NEXT_PUBLIC_APP_URL: http://localhost:3000
+          PLAYWRIGHT_BASE_URL: http://localhost:3000
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.TEST_SUPABASE_URL }}
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.TEST_SUPABASE_ANON_KEY }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.TEST_SUPABASE_SERVICE_ROLE_KEY }}
+          PROPLANE_PAYMENT_WAIVER_CODE: FREE100
+          AXIS_ADMIN_REGISTER_KEY: ${{ secrets.TEST_AXIS_ADMIN_REGISTER_KEY }}
+          E2E_ADMIN_EMAIL: ${{ secrets.E2E_ADMIN_EMAIL }}
+          E2E_ADMIN_PASSWORD: ${{ secrets.E2E_ADMIN_PASSWORD }}
+          E2E_MANAGER_EMAIL: ${{ secrets.E2E_MANAGER_EMAIL }}
+          E2E_MANAGER_PASSWORD: ${{ secrets.E2E_MANAGER_PASSWORD }}
+          E2E_RESIDENT_EMAIL: ${{ secrets.E2E_RESIDENT_EMAIL }}
+          E2E_RESIDENT_PASSWORD: ${{ secrets.E2E_RESIDENT_PASSWORD }}
+          E2E_TESTS_ENABLED: "1"
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+
+  # Broad diagnostic coverage belongs off the per-push critical path. Zero
+  # retries makes every flaky/failing case visible once instead of tripling its
+  # 60-second timeout and preventing the suite from ever reaching later files.
+  e2e-full:
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - run: npm run test:e2e -- --retries=0
         env:
           NEXT_PUBLIC_APP_URL: http://localhost:3000
           PLAYWRIGHT_BASE_URL: http://localhost:3000
@@ -95,7 +129,11 @@ jobs:
           node-version-file: .nvmrc
           cache: npm
       - run: npm ci
-      - run: npm run check
+      # Unit and build are independent required jobs above. Running `npm run
+      # check` here repeated all 6,240 unit cases and a production build, adding
+      # memory/CPU pressure without adding another validation dimension. Keep
+      # this stable job name for branch protection, but make its signal lint.
+      - run: npm run lint
 
   # Deploy gate. `npm run check` is `lint && test:unit && build`, so it stops at
   # the unit suite and never reaches the build — decoupling the JOBS above is not
