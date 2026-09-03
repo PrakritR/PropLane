@@ -1,31 +1,32 @@
 /**
  * @vitest-environment jsdom
  */
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import { renderHook, waitFor } from "@testing-library/react";
 import { useProspectActionGate } from "@/hooks/use-prospect-action-gate";
+import type { ProspectContactAutofill } from "@/hooks/use-prospect-contact-autofill";
 
-const autofillState = {
-  ready: true,
-  userId: null as string | null,
-  hasResidentRole: false,
-};
-
-vi.mock("@/hooks/use-prospect-contact-autofill", () => ({
-  useProspectContactAutofill: () => autofillState,
-}));
+function makeAutofill(overrides: Partial<ProspectContactAutofill> = {}): ProspectContactAutofill {
+  return {
+    ready: true,
+    userId: null,
+    name: "",
+    email: "",
+    phone: "",
+    hasResidentRole: false,
+    ...overrides,
+  };
+}
 
 describe("useProspectActionGate", () => {
   afterEach(() => {
     sessionStorage.clear();
-    autofillState.ready = true;
-    autofillState.userId = null;
-    autofillState.hasResidentRole = false;
   });
 
   it("shows the account prompt for anonymous guests on tour and message", () => {
-    const tour = renderHook(() => useProspectActionGate("tour", "mgr-5259", false));
-    const message = renderHook(() => useProspectActionGate("message", "mgr-5259", false));
+    const autofill = makeAutofill();
+    const tour = renderHook(() => useProspectActionGate("tour", "mgr-5259", false, autofill));
+    const message = renderHook(() => useProspectActionGate("message", "mgr-5259", false, autofill));
 
     expect(tour.result.current.gateView).toBe("account-prompt");
     expect(message.result.current.gateView).toBe("account-prompt");
@@ -34,7 +35,8 @@ describe("useProspectActionGate", () => {
   });
 
   it("opens the action after continue-as-guest is chosen", async () => {
-    const { result } = renderHook(() => useProspectActionGate("tour", "mgr-5259", false));
+    const autofill = makeAutofill();
+    const { result } = renderHook(() => useProspectActionGate("tour", "mgr-5259", false, autofill));
     expect(result.current.gateView).toBe("account-prompt");
 
     result.current.continueAsGuest();
@@ -45,10 +47,27 @@ describe("useProspectActionGate", () => {
   });
 
   it("routes residents into the portal surface", () => {
-    autofillState.hasResidentRole = true;
-    autofillState.userId = "resident-1";
+    const autofill = makeAutofill({ userId: "resident-1", hasResidentRole: true });
 
-    const { result } = renderHook(() => useProspectActionGate("tour", "mgr-5259", false));
+    const { result } = renderHook(() => useProspectActionGate("tour", "mgr-5259", false, autofill));
     expect(result.current.gateView).toBe("resident-portal");
+  });
+
+  it("resets guest bypass when the gate key changes", async () => {
+    const autofill = makeAutofill();
+    const { result, rerender } = renderHook(
+      ({ propertyId }) => useProspectActionGate("tour", propertyId, false, autofill),
+      { initialProps: { propertyId: "mgr-5259" } },
+    );
+
+    result.current.continueAsGuest();
+    await waitFor(() => {
+      expect(result.current.gateView).toBe("action");
+    });
+
+    rerender({ propertyId: "mgr-5260" });
+    await waitFor(() => {
+      expect(result.current.gateView).toBe("account-prompt");
+    });
   });
 });

@@ -90,6 +90,68 @@ function propertyDataFingerprint(pd: PropertyData | null): string {
   ].join(" ");
 }
 
+/** Re-key copied rooms so two live listings never share room ids under one manager. */
+function rekeyListingRooms(sub: ManagerListingSubmissionV1): ManagerListingSubmissionV1 {
+  const cloned = deepClone(sub);
+  const idMap = new Map<string, string>();
+  cloned.rooms = cloned.rooms.map((room, index) => {
+    const newId = `room-copy-${index}-${Math.random().toString(36).slice(2, 9)}`;
+    idMap.set(room.id, newId);
+    return { ...room, id: newId };
+  });
+  const remapIds = (ids: string[] | undefined) =>
+    (ids ?? [])
+      .map((id) => idMap.get(id))
+      .filter((id): id is string => Boolean(id && cloned.rooms.some((r) => r.id === id)));
+  cloned.bathrooms = cloned.bathrooms.map((bath) => ({
+    ...bath,
+    assignedRoomIds: remapIds(bath.assignedRoomIds),
+    accessKindByRoomId: Object.fromEntries(
+      Object.entries(bath.accessKindByRoomId ?? {})
+        .map(([id, kind]) => {
+          const mapped = idMap.get(id);
+          return mapped ? [mapped, kind] : null;
+        })
+        .filter((entry): entry is [string, ManagerListingSubmissionV1["bathrooms"][number]["accessKindByRoomId"][string]] =>
+          Boolean(entry),
+        ),
+    ),
+  }));
+  cloned.sharedSpaces = cloned.sharedSpaces.map((space) => ({
+    ...space,
+    roomAccessIds: remapIds(space.roomAccessIds),
+  }));
+  if (cloned.bundles) {
+    cloned.bundles = cloned.bundles.map((bundle) => ({
+      ...bundle,
+      includedRoomIds: remapIds(bundle.includedRoomIds),
+    }));
+  }
+  return cloned;
+}
+
+/** Resident-only move-in secrets stay on the target — public listing copy must not overwrite them. */
+function preserveTargetMoveInSecrets(
+  copiedSub: ManagerListingSubmissionV1,
+  targetSub: ManagerListingSubmissionV1,
+): ManagerListingSubmissionV1 {
+  copiedSub.generalHouseInfo = targetSub.generalHouseInfo;
+  copiedSub.wifiNetworkName = targetSub.wifiNetworkName;
+  copiedSub.wifiPassword = targetSub.wifiPassword;
+  copiedSub.houseMoveInInstructions = targetSub.houseMoveInInstructions;
+  copiedSub.rooms = copiedSub.rooms.map((room) => {
+    const match = targetSub.rooms.find((r) => r.name.trim() === room.name.trim());
+    if (!match) return room;
+    return {
+      ...room,
+      moveInInstructions: match.moveInInstructions,
+      moveInPhotoDataUrls: match.moveInPhotoDataUrls,
+      moveInVideoDataUrl: match.moveInVideoDataUrl,
+    };
+  });
+  return copiedSub;
+}
+
 function buildTargetPropertyData(
   sourcePd: PropertyData,
   targetPd: PropertyData,
@@ -98,7 +160,7 @@ function buildTargetPropertyData(
 ): PropertyData {
   const identity = submissionIdentity(targetSub);
   const nextSub = normalizeManagerListingSubmissionV1({
-    ...deepClone(sourceSub),
+    ...preserveTargetMoveInSecrets(rekeyListingRooms(sourceSub), targetSub),
     ...identity,
   });
   const legacy = deriveLegacyFields(nextSub);
@@ -108,7 +170,7 @@ function buildTargetPropertyData(
     id: TARGET_PROPERTY_ID,
     buildingId: targetPd.buildingId ?? TARGET_PROPERTY_ID,
     buildingName: identity.buildingName,
-    title: targetPd.title ?? `${identity.buildingName} · ${legacy.unitLabel}`,
+    title: `${identity.buildingName} · ${legacy.unitLabel}`,
     address: targetPd.address ?? identity.address,
     zip: targetPd.zip ?? identity.zip,
     neighborhood: legacy.neighborhood,

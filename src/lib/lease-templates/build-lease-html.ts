@@ -1227,7 +1227,7 @@ ${customTermsAddendumHtml(subNorm, "Additional Provisions from Owner/Host", prop
   const lastMonthSuffix = lastMonthTotals?.monthLabel
     ? ` for ${escapeHtml(lastMonthTotals.monthLabel)}`
     : " (final partial month)";
-  const initialPaymentRows = [
+  const firstMonthPaymentRows = [
     showProratedFirstMonth && proratedRentAmount <= 0 && proratedUtilitiesAmount <= 0
       ? `<tr><th>Prorated rent${firstMonthSuffix}</th><td class="amount">${fmtUsd(firstPartialMonthPayment)}</td></tr>`
       : "",
@@ -1237,6 +1237,10 @@ ${customTermsAddendumHtml(subNorm, "Additional Provisions from Owner/Host", prop
     proratedUtilitiesAmount > 0
       ? `<tr><th>Prorated utilities${firstMonthSuffix}</th><td class="amount">${fmtUsd(proratedUtilitiesAmount)}</td></tr>`
       : "",
+  ]
+    .filter(Boolean)
+    .join("\n    ");
+  const lastMonthPaymentRows = [
     showProratedLastMonth && lastMonthTotals && lastMonthTotals.proratedRent > 0
       ? `<tr><th>Last month&apos;s rent${lastMonthSuffix}</th><td class="amount">${fmtUsd(lastMonthTotals.proratedRent)}</td></tr>`
       : "",
@@ -1266,8 +1270,9 @@ ${customTermsAddendumHtml(subNorm, "Additional Provisions from Owner/Host", prop
     ${supplementalOneTimeSummaryRows}
     ${customFeeSummaryRows}
     ${summaryGroupRow("Initial payment")}
-    ${initialPaymentRows}
+    ${firstMonthPaymentRows}
     <tr class="total-row"><th>Payment due at signing</th><td class="amount"><strong>${paySigning}</strong></td></tr>
+    ${lastMonthPaymentRows ? `${summaryGroupRow("Final partial month (not due at signing)")}${lastMonthPaymentRows}` : ""}
   </table>
   ${paySigningIncludesNote ? `<p class="fee-note">Due at signing includes: ${paySigningIncludesNote}.</p>` : ""}
   ${

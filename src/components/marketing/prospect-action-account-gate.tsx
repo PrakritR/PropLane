@@ -175,7 +175,7 @@ export function ProspectResidentPortalTourPrompt({
           Schedule tour
         </Link>
         <Link
-          href="/resident/tour/schedule"
+          href="/resident/tour/pending"
           className={gateSecondaryBtnClass()}
           data-attr="prospect-tour-open-tour-inbox"
         >

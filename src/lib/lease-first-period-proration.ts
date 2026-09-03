@@ -60,7 +60,7 @@ export function leaseEndProration(leaseEnd: string | undefined): LeaseBoundaryPr
     billableDays: day,
     daysInMonth,
     label: `${day}/${daysInMonth} days through lease end`,
-    dueDateLabel: `By ${reminderDate.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })}`,
+    dueDateLabel: `By ${reminderDate.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}`,
   };
 }
 
@@ -263,7 +263,8 @@ export function computeProratedLastMonthTotals(
         ).amount
       : 0;
   const utilities =
-    input.monthlyUtilities > 0
+    input.monthlyUtilities > 0 &&
+    (input.method !== "daily_rate" || Boolean(input.dailyUtilitiesRate && input.dailyUtilitiesRate > 0))
       ? proratedLastMonthAmount(input.monthlyUtilities, proration, input.method, input.dailyUtilitiesRate)
           .amount
       : 0;

@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useProspectContactAutofill } from "@/hooks/use-prospect-contact-autofill";
+import type { ProspectContactAutofill } from "@/hooks/use-prospect-contact-autofill";
 import {
   hasProspectGuestContinue,
   markProspectGuestContinue,
@@ -16,6 +16,7 @@ export function useProspectActionGate(
   action: ProspectActionKind,
   propertyId: string,
   signedInNonResident: boolean,
+  contactAutofill: ProspectContactAutofill,
 ): {
   ready: boolean;
   gateKey: string;
@@ -23,7 +24,6 @@ export function useProspectActionGate(
   portalReturn: string;
   continueAsGuest: () => void;
 } {
-  const contactAutofill = useProspectContactAutofill();
   const gateKey = prospectGateKey(action, propertyId);
   const [guestBypass, setGuestBypass] = useState(false);
   const [guestContinued, setGuestContinued] = useState(false);
@@ -31,9 +31,11 @@ export function useProspectActionGate(
   useEffect(() => {
     if (!gateKey) {
       setGuestContinued(false);
+      setGuestBypass(false);
       return;
     }
     setGuestContinued(hasProspectGuestContinue(gateKey));
+    setGuestBypass(false);
   }, [gateKey]);
 
   const guestContinue = guestBypass || guestContinued;

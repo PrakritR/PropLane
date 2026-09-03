@@ -426,13 +426,11 @@ export function buildCompactRoomLeaseBody(input: CompactRoomLeaseInput): string 
   const proratedUtilities = input.proratedUtilitiesAmount ?? 0;
   const lastMonthRent = input.proratedLastMonthRent ?? 0;
   const lastMonthUtilities = input.proratedLastMonthUtilities ?? 0;
-  const initialPaymentLines = [
+  const firstMonthPaymentLines = [
     proratedRent > 0 ? summaryLine(`Prorated Rent${firstMonthFor}`, fmtUsd(proratedRent)) : "",
     proratedUtilities > 0
       ? summaryLine(`Prorated Utilities${firstMonthFor}`, fmtUsd(proratedUtilities))
       : "",
-    // Only when the rent/utilities split is unknown — otherwise this repeats the two lines
-    // above it, and a summary that says the same number twice is a summary nobody trusts.
     showProratedFirstMonth && proratedRent <= 0 && proratedUtilities <= 0
       ? summaryLine("Prorated first month", fmtUsd(firstPartialMonthPayment))
       : !showProratedFirstMonth && input.listingFeePreview
@@ -441,6 +439,10 @@ export function buildCompactRoomLeaseBody(input: CompactRoomLeaseInput): string 
             "Calculated from the lease start date when it is not the 1st of the month",
           )
         : "",
+  ]
+    .filter(Boolean)
+    .join("\n  ");
+  const lastMonthPaymentLines = [
     lastMonthRent > 0 ? summaryLine(`Last Month&apos;s Rent${lastMonthFor}`, fmtUsd(lastMonthRent)) : "",
     lastMonthUtilities > 0
       ? summaryLine(`Last Month&apos;s Utilities${lastMonthFor}`, fmtUsd(lastMonthUtilities))
@@ -451,6 +453,11 @@ export function buildCompactRoomLeaseBody(input: CompactRoomLeaseInput): string 
           "Calculated from the lease end date when it is not the last day of the month",
         )
       : "",
+  ]
+    .filter(Boolean)
+    .join("\n  ");
+  const initialPaymentLines = [
+    firstMonthPaymentLines,
     summaryLine("Payment Due at Signing", paySigning),
   ]
     .filter(Boolean)
@@ -474,6 +481,7 @@ export function buildCompactRoomLeaseBody(input: CompactRoomLeaseInput): string 
   ${oneTimeCustomFeeSummaryLines}
   ${summaryHeading("Initial payment")}
   ${initialPaymentLines}
+  ${lastMonthPaymentLines ? `${summaryHeading("Final partial month (not due at signing)")}\n  ${lastMonthPaymentLines}` : ""}
   ${paySigningIncludesNote ? `<p style="margin:0.35rem 0 0;font-size:0.92em">Due at signing includes: ${paySigningIncludesNote}.</p>` : ""}
   ${
     lastMonthRent > 0 || lastMonthUtilities > 0
