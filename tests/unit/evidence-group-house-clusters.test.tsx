@@ -217,6 +217,12 @@ vi.mock("@/lib/manager-portfolio-access", () => ({
   MANAGER_PORTFOLIO_REFRESH_EVENTS: [],
   applicationVisibleToPortalUser: () => true,
   buildManagerPropertyFilterOptions: () => [],
+  // Property pickers now also read a co-manager's LINKED listings, which live
+  // under the owner's id rather than the viewer's (AXI-156). This suite has no
+  // co-manager links, so an empty set is the right answer for it.
+  collectLinkedPropertyIdsForModule: () => new Set<string>(),
+  readLinkedListingsForUser: () => [],
+  resolvePropertyLabelForId: (id: string) => id,
 }));
 vi.mock("@/lib/manager-property-links", () => ({ buildManagerShareablePropertyOptions: () => [] }));
 vi.mock("@/lib/demo-property-pipeline", () => ({

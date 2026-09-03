@@ -21,6 +21,10 @@ import {
   syncPropertyPipelineFromServer,
   updateExtraListingFromSubmissionOnServer,
 } from "@/lib/demo-property-pipeline";
+import {
+  collectLinkedPropertyIdsForModule,
+  readLinkedListingsForUser,
+} from "@/lib/manager-portfolio-access";
 
 /** Property name only — strips " · 9 rooms", unit labels, and legacy id suffixes. */
 function displayPropertyLabel(raw: string): string {
@@ -49,6 +53,25 @@ function buildPropertyOptions(managerUserId: string | null): PropertyOption[] {
       submission: property.listingSubmission?.v === 1 ? property.listingSubmission : null,
     });
   }
+  // A co-manager's linked listings live in the OWNER's bucket, so the loop above
+  // sees none of them (AXI-156). This picker needs the RECORD, not just a label,
+  // because each option carries the listing submission its payment settings are
+  // read from — hence `readLinkedListingsForUser` rather than a label lookup.
+  const linkedForPayments = collectLinkedPropertyIdsForModule(managerUserId, "payments");
+  if (linkedForPayments.size > 0) {
+    for (const { listing } of readLinkedListingsForUser(managerUserId)) {
+      const propertyId = listing.id.trim();
+      if (!propertyId || seen.has(propertyId) || !linkedForPayments.has(propertyId)) continue;
+      const propertyLabel = displayPropertyLabel(listing.buildingName.trim() || listing.title);
+      if (!propertyLabel) continue;
+      seen.set(propertyId, {
+        propertyId,
+        propertyLabel,
+        submission: listing.listingSubmission?.v === 1 ? listing.listingSubmission : null,
+      });
+    }
+  }
+
   return [...seen.values()].sort((a, b) =>
     a.propertyLabel.localeCompare(b.propertyLabel, undefined, { sensitivity: "base" }),
   );

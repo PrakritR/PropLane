@@ -17,6 +17,10 @@ import {
   syncPropertyPipelineFromServer,
 } from "@/lib/demo-property-pipeline";
 import {
+  collectLinkedPropertyIdsForModule,
+  resolvePropertyLabelForId,
+} from "@/lib/manager-portfolio-access";
+import {
   normalizeManagerListingSubmissionV1,
   resolveServiceOfferPricing,
   type ManagerListingServiceOption,
@@ -84,6 +88,14 @@ function buildPropertyOptions(managerUserId: string | null): PropertyOption[] {
     if (!propertyLabel) continue;
     seen.set(propertyId, { propertyId, propertyLabel });
   }
+  // Linked listings live in the OWNER's bucket, not this viewer's (AXI-156).
+  for (const propertyId of collectLinkedPropertyIdsForModule(managerUserId, "services")) {
+    if (!propertyId || seen.has(propertyId)) continue;
+    const propertyLabel = displayPropertyLabel(resolvePropertyLabelForId(propertyId));
+    if (!propertyLabel) continue;
+    seen.set(propertyId, { propertyId, propertyLabel });
+  }
+
   return [...seen.values()].sort((a, b) =>
     a.propertyLabel.localeCompare(b.propertyLabel, undefined, { sensitivity: "base" }),
   );

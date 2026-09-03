@@ -8,7 +8,11 @@ import { useAppUi } from "@/components/providers/app-ui-provider";
 import { PortalNotificationPreviewModal } from "@/components/portal/portal-notification-preview-modal";
 import { RentalApplicationWizard } from "@/components/marketing/rental-application-wizard";
 import { APPLICATION_STARTED_EMAIL_SUBJECT } from "@/lib/application-started-email";
-import { applicationVisibleToPortalUser } from "@/lib/manager-portfolio-access";
+import {
+  applicationVisibleToPortalUser,
+  collectLinkedPropertyIdsForModule,
+  resolvePropertyLabelForId,
+} from "@/lib/manager-portfolio-access";
 import {
   MANAGER_APPLICATIONS_EVENT,
   readManagerApplicationRows,
@@ -72,6 +76,18 @@ function buildManagerPropertyOptions(managerUserId: string | null): PropertyOpti
     if (!propertyLabel) continue;
     seen.set(propertyId, { propertyId, propertyLabel });
   }
+  // A co-manager's linked listings live in the OWNER's bucket of the property
+  // pipeline store, never this viewer's, so the two loops above see none of them
+  // and the picker reads "No properties in portfolio" for a co-manager who can
+  // plainly see the same homes on the Properties tab (AXI-156). Same third loop
+  // `manager-add-lease-modal` already had.
+  for (const propertyId of collectLinkedPropertyIdsForModule(managerUserId, "applications")) {
+    if (!propertyId || seen.has(propertyId)) continue;
+    const propertyLabel = displayPropertyLabel(resolvePropertyLabelForId(propertyId));
+    if (!propertyLabel) continue;
+    seen.set(propertyId, { propertyId, propertyLabel });
+  }
+
   return [...seen.values()].sort((a, b) =>
     a.propertyLabel.localeCompare(b.propertyLabel, undefined, { sensitivity: "base" }),
   );

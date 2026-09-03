@@ -12,6 +12,10 @@ import {
   readPendingManagerPropertiesForUser,
   syncPropertyPipelineFromServer,
 } from "@/lib/demo-property-pipeline";
+import {
+  collectLinkedPropertyIdsForModule,
+  resolvePropertyLabelForId,
+} from "@/lib/manager-portfolio-access";
 import { readOwnActiveManagerVendorRows, readManagerVendorCategorySettings, syncManagerVendorsFromServer, MANAGER_VENDORS_EVENT } from "@/lib/manager-vendors-storage";
 import { vendorTradeForExpenseCategory } from "@/lib/axis-vendor-catalog";
 import { OUTGOING_PAYMENT_CATEGORY_CODES } from "@/lib/manager-outgoing-payments";
@@ -104,6 +108,13 @@ export function ManagerAddOutgoingPaymentModal({
       );
       if (!label) continue;
       seen.set(id, label);
+    }
+    // Linked listings live in the OWNER's bucket, not this viewer's (AXI-156).
+    for (const propertyId of collectLinkedPropertyIdsForModule(managerUserId, "payments")) {
+      if (!propertyId || seen.has(propertyId)) continue;
+      const label = displayPropertyLabel(resolvePropertyLabelForId(propertyId));
+      if (!label) continue;
+      seen.set(propertyId, label);
     }
     return [...seen.entries()].map(([id, label]) => ({ id, label }));
   }, [managerUserId, propertyTick]);
