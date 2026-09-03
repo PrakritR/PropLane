@@ -90,12 +90,19 @@ function propertyDataFingerprint(pd: PropertyData | null): string {
   ].join(" ");
 }
 
-/** Re-key copied rooms so two live listings never share room ids under one manager. */
-function rekeyListingRooms(sub: ManagerListingSubmissionV1): ManagerListingSubmissionV1 {
-  const cloned = deepClone(sub);
+/** Map source room ids onto target ids when names match so live applications keep roomChoice refs. */
+function remapListingRoomIdsToTarget(
+  sourceSub: ManagerListingSubmissionV1,
+  targetSub: ManagerListingSubmissionV1,
+): ManagerListingSubmissionV1 {
+  const cloned = deepClone(sourceSub);
+  const targetIdByName = new Map(
+    targetSub.rooms.map((room) => [room.name.trim().toLowerCase(), room.id]),
+  );
   const idMap = new Map<string, string>();
   cloned.rooms = cloned.rooms.map((room, index) => {
-    const newId = `room-copy-${index}-${Math.random().toString(36).slice(2, 9)}`;
+    const existingId = targetIdByName.get(room.name.trim().toLowerCase());
+    const newId = existingId ?? `room-new-${index}-${Math.random().toString(36).slice(2, 9)}`;
     idMap.set(room.id, newId);
     return { ...room, id: newId };
   });
@@ -112,9 +119,7 @@ function rekeyListingRooms(sub: ManagerListingSubmissionV1): ManagerListingSubmi
           const mapped = idMap.get(id);
           return mapped ? [mapped, kind] : null;
         })
-        .filter((entry): entry is [string, ManagerListingSubmissionV1["bathrooms"][number]["accessKindByRoomId"][string]] =>
-          Boolean(entry),
-        ),
+        .filter((entry): entry is [string, string] => Boolean(entry)),
     ),
   }));
   cloned.sharedSpaces = cloned.sharedSpaces.map((space) => ({
@@ -160,7 +165,7 @@ function buildTargetPropertyData(
 ): PropertyData {
   const identity = submissionIdentity(targetSub);
   const nextSub = normalizeManagerListingSubmissionV1({
-    ...preserveTargetMoveInSecrets(rekeyListingRooms(sourceSub), targetSub),
+    ...preserveTargetMoveInSecrets(remapListingRoomIdsToTarget(sourceSub, targetSub), targetSub),
     ...identity,
   });
   const legacy = deriveLegacyFields(nextSub);
@@ -240,6 +245,14 @@ async function main() {
       console.error(`Refusing: ${rec.id} is not owned by Ambika (${AMBIKA_MANAGER_ID}).`);
       process.exit(1);
     }
+  }
+
+  const targetStatus = String(target.status ?? "").trim().toLowerCase();
+  if (apply && targetStatus !== "live" && targetStatus !== "review") {
+    console.error(
+      `Refusing apply: target status is "${target.status}" — only live/review listings read property_data publicly.`,
+    );
+    process.exit(1);
   }
 
   const sourcePd = asObject(source.property_data) as PropertyData | null;

@@ -927,6 +927,8 @@ export function buildLeaseHtml(ctx: LeaseGenerationContext, config: LeaseJurisdi
         dailyUtilitiesRate: specificRoom?.dailyUtilitiesRate,
         dailyBasisRate,
         endsInsideFirstMonth,
+        ledgerProratedLastMonthRent: leaseBilling?.proratedLastMonthRent,
+        ledgerProratedLastMonthUtilities: leaseBilling?.proratedLastMonthUtilities,
       });
   const showProratedLastMonth = Boolean(lastMonthTotals?.applies);
 
@@ -1194,11 +1196,22 @@ ${customTermsAddendumHtml(subNorm, "Additional Provisions from Owner/Host", prop
         ? fmtUsd(utilitiesNum)
         : utilitiesStr;
   const documentUtilitiesDisplay = summaryMonthlyUtilities;
+  const summaryMonthlyRentDisplay = isDailyBasis
+    ? escapeHtml(monthlyRentBaseStr)
+    : summaryMonthlyRent;
+  const monthlyCustomFeesTotal = billableMonthlyCustomFees.reduce(
+    (sum, f) => sum + (parseAmount(f.amount) ?? 0),
+    0,
+  );
   const summaryTotalMonthly =
     billing
-      ? fmtUsd(billing.monthlyRent + (billing.monthlyUtilities > 0 ? billing.monthlyUtilities : 0))
+      ? fmtUsd(
+          billing.monthlyRent +
+            (billing.monthlyUtilities > 0 ? billing.monthlyUtilities : 0) +
+            monthlyCustomFeesTotal,
+        )
       : showListingFees && !isDailyBasis && rentNum != null && utilitiesNum != null && utilitiesNum > 0
-        ? fmtUsd(rentNum + utilitiesNum)
+        ? fmtUsd(rentNum + utilitiesNum + monthlyCustomFeesTotal)
         : totalMonthly;
   const customFeeSummaryRows = billableOneTimeCustomFees
     .map(
@@ -1260,7 +1273,7 @@ ${customTermsAddendumHtml(subNorm, "Additional Provisions from Owner/Host", prop
     <tr><th>Premises</th><td>${roomLabel}, ${address}${cityZip ? `, ${escapeHtml(cityZip)}` : ""}</td></tr>
     <tr><th>Lease term</th><td>${leaseStart} – ${leaseEnd} (${leaseTerm})</td></tr>
     ${summaryGroupRow("Monthly charges")}
-    <tr><th>${isDailyBasis ? "Daily rent" : "Monthly rent"}</th><td class="amount"><strong>${summaryMonthlyRent}</strong></td></tr>
+    <tr><th>${isDailyBasis ? "Daily rent" : "Monthly rent"}</th><td class="amount"><strong>${summaryMonthlyRentDisplay}</strong></td></tr>
     <tr><th>Monthly utilities</th><td class="amount"><strong>${summaryMonthlyUtilities}</strong></td></tr>
     ${monthlyCustomFeeSummaryRows}
     ${summaryTotalMonthly ? `<tr class="total-row"><th>Total monthly housing cost</th><td class="amount"><strong>${summaryTotalMonthly}</strong></td></tr>` : ""}

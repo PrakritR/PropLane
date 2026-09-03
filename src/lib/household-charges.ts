@@ -3004,6 +3004,8 @@ function buildApprovedStandardChargeDrafts(
     residentNegotiatedMonthlyRent(row) > 0 ? undefined : roomDailyRentPrice(room);
   const endsInsideFirstMonth =
     (dailyBasisRate ?? 0) > 0 && intraMonthStaySpan(opts.leaseStart, opts.leaseEnd) !== null;
+  const dailyUtilInRange =
+    prorateMethod !== "daily_rate" || Boolean(dailyUtilitiesRate && dailyUtilitiesRate > 0);
 
   const rentAmount = selectedRoomRentAmount(row);
   if (rentAmount > 0 || (dailyBasisRate && dailyBasisRate > 0)) {
@@ -3051,7 +3053,7 @@ function buildApprovedStandardChargeDrafts(
   }
 
   const lastMonthUtilitiesCharge =
-    !endsInsideFirstMonth && utilities.amount > 0
+    !endsInsideFirstMonth && utilities.amount > 0 && dailyUtilInRange
       ? lastMonthChargeForLeaseEnd(utilities.amount, opts.leaseEnd, "utilities", prorateMethod, dailyUtilitiesRate)
       : null;
   if (lastMonthUtilitiesCharge) {
