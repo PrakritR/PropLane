@@ -1109,9 +1109,10 @@ consumes `stay` too. When `stay.basis === "daily"`:
   so suppressing the whole section left that undisclosed while the Section 4 prose asserted the
   opposite. `proratedBlock` has one implementation with two modes (`utilitiesOnly`), and the
   utilities mode mirrors `leaseFirstPeriodProration` exactly — including the intra-month
-  collapse (an intra-month daily lease prorates across the WHOLE term, not from lease start to
-  month end) and the `daily_rate` / `dailyUtilitiesRate` branch. The amount is passed in as the
-  ledger's billable monthly utilities, never parsed back out of the display label.
+  collapse (an intra-month lease prorates across the WHOLE term, not from lease start to month
+  end — see "Partial months" below: the collapse is keyed on the calendar span, not on the
+  daily basis) and the `daily_rate` / `dailyUtilitiesRate` branch. The amount is passed in as
+  the ledger's billable monthly utilities, never parsed back out of the display label.
   Coverage: `stay-pricing-repro.test.ts` case 15;
 - a month-to-month surcharge is NOT folded into the rate (that would print a daily rate $25 too
   high); it stays its own monthly line.
@@ -1426,6 +1427,17 @@ executed lease never stated.
   on the pricing basis: gating it on a daily rate billed a monthly-priced 16-day September term
   as 21/30 of September up front plus 25/30 of September at the end, 46/30 of a month for half a
   month. `intraMonthStaySpan` is the single condition on both sides.
+- **The first-period section follows that same span**, for any pricing basis: an intra-month
+  lease renders as **Prorated Term** ("the entire term is prorated…", days *billed* rather than
+  days *remaining*, no "beginning the first full month" closing) instead of **Prorated First
+  Month** — the daily `utilitiesOnly` mode keeps its own **Prorated Utilities** heading. The
+  collapse used to happen only in that daily mode, so a monthly-priced intra-month lease
+  printed a first-month figure the ledger never billed.
+- **The snapshot carries the last-month amounts, and they are NOT part of `dueAtSigning`.**
+  `buildLeaseBillingSnapshot` exposes `proratedLastMonthRent` / `proratedLastMonthUtilities`
+  so the document prints the ledger's own figures, but `SIGNING_CHARGE_KINDS` deliberately
+  excludes those two kinds — they are created up front and due near the end of the term, so
+  summing them into the signing total overstated what a resident owes at signing.
 - **Every partial-month line names its calendar month** (`prorationMonthLabel`, pinned to
   `en-US` because the string lands in an executed document): "Prorated Rent for September 2026",
   "Last Month's Rent for December 2027". A bare "prorated rent" is the line residents and
@@ -1443,6 +1455,12 @@ executed lease never stated.
   the single place the "Total due" figure the ledger invariant is asserted against is stated
   (`stay-pricing-repro.test.ts` and `lease-e2e-artifacts.test.ts` both parse it by splitting on
   the Section 4 heading).
+- **The monthly total includes recurring custom fees.** Rent + utilities alone understated what
+  a resident pays every month while the fee lines sat in the one-time group, so
+  `billableMonthlyCustomFees` are now rendered inside the monthly block and added to the total,
+  in the Lease Summary ("Total monthly housing cost"), Section 4 and Exhibit A ("Total monthly
+  payment"). A daily basis still has no monthly total anywhere, summary included — the reason in
+  "The long form is daily-aware" applies to every surface, not just Section 4.
 - Coverage: `tests/unit/lease-prorated-schedule.test.ts` (the 4709A Room 2 lease: Sep 22 2026 →
   Dec 1 2027, monthly and `daily_rate` variants, long-form and compact),
   `lease-first-period-proration.test.ts`, `short-term-lease-html.test.ts`.
@@ -1587,7 +1605,7 @@ fee, and charge snapshot inputs used by the new unit coverage.
 
 | Reference topic | Result in generated long form |
 | --- | --- |
-| Lease Summary | Already present for branded Seattle leases with billing data. P9 adds Landlord and reads rent, utilities, total monthly payment, and payment due at signing from the billing snapshot. First partial month is one combined ledger-derived amount. |
+| Lease Summary | Already present for branded Seattle leases with billing data. P9 adds Landlord and reads its figures from the billing snapshot. Its current shape — grouped sections, per-month partial-month lines, the final partial month — is owned by "Partial months: BOTH boundaries" above. |
 | Parties, premises, lease term, rent, deposits, returned payments, utilities, occupancy, shared spaces, rules, pets, maintenance, entry, assignment, insurance, default, early termination, payment order, notices, lead paint, governing law, attorney fees, application, schedule, signature, Addenda A-E | Already present, with stable tested order. |
 | Delivery of possession | Added. It states delayed-possession rent abatement and defers remedies to applicable law. The reference's fourteen-day termination interval is deliberately not copied. |
 | Early termination economics | Rendered when a break-lease fee or lease-up percentage resolves — from the listing, else from the jurisdiction default (see below). It itemizes the fee, the lease-up percentage, continuing liability until replacement possession or end of term, any re-rent shortfall, and actual re-renting costs. |

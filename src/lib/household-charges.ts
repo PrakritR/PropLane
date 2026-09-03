@@ -3518,9 +3518,10 @@ export function recordApprovedApplicationCharges(row: DemoApplicantRow, managerU
   const dailyBasisRate =
     residentNegotiatedMonthlyRent(row) > 0 ? undefined : roomDailyRentPrice(room);
 
-  // A DAILY-priced lease that starts and ends in one calendar month is billed once, by the
-  // first-period charges below; its last-month charges would re-bill the same days. Monthly
-  // rooms are left on their legacy two-charge path so their billing is unchanged.
+  // A lease that starts and ends in one calendar month is billed once, by the first-period
+  // charges below; its last-month charges would re-bill the same days. Keyed on the calendar
+  // span ALONE, never on the pricing basis — gating it on a daily rate billed a
+  // monthly-priced intra-month term twice over the same days.
   const endsInsideFirstMonth = intraMonthStaySpan(leaseStart, leaseEnd) !== null;
 
   const rentAmount = selectedRoomRentAmount(row);
