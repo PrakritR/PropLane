@@ -3021,22 +3021,21 @@ function buildApprovedStandardChargeDrafts(
   }
 
   const utilities = selectedRoomUtilities(row);
-  if (utilities.amount > 0 && dailyUtilInRange) {
+  if (utilities.amount > 0) {
     const proration = leaseFirstPeriodProration(opts.leaseStart, opts.leaseEnd, endsInsideFirstMonth);
-    let utilAmount: number;
-    let utilTitle: string;
-    if (proration.prorated && prorateMethod === "daily_rate" && dailyUtilitiesRate && dailyUtilitiesRate > 0) {
-      utilAmount = Number((proration.billableDays * dailyUtilitiesRate).toFixed(2));
-      utilTitle = `Prorated utilities (${proration.billableDays} days × ${formatRoomPriceAmount(dailyUtilitiesRate)}/day)`;
+    if (proration.prorated && prorateMethod === "daily_rate") {
+      if (dailyUtilitiesRate && dailyUtilitiesRate > 0) {
+        pushDraft(
+          "prorated_utilities",
+          Number((proration.billableDays * dailyUtilitiesRate).toFixed(2)),
+          `Prorated utilities (${proration.billableDays} days × ${formatRoomPriceAmount(dailyUtilitiesRate)}/day)`,
+        );
+      }
     } else {
-      utilAmount = proration.prorated ? utilities.amount * proration.factor : utilities.amount;
-      utilTitle = proration.prorated ? `Prorated utilities (${proration.label})` : "Utilities";
+      const utilAmount = proration.prorated ? utilities.amount * proration.factor : utilities.amount;
+      const utilTitle = proration.prorated ? `Prorated utilities (${proration.label})` : "Utilities";
+      pushDraft(proration.prorated ? "prorated_utilities" : "utilities", utilAmount, utilTitle);
     }
-    pushDraft(
-      proration.prorated ? "prorated_utilities" : "utilities",
-      utilAmount,
-      utilTitle,
-    );
   }
 
   const lastMonthRentCharge =

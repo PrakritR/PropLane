@@ -288,6 +288,9 @@ async function main() {
     return;
   }
 
+  console.log("\nRollback snapshot (target property_data before write):");
+  console.log(JSON.stringify(targetPd));
+
   const { error: updateError } = await db
     .from("manager_property_records")
     .update({

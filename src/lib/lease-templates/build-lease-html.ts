@@ -616,10 +616,6 @@ export function buildLeaseHtml(ctx: LeaseGenerationContext, config: LeaseJurisdi
   // Adding a per-day rate to a monthly utilities figure is meaningless arithmetic, and a
   // 30-day estimate is display-only and must never appear in a lease. A daily basis states
   // the billing rule in prose instead of a fabricated monthly total.
-  const totalMonthly =
-    rentNum != null && !isDailyBasis
-      ? fmtUsd(rentNum + (utilitiesNum != null && utilitiesNum > 0 ? utilitiesNum : 0))
-      : null;
 
   const appFee = escapeHtml(propertyTemplatePreview ? "—" : formatListingFeeDisplay(sub?.applicationFee ?? ""));
   // One derivation for the deposit, exactly as for the rate: `resolveStayPricing` already
@@ -1220,7 +1216,7 @@ ${customTermsAddendumHtml(subNorm, "Additional Provisions from Owner/Host", prop
         )
       : showListingFees && rentNum != null && utilitiesNum != null && utilitiesNum > 0
         ? fmtUsd(rentNum + utilitiesNum + monthlyCustomFeesTotal)
-        : documentTotalMonthly ?? totalMonthly
+        : documentTotalMonthly
     : null;
   const customFeeSummaryRows = billableOneTimeCustomFees
     .map(
@@ -1452,6 +1448,7 @@ ${
 <table>
   <tr><th width="50%">${rentRowLabel}</th><td><strong>${escapeHtml(monthlyRentBaseStr)}</strong></td></tr>
   <tr><th>Utilities / services (monthly estimate)</th><td><strong>${documentUtilitiesDisplay}</strong></td></tr>
+  ${monthlyCustomFeeSummaryRows}
   ${documentTotalMonthly ? `<tr class="total-row"><th>Total monthly payment</th><td><strong>${documentTotalMonthly}</strong></td></tr>` : ""}
 </table>
 ${isDailyBasis ? `<p>Rent for this Premises is charged <strong>by the day</strong>. Each month's rent is the actual number of days of the term falling in that month multiplied by the daily base rent above. No fixed monthly rent total applies. The utilities estimate is billed monthly and is prorated for any partial month.</p>` : ""}
