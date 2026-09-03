@@ -40,6 +40,7 @@ import {
   computeProratedFirstMonthTotals,
   computeProratedLastMonthTotals,
   prorationMonthLabel,
+  type ProratedLastMonthRateBasis,
   type ProratedLastMonthTotals,
 } from "@/lib/lease-first-period-proration";
 import { resolveStayPricing } from "@/lib/room-pricing";
@@ -303,10 +304,12 @@ const LAST_MONTH_SECTION_TOKEN = "__LAST_MONTH_SECTION__";
  * approval and due a week before the term ends). Until this section existed, a resident
  * received a charge for an amount the executed lease never named.
  */
-function lastMonthBlock(
-  totals: ProratedLastMonthTotals,
-  isDailyBasis: boolean,
-): string {
+function lastMonthRateBasisDisplay(basis: ProratedLastMonthRateBasis | null): string {
+  if (!basis) return "—";
+  return basis.useDailyRate ? `${fmtUsd(basis.dailyRate)}/day` : `${fmtUsd(basis.monthlyAmount)}/mo`;
+}
+
+function lastMonthBlock(totals: ProratedLastMonthTotals): string {
   if (!totals.applies) return "";
   const dueSentence = totals.dueDateLabel
     ? ` These amounts are billed with the move-in charges and are due ${escapeHtml(totals.dueDateLabel.replace(/^By /, ""))}.`
@@ -316,9 +319,9 @@ function lastMonthBlock(
 <h2>${LAST_MONTH_SECTION_TOKEN}. Prorated Final Month</h2>
 <p>Because the term ends on the <strong>${ordinal(totals.billableDays)}</strong> of the month rather than the last day, the final calendar month${monthPhrase} is prorated as follows (${totals.billableDays} of ${totals.daysInMonth} days).${dueSentence}</p>
 <table>
-  <tr><th>Item</th><th>${isDailyBasis ? "Daily rate basis" : "Monthly rate basis"}</th><th>Days billed</th><th>Prorated amount</th></tr>
-  ${totals.proratedRent > 0 ? `<tr><td>Last month&apos;s rent</td><td>${escapeHtml(totals.label)}</td><td>${totals.billableDays} / ${totals.daysInMonth}</td><td>${fmtUsd(totals.proratedRent)}</td></tr>` : ""}
-  ${totals.proratedUtilities > 0 ? `<tr><td>Last month&apos;s utilities estimate</td><td>${escapeHtml(totals.label)}</td><td>${totals.billableDays} / ${totals.daysInMonth}</td><td>${fmtUsd(totals.proratedUtilities)}</td></tr>` : ""}
+  <tr><th>Item</th><th>Rate basis</th><th>Days billed</th><th>Prorated amount</th></tr>
+  ${totals.proratedRent > 0 ? `<tr><td>Last month&apos;s rent</td><td>${lastMonthRateBasisDisplay(totals.rentBasis)}</td><td>${totals.billableDays} / ${totals.daysInMonth}</td><td>${fmtUsd(totals.proratedRent)}</td></tr>` : ""}
+  ${totals.proratedUtilities > 0 ? `<tr><td>Last month&apos;s utilities estimate</td><td>${lastMonthRateBasisDisplay(totals.utilitiesBasis)}</td><td>${totals.billableDays} / ${totals.daysInMonth}</td><td>${fmtUsd(totals.proratedUtilities)}</td></tr>` : ""}
   <tr class="total-row"><td colspan="3"><strong>Total due for the final month</strong></td><td><strong>${fmtUsd(totals.total)}</strong></td></tr>
 </table>
 `;
@@ -354,7 +357,7 @@ function proratedBlock(
 
     const start = parseFlexibleLocalDate(leaseStartStr);
     if (!start || isNaN(start.getTime())) return "";
-    const span = utilitiesOnly ? intraMonthStaySpan(leaseStartStr, leaseEndStr) : null;
+    const span = intraMonthStaySpan(leaseStartStr, leaseEndStr);
     const day = start.getDate();
     const dim = span ? span.daysInMonth : new Date(start.getFullYear(), start.getMonth() + 1, 0).getDate();
     const remaining = span ? span.billableDays : dim - day + 1;
@@ -371,25 +374,27 @@ function proratedBlock(
     const utilRateDisplay = useManualUtils
       ? fmtUsd(prorate!.dailyUtilitiesRate!) + "/day"
       : utils ? fmtUsd(utils) : null;
-    const heading = utilitiesOnly ? "Prorated Utilities" : "Prorated First Month";
+    const heading = utilitiesOnly ? "Prorated Utilities" : span ? "Prorated Term" : "Prorated First Month";
     const intro = utilitiesOnly
       ? span
         ? `Because the term begins and ends within one calendar month, the utilities estimate is prorated across the term as follows (${remaining} of ${dim} days). Rent is not prorated: it is billed by the day, as stated in Section 4.`
         : `Because the Lease commences on the <strong>${ordinal(day)}</strong> of the month, the first partial month's utilities estimate is prorated as follows (${remaining} of ${dim} days). Rent is not prorated: it is billed by the day, as stated in Section 4.`
-      : `Because the Lease commences on the <strong>${ordinal(day)}</strong> of the month, the first partial month${prorate?.monthLabel ? ` (${escapeHtml(prorate.monthLabel)})` : ""} is prorated as follows (${remaining} of ${dim} days):`;
-    const closing = utilitiesOnly
-      ? span
-        ? ""
-        : `<p>Beginning the first full month, the full monthly utilities estimate stated in Section 4 applies.</p>`
-      : `<p>Beginning the first full month, regular rent and utilities as stated in Sections ${RENT_SECTION_TOKEN} and ${UTILITIES_SECTION_TOKEN} apply.</p>`;
+      : span
+        ? `Because the term begins and ends within one calendar month${prorate?.monthLabel ? ` (${escapeHtml(prorate.monthLabel)})` : ""}, the entire term is prorated as follows (${remaining} of ${dim} days):`
+        : `Because the Lease commences on the <strong>${ordinal(day)}</strong> of the month, the first partial month${prorate?.monthLabel ? ` (${escapeHtml(prorate.monthLabel)})` : ""} is prorated as follows (${remaining} of ${dim} days):`;
+    const closing = span
+      ? ""
+      : utilitiesOnly
+        ? `<p>Beginning the first full month, the full monthly utilities estimate stated in Section 4 applies.</p>`
+        : `<p>Beginning the first full month, regular rent and utilities as stated in Sections ${RENT_SECTION_TOKEN} and ${UTILITIES_SECTION_TOKEN} apply.</p>`;
     return `
 <h2>${PRORATED_SECTION_TOKEN}. ${heading}</h2>
 <p>${intro}</p>
 <table>
-  <tr><th>Item</th><th>${rateCol}</th><th>${utilitiesOnly ? "Days billed" : "Days remaining"}</th><th>Prorated amount</th></tr>
+  <tr><th>Item</th><th>${rateCol}</th><th>${utilitiesOnly || span ? "Days billed" : "Days remaining"}</th><th>Prorated amount</th></tr>
   ${utilitiesOnly ? "" : `<tr><td>Rent</td><td>${rentRateDisplay}</td><td>${remaining} / ${dim}</td><td>${fmtUsd(finalProratedRent)}</td></tr>`}
   ${finalProratedUtils != null && (utilitiesOnly ? finalProratedUtils > 0 : utilRateDisplay != null) ? `<tr><td>Utilities estimate</td><td>${utilRateDisplay ?? (finalProratedUtils > 0 ? fmtUsd(finalProratedUtils) : "—")}</td><td>${remaining} / ${dim}</td><td>${fmtUsd(finalProratedUtils)}</td></tr>` : ""}
-  <tr class="total-row"><td colspan="3"><strong>${utilitiesOnly ? "Prorated utilities due" : "Prorated total due first month"}</strong></td><td><strong>${fmtUsd(total)}</strong></td></tr>
+  <tr class="total-row"><td colspan="3"><strong>${utilitiesOnly ? "Prorated utilities due" : span ? "Prorated total due for the term" : "Prorated total due first month"}</strong></td><td><strong>${fmtUsd(total)}</strong></td></tr>
 </table>
 ${closing}
 `;
@@ -680,18 +685,19 @@ export function buildLeaseHtml(ctx: LeaseGenerationContext, config: LeaseJurisdi
         parseAmount(fee.amount) === amount,
     );
   });
-  const customFeeExhibitRows = [
-    ...leaseDocFees.oneTime
-      .filter((line) => !/^application fee$/i.test(line.label.trim()))
-      .map(
-        (line) =>
-          `  <tr><td>${escapeHtml(line.label.trim() || "Fee")}</td><td class="amount">${escapeHtml(fmtUsd(parseAmount(line.amount) ?? 0))}</td><td>One-time</td></tr>`,
-      ),
-    ...leaseDocFees.monthly.map(
+  const monthlyCustomFeeExhibitRows = leaseDocFees.monthly
+    .map(
       (line) =>
         `  <tr><td>${escapeHtml(line.label.trim() || "Fee")}</td><td class="amount">${escapeHtml(fmtUsd(parseAmount(line.amount) ?? 0))}</td><td>Monthly</td></tr>`,
-    ),
-  ].join("\n");
+    )
+    .join("\n");
+  const customFeeExhibitRows = leaseDocFees.oneTime
+    .filter((line) => !/^application fee$/i.test(line.label.trim()))
+    .map(
+      (line) =>
+        `  <tr><td>${escapeHtml(line.label.trim() || "Fee")}</td><td class="amount">${escapeHtml(fmtUsd(parseAmount(line.amount) ?? 0))}</td><td>One-time</td></tr>`,
+    )
+    .join("\n");
 
   const leaseBilling = ctx.leaseBilling;
   const signingAmounts = {
@@ -909,9 +915,9 @@ export function buildLeaseHtml(ctx: LeaseGenerationContext, config: LeaseJurisdi
   const showProratedFirstMonth = firstPartialMonthPayment > 0;
   const firstMonthLabel = stripPreviewFinancials ? "" : prorationMonthLabel(a.leaseStart);
 
-  // Same guard the ledger uses: a daily-priced term that begins and ends inside one calendar
-  // month is billed once as its first period, so it has no separate last month.
-  const endsInsideFirstMonth = isDailyBasis && intraMonthStaySpan(a.leaseStart, a.leaseEnd) !== null;
+  // Same guard the ledger uses: a term that begins and ends inside one calendar month is
+  // billed once as its first period, so it has no separate last month.
+  const endsInsideFirstMonth = intraMonthStaySpan(a.leaseStart, a.leaseEnd) !== null;
   const lastMonthTotals: ProratedLastMonthTotals | null = stripPreviewFinancials
     ? null
     : computeProratedLastMonthTotals({
@@ -1457,7 +1463,7 @@ ${lateFeeUsd != null ? `<p><strong>Late fee:</strong> If rent is not received af
 ${rentDisclosureHtml}
 
 ${showProratedFirstMonth && proratedSection ? proratedSection.replace(PRORATED_SECTION_TOKEN, String(nextSection())) : ""}
-${showProratedLastMonth && lastMonthTotals ? lastMonthBlock(lastMonthTotals, isDailyBasis).replace(LAST_MONTH_SECTION_TOKEN, String(nextSection())) : ""}
+${showProratedLastMonth && lastMonthTotals ? lastMonthBlock(lastMonthTotals).replace(LAST_MONTH_SECTION_TOKEN, String(nextSection())) : ""}
 
 <h2>${nextSection()}. Security Deposit &amp; Move-In Charges</h2>
 <table class="fee-table">
@@ -1641,6 +1647,7 @@ ${longTermDisputeVenue ? `<p>Venue for a dispute arising from this Agreement is 
   <tr><th>Item</th><th>Amount</th><th>Frequency</th></tr>
   <tr><td>${rentRowLabel}</td><td class="amount"><strong>${escapeHtml(typeof monthlyRentStr === "string" ? monthlyRentStr : String(monthlyRentStr))}</strong></td><td>${isDailyBasis ? "Per day, billed each month by actual days" : "Monthly, due 1st"}</td></tr>
   <tr><td>Utilities / services estimate</td><td class="amount">${documentUtilitiesDisplay}</td><td>Monthly</td></tr>
+${monthlyCustomFeeExhibitRows}
   ${documentTotalMonthly ? `<tr class="total-row"><td><strong>Total monthly payment</strong></td><td class="amount"><strong>${documentTotalMonthly}</strong></td><td>Monthly</td></tr>` : ""}
   ${proratedRentAmount > 0 ? `<tr><td>Prorated first month&apos;s rent</td><td class="amount">${fmtUsd(proratedRentAmount)}</td><td>One-time (partial month)</td></tr>` : ""}
   ${proratedUtilitiesAmount > 0 ? `<tr><td>Prorated utilities</td><td class="amount">${fmtUsd(proratedUtilitiesAmount)}</td><td>One-time (partial month)</td></tr>` : ""}

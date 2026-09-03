@@ -1419,10 +1419,13 @@ executed lease never stated.
   the second. The two branches are the ledger's own: a daily-priced room bills its partial last
   month per day whatever `prorateMethod` says, an explicit `daily_rate` method does too when it
   carries a rate, everything else is monthly × day factor. Do not re-derive either side.
-- **`endsInsideFirstMonth` is the double-bill guard.** A daily-priced term that begins and ends
-  inside one calendar month is billed once as its first period, so the ledger creates no
-  last-month charge — and the document must skip it on exactly that condition, which is why the
-  flag is an input rather than something the helper infers.
+- **`endsInsideFirstMonth` is the double-bill guard.** A term that begins and ends inside one
+  calendar month is billed once as its first period, so the ledger creates no last-month charge
+  — and the document must skip it on exactly that condition, which is why the flag is an input
+  rather than something the helper infers. The guard is keyed on the calendar span ALONE, never
+  on the pricing basis: gating it on a daily rate billed a monthly-priced 16-day September term
+  as 21/30 of September up front plus 25/30 of September at the end, 46/30 of a month for half a
+  month. `intraMonthStaySpan` is the single condition on both sides.
 - **Every partial-month line names its calendar month** (`prorationMonthLabel`, pinned to
   `en-US` because the string lands in an executed document): "Prorated Rent for September 2026",
   "Last Month's Rent for December 2027". A bare "prorated rent" is the line residents and
@@ -1440,10 +1443,6 @@ executed lease never stated.
   the single place the "Total due" figure the ledger invariant is asserted against is stated
   (`stay-pricing-repro.test.ts` and `lease-e2e-artifacts.test.ts` both parse it by splitting on
   the Section 4 heading).
-- **A residual ledger oddity, mirrored deliberately.** A MONTHLY-priced lease that starts and
-  ends inside one calendar month gets both a first-period and a last-month charge, because
-  `endsInsideFirstMonth` only guards the daily-priced case. The document now states whatever the
-  ledger bills, so the two agree; fixing the overlap belongs on the ledger side.
 - Coverage: `tests/unit/lease-prorated-schedule.test.ts` (the 4709A Room 2 lease: Sep 22 2026 →
   Dec 1 2027, monthly and `daily_rate` variants, long-form and compact),
   `lease-first-period-proration.test.ts`, `short-term-lease-html.test.ts`.

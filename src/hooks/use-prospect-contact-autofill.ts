@@ -64,11 +64,12 @@ export function useProspectContactAutofill(): ProspectContactAutofill {
         });
       } catch {
         if (cancelled) return;
-        const meta = user.user_metadata as { full_name?: string; name?: string } | undefined;
+        const meta = user.user_metadata as { full_name?: string; name?: string; role?: string } | undefined;
+        const fallbackRoles = normalizePortalRoles(null, meta?.role);
         setState({
           ready: true,
           userId: user.id,
-          hasResidentRole: false,
+          hasResidentRole: fallbackRoles.includes("resident"),
           name: meta?.full_name?.trim() || meta?.name?.trim() || "",
           email: user.email?.trim() || "",
           phone: "",

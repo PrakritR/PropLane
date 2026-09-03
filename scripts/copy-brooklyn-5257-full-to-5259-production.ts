@@ -5,7 +5,8 @@
  * Makes 5259 Brooklyn Ave NE an exact listing copy of 5257 Brooklyn Ave NE from
  * production (rooms, bathrooms, photos, pricing, fees, bundles, move-in copy,
  * lease/application config, property_data summary fields). Only 5259 identity
- * is preserved: record id, buildingId, street address, and building name.
+ * is preserved: record id, buildingId, street address, ZIP, map coordinates,
+ * availability, and building name.
  *
  * Dry run (default):
  *   npx tsx --env-file=.env.production.local scripts/copy-brooklyn-5257-full-to-5259-production.ts
@@ -18,6 +19,7 @@ import { createClient } from "@supabase/supabase-js";
 import { deriveLegacyFields } from "../src/lib/demo-property-pipeline";
 import {
   normalizeManagerListingSubmissionV1,
+  type ManagerBathroomRoomAccessKind,
   type ManagerListingSubmissionV1,
 } from "../src/lib/manager-listing-submission";
 
@@ -41,6 +43,9 @@ type PropertyData = Record<string, unknown> & {
   title?: string;
   address?: string;
   zip?: string;
+  mapLat?: number;
+  mapLng?: number;
+  available?: string;
   listingSubmission?: ManagerListingSubmissionV1;
 };
 
@@ -122,9 +127,9 @@ function remapListingRoomIdsToTarget(
       Object.entries(bath.accessKindByRoomId ?? {})
         .map(([id, kind]) => {
           const mapped = idMap.get(id);
-          return mapped ? [mapped, kind] : null;
+          return mapped && kind ? ([mapped, kind] as [string, ManagerBathroomRoomAccessKind]) : null;
         })
-        .filter((entry): entry is [string, string] => Boolean(entry)),
+        .filter((entry): entry is [string, ManagerBathroomRoomAccessKind] => Boolean(entry)),
     ),
   }));
   cloned.sharedSpaces = cloned.sharedSpaces.map((space) => ({
@@ -183,6 +188,12 @@ function buildTargetPropertyData(
     title: `${identity.buildingName} · ${legacy.unitLabel}`,
     address: targetPd.address ?? identity.address,
     zip: targetPd.zip ?? identity.zip,
+    // Geographic identity belongs to 5259, not to the listing being copied. An inherited
+    // pin drops the map on the source building; with none, listing detail geocodes the
+    // target's own address.
+    mapLat: targetPd.mapLat,
+    mapLng: targetPd.mapLng,
+    available: targetPd.available ?? sourcePd.available,
     neighborhood: legacy.neighborhood,
     unitLabel: legacy.unitLabel,
     beds: legacy.beds,
