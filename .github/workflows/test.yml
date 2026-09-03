@@ -73,10 +73,14 @@ jobs:
   # running it serially with CI retries exceeded this job's budget on every push.
   # `test:e2e:smoke` carries a 12-minute `--global-timeout` because the config's
   # 45-minute default is sized for `e2e-full` and would let GitHub kill this job
-  # at 15 minutes with no Playwright report at all.
+  # with no Playwright report at all. The 6 minutes between that cap and
+  # `timeout-minutes` are for the steps Playwright does not govern: `npm ci` and
+  # `npx playwright install --with-deps chromium` routinely take 4+ minutes
+  # together, and if they eat the whole margin GitHub kills the job before
+  # Playwright's own cap can abort and report.
   e2e:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 18
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     steps:
       - uses: actions/checkout@v4
@@ -103,6 +107,16 @@ jobs:
           E2E_RESIDENT_PASSWORD: ${{ secrets.E2E_RESIDENT_PASSWORD }}
           E2E_TESTS_ENABLED: "1"
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
+      # This is the only per-push browser signal on `main`, so its failures are
+      # the ones most likely to be read. Traces/screenshots/videos are written on
+      # the runner and discarded with it unless they are uploaded.
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: e2e-smoke-test-results
+          path: test-results/
+          if-no-files-found: ignore
+          retention-days: 7
 
   # Broad diagnostic coverage belongs off the per-push critical path. Zero
   # retries makes every flaky/failing case visible once instead of tripling its
@@ -139,13 +153,21 @@ jobs:
       # The whole point of this job is diagnosis, and traces/screenshots/videos
       # are written on the runner. Without this they are discarded with it and a
       # nightly failure leaves only reporter text.
+      #
+      # Unlike the smoke job's public flows, most specs here sign in, and a trace
+      # records the `fill` arguments and auth response bodies of that sign-in —
+      # so this artifact carries the seeded dev/test passwords and their Supabase
+      # session tokens, readable by anyone with repo read access. Those accounts
+      # exist only in the dev/test project (their default passwords are in
+      # `tests/fixtures/index.ts` already), so the traces stay; the retention
+      # window is kept just long enough to triage a Friday-night nightly.
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: e2e-full-test-results
           path: test-results/
           if-no-files-found: ignore
-          retention-days: 7
+          retention-days: 5
 
   # Branch protection's single required status name. It runs no validation of its
   # own — `npm run check` here repeated all 6,240 unit cases and a production

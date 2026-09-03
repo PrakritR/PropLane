@@ -81,17 +81,28 @@ storage-state setup project. The sandbox-backed public application spec stays in
 the full suite because a production-mode server correctly hides test listings.
 
 The complete 158-case suite runs as `e2e-full` on the nightly schedule or a
-manual workflow dispatch. It uses one worker and zero retries, and uploads
-`test-results/` (traces, screenshots, videos) as a build artifact on every
-outcome, so a nightly failure is debuggable after the runner is gone. Keeping it
-off the per-push critical path prevents known 60-second failures from consuming
-three attempts each and cancelling every `main` run before later specs execute.
+manual workflow dispatch. It uses one worker and zero retries. Keeping it off the
+per-push critical path prevents known 60-second failures from consuming three
+attempts each and cancelling every `main` run before later specs execute.
+
+**Both** browser jobs upload `test-results/` (traces, screenshots, videos) as a
+build artifact on every outcome, so a failure is debuggable after the runner is
+gone. Note what a trace of an authenticated spec contains: the `fill` arguments
+and auth response bodies of the sign-in, i.e. the seeded dev/test passwords and
+their Supabase session tokens. The `e2e-full` artifact therefore carries
+credential material for the dev/test project only (the default passwords are
+already in `tests/fixtures/index.ts`) and is retained 5 days; the `e2e` smoke
+artifact runs only public flows and has none. Do not point either job at
+production credentials.
 
 Each browser job's Playwright `globalTimeout` must land under that job's own
-`timeout-minutes`, or GitHub kills the runner first and you get no Playwright
-report at all: the config's 45 minutes is sized for `e2e-full` (50), and
-`test:e2e:smoke` passes its own `--global-timeout` of 12 minutes for the `e2e`
-job (15). `tests/unit/ci-test-workflow.test.ts` fails if either pair drifts.
+`timeout-minutes`, with enough margin for the `npm ci` and
+`playwright install --with-deps` steps Playwright does not govern — otherwise
+GitHub kills the runner first and you get no Playwright report at all. The
+config's 45 minutes is sized for `e2e-full` (50), and `test:e2e:smoke` passes its
+own `--global-timeout` of 12 minutes for the `e2e` job (18).
+`tests/unit/ci-test-workflow.test.ts` fails if either pair drifts under 5 minutes
+of headroom.
 
 Pin the dev/test Supabase project first (a plain production build silently uses
 the **production** project — see

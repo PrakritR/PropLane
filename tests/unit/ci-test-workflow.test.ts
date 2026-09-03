@@ -43,7 +43,7 @@ describe("Test workflow resource budget", () => {
 
     const e2e = jobBody("e2e");
     expect(e2e).toContain("if: github.event_name == 'push' && github.ref == 'refs/heads/main'");
-    expect(e2e).toContain("timeout-minutes: 15");
+    expect(jobTimeoutMinutes("e2e")).toBeLessThanOrEqual(20);
     expect(e2e).toContain("- run: npm run test:e2e:smoke");
   });
 
@@ -66,7 +66,11 @@ describe("Test workflow resource budget", () => {
   it("keeps every CI job's Playwright global timeout under that job's own budget", () => {
     // Headroom, in minutes, for the checkout / npm ci / browser install steps,
     // which run before Playwright starts and so are not covered by globalTimeout.
-    const HEADROOM = 3;
+    // `npm ci` on this dependency tree plus `playwright install --with-deps`
+    // (which apt-installs system libraries) commonly totals 4+ minutes on
+    // ubuntu-latest; anything less than this and a genuinely hung suite is killed
+    // by GitHub before Playwright's cap can abort and produce a report.
+    const HEADROOM = 5;
 
     const configured = playwrightConfig.match(/globalTimeout: (\d+) \* 60_000/);
     expect(configured).not.toBeNull();
@@ -85,11 +89,20 @@ describe("Test workflow resource budget", () => {
   it("keeps failure diagnostics recoverable at zero retries", () => {
     // `on-first-retry` never fires when retries are 0.
     expect(playwrightConfig.match(/^\s*trace: .*$/m)?.[0]).toContain('"retain-on-failure"');
-    // Artifacts written on the runner are lost with it unless uploaded.
-    const full = jobBody("e2e-full");
-    expect(full).toContain("uses: actions/upload-artifact@v4");
-    expect(full).toContain("path: test-results/");
-    expect(full.slice(full.indexOf("upload-artifact"))).toContain("if: always()");
+    // Artifacts written on the runner are lost with it unless uploaded. EVERY
+    // browser job needs this, not just the nightly: `e2e` is the only per-push
+    // browser signal on `main`, so a smoke failure with no upload leaves exactly
+    // the reporter-text-only debugging this config is meant to prevent.
+    for (const name of ["e2e", "e2e-full"]) {
+      const body = jobBody(name);
+      expect(body, `${name} must upload its Playwright output`).toContain(
+        "uses: actions/upload-artifact@v4",
+      );
+      expect(body).toContain("path: test-results/");
+      // A step that only runs on success uploads nothing for the failure it
+      // exists to explain.
+      expect(body.slice(body.indexOf("upload-artifact"))).toContain("if: always()");
+    }
   });
 
   it("makes the required check job an aggregator that cannot pass on a failed dependency", () => {
