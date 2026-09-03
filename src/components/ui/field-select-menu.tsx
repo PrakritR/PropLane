@@ -475,6 +475,11 @@ export function useFieldSelectMenu({
   const wrapRef = useRef<HTMLDivElement>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
   const [menuRect, setMenuRect] = useState<FieldSelectMenuRect | null>(null);
+  // State, not a render-time read of `portalHostRef`. The host is resolved by
+  // querying the DOM, so neither the ref read nor the resolver call is safe
+  // during render. It is set alongside `menuRect` in the same layout effect, so
+  // both land in one commit and the portal still appears on the same paint.
+  const [portalHost, setPortalHost] = useState<HTMLElement | null>(null);
   const portalHostRef = useRef<HTMLElement | null>(null);
   const onOpenChangeRef = useRef(onOpenChange);
   const closeOnOutsidePointerDownRef = useRef(closeOnOutsidePointerDown);
@@ -500,12 +505,14 @@ export function useFieldSelectMenu({
   useLayoutEffect(() => {
     if (!open) {
       setMenuRect(null);
+      setPortalHost(null);
       return;
     }
     const updateMenuRect = () => {
       const button = buttonRef.current;
       if (!button) return;
       const portalHost = portalHostRef.current ?? resolveFieldSelectMenuPortal();
+      setPortalHost(portalHost);
       const inFilterPanel =
         portalHost !== document.body &&
         portalHost.matches('[data-slot="portal-filter-dropdown-panel"]');
@@ -598,11 +605,14 @@ export function useFieldSelectMenu({
     };
   }, [listId, open]);
 
-  const portalHost =
-    menuRect && isClient
-      ? portalHostRef.current ?? resolveFieldSelectMenuPortal()
-      : null;
-  return { listId, isClient, wrapRef, buttonRef, menuRect, portalHost };
+  return {
+    listId,
+    isClient,
+    wrapRef,
+    buttonRef,
+    menuRect,
+    portalHost: menuRect && isClient ? portalHost : null,
+  };
 }
 
 /**

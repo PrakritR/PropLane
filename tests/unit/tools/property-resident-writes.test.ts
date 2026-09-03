@@ -1078,7 +1078,7 @@ describe("assistant transcript at the plan's listing cap", () => {
       mkdirSync(outDir, { recursive: true });
       writeFileSync(path.join(outDir, "property-limit-assistant-transcript.txt"), `${lines.join("\n")}\n`);
     }
-    // eslint-disable-next-line no-console
+     
     console.log(lines.join("\n"));
   });
 });

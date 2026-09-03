@@ -207,7 +207,7 @@ describe("resident F6/U9 — Payments › Paid reconciles with Documents › Ren
     // …and every synthesized row prints its date the way the charge list does.
     expect(rowText.filter((t) => /\d{4}-\d{2}-\d{2}/.test(t))).toHaveLength(0);
 
-    // eslint-disable-next-line no-console
+     
     console.log(
       `\nF6 evidence — Payments › Paid rows: ${rowText.length}\n` +
         rowText.map((t) => `    ${t}`).join("\n") +
@@ -247,7 +247,7 @@ describe("resident F6/U9 — Payments › Paid reconciles with Documents › Ren
 
     // F6: the receipt count is the SAME six payments Payments › Paid shows.
     const receiptRows = body.querySelectorAll("tbody tr");
-    // eslint-disable-next-line no-console
+     
     console.log(`\nU9 evidence\n  Documents › Rent receipts → ${unique.length} distinct labels, ${receiptRows.length} table rows\n`);
     expect(unique.length).toBeGreaterThanOrEqual(5);
   });

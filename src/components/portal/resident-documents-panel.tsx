@@ -792,8 +792,14 @@ function RentReceiptsTab({
           () => openReceipt(singleSelected),
           "resident-documents-receipt-open",
         ),
+        // `residentDocumentsDownloadAction` builds an action object that wires
+        // this callback to a Button's onClick; it never calls it while
+        // rendering. The compiler assumes any function handed a ref-reading
+        // callback may invoke it during render — `downloadReceipt` reaches the
+        // `demoPdfCache` ref, but only once the resident presses Download.
         residentDocumentsDownloadAction(
           "Download",
+          // eslint-disable-next-line react-hooks/refs
           () => downloadReceipt(singleSelected),
           "resident-documents-receipt-download",
         ),

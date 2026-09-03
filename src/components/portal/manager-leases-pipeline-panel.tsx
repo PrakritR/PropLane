@@ -299,13 +299,6 @@ export function ManagerLeasesPipelinePanel({
     setBulkLeaseSendRows(bulkSendableLeaseRows);
   }, [bulkSendableLeaseRows, selectedLeaseRows.length, showToast]);
 
-  const openBulkOrSingleSend = useCallback(() => {
-    if (singleSelectedLeaseRow && selectedLeaseRows.length === 1) {
-      openSendLeasePreview(singleSelectedLeaseRow);
-      return;
-    }
-    openBulkSendLeasePreview();
-  }, [openBulkSendLeasePreview, selectedLeaseRows.length, singleSelectedLeaseRow]);
 
   const editLeaseRow = useMemo(
     () => (editLeaseRowId ? (rows.find((row) => row.id === editLeaseRowId) ?? null) : null),
@@ -446,6 +439,16 @@ export function ManagerLeasesPipelinePanel({
       body: leaseSentToResidentBody(row),
     });
   };
+
+  // Declared AFTER `openSendLeasePreview`, which it calls. Relying on hoisting
+  // here stopped the compiler tracking the dependency.
+  const openBulkOrSingleSend = useCallback(() => {
+    if (singleSelectedLeaseRow && selectedLeaseRows.length === 1) {
+      openSendLeasePreview(singleSelectedLeaseRow);
+      return;
+    }
+    openBulkSendLeasePreview();
+  }, [openBulkSendLeasePreview, selectedLeaseRows.length, singleSelectedLeaseRow]);
 
   const confirmSendLeaseToResident = async (
     skipMessage: boolean,

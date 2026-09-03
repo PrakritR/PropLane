@@ -930,7 +930,11 @@ function Step3({
   const [smsConsent, setSmsConsent] = useState(false);
   const signInHref = residentSignInHref(returnAfterAuth);
   const onSubmitRef = useRef(onSubmit);
-  onSubmitRef.current = onSubmit;
+  // Synced in an effect rather than during render; the ref is only read from the
+  // submit handler, well after the effect has flushed.
+  useEffect(() => {
+    onSubmitRef.current = onSubmit;
+  }, [onSubmit]);
 
   useEffect(() => {
     if (!contactDefaults.ready) return;

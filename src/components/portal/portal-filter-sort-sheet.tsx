@@ -3,7 +3,7 @@
 import {
   useCallback,
   useEffect,
-  useRef,
+  useLayoutEffect, useRef,
   useState,
   useSyncExternalStore,
   type ReactNode,
@@ -258,7 +258,11 @@ export function PortalFilterSortSheet({
   const openRef = useRef(false);
   const isMobile = useSmallPortalViewport();
 
-  openRef.current = open;
+  // Synced in a layout effect, not during render: the dismiss-guard callbacks
+  // that read it run from pointer handlers and layout effects, both after this.
+  useLayoutEffect(() => {
+    openRef.current = open;
+  });
 
   const armSheetDismissGuard = useCallback(() => {
     dismissGuardUntilRef.current = Date.now() + FILTER_SHEET_DISMISS_GUARD_MS;
@@ -509,6 +513,13 @@ export function PortalFilterSortSheet({
               : undefined
           }
           assistantContext="Filter"
+          // `filterFooter` is a render prop: it hands `close` to a footer that
+          // wires it to a button's onClick and never calls it while rendering.
+          // The compiler cannot see through the indirection and assumes any
+          // function receiving `close` may invoke it during render, and `close`
+          // reads the dismiss-guard refs. The single caller passing a function
+          // (`resident-housing-browse.tsx`) does exactly `onClick={close}`.
+          // eslint-disable-next-line react-hooks/refs
           footer={filterFooter(close)}
         >
           <FilterSheetScrollLockContext.Provider value={setFilterMenuOpen}>

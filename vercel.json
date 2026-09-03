@@ -14,7 +14,7 @@
   "crons": [
     {
       "path": "/api/cron/dispatch-reminders",
-      "schedule": "*/5 * * * *"
+      "schedule": "15 15 * * *"
     },
     {
       "path": "/api/cron/sync-manual-payments",

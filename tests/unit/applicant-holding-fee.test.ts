@@ -161,7 +161,7 @@ describe("holdingDepositCreditCentsForApplication", () => {
 });
 
 function seedApprovedListing(propertyId: string) {
-  let sub = createDefaultListingSubmission();
+  const sub = createDefaultListingSubmission();
   sub.rooms = [
     {
       ...sub.rooms[0]!,

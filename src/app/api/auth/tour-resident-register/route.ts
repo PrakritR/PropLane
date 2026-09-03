@@ -71,7 +71,7 @@ export async function POST(req: Request) {
       }
     }
 
-    let phone =
+    const phone =
       normalizeTourContactPhone(typeof body.phone === "string" ? body.phone : "") ??
       normalizeTourContactPhone(textField(inquiry, "phone")) ??
       "";

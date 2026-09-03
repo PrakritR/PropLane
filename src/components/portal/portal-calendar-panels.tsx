@@ -4,6 +4,7 @@ import {
   Fragment,
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -684,7 +685,11 @@ function AvailabilityFooterDelegate({
   onChange?: (footer: ReactNode | null) => void;
 }) {
   const renderFooterRef = useRef(renderFooter);
-  renderFooterRef.current = renderFooter;
+  // Synced in a layout effect rather than during render: the consumer below is a
+  // plain effect, so this lands first and it always calls the current renderer.
+  useLayoutEffect(() => {
+    renderFooterRef.current = renderFooter;
+  });
 
   useEffect(() => {
     onChange?.(renderFooterRef.current());
@@ -857,24 +862,26 @@ export function PortalCalendarPanels({
   );
   const canEditDefaultTourHours =
     editableDefaultTourHours && Boolean(onDefaultTourHoursChange);
+  /**
+   * `Date.now()` cannot be called during render, and the memo below never
+   * recomputed as time passed anyway — time was not one of its dependencies, so
+   * the value was already pinned until `activeSlots` or the default config
+   * changed. Making that explicit keeps the behaviour identical and moves the
+   * impure read into an effect.
+   */
+  const [offeringNow, setOfferingNow] = useState(() => Date.now());
   useEffect(() => {
-    if (!editableDefaultTourHours) return;
-    setVisibleStartSlot(resolvedDefaultTourAvailability.startSlot);
-    setVisibleEndSlotExclusive(resolvedDefaultTourAvailability.endSlotExclusive);
-  }, [
-    editableDefaultTourHours,
-    resolvedDefaultTourAvailability.endSlotExclusive,
-    resolvedDefaultTourAvailability.startSlot,
-  ]);
+    setOfferingNow(Date.now());
+  }, [activeSlots, resolvedDefaultTourAvailability]);
   /** Painted availability plus the 9-5 default on days with no published windows. */
   const offeredSlots = useMemo(
     () =>
       new Set(
-        resolveTourOfferingSlots([...activeSlots], Date.now(), resolvedDefaultTourAvailability).filter((slot) =>
+        resolveTourOfferingSlots([...activeSlots], offeringNow, resolvedDefaultTourAvailability).filter((slot) =>
           slotIsBookable(slot),
         ),
       ),
-    [activeSlots, resolvedDefaultTourAvailability],
+    [activeSlots, offeringNow, resolvedDefaultTourAvailability],
   );
   /**
    * Windows a prospect can book that the manager never painted — the implicit
@@ -902,6 +909,18 @@ export function PortalCalendarPanels({
   const [mobileDayIndex, setMobileDayIndex] = useState(0);
   const [visibleStartSlot, setVisibleStartSlot] = useState(DEFAULT_VISIBLE_START_SLOT);
   const [visibleEndSlotExclusive, setVisibleEndSlotExclusive] = useState(DEFAULT_VISIBLE_END_SLOT_EXCLUSIVE);
+  // Declared AFTER the two setters it calls. It used to sit ~40 lines above
+  // them, which reads as a hoisting quirk rather than intent and stops the
+  // compiler from tracking the dependency.
+  useEffect(() => {
+    if (!editableDefaultTourHours) return;
+    setVisibleStartSlot(resolvedDefaultTourAvailability.startSlot);
+    setVisibleEndSlotExclusive(resolvedDefaultTourAvailability.endSlotExclusive);
+  }, [
+    editableDefaultTourHours,
+    resolvedDefaultTourAvailability.endSlotExclusive,
+    resolvedDefaultTourAvailability.startSlot,
+  ]);
   const [blockModalOpen, setBlockModalOpen] = useState(false);
   const [blockStartSlot, setBlockStartSlot] = useState(DEFAULT_VISIBLE_START_SLOT);
   const [blockEndSlotExclusive, setBlockEndSlotExclusive] = useState(DEFAULT_VISIBLE_START_SLOT + 2);

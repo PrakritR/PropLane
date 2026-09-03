@@ -125,7 +125,7 @@ describe("F-CAL-6 — the per-property availability editor shows the same confli
     });
 
     const blocked = blockedSlots(root);
-    // eslint-disable-next-line no-console
+     
     console.log(
       `\nF-CAL-6 evidence — property availability grid: ${blocked.length} blocked half hours\n` +
         blocked.map((slot) => `    ${slot}`).join("\n") +

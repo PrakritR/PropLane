@@ -317,7 +317,7 @@ describe("free plan property limit — end to end over the real route", () => {
       mkdirSync(outDir, { recursive: true });
       writeFileSync(path.join(outDir, "property-limit-api-transcript.txt"), `${lines.join("\n")}\n`);
     }
-    // eslint-disable-next-line no-console
+     
     console.log(lines.join("\n"));
   });
 });
