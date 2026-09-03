@@ -56,7 +56,7 @@ jobs:
   # setup tests, but Playwright globalSetup still proves that the admin, manager,
   # and resident credentials can authenticate before these public flows run.
   # The complete 158-case suite is intentionally a separate scheduled/manual job:
-  # running it serially with CI retries exceeded this job's budget on every push.
+  # running it serially exceeded this job's budget on every push.
   e2e:
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -102,7 +102,7 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npx playwright install --with-deps chromium
-      - run: npm run test:e2e -- --retries=0
+      - run: npm run test:e2e
         env:
           NEXT_PUBLIC_APP_URL: http://localhost:3000
           PLAYWRIGHT_BASE_URL: http://localhost:3000
@@ -119,8 +119,16 @@ jobs:
           E2E_RESIDENT_PASSWORD: ${{ secrets.E2E_RESIDENT_PASSWORD }}
           E2E_TESTS_ENABLED: "1"
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
+      - name: Upload Playwright diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-results-full
+          path: test-results/
+          if-no-files-found: ignore
+          retention-days: 7
 
-  check:
+  lint:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -129,11 +137,24 @@ jobs:
           node-version-file: .nvmrc
           cache: npm
       - run: npm ci
-      # Unit and build are independent required jobs above. Running `npm run
-      # check` here repeated all 6,240 unit cases and a production build, adding
-      # memory/CPU pressure without adding another validation dimension. Keep
-      # this stable job name for branch protection, but make its signal lint.
       - run: npm run lint
+
+  # Preserve the stable branch-protection name while making it an aggregate of
+  # the dimensions that `npm run check` historically covered. Integration stays
+  # independently visible and is intentionally not part of this compatibility
+  # gate. Adding another required dimension to `needs` automatically includes it.
+  check:
+    needs: [unit, lint, build]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require every validation dependency to pass
+        env:
+          NEED_RESULTS: ${{ join(needs.*.result, ' ') }}
+        run: |
+          for result in $NEED_RESULTS; do
+            test "$result" = "success"
+          done
 
   # Deploy gate. `npm run check` is `lint && test:unit && build`, so it stops at
   # the unit suite and never reaches the build — decoupling the JOBS above is not

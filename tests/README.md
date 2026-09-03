@@ -44,7 +44,7 @@ compilation can dominate time and memory on a constrained machine.
 > spec stalls on `waitForURL`. Playwright's `globalSetup`
 > (`tests/global-setup.ts`) does one real sign-in per seeded role (admin,
 > manager, resident) first and fails the run in seconds with an actionable
-> message instead of letting 131 specs grind for hours. Only turn the flag on
+> message instead of letting 158 cases grind for hours. Only turn the flag on
 > where the accounts actually exist.
 
 ## Multi-role accounts & the portal chooser

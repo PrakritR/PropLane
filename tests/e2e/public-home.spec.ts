@@ -50,9 +50,8 @@ test.describe("Public home", () => {
     expect(resting).not.toBe("matrix(1, 0, 0, 1, 0, 0)");
 
     await note.hover();
-    await page.waitForTimeout(400);
     // rotate(0deg) translateY(-4px)
-    expect(await note.evaluate((el) => getComputedStyle(el).transform)).toBe("matrix(1, 0, 0, 1, 0, -4)");
+    await expect(note).toHaveCSS("transform", "matrix(1, 0, 0, 1, 0, -4)");
   });
 
   test("reduced motion freezes the note tilt on hover", async ({ browser }) => {
@@ -64,8 +63,10 @@ test.describe("Public home", () => {
 
     const resting = await note.evaluate((el) => getComputedStyle(el).transform);
     await note.hover();
+    // This assertion proves the absence of a transition, so allow the normal
+    // animation window to settle before checking the frozen transform.
     await page.waitForTimeout(400);
-    expect(await note.evaluate((el) => getComputedStyle(el).transform)).toBe(resting);
+    await expect(note).toHaveCSS("transform", resting);
     await context.close();
   });
 

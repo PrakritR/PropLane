@@ -20,24 +20,23 @@ export default defineConfig({
   globalSetup: "./tests/global-setup.ts",
   fullyParallel: false,
   forbidOnly: !!process.env.CI,
-  retries: process.env.CI ? 2 : 0,
+  retries: 0,
   // Serial workers: parallel file execution overloads the local dev server and
   // causes auth/navigation flakes (sign-in never leaves /auth/sign-in).
   workers: 1,
   reporter: process.env.CI ? "github" : "list",
   timeout: 60_000,
   // Hard suite-wide wall-clock cap so a broken run can never hang. Per-test
-  // timeouts (60s) don't bound the whole suite: 131 specs run serially at
-  // retries: 2, so a systemic failure (e.g. sign-in never succeeding) can burn
-  // hours before GitHub's 6h job default. globalSetup fails such runs in seconds;
-  // this is the backstop if a run degrades some other way. E2E has no measured
-  // healthy runtime on main yet, so this is a deliberately generous cap kept
-  // under the CI job's 30-min timeout-minutes, which is the hard backstop.
-  globalTimeout: 40 * 60_000,
+  // timeouts (60s) don't bound the whole suite: 158 cases run serially, so a
+  // systemic failure can still burn hours. globalSetup fails auth drift in
+  // seconds; this is the backstop for any other degradation. The full-suite CI
+  // job allows 50 minutes, leaving five minutes for checkout, install, and
+  // artifact upload after Playwright reports its own timeout.
+  globalTimeout: 45 * 60_000,
   expect: { timeout: 10_000 },
   use: {
     baseURL,
-    trace: "on-first-retry",
+    trace: "retain-on-failure",
     screenshot: "only-on-failure",
     video: "retain-on-failure",
   },

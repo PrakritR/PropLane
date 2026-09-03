@@ -593,12 +593,13 @@ feature-testing template, the e2e procedure, and the promote checklist — lives
 **[`docs/ship-gate.md`](docs/ship-gate.md)**; run `npm run ship:preflight` first.
 
 One fact worth carrying here because it silently reads as coverage: **a green PR
-run is NOT e2e coverage.** The `e2e` job in `.github/workflows/test.yml` runs only
-on `push` to `main` and on `schedule`, so it is **skipped on every pull request** —
-a PR whose Test workflow is green has had zero e2e signal, and the first real run
-happens after the merge lands. Run the suite locally before promoting anything
-that touches portal UI or routes; the command, its dev/test pinning, and the
-known-failing / flaky specs (do not re-triage those) are in
+run is NOT e2e coverage.** The bounded nine-case `e2e` smoke job in
+`.github/workflows/test.yml` runs only on pushes to `main`; the complete 158-case
+`e2e-full` job runs only on the nightly schedule or manual dispatch. Both are
+**skipped on every pull request**, so a green PR has had zero browser signal and
+the first smoke run happens after merge. Run the relevant suite locally before
+promoting anything that touches portal UI or routes; the commands, environment
+pinning, and known-failing specs (do not re-triage those) are in
 [`docs/ship-gate.md`](docs/ship-gate.md#run-e2e-locally-before-you-promote).
 
 # The PostgREST surface is public — RLS row predicates are not a column gate

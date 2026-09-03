@@ -203,7 +203,7 @@ the broad one:
 - **Seed the public-facing fixtures under a non-sandbox manager domain** —
   narrow. Changes only which listings `isPortalSandboxEmail()` classifies, which
   is exactly the thing these 6 cases trip over.
-- **Set `VERCEL_ENV: preview` on the `e2e` job** — one line, but it flips
+- **Set `VERCEL_ENV: preview` on the `e2e-full` job** — one line, but it flips
   `isProductionRuntime()` for the whole suite, and 11 modules read it: not just
   `public/property-lead`, but `src/lib/auth/portal-access.ts`
   (`adminBlockedFromManagerPortal` stops blocking admin→manager portal crossing),
@@ -216,9 +216,10 @@ the broad one:
   alter failures well outside the 6 cases it targets. Don't apply it as a
   one-liner without re-reading the whole suite's result set.
 
-`admin-portal.spec.ts:68` and `mobile-portal-layout.spec.ts:22` are **flaky**,
-not failing — they pass on CI retry and pass locally. Do not file them as
-failures.
+`admin-portal.spec.ts:68` and `mobile-portal-layout.spec.ts:22` have historically
+been **flaky**, not consistently failing. With retries disabled, re-run either
+failed case explicitly to distinguish a transient failure from a regression;
+do not classify it from one old run.
 
 ## Land work on `main` (Vercel Preview)
 
