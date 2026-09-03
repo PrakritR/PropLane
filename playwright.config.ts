@@ -34,16 +34,20 @@ export default defineConfig({
   // timeouts (60s) don't bound the whole suite: 158 cases run serially, so a
   // systemic failure (e.g. sign-in never succeeding) can burn hours before
   // GitHub's 6h job default. globalSetup fails such runs in seconds; this is the
-  // backstop if a run degrades some other way. It must stay UNDER the widest CI
-  // budget that governs it — the `e2e-full` job's 50-min timeout-minutes, minus
-  // headroom for that job's checkout/npm ci/browser-install steps — so Playwright
-  // reports the abort instead of GitHub killing the job with no report at all.
-  // `tests/unit/ci-test-workflow.test.ts` fails if the two numbers drift.
+  // backstop if a run degrades some other way. It must stay UNDER the CI budget
+  // that governs it, minus headroom for the job's checkout/npm ci/browser-install
+  // steps, so Playwright reports the abort instead of GitHub killing the job with
+  // no report at all. This value is sized for the full suite's `e2e-full` job
+  // (50-min timeout-minutes); the far tighter `e2e` smoke job (15 min) cannot use
+  // it, so `test:e2e:smoke` passes its own `--global-timeout`.
+  // `tests/unit/ci-test-workflow.test.ts` fails if either number drifts.
   globalTimeout: 45 * 60_000,
   expect: { timeout: 10_000 },
   use: {
     baseURL,
-    trace: "on-first-retry",
+    // `on-first-retry` records nothing at `retries: 0` — there is never a first
+    // retry — which would leave a failure with only reporter text to debug.
+    trace: "retain-on-failure",
     screenshot: "only-on-failure",
     video: "retain-on-failure",
   },

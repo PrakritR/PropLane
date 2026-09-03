@@ -71,6 +71,9 @@ jobs:
   # and resident credentials can authenticate before these public flows run.
   # The complete 158-case suite is intentionally a separate scheduled/manual job:
   # running it serially with CI retries exceeded this job's budget on every push.
+  # `test:e2e:smoke` carries a 12-minute `--global-timeout` because the config's
+  # 45-minute default is sized for `e2e-full` and would let GitHub kill this job
+  # at 15 minutes with no Playwright report at all.
   e2e:
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -133,19 +136,35 @@ jobs:
           E2E_RESIDENT_PASSWORD: ${{ secrets.E2E_RESIDENT_PASSWORD }}
           E2E_TESTS_ENABLED: "1"
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
+      # The whole point of this job is diagnosis, and traces/screenshots/videos
+      # are written on the runner. Without this they are discarded with it and a
+      # nightly failure leaves only reporter text.
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: e2e-full-test-results
+          path: test-results/
+          if-no-files-found: ignore
+          retention-days: 7
 
   # Branch protection's single required status name. It runs no validation of its
   # own — `npm run check` here repeated all 6,240 unit cases and a production
   # build that `unit` and `build` already run — it AGGREGATES. `if: always()`
   # plus the loop below means the name reports success only when every dimension
   # it depends on actually succeeded, so a failed, cancelled, or skipped
-  # dependency can never merge behind a green `check`. Add a new validation job
-  # to `needs` and it is enforced automatically. `e2e` is deliberately absent: it
-  # is skipped on pull requests and runs only after a push to `main`, so
-  # depending on it would make `check` permanently red on every PR.
+  # dependency can never merge behind a green `check`. Its `needs` list is
+  # exactly what `npm run check` used to cover (lint + unit + build), so the
+  # merge gate is unchanged in scope and only stopped duplicating the work.
+  # Two jobs are deliberately absent, and both stay visible in CI on their own:
+  #   - `e2e` is skipped on pull requests and runs only after a push to `main`,
+  #     so depending on it would make `check` permanently red on every PR.
+  #   - `integration` talks to the live dev/test Supabase project, so a paused
+  #     project, a rotated service-role key, or a fork PR (which GitHub gives no
+  #     secrets) would block every merge on infrastructure rather than on code.
+  # Add a new HERMETIC validation job to `needs` and it is enforced automatically.
   check:
     runs-on: ubuntu-latest
-    needs: [unit, integration, lint, build]
+    needs: [unit, lint, build]
     if: always()
     steps:
       - name: Require every validation job to succeed

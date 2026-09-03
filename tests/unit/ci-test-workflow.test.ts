@@ -63,26 +63,46 @@ describe("Test workflow resource budget", () => {
     }
   });
 
-  it("keeps globalTimeout under the widest CI job budget that governs it", () => {
-    const globalTimeout = playwrightConfig.match(/globalTimeout: (\d+) \* 60_000/);
-    expect(globalTimeout).not.toBeNull();
+  it("keeps every CI job's Playwright global timeout under that job's own budget", () => {
+    // Headroom, in minutes, for the checkout / npm ci / browser install steps,
+    // which run before Playwright starts and so are not covered by globalTimeout.
+    const HEADROOM = 3;
 
-    const budget = jobTimeoutMinutes("e2e-full");
-    expect(Number(globalTimeout![1])).toBeLessThan(budget);
-    // Headroom for the job's checkout / npm ci / browser install, which run
-    // before Playwright starts and so are not covered by globalTimeout.
-    expect(budget - Number(globalTimeout![1])).toBeGreaterThanOrEqual(5);
+    const configured = playwrightConfig.match(/globalTimeout: (\d+) \* 60_000/);
+    expect(configured).not.toBeNull();
+    const fullBudget = jobTimeoutMinutes("e2e-full");
+    expect(fullBudget - Number(configured![1])).toBeGreaterThanOrEqual(HEADROOM);
+
+    // The smoke job's budget is far tighter than the config default, so without
+    // its own override GitHub would kill the runner before Playwright could
+    // report anything at all.
+    const smokeOverride = pkg.scripts["test:e2e:smoke"].match(/--global-timeout=(\d+)/);
+    expect(smokeOverride, "test:e2e:smoke must set its own --global-timeout").not.toBeNull();
+    const smokeMinutes = Number(smokeOverride![1]) / 60_000;
+    expect(jobTimeoutMinutes("e2e") - smokeMinutes).toBeGreaterThanOrEqual(HEADROOM);
+  });
+
+  it("keeps failure diagnostics recoverable at zero retries", () => {
+    // `on-first-retry` never fires when retries are 0.
+    expect(playwrightConfig.match(/^\s*trace: .*$/m)?.[0]).toContain('"retain-on-failure"');
+    // Artifacts written on the runner are lost with it unless uploaded.
+    const full = jobBody("e2e-full");
+    expect(full).toContain("uses: actions/upload-artifact@v4");
+    expect(full).toContain("path: test-results/");
+    expect(full.slice(full.indexOf("upload-artifact"))).toContain("if: always()");
   });
 
   it("makes the required check job an aggregator that cannot pass on a failed dependency", () => {
     const check = jobBody("check");
 
-    expect(check).toContain("needs: [unit, integration, lint, build]");
+    expect(check).toContain("needs: [unit, lint, build]");
     expect(check).toContain("if: always()");
     expect(check).toContain('if [ "$result" != "success" ]');
-    // e2e is skipped on pull requests, so depending on it would make the
-    // required status permanently red on every PR.
+    // `e2e` is skipped on pull requests, and `integration` needs live Supabase
+    // credentials a fork PR never receives — depending on either would make the
+    // required status permanently red rather than gating on code.
     expect(check).not.toContain("e2e");
+    expect(check).not.toContain("integration");
     // It duplicates no work the dimension jobs already do.
     expect(check).not.toContain("- run: npm run check");
     expect(check).not.toContain("- run: npm run test:unit");
@@ -90,7 +110,9 @@ describe("Test workflow resource budget", () => {
     expect(check).not.toContain("- run: npm run lint");
   });
 
-  it("keeps every job the required check depends on defined and independently triggered", () => {
+  it("keeps every non-browser validation job defined and independently triggered", () => {
+    // `integration` is not in `check`'s needs, but it must still run on every
+    // push and PR so its signal stays visible next to the required status.
     for (const name of ["unit", "integration", "lint", "build"]) {
       const body = jobBody(name);
       expect(body).toContain("runs-on: ubuntu-latest");

@@ -611,8 +611,12 @@ known-failing / flaky specs (do not re-triage those) are in
 
 The workflow's `check` job is the stable branch-protection status name, but it
 **runs no validation itself** — it is an `if: always()` aggregator over `unit`,
-`integration`, `lint`, and `build` that fails unless all four succeeded. Add a
-new validation job to its `needs` list or it gates nothing.
+`lint`, and `build` that fails unless all three succeeded. Add a new HERMETIC
+validation job to its `needs` list or it gates nothing. `integration` and `e2e`
+are deliberately NOT in that list and stay visible as their own CI jobs:
+`integration` needs the live dev/test Supabase project and repo secrets a fork PR
+never gets, and `e2e` is skipped on pull requests entirely — depending on either
+would block merges on infrastructure rather than on code.
 
 # The PostgREST surface is public — RLS row predicates are not a column gate
 

@@ -81,9 +81,17 @@ storage-state setup project. The sandbox-backed public application spec stays in
 the full suite because a production-mode server correctly hides test listings.
 
 The complete 158-case suite runs as `e2e-full` on the nightly schedule or a
-manual workflow dispatch. It uses one worker and zero retries. Keeping it off the
-per-push critical path prevents known 60-second failures from consuming three
-attempts each and cancelling every `main` run before later specs execute.
+manual workflow dispatch. It uses one worker and zero retries, and uploads
+`test-results/` (traces, screenshots, videos) as a build artifact on every
+outcome, so a nightly failure is debuggable after the runner is gone. Keeping it
+off the per-push critical path prevents known 60-second failures from consuming
+three attempts each and cancelling every `main` run before later specs execute.
+
+Each browser job's Playwright `globalTimeout` must land under that job's own
+`timeout-minutes`, or GitHub kills the runner first and you get no Playwright
+report at all: the config's 45 minutes is sized for `e2e-full` (50), and
+`test:e2e:smoke` passes its own `--global-timeout` of 12 minutes for the `e2e`
+job (15). `tests/unit/ci-test-workflow.test.ts` fails if either pair drifts.
 
 Pin the dev/test Supabase project first (a plain production build silently uses
 the **production** project — see
@@ -206,7 +214,8 @@ the broad one:
 - **Seed the public-facing fixtures under a non-sandbox manager domain** —
   narrow. Changes only which listings `isPortalSandboxEmail()` classifies, which
   is exactly the thing these 6 cases trip over.
-- **Set `VERCEL_ENV: preview` on the `e2e` job** — one line, but it flips
+- **Set `VERCEL_ENV: preview` on the `e2e-full` job** (these 6 cases live only
+  in the full suite now, not in the `main` smoke gate) — one line, but it flips
   `isProductionRuntime()` for the whole suite, and 11 modules read it: not just
   `public/property-lead`, but `src/lib/auth/portal-access.ts`
   (`adminBlockedFromManagerPortal` stops blocking admin→manager portal crossing),
@@ -220,8 +229,10 @@ the broad one:
   one-liner without re-reading the whole suite's result set.
 
 `admin-portal.spec.ts:68` and `mobile-portal-layout.spec.ts:22` are **flaky**,
-not failing — they pass on CI retry and pass locally. Do not file them as
-failures.
+not failing — they pass locally and pass on a re-run. Both CI E2E jobs run at
+`retries: 0`, so a flake there reddens the nightly `e2e-full` on its first
+attempt: re-run the job before filing either as a failure, and fix the specs
+rather than reintroducing retries.
 
 ## Land work on `main` (Vercel Preview)
 

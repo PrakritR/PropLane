@@ -7,10 +7,11 @@ import { E2E_ACCOUNTS } from "./fixtures";
 // (admin/manager/resident) before asserting anything. If those accounts are not
 // reachable — the E2E_* credential secrets are missing/blank, or the accounts
 // were never seeded into the target Supabase project — every one of those specs
-// stalls on `page.waitForURL(... 30s)` and, with 131 specs run serially at
-// `retries: 2`, the whole job grinds for hours before GitHub's 6h default kills
-// it. That is exactly how CI on `main` hung: the E2E_* repo secrets do not exist,
-// so sign-in submitted empty credentials and never navigated.
+// stalls on `page.waitForURL(... 30s)` and, with 158 cases run serially, the
+// whole job grinds until Playwright's `globalTimeout` (or, before that cap
+// existed, GitHub's 6h default) kills it. Retries used to triple that cost;
+// they are 0 now. That is exactly how CI on `main` hung: the E2E_* repo secrets
+// do not exist, so sign-in submitted empty credentials and never navigated.
 //
 // This preflight does one real sign-in per seeded role (admin, manager,
 // resident) as a smoke check, each in a fresh browser context so sessions never
