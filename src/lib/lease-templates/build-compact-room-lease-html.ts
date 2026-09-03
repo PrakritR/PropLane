@@ -379,11 +379,12 @@ export function buildCompactRoomLeaseBody(input: CompactRoomLeaseInput): string 
     0,
   );
   const totalMonthlyDisplay =
-    !isDailyRentDisplay && rentNum != null && utilNum != null && rentNum > 0 && utilNum > 0
+    !isDailyRentDisplay &&
+    rentNum != null &&
+    utilNum != null &&
+    rentNum + utilNum + monthlyCustomFeesTotal > 0
       ? fmtUsd(rentNum + utilNum + monthlyCustomFeesTotal)
-      : !isDailyRentDisplay && monthlyCustomFeesTotal > 0 && rentNum != null && utilNum != null
-        ? fmtUsd((rentNum ?? 0) + (utilNum ?? 0) + monthlyCustomFeesTotal)
-        : null;
+      : null;
 
   const monthlyCustomFeeSummaryLines = input.billableMonthlyCustomFees
     .map((fee) => {
@@ -453,7 +454,7 @@ export function buildCompactRoomLeaseBody(input: CompactRoomLeaseInput): string 
     lastMonthUtilities > 0
       ? summaryLine(`Last Month&apos;s Utilities${lastMonthFor}`, fmtUsd(lastMonthUtilities))
       : "",
-    !showProratedFirstMonth && input.listingFeePreview && lastMonthRent <= 0
+    input.listingFeePreview && lastMonthRent <= 0
       ? summaryLine(
           "Last Month&apos;s Rent",
           "Calculated from the lease end date when it is not the last day of the month",

@@ -3021,7 +3021,7 @@ function buildApprovedStandardChargeDrafts(
   }
 
   const utilities = selectedRoomUtilities(row);
-  if (utilities.amount > 0) {
+  if (utilities.amount > 0 && dailyUtilInRange) {
     const proration = leaseFirstPeriodProration(opts.leaseStart, opts.leaseEnd, endsInsideFirstMonth);
     let utilAmount: number;
     let utilTitle: string;

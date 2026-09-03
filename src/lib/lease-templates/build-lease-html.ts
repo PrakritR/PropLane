@@ -1203,16 +1203,25 @@ ${customTermsAddendumHtml(subNorm, "Additional Provisions from Owner/Host", prop
     (sum, f) => sum + (parseAmount(f.amount) ?? 0),
     0,
   );
-  const summaryTotalMonthly =
-    billing
+  const documentTotalMonthly =
+    rentNum != null && !isDailyBasis
+      ? fmtUsd(
+          rentNum +
+            (utilitiesNum != null && utilitiesNum > 0 ? utilitiesNum : 0) +
+            monthlyCustomFeesTotal,
+        )
+      : null;
+  const summaryTotalMonthly = !isDailyBasis
+    ? billing
       ? fmtUsd(
           billing.monthlyRent +
             (billing.monthlyUtilities > 0 ? billing.monthlyUtilities : 0) +
             monthlyCustomFeesTotal,
         )
-      : showListingFees && !isDailyBasis && rentNum != null && utilitiesNum != null && utilitiesNum > 0
+      : showListingFees && rentNum != null && utilitiesNum != null && utilitiesNum > 0
         ? fmtUsd(rentNum + utilitiesNum + monthlyCustomFeesTotal)
-        : totalMonthly;
+        : documentTotalMonthly ?? totalMonthly
+    : null;
   const customFeeSummaryRows = billableOneTimeCustomFees
     .map(
       (f) =>
@@ -1443,7 +1452,7 @@ ${
 <table>
   <tr><th width="50%">${rentRowLabel}</th><td><strong>${escapeHtml(monthlyRentBaseStr)}</strong></td></tr>
   <tr><th>Utilities / services (monthly estimate)</th><td><strong>${documentUtilitiesDisplay}</strong></td></tr>
-  ${totalMonthly ? `<tr class="total-row"><th>Total monthly payment</th><td><strong>${totalMonthly}</strong></td></tr>` : ""}
+  ${documentTotalMonthly ? `<tr class="total-row"><th>Total monthly payment</th><td><strong>${documentTotalMonthly}</strong></td></tr>` : ""}
 </table>
 ${isDailyBasis ? `<p>Rent for this Premises is charged <strong>by the day</strong>. Each month's rent is the actual number of days of the term falling in that month multiplied by the daily base rent above. No fixed monthly rent total applies. The utilities estimate is billed monthly and is prorated for any partial month.</p>` : ""}
 <p>Rent is due on the <strong>1st calendar day</strong> of each month. ${paymentMethod}</p>
@@ -1635,7 +1644,7 @@ ${longTermDisputeVenue ? `<p>Venue for a dispute arising from this Agreement is 
   <tr><th>Item</th><th>Amount</th><th>Frequency</th></tr>
   <tr><td>${rentRowLabel}</td><td class="amount"><strong>${escapeHtml(typeof monthlyRentStr === "string" ? monthlyRentStr : String(monthlyRentStr))}</strong></td><td>${isDailyBasis ? "Per day, billed each month by actual days" : "Monthly, due 1st"}</td></tr>
   <tr><td>Utilities / services estimate</td><td class="amount">${documentUtilitiesDisplay}</td><td>Monthly</td></tr>
-  ${totalMonthly ? `<tr class="total-row"><td><strong>Total monthly payment</strong></td><td class="amount"><strong>${totalMonthly}</strong></td><td>Monthly</td></tr>` : ""}
+  ${documentTotalMonthly ? `<tr class="total-row"><td><strong>Total monthly payment</strong></td><td class="amount"><strong>${documentTotalMonthly}</strong></td><td>Monthly</td></tr>` : ""}
   ${proratedRentAmount > 0 ? `<tr><td>Prorated first month&apos;s rent</td><td class="amount">${fmtUsd(proratedRentAmount)}</td><td>One-time (partial month)</td></tr>` : ""}
   ${proratedUtilitiesAmount > 0 ? `<tr><td>Prorated utilities</td><td class="amount">${fmtUsd(proratedUtilitiesAmount)}</td><td>One-time (partial month)</td></tr>` : ""}
   <tr><td>Application fee</td><td class="amount">${appFee}</td><td>One-time</td></tr>

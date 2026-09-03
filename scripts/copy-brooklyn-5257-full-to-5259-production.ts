@@ -99,10 +99,15 @@ function remapListingRoomIdsToTarget(
   const targetIdByName = new Map(
     targetSub.rooms.map((room) => [room.name.trim().toLowerCase(), room.id]),
   );
+  const usedTargetIds = new Set<string>();
   const idMap = new Map<string, string>();
   cloned.rooms = cloned.rooms.map((room, index) => {
-    const existingId = targetIdByName.get(room.name.trim().toLowerCase());
-    const newId = existingId ?? `room-new-${index}-${Math.random().toString(36).slice(2, 9)}`;
+    const preferredId = targetIdByName.get(room.name.trim().toLowerCase());
+    const newId =
+      preferredId && !usedTargetIds.has(preferredId)
+        ? preferredId
+        : `room-new-${index}-${Math.random().toString(36).slice(2, 9)}`;
+    usedTargetIds.add(newId);
     idMap.set(room.id, newId);
     return { ...room, id: newId };
   });

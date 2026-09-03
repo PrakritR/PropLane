@@ -40,10 +40,15 @@ export function useProspectContactAutofill(): ProspectContactAutofill {
 
       const user = session.user;
       try {
-        const [{ data: profile }, { data: roleRows }] = await Promise.all([
-          supabase.from("profiles").select("full_name, email, phone, role").eq("id", user.id).maybeSingle(),
-          supabase.from("profile_roles").select("role").eq("user_id", user.id),
-        ]);
+        const [{ data: profile, error: profileError }, { data: roleRows, error: rolesError }] =
+          await Promise.all([
+            supabase.from("profiles").select("full_name, email, phone, role").eq("id", user.id).maybeSingle(),
+            supabase.from("profile_roles").select("role").eq("user_id", user.id),
+          ]);
+
+        if (profileError || rolesError) {
+          throw new Error(profileError?.message ?? rolesError?.message ?? "profile read failed");
+        }
 
         if (cancelled) return;
 
