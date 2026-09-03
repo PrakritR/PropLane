@@ -39,6 +39,7 @@ import {
   leaseEndProration,
   leaseFirstPeriodProration,
   leaseStartProration,
+  proratedLastMonthAmount,
 } from "@/lib/lease-first-period-proration";
 import {
   intraMonthStaySpan,
@@ -1371,14 +1372,16 @@ function lastMonthChargeForLeaseEnd(
   const proration = leaseEndProration(leaseEnd);
   if (!proration.prorated) return null;
   // A daily-priced room bills its partial last month per day regardless of prorateMethod.
-  const effectiveDailyRate = dailyBasisRate && dailyBasisRate > 0 ? dailyBasisRate : dailyRate;
-  const useDailyRate =
-    (dailyBasisRate != null && dailyBasisRate > 0) ||
-    (prorateMethod === "daily_rate" && dailyRate != null && dailyRate > 0);
-  const amount = useDailyRate
-    ? Number((proration.billableDays * (effectiveDailyRate ?? 0)).toFixed(2))
-    : Number((monthlyAmount * proration.factor).toFixed(2));
-  const rateLabel = formatRoomPriceAmount(effectiveDailyRate ?? 0);
+  // The arithmetic lives in `proratedLastMonthAmount` so the lease document's "last month's
+  // rent" line and this charge are one calculation, not two that can drift apart.
+  const { amount, useDailyRate, effectiveDailyRate } = proratedLastMonthAmount(
+    monthlyAmount,
+    proration,
+    prorateMethod,
+    dailyRate,
+    dailyBasisRate,
+  );
+  const rateLabel = formatRoomPriceAmount(effectiveDailyRate);
   const title = chargeLabel === "rent"
     ? useDailyRate
       ? `Prorated last month's rent (${proration.billableDays} days × ${rateLabel}/day)`

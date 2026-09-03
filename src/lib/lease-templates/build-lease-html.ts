@@ -38,6 +38,9 @@ import {
 import { buildCompactRoomLeaseBody } from "@/lib/lease-templates/build-compact-room-lease-html";
 import {
   computeProratedFirstMonthTotals,
+  computeProratedLastMonthTotals,
+  prorationMonthLabel,
+  type ProratedLastMonthTotals,
 } from "@/lib/lease-first-period-proration";
 import { resolveStayPricing } from "@/lib/room-pricing";
 import { resolveSubmissionRoom, submissionRoomRentLabel } from "@/lib/listing-room-resolution";
@@ -280,6 +283,8 @@ type ProrateOptions = {
   /** When the ledger snapshot is available, use its prorated amounts so the document matches payments. */
   ledgerProratedRent?: number;
   ledgerProratedUtilities?: number;
+  /** "September 2026" — names the calendar month the prorated amounts cover. */
+  monthLabel?: string;
 };
 
 /** Cross-reference placeholders, resolved once every section has claimed its number. */
@@ -288,6 +293,36 @@ const UTILITIES_SECTION_TOKEN = "__UTILITIES_SECTION__";
 
 /** Placeholder for the prorated section's number, swapped for a counter value at render. */
 const PRORATED_SECTION_TOKEN = "__PRORATED_SECTION__";
+
+/** Same, for the partial-final-month section. */
+const LAST_MONTH_SECTION_TOKEN = "__LAST_MONTH_SECTION__";
+
+/**
+ * The partial FINAL calendar month, stated in the document because the ledger already bills
+ * it (`prorated_last_month_rent` / `prorated_last_month_utilities`, created up front at
+ * approval and due a week before the term ends). Until this section existed, a resident
+ * received a charge for an amount the executed lease never named.
+ */
+function lastMonthBlock(
+  totals: ProratedLastMonthTotals,
+  isDailyBasis: boolean,
+): string {
+  if (!totals.applies) return "";
+  const dueSentence = totals.dueDateLabel
+    ? ` These amounts are billed with the move-in charges and are due ${escapeHtml(totals.dueDateLabel.replace(/^By /, ""))}.`
+    : "";
+  const monthPhrase = totals.monthLabel ? ` (${escapeHtml(totals.monthLabel)})` : "";
+  return `
+<h2>${LAST_MONTH_SECTION_TOKEN}. Prorated Final Month</h2>
+<p>Because the term ends on the <strong>${ordinal(totals.billableDays)}</strong> of the month rather than the last day, the final calendar month${monthPhrase} is prorated as follows (${totals.billableDays} of ${totals.daysInMonth} days).${dueSentence}</p>
+<table>
+  <tr><th>Item</th><th>${isDailyBasis ? "Daily rate basis" : "Monthly rate basis"}</th><th>Days billed</th><th>Prorated amount</th></tr>
+  ${totals.proratedRent > 0 ? `<tr><td>Last month&apos;s rent</td><td>${escapeHtml(totals.label)}</td><td>${totals.billableDays} / ${totals.daysInMonth}</td><td>${fmtUsd(totals.proratedRent)}</td></tr>` : ""}
+  ${totals.proratedUtilities > 0 ? `<tr><td>Last month&apos;s utilities estimate</td><td>${escapeHtml(totals.label)}</td><td>${totals.billableDays} / ${totals.daysInMonth}</td><td>${fmtUsd(totals.proratedUtilities)}</td></tr>` : ""}
+  <tr class="total-row"><td colspan="3"><strong>Total due for the final month</strong></td><td><strong>${fmtUsd(totals.total)}</strong></td></tr>
+</table>
+`;
+}
 
 function proratedBlock(
   monthlyRentStr: string,
@@ -341,7 +376,7 @@ function proratedBlock(
       ? span
         ? `Because the term begins and ends within one calendar month, the utilities estimate is prorated across the term as follows (${remaining} of ${dim} days). Rent is not prorated: it is billed by the day, as stated in Section 4.`
         : `Because the Lease commences on the <strong>${ordinal(day)}</strong> of the month, the first partial month's utilities estimate is prorated as follows (${remaining} of ${dim} days). Rent is not prorated: it is billed by the day, as stated in Section 4.`
-      : `Because the Lease commences on the <strong>${ordinal(day)}</strong> of the month, the first partial month is prorated as follows (${remaining} of ${dim} days):`;
+      : `Because the Lease commences on the <strong>${ordinal(day)}</strong> of the month, the first partial month${prorate?.monthLabel ? ` (${escapeHtml(prorate.monthLabel)})` : ""} is prorated as follows (${remaining} of ${dim} days):`;
     const closing = utilitiesOnly
       ? span
         ? ""
@@ -845,7 +880,55 @@ export function buildLeaseHtml(ctx: LeaseGenerationContext, config: LeaseJurisdi
     utilitiesAmount: utilitiesNum ?? 0,
     ledgerProratedRent: leaseBilling?.proratedRent,
     ledgerProratedUtilities: leaseBilling?.proratedUtilities,
+    monthLabel: prorationMonthLabel(a.leaseStart),
   });
+
+  // Both partial-month figures are resolved BEFORE the short-term branch returns, because
+  // the stay agreement quotes them too — a short stay that straddles a month boundary
+  // prorates its utilities exactly like a long-term lease does.
+  const proratedFirstMonthTotals = stripPreviewFinancials
+    ? null
+    : computeProratedFirstMonthTotals({
+        monthlyRent: leaseBilling?.monthlyRent ?? rentNum ?? 0,
+        monthlyUtilities: leaseBilling?.monthlyUtilities ?? utilitiesNum ?? 0,
+        leaseStart: a.leaseStart ?? "",
+        leaseEnd: a.leaseEnd ?? "",
+        method: specificRoom?.prorateMethod,
+        dailyRentRate: specificRoom?.dailyRentRate,
+        dailyUtilitiesRate: specificRoom?.dailyUtilitiesRate,
+        utilitiesOnly: isDailyBasis,
+        ledgerProratedRent: leaseBilling?.proratedRent,
+        ledgerProratedUtilities: leaseBilling?.proratedUtilities,
+      });
+  const firstPartialMonthPayment =
+    proratedFirstMonthTotals?.applies && proratedFirstMonthTotals.total > 0
+      ? proratedFirstMonthTotals.total
+      : 0;
+  const proratedRentAmount = stripPreviewFinancials
+    ? 0
+    : proratedFirstMonthTotals?.proratedRent ?? leaseBilling?.proratedRent ?? 0;
+  const proratedUtilitiesAmount = stripPreviewFinancials
+    ? 0
+    : proratedFirstMonthTotals?.proratedUtilities ?? leaseBilling?.proratedUtilities ?? 0;
+  const showProratedFirstMonth = firstPartialMonthPayment > 0;
+  const firstMonthLabel = stripPreviewFinancials ? "" : prorationMonthLabel(a.leaseStart);
+
+  // Same guard the ledger uses: a daily-priced term that begins and ends inside one calendar
+  // month is billed once as its first period, so it has no separate last month.
+  const endsInsideFirstMonth = isDailyBasis && intraMonthStaySpan(a.leaseStart, a.leaseEnd) !== null;
+  const lastMonthTotals: ProratedLastMonthTotals | null = stripPreviewFinancials
+    ? null
+    : computeProratedLastMonthTotals({
+        monthlyRent: leaseBilling?.monthlyRent ?? rentNum ?? 0,
+        monthlyUtilities: leaseBilling?.monthlyUtilities ?? utilitiesNum ?? 0,
+        leaseEnd: a.leaseEnd ?? "",
+        method: specificRoom?.prorateMethod,
+        dailyRentRate: specificRoom?.dailyRentRate,
+        dailyUtilitiesRate: specificRoom?.dailyUtilitiesRate,
+        dailyBasisRate,
+        endsInsideFirstMonth,
+      });
+  const showProratedLastMonth = Boolean(lastMonthTotals?.applies);
 
   if (stay.stayKind === "short") {
     const dailyCost = stay.dailyRate;
@@ -960,6 +1043,47 @@ export function buildLeaseHtml(ctx: LeaseGenerationContext, config: LeaseJurisdi
       ? `${leaseDate(a.leaseEnd)} @ ${escapeHtml(checkOutTimeRaw)}`
       : leaseDate(a.leaseEnd);
 
+    // The stay agreement carries the SAME grouped summary the long-term lease does — stay
+    // charges, then fees and deposit, then what is actually due before check-in. It used to
+    // open straight into the clauses, so a guest had to reconstruct the total from Section 4.
+    // The block sits ABOVE Section 1 and adds no row to the Section 4 payment table, which
+    // remains the single place the "Total due" figure the ledger must match is stated.
+    const stayHeading = (label: string) =>
+      `<p style="margin:0.55rem 0 0.15rem;font-weight:700;text-transform:uppercase;letter-spacing:.05em;font-size:0.82em">${label}</p>`;
+    const stayLine = (label: string, value: string) =>
+      `<p style="margin:0.2rem 0"><strong>${label}:</strong> ${value}</p>`;
+    const stayMonthLabel = prorationMonthLabel(a.leaseStart);
+    const stayFeeSummaryLines = [
+      shortDepositRaw !== "—" ? stayLine("Deposit", escapeHtml(shortDepositRaw)) : "",
+      stayMoveInLabel ? stayLine("Move-in Fee", escapeHtml(stayMoveInLabel)) : "",
+      stayOtherNum > 0 ? stayLine(otherCostLabel, fmtUsd(stayOtherNum)) : "",
+      ...stCustomFees.map((f) =>
+        stayLine(
+          escapeHtml(f.label?.trim() || "Custom fee"),
+          fmtUsd(parseAmount(stayFeeAmount(f)) ?? 0),
+        ),
+      ),
+    ].filter(Boolean);
+    const staySummaryHtml = `<div style="border:1px solid #999;padding:12px 14px;margin:0 0 1.25rem;background:#fafafa">
+  <p style="margin:0 0 0.5rem;font-weight:700;text-align:center;text-transform:uppercase;letter-spacing:.04em">Stay Summary</p>
+  <p style="margin:0.2rem 0"><strong>Owner / Host:</strong> ${landlordEntity}</p>
+  <p style="margin:0.2rem 0"><strong>Guest:</strong> ${tenantName}</p>
+  <p style="margin:0.2rem 0"><strong>Premises:</strong> ${roomLabel}, ${address}${cityZip ? `, ${escapeHtml(cityZip)}` : ""}</p>
+  <p style="margin:0.2rem 0"><strong>Stay:</strong> ${checkInDateTime} through ${checkOutDateTime}${stayNights ? ` (${stayNights} ${stayUnitNoun.toLowerCase()}${stayNights === 1 ? "" : "s"})` : ""}</p>
+  ${stayHeading("Stay charges")}
+  <p style="margin:0.2rem 0"><strong>Daily Rent:</strong> ${escapeHtml(dailyCostRaw)} per day</p>
+  <p style="margin:0.2rem 0"><strong>Rent for Stay:</strong> ${totalRent}${stayNights ? ` (${stayNights} × ${escapeHtml(dailyCostRaw)})` : ""}</p>
+  ${
+    stayUtilitiesNum > 0 && stayUtilitiesSpan
+      ? `<p style="margin:0.2rem 0"><strong>Prorated Utilities${stayMonthLabel ? ` for ${escapeHtml(stayMonthLabel)}` : ""}:</strong> ${fmtUsd(stayUtilitiesNum)} (${stayUtilitiesSpan.billableDays}/${stayUtilitiesSpan.daysInMonth} days)</p>`
+      : ""
+  }
+  ${stayFeeSummaryLines.length ? `${stayHeading("Fees &amp; deposit")}\n  ${stayFeeSummaryLines.join("\n  ")}` : ""}
+  ${stayHeading("Initial payment")}
+  <p style="margin:0.2rem 0"><strong>Payment Due Before Check-In:</strong> ${totalDue}</p>
+  ${paySigningIncludesNote ? `<p style="margin:0.35rem 0 0;font-size:0.92em">Amounts collected before check-in follow the listing&apos;s payment settings: ${paySigningIncludesNote}.</p>` : ""}
+</div>`;
+
     return `<!doctype html><html><head><meta charset="utf-8"/><title>Short-Term Room Stay Agreement</title><style>${leaseCss()}</style></head><body>
 ${
   config.brandTitle
@@ -968,6 +1092,7 @@ ${
 }
 <p class="sub">Owner-Occupied Residence · ${config.headerSubtitle}</p>
 <p class="generated">Generated ${generatedDate} via PropLane</p>
+${staySummaryHtml}
 
 <h2>1. Parties</h2>
 <table>
@@ -1075,31 +1200,6 @@ ${customTermsAddendumHtml(subNorm, "Additional Provisions from Owner/Host", prop
       : showListingFees && !isDailyBasis && rentNum != null && utilitiesNum != null && utilitiesNum > 0
         ? fmtUsd(rentNum + utilitiesNum)
         : totalMonthly;
-  const proratedFirstMonthTotals = stripPreviewFinancials
-    ? null
-    : computeProratedFirstMonthTotals({
-        monthlyRent: billing?.monthlyRent ?? rentNum ?? 0,
-        monthlyUtilities: billing?.monthlyUtilities ?? utilitiesNum ?? 0,
-        leaseStart: a.leaseStart ?? "",
-        leaseEnd: a.leaseEnd ?? "",
-        method: specificRoom?.prorateMethod,
-        dailyRentRate: specificRoom?.dailyRentRate,
-        dailyUtilitiesRate: specificRoom?.dailyUtilitiesRate,
-        utilitiesOnly: isDailyBasis,
-        ledgerProratedRent: leaseBilling?.proratedRent,
-        ledgerProratedUtilities: leaseBilling?.proratedUtilities,
-      });
-  const firstPartialMonthPayment =
-    proratedFirstMonthTotals?.applies && proratedFirstMonthTotals.total > 0
-      ? proratedFirstMonthTotals.total
-      : 0;
-  const proratedRentAmount = stripPreviewFinancials
-    ? 0
-    : proratedFirstMonthTotals?.proratedRent ?? leaseBilling?.proratedRent ?? 0;
-  const proratedUtilitiesAmount = stripPreviewFinancials
-    ? 0
-    : proratedFirstMonthTotals?.proratedUtilities ?? leaseBilling?.proratedUtilities ?? 0;
-  const showProratedFirstMonth = firstPartialMonthPayment > 0;
   const customFeeSummaryRows = billableOneTimeCustomFees
     .map(
       (f) =>
@@ -1118,6 +1218,34 @@ ${customTermsAddendumHtml(subNorm, "Additional Provisions from Owner/Host", prop
         `<tr><th>${escapeHtml(f.label?.trim() || "Fee")}</th><td class="amount">${escapeHtml(fmtUsd(parseAmount(f.amount) ?? 0))}</td></tr>`,
     )
     .join("\n");
+  // The summary is GROUPED — recurring monthly charges, then the one-time fees and deposit,
+  // then the initial payment. Every partial-month line names the calendar month it covers,
+  // because "prorated rent" with no month is the line residents and managers misread most.
+  const summaryGroupRow = (label: string) =>
+    `<tr><th colspan="2" style="background:#eee;text-transform:uppercase;letter-spacing:.05em;font-size:0.86em">${label}</th></tr>`;
+  const firstMonthSuffix = firstMonthLabel ? ` for ${escapeHtml(firstMonthLabel)}` : " (first partial month)";
+  const lastMonthSuffix = lastMonthTotals?.monthLabel
+    ? ` for ${escapeHtml(lastMonthTotals.monthLabel)}`
+    : " (final partial month)";
+  const initialPaymentRows = [
+    showProratedFirstMonth && proratedRentAmount <= 0 && proratedUtilitiesAmount <= 0
+      ? `<tr><th>Prorated rent${firstMonthSuffix}</th><td class="amount">${fmtUsd(firstPartialMonthPayment)}</td></tr>`
+      : "",
+    proratedRentAmount > 0
+      ? `<tr><th>Prorated rent${firstMonthSuffix}</th><td class="amount">${fmtUsd(proratedRentAmount)}</td></tr>`
+      : "",
+    proratedUtilitiesAmount > 0
+      ? `<tr><th>Prorated utilities${firstMonthSuffix}</th><td class="amount">${fmtUsd(proratedUtilitiesAmount)}</td></tr>`
+      : "",
+    showProratedLastMonth && lastMonthTotals && lastMonthTotals.proratedRent > 0
+      ? `<tr><th>Last month&apos;s rent${lastMonthSuffix}</th><td class="amount">${fmtUsd(lastMonthTotals.proratedRent)}</td></tr>`
+      : "",
+    showProratedLastMonth && lastMonthTotals && lastMonthTotals.proratedUtilities > 0
+      ? `<tr><th>Last month&apos;s utilities${lastMonthSuffix}</th><td class="amount">${fmtUsd(lastMonthTotals.proratedUtilities)}</td></tr>`
+      : "",
+  ]
+    .filter(Boolean)
+    .join("\n    ");
   const leaseSummaryHtml =
     config.brandTitle && (billing || showListingFees)
       ? `<div style="border:1px solid #999;padding:12px 14px;margin:0 0 1.25rem;background:#fafafa">
@@ -1127,20 +1255,26 @@ ${customTermsAddendumHtml(subNorm, "Additional Provisions from Owner/Host", prop
     <tr><th>Resident</th><td>${tenantName}</td></tr>
     <tr><th>Premises</th><td>${roomLabel}, ${address}${cityZip ? `, ${escapeHtml(cityZip)}` : ""}</td></tr>
     <tr><th>Lease term</th><td>${leaseStart} – ${leaseEnd} (${leaseTerm})</td></tr>
-    <tr><th>Monthly rent</th><td class="amount"><strong>${summaryMonthlyRent}</strong></td></tr>
+    ${summaryGroupRow("Monthly charges")}
+    <tr><th>${isDailyBasis ? "Daily rent" : "Monthly rent"}</th><td class="amount"><strong>${summaryMonthlyRent}</strong></td></tr>
     <tr><th>Monthly utilities</th><td class="amount"><strong>${summaryMonthlyUtilities}</strong></td></tr>
-    ${summaryTotalMonthly ? `<tr class="total-row"><th>Total monthly payment</th><td class="amount"><strong>${summaryTotalMonthly}</strong></td></tr>` : ""}
-    ${showProratedFirstMonth && proratedRentAmount <= 0 && proratedUtilitiesAmount <= 0 ? `<tr><th>Prorated first month</th><td class="amount">${fmtUsd(firstPartialMonthPayment)}</td></tr>` : ""}
-    ${proratedRentAmount > 0 ? `<tr><th>Prorated rent (first partial month)</th><td class="amount">${fmtUsd(proratedRentAmount)}</td></tr>` : ""}
-    ${proratedUtilitiesAmount > 0 ? `<tr><th>Prorated utilities (first partial month)</th><td class="amount">${fmtUsd(proratedUtilitiesAmount)}</td></tr>` : ""}
+    ${monthlyCustomFeeSummaryRows}
+    ${summaryTotalMonthly ? `<tr class="total-row"><th>Total monthly housing cost</th><td class="amount"><strong>${summaryTotalMonthly}</strong></td></tr>` : ""}
+    ${summaryGroupRow("Fees &amp; deposit")}
     <tr><th>Security deposit</th><td class="amount">${secDep}</td></tr>
     <tr><th>Move-in fee</th><td class="amount">${moveInFee}</td></tr>
-    ${monthlyCustomFeeSummaryRows}
     ${supplementalOneTimeSummaryRows}
     ${customFeeSummaryRows}
+    ${summaryGroupRow("Initial payment")}
+    ${initialPaymentRows}
     <tr class="total-row"><th>Payment due at signing</th><td class="amount"><strong>${paySigning}</strong></td></tr>
   </table>
   ${paySigningIncludesNote ? `<p class="fee-note">Due at signing includes: ${paySigningIncludesNote}.</p>` : ""}
+  ${
+    showProratedLastMonth && lastMonthTotals
+      ? `<p class="fee-note">The final month is partial (${escapeHtml(lastMonthTotals.label)}), so last month&apos;s rent and utilities are billed at ${fmtUsd(lastMonthTotals.total)}${lastMonthTotals.dueDateLabel ? `, due ${escapeHtml(lastMonthTotals.dueDateLabel.replace(/^By /, ""))}` : ""}.</p>`
+      : ""
+  }
 </div>`
       : "";
 
@@ -1165,6 +1299,13 @@ ${customTermsAddendumHtml(subNorm, "Additional Provisions from Owner/Host", prop
       firstPartialMonthPayment,
       proratedRentAmount,
       proratedUtilitiesAmount,
+      firstMonthLabel,
+      proratedLastMonthRent: lastMonthTotals?.proratedRent,
+      proratedLastMonthUtilities: lastMonthTotals?.proratedUtilities,
+      proratedLastMonthTotal: lastMonthTotals?.total,
+      lastMonthLabel: lastMonthTotals?.applies ? lastMonthTotals.monthLabel : undefined,
+      lastMonthDaysLabel: lastMonthTotals?.applies ? lastMonthTotals.label : undefined,
+      lastMonthDueDateLabel: lastMonthTotals?.applies ? lastMonthTotals.dueDateLabel : undefined,
       billableOneTimeCustomFees,
       billableMonthlyCustomFees,
       supplementalOneTimeLeaseFees,
@@ -1292,6 +1433,7 @@ ${lateFeeUsd != null ? `<p><strong>Late fee:</strong> If rent is not received af
 ${rentDisclosureHtml}
 
 ${showProratedFirstMonth && proratedSection ? proratedSection.replace(PRORATED_SECTION_TOKEN, String(nextSection())) : ""}
+${showProratedLastMonth && lastMonthTotals ? lastMonthBlock(lastMonthTotals, isDailyBasis).replace(LAST_MONTH_SECTION_TOKEN, String(nextSection())) : ""}
 
 <h2>${nextSection()}. Security Deposit &amp; Move-In Charges</h2>
 <table class="fee-table">

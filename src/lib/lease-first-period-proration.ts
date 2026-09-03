@@ -159,3 +159,128 @@ export function computeProratedFirstMonthTotals(input: ProratedFirstMonthCompute
     applies: true,
   };
 }
+
+/** "September 2026" — the calendar month a prorated amount belongs to, for lease copy. */
+export function prorationMonthLabel(date: string | undefined): string {
+  const parsed = parseFlexibleLocalDate(date ?? "");
+  if (!parsed) return "";
+  // Pinned to en-US rather than the ambient locale: this string is printed into an
+  // executed lease document, so it must not change with the server's locale.
+  return parsed.toLocaleDateString("en-US", { month: "long", year: "numeric" });
+}
+
+/**
+ * One partial-last-month amount, in the SAME two branches the ledger bills in
+ * (`lastMonthChargeForLeaseEnd` in `household-charges.ts` calls this).
+ *
+ * A daily-priced room bills its partial last month per day regardless of `prorateMethod`;
+ * an explicit `daily_rate` proration method does too when it carries a rate. Everything
+ * else takes the monthly amount times the day factor.
+ */
+export function proratedLastMonthAmount(
+  monthlyAmount: number,
+  proration: LeaseBoundaryProration,
+  method?: "auto" | "daily_rate",
+  dailyRate?: number,
+  dailyBasisRate?: number,
+): { amount: number; useDailyRate: boolean; effectiveDailyRate: number } {
+  const effectiveDailyRate = dailyBasisRate && dailyBasisRate > 0 ? dailyBasisRate : (dailyRate ?? 0);
+  const useDailyRate =
+    (dailyBasisRate != null && dailyBasisRate > 0) ||
+    (method === "daily_rate" && dailyRate != null && dailyRate > 0);
+  const amount = useDailyRate
+    ? Number((proration.billableDays * effectiveDailyRate).toFixed(2))
+    : Number((monthlyAmount * proration.factor).toFixed(2));
+  return { amount, useDailyRate, effectiveDailyRate };
+}
+
+export type ProratedLastMonthComputeInput = {
+  monthlyRent: number;
+  monthlyUtilities: number;
+  leaseEnd: string | undefined;
+  method?: "auto" | "daily_rate";
+  dailyRentRate?: number;
+  dailyUtilitiesRate?: number;
+  /** Headline daily rate when the room itself is priced by the day. */
+  dailyBasisRate?: number;
+  /**
+   * The ledger creates NO last-month charge for a daily-priced stay that ends inside its
+   * own first month — the first-period charge already covers the whole term. The document
+   * has to skip it on exactly the same condition or it states a charge nobody bills.
+   */
+  endsInsideFirstMonth?: boolean;
+  /** Ledger amounts, when a snapshot exists, so the document matches what actually bills. */
+  ledgerProratedLastMonthRent?: number;
+  ledgerProratedLastMonthUtilities?: number;
+};
+
+export type ProratedLastMonthTotals = {
+  applies: boolean;
+  proratedRent: number;
+  proratedUtilities: number;
+  total: number;
+  billableDays: number;
+  daysInMonth: number;
+  /** Day-count basis, e.g. "1/31 days through lease end". */
+  label: string;
+  /** The ledger's own due date for these charges (a week before the lease ends). */
+  dueDateLabel?: string;
+  /** Calendar month the amounts belong to, e.g. "December 2027". */
+  monthLabel: string;
+};
+
+const NO_LAST_MONTH_PRORATION: ProratedLastMonthTotals = {
+  applies: false,
+  proratedRent: 0,
+  proratedUtilities: 0,
+  total: 0,
+  billableDays: 0,
+  daysInMonth: 0,
+  label: "full last month",
+  monthLabel: "",
+};
+
+/**
+ * Dollar amounts for the partial LAST calendar month of a lease — the "last month's rent"
+ * line a lease summary quotes. Mirrors `lastMonthChargeForLeaseEnd`'s math exactly so the
+ * document and the household charges can never disagree.
+ */
+export function computeProratedLastMonthTotals(
+  input: ProratedLastMonthComputeInput,
+): ProratedLastMonthTotals {
+  if (input.endsInsideFirstMonth) return NO_LAST_MONTH_PRORATION;
+  const proration = leaseEndProration(input.leaseEnd);
+  if (!proration.prorated) return NO_LAST_MONTH_PRORATION;
+
+  const rent =
+    input.monthlyRent > 0 || (input.dailyBasisRate ?? 0) > 0
+      ? proratedLastMonthAmount(
+          input.monthlyRent,
+          proration,
+          input.method,
+          input.dailyRentRate,
+          input.dailyBasisRate,
+        ).amount
+      : 0;
+  const utilities =
+    input.monthlyUtilities > 0
+      ? proratedLastMonthAmount(input.monthlyUtilities, proration, input.method, input.dailyUtilitiesRate)
+          .amount
+      : 0;
+
+  const proratedRent = input.ledgerProratedLastMonthRent ?? rent;
+  const proratedUtilities = input.ledgerProratedLastMonthUtilities ?? utilities;
+  if (proratedRent <= 0 && proratedUtilities <= 0) return NO_LAST_MONTH_PRORATION;
+
+  return {
+    applies: true,
+    proratedRent,
+    proratedUtilities,
+    total: Number((proratedRent + proratedUtilities).toFixed(2)),
+    billableDays: proration.billableDays,
+    daysInMonth: proration.daysInMonth,
+    label: proration.label,
+    dueDateLabel: proration.dueDateLabel,
+    monthLabel: prorationMonthLabel(input.leaseEnd),
+  };
+}

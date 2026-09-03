@@ -1404,6 +1404,50 @@ charges the full `shortTermDeposit` and returns before that code. Keyed on `rent
 on the resolved `stayKind`, for exactly the same reason the deposit amount is: the stay
 document also backs a standard application, and in that case the credit IS applied.
 
+## Partial months: BOTH boundaries, and the document names the month
+
+A lease that starts mid-month and ends mid-month has two partial calendar months, and the
+ledger has always billed both — `prorated_rent` / `prorated_utilities` at the start, and
+`prorated_last_month_rent` / `prorated_last_month_utilities` created up front at approval but
+DUE about a week before the term ends (`lastMonthChargeForLeaseEnd`'s `dueDateLabel`). The
+document used to name only the first one, so a resident received a charge for an amount their
+executed lease never stated.
+
+- **One calculation, two consumers.** `proratedLastMonthAmount` and
+  `computeProratedLastMonthTotals` (`lease-first-period-proration.ts`) hold the arithmetic;
+  `lastMonthChargeForLeaseEnd` in `household-charges.ts` calls the first, the templates call
+  the second. The two branches are the ledger's own: a daily-priced room bills its partial last
+  month per day whatever `prorateMethod` says, an explicit `daily_rate` method does too when it
+  carries a rate, everything else is monthly × day factor. Do not re-derive either side.
+- **`endsInsideFirstMonth` is the double-bill guard.** A daily-priced term that begins and ends
+  inside one calendar month is billed once as its first period, so the ledger creates no
+  last-month charge — and the document must skip it on exactly that condition, which is why the
+  flag is an input rather than something the helper infers.
+- **Every partial-month line names its calendar month** (`prorationMonthLabel`, pinned to
+  `en-US` because the string lands in an executed document): "Prorated Rent for September 2026",
+  "Last Month's Rent for December 2027". A bare "prorated rent" is the line residents and
+  managers misread most.
+- **Last month's rent is NOT due at signing.** It appears on the payment schedule with its own
+  due date and is deliberately absent from the due-at-signing list, because
+  `computeLeasePaymentAtSigning` sums only what `paymentAtSigningIncludes` names and there is no
+  option id for it. Folding it into the signing total would make the document disagree with the
+  charge. A manager who wants it collected at signing needs a new
+  `PAYMENT_AT_SIGNING_OPTIONS` entry wired through the ledger's due date too — not a template
+  change.
+- **Both generic templates are grouped the same way**: monthly charges, fees and deposit, then
+  the initial payment. The short-term stay agreement gained the matching **Stay Summary** block,
+  which sits ABOVE Section 1 and adds no row to the Section 4 payment table — that table remains
+  the single place the "Total due" figure the ledger invariant is asserted against is stated
+  (`stay-pricing-repro.test.ts` and `lease-e2e-artifacts.test.ts` both parse it by splitting on
+  the Section 4 heading).
+- **A residual ledger oddity, mirrored deliberately.** A MONTHLY-priced lease that starts and
+  ends inside one calendar month gets both a first-period and a last-month charge, because
+  `endsInsideFirstMonth` only guards the daily-priced case. The document now states whatever the
+  ledger bills, so the two agree; fixing the overlap belongs on the ledger side.
+- Coverage: `tests/unit/lease-prorated-schedule.test.ts` (the 4709A Room 2 lease: Sep 22 2026 →
+  Dec 1 2027, monthly and `daily_rate` variants, long-form and compact),
+  `lease-first-period-proration.test.ts`, `short-term-lease-html.test.ts`.
+
 ## One room lookup on the ledger side
 
 `resolveRowSubmissionRoom` / `roomForRow` are the only way `household-charges.ts` picks a

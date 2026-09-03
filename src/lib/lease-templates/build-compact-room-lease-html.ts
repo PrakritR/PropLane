@@ -24,6 +24,23 @@ export type CompactRoomLeaseInput = {
   firstPartialMonthPayment: number;
   proratedRentAmount?: number;
   proratedUtilitiesAmount?: number;
+  /** "September 2026" — the calendar month the first-period proration covers. */
+  firstMonthLabel?: string;
+  /**
+   * The partial FINAL calendar month, resolved by `computeProratedLastMonthTotals` from the
+   * same math the ledger bills `prorated_last_month_rent` with. Absent when the lease ends
+   * on the last day of a month (nothing to prorate) or when a daily-priced stay ends inside
+   * its own first month (the first-period charge already covers the whole term).
+   */
+  proratedLastMonthRent?: number;
+  proratedLastMonthUtilities?: number;
+  proratedLastMonthTotal?: number;
+  /** "December 2027" */
+  lastMonthLabel?: string;
+  /** "1/31 days through lease end" */
+  lastMonthDaysLabel?: string;
+  /** The ledger's own due date for the last-month charges, e.g. "By Nov 24, 2027". */
+  lastMonthDueDateLabel?: string;
   billableOneTimeCustomFees: ReadonlyArray<{ label?: string; amount?: string }>;
   billableMonthlyCustomFees: ReadonlyArray<{ label?: string; amount?: string }>;
   /** Preset one-time fees (application, holding deposit, etc.) not due at signing. */
@@ -139,6 +156,7 @@ function moveInPaymentSummaryHtml(input: CompactRoomLeaseInput): string {
   }
   const includes = new Set(paymentAtSigningIncludes ?? []);
   const useIncludesFilter = includes.size > 0;
+  const lastMonthLine = Boolean(input.lastMonthLabel?.trim());
   const scheduleLines: string[] = [];
   const signingLines: string[] = [];
 
@@ -174,6 +192,25 @@ function moveInPaymentSummaryHtml(input: CompactRoomLeaseInput): string {
     ) {
       pushSigning(`<strong>${fmtUsd(firstPartialMonthPayment)}</strong> for the first partial month (prorated rent and utilities)`);
     }
+  }
+
+  // Last month's rent is billed UP FRONT with the move-in charges but is DUE near the end of
+  // the term, so it belongs on the payment schedule with its own due date and NOT in the
+  // due-at-signing list. Stating it as due at signing would make the document disagree with
+  // the charge the ledger actually creates.
+  const lastMonthDue = input.lastMonthDueDateLabel?.trim()
+    ? ` &mdash; due ${escapeHtml(input.lastMonthDueDateLabel.replace(/^By /, ""))}`
+    : "";
+  const lastMonthFor = lastMonthLine ? ` for ${escapeHtml(input.lastMonthLabel ?? "")}` : "";
+  if ((input.proratedLastMonthRent ?? 0) > 0) {
+    pushSchedule(
+      `Last month&apos;s prorated rent${lastMonthFor}: <strong>${fmtUsd(input.proratedLastMonthRent ?? 0)}</strong>${lastMonthDue}`,
+    );
+  }
+  if ((input.proratedLastMonthUtilities ?? 0) > 0) {
+    pushSchedule(
+      `Last month&apos;s prorated utilities${lastMonthFor}: <strong>${fmtUsd(input.proratedLastMonthUtilities ?? 0)}</strong>${lastMonthDue}`,
+    );
   }
 
   const secDepNum = parseAmount(secDep);
@@ -320,6 +357,19 @@ export function buildCompactRoomLeaseBody(input: CompactRoomLeaseInput): string 
       ? `<p>For the first partial month, Resident shall pay <strong>${fmtUsd(input.proratedRentAmount)}</strong> prorated rent and <strong>${fmtUsd(input.proratedUtilitiesAmount)}</strong> prorated utilities (total <strong>${fmtUsd(input.firstPartialMonthPayment)}</strong>).</p>`
       : `<p>For the first partial month, Resident shall pay <strong>${fmtUsd(input.firstPartialMonthPayment)}</strong> (prorated rent and utilities).</p>`
     : "";
+  const lastMonthProrationLine =
+    (input.proratedLastMonthRent ?? 0) > 0 || (input.proratedLastMonthUtilities ?? 0) > 0
+      ? `<p>The final month of the term is partial${input.lastMonthDaysLabel?.trim() ? ` (${escapeHtml(input.lastMonthDaysLabel.trim())})` : ""}. For that month Resident shall pay ${[
+          (input.proratedLastMonthRent ?? 0) > 0
+            ? `<strong>${fmtUsd(input.proratedLastMonthRent ?? 0)}</strong> prorated rent`
+            : "",
+          (input.proratedLastMonthUtilities ?? 0) > 0
+            ? `<strong>${fmtUsd(input.proratedLastMonthUtilities ?? 0)}</strong> prorated utilities`
+            : "",
+        ]
+          .filter(Boolean)
+          .join(" and ")}${input.lastMonthLabel?.trim() ? ` for ${escapeHtml(input.lastMonthLabel.trim())}` : ""}${input.lastMonthDueDateLabel?.trim() ? `, due ${escapeHtml(input.lastMonthDueDateLabel.replace(/^By /, ""))}` : ""}.</p>`
+      : "";
 
   const rentNum = input.parseAmount(monthlyRentDisplay);
   const utilNum = input.parseAmount(utilitiesDisplay);
@@ -358,23 +408,78 @@ export function buildCompactRoomLeaseBody(input: CompactRoomLeaseInput): string 
 
   const paySigningIncludesNote = input.sub ? escapeHtml(paymentAtSigningIncludedLabels(input.sub)) : "";
 
+  // The summary is GROUPED — monthly charges, fees and deposit, then the initial payment —
+  // and every partial-month line names the calendar month it covers. "Prorated rent" with no
+  // month is the line residents and managers misread most, and the final partial month was
+  // billed by the ledger while appearing nowhere in the document at all.
+  const summaryHeading = (label: string) =>
+    `<p style="margin:0.55rem 0 0.15rem;font-weight:700;text-transform:uppercase;letter-spacing:.05em;font-size:0.82em">${label}</p>`;
+  const summaryLine = (label: string, value: string) =>
+    `<p style="margin:0.2rem 0"><strong>${label}:</strong> ${value}</p>`;
+  const firstMonthFor = input.firstMonthLabel?.trim()
+    ? ` for ${escapeHtml(input.firstMonthLabel.trim())}`
+    : "";
+  const lastMonthFor = input.lastMonthLabel?.trim()
+    ? ` for ${escapeHtml(input.lastMonthLabel.trim())}`
+    : "";
+  const proratedRent = input.proratedRentAmount ?? 0;
+  const proratedUtilities = input.proratedUtilitiesAmount ?? 0;
+  const lastMonthRent = input.proratedLastMonthRent ?? 0;
+  const lastMonthUtilities = input.proratedLastMonthUtilities ?? 0;
+  const initialPaymentLines = [
+    proratedRent > 0 ? summaryLine(`Prorated Rent${firstMonthFor}`, fmtUsd(proratedRent)) : "",
+    proratedUtilities > 0
+      ? summaryLine(`Prorated Utilities${firstMonthFor}`, fmtUsd(proratedUtilities))
+      : "",
+    // Only when the rent/utilities split is unknown — otherwise this repeats the two lines
+    // above it, and a summary that says the same number twice is a summary nobody trusts.
+    showProratedFirstMonth && proratedRent <= 0 && proratedUtilities <= 0
+      ? summaryLine("Prorated first month", fmtUsd(firstPartialMonthPayment))
+      : !showProratedFirstMonth && input.listingFeePreview
+        ? summaryLine(
+            "Prorated first month",
+            "Calculated from the lease start date when it is not the 1st of the month",
+          )
+        : "",
+    lastMonthRent > 0 ? summaryLine(`Last Month&apos;s Rent${lastMonthFor}`, fmtUsd(lastMonthRent)) : "",
+    lastMonthUtilities > 0
+      ? summaryLine(`Last Month&apos;s Utilities${lastMonthFor}`, fmtUsd(lastMonthUtilities))
+      : "",
+    !showProratedFirstMonth && input.listingFeePreview && lastMonthRent <= 0
+      ? summaryLine(
+          "Last Month&apos;s Rent",
+          "Calculated from the lease end date when it is not the last day of the month",
+        )
+      : "",
+    summaryLine("Payment Due at Signing", paySigning),
+  ]
+    .filter(Boolean)
+    .join("\n  ");
+
   const leaseSummaryHtml = `<div style="border:1px solid #999;padding:12px 14px;margin:0 0 1.25rem;background:#fafafa">
   <p style="margin:0 0 0.5rem;font-weight:700;text-align:center;text-transform:uppercase;letter-spacing:.04em">Lease Summary</p>
   <p style="margin:0.2rem 0"><strong>Landlord:</strong> ${landlordEntity}</p>
   <p style="margin:0.2rem 0"><strong>Resident:</strong> ${tenantName}</p>
   <p style="margin:0.2rem 0"><strong>Premises:</strong> ${premisesLine}</p>
   <p style="margin:0.2rem 0"><strong>Lease Term:</strong> ${leaseTermLine}</p>
+  ${summaryHeading("Monthly charges")}
   <p style="margin:0.2rem 0"><strong>Monthly Rent:</strong> ${monthlyRentDisplay}</p>
   <p style="margin:0.2rem 0"><strong>Utility:</strong> ${utilitiesDisplay}</p>
-  ${totalMonthlyDisplay ? `<p style="margin:0.2rem 0"><strong>Total monthly payment:</strong> ${totalMonthlyDisplay}</p>` : ""}
-  ${showProratedFirstMonth ? `<p style="margin:0.2rem 0"><strong>Prorated first month:</strong> ${fmtUsd(firstPartialMonthPayment)}</p>` : input.listingFeePreview ? `<p style="margin:0.2rem 0"><strong>Prorated first month:</strong> Calculated from the lease start date when it is not the 1st of the month</p>` : ""}
+  ${monthlyCustomFeeSummaryLines}
+  ${totalMonthlyDisplay ? `<p style="margin:0.2rem 0"><strong>Total Monthly Housing Cost:</strong> ${totalMonthlyDisplay}</p>` : ""}
+  ${summaryHeading("Fees &amp; deposit")}
   <p style="margin:0.2rem 0"><strong>Security Deposit:</strong> ${secDep}</p>
   <p style="margin:0.2rem 0"><strong>Move-in Fee:</strong> ${moveInFee}</p>
-  ${monthlyCustomFeeSummaryLines}
   ${supplementalOneTimeSummaryLines}
   ${oneTimeCustomFeeSummaryLines}
-  <p style="margin:0.2rem 0"><strong>Payment Due at Signing:</strong> ${paySigning}</p>
+  ${summaryHeading("Initial payment")}
+  ${initialPaymentLines}
   ${paySigningIncludesNote ? `<p style="margin:0.35rem 0 0;font-size:0.92em">Due at signing includes: ${paySigningIncludesNote}.</p>` : ""}
+  ${
+    lastMonthRent > 0 || lastMonthUtilities > 0
+      ? `<p style="margin:0.35rem 0 0;font-size:0.92em">The final month is partial${input.lastMonthDaysLabel?.trim() ? ` (${escapeHtml(input.lastMonthDaysLabel.trim())})` : ""}, so last month&apos;s rent and utilities total ${fmtUsd(input.proratedLastMonthTotal ?? lastMonthRent + lastMonthUtilities)}${input.lastMonthDueDateLabel?.trim() ? `, due ${escapeHtml(input.lastMonthDueDateLabel.replace(/^By /, ""))}` : ""}.</p>`
+      : ""
+  }
 </div>`;
 
   const holdoverClause =
@@ -424,6 +529,7 @@ ${leaseTermSection}
 ${monthlyCustomFeeLines}
 ${supplementalOneTimeFeeLines}
 ${prorationLine}
+${lastMonthProrationLine}
 <p>${paymentInstruction}</p>
 <p>Failure to pay rent, utilities, fees, or other charges when due may constitute a default under this Agreement and applicable Washington law.</p>
 
