@@ -1,6 +1,11 @@
 import { isDemoModeActive } from "@/lib/demo/demo-session";
 import { formatPacificDateTime } from "@/lib/pacific-time";
-import { notePortalResponse, portalSessionEnded } from "@/lib/auth/portal-session-gate";
+import {
+  notePortalResponse,
+  onPortalSessionViewerChange,
+  portalSessionEnded,
+  portalSessionViewerId,
+} from "@/lib/auth/portal-session-gate";
 /** Persist portal inbox threads (demo localStorage) so actions survive navigation and reloads. */
 
 export type InboxThreadMessage = {
@@ -68,6 +73,49 @@ export const PORTAL_INBOX_CHANGED_EVENT = "axis-portal-inbox-changed";
 const memoryByKey = new Map<string, PersistedInboxThread[]>();
 const inboxLastSyncedAtByKey = new Map<string, number>();
 const inboxSyncPromiseByKey = new Map<string, Promise<PersistedInboxThread[]>>();
+
+/**
+ * Every cache in this module is keyed by the VIEWER as well as the inbox scope.
+ *
+ * The scope string (`axis_portal_inbox_manager_v1`) is identical for every
+ * manager, so keying on it alone made the module-global map and the
+ * `sessionStorage` mirror shared state between accounts: sign out, sign in as
+ * somebody else in the same tab, and `loadPersistedInbox` returned the previous
+ * account's threads SYNCHRONOUSLY, before any fetch could correct them. The
+ * server route was always scoped by `owner_user_id` / `participant_email` — the
+ * leak was purely this cache. Never key these maps on the bare scope again.
+ *
+ * A null viewer (session not resolved yet, or signed out) gets its own bucket
+ * rather than sharing one, so an unauthenticated first paint can never be handed
+ * a signed-in account's mail.
+ */
+function viewerCacheKey(key: string): string {
+  return `${portalSessionViewerId() ?? "anon"}::${key}`;
+}
+
+/** Drop every cached row when the account changes, so nothing outlives a sign-out. */
+function purgeInboxCaches(): void {
+  memoryByKey.clear();
+  inboxLastSyncedAtByKey.clear();
+  inboxSyncPromiseByKey.clear();
+  if (!canUse()) return;
+  try {
+    const stale: string[] = [];
+    for (let i = 0; i < window.sessionStorage.length; i += 1) {
+      const storageKey = window.sessionStorage.key(i);
+      if (storageKey?.startsWith(SESSION_KEY_PREFIX)) stale.push(storageKey);
+    }
+    for (const storageKey of stale) window.sessionStorage.removeItem(storageKey);
+  } catch {
+    /* ignore */
+  }
+}
+
+if (typeof window !== "undefined") {
+  onPortalSessionViewerChange(() => {
+    purgeInboxCaches();
+  });
+}
 const PORTAL_INBOX_SYNC_TTL_MS = 15_000;
 let inboxMutationDepth = 0;
 
@@ -106,18 +154,20 @@ function canUse(): boolean {
   return typeof window !== "undefined";
 }
 
+const SESSION_KEY_PREFIX = "axis:portal-inbox:";
+
 function sessionKeyForInbox(key: string) {
-  return `axis:portal-inbox:${key}`;
+  return `${SESSION_KEY_PREFIX}${viewerCacheKey(key)}`;
 }
 
 function hydrateInboxFromSession(key: string) {
-  if (!canUse() || memoryByKey.has(key)) return;
+  if (!canUse() || memoryByKey.has(viewerCacheKey(key))) return;
   try {
     const raw = window.sessionStorage.getItem(sessionKeyForInbox(key));
     if (!raw) return;
     const parsed = JSON.parse(raw) as PersistedInboxThread[];
     if (!Array.isArray(parsed)) return;
-    memoryByKey.set(key, parsed.filter(looksLikeThread));
+    memoryByKey.set(viewerCacheKey(key), parsed.filter(looksLikeThread));
   } catch {
     /* ignore */
   }
@@ -183,41 +233,41 @@ export async function syncPersistedInboxFromServer(
 ): Promise<PersistedInboxThread[]> {
   if (!canUse()) return [];
   hydrateInboxFromSession(key);
-  if (isDemoModeActive()) return memoryByKey.get(key) ?? [];
+  if (isDemoModeActive()) return memoryByKey.get(viewerCacheKey(key)) ?? [];
   // Signed out: stop the interval-driven refetch instead of 401ing forever.
-  if (portalSessionEnded()) return memoryByKey.get(key) ?? [];
+  if (portalSessionEnded()) return memoryByKey.get(viewerCacheKey(key)) ?? [];
   const force = opts?.force === true;
-  const inflight = inboxSyncPromiseByKey.get(key);
+  const inflight = inboxSyncPromiseByKey.get(viewerCacheKey(key));
   if (!force && inflight) return inflight;
-  const lastSyncedAt = inboxLastSyncedAtByKey.get(key) ?? 0;
+  const lastSyncedAt = inboxLastSyncedAtByKey.get(viewerCacheKey(key)) ?? 0;
   if (!force && lastSyncedAt > 0 && Date.now() - lastSyncedAt < PORTAL_INBOX_SYNC_TTL_MS) {
-    return memoryByKey.get(key) ?? [];
+    return memoryByKey.get(viewerCacheKey(key)) ?? [];
   }
   const promise = (async () => {
     const res = await fetch(`/api/portal-inbox-threads?scope=${encodeURIComponent(key)}`, { credentials: "include", cache: "no-store" });
     notePortalResponse(res.status);
-    if (!res.ok) return memoryByKey.get(key) ?? [];
+    if (!res.ok) return memoryByKey.get(viewerCacheKey(key)) ?? [];
     const body = (await res.json()) as { rows?: PersistedInboxThread[] };
     const rows = (Array.isArray(body.rows) ? body.rows : []).filter(looksLikeThread);
-    const existing = memoryByKey.get(key) ?? [];
+    const existing = memoryByKey.get(viewerCacheKey(key)) ?? [];
     const merged = mergeInboxRowsWithLocalTrash(rows, existing, { excludeIds: opts?.excludeIds });
     const collapsed =
       key === MANAGER_INBOX_STORAGE_KEY
         ? collapsePersonInboxThreads(merged, { mergeFolders: true })
         : merged;
-    memoryByKey.set(key, collapsed);
+    memoryByKey.set(viewerCacheKey(key), collapsed);
     persistInboxToSession(key, collapsed);
-    inboxLastSyncedAtByKey.set(key, Date.now());
+    inboxLastSyncedAtByKey.set(viewerCacheKey(key), Date.now());
     if (inboxRowsChanged(existing, collapsed)) {
       window.dispatchEvent(new CustomEvent<{ key: string }>(PORTAL_INBOX_CHANGED_EVENT, { detail: { key } }));
     }
     return collapsed;
   })();
-  inboxSyncPromiseByKey.set(key, promise);
+  inboxSyncPromiseByKey.set(viewerCacheKey(key), promise);
   try {
     return await promise;
   } finally {
-    inboxSyncPromiseByKey.delete(key);
+    inboxSyncPromiseByKey.delete(viewerCacheKey(key));
   }
 }
 
@@ -225,8 +275,8 @@ export async function syncPersistedInboxFromServer(
 export function loadPersistedInbox(key: string, fallback: PersistedInboxThread[]): PersistedInboxThread[] {
   if (!canUse()) return fallback;
   hydrateInboxFromSession(key);
-  if (memoryByKey.has(key)) {
-    const rows = memoryByKey.get(key) ?? [];
+  if (memoryByKey.has(viewerCacheKey(key))) {
+    const rows = memoryByKey.get(viewerCacheKey(key)) ?? [];
     return key === MANAGER_INBOX_STORAGE_KEY
       ? collapsePersonInboxThreads(rows, { mergeFolders: true })
       : rows;
@@ -258,7 +308,7 @@ export async function deleteInboxThreadIds(ids: string[]): Promise<boolean> {
 /** Clear cached inbox rows so the next sync always refetches from the server. */
 export function invalidatePersistedInboxCache(key: string): void {
   if (!canUse()) return;
-  inboxLastSyncedAtByKey.set(key, 0);
+  inboxLastSyncedAtByKey.set(viewerCacheKey(key), 0);
 }
 
 async function postInboxRows(
@@ -288,9 +338,9 @@ async function postInboxRows(
 }
 
 function commitInboxMemory(key: string, threads: PersistedInboxThread[]): void {
-  memoryByKey.set(key, threads);
+  memoryByKey.set(viewerCacheKey(key), threads);
   persistInboxToSession(key, threads);
-  inboxLastSyncedAtByKey.set(key, Date.now());
+  inboxLastSyncedAtByKey.set(viewerCacheKey(key), Date.now());
   if (canUse()) {
     window.dispatchEvent(new CustomEvent<{ key: string }>(PORTAL_INBOX_CHANGED_EVENT, { detail: { key } }));
   }
@@ -313,7 +363,7 @@ export async function upsertPersistedInboxRows(
 
 export async function persistInboxAwait(key: string, threads: PersistedInboxThread[]): Promise<boolean> {
   if (!canUse()) return false;
-  const existing = memoryByKey.get(key) ?? [];
+  const existing = memoryByKey.get(viewerCacheKey(key)) ?? [];
   const newIds = new Set(threads.map((t) => t.id));
   const removedIds = existing.map((t) => t.id).filter((id) => !newIds.has(id));
   if (removedIds.length > 0) {
@@ -327,21 +377,21 @@ export async function persistInboxAwait(key: string, threads: PersistedInboxThre
 /** Demo seed: load inbox threads into the local store without server mirror. */
 export function seedDemoInbox(key: string, threads: PersistedInboxThread[]): void {
   if (!canUse()) return;
-  memoryByKey.set(key, threads);
+  memoryByKey.set(viewerCacheKey(key), threads);
   persistInboxToSession(key, threads);
-  inboxLastSyncedAtByKey.set(key, Date.now());
+  inboxLastSyncedAtByKey.set(viewerCacheKey(key), Date.now());
   window.dispatchEvent(new CustomEvent<{ key: string }>(PORTAL_INBOX_CHANGED_EVENT, { detail: { key } }));
 }
 
 export function persistInbox(key: string, threads: PersistedInboxThread[]): void {
   if (!canUse() || inboxMutationInFlight()) return;
-  const existing = memoryByKey.get(key) ?? [];
+  const existing = memoryByKey.get(viewerCacheKey(key)) ?? [];
   if (!inboxRowsChanged(existing, threads)) return;
   const newIds = new Set(threads.map((t) => t.id));
   const removedIds = existing.map((t) => t.id).filter((id) => !newIds.has(id));
-  memoryByKey.set(key, threads);
+  memoryByKey.set(viewerCacheKey(key), threads);
   persistInboxToSession(key, threads);
-  inboxLastSyncedAtByKey.set(key, Date.now());
+  inboxLastSyncedAtByKey.set(viewerCacheKey(key), Date.now());
   window.dispatchEvent(new CustomEvent<{ key: string }>(PORTAL_INBOX_CHANGED_EVENT, { detail: { key } }));
   if (isDemoModeActive()) return;
   void (async () => {

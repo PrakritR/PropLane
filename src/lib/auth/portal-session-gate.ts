@@ -19,6 +19,54 @@
 
 let sessionKnownGone = false;
 
+/**
+ * The signed-in user id, as a plain module-global so the portal's client-side
+ * caches can tell one account's data from the next WITHOUT a React hook.
+ *
+ * This exists because those caches are keyed only by what they hold (e.g. the
+ * inbox scope `axis_portal_inbox_manager_v1`), which is byte-identical for every
+ * manager. A module-global Map plus `sessionStorage` therefore survives a
+ * sign-out / sign-in inside one tab and hands the SECOND account the FIRST
+ * account's rows — for the inbox that meant a brand-new account reading someone
+ * else's messages on first paint, before any server fetch could correct it. The
+ * server routes were always scoped correctly; the leak was entirely client-side.
+ *
+ * `use-portal-session.ts` owns the Supabase subscription and pushes every change
+ * here, so the dependency runs hooks -> lib and never the other way round.
+ */
+let viewerId: string | null = null;
+const viewerChangeListeners = new Set<(next: string | null) => void>();
+
+/** The current viewer, or null before the session resolves / after sign-out. */
+export function portalSessionViewerId(): string | null {
+  return viewerId;
+}
+
+/** Called by the portal session store on every auth state change. */
+export function setPortalSessionViewer(next: string | null): void {
+  const normalized = String(next ?? "").trim() || null;
+  if (normalized === viewerId) return;
+  viewerId = normalized;
+  for (const listener of viewerChangeListeners) {
+    try {
+      listener(normalized);
+    } catch {
+      /* a bad listener must not break sign-in */
+    }
+  }
+}
+
+/**
+ * Subscribe to identity changes so a cache can drop everything it holds for the
+ * previous account. Returns an unsubscribe function.
+ */
+export function onPortalSessionViewerChange(listener: (next: string | null) => void): () => void {
+  viewerChangeListeners.add(listener);
+  return () => {
+    viewerChangeListeners.delete(listener);
+  };
+}
+
 /** Called when an authenticated portal fetch comes back 401. */
 export function markPortalSessionEnded(): void {
   sessionKnownGone = true;
