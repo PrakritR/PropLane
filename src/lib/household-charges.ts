@@ -1319,6 +1319,10 @@ function firstMonthRentChargeForLeaseStart(
   proration: ReturnType<typeof leaseStartProration>;
 } | null {
   const proration = leaseFirstPeriodProration(leaseStart, leaseEnd, true);
+  const proratedRentNoun =
+    intraMonthStaySpan(leaseStart, leaseEnd) !== null
+      ? "Prorated term rent"
+      : "Prorated first month's rent";
   // Room priced by the day: the first month bills its billable days × daily rate
   // whether it is a full or partial month (billableDays is daysInMonth for a full month).
   if (dailyBasisRate && dailyBasisRate > 0) {
@@ -1331,7 +1335,7 @@ function firstMonthRentChargeForLeaseStart(
       kind: proration.prorated ? "prorated_rent" : "first_month_rent",
       amount,
       title: proration.prorated
-        ? `Prorated first month's rent (${days} days × ${formatRoomPriceAmount(dailyBasisRate)}/day)`
+        ? `${proratedRentNoun} (${days} days × ${formatRoomPriceAmount(dailyBasisRate)}/day)`
         : `First month's rent (${days} days × ${formatRoomPriceAmount(dailyBasisRate)}/day)`,
       proration,
     };
@@ -1347,8 +1351,8 @@ function firstMonthRentChargeForLeaseStart(
     amount,
     title: proration.prorated
       ? prorateMethod === "daily_rate" && dailyRentRate && dailyRentRate > 0
-        ? `Prorated first month's rent (${proration.billableDays} days × $${dailyRentRate}/day)`
-        : `Prorated first month's rent (${proration.label})`
+        ? `${proratedRentNoun} (${proration.billableDays} days × $${dailyRentRate}/day)`
+        : `${proratedRentNoun} (${proration.label})`
       : "First month's rent",
     proration,
   };

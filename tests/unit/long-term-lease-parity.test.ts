@@ -233,10 +233,11 @@ describe("long-term lease parity", () => {
       dueAtSigning: 550,
     };
     const html = buildLeaseHtml(ctx, SEATTLE_LEASE_CONFIG);
-    expect(html).toContain("Prorated first month&apos;s rent");
+    expect(html).toContain("Prorated term rent");
     expect(html).toContain("$270.00");
     expect(html).toContain("Prorated utilities");
     expect(html).toContain("$45.00");
+    expect(html).not.toContain("Prorated first month");
     expect(html).not.toContain("Total payment due at signing: <strong>$865.00</strong>");
   });
 

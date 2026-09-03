@@ -189,10 +189,16 @@ describe("lease document \u2194 charge ledger parity (term inside one calendar m
     expect(proratedRent[0]!.amountLabel).toBe("$480.00");
     expect(proratedUtilities[0]!.amountLabel).toBe("$80.00");
     expect(proratedRent[0]!.title).toContain("16/30 days of lease term");
+    expect(proratedRent[0]!.title).toContain("Prorated term rent");
+    expect(proratedRent[0]!.title).not.toContain("first month");
 
     // Compact room lease: the same $480 / $80 and no contradictory last-month line.
     expect(compact).toContain("Prorated Rent for September 2026:</strong> $480.00");
     expect(compact).toContain("Prorated Utilities for September 2026:</strong> $80.00");
+    expect(compact).toContain("Prorated term rent");
+    expect(compact).toContain("Because the term begins and ends within one calendar month");
+    expect(compact).not.toContain("For the first partial month");
+    expect(compact).not.toContain("Prorated first month");
     expect(compact).not.toContain("Last Month&apos;s Rent");
 
     // Long form: one "Prorated Term" section for the whole stay, no second final-month table.

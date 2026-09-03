@@ -3,6 +3,7 @@ import { leaseUtilityKindLabel } from "@/lib/lease-utilities";
 import type { ManagerListingSubmissionV1 } from "@/lib/manager-listing-submission";
 import type { LeaseJurisdictionTemplateConfig } from "@/lib/lease-templates/types";
 import { paymentAtSigningIncludedLabels } from "@/lib/rental-application/listing-fees-display";
+import { isIntraMonthStay } from "@/lib/short-term-stay-pricing";
 
 export type CompactRoomLeaseInput = {
   config: LeaseJurisdictionTemplateConfig;
@@ -167,10 +168,19 @@ function moveInPaymentSummaryHtml(input: CompactRoomLeaseInput): string {
     signingLines.push(line);
   };
 
+  const termProration = isIntraMonthStay(input.leaseStart, input.leaseEnd);
   if (proratedRentAmount > 0) {
-    pushSchedule(`Prorated first month&apos;s rent: <strong>${fmtUsd(proratedRentAmount)}</strong>`);
+    pushSchedule(
+      termProration
+        ? `Prorated term rent: <strong>${fmtUsd(proratedRentAmount)}</strong>`
+        : `Prorated first month&apos;s rent: <strong>${fmtUsd(proratedRentAmount)}</strong>`,
+    );
     if (!useIncludesFilter || includes.has("first_month_rent")) {
-      pushSigning(`<strong>${fmtUsd(proratedRentAmount)}</strong> prorated first month&apos;s rent`);
+      pushSigning(
+        termProration
+          ? `<strong>${fmtUsd(proratedRentAmount)}</strong> prorated term rent`
+          : `<strong>${fmtUsd(proratedRentAmount)}</strong> prorated first month&apos;s rent`,
+      );
     }
   }
   if (proratedUtilitiesAmount > 0) {
@@ -184,13 +194,21 @@ function moveInPaymentSummaryHtml(input: CompactRoomLeaseInput): string {
     proratedRentAmount <= 0 &&
     proratedUtilitiesAmount <= 0
   ) {
-    pushSchedule(`Prorated first month (rent and utilities): <strong>${fmtUsd(firstPartialMonthPayment)}</strong>`);
+    pushSchedule(
+      termProration
+        ? `Prorated term (rent and utilities): <strong>${fmtUsd(firstPartialMonthPayment)}</strong>`
+        : `Prorated first month (rent and utilities): <strong>${fmtUsd(firstPartialMonthPayment)}</strong>`,
+    );
     if (
       !useIncludesFilter ||
       includes.has("first_month_rent") ||
       includes.has("first_month_utilities")
     ) {
-      pushSigning(`<strong>${fmtUsd(firstPartialMonthPayment)}</strong> for the first partial month (prorated rent and utilities)`);
+      pushSigning(
+        termProration
+          ? `<strong>${fmtUsd(firstPartialMonthPayment)}</strong> for the entire term (prorated rent and utilities)`
+          : `<strong>${fmtUsd(firstPartialMonthPayment)}</strong> for the first partial month (prorated rent and utilities)`,
+      );
     }
   }
 
@@ -349,13 +367,17 @@ export function buildCompactRoomLeaseBody(input: CompactRoomLeaseInput): string 
     .filter(Boolean)
     .join("\n");
   const showProratedFirstMonth = input.firstPartialMonthPayment > 0;
+  const termProration = isIntraMonthStay(input.leaseStart, input.leaseEnd);
+  const prorationLead = termProration
+    ? "Because the term begins and ends within one calendar month"
+    : "For the first partial month";
   const prorationLine = showProratedFirstMonth
     ? input.proratedRentAmount != null &&
       input.proratedRentAmount > 0 &&
       input.proratedUtilitiesAmount != null &&
       input.proratedUtilitiesAmount > 0
-      ? `<p>For the first partial month, Resident shall pay <strong>${fmtUsd(input.proratedRentAmount)}</strong> prorated rent and <strong>${fmtUsd(input.proratedUtilitiesAmount)}</strong> prorated utilities (total <strong>${fmtUsd(input.firstPartialMonthPayment)}</strong>).</p>`
-      : `<p>For the first partial month, Resident shall pay <strong>${fmtUsd(input.firstPartialMonthPayment)}</strong> (prorated rent and utilities).</p>`
+      ? `<p>${prorationLead}, Resident shall pay <strong>${fmtUsd(input.proratedRentAmount)}</strong> prorated rent and <strong>${fmtUsd(input.proratedUtilitiesAmount)}</strong> prorated utilities (total <strong>${fmtUsd(input.firstPartialMonthPayment)}</strong>).</p>`
+      : `<p>${prorationLead}, Resident shall pay <strong>${fmtUsd(input.firstPartialMonthPayment)}</strong> (prorated rent and utilities).</p>`
     : "";
   const lastMonthProrationLine =
     (input.proratedLastMonthRent ?? 0) > 0 || (input.proratedLastMonthUtilities ?? 0) > 0
@@ -439,7 +461,7 @@ export function buildCompactRoomLeaseBody(input: CompactRoomLeaseInput): string 
       ? summaryLine(`Prorated Utilities${firstMonthFor}`, fmtUsd(proratedUtilities))
       : "",
     showProratedFirstMonth && proratedRent <= 0 && proratedUtilities <= 0
-      ? summaryLine("Prorated first month", fmtUsd(firstPartialMonthPayment))
+      ? summaryLine(termProration ? "Prorated term" : "Prorated first month", fmtUsd(firstPartialMonthPayment))
       : !showProratedFirstMonth && input.listingFeePreview
         ? summaryLine(
             "Prorated first month",
