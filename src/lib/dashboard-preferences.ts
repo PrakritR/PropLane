@@ -56,8 +56,8 @@ export const MANAGER_DASHBOARD_SECTIONS: readonly DashboardSectionDef[] = [
   },
   {
     id: "applications",
-    label: "Applications to sign",
-    description: "Submitted applications awaiting your review or signature.",
+    label: "Applications to approve",
+    description: "Submitted applications awaiting your approval.",
     defaultVisible: true,
   },
   {

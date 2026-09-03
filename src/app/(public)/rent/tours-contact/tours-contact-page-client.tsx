@@ -37,6 +37,7 @@ import {
 import {
   ProspectGuestAccountGate,
   ProspectResidentPortalMessagePrompt,
+  ProspectResidentPortalTourPrompt,
   ProspectSignedInResidentGate,
 } from "@/components/marketing/prospect-action-account-gate";
 import {
@@ -45,12 +46,8 @@ import {
   ProspectViewInPortalAction,
   PUBLIC_PROSPECT_CANVAS_CLASS,
 } from "@/components/marketing/prospect-public-handoff";
-import {
-  prospectGateKey,
-  prospectPortalReturnPath,
-  resolveProspectGateView,
-  hasProspectGuestContinue,
-} from "@/lib/prospect-public-gate";
+import { prospectPortalReturnPath } from "@/lib/prospect-public-gate";
+import { useProspectActionGate } from "@/hooks/use-prospect-action-gate";
 
 
 export { isTourRoomUndecided, TOUR_ROOM_UNDECIDED_KEY, TOUR_ROOM_UNDECIDED_LABEL };
@@ -118,27 +115,7 @@ export function ToursContactPageClient({ signedInNonResident = false }: { signed
       .filter((property): property is MockProperty => Boolean(property));
   }, [extrasTick, portfolioPropertyIds]);
 
-  const tourGateKey = linkedPropertyId ? prospectGateKey("tour", linkedPropertyId) : "";
-  const [tourGuestBypass, setTourGuestBypass] = useState(false);
-  const [tourGuestContinued, setTourGuestContinued] = useState(false);
-
-  useEffect(() => {
-    if (!tourGateKey) {
-      setTourGuestContinued(false);
-      return;
-    }
-    setTourGuestContinued(hasProspectGuestContinue(tourGateKey));
-  }, [tourGateKey]);
-
-  const tourGuestContinue = !tourGateKey || tourGuestBypass || tourGuestContinued;
-  const tourPortalReturn = linkedPropertyId
-    ? prospectPortalReturnPath("tour", { propertyId: linkedPropertyId })
-    : "";
-  const tourGateView = resolveProspectGateView({
-    gateKey: tourGateKey,
-    guestContinue: tourGuestContinue,
-    signedInNonResident,
-  });
+  const tourGate = useProspectActionGate("tour", linkedPropertyId, signedInNonResident);
 
   return (
     <div className="min-h-screen px-4 py-12 sm:py-16">
@@ -183,23 +160,34 @@ export function ToursContactPageClient({ signedInNonResident = false }: { signed
                   }
                 />
               </div>
-            ) : tourGateView !== "action" ? (
+            ) : !tourGate.ready ? (
+              <div className={`${PUBLIC_PROSPECT_CANVAS_CLASS} mt-8 text-sm text-muted`} aria-busy="true">
+                Loading…
+              </div>
+            ) : tourGate.gateView === "resident-portal" ? (
               <div className="mt-8">
-                {tourGateView === "signed-in-create-resident" ? (
+                <ProspectResidentPortalTourPrompt
+                  propertyId={linkedProperty.id}
+                  propertyTitle={linkedProperty.title}
+                />
+              </div>
+            ) : tourGate.gateView !== "action" ? (
+              <div className="mt-8">
+                {tourGate.gateView === "signed-in-create-resident" ? (
                   <ProspectSignedInResidentGate
                     action="tour"
-                    gateKey={tourGateKey}
-                    returnPath={tourPortalReturn}
+                    gateKey={tourGate.gateKey}
+                    returnPath={tourGate.portalReturn}
                     propertyTitle={linkedProperty.title}
-                    onContinueGuest={() => setTourGuestBypass(true)}
+                    onContinueGuest={tourGate.continueAsGuest}
                   />
                 ) : (
                   <ProspectGuestAccountGate
                     action="tour"
-                    gateKey={tourGateKey}
-                    returnPath={tourPortalReturn}
+                    gateKey={tourGate.gateKey}
+                    returnPath={tourGate.portalReturn}
                     propertyTitle={linkedProperty.title}
-                    onContinueGuest={() => setTourGuestBypass(true)}
+                    onContinueGuest={tourGate.continueAsGuest}
                   />
                 )}
               </div>
@@ -311,22 +299,7 @@ function MessageFlow({
   const [linkingSignedInAccount, setLinkingSignedInAccount] = useState(false);
   const isOther = topic === "Other";
 
-  const messageGateKey = prospectGateKey("message", propertyId);
-  const [messageGuestBypass, setMessageGuestBypass] = useState(false);
-  const [messageGuestContinued, setMessageGuestContinued] = useState(false);
-
-  useEffect(() => {
-    setMessageGuestContinued(hasProspectGuestContinue(messageGateKey));
-  }, [messageGateKey]);
-
-  const messageGuestContinue = messageGuestBypass || messageGuestContinued;
-  const messagePortalReturn = prospectPortalReturnPath("message", { propertyId });
-  const messageGateView = resolveProspectGateView({
-    gateKey: messageGateKey,
-    guestContinue: messageGuestContinue,
-    signedInNonResident,
-    hasResidentRole: contactAutofill.ready && contactAutofill.hasResidentRole,
-  });
+  const messageGate = useProspectActionGate("message", propertyId, signedInNonResident);
 
   useEffect(() => {
     if (!contactAutofill.ready) return;
@@ -500,15 +473,15 @@ function MessageFlow({
     );
   }
 
-  if (!contactAutofill.ready) {
+  if (!messageGate.ready) {
     return (
-      <div className={`${PUBLIC_PROSPECT_CANVAS_CLASS} text-sm text-muted`} aria-busy="true">
+      <div className={`${PUBLIC_PROSPECT_CANVAS_CLASS} mt-8 text-sm text-muted`} aria-busy="true">
         Loading…
       </div>
     );
   }
 
-  if (messageGateView === "resident-portal") {
+  if (messageGate.gateView === "resident-portal") {
     return (
       <div className="mt-8">
         <ProspectResidentPortalMessagePrompt propertyId={propertyId} propertyTitle={propertyTitle} />
@@ -516,24 +489,24 @@ function MessageFlow({
     );
   }
 
-  if (messageGateView !== "action") {
+  if (messageGate.gateView !== "action") {
     return (
       <div className="mt-8">
-        {messageGateView === "signed-in-create-resident" ? (
+        {messageGate.gateView === "signed-in-create-resident" ? (
           <ProspectSignedInResidentGate
             action="message"
-            gateKey={messageGateKey}
-            returnPath={messagePortalReturn}
+            gateKey={messageGate.gateKey}
+            returnPath={messageGate.portalReturn}
             propertyTitle={propertyTitle}
-            onContinueGuest={() => setMessageGuestBypass(true)}
+            onContinueGuest={messageGate.continueAsGuest}
           />
         ) : (
           <ProspectGuestAccountGate
             action="message"
-            gateKey={messageGateKey}
-            returnPath={messagePortalReturn}
+            gateKey={messageGate.gateKey}
+            returnPath={messageGate.portalReturn}
             propertyTitle={propertyTitle}
-            onContinueGuest={() => setMessageGuestBypass(true)}
+            onContinueGuest={messageGate.continueAsGuest}
           />
         )}
       </div>

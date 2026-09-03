@@ -1029,7 +1029,7 @@ export function ManagerDashboard({ displayName = "there" }: { displayName?: stri
 
           {visibility.applications ? (
             <AttentionGroup
-              title="Applications to sign"
+              title="Applications to approve"
               href={`${BASE}/applications`}
               sectionId="applications"
               tone="pending"
@@ -1043,7 +1043,7 @@ export function ManagerDashboard({ displayName = "there" }: { displayName?: stri
                   dot={sectionAccentDot(sectionTone)}
                   title={app.name || app.email || "Unknown"}
                   subtitle={app.property || "—"}
-                  pill={<StatusPill tone={sectionTone}>{app.stage || "To sign"}</StatusPill>}
+                  pill={<StatusPill tone={sectionTone}>{app.stage || "To approve"}</StatusPill>}
                   dataAttr="dashboard-attention-application"
                 />
               )}
