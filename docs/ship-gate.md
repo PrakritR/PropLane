@@ -72,12 +72,18 @@ For interactive debugging in Cursor (screenshots, console logs, live DOM), conne
 
 ## Run e2e locally before you promote
 
-The `e2e` job in `.github/workflows/test.yml` is gated on
-`github.event_name == 'push' && github.ref == 'refs/heads/main' || schedule`, so
-it is **skipped on every pull request** — a PR whose Test workflow is green has
-had zero e2e signal, and the first real run happens after the merge lands on
-`main`. That gap is why e2e breakage is only ever found post-merge, and why a
-long tail of failures can persist unnoticed.
+The `e2e` job in `.github/workflows/test.yml` is a bounded smoke gate that runs
+on pushes to `main`; it is **skipped on pull requests**. It runs the ladder,
+landing-page, and public-tour flows with zero retries. Playwright's global setup
+still signs in once as admin, manager, and resident, so missing or drifted
+credentials fail quickly even though the smoke command skips the slower
+storage-state setup project. The sandbox-backed public application spec stays in
+the full suite because a production-mode server correctly hides test listings.
+
+The complete 158-case suite runs as `e2e-full` on the nightly schedule or a
+manual workflow dispatch. It uses one worker and zero retries. Keeping it off the
+per-push critical path prevents known 60-second failures from consuming three
+attempts each and cancelling every `main` run before later specs execute.
 
 Pin the dev/test Supabase project first (a plain production build silently uses
 the **production** project — see
@@ -90,8 +96,13 @@ PLAYWRIGHT_SKIP_WEBSERVER=1 PLAYWRIGHT_BASE_URL=http://localhost:<port> \
   E2E_TESTS_ENABLED=1 node --env-file=.env.test node_modules/.bin/playwright test
 ```
 
-Locally `retries: 0` while CI uses `retries: 2`, so a local run surfaces flaky
-tests that CI hides in its `flaky` bucket. Note `npm run test:seed` currently
+Both local runs and the two CI E2E jobs use zero retries so a flaky failure stays
+visible and does not multiply the suite's memory/time cost. Prefer a targeted
+spec list locally; use `npm run test:e2e:smoke` for the same bounded slice as
+`main`. Avoid `next dev` for broad E2E runs: cold Turbopack route compilation can
+exceed assertion timeouts on a constrained machine. Let Playwright build and
+start the production server, or build once and set `PLAYWRIGHT_SKIP_WEBSERVER=1`
+for repeated targeted runs. Note `npm run test:seed` currently
 aborts partway with a `profiles_manager_id_key` duplicate on a workflow
 resident — the core role accounts are already provisioned by then, so the suite
 still runs, but the later fixtures it would have created are missing.

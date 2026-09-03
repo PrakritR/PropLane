@@ -9,6 +9,7 @@ cp .env.test.example .env.test
 npm run test:unit          # Fast pure-logic tests (no external deps)
 npm run test:integration   # API route tests (needs .env.test or mocked)
 npm run test:e2e           # Playwright browser tests (needs .env.test + running app)
+npm run test:e2e:smoke     # Bounded main-branch browser gate (9 cases + auth preflight)
 npm run test:all           # All Vitest + Playwright
 ```
 
@@ -29,6 +30,13 @@ Use a **dedicated Supabase test project** — never production credentials. See 
 For manager E2E signup, set `PROPLANE_PAYMENT_WAIVER_CODE=FREE100` to skip Stripe checkout.
 
 For manager/resident/admin portal E2E tests, run `npm run test:seed` then set `E2E_TESTS_ENABLED=1` in `.env.test`.
+
+Use the smoke command or an explicit spec list during local development. The
+full suite contains 158 tests and intentionally runs with one worker; it belongs
+in the scheduled/manual CI job unless a change genuinely spans the whole app.
+For repeated local browser runs, build/start once and set
+`PLAYWRIGHT_SKIP_WEBSERVER=1` rather than using `next dev`, whose cold route
+compilation can dominate time and memory on a constrained machine.
 
 > **`E2E_TESTS_ENABLED=1` is a promise that the portal accounts are reachable.**
 > The portal specs sign in as seeded accounts before asserting anything, so with
