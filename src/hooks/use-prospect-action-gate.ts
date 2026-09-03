@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useState, useSyncExternalStore } from "react";
 import type { ProspectContactAutofill } from "@/hooks/use-prospect-contact-autofill";
 import {
   hasProspectGuestContinue,
@@ -11,6 +11,12 @@ import {
   type ProspectActionKind,
   type ProspectGateView,
 } from "@/lib/prospect-public-gate";
+
+/**
+ * Guest-continue is written to sessionStorage only by this hook, so there is
+ * nothing to subscribe to — the snapshot is re-read on every render instead.
+ */
+const subscribeToNothing = () => () => {};
 
 export function useProspectActionGate(
   action: ProspectActionKind,
@@ -25,20 +31,19 @@ export function useProspectActionGate(
   continueAsGuest: () => void;
 } {
   const gateKey = prospectGateKey(action, propertyId);
-  const [guestBypass, setGuestBypass] = useState(false);
-  const [guestContinued, setGuestContinued] = useState(false);
+  // Keyed on the gate rather than a boolean, so switching properties drops the
+  // bypass without an effect that resets state.
+  const [bypassedGateKey, setBypassedGateKey] = useState("");
 
-  useEffect(() => {
-    if (!gateKey) {
-      setGuestContinued(false);
-      setGuestBypass(false);
-      return;
-    }
-    setGuestContinued(hasProspectGuestContinue(gateKey));
-    setGuestBypass(false);
-  }, [gateKey]);
+  const readGuestContinued = useCallback(
+    () => (gateKey ? hasProspectGuestContinue(gateKey) : false),
+    [gateKey],
+  );
+  // Server snapshot is false: sessionStorage is unreadable during SSR, and
+  // reading it while rendering would desync hydration.
+  const guestContinued = useSyncExternalStore(subscribeToNothing, readGuestContinued, () => false);
 
-  const guestContinue = guestBypass || guestContinued;
+  const guestContinue = (Boolean(gateKey) && bypassedGateKey === gateKey) || guestContinued;
   const portalReturn = propertyId.trim()
     ? prospectPortalReturnPath(action, { propertyId })
     : "";
@@ -51,7 +56,7 @@ export function useProspectActionGate(
 
   const continueAsGuest = () => {
     if (gateKey) markProspectGuestContinue(gateKey);
-    setGuestBypass(true);
+    setBypassedGateKey(gateKey);
   };
 
   return {
