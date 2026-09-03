@@ -50,7 +50,8 @@ test.describe("Public home", () => {
     expect(resting).not.toBe("matrix(1, 0, 0, 1, 0, 0)");
 
     await note.hover();
-    // rotate(0deg) translateY(-4px)
+    // rotate(0deg) translateY(-4px), polled: the 0.22s transition can outlast a
+    // fixed sleep on a loaded runner, and a one-shot read has nothing to retry.
     await expect(note).toHaveCSS("transform", "matrix(1, 0, 0, 1, 0, -4)");
   });
 
@@ -63,8 +64,8 @@ test.describe("Public home", () => {
 
     const resting = await note.evaluate((el) => getComputedStyle(el).transform);
     await note.hover();
-    // This assertion proves the absence of a transition, so allow the normal
-    // animation window to settle before checking the frozen transform.
+    // Settle past the 0.22s transition this rule is supposed to suppress, then
+    // assert the tilt never moved.
     await page.waitForTimeout(400);
     await expect(note).toHaveCSS("transform", resting);
     await context.close();

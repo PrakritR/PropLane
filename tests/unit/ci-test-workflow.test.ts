@@ -9,79 +9,114 @@ const pkg = JSON.parse(fs.readFileSync(path.join(ROOT, "package.json"), "utf8"))
   scripts: Record<string, string>;
 };
 
-function jobBody(name: string) {
-  const header = `\n  ${name}:\n`;
-  const start = workflow.indexOf(header);
-  expect(start, `workflow job ${name}`).toBeGreaterThanOrEqual(0);
-
-  const bodyStart = start + header.length;
-  const remainder = workflow.slice(bodyStart);
-  const nextHeader = remainder.search(/\n  [a-zA-Z][a-zA-Z0-9-]*:\n/);
-  const body = nextHeader < 0 ? remainder : remainder.slice(0, nextHeader);
-
-  // Comments introducing the next job belong to that job conceptually, even
-  // though YAML permits them before its key. Exclude that trailing block from
-  // string guards without removing comments inside the selected job.
-  const trailingComment = body.lastIndexOf("\n\n  #");
-  return trailingComment < 0 ? body : body.slice(0, trailingComment);
+// A `[\s\S]*?` match happily spans job boundaries, so it can "prove" a fact
+// about a job using a line that belongs to a different one. Slice the job first,
+// then assert only against its own body.
+function jobBody(name: string): string {
+  const start = workflow.indexOf(`\n  ${name}:\n`);
+  expect(start, `job ${name} not found`).toBeGreaterThanOrEqual(0);
+  const nextJob = workflow.slice(start + 1).search(/\n {2}[a-z][a-z0-9-]*:\n/);
+  const body = nextJob === -1 ? workflow.slice(start) : workflow.slice(start, start + 1 + nextJob);
+  // Trailing blank/comment lines introduce the NEXT job, not this one.
+  return body
+    .split("\n")
+    .reduceRight<string[]>(
+      (kept, line) =>
+        kept.length === 0 && (line.trim() === "" || line.trim().startsWith("#"))
+          ? kept
+          : [line, ...kept],
+      [],
+    )
+    .join("\n");
 }
 
-function timeoutMinutes(job: string) {
-  const value = job.match(/timeout-minutes:\s*(\d+)/)?.[1];
-  expect(value).toBeDefined();
-  return Number(value);
+function jobTimeoutMinutes(name: string): number {
+  const match = jobBody(name).match(/timeout-minutes: (\d+)/);
+  expect(match, `job ${name} has no timeout-minutes`).not.toBeNull();
+  return Number(match![1]);
 }
 
 describe("Test workflow resource budget", () => {
-  it("keeps the main smoke and complete suite in their intended trigger lanes", () => {
-    const smoke = jobBody("e2e");
+  it("keeps the main E2E gate a bounded smoke", () => {
+    expect(pkg.scripts["test:e2e:smoke"]).toContain("--no-deps");
+    expect(pkg.scripts["test:e2e:smoke"]).toContain("public-tours.spec.ts");
+
+    const e2e = jobBody("e2e");
+    expect(e2e).toContain("if: github.event_name == 'push' && github.ref == 'refs/heads/main'");
+    expect(e2e).toContain("timeout-minutes: 15");
+    expect(e2e).toContain("- run: npm run test:e2e:smoke");
+  });
+
+  it("keeps the full suite on schedule/manual dispatch only", () => {
     const full = jobBody("e2e-full");
-
-    expect(smoke).toContain("timeout-minutes: 15");
-    expect(smoke).toContain("github.event_name == 'push'");
-    expect(smoke).not.toContain("schedule");
-    expect(smoke).toContain("npm run test:e2e:smoke");
-
-    expect(full).toContain("timeout-minutes: 50");
-    expect(full).toContain("github.event_name == 'schedule'");
-    expect(full).toContain("github.event_name == 'workflow_dispatch'");
-    expect(full).toContain("npm run test:e2e");
-    expect(full).toContain("if: always()");
-    expect(full).toContain("actions/upload-artifact@v4");
-  });
-
-  it("keeps Playwright reporting inside each browser job's outer budget", () => {
-    const smokeTimeoutMs = Number(
-      pkg.scripts["test:e2e:smoke"].match(/--global-timeout=(\d+)/)?.[1],
+    expect(full).toContain(
+      "if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'",
     );
-    const fullTimeoutMinutes = Number(
-      playwrightConfig.match(/globalTimeout:\s*(\d+)\s*\*\s*60_000/)?.[1],
-    );
-
-    expect(smokeTimeoutMs).toBeGreaterThan(0);
-    expect(smokeTimeoutMs).toBeLessThanOrEqual((timeoutMinutes(jobBody("e2e")) - 3) * 60_000);
-    expect(fullTimeoutMinutes).toBeLessThanOrEqual(timeoutMinutes(jobBody("e2e-full")) - 5);
+    expect(full).toContain("- run: npm run test:e2e\n");
   });
 
-  it("centralizes zero retries and retains first-failure diagnostics", () => {
-    expect(playwrightConfig).toMatch(/retries:\s*0/);
-    expect(playwrightConfig).toContain('trace: "retain-on-failure"');
-    expect(Object.values(pkg.scripts).join("\n")).not.toMatch(/--retries(?:=|\s)/);
-    expect(workflow).not.toMatch(/--retries(?:=|\s)/);
+  it("sets retries exactly once, in the Playwright config", () => {
+    expect(playwrightConfig).toContain("retries: 0,");
+    expect(workflow).not.toContain("--retries");
+    for (const [name, script] of Object.entries(pkg.scripts)) {
+      expect(script, `${name} must not override config retries`).not.toContain("--retries");
+    }
   });
 
-  it("keeps check as the stable aggregate without duplicating validation", () => {
-    const lint = jobBody("lint");
+  it("keeps every CI job's Playwright global timeout under that job's own budget", () => {
+    // Headroom, in minutes, for the checkout / npm ci / browser install steps,
+    // which run before Playwright starts and so are not covered by globalTimeout.
+    const HEADROOM = 3;
+
+    const configured = playwrightConfig.match(/globalTimeout: (\d+) \* 60_000/);
+    expect(configured).not.toBeNull();
+    const fullBudget = jobTimeoutMinutes("e2e-full");
+    expect(fullBudget - Number(configured![1])).toBeGreaterThanOrEqual(HEADROOM);
+
+    // The smoke job's budget is far tighter than the config default, so without
+    // its own override GitHub would kill the runner before Playwright could
+    // report anything at all.
+    const smokeOverride = pkg.scripts["test:e2e:smoke"].match(/--global-timeout=(\d+)/);
+    expect(smokeOverride, "test:e2e:smoke must set its own --global-timeout").not.toBeNull();
+    const smokeMinutes = Number(smokeOverride![1]) / 60_000;
+    expect(jobTimeoutMinutes("e2e") - smokeMinutes).toBeGreaterThanOrEqual(HEADROOM);
+  });
+
+  it("keeps failure diagnostics recoverable at zero retries", () => {
+    // `on-first-retry` never fires when retries are 0.
+    expect(playwrightConfig.match(/^\s*trace: .*$/m)?.[0]).toContain('"retain-on-failure"');
+    // Artifacts written on the runner are lost with it unless uploaded.
+    const full = jobBody("e2e-full");
+    expect(full).toContain("uses: actions/upload-artifact@v4");
+    expect(full).toContain("path: test-results/");
+    expect(full.slice(full.indexOf("upload-artifact"))).toContain("if: always()");
+  });
+
+  it("makes the required check job an aggregator that cannot pass on a failed dependency", () => {
     const check = jobBody("check");
 
-    expect(lint).toContain("npm run lint");
     expect(check).toContain("needs: [unit, lint, build]");
-    expect(check).not.toContain("integration");
     expect(check).toContain("if: always()");
-    expect(check).toContain("join(needs.*.result");
-    expect(check).not.toContain("npm ci");
-    expect(check).not.toContain("npm run check");
-    expect(check).not.toContain("npm run test:unit");
-    expect(check).not.toContain("npm run build");
+    expect(check).toContain('if [ "$result" != "success" ]');
+    // `e2e` is skipped on pull requests, and `integration` needs live Supabase
+    // credentials a fork PR never receives — depending on either would make the
+    // required status permanently red rather than gating on code.
+    expect(check).not.toContain("e2e");
+    expect(check).not.toContain("integration");
+    // It duplicates no work the dimension jobs already do.
+    expect(check).not.toContain("- run: npm run check");
+    expect(check).not.toContain("- run: npm run test:unit");
+    expect(check).not.toContain("- run: npm run build");
+    expect(check).not.toContain("- run: npm run lint");
+  });
+
+  it("keeps every non-browser validation job defined and independently triggered", () => {
+    // `integration` is not in `check`'s needs, but it must still run on every
+    // push and PR so its signal stays visible next to the required status.
+    for (const name of ["unit", "integration", "lint", "build"]) {
+      const body = jobBody(name);
+      expect(body).toContain("runs-on: ubuntu-latest");
+      expect(body, `${name} must not be event-gated`).not.toContain("if: github.event_name");
+    }
   });
 });

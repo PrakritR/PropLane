@@ -20,6 +20,10 @@ export default defineConfig({
   globalSetup: "./tests/global-setup.ts",
   fullyParallel: false,
   forbidOnly: !!process.env.CI,
+  // Zero retries everywhere, local and CI. A retry hides a flake in Playwright's
+  // `flaky` bucket and triples a failing case's 60s timeout, which is how the
+  // full suite used to exhaust its budget before reaching later spec files. This
+  // is the ONE place retries are set — no npm script or CI step overrides it.
   retries: 0,
   // Serial workers: parallel file execution overloads the local dev server and
   // causes auth/navigation flakes (sign-in never leaves /auth/sign-in).
@@ -28,14 +32,21 @@ export default defineConfig({
   timeout: 60_000,
   // Hard suite-wide wall-clock cap so a broken run can never hang. Per-test
   // timeouts (60s) don't bound the whole suite: 158 cases run serially, so a
-  // systemic failure can still burn hours. globalSetup fails auth drift in
-  // seconds; this is the backstop for any other degradation. The full-suite CI
-  // job allows 50 minutes, leaving five minutes for checkout, install, and
-  // artifact upload after Playwright reports its own timeout.
+  // systemic failure (e.g. sign-in never succeeding) can burn hours before
+  // GitHub's 6h job default. globalSetup fails such runs in seconds; this is the
+  // backstop if a run degrades some other way. It must stay UNDER the CI budget
+  // that governs it, minus headroom for the job's checkout/npm ci/browser-install
+  // steps, so Playwright reports the abort instead of GitHub killing the job with
+  // no report at all. This value is sized for the full suite's `e2e-full` job
+  // (50-min timeout-minutes); the far tighter `e2e` smoke job (15 min) cannot use
+  // it, so `test:e2e:smoke` passes its own `--global-timeout`.
+  // `tests/unit/ci-test-workflow.test.ts` fails if either number drifts.
   globalTimeout: 45 * 60_000,
   expect: { timeout: 10_000 },
   use: {
     baseURL,
+    // `on-first-retry` records nothing at `retries: 0` — there is never a first
+    // retry — which would leave a failure with only reporter text to debug.
     trace: "retain-on-failure",
     screenshot: "only-on-failure",
     video: "retain-on-failure",
