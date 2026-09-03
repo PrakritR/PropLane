@@ -603,7 +603,7 @@ function ShortTermRentSection({
           />
         </GridField>
         <GridField>
-          <FieldLabel>Deposit</FieldLabel>
+          <FieldLabel>Security deposit</FieldLabel>
           <MoneyInput
             ariaLabel={`Short-term deposit${suffix}`}
             value={deposit}
@@ -3197,7 +3197,7 @@ export function ManagerAddListingForm({
       ? "Paid by resident"
       : sub.entireHomeUtilitiesPaymentModel === "included_in_rent"
         ? "Utilities included"
-        : "Payment amount";
+        : "Fixed amount";
   const wholePlaceStNightly = shortTermNightlyRate(sub.shortTermDailyCost);
   const wholePlaceStSummary =
     wholePlaceStNightly > 0

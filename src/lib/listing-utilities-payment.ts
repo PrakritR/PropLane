@@ -33,7 +33,10 @@ export const LONG_TERM_UTILITIES_PAYMENT_OPTIONS: ReadonlyArray<{
   id: UtilitiesPaymentModel;
   label: string;
 }> = [
-  { id: "manager_billed", label: "Payment amount" },
+  // "Payment amount" read as an instruction ("enter the payment amount") rather
+  // than a state, next to two options that ARE states. It is the fixed monthly
+  // utilities charge the manager bills, so name it that.
+  { id: "manager_billed", label: "Fixed amount" },
   { id: "tenant_direct", label: "Paid by resident" },
   { id: "included_in_rent", label: "Included in rent" },
 ] as const;
@@ -43,7 +46,7 @@ export function longTermUtilitiesPickerValue(model: UtilitiesPaymentModel | unde
   return "manager_billed";
 }
 
-/** Only "Payment amount" (manager-billed) needs an amount. Both "Paid by resident" and
+/** Only "Fixed amount" (manager-billed) needs an amount. Both "Paid by resident" and
  *  "Included in rent" have no separate utilities charge, so the amount input is hidden. */
 export function longTermUtilitiesEstimateRequired(model: UtilitiesPaymentModel | undefined): boolean {
   return longTermUtilitiesPickerValue(model) === "manager_billed";

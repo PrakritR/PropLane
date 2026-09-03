@@ -2250,7 +2250,7 @@ function RentalApplicationWizardInner({
               className={
                 embedded
                   ? "rental-wizard-actions mt-6 flex flex-wrap items-center justify-between gap-3"
-                  : "rental-wizard-actions mt-8 flex flex-col-reverse gap-3 border-t border-border pt-6 sm:mt-10 sm:flex-row sm:items-center sm:justify-between sm:pt-8"
+                  : "rental-wizard-actions rental-wizard-actions--pinned mt-8 flex flex-col-reverse gap-3 border-t border-border pt-6 sm:mt-10 sm:flex-row sm:items-center sm:justify-between sm:pt-8"
               }
             >
               <Button
