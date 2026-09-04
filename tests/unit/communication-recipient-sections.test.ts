@@ -45,9 +45,13 @@ const vendor = person({ id: "v1", name: "Vic Vendor", role: "vendor" });
 
 describe("manager compose sections group by house", () => {
   it("lists one section per house, then Manager, Vendor, and PropLane admin", () => {
+    // Houses are ordered by NAME, not by id — `residentHousesFromContacts`
+    // sorts on the label so a manager scanning a portfolio finds a house where
+    // they expect it alphabetically. The fixtures make that visible on purpose:
+    // p2 is "Ballard House" and p1 is "Brooklyn House", so p2 comes first.
     expect(composeDirectoryCategories("manager", [applicant, current, past, coManager, vendor])).toEqual([
-      "house:p1",
       "house:p2",
+      "house:p1",
       "management",
       "vendor",
       "admin",
