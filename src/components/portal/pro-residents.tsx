@@ -1444,10 +1444,8 @@ export function ManagerResidents({
     [residentWorkOrders, residentServicesBucket],
   );
 
-  const residentServicesEmpty =
-    residentServiceRequests.length === 0 && residentWorkOrders.length === 0;
-  const residentServicesBucketEmpty =
-    residentFilteredServiceRequests.length === 0 && residentFilteredWorkOrders.length === 0;
+  const residentServicesHasRows =
+    residentFilteredServiceRequests.length > 0 || residentFilteredWorkOrders.length > 0;
 
   const residentServiceDetailItem = useMemo(() => {
     if (!serviceItemIdProp) return null;
@@ -3237,11 +3235,7 @@ export function ManagerResidents({
                                   size="toolbar"
                                 />
                               </div>
-                              {residentServicesEmpty ? (
-                                <PortalDataTableEmpty message="No services yet." icon="service" />
-                              ) : residentServicesBucketEmpty ? (
-                                <PortalDataTableEmpty message="No services in this status yet." icon="service" />
-                              ) : (
+                              {residentServicesHasRows ? (
                                 <div className={PORTAL_DATA_TABLE_WRAP}>
                                   <div className={`${PORTAL_DATA_TABLE_SCROLL} overflow-x-auto`}>
                                     <table className="w-full min-w-[28rem] table-fixed border-collapse text-left text-sm lg:min-w-0">
