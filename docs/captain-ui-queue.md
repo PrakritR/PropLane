@@ -16,6 +16,35 @@ once the workspace has room.
 | Delete removed from the bulk bar; single `Edit <thing>` action | Application, Lease, Services, Promotion |
 | Selection clears when the editor closes | same four tabs |
 
+## Redesigns the captain asked for — these need plans, not late-night edits
+
+Each of these is a section-sized rebuild rather than a fix, and several change
+what the product DOES, not just how it looks. Recorded here so none of them are
+lost; none are started.
+
+* **Vendors — new UI, end to end.** The captain's words: "it is honestly very
+  confusing." Today Teams → Vendors is a toolbar of Vendor catalog / Defaults
+  over an empty dashed box, and Defaults is a modal of settings that should be
+  reachable some other way. Wants a coherent surface for the whole vendor
+  concept: directory, catalog, defaults, dispatch, invoices, payouts.
+* **Finances — cut to Income and Expenses, nothing else.** Two tabs, CSV export,
+  grouped by property, checkbox table. Everything else goes for now.
+* **Documents — cut to uploaded documents.** Drop the tax and other categories;
+  keep applications/leases and anything uploaded, sorted by property, with
+  checkbox download and a plain upload path.
+* **Bookings calendar — a colour per resident, no names.** Every booking shown as
+  its resident's colour; click a day for the detail (room, resident, property).
+  Day / week / month / year views.
+* **Tours — Add availability, left of Share tour.** Opens the calendar as a
+  popup with drag-to-select availability and a property dropdown at the top.
+* **Detail pages become popups.** Service, payment and lease details open as
+  modals with their actions at the bottom, in the shape Edit lease now has.
+* **Payments grouped into tasks.** Several payments for the same resident on the
+  same day should become ONE task, not five. Same grouping idea as the reminder
+  fix, one layer up.
+* **A Services category in Tasks settings.** Needs a real trigger (which service
+  event creates the task) before the category means anything.
+
 ## Still open from tonight's queue
 
 * **"24 reminders scheduled" for one resident** — the SEND side is fixed (one
