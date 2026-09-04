@@ -450,6 +450,7 @@ function RentalApplicationWizardInner({
     emailSent?: boolean;
     syncError?: string;
     guestFlow?: boolean;
+    portalFlow?: boolean;
     mailtoHref?: string;
     setupHref?: string;
     /** Organizer application id for group invite link on the finish screen. */
@@ -1728,14 +1729,33 @@ function RentalApplicationWizardInner({
       setChargeTick((n) => n + 1);
       setSubmitting(false);
       if (mode === "portal" && sync.ok) {
-        showToast("Application submitted.");
         if (isDemoModeActive()) {
+          showToast("Application submitted.");
           window.dispatchEvent(
             new CustomEvent(DEMO_APPLICATION_SUBMITTED_EVENT, { detail: { axisId } }),
           );
           return;
         }
-        router.replace("/resident/applications");
+        setPostSubmit({
+          axisId,
+          email: emailTrim,
+          propertyTitle,
+          emailSent,
+          syncError: undefined,
+          guestFlow: false,
+          portalFlow: true,
+          mailtoHref,
+          setupHref,
+          groupLeaderAppId:
+            submittedForm.applyingAsGroup === "yes" && submittedForm.groupRole === "first"
+              ? axisId
+              : undefined,
+          groupRole: submittedForm.applyingAsGroup === "yes" ? submittedForm.groupRole : undefined,
+          groupSize: submittedForm.applyingAsGroup === "yes" ? submittedForm.groupSize : undefined,
+          groupPropertyId: submittedForm.applyingAsGroup === "yes" ? submittedForm.propertyId : undefined,
+          hasCosigner: submittedForm.hasCosigner,
+        });
+        showToast("Application submitted.");
         return;
       }
       setPostSubmit({
@@ -2235,6 +2255,7 @@ function RentalApplicationWizardInner({
             emailSent={postSubmit.emailSent}
             syncError={postSubmit.syncError}
             guestFlow={postSubmit.guestFlow}
+            portalFlow={postSubmit.portalFlow}
             mailtoHref={postSubmit.mailtoHref}
             setupHref={postSubmit.setupHref}
             groupLeaderAppId={postSubmit.groupLeaderAppId}

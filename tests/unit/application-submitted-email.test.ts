@@ -23,6 +23,8 @@ describe("application-submitted-email", () => {
     expect(body).toContain("alex@example.com");
     expect(body).toContain("Sunset House");
     expect(body).toContain("Hi Alex Chen,");
+    expect(body).toContain("Thanks for submitting your rental application");
+    expect(body).toContain("We'll review it and get back to you.");
   });
 
   it("uses resident account subject", () => {
