@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useMemo, useState, type ReactNode } from "react";
-import { Modal, ModalFooter } from "@/components/ui/modal";
+import { useEffect, useMemo, useState } from "react";
+import { Modal } from "@/components/ui/modal";
 import { ManagerSettingsPropertyField } from "@/components/portal/pro-portal-settings-panels";
 import { ManagerPropertyApplicationQuestionsPanel } from "@/components/portal/pro-property-application-questions-panel";
 import type { ManagerPropertyFilterOption } from "@/lib/manager-portfolio-access";
@@ -38,13 +38,11 @@ export function ManagerEditApplicationModal({
 }) {
   const [selectedId, setSelectedId] = useState("");
   const [editorRevision, setEditorRevision] = useState(0);
-  const [bulkActions, setBulkActions] = useState<ReactNode | null>(null);
 
   useEffect(() => {
     if (!open) {
       setSelectedId("");
       setEditorRevision(0);
-      setBulkActions(null);
     }
   }, [open]);
 
@@ -71,7 +69,6 @@ export function ManagerEditApplicationModal({
 
   const closeAll = () => {
     setSelectedId("");
-    setBulkActions(null);
     onClose();
   };
 
@@ -85,7 +82,6 @@ export function ManagerEditApplicationModal({
       onClose={closeAll}
       panelClassName="max-w-4xl"
       assistantContext="Edit application"
-      footer={bulkActions ? <ModalFooter className="w-full">{bulkActions}</ModalFooter> : undefined}
     >
       <div className="space-y-4">
         <ManagerSettingsPropertyField
@@ -105,7 +101,7 @@ export function ManagerEditApplicationModal({
             saveTarget={resolved.saveTarget}
             managerUserId={managerUserId}
             listingId={resolved.saveTarget.mode === "listing" ? resolved.saveTarget.saveId : selectedId}
-            onBulkActionsChange={setBulkActions}
+            embedInModal
             onUpdated={() => {
               setEditorRevision((revision) => revision + 1);
               onSaved();

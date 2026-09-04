@@ -89,7 +89,11 @@ export function ManagerEditLeasesModal({
       onClose={closeAll}
       panelClassName="max-w-4xl"
       assistantContext="Edit lease"
-      footer={bulkActions ? <ModalFooter className="w-full">{bulkActions}</ModalFooter> : undefined}
+      footer={
+        bulkActions ? (
+          <ModalFooter className="w-full justify-start">{bulkActions}</ModalFooter>
+        ) : undefined
+      }
     >
       <div className="space-y-4">
         <ManagerSettingsPropertyField

@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { Button } from "@/components/ui/button";
 import { BulkActionBar } from "@/components/ui/bulk-action-bar";
 import {
@@ -51,6 +51,7 @@ export function ServiceRequestCatalogEditor({
   onOfferSaved,
   onRegisterAddCustom,
   onNestedModalOpenChange,
+  onBulkActionsChange,
 }: {
   sub: ManagerListingSubmissionV1;
   saveTarget: RequestsSaveTarget;
@@ -62,6 +63,11 @@ export function ServiceRequestCatalogEditor({
   onRegisterAddCustom?: (openAddCustom: (() => void) | null) => void;
   /** Offering add/edit modal — parent should block dismiss while open. */
   onNestedModalOpenChange?: (open: boolean) => void;
+  /**
+   * When set (e.g. Edit service types modal), selection actions render in the
+   * parent dialog footer instead of a fixed `BulkActionBar` behind the overlay.
+   */
+  onBulkActionsChange?: (actions: ReactNode | null) => void;
 }) {
   const offers = sub.serviceRequestOptions ?? [];
   const { selectedIds, toggleSelected, clearSelection } = usePortalRowSelection(offers.length);
@@ -129,6 +135,28 @@ export function ServiceRequestCatalogEditor({
     () => offers.filter((offer) => selectedIds.has(offer.id)),
     [offers, selectedIds],
   );
+
+  const selectedOffer = selectedIds.size === 1 ? selectedOffers[0] : null;
+
+  useEffect(() => {
+    if (!onBulkActionsChange) return;
+    if (selectedOffer) {
+      onBulkActionsChange(
+        <Button
+          type="button"
+          variant="outline"
+          className={PORTAL_BULK_BAR_BTN}
+          data-attr="catalog-request-bulk-edit"
+          onClick={() => openEdit(selectedOffer, false)}
+        >
+          Edit service
+        </Button>,
+      );
+    } else {
+      onBulkActionsChange(null);
+    }
+    return () => onBulkActionsChange(null);
+  }, [onBulkActionsChange, openEdit, selectedOffer]);
 
   if (!saveTarget) return null;
 
@@ -198,16 +226,16 @@ export function ServiceRequestCatalogEditor({
         bar, one click from a row you may have ticked by accident, is the wrong
         distance from a destructive action.
       */}
-      {selectedIds.size > 0 ? (
+      {!onBulkActionsChange && selectedIds.size > 0 ? (
         <BulkActionBar count={selectedIds.size} hideCount variant="payments">
           <div className="flex min-w-0 flex-wrap items-center justify-start gap-2">
-            {selectedIds.size === 1 && selectedOffers[0] ? (
+            {selectedOffer ? (
               <Button
                 type="button"
                 variant="outline"
                 className={PORTAL_BULK_BAR_BTN}
                 data-attr="catalog-request-bulk-edit"
-                onClick={() => openEdit(selectedOffers[0]!, false)}
+                onClick={() => openEdit(selectedOffer, false)}
               >
                 Edit service
               </Button>

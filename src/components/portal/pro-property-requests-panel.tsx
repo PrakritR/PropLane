@@ -1,5 +1,6 @@
 "use client";
 
+import type { ReactNode } from "react";
 import { ServiceRequestCatalogEditor } from "@/components/portal/service-request-catalog-editor";
 import { type ManagerListingSubmissionV1 } from "@/lib/manager-listing-submission";
 
@@ -18,12 +19,14 @@ export function ManagerPropertyRequestsPanel({
   managerUserId,
   onUpdated,
   showToast,
+  onBulkActionsChange,
 }: {
   sub: ManagerListingSubmissionV1;
   saveTarget: RequestsSaveTarget;
   managerUserId: string | null;
   onUpdated: () => void;
   showToast: (m: string) => void;
+  onBulkActionsChange?: (actions: ReactNode | null) => void;
 }) {
   if (!saveTarget || !managerUserId) return null;
 
@@ -34,6 +37,7 @@ export function ManagerPropertyRequestsPanel({
       managerUserId={managerUserId}
       onUpdated={onUpdated}
       showToast={showToast}
+      onBulkActionsChange={onBulkActionsChange}
     />
   );
 }
