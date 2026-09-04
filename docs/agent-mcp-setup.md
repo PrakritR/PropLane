@@ -71,6 +71,44 @@ broken test rather than a config gap — that is exactly how the list silently
 fell behind at 3011 while lanes were running on 3012 and above. `check:mcp`
 asserts every port in `3000-3014` on both `localhost` and `127.0.0.1`.
 
+### The app's own BACKENDS must be allow-listed, not just its ports
+
+`ERR_BLOCKED_BY_CLIENT` on a request means **that origin is not in
+`--allowed-origins`**. It never says so. The failure surfaces in the page as a
+bare `TypeError: Failed to fetch` from whichever SDK made the call, which is
+indistinguishable from a product defect.
+
+That is not hypothetical. The list once held localhost ports only, so every call
+to Supabase was refused — auth included. `signInWithPassword` failed silently,
+so **no authenticated surface had ever actually been browser-tested**, and an
+exhaustive portal audit filed a wall of "console error" and "session lost"
+tickets against the manager, resident and vendor portals that were all this one
+config gap (PRP-212; the audit tickets PRP-234…PRP-250 and PRP-298…PRP-305).
+A signup ticket was even raised as Urgent — the account had been created by a
+same-origin `/api/…` route, and only the cross-origin sign-in was blocked, so
+the button spun forever.
+
+So the list carries the backends the app actually talks to, and `check:mcp`
+asserts them the way it asserts the port range:
+
+```
+https://*.supabase.co          auth + PostgREST
+https://api.stripe.com         payment intents
+https://js.stripe.com          Stripe.js
+https://hooks.stripe.com       3DS / redirect flows
+https://*.posthog.com          analytics (noisy if blocked, not fatal)
+```
+
+**Why not simply allow every origin for local QA?** Because the same browser
+profile can reach production. An explicit list that is machine-checked keeps a
+stray QA run from driving `prop-lane.space`'s live backends, and the cost of
+keeping it current is one `check:mcp` failure with the missing origin named.
+Add a backend here when the app starts calling one — do not switch the list off.
+
+**Config changes need a host restart.** A running MCP server does not re-read
+`.mcp.json`; until it is restarted the old list is still in force, which is its
+own way of looking like an app bug.
+
 ## Codex
 
 Codex reads a per-machine config, so it cannot be wired from the repo. Paste
@@ -108,6 +146,9 @@ the host — several servers only connect at startup.
 | Symptom | Cause |
 | --- | --- |
 | Playwright refuses a localhost URL | Port outside `3000-3014`; add it to `.mcp.json` **and** re-run `check:mcp` |
+| `ERR_BLOCKED_BY_CLIENT` in the console | That **origin** is not allow-listed — not an app bug. Check the backend list above |
+| `TypeError: Failed to fetch` from `@supabase/auth-js` | Same cause: the Supabase origin is blocked, or the host was not restarted after editing `.mcp.json` |
+| Sign-in "hangs" with no error | Same cause. The account may well have been created by the same-origin API route |
 | `browser-use` never starts | `uvx` not on PATH |
 | chrome-devtools stays red | Chrome not running with remote debugging |
 | supabase asks to sign in | Expected — it authenticates interactively per host |
