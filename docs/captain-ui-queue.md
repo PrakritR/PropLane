@@ -16,6 +16,30 @@ once the workspace has room.
 | Delete removed from the bulk bar; single `Edit <thing>` action | Application, Lease, Services, Promotion |
 | Selection clears when the editor closes | same four tabs |
 
+## Still open from tonight's queue
+
+* **"24 reminders scheduled" for one resident** — the SEND side is fixed (one
+  message per person). The SCHEDULE side is not: 6 charges × 4 reminder times
+  still creates 24 scheduled rows. Same fix, one layer down — group the
+  projection by recipient and date so a resident with several payments due the
+  same day gets one scheduled message, not one per charge.
+* **Payment generation timing** — application fee on submission; lease-signing
+  charges on approval; rent/utilities once the lease is signed; custom deposits
+  and fees at their own points, each with the right reminders. Substantial, and
+  it changes what a resident is billed and when, so it wants its own plan.
+* **Payments tab: Pending / Overdue / Paid** on the resident detail Payments tab
+  (the portfolio Payments page already has them).
+* **Services settings** on the resident Services tab — needs defining: what
+  would it configure that the property-level service catalog does not?
+* **Send via should stay openable even when only one channel is available** —
+  today it collapses to a disabled Email with a hint about adding a work number.
+* **Background-check report card** — the dark panel uses a different type scale
+  from the rest of the portal, and several tiles render the literal string
+  "null" where a value is missing. The "null" is a bug, not a style issue.
+* **Share background check** — held deliberately. The only share we have mints
+  an unauthenticated public link that lives 90 days with no revoke; pointing one
+  at a consumer report is a privacy decision, not a UI one.
+
 ## Open
 
 ### Property-first settings & edit (Lavish plan open for review)
