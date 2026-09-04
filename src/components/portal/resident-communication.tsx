@@ -51,6 +51,8 @@ import {
   buildResidentAssistantPlaceholderThread,
   communicationInboxListPreview,
   pinPropLaneAssistantUnifiedItems,
+  propLaneAssistantListPreview,
+  propLaneAssistantListSubtitle,
   propLaneAssistantThreadIdForPortal,
   resolveCommunicationViewerId,
   withPinnedPropLaneAssistantThreads,
@@ -206,8 +208,12 @@ function ResidentUnifiedInbox({
         channel: "email" as const,
         threadId: t.id,
         name: sentSemantics ? t.email || "Recipient" : t.from || t.email || "Sender",
-        subtitle: t.subject,
-        preview: communicationInboxListPreview(lastMsg?.body ?? t.preview ?? "", listSegment, 80),
+        subtitle: isPropLaneAssistantInboxThread(t)
+          ? propLaneAssistantListSubtitle(t)
+          : t.subject,
+        preview: isPropLaneAssistantInboxThread(t)
+          ? propLaneAssistantListPreview(t, listSegment)
+          : communicationInboxListPreview(lastMsg?.body ?? t.preview ?? "", listSegment, 80),
         previewPrefix: lastOutbound ? "You: " : undefined,
         time: t.time,
         unread: t.folder === "inbox" && t.unread,
@@ -269,8 +275,8 @@ function ResidentUnifiedInbox({
   }, [routeThreadId, merged]);
 
   useEffect(() => {
-    onThreadOpenChange?.(Boolean(routeThreadId) && Boolean(selection));
-  }, [onThreadOpenChange, routeThreadId, selection]);
+    onThreadOpenChange?.(Boolean(selection));
+  }, [onThreadOpenChange, selection]);
 
   useEffect(() => {
     onThreadSelectedChange?.(Boolean(selection));

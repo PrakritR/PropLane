@@ -1207,6 +1207,8 @@ export function InboxComposer({
   dataAttr,
   /** Inline channel picker rendered beside the reply field (preferred). */
   channelControl,
+  /** Optional control before the channel picker (e.g. dismiss draft). */
+  leadingControl,
   /** @deprecated Prefer `channelControl` inline beside the reply field. */
   channelBar,
   attachments,
@@ -1215,6 +1217,7 @@ export function InboxComposer({
   maxAttachments = 4,
   autoSend = false,
   onAutoSendChange,
+  composerRows = 1,
 }: {
   value: string;
   onChange: (v: string) => void;
@@ -1226,6 +1229,7 @@ export function InboxComposer({
   hint?: ReactNode;
   dataAttr?: string;
   channelControl?: ReactNode;
+  leadingControl?: ReactNode;
   /** Channel picker or other controls above the reply field. */
   channelBar?: ReactNode;
   attachments?: { id: string; fileName: string; previewUrl: string; uploading?: boolean; error?: string; isImage?: boolean }[];
@@ -1234,6 +1238,8 @@ export function InboxComposer({
   maxAttachments?: number;
   autoSend?: boolean;
   onAutoSendChange?: (next: boolean) => void;
+  /** Visible textarea rows (default 1 — grows with content in CSS). */
+  composerRows?: number;
 }) {
   const hasReadyAttachment = (attachments ?? []).some((a) => !a.uploading && !a.error);
   const canSend = !sending && !disabled && (value.trim().length > 0 || hasReadyAttachment);
@@ -1287,6 +1293,7 @@ export function InboxComposer({
           </div>
         ) : null}
         <div className="portal-inbox-composer-row flex items-end gap-2">
+          {leadingControl}
           {onAttachmentsPick ? (
             <label className="mb-0.5 flex h-9 w-9 shrink-0 cursor-pointer items-center justify-center rounded-full border border-border/80 text-muted hover:bg-accent/40 hover:text-foreground">
               <Paperclip className="h-4 w-4" strokeWidth={2} />
@@ -1306,7 +1313,7 @@ export function InboxComposer({
           ) : null}
           {resolvedChannel}
           <textarea
-            rows={1}
+            rows={composerRows}
             value={value}
             onChange={(e) => onChange(e.target.value)}
             placeholder={placeholder}
@@ -1372,19 +1379,19 @@ export function InboxComposer({
 export function InboxAiAssistBar({
   drafting = false,
   draft,
+  onDraftChange,
   error,
   approving = false,
   onApprove,
-  onEdit,
   onDiscard,
   onGenerate,
 }: {
   drafting?: boolean;
   draft?: string;
+  onDraftChange?: (next: string) => void;
   error?: string;
   approving?: boolean;
   onApprove: () => void;
-  onEdit: () => void;
   onDiscard: () => void;
   onGenerate?: () => void;
 }) {
@@ -1405,9 +1412,9 @@ export function InboxAiAssistBar({
       <div className="overflow-hidden rounded-xl border border-primary/15 bg-primary/5">
         <AiDraftReplyCard
           draft={draft}
+          onDraftChange={onDraftChange}
           approving={approving}
           onApprove={onApprove}
-          onEdit={onEdit}
           onDiscard={onDiscard}
         />
       </div>
@@ -1472,46 +1479,47 @@ export function InboundMessageWorkflowCard({
 }
 
 /**
- * Approval-first AI reply card, shown above the reply composer on an incoming
- * resident thread. PropLane AI drafts a reply; the manager stays in control and
- * must Approve & Send, Edit, or Discard. Nothing is sent to the resident until
- * the manager approves. Drafts live only on the manager's row, so residents
- * never see this card or the draft text.
+ * Approval-first AI reply composer above the manual reply field. PropLane AI
+ * drafts a reply; the manager edits inline and sends — or dismisses with ×.
+ * Drafts live only on the manager's row, so residents never see this surface.
  */
 export function AiDraftReplyCard({
   drafting = false,
   draft,
+  onDraftChange,
   error,
   approving = false,
   onApprove,
-  onEdit,
   onDiscard,
   onGenerate,
   channelControl,
   autoSend = false,
   onAutoSendChange,
   scheduledSection,
+  maxLength,
 }: {
   /** True while a draft is being generated. */
   drafting?: boolean;
   /** The pending draft text (present once ready). */
   draft?: string;
+  /** Called when the manager edits the draft inline. */
+  onDraftChange?: (next: string) => void;
   /** Optional error from the last generation attempt. */
   error?: string;
-  /** True while Approve & Send is in flight. */
+  /** True while send is in flight. */
   approving?: boolean;
   onApprove: () => void;
-  onEdit: () => void;
   onDiscard: () => void;
   /** Manual (re)generate — shown when there is no draft yet (e.g. after Discard). */
   onGenerate?: () => void;
-  /** Send-via picker shown on the draft card (Email / SMS). */
+  /** Send-via picker shown beside the draft field (Email / SMS). */
   channelControl?: ReactNode;
-  /** When true, approving happens automatically once a draft is ready. */
+  /** When true, send happens automatically once a draft is ready. */
   autoSend?: boolean;
   onAutoSendChange?: (next: boolean) => void;
-  /** Scheduled messages for this thread — pinned above draft actions. */
+  /** Scheduled messages for this thread — pinned above the draft composer. */
   scheduledSection?: ReactNode;
+  maxLength?: number;
 }) {
   if (drafting) {
     return (
@@ -1576,77 +1584,36 @@ export function AiDraftReplyCard({
   }
 
   return (
-    <div
-      className="portal-inbox-ai-draft mx-2 shrink-0 border border-dashed border-primary/20 bg-primary/[0.04] px-3 py-2.5 md:mx-3"
-      data-attr="inbox-ai-draft-card"
-    >
-      <div className="flex items-center gap-1.5">
-        <span className="flex h-4 w-4 items-center justify-center rounded-md bg-primary/10">
-          <Sparkles className="h-2.5 w-2.5 text-primary" strokeWidth={2.25} />
-        </span>
-        <span className="text-xs font-semibold text-foreground">PropLane AI</span>
-        <span className="ml-auto rounded-full bg-primary/10 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-primary">
-          Draft
-        </span>
-      </div>
-      <p className="portal-inbox-ai-draft-text mt-1.5 whitespace-pre-wrap break-words rounded-lg border border-border/80 bg-card px-2.5 py-2 text-[13px] leading-relaxed text-foreground [overflow-wrap:anywhere]">
-        {draft}
-      </p>
-      {scheduledSection ? <div className="mt-2">{scheduledSection}</div> : null}
-      <div className="mt-2 flex flex-wrap items-end gap-1.5">
-        {channelControl}
-        {onAutoSendChange ? (
-          <label className="mb-0.5 flex cursor-pointer items-center gap-1.5 text-[11px] text-foreground">
-            <input
-              type="checkbox"
-              className="h-3.5 w-3.5 rounded border-border text-primary"
-              checked={autoSend}
-              onChange={(e) => onAutoSendChange(e.target.checked)}
-              data-attr="inbox-ai-draft-auto-send"
-            />
-            Auto-send
-          </label>
-        ) : null}
-      </div>
-      <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
-        <Button
-          type="button"
-          variant="primary"
-          className={INBOX_AI_DRAFT_ACTION_BTN}
-          onClick={onApprove}
-          disabled={approving}
-          data-attr="inbox-ai-draft-approve"
-        >
-          {approving ? (
-            <span className="h-3 w-3 animate-spin rounded-full border-2 border-white/40 border-t-white" />
-          ) : (
-            <Check className="h-3 w-3" strokeWidth={2.5} />
-          )}
-          Approve &amp; Send
-        </Button>
-        <Button
-          type="button"
-          variant="outline"
-          className={INBOX_AI_DRAFT_ACTION_BTN}
-          onClick={onEdit}
-          disabled={approving}
-          data-attr="inbox-ai-draft-edit"
-        >
-          <Pencil className="h-3 w-3" strokeWidth={2.25} />
-          Edit
-        </Button>
-        <Button
-          type="button"
-          variant="ghost"
-          className={`${INBOX_AI_DRAFT_ACTION_BTN} text-muted hover:text-danger`}
-          onClick={onDiscard}
-          disabled={approving}
-          data-attr="inbox-ai-draft-discard"
-        >
-          <X className="h-3 w-3" strokeWidth={2.25} />
-          Discard
-        </Button>
-      </div>
+    <div className="shrink-0" data-attr="inbox-ai-draft-card">
+      {scheduledSection ? (
+        <div className="border-t border-border/80 bg-card px-2.5 py-2">{scheduledSection}</div>
+      ) : null}
+      <InboxComposer
+        value={draft}
+        onChange={(next) => onDraftChange?.(next)}
+        onSubmit={onApprove}
+        sending={approving}
+        disabled={!onDraftChange}
+        placeholder="PropLane AI draft…"
+        maxLength={maxLength}
+        dataAttr="inbox-ai-draft"
+        channelControl={channelControl}
+        leadingControl={
+          <button
+            type="button"
+            className="mb-0.5 flex h-9 w-9 shrink-0 touch-manipulation items-center justify-center rounded-full border border-border/80 text-muted hover:bg-accent/40 hover:text-foreground"
+            aria-label="Discard draft"
+            disabled={approving}
+            onClick={onDiscard}
+            data-attr="inbox-ai-draft-discard"
+          >
+            <X className="h-4 w-4" strokeWidth={2.25} />
+          </button>
+        }
+        autoSend={autoSend}
+        onAutoSendChange={onAutoSendChange}
+        composerRows={3}
+      />
     </div>
   );
 }

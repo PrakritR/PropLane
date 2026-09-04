@@ -12,6 +12,7 @@ import { portalSessionViewerId } from "@/lib/auth/portal-session-gate";
 import {
   inboxThreadMessages,
   inboxThreadSortMs,
+  resolveCollapsedInboxThread,
   type PersistedInboxThread,
 } from "@/lib/portal-inbox-storage";
 import { unifiedInboxKey, type UnifiedInboxListItem } from "@/lib/unified-inbox-merge";
@@ -19,6 +20,9 @@ import { unifiedInboxKey, type UnifiedInboxListItem } from "@/lib/unified-inbox-
 type InboxListSegment = "active" | "unread" | "archived";
 
 export const MANAGER_AGENT_NOTICE_FROM_NAME = "PropLane Assistant";
+
+/** User-visible channel label for in-app PropLane Assistant threads (not email/SMS). */
+export const PROPLANE_ASSISTANT_CHANNEL_LABEL = "PropLane";
 
 export function managerAgentNoticeThreadId(landlordId: string): string {
   return `agent_notice_${landlordId.trim()}`;
@@ -117,6 +121,7 @@ export function communicationInboxListPreview(
 
 export function assistantUnifiedListItemFromThread(
   thread: PersistedInboxThread,
+  listSegment: InboxListSegment = "active",
 ): UnifiedInboxListItem {
   const msgs = inboxThreadMessages(thread);
   const lastMsg = msgs[msgs.length - 1];
@@ -126,8 +131,8 @@ export function assistantUnifiedListItemFromThread(
     channel: "email",
     threadId: thread.id,
     name: thread.from?.trim() || RESIDENT_AGENT_FROM_NAME,
-    subtitle: thread.subject,
-    preview: previewLine(lastMsg?.body ?? thread.preview ?? "", 80),
+    subtitle: propLaneAssistantListSubtitle(thread),
+    preview: propLaneAssistantListPreview(thread, listSegment),
     previewPrefix: sentSemantics ? "You: " : undefined,
     time: thread.time,
     unread: thread.folder === "inbox" && thread.unread,
@@ -155,4 +160,44 @@ export function propLaneAssistantThreadIdForPortal(
   return portal === "resident"
     ? canonicalResidentAgentThreadId(viewerId)
     : managerAgentNoticeThreadId(viewerId);
+}
+
+export function propLaneAssistantListSubtitle(thread: PersistedInboxThread): string {
+  return isPropLaneAssistantInboxThread(thread)
+    ? PROPLANE_ASSISTANT_CHANNEL_LABEL
+    : thread.subject?.trim() || "";
+}
+
+/** Longer preview for assistant rows so the onboarding copy is not clipped at 80 chars. */
+export function propLaneAssistantListPreview(
+  thread: PersistedInboxThread,
+  listSegment: InboxListSegment,
+): string {
+  const msgs = inboxThreadMessages(thread);
+  const lastMsg = msgs[msgs.length - 1];
+  const raw = lastMsg?.body ?? thread.preview ?? "";
+  return communicationInboxListPreview(raw, listSegment, 160);
+}
+
+/**
+ * Open the assistant placeholder even before it is persisted — the unified list
+ * pins it in React state first.
+ */
+export function resolveCommunicationInboxThread(
+  expandedId: string | null,
+  collapsed: PersistedInboxThread[],
+  raw: PersistedInboxThread[],
+  portal: CommunicationAssistantPortal,
+  viewerId: string | null | undefined,
+): PersistedInboxThread | null {
+  if (!expandedId) return null;
+  const stored = resolveCollapsedInboxThread(expandedId, collapsed, raw);
+  if (stored) return stored;
+  const assistantId = viewerId?.trim()
+    ? propLaneAssistantThreadIdForPortal(portal, viewerId.trim())
+    : null;
+  if (!assistantId || expandedId !== assistantId) return null;
+  return portal === "resident"
+    ? buildResidentAssistantPlaceholderThread(viewerId.trim())
+    : buildManagerAssistantPlaceholderThread(viewerId.trim());
 }
