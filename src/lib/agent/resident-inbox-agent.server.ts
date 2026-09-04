@@ -13,9 +13,11 @@
  */
 import type { SupabaseClient } from "@supabase/supabase-js";
 import {
+  RESIDENT_AGENT_FROM_NAME,
+  RESIDENT_AGENT_THREAD_TYPE,
   canonicalResidentAgentThreadId,
   parseResidentAgentThreadId,
-} from "@/lib/communication-inbox-assistant";
+} from "@/lib/agent/resident-inbox-agent-ids";
 import { formatPacificDateTime } from "@/lib/pacific-time";
 import {
   commitInboxThreadReply,
@@ -27,10 +29,9 @@ import {
 } from "@/lib/agent/inbox-auto-respond.server";
 import { createPendingActionForUser } from "@/lib/tools/pending-actions";
 
-export const RESIDENT_AGENT_THREAD_TYPE = "resident_agent";
+export { RESIDENT_AGENT_FROM_NAME, RESIDENT_AGENT_THREAD_TYPE } from "@/lib/agent/resident-inbox-agent-ids";
+
 const RESIDENT_INBOX_SCOPE = "axis_portal_inbox_resident_v1";
-/** Shown as the other party. Never a manager's name — see the file header. */
-export const RESIDENT_AGENT_FROM_NAME = "PropLane Assistant";
 
 /** Stable per resident — one assistant conversation regardless of manager count. */
 export function residentAgentThreadId(residentUserId: string, _managerUserId?: string): string {
