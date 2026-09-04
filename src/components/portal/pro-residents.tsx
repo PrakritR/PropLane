@@ -1389,6 +1389,8 @@ export function ManagerResidents({
     // Resident-detail Communication is always a single open thread (no list pane),
     // so treat it like an active conversation for assistant chrome.
     threadSelected: Boolean(residentIdProp && resolvedDetailTab === "communication"),
+    // Hide the floating FAB on resident Communication — the inline Ask PropLane
+    // Assistant strip above the composer is the entry point (same as main Communication).
     hideAssistantFab: Boolean(residentIdProp && resolvedDetailTab === "communication"),
   });
 
