@@ -14,7 +14,16 @@ import {
   vendorInviteSubject,
 } from "@/lib/vendor-invite-email";
 
-const VENDOR_INVITE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+/**
+ * 72 hours, not a week.
+ *
+ * This token IS an account: whoever opens the link sets a password and inherits
+ * the vendor's directory row, offers and work-order history. That is a bearer
+ * credential sitting in an inbox, sent to an address a human typed, and a
+ * mistyped or auto-forwarded address stays exploitable for the whole window.
+ * Three days is comfortable for a real vendor and a manager can re-send.
+ */
+const VENDOR_INVITE_TTL_MS = 72 * 60 * 60 * 1000;
 
 export type VendorInviteDraft = {
   linkUrl: string;

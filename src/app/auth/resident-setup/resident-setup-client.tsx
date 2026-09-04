@@ -14,6 +14,7 @@ import { PasswordInput } from "@/components/ui/password-input";
 import { createSupabaseBrowserClient } from "@/lib/supabase/browser";
 import { residentSetupIdFromUrlParams } from "@/lib/auth/resident-setup-token";
 import { FIELD_LABEL_CLASS, READONLY_INPUT_CLASS } from "@/lib/ui-styles";
+import { normalizeAuthEmail } from "@/lib/auth/normalize-auth-email";
 
 function ResidentSetupFallback() {
   return (
@@ -119,7 +120,7 @@ function ResidentSetupInner() {
       }
       const supabase = createSupabaseBrowserClient();
       const { data: signInData, error: signInError } = await supabase.auth.signInWithPassword({
-        email,
+        email: normalizeAuthEmail(email),
         password,
       });
       if (signInError) {

@@ -3,7 +3,9 @@ import type { DemoApplicantRow } from "@/data/demo-portal";
 import { linkResidentOnApplicationSubmit } from "@/lib/auth/link-resident-on-application-submit";
 
 function makeDbMock(options: {
-  propertyRecord?: { manager_user_id?: string | null; property_data?: unknown } | null;
+  propertyRecord?: { manager_user_id?: string | null; status?: string | null; property_data?: unknown } | null;
+  /** Prior applications for the duplicate guard; empty unless a test needs one. */
+  applicationRecords?: { id: string; row_data: unknown }[];
   profile?: { manager_id?: string | null } | null;
 }) {
   const profileUpdateEq = vi.fn().mockResolvedValue({ error: null });
@@ -15,6 +17,16 @@ function makeDbMock(options: {
           select: vi.fn().mockReturnValue({
             eq: vi.fn().mockReturnValue({
               maybeSingle: vi.fn().mockResolvedValue({ data: options.propertyRecord ?? null, error: null }),
+            }),
+          }),
+        };
+      }
+      if (table === "manager_application_records") {
+        // The server-side duplicate guard (PRP-204) reads this table.
+        return {
+          select: vi.fn().mockReturnValue({
+            eq: vi.fn().mockReturnValue({
+              limit: vi.fn().mockResolvedValue({ data: options.applicationRecords ?? [], error: null }),
             }),
           }),
         };
@@ -44,7 +56,7 @@ function makeDbMock(options: {
 describe("linkResidentOnApplicationSubmit", () => {
   it("resolves manager_user_id from property record and links profile on new submit", async () => {
     const db = makeDbMock({
-      propertyRecord: { manager_user_id: "manager-1" },
+      propertyRecord: { manager_user_id: "manager-1", status: "live" },
       profile: { manager_id: null },
     });
     const row: DemoApplicantRow = {
@@ -78,7 +90,7 @@ describe("linkResidentOnApplicationSubmit", () => {
 
   it("keeps existing profile manager_id on edits", async () => {
     const db = makeDbMock({
-      propertyRecord: { manager_user_id: "manager-1" },
+      propertyRecord: { manager_user_id: "manager-1", status: "live" },
       profile: { manager_id: "AXIS-EXISTING" },
     });
     const row: DemoApplicantRow = {
@@ -154,7 +166,7 @@ describe("linkResidentOnApplicationSubmit", () => {
   });
 
   it("skips profile.manager_id when linkProfile is false", async () => {
-    const db = makeDbMock({ propertyRecord: { manager_user_id: "manager-1" }, profile: { manager_id: null } });
+    const db = makeDbMock({ propertyRecord: { manager_user_id: "manager-1", status: "live" }, profile: { manager_id: null } });
     const row: DemoApplicantRow = {
       id: "AXIS-ABC123",
       name: "Manager applicant",

@@ -12,9 +12,19 @@ export type AdminEmailTabId = "unopened" | "opened" | "schedule" | "sent" | "tra
 const ADMIN_COMM_BASE = "/admin/communication";
 
 export function AdminCommunication({
+  inboxTabId,
   smsUiEnabled = false,
 }: {
-  /** @deprecated Folder tabs removed — kept so legacy routes still resolve. */
+  /**
+   * The folder named in the URL (`/admin/communication/inbox/<folder>`).
+   *
+   * Folder TABS are gone, but the paths still resolve, and the status pills
+   * below must open on the folder the link asked for. They previously did not:
+   * the pills held their own state seeded to "unopened", so
+   * `…/inbox/sent` rendered with Unopened selected. That is the same defect
+   * AGENTS.md records — folder tabs over a panel that had stopped reading which
+   * one was in the URL.
+   */
   inboxTabId?: AdminEmailTabId;
   /**
    * Server-resolved SMS Communication UI flag. When false (default) the "Text
@@ -91,6 +101,9 @@ export function AdminCommunication({
         <AdminInboxClient
           ref={inboxRef}
           tabId={view}
+          initialEmailTab={
+            inboxTabId === "opened" || inboxTabId === "sent" ? inboxTabId : "unopened"
+          }
           commBase={`${ADMIN_COMM_BASE}/inbox`}
           embeddedInCommunication
           externalTitleActions

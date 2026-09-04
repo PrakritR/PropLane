@@ -15,6 +15,7 @@ import { isCrossSandboxPortalPair, CROSS_SANDBOX_PORTAL_PAIR_ERROR } from "@/lib
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { labelFromManagerPropertyRecordRow } from "@/lib/co-manager-property-label";
+import { bestEffortFailed } from "@/lib/observability/best-effort";
 
 export const runtime = "nodejs";
 
@@ -34,6 +35,7 @@ export type InviteRow = {
   status: string;
   created_at: string;
   responded_at: string | null;
+  expires_at?: string | null;
 };
 
 export function asStringArray(v: unknown): string[] {
@@ -90,6 +92,7 @@ export function serializeInvite(
     propertyCoManagerPermissions,
     createdAt: row.created_at,
     respondedAt: row.responded_at,
+    expiresAt: row.expires_at ?? null,
   };
 }
 
@@ -282,8 +285,19 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: ownership.error }, { status: 500 });
     }
     if (ownership.unowned.length > 0) {
+      // Name WHICH property failed. The bare message accused the manager of
+      // overreaching while giving them nothing to act on: with several
+      // properties selected there was no way to tell which one the server did
+      // not recognise, and the usual cause is a listing that has not synced to
+      // the server yet — a gap they cannot see and did not create (PRP-210).
       return NextResponse.json(
-        { error: "You can only assign properties you manage." },
+        {
+          error:
+            ownership.unowned.length === 1
+              ? `One selected property isn't on your account yet (${ownership.unowned[0]}). Open Properties to let it finish saving, then try again.`
+              : `${ownership.unowned.length} selected properties aren't on your account yet (${ownership.unowned.join(", ")}). Open Properties to let them finish saving, then try again.`,
+          unownedPropertyIds: ownership.unowned,
+        },
         { status: 403 },
       );
     }
@@ -536,8 +550,11 @@ export async function POST(req: Request) {
               "A manager",
             propertyLabels: labels.length > 0 ? labels : assignedPropertyIds,
           });
-        } catch {
-          /* notification failure should not block invite */
+        } catch (error) {
+          // Not blocking the invite, but not silent either: the UI already says
+          // "Invite sent", so a swallowed failure here is the difference
+          // between a delivered invite and one nobody knows was lost.
+          bestEffortFailed("co-manager invite notification", { invitee: inviteeAxisId })(error);
         }
       })();
     }

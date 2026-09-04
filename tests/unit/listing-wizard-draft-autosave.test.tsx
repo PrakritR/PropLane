@@ -366,7 +366,7 @@ describe("closing the add-listing wizard saves the work in progress", () => {
     expect(showToast).toHaveBeenCalledWith(expect.stringMatching(/attachments couldn't be saved/i));
   });
 
-  it("still reports the dropped attachment after the failed save is retried", async () => {
+  it("recovers the dropped attachment when the failed save is retried", async () => {
     // A flaky connection tends to fail the upload AND the write together. The
     // dropped attachment is already gone from the form, so the notice has to
     // survive until a save actually delivers it.
@@ -405,18 +405,24 @@ describe("closing the add-listing wizard saves the work in progress", () => {
     // The inline notice carries the dropped attachments too, not just the failure.
     expect(draftSaveErrorText()).toMatch(/could not save your progress.+attachments couldn't be saved/i);
 
-    // The upload no longer fails on the retry — the notice must not vanish with it.
+    // The upload succeeds on the retry, and BOTH photos are saved.
+    //
+    // This assertion used to be "1 photo, and keep warning": a failed upload
+    // was written back into live form state, so the dropped photo was really
+    // gone and no retry could recover it — the standing warning was then the
+    // honest thing to say. It is no longer true (PRP-201). A failed attachment
+    // stays in the form, so the retry genuinely stores it, and carrying the
+    // previous attempt's warning forward would tell the manager to "add them
+    // again next time" about photos that are now saved.
     uploadFails = () => false;
     serverFails = false;
     clickClose();
 
     await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1));
-    expect(showToast).toHaveBeenLastCalledWith(
-      "Progress saved to Drafts. Some attachments couldn't be saved — add them again next time.",
-    );
+    expect(showToast).toHaveBeenLastCalledWith("Progress saved to Drafts.");
     expect(draftSaveErrorText()).toBeNull();
     const saved = readAdminPropertyRows(5, MANAGER_ID)[0]!.submission!;
-    expect(saved.housePhotoDataUrls).toHaveLength(1);
+    expect(saved.housePhotoDataUrls).toHaveLength(2);
     expect(JSON.stringify(saved)).not.toContain("data:");
   });
 

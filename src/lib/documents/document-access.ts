@@ -6,6 +6,7 @@ import {
   type ManagerDocumentRow,
   type ManagerDocumentVisibility,
 } from "@/lib/documents/manager-documents";
+import { orFilterForIdentity } from "@/lib/supabase/or-filter";
 
 /** Rows a signed-in resident may read from the manager document library. */
 export async function listSharedDocumentsForResident(
@@ -22,11 +23,13 @@ export async function listSharedDocumentsForResident(
     .order("created_at", { ascending: false })
     .limit(200);
 
-  if (normalizedEmail) {
-    query = query.or(`resident_user_id.eq.${userId},resident_email.eq.${normalizedEmail}`);
-  } else {
-    query = query.eq("resident_user_id", userId);
-  }
+  const scope = orFilterForIdentity([
+    ["resident_user_id", userId],
+    ["resident_email", normalizedEmail],
+  ]);
+  // No identity means no documents — this filter is the boundary between two
+  // residents of the same manager.
+  query = scope ? query.or(scope) : query.eq("resident_user_id", "");
 
   const { data, error } = await query;
   if (error) throw new Error(error.message);

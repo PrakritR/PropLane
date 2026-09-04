@@ -114,3 +114,6 @@ graphify-out/
 
 # Local Playwright CLI session logs
 .playwright-cli/
+
+# Scratch dir for local QA reproduction scripts (see docs/agent-mcp-setup.md).
+.qa-tmp/

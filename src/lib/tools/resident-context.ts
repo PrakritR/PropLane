@@ -7,6 +7,7 @@
  * choke point, mirroring `resolveAgentContext` for managers.
  */
 import { getEffectiveSessionForPortal } from "@/lib/auth/effective-session";
+import { orFilterForIdentity } from "@/lib/supabase/or-filter";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { managerIdsOwningResident } from "@/lib/resident-manager-scope";
 import { loadResidentPortalAccessState } from "@/lib/resident-portal-access";
@@ -84,9 +85,20 @@ export async function resolveResidentAgentContext(): Promise<ResidentAgentContex
   };
 }
 
-/** The `.or()` filter string matching the resident-scoped API routes. */
-export function residentScopeOrFilter(ctx: ResidentAgentContext): string {
-  return `resident_user_id.eq.${ctx.userId},resident_email.eq.${ctx.email}`;
+/**
+ * The `.or()` filter string matching the resident-scoped API routes.
+ *
+ * Returns `null` when the context carries NO identity. This filter is the
+ * boundary between two residents of the same manager, so it must fail closed:
+ * the old interpolated form produced `resident_user_id.eq.,resident_email.eq.`
+ * in that case, which is malformed rather than restrictive. A caller that gets
+ * `null` must return no rows, never issue the query unfiltered.
+ */
+export function residentScopeOrFilter(ctx: ResidentAgentContext): string | null {
+  return orFilterForIdentity([
+    ["resident_user_id", ctx.userId],
+    ["resident_email", ctx.email],
+  ]);
 }
 
 /** One texted owner over SMS, or every linked manager in the signed-in portal. */

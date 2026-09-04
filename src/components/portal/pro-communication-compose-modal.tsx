@@ -271,6 +271,7 @@ export function ManagerCommunicationComposeModal({
   const [scheduleLater, setScheduleLater] = useState(false);
   const [sendAt, setSendAt] = useState(defaultPortalMessageScheduleAt);
   const [sending, setSending] = useState(false);
+  const [formError, setFormError] = useState<string | null>(null);
   const smsAttemptRef = useRef<ManualSmsAttempt | null>(null);
   const { channelsFor } = useManagerCommunicationDeliverVia();
 
@@ -555,36 +556,51 @@ export function ManagerCommunicationComposeModal({
     return targets;
   };
 
+  /**
+   * Why a send did not happen, shown INSIDE the modal.
+   *
+   * These used to be toast-only. A toast is transient and renders in a
+   * fixed-position layer under the dialog, so clicking Send with an empty form
+   * read as a silent no-op — the user could not tell whether it had sent, to
+   * whom, or why not. The modal already stays open (the draft is never
+   * discarded); this is the half that explains itself.
+   */
+  const fail = (message: string) => {
+    setFormError(message);
+    showToast(message);
+  };
+
   const submit = async () => {
+    setFormError(null);
     if (!viaEmail && !viaSms) {
-      showToast("Choose Email and/or SMS at the bottom.");
+      fail("Choose Email and/or SMS at the bottom.");
       return;
     }
     const text = body.trim();
     if (!text) {
-      showToast("Write a message.");
+      fail("Write a message.");
       return;
     }
     if (selectedCategories.length === 0) {
-      showToast("Select at least one section under To.");
+      fail("Select at least one section under To.");
       return;
     }
     const other = otherSelected
       ? parseOtherRecipientTokens(otherTokens)
       : { emails: [] as string[], phones: [] as string[] };
     if (otherSelected && other.emails.length === 0 && other.phones.length === 0) {
-      showToast("Type an email or phone under Other.");
+      fail("Type an email or phone under Other.");
       return;
     }
     if (directoryCategories.length > 0 && selectedKeys.length === 0) {
-      showToast("Select at least one person from Which people.");
+      fail("Select at least one person from Which people.");
       return;
     }
 
     if (viaEmail) {
       const s = subject.trim();
       if (!s) {
-        showToast("Add a subject for email.");
+        fail("Add a subject for email.");
         return;
       }
       const emailTargets = resolveEmailTargets();
@@ -593,7 +609,7 @@ export function ManagerCommunicationComposeModal({
         emailTargets.broadcastCategories.length === 0 &&
         emailTargets.directEmails.length === 0
       ) {
-        showToast("Add at least one email recipient (directory or Other).");
+        fail("Add at least one email recipient (directory or Other).");
         return;
       }
     }
@@ -601,7 +617,7 @@ export function ManagerCommunicationComposeModal({
     if (viaSms) {
       const smsTargets = resolveSmsTargets();
       if (smsTargets.length === 0) {
-        showToast("Add at least one phone (resident with a number, or Other).");
+        fail("Add at least one phone (resident with a number, or Other).");
         return;
       }
     }
@@ -609,11 +625,11 @@ export function ManagerCommunicationComposeModal({
     if (scheduleLater) {
       const when = new Date(sendAt);
       if (Number.isNaN(when.getTime())) {
-        showToast("Choose a valid send date and time.");
+        fail("Choose a valid send date and time.");
         return;
       }
       if (when.getTime() < Date.now() - 60_000) {
-        showToast("Send time must be in the future.");
+        fail("Send time must be in the future.");
         return;
       }
       const s = subject.trim();
@@ -647,7 +663,7 @@ export function ManagerCommunicationComposeModal({
         if (schedulePayloads.length === 0 && viaSms) {
           const smsTargets = resolveSmsTargets();
           if (smsTargets.length === 0) {
-            showToast("Add at least one recipient to schedule.");
+            fail("Add at least one recipient to schedule.");
             return;
           }
           schedulePayloads.push(
@@ -660,7 +676,7 @@ export function ManagerCommunicationComposeModal({
           );
         }
         if (schedulePayloads.length === 0) {
-          showToast("Add at least one recipient to schedule.");
+          fail("Add at least one recipient to schedule.");
           return;
         }
         const results = await Promise.all(schedulePayloads.map((payload) => postScheduledInboxMessage(payload)));
@@ -859,6 +875,15 @@ export function ManagerCommunicationComposeModal({
       panelClassName={PORTAL_MESSAGE_COMPOSE_MODAL_PANEL_CLASS}
       footer={
         <ModalFooter>
+          {formError ? (
+            <p
+              role="alert"
+              className="mr-auto text-sm font-medium text-danger"
+              data-attr="communication-compose-error"
+            >
+              {formError}
+            </p>
+          ) : null}
           <Button
             type="button"
             variant="primary"

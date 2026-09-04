@@ -16,6 +16,7 @@ import { queuePendingNotice, VENDOR_PORTAL_PATH } from "@/lib/pending-notice";
 import { FIELD_LABEL_CLASS } from "@/lib/ui-styles";
 import { createSupabaseBrowserClient } from "@/lib/supabase/browser";
 import { navigateAfterRoleSignup } from "@/lib/auth/navigate-after-role-signup";
+import { normalizeAuthEmail } from "@/lib/auth/normalize-auth-email";
 
 type RegisterResponse = {
   error?: string;
@@ -90,7 +91,7 @@ export function VendorSignupForm({
         body: JSON.stringify(
           inviteToken
             ? { token: inviteToken, password, fullName: initialFullName.trim() || undefined }
-            : { email: email.trim(), password },
+            : { email: normalizeAuthEmail(email), password },
         ),
       });
       const body = (await res.json()) as RegisterResponse;
@@ -111,7 +112,7 @@ export function VendorSignupForm({
 
       const supabase = createSupabaseBrowserClient();
       const { data: signInData, error: signInError } = await supabase.auth.signInWithPassword({
-        email: email.trim(),
+        email: normalizeAuthEmail(email),
         password,
       });
       if (signInError) {
@@ -157,6 +158,11 @@ export function VendorSignupForm({
       <Input
         type="email"
         autoComplete="email"
+        // iOS/macOS autocapitalise the first letter by default, which used to
+        // make Manager@… a different account from manager@… (PRP-196).
+        autoCapitalize="none"
+        autoCorrect="off"
+        spellCheck={false}
         placeholder="Email"
         value={email}
         onChange={(e) => setEmail(e.target.value)}

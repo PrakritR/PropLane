@@ -31,6 +31,7 @@ import { getNativeInfo } from "@/lib/native/push-client";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { normalizeAuthEmail } from "@/lib/auth/normalize-auth-email";
 
 async function tryResidentAutoConfirm(email: string): Promise<boolean> {
   try {
@@ -236,14 +237,14 @@ function NativeAuthHubInner({ defaultMode = "sign-in" }: NativeAuthHubProps) {
     try {
       const supabase = createSupabaseBrowserClient();
       let { data, error } = await supabase.auth.signInWithPassword({
-        email: credentials.email,
+        email: normalizeAuthEmail(credentials.email),
         password: credentials.password,
       });
       if (error?.message.toLowerCase().includes("email not confirmed")) {
         const repaired = await tryResidentAutoConfirm(credentials.email);
         if (repaired) {
           const retry = await supabase.auth.signInWithPassword({
-            email: credentials.email,
+            email: normalizeAuthEmail(credentials.email),
             password: credentials.password,
           });
           data = retry.data;
@@ -329,6 +330,11 @@ function NativeAuthHubInner({ defaultMode = "sign-in" }: NativeAuthHubProps) {
                 name="email"
                 type="email"
                 autoComplete="email"
+                // iOS/macOS autocapitalise the first letter by default, which used to
+                // make Manager@… a different account from manager@… (PRP-196).
+                autoCapitalize="none"
+                autoCorrect="off"
+                spellCheck={false}
                 placeholder="Email"
                 value={email}
                 onChange={(e) => {

@@ -59,9 +59,14 @@ describe("sign-in credential fields", () => {
   });
 
   it("signs in with the resolved credentials, never the possibly-empty state", () => {
-    const signInCall = /signInWithPassword\(\{\s*email: credentials\.email,\s*password: credentials\.password,?\s*\}\)/;
+    // The address may be wrapped in `normalizeAuthEmail` (PRP-196: a capital
+    // first letter from a mobile keyboard is a different account to the auth
+    // provider) — what must not change is that it comes from `credentials`,
+    // the DOM read, and not from React state AutoFill never reached.
+    const signInCall =
+      /signInWithPassword\(\{\s*email: (?:normalizeAuthEmail\()?credentials\.email\)?,\s*password: credentials\.password,?\s*\}\)/;
     expect(src).toMatch(signInCall);
-    expect(src).not.toMatch(/signInWithPassword\(\{\s*email: email\.trim\(\)/);
+    expect(src).not.toMatch(/signInWithPassword\(\{\s*email: (?:normalizeAuthEmail\()?email/);
   });
 });
 

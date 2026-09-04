@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { getUserOrRejection } from "@/lib/auth/session-rejection";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 
 export const runtime = "nodejs";
@@ -15,9 +16,9 @@ function looksLikeMissingPhoneColumn(err: { message?: string; code?: string }) {
 export async function GET() {
   try {
     const supabase = await createSupabaseServerClient();
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
+    // The 401 body stays generic — telling a caller WHY their session was
+    // refused is an oracle. The reason goes to the server log.
+    const { user } = await getUserOrRejection(supabase, "GET /api/profile");
     if (!user) {
       return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
     }
@@ -46,9 +47,9 @@ export async function GET() {
 export async function PATCH(req: Request) {
   try {
     const supabase = await createSupabaseServerClient();
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
+    // The 401 body stays generic — telling a caller WHY their session was
+    // refused is an oracle. The reason goes to the server log.
+    const { user } = await getUserOrRejection(supabase, "GET /api/profile");
     if (!user) {
       return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
     }

@@ -71,6 +71,11 @@ export function ResidentSignupBlocked({ compact = false }: { compact?: boolean }
             type="email"
             inputMode="email"
             autoComplete="email"
+            // iOS/macOS autocapitalise the first letter by default, which used to
+            // make Manager@… a different account from manager@… (PRP-196).
+            autoCapitalize="none"
+            autoCorrect="off"
+            spellCheck={false}
             placeholder="you@example.com"
             value={email}
             onChange={(e) => setEmail(e.target.value)}

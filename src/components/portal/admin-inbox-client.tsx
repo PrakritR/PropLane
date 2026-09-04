@@ -442,6 +442,8 @@ export const AdminInboxClient = forwardRef<
   AdminInboxClientHandle,
   {
     tabId: string;
+    /** Which status pill opens active, from the folder named in the URL. */
+    initialEmailTab?: "unopened" | "opened" | "sent";
     /** Base path for tab nav — defaults to the legacy `/admin/inbox` path (redirects to Communication → Email). */
     commBase?: string;
     embeddedInCommunication?: boolean;
@@ -449,7 +451,14 @@ export const AdminInboxClient = forwardRef<
     onTabCountsChange?: (counts: AdminInboxTabCounts) => void;
   }
 >(function AdminInboxClient(
-  { tabId, commBase = "/admin/inbox", embeddedInCommunication = false, externalTitleActions = false, onTabCountsChange },
+  {
+    tabId,
+    initialEmailTab,
+    commBase = "/admin/inbox",
+    embeddedInCommunication = false,
+    externalTitleActions = false,
+    onTabCountsChange,
+  },
   ref,
 ) {
   const { showToast } = useAppUi();
@@ -467,7 +476,11 @@ export const AdminInboxClient = forwardRef<
   });
   const [scheduledMessages, setScheduledMessages] = useState<ScheduledInboxMessageRecord[]>([]);
   const [scheduledLoading, setScheduledLoading] = useState(true);
-  const [embeddedInboxTab, setEmbeddedInboxTab] = useState<"unopened" | "opened" | "sent">("unopened");
+  // Seeded from the folder in the URL, so a link to `…/inbox/sent` opens on Sent
+  // rather than silently showing Unopened.
+  const [embeddedInboxTab, setEmbeddedInboxTab] = useState<"unopened" | "opened" | "sent">(
+    initialEmailTab ?? "unopened",
+  );
   const effectiveTabId =
     embeddedInCommunication && tabId === "all" ? embeddedInboxTab : tabId;
 

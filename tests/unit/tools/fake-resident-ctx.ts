@@ -1,4 +1,5 @@
 import type { ResidentAgentContext } from "@/lib/tools/resident-context";
+import { parseOrFilterClauses } from "@/lib/supabase/or-filter";
 
 /**
  * Fake supabase surface for RESIDENT tool tests. Extends the FakeQuery idea
@@ -44,13 +45,19 @@ function eqPredicate(col: string, val: unknown): Predicate {
   };
 }
 
-/** Parse a PostgREST `.or()` expression of `col.eq.value` clauses. */
+/**
+ * Parse a PostgREST `.or()` expression of `col.eq.value` clauses.
+ *
+ * Uses the SAME parser the filter builder is paired with
+ * (`@/lib/supabase/or-filter`). Splitting on "," here modelled a PostgREST that
+ * does not exist — one where a comma inside a value ends a clause — which is
+ * exactly the class of bug the quoted builder exists to prevent.
+ */
 function orPredicate(expr: string): Predicate {
-  const clauses = expr.split(",").map((clause) => {
-    const idx = clause.indexOf(".eq.");
-    if (idx < 0) return () => false;
-    return eqPredicate(clause.slice(0, idx), clause.slice(idx + 4));
-  });
+  const clauses = parseOrFilterClauses(expr).map(({ column, operator, value }) =>
+    operator === "eq" ? eqPredicate(column, value) : () => false,
+  );
+  if (clauses.length === 0) return () => false;
   return (row) => clauses.some((match) => match(row));
 }
 

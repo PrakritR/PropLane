@@ -84,7 +84,13 @@ const nextConfig: NextConfig = {
     return [
       { source: "/auth/login", destination: "/auth/sign-in", permanent: false },
       { source: "/browse", destination: "/rent/browse", permanent: false },
-      { source: "/browse/:path*", destination: "/rent/browse/:path*", permanent: false },
+      // `/rent/browse` is a single page — there is NO `/rent/browse/[…]` route,
+      // so keeping the sub-path here sent every /browse/<anything> link to a
+      // 404. A duplicate pair at the END of this list did drop the sub-path
+      // correctly, but redirects match in order and never reached it, so the
+      // broken rule was the live one. Filters travel as query params, which a
+      // redirect preserves on its own.
+      { source: "/browse/:path*", destination: "/rent/browse", permanent: false },
       { source: "/resident/move-in", destination: "/resident/move-in/placement", permanent: false },
       { source: "/portal/financials/cash-flow", destination: "/portal/financials/cash-flow-statement", permanent: false },
       { source: "/dashboard", destination: "/auth/continue", permanent: false },
@@ -135,8 +141,6 @@ const nextConfig: NextConfig = {
       { source: "/portal/services/work-done/:path*", destination: "/portal/financials/expenses", permanent: false },
       { source: "/portal/work-orders", destination: "/portal/services/work-orders", permanent: false },
       { source: "/portal/work-orders/:path*", destination: "/portal/services/work-orders", permanent: false },
-      { source: "/browse", destination: "/rent/browse", permanent: false },
-      { source: "/browse/:path*", destination: "/rent/browse", permanent: false },
     ];
   },
 };

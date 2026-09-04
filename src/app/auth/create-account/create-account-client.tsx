@@ -27,6 +27,7 @@ import { createSupabaseBrowserClient } from "@/lib/supabase/browser";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
+import { normalizeAuthEmail } from "@/lib/auth/normalize-auth-email";
 
 function Req() {
   return <span className="text-danger"> *</span>;
@@ -341,7 +342,7 @@ export default function CreateAccountClient() {
         // no reason to bounce back through the sign-in screen after paying.
         const supabase = createSupabaseBrowserClient();
         const { data: signInData, error: signInError } = await supabase.auth.signInWithPassword({
-          email: effectiveCheckoutPreview.email,
+          email: normalizeAuthEmail(effectiveCheckoutPreview.email),
           password,
         });
         if (signInError || !signInData?.user) {
@@ -390,7 +391,7 @@ export default function CreateAccountClient() {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            email: email.trim(),
+            email: normalizeAuthEmail(email),
             password,
             fullName: fullName.trim(),
             phone: phone.trim(),
@@ -404,7 +405,7 @@ export default function CreateAccountClient() {
         }
         const supabase = createSupabaseBrowserClient();
         const { data: signInData, error: signInError } = await supabase.auth.signInWithPassword({
-          email: email.trim(),
+          email: normalizeAuthEmail(email),
           password,
         });
         if (signInError) {
@@ -454,7 +455,7 @@ export default function CreateAccountClient() {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            email: email.trim(),
+            email: normalizeAuthEmail(email),
             password,
             fullName: fullName.trim() || undefined,
             phone: phone.trim(),
@@ -470,7 +471,7 @@ export default function CreateAccountClient() {
         }
         const supabase = createSupabaseBrowserClient();
         const { data: signInData, error: signInError } = await supabase.auth.signInWithPassword({
-          email: email.trim(),
+          email: normalizeAuthEmail(email),
           password,
         });
         if (signInError) {
@@ -742,6 +743,11 @@ export default function CreateAccountClient() {
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 autoComplete="email"
+                // iOS/macOS autocapitalise the first letter by default, which used to
+                // make Manager@… a different account from manager@… (PRP-196).
+                autoCapitalize="none"
+                autoCorrect="off"
+                spellCheck={false}
               />
             </div>
             <div>
@@ -862,6 +868,11 @@ export default function CreateAccountClient() {
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 autoComplete="email"
+                // iOS/macOS autocapitalise the first letter by default, which used to
+                // make Manager@… a different account from manager@… (PRP-196).
+                autoCapitalize="none"
+                autoCorrect="off"
+                spellCheck={false}
                 readOnly={lockResidentEmail}
                 disabled={lockResidentEmail}
               />

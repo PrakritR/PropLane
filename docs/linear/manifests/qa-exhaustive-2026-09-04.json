@@ -1,280 +1,86 @@
 {
   "date": "2026-09-04",
-  "base": "http://localhost:3010",
+  "base": "http://127.0.0.1:3011",
   "findings": [
     {
       "id": "EX-1",
       "portal": "manager",
-      "path": "/portal/dashboard",
-      "category": "runtime",
-      "severity": "medium",
-      "title": "Dashboard: console error",
-      "detail": "TypeError: Failed to fetch\n    at http://localhost:3010/_next/static/chunks/node_modules_%40supabase_auth-js_dist_module_1vqrmkg._.js:604:23\n    at _handleRequest (http://localhost:3010/_next/static/chunks/node_modules_%40supabase_auth-js_dist_module_1vqrmkg._.js:967:24)\n    at _request (http://localhost:3010/_next/static/chunks/node_modules_%40supabase_auth-js_dist_module_1vqrmkg._.js:954:24)\n   ",
-      "screenshot": "/Users/prakrit/firstmate/projects/proplane-cursor-branch-1/docs/linear/qa-screenshots/2026-09-04/manager-001-dashboard-console.png",
-      "skipped": "PRP-250"
+      "path": "/portal/teams/vendors",
+      "category": "ux",
+      "severity": "low",
+      "title": "Teams vendors: no Invite/Add vendor CTA visible",
+      "detail": "",
+      "screenshot": "/Users/prakrit/firstmate/projects/proplane-claude/docs/linear/qa-screenshots/2026-09-04/manager-001-teams-vendors-no-invite.png"
     },
     {
       "id": "EX-2",
       "portal": "manager",
-      "path": "/portal/leases",
-      "category": "runtime",
-      "severity": "medium",
-      "title": "Leases: console error",
-      "detail": "TypeError: Failed to fetch\n    at http://localhost:3010/_next/static/chunks/node_modules_%40supabase_auth-js_dist_module_1vqrmkg._.js:604:23\n    at _handleRequest (http://localhost:3010/_next/static/chunks/node_modules_%40supabase_auth-js_dist_module_1vqrmkg._.js:967:24)\n    at _request (http://localhost:3010/_next/static/chunks/node_modules_%40supabase_auth-js_dist_module_1vqrmkg._.js:954:24)\n   ",
-      "screenshot": "/Users/prakrit/firstmate/projects/proplane-cursor-branch-1/docs/linear/qa-screenshots/2026-09-04/manager-002-leases-console.png",
-      "skipped": "PRP-250"
+      "path": "/portal/residents/current",
+      "category": "ux",
+      "severity": "low",
+      "title": "Residents: no Add/Invite affordance on list",
+      "detail": "",
+      "screenshot": "/Users/prakrit/firstmate/projects/proplane-claude/docs/linear/qa-screenshots/2026-09-04/manager-002-residents-no-add.png"
     },
     {
       "id": "EX-3",
-      "portal": "manager",
-      "path": "/portal/promotion",
-      "category": "runtime",
-      "severity": "medium",
-      "title": "Promotion: console error",
-      "detail": "Failed to load resource: the server responded with a status of 401 (Unauthorized)",
-      "screenshot": "/Users/prakrit/firstmate/projects/proplane-cursor-branch-1/docs/linear/qa-screenshots/2026-09-04/manager-003-promotion-console.png",
-      "skipped": "PRP-301"
-    },
-    {
-      "id": "EX-4",
-      "portal": "manager",
-      "path": "/portal/financials/income",
-      "category": "runtime",
-      "severity": "medium",
-      "title": "Finances income: console error",
-      "detail": "Failed to load resource: the server responded with a status of 401 (Unauthorized)",
-      "screenshot": "/Users/prakrit/firstmate/projects/proplane-cursor-branch-1/docs/linear/qa-screenshots/2026-09-04/manager-004-finances-income-console.png",
-      "skipped": "PRP-301"
-    },
-    {
-      "id": "EX-5",
-      "portal": "manager",
-      "path": "/portal/financials/expenses",
-      "category": "runtime",
-      "severity": "medium",
-      "title": "Finances expenses: console error",
-      "detail": "Failed to load resource: the server responded with a status of 401 (Unauthorized)",
-      "screenshot": "/Users/prakrit/firstmate/projects/proplane-cursor-branch-1/docs/linear/qa-screenshots/2026-09-04/manager-005-finances-expenses-console.png",
-      "skipped": "PRP-301"
-    },
-    {
-      "id": "EX-6",
-      "portal": "manager",
-      "path": "/portal/financials/general-ledger",
-      "category": "runtime",
-      "severity": "medium",
-      "title": "Finances GL: console error",
-      "detail": "Failed to load resource: the server responded with a status of 401 (Unauthorized)",
-      "screenshot": "/Users/prakrit/firstmate/projects/proplane-cursor-branch-1/docs/linear/qa-screenshots/2026-09-04/manager-006-finances-gl-console.png",
-      "skipped": "PRP-301"
-    },
-    {
-      "id": "EX-7",
-      "portal": "manager",
-      "path": "/portal/financials/cash-flow-statement",
-      "category": "runtime",
-      "severity": "medium",
-      "title": "Finances cash flow: console error",
-      "detail": "TypeError: Failed to fetch\n    at http://localhost:3010/_next/static/chunks/node_modules_%40supabase_auth-js_dist_module_1vqrmkg._.js:604:23\n    at _handleRequest (http://localhost:3010/_next/static/chunks/node_modules_%40supabase_auth-js_dist_module_1vqrmkg._.js:967:24)\n    at _request (http://localhost:3010/_next/static/chunks/node_modules_%40supabase_auth-js_dist_module_1vqrmkg._.js:954:24)\n   ",
-      "screenshot": "/Users/prakrit/firstmate/projects/proplane-cursor-branch-1/docs/linear/qa-screenshots/2026-09-04/manager-007-finances-cash-flow-console.png",
-      "skipped": "PRP-250"
-    },
-    {
-      "id": "EX-8",
-      "portal": "manager",
-      "path": "/portal/financials/cash-flow-statement",
-      "category": "runtime",
-      "severity": "medium",
-      "title": "Finances cash flow: console error",
-      "detail": "Failed to load resource: the server responded with a status of 401 (Unauthorized)",
-      "screenshot": "/Users/prakrit/firstmate/projects/proplane-cursor-branch-1/docs/linear/qa-screenshots/2026-09-04/manager-008-finances-cash-flow-console.png",
-      "skipped": "PRP-301"
-    },
-    {
-      "id": "EX-9",
-      "portal": "manager",
-      "path": "/portal/documents/library",
-      "category": "runtime",
-      "severity": "medium",
-      "title": "Documents library: console error",
-      "detail": "Failed to load resource: the server responded with a status of 401 (Unauthorized)",
-      "screenshot": "/Users/prakrit/firstmate/projects/proplane-cursor-branch-1/docs/linear/qa-screenshots/2026-09-04/manager-009-documents-library-console.png",
-      "skipped": "PRP-301"
-    },
-    {
-      "id": "EX-10",
-      "portal": "manager",
-      "path": "/portal/documents/templates",
-      "category": "runtime",
-      "severity": "high",
-      "title": "Documents templates: session lost",
-      "detail": "Bounced to sign-in from /portal/documents/templates",
-      "screenshot": "/Users/prakrit/firstmate/projects/proplane-cursor-branch-1/docs/linear/qa-screenshots/2026-09-04/manager-010-documents-templates-signin-bounce.png",
-      "skipped": "PRP-298"
-    },
-    {
-      "id": "EX-11",
-      "portal": "manager",
-      "path": "/portal/documents/templates",
-      "category": "runtime",
-      "severity": "medium",
-      "title": "Documents templates: console error",
-      "detail": "Failed to load resource: the server responded with a status of 401 (Unauthorized)",
-      "screenshot": "/Users/prakrit/firstmate/projects/proplane-cursor-branch-1/docs/linear/qa-screenshots/2026-09-04/manager-011-documents-templates-console.png",
-      "skipped": "PRP-301"
-    },
-    {
-      "id": "EX-12",
       "portal": "manager",
       "path": "/portal/leases",
       "category": "ui",
       "severity": "medium",
       "title": "Leases: no rows and no empty-state copy",
       "detail": "",
-      "screenshot": "/Users/prakrit/firstmate/projects/proplane-cursor-branch-1/docs/linear/qa-screenshots/2026-09-04/manager-012-leases-no-empty-state.png",
-      "skipped": "PRP-225"
+      "screenshot": "/Users/prakrit/firstmate/projects/proplane-claude/docs/linear/qa-screenshots/2026-09-04/manager-003-leases-no-empty-state.png"
     },
     {
-      "id": "EX-13",
-      "portal": "resident",
-      "path": "/resident/dashboard",
-      "category": "runtime",
-      "severity": "medium",
-      "title": "Dashboard: console error",
-      "detail": "Failed to load resource: the server responded with a status of 401 (Unauthorized)",
-      "screenshot": "/Users/prakrit/firstmate/projects/proplane-cursor-branch-1/docs/linear/qa-screenshots/2026-09-04/resident-013-dashboard-console.png",
-      "skipped": "PRP-301"
-    },
-    {
-      "id": "EX-14",
+      "id": "EX-4",
       "portal": "resident",
       "path": "/resident/tour",
-      "category": "ui",
-      "severity": "medium",
-      "title": "[resident] Tour: page looks empty — not manager-style empty state",
-      "detail": "Compare to manager portal list surfaces (Properties reference). len=0",
-      "screenshot": "/Users/prakrit/firstmate/projects/proplane-cursor-branch-1/docs/linear/qa-screenshots/2026-09-04/resident-014-tour-bare-ui.png"
-    },
-    {
-      "id": "EX-15",
-      "portal": "resident",
-      "path": "/resident/applications",
       "category": "runtime",
       "severity": "medium",
-      "title": "Applications: console error",
-      "detail": "TypeError: Failed to fetch\n    at http://localhost:3010/_next/static/chunks/node_modules_%40supabase_auth-js_dist_module_1vqrmkg._.js:604:23\n    at _handleRequest (http://localhost:3010/_next/static/chunks/node_modules_%40supabase_auth-js_dist_module_1vqrmkg._.js:967:24)\n    at _request (http://localhost:3010/_next/static/chunks/node_modules_%40supabase_auth-js_dist_module_1vqrmkg._.js:954:24)\n   ",
-      "screenshot": "/Users/prakrit/firstmate/projects/proplane-cursor-branch-1/docs/linear/qa-screenshots/2026-09-04/resident-015-applications-console.png",
-      "skipped": "PRP-250"
+      "title": "Tour: console error",
+      "detail": "TypeError: Failed to fetch\n    at http://127.0.0.1:3011/_next/static/chunks/node_modules_%40supabase_auth-js_dist_module_1vqrmkg._.js:604:23\n    at _handleRequest (http://127.0.0.1:3011/_next/static/chunks/node_modules_%40supabase_auth-js_dist_module_1vqrmkg._.js:967:24)\n    at _request (http://127.0.0.1:3011/_next/static/chunks/node_modules_%40supabase_auth-js_dist_module_1vqrmkg._.js:954:24)\n   ",
+      "screenshot": "/Users/prakrit/firstmate/projects/proplane-claude/docs/linear/qa-screenshots/2026-09-04/resident-004-tour-console.png"
     },
     {
-      "id": "EX-16",
+      "id": "EX-5",
       "portal": "resident",
       "path": "/resident/lease",
       "category": "runtime",
       "severity": "medium",
       "title": "Lease: console error",
-      "detail": "TypeError: Failed to fetch\n    at http://localhost:3010/_next/static/chunks/node_modules_%40supabase_auth-js_dist_module_1vqrmkg._.js:604:23\n    at _handleRequest (http://localhost:3010/_next/static/chunks/node_modules_%40supabase_auth-js_dist_module_1vqrmkg._.js:967:24)\n    at _request (http://localhost:3010/_next/static/chunks/node_modules_%40supabase_auth-js_dist_module_1vqrmkg._.js:954:24)\n   ",
-      "screenshot": "/Users/prakrit/firstmate/projects/proplane-cursor-branch-1/docs/linear/qa-screenshots/2026-09-04/resident-016-lease-console.png",
-      "skipped": "PRP-250"
+      "detail": "TypeError: Failed to fetch\n    at http://127.0.0.1:3011/_next/static/chunks/node_modules_%40supabase_auth-js_dist_module_1vqrmkg._.js:604:23\n    at _handleRequest (http://127.0.0.1:3011/_next/static/chunks/node_modules_%40supabase_auth-js_dist_module_1vqrmkg._.js:967:24)\n    at _request (http://127.0.0.1:3011/_next/static/chunks/node_modules_%40supabase_auth-js_dist_module_1vqrmkg._.js:954:24)\n   ",
+      "screenshot": "/Users/prakrit/firstmate/projects/proplane-claude/docs/linear/qa-screenshots/2026-09-04/resident-005-lease-console.png"
     },
     {
-      "id": "EX-17",
+      "id": "EX-6",
       "portal": "resident",
       "path": "/resident/payments",
       "category": "runtime",
       "severity": "medium",
       "title": "Payments: console error",
-      "detail": "TypeError: Failed to fetch\n    at http://localhost:3010/_next/static/chunks/node_modules_%40supabase_auth-js_dist_module_1vqrmkg._.js:604:23\n    at _handleRequest (http://localhost:3010/_next/static/chunks/node_modules_%40supabase_auth-js_dist_module_1vqrmkg._.js:967:24)\n    at _request (http://localhost:3010/_next/static/chunks/node_modules_%40supabase_auth-js_dist_module_1vqrmkg._.js:954:24)\n   ",
-      "screenshot": "/Users/prakrit/firstmate/projects/proplane-cursor-branch-1/docs/linear/qa-screenshots/2026-09-04/resident-017-payments-console.png",
-      "skipped": "PRP-250"
+      "detail": "TypeError: Failed to fetch\n    at http://127.0.0.1:3011/_next/static/chunks/node_modules_%40supabase_auth-js_dist_module_1vqrmkg._.js:604:23\n    at _handleRequest (http://127.0.0.1:3011/_next/static/chunks/node_modules_%40supabase_auth-js_dist_module_1vqrmkg._.js:967:24)\n    at _request (http://127.0.0.1:3011/_next/static/chunks/node_modules_%40supabase_auth-js_dist_module_1vqrmkg._.js:954:24)\n   ",
+      "screenshot": "/Users/prakrit/firstmate/projects/proplane-claude/docs/linear/qa-screenshots/2026-09-04/resident-006-payments-console.png"
     },
     {
-      "id": "EX-18",
+      "id": "EX-7",
       "portal": "resident",
       "path": "/resident/payments",
       "category": "runtime",
       "severity": "medium",
       "title": "Payments: console error",
       "detail": "Failed to load resource: the server responded with a status of 403 (Forbidden)",
-      "screenshot": "/Users/prakrit/firstmate/projects/proplane-cursor-branch-1/docs/linear/qa-screenshots/2026-09-04/resident-018-payments-console.png",
-      "skipped": "PRP-301"
+      "screenshot": "/Users/prakrit/firstmate/projects/proplane-claude/docs/linear/qa-screenshots/2026-09-04/resident-007-payments-console.png"
     },
     {
-      "id": "EX-19",
-      "portal": "resident",
-      "path": "/resident/move-in",
-      "category": "runtime",
-      "severity": "medium",
-      "title": "House details: console error",
-      "detail": "TypeError: Failed to fetch\n    at http://localhost:3010/_next/static/chunks/node_modules_%40supabase_auth-js_dist_module_1vqrmkg._.js:604:23\n    at _handleRequest (http://localhost:3010/_next/static/chunks/node_modules_%40supabase_auth-js_dist_module_1vqrmkg._.js:967:24)\n    at _request (http://localhost:3010/_next/static/chunks/node_modules_%40supabase_auth-js_dist_module_1vqrmkg._.js:954:24)\n   ",
-      "screenshot": "/Users/prakrit/firstmate/projects/proplane-cursor-branch-1/docs/linear/qa-screenshots/2026-09-04/resident-019-house-details-console.png",
-      "skipped": "PRP-250"
-    },
-    {
-      "id": "EX-20",
-      "portal": "resident",
-      "path": "/resident/documents/application",
-      "category": "runtime",
-      "severity": "medium",
-      "title": "Documents application: console error",
-      "detail": "Failed to load resource: the server responded with a status of 401 (Unauthorized)",
-      "screenshot": "/Users/prakrit/firstmate/projects/proplane-cursor-branch-1/docs/linear/qa-screenshots/2026-09-04/resident-020-documents-application-console.png",
-      "skipped": "PRP-301"
-    },
-    {
-      "id": "EX-21",
-      "portal": "resident",
-      "path": "/resident/documents/receipts",
-      "category": "runtime",
-      "severity": "medium",
-      "title": "Documents receipts: console error",
-      "detail": "Failed to load resource: the server responded with a status of 401 (Unauthorized)",
-      "screenshot": "/Users/prakrit/firstmate/projects/proplane-cursor-branch-1/docs/linear/qa-screenshots/2026-09-04/resident-021-documents-receipts-console.png",
-      "skipped": "PRP-301"
-    },
-    {
-      "id": "EX-22",
-      "portal": "resident",
-      "path": "/resident/documents/other",
-      "category": "runtime",
-      "severity": "high",
-      "title": "Documents other: session lost",
-      "detail": "Bounced to sign-in from /resident/documents/other",
-      "screenshot": "/Users/prakrit/firstmate/projects/proplane-cursor-branch-1/docs/linear/qa-screenshots/2026-09-04/resident-022-documents-other-signin-bounce.png",
-      "skipped": "PRP-298"
-    },
-    {
-      "id": "EX-23",
-      "portal": "resident",
-      "path": "/resident/documents/other",
-      "category": "runtime",
-      "severity": "medium",
-      "title": "Documents other: console error",
-      "detail": "Failed to load resource: the server responded with a status of 401 (Unauthorized)",
-      "screenshot": "/Users/prakrit/firstmate/projects/proplane-cursor-branch-1/docs/linear/qa-screenshots/2026-09-04/resident-023-documents-other-console.png",
-      "skipped": "PRP-301"
-    },
-    {
-      "id": "EX-24",
-      "portal": "resident",
-      "path": "/resident/profile",
-      "category": "runtime",
-      "severity": "medium",
-      "title": "Settings: console error",
-      "detail": "Failed to load resource: the server responded with a status of 401 (Unauthorized)",
-      "screenshot": "/Users/prakrit/firstmate/projects/proplane-cursor-branch-1/docs/linear/qa-screenshots/2026-09-04/resident-024-settings-console.png",
-      "skipped": "PRP-301"
-    },
-    {
-      "id": "EX-25",
+      "id": "EX-8",
       "portal": "vendor",
       "path": "/vendor/calendar",
       "category": "runtime",
       "severity": "medium",
       "title": "Calendar: 403 in console",
       "detail": "Failed to load resource: the server responded with a status of 403 (Forbidden)",
-      "screenshot": "/Users/prakrit/firstmate/projects/proplane-cursor-branch-1/docs/linear/qa-screenshots/2026-09-04/vendor-025-calendar-403.png",
-      "skipped": "PRP-301"
+      "screenshot": "/Users/prakrit/firstmate/projects/proplane-claude/docs/linear/qa-screenshots/2026-09-04/vendor-008-calendar-403.png"
     }
   ]
 }

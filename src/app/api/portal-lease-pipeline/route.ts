@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { orFilterForIdentity } from "@/lib/supabase/or-filter";
 import { isAdminUser } from "@/lib/auth/admin-preview";
 import {
   fetchLeasesForManagerUser,
@@ -23,6 +24,14 @@ import type { LeasePipelineRow } from "@/lib/lease-pipeline-storage";
 import { syncLeaseLifecycleTasks } from "@/lib/manager-default-tasks.server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
+
+/** The resident-identity scope for this route's two reads; null = match nothing. */
+function residentIdentityFilter(user: { id?: string | null; email?: string | null }): string | null {
+  return orFilterForIdentity([
+    ["resident_user_id", user.id],
+    ["resident_email", user.email],
+  ]);
+}
 
 export const runtime = "nodejs";
 
@@ -261,10 +270,14 @@ export async function GET() {
       if (error) return NextResponse.json({ error: error.message }, { status: 500 });
       records = (data ?? []) as LeaseScopeRecord[];
     } else if (ctx.user.role === "resident") {
+      // A resident with no identity sees nothing — never an unscoped read of a
+      // table that holds every manager's leases.
+      const residentScope = residentIdentityFilter(ctx.user);
+      if (!residentScope) return NextResponse.json({ rows: [] });
       const { data, error } = await ctx.db
         .from("portal_lease_pipeline_records")
         .select("id, row_data, updated_at")
-        .or(`resident_user_id.eq.${ctx.user.id},resident_email.eq.${ctx.user.email ?? ""}`)
+        .or(residentScope)
         .order("updated_at", { ascending: false })
         .limit(500);
       if (error) return NextResponse.json({ error: error.message }, { status: 500 });
@@ -579,11 +592,13 @@ export async function POST(req: Request) {
         scope = { ...storedScopeColumns(existingRecord), ...clientNamedScopeParts(normalized) };
       } else if (recordExists) {
         if (ctx.user.role === "resident") {
+          const residentScope = residentIdentityFilter(ctx.user);
+          if (!residentScope) return NextResponse.json({ error: "Record not found." }, { status: 404 });
           const { data: visible } = await ctx.db
             .from("portal_lease_pipeline_records")
             .select("id")
             .eq("id", id)
-            .or(`resident_user_id.eq.${ctx.user.id},resident_email.eq.${ctx.user.email ?? ""}`)
+            .or(residentScope)
             .limit(1);
           if (!Array.isArray(visible) || visible.length === 0) {
             return NextResponse.json({ error: "Record not found." }, { status: 404 });

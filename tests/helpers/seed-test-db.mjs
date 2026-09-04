@@ -2470,9 +2470,56 @@ try {
   ];
   const { data: allUsersData, error: allUsersErr } = await supabase.auth.admin.listUsers({ perPage: 1000 });
   if (allUsersErr) throw new Error(`listUsers(prune): ${allUsersErr.message}`);
-  const strayUsers = (allUsersData?.users ?? []).filter(
-    (u) => !canonicalEmails.has((u.email ?? "").trim().toLowerCase()),
-  );
+
+  // The prune's model — "the canonical set is the truth, everything else is
+  // litter" — is right for a CI run against a disposable database and WRONG for
+  // the shared dev project several lanes work in at once. It deleted twelve
+  // accounts other people were actively using, and the failure they then saw
+  // was "Invalid login credentials", which reads like a product bug rather than
+  // "a teammate ran a script" (PRP-190).
+  //
+  // Two guards:
+  //
+  // 1. It only ever touches the test namespace. It had reached
+  //    `akhil-manager@prop-lane.space` and `akhil-resident@prop-lane.space`, so
+  //    its blast radius was wider than its naming convention suggested.
+  // 2. Outside CI it REPORTS rather than deletes, unless the operator asks for
+  //    the prune explicitly. Destroying someone else's work should be a thing
+  //    you typed, not a side effect of seeding your own.
+  const TEST_ACCOUNT_DOMAIN = "@test.proplane.local";
+  const pruneRequested = process.argv.includes("--prune") || process.env.SEED_PRUNE_STRAYS === "1";
+  const pruneAllowed = pruneRequested || process.env.CI === "true";
+
+  const strayUsers = (allUsersData?.users ?? []).filter((u) => {
+    const email = (u.email ?? "").trim().toLowerCase();
+    if (canonicalEmails.has(email)) return false;
+    // A stray with no email at all is an auth artifact of this project and is
+    // still in scope; anything with an email outside the test namespace is not.
+    return email === "" || email.endsWith(TEST_ACCOUNT_DOMAIN);
+  });
+
+  const outOfNamespace = (allUsersData?.users ?? []).filter((u) => {
+    const email = (u.email ?? "").trim().toLowerCase();
+    return email !== "" && !email.endsWith(TEST_ACCOUNT_DOMAIN) && !canonicalEmails.has(email);
+  });
+  if (outOfNamespace.length > 0) {
+    console.log(
+      `Left ${outOfNamespace.length} non-test account(s) alone (outside ${TEST_ACCOUNT_DOMAIN}): ` +
+        outOfNamespace.map((u) => u.email).join(", "),
+    );
+  }
+
+  if (!pruneAllowed) {
+    if (strayUsers.length > 0) {
+      console.log(
+        `\n  Skipped pruning ${strayUsers.length} non-canonical test account(s) — they may belong to someone else:\n` +
+          strayUsers.map((u) => `    ${u.email || u.id}`).join("\n") +
+          `\n\n  Re-run with --prune (or SEED_PRUNE_STRAYS=1) to delete them.\n`,
+      );
+    }
+    strayUsers.length = 0;
+  }
+
   const prunedAccounts = [];
   for (const stray of strayUsers) {
     const strayEmail = (stray.email ?? "").trim().toLowerCase();

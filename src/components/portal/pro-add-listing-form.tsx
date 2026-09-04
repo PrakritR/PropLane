@@ -1638,7 +1638,12 @@ export function ManagerAddListingForm({
       : null,
   );
   const lastPersistedStepRef = useRef({ stepIndex: resumedStepIndex, maxStepReached: resumedMaxStepReached });
-  const [autosaveStatus, setAutosaveStatus] = useState<"idle" | "saving" | "saved" | "error">("idle");
+  // "saved-without-photos" exists because "saved" over a payload that lost
+  // attachments is the sentence that made the loss invisible: the manager reads
+  // it, believes their photos are stored, and finds out later.
+  const [autosaveStatus, setAutosaveStatus] = useState<
+    "idle" | "saving" | "saved" | "saved-without-photos" | "error"
+  >("idle");
   const autosaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const autosaveDirtyRef = useRef(false);
   const persistDraftRef = useRef<
@@ -2713,11 +2718,25 @@ export function ManagerAddListingForm({
 
       try {
         let submission = current;
+        // Per ATTEMPT, not per session. A failed attachment now stays in the
+        // form, so a retry that uploads it really does save it — carrying the
+        // previous attempt's warning forward would tell the manager to "add
+        // them again next time" about photos that are now stored.
+        droppedAttachmentsRef.current = false;
         try {
           const uploaded = await uploadSubmissionMedia(current);
           submission = uploaded.submission;
-          if (uploaded.failedCount > 0) droppedAttachmentsRef.current = true;
-          setSub(submission);
+          if (uploaded.failedCount > 0) {
+            // `uploadSubmissionMedia` DROPS whatever failed to upload, so
+            // writing its result back into live state deletes the manager's
+            // photos out of the form they are looking at — during a background
+            // autosave they did not ask for. Persist the reduced copy so the
+            // draft is still saved, but leave the form alone: the data URLs are
+            // still there and the next save retries them.
+            droppedAttachmentsRef.current = true;
+          } else {
+            setSub(submission);
+          }
         } catch (err) {
           console.error("manager-add-listing-form: draft media upload failed", err);
           submission = stripSubmissionDataUrls(current);
@@ -2758,7 +2777,12 @@ export function ManagerAddListingForm({
           );
           onClose();
         } else {
-          setAutosaveStatus("saved");
+          setAutosaveStatus(droppedAttachments ? "saved-without-photos" : "saved");
+          // The silent autosave is the path that runs most often, and it was
+          // the one path that swallowed this warning entirely.
+          if (droppedAttachments) {
+            showToast("Saved, but some photos couldn't be uploaded — they are still in the form, try again.");
+          }
         }
         return true;
       } finally {
@@ -2807,7 +2831,9 @@ export function ManagerAddListingForm({
       maxStepReached === lastPersistedStepRef.current.maxStepReached;
     if (alreadyPersisted) return;
 
-    setAutosaveStatus((status) => (status === "saved" ? "idle" : status));
+    setAutosaveStatus((status) =>
+      status === "saved" || status === "saved-without-photos" ? "idle" : status,
+    );
     if (autosaveTimerRef.current) clearTimeout(autosaveTimerRef.current);
     autosaveDirtyRef.current = true;
     autosaveTimerRef.current = setTimeout(() => {
@@ -2847,10 +2873,20 @@ export function ManagerAddListingForm({
   }, [draftAutoSaveEligible, persistListingDraft]);
 
   const submitListing = async () => {
+    // EXACTLY what the steps run. Submit used to omit `stFeeToggles` and
+    // `ltFeeToggles`, so the short-term fee checks were skipped entirely and
+    // the long-term ones fell back to a derived guess. Already-visited steps
+    // stay clickable, so the bypass was accidental as much as deliberate:
+    // complete Pricing, go back, clear the nightly rate, click Submit — and a
+    // short-term listing published with no nightly rate, which is the exact
+    // state `validateListingStFeeToggles` exists to prevent. That rate is not
+    // cosmetic: `resolveStayPricing` reads it, and both the lease document and
+    // the charge ledger read that.
+    const validateOpts = { isEditMode, entireHomeRent, stFeeToggles, ltFeeToggles };
     const invalid = (() => {
-      if (!isPreviewWizard) return firstInvalidListingStep(sub, { isEditMode, entireHomeRent }, 5);
+      if (!isPreviewWizard) return firstInvalidListingStep(sub, validateOpts, 5);
       for (const i of wizardSteps) {
-        const errors = validateListingWizardStep(i, sub, { isEditMode, entireHomeRent });
+        const errors = validateListingWizardStep(i, sub, validateOpts);
         if (Object.keys(errors).length > 0) return { stepIndex: i, errors };
       }
       return null;
@@ -2894,9 +2930,16 @@ export function ManagerAddListingForm({
       ...bath,
       name: bath.name.trim() || emptyBathroom(i).name,
     }));
+    // ONE predicate with the Pricing step. Submit used to demand
+    // `monthlyRent > 0` while Pricing accepted a daily rate too, so a manager
+    // who priced every room daily — the correct setup for the short-term
+    // listings this product supports — passed Pricing, reached the end, and was
+    // refused by an error pointing back at a step that reported itself as fine.
+    // There was no way to resolve it without guessing at a monthly figure the
+    // wizard never asked for.
     const roomsOk = isEntireHomeListing(submission)
       ? entireHomeMonthlyRentAmount(submission) > 0 && submission.rooms.some((r) => r.name.trim())
-      : submission.rooms.some((r) => r.name.trim() && r.monthlyRent > 0);
+      : submission.rooms.some((r) => r.name.trim() && listingRoomHasRent(r));
     if (!submission.address.trim() || !submission.zip.trim()) {
       showToast("Fill in address and ZIP.");
       return;
@@ -2905,7 +2948,7 @@ export function ManagerAddListingForm({
       showToast(
         isEntireHomeListing(submission)
           ? "Add at least one bedroom and the monthly rent for the entire home."
-          : "Add at least one room with a name and monthly rent.",
+          : "Add at least one room with a name and a monthly or daily rent.",
       );
       return;
     }
@@ -5255,7 +5298,9 @@ export function ManagerAddListingForm({
                 ? "Saving…"
                 : autosaveStatus === "saved"
                   ? "Saved to Drafts"
-                  : "Couldn't save — check your connection"}
+                  : autosaveStatus === "saved-without-photos"
+                    ? "Saved to Drafts — photos not uploaded yet"
+                    : "Couldn't save — check your connection"}
             </p>
           ) : null}
           <div className="flex flex-col-reverse gap-3 sm:flex-row sm:items-center sm:justify-between">

@@ -41,6 +41,47 @@ function redeemableInvite(invite: VendorInviteRow | null): VendorInviteRow | nul
 }
 
 /**
+ * Claim a pending invite ATOMICALLY, before anything is provisioned.
+ *
+ * The invite used to be flipped to `accepted` at the very END of provisioning,
+ * so two concurrent redemptions of the same token both passed the
+ * `status = "pending"` read and both proceeded — the token was single-use only
+ * by convention. This is a compare-and-swap: the `status = "pending"` predicate
+ * is in the WHERE clause, so exactly one caller wins and the loser gets no row.
+ *
+ * The winner owns the invite for the rest of the request; `releaseVendorInvite`
+ * hands it back if provisioning then fails, so a legitimate retry is not locked
+ * out by an error that was nobody's fault.
+ */
+export async function claimVendorInvite(
+  supabase: SupabaseClient,
+  inviteId: string,
+  acceptedUserId: string | null,
+): Promise<boolean> {
+  const { data } = await supabase
+    .from("vendor_invites")
+    .update({
+      status: "accepted",
+      accepted_user_id: acceptedUserId,
+      accepted_at: new Date().toISOString(),
+    })
+    .eq("id", inviteId)
+    .eq("status", "pending")
+    .select("id")
+    .maybeSingle();
+  return Boolean(data);
+}
+
+/** Hand a claimed invite back when provisioning failed, so it can be retried. */
+export async function releaseVendorInvite(supabase: SupabaseClient, inviteId: string): Promise<void> {
+  await supabase
+    .from("vendor_invites")
+    .update({ status: "pending", accepted_user_id: null, accepted_at: null })
+    .eq("id", inviteId)
+    .eq("status", "accepted");
+}
+
+/**
  * Exact-match only — an `ilike` pattern here would let a signup email containing
  * `%`/`_` wildcard characters match (and hijack) an unrelated pending invite.
  */
@@ -295,10 +336,14 @@ export async function provisionVendorAccountByEmail(
       );
     }
 
+    // Idempotent: the caller claims the invite up front (claimVendorInvite), so
+    // this only fills in the accepted user for paths that did not know it yet.
+    // Scoped to `accepted` so it can never resurrect a released or revoked row.
     await supabase
       .from("vendor_invites")
       .update({ status: "accepted", accepted_user_id: opts.userId, accepted_at: new Date().toISOString() })
-      .eq("id", invite.id);
+      .eq("id", invite.id)
+      .eq("status", "accepted");
   }
 
   return { ok: true, axisId, linkedManagerId, unlinkedReason };

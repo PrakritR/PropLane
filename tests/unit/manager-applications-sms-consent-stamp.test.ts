@@ -14,7 +14,7 @@ import { SMS_CONSENT_WORDING_VERSION } from "@/lib/rental-application/sms-consen
 
 const getUser = vi.fn();
 let PROFILE: { role: string; email: string } | null = null;
-let PROPERTY_RECORDS: Record<string, { manager_user_id: string | null; property_data: unknown }> = {};
+let PROPERTY_RECORDS: Record<string, { manager_user_id: string | null; status?: string | null; property_data: unknown }> = {};
 let STORED_ROWS: { id: string; row_data: DemoApplicantRow }[] = [];
 let UPSERTS: { id: string; manager_user_id: string | null; row_data: DemoApplicantRow }[] = [];
 let UPSERT_ERROR: { message: string; code?: string } | null = null;
@@ -134,7 +134,7 @@ beforeEach(() => {
     data: { user: { id: "resident-user-1", email: "maya.alvarez@example.com", user_metadata: {} } },
     error: null,
   });
-  PROPERTY_RECORDS = { [LISTING]: { manager_user_id: OWNER, property_data: {} } };
+  PROPERTY_RECORDS = { [LISTING]: { manager_user_id: OWNER, status: "live", property_data: {} } };
   STORED_ROWS = [];
   UPSERTS = [];
   UPSERT_ERROR = null;

@@ -34,6 +34,7 @@ import { PORTAL_BULK_BAR_BTN } from "@/lib/portal-bulk-bar";
 import type { AccountLinkInviteDto } from "@/lib/account-links";
 import {
   buildAllModulesGrant,
+  describeCoManagerPermissions,
   CO_MANAGER_PERMISSION_OPTIONS,
   EMPTY_CO_MANAGER_PERMISSIONS,
   normalizeCoManagerPermissions,
@@ -146,10 +147,21 @@ type InviteDraft = {
   propertyCoManagerPermissions: PropertyCoManagerPermissions;
 };
 
-function propertyChoices(userId: string): { id: string; label: string }[] {
+/**
+ * The properties this manager can assign to a co-manager.
+ *
+ * `notYetSynced` marks a listing that exists only in this browser's cache.
+ * The server validates the invite against `manager_property_records`, so
+ * offering one of those as selectable produced a 403 telling the manager they
+ * do not manage a property sitting in their own Properties list — an accusation
+ * for a sync gap they cannot see and did not cause (PRP-210). They stay VISIBLE,
+ * because hiding a property the manager can see elsewhere is its own confusion;
+ * they are simply not selectable until they exist server-side.
+ */
+function propertyChoices(userId: string): { id: string; label: string; notYetSynced?: boolean }[] {
   const live = readExtraListingsForUser(userId);
   const pend = readPendingManagerPropertiesForUser(userId);
-  const out: { id: string; label: string }[] = [];
+  const out: { id: string; label: string; notYetSynced?: boolean }[] = [];
   for (const p of live) {
     out.push({
       id: p.id,
@@ -157,10 +169,11 @@ function propertyChoices(userId: string): { id: string; label: string }[] {
     });
   }
   for (const r of pend) {
-    const joined = `${r.buildingName} · ${r.unitLabel} (pending)`;
+    const joined = `${r.buildingName} · ${r.unitLabel}`;
     out.push({
       id: r.id,
       label: safePropertyOptionLabel([joined, r.buildingName, r.address], r.id),
+      notYetSynced: true,
     });
   }
   return out;
@@ -178,9 +191,29 @@ function teamPropertyPreview(propertyIds: string[], labelFor: (id: string) => st
   return labels.join(" · ");
 }
 
+/**
+ * How long a pending invite has left, in words.
+ *
+ * A pending invite used to be acceptable forever, so nothing on this screen
+ * ever told a manager that one had gone stale (PRP-205). Returns "" for a row
+ * written before the column existed, rather than guessing a date.
+ */
+export function teamInvitePendingExpiryLabel(expiresAt: string | null | undefined, now = Date.now()): string {
+  const at = expiresAt ? Date.parse(expiresAt) : Number.NaN;
+  if (!Number.isFinite(at)) return "";
+  const msLeft = at - now;
+  if (msLeft <= 0) return "Expired";
+  const days = Math.ceil(msLeft / 86_400_000);
+  if (days <= 1) return "Expires today";
+  return `Expires in ${days} days`;
+}
+
 function teamInviteStatusLabel(inv: AccountLinkInviteDto): string {
-  if (inv.status === "pending" && inv.direction === "incoming") return "Needs approval";
-  if (inv.status === "pending" && inv.direction === "outgoing") return "Invite sent";
+  if (inv.status === "pending") {
+    const base = inv.direction === "incoming" ? "Needs approval" : "Invite sent";
+    const expiry = teamInvitePendingExpiryLabel(inv.expiresAt);
+    return expiry ? `${base} · ${expiry}` : base;
+  }
   if (inv.direction === "incoming") return "Linked to you";
   return TEAM_MEMBER_ROLE_LABEL;
 }
@@ -255,9 +288,9 @@ function CoManagerPermissionsEditor({
       </div>
       {isEmpty ? (
         <p className="rounded-lg border border-dashed border-border bg-accent/20 px-3 py-2 text-xs text-muted">
-          No restrictions. This team member has full access to every module on this property.
-          Check modules below to restrict them. (To remove the property entirely, use
-          &ldquo;Remove access&rdquo;.)
+          No access. This team member cannot open any module on this property. Check the
+          modules they should reach, or use a preset above. (To remove the property
+          entirely, use &ldquo;Remove access&rdquo;.)
         </p>
       ) : null}
       <div className="grid gap-2 sm:grid-cols-2">
@@ -865,8 +898,13 @@ export function ProAccountLinksPanel({ userId, linkId: linkIdProp }: { userId: s
       const next = { ...s, [id]: !s[id] };
       if (next[id]) {
         setPropertyPermissionsDraft((perms) => ({
+          // Seed an EXPLICIT read-only grant, never `{}`. An empty map is now
+          // no access at all, so seeding one would silently assign a property
+          // the co-manager cannot open; seeding full access is the fail-open
+          // default this replaced. Read-only is the least grant that still
+          // makes the property useful, and the summary below states it.
           ...perms,
-          [id]: perms[id] ?? { ...EMPTY_CO_MANAGER_PERMISSIONS },
+          [id]: perms[id] ?? buildAllModulesGrant("read"),
         }));
       }
       return next;
@@ -1009,7 +1047,12 @@ export function ProAccountLinksPanel({ userId, linkId: linkIdProp }: { userId: s
         resetLinkDraft();
         setLinkInvitePreview(null);
         showToast(
-          skipMessage ? "Invite sent. Waiting for their approval." : "Invite sent and team member notified.",
+          skipMessage
+            ? // "Invite sent" while nothing left the building is the sentence
+              // that left managers waiting on an approval the other person was
+              // never told to give (PRP-205). Say what actually happened.
+              "Invite created, but nothing was sent. Tell them to open PropLane → Co-managers to accept it."
+            : "Invite sent and team member notified.",
         );
         return;
       }
@@ -1018,7 +1061,9 @@ export function ProAccountLinksPanel({ userId, linkId: linkIdProp }: { userId: s
       setLinkInvitePreview(null);
       refreshLocal();
       showToast(
-        skipMessage ? "Link saved locally." : "Link saved and team member notified.",
+        skipMessage
+          ? "Link saved locally. Nothing was sent — tell them to open PropLane → Co-managers."
+          : "Link saved and team member notified.",
       );
     } finally {
       setLinkInviteBusy(false);
@@ -1133,7 +1178,7 @@ export function ProAccountLinksPanel({ userId, linkId: linkIdProp }: { userId: s
         ...Object.fromEntries(
           nextAssigned
             .filter((id) => !draft.assignedPropertyIds.includes(id))
-            .map((id) => [id, { ...EMPTY_CO_MANAGER_PERMISSIONS }]),
+            .map((id) => [id, buildAllModulesGrant("read")]),
         ),
       },
       nextAssigned,
@@ -2035,14 +2080,26 @@ export function ProAccountLinksPanel({ userId, linkId: linkIdProp }: { userId: s
                   ) : (
                     propertyOptions.map((p) => (
                       <li key={p.id}>
-                        <label className="flex cursor-pointer items-start gap-3 rounded-lg px-2 py-2 hover:bg-accent/30">
+                        <label
+                          className={`flex items-start gap-3 rounded-lg px-2 py-2 ${
+                            p.notYetSynced ? "cursor-not-allowed opacity-60" : "cursor-pointer hover:bg-accent/30"
+                          }`}
+                        >
                           <input
                             type="checkbox"
                             checked={Boolean(selectedProps[p.id])}
                             onChange={() => toggleProp(p.id)}
+                            disabled={p.notYetSynced}
                             className="mt-1 h-4 w-4 rounded border-border text-primary"
                           />
-                          <span className="text-sm text-foreground">{p.label}</span>
+                          <span className="text-sm text-foreground">
+                            {p.label}
+                            {p.notYetSynced ? (
+                              <span className="mt-0.5 block text-xs text-muted">
+                                Still saving — you can assign this once it finishes.
+                              </span>
+                            ) : null}
+                          </span>
                         </label>
                       </li>
                     ))
@@ -2066,6 +2123,32 @@ export function ProAccountLinksPanel({ userId, linkId: linkIdProp }: { userId: s
                       </div>
                     </div>
                   ))}
+                </div>
+              ) : null}
+
+              {selectedPropIds.length > 0 ? (
+                /* State the effective grant in words before the invite goes out — a
+                   co-manager is a real third party, and a checkbox grid is not a
+                   statement of what they can do to leases, finances and documents. */
+                <div
+                  className="rounded-xl border border-border bg-card p-4"
+                  data-attr="co-manager-invite-grant-summary"
+                >
+                  <p className="text-xs font-semibold uppercase tracking-wide text-muted">
+                    What they will be able to do
+                  </p>
+                  <ul className="mt-2 space-y-1.5">
+                    {selectedPropIds.map((pid) => (
+                      <li key={pid} className="text-sm text-foreground">
+                        <span className="font-semibold">{teamPropertyLabel(pid)}</span>{" "}
+                        <span className="text-muted">
+                          {describeCoManagerPermissions(
+                            normalizeCoManagerPermissions(propertyPermissionsDraft[pid]),
+                          )}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
                 </div>
               ) : null}
 
