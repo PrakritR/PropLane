@@ -2087,7 +2087,6 @@ export const ManagerInbox = forwardRef<
                   !embeddedInCommunication && aiDraftViaSms && !aiDraftViaEmail ? 1600 : undefined
                 }
                 onGenerate={
-                  threadEligibleForAiDraft(activeThread) &&
                   activeThread.aiDraft?.status !== "pending_approval"
                     ? () => {
                         draftAttemptedRef.current.delete(activeThread.id);

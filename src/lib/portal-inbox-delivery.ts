@@ -170,6 +170,7 @@ export async function commitInboxThreadReply(
     attachments?: { url: string; name?: string }[];
     /** When set, stamps direction on the appended turn for assistant-thread rendering. */
     outbound?: boolean;
+    messageId?: string;
   },
 ): Promise<void> {
   const { data: freshRow } = await db
@@ -182,7 +183,7 @@ export async function commitInboxThreadReply(
   const messages = Array.isArray(rowData.messages) ? [...(rowData.messages as unknown[])] : [];
   const when = formatPacificDateTime(new Date());
   messages.push({
-    id: `reply-${Date.now().toString(36)}`,
+    id: opts.messageId ?? `reply-${Date.now().toString(36)}`,
     from: opts.fromName,
     body: opts.text,
     at: when,

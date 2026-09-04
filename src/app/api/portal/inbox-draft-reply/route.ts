@@ -156,10 +156,85 @@ export async function POST(req: Request) {
       return NextResponse.json({ ok: false, error: "Too many draft requests." }, { status: 429 });
     }
 
-    const body = (await req.json().catch(() => ({}))) as { threadId?: unknown; force?: unknown };
+    const body = (await req.json().catch(() => ({}))) as {
+      threadId?: unknown;
+      residentEmail?: unknown;
+      residentName?: unknown;
+      force?: unknown;
+    };
     const threadId = String(body.threadId ?? "").trim();
+    const residentEmail = String(body.residentEmail ?? "").trim().toLowerCase();
+    const residentName = clampText(String(body.residentName ?? "the resident"), 120);
     const force = body.force === true;
-    if (!threadId) return NextResponse.json({ ok: false, error: "threadId is required." }, { status: 400 });
+
+    if (!threadId) {
+      if (!residentEmail.includes("@")) {
+        return NextResponse.json(
+          { ok: false, error: "threadId or residentEmail is required." },
+          { status: 400 },
+        );
+      }
+      if (!process.env.ANTHROPIC_API_KEY?.trim()) {
+        return NextResponse.json({ ok: false, error: "AI drafting is not configured." }, { status: 503 });
+      }
+      const model = TIER_MODELS.standard;
+      const userPrompt = [
+        `You are a property manager reaching out to ${residentName} (${residentEmail}) for the first time in PropLane.`,
+        "",
+        "Draft a short, warm first message. 2-3 sentences. Plain text only.",
+        "Reply with ONLY the message text.",
+      ].join("\n");
+      const result = await traceAgentTurn(
+        {
+          userId: scope.user.id,
+          metadata: {
+            landlordId: scope.user.id,
+            role: scope.user.role === "admin" ? "admin" : "manager",
+            surface: "inbox-draft-reply-first-contact",
+          },
+        },
+        [{ role: "user", content: userPrompt }],
+        async () => {
+          const client = new Anthropic();
+          const response = await client.messages.create({
+            model,
+            max_tokens: 400,
+            system: SYSTEM_PROMPT,
+            messages: [{ role: "user", content: userPrompt }],
+          });
+          const reply = response.content
+            .filter((b): b is Anthropic.TextBlock => b.type === "text")
+            .map((b) => b.text)
+            .join("")
+            .trim();
+          return {
+            reply,
+            toolTrace: [] as { tool: string; ok: boolean }[],
+            model,
+            usage: {
+              inputTokens: response.usage.input_tokens,
+              outputTokens: response.usage.output_tokens,
+            },
+          };
+        },
+        { name: "inbox-draft-reply-first-contact" },
+      );
+      const draftText = clampText(result.reply, 2000);
+      if (!draftText) {
+        return NextResponse.json({ ok: false, error: "Could not generate a draft." }, { status: 502 });
+      }
+      void force;
+      track("inbox_reply_drafted", scope.user.id, { model, firstContact: true });
+      return NextResponse.json({
+        ok: true,
+        draft: {
+          text: draftText,
+          status: "pending_approval",
+          generatedAt: new Date().toISOString(),
+          model,
+        } satisfies InboxAiDraft,
+      });
+    }
 
     const target = await resolveInboxThreadReplyTarget(scope.db, {
       threadId,

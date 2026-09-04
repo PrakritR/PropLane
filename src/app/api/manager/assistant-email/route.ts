@@ -3,10 +3,13 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { track } from "@/lib/analytics/posthog";
 import { requireManagerRouteUser } from "@/lib/manager-route-guard.server";
 import { getManagerPortalNavSubscriptionTier } from "@/lib/manager-access-server";
+import { assistantEmailEligibilityError } from "@/lib/manager-assistant-email/assistant-email-eligibility-copy";
 import {
   ensureManagerAssistantEmail,
   isAssistantEmailProvisioningEnabled,
+  isAssistantEmailStorageError,
   loadManagerAssistantEmail,
+  probeAssistantEmailStorageReady,
 } from "@/lib/manager-assistant-email/manager-assistant-email.server";
 import type { ManagerAssistantEmailStatus } from "@/lib/manager-assistant-email/manager-assistant-email-status";
 import {
@@ -17,15 +20,29 @@ import { isPureCoManagerWorkspace } from "@/lib/sms/manager-workspace-role.serve
 
 export const runtime = "nodejs";
 
+async function hasStoredEntitlementRow(
+  db: SupabaseClient,
+  userId: string,
+): Promise<boolean> {
+  const { data, error } = await db
+    .from("sms_manager_entitlements")
+    .select("manager_user_id")
+    .eq("manager_user_id", userId)
+    .maybeSingle();
+  if (error) return true;
+  return Boolean(data);
+}
+
 async function buildStatus(
   db: SupabaseClient,
   userId: string,
 ): Promise<ManagerAssistantEmailStatus> {
-  const [entitlement, planTierResult, row, pureCoManager] = await Promise.all([
+  const [entitlement, planTierResult, row, pureCoManager, storageReady] = await Promise.all([
     getEffectiveManagerSmsEntitlement(db, userId),
     getManagerPortalNavSubscriptionTier(userId),
     loadManagerAssistantEmail(db, userId),
     isPureCoManagerWorkspace(db, userId),
+    probeAssistantEmailStorageReady(db),
   ]);
 
   const planTier: ManagerAssistantEmailStatus["planTier"] =
@@ -43,11 +60,13 @@ async function buildStatus(
   return {
     provisioningAvailable: provisioningEnvEnabled && workspaceRole === "primary",
     sendingAvailable: sendEnvEnabled,
+    storageReady,
     planTier,
     entitlement,
     workspaceRole,
     address: row?.address ?? null,
     canRequest:
+      storageReady &&
       entitlementCanBeReconciled &&
       provisioningEnvEnabled &&
       workspaceRole === "primary" &&
@@ -78,6 +97,19 @@ export async function POST(req: Request) {
   }
 
   if (action === "refresh_eligibility") {
+    const current = await buildStatus(actor.db, actor.userId);
+    const neverReconciled =
+      !current.entitlement.eligible &&
+      !(await hasStoredEntitlementRow(actor.db, actor.userId));
+    if (!current.address && !neverReconciled) {
+      return NextResponse.json(
+        {
+          ...current,
+          error: "Request an assistant email before refreshing its eligibility.",
+        },
+        { status: 409 },
+      );
+    }
     await reconcileManagerSmsEntitlement(actor.db, actor.userId);
     return NextResponse.json(await buildStatus(actor.db, actor.userId), {
       headers: { "Cache-Control": "private, no-store" },
@@ -99,10 +131,24 @@ export async function POST(req: Request) {
     );
   }
 
+  const storageReady = await probeAssistantEmailStorageReady(actor.db);
+  if (!storageReady) {
+    return NextResponse.json(
+      {
+        error:
+          "Assistant email storage is not ready on this environment yet. Ask your admin to apply the latest database migration.",
+      },
+      { status: 503 },
+    );
+  }
+
   const entitlement = await reconcileManagerSmsEntitlement(actor.db, actor.userId);
+  const planTierResult = await getManagerPortalNavSubscriptionTier(actor.userId);
+  const planTier: ManagerAssistantEmailStatus["planTier"] =
+    planTierResult === "free" ? "free" : planTierResult === null ? "unknown" : "paid";
   if (!entitlement.eligible) {
     return NextResponse.json(
-      { error: "A paid Pro or Business plan is required for a PropLane assistant email." },
+      { error: assistantEmailEligibilityError(planTier, entitlement) },
       { status: 403 },
     );
   }
@@ -114,7 +160,24 @@ export async function POST(req: Request) {
     });
   }
 
-  await ensureManagerAssistantEmail(actor.db, actor.userId);
+  try {
+    await ensureManagerAssistantEmail(actor.db, actor.userId);
+  } catch (cause) {
+    const message = cause instanceof Error ? cause.message : "";
+    const tableMissing =
+      (cause instanceof Error &&
+        "code" in cause &&
+        isAssistantEmailStorageError(cause as { code?: string; message?: string })) ||
+      /manager_assistant_emails/i.test(message);
+    return NextResponse.json(
+      {
+        error: tableMissing
+          ? "Assistant email storage is not ready on this environment yet. Ask your admin to apply the latest database migration."
+          : "Could not set up assistant email. Try again shortly.",
+      },
+      { status: tableMissing ? 503 : 500 },
+    );
+  }
   track("assistant_email_requested", actor.userId, {});
   return NextResponse.json(await buildStatus(actor.db, actor.userId), {
     headers: { "Cache-Control": "private, no-store" },

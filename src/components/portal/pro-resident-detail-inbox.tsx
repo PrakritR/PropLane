@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode, type
 import { ManagerInbox, type ManagerInboxHandle } from "@/components/portal/pro-inbox";
 import {
   InboxComposer,
+  AiDraftReplyCard,
   InboxReplyChannelPicker,
   InboxScheduledCard,
   InboxScheduledThreadList,
@@ -53,6 +54,11 @@ import {
   uploadInboxAttachment,
   type InboxComposerAttachment,
 } from "@/lib/inbox-attachments";
+import { sendPropLaneAssistantInboxMessage } from "@/lib/assistant-inbox-reply";
+import {
+  hasInboxReplyChannelSelected,
+  resolveCommunicationPersonThreadReplyChannels,
+} from "@/lib/manager-inbox-reply-channels";
 
 function loadResidentThreadBubbles(email: string): InboxBubbleMessage[] {
   const norm = email.trim().toLowerCase();
@@ -137,6 +143,10 @@ export function ResidentDirectChatPane({
 }) {
   const { showToast } = useAppUi();
   const [draft, setDraft] = useState("");
+  const [aiDraftText, setAiDraftText] = useState("");
+  const [aiDrafting, setAiDrafting] = useState(false);
+  const [aiDraftError, setAiDraftError] = useState<string | null>(null);
+  const [approvingAiDraft, setApprovingAiDraft] = useState(false);
   const smsAttemptRef = useRef<ManualSmsAttempt | null>(null);
   const [replyAttachments, setReplyAttachments] = useState<InboxComposerAttachment[]>([]);
   const [sending, setSending] = useState(false);
@@ -174,8 +184,9 @@ export function ResidentDirectChatPane({
   const displayName = residentName?.trim() || email || "Resident";
   const smsAvailable = smsUiEnabled && Boolean(smsResident?.phone?.trim());
   const emailAvailable = Boolean(email);
-  const [replyViaEmail, setReplyViaEmail] = useState(!smsAvailable && emailAvailable);
-  const [replyViaSms, setReplyViaSms] = useState(smsAvailable);
+  const [replyViaProplane, setReplyViaProplane] = useState(true);
+  const [replyViaEmail, setReplyViaEmail] = useState(false);
+  const [replyViaSms, setReplyViaSms] = useState(false);
 
   useEffect(() => {
     const sync = () => setInboxTick((n) => n + 1);
@@ -184,9 +195,16 @@ export function ResidentDirectChatPane({
   }, []);
 
   useEffect(() => {
-    setReplyViaSms(smsAvailable);
-    setReplyViaEmail(!smsAvailable && emailAvailable);
+    const next = resolveCommunicationPersonThreadReplyChannels({
+      emailAvailable,
+      smsAvailable,
+    });
+    setReplyViaProplane(next.viaProplane);
+    setReplyViaEmail(next.viaEmail);
+    setReplyViaSms(next.viaSms);
     setDraft("");
+    setAiDraftText("");
+    setAiDraftError(null);
     setReplyAttachments((prev) => {
       prev.forEach(revokeInboxAttachmentPreview);
       return [];
@@ -354,14 +372,20 @@ export function ResidentDirectChatPane({
     });
   }, []);
 
-  const sendMessage = useCallback(async () => {
-    const text = draft.trim();
+  const sendMessage = useCallback(async (overrideText?: string) => {
+    const text = (overrideText ?? draft).trim();
     const attachmentUrls = replyAttachments
       .filter((a) => a.uploadUrl && !a.uploading && !a.error)
       .map((a) => a.uploadUrl!);
     if (!text && attachmentUrls.length === 0) return;
-    if (!replyViaEmail && !replyViaSms) {
-      showToast("Choose Email, SMS, or both.");
+    if (
+      !hasInboxReplyChannelSelected({
+        viaEmail: replyViaEmail && emailAvailable,
+        viaSms: replyViaSms && smsAvailable,
+        viaProplane: replyViaProplane,
+      })
+    ) {
+      showToast("Choose PropLane, Email, SMS, or a combination.");
       return;
     }
     if (replyAttachments.some((a) => a.uploading)) {
@@ -372,7 +396,26 @@ export function ResidentDirectChatPane({
     try {
       let smsOk = !replyViaSms;
       let emailOk = !replyViaEmail;
+      let proplaneOk = !replyViaProplane;
       let smsOutcomeUnknown = false;
+
+      if (replyViaProplane) {
+        const result = await sendPropLaneAssistantInboxMessage({
+          threadId: "",
+          subject: "Message from your property manager",
+          text: text || "(attachment)",
+          fromName: "Property manager",
+          senderPortal: "manager",
+          attachmentUrls: attachmentUrls.length ? attachmentUrls : undefined,
+          toEmails: [email],
+          toUserIds: smsResident?.residentUserId ? [smsResident.residentUserId] : undefined,
+        });
+        proplaneOk = result.ok;
+        if (!proplaneOk && !replyViaEmail && !replyViaSms) {
+          showToast(result.error ?? "Could not send in PropLane.");
+          return;
+        }
+      }
 
       if (replyViaSms) {
         const phone = smsResident?.phone?.trim();
@@ -415,7 +458,7 @@ export function ResidentDirectChatPane({
           smsOutcomeUnknown = isManualSmsOutcomeUnknown(body);
           smsOk = res.ok && !smsOutcomeUnknown;
           if (!smsOutcomeUnknown) smsAttemptRef.current = null;
-          if (!smsOk && !replyViaEmail && !smsOutcomeUnknown) {
+          if (!smsOk && !replyViaEmail && !replyViaProplane && !smsOutcomeUnknown) {
             showToast(body.error ?? "Could not send SMS.");
             return;
           }
@@ -443,7 +486,7 @@ export function ResidentDirectChatPane({
         });
         const data = (await res.json().catch(() => ({}))) as { ok?: boolean; error?: string };
         emailOk = res.ok && data.ok === true;
-        if (!emailOk && !smsOk) {
+        if (!emailOk && !smsOk && !proplaneOk) {
           showToast(data.error ?? "Could not send email.");
           return;
         }
@@ -453,19 +496,26 @@ export function ResidentDirectChatPane({
         showToast(
           replyViaEmail && emailOk
             ? `Email sent. ${MANUAL_SMS_UNKNOWN_MESSAGE}`
-            : MANUAL_SMS_UNKNOWN_MESSAGE,
+            : replyViaProplane && proplaneOk
+              ? `Sent in PropLane. ${MANUAL_SMS_UNKNOWN_MESSAGE}`
+              : MANUAL_SMS_UNKNOWN_MESSAGE,
         );
         return;
       }
 
       setDraft("");
+      setAiDraftText("");
       setReplyAttachments((prev) => {
         prev.forEach(revokeInboxAttachmentPreview);
         return [];
       });
-      if (replyViaEmail && replyViaSms) showToast("Sent via email and SMS.");
-      else if (replyViaEmail) showToast("Email sent.");
-      else showToast("SMS sent.");
+      const channels: string[] = [];
+      if (replyViaProplane && proplaneOk) channels.push("PropLane");
+      if (replyViaEmail && emailOk) channels.push("email");
+      if (replyViaSms && smsOk) channels.push("SMS");
+      if (channels.length === 1) showToast(`Sent via ${channels[0]}.`);
+      else if (channels.length > 1) showToast(`Sent via ${channels.join(" and ")}.`);
+      else showToast("Message sent.");
       onSent();
     } catch {
       showToast("Could not send.");
@@ -478,10 +528,66 @@ export function ResidentDirectChatPane({
     onSent,
     replyAttachments,
     replyViaEmail,
+    replyViaProplane,
     replyViaSms,
     showToast,
     smsResident,
   ]);
+
+  const requestAiDraft = useCallback(async () => {
+    setAiDrafting(true);
+    setAiDraftError(null);
+    try {
+      const res = await fetch("/api/portal/inbox-draft-reply", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({
+          residentEmail: email,
+          residentName: displayName,
+          force: true,
+        }),
+      });
+      const data = (await res.json().catch(() => ({}))) as {
+        ok?: boolean;
+        draft?: { text?: string };
+        error?: string;
+      };
+      if (!res.ok || !data.ok || !data.draft?.text?.trim()) {
+        throw new Error(data.error ?? "Could not draft a reply.");
+      }
+      setAiDraftText(data.draft.text.trim());
+    } catch (cause) {
+      setAiDraftError(cause instanceof Error ? cause.message : "Could not draft a reply.");
+    } finally {
+      setAiDrafting(false);
+    }
+  }, [displayName, email]);
+
+  const approveAiDraft = useCallback(async () => {
+    const text = aiDraftText.trim();
+    if (!text) return;
+    setApprovingAiDraft(true);
+    try {
+      await sendMessage(text);
+    } finally {
+      setApprovingAiDraft(false);
+    }
+  }, [aiDraftText, sendMessage]);
+
+  const replyChannelPicker = (
+    <InboxReplyChannelPicker
+      viaEmail={replyViaEmail}
+      viaSms={replyViaSms}
+      viaProplane={replyViaProplane}
+      onViaProplaneChange={setReplyViaProplane}
+      onViaEmailChange={setReplyViaEmail}
+      onViaSmsChange={setReplyViaSms}
+      emailAvailable={emailAvailable}
+      smsAvailable={smsAvailable}
+      proplaneAvailable
+    />
+  );
 
   return (
     <InboxThreadView
@@ -501,6 +607,21 @@ export function ResidentDirectChatPane({
               {scheduledCards}
             </div>
           ) : null}
+          <AiDraftReplyCard
+            drafting={aiDrafting}
+            draft={aiDraftText.trim() ? aiDraftText : undefined}
+            onDraftChange={setAiDraftText}
+            error={aiDraftError ?? undefined}
+            approving={approvingAiDraft || sending}
+            onApprove={() => void approveAiDraft()}
+            onDiscard={() => {
+              setAiDraftText("");
+              setAiDraftError(null);
+            }}
+            onGenerate={() => void requestAiDraft()}
+            generateLabel="Draft with AI"
+            channelControl={replyChannelPicker}
+          />
           <InboxThreadAssistantStrip
             contextHint={buildInboxThreadAssistantContext({
               subject: "Resident conversation",
@@ -514,20 +635,17 @@ export function ResidentDirectChatPane({
             onChange={setDraft}
             onSubmit={() => void sendMessage()}
             sending={sending}
-            disabled={!replyViaEmail && !replyViaSms}
-            placeholder="Write a reply…"
-            maxLength={replyViaSms && !replyViaEmail ? 1600 : undefined}
-            dataAttr="resident-direct-chat-compose"
-            channelControl={
-              <InboxReplyChannelPicker
-                viaEmail={replyViaEmail}
-                viaSms={replyViaSms}
-                onViaEmailChange={setReplyViaEmail}
-                onViaSmsChange={setReplyViaSms}
-                emailAvailable={emailAvailable}
-                smsAvailable={smsAvailable}
-              />
+            disabled={
+              !hasInboxReplyChannelSelected({
+                viaEmail: replyViaEmail && emailAvailable,
+                viaSms: replyViaSms && smsAvailable,
+                viaProplane: replyViaProplane,
+              })
             }
+            placeholder="Write a reply…"
+            maxLength={replyViaSms && !replyViaEmail && !replyViaProplane ? 1600 : undefined}
+            dataAttr="resident-direct-chat-compose"
+            channelControl={replyChannelPicker}
             attachments={replyAttachments}
             onAttachmentsPick={pickReplyAttachments}
             onAttachmentRemove={removeReplyAttachment}

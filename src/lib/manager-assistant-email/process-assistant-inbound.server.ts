@@ -8,13 +8,12 @@ import {
 import type { ParsedInboundEmail } from "@/lib/inbound-email/inbound-email.server";
 import { resolveInboundEmailBody } from "@/lib/inbound-email/inbound-email.server";
 import { stripEmailReplyQuote } from "@/lib/inbound-email/inbound-email-reply.server";
-import {
-  extractAssistantEmailToken,
-} from "@/lib/manager-assistant-email/assistant-email-address";
+import { isAssistantEmailAddress } from "@/lib/manager-assistant-email/assistant-email-address";
 import {
   loadManagerAssistantEmail,
-  resolveManagerIdByAssistantEmailToken,
+  resolveManagerIdByAssistantInboundAddresses,
 } from "@/lib/manager-assistant-email/manager-assistant-email.server";
+import { mirrorAssistantEmailTurnToInbox } from "@/lib/manager-assistant-email/mirror-assistant-email-to-inbox.server";
 import { resolveManagerEmailInboundIdentity } from "@/lib/manager-assistant-email/manager-email-access.server";
 import { resolveManagerSmsAgentContext } from "@/lib/tools/manager-sms-context";
 
@@ -51,10 +50,9 @@ export async function processManagerAssistantInboundEmail(
   db: SupabaseClient,
   parsed: ParsedInboundEmail,
 ): Promise<AssistantInboundEmailResult> {
-  const token = extractAssistantEmailToken(parsed.toEmails);
-  if (!token) return { handled: false };
+  if (!isAssistantEmailAddress(parsed.toEmails)) return { handled: false };
 
-  const managerUserId = await resolveManagerIdByAssistantEmailToken(db, token);
+  const managerUserId = await resolveManagerIdByAssistantInboundAddresses(db, parsed.toEmails);
   if (!managerUserId) return { handled: true, replied: false };
 
   const claim = await claimInboundEmail(db, parsed.emailId, managerUserId);
@@ -90,10 +88,23 @@ export async function processManagerAssistantInboundEmail(
   const mailbox = await loadManagerAssistantEmail(db, managerUserId);
   if (!mailbox) return { handled: true, replied: false };
 
+  const replyText = turn.reply.trim();
+  try {
+    await mirrorAssistantEmailTurnToInbox(db, {
+      managerUserId,
+      managerDisplayName: parsed.fromName?.trim() || identity.actorEmail,
+      inboundText,
+      replyText,
+      inboundEmailId: parsed.emailId,
+    });
+  } catch (cause) {
+    console.error("assistant-email inbox mirror failed", cause);
+  }
+
   const send = await deliverManagerEmailReply({
     toEmail: identity.actorEmail,
     subject: replySubject(parsed.subject),
-    text: turn.reply,
+    text: replyText,
     fromAddress: mailbox.address,
     replyTo: mailbox.address,
   });

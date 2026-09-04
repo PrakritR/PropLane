@@ -3,6 +3,7 @@ import type { ManagerMessagingEntitlement, ManagerMessagingPlanTier, ManagerMess
 export type ManagerAssistantEmailStatus = {
   provisioningAvailable: boolean;
   sendingAvailable: boolean;
+  storageReady: boolean;
   planTier: ManagerMessagingPlanTier;
   entitlement: ManagerMessagingEntitlement;
   workspaceRole: ManagerMessagingWorkspaceRole;
