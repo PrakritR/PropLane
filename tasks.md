@@ -2,6 +2,8 @@
 
 Generated September 4, 2026. There are 27 active assigned issues, all currently marked High in Linear. The priority tiers below are recommended execution order, not changes to Linear's stored priority.
 
+Progress: 2 completed locally, 25 remaining. Of the remaining issues, 24 are actionable and PRP-239 is waiting on its required captain approval.
+
 ## P0 — user harm, data integrity, and access
 
 - [x] [PRP-202 — Rental applications lack server-side validation](https://linear.app/axishousing/issue/PRP-202/rental-applications-get-no-server-side-validation-the-api-accepts)
@@ -13,8 +15,8 @@ Generated September 4, 2026. There are 27 active assigned issues, all currently 
 - [PRP-184 — Website UI audit findings](https://linear.app/axishousing/issue/PRP-184/website-ui-audit-aug-2026-11-open-findings-incl-19-colour-contrast)
   The August UI audit contains 11 unresolved findings, including 19 contrast failures, nested interactive controls, and a soft 404. Break this parent audit into executable accessibility and task-completion fixes.
 
-- [PRP-189 — Login error offers no recovery path](https://linear.app/axishousing/issue/PRP-189/andquotinvalid-login-credentialsandquot-is-the-only-feedback-when-an)
-  Nonexistent accounts receive a generic provider error with no helpful recovery path. Replace it with product-language guidance and a clear signup or recovery route.
+- [x] [PRP-189 — Login error offers no recovery path](https://linear.app/axishousing/issue/PRP-189/andquotinvalid-login-credentialsandquot-is-the-only-feedback-when-an)
+  Completed locally September 4, 2026. Credential mismatches now use privacy-preserving PropLane copy and place both password reset and account creation directly in the error state while retaining the original signup destination.
 
 ## P1 — text-first operations foundation
 
@@ -94,13 +96,21 @@ Three near-identical umbrella epics overlap: [PRP-260](https://linear.app/axisho
 
 ## Recommended immediate sequence
 
-1. PRP-239
+1. Break PRP-184 into executable accessibility fixes and land each as its own commit
 2. Consolidate the overlapping text-first epics and tickets
 3. PRP-261 / PRP-286 / PRP-297
 4. PRP-262 / PRP-279 / PRP-294
 5. Role-specific workflows and reminders
 
 ## Completed work log
+
+### September 4, 2026 — PRP-189
+
+- Replaced Supabase's raw invalid-credential string with product-language guidance that remains intentionally opaque about whether an email is registered.
+- Added password-reset and context-preserving account-creation actions inside the first credential-mismatch error.
+- Added an announced alert state and associated both credential fields with the visible error for assistive technology.
+- Added focused regression coverage for copy, privacy posture, recovery links, preserved signup destination, and network-error language.
+- Verification: all 948 unit-test files / 6,286 unique tests passed (two localhost-dependent suites were rerun outside the sandbox after its loopback restriction caused timeouts); focused ESLint passed with no errors; TypeScript passed; Next.js production build passed; browser checks passed at 375×812 and 1280×900 with no horizontal overflow.
 
 ### September 4, 2026 — PRP-202
 
