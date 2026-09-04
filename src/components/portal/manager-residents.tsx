@@ -895,12 +895,14 @@ export function ManagerResidents({
     [arLeaseTerm, arLeaseTermCustomMode, arPropertyId],
   );
   const arIsShortTermStay = arManualLeaseFields.rentalType === "short_term";
+  const arIsAirbnbStay = arManualLeaseFields.rentalType === "airbnb";
 
   const erManualLeaseFields = useMemo(
     () => residentLeaseTermToApplicationFields(erLeaseTerm, erLeaseTermCustomMode, erPropertyId),
     [erLeaseTerm, erLeaseTermCustomMode, erPropertyId],
   );
   const erIsShortTermStay = erManualLeaseFields.rentalType === "short_term";
+  const erIsAirbnbStay = erManualLeaseFields.rentalType === "airbnb";
 
   const arRentedByRoom = useMemo(
     () => Boolean(arPropertyId.trim() && isPropertyRentedByRoom(arPropertyId)),
@@ -962,7 +964,13 @@ export function ManagerResidents({
 
   useEffect(() => {
     if (arIsShortTermStay) setArUtilities("0");
-  }, [arIsShortTermStay]);
+    if (arIsAirbnbStay) {
+      setArRent("0");
+      setArUtilities("0");
+      setArMoveInFee("0");
+      setArSecurityDeposit("0");
+    }
+  }, [arIsShortTermStay, arIsAirbnbStay]);
 
   useEffect(() => {
     if (!arBundleId.trim()) return;
@@ -972,7 +980,13 @@ export function ManagerResidents({
 
   useEffect(() => {
     if (erIsShortTermStay) setErUtilities("0");
-  }, [erIsShortTermStay]);
+    if (erIsAirbnbStay) {
+      setErRent("0");
+      setErUtilities("0");
+      setErMoveInFee("0");
+      setErSecurityDeposit("0");
+    }
+  }, [erIsShortTermStay, erIsAirbnbStay]);
 
   useEffect(() => {
     if (!erBundleId.trim()) return;
@@ -1998,7 +2012,18 @@ export function ManagerResidents({
     const rent = arRent.trim() ? Number(arRent.replace(/[^\d.]/g, "")) : null;
     const arAppLeaseFields = residentLeaseTermToApplicationFields(arLeaseTerm, arLeaseTermCustomMode, arPropertyId);
     const arSavingShortTerm = arAppLeaseFields.rentalType === "short_term";
-    const utilities = arSavingShortTerm
+    const arSavingAirbnb = arAppLeaseFields.rentalType === "airbnb";
+    if (arSavingAirbnb) {
+      if (!arMoveInDate.trim() || !arMoveOutDate.trim()) {
+        showToast("Airbnb stays require move-in and move-out dates.");
+        return null;
+      }
+      if (arMoveOutDate <= arMoveInDate) {
+        showToast("Move-out must be after move-in.");
+        return null;
+      }
+    }
+    const utilities = arSavingShortTerm || arSavingAirbnb
       ? null
       : arUtilities.trim()
         ? Number(arUtilities.replace(/[^\d.]/g, ""))
@@ -2250,7 +2275,18 @@ export function ManagerResidents({
     const rent = erRent.trim() ? Number(erRent.replace(/[^\d.]/g, "")) : null;
     const appLeaseFields = residentLeaseTermToApplicationFields(erLeaseTerm, erLeaseTermCustomMode, erPropertyId);
     const erSavingShortTerm = appLeaseFields.rentalType === "short_term";
-    const utilities = erSavingShortTerm
+    const erSavingAirbnb = appLeaseFields.rentalType === "airbnb";
+    if (erSavingAirbnb) {
+      if (!erMoveInDate.trim() || !erMoveOutDate.trim()) {
+        showToast("Airbnb stays require move-in and move-out dates.");
+        return;
+      }
+      if (erMoveOutDate <= erMoveInDate) {
+        showToast("Move-out must be after move-in.");
+        return;
+      }
+    }
+    const utilities = erSavingShortTerm || erSavingAirbnb
       ? null
       : erUtilities.trim()
         ? Number(erUtilities.replace(/[^\d.]/g, ""))
@@ -3540,6 +3576,7 @@ export function ManagerResidents({
           </p>
           <p className="text-xs text-muted">
             Onboard an existing tenant: creates an active resident record, sets up payments, and can email portal instructions (no application or screening).
+            {arIsAirbnbStay ? " Airbnb stays are calendar-only — PropLane does not bill rent or fees." : null}
           </p>
           <div className={PORTAL_MODAL_FORM_GRID_CLASS}>
             <label className={PORTAL_MODAL_FORM_FIELD_CLASS}>
@@ -3668,6 +3705,7 @@ export function ManagerResidents({
                 </p>
               </div>
             ) : null}
+            {!arIsAirbnbStay ? (
             <label className={PORTAL_MODAL_FORM_FIELD_CLASS}>
               <span className="font-medium text-muted">{arIsShortTermStay ? "Rent / night ($)" : "Monthly rent ($)"}</span>
               <Input
@@ -3680,22 +3718,27 @@ export function ManagerResidents({
               />
               {arStayPreview ? <span className="text-xs text-muted">{arStayPreview}</span> : null}
             </label>
-            {!arIsShortTermStay ? (
+            ) : null}
+            {!arIsShortTermStay && !arIsAirbnbStay ? (
               <label className={PORTAL_MODAL_FORM_FIELD_CLASS}>
                 <span className="font-medium text-muted">Monthly utilities ($)</span>
                 <Input type="number" min={0} step={0.01} value={arUtilities} onChange={(e) => setArUtilities(e.target.value)} placeholder="175.00" />
               </label>
             ) : null}
+            {!arIsAirbnbStay ? (
             <label className={PORTAL_MODAL_FORM_FIELD_CLASS}>
               <span className="font-medium text-muted">Move-in fee ($)</span>
               <Input type="number" min={0} step={0.01} value={arMoveInFee} onChange={(e) => setArMoveInFee(e.target.value)} placeholder="200.00" />
             </label>
+            ) : null}
+            {!arIsAirbnbStay ? (
             <label className={PORTAL_MODAL_FORM_FIELD_CLASS}>
               <span className="font-medium text-muted">{arIsShortTermStay ? "Deposit ($)" : "Security deposit ($)"}</span>
               <Input type="number" min={0} step={0.01} value={arSecurityDeposit} onChange={(e) => setArSecurityDeposit(e.target.value)} placeholder="875.00" />
             </label>
+            ) : null}
             <label className={PORTAL_MODAL_FORM_FIELD_CLASS}>
-              <span className="font-medium text-muted">Move-in date</span>
+              <span className="font-medium text-muted">Move-in date{arIsAirbnbStay ? " *" : ""}</span>
               <Input
                 type="date"
                 className="portal-modal-date-input"
@@ -3703,9 +3746,9 @@ export function ManagerResidents({
                 onChange={(e) => setArMoveInDate(e.target.value)}
               />
             </label>
-            {!isMonthToMonthLease ? (
+            {!isMonthToMonthLease || arIsAirbnbStay ? (
               <label className={PORTAL_MODAL_FORM_FIELD_CLASS}>
-                <span className="font-medium text-muted">Move-out date</span>
+                <span className="font-medium text-muted">Move-out date{arIsAirbnbStay ? " *" : ""}</span>
                 <Input
                   type="date"
                   className="portal-modal-date-input"
@@ -3914,6 +3957,7 @@ export function ManagerResidents({
                 </p>
               </div>
             ) : null}
+            {!erIsAirbnbStay ? (
             <label className={PORTAL_MODAL_FORM_FIELD_CLASS}>
               <span className="font-medium text-muted">{erIsShortTermStay ? "Rent / night ($)" : "Monthly rent ($)"}</span>
               <Input
@@ -3926,16 +3970,20 @@ export function ManagerResidents({
               />
               {erStayPreview ? <span className="text-xs text-muted">{erStayPreview}</span> : null}
             </label>
-            {!erIsShortTermStay ? (
+            ) : null}
+            {!erIsShortTermStay && !erIsAirbnbStay ? (
               <label className={PORTAL_MODAL_FORM_FIELD_CLASS}>
                 <span className="font-medium text-muted">Monthly utilities ($)</span>
                 <Input type="number" min={0} step={0.01} value={erUtilities} onChange={(e) => setErUtilities(e.target.value)} placeholder="175.00" />
               </label>
             ) : null}
+            {!erIsAirbnbStay ? (
             <label className={PORTAL_MODAL_FORM_FIELD_CLASS}>
               <span className="font-medium text-muted">Move-in fee ($)</span>
               <Input type="number" min={0} step={0.01} value={erMoveInFee} onChange={(e) => setErMoveInFee(e.target.value)} placeholder="200.00" />
             </label>
+            ) : null}
+            {!erIsAirbnbStay ? (
             <label className={PORTAL_MODAL_FORM_FIELD_CLASS}>
               <span className="font-medium text-muted">{erIsShortTermStay ? "Deposit ($)" : "Security deposit ($)"}</span>
               <Input
@@ -3947,8 +3995,9 @@ export function ManagerResidents({
                 placeholder="875.00"
               />
             </label>
+            ) : null}
             <label className={PORTAL_MODAL_FORM_FIELD_CLASS}>
-              <span className="font-medium text-muted">Move-in date</span>
+              <span className="font-medium text-muted">Move-in date{erIsAirbnbStay ? " *" : ""}</span>
               <Input
                 type="date"
                 className="portal-modal-date-input"
@@ -3956,9 +4005,9 @@ export function ManagerResidents({
                 onChange={(e) => setErMoveInDate(e.target.value)}
               />
             </label>
-            {!isEditMonthToMonthLease ? (
+            {!isEditMonthToMonthLease || erIsAirbnbStay ? (
               <label className={PORTAL_MODAL_FORM_FIELD_CLASS}>
-                <span className="font-medium text-muted">Move-out date</span>
+                <span className="font-medium text-muted">Move-out date{erIsAirbnbStay ? " *" : ""}</span>
                 <Input
                   type="date"
                   className="portal-modal-date-input"

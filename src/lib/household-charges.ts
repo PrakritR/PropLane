@@ -3234,6 +3234,7 @@ export function recordApprovedApplicationCharges(row: DemoApplicantRow, managerU
   if (!applicationId) return false;
   const propertyId = row.assignedPropertyId?.trim() || row.propertyId?.trim() || row.application?.propertyId?.trim() || "";
   if (!propertyId) return false;
+  if (row.application?.rentalType === "airbnb") return false;
 
   const prop = getPropertyById(propertyId);
   const sub =
@@ -3292,7 +3293,7 @@ export function recordApprovedApplicationCharges(row: DemoApplicantRow, managerU
     );
     if (hasExisting) {
       if (!sub) return synced;
-      if (row.application?.rentalType === "short_term") return synced;
+      if (row.application?.rentalType === "short_term" || row.application?.rentalType === "airbnb") return synced;
       const drafts = buildApprovedStandardChargeDrafts(row, sub, {
         allowListingDefaults,
         applicationId,

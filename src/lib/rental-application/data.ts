@@ -369,6 +369,11 @@ export function propertyAllowsShortTermRental(propertyId: string): boolean {
   return Boolean(property?.listingSubmission?.shortTermRentalsAllowed);
 }
 
+export function propertyAllowsAirbnbRental(propertyId: string): boolean {
+  const property = getPropertyById(propertyId);
+  return Boolean(property?.listingSubmission?.airbnbRentalsAllowed);
+}
+
 /** Rooms for the selected listing: manager submission rooms, else legacy one-row-per-unit in the same building. */
 export function getRoomOptionsForProperty(propertyId: string, options: RoomAvailabilityOptions = {}): { value: string; label: string }[] {
   const selected = getPropertyById(propertyId);

@@ -104,7 +104,7 @@ export function validateListingWizardStep(
     const hasLongTerm = longTermTerms.length > 0;
     const hasShortTerm = Boolean(sub.shortTermRentalsAllowed);
 
-    if (allowedTerms.length === 0) errs.allowedLeaseTerms = "Select at least one lease term or enable short-term stays.";
+    if (allowedTerms.length === 0) errs.allowedLeaseTerms = "Select at least one lease term, short-term stays, or Airbnb.";
 
     const ltToggles = opts.ltFeeToggles ?? deriveListingLtFeeToggles(sub);
 
