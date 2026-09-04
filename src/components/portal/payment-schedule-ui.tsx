@@ -1162,6 +1162,10 @@ function PaymentAutomationSettingsForm({
         onClose={() => setMessageModalOpen(false)}
         subject={draft.templates.preDue.subject}
         body={draft.templates.preDue.body}
+        recipient={REMINDER_TEMPLATE_PREVIEW_PARAMS.residentName}
+        viaInbox={draft.paymentReminderDeliverViaInbox !== false}
+        viaEmail={draft.paymentReminderDeliverViaEmail !== false}
+        viaSms={draft.paymentReminderDeliverViaSms === true}
         placeholders='Placeholders: {residentName}, {chargeTitle}, {balanceDue}, {dueDate}, {daysUntilDue}, {daysUntilDuePhrase}, {propertyLine}, {managerName}, {residentPortalLogin}'
         onSave={(next) => {
           setDraft({

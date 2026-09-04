@@ -10,8 +10,8 @@ import {
   PORTAL_MESSAGE_COMPOSE_TWO_COL_CLASS,
   PortalMessageBodyField,
   PortalMessageComposeModalBody,
+  PortalMessageRecipientLockedField,
   PortalMessageSubjectField,
-  portalMessageFieldLabel,
 } from "@/components/portal/portal-message-compose-fields";
 import { normalizeTourReminderMinutesBeforeList } from "@/lib/payment-automation-settings";
 
@@ -27,6 +27,7 @@ export function ReminderSendViaField({
   smsLabel,
   footerNote,
   dataAttr = "reminder-send-via",
+  disabled = false,
 }: {
   viaEmail: boolean;
   viaSms: boolean;
@@ -37,6 +38,7 @@ export function ReminderSendViaField({
   smsLabel?: string;
   footerNote?: string;
   dataAttr?: string;
+  disabled?: boolean;
 }) {
   const options = [
     ...(showProplaneChannel ? [{ value: "proplane", label: "PropLane" }] : []),
@@ -75,6 +77,7 @@ export function ReminderSendViaField({
         selected={effectiveSelected}
         selectionTriggerLabel={selectionTriggerLabel}
         onChange={(next) => {
+          if (disabled) return;
           const enabled = next.filter((value) => value !== "sms" || smsAvailable);
           if (enabled.length === 0) return;
           onChange({
@@ -83,6 +86,7 @@ export function ReminderSendViaField({
             viaSms: enabled.includes("sms"),
           });
         }}
+        disabled={disabled}
         emptyLabel="Choose channels…"
         dataAttr={dataAttr}
       />
@@ -125,6 +129,13 @@ export function ReminderMessageUpdateModal({
   subject,
   body,
   placeholders,
+  recipient,
+  viaInbox = true,
+  viaEmail = true,
+  viaSms = false,
+  showProplaneChannel = true,
+  smsAvailable = true,
+  smsLabel,
   onSave,
 }: {
   open: boolean;
@@ -132,6 +143,14 @@ export function ReminderMessageUpdateModal({
   subject: string;
   body: string;
   placeholders: string;
+  /** Sample recipient shown in the locked To field — matches New message compose. */
+  recipient: string;
+  viaInbox?: boolean;
+  viaEmail?: boolean;
+  viaSms?: boolean;
+  showProplaneChannel?: boolean;
+  smsAvailable?: boolean;
+  smsLabel?: string;
   onSave: (next: { subject: string; body: string }) => void;
 }) {
   const [draftSubject, setDraftSubject] = useState(subject);
@@ -174,26 +193,39 @@ export function ReminderMessageUpdateModal({
       }
     >
       <PortalMessageComposeModalBody>
+        <PortalMessageRecipientLockedField
+          recipient={recipient}
+          dataAttr="reminder-update-message-recipient"
+        />
+
         <div className={PORTAL_MESSAGE_COMPOSE_TWO_COL_CLASS}>
           <PortalMessageSubjectField
             value={draftSubject}
             onChange={setDraftSubject}
             dataAttr="reminder-update-message-subject"
           />
-          <div>
-            <p className={portalMessageFieldLabel()}>Template</p>
-            <p className="mt-1 rounded-xl border border-border bg-accent/20 px-3 py-2 text-xs text-muted">
-              Automated reminder
-            </p>
-          </div>
+          <ReminderSendViaField
+            showProplaneChannel={showProplaneChannel}
+            viaInbox={viaInbox !== false}
+            viaEmail={viaEmail !== false}
+            viaSms={viaSms === true}
+            smsAvailable={smsAvailable}
+            smsLabel={smsLabel}
+            disabled
+            footerNote="Change delivery channels in the settings above."
+            onChange={() => {}}
+            dataAttr="reminder-update-message-send-via"
+          />
         </div>
+
         <PortalMessageBodyField
           value={draftBody}
           onChange={setDraftBody}
           placeholder="Write your message…"
-          minHeightClass="min-h-[9rem]"
+          minHeightClass="min-h-[7rem]"
           dataAttr="reminder-update-message-body"
         />
+
         <p className="text-[11px] text-muted">{placeholders}</p>
       </PortalMessageComposeModalBody>
     </Modal>

@@ -646,6 +646,11 @@ export function TourSettingsPanel({
         onClose={() => setMessageModalOpen(false)}
         subject={automation.templates.tourReminder.subject}
         body={automation.templates.tourReminder.body}
+        recipient={TOUR_PREVIEW_CONTEXT.guestName}
+        viaInbox={automation.tourReminderDeliverViaInbox !== false}
+        viaEmail={automation.tourReminderDeliverViaEmail !== false}
+        viaSms={automation.tourReminderDeliverViaSms === true}
+        smsLabel="SMS (when guest opted in)"
         placeholders={TOUR_PLACEHOLDERS}
         onSave={(next) => {
           setAutomation((prev) => ({
