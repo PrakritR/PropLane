@@ -18,6 +18,24 @@ once the workspace has room.
 
 ## Open
 
+### Property-first settings & edit (Lavish plan open for review)
+
+Leases and Applications both get an **Edit** button beside **Settings**, and all
+four entry points ask which property first — single select, Continue — before
+opening anything. One shared picker step, not four. Skipped when the manager has
+one property, and when the property is already known from context.
+
+Also: an **Application settings** entry at the bottom of the property Application
+tab carrying Auto-approve applications, scoped to that house.
+
+Three questions in the plan need the captain's answer before it moves: whether
+Edit lease opens the house's lease TEMPLATES or a tenant's actual lease; whether
+auto-approve living in two places reads and writes one per-property value; and
+whether these buttons belong in the toolbar (as screenshotted) or the footer dock
+(as every other property detail tab does it).
+
+Plan: `scratchpad/property-first-settings-plan.html` (Lavish).
+
 * **View application** — a click-through preview of exactly what a resident
   sees, navigable end to end without filling anything in. Lives in the Edit
   application popup (alongside Edit and Delete), and on the Application tab.
