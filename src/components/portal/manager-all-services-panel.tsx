@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import { usePortalNavigate } from "@/lib/portal-nav-client";
 import { PortalServiceRecordRow } from "@/components/portal/portal-record-row";
@@ -60,13 +60,11 @@ import {
   readManagerWorkOrderRows,
   syncManagerWorkOrdersFromServer,
   MANAGER_WORK_ORDERS_EVENT,
-  deleteManagerWorkOrderRow,
 } from "@/lib/manager-work-orders-storage";
 import {
   readAllServiceRequests,
   syncServiceRequestsFromServer,
   SERVICE_REQUESTS_EVENT,
-  deleteServiceRequest,
   type ServiceRequest,
 } from "@/lib/service-requests-storage";
 import type { DemoManagerWorkOrderRow, ManagerWorkOrderBucket } from "@/data/demo-portal";
@@ -95,12 +93,6 @@ function unifiedServiceRowKey(row: { kind: string; id: string }): string {
   return `${row.kind}::${row.id}`;
 }
 
-function parseUnifiedServiceRowKey(key: string): { kind: string; id: string } | null {
-  const splitAt = key.indexOf("::");
-  if (splitAt <= 0) return null;
-  return { kind: key.slice(0, splitAt), id: key.slice(splitAt + 2) };
-}
-
 export function ManagerAllServicesPanel({
   tabId: serverTabId,
   basePath,
@@ -123,6 +115,8 @@ export function ManagerAllServicesPanel({
   const { userId, ready: authReady } = useManagerUserId();
   const [propertyTick, setPropertyTick] = useState(0);
   const [dataTick, setDataTick] = useState(0);
+  /** Approve / Deny / Edit / Delete, published by the detail and docked below it. */
+  const [detailFooterActions, setDetailFooterActions] = useState<ReactNode | null>(null);
   const [propertyFilters, setPropertyFilters] = useState<string[]>([]);
   const [groupMode, setGroupMode] = useState<PortalListGroupMode>(DEFAULT_PORTAL_LIST_GROUP_MODE);
   const [woBucket, setWoBucket] = useState<ManagerWorkOrderBucket>(workOrderBucketProp);
@@ -296,6 +290,7 @@ export function ManagerAllServicesPanel({
     return (
       <ManagerServiceRequestDetail
         req={req}
+        onFooterActionsChange={setDetailFooterActions}
         propertyLabel={resolveRequestPropertyLabel(req)}
         onUpdated={() => setDataTick((t) => t + 1)}
         onApproved={() => router.push(`${basePath}/services/requests/approved`)}
@@ -336,47 +331,53 @@ export function ManagerAllServicesPanel({
     [visibleUnifiedRows, groupMode],
   );
 
-  const bulkDeleteSelected = () => {
-    let deleted = 0;
-    for (const key of selectedIds) {
-      const parsed = parseUnifiedServiceRowKey(key);
-      if (!parsed) continue;
-      if (parsed.kind === "add-on") {
-        deleteServiceRequest(parsed.id);
-        deleted += 1;
-      } else if (parsed.kind === "maintenance") {
-        if (deleteManagerWorkOrderRow(parsed.id)) deleted += 1;
-      }
-    }
-    clearSelection();
-    setDataTick((t) => t + 1);
-    showToast(deleted === 1 ? "Service deleted." : `${deleted} services deleted.`);
-  };
-
   // PortalAdaptiveAction carries the rendered nodes, not a label/onClick pair:
   // the row needs both an inline control and a menu item so it can tuck the
   // action into the … menu when horizontal space runs out.
-  const bulkSelectionActions: PortalAdaptiveAction[] = [
-    {
-      id: "delete",
-      node: (
-        <Button
-          type="button"
-          variant="outline"
-          className={`${PORTAL_BULK_BAR_BTN} text-rose-800`}
-          data-attr="services-bulk-delete"
-          onClick={bulkDeleteSelected}
-        >
-          Delete
-        </Button>
-      ),
-      menuItem: (
-        <DropdownMenuItem data-attr="services-bulk-delete" onSelect={bulkDeleteSelected}>
-          Delete
-        </DropdownMenuItem>
-      ),
-    },
-  ];
+  /**
+   * Open the selected service, rather than delete it from here.
+   *
+   * The detail page already carries Approve / Deny / Edit / Delete beside the
+   * service they act on; a Delete in the floating bar was the destructive one
+   * of those four, reachable from a row ticked by accident, on a bar showing
+   * nothing about what is going.
+   */
+  const openSelectedService = () => {
+    const rowKey = [...selectedIds][0];
+    const row = rowKey ? visibleUnifiedRows.find((candidate) => unifiedServiceRowKey(candidate) === rowKey) : null;
+    if (!row) return;
+    clearSelection();
+    navigate(
+      row.kind === "add-on"
+        ? serviceRequestDetailHref(basePath, reqBucket, row.id)
+        : `${basePath}/services/work-orders/${woBucket}/${encodeURIComponent(row.id)}`,
+    );
+  };
+
+  const bulkSelectionActions: PortalAdaptiveAction[] =
+    selectedIds.size === 1
+      ? [
+          {
+            id: "edit",
+            node: (
+              <Button
+                type="button"
+                variant="outline"
+                className={PORTAL_BULK_BAR_BTN}
+                data-attr="services-bulk-edit"
+                onClick={openSelectedService}
+              >
+                Edit
+              </Button>
+            ),
+            menuItem: (
+              <DropdownMenuItem data-attr="services-bulk-edit" onSelect={openSelectedService}>
+                Edit
+              </DropdownMenuItem>
+            ),
+          },
+        ]
+      : [];
 
   const renderServiceRow = (row: (typeof visibleUnifiedRows)[number], omitPropertyInSubtitle: boolean) => {
     const rowKey = unifiedServiceRowKey(row);
@@ -416,8 +417,9 @@ export function ManagerAllServicesPanel({
           subtitle={detailRequest.residentName}
           avatarName={detailRequest.residentName}
           backHref={serviceRequestListHref(basePath, reqBucket)}
-          backLabel="Back to services"
+          hideBackText
           dataAttrBack="service-request-detail-back"
+          footer={detailFooterActions ?? undefined}
         >
           {renderRequestDetail(detailRequest)}
         </PortalRecordDetailPage>
