@@ -717,6 +717,23 @@ export type LeasePipelineRow = {
   /** Off-platform lease — both parties treated as signed; no e-sign workflow. */
   externallySignedLease?: boolean;
   /**
+   * When a manager onboarded this person as an EXISTING tenant.
+   *
+   * Deliberately NOT a signature and NOT `externallySignedLease`. The manager is
+   * attesting a tenancy, not producing a signed document — "Onboard an existing
+   * resident" is precisely the flow for someone who signed on paper before
+   * PropLane, so having no PDF is the normal case there, not an edge one.
+   *
+   * Writing signatures instead would fabricate execution evidence for a
+   * document nobody has, which the evidence rules forbid: a signature records
+   * the SHA-256 of what that party was shown, and there is nothing to hash.
+   *
+   * It exists because the portal gate keyed on a signed document, so a real
+   * rent-paying tenant landed on `pre_approval` — shown Tour and Application
+   * tabs, unable to reach Payments at all (PRP-239).
+   */
+  managerAttestedTenancyAt?: string | null;
+  /**
    * Execution provenance. All three are optional and absent on every row signed
    * before they existed. Absent means unknown, and unknown is honest. Never
    * backfill a guessed value.
