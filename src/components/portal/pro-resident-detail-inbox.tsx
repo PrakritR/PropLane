@@ -30,6 +30,7 @@ import {
   PORTAL_INBOX_CHANGED_EVENT,
   formatInboxStamp,
   inboxThreadMessages,
+  inboxMessageOutbound,
   loadPersistedInbox,
   parseInboxStampMs,
   type PersistedInboxThread,
@@ -62,7 +63,7 @@ function loadResidentThreadBubbles(email: string): InboxBubbleMessage[] {
     if (thread.email.trim().toLowerCase() !== norm || thread.folder === "trash") continue;
     const folder = thread.folder === "sent" ? "sent" : "inbox";
     for (const [i, m] of inboxThreadMessages(thread).entries()) {
-      const outbound = m.outbound ?? (i === 0 ? folder === "sent" : true);
+      const outbound = inboxMessageOutbound(m, i, folder, thread);
       bubbles.push({
         id: m.id,
         author: m.from,

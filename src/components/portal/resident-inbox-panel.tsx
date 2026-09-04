@@ -27,6 +27,7 @@ import { filterEmailInboxThreads } from "@/lib/communication-inbox-filters";
 import { demoResidentInboxThreads } from "@/data/demo-portal";
 import { usePortalSession } from "@/hooks/use-portal-session";
 import { isUpcomingScheduledInboxMessage, type ScheduledInboxMessageRecord } from "@/lib/scheduled-inbox-messages";
+import { resolvePropLaneUnifiedReplyChannels } from "@/lib/manager-inbox-reply-channels";
 
 function resolveResidentReplyRecipientEmail(threadEmail: string, contacts: InboxScopedContact[]): string {
   const normalized = threadEmail.trim().toLowerCase();
@@ -53,6 +54,7 @@ import {
   syncPersistedInboxFromServer,
   upsertPersistedInboxRows,
   inboxThreadMessages,
+  inboxMessageOutbound,
   appendReplyToInboxThread,
   formatInboxStamp,
   collapsePersonInboxThreads,
@@ -247,13 +249,15 @@ export const ResidentInboxPanel = forwardRef<
 
   useEffect(() => {
     setReplyDraft("");
-    setReplyViaEmail(true);
-    setReplyViaSms(false);
+    if (!embeddedInCommunication) {
+      setReplyViaEmail(true);
+      setReplyViaSms(false);
+    }
     setReplyAttachments((prev) => {
       prev.forEach(revokeInboxAttachmentPreview);
       return [];
     });
-  }, [expandedId]);
+  }, [embeddedInCommunication, expandedId]);
 
   useEffect(() => {
     if (!smsUiEnabled || isDemoModeActive()) return;
@@ -850,6 +854,16 @@ export const ResidentInboxPanel = forwardRef<
 
   const activeSmsAvailable = smsUiEnabled && smsConfigured;
 
+  useEffect(() => {
+    if (!embeddedInCommunication) return;
+    const unified = resolvePropLaneUnifiedReplyChannels({
+      emailAvailable: true,
+      smsAvailable: activeSmsAvailable,
+    });
+    setReplyViaEmail(unified.viaEmail);
+    setReplyViaSms(unified.viaSms);
+  }, [activeSmsAvailable, embeddedInCommunication, expandedId]);
+
   const handleReply = useCallback(
     async (
       row: PortalInboxTableRow,
@@ -1013,6 +1027,7 @@ export const ResidentInboxPanel = forwardRef<
 
   const renderExtraActions = useCallback(
     (row: PortalInboxTableRow) => {
+      if (embeddedInCommunication) return null;
       if (tabId === "schedule") {
         const message = scheduledRows.find((item) => item.id === row.id);
         const cancelled = message?.status === "cancelled";
@@ -1194,7 +1209,7 @@ export const ResidentInboxPanel = forwardRef<
     if (!activeThread) return [];
     const pendingRoot = pendingSendingThreadIds.has(activeThread.id);
     return inboxThreadMessages(activeThread).map((m, i) => {
-      const outbound = m.outbound ?? (i === 0 ? activeFolder === "sent" : true);
+      const outbound = inboxMessageOutbound(m, i, activeFolder, activeThread);
       const delivery =
         m.delivery ?? (pendingRoot && i === 0 && outbound ? ("sending" as const) : undefined);
       return {
@@ -1249,7 +1264,7 @@ export const ResidentInboxPanel = forwardRef<
   );
 
   const residentScheduledCards =
-    activeThread && activeThread.folder !== "trash" ? (
+    activeThread && activeThread.folder !== "trash" && !embeddedInCommunication ? (
       <div className="space-y-2 pt-1">
         {threadScheduledItems.length > 0 ? (
           <InboxScheduledThreadList
@@ -1275,7 +1290,7 @@ export const ResidentInboxPanel = forwardRef<
             ))}
           </InboxScheduledThreadList>
         ) : null}
-        {embeddedInCommunication && tabId !== "trash" ? (
+        {tabId !== "trash" ? (
           <Button
             type="button"
             variant="outline"
@@ -1510,27 +1525,16 @@ export const ResidentInboxPanel = forwardRef<
               threadKey={activeThread.id}
               onBack={() => setExpandedId(null)}
               headerActions={
-                <>
-                  {embeddedInCommunication && activeThread.folder !== "trash" && tabId !== "trash" ? (
-                    <Button
-                      type="button"
-                      variant="outline"
-                      className={threadActionBtn}
-                      data-attr="resident-inbox-schedule-message"
-                      onClick={() => openScheduleForThread(activeThread)}
-                    >
-                      Schedule
-                    </Button>
-                  ) : null}
-                  {renderExtraActions({
-                    id: activeThread.id,
-                    name: activeThread.from,
-                    email: activeThread.email,
-                    subject: activeThread.subject,
-                    whenLabel: activeThread.time,
-                    read: !activeThread.unread,
-                  })}
-                </>
+                embeddedInCommunication
+                  ? undefined
+                  : renderExtraActions({
+                      id: activeThread.id,
+                      name: activeThread.from,
+                      email: activeThread.email,
+                      subject: activeThread.subject,
+                      whenLabel: activeThread.time,
+                      read: !activeThread.unread,
+                    })
               }
               emptyLabel="No messages in this conversation."
               composer={
@@ -1550,10 +1554,16 @@ export const ResidentInboxPanel = forwardRef<
                       onSubmit={() => void sendActiveReply()}
                       sending={replySending}
                       disabled={!replyViaEmail && !replyViaSms}
-                      placeholder={replyViaSms && !replyViaEmail ? "Text message" : "Write a reply…"}
-                      maxLength={replyViaSms && !replyViaEmail ? 1600 : undefined}
+                      placeholder={
+                        !embeddedInCommunication && replyViaSms && !replyViaEmail
+                          ? "Text message"
+                          : "Write a reply…"
+                      }
+                      maxLength={
+                        !embeddedInCommunication && replyViaSms && !replyViaEmail ? 1600 : undefined
+                      }
                       dataAttr="resident-inbox-reply"
-                      channelControl={replyChannelPicker}
+                      channelControl={embeddedInCommunication ? undefined : replyChannelPicker}
                       attachments={replyAttachments}
                       onAttachmentsPick={pickReplyAttachments}
                       onAttachmentRemove={(id) => {
@@ -1672,14 +1682,16 @@ export const ResidentInboxPanel = forwardRef<
                 threadKey={activeThread.id}
                 onBack={() => setExpandedId(null)}
                 headerActions={
-                  renderExtraActions({
-                    id: activeThread.id,
-                    name: activeThread.from,
-                    email: activeThread.email,
-                    subject: activeThread.subject,
-                    whenLabel: activeThread.time,
-                    read: !activeThread.unread,
-                  })
+                  embeddedInCommunication
+                    ? undefined
+                    : renderExtraActions({
+                        id: activeThread.id,
+                        name: activeThread.from,
+                        email: activeThread.email,
+                        subject: activeThread.subject,
+                        whenLabel: activeThread.time,
+                        read: !activeThread.unread,
+                      })
                 }
                 emptyLabel="No messages in this conversation."
                 composer={
@@ -1699,10 +1711,16 @@ export const ResidentInboxPanel = forwardRef<
                         onSubmit={() => void sendActiveReply()}
                         sending={replySending}
                         disabled={!replyViaEmail && !replyViaSms}
-                        placeholder={replyViaSms && !replyViaEmail ? "Text message" : "Write a reply…"}
-                        maxLength={replyViaSms && !replyViaEmail ? 1600 : undefined}
+                        placeholder={
+                          !embeddedInCommunication && replyViaSms && !replyViaEmail
+                            ? "Text message"
+                            : "Write a reply…"
+                        }
+                        maxLength={
+                          !embeddedInCommunication && replyViaSms && !replyViaEmail ? 1600 : undefined
+                        }
                         dataAttr="resident-inbox-reply"
-                        channelControl={replyChannelPicker}
+                        channelControl={embeddedInCommunication ? undefined : replyChannelPicker}
                         attachments={replyAttachments}
                         onAttachmentsPick={pickReplyAttachments}
                         onAttachmentRemove={(id) => {

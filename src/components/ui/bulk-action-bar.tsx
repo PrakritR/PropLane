@@ -14,6 +14,11 @@ export function BulkActionBar({
   hideCount = false,
   /** Override the default "{count} selected" label. */
   countLabel,
+  /**
+   * `viewport` — fixed to the portal bottom (default).
+   * `list-pane` — in-flow footer inside Communication's left list column only.
+   */
+  placement = "viewport",
 }: {
   count: number;
   children: ReactNode;
@@ -21,9 +26,12 @@ export function BulkActionBar({
   variant?: "default" | "payments";
   hideCount?: boolean;
   countLabel?: (count: number) => string;
+  placement?: "viewport" | "list-pane";
 }) {
+  const listPane = placement === "list-pane";
+
   useEffect(() => {
-    if (count <= 0) return;
+    if (listPane || count <= 0) return;
     document.documentElement.setAttribute("data-bulk-action-bar", "");
     if (variant !== "default") {
       document.documentElement.setAttribute("data-bulk-action-variant", variant);
@@ -32,17 +40,19 @@ export function BulkActionBar({
       document.documentElement.removeAttribute("data-bulk-action-bar");
       document.documentElement.removeAttribute("data-bulk-action-variant");
     };
-  }, [count, variant]);
+  }, [count, listPane, variant]);
 
   if (count <= 0) return null;
 
   return (
     <div
       className={cn(
-        "fixed inset-x-0 bottom-0 z-[51] border-t border-border bg-card/95 px-3 py-2.5 shadow-[var(--shadow-lg)] backdrop-blur-md sm:px-4 sm:py-3",
-        "pb-[max(0.75rem,var(--native-safe-bottom))]",
-        "max-lg:left-[max(0.625rem,env(safe-area-inset-left,0px))] max-lg:right-[max(0.625rem,env(safe-area-inset-right,0px))] max-lg:w-auto max-lg:overflow-hidden max-lg:bottom-[calc(var(--portal-native-bottom-nav-inset,0px)+var(--portal-floating-bottom-gap,1.25rem))] max-lg:rounded-2xl max-lg:border max-lg:py-3 max-lg:pb-3 max-lg:shadow-md",
-        variant === "payments" && "lg:left-[224px] lg:right-0",
+        listPane
+          ? "relative shrink-0 border-t border-border bg-card/95 px-3 py-2.5 shadow-[var(--shadow-sm)] backdrop-blur-md sm:px-4"
+          : "fixed inset-x-0 bottom-0 z-[51] border-t border-border bg-card/95 px-3 py-2.5 shadow-[var(--shadow-lg)] backdrop-blur-md sm:px-4 sm:py-3",
+        !listPane &&
+          "pb-[max(0.75rem,var(--native-safe-bottom))] max-lg:left-[max(0.625rem,env(safe-area-inset-left,0px))] max-lg:right-[max(0.625rem,env(safe-area-inset-right,0px))] max-lg:w-auto max-lg:overflow-hidden max-lg:bottom-[calc(var(--portal-native-bottom-nav-inset,0px)+var(--portal-floating-bottom-gap,1.25rem))] max-lg:rounded-2xl max-lg:border max-lg:py-3 max-lg:pb-3 max-lg:shadow-md",
+        !listPane && variant === "payments" && "lg:left-[224px] lg:right-0",
         className,
       )}
       data-slot="bulk-action-bar"

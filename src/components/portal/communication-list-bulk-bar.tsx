@@ -35,7 +35,6 @@ export function CommunicationListBulkBar({
   onDelete,
   onEdit,
   showEdit = false,
-  onClear,
   extraActions,
 }: {
   count: number;
@@ -45,13 +44,12 @@ export function CommunicationListBulkBar({
   onDelete?: () => void;
   onEdit?: () => void;
   showEdit?: boolean;
-  onClear: () => void;
   extraActions?: ReactNode;
 }) {
   const archived = listSegment === "archived";
 
   return (
-    <BulkActionBar count={count} hideCount variant="payments">
+    <BulkActionBar count={count} hideCount variant="payments" placement="list-pane">
       <div className="flex w-full min-w-0 flex-nowrap items-center gap-2 overflow-x-auto">
         {!archived && onArchive ? (
           <Button
@@ -98,15 +96,6 @@ export function CommunicationListBulkBar({
           </Button>
         ) : null}
         {extraActions}
-        <Button
-          type="button"
-          variant="outline"
-          className={`shrink-0 ${PORTAL_HEADER_ACTION_BTN}`}
-          onClick={onClear}
-          data-attr="communication-bulk-clear"
-        >
-          Clear
-        </Button>
       </div>
     </BulkActionBar>
   );

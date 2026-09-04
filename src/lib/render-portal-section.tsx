@@ -665,6 +665,12 @@ export async function renderPortalSection(
       }
 
       const channel = tabParts[0]!;
+      if (channel === "unread") {
+        const threadPart = tabParts[1];
+        redirect(
+          `${def.basePath}/communication/active${threadPart ? `/${encodeURIComponent(threadPart)}` : ""}`,
+        );
+      }
       if (channel === "sms") {
         redirect(`${def.basePath}/communication/active`);
       }
@@ -1279,6 +1285,12 @@ export async function renderPortalSection(
     }
 
     const channel = tabParts[0]!;
+    if (channel === "unread") {
+      const threadPart = tabParts[1];
+      redirect(
+        `${def.basePath}/communication/active${threadPart ? `/${encodeURIComponent(threadPart)}` : ""}`,
+      );
+    }
     if (channel === "sms" || channel === "email") {
       redirect(`${def.basePath}/communication/active`);
     }
@@ -1311,6 +1323,7 @@ export async function renderPortalSection(
         listSegment={listSegment}
         threadId={threadId}
         smsUiEnabled={isSmsCommUiEnabled()}
+        residentUserId={residentCtx?.user?.id ?? residentCtx?.profile?.id ?? null}
       />
     );
   }
@@ -1379,6 +1392,12 @@ export async function renderPortalSection(
     }
 
     const channel = tabParts[0]!;
+    if (channel === "unread") {
+      const threadPart = tabParts[1];
+      redirect(
+        `${def.basePath}/communication/active${threadPart ? `/${encodeURIComponent(threadPart)}` : ""}`,
+      );
+    }
     if (channel === "sms" || channel === "email") {
       redirect(`${def.basePath}/communication/active`);
     }

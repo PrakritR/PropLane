@@ -17,6 +17,7 @@ import {
 } from "@/components/portal/portal-contact-details-modal";
 import { dispatchManagerSmsContactsChanged } from "@/lib/manager-sms-messages";
 import { useUnifiedCommunicationBulk } from "@/hooks/use-unified-communication-bulk";
+import { usePortalSession } from "@/hooks/use-portal-session";
 import { useOptionalAppUi } from "@/components/providers/app-ui-provider";
 import {
   INBOX_LIST_SCROLL,
@@ -29,6 +30,14 @@ import {
   type InboxListSegment,
 } from "@/components/portal/portal-inbox-ui";
 import { filterEmailInboxThreads } from "@/lib/communication-inbox-filters";
+import { isPropLaneAssistantInboxThread } from "@/lib/communication-inbox-assistant";
+import {
+  communicationInboxListPreview,
+  pinPropLaneAssistantUnifiedItems,
+  propLaneAssistantThreadIdForPortal,
+  resolveCommunicationViewerId,
+  withPinnedPropLaneAssistantThreads,
+} from "@/lib/communication-assistant-inbox-list";
 import {
   buildResidentPlaceholderInboxItems,
   parseContactInboxThreadId,
@@ -45,6 +54,7 @@ import {
   loadPersistedInbox,
   inboxThreadMessages,
   inboxThreadSortMs,
+  inboxMessageOutbound,
   syncPersistedInboxFromServer,
 } from "@/lib/portal-inbox-storage";
 import {
@@ -202,6 +212,9 @@ export function ManagerUnifiedInbox({
   const [mobileThreadOpen, setMobileThreadOpen] = useState(Boolean(routeThreadId));
   const listSegment = listSegmentProp;
   const appUi = useOptionalAppUi();
+  const { userId } = usePortalSession();
+  const viewerId = resolveCommunicationViewerId(null, userId);
+  const assistantThreadId = viewerId ? propLaneAssistantThreadIdForPortal("manager", viewerId) : null;
 
   const threadListHref = useCallback(
     () => `${commBase}/${listSegment}`,
@@ -342,15 +355,17 @@ export function ManagerUnifiedInbox({
       filterEmailInboxThreads(emailThreads, { keepSmsLike: !smsUiEnabled }),
       { mergeFolders: true },
     );
-    if (!threadFilters || !filterContacts) return base;
-    return base.filter((t) =>
+    const withAssistant = withPinnedPropLaneAssistantThreads(base, "manager", viewerId, listSegment);
+    if (!threadFilters || !filterContacts) return withAssistant;
+    return withAssistant.filter((t) =>
+      isPropLaneAssistantInboxThread(t) ||
       threadPassesCommunicationFilters({
         filters: threadFilters,
         contacts: filterContacts,
         counterpartyEmail: t.email,
       }),
     );
-  }, [emailThreads, threadFilters, filterContacts, smsUiEnabled]);
+  }, [emailThreads, threadFilters, filterContacts, listSegment, smsUiEnabled, viewerId]);
 
   const emailListItems = useMemo((): UnifiedInboxListItem[] => {
     const q = query.trim().toLowerCase();
@@ -376,7 +391,10 @@ export function ManagerUnifiedInbox({
       const lastMsg = msgs[msgs.length - 1];
       const sentSemantics = t.folder === "sent";
       const displayName = sentSemantics ? t.email || "Unknown recipient" : t.from || t.email || "Unknown sender";
-      const lastOutbound = lastMsg?.outbound ?? (msgs.length > 1 ? true : t.folder === "sent");
+      const lastIndex = Math.max(0, msgs.length - 1);
+      const lastOutbound = lastMsg
+        ? inboxMessageOutbound(lastMsg, lastIndex, t.folder, t)
+        : t.folder === "sent";
       return {
         key: unifiedInboxKey("email", t.id),
         channel: "email" as const,
@@ -386,7 +404,7 @@ export function ManagerUnifiedInbox({
         personEmail: t.email?.trim() || undefined,
         name: displayName,
         subtitle: t.subject,
-        preview: previewLine(lastMsg?.body ?? t.preview ?? "", 80),
+        preview: communicationInboxListPreview(lastMsg?.body ?? t.preview ?? "", listSegment, 80),
         previewPrefix: lastOutbound ? "You: " : undefined,
         time: t.time,
         unread: t.folder === "inbox" && t.unread,
@@ -443,7 +461,11 @@ export function ManagerUnifiedInbox({
           // Prefer person name / unit / email; fall back to a readable phone.
           name: smsConversationDisplayName(resident),
           subtitle: smsConversationSubtitle(resident) || undefined,
-          preview: lastMessage ? previewLine(lastMessage.body, 80) : "No messages yet",
+          preview: communicationInboxListPreview(
+            lastMessage ? lastMessage.body : "No messages yet",
+            listSegment,
+            80,
+          ),
           previewPrefix: lastOutbound ? "You: " : undefined,
           time: lastMessage ? iosListTimestamp(lastMessage.createdAt) : "",
           unread,
@@ -507,10 +529,13 @@ export function ManagerUnifiedInbox({
     });
   }, [filterContacts, listSegment, occupiedResidentEmails, query, threadFilters]);
 
-  const mergedRows = useMemo(
-    () => mergeUnifiedInboxItems([...emailListItems, ...smsListItems, ...placeholderListItems], listSort),
-    [emailListItems, smsListItems, placeholderListItems, listSort],
-  );
+  const mergedRows = useMemo(() => {
+    const merged = mergeUnifiedInboxItems(
+      [...emailListItems, ...smsListItems, ...placeholderListItems],
+      listSort,
+    );
+    return pinPropLaneAssistantUnifiedItems(merged, assistantThreadId);
+  }, [assistantThreadId, emailListItems, listSort, placeholderListItems, smsListItems]);
 
   const bulk = useUnifiedCommunicationBulk({
     mergedRows,
@@ -661,12 +686,6 @@ export function ManagerUnifiedInbox({
             items={[
               { id: "active", label: "Active", href: `${commBase}/active`, dataAttr: "communication-segment-active" },
               {
-                id: "unread",
-                label: "Unread",
-                href: `${commBase}/unread`,
-                dataAttr: "communication-segment-unread",
-              },
-              {
                 id: "archived",
                 label: "Archived",
                 href: `${commBase}/archived`,
@@ -700,7 +719,7 @@ export function ManagerUnifiedInbox({
           {mergedRows.length} conversation{mergedRows.length === 1 ? "" : "s"} matching “{query.trim()}”
         </p>
       ) : null}
-      <div className={INBOX_LIST_SCROLL}>
+      <div className={`${INBOX_LIST_SCROLL} min-h-0 flex-1`} data-communication-inbox-list>
         {mergedRows.length === 0 ? (
           query.trim() ? (
             <div className="p-4">
@@ -748,6 +767,15 @@ export function ManagerUnifiedInbox({
           ))
         )}
       </div>
+      <CommunicationListBulkBar
+        count={bulk.selectedCount}
+        listSegment={listSegment}
+        onArchive={listSegment !== "archived" ? () => void bulk.handleArchive() : undefined}
+        onRestore={listSegment === "archived" ? () => void bulk.handleRestore() : undefined}
+        onDelete={listSegment === "archived" ? () => void bulk.handleDelete() : undefined}
+        onEdit={bulk.canEditContact ? bulk.openEdit : undefined}
+        showEdit={bulk.canEditContact}
+      />
     </div>
   );
 
@@ -834,16 +862,6 @@ export function ManagerUnifiedInbox({
         threadOpen={threadOpen}
         list={listPane}
         thread={threadPane}
-      />
-      <CommunicationListBulkBar
-        count={bulk.selectedCount}
-        listSegment={listSegment}
-        onArchive={listSegment !== "archived" ? () => void bulk.handleArchive() : undefined}
-        onRestore={listSegment === "archived" ? () => void bulk.handleRestore() : undefined}
-        onDelete={listSegment === "archived" ? () => void bulk.handleDelete() : undefined}
-        onEdit={bulk.canEditContact ? bulk.openEdit : undefined}
-        showEdit={bulk.canEditContact}
-        onClear={bulk.selection.clearSelection}
       />
       <PortalContactDetailsModal
         open={bulk.editOpen}

@@ -20,6 +20,7 @@ import { PortalCommunicationShell } from "@/components/portal/portal-communicati
 import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
 import { PORTAL_HEADER_PRIMARY_ACTION_BTN } from "@/components/portal/portal-metrics";
 import { filterEmailInboxThreads } from "@/lib/communication-inbox-filters";
+import { communicationInboxListPreview } from "@/lib/communication-assistant-inbox-list";
 import {
   mergeUnifiedInboxItems,
   parseUnifiedInboxKey,
@@ -32,7 +33,9 @@ import {
   inboxThreadMessages,
   inboxThreadSortMs,
   loadPersistedInbox,
+  syncPersistedInboxFromServer,
 } from "@/lib/portal-inbox-storage";
+import { usePortalSession } from "@/hooks/use-portal-session";
 import { useCommunicationThreadId } from "@/hooks/use-communication-thread-id";
 import {
   clearCommunicationThreadUrl,
@@ -47,12 +50,6 @@ import {
 
 const SMS_THREAD_ID = "text-messages";
 const SMS_OPENED_KEY = "axis_role_sms_opened_vendor";
-
-function previewLine(body: string, max = 80) {
-  const t = body.trim().replace(/\s+/g, " ");
-  if (t.length <= max) return t;
-  return `${t.slice(0, max)}…`;
-}
 
 function loadOpenedIds(): Set<string> {
   if (typeof window === "undefined") return new Set();
@@ -90,6 +87,7 @@ function VendorUnifiedInbox({
   commBase: string;
   onAddConversation?: () => void;
 }) {
+  const { ready: sessionReady } = usePortalSession();
   const [emailThreads, setEmailThreads] = useState(() => loadPersistedInbox(VENDOR_INBOX_STORAGE_KEY, []));
   const [smsMessages, setSmsMessages] = useState<ManagerSmsMessageRow[]>([]);
   const [smsOpened] = useState<Set<string>>(() => loadOpenedIds());
@@ -100,6 +98,13 @@ function VendorUnifiedInbox({
     window.addEventListener(PORTAL_INBOX_CHANGED_EVENT, sync as EventListener);
     return () => window.removeEventListener(PORTAL_INBOX_CHANGED_EVENT, sync as EventListener);
   }, []);
+
+  useEffect(() => {
+    if (!sessionReady) return;
+    void syncPersistedInboxFromServer(VENDOR_INBOX_STORAGE_KEY, { force: true }).then((rows) => {
+      setEmailThreads(rows);
+    });
+  }, [sessionReady]);
 
   useEffect(() => {
     if (!smsUiEnabled) return;
@@ -151,7 +156,7 @@ function VendorUnifiedInbox({
         threadId: t.id,
         name: sentSemantics ? t.email || "Recipient" : t.from || t.email || "Sender",
         subtitle: t.subject,
-        preview: previewLine(lastMsg?.body ?? t.preview ?? "", 80),
+        preview: communicationInboxListPreview(lastMsg?.body ?? t.preview ?? "", listSegment, 80),
         previewPrefix: t.folder === "sent" ? "You: " : undefined,
         time: t.time,
         unread: t.folder === "inbox" && t.unread,
@@ -176,7 +181,7 @@ function VendorUnifiedInbox({
       threadId: SMS_THREAD_ID,
       name: "Text messages",
       subtitle: "Property management",
-      preview: previewLine(last.body, 80),
+      preview: communicationInboxListPreview(last.body, listSegment, 80),
       previewPrefix: last.direction === "outbound" ? "You: " : undefined,
       time: new Date(last.createdAt).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" }),
       unread,
@@ -220,13 +225,13 @@ function VendorUnifiedInbox({
   }, [onThreadSelectedChange, selection]);
 
   const listPane = (
-    <div className="flex min-h-0 flex-1 flex-col">
+    <div className="flex h-full min-h-0 flex-1 flex-col overflow-hidden">
       {merged.length > 0 && searchQuery.trim() ? (
-        <p className="mb-2 hidden px-1 text-[11px] text-muted sm:block">
+        <p className="mb-2 hidden shrink-0 px-1 text-[11px] text-muted sm:block">
           {merged.length} conversation{merged.length === 1 ? "" : "s"} matching “{searchQuery.trim()}”
         </p>
       ) : null}
-      <div className={INBOX_LIST_SCROLL}>
+      <div className={`${INBOX_LIST_SCROLL} min-h-0 flex-1`} data-communication-inbox-list>
         {merged.length === 0 ? (
           searchQuery.trim() ? (
             <div className="p-4">
@@ -271,6 +276,13 @@ function VendorUnifiedInbox({
           ))
         )}
       </div>
+      <CommunicationListBulkBar
+        count={bulk.selectedCount}
+        listSegment={listSegment}
+        onArchive={listSegment !== "archived" ? () => void bulk.handleArchive() : undefined}
+        onRestore={listSegment === "archived" ? () => void bulk.handleRestore() : undefined}
+        onDelete={listSegment === "archived" ? () => void bulk.handleDelete() : undefined}
+      />
     </div>
   );
 
@@ -322,14 +334,6 @@ function VendorUnifiedInbox({
         list={listPane}
         thread={threadPane}
       />
-      <CommunicationListBulkBar
-        count={bulk.selectedCount}
-        listSegment={listSegment}
-        onArchive={listSegment !== "archived" ? () => void bulk.handleArchive() : undefined}
-        onRestore={listSegment === "archived" ? () => void bulk.handleRestore() : undefined}
-        onDelete={listSegment === "archived" ? () => void bulk.handleDelete() : undefined}
-        onClear={bulk.selection.clearSelection}
-      />
     </>
   );
 }
@@ -373,12 +377,6 @@ export function VendorCommunication({
     <PortalListControlStack
       destinations={[
         { id: "active", label: "Active", href: `${commBase}/active`, dataAttr: "communication-segment-active" },
-        {
-          id: "unread",
-          label: "Unread",
-          href: `${commBase}/unread`,
-          dataAttr: "communication-segment-unread",
-        },
         {
           id: "archived",
           label: "Archived",

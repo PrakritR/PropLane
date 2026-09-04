@@ -122,3 +122,14 @@ export function resolveManagerInboxReplyChannels(args: {
   }
   return { viaEmail, viaSms };
 }
+
+/** Unified Communication composer: deliver on every channel the counterparty can receive. */
+export function resolvePropLaneUnifiedReplyChannels(args: {
+  emailAvailable: boolean;
+  smsAvailable: boolean;
+}): { viaEmail: boolean; viaSms: boolean } {
+  return {
+    viaEmail: args.emailAvailable,
+    viaSms: args.smsAvailable,
+  };
+}

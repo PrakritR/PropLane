@@ -8,6 +8,7 @@ import {
   RESIDENT_INBOX_SCOPE,
   resolveInboxScopeUser,
 } from "@/lib/portal-inbox-thread-scope";
+import { ensureManagerAgentNoticeThread } from "@/lib/agent-notify.server";
 import { ensureResidentAgentThread } from "@/lib/agent/resident-inbox-agent.server";
 import { managerIdsOwningResident } from "@/lib/resident-manager-scope";
 import {
@@ -40,18 +41,22 @@ export async function GET(request: Request) {
     if (scopeParam === RESIDENT_INBOX_SCOPE && ctx.user.id && ctx.user.email) {
       try {
         const managerIds = await managerIdsOwningResident(ctx.db, ctx.user.email);
-        // Bound to ONE manager — the first that owns this resident. A resident
-        // with several would otherwise get one assistant thread per manager,
-        // which reads as duplicates rather than as scoping.
-        if (managerIds[0]) {
-          await ensureResidentAgentThread(ctx.db, {
-            residentUserId: ctx.user.id,
-            residentEmail: ctx.user.email,
-            managerUserId: managerIds[0],
-          });
-        }
+        // Bound to ONE manager when known — the first that owns this resident.
+        await ensureResidentAgentThread(ctx.db, {
+          residentUserId: ctx.user.id,
+          residentEmail: ctx.user.email,
+          managerUserId: managerIds[0],
+        });
       } catch (e) {
         console.error("ensureResidentAgentThread failed", e);
+      }
+    }
+
+    if (scopeParam === MANAGER_INBOX_SCOPE && ctx.user.id) {
+      try {
+        await ensureManagerAgentNoticeThread(ctx.db, ctx.user.id);
+      } catch (e) {
+        console.error("ensureManagerAgentNoticeThread failed", e);
       }
     }
 

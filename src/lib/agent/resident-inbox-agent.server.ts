@@ -69,9 +69,10 @@ export function threadHistory(rowData: Record<string, unknown> | null | undefine
  */
 export async function ensureResidentAgentThread(
   db: SupabaseClient,
-  input: { residentUserId: string; residentEmail: string; managerUserId: string },
+  input: { residentUserId: string; residentEmail: string; managerUserId?: string },
 ): Promise<string> {
   const threadId = residentAgentThreadId(input.residentUserId, input.managerUserId);
+  const managerUserId = input.managerUserId?.trim() || "";
   const { data: existing } = await db
     .from("portal_inbox_thread_records")
     .select("id, row_data")
@@ -79,11 +80,11 @@ export async function ensureResidentAgentThread(
     .maybeSingle();
   if (existing) {
     const rowData = (existing.row_data ?? {}) as Record<string, unknown>;
-    if (!rowData.boundManagerUserId) {
+    if (managerUserId && !rowData.boundManagerUserId) {
       await db
         .from("portal_inbox_thread_records")
         .update({
-          row_data: { ...rowData, boundManagerUserId: input.managerUserId },
+          row_data: { ...rowData, boundManagerUserId: managerUserId },
           updated_at: new Date().toISOString(),
         })
         .eq("id", threadId);
@@ -109,19 +110,13 @@ export async function ensureResidentAgentThread(
         time: when,
         unread: false,
         threadType: RESIDENT_AGENT_THREAD_TYPE,
-        boundManagerUserId: input.managerUserId,
-        messages: [
-          {
-            id: "resident-agent-intro",
-            from: RESIDENT_AGENT_FROM_NAME,
-            body: [
-              "Hi — you can ask me about your lease, rent, maintenance requests or anything coming up.",
-              "",
-              "I can look things up for you, and if something needs doing I will show you exactly what it is before anything happens.",
-            ].join("\n"),
-            at: when,
-          },
-        ],
+        ...(managerUserId ? { boundManagerUserId: managerUserId } : {}),
+        body: [
+          "Hi — you can ask me about your lease, rent, maintenance requests or anything coming up.",
+          "",
+          "I can look things up for you, and if something needs doing I will show you exactly what it is before anything happens.",
+        ].join("\n"),
+        messages: [],
       },
       updated_at: new Date().toISOString(),
     },

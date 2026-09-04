@@ -25,6 +25,7 @@ import {
   deleteInboxThreadIds,
   inboxMutationInFlight,
   inboxThreadMessages,
+  inboxMessageOutbound,
   invalidatePersistedInboxCache,
   loadPersistedInbox,
   persistInbox,
@@ -44,6 +45,7 @@ import {
   InboxSendRefusal,
   inboxReplySentToastMessage,
 } from "@/lib/inbox-reply-outcome";
+import { resolvePropLaneUnifiedReplyChannels } from "@/lib/manager-inbox-reply-channels";
 
 type InboxThread = PersistedInboxThread;
 
@@ -160,10 +162,12 @@ export const VendorInboxPanel = forwardRef<
 
   useEffect(() => {
     setReplyDraft("");
-    setReplyViaEmail(true);
-    setReplyViaSms(false);
+    if (!embeddedInCommunication) {
+      setReplyViaEmail(true);
+      setReplyViaSms(false);
+    }
     setReplyAttachments([]);
-  }, [expandedId]);
+  }, [embeddedInCommunication, expandedId]);
 
   useEffect(() => {
     if (!smsUiEnabled || isDemoModeActive()) return;
@@ -511,6 +515,16 @@ export const VendorInboxPanel = forwardRef<
 
   const activeSmsAvailable = smsUiEnabled && smsConfigured;
 
+  useEffect(() => {
+    if (!embeddedInCommunication) return;
+    const unified = resolvePropLaneUnifiedReplyChannels({
+      emailAvailable: true,
+      smsAvailable: activeSmsAvailable,
+    });
+    setReplyViaEmail(unified.viaEmail);
+    setReplyViaSms(unified.viaSms);
+  }, [activeSmsAvailable, embeddedInCommunication, expandedId]);
+
   const handleReply = useCallback(
     async (
       row: PortalInboxTableRow,
@@ -765,7 +779,7 @@ export const VendorInboxPanel = forwardRef<
   const activeBubbles = useMemo((): InboxBubbleMessage[] => {
     if (!activeThread) return [];
     return inboxThreadMessages(activeThread).map((m, i) => {
-      const outbound = m.outbound ?? (i === 0 ? activeFolder === "sent" : true);
+      const outbound = inboxMessageOutbound(m, i, activeFolder, activeThread);
       return {
         id: m.id,
         author: m.from,
@@ -928,10 +942,16 @@ export const VendorInboxPanel = forwardRef<
                       onSubmit={() => void sendActiveReply()}
                       sending={replySending}
                       disabled={!replyViaEmail && !replyViaSms}
-                      placeholder={replyViaSms && !replyViaEmail ? "Text message" : "Write a reply…"}
-                      maxLength={replyViaSms && !replyViaEmail ? 1600 : undefined}
+                      placeholder={
+                        !embeddedInCommunication && replyViaSms && !replyViaEmail
+                          ? "Text message"
+                          : "Write a reply…"
+                      }
+                      maxLength={
+                        !embeddedInCommunication && replyViaSms && !replyViaEmail ? 1600 : undefined
+                      }
                       dataAttr="vendor-inbox-reply"
-                      channelControl={replyChannelPicker}
+                      channelControl={embeddedInCommunication ? undefined : replyChannelPicker}
                       attachments={replyAttachments}
                       onAttachmentsPick={pickReplyAttachments}
                       onAttachmentRemove={(id) => setReplyAttachments((prev) => prev.filter((a) => a.id !== id))}
