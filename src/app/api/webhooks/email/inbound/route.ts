@@ -28,6 +28,8 @@ import {
 import { parseReplyAddress } from "@/lib/inbound-email/reply-address.server";
 import { isPaymentInboxEmail } from "@/lib/payment-receipt-email/payment-inbox";
 import { processInboundPaymentReceiptEmail } from "@/lib/payment-receipt-email/process-receipt.server";
+import { isAssistantEmailAddress } from "@/lib/manager-assistant-email/assistant-email-address";
+import { processManagerAssistantInboundEmail } from "@/lib/manager-assistant-email/process-assistant-inbound.server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { fileWorkflowFromInboundEmailReply } from "@/lib/inbox/inbound-message-workflows.server";
 import { verifyResendWebhookSignature } from "@/lib/inbound-email/verify-signature";
@@ -147,6 +149,21 @@ export async function POST(req: Request) {
       return appended ? ok({ reply: true }) : ok({ reply: true, idempotent: true });
     }
     // Token owner no longer resolves — fall through to the support ingest.
+  }
+
+  if (isAssistantEmailAddress(parsed.toEmails)) {
+    try {
+      const result = await processManagerAssistantInboundEmail(
+        createSupabaseServiceRoleClient(),
+        parsed,
+      );
+      if (result.handled) {
+        return ok({ assistantEmail: true, replied: result.replied, idempotent: result.idempotent });
+      }
+    } catch (e) {
+      console.error("inbound-email assistant ingest failed", parsed.emailId, e);
+      return new Response("Ingest failed", { status: 500 });
+    }
   }
 
   if (isPaymentInboxEmail(parsed.toEmails)) {

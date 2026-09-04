@@ -33,6 +33,7 @@ import {
 import { ManagerPlan } from "@/components/portal/pro-plan";
 import { ManagerApiKeysPanel } from "@/components/portal/pro-api-keys-panel";
 import { ManagerMessagingSettingsPanel } from "@/components/portal/pro-messaging-settings-panel";
+import { ManagerAssistantEmailSettingsPanel } from "@/components/portal/pro-assistant-email-settings-panel";
 import { PortalTextNotificationsBlock } from "@/components/portal/portal-text-notifications-block";
 import { MANAGER_PLAN_PORTAL_HASH } from "@/lib/portals/manager-plan-path";
 import { AssistantDisplaySetting } from "@/components/portal/assistant-display-setting";
@@ -96,6 +97,7 @@ function ManagerMessagingSettingsPane() {
         onVerified={() => setPersonalPhoneRefreshKey((value) => value + 1)}
       />
       <ManagerMessagingSettingsPanel personalPhoneRefreshKey={personalPhoneRefreshKey} />
+      <ManagerAssistantEmailSettingsPanel />
     </>
   );
 }

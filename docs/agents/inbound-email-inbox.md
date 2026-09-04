@@ -1,8 +1,12 @@
 # Inbound email → portal inboxes
 
-Two kinds of mail arrive through the same Resend Inbound webhook, decided by the
+Three kinds of mail arrive through the same Resend Inbound webhook, decided by the
 To address:
 
+0. **Manager assistant email** — `assistant+<token>@…` routes to the manager
+   email agent when the sender's profile email matches the mailbox owner or an
+   assigned co-manager. Provisioned in Settings → Messaging. See
+   `src/lib/manager-assistant-email/`.
 1. **Conversation replies** — outbound portal conversation emails carry a signed
    `reply+…@${RESEND_REPLY_DOMAIN}` Reply-To; a verified reply is routed into the
    manager↔resident conversation thread (see "Conversation replies" below).
