@@ -25,6 +25,29 @@ export const HOUSE_WIDE_AMENITY_PRESETS = [
   { id: "package-room", label: "Package room / lockers" },
   { id: "doorman", label: "Doorman" },
   { id: "on-site-mgmt", label: "On-site management" },
+  // Commonly-asked amenities that managers were typing by hand (AXI-135).
+  // Labels are stored verbatim in `amenitiesText`, so these are additive only —
+  // never rename an existing one or saved listings lose the toggle.
+  { id: "storage-unit", label: "Storage unit" },
+  { id: "garage-parking", label: "Garage parking" },
+  { id: "covered-parking", label: "Covered parking" },
+  { id: "street-parking", label: "Street parking" },
+  { id: "wheelchair-accessible", label: "Wheelchair accessible" },
+  { id: "intercom", label: "Intercom / video entry" },
+  { id: "security-cameras", label: "Security cameras" },
+  { id: "mail-room", label: "Mail room" },
+  { id: "trash-included", label: "Trash & recycling included" },
+  { id: "pest-control", label: "Pest control included" },
+  { id: "lawn-care", label: "Lawn care included" },
+  { id: "snow-removal", label: "Snow removal included" },
+  { id: "smoke-free", label: "Smoke-free building" },
+  { id: "courtyard", label: "Courtyard" },
+  { id: "private-balcony", label: "Private balcony" },
+  { id: "high-ceilings", label: "High ceilings" },
+  { id: "soundproofing", label: "Soundproofing" },
+  { id: "near-grocery", label: "Near grocery stores" },
+  { id: "near-parks", label: "Near parks" },
+  { id: "near-campus", label: "Near campus / university" },
 ] as const;
 
 /**
@@ -82,6 +105,29 @@ export const SHARED_SPACE_AMENITY_PRESETS = [
   { id: "parking-spot", label: "Parking spot" },
   { id: "lounge-seating", label: "Living / lounge seating" },
   { id: "tv-common", label: "TV in common area" },
+  // AXI-135. Anything added here must also be listed under a kind below, or it
+  // only ever appears on a space typed "Other".
+  { id: "wine-fridge", label: "Wine fridge" },
+  { id: "water-filter", label: "Filtered water" },
+  { id: "kettle", label: "Electric kettle" },
+  { id: "air-fryer", label: "Air fryer" },
+  { id: "blender", label: "Blender" },
+  { id: "cookware", label: "Cookware & utensils" },
+  { id: "dishes", label: "Dishes & glassware" },
+  { id: "trash-bins", label: "Trash & recycling bins" },
+  { id: "sound-system", label: "Sound system / speakers" },
+  { id: "fireplace", label: "Fireplace" },
+  { id: "board-games", label: "Board games" },
+  { id: "folding-table", label: "Folding table" },
+  { id: "standing-desk", label: "Standing desk" },
+  { id: "desk-lamp", label: "Desk lamp" },
+  { id: "outdoor-dining", label: "Outdoor dining table" },
+  { id: "string-lights", label: "String lights" },
+  { id: "garden-hose", label: "Garden hose / spigot" },
+  { id: "vacuum", label: "Vacuum & cleaning supplies" },
+  { id: "fire-extinguisher", label: "Fire extinguisher" },
+  { id: "first-aid", label: "First aid kit" },
+  { id: "luggage-storage", label: "Luggage storage" },
 ] as const;
 
 export type SharedSpaceKind = "kitchen" | "living" | "laundry" | "outdoor" | "workspace" | "other";
@@ -110,6 +156,16 @@ const SHARED_SPACE_AMENITY_IDS_BY_KIND: Record<SharedSpaceKind, readonly string[
     "range-hood",
     "garbage-disposal",
     "bar-stools",
+    "wine-fridge",
+    "water-filter",
+    "kettle",
+    "air-fryer",
+    "blender",
+    "cookware",
+    "dishes",
+    "trash-bins",
+    "fire-extinguisher",
+    "first-aid",
   ],
   living: [
     "dining-table",
@@ -121,8 +177,24 @@ const SHARED_SPACE_AMENITY_IDS_BY_KIND: Record<SharedSpaceKind, readonly string[
     "pool-table",
     "hardwood-floors",
     "bookshelf-living",
+    "sound-system",
+    "fireplace",
+    "board-games",
+    // These two predate AXI-135 and were reachable only on a space typed
+    // "Other" — a common area is where they actually live.
+    "storage-locker",
+    "gym-equipment",
+    "luggage-storage",
   ],
-  laundry: ["washer-dryer", "laundry-sink", "drying-rack", "iron-board", "detergent-storage"],
+  laundry: [
+    "washer-dryer",
+    "laundry-sink",
+    "drying-rack",
+    "iron-board",
+    "detergent-storage",
+    "folding-table",
+    "vacuum",
+  ],
   outdoor: [
     "patio-seating",
     "bbq-grill",
@@ -134,8 +206,20 @@ const SHARED_SPACE_AMENITY_IDS_BY_KIND: Record<SharedSpaceKind, readonly string[
     "garden",
     "shade-umbrella",
     "bike-storage",
+    "outdoor-dining",
+    "string-lights",
+    "garden-hose",
   ],
-  workspace: ["desk", "office-chair", "printer", "whiteboard", "monitor", "quiet-space"],
+  workspace: [
+    "desk",
+    "office-chair",
+    "printer",
+    "whiteboard",
+    "monitor",
+    "quiet-space",
+    "standing-desk",
+    "desk-lamp",
+  ],
   other: SHARED_SPACE_AMENITY_PRESETS.map((p) => p.id),
 };
 
@@ -186,6 +270,19 @@ export const BATHROOM_EXTRA_AMENITY_PRESETS = [
   { id: "bath-window", label: "Window / natural light" },
   { id: "vent-fan", label: "Exhaust fan" },
   { id: "storage", label: "Built-in storage / linen" },
+  // AXI-135. Shower / Toilet / Bathtub stay OUT — they are the fixture
+  // checkboxes on the bathroom row, and DISALLOWED_BATHROOM_AMENITY_LABELS
+  // rejects them here.
+  { id: "bidet", label: "Bidet" },
+  { id: "rain-shower", label: "Rain shower head" },
+  { id: "handheld-shower", label: "Handheld shower head" },
+  { id: "medicine-cabinet", label: "Medicine cabinet" },
+  { id: "towel-warmer", label: "Towel warmer / heated rail" },
+  { id: "grab-bars", label: "Grab bars / accessible" },
+  { id: "vanity-lighting", label: "Vanity lighting" },
+  { id: "tiled-shower", label: "Tiled shower" },
+  { id: "shower-bench", label: "Shower bench" },
+  { id: "double-shower-head", label: "Double shower head" },
 ] as const;
 
 export const DISALLOWED_BATHROOM_AMENITY_LABELS = new Set(["Shower", "Toilet", "Bathtub"]);
@@ -227,6 +324,17 @@ export const ROOM_AMENITY_PRESETS = [
   { id: "smoke-detector", label: "Smoke detector" },
   { id: "co-detector", label: "Carbon monoxide detector" },
   { id: "keypad", label: "Keypad lock" },
+  // AXI-135.
+  { id: "private-entrance", label: "Private entrance" },
+  { id: "mirror", label: "Full-length mirror" },
+  { id: "blinds", label: "Blinds / shades" },
+  { id: "dimmable", label: "Dimmable lighting" },
+  { id: "room-safe", label: "In-room safe" },
+  { id: "window-ac", label: "Window AC unit" },
+  { id: "radiator", label: "Radiator heat" },
+  { id: "soundproof-room", label: "Soundproofed walls" },
+  { id: "ground-floor", label: "Ground floor" },
+  { id: "room-view", label: "Garden / street view" },
 ] as const;
 
 export const ROOM_FURNITURE_PRESETS = [
