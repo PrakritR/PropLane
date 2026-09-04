@@ -108,19 +108,27 @@ describe("formatLeaseAddressForDisplay", () => {
 });
 
 describe("property lease preview", () => {
-  it("uses generic PropLane default draft without listing-specific details", () => {
+  it("keeps IDENTITY generic, but states the property's own payments", () => {
+    // PRP-124. Identity — who, where, which room, which dates — is decided at
+    // PLACEMENT, so the template says "Filled at placement". Rent, deposit and
+    // fees are configured on the LISTING, so hiding them left a manager looking
+    // at their own lease with a payment section of em dashes.
     const preview = buildPropertyLeasePreview(seattleRoomSub(), { demo: true });
     expect(preview.source).toBe("axis_default");
     expect(preview.html).toContain("RESIDENTIAL ROOM LEASE AGREEMENT");
-    expect(preview.html).not.toContain("The Pioneer");
-    expect(preview.html).not.toContain("[Resident name]");
     expect(preview.html).toContain("Filled at placement");
-    expect(preview.html).not.toContain("$2400.00 / month");
-    expect(preview.html).not.toContain("$500.00");
-    expect(preview.html).not.toContain("Quiet hours 10pm");
-    expect(preview.html).not.toContain("12 Pike St");
     expect(preview.html).toContain("Electronic Signature");
     expect(preview.jurisdictionLabel).toBe("Seattle, WA");
+
+    // Identity still withheld.
+    expect(preview.html).not.toContain("The Pioneer");
+    expect(preview.html).not.toContain("[Resident name]");
+    expect(preview.html).not.toContain("Quiet hours 10pm");
+    expect(preview.html).not.toContain("12 Pike St");
+
+    // Money now stated.
+    expect(preview.html).toContain("$2400.00 / month");
+    expect(preview.html).toContain("$500.00");
   });
 
   it("generates a distinct short-term stay agreement for short-term template kind", () => {
@@ -151,7 +159,8 @@ describe("property lease preview", () => {
     expect(preview.html).toContain("<h2>1. Parties and Premises</h2>");
     expect(preview.html).toContain("Filled at placement");
     expect(preview.html).not.toContain("The Pioneer");
-    expect(preview.html).not.toContain("$2400.00 / month");
+    // The rent belongs in the lease; the marketing copy does not (PRP-124).
+    expect(preview.html).toContain("$2400.00 / month");
     expect(preview.html).not.toContain("Light-filled Pioneer Square home");
     expect(preview.html).not.toContain("Please message with a short bio");
     expect(preview.html).not.toContain("preferred move in date");

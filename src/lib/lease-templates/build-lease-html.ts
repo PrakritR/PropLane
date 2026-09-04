@@ -428,7 +428,28 @@ export function buildLeaseHtml(ctx: LeaseGenerationContext, config: LeaseJurisdi
   // ── Identity ──────────────────────────────────────────────────────────────
   const propertyTemplatePreview = Boolean(ctx.propertyTemplatePreview);
   const listingFeePreview = Boolean(ctx.listingFeePreview);
-  const stripPreviewFinancials = propertyTemplatePreview && !listingFeePreview;
+  /**
+   * A property-level TEMPLATE preview, shown while configuring the default lease.
+   *
+   * It stands in for a placement that has not happened, so the things a
+   * PLACEMENT decides — which resident, which room, which address, which dates —
+   * read as "Filled at placement" rather than borrowing one listing's.
+   */
+  const stripPreviewIdentity = propertyTemplatePreview && !listingFeePreview;
+  /*
+   * Money is NOT one of those things, and used to be blanked with them.
+   *
+   * Rent, utilities, the deposit, the move-in fee and the recurring fee schedule
+   * are configured on the LISTING, not chosen at placement, so a template that
+   * blanks them hides facts it already knows. That is the complaint on PRP-124:
+   * a manager opens the lease on their Property → Lease tab and the whole
+   * payment section is a column of em dashes — a lease with no payments in it.
+   * Those figures now always render.
+   *
+   * PRORATION is the exception and stays on the identity flag above: a partial
+   * first or last month is computed from the move-in and move-out dates, which
+   * a template does not have.
+   */
   const showListingFees = listingFeePreview;
   const tenantRaw = (a.fullLegalName ?? "").trim() || (propertyTemplatePreview ? "" : "Resident");
   const jointTenants =
@@ -475,7 +496,7 @@ export function buildLeaseHtml(ctx: LeaseGenerationContext, config: LeaseJurisdi
   const previewListingAddress =
     showListingFees && subNorm ? formatLeaseAddressForDisplay(subNorm) : null;
   const streetFromSubmission = subNorm ? listingSubmissionStreetLine(subNorm).trim() : "";
-  const address = stripPreviewFinancials
+  const address = stripPreviewIdentity
     ? "—"
     : escapeHtml(
         previewListingAddress?.street ||
@@ -485,7 +506,7 @@ export function buildLeaseHtml(ctx: LeaseGenerationContext, config: LeaseJurisdi
           sub?.address?.trim() ||
           "",
       );
-  const cityZip = stripPreviewFinancials
+  const cityZip = stripPreviewIdentity
     ? "—"
     : previewListingAddress?.cityStateZip ||
       (subNorm
@@ -538,7 +559,7 @@ export function buildLeaseHtml(ctx: LeaseGenerationContext, config: LeaseJurisdi
     (isEntireHomeListing(subNorm!) || (!specificRoom && !subNorm!.rooms.some((r) => r.name.trim())));
 
   const roomLabel = escapeHtml(
-    stripPreviewFinancials
+    stripPreviewIdentity
       ? PROPERTY_LEASE_TEMPLATE_PLACEHOLDER
       : bundlePremisesLabel ||
           (wholeHome ? "Entire home" : "") ||
@@ -547,7 +568,7 @@ export function buildLeaseHtml(ctx: LeaseGenerationContext, config: LeaseJurisdi
           "[ROOM NUMBER]",
   );
   const fullPremises = escapeHtml(
-    stripPreviewFinancials
+    stripPreviewIdentity
       ? PROPERTY_LEASE_TEMPLATE_PLACEHOLDER
       : [
           sub?.buildingName ?? list?.buildingName ?? room?.buildingName,
@@ -581,9 +602,8 @@ export function buildLeaseHtml(ctx: LeaseGenerationContext, config: LeaseJurisdi
   // ── Rent & financials ─────────────────────────────────────────────────────
   const bundleRentLabel = leasedBundle?.price.trim() || "";
   const entireHomeRent = wholeHome && subNorm ? entireHomeMonthlyRentAmount(subNorm) : 0;
-  const monthlyRentBaseStr = stripPreviewFinancials
-    ? "—"
-    : (isDailyBasis ? `${fmtUsd(dailyBasisRate!)} / day` : "") ||
+  const monthlyRentBaseStr =
+    (isDailyBasis ? `${fmtUsd(dailyBasisRate!)} / day` : "") ||
       overrideFeeLabel(a.managerRentOverride, "") ||
       signedRentLabel ||
       bundleRentLabel ||
@@ -602,9 +622,7 @@ export function buildLeaseHtml(ctx: LeaseGenerationContext, config: LeaseJurisdi
     formatUtilitiesListingLine(utilitiesModel, specificRoom?.utilitiesEstimate?.trim()) ||
     (sub ? utilitiesListingEstimateLabel(sub) : "") ||
     "—";
-  const utilitiesStr = stripPreviewFinancials
-    ? "—"
-    : escapeHtml(overrideFeeLabel(a.managerUtilitiesOverride, utilitiesBase));
+  const utilitiesStr = escapeHtml(overrideFeeLabel(a.managerUtilitiesOverride, utilitiesBase));
   const utilitiesNum =
     utilitiesModel === "manager_billed" && !a.managerUtilitiesOverride?.trim()
       ? parseAmount(specificRoom?.utilitiesEstimate?.trim() || utilitiesBase)
@@ -626,13 +644,11 @@ export function buildLeaseHtml(ctx: LeaseGenerationContext, config: LeaseJurisdi
   // picked the field the ledger will charge (override, then shortTermDeposit or
   // securityDeposit keyed on rentalType). Recomputing it here let the document and the ledger
   // drift the moment either rule changed.
-  const secDep = escapeHtml(stripPreviewFinancials ? "—" : stay.deposit !== undefined ? fmtUsd(stay.deposit) : "—");
+  const secDep = escapeHtml(stay.deposit !== undefined ? fmtUsd(stay.deposit) : "—");
   // Room-first, then the listing, matching the ledger. A room carrying its own move-in fee
   // is charged that fee, so a lease quoting the listing's figure understates what is owed.
   const moveInFee = escapeHtml(
-    stripPreviewFinancials
-      ? "—"
-      : overrideFeeLabel(
+    overrideFeeLabel(
           a.managerMoveInFeeOverride,
           specificRoom?.moveInFee?.trim() || sub?.moveInFee || "—",
         ),
@@ -649,9 +665,7 @@ export function buildLeaseHtml(ctx: LeaseGenerationContext, config: LeaseJurisdi
   // total due at signing — a lease that omits a billed charge is a legal problem. Only
   // genuinely-custom rows are listed here (preset-backed rows render through their own lines);
   // monthly preset + custom fees are resolved separately via leaseDocumentFeeLines.
-  const billableOneTimeCustomFees = stripPreviewFinancials
-    ? []
-    : (sub?.customFees ?? []).filter((fee) => {
+  const billableOneTimeCustomFees = (sub?.customFees ?? []).filter((fee) => {
     const presetId = (fee as { presetId?: string }).presetId;
     if (presetId && presetId !== "custom") return false;
     if (fee.frequency !== "one-time") return false;
@@ -669,7 +683,7 @@ export function buildLeaseHtml(ctx: LeaseGenerationContext, config: LeaseJurisdi
     leaseTerm: a.leaseTerm,
     rentalType: a.rentalType,
   };
-  const leaseDocFees = stripPreviewFinancials || !subNorm
+  const leaseDocFees = !subNorm
     ? { oneTime: [], monthly: [] }
     : leaseDocumentFeeLines(subNorm, leaseBasicsSection, leaseFeeBillingContext);
   // Monthly preset + custom fees (parking, MTM surcharge, custom lease, etc.) bill recurring
@@ -714,7 +728,7 @@ export function buildLeaseHtml(ctx: LeaseGenerationContext, config: LeaseJurisdi
   const paySigningNum =
     leaseBilling?.dueAtSigning != null ? leaseBilling.dueAtSigning : computedSigning;
   const paySigning = escapeHtml(
-    stripPreviewFinancials ? "—" : paySigningNum > 0 ? fmtUsd(paySigningNum) : "—",
+    paySigningNum > 0 ? fmtUsd(paySigningNum) : "—",
   );
   const paySigningIncludesNote = sub
     ? escapeHtml(paymentAtSigningIncludedLabels(sub))
@@ -886,7 +900,7 @@ export function buildLeaseHtml(ctx: LeaseGenerationContext, config: LeaseJurisdi
   // Both partial-month figures are resolved BEFORE the short-term branch returns, because
   // the stay agreement quotes them too — a short stay that straddles a month boundary
   // prorates its utilities exactly like a long-term lease does.
-  const proratedFirstMonthTotals = stripPreviewFinancials
+  const proratedFirstMonthTotals = stripPreviewIdentity
     ? null
     : computeProratedFirstMonthTotals({
         monthlyRent: leaseBilling?.monthlyRent ?? rentNum ?? 0,
@@ -904,14 +918,14 @@ export function buildLeaseHtml(ctx: LeaseGenerationContext, config: LeaseJurisdi
     proratedFirstMonthTotals?.applies && proratedFirstMonthTotals.total > 0
       ? proratedFirstMonthTotals.total
       : 0;
-  const proratedRentAmount = stripPreviewFinancials
+  const proratedRentAmount = stripPreviewIdentity
     ? 0
     : proratedFirstMonthTotals?.proratedRent ?? leaseBilling?.proratedRent ?? 0;
-  const proratedUtilitiesAmount = stripPreviewFinancials
+  const proratedUtilitiesAmount = stripPreviewIdentity
     ? 0
     : proratedFirstMonthTotals?.proratedUtilities ?? leaseBilling?.proratedUtilities ?? 0;
   const showProratedFirstMonth = firstPartialMonthPayment > 0;
-  const firstMonthLabel = stripPreviewFinancials ? "" : prorationMonthLabel(a.leaseStart);
+  const firstMonthLabel = stripPreviewIdentity ? "" : prorationMonthLabel(a.leaseStart);
 
   // Same guard the ledger uses: a daily-priced term that begins and ends inside one calendar
   // month is billed once as its first period, so it has no separate last month.
@@ -933,7 +947,7 @@ export function buildLeaseHtml(ctx: LeaseGenerationContext, config: LeaseJurisdi
       : "";
 
   const endsInsideFirstMonth = isDailyBasis && intraMonthStaySpan(a.leaseStart, a.leaseEnd) !== null;
-  const lastMonthTotals: ProratedLastMonthTotals | null = stripPreviewFinancials
+  const lastMonthTotals: ProratedLastMonthTotals | null = stripPreviewIdentity
     ? null
     : computeProratedLastMonthTotals({
         monthlyRent: leaseBilling?.monthlyRent ?? rentNum ?? 0,

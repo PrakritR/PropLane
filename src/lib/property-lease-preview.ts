@@ -109,11 +109,41 @@ function formatCustomLeaseClausesHtml(terms: string): string {
 }
 
 /** Keep only location signals needed for jurisdiction; omit listing-specific lease fields. */
+/**
+ * The submission a property-level TEMPLATE preview is generated from.
+ *
+ * Identity is dropped — building name, address, neighbourhood, room names — so
+ * the template does not read as though it is already bound to one placement.
+ * The ZIP survives because the jurisdiction is chosen from it.
+ *
+ * PRICING SURVIVES TOO. It used to not, and the result was PRP-124: a manager
+ * opened the lease on their Property → Lease tab and the payment section was a
+ * column of em dashes, because the generator had been handed an empty
+ * submission and had no rent, deposit or fee to print. Rent, deposit, move-in
+ * fee, utilities and the fee schedule are configured on the LISTING, not chosen
+ * at placement, so a template that hides them is hiding facts it already knows.
+ *
+ * Rooms are carried for their MONEY and stripped of their names, which is the
+ * same split: `stripPreviewIdentity` in the template still prints "Filled at
+ * placement" for which room, while the rent that room costs is real.
+ */
 function jurisdictionStubFromSubmission(sub: ManagerListingSubmissionV1): ManagerListingSubmissionV1 {
   const source = normalizeManagerListingSubmissionV1(sub);
   return normalizeManagerListingSubmissionV1({
     ...createDefaultListingSubmission(),
     zip: source.zip,
+    securityDeposit: source.securityDeposit,
+    moveInFee: source.moveInFee,
+    customFees: source.customFees,
+    monthToMonthSurcharge: source.monthToMonthSurcharge,
+    rooms: source.rooms.map((room) => ({
+      ...room,
+      // Identity out, money in.
+      name: "",
+      floor: "",
+      photoDataUrls: [],
+      videoDataUrl: null,
+    })),
   });
 }
 
@@ -135,9 +165,12 @@ export function leasePreviewContextFromSubmission(
   // A ternary rather than `&&`: the `&&` form yields `false` when not previewing
   // listing fees, and `false.name` is a type error at the use site below.
   // `undefined` is the same falsy value every reader already handles.
-  const previewRoom = listingFeePreview
-    ? (previewSubmission.rooms.find((r) => r.name.trim()) ?? previewSubmission.rooms[0])
-    : undefined;
+  // A room is selected in BOTH modes now: the template preview needs one to
+  // quote a rent (PRP-124). In template mode its name is blank and the document
+  // prints "Filled at placement" for the premises, so selecting it leaks no
+  // identity — only the price.
+  const previewRoom =
+    previewSubmission.rooms.find((r) => r.name.trim()) ?? previewSubmission.rooms[0];
   const previewAddress = listingFeePreview ? formatLeaseAddressForDisplay(previewSubmission) : null;
 
   const listingProperty: MockProperty = {
