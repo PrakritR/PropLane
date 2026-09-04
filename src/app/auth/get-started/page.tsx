@@ -24,7 +24,7 @@ import { safeNextPath } from "@/lib/auth/safe-next-path";
 import { createSupabaseBrowserClient } from "@/lib/supabase/browser";
 import { useRouter, useSearchParams } from "next/navigation";
 import posthog from "posthog-js";
-import { Suspense, useEffect, useMemo, useState } from "react";
+import { Suspense, useEffect, useMemo, useRef, useState } from "react";
 
 /**
  * Portal chooser for a signed-in user with no portal role yet (new OAuth/email login),
@@ -136,6 +136,30 @@ function GetStartedContent() {
     }
     await navigateAfterRoleSignup(result.redirectTo);
   };
+
+  /**
+   * A role carried on the URL (`?role=resident`) means the user already told us
+   * who they are — clicking through an apply or tour link, or picking Resident
+   * at signup. Asking again is the complaint in AXI-152 / AXI-126.
+   *
+   * Only honoured for a role this chooser would actually OFFER: in add-portal
+   * mode the options are the roles the account does NOT yet hold, so a param
+   * naming one it already has is ignored rather than re-provisioned. Runs once —
+   * `autoChoseRef` stops a re-render or a failed provision from looping.
+   */
+  const autoChoseRef = useRef(false);
+  useEffect(() => {
+    if (autoChoseRef.current || resolving || busy) return;
+    const requested = searchParams.get("role")?.trim() ?? "";
+    if (!requested) return;
+    if (!pickerOptions.some((opt) => opt.id === requested)) return;
+    autoChoseRef.current = true;
+    void choose(requested);
+    // `choose` is redefined every render; the ref guard is what makes this
+    // one-shot, so it is deliberately not a dependency.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [busy, pickerOptions, resolving, searchParams]);
+
 
   const signOut = async () => {
     const supabase = createSupabaseBrowserClient();
