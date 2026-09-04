@@ -42,6 +42,10 @@ vi.mock("@/lib/demo-property-pipeline", () => ({
 
 vi.mock("@/lib/manager-portfolio-access", () => ({
   readLinkedListingsForUser: vi.fn(() => []),
+  // `viewerHasCalendarAccess` consults this for anyone who is not the listing
+  // owner; an empty set means "no granted houses", which is what these fixtures
+  // describe for every viewer except owner-1.
+  collectLinkedPropertyIdsForModule: vi.fn(() => new Set<string>()),
 }));
 
 vi.mock("@/lib/pro-relationships", () => ({
@@ -76,7 +80,7 @@ describe("co-manager-calendar", () => {
     expect(result.map((peer) => peer.userId).sort()).toEqual(["cm-1", "owner-1"]);
   });
 
-  it("shows pending tours only to the manager who received the inquiry", () => {
+  it("AXI-159: shows a pending tour to everyone with calendar access to the house", () => {
     const filter: ScheduledTourFilter = { viewerUserId: "owner-1", propertyId: "prop-1", peers };
     const row = {
       id: "inq-1",
@@ -93,13 +97,23 @@ describe("co-manager-calendar", () => {
       createdAt: "2026-06-29T00:00:00.000Z",
     } satisfies PartnerInquiry;
 
-    expect(tourInquiryVisibleToViewer(row, filter)).toBe(false);
+    // Booked with the co-manager, but on the owner's house: the owner sees it.
+    // It used to be visible to the booked manager alone, so a request on a house
+    // someone else runs day to day was invisible to them.
+    expect(tourInquiryVisibleToViewer(row, filter)).toBe(true);
     expect(
       tourInquiryVisibleToViewer({ ...row, managerUserId: "owner-1" }, filter),
     ).toBe(true);
+    // Access is still the gate — a house nobody granted stays hidden.
+    expect(tourInquiryVisibleToViewer({ ...row, propertyId: "prop-9" }, { ...filter, propertyId: null })).toBe(
+      false,
+    );
   });
 
-  it("hides confirmed peer tours when viewer was not available", () => {
+  it("AXI-159: a confirmed tour no longer depends on who published availability", () => {
+    // The peer rule used to require PUBLISHED AVAILABILITY at that exact slot, so
+    // a co-manager who never opened the availability grid — the common case — had
+    // a confirmed tour on their own house simply not appear.
     vi.mocked(readAvailabilityDateSetForStorageKey).mockReturnValue(new Set());
     const filter: ScheduledTourFilter = { viewerUserId: "owner-1", propertyId: "prop-1", peers };
     const event = {
@@ -112,7 +126,48 @@ describe("co-manager-calendar", () => {
       propertyId: "prop-1",
     } satisfies PlannedEvent;
 
-    expect(plannedTourVisibleToViewer(event, filter)).toBe(false);
+    expect(plannedTourVisibleToViewer(event, filter)).toBe(true);
+  });
+
+  it("AXI-159: an assigned tour reaches the assignee even without house access", () => {
+    const filter: ScheduledTourFilter = { viewerUserId: "cm-2", propertyId: null, peers };
+    const event = {
+      id: "planned-1",
+      title: "Tour · Guest",
+      start: sharedStart,
+      end: "2026-06-30T21:30:00.000Z",
+      kind: "tour",
+      managerUserId: "owner-1",
+      propertyId: "prop-1",
+      assignee: { type: "team", id: "cm-2", name: "Second Manager" },
+    } satisfies PlannedEvent;
+
+    expect(plannedTourVisibleToViewer(event, filter)).toBe(true);
+    // A vendor id is not a user id, so it must never match a viewer.
+    expect(
+      plannedTourVisibleToViewer(
+        { ...event, assignee: { type: "vendor", id: "cm-2", name: "Vendor" } },
+        filter,
+      ),
+    ).toBe(false);
+  });
+
+  it("AXI-159: an assigned task block lands on the assignee's calendar", () => {
+    // Assigning a tour creates a task block for that person — the whole point
+    // being that it shows up on THEIR calendar, not the assigner's.
+    const filter: ScheduledTourFilter = { viewerUserId: "cm-2", propertyId: null, peers };
+    const event = {
+      id: "task-1",
+      title: "Tour · Guest",
+      start: sharedStart,
+      end: "2026-06-30T21:30:00.000Z",
+      kind: "task",
+      managerUserId: "owner-1",
+      assignee: { type: "team", id: "cm-2", name: "Second Manager" },
+    } satisfies PlannedEvent;
+
+    expect(plannedTaskVisibleToViewer(event, filter)).toBe(true);
+    expect(plannedTaskVisibleToViewer({ ...event, assignee: undefined }, filter)).toBe(false);
   });
 
   it("filters tours by multiple property ids", () => {

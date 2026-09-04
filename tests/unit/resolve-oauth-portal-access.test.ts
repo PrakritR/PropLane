@@ -147,6 +147,48 @@ describe("resolveOAuthPortalRedirect", () => {
     expect(path).toBe("/auth/connect-google-services");
   });
 
+  it("AXI-152: a resident-intent prospect is never asked which portal they want", async () => {
+    // They clicked "Apply" or a tour link, which carries role=resident. The OAuth
+    // round trip preserves that as the intent, so the chooser is handed the role
+    // and provisions instead of re-asking on the far side of a Google redirect.
+    const { resolveOAuthPortalRedirect } = await import("@/lib/auth/resolve-oauth-portal-access");
+
+    const user = { id: "user-1", email: "prospect@test.com" } as User;
+    const path = await resolveOAuthPortalRedirect(mockSupabase() as never, user, "/auth/continue", {
+      intent: "resident",
+    });
+
+    expect(path).toBe("/auth/get-started?role=resident");
+  });
+
+  it("AXI-152: keeps where the prospect was going through the chooser", async () => {
+    const { resolveOAuthPortalRedirect } = await import("@/lib/auth/resolve-oauth-portal-access");
+
+    const user = { id: "user-1", email: "prospect@test.com" } as User;
+    const path = await resolveOAuthPortalRedirect(
+      mockSupabase() as never,
+      user,
+      "/resident/applications/apply",
+      { intent: "resident" },
+    );
+
+    expect(path).toContain("role=resident");
+    expect(path).toContain("next=%2Fresident%2Fapplications%2Fapply");
+  });
+
+  it("AXI-152: vendor intent still stops at the chooser", async () => {
+    // Vendors arrive by invite, so the intent alone has not answered the question
+    // the way an apply link does for a resident.
+    const { resolveOAuthPortalRedirect } = await import("@/lib/auth/resolve-oauth-portal-access");
+
+    const user = { id: "user-1", email: "vendor@test.com" } as User;
+    const path = await resolveOAuthPortalRedirect(mockSupabase() as never, user, "/auth/continue", {
+      intent: "vendor",
+    });
+
+    expect(path).toBe("/auth/get-started");
+  });
+
   it("routes failed approved resident signup to create-account with error", async () => {
     const { resolveOAuthPortalRedirect } = await import("@/lib/auth/resolve-oauth-portal-access");
     completeResidentSignupFromOAuth.mockResolvedValue({

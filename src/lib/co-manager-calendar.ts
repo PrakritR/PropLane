@@ -171,32 +171,65 @@ function viewerHasCalendarAccess(viewerUserId: string, propertyId: string): bool
   return collectLinkedPropertyIdsForModule(viewerUserId, "calendar").has(pid);
 }
 
-/** Pending tour requests are visible only to the manager who was available when the guest booked. */
+/**
+ * Pending tour requests: the manager it was booked with, plus any co-manager with
+ * calendar access to that property.
+ *
+ * It used to be the booked manager alone (AXI-159), so a request on a house a
+ * co-manager runs day to day was invisible to them — nobody could confirm it but
+ * the owner, and the co-manager could not even see that a prospect was waiting.
+ */
 export function tourInquiryVisibleToViewer(row: PartnerInquiry, filter: ScheduledTourFilter): boolean {
   if (row.kind !== "tour" || row.status !== "pending") return false;
   if (!eventMatchesScheduledTourProperty(row.propertyId, filter)) return false;
-  return row.managerUserId === filter.viewerUserId;
+  if (row.managerUserId === filter.viewerUserId) return true;
+  const propertyId = row.propertyId?.trim();
+  if (!propertyId) return false;
+  return viewerHasCalendarAccess(filter.viewerUserId, propertyId);
 }
 
-/** Manager task blocks: owner only, scoped to the calendar's selected house(s). */
+/**
+ * Manager task blocks: the owner, plus whoever the task was ASSIGNED to.
+ *
+ * Assigning a tour creates a task block for that person — the whole point being
+ * that it lands on their calendar (AXI-159). Owner-only meant it landed on the
+ * assigner's instead.
+ */
 export function plannedTaskVisibleToViewer(event: PlannedEvent, filter: ScheduledTourFilter): boolean {
   if (event.kind !== "task") return false;
-  if (event.managerUserId !== filter.viewerUserId) return false;
+  if (event.managerUserId !== filter.viewerUserId && !isAssignedToViewer(event.assignee, filter.viewerUserId)) {
+    return false;
+  }
   if (!event.propertyId?.trim()) return true;
   return eventMatchesScheduledTourProperty(event.propertyId, filter);
 }
 
-/** Confirmed tours: assigned host always; co-manager peers only if they were available at booking time. */
+/**
+ * Confirmed tours: the host, plus anyone with calendar access to that property.
+ *
+ * A peer used to be shown the tour only if they had PUBLISHED AVAILABILITY at that
+ * exact slot (AXI-159). A co-manager who never opened their availability grid —
+ * the common case — therefore had a confirmed tour on a house they run simply not
+ * appear, which reads as the booking having been lost. Access to the house's
+ * calendar is the right test; who happened to be free at booking time is not.
+ */
 export function plannedTourVisibleToViewer(event: PlannedEvent, filter: ScheduledTourFilter): boolean {
   if (event.kind !== "tour") return false;
   if (!eventMatchesScheduledTourProperty(event.propertyId, filter)) return false;
   if (event.managerUserId === filter.viewerUserId) return true;
+  if (isAssignedToViewer(event.assignee, filter.viewerUserId)) return true;
   const eventPropertyId = event.propertyId?.trim();
   if (!eventPropertyId) return false;
-  if (!viewerHasCalendarAccess(filter.viewerUserId, eventPropertyId)) return false;
-  const isPeer = filter.peers.some((peer) => peer.userId === event.managerUserId && !peer.isSelf);
-  if (!isPeer) return false;
-  return managerHadAvailabilityAtSlot(filter.viewerUserId, eventPropertyId, event.start);
+  return viewerHasCalendarAccess(filter.viewerUserId, eventPropertyId);
+}
+
+/** A team assignment names a co-manager's user id; a vendor id never matches one. */
+function isAssignedToViewer(
+  assignee: PlannedEvent["assignee"] | undefined,
+  viewerUserId: string,
+): boolean {
+  if (!assignee || assignee.type !== "team") return false;
+  return assignee.id.trim() !== "" && assignee.id.trim() === viewerUserId.trim();
 }
 
 export function coManagerOverlaysFromPeers(

@@ -7,6 +7,7 @@ import {
   type ManagerTask,
 } from "@/lib/manager-tasks";
 import { normalizeAssignee } from "@/lib/work-assignment";
+import { viewerAndLinkedOwnerIdsForModule } from "@/lib/auth/co-manager-module-scope";
 
 function durationBetween(start: string, end: string): number {
   const ms = Date.parse(end) - Date.parse(start);
@@ -46,8 +47,81 @@ async function writeTasksRecord(db: SupabaseClient, managerUserId: string, tasks
   if (error) throw error;
 }
 
+/** A team assignment names a co-manager's user id; a vendor id is a vendor row id. */
+function taskAssignedTo(task: ManagerTask, userId: string): boolean {
+  const assignee = task.assignee;
+  if (!assignee || assignee.type !== "team") return false;
+  return assignee.id.trim() !== "" && assignee.id.trim() === userId.trim();
+}
+
+/**
+ * Every task record this viewer may read: their own, plus the linked owners'.
+ *
+ * Tasks are stored one row per manager, so a task the OWNER created and assigned
+ * to a co-manager lives in the owner's row. Reading only the caller's own row is
+ * why an assigned tour never reached the assignee's list (AXI-159).
+ */
+async function readTaskRecordsForViewer(
+  db: SupabaseClient,
+  viewerUserId: string,
+): Promise<{ ownerUserId: string; tasks: ManagerTask[] }[]> {
+  let ownerIds: string[] = [viewerUserId];
+  try {
+    ownerIds = await viewerAndLinkedOwnerIdsForModule(db, viewerUserId, "calendar");
+  } catch {
+    // A failed scope read must not blank the viewer's OWN tasks — degrade to them.
+    ownerIds = [viewerUserId];
+  }
+  const records = await Promise.all(
+    ownerIds.map(async (ownerUserId) => {
+      try {
+        return { ownerUserId, tasks: await readTasksRecord(db, ownerUserId) };
+      } catch {
+        return { ownerUserId, tasks: [] as ManagerTask[] };
+      }
+    }),
+  );
+  return records;
+}
+
+/**
+ * The viewer's own tasks, plus tasks a linked owner ASSIGNED to them.
+ *
+ * Only assigned rows cross the boundary — a co-manager sees the one job they
+ * were given, never the owner's whole task list.
+ */
 export async function loadManagerTasks(db: SupabaseClient, managerUserId: string): Promise<ManagerTask[]> {
-  return readTasksRecord(db, managerUserId);
+  const records = await readTaskRecordsForViewer(db, managerUserId);
+  const own = records.find((r) => r.ownerUserId === managerUserId)?.tasks ?? [];
+  const seen = new Set(own.map((t) => t.id));
+  const assigned = records
+    .filter((r) => r.ownerUserId !== managerUserId)
+    .flatMap((r) => r.tasks.filter((task) => taskAssignedTo(task, managerUserId)))
+    .filter((task) => (seen.has(task.id) ? false : (seen.add(task.id), true)));
+  return [...own, ...assigned];
+}
+
+/**
+ * The owner whose record holds a task this viewer may WRITE — their own record
+ * first, then a linked owner's record but ONLY for a task assigned to them.
+ *
+ * Without this an assignee could see a task and not tick it off, which is worse
+ * than not seeing it: the card is there and does nothing.
+ */
+async function ownerRecordForWritableTask(
+  db: SupabaseClient,
+  viewerUserId: string,
+  taskId: string,
+): Promise<{ ownerUserId: string; tasks: ManagerTask[] } | null> {
+  const records = await readTaskRecordsForViewer(db, viewerUserId);
+  const own = records.find((r) => r.ownerUserId === viewerUserId);
+  if (own?.tasks.some((task) => task.id === taskId)) return own;
+  for (const record of records) {
+    if (record.ownerUserId === viewerUserId) continue;
+    const task = record.tasks.find((t) => t.id === taskId);
+    if (task && taskAssignedTo(task, viewerUserId)) return record;
+  }
+  return null;
 }
 
 export async function saveManagerTasks(
@@ -113,9 +187,19 @@ export async function patchManagerTaskRow(
   taskId: string,
   patch: Record<string, unknown>,
 ): Promise<ManagerTask> {
-  const tasks = await readTasksRecord(db, managerUserId);
+  // The record may be a linked owner's, when the task was assigned to this
+  // viewer — see ownerRecordForWritableTask. Everything below then edits and
+  // saves THAT record, never the viewer's own.
+  const record = await ownerRecordForWritableTask(db, managerUserId, taskId);
+  if (!record) throw new Error("Task not found.");
+  const { ownerUserId, tasks } = record;
   const current = tasks.find((row) => row.id === taskId);
   if (!current) throw new Error("Task not found.");
+  // An assignee may work their own task, not reassign it away or move it to
+  // another house — that stays the owner's call.
+  if (ownerUserId !== managerUserId && (patch.assignee !== undefined || patch.propertyId !== undefined)) {
+    throw new Error("Task not found.");
+  }
   const start =
     patch.start !== undefined
       ? typeof patch.start === "string"
@@ -186,7 +270,7 @@ export async function patchManagerTaskRow(
     updatedAt: new Date().toISOString(),
   };
   const updated = tasks.map((row) => (row.id === taskId ? next : row));
-  await saveManagerTasks(db, managerUserId, updated);
+  await saveManagerTasks(db, ownerUserId, updated);
   return next;
 }
 
