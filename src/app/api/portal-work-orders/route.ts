@@ -21,6 +21,7 @@ import {
   syncWorkOrderToGoogleCalendar,
   workOrderGoogleCalendarSyncChanged,
 } from "@/lib/google-calendar/sync.server";
+import { attachManagerNamesToWorkOrders } from "@/lib/work-order-manager-names.server";
 
 export const runtime = "nodejs";
 
@@ -34,29 +35,6 @@ async function sessionUser() {
     data: { user },
   } = await supabase.auth.getUser();
   return user;
-}
-
-async function attachManagerNamesToWorkOrders(
-  db: Db,
-  rows: DemoManagerWorkOrderRow[],
-): Promise<DemoManagerWorkOrderRow[]> {
-  const managerIds = [...new Set(rows.map((row) => row.managerUserId?.trim()).filter(Boolean))] as string[];
-  if (managerIds.length === 0) return rows;
-
-  const { data: profiles } = await db.from("profiles").select("id, full_name").in("id", managerIds);
-  const nameById = new Map<string, string>();
-  for (const profile of profiles ?? []) {
-    const id = String(profile.id ?? "").trim();
-    const name = typeof profile.full_name === "string" ? profile.full_name.trim() : "";
-    if (id && name) nameById.set(id, name);
-  }
-
-  return rows.map((row) => {
-    const managerId = row.managerUserId?.trim();
-    if (!managerId) return row;
-    const managerName = nameById.get(managerId);
-    return managerName ? { ...row, managerName } : row;
-  });
 }
 
 async function vendorScopedWorkOrderRows(db: Db, vendorUserId: string): Promise<DemoManagerWorkOrderRow[]> {
