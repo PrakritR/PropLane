@@ -1927,7 +1927,8 @@ export const ManagerInbox = forwardRef<
                 {scheduledCards}
               </div>
             ) : null}
-            {inboundWorkflowSuggestions.length > 0 && activeThread.folder !== "trash" && !activeIsSent ? (
+            {/* `folder` is already narrowed to "sent" | "inbox" by the trash guard above. */}
+            {inboundWorkflowSuggestions.length > 0 && !activeIsSent ? (
               <InboundMessageWorkflowCard
                 suggestions={inboundWorkflowSuggestions}
                 onSelect={openInboundWorkflow}
