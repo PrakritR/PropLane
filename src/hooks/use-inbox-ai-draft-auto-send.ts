@@ -3,11 +3,13 @@
 import { useCallback, useEffect, useState } from "react";
 import { useAppUi } from "@/components/providers/app-ui-provider";
 import { isDemoModeActive } from "@/lib/demo/demo-session";
+import { usePortalSession } from "@/hooks/use-portal-session";
 import { PAYMENT_AUTOMATION_SETTINGS_EVENT } from "@/lib/payment-automation-settings";
 
 export function useInboxAiDraftAutoSend() {
   const { showToast } = useAppUi();
   const demo = isDemoModeActive();
+  const { userId, ready } = usePortalSession();
   const [enabled, setEnabledLocal] = useState(false);
 
   const load = useCallback(async () => {
@@ -26,11 +28,12 @@ export function useInboxAiDraftAutoSend() {
   }, [demo]);
 
   useEffect(() => {
+    if (!demo && (!ready || !userId)) return;
     void load();
     const onSettings = () => void load();
     window.addEventListener(PAYMENT_AUTOMATION_SETTINGS_EVENT, onSettings);
     return () => window.removeEventListener(PAYMENT_AUTOMATION_SETTINGS_EVENT, onSettings);
-  }, [load]);
+  }, [demo, load, ready, userId]);
 
   const setEnabled = useCallback(
     (next: boolean) => {

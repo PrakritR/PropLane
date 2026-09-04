@@ -96,7 +96,7 @@ export function ManagerCommunication({
 }) {
   const portalBase = usePaidPortalBasePath();
   const commBase = `${portalBase}/communication`;
-  const { userId } = useManagerUserId();
+  const { userId, ready: sessionReady } = useManagerUserId();
   const { activeThreadId, setActiveThreadId } = useCommunicationThreadId(commBase, threadId);
   const inboxRef = useRef<ManagerInboxHandle>(null);
   const smsRef = useRef<ManagerSmsPanelHandle>(null);
@@ -137,7 +137,7 @@ export function ManagerCommunication({
   const loadSmsRecipients = useCallback(async () => {
     // Load conversation directory when SMS UI is on OR the work number can send
     // (inbox replies to inbound texts need rows even while the SMS panel is hidden).
-    if (!smsOutboundEnabled) return;
+    if (!sessionReady || !userId || !smsOutboundEnabled) return;
     try {
       const res = await fetch("/api/manager/sms-conversations", { credentials: "include", cache: "no-store" });
       if (!res.ok) return;
@@ -147,9 +147,10 @@ export function ManagerCommunication({
     } catch {
       /* keep prior list */
     }
-  }, [smsOutboundEnabled]);
+  }, [sessionReady, smsOutboundEnabled, userId]);
 
   useEffect(() => {
+    if (!sessionReady || !userId) return;
     let cancelled = false;
     void fetch("/api/manager/messaging-number", { credentials: "include", cache: "no-store" })
       .then((res) => (res.ok ? res.json() : null))
@@ -163,7 +164,7 @@ export function ManagerCommunication({
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [sessionReady, userId]);
 
   useEffect(() => {
     void loadSmsRecipients();

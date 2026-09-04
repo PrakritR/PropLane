@@ -156,6 +156,38 @@ async function ensureManagerLandlordProfile(managerUserId, legalName) {
   );
 }
 
+/** Skip Google-services onboarding gate for seeded E2E/QA managers. */
+async function ensureGoogleServicesOnboardingDismissed(managerUserId) {
+  const { data: existing } = await supabase
+    .from("manager_automation_settings")
+    .select("row_data")
+    .eq("manager_user_id", managerUserId)
+    .maybeSingle();
+  const rowData =
+    existing?.row_data && typeof existing.row_data === "object" && !Array.isArray(existing.row_data)
+      ? { ...existing.row_data }
+      : {};
+  const nested =
+    rowData.googleServicesOnboarding &&
+    typeof rowData.googleServicesOnboarding === "object" &&
+    !Array.isArray(rowData.googleServicesOnboarding)
+      ? rowData.googleServicesOnboarding
+      : {};
+  if (typeof nested.dismissedAt === "string" && nested.dismissedAt.trim()) return;
+  rowData.googleServicesOnboarding = { dismissedAt: NOW.toISOString() };
+  await must(
+    supabase.from("manager_automation_settings").upsert(
+      {
+        manager_user_id: managerUserId,
+        row_data: rowData,
+        updated_at: NOW.toISOString(),
+      },
+      { onConflict: "manager_user_id" },
+    ),
+    `manager_automation_settings(googleServicesOnboarding:${managerUserId})`,
+  );
+}
+
 const NOW = new Date();
 const isoDate = (d) => d.toISOString().slice(0, 10);
 const daysFromNow = (n) => new Date(NOW.getTime() + n * 86400000);
@@ -575,6 +607,7 @@ try {
   // screening (src/lib/screening/charge-manager.ts) — succeed in test mode.
   await ensureManagerStripeCustomer(stripe, supabase, { email: managerEmail, userId: managerUserId });
   await ensureManagerLandlordProfile(managerUserId, CANONICAL_DEMO_MANAGER_NAME);
+  await ensureGoogleServicesOnboardingDismissed(managerUserId);
 
   // ── Second test manager (public browse catalog) ────────────────────────────
   const manager2Email = (process.env.E2E_MANAGER2_EMAIL?.trim() || "manager2@test.proplane.local").toLowerCase();
@@ -623,6 +656,7 @@ try {
   }
   await ensureManagerStripeCustomer(stripe, supabase, { email: manager2Email, userId: manager2UserId });
   await ensureManagerLandlordProfile(manager2UserId, "Test Manager 2");
+  await ensureGoogleServicesOnboardingDismissed(manager2UserId);
 
   // ── Canonical demo / E2E resident + vendor (mirror /demo idle portfolio) ───
   const residentUserId = await ensureUser(residentEmail, residentPassword, "resident", {

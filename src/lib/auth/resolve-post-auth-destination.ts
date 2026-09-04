@@ -11,6 +11,7 @@ const VALID_CONTINUE_DESTINATIONS = new Set([
   GET_STARTED_PATH,
   "/auth/choose-portal",
   "/auth/manager-register-oauth",
+  "/auth/connect-google-services",
 ]);
 
 function isValidPostAuthDestination(path: string): boolean {

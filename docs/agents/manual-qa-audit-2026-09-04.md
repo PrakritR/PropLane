@@ -25,6 +25,10 @@
 | # | Issue | PRP | Lavish plan | Status |
 | --- | --- | --- | --- | --- |
 | 1 | Signup/get-started on :3011 redirects to :3010 after submit | [PRP-170](https://linear.app/axishousing/issue/PRP-170) | `.lavish/plans/PRP-170-fix-sandbox-port-redirect-on-manager-signup/plan.html` | Fixed — `resolveShareableAppOrigin` honors localhost port; `npm run sandbox:pin -- 3011` |
+| 2 | `/auth/continue` ~55s spinner after password sign-in | [PRP-223](https://linear.app/axishousing/issue/PRP-223) | `.lavish/qa-handoff-2026-09-04.html` (QA-01) | **Fixed** — `isValidPostAuthDestination` whitelists `/auth/connect-google-services` |
+| 3 | Calendar empty state hides week nav (e2e) | [PRP-224](https://linear.app/axishousing/issue/PRP-224) | `.lavish/qa-handoff-2026-09-04.html` (QA-02) | **Fixed** — compact calendar renders week nav without a storage key |
+| 4 | Signed-in create-account pricing UI (no bordered callout) | PRP-171 note | — | **Verified fixed** on :3000 |
+| 5 | PRP-184 admin comm flat-tab redirect | [PRP-184](https://linear.app/axishousing/issue/PRP-184) | — | **Verified fixed** |
 
 ## Cursor 1 log (resident)
 

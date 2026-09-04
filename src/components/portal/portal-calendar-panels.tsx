@@ -2474,7 +2474,7 @@ export function PortalCalendarPanels({
     />
   ) : null;
 
-  if (!storageKey && !readOnly && writeStorageKeys.length === 0) {
+  if (!storageKey && !readOnly && writeStorageKeys.length === 0 && !compactAvailability) {
     return bareSurface ? (
       <p className="text-sm font-medium text-foreground">{unavailableMessage}</p>
     ) : (

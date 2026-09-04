@@ -664,6 +664,7 @@ export function ResidentServicesPanel({
 
   // Initial data sync — fire syncs sequentially to avoid overwhelming the server/browser
   useEffect(() => {
+    if (!session.ready || !session.userId) return;
     const sync = () => setAllRows(readManagerWorkOrderRows());
     const onProperty = () => setPropertyTick((t) => t + 1);
     queueMicrotask(() => sync());
@@ -702,9 +703,10 @@ export function ResidentServicesPanel({
       window.removeEventListener(MANAGER_WORK_ORDERS_EVENT, sync);
       window.removeEventListener(PROPERTY_PIPELINE_EVENT, onProperty);
     };
-  }, []);
+  }, [session.ready, session.userId]);
 
   useEffect(() => {
+    if (!session.ready || !session.userId) return;
     queueMicrotask(() => reloadServiceRequests());
     void syncServiceRequestsFromServer();
     const onSr = () => setSrTick((t) => t + 1);
@@ -713,7 +715,7 @@ export function ResidentServicesPanel({
       window.removeEventListener(SERVICE_REQUESTS_EVENT, onSr);
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [residentEmail]);
+  }, [residentEmail, session.ready, session.userId]);
 
   useEffect(() => {
     const onLease = () => setLeaseTick((t) => t + 1);

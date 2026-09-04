@@ -323,15 +323,15 @@ export function ResidentApplicationsPanel({
   const autoExpandedApplyIdRef = useRef<string | null>(null);
 
   useEffect(() => {
-    if (!sessionReady) return;
+    if (!sessionReady || !sessionUserId) return;
     const on = () => setTick((t) => t + 1);
     void syncManagerApplicationsFromServer({ force: true, selfScope: true }).then(on);
     window.addEventListener(MANAGER_APPLICATIONS_EVENT, on);
     return () => window.removeEventListener(MANAGER_APPLICATIONS_EVENT, on);
-  }, [sessionReady]);
+  }, [sessionReady, sessionUserId]);
 
   useEffect(() => {
-    if (!applicationIdProp) return;
+    if (!applicationIdProp || !sessionReady || !sessionUserId) return;
     const refresh = () => {
       void syncManagerApplicationsFromServer({ force: true, selfScope: true }).then(() => setTick((t) => t + 1));
     };
@@ -342,7 +342,7 @@ export function ResidentApplicationsPanel({
       window.clearInterval(interval);
       window.removeEventListener("focus", onFocus);
     };
-  }, [applicationIdProp]);
+  }, [applicationIdProp, sessionReady, sessionUserId]);
 
   useEffect(() => {
     if (!demoMode) return;

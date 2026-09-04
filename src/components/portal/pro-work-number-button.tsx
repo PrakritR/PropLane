@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { PORTAL_HEADER_ACTION_BTN } from "@/components/portal/portal-metrics";
+import { useManagerUserId } from "@/hooks/use-manager-user-id";
 import {
   MANAGER_MESSAGING_SETTINGS_HREF,
   type ManagerMessagingNumberStatus,
@@ -23,6 +24,7 @@ import {
  * workspace owners when their own plan is Free.
  */
 export function ManagerWorkNumberButton({ className }: { className?: string }) {
+  const { userId, ready: sessionReady } = useManagerUserId();
   const [status, setStatus] = useState<ManagerMessagingNumberStatus | null>(
     null,
   );
@@ -31,6 +33,7 @@ export function ManagerWorkNumberButton({ className }: { className?: string }) {
   const [attempt, setAttempt] = useState(0);
 
   useEffect(() => {
+    if (!sessionReady || !userId) return;
     let active = true;
     setResolved(false);
     setStatusError(false);
@@ -55,7 +58,7 @@ export function ManagerWorkNumberButton({ className }: { className?: string }) {
     return () => {
       active = false;
     };
-  }, [attempt]);
+  }, [attempt, sessionReady, userId]);
 
   const btnClass = `shrink-0 ${PORTAL_HEADER_ACTION_BTN} ${className ?? ""}`.trim();
 

@@ -1101,6 +1101,7 @@ export function ManagerHousePropertiesPanel({
   detailTab: detailTabProp,
   onAddProperty,
   addPropertyDisabled = false,
+  addPropertyHint,
 }: {
   showToast: (m: string) => void;
   activeStage: ManagerStageKey;
@@ -1113,6 +1114,8 @@ export function ManagerHousePropertiesPanel({
   detailTab?: PropertyDetailTabId;
   onAddProperty?: () => void;
   addPropertyDisabled?: boolean;
+  /** Shown under the ADD label when the row is disabled at plan cap. */
+  addPropertyHint?: string;
 }) {
   const router = useRouter();
   const { userId: managerUserId, ready: authReady } = useManagerUserId();
@@ -1454,6 +1457,7 @@ export function ManagerHousePropertiesPanel({
           label="Add property"
           ariaLabel="Add property"
           icon={PORTAL_LIST_ADD_ICONS.property}
+          hint={addPropertyHint}
           onClick={onAddProperty}
           disabled={addPropertyDisabled}
           dataAttr="manager-properties-create"
