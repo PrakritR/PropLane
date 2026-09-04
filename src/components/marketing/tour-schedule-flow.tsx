@@ -565,6 +565,7 @@ export function TourScheduleFlow({
             property={property}
             roomLabel={selectedRoomLabel}
             contactDefaults={contactAutofill}
+            signedIn={Boolean(signedInUserId)}
             day={selectedDay}
             slotIndex={selectedSlotIndex}
             month={calMonth}
@@ -909,7 +910,7 @@ function Step2({
 
 function Step3({
   property, roomLabel, day, slotIndex, month, year, submitting, onSubmit, fieldErrors, onFieldChange,
-  returnAfterAuth, contactDefaults, embeddedModalLayout, onEmbeddedBookFooterChange,
+  returnAfterAuth, contactDefaults, embeddedModalLayout, onEmbeddedBookFooterChange, signedIn,
 }: {
   property: MockProperty; roomLabel: string; day: number | null; slotIndex: number | null;
   month: number;
@@ -918,6 +919,8 @@ function Step3({
   fieldErrors: Record<string, string>;
   returnAfterAuth: string;
   contactDefaults: ProspectContactAutofill;
+  /** A signed-in resident already has an account and has already consented. */
+  signedIn: boolean;
   embeddedModalLayout?: boolean;
   onEmbeddedBookFooterChange?: (footer: ReactNode | null) => void;
   onFieldChange: (key: string) => void;
@@ -927,7 +930,9 @@ function Step3({
   const [email, setEmail] = useState("");
   const [phone, setPhone] = useState("");
   const [notes, setNotes] = useState("");
-  const [smsConsent, setSmsConsent] = useState(false);
+  // Signed-in residents consented when their account was created; the tick is
+  // not shown to them, so it must not silently submit as "declined".
+  const [smsConsent, setSmsConsent] = useState(signedIn);
   const signInHref = residentSignInHref(returnAfterAuth);
   const onSubmitRef = useRef(onSubmit);
   // Synced in an effect rather than during render; the ref is only read from the
@@ -976,13 +981,20 @@ function Step3({
         {MONTHS[month]} {day}, {year} · {slotIndex != null ? formatAvailabilitySlotLabel(slotIndex) : ""}
       </p>
 
-      <p className="text-sm leading-relaxed text-muted">
-        No account is required to book a tour. Add your contact details below, or{" "}
-        <Link href={signInHref} data-attr="tour-step-sign-in" className="font-semibold text-primary hover:underline">
-          sign in
-        </Link>{" "}
-        if you already have one.
-      </p>
+      {/*
+        Only for a visitor with no account. Inside the resident portal the
+        person is already signed in — telling them no account is required, and
+        offering them a sign-in link, is copy about a situation they are not in.
+      */}
+      {signedIn ? null : (
+        <p className="text-sm leading-relaxed text-muted">
+          No account is required to book a tour. Add your contact details below, or{" "}
+          <Link href={signInHref} data-attr="tour-step-sign-in" className="font-semibold text-primary hover:underline">
+            sign in
+          </Link>{" "}
+          if you already have one.
+        </p>
+      )}
 
       <div className="grid gap-4 sm:grid-cols-2">
         <Field label="Name *" fieldKey="name" error={fieldErrors.name}>
@@ -1029,7 +1041,16 @@ function Step3({
         <textarea id="tour-notes" rows={3} value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Anything we should prepare in advance?" className={`${inputCls} resize-none`} />
       </Field>
 
-      <SmsConsentCheckbox checked={smsConsent} onChange={setSmsConsent} inputId="tour-sms-consent" />
+      {/*
+        Consent is collected once, when the account is created. Re-asking a
+        signed-in resident on every tour implies the earlier answer was not
+        recorded, and an already-ticked box they cannot meaningfully act on is
+        not consent — it is furniture. A visitor with no account still sees it,
+        because for them this IS the first time.
+      */}
+      {signedIn ? null : (
+        <SmsConsentCheckbox checked={smsConsent} onChange={setSmsConsent} inputId="tour-sms-consent" />
+      )}
 
       {!embeddedModalLayout ? (
         <button
