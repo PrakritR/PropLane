@@ -123,3 +123,32 @@ describe("the settings copy offers it rather than redirecting", () => {
     expect(panel).toContain("Your dedicated PropLane number for resident and prospect texts");
   });
 });
+
+describe("the status endpoint actually offers it", () => {
+  const ROUTE = readFileSync(
+    join(process.cwd(), "src/app/api/manager/assistant-email/route.ts"),
+    "utf8",
+  );
+
+  it("canRequest no longer depends on the workspace role", () => {
+    // This was the gate that actually mattered. The POST refusal was visible;
+    // this one quietly made the request button never appear for a co-manager,
+    // so removing only the refusal would have left the feature unreachable.
+    const canRequest = ROUTE.slice(ROUTE.indexOf("canRequest:"), ROUTE.indexOf("canUse:"));
+    expect(canRequest).not.toContain('workspaceRole === "primary"');
+    expect(canRequest).toContain("storageReady");
+    expect(canRequest).toContain("entitlementCanBeReconciled");
+  });
+
+  it("provisioningAvailable does not either", () => {
+    const line = ROUTE.slice(ROUTE.indexOf("provisioningAvailable:"), ROUTE.indexOf("storageReady,"));
+    expect(line).not.toContain("workspaceRole");
+  });
+
+  it("still REPORTS the role, which the copy uses", () => {
+    // Removing the gate must not remove the distinction: a co-manager's
+    // assistant answers about assigned houses, not a portfolio they own, and
+    // the settings copy says so.
+    expect(ROUTE).toContain('const workspaceRole = pureCoManager ? "co_manager" : "primary"');
+  });
+});

@@ -58,18 +58,24 @@ async function buildStatus(
     entitlement.reason === "legacy_unknown";
 
   return {
-    provisioningAvailable: provisioningEnvEnabled && workspaceRole === "primary",
+    // Same reasoning as `canRequest` below — provisioning is available to any
+    // manager account, co-manager included.
+    provisioningAvailable: provisioningEnvEnabled,
     sendingAvailable: sendEnvEnabled,
     storageReady,
     planTier,
     entitlement,
     workspaceRole,
     address: row?.address ?? null,
+    // No `workspaceRole === "primary"` condition. That was the gate that
+    // actually mattered: the POST refusal was visible, but this quietly made the
+    // request button never appear for a co-manager, so removing only the
+    // refusal would have left the feature unreachable. Every manager who clears
+    // the plan check can request their own address.
     canRequest:
       storageReady &&
       entitlementCanBeReconciled &&
       provisioningEnvEnabled &&
-      workspaceRole === "primary" &&
       !row,
     canUse: entitlement.eligible && sendEnvEnabled && Boolean(row),
   };
