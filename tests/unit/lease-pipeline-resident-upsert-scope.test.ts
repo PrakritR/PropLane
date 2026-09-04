@@ -1062,3 +1062,163 @@ describe("portal-lease-pipeline signed-document immutability", () => {
     expect(pin).toBeGreaterThan(guard);
   });
 });
+
+/**
+ * PRP-251 — the signing rules are enforced by the SERVER, not only by the browser store.
+ *
+ * `residentSignLease` refuses a second signature and a row that was never sent, but it runs
+ * in the browser against a store the browser owns, and `row_data` is writable by the row's own
+ * resident. Until these guards existed, a resident could POST a second `residentSignature`
+ * over the first — destroying the document hash the first one recorded, which is the only
+ * evidence of what they actually agreed to — or sign a lease still sitting in manager review.
+ */
+describe("portal-lease-pipeline signature guards", () => {
+  const RESIDENT_SIG = {
+    role: "resident" as const,
+    name: "Resident",
+    signedAtIso: "2026-05-01T00:00:00Z",
+    documentSha256: "aaa",
+  };
+
+  const sendToResident = () => ({
+    ...DEFAULT_STORED_ROW_DATA,
+    bucket: "resident",
+    status: "Resident Signature Pending",
+    generatedHtml: "<p>Lease v1</p>",
+  });
+
+  beforeEach(() => {
+    asResident();
+  });
+
+  it("accepts the resident's first signature on a lease that was sent to them", async () => {
+    STORED.row_data = sendToResident();
+
+    const res = await post({
+      action: "upsert",
+      row: {
+        id: LEASE_ID,
+        residentEmail: RESIDENT_EMAIL,
+        generatedHtml: "<p>Lease v1</p>",
+        bucket: "signed",
+        status: "Manager Signature Pending",
+        residentSignature: RESIDENT_SIG,
+      },
+    });
+
+    expect(res.status).toBe(200);
+  });
+
+  it("refuses a SECOND resident signature over an existing one", async () => {
+    STORED.row_data = { ...sendToResident(), bucket: "signed", status: "Manager Signature Pending", residentSignature: RESIDENT_SIG };
+
+    const res = await post({
+      action: "upsert",
+      row: {
+        id: LEASE_ID,
+        residentEmail: RESIDENT_EMAIL,
+        generatedHtml: "<p>Lease v1</p>",
+        bucket: "signed",
+        status: "Manager Signature Pending",
+        // Same lease, a new signature — and with it a new document hash.
+        residentSignature: { ...RESIDENT_SIG, signedAtIso: "2026-06-01T00:00:00Z", documentSha256: "bbb" },
+      },
+    });
+
+    expect(res.status).toBe(409);
+    expect(upsert).not.toHaveBeenCalled();
+  });
+
+  it("lets an ordinary save resend the same signature unchanged", async () => {
+    STORED.row_data = { ...sendToResident(), bucket: "signed", status: "Manager Signature Pending", residentSignature: RESIDENT_SIG };
+
+    const res = await post({
+      action: "upsert",
+      row: {
+        id: LEASE_ID,
+        residentEmail: RESIDENT_EMAIL,
+        generatedHtml: "<p>Lease v1</p>",
+        bucket: "signed",
+        status: "Manager Signature Pending",
+        residentSignature: { ...RESIDENT_SIG },
+      },
+    });
+
+    expect(res.status).toBe(200);
+  });
+
+  it("refuses a signature on a lease still in manager review — it was never sent", async () => {
+    STORED.row_data = {
+      ...DEFAULT_STORED_ROW_DATA,
+      bucket: "manager",
+      status: "Manager Review",
+      generatedHtml: "<p>Draft</p>",
+    };
+
+    const res = await post({
+      action: "upsert",
+      row: {
+        id: LEASE_ID,
+        residentEmail: RESIDENT_EMAIL,
+        generatedHtml: "<p>Draft</p>",
+        bucket: "manager",
+        status: "Manager Review",
+        residentSignature: RESIDENT_SIG,
+      },
+    });
+
+    expect(res.status).toBe(409);
+    expect(upsert).not.toHaveBeenCalled();
+  });
+
+  /**
+   * The stale-amendment path. The resident's tab holds v1, the manager amends to v2, and the
+   * resident then signs. The write carries the stale body AND a signature, so it would both
+   * revert the amendment and attach a signature to superseded text — the two parties believing
+   * they signed the same document while looking at different ones.
+   */
+  it("refuses a signature that carries a stale document body", async () => {
+    STORED.row_data = { ...sendToResident(), generatedHtml: "<p>Lease v2 (amended)</p>" };
+
+    const res = await post({
+      action: "upsert",
+      row: {
+        id: LEASE_ID,
+        residentEmail: RESIDENT_EMAIL,
+        generatedHtml: "<p>Lease v1</p>",
+        bucket: "signed",
+        status: "Manager Signature Pending",
+        residentSignature: RESIDENT_SIG,
+      },
+    });
+
+    // Caught by the pre-existing "replaced and signed in one request" rule rather than by the
+    // signature guard — the ticket's third scenario was already closed. Pinned so it stays so.
+    expect(res.status).toBe(409);
+    expect(upsert).not.toHaveBeenCalled();
+  });
+
+  it("refuses a resident writing the MANAGER's signature onto a lease awaiting one", async () => {
+    STORED.row_data = { ...sendToResident(), bucket: "signed", status: "Manager Signature Pending", residentSignature: RESIDENT_SIG };
+
+    const res = await post({
+      action: "upsert",
+      row: {
+        id: LEASE_ID,
+        residentEmail: RESIDENT_EMAIL,
+        generatedHtml: "<p>Lease v1</p>",
+        bucket: "signed",
+        status: "Manager Signature Pending",
+        residentSignature: RESIDENT_SIG,
+        managerSignature: { role: "manager", name: "Property Manager", signedAtIso: "2026-05-02T00:00:00Z" },
+        fullySignedAt: "2026-05-02T00:00:00Z",
+      },
+    });
+
+    // From the row's own state this countersignature is legitimate — the lease IS awaiting
+    // one — so the row-state rule has no reason to refuse it. Before the actor rule this was
+    // accepted with a 200, marking the lease fully executed against a manager who never signed.
+    expect(res.status).toBe(403);
+    expect(upsert).not.toHaveBeenCalled();
+  });
+});

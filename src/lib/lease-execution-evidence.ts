@@ -222,3 +222,102 @@ function dataUrlToBytes(dataUrl: string): Uint8Array {
   for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
   return bytes;
 }
+
+/**
+ * Why a signature write must be refused, or `null` when it is legitimate.
+ *
+ * The store's `residentSignLease` already refuses a second signature and a row that was never
+ * sent — but it runs IN the browser, against a store the browser owns, so it is UX rather than
+ * enforcement. `row_data` is writable by the row's own resident, so until this predicate ran
+ * server-side the evidence layer's central promise ("a signature records the document THAT
+ * party was shown, and a substitution is detectable") held only for well-behaved clients.
+ *
+ * Two shapes are refused:
+ *
+ * - **Replacing a signature that already exists.** A second signature over the first destroys
+ *   the hash binding the first one recorded, which is the only evidence of what was signed.
+ *   Echoing the SAME signature back is not a replacement — ordinary saves resend the whole row.
+ * - **Signing a row that is not awaiting that party's signature.** Signing before the lease is
+ *   sent means signing something the other party never agreed to send.
+ *
+ * Deliberately keyed on the signature, not the actor: a manager writing a resident's signature
+ * is the same forgery whoever's session it arrives on.
+ */
+export function leaseSignatureWriteRefusal(
+  stored: Pick<
+    LeasePipelineRow,
+    "bucket" | "status" | "managerSignature" | "residentSignature" | "signatureName" | "signedAtIso"
+  >,
+  next: Pick<LeasePipelineRow, "managerSignature" | "residentSignature">,
+): string | null {
+  for (const role of ["resident", "manager"] as const) {
+    const field = role === "resident" ? "residentSignature" : "managerSignature";
+    const before = stored[field] ?? null;
+    const after = next[field] ?? null;
+    if (!after) continue;
+
+    if (before) {
+      // An unchanged resend is the normal save path, not a re-signing.
+      if (sameLeaseSignature(before, after)) continue;
+      return `This lease already carries the ${role}'s signature; it cannot be signed again.`;
+    }
+
+    if (!leaseAwaitsSignature(stored, role)) {
+      return `This lease is not awaiting the ${role}'s signature.`;
+    }
+  }
+  return null;
+}
+
+/** Two signature records are the same evidence: same signer, same moment, same document. */
+function sameLeaseSignature(
+  a: NonNullable<LeasePipelineRow["residentSignature"]>,
+  b: NonNullable<LeasePipelineRow["residentSignature"]>,
+): boolean {
+  return (
+    a.name === b.name &&
+    a.signedAtIso === b.signedAtIso &&
+    a.role === b.role &&
+    (a.documentSha256 ?? null) === (b.documentSha256 ?? null)
+  );
+}
+
+/** Whether the row is at the point where this party's signature is the expected next step. */
+export function leaseAwaitsSignature(
+  row: Pick<LeasePipelineRow, "bucket" | "status">,
+  role: "manager" | "resident",
+): boolean {
+  if (role === "resident") {
+    return row.bucket === "resident" && row.status === "Resident Signature Pending";
+  }
+  // The manager countersigns only after the resident has signed, which is what moves the row
+  // into the signed bucket — the same pair `managerSignLease` checks in the browser.
+  return row.bucket === "signed" && row.status === "Manager Signature Pending";
+}
+
+/**
+ * The role whose signature this write ADDS on someone else's behalf, or `null`.
+ *
+ * Separate from {@link leaseSignatureWriteRefusal} because the two ask different questions.
+ * That one asks whether the ROW may carry this signature at all; this asks whether the ACTOR
+ * may be the one adding it. Both are needed: a lease sitting at "Manager Signature Pending" is
+ * genuinely awaiting a manager countersignature, so the row-state rule has no reason to refuse
+ * one — which left a resident free to write it and mark the lease fully executed against a
+ * manager who never signed.
+ *
+ * Only ADDING is judged. Clearing signatures is an amendment (governed elsewhere), and
+ * resending an unchanged signature is what every ordinary save does.
+ */
+export function leaseSignatureRoleForgedBy(
+  stored: Pick<LeasePipelineRow, "managerSignature" | "residentSignature">,
+  next: Pick<LeasePipelineRow, "managerSignature" | "residentSignature">,
+  actor: "manager" | "resident",
+): "manager" | "resident" | null {
+  const other = actor === "resident" ? "manager" : "resident";
+  const field = other === "manager" ? "managerSignature" : "residentSignature";
+  const before = stored[field] ?? null;
+  const after = next[field] ?? null;
+  if (!after) return null;
+  if (before && sameLeaseSignature(before, after)) return null;
+  return other;
+}
