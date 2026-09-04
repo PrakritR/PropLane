@@ -120,13 +120,13 @@ async function main() {
 
   const { data: propertyRows, error: propErr } = await db
     .from("manager_property_records")
-    .select("id, row_data, manager_user_id")
+    .select("id, property_data, manager_user_id")
     .in("id", propertyIds);
   if (propErr) throw new Error(propErr.message);
 
   const propertyById = new Map(
     (propertyRows ?? []).map((row) => {
-      const submission = row.row_data?.listingSubmission ?? row.row_data?.submission;
+      const submission = row.property_data?.listingSubmission;
       const rooms: ListingRoom[] = Array.isArray(submission?.rooms)
         ? submission.rooms.map((r: { id?: string; name?: string }) => ({
             id: String(r.id ?? ""),
@@ -134,7 +134,7 @@ async function main() {
           }))
         : [];
       const label =
-        row.row_data?.property_data?.buildingName?.trim() ||
+        row.property_data?.buildingName?.trim() ||
         submission?.propertyName?.trim() ||
         row.id;
       return [row.id, { label, rooms, managerUserId: row.manager_user_id as string | null }];
