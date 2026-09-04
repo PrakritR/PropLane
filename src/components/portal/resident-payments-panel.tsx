@@ -68,7 +68,8 @@ import {
 } from "@/lib/payment-policy";
 import { nativePlatformRequestHeaders } from "@/lib/platform/native-client";
 import {
-  availableManualChannelsForCharges,
+  chargesSupportPlatformCheckout,
+  residentManualChannelsForCharges,
   filterChargesForPayMethod,
   isPayableHouseholdCharge,
   isStripeResidentPayMethod,
@@ -298,7 +299,12 @@ export function ResidentPaymentsPanel({
   );
 
   const availableManualChannels = useMemo(
-    () => availableManualChannelsForCharges(unpaidPayableCharges),
+    () => residentManualChannelsForCharges(unpaidPayableCharges),
+    [unpaidPayableCharges],
+  );
+
+  const platformCheckoutAvailable = useMemo(
+    () => chargesSupportPlatformCheckout(unpaidPayableCharges),
     [unpaidPayableCharges],
   );
 
@@ -808,7 +814,7 @@ export function ResidentPaymentsPanel({
         setCheckout(null);
       });
     const manualOptions = MANUAL_METHOD_OPTIONS.filter((option) =>
-      availableManualChannelsForCharges(scopeCharges).includes(option.id),
+      residentManualChannelsForCharges(scopeCharges).includes(option.id),
     );
     const options = [
       ...paymentMethodOptions.map((option) => ({ ...option, feeLabel: residentProcessingFeeDisplayLabel(option.id) })),
@@ -1159,7 +1165,7 @@ export function ResidentPaymentsPanel({
 
   const payMethodDropdownOptions = useMemo(() => {
     const manualOptions = MANUAL_METHOD_OPTIONS.filter((option) =>
-      availableManualChannelsForCharges(confirmCharges).includes(option.id),
+      residentManualChannelsForCharges(confirmCharges).includes(option.id),
     );
     return [
       ...paymentMethodOptions.map((option) => ({
@@ -1707,10 +1713,16 @@ export function ResidentPaymentsPanel({
         {managerStripeConnectBlocked ? (
           <div
             className={`${PORTAL_INLINE_STATUS_NOTICE_CLASS} mb-3 border-[var(--status-pending-border)] bg-[var(--status-pending-bg)] text-[var(--status-pending-fg)]`}
+            data-attr="resident-payments-connect-blocked"
           >
-            Card and bank payments are temporarily unavailable while your property manager finishes
-            payment setup. Use Zelle or Venmo below if your manager shared those options.
+            Your property manager is still finishing PropLane payment setup, so bank and card checkout
+            is not available yet. Use Zelle or Venmo below only if they shared those details — otherwise
+            message your manager in Communication.
           </div>
+        ) : platformCheckoutAvailable ? (
+          <p className="mb-3 px-1 text-sm text-muted" data-attr="resident-payments-platform-copy">
+            Pay rent through PropLane secure checkout — bank transfer, card, Apple Pay, or Google Pay.
+          </p>
         ) : null}
         {paymentsBody}
       </ManagerPortalPageShell>
