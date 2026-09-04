@@ -150,7 +150,12 @@ describe("ingestInboundEmailReply", () => {
   it("writes both sides: owner unread inbound copy, replier outbound copy", async () => {
     const db = fakeDb(PROFILES);
     const result = await ingestInboundEmailReply(REPLY, OWNER_ID, db as never);
-    expect(result).toEqual({ handled: true, appended: true });
+    expect(result).toMatchObject({ handled: true, appended: true });
+    // The appended body is part of the contract (PRP-109): the webhook files a
+    // work order from exactly these bytes rather than re-deriving them, so a
+    // caller must never have to reach back into `parsed` for them.
+    // Quoted history stripped, exactly as the thread copies store it.
+    expect(result.body).toBe("Sounds good, thanks!");
 
     const rows = threadRows(db);
     expect(rows).toHaveLength(2);
@@ -221,6 +226,7 @@ describe("ingestInboundEmailReply", () => {
     expect(await ingestInboundEmailReply(REPLY, OWNER_ID, db as never)).toEqual({
       handled: false,
       appended: false,
+      body: "",
     });
     expect(db.threads.size).toBe(0);
   });

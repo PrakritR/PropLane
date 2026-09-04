@@ -29,6 +29,7 @@ import { parseReplyAddress } from "@/lib/inbound-email/reply-address.server";
 import { isPaymentInboxEmail } from "@/lib/payment-receipt-email/payment-inbox";
 import { processInboundPaymentReceiptEmail } from "@/lib/payment-receipt-email/process-receipt.server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
+import { fileWorkflowFromInboundEmailReply } from "@/lib/inbox/inbound-message-workflows.server";
 import { verifyResendWebhookSignature } from "@/lib/inbound-email/verify-signature";
 import { rateLimit } from "@/lib/rate-limit";
 
@@ -100,8 +101,9 @@ export async function POST(req: Request) {
   if (reply) {
     let handled: boolean;
     let appended: boolean;
+    let replyBody = "";
     try {
-      ({ handled, appended } = await ingestInboundEmailReply(parsed, reply.ownerUserId));
+      ({ handled, appended, body: replyBody } = await ingestInboundEmailReply(parsed, reply.ownerUserId));
     } catch (e) {
       // 5xx → Resend redelivers; the deterministic message id keeps it idempotent.
       console.error("inbound-email reply ingest failed", parsed.emailId, e);
@@ -116,6 +118,31 @@ export async function POST(req: Request) {
         after(enrichReply);
       } catch {
         void enrichReply();
+      }
+      // PRP-109: an emailed "the heater is dead" should open the same work
+      // order a text would. Only on a genuine first append — a Resend
+      // redelivery must not file a second one — and only after the seam
+      // verifies this replier really is this owner's resident, because a reply
+      // token says who sent the ORIGINAL mail, not who is the manager.
+      //
+      // Best-effort and deferred: this webhook 5xx's to request a redelivery,
+      // so nothing here may throw into that path.
+      // Coerced, not trusted: the ingest is mocked in tests and could be
+      // stubbed elsewhere, and a missing body must degrade to "file nothing"
+      // rather than throw into the 5xx-and-redeliver path.
+      if (appended && String(replyBody ?? "").trim()) {
+        const fileWorkflow = () =>
+          fileWorkflowFromInboundEmailReply(createSupabaseServiceRoleClient(), {
+            ownerUserId: reply.ownerUserId,
+            replierEmail: parsed.fromEmail,
+            replierName: parsed.fromName,
+            text: String(replyBody ?? ""),
+          }).catch(() => undefined);
+        try {
+          after(fileWorkflow);
+        } catch {
+          void fileWorkflow();
+        }
       }
       return appended ? ok({ reply: true }) : ok({ reply: true, idempotent: true });
     }

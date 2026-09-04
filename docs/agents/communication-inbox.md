@@ -232,3 +232,56 @@ conversations) plus the archive toggle. Invariants:
 - Coverage: `tests/unit/inbox-attachments.server.test.ts`,
   `tests/unit/inbox-attachment-display.test.ts`,
   `tests/unit/inbox-attachment-chip.test.tsx`.
+
+## A message that asks for something files it (PRP-109)
+
+**"Is this message a request?" has exactly ONE answer:
+`classifyInboundMessage` (`src/lib/inbox/inbound-message-intent.ts`).** Three
+copies of that judgement existed before — the manager inbox chips, the live SMS
+gate `looksLikeMaintenanceRequest`, and a third in the chip module — so the same
+sentence could open a work order over SMS and produce nothing in the portal.
+`looksLikeMaintenanceRequest` and `suggestInboundMessageWorkflows` now both
+delegate to it. **Do not add a fourth**; tune the shared one.
+
+It is deliberately a pure, deterministic classifier, not a model: it runs on
+every inbound message across three channels, resident text is untrusted input
+(a regex cannot be prompt-injected), and it is table-testable. The signature is
+model-shaped, so swapping the internals later does not touch a caller.
+
+Its shape matters, because a plain keyword match filed **real** work orders on:
+
+- **already-resolved messages** — "the toilet leak is fixed, thanks" still
+  contains "leak" and "toilet". `RESOLVED_MARKERS` is checked FIRST and vetoes
+  outright, before any scoring.
+- **ambiguous words in an unrelated sense** — "can we fix a time to meet?",
+  "I'm locked out of my account". Eligibility is structural, not a score: a
+  self-sufficient phrase ("leaking", "no hot water", "not working") stands
+  alone, otherwise it takes a failure word NAMING a fixture ("toilet …
+  broken"). "Fix" names no fixture; "the sink" names no failure. A request
+  marker raises confidence but never creates eligibility, and only an eligible
+  side may win — comparing raw scores handed every add-on ask to maintenance.
+
+**Filing goes through one seam**, `fileWorkflowFromInboundMessage`
+(`src/lib/inbox/inbound-message-workflows.server.ts`), which dispatches to the
+existing `createWorkOrderFromResidentSms` / `createServiceRequestFromResidentSms`
+— those own the dedupe (near-identical text from one resident inside a short
+window is a no-op) and the manager notification. Rules for adding a channel:
+
+- **Call it AFTER the message is persisted, inside `after()`.** Filing is
+  best-effort and must never fail a send or make a webhook retry a message that
+  already landed. The seam swallows every error and reports it in its return.
+- **Identity comes from the authorized caller, never the body.** `managerUserId`
+  and `residentEmail` come from the session and the thread the route already
+  authorized. Nothing reads an id or address out of the message text.
+- **Inbound email verifies the DIRECTION** (`fileWorkflowFromInboundEmailReply`).
+  A portal reply token names whoever sent the ORIGINAL mail, which is sometimes
+  the manager and sometimes the resident, so filing on the token alone would
+  open a work order against a manager's own reply as if they were a tenant.
+  `managerIdsOwningResident` must confirm the replier is that owner's resident;
+  anything else, a failed read included, files nothing. It also runs the cheap
+  classifier BEFORE that read, so an ordinary "sounds good, thanks" costs no
+  query. Only a genuine first append files — a Resend redelivery must not open
+  a second work order.
+
+Coverage: `tests/unit/inbound-message-intent.test.ts` (the classification table
+is the spec), `tests/unit/inbound-message-workflows.test.ts`.

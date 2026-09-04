@@ -130,9 +130,9 @@ export async function ingestInboundEmailReply(
   parsed: ParsedInboundEmail,
   ownerUserId: string,
   db: SupabaseClient = createSupabaseServiceRoleClient(),
-): Promise<{ handled: boolean; appended: boolean }> {
+): Promise<{ handled: boolean; appended: boolean; body: string }> {
   const sides = await replyThreadSides(db, parsed, ownerUserId);
-  if (!sides) return { handled: false, appended: false };
+  if (!sides) return { handled: false, appended: false, body: "" };
 
   const body = bestInlineBody(parsed) || INBOUND_EMAIL_BODY_PLACEHOLDER;
   const messageId = inboundReplyMessageId(parsed.emailId);
@@ -182,7 +182,9 @@ export async function ingestInboundEmailReply(
     }).catch(() => {});
   }
 
-  return { handled: true, appended };
+  // `body` is surfaced so the caller can act on what was actually appended
+  // (PRP-109 files a work order from it) without re-deriving it from `parsed`.
+  return { handled: true, appended, body };
 }
 
 /**

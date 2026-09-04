@@ -73,6 +73,28 @@ describe("classifyInboundMessage — does not fire on non-requests", () => {
   });
 });
 
+describe("classifyInboundMessage — eligibility structure", () => {
+  it("reads a plain statement of fact as a report, with nobody saying please", () => {
+    // Requiring a request marker broke this: a resident texting "my toilet is
+    // broken" is reporting a repair, not making a polite enquiry, and the live
+    // SMS path had classified it as maintenance for a long time.
+    expect(intentOf("my toilet is broken")).toBe("maintenance");
+    expect(intentOf("the dryer is dead")).toBe("maintenance");
+  });
+
+  it("needs BOTH halves — a failure word and a fixture", () => {
+    expect(intentOf("can we fix a time to meet")).toBe("none"); // failure, no fixture
+    expect(intentOf("the sink in the photos looks nice")).toBe("none"); // fixture, no failure
+  });
+
+  it("does not let maintenance swallow an add-on ask", () => {
+    // Both sides are scored, but only an ELIGIBLE side may win; comparing raw
+    // scores handed every add-on request to maintenance.
+    expect(intentOf("Can I request reserved parking?")).toBe("add_on_service");
+    expect(intentOf("could I get a storage locker")).toBe("add_on_service");
+  });
+});
+
 describe("classifyInboundMessage — scoring", () => {
   it("keeps a lone weak keyword below the action threshold", () => {
     // "sink" alone is a topic, not a request; it must not clear the bar.

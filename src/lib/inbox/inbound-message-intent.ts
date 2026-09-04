@@ -62,41 +62,68 @@ const MAINTENANCE_STRONG = [
 ];
 
 /**
- * Weak signals — a subject area, or a verb that is only about repair in
- * context. "fix" and "lock" live here on purpose: "fix the date", "locked out
- * of my account" are common and are not maintenance.
+ * Failure words — something is wrong. On their own these are ambiguous ("fix a
+ * time", "repair the wording"), which is why they only count alongside a
+ * fixture below.
  */
-const MAINTENANCE_WEAK = [
-  /\bbroken?\b/i,
+const MAINTENANCE_FAILURE = [
+  /\bbroke(n)?\b/i,
   /\brepair(s|ing)?\b/i,
   /\bfix\b/i,
+  /\bout of order\b/i,
+  /\bdoes ?n'?t work\b/i,
+  /\bwon'?t work\b/i,
+  /\bdamaged?\b/i,
+  /\bcracked\b/i,
+  /\bjammed\b/i,
+  /\bstuck\b/i,
+  /\bdead\b/i,
   /\bmaintenance\b/i,
+];
+
+/**
+ * Fixtures — the things in a home that break. A noun alone is a topic, not a
+ * report, so these only count alongside a failure word or a strong phrase.
+ */
+const MAINTENANCE_FIXTURE = [
+  /\btoilet\b/i,
+  /\bsink\b/i,
+  /\bfaucet\b/i,
+  /\bshower\b/i,
+  /\bbath ?tub\b/i,
+  /\bpipe\b/i,
+  /\bdrain\b/i,
   /\bplumb(ing|er)\b/i,
-  /\bhvac\b/i,
-  /\bheat(er|ing)?\b/i,
-  /\bair conditioning\b/i,
-  /\ba\/?c\b/i,
-  /\belectrical\b/i,
   /\boutlet\b/i,
-  /\bappliance\b/i,
+  /\belectric(al)?\b/i,
+  /\bwiring\b/i,
+  /\bbreaker\b/i,
+  /\bheat(er|ing)?\b/i,
+  /\bhvac\b/i,
+  /\bfurnace\b/i,
+  /\bthermostat\b/i,
+  /\bair conditioning\b/i,
+  /\bair conditioner\b/i,
+  /\ba\/?c\b/i,
+  /\bfridge\b/i,
+  /\brefrigerator\b/i,
   /\bdishwasher\b/i,
   /\bwasher\b/i,
   /\bdryer\b/i,
-  /\bfridge\b/i,
-  /\brefrigerator\b/i,
   /\bstove\b/i,
   /\boven\b/i,
-  /\btoilet\b/i,
-  /\bfaucet\b/i,
-  /\bsink\b/i,
-  /\bshower\b/i,
-  /\bdrain\b/i,
-  /\bwindow\b/i,
-  /\bdoor\b/i,
+  /\bmicrowave\b/i,
+  /\bdisposal\b/i,
+  /\bappliance\b/i,
   /\block(s|ed|ing)?\b/i,
-  /\bkey\b/i,
-  /\blight(s|ing)?\b/i,
+  /\bdoor\b/i,
+  /\bwindow\b/i,
   /\bceiling\b/i,
+  /\bfloor(ing)?\b/i,
+  /\bwall\b/i,
+  /\blight(s|ing)?\b/i,
+  /\bfan\b/i,
+  /\bgate\b/i,
   /\bpest(s)?\b/i,
   /\broach(es)?\b/i,
   /\bmice\b/i,
@@ -184,14 +211,17 @@ function matched(text: string, patterns: RegExp[]): string[] {
 /**
  * Classify one inbound message.
  *
- * Eligibility first, then scoring — because a score alone let one weak word
- * plus a polite opener ("Can we fix a time to meet?") reach the threshold:
- * - ONE STRONG subject signal is enough on its own (0.6). Nobody mentions a
- *   burst pipe in passing.
- * - Weak signals alone are never enough. Two or more PLUS an explicit request
- *   marker is the floor (0.5) — that is "can you look at the washer and dryer",
- *   not "the kitchen sink and shower are lovely".
- * - A request marker adds 0.25 on top wherever it appears.
+ * Eligibility first, then scoring. A plain score let one ambiguous word plus a
+ * polite opener ("Can we fix a time to meet?") clear the bar, so what qualifies
+ * is structural:
+ * - MAINTENANCE: a self-sufficient phrase ("no hot water", "not working",
+ *   "leaking"), OR a failure word naming a fixture ("toilet ... broken").
+ *   Neither half counts alone — "fix a time" names no fixture, "the sink" names
+ *   no failure.
+ * - ADD-ON: a named offering ("parking spot", "storage unit"), OR a topic word
+ *   plus someone actually asking. "Parking is tight round here" is a remark.
+ * - A request marker adds 0.25 wherever it appears, but never creates
+ *   eligibility on its own.
  * - Anything reading as already-resolved returns `none` outright, first, before
  *   any of the above.
  */
@@ -214,37 +244,41 @@ export function classifyInboundMessage(messageText: string): InboundMessageInten
   const requestHits = matched(text, REQUEST_MARKERS);
   const requestBonus = requestHits.length > 0 ? 0.25 : 0;
 
-  const scoreFor = (strong: RegExp[], weak: RegExp[]) => {
-    const strongHits = matched(text, strong);
-    const weakHits = matched(text, weak);
-    const signals = [
-      ...strongHits.map((s) => `strong:${s}`),
-      ...weakHits.map((s) => `weak:${s}`),
-    ];
-    // A lone weak word is a topic, not a request — "fix a time to meet",
-    // "locked out of my account". Weak-only needs corroboration: a second weak
-    // signal AND someone actually asking for something.
-    const eligible = strongHits.length > 0 || (weakHits.length >= 2 && requestBonus > 0);
-    if (!eligible) return { score: 0, signals, any: signals.length > 0, eligible: false };
-    const base = strongHits.length > 0 ? 0.6 : 0.5;
-    return {
-      score: Math.min(base + requestBonus, 1),
-      signals,
-      any: true,
-      eligible: true,
-    };
+  // Maintenance: a self-sufficient phrase, OR a failure word naming a fixture.
+  // "My toilet is broken" is a report even though nobody said please; "can we
+  // fix a time to meet" names no fixture and is not.
+  const mStrong = matched(text, MAINTENANCE_STRONG);
+  const mFailure = matched(text, MAINTENANCE_FAILURE);
+  const mFixture = matched(text, MAINTENANCE_FIXTURE);
+  const maintenance = {
+    eligible: mStrong.length > 0 || (mFailure.length > 0 && mFixture.length > 0),
+    score: Math.min(0.6 + requestBonus, 1),
+    signals: [
+      ...mStrong.map((s) => `strong:${s}`),
+      ...mFailure.map((s) => `failure:${s}`),
+      ...mFixture.map((s) => `fixture:${s}`),
+    ],
   };
 
-  const maintenance = scoreFor(MAINTENANCE_STRONG, MAINTENANCE_WEAK);
-  const addon = scoreFor(ADDON_STRONG, ADDON_WEAK);
+  // Add-ons: a named offering, or a topic word plus someone actually asking.
+  // "Parking is tight round here" is a remark, not an order.
+  const aStrong = matched(text, ADDON_STRONG);
+  const aWeak = matched(text, ADDON_WEAK);
+  const addon = {
+    eligible: aStrong.length > 0 || (aWeak.length > 0 && requestBonus > 0),
+    score: Math.min((aStrong.length > 0 ? 0.6 : 0.5) + requestBonus, 1),
+    signals: [...aStrong.map((s) => `strong:${s}`), ...aWeak.map((s) => `weak:${s}`)],
+  };
 
   if (!maintenance.eligible && !addon.eligible) {
     return { ...none, signals: [...maintenance.signals, ...addon.signals] };
   }
 
-  // A message can touch both ("the garage spot light is out"). Maintenance wins
-  // a tie: an unreported broken thing costs more than an unbooked parking spot.
-  const pickMaintenance = maintenance.score >= addon.score;
+  // A message can touch both ("the garage spot light is out"). Only an ELIGIBLE
+  // side can win — score alone would hand every add-on ask to maintenance,
+  // whose score is computed whether or not it qualified. Maintenance wins a
+  // genuine tie: an unreported broken thing costs more than an unbooked spot.
+  const pickMaintenance = maintenance.eligible && (!addon.eligible || maintenance.score >= addon.score);
   const winner = pickMaintenance ? maintenance : addon;
   const intent: InboundMessageIntent = pickMaintenance ? "maintenance" : "add_on_service";
 
