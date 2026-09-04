@@ -57,6 +57,16 @@ export const buildProPortalDefinition = cache(async (): Promise<{
   subscriptionTier: "free" | "paid" | null;
   /** Sidebar header badge: the manager's current plan (Free / Pro / Business). */
   planLabel: string;
+  /**
+   * True when this account is on Free because its signup TRIAL ran out, rather
+   * than because the manager chose Free.
+   *
+   * The stored row still says `tier: pro|business, billing: trial`; `isFree`
+   * already applies the date-based expiry, so the two together identify a lapse
+   * without re-deriving any dates. It only changes what the banner SAYS — the
+   * plan itself is resolved exactly as before.
+   */
+  planLapsedFromTrial: boolean;
 }> => {
   const { ctx, preview, portalTitle, isFree, subscriptionTier, purchase } = await getProPortalRenderContext();
   const planLabel = isFree ? "Free" : managerTierDisplayLabel(purchase.tier);
@@ -74,6 +84,12 @@ export const buildProPortalDefinition = cache(async (): Promise<{
     previewLabel = p?.full_name?.trim() || p?.email || preview.targetUserId;
   }
 
+  const purchasedTier = (purchase.tier ?? "").toLowerCase();
+  const planLapsedFromTrial =
+    isFree &&
+    (purchase.billing ?? "").toLowerCase() === "trial" &&
+    (purchasedTier === "pro" || purchasedTier === "business");
+
   return {
     definition: { ...proPortal, sections: proPortal.sections, title: portalTitle },
     showPlanBanner: isFree,
@@ -81,5 +97,6 @@ export const buildProPortalDefinition = cache(async (): Promise<{
     previewLabel,
     subscriptionTier,
     planLabel,
+    planLapsedFromTrial,
   };
 });

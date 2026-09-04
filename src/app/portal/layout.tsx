@@ -4,6 +4,7 @@ import { PropertyPipelineAccountSync } from "@/components/portal/property-pipeli
 import { AxisAssistant } from "@/components/portal/axis-assistant";
 import { PortalAssistantDockRail } from "@/components/portal/portal-assistant-dock-rail";
 import { PortalDataPrefetch } from "@/components/portal/portal-data-prefetch";
+import { ManagerPlanBanner } from "@/components/portal/manager-plan-banner";
 import { PortalMobileNavBar } from "@/components/portal/portal-mobile-nav-bar";
 import { PortalSessionKeepalive } from "@/components/portal/portal-session-keepalive";
 import { PortalSidebar } from "@/components/portal/portal-sidebar";
@@ -61,6 +62,12 @@ export default async function PropertyPortalLayout({ children }: { children: Rea
               name={profile?.full_name ?? null}
               email={profile?.email ?? null}
             />
+            {/* `showPlanBanner` has been computed for this all along; nothing
+                rendered it, so a lapsed trial took residents, leases, inbox and
+                co-managers away without a word (AXI-129). */}
+            {nav.showPlanBanner ? (
+              <ManagerPlanBanner lapsedFromTrial={nav.planLapsedFromTrial} />
+            ) : null}
             <main id={PORTAL_MAIN_CONTENT_ID} tabIndex={-1} className={PORTAL_MAIN_CONTENT_CLASS}>
               <PortalHorizontalScrollRoot>
                 <div className={PORTAL_MAIN_CONTENT_INNER_CLASS}>
