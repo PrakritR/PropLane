@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
-import { Modal } from "@/components/ui/modal";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { Modal, ModalFooter } from "@/components/ui/modal";
 import { ManagerSettingsPropertyField } from "@/components/portal/pro-portal-settings-panels";
 import { ManagerPropertyApplicationQuestionsPanel } from "@/components/portal/pro-property-application-questions-panel";
 import type { ManagerPropertyFilterOption } from "@/lib/manager-portfolio-access";
@@ -38,11 +38,13 @@ export function ManagerEditApplicationModal({
 }) {
   const [selectedId, setSelectedId] = useState("");
   const [editorRevision, setEditorRevision] = useState(0);
+  const [bulkActions, setBulkActions] = useState<ReactNode | null>(null);
 
   useEffect(() => {
     if (!open) {
       setSelectedId("");
       setEditorRevision(0);
+      setBulkActions(null);
     }
   }, [open]);
 
@@ -56,10 +58,18 @@ export function ManagerEditApplicationModal({
     }
   }, [open, propertyOptions, selectedId]);
 
-  const resolved = useMemo(() => {
+  const syncedSub = useMemo(() => {
     const id = selectedId.trim();
     if (!id || !managerUserId) return null;
-    return resolveManagerListingSubmissionForPropertyId(managerUserId, id);
+    const hit = resolveManagerListingSubmissionForPropertyId(managerUserId, id);
+    if (!hit) return null;
+    return syncPropertyApplicationTemplatesFromListing(hit.sub);
+  }, [editorRevision, selectedId, managerUserId]);
+
+  const resolvedSaveTarget = useMemo(() => {
+    const id = selectedId.trim();
+    if (!id || !managerUserId) return null;
+    return resolveManagerListingSubmissionForPropertyId(managerUserId, id)?.saveTarget ?? null;
   }, [editorRevision, selectedId, managerUserId]);
 
   const selectedLabel = selectedId
@@ -69,10 +79,9 @@ export function ManagerEditApplicationModal({
 
   const closeAll = () => {
     setSelectedId("");
+    setBulkActions(null);
     onClose();
   };
-
-  const syncedSub = resolved ? syncPropertyApplicationTemplatesFromListing(resolved.sub) : null;
 
   return (
     <Modal
@@ -82,6 +91,11 @@ export function ManagerEditApplicationModal({
       onClose={closeAll}
       panelClassName="max-w-4xl"
       assistantContext="Edit application"
+      footer={
+        bulkActions ? (
+          <ModalFooter className="w-full justify-start">{bulkActions}</ModalFooter>
+        ) : undefined
+      }
     >
       <div className="space-y-4">
         <ManagerSettingsPropertyField
@@ -92,16 +106,18 @@ export function ManagerEditApplicationModal({
 
         {!selectedId ? (
           <p className="text-sm text-muted">Choose a property to see its applications.</p>
-        ) : !resolved || !managerUserId || !syncedSub ? (
+        ) : !resolvedSaveTarget || !managerUserId || !syncedSub ? (
           <p className="text-sm text-muted">Could not load applications for that property.</p>
         ) : (
           <ManagerPropertyApplicationQuestionsPanel
             key={selectedId}
             sub={syncedSub}
-            saveTarget={resolved.saveTarget}
+            saveTarget={resolvedSaveTarget}
             managerUserId={managerUserId}
-            listingId={resolved.saveTarget.mode === "listing" ? resolved.saveTarget.saveId : selectedId}
-            embedInModal
+            listingId={
+              resolvedSaveTarget.mode === "listing" ? resolvedSaveTarget.saveId : selectedId
+            }
+            onBulkActionsChange={setBulkActions}
             onUpdated={() => {
               setEditorRevision((revision) => revision + 1);
               onSaved();

@@ -1,8 +1,8 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { Button } from "@/components/ui/button";
-import { Modal } from "@/components/ui/modal";
+import { BulkActionBar } from "@/components/ui/bulk-action-bar";
 import { ManagerApplicationQuestionsEditorModal } from "@/components/portal/pro-application-questions-editor-modal";
 import { ProPortalSettingsModal } from "@/components/portal/pro-portal-settings-modal";
 import {
@@ -11,6 +11,9 @@ import {
   PortalPropertyDetailSection,
   PropertyDetailFooterActions,
 } from "@/components/portal/portal-property-detail-section";
+import { usePortalRowSelection } from "@/hooks/use-portal-row-selection";
+import { usePublishModalBulkActions } from "@/hooks/use-publish-modal-bulk-actions";
+import { PORTAL_BULK_BAR_BTN } from "@/lib/portal-bulk-bar";
 import {
   type ManagerListingSubmissionV1,
 } from "@/lib/manager-listing-submission";
@@ -69,6 +72,10 @@ export function resolveApplicationPreviewPropertyId(input: {
 
 /**
  * Per-property application templates — same list chrome as the lease tab.
+ *
+ * The Applications-section Edit modal publishes selection actions through
+ * `onBulkActionsChange`. The property Application tab never shows "Edit
+ * application" — it matches the lease tab (checkbox rows, presets, ADD).
  */
 export function ManagerPropertyApplicationQuestionsPanel({
   sub,
@@ -81,7 +88,7 @@ export function ManagerPropertyApplicationQuestionsPanel({
   onUpdated,
   showToast,
   onRegisterAddApplication,
-  embedInModal = false,
+  onBulkActionsChange,
 }: {
   sub: ManagerListingSubmissionV1;
   saveTarget: QuestionsSaveTarget;
@@ -96,16 +103,20 @@ export function ManagerPropertyApplicationQuestionsPanel({
   onUpdated: () => void;
   showToast: (m: string) => void;
   onRegisterAddApplication?: (openAdd: (() => void) | null) => void;
-  /** When true (Edit application modal), render the catalog inline without a nested list modal. */
-  embedInModal?: boolean;
+  /**
+   * Applications-section Edit modal only — renders "Edit application" in the
+   * parent dialog footer instead of a fixed bulk bar behind the overlay.
+   */
+  onBulkActionsChange?: (actions: ReactNode | null) => void;
 }) {
-  const [editModalOpen, setEditModalOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [editorOpen, setEditorOpen] = useState(false);
   const [editorMode, setEditorMode] = useState<"add" | "edit">("edit");
   const [editingTemplate, setEditingTemplate] = useState<PropertyApplicationTemplate | null>(null);
   const syncedSub = useMemo(() => syncPropertyApplicationTemplatesFromListing(sub), [sub]);
   const templates = useMemo(() => readPropertyApplicationTemplates(syncedSub), [syncedSub]);
+  const embedInModal = Boolean(onBulkActionsChange);
+  const { selectedIds, toggleSelected, clearSelection } = usePortalRowSelection(templates.length);
 
   const bulkPropertyIds = propertyIds?.filter((id) => id.trim()) ?? [];
   const settingsPropertyOptions = useMemo(() => {
@@ -222,8 +233,6 @@ export function ManagerPropertyApplicationQuestionsPanel({
             failed += 1;
             continue;
           }
-          // Resolve and write EACH property from its own submission, so a bulk
-          // add never stamps this property's list onto the others.
           const base = hit.sub.propertyApplicationTemplatesExplicit
             ? hit.sub
             : syncPropertyApplicationTemplatesFromListing(hit.sub);
@@ -254,7 +263,10 @@ export function ManagerPropertyApplicationQuestionsPanel({
         return;
       }
 
-      if (!saveTarget) return;
+      if (!saveTarget) {
+        showToast("Could not add application.");
+        return;
+      }
       const base = sub.propertyApplicationTemplatesExplicit ? sub : syncedSub;
       const next = addApplicationTemplateFromSeed(base, seedKey as never);
       if (next === base) {
@@ -273,14 +285,15 @@ export function ManagerPropertyApplicationQuestionsPanel({
   );
 
   const openAdd = useCallback(() => {
-    if (!embedInModal) setEditModalOpen(true);
     setEditorMode("add");
     setEditingTemplate(null);
     setEditorOpen(true);
-  }, [embedInModal]);
+  }, []);
 
-  const openEditModal = useCallback(() => {
-    setEditModalOpen(true);
+  const openEditApplication = useCallback((template: PropertyApplicationTemplate) => {
+    setEditorMode("edit");
+    setEditingTemplate(template);
+    setEditorOpen(true);
   }, []);
 
   useEffect(() => {
@@ -288,11 +301,36 @@ export function ManagerPropertyApplicationQuestionsPanel({
     return () => onRegisterAddApplication?.(null);
   }, [onRegisterAddApplication, openAdd]);
 
-  const openEditApplication = (template: PropertyApplicationTemplate) => {
-    setEditorMode("edit");
-    setEditingTemplate(template);
-    setEditorOpen(true);
-  };
+  const selectedTemplates = useMemo(
+    () => templates.filter((template) => selectedIds.has(template.id)),
+    [selectedIds, templates],
+  );
+  const selectedTemplateId = selectedIds.size === 1 ? selectedTemplates[0]?.id ?? null : null;
+
+  const modalBulkActions = useMemo(() => {
+    if (!selectedTemplateId) return null;
+    const templateId = selectedTemplateId;
+    return (
+      <Button
+        type="button"
+        variant="outline"
+        className={PORTAL_BULK_BAR_BTN}
+        data-attr="property-application-bulk-edit"
+        onClick={() => {
+          const template = templates.find((row) => row.id === templateId);
+          if (template) openEditApplication(template);
+        }}
+      >
+        Edit application
+      </Button>
+    );
+  }, [openEditApplication, selectedTemplateId, templates]);
+
+  usePublishModalBulkActions(
+    onBulkActionsChange,
+    selectedTemplateId ?? "",
+    modalBulkActions,
+  );
 
   const handleDeleteTemplate = (templateId: string) => {
     const next = removePropertyApplicationTemplate(templates, templateId);
@@ -310,33 +348,56 @@ export function ManagerPropertyApplicationQuestionsPanel({
   const closeEditor = () => {
     setEditorOpen(false);
     setEditingTemplate(null);
+    clearSelection();
   };
 
   const editorTitle = editorMode === "add" ? "Add application" : "Edit application";
 
   if (!managerUserId || (!saveTarget && bulkPropertyIds.length === 0)) return null;
 
-  const editorBody = (
+  const settingsFooter =
+    !embedInModal && settingsPropertyOptions.length > 0 ? (
+      <PropertyDetailFooterActions>
+        <Button
+          type="button"
+          variant="outline"
+          className={PORTAL_PROPERTY_DETAIL_ACTION_BUTTON_CLASS}
+          data-attr="property-application-settings-open"
+          onClick={() => setSettingsOpen(true)}
+        >
+          Settings
+        </Button>
+      </PropertyDetailFooterActions>
+    ) : null;
+
+  const catalogBody = (
     <>
-      {templates.map((template) => (
-        <div key={template.id} className={PORTAL_PROPERTY_DETAIL_LIST_ROW_CLASS}>
-          <button
-            type="button"
-            className="flex min-w-0 flex-1 flex-col items-start text-left"
-            data-attr={`property-application-edit-${template.id}`}
-            onClick={() => openEditApplication(template)}
-          >
-            <p className="text-sm font-semibold text-foreground">
-              {normalizePropertyApplicationTemplateLabel(template.label)}
-            </p>
-            {formatApplicationLeaseTermsLabel(template.applicationLeaseTerms) ? (
-              <p className="mt-0.5 text-xs text-muted">
-                Applicants: {formatApplicationLeaseTermsLabel(template.applicationLeaseTerms)}
-              </p>
-            ) : null}
-          </button>
-        </div>
-      ))}
+      <PortalPropertyDetailSection contentClassName="space-y-0" actions={settingsFooter}>
+        {templates.map((template) => (
+          <div key={template.id} className={PORTAL_PROPERTY_DETAIL_LIST_ROW_CLASS}>
+            <label className="flex min-w-0 flex-1 cursor-pointer items-start gap-3">
+              <input
+                type="checkbox"
+                className="mt-0.5 h-4 w-4 shrink-0 accent-primary"
+                checked={selectedIds.has(template.id)}
+                data-attr={`property-application-select-${template.id}`}
+                onChange={() => toggleSelected(template.id)}
+                onClick={(event) => event.stopPropagation()}
+              />
+              <div className="min-w-0 flex-1">
+                <p className="text-sm font-semibold text-foreground">
+                  {normalizePropertyApplicationTemplateLabel(template.label)}
+                </p>
+                {formatApplicationLeaseTermsLabel(template.applicationLeaseTerms) ? (
+                  <p className="mt-0.5 text-xs text-muted">
+                    Applicants: {formatApplicationLeaseTermsLabel(template.applicationLeaseTerms)}
+                  </p>
+                ) : null}
+              </div>
+            </label>
+          </div>
+        ))}
+      </PortalPropertyDetailSection>
 
       {availableSeeds.length > 0 ? (
         <div className="px-3 py-4 max-md:px-2.5 sm:py-5">
@@ -374,102 +435,8 @@ export function ManagerPropertyApplicationQuestionsPanel({
     </>
   );
 
-  if (embedInModal) {
-    return (
-      <>
-        {editorBody}
-        {editorOpen ? (
-          <ManagerApplicationQuestionsEditorModal
-            open
-            title={editorTitle}
-            sub={syncedSub}
-            saveTarget={saveTarget ?? undefined}
-            propertyIds={bulkPropertyIds.length > 0 ? bulkPropertyIds : undefined}
-            managerUserId={managerUserId}
-            initialVariant={editingTemplate?.formVariant ?? "standard"}
-            lockVariant={Boolean(editingTemplate)}
-            templateEditorMode={editorMode}
-            applicationTemplate={editingTemplate}
-            templates={templates}
-            onPersistSubmission={persistSubmission}
-            canDelete={editorMode === "edit"}
-            onDelete={
-              editingTemplate ? () => handleDeleteTemplate(editingTemplate.id) : undefined
-            }
-            onClose={closeEditor}
-            onSaved={onUpdated}
-            showToast={showToast}
-          />
-        ) : null}
-      </>
-    );
-  }
-
-  return (
+  const editorModals = (
     <>
-      <PortalPropertyDetailSection
-        actions={
-          <PropertyDetailFooterActions>
-            <Button
-              type="button"
-              variant="outline"
-              className={PORTAL_PROPERTY_DETAIL_ACTION_BUTTON_CLASS}
-              data-attr="property-application-edit-open"
-              onClick={openEditModal}
-            >
-              Edit application
-            </Button>
-            {settingsPropertyOptions.length > 0 ? (
-              <Button
-                type="button"
-                variant="outline"
-                className={PORTAL_PROPERTY_DETAIL_ACTION_BUTTON_CLASS}
-                data-attr="property-application-settings-open"
-                onClick={() => setSettingsOpen(true)}
-              >
-                Settings
-              </Button>
-            ) : null}
-          </PropertyDetailFooterActions>
-        }
-      >
-        {templates.length === 0 ? (
-          <p className="px-3 py-4 text-sm text-muted max-md:px-2.5">
-            No applications on this property yet. Use Edit application to add long-term, short-term, or
-            co-signer forms.
-          </p>
-        ) : (
-          templates.map((template) => (
-            <div key={template.id} className={PORTAL_PROPERTY_DETAIL_LIST_ROW_CLASS}>
-              <div className="min-w-0 flex-1">
-                <p className="text-sm font-semibold text-foreground">
-                  {normalizePropertyApplicationTemplateLabel(template.label)}
-                </p>
-                {formatApplicationLeaseTermsLabel(template.applicationLeaseTerms) ? (
-                  <p className="mt-0.5 text-xs text-muted">
-                    Applicants: {formatApplicationLeaseTermsLabel(template.applicationLeaseTerms)}
-                  </p>
-                ) : null}
-              </div>
-            </div>
-          ))
-        )}
-      </PortalPropertyDetailSection>
-
-      <Modal
-        open={editModalOpen}
-        title="Edit application"
-        description="Add or edit application forms for each stay type on this property."
-        onClose={() => {
-          setEditModalOpen(false);
-          closeEditor();
-        }}
-        panelClassName="max-w-4xl"
-        assistantContext="Edit application"
-      >
-        {editorBody}
-      </Modal>
-
       {editorOpen ? (
         <ManagerApplicationQuestionsEditorModal
           open
@@ -486,9 +453,7 @@ export function ManagerPropertyApplicationQuestionsPanel({
           onPersistSubmission={persistSubmission}
           canDelete={editorMode === "edit"}
           onDelete={
-            editingTemplate
-              ? () => handleDeleteTemplate(editingTemplate.id)
-              : undefined
+            editingTemplate ? () => handleDeleteTemplate(editingTemplate.id) : undefined
           }
           onClose={closeEditor}
           onSaved={onUpdated}
@@ -507,6 +472,31 @@ export function ManagerPropertyApplicationQuestionsPanel({
           initialPropertyId={settingsPropertyOptions[0]?.id}
         />
       ) : null}
+    </>
+  );
+
+  return (
+    <>
+      {catalogBody}
+      {!embedInModal && selectedTemplateId ? (
+        <BulkActionBar count={selectedIds.size} hideCount variant="payments">
+          <div className="flex min-w-0 flex-wrap items-center justify-start gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              className={PORTAL_BULK_BAR_BTN}
+              data-attr="property-application-bulk-edit"
+              onClick={() => {
+                const template = templates.find((row) => row.id === selectedTemplateId);
+                if (template) openEditApplication(template);
+              }}
+            >
+              Edit
+            </Button>
+          </div>
+        </BulkActionBar>
+      ) : null}
+      {editorModals}
     </>
   );
 }

@@ -12,6 +12,7 @@ import {
   PropertyDetailFooterActions,
 } from "@/components/portal/portal-property-detail-section";
 import { usePortalRowSelection } from "@/hooks/use-portal-row-selection";
+import { usePublishModalBulkActions } from "@/hooks/use-publish-modal-bulk-actions";
 import { PORTAL_BULK_BAR_BTN } from "@/lib/portal-bulk-bar";
 import type { ManagerListingSubmissionV1 } from "@/lib/manager-listing-submission";
 import {
@@ -202,14 +203,10 @@ export function ManagerPropertyLeasePanel({
   );
   const selectedTemplateId = selectedIds.size === 1 ? selectedTemplates[0]?.id ?? null : null;
 
-  useEffect(() => {
-    if (!onBulkActionsChange) return;
-    if (!selectedTemplateId) {
-      onBulkActionsChange(null);
-      return;
-    }
+  const modalBulkActions = useMemo(() => {
+    if (!selectedTemplateId) return null;
     const templateId = selectedTemplateId;
-    onBulkActionsChange(
+    return (
       <Button
         type="button"
         variant="outline"
@@ -218,9 +215,15 @@ export function ManagerPropertyLeasePanel({
         onClick={() => openEdit(templateId)}
       >
         Edit lease
-      </Button>,
+      </Button>
     );
-  }, [onBulkActionsChange, openEdit, selectedTemplateId]);
+  }, [openEdit, selectedTemplateId]);
+
+  usePublishModalBulkActions(
+    onBulkActionsChange,
+    selectedTemplateId ?? "",
+    modalBulkActions,
+  );
 
   const addSeedTemplate = useCallback(
     (seedKey: PropertyLeaseListingSeedKey) => {
