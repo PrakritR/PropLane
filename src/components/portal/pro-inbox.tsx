@@ -89,6 +89,7 @@ import {
   inboxThreadHasEmail,
   hasInboxReplyChannelSelected,
   resolveAssistantInboxReplyChannels,
+  resolveCommunicationPersonThreadReplyChannels,
   resolveManagerInboxReplyChannels,
   resolveManagerInboxPortalRecipient,
   resolveManagerInboxSmsTarget,
@@ -151,7 +152,10 @@ type InboxThread = {
 
 function threadEligibleForAiDraft(thread: InboxThread): boolean {
   if (isPropLaneAssistantInboxThread(thread)) return false;
-  return inboxThreadManagerReplyPending(thread);
+  if (thread.folder !== "inbox") return false;
+  if (inboxThreadManagerReplyPending(thread)) return true;
+  const email = String(thread.email ?? "").trim().toLowerCase();
+  return email.includes("@");
 }
 
 /** Search deliberately skips the trash folder; say so rather than letting a
@@ -1207,15 +1211,15 @@ export const ManagerInbox = forwardRef<
       return;
     }
     if (embeddedInCommunication) {
-      const unified = resolvePropLaneUnifiedReplyChannels({
+      const person = resolveCommunicationPersonThreadReplyChannels({
         emailAvailable: activeEmailAvailable,
         smsAvailable: activeSmsAvailable,
       });
-      setReplyViaProplane(false);
-      setReplyViaEmail(unified.viaEmail);
-      setReplyViaSms(unified.viaSms);
-      setAiDraftViaEmail(unified.viaEmail);
-      setAiDraftViaSms(unified.viaSms);
+      setReplyViaProplane(person.viaProplane);
+      setReplyViaEmail(person.viaEmail);
+      setReplyViaSms(person.viaSms);
+      setAiDraftViaEmail(person.viaEmail);
+      setAiDraftViaSms(person.viaSms);
       return;
     }
     const preferred = channelsFor("inbox_default");
@@ -1620,19 +1624,13 @@ export const ManagerInbox = forwardRef<
     // state right after opening a phone-only thread) still picks SMS when
     // email is impossible — never toast "choose a channel" and stick the
     // auto-send latch forever.
-    const preferred = embeddedInCommunication
-      ? resolvePropLaneUnifiedReplyChannels({
-          emailAvailable: activeEmailAvailable,
-          smsAvailable: activeSmsAvailable,
-        })
-      : { viaEmail: aiDraftViaEmail, viaSms: aiDraftViaSms };
-    const channels = resolveManagerInboxReplyChannels({
-      emailAvailable: activeEmailAvailable,
-      smsAvailable: activeSmsAvailable,
-      preferred,
-    });
-    if (!channels.viaEmail && !channels.viaSms) {
-      showToast("Choose Email, SMS, or both.");
+    const channels = {
+      viaEmail: aiDraftViaEmail && activeEmailAvailable,
+      viaSms: aiDraftViaSms && activeSmsAvailable,
+      viaProplane: replyViaProplane && activeProplaneAvailable,
+    };
+    if (!hasInboxReplyChannelSelected(channels)) {
+      showToast("Choose PropLane, Email, SMS, or a combination.");
       return false;
     }
     setApprovingDraft(true);
@@ -1640,6 +1638,7 @@ export const ManagerInbox = forwardRef<
       const outcome = await handleReply(activeThread.id, text, {
         email: channels.viaEmail,
         sms: channels.viaSms,
+        proplane: channels.viaProplane,
       });
       if (outcome) showToast(inboxReplySentToastMessage(outcome));
       return true;
@@ -1654,17 +1653,18 @@ export const ManagerInbox = forwardRef<
     } finally {
       setApprovingDraft(false);
     }
-  }, [activeEmailAvailable, activeSmsAvailable, activeThread, aiDraftEditText, aiDraftViaEmail, aiDraftViaSms, embeddedInCommunication, handleReply, showToast]);
+  }, [activeEmailAvailable, activeSmsAvailable, activeProplaneAvailable, activeThread, aiDraftEditText, aiDraftViaEmail, aiDraftViaSms, handleReply, replyViaProplane, showToast]);
 
   useEffect(() => {
     if (!activeThread?.aiDraft?.text || activeThread.aiDraft.status !== "pending_approval") return;
     if (embeddedInCommunication) {
-      const unified = resolvePropLaneUnifiedReplyChannels({
+      const person = resolveCommunicationPersonThreadReplyChannels({
         emailAvailable: activeEmailAvailable,
         smsAvailable: activeSmsAvailable,
       });
-      setAiDraftViaEmail(unified.viaEmail);
-      setAiDraftViaSms(unified.viaSms);
+      setAiDraftViaEmail(person.viaEmail);
+      setAiDraftViaSms(person.viaSms);
+      setReplyViaProplane(person.viaProplane);
       return;
     }
     const preferred = channelsFor("inbox_default");
@@ -1693,7 +1693,11 @@ export const ManagerInbox = forwardRef<
     if (!aiAutoSend || !activeThread?.aiDraft?.text) return;
     if (activeThread.aiDraft.status !== "pending_approval") return;
     if (approvingDraft || draftingIds.has(activeThread.id)) return;
-    if (!activeEmailAvailable && !activeSmsAvailable) return;
+    if (!hasInboxReplyChannelSelected({
+      viaEmail: activeEmailAvailable && aiDraftViaEmail,
+      viaSms: activeSmsAvailable && aiDraftViaSms,
+      viaProplane: activeProplaneAvailable && replyViaProplane,
+    })) return;
     const key = `${activeThread.id}:${activeThread.aiDraft.text}`;
     if (autoSentDraftRef.current === key) return;
     autoSentDraftRef.current = key;
@@ -1707,6 +1711,10 @@ export const ManagerInbox = forwardRef<
     activeThread?.aiDraft?.status,
     activeEmailAvailable,
     activeSmsAvailable,
+    activeProplaneAvailable,
+    aiDraftViaEmail,
+    aiDraftViaSms,
+    replyViaProplane,
     approvingDraft,
     draftingIds,
     approveActiveDraft,
@@ -1743,10 +1751,7 @@ export const ManagerInbox = forwardRef<
   );
 
   const showAiDraftUi = Boolean(
-    activeThread &&
-      !activeIsAssistantThread &&
-      activeThread.folder === "inbox" &&
-      ((activeThread.messages ?? []).length > 0 || Boolean(activeThread.body?.trim())),
+    activeThread && !activeIsAssistantThread && activeThread.folder === "inbox",
   );
 
   const emptyCopy = inboxTabEmptyCopy(tabId);
@@ -2074,7 +2079,8 @@ export const ManagerInbox = forwardRef<
                 approving={approvingDraft}
                 onApprove={() => void approveActiveDraft()}
                 onDiscard={() => void discardActiveDraft()}
-                channelControl={embeddedInCommunication ? undefined : aiDraftChannelPicker}
+                channelControl={aiDraftChannelPicker}
+                generateLabel="Draft with AI"
                 autoSend={aiAutoSend}
                 onAutoSendChange={embeddedInCommunication ? undefined : setAiAutoSend}
                 maxLength={

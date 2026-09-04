@@ -5,6 +5,7 @@ import {
   resolveManagerInboxReplyChannels,
   resolveManagerInboxPortalRecipient,
   resolveManagerInboxSmsTarget,
+  resolveCommunicationPersonThreadReplyChannels,
   resolvePropLaneUnifiedReplyChannels,
   resolveAssistantInboxReplyChannels,
   hasInboxReplyChannelSelected,
@@ -119,6 +120,16 @@ describe("manager inbox reply channels", () => {
       viaSms: false,
     });
     expect(hasInboxReplyChannelSelected({ viaProplane: true, viaEmail: false, viaSms: false })).toBe(true);
+  });
+
+  it("defaults Communication person threads to PropLane in-app send", () => {
+    expect(
+      resolveCommunicationPersonThreadReplyChannels({ emailAvailable: true, smsAvailable: true }),
+    ).toEqual({
+      viaProplane: true,
+      viaEmail: false,
+      viaSms: false,
+    });
   });
 
   it("resolves portal recipients for person threads by email or linked resident", () => {
