@@ -79,10 +79,9 @@ describe("manager move-in panel", () => {
   const view = readFileSync("src/components/portal/resident-move-in-view.tsx", "utf8");
 
   it("offers the house section to a room-by-room listing too", () => {
-    // The by-room branch is everything after the entire-home early return.
-    const byRoom = panel.slice(panel.lastIndexOf("  return (\n    <>"));
-    expect(byRoom).toContain("The whole house");
-    expect(byRoom).toContain('data-attr="house-move-in-save"');
+    expect(panel).toContain("The whole house");
+    expect(panel).toContain('"house-move-in-save"');
+    expect(panel).toContain('data-attr="property-move-in-house"');
   });
 
   it("makes rooms selectable with edit and share bulk actions", () => {

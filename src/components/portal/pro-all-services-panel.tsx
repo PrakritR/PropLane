@@ -44,8 +44,6 @@ import { PortalListControlStack } from "@/components/portal/portal-list-control-
 import {
   ManagerPortalPageShell,
   PORTAL_COMMAND_ACTION_BTN,
-  PORTAL_COMMAND_PRIMARY_ACTION_BTN,
-  PORTAL_COMMAND_PRIMARY_ACTION_STYLE,
 } from "@/components/portal/portal-metrics";
 import { PortalActiveFilterChips, type PortalActiveFilterChip } from "@/components/portal/portal-filter-chips";
 import { PortalRecordDetailPage } from "@/components/portal/portal-record-detail-page";
@@ -511,15 +509,6 @@ export function ManagerAllServicesPanel({
               title={propertyOptions.length === 0 ? "Add a property before editing its service types" : undefined}
             >
               Edit
-            </Button>
-            <Button
-              type="button"
-              className={PORTAL_COMMAND_PRIMARY_ACTION_BTN}
-              style={PORTAL_COMMAND_PRIMARY_ACTION_STYLE}
-              data-attr="manager-service-add"
-              onClick={() => setAddServiceOpen(true)}
-            >
-              Add service
             </Button>
           </>
         }
