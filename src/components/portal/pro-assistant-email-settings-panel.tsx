@@ -170,7 +170,8 @@ export function ManagerAssistantEmailSettingsPanel() {
           ) : planMessage ? (
             <div className="space-y-3">
               <p className="text-sm leading-relaxed text-muted">{planMessage}</p>
-              {status.planTier === "free" || status.entitlement.reason === "free" ? (
+              {status.planTier === "free" ||
+              (!status.entitlement.eligible && status.entitlement.reason === "free") ? (
                 <Button asChild variant="outline" data-attr="assistant-email-open-billing">
                   <Link href="/portal/profile?tab=billing">View plans</Link>
                 </Button>
