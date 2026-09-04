@@ -134,9 +134,28 @@ describe("every Google event still renders; only some count as taken", () => {
     expect(meetingConsumesTourSlot(meeting!)).toBe(false);
   });
 
-  it("counts an all-day entry even though Google reports it Free", () => {
+  it("AXI-161: an all-day entry the manager left FREE does not consume the day", () => {
+    // All-day used to block unconditionally, so every birthday, reminder and bin
+    // day wiped a whole day of tours — a linked calendar "blocked everything"
+    // and Free/Busy, the one control Google gives the manager, was ignored on
+    // exactly those events.
     const [meeting] = googleCalendarEventsToMeetings([
-      event({ summary: "Out of town", transparency: "transparent", allDay: true }),
+      event({ summary: "Bin day", transparency: "transparent", allDay: true }),
+    ]);
+    expect(meetingConsumesTourSlot(meeting!)).toBe(false);
+  });
+
+  it("an all-day entry marked BUSY still consumes it", () => {
+    const [meeting] = googleCalendarEventsToMeetings([
+      event({ summary: "Out of town", transparency: "opaque", allDay: true }),
+    ]);
+    expect(meetingConsumesTourSlot(meeting!)).toBe(true);
+  });
+
+  it("out-of-office blocks whatever its transparency says", () => {
+    // Google's own "I am not available" type — a genuine absence must still block.
+    const [meeting] = googleCalendarEventsToMeetings([
+      event({ summary: "PTO", transparency: "transparent", allDay: true, eventType: "outOfOffice" }),
     ]);
     expect(meetingConsumesTourSlot(meeting!)).toBe(true);
   });
@@ -148,9 +167,9 @@ describe("every Google event still renders; only some count as taken", () => {
 });
 
 /**
- * Google's all-day `end.date` is EXCLUSIVE. Because an all-day entry ALWAYS
- * blocks tours, mapping it to `end.date + T23:59:59` meant one "Vacation" day
- * removed TWO days of bookable slots from the public grid.
+ * Google's all-day `end.date` is EXCLUSIVE. For an all-day entry that DOES block
+ * (one marked Busy, or an out-of-office), mapping it to `end.date + T23:59:59`
+ * meant one "Vacation" day removed TWO days of bookable slots from the grid.
  */
 describe("an all-day event covers exactly the days it spans", () => {
   it("ends at midnight ON the exclusive end date, not the end of it", () => {

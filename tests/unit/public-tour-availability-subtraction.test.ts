@@ -42,6 +42,8 @@ let GOOGLE_BUSY: {
   transparency?: "opaque" | "transparent";
   declinedBySelf?: boolean;
   allDay?: boolean;
+  /** Google's own event kind; outOfOffice/focusTime block regardless of transparency. */
+  eventType?: string;
 }[];
 let GOOGLE_THROWS: boolean;
 /** Columns the property-availability reads were scoped on, in call order. */
@@ -381,14 +383,17 @@ describe("public tour availability subtracts what is already taken", () => {
     expect(slots.has(OTHER_DAY_SLOT)).toBe(true);
   });
 
-  it("blocks an all-day entry even though Google reports it Free", async () => {
-    // Google Calendar DEFAULTS all-day events to Free, so honouring transparency
-    // ahead of the all-day flag would quietly un-block every trip and holiday.
+  it("AXI-161: an all-day entry the manager left FREE does not blank the day", async () => {
+    // All-day used to block unconditionally, which is why a linked calendar
+    // "blocked everything": birthdays, reminders and bin day each wiped a whole
+    // day, and Free/Busy — the one control Google gives the manager — was
+    // ignored on exactly those events. A real absence is either marked Busy or
+    // is an out-of-office entry, and both still block (below).
     PROPERTY_AVAILABILITY_SLOTS = [...(PROPERTY_AVAILABILITY_SLOTS ?? []), OTHER_DAY_SLOT];
     GOOGLE_BUSY = [
       {
         id: "g-allday-free",
-        summary: "Out of town",
+        summary: "Bin day",
         start: `${DAY}T00:00:00`,
         end: `${DAY}T23:59:59`,
         allDay: true,
@@ -396,9 +401,43 @@ describe("public tour availability subtracts what is already taken", () => {
       },
     ];
     const slots = await offeredSlots();
+    expect([...slots].some((slot) => slot.startsWith(`${DAY}:`))).toBe(true);
+  });
+
+  it("an all-day entry marked BUSY still blocks the day", async () => {
+    PROPERTY_AVAILABILITY_SLOTS = [...(PROPERTY_AVAILABILITY_SLOTS ?? []), OTHER_DAY_SLOT];
+    GOOGLE_BUSY = [
+      {
+        id: "g-allday-busy",
+        summary: "Out of town",
+        start: `${DAY}T00:00:00`,
+        end: `${DAY}T23:59:59`,
+        allDay: true,
+        transparency: "opaque",
+      },
+    ];
+    const slots = await offeredSlots();
     expect([...slots].some((slot) => slot.startsWith(`${DAY}:`))).toBe(false);
     // The blocked day is gone but a day the manager published elsewhere
     // survives: an all-day block must not blank the whole grid.
+    expect(slots.has(OTHER_DAY_SLOT)).toBe(true);
+  });
+
+  it("an out-of-office day blocks whatever its transparency says", async () => {
+    PROPERTY_AVAILABILITY_SLOTS = [...(PROPERTY_AVAILABILITY_SLOTS ?? []), OTHER_DAY_SLOT];
+    GOOGLE_BUSY = [
+      {
+        id: "g-allday-ooo",
+        summary: "PTO",
+        start: `${DAY}T00:00:00`,
+        end: `${DAY}T23:59:59`,
+        allDay: true,
+        transparency: "transparent",
+        eventType: "outOfOffice",
+      },
+    ];
+    const slots = await offeredSlots();
+    expect([...slots].some((slot) => slot.startsWith(`${DAY}:`))).toBe(false);
     expect(slots.has(OTHER_DAY_SLOT)).toBe(true);
   });
 
