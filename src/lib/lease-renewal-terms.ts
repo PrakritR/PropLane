@@ -1,6 +1,7 @@
 import { listingAllowedLeaseTerms } from "@/lib/rental-application/data";
 import {
-  LEASE_TERM_OPTIONS,
+  LEASE_TERM_CHOICES,
+  LONG_TERM_LEASE_TERM,
   SHORT_TERM_LEASE_TERM,
   sortLeaseTermsCanonical,
 } from "@/lib/rental-application/lease-terms";
@@ -8,7 +9,10 @@ import {
 /** Lease term choices for the renew-lease modal — scoped to what the listing offers. */
 export function renewalLeaseTermOptionsForProperty(propertyId: string): string[] {
   const fromListing = propertyId.trim() ? listingAllowedLeaseTerms(propertyId.trim()) : [];
-  const fallback = [...LEASE_TERM_OPTIONS, SHORT_TERM_LEASE_TERM];
+  // The offered choices, matching what a listing without stored terms now
+  // presents everywhere else — not the full accepted set, which still carries
+  // the retired 3/6/9/12-Month lengths.
+  const fallback = [...LEASE_TERM_CHOICES, SHORT_TERM_LEASE_TERM];
   return sortLeaseTermsCanonical(fromListing.length > 0 ? fromListing : fallback);
 }
 
@@ -38,8 +42,16 @@ export function extendMoveOutTypesForProperty(propertyId: string): ExtendMoveOut
     options.push({ id: "short_term", label: "Short term", leaseTerm: SHORT_TERM_LEASE_TERM });
   }
 
+  // "Long-term" counts as a fixed term here alongside the retired N-Month
+  // lengths. Matching only /^\d+-Month$/ meant that the moment listings started
+  // offering "Long-term" (AXI-143) this filter went empty and the resident lost
+  // the "Long term" extend option entirely.
   const fixedTerms = terms.filter(
-    (term) => term !== "Month-to-Month" && term !== SHORT_TERM_LEASE_TERM && term !== "Custom" && FIXED_LEASE_TERM_RE.test(term),
+    (term) =>
+      term !== "Month-to-Month" &&
+      term !== SHORT_TERM_LEASE_TERM &&
+      term !== "Custom" &&
+      (term === LONG_TERM_LEASE_TERM || FIXED_LEASE_TERM_RE.test(term)),
   );
   if (fixedTerms.length > 0) {
     options.push({ id: "long_term", label: "Long term", leaseTerms: fixedTerms });
