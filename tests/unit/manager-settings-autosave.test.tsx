@@ -20,7 +20,7 @@ vi.mock("@/hooks/use-work-assignment-directory", () => ({
   useWorkAssignmentDirectory: () => ({ teamMembers: [] }),
 }));
 
-import { ManagerPortalSettingsModal } from "@/components/portal/manager-portal-settings-modal";
+import { ManagerPortalSettingsModal } from "@/components/portal/pro-portal-settings-modal";
 
 const PROPERTY_OPTIONS = [{ id: "prop-1", label: "Ballard House" }];
 

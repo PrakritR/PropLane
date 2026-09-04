@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
 const CALENDAR = readFileSync(join(process.cwd(), "src/components/portal/portal-calendar.tsx"), "utf8");
-const TOURS = readFileSync(join(process.cwd(), "src/components/portal/manager-tours.tsx"), "utf8");
+const TOURS = readFileSync(join(process.cwd(), "src/components/portal/pro-tours.tsx"), "utf8");
 
 /**
  * Tour rules live in the Tours section, and nowhere else.

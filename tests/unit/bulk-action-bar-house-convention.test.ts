@@ -59,8 +59,8 @@ describe("BulkActionBar call sites", () => {
    * confirms first. This guard is the detail tabs only.
    */
   const PORTFOLIO_LIST_SURFACES = new Set([
-    join("src", "components", "portal", "manager-house-properties-panel.tsx"),
-    join("src", "components", "portal", "manager-promotion.tsx"),
+    join("src", "components", "portal", "pro-house-properties-panel.tsx"),
+    join("src", "components", "portal", "pro-promotion.tsx"),
     join("src", "components", "portal", "pro-account-links-panel.tsx"),
   ]);
 

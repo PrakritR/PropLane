@@ -14,9 +14,15 @@ export function generateManagerId(): string {
   return generateAxisId();
 }
 
-/** Customer-facing PropLane ID — legacy `AXIS-` values are shown as `PROPLANE-`. */
-export function formatProplaneIdForDisplay(id: string): string {
-  const raw = id.trim();
+/**
+ * Customer-facing PropLane ID — legacy `AXIS-` values are shown as `PROPLANE-`.
+ *
+ * Tolerates a missing id. This is a DISPLAY helper called from render, and an
+ * account with no id yet is an ordinary state, not an error — throwing there
+ * takes the whole settings page down rather than showing one blank field.
+ */
+export function formatProplaneIdForDisplay(id: string | null | undefined): string {
+  const raw = (id ?? "").trim();
   if (!raw) return raw;
   if (raw.toUpperCase().startsWith("AXIS-")) return `PROPLANE-${raw.slice(5)}`;
   return raw;
