@@ -1672,16 +1672,29 @@ export function ManagerApplications({
     </PortalFilterSortSheet>
   );
 
+  // Edit and Settings sit together and open with the same property dropdown, so
+  // the pair reads as one idea rather than two adjacent unrelated features.
   const applicationsSettingsButton = (
-    <Button
-      type="button"
-      variant="outline"
-      className={PORTAL_COMMAND_ACTION_BTN}
-      data-attr="application-settings-open"
-      onClick={() => setApplicationSettingsOpen(true)}
-    >
-      Settings
-    </Button>
+    <>
+      <Button
+        type="button"
+        variant="outline"
+        className={PORTAL_COMMAND_ACTION_BTN}
+        data-attr="application-edit-open"
+        onClick={() => setEditApplicationOpen(true)}
+      >
+        Edit
+      </Button>
+      <Button
+        type="button"
+        variant="outline"
+        className={PORTAL_COMMAND_ACTION_BTN}
+        data-attr="application-settings-open"
+        onClick={() => setApplicationSettingsOpen(true)}
+      >
+        Settings
+      </Button>
+    </>
   );
 
   const applicationsAddButton = (

@@ -152,11 +152,6 @@ export function ApplicationsSettingsPanel({
   onPropertyIdChange: (propertyId: string) => void;
   onAutomationChange: (next: ApplicationAutomationPreferences) => void;
 }) {
-  const confirmAutoApproveEnable = () =>
-    window.confirm(
-      "Auto-approve will approve submitted applications without manual review, creating resident accounts and approval-time charges. Withdrawn applications are still skipped.\n\nTurn on auto-approve?",
-    );
-
   return (
     <div className="space-y-4">
       <ManagerSettingsPropertyField
@@ -172,11 +167,13 @@ export function ApplicationsSettingsPanel({
           checked={automation.autoApproveApplications}
           disabled={loading || saving}
           data-attr="manager-application-automation-autoApproveApplications"
-          onChange={(e) => {
-            const next = e.target.checked;
-            if (next && !confirmAutoApproveEnable()) return;
-            onAutomationChange({ ...automation, autoApproveApplications: next });
-          }}
+          // No confirm() gate. The consequence is already stated under the
+          // label and again in the banner below once it is on, and the setting
+          // is one click to undo — a browser dialog restating the caption is a
+          // step to click past, not a safeguard.
+          onChange={(e) =>
+            onAutomationChange({ ...automation, autoApproveApplications: e.target.checked })
+          }
         />
         <span className="min-w-0">
           <span className="block text-[13px] font-medium text-foreground">Auto-approve applications</span>
