@@ -126,6 +126,16 @@ afterEach(cleanup);
  * row. Both are BUDGETED on top of the five option rows — never taken out of them — so
  * this is what the shell's five-row cap is measured against.
  */
+/**
+ * A filter menu's chrome is the search row, and the search row only appears once
+ * the list is longer than the 5 visible rows (AXI-161). Forcing it on every menu
+ * made a 3-option house picker 52px taller for a box nobody needed.
+ */
+function filterMenuChromePx(optionCount: number): number {
+  return optionCount > FILTER_LIST_VISIBLE_ROWS ? FIELD_SELECT_MENU_SEARCH_PX : 0;
+}
+
+/** The worst case — what the host PANELS are sized against. */
 const FILTER_MENU_CHROME_PX = FIELD_SELECT_MENU_SEARCH_PX;
 
 function makeOptions(n: number) {
@@ -237,7 +247,7 @@ describe("FilterCollapsibleSection — the one filter dropdown pattern", () => {
     fireEvent.click(screen.getByRole("button", { name: /Property/ }));
     const shell = screen.getByRole("listbox").closest("[data-field-select-menu]") as HTMLElement;
 
-    const threeRowCap = fieldSelectMenuContentPx(3, FILTER_MENU_CHROME_PX);
+    const threeRowCap = fieldSelectMenuContentPx(3, filterMenuChromePx(3));
     const fiveRowCap = fieldSelectMenuContentPx(FILTER_LIST_VISIBLE_ROWS, FILTER_MENU_CHROME_PX);
     expect(threeRowCap).toBeLessThan(fiveRowCap);
     expect(shell.style.maxHeight).toBe(`${threeRowCap}px`);
@@ -335,15 +345,28 @@ describe("FilterCollapsibleSection — the one filter dropdown pattern", () => {
     expect(screen.getByRole("textbox")).toBeTruthy();
   });
 
-  it("shows a search box on every portal filter menu, and always when there are more than 5 options", () => {
+  it("AXI-161: no search box on a SHORT filter menu — the row is only height", () => {
+    // The search row is budgeted out of the menu's height, not out of its five
+    // option rows, so forcing it on a 4-option house picker bought nothing and
+    // made the menu 52px taller. That is the "remove search in dropdown" ask.
     render(<Harness optionCount={4} />);
+    fireEvent.click(screen.getByRole("button", { name: /Property/ }));
+    expect(screen.queryByRole("textbox")).toBeNull();
+  });
+
+  it("…and still shows one once the list outgrows its five rows", () => {
+    render(<Harness optionCount={30} />);
     fireEvent.click(screen.getByRole("button", { name: /Property/ }));
     expect(screen.getByRole("textbox")).toBeTruthy();
   });
 
-  it("hides the search box on non-filter field-select menus with 5 or fewer options", () => {
-    // FilterCheckboxList always shows search; this documents the filter-specific rule only.
-    expect(FILTER_FIELD_MENU_ALWAYS_SHOW_SEARCH).toBe(true);
+  it("the PANELS are still sized for a menu that does show it", () => {
+    // A long list keeps its search row, so a host that budgeted only for the
+    // short-list height would seat that menu over its own Reset / ✕ chrome.
+    expect(FILTER_FIELD_MENU_ALWAYS_SHOW_SEARCH).toBe(false);
+    expect(FILTER_MENU_CONTENT_PX).toBe(
+      fieldSelectMenuContentPx(FILTER_LIST_VISIBLE_ROWS, FIELD_SELECT_MENU_SEARCH_PX),
+    );
   });
 
   it("filters the visible options as you type without dropping the selection", () => {
@@ -442,7 +465,7 @@ describe("FilterCollapsibleSection — the one filter dropdown pattern", () => {
     const shell = screen.getByRole("listbox").closest("[data-field-select-menu]") as HTMLElement;
     // Three rendered rows — the injected "All properties" plus the two real ones — and NOT
     // the caller's 99, which would have reserved a full five-row box.
-    expect(shell.style.maxHeight).toBe(`${fieldSelectMenuContentPx(3, FILTER_MENU_CHROME_PX)}px`);
+    expect(shell.style.maxHeight).toBe(`${fieldSelectMenuContentPx(3, filterMenuChromePx(3))}px`);
   });
 
   it("uses a count summary for multi-select so the trigger width stays stable", () => {
