@@ -1,14 +1,14 @@
 // @vitest-environment jsdom
 import { describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen } from "@testing-library/react";
-import { ManagerPropertyApplicationQuestionsPanel } from "@/components/portal/manager-property-application-questions-panel";
+import { ManagerPropertyApplicationQuestionsPanel } from "@/components/portal/pro-property-application-questions-panel";
 import { createDefaultListingSubmission } from "@/lib/manager-listing-submission";
 
-vi.mock("@/components/portal/manager-application-questions-editor-modal", () => ({
+vi.mock("@/components/portal/pro-application-questions-editor-modal", () => ({
   ManagerApplicationQuestionsEditorModal: () => null,
 }));
-vi.mock("@/components/portal/manager-portal-settings-modal", () => ({
-  ManagerPortalSettingsModal: ({ open }: { open: boolean }) =>
+vi.mock("@/components/portal/pro-portal-settings-modal", () => ({
+  ProPortalSettingsModal: ({ open }: { open: boolean }) =>
     open ? <div data-testid="application-settings-modal" /> : null,
 }));
 

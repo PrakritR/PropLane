@@ -1,14 +1,14 @@
 // @vitest-environment jsdom
 import { describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen } from "@testing-library/react";
-import { ManagerPropertyLeasePanel } from "@/components/portal/manager-property-lease-panel";
+import { ManagerPropertyLeasePanel } from "@/components/portal/pro-property-lease-panel";
 import { createDefaultListingSubmission } from "@/lib/manager-listing-submission";
 
 vi.mock("@/components/portal/property-lease-form-modal", () => ({
   PropertyLeaseFormModal: () => null,
 }));
-vi.mock("@/components/portal/manager-portal-settings-modal", () => ({
-  ManagerPortalSettingsModal: ({ open }: { open: boolean }) =>
+vi.mock("@/components/portal/pro-portal-settings-modal", () => ({
+  ProPortalSettingsModal: ({ open }: { open: boolean }) =>
     open ? <div data-testid="lease-settings-modal" /> : null,
 }));
 

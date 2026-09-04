@@ -6,7 +6,7 @@ vi.mock("@/lib/channel-calendar/client", () => ({
   fetchManagerChannelBookings: () => Promise.resolve([]),
 }));
 
-import { ManagerPortfolioBookingsCalendar } from "@/components/portal/manager-portfolio-bookings-calendar";
+import { ManagerPortfolioBookingsCalendar } from "@/components/portal/pro-portfolio-bookings-calendar";
 
 beforeAll(() => {
   vi.useFakeTimers({ toFake: ["Date"] });
