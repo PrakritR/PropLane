@@ -327,6 +327,11 @@ export type GoogleCalendarApiEvent = {
   declinedBySelf?: boolean;
   /** All-day entries arrive as bare dates and cover the whole calendar day. */
   allDay?: boolean;
+  /**
+   * Google's own event kind. `outOfOffice` and `focusTime` are Google's explicit
+   * "I am not available" types and block whatever their transparency says.
+   */
+  eventType?: string;
 };
 
 export function isGoogleCalendarApiDisabledError(message: string): boolean {
@@ -467,6 +472,8 @@ export type GoogleCalendarListItem = {
   start?: { dateTime?: string; date?: string };
   end?: { dateTime?: string; date?: string };
   attendees?: Array<{ self?: boolean; responseStatus?: string }>;
+  /** Google's own kind: "default" | "outOfOffice" | "focusTime" | "birthday" | … */
+  eventType?: string;
 };
 
 /**
@@ -497,6 +504,7 @@ export function googleCalendarApiEventFromListItem(
     transparency: item.transparency === "transparent" ? "transparent" : "opaque",
     declinedBySelf: self?.responseStatus === "declined",
     allDay,
+    eventType: typeof item.eventType === "string" ? item.eventType : undefined,
   } satisfies GoogleCalendarApiEvent;
 }
 
@@ -567,6 +575,11 @@ export async function listGoogleCalendarEventsPaged(
       singleEvents: "true",
       orderBy: "startTime",
       maxResults: "250",
+      // `eventType` is not returned by default on every response shape; ask for
+      // the fields the busy predicate actually reads so an out-of-office entry
+      // is recognizable as one.
+      fields:
+        "nextPageToken,items(id,summary,description,htmlLink,transparency,eventType,start,end,attendees(self,responseStatus))",
     });
     if (pageToken) params.set("pageToken", pageToken);
     const res = await fetch(

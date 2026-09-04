@@ -214,11 +214,13 @@ export async function resolveOAuthPortalRedirect(
   // did not choose to take. The chooser honours a `role` it is handed, so it
   // provisions and moves on through the SAME path a manual pick would take.
   //
-  // Only `resident` is auto-honoured. Manager still stops at the chooser because
-  // its option leads into plan selection, and vendor because vendors arrive by
-  // invite — neither is a question the intent alone has answered.
-  if (intent === "resident") {
-    const params = new URLSearchParams({ role: "resident" });
+  // All three roles, because the chooser provisions each one exactly as a manual
+  // pick would: manager lands on the PLAN chooser rather than being handed a
+  // tier, resident on the apply flow, vendor through the self-serve vendor
+  // registration. Nothing is granted here that a click on the same screen would
+  // not have granted a second later (AXI-126).
+  if (intent) {
+    const params = new URLSearchParams({ role: intent });
     // Keep where they were going, so the detour through the chooser is invisible.
     if (!isGenericOAuthContinuePath(safeIntended)) params.set("next", safeIntended);
     return finish(`${GET_STARTED_PATH}?${params.toString()}`);

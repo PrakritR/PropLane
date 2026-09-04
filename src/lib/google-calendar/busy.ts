@@ -13,21 +13,31 @@
  *
  * - **Declined never blocks.** An invite the manager declined is a meeting they
  *   are not attending.
- * - **All-day always blocks**, even when Google reports it Free — Google
- *   Calendar defaults all-day entries to Free, so honouring transparency first
- *   would quietly un-block every trip and holiday. An all-day entry usually does
- *   mean away; over-blocking a day costs an unsold slot, under-blocking it sends
- *   a prospect to an empty house.
- * - **Free ("transparent") does not block.** That is the manager explicitly
- *   marking the time available.
+ * - **Out-of-office and focus time always block.** These are Google's own
+ *   explicit "I am not available" event types, so they block whatever their
+ *   transparency happens to say.
+ * - **Free ("transparent") does not block — all-day included.** That is the
+ *   manager explicitly marking the time available, and it is the DEFAULT Google
+ *   Calendar writes for an all-day entry.
+ * - **Everything else blocks.**
+ *
+ * All-day entries used to block unconditionally, on the reasoning that an all-day
+ * entry usually means away. In practice it meant a linked calendar "blocks
+ * everything" (AXI-161): birthdays, reminders, bin day and every other all-day
+ * note wiped a whole day of tours each, and a manager had no way to say
+ * otherwise because the one control Google gives them — Free/Busy — was being
+ * ignored on exactly those events. Genuine absences still block: an
+ * out-of-office entry is its own event type, and an all-day event the manager
+ * marks Busy is opaque and blocks like anything else.
  */
 export function googleEventBlocksTours(event: {
   transparency?: string;
   declinedBySelf?: boolean;
   allDay?: boolean;
+  eventType?: string;
 }): boolean {
   if (event.declinedBySelf) return false;
-  if (event.allDay) return true;
+  if (event.eventType === "outOfOffice" || event.eventType === "focusTime") return true;
   if (event.transparency === "transparent") return false;
   return true;
 }

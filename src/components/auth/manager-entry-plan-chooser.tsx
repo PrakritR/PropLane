@@ -3,7 +3,6 @@
 import { AuthCard } from "@/components/auth/auth-card";
 import { AuthPageHeader } from "@/components/auth/auth-mobile-primitives";
 import { ManagerPlanBillingToggle, ManagerPlanTierCards } from "@/components/auth/manager-plan-tier-cards";
-import { EmbeddedCheckoutMount } from "@/components/stripe/embedded-checkout";
 import { useAppUi } from "@/components/providers/app-ui-provider";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -22,10 +21,14 @@ import { useEffect, useMemo, useRef, useState } from "react";
  * The account is already provisioned (and on the no-card 14-day Pro signup
  * trial) when this renders, so this surface RECORDS the choice:
  *  - Free  → commits `tier: "free"` via the existing update-tier route.
- *  - Pro / Business → the existing signed-in signup checkout
- *    (`/api/manager/pricing-oauth-continue`): embedded Stripe Checkout that
- *    collects a payment method now with a 14-day trial, then returns through
- *    /auth/manager-oauth-finish into the portal.
+ *  - Pro / Business → starts the trial and enters the portal. NO CARD is
+ *    collected (AXI-127): the trial is already live on the account, and
+ *    `resolveEffectiveManagerTier` drops it to Free on day 15 by date alone, so
+ *    a payment method buys nothing until the manager actually decides to
+ *    upgrade. Asking for one at the door was a card wall in front of a product
+ *    nobody had used yet.
+ *  - A 100% promo code still commits a real paid tier immediately, which is a
+ *    different thing from a trial and keeps its own path.
  *
  * Managers who already hold a plan are never re-asked: this page is only
  * routed-to from the get-started provisioning step, and a direct visit with an
@@ -74,7 +77,6 @@ export function ManagerEntryPlanChooser() {
   const [busy, setBusy] = useState(false);
   const [promoCode, setPromoCode] = useState("");
   const [promoError, setPromoError] = useState<string | null>(null);
-  const [checkoutClientSecret, setCheckoutClientSecret] = useState<string | null>(null);
   const guardRanRef = useRef(false);
 
   const selected = useMemo(() => tierById(planTiers, selectedTierId), [planTiers, selectedTierId]);
@@ -158,36 +160,11 @@ export function ManagerEntryPlanChooser() {
       window.location.replace(managerPortalEntryPath());
       return;
     }
-    const res = await fetch("/api/manager/pricing-oauth-continue", {
-      method: "POST",
-      credentials: "include",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ tier, billing }),
-    });
-    const body = (await res.json().catch(() => ({}))) as {
-      action?: string;
-      clientSecret?: string;
-      sessionId?: string;
-      url?: string;
-      error?: string;
-    };
-    if (!res.ok) {
-      showToast(body.error ?? "Could not start checkout. You can also subscribe later in Settings.");
-      return;
-    }
-    if (body.action === "portal") {
-      window.location.replace(managerPortalEntryPath());
-      return;
-    }
-    if (body.action === "checkout" && body.clientSecret) {
-      setCheckoutClientSecret(body.clientSecret);
-      return;
-    }
-    if (body.action === "redirect" && body.url) {
-      window.location.assign(body.url);
-      return;
-    }
-    showToast("Could not start checkout. You can also subscribe later in Settings.");
+    // The trial is ALREADY active on this account — provisioning put it there —
+    // so starting it is just entering the portal. No card, no checkout, nothing
+    // to fail. Upgrading is a deliberate, separate act in Settings once they
+    // have used the thing (AXI-127).
+    window.location.replace(managerPortalEntryPath());
   };
 
   const continueWithSelection = async () => {
@@ -211,46 +188,13 @@ export function ManagerEntryPlanChooser() {
     );
   }
 
-  if (checkoutClientSecret) {
-    return (
-      <AuthCard wide variant="blend">
-        <div className="auth-plan-picker auth-plan-picker-wide">
-          <AuthPageHeader
-            eyebrow="Manager"
-            title={`Subscribe to ${selected.label}`}
-            subtitle={`Add a payment method now — billing starts after your ${MANAGER_SUBSCRIPTION_TRIAL_DAYS}-day free trial.`}
-            accent={false}
-          />
-          <div className="mt-4">
-            <EmbeddedCheckoutMount
-              clientSecret={checkoutClientSecret}
-              onError={(message) => {
-                showToast(message);
-                setCheckoutClientSecret(null);
-              }}
-            />
-          </div>
-          <p className="mt-4 text-center">
-            <button
-              type="button"
-              className="text-sm font-medium text-primary underline-offset-2 hover:underline"
-              onClick={() => setCheckoutClientSecret(null)}
-            >
-              Back to plans
-            </button>
-          </p>
-        </div>
-      </AuthCard>
-    );
-  }
-
   return (
-    <AuthCard wide variant="blend">
+    <AuthCard widest variant="blend">
       <div className="auth-plan-picker auth-plan-picker-wide">
         <AuthPageHeader
           eyebrow="Manager"
           title="Choose your plan"
-          subtitle={`Your account starts with a ${MANAGER_SUBSCRIPTION_TRIAL_DAYS}-day free Pro trial — pick the plan to continue with. Free needs no card.`}
+          subtitle={`Your account starts with a ${MANAGER_SUBSCRIPTION_TRIAL_DAYS}-day free Pro trial — pick the plan to continue with. No card, whichever you choose.`}
           accent={false}
         />
 
@@ -271,7 +215,7 @@ export function ManagerEntryPlanChooser() {
         <p className="auth-plan-price-block mt-4 text-center text-xs text-muted sm:mt-5">
           {selectedTierId === "free"
             ? "Free · no card required · upgrade anytime in Settings"
-            : `${selected.label} · card required · first charge after your ${MANAGER_SUBSCRIPTION_TRIAL_DAYS}-day free trial · the dedicated phone number & texting start with your paid subscription, not during the trial`}
+            : `${selected.label} · no card required · after ${MANAGER_SUBSCRIPTION_TRIAL_DAYS} days you move to Free unless you upgrade in Settings · the dedicated phone number & texting start with a paid subscription, not during the trial`}
         </p>
 
         {selectedTierId !== "free" ? (

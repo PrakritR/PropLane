@@ -73,7 +73,10 @@ function ManagerPlanPickerInner() {
   }, [billing, router, selectedTierId]);
 
   return (
-    <AuthCard wide>
+    // `widest`, like the post-signup chooser: three plan cards inside 52rem
+    // wrapped their feature copy every few words on a desktop browser. The two
+    // plan surfaces must not disagree about how much room a comparison needs.
+    <AuthCard widest>
       <div className="auth-plan-picker auth-plan-picker-wide">
         <AuthPageHeader
           eyebrow="Manager"

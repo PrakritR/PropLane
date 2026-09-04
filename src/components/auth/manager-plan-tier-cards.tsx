@@ -124,12 +124,21 @@ export function ManagerPlanTierCards({
   }
 
   return (
-    // Three across from `md` up. Stacked, the three plans were taller than the
-    // viewport on a desktop browser, so comparing them meant scrolling — the one
-    // thing a pricing chooser must not ask for (AXI-128). Both call sites render
-    // inside `AuthCard wide` (52rem), which leaves ~16rem per column at md.
-    // Still one column on a phone, where side-by-side would be unreadable.
-    <div className="grid gap-3 sm:gap-4 md:grid-cols-3">
+    /*
+     * Web and mobile are two different layouts here, not one layout squeezed.
+     *
+     * Three across from `md` up, with real room: the chooser renders inside
+     * `AuthCard widest` (76rem), so each column gets ~23rem instead of the ~15rem
+     * that wrapped the feature copy every two or three words and pushed the page
+     * past one screen. The gap widens with the breakpoint so the plans read as
+     * three separate things to compare rather than one striped block.
+     *
+     * On a phone they stack vertically — side by side is unreadable there — and
+     * the feature list of an UNSELECTED plan collapses, because three full lists
+     * stacked is a page of scrolling to answer one question. Tapping a plan opens
+     * its list; the selected plan always shows everything.
+     */
+    <div className="grid gap-3 sm:gap-4 md:grid-cols-3 md:gap-5 lg:gap-7">
       {tiers.map((tier) => {
         const price = billing === "monthly" ? tier.monthly : tier.annual;
         const isSelected = selectedTierId === tier.id;
@@ -164,7 +173,20 @@ export function ManagerPlanTierCards({
                   </span>
                   {price.period ? <span className="text-sm font-medium text-muted">{price.period}</span> : null}
                 </div>
-                <p className="mt-1.5 text-xs leading-relaxed text-muted sm:text-sm">{price.sub}</p>
+                {/*
+                  On a phone an unselected card is a summary, not a pitch: label,
+                  price and a way in. Its blurb AND its feature list are what made
+                  three stacked plans a page and a half of scrolling to answer one
+                  question. Both come back the moment it is selected, and the web
+                  layout always shows everything.
+                */}
+                <p
+                  className={`mt-1.5 text-xs leading-relaxed text-muted sm:text-sm ${
+                    isSelected ? "" : "max-md:hidden"
+                  }`}
+                >
+                  {price.sub}
+                </p>
               </div>
               <span
                 className={`mt-1 flex h-5 w-5 shrink-0 items-center justify-center rounded-full border ${
@@ -186,7 +208,11 @@ export function ManagerPlanTierCards({
               </span>
             </div>
 
-            <ul className="mt-3 space-y-1.5 border-t border-border/60 pt-3 sm:mt-4 sm:space-y-2 sm:pt-4">
+            <ul
+              className={`mt-3 space-y-1.5 border-t border-border/60 pt-3 sm:mt-4 sm:space-y-2 sm:pt-4 ${
+                isSelected ? "" : "max-md:hidden"
+              }`}
+            >
               {tier.features.map((feature) => (
                 <li key={feature.text} className="flex items-start gap-2 text-xs sm:text-sm">
                   <span
@@ -209,6 +235,11 @@ export function ManagerPlanTierCards({
                 </li>
               ))}
             </ul>
+            {!isSelected ? (
+              <p className="mt-2 text-xs font-medium text-primary md:hidden">
+                Tap to see what&rsquo;s included
+              </p>
+            ) : null}
           </button>
         );
       })}

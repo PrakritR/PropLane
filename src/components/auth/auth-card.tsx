@@ -6,13 +6,26 @@ type AuthCardVariant = "card" | "blend";
 export function AuthCard({
   children,
   wide = false,
+  /**
+   * Wider still, for the plan chooser.
+   *
+   * `wide` (52rem) left roughly 15rem per column for three plan cards, which on
+   * a desktop browser wrapped the feature copy every two or three words and
+   * pushed the page well past one screen. The plans are a side-by-side
+   * COMPARISON — the web layout needs room to actually be one, rather than
+   * inheriting a width chosen for a single-column form, and framing it in a wide
+   * empty margin makes the page look like the form it is not.
+   */
+  widest = false,
   variant = "card",
 }: {
   children: ReactNode;
   wide?: boolean;
+  widest?: boolean;
   variant?: AuthCardVariant;
 }) {
-  const shellClass = `auth-card-shell relative mx-auto w-full ${wide ? "max-w-[52rem]" : "max-w-[460px]"}`;
+  const maxWidth = widest ? "max-w-[88rem]" : wide ? "max-w-[52rem]" : "max-w-[460px]";
+  const shellClass = `auth-card-shell relative mx-auto w-full ${maxWidth}`;
 
   if (variant === "blend") {
     return (
