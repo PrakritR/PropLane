@@ -27,6 +27,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { normalizeAuthEmail } from "@/lib/auth/normalize-auth-email";
+import { withAuthTimeout } from "@/lib/auth/with-timeout";
 
 /**
  * Manager account creation: Continue with Google or the manual details form, with the
@@ -158,7 +159,18 @@ export function ManagerSignupPanel({
         return;
       }
       const supabase = createSupabaseBrowserClient();
-      const { error } = await supabase.auth.signInWithPassword({ email: normalizeAuthEmail(email), password });
+      // BOUNDED — see PRP-187: an unsettled sign-in leaves the button spinning
+      // forever over an account that was in fact created.
+      type SignInResult = Awaited<ReturnType<typeof supabase.auth.signInWithPassword>>;
+      let error: unknown = null;
+      try {
+        const result = await withAuthTimeout<SignInResult>(
+          supabase.auth.signInWithPassword({ email: normalizeAuthEmail(email), password }),
+        );
+        error = result.error;
+      } catch (timeoutOrNetwork) {
+        error = timeoutOrNetwork;
+      }
       if (error) {
         showToast("Account created. Sign in to continue.");
         router.push("/auth/sign-in?role=manager");
