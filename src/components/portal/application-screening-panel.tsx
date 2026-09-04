@@ -571,7 +571,7 @@ export function ApplicationScreeningPanel({
             data-attr="screening-pdf-download"
             onClick={handleDownload}
           >
-            Download background check
+            Download
           </Button>
         ) : null}
       </>

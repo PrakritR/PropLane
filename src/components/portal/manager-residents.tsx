@@ -2590,21 +2590,90 @@ export function ManagerResidents({
     }
   }
 
+  /**
+   * The footer follows the application's state rather than showing one fixed
+   * pair. It offered Approve and Download only, so a manager could approve but
+   * never reject, and once a decision was made there was no way back from it
+   * on this screen at all.
+   *
+   *   decidable (pending, complete) → Approve · Reject
+   *   approved                      → Move to pending   (undo the decision)
+   *   rejected                      → Move to pending · Delete
+   *   incomplete                    → Send reminder
+   *
+   * Download is always there. "Move to pending" rather than "Un-approve"
+   * because pending is a real bucket the row goes back to, not an absence.
+   */
   const residentApplicationTabFooterActions = selectedApplicationRow ? (
     <>
-      {selectedApplicationRow.bucket === "pending" &&
-      !isWithdrawnApplicationRow(selectedApplicationRow) &&
-      !isInProgressApplicationRow(selectedApplicationRow) ? (
-        <Button
-          type="button"
-          variant="primary"
-          className={PORTAL_DETAIL_BTN}
-          data-attr="resident-application-approve"
-          onClick={() => setApprovePreviewRow(selectedApplicationRow)}
-        >
-          Approve
-        </Button>
-      ) : null}
+      {(() => {
+        const row = selectedApplicationRow;
+        const undecidable = isWithdrawnApplicationRow(row) || isInProgressApplicationRow(row);
+        const decidable = row.bucket === "pending" && !undecidable;
+        const moveToPending = (
+          <Button
+            type="button"
+            variant="outline"
+            className={PORTAL_DETAIL_BTN}
+            data-attr="resident-application-move-pending"
+            onClick={() => void setApplicationBucket(row.id, "pending")}
+          >
+            Move to pending
+          </Button>
+        );
+        return (
+          <>
+            {decidable ? (
+              <>
+                <Button
+                  type="button"
+                  variant="primary"
+                  className={PORTAL_DETAIL_BTN}
+                  data-attr="resident-application-approve"
+                  onClick={() => setApprovePreviewRow(row)}
+                >
+                  Approve
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  className={PORTAL_DETAIL_BTN}
+                  data-attr="resident-application-reject"
+                  onClick={() => void setApplicationBucket(row.id, "rejected")}
+                >
+                  Reject
+                </Button>
+              </>
+            ) : null}
+            {row.bucket === "approved" ? moveToPending : null}
+            {row.bucket === "rejected" ? (
+              <>
+                {moveToPending}
+                <Button
+                  type="button"
+                  variant="outline"
+                  className={`${PORTAL_DETAIL_BTN} border-rose-200 text-rose-800 hover:bg-[var(--status-overdue-bg)] portal-danger-outline`}
+                  data-attr="resident-application-delete"
+                  onClick={() => void deleteApplicationForRow(row)}
+                >
+                  Delete
+                </Button>
+              </>
+            ) : null}
+            {undecidable && shouldOfferApplicationCompletionReminder(row) ? (
+              <Button
+                type="button"
+                variant="outline"
+                className={PORTAL_DETAIL_BTN}
+                data-attr="resident-application-completion-reminder"
+                onClick={() => void openApplicationCompletionReminderPreview(row)}
+              >
+                Send reminder
+              </Button>
+            ) : null}
+          </>
+        );
+      })()}
       <Button
         type="button"
         variant="outline"
@@ -2619,27 +2688,31 @@ export function ManagerResidents({
     </>
   ) : null;
 
+  /**
+   * The screening panel already publishes the run action for this tab — "Run
+   * background check" when there is no report, "Run again" when there is — so
+   * a second button that opens the same modal was pure duplication: the footer
+   * read "Run again · Download · Request screening", three buttons for two
+   * actions.
+   *
+   * What is left is the case the panel does NOT cover: the applicant has not
+   * authorized a check yet. There is nothing to run, and the useful move is to
+   * chase the applicant, so that is what the button says.
+   */
   const residentBackgroundCheckTabFooterActions = selectedApplicationRow ? (
     <>
       {applicantScreeningFooterActions}
-      {applicationShowsBackgroundCheck(selectedApplicationRow) ? (
+      {applicationShowsBackgroundCheck(selectedApplicationRow) &&
+      !selectedApplicationRow.application?.consentCredit &&
+      shouldOfferApplicationCompletionReminder(selectedApplicationRow) ? (
         <Button
           type="button"
           variant="outline"
           className={PORTAL_DETAIL_BTN}
-          data-attr="resident-application-request-screening"
-          onClick={() => {
-            if (selectedApplicationRow.application?.consentCredit) {
-              setCheckrScreeningShowPicker(false);
-              setCheckrScreeningRowId(selectedApplicationRow.id);
-              return;
-            }
-            if (shouldOfferApplicationCompletionReminder(selectedApplicationRow)) {
-              void openApplicationCompletionReminderPreview(selectedApplicationRow);
-            }
-          }}
+          data-attr="resident-application-screening-reminder"
+          onClick={() => void openApplicationCompletionReminderPreview(selectedApplicationRow)}
         >
-          Request screening
+          Send reminder
         </Button>
       ) : null}
     </>
