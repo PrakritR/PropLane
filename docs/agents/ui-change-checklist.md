@@ -66,6 +66,13 @@ bulk-bar half.
   absent one.
 - **A checkbox is the leading element of its row**, with the selected row
   carrying the `border-l-primary` rail and tinted fill.
+- **On a property DETAIL tab the bar carries one action: `Edit <thing>`.**
+  Delete belongs in the editor that opens, beside what it would destroy — not
+  one click from a row that may have been ticked by accident, on a surface
+  showing none of what is about to go. Portfolio-wide LIST pages are the
+  exception: clearing many rows at once is why you select them there.
+- **Closing that editor clears the selection**, so the bar does not stay parked
+  over a row the manager has finished with.
 
 ## Tables (detail / admin only)
 

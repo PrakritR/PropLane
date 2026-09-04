@@ -290,39 +290,15 @@ export function ManagerPropertyApplicationQuestionsPanel({
   const closeEditor = () => {
     setEditorOpen(false);
     setEditingTemplate(null);
+    // The bar exists to reach this editor; leaving the row ticked afterwards
+    // just parks a floating bar over a row the manager is done with.
+    clearSelection();
   };
 
   const selectedTemplates = useMemo(
     () => templates.filter((template) => selectedIds.has(template.id)),
     [selectedIds, templates],
   );
-
-  const bulkDeleteTemplates = () => {
-    if (selectedTemplates.length === 0) return;
-    if (
-      !window.confirm(
-        `Delete ${selectedTemplates.length} application template${selectedTemplates.length === 1 ? "" : "s"}?`,
-      )
-    ) {
-      return;
-    }
-    let next = templates;
-    for (const template of selectedTemplates) {
-      next = removePropertyApplicationTemplate(next, template.id);
-    }
-    const persisted = persistRemoval(next);
-    if (!persisted) {
-      showToast("Could not delete application.");
-      return;
-    }
-    clearSelection();
-    setEditorOpen(false);
-    setEditingTemplate(null);
-    onUpdated();
-    showToast(
-      selectedTemplates.length === 1 ? "Application deleted." : `${selectedTemplates.length} applications deleted.`,
-    );
-  };
 
   if (!managerUserId || (!saveTarget && bulkPropertyIds.length === 0)) return null;
 
@@ -418,6 +394,12 @@ export function ManagerPropertyApplicationQuestionsPanel({
         />
       ) : null}
 
+      {/*
+        Edit is the only action out here. Delete lives inside the editor, next
+        to what it would destroy — a delete sitting in a floating bar, one click
+        from a row you may have selected by accident, is the wrong distance from
+        a destructive action.
+      */}
       {selectedIds.size > 0 ? (
         <BulkActionBar count={selectedIds.size} hideCount variant="payments">
           <div className="flex min-w-0 flex-wrap items-center justify-start gap-2">
@@ -429,18 +411,9 @@ export function ManagerPropertyApplicationQuestionsPanel({
                 data-attr="property-application-bulk-edit"
                 onClick={() => openEditApplication(selectedTemplates[0]!)}
               >
-                Edit
+                Edit application
               </Button>
             ) : null}
-            <Button
-              type="button"
-              variant="outline"
-              className={`${PORTAL_BULK_BAR_BTN} text-rose-800`}
-              data-attr="property-application-bulk-delete"
-              onClick={bulkDeleteTemplates}
-            >
-              Delete
-            </Button>
           </div>
         </BulkActionBar>
       ) : null}

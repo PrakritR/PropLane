@@ -276,7 +276,10 @@ export function ManagerPropertyPromotionPanel({
     setEditingRowId(null);
     setEditingEntryId(null);
     setDraft(EMPTY_DRAFT);
-  }, []);
+    // The bar exists to reach these editors; leaving the row ticked afterwards
+    // just parks a floating bar over a row the manager is done with.
+    clearSelection();
+  }, [clearSelection]);
 
   async function generate() {
     const label = draft.propertyLabel.trim();
@@ -507,27 +510,6 @@ export function ManagerPropertyPromotionPanel({
     [assets, selectedIds],
   );
 
-  const bulkDeleteAssets = () => {
-    if (selectedAssets.length === 0) return;
-    if (
-      !window.confirm(
-        `Delete ${selectedAssets.length} promotion${selectedAssets.length === 1 ? "" : "s"}? This cannot be undone.`,
-      )
-    ) {
-      return;
-    }
-    for (const asset of selectedAssets) {
-      if (previewAssetId === asset.id) closePreview();
-      if (textModalAssetId === asset.id) closeForm();
-      if (editingEntryId && promotionEntryId(asset) === editingEntryId) closeForm();
-      deleteAsset(asset, { quiet: true });
-    }
-    clearSelection();
-    showToast(
-      selectedAssets.length === 1 ? "Promotion deleted." : `${selectedAssets.length} promotions deleted.`,
-    );
-  };
-
   function handleDeleteFromFlyerModal() {
     if (!editingRowId || !editingEntryId) return;
     const asset = assets.find(
@@ -716,6 +698,12 @@ export function ManagerPropertyPromotionPanel({
         showToast={showToast}
       />
 
+      {/*
+        Edit is the only action out here. Both promotion editors already carry
+        their own Delete, next to what it would destroy — a delete sitting in a
+        floating bar, one click from a row you may have ticked by accident, is
+        the wrong distance from a destructive action.
+      */}
       {selectedIds.size > 0 ? (
         <BulkActionBar count={selectedIds.size} hideCount variant="payments">
           <div className="flex min-w-0 flex-wrap items-center justify-start gap-2">
@@ -727,18 +715,9 @@ export function ManagerPropertyPromotionPanel({
                 data-attr="property-promotion-bulk-edit"
                 onClick={() => openEditAsset(selectedAssets[0]!)}
               >
-                Edit
+                Edit promotion
               </Button>
             ) : null}
-            <Button
-              type="button"
-              variant="outline"
-              className={`${PORTAL_BULK_BAR_BTN} text-rose-800`}
-              data-attr="property-promotion-bulk-delete"
-              onClick={bulkDeleteAssets}
-            >
-              Delete
-            </Button>
           </div>
         </BulkActionBar>
       ) : null}

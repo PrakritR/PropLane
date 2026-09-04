@@ -46,4 +46,39 @@ describe("BulkActionBar call sites", () => {
     }
     expect(offenders).toEqual([]);
   });
+
+  /**
+   * On a PROPERTY DETAIL tab, delete belongs in the editor, next to what it
+   * would destroy — never in a floating bar one click away from a row that may
+   * have been ticked by accident, on a surface showing no detail of what is
+   * about to go. Application, Lease, Services and Promotion each shipped a
+   * Delete out here while their editors already carried one.
+   *
+   * The portfolio-wide LIST pages are deliberately not covered: clearing many
+   * rows at once is the whole point of selecting them there, and each of those
+   * confirms first. This guard is the detail tabs only.
+   */
+  const PORTFOLIO_LIST_SURFACES = new Set([
+    join("src", "components", "portal", "manager-house-properties-panel.tsx"),
+    join("src", "components", "portal", "manager-promotion.tsx"),
+    join("src", "components", "portal", "pro-account-links-panel.tsx"),
+  ]);
+
+  it("on a property detail tab, never carry a destructive action", () => {
+    const offenders: string[] = [];
+    for (const file of walk(join("src", "components"))) {
+      if (file === DEFINITION || PORTFOLIO_LIST_SURFACES.has(file)) continue;
+      const source = readFileSync(file, "utf8");
+      let cursor = source.indexOf("<BulkActionBar");
+      while (cursor >= 0) {
+        const close = source.indexOf("</BulkActionBar>", cursor);
+        const body = close < 0 ? source.slice(cursor) : source.slice(cursor, close);
+        for (const attr of body.match(/data-attr="[^"]*(?:delete|remove)[^"]*"/gi) ?? []) {
+          offenders.push(`${file}: ${attr}`);
+        }
+        cursor = source.indexOf("<BulkActionBar", cursor + 1);
+      }
+    }
+    expect(offenders).toEqual([]);
+  });
 });

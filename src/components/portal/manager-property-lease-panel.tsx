@@ -315,43 +315,6 @@ export function ManagerPropertyLeasePanel({
     [selectedIds, templates],
   );
 
-  const bulkDeleteTemplates = () => {
-    if (selectedTemplates.length === 0) return;
-    if (
-      !window.confirm(
-        `Delete ${selectedTemplates.length} lease template${selectedTemplates.length === 1 ? "" : "s"}?`,
-      )
-    ) {
-      return;
-    }
-    if (bulkPropertyIds.length > 0) {
-      for (const template of selectedTemplates) {
-        if (!deleteTemplateAcrossProperties(template)) return;
-      }
-      clearSelection();
-      onUpdated();
-      showToast(
-        selectedTemplates.length === 1
-          ? "Lease deleted."
-          : `${selectedTemplates.length} leases deleted.`,
-      );
-      return;
-    }
-    let next = templates;
-    for (const template of selectedTemplates) {
-      next = removePropertyLeaseTemplate(next, template.id);
-    }
-    if (!persistTemplates(next)) {
-      showToast("Could not delete lease.");
-      return;
-    }
-    clearSelection();
-    onUpdated();
-    showToast(
-      selectedTemplates.length === 1 ? "Lease deleted." : `${selectedTemplates.length} leases deleted.`,
-    );
-  };
-
   if (!managerUserId || (!saveTarget && bulkPropertyIds.length === 0)) return null;
 
   const editingTemplate = templates.find((t) => t.id === editingTemplateId) ?? null;
@@ -414,6 +377,10 @@ export function ManagerPropertyLeasePanel({
         onClose={() => {
           setFormOpen(false);
           setEditingTemplateId(null);
+          // The bar exists to reach this editor; leaving the row ticked
+          // afterwards just parks a floating bar over a row the manager is
+          // done with.
+          clearSelection();
         }}
         onAssistantRefresh={() => {
           void syncPropertyPipelineFromServer({ force: true }).then(() => onUpdated());
@@ -434,6 +401,12 @@ export function ManagerPropertyLeasePanel({
         showToast={showToast}
       />
 
+      {/*
+        Edit is the only action out here. Delete lives inside the editor, next
+        to what it would destroy — a delete sitting in a floating bar, one click
+        from a row you may have selected by accident, is the wrong distance from
+        a destructive action.
+      */}
       {selectedIds.size > 0 ? (
         <BulkActionBar count={selectedIds.size} hideCount variant="payments">
           <div className="flex min-w-0 flex-wrap items-center justify-start gap-2">
@@ -445,18 +418,9 @@ export function ManagerPropertyLeasePanel({
                 data-attr="property-lease-bulk-edit"
                 onClick={() => openEdit(selectedTemplates[0]!.id)}
               >
-                Edit
+                Edit lease
               </Button>
             ) : null}
-            <Button
-              type="button"
-              variant="outline"
-              className={`${PORTAL_BULK_BAR_BTN} text-rose-800`}
-              data-attr="property-lease-bulk-delete"
-              onClick={bulkDeleteTemplates}
-            >
-              Delete
-            </Button>
           </div>
         </BulkActionBar>
       ) : null}

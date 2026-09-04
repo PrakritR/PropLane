@@ -24,8 +24,6 @@ import {
   type ManagerListingSubmissionV1,
 } from "@/lib/manager-listing-submission";
 import {
-  persistManagerListingSubmission,
-  type ManagerPropertySaveTarget,
 } from "@/lib/manager-property-save-target";
 
 type RequestsSaveTarget =
@@ -114,6 +112,9 @@ export function ServiceRequestCatalogEditor({
     setEditingOffer(null);
     setIsNewOffer(false);
     setPendingSelectOfferId(null);
+    // The bar exists to reach this editor; leaving the row ticked afterwards
+    // just parks a floating bar over a row the manager is done with.
+    clearSelection();
   };
 
   const onSaved = () => {
@@ -128,32 +129,6 @@ export function ServiceRequestCatalogEditor({
     () => offers.filter((offer) => selectedIds.has(offer.id)),
     [offers, selectedIds],
   );
-
-  const bulkDeleteOffers = () => {
-    // The component returns null without a save target, so this cannot run
-    // unguarded in practice — but the early return lives below this callback,
-    // so the narrowing is not visible here.
-    if (!saveTarget) return;
-    if (selectedOffers.length === 0) return;
-    if (
-      !window.confirm(
-        `Delete ${selectedOffers.length} service type${selectedOffers.length === 1 ? "" : "s"}?`,
-      )
-    ) {
-      return;
-    }
-    const nextOffers = offers.filter((offer) => !selectedIds.has(offer.id));
-    const next: ManagerListingSubmissionV1 = { ...sub, serviceRequestOptions: nextOffers };
-    if (!persistManagerListingSubmission(saveTarget, managerUserId, next)) {
-      showToast("Could not remove service.");
-      return;
-    }
-    clearSelection();
-    onUpdated();
-    showToast(
-      selectedOffers.length === 1 ? "Service removed." : `${selectedOffers.length} services removed.`,
-    );
-  };
 
   if (!saveTarget) return null;
 
@@ -217,6 +192,12 @@ export function ServiceRequestCatalogEditor({
         entityLabel="request type"
       />
 
+      {/*
+        Edit is the only action out here. Delete already lives inside the
+        editor, next to what it would destroy — a delete sitting in a floating
+        bar, one click from a row you may have ticked by accident, is the wrong
+        distance from a destructive action.
+      */}
       {selectedIds.size > 0 ? (
         <BulkActionBar count={selectedIds.size} hideCount variant="payments">
           <div className="flex min-w-0 flex-wrap items-center justify-start gap-2">
@@ -228,18 +209,9 @@ export function ServiceRequestCatalogEditor({
                 data-attr="catalog-request-bulk-edit"
                 onClick={() => openEdit(selectedOffers[0]!, false)}
               >
-                Edit
+                Edit service
               </Button>
             ) : null}
-            <Button
-              type="button"
-              variant="outline"
-              className={`${PORTAL_BULK_BAR_BTN} text-rose-800`}
-              data-attr="catalog-request-bulk-delete"
-              onClick={bulkDeleteOffers}
-            >
-              Delete
-            </Button>
           </div>
         </BulkActionBar>
       ) : null}
