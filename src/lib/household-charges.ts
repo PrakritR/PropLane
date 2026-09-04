@@ -1665,7 +1665,7 @@ export function removePendingApplicationFeeCharge(residentEmail: string, propert
 
 /**
  * Dollar amount the listing expects for the application fee (0 = none / not required for gate).
- * When there is no manager submission on the property, the demo stack uses $50 to match legacy billing.
+ * When the browser catalog cannot resolve the listing, amount is 0 — never invent a fee.
  */
 export function listingApplicationFeeAmount(propertyId: string): { amount: number; displayLabel: string } {
   if (!propertyId.trim()) {
@@ -1674,7 +1674,7 @@ export function listingApplicationFeeAmount(propertyId: string): { amount: numbe
   const prop = getPropertyById(propertyId);
   const sub = prop?.listingSubmission;
   if (!sub) {
-    return { amount: 50, displayLabel: "$50" };
+    return { amount: 0, displayLabel: "—" };
   }
   const raw = submissionAmount(sub, "application_fee");
   const amount = parseMoneyAmount(raw);
@@ -1709,10 +1709,6 @@ export function ensurePendingApplicationFeeCharge(input: {
   const sub = prop?.listingSubmission;
   let raw = sub ? submissionAmount(sub, "application_fee") : "";
   let amt = parseMoneyAmount(raw);
-  if (!sub && amt <= 0) {
-    raw = "$50";
-    amt = 50;
-  }
   if (input.feeAmountOverride != null && Number.isFinite(input.feeAmountOverride)) {
     amt = input.feeAmountOverride;
     raw = amt > 0 ? `$${amt.toFixed(2)}` : "";
@@ -2803,31 +2799,8 @@ export function recordApplicationCharges(
   if (!sub) {
     if (opts?.skipApplicationFee || existingAppFee) return;
     if (serverAmount != null) {
-      // The server told us the effective fee — book exactly that (nothing for 0)
-      // instead of the legacy $50 fallback.
       ensurePendingApplicationFeeCharge({ ...input, feeAmountOverride: serverAmount });
-      return;
     }
-    /* still record a generic application fee line using defaults */
-    const fallback: HouseholdCharge = {
-      id: input.residentEmail.trim() && input.propertyId.trim()
-        ? applicationFeeFallbackChargeId(input.residentEmail.trim(), input.propertyId.trim())
-        : `hc_app_${Date.now()}`,
-      createdAt: new Date().toISOString(),
-      residentEmail: input.residentEmail.trim(),
-      residentName: input.residentName.trim(),
-      residentUserId: input.residentUserId,
-      propertyId: input.propertyId,
-      propertyLabel: prop?.title ?? "Listing",
-      managerUserId: input.managerUserId ?? prop?.managerUserId ?? null,
-      kind: "application_fee",
-      title: chargeTitle("application_fee"),
-      amountLabel: "$50",
-      balanceLabel: "$50.00",
-      status: "pending",
-      blocksLeaseUntilPaid: false,
-    };
-    writeAll([...readAll(), fallback]);
     return;
   }
 
