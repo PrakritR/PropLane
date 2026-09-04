@@ -4,9 +4,9 @@
  * Dry run (default):
  *   npx tsx --env-file=.env.local scripts/import-sep-occupancy-roster.ts
  *
- * Apply (dev/test only unless captain explicitly approves production):
+ * Apply (production — captain-approved only):
  *   ALLOW_IMPORT_TARGET=<project-ref> MANAGER_USER_ID=<uuid> \
- *     npx tsx --env-file=.env.local scripts/import-sep-occupancy-roster.ts --write
+ *     npx tsx --env-file=.env.production.local scripts/import-sep-occupancy-roster.ts --write
  *
  * Does NOT send email/SMS. Airbnb rows get rentalType `airbnb` (no PropLane charges).
  * Does NOT edit manager_property_records — enable Airbnb on each listing in the portal first.
@@ -220,6 +220,23 @@ async function main() {
       continue;
     }
     written += 1;
+  }
+
+  const keepIds = new Set(rows.map((r) => r.id));
+  const { data: existingOcc, error: listErr } = await db
+    .from("manager_application_records")
+    .select("id")
+    .eq("manager_user_id", effectiveManagerId)
+    .like("id", "OCC-2026-09-%");
+  if (listErr) {
+    warnings.push(`Could not list prior OCC imports: ${listErr.message}`);
+  } else {
+    const staleIds = (existingOcc ?? []).map((r) => r.id).filter((id) => !keepIds.has(id));
+    if (staleIds.length > 0) {
+      const { error: delErr } = await db.from("manager_application_records").delete().in("id", staleIds);
+      if (delErr) warnings.push(`Stale OCC cleanup failed: ${delErr.message}`);
+      else console.log(`Removed ${staleIds.length} superseded OCC import row(s).`);
+    }
   }
 
   console.log(`\nWrote ${written} of ${rows.length} application rows.`);
