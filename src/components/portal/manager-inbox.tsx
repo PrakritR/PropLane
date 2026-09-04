@@ -57,6 +57,7 @@ import {
   INBOX_TAB_DEFS,
   INBOX_LIST_SCROLL,
   AiDraftReplyCard,
+  InboundMessageWorkflowCard,
   InboxComposer,
   InboxReplyChannelPicker,
   InboxConversationRow,
@@ -94,6 +95,14 @@ import {
   type ScheduledInboxMessageRecord,
 } from "@/lib/scheduled-inbox-messages";
 import { useManagerUserId } from "@/hooks/use-manager-user-id";
+import { ManagerCreateWorkOrderModal } from "@/components/portal/manager-create-work-order-modal";
+import { ManagerCreateServiceRequestModal } from "@/components/portal/manager-create-service-request-modal";
+import {
+  suggestInboundMessageWorkflows,
+  workflowTitleFromMessage,
+  type InboundWorkflowSuggestionKind,
+} from "@/lib/inbox/inbound-message-workflow-suggestions";
+import { resolveManagerServiceResidentByEmail } from "@/lib/manager-service-resident-lookup";
 import { isDemoModeActive } from "@/lib/demo/demo-session";
 import { filterEmailInboxThreads, filterManagerCommunicationThreads } from "@/lib/communication-inbox-filters";
 import { dispatchManagerSmsContactsChanged, type ManagerSmsResidentConversation } from "@/lib/manager-sms-messages";
@@ -298,6 +307,9 @@ export const ManagerInbox = forwardRef<
     [controlledExpandedId, onControlledExpandedIdChange],
   );
   const [composeOpen, setComposeOpen] = useState(false);
+  const [workflowWorkOrderOpen, setWorkflowWorkOrderOpen] = useState(false);
+  const [workflowServiceOpen, setWorkflowServiceOpen] = useState(false);
+  const [workflowMessageText, setWorkflowMessageText] = useState("");
   const [contactTick, setContactTick] = useState(0);
   const [query, setQuery] = useState("");
   // Threads marked read while viewing "Unopened" stay listed until the tab is
@@ -1170,6 +1182,32 @@ export const ManagerInbox = forwardRef<
     });
   }, [activeThread, activeFolder, pendingSendingThreadIds]);
 
+  const latestInboundMessageText = useMemo(() => {
+    if (!activeThread || activeIsSent) return "";
+    const inbound = [...activeBubbles].reverse().find((bubble) => bubble.direction === "inbound");
+    return inbound?.body?.trim() ?? "";
+  }, [activeBubbles, activeIsSent, activeThread]);
+
+  const inboundWorkflowSuggestions = useMemo(
+    () => suggestInboundMessageWorkflows(latestInboundMessageText),
+    [latestInboundMessageText],
+  );
+
+  const workflowResident = useMemo(() => {
+    const email = activeThread?.email?.trim() ?? "";
+    if (!email) return null;
+    return resolveManagerServiceResidentByEmail(userId, email);
+  }, [activeThread?.email, userId]);
+
+  const openInboundWorkflow = useCallback(
+    (kind: InboundWorkflowSuggestionKind) => {
+      setWorkflowMessageText(latestInboundMessageText);
+      if (kind === "maintenance_work_order") setWorkflowWorkOrderOpen(true);
+      else setWorkflowServiceOpen(true);
+    },
+    [latestInboundMessageText],
+  );
+
   // ---- Scheduled / automated messages, INLINE in the person's thread --------
   // The old standalone Schedule table is gone; upcoming messages to this person
   // render as "Scheduled · sends <when>" cards at the tail of their conversation,
@@ -1889,6 +1927,12 @@ export const ManagerInbox = forwardRef<
                 {scheduledCards}
               </div>
             ) : null}
+            {inboundWorkflowSuggestions.length > 0 && activeThread.folder !== "trash" && !activeIsSent ? (
+              <InboundMessageWorkflowCard
+                suggestions={inboundWorkflowSuggestions}
+                onSelect={openInboundWorkflow}
+              />
+            ) : null}
             {showAiDraftUi ? (
               <AiDraftReplyCard
                 drafting={draftingIds.has(activeThread.id) && !activeThread.aiDraft?.text}
@@ -1988,6 +2032,30 @@ export const ManagerInbox = forwardRef<
           liveContacts={liveContacts}
         />
       ) : null}
+
+      <ManagerCreateWorkOrderModal
+        open={workflowWorkOrderOpen}
+        onClose={() => setWorkflowWorkOrderOpen(false)}
+        onSubmitted={() => {
+          setWorkflowWorkOrderOpen(false);
+          showToast("Work order created.");
+        }}
+        managerUserId={userId}
+        defaultResident={workflowResident}
+        defaultTitle={workflowTitleFromMessage(workflowMessageText, "Maintenance request")}
+        defaultDescription={workflowMessageText}
+      />
+      <ManagerCreateServiceRequestModal
+        open={workflowServiceOpen}
+        onClose={() => setWorkflowServiceOpen(false)}
+        onSubmitted={() => {
+          setWorkflowServiceOpen(false);
+          showToast("Add-on service request created.");
+        }}
+        managerUserId={userId}
+        defaultResident={workflowResident}
+        defaultNotes={workflowMessageText}
+      />
 
       <PortalContactDetailsModal
         open={threadPhoneOpen}

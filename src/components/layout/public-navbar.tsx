@@ -114,7 +114,7 @@ export function PublicNavbar() {
           dataAttr: "nav-product",
           items: [
             {
-              title: "For managers",
+              title: "For managers & landlords",
               url: "/partner",
               description: "AI leasing, rent, vendors, and approvals",
               active: pathname.startsWith("/partner"),

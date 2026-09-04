@@ -19,6 +19,7 @@ export function ManagerCreateServiceRequestModal({
   managerUserId,
   defaultPropertyId,
   defaultResident,
+  defaultNotes,
 }: {
   open: boolean;
   onClose: () => void;
@@ -27,6 +28,7 @@ export function ManagerCreateServiceRequestModal({
   defaultPropertyId?: string;
   /** When set, the request is created for this resident (property + resident fields locked). */
   defaultResident?: ManagerServiceResidentOption | null;
+  defaultNotes?: string;
 }) {
   const [catalogModalOpen, setCatalogModalOpen] = useState(false);
   const [footer, setFooter] = useState<ServiceIntakeFooterState | null>(null);
@@ -70,6 +72,7 @@ export function ManagerCreateServiceRequestModal({
         managerUserId={managerUserId}
         defaultPropertyId={defaultPropertyId}
         defaultResident={defaultResident}
+        defaultNotes={defaultNotes}
         submitLabel="Add service"
         onComplete={handleComplete}
         onRegisterFooter={setFooter}
