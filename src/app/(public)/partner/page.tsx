@@ -26,7 +26,7 @@ const CAPABILITIES = [
   },
   {
     title: "Vendors who show up",
-    body: "Work orders, bids, visits, and Connect payouts, all tracked from request to paid.",
+    body: "Services, bids, visits, and Connect payouts, all tracked from request to paid.",
   },
   {
     title: "Books that balance",

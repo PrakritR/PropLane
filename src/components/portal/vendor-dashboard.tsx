@@ -388,7 +388,7 @@ export function VendorDashboard({ displayName }: { displayName: string }) {
         ) : null}
         <PortalDashboardKpiRow>
             <PortalDashboardKpiTile
-              label="Open work orders"
+              label="Open services"
               value={openWorkOrders.length}
               tone={openWorkOrders.length > 0 ? "warning" : "neutral"}
               emphasis={openWorkOrders.length > 0}

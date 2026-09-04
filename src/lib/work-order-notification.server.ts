@@ -26,12 +26,12 @@ function workOrderSmsBody(
     itemKind?: ResidentFiledItemKind;
   },
 ): string {
-  const title = input.title.trim() || "Work order";
+  const title = input.title.trim() || "Service";
   const at = input.propertyLabel?.trim() ? ` at ${input.propertyLabel.trim()}` : "";
   switch (event) {
     case "created": {
       if (input.audience === "manager") {
-        const kindLabel = input.itemKind === "service-request" ? "Add-on service" : "Work order";
+        const kindLabel = input.itemKind === "service-request" ? "Add-on service" : "Service";
         const reviewPath =
           input.itemKind === "service-request"
             ? "/portal/services/requests"
@@ -44,11 +44,11 @@ function workOrderSmsBody(
       return `(Maintenance request received)\n"${title}"${at}. We'll keep you updated.`;
     }
     case "vendor_marked_done":
-      return `(Work order update)\n"${title}"${at} marked done${input.note ? `: ${input.note.slice(0, 120)}` : ""}. Review in Work Orders.`;
+      return `(Service update)\n"${title}"${at} marked done${input.note ? `: ${input.note.slice(0, 120)}` : ""}. Review in Services.`;
     case "completed":
-      return `(Work order completed)\n"${title}"${at} is done.`;
+      return `(Service completed)\n"${title}"${at} is done.`;
     case "approved_paid":
-      return `(Work order paid)\n"${title}"${at} approved and paid. Thanks for the work.`;
+      return `(Service paid)\n"${title}"${at} approved and paid. Thanks for the work.`;
     case "reminder": {
       const pendingLabel =
         input.itemKind === "service-request" ? "add-on service request" : "work order";
@@ -142,8 +142,8 @@ export async function notifyManagerOfResidentFiledItem(
   });
   if (recipientIds.length === 0) return;
 
-  const kindLabel = input.kind === "service-request" ? "add-on service" : "work order";
-  const title = input.title.trim() || (input.kind === "service-request" ? "Add-on service" : "Work order");
+  const kindLabel = input.kind === "service-request" ? "add-on service" : "service";
+  const title = input.title.trim() || (input.kind === "service-request" ? "Add-on service" : "Service");
   const description =
     input.description?.trim() ||
     `A resident submitted a new ${kindLabel}: "${title}"${
@@ -190,8 +190,8 @@ export async function notifyManagersOfManagerAuthoredItem(
   });
   if (recipientIds.length === 0) return;
 
-  const kindLabel = input.kind === "service-request" ? "add-on service" : "work order";
-  const title = input.title.trim() || (input.kind === "service-request" ? "Add-on service" : "Work order");
+  const kindLabel = input.kind === "service-request" ? "add-on service" : "service";
+  const title = input.title.trim() || (input.kind === "service-request" ? "Add-on service" : "Service");
   const residentRef = input.residentName?.trim() ? ` for ${input.residentName.trim()}` : "";
   const at = input.propertyLabel?.trim() ? ` at ${input.propertyLabel.trim()}` : "";
   const description =
@@ -230,8 +230,8 @@ export async function notifyResidentOfManagerAuthoredItem(
   const residentEmail = input.residentEmail.trim().toLowerCase();
   if (!residentEmail.includes("@")) return;
 
-  const kindLabel = input.kind === "service-request" ? "add-on service" : "work order";
-  const title = input.title.trim() || (input.kind === "service-request" ? "Add-on service" : "Work order");
+  const kindLabel = input.kind === "service-request" ? "add-on service" : "service";
+  const title = input.title.trim() || (input.kind === "service-request" ? "Add-on service" : "Service");
   const portalPath = "/resident/services";
 
   await notifyWorkOrderEvent(db, {

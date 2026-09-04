@@ -703,7 +703,7 @@ export function ManagerDashboard({ displayName = "there" }: { displayName?: stri
       })),
       ...pendingWorkOrders.map((w) => ({
         id: `wo-${w.id}`,
-        title: w.title || "Work order",
+        title: w.title || "Service",
         subtitle: [w.propertyName, w.unit].filter(Boolean).join(" · ") || "—",
         rowTone: (w.bucket === "open" ? "danger" : "pending") as AttentionTone,
         pillLabel: w.bucket === "open" ? "Open" : "Scheduled",

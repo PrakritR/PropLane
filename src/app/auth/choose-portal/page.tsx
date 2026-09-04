@@ -36,7 +36,7 @@ const ROLE_META: Record<
   },
   vendor: {
     label: "Vendor",
-    hint: "Work orders & scheduling",
+    hint: "Services & scheduling",
     icon: "vendor",
     tone: "blue",
   },

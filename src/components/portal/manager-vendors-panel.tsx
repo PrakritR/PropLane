@@ -515,7 +515,7 @@ export const ManagerVendorsPanel = forwardRef(function ManagerVendorsPanel(
         recipientPhone={invitePreview?.phone ?? ""}
         subject={invitePreview?.subject ?? ""}
         body={invitePreview?.body ?? ""}
-        intro="Review the vendor portal setup message. It explains how to sign up for PropLane, view work orders, and message you."
+        intro="Review the vendor portal setup message. It explains how to sign up for PropLane, view services, and message you."
         showChannelPicker
         showSchedule
         emailAvailable={Boolean(invitePreview?.email?.includes("@"))}

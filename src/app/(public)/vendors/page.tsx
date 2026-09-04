@@ -9,14 +9,14 @@ import {
 export const metadata: Metadata = {
   title: "Vendors · PropLane",
   description:
-    "Get discovered by property managers, receive work orders, bid after a tour, and get paid. Free to join as a PropLane vendor.",
+    "Get discovered by property managers, receive services, bid after a tour, and get paid. Free to join as a PropLane vendor.",
 };
 
 const HOW_IT_WORKS = [
   {
     step: "01",
     title: "Get matched",
-    body: "Managers near you send work orders when your trade fits the job.",
+    body: "Managers near you send services when your trade fits the job.",
   },
   {
     step: "02",
@@ -36,7 +36,7 @@ const PERKS = [
     body: "Schedule visits, answer questions, and confirm scope without email chains.",
   },
   {
-    title: "Calendar & work orders",
+    title: "Calendar & services",
     body: "See what's open, in progress, and completed in one vendor portal.",
   },
   {
@@ -51,7 +51,7 @@ export default function VendorsPage() {
   return (
     <MarketingPageShell>
       <MarketingHero
-        title="Work orders, sent straight to you."
+        title="Services, sent straight to you."
       >
         <MarketingCtaPair
           primaryHref={VENDOR_SIGNUP_HREF}

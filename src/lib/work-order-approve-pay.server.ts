@@ -164,7 +164,7 @@ export async function approveAndPayWorkOrder(
   }
 
   const propertyLabel = paid.propertyName ? `${paid.propertyName}${paid.unit ? ` · ${paid.unit}` : ""}` : "";
-  const title = paid.title || "Work order";
+  const title = paid.title || "Service";
   const residentEmail = (paid.residentEmail ?? "").trim();
   if (residentEmail.includes("@")) {
     await deliverPortalInboxMessage(db, {
@@ -172,7 +172,7 @@ export async function approveAndPayWorkOrder(
       senderEmail: actor.email,
       fromName: "PropLane Portal",
       subject: `${title} completed`,
-      text: `Your work order "${title}"${propertyLabel ? ` at ${propertyLabel}` : ""} has been completed.`,
+      text: `Your service "${title}"${propertyLabel ? ` at ${propertyLabel}` : ""} has been completed.`,
       toEmails: [residentEmail],
       deliverToPortalInbox: true,
       deliverViaEmail: false,

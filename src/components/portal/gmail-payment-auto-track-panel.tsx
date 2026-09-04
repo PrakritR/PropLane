@@ -232,7 +232,7 @@ export function GmailPaymentAutoTrackPanel({
       <p className="text-sm text-foreground">
         Link each Gmail inbox that receives payment alerts (Zelle and Venmo can use different addresses). We match the{" "}
         <span className="font-mono">{role === "manager" ? "PL-" : "WO-"}</span> code and amount, then mark{" "}
-        {role === "manager" ? "the charge" : "the work order"} paid.
+        {role === "manager" ? "the charge" : "the service"} paid.
       </p>
       <div className="rounded-xl border border-border bg-card px-4 py-3">
         <GmailPaymentTrackSteps

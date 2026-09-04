@@ -21,12 +21,12 @@ function joinDetails(details: string[]): string[] {
 }
 
 function subjectFor(kind: NotificationKind, title: string): string {
-  const label = kind === "work-order" ? "Work order" : "Service request";
+  const label = kind === "work-order" ? "Service" : "Add-on request";
   return `New resident ${label}: ${title.trim() || "Untitled"}`;
 }
 
 function bodyFor(input: ResidentManagerNotificationInput): string {
-  const kindLabel = input.kind === "work-order" ? "work order" : "service request";
+  const kindLabel = input.kind === "work-order" ? "service" : "add-on request";
   const propertyIdLine = input.propertyId?.trim() ? `Property ID: ${input.propertyId.trim()}` : "";
   return [
     `A resident submitted a new ${kindLabel}.`,

@@ -81,7 +81,7 @@ export const MANAGER_DASHBOARD_SECTIONS: readonly DashboardSectionDef[] = [
   {
     id: "services",
     label: "Services needed",
-    description: "Open work orders, scheduled visits, and pending add-on requests.",
+    description: "Open services, scheduled visits, and pending add-on requests.",
     defaultVisible: true,
   },
   {

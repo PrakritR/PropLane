@@ -312,7 +312,7 @@ export function ManagerCreateWorkOrderModal({
 
   const submitRequest = async () => {
     if (!title.trim()) {
-      showToast("Add a title for the work order.");
+      showToast("Add a title for the service.");
       return;
     }
     if (!propertyId || !selectedProperty) {
@@ -381,7 +381,7 @@ export function ManagerCreateWorkOrderModal({
           details ? `Details: ${details}` : "",
           photos.length > 0 ? `Photos attached: ${photos.length}` : "",
           "",
-          "Sign in to your PropLane resident portal to view updates under Services → Work orders.",
+          "Sign in to your PropLane resident portal to view updates under Services → Services.",
         ]
           .filter(Boolean)
           .join("\n"),
@@ -389,9 +389,9 @@ export function ManagerCreateWorkOrderModal({
         deliverViaSms: true,
       });
 
-      showToast("Work order created.");
+      showToast("Service created.");
       if (!notify.ok) {
-        showToast("Work order saved, but resident notification could not be sent.");
+        showToast("Service saved, but resident notification could not be sent.");
       }
       onSubmitted("open");
       onClose();
@@ -402,7 +402,7 @@ export function ManagerCreateWorkOrderModal({
 
   const submitLog = () => {
     if (!title.trim()) {
-      showToast("Add a title for the work order.");
+      showToast("Add a title for the service.");
       return;
     }
     if (!propertyId || !selectedProperty) {
@@ -468,7 +468,7 @@ export function ManagerCreateWorkOrderModal({
           initialStatus: paymentStatus === "paid" ? "paid" : "pending",
         });
         if (!charge) {
-          showToast("Could not create the payment line. The work order was not saved.");
+          showToast("Could not create the payment line. The service was not saved.");
           return;
         }
       }
@@ -485,10 +485,10 @@ export function ManagerCreateWorkOrderModal({
 
       showToast(
         amt > 0 && paymentStatus === "paid"
-          ? "Work order logged and payment recorded as paid."
+          ? "Service logged and payment recorded as paid."
           : amt > 0
-            ? "Work order logged with a pending payment line."
-            : "Work order logged.",
+            ? "Service logged with a pending payment line."
+            : "Service logged.",
       );
       onSubmitted("completed");
       onClose();
@@ -510,9 +510,9 @@ export function ManagerCreateWorkOrderModal({
     <Modal
       open={open}
       onClose={onClose}
-      title="Create work order"
+      title="Create service"
       panelClassName="max-w-lg"
-      assistantContext="Create work order"
+      assistantContext="Create service"
       footer={
         <ModalFooter>
           <Button
@@ -522,7 +522,7 @@ export function ManagerCreateWorkOrderModal({
             disabled={busy}
             data-attr="manager-work-order-submit"
           >
-            {busy ? "Saving…" : mode === "request" ? "Create work order" : "Save work order"}
+            {busy ? "Saving…" : mode === "request" ? "Create service" : "Save service"}
           </Button>
         </ModalFooter>
       }
@@ -544,7 +544,7 @@ export function ManagerCreateWorkOrderModal({
         <p className="text-sm text-muted">
           {lockedResident
             ? mode === "request"
-              ? "Create a maintenance request for this resident. It appears in their portal under Services → Work orders."
+              ? "Create a maintenance request for this resident. It appears in their portal under Services → Services."
               : "Record completed work for this resident. Optional cost updates their Payments tab."
             : mode === "request"
               ? "Create a maintenance request on behalf of a resident. It appears in Pending until you schedule or complete it."

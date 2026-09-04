@@ -146,7 +146,7 @@ function OpsSkySection() {
       <div className="lp-task-float">
         <TaskFloatRow status="review" label="Manager review" title="Lease · Cascade 4B" agent="Leases" />
         <TaskFloatRow status="run" label="Running" title="Rent reminder · April overdue" agent="Payments" />
-        <TaskFloatRow status="done" label="Completed" title="Work order #142 · bids collected" agent="Work orders" />
+        <TaskFloatRow status="done" label="Completed" title="Service #142 · bids collected" agent="Services" />
       </div>
     </section>
   );

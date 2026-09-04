@@ -392,7 +392,7 @@ function SubmitInvoiceModal({
               className={INVOICE_FORM_INPUT}
               value={workOrderId}
               onChange={(e) => setWorkOrderId(e.target.value)}
-              placeholder="Work order id"
+              placeholder="Service id"
             />
           </label>
         </div>

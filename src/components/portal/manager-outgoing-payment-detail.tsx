@@ -77,7 +77,7 @@ export function ManagerOutgoingPaymentDetail({
 
   const submitPay = async () => {
     if (!workOrder) {
-      showToast("Work order not found.");
+      showToast("Service not found.");
       return;
     }
     if (!canPayWithSelected) {
@@ -162,7 +162,7 @@ export function ManagerOutgoingPaymentDetail({
                 Put <span className="font-mono font-medium">{paymentReference}</span> in the memo.
               </>
             ) : (
-              <> Include the work order title in the memo.</>
+              <> Include the service title in the memo.</>
             )}
           </p>
         </div>
@@ -179,7 +179,7 @@ export function ManagerOutgoingPaymentDetail({
                 Put <span className="font-mono font-medium">{paymentReference}</span> in the note.
               </>
             ) : (
-              <> Include the property and work order in the note.</>
+              <> Include the property and service in the note.</>
             )}
           </p>
         </div>

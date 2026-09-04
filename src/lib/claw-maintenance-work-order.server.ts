@@ -264,7 +264,7 @@ export function maintenanceWorkOrderResidentAck(result: CreateWorkOrderFromResid
   }
   if (result.created) {
     return [
-      `Got it, I put in a work order for "${result.title}".`,
+      `Got it, I put in a service for "${result.title}".`,
       `Your manager will follow up here.`,
     ].join("\n");
   }

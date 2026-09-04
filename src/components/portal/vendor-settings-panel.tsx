@@ -1054,7 +1054,7 @@ export function VendorSettingsPanel() {
 
         <PortalSettingsSection
           title="Work capabilities"
-          description="Managers use this to match you with the right work orders."
+          description="Managers use this to match you with the right services."
         >
           <PortalSettingsGroup>
           {profileLoading ? (
