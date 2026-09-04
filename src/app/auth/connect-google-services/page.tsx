@@ -12,7 +12,6 @@ import {
   workNumberOnboardingPhone,
   type WorkNumberOnboardingStatus,
 } from "@/lib/sms/work-number-onboarding";
-import { BANNER_INFO_CLASS } from "@/lib/ui-styles";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useCallback, useEffect, useState } from "react";
 
@@ -232,7 +231,23 @@ function ConnectGoogleServicesContent() {
         </div>
 
         {!status.calendarConfigured ? (
-          <div className={`mt-4 ${BANNER_INFO_CLASS}`}>Google sign-in is not set up on this server yet.</div>
+          /*
+            Quiet helper text, not an alert panel (PRP-188).
+
+            This was an info banner announcing that Google LOGIN was
+            unconfigured on the server, shown on a step the card directly above
+            calls optional. Three things were wrong with it: it read as an error
+            about something the manager had just been told they could skip; it
+            named the wrong integration, so they could not tell whether calendar
+            sync or login was broken; and it described the deployment, which is
+            not a fact the person reading it can act on.
+
+            The Connect button is already `disabled` when this is false, so the
+            state is visible without a panel claiming something is wrong.
+          */
+          <p className="mt-3 text-center text-xs text-muted" data-attr="onboarding-calendar-unavailable">
+            Calendar sync isn&apos;t available in this environment. You can connect it later in Settings.
+          </p>
         ) : null}
 
         {/*

@@ -42,4 +42,26 @@ describe("connect Google services", () => {
     expect(page).toContain("onboarding-connect-calendar");
     expect(page).toContain("google-calendar/connect");
   });
+
+  /**
+   * The unconfigured state showed an alert-styled panel reading "Google sign-in
+   * is not set up on this server yet" — on a step the card above calls optional
+   * (PRP-188). It read as an error about something the manager had just been
+   * told to skip, it named SIGN-IN when this step connects CALENDAR, and "this
+   * server" is a deployment fact nobody reading it can act on.
+   */
+  it("says Calendar, never sign-in, when the integration is unavailable", () => {
+    expect(page).not.toContain("Google sign-in is not set up");
+    expect(page).not.toContain("on this server yet");
+    // `&apos;` in the JSX source, not a literal apostrophe.
+    expect(page).toContain("Calendar sync isn&apos;t available in this environment");
+  });
+
+  it("uses quiet helper text rather than an alert panel", () => {
+    // The Connect button is already disabled in this state, so the banner was
+    // saying something the UI already showed — in a colour that means "wrong".
+    expect(page).not.toContain("BANNER_INFO_CLASS");
+    expect(page).toContain('data-attr="onboarding-calendar-unavailable"');
+    expect(page).toContain("disabled={!status.calendarConfigured}");
+  });
 });
