@@ -9,8 +9,7 @@
 //     must NOT clear a controlled selection (that regression left the right
 //     pane stuck on "Select a conversation").
 //  2. With the thread open, an incoming resident thread that carries a pending
-//     `aiDraft` shows the PropLane AI approval card (Approve & Send / Edit /
-//     Discard) — the same card as the legacy inbox.
+//     `aiDraft` shows the PropLane AI composer (editable draft, send, discard).
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { render, screen, cleanup, waitFor } from "@testing-library/react";
 import { useEffect, useState } from "react";
@@ -75,6 +74,7 @@ vi.mock("@/lib/portal-inbox-storage", async (importOriginal) => ({
     return Number.isNaN(p) ? 0 : p;
   },
   inboxThreadMessages: () => [RESIDENT_MSG],
+  inboxMessageOutbound: (_m: unknown, _i: number, folder: string) => folder === "sent",
   appendReplyToInboxThread: () => THREADS[0],
 }));
 
@@ -139,11 +139,12 @@ describe("AI draft in the unified Communication inbox", () => {
 
     // The controlled selection was NOT wiped on mount…
     expect(controlledId).toBe("thr-2000000001");
-    // …and the approval card + its actions render for the resident thread.
-    expect(await screen.findByText("Approve & Send")).toBeTruthy();
-    expect(screen.getByText(/I'll look into availability/)).toBeTruthy();
-    expect(screen.getByText("Edit")).toBeTruthy();
-    expect(screen.getByText("Discard")).toBeTruthy();
+    // …and the AI draft composer renders for the resident thread.
+    expect(await screen.findByDisplayValue(/I'll look into availability/)).toBeTruthy();
+    expect(screen.getByLabelText("Discard draft")).toBeTruthy();
+    expect(document.querySelector('[data-attr="inbox-ai-draft-send"]')).toBeTruthy();
+    expect(screen.queryByText("Approve & Send")).toBeNull();
+    expect(screen.queryByText("Edit")).toBeNull();
   });
 
   it("persists an auto-draft after commit, not from a state updater", async () => {
