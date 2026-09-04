@@ -701,13 +701,6 @@ export function ManagerUnifiedInbox({
               time={row.time}
               unread={row.unread}
               selected={selectedKey === row.key}
-              channelBadge={
-                (row.channels?.length ?? 1) > 1
-                  ? "Email · SMS"
-                  : row.channel === "email"
-                    ? "Email"
-                    : "SMS"
-              }
               onOpen={() => {
                 setSelectedKey(row.key);
                 setMobileThreadOpen(true);

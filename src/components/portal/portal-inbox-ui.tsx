@@ -847,11 +847,14 @@ export function InboxConversationRow({
   leading?: ReactNode;
   /** e.g. "You: " when the last message was outbound. */
   previewPrefix?: string;
-  /** Small label for unified email + SMS lists. */
   /**
-   * Channels this conversation spans. A merged row reaches one person on both,
-   * so the badge names both ("Email · SMS") rather than picking a winner and
-   * quietly implying the other channel is absent.
+   * @deprecated No conversation list passes this any more (PRP-150).
+   *
+   * The badge repeated on every row what the reply box already offers, and on a
+   * merged conversation it said "Email · SMS" about a thread the reader was
+   * about to answer on whichever channel they chose anyway. The prop is kept so
+   * a surface that genuinely needs to distinguish channels can opt back in
+   * without rebuilding the row.
    */
   channelBadge?: "Email" | "SMS" | "Email · SMS";
   /** Optional slot after the row body (e.g. a quick action button). */

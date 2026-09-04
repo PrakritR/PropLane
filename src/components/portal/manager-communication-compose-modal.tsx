@@ -60,7 +60,12 @@ export type CommunicationComposeChannel = "email" | "sms";
 
 type ComposeCategory = InboxComposeDirectoryCategory | "other";
 type DirectoryComposeCategory = InboxComposeDirectoryCategory;
-type PersonKey = "admin" | "broadcast:management" | "broadcast:resident" | `id:${string}`;
+type PersonKey =
+  | "admin"
+  | "broadcast:management"
+  | "broadcast:resident"
+  | `house:${string}`
+  | `id:${string}`;
 
 async function postScheduledInboxMessage(payload: Record<string, unknown>): Promise<boolean> {
   const res = await fetch("/api/portal/scheduled-inbox-messages", {
@@ -121,6 +126,39 @@ function categoryLabel(category: ComposeCategory): string {
   return "PropLane admin";
 }
 
+/**
+ * "Everyone at <house>" rows, one per house that actually has residents.
+ *
+ * The key carries the property id, so the send path resolves the members at SEND
+ * time rather than freezing whoever happened to live there when the picker was
+ * opened — a resident who moves in between opening the modal and hitting send
+ * should still be included.
+ *
+ * Houses are ordered by name so the list is stable, and a house is only listed
+ * when at least two people live there: a one-person "everyone at" row is just
+ * that person with a longer label.
+ */
+export function houseBroadcastOptions(
+  residents: InboxScopedContact[],
+): { key: `house:${string}`; label: string }[] {
+  const byHouse = new Map<string, { label: string; count: number }>();
+  for (const contact of residents) {
+    const id = contact.propertyId?.trim();
+    const label = contact.propertyLabel?.trim();
+    if (!id || !label) continue;
+    const entry = byHouse.get(id) ?? { label, count: 0 };
+    entry.count += 1;
+    byHouse.set(id, entry);
+  }
+  return [...byHouse.entries()]
+    .filter(([, entry]) => entry.count > 1)
+    .sort((a, b) => a[1].label.localeCompare(b[1].label, undefined, { sensitivity: "base" }))
+    .map(([id, entry]) => ({
+      key: `house:${id}` as const,
+      label: `Everyone at ${entry.label} (${entry.count})`,
+    }));
+}
+
 function peopleForCategory(
   category: DirectoryComposeCategory,
   contacts: InboxScopedContact[],
@@ -137,16 +175,25 @@ function peopleForCategory(
   if (category === "applicant" || category === "resident" || category === "past_resident") {
     const wanted =
       category === "applicant" ? "applicant" : category === "past_resident" ? "past" : "resident";
-    const people = contacts
+    const matching = contacts
       .filter((c) => c.role === "resident" && (c.tenancyStatus ?? "resident") === wanted)
-      .sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: "base" }))
-      .map((c) => ({ key: `id:${c.id}` as const, label: contactOptionLabel(c) }));
+      .sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: "base" }));
+    const people = matching.map((c) => ({
+      key: `id:${c.id}` as const,
+      label: contactOptionLabel(c),
+    }));
     // Only CURRENT residents get a broadcast row. "All residents" that also
     // reached applicants and people who moved out is the thing this split
     // exists to prevent (PRP-150).
-    return category === "resident"
-      ? [{ key: "broadcast:resident" as const, label: "All current residents" }, ...people]
-      : people;
+    if (category !== "resident") return people;
+    return [
+      { key: "broadcast:resident" as const, label: "All current residents" },
+      // …then one row per house. At the scale the captain described — 20 houses,
+      // 10 residents each — picking "everyone at Brooklyn House" from a flat list
+      // of 200 names is the difference between one tap and twenty (PRP-150).
+      ...houseBroadcastOptions(matching),
+      ...people,
+    ];
   }
   const people = contacts
     .filter((c) => categoryForContactRole("manager", c.role) === "management")
@@ -404,6 +451,30 @@ export function ManagerCommunicationComposeModal({
           broadcastCategories.push("resident");
           labels.push("All residents");
           includesDirectoryRecipients = true;
+        }
+        continue;
+      }
+      if (key.startsWith("house:")) {
+        // Resolved at SEND time, not when the picker was opened, so a resident
+        // who moved in since is included (PRP-150). Only CURRENT residents —
+        // "everyone at Brooklyn House" must not reach an applicant or someone
+        // who has moved out, which is the whole point of the section split.
+        const propertyId = key.slice("house:".length);
+        const members = contacts.filter(
+          (c) =>
+            c.role === "resident" &&
+            (c.tenancyStatus ?? "resident") === "resident" &&
+            c.propertyId?.trim() === propertyId,
+        );
+        if (members.length === 0) continue;
+        labels.push(`Everyone at ${members[0]!.propertyLabel?.trim() || "this house"}`);
+        includesDirectoryRecipients = true;
+        for (const member of members) {
+          const memberEmail = member.email.trim();
+          const memberLower = memberEmail.toLowerCase();
+          if (!memberLower || seenEmail.has(memberLower)) continue;
+          seenEmail.add(memberLower);
+          directEmails.push(memberEmail);
         }
         continue;
       }
