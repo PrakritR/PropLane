@@ -849,7 +849,11 @@ export async function POST(req: Request) {
         // open the application the person already has, instead of stopping at
         // an error about work they have already done.
         return NextResponse.json(
-          { error: guest.error, existingApplicationId: guest.existingApplicationId },
+          {
+            error: guest.error,
+            existingApplicationId: guest.existingApplicationId,
+            fieldErrors: guest.fieldErrors,
+          },
           { status: guest.status },
         );
       }
@@ -955,7 +959,11 @@ export async function POST(req: Request) {
       });
       if (!linked.ok) {
         return NextResponse.json(
-          { error: linked.error, existingApplicationId: linked.existingApplicationId },
+          {
+            error: linked.error,
+            existingApplicationId: linked.existingApplicationId,
+            fieldErrors: linked.fieldErrors,
+          },
           { status: linked.status },
         );
       }

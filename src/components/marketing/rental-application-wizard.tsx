@@ -1365,7 +1365,12 @@ function RentalApplicationWizardInner({
   }, [maxStepReached]);
 
   const validateAllPrior = useCallback(() => {
-    for (let s = 1; s <= 9; s++) {
+    // The ACTIVE steps, not a hardcoded 1..9. A required custom question mapped
+    // to the Review or Application-fee section lives on step 10 or 11, so this
+    // loop never validated it — the manager configured a required question and
+    // received blanks, with nothing to say it had been skipped rather than
+    // declined (PRP-202).
+    for (const s of activeSteps) {
       const e = validateRentalWizardStep(s, form);
       if (countValidationErrors(e) > 0) {
         setErrors(e);

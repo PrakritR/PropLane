@@ -6,6 +6,7 @@ import {
 } from "@/lib/auth/guest-application-upsert";
 import { isDraftShapedApplicationRow } from "@/lib/rental-application/draft-shape";
 import { findDuplicateApplication } from "@/lib/rental-application/duplicate-application.server";
+import { validateSubmittedApplication } from "@/lib/rental-application/validate-submission.server";
 import { normalizeApplicationAxisId } from "@/lib/manager-applications-storage";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
@@ -21,7 +22,13 @@ function readPropertyId(row: DemoApplicantRow): string {
 export type ResidentApplicationSubmitResult =
   | { ok: true; row: DemoApplicantRow }
   /** `existingApplicationId` is set on a duplicate, so the client can open it. */
-  | { ok: false; status: number; error: string; existingApplicationId?: string };
+  | {
+      ok: false;
+      status: number;
+      error: string;
+      existingApplicationId?: string;
+      fieldErrors?: Record<string, string>;
+    };
 
 /**
  * Enriches an application row and links the resident profile to the manager workspace on submit.
@@ -71,6 +78,19 @@ export async function linkResidentOnApplicationSubmit(
         status: 409,
         error: DUPLICATE_APPLICATION_ERROR,
         existingApplicationId: duplicate.id,
+      };
+    }
+  }
+
+  // Same server-side schema check as the guest path (PRP-202).
+  if (params.isNewSubmit && !isDraftShapedApplicationRow(params.row)) {
+    const validation = await validateSubmittedApplication(db, params.row);
+    if (validation && !validation.ok) {
+      return {
+        ok: false,
+        status: 422,
+        error: "This application is missing required answers.",
+        fieldErrors: validation.errors,
       };
     }
   }

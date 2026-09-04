@@ -17,6 +17,7 @@ import { FIELD_LABEL_CLASS } from "@/lib/ui-styles";
 import { createSupabaseBrowserClient } from "@/lib/supabase/browser";
 import { navigateAfterRoleSignup } from "@/lib/auth/navigate-after-role-signup";
 import { normalizeAuthEmail } from "@/lib/auth/normalize-auth-email";
+import { withAuthTimeout } from "@/lib/auth/with-timeout";
 
 type RegisterResponse = {
   error?: string;
@@ -111,10 +112,22 @@ export function VendorSignupForm({
       }
 
       const supabase = createSupabaseBrowserClient();
-      const { data: signInData, error: signInError } = await supabase.auth.signInWithPassword({
-        email: normalizeAuthEmail(email),
-        password,
-      });
+      // BOUNDED — a network-level failure here otherwise never settles and the
+      // button stays busy forever while the account quietly exists (PRP-187).
+      // A stall is treated as a refusal: the fallback below already knows how
+      // to say "account created, sign in to continue".
+      type SignInResult = Awaited<ReturnType<typeof supabase.auth.signInWithPassword>>;
+      let signInData: SignInResult["data"] | null = null;
+      let signInError: unknown = null;
+      try {
+        const result = await withAuthTimeout<SignInResult>(
+          supabase.auth.signInWithPassword({ email: normalizeAuthEmail(email), password }),
+        );
+        signInData = result.data;
+        signInError = result.error;
+      } catch (timeoutOrNetwork) {
+        signInError = timeoutOrNetwork;
+      }
       if (signInError) {
         router.push("/auth/sign-in");
         return;

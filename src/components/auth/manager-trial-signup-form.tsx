@@ -29,6 +29,7 @@ import { navigateAfterRoleSignup } from "@/lib/auth/navigate-after-role-signup";
 import { managerPortalEntryPath } from "@/lib/auth/manager-google-services-onboarding";
 import { portalDashboardPath } from "@/components/auth/portal-switcher";
 import { normalizeAuthEmail } from "@/lib/auth/normalize-auth-email";
+import { withAuthTimeout } from "@/lib/auth/with-timeout";
 
 function trialSignupSubtitle(tier: PlanTierId): string {
   if (tier === "free") return "Free plan · no card required";
@@ -212,10 +213,23 @@ export function ManagerTrialSignupForm({
           /* best-effort analytics reset */
         }
       }
-      const { data: signInData, error: signInError } = await supabase.auth.signInWithPassword({
-        email: normalizeAuthEmail(email),
-        password,
-      });
+      // BOUNDED. Without a timeout a network-level failure here never settles,
+      // so the button stays busy forever while the account quietly exists — the
+      // person concludes signup failed and retries into "already registered"
+      // (PRP-187). A stall is treated exactly like a refusal: say the account
+      // was created and send them to sign in.
+      type SignInResult = Awaited<ReturnType<typeof supabase.auth.signInWithPassword>>;
+      let signInData: SignInResult["data"] | null = null;
+      let signInError: unknown = null;
+      try {
+        const result = await withAuthTimeout<SignInResult>(
+          supabase.auth.signInWithPassword({ email: normalizeAuthEmail(email), password }),
+        );
+        signInData = result.data;
+        signInError = result.error;
+      } catch (timeoutOrNetwork) {
+        signInError = timeoutOrNetwork;
+      }
       if (signInError) {
         if (signedInUser) await supabase.auth.signOut({ scope: "local" }).catch(() => undefined);
         showToast("Account created. Sign in to continue.");

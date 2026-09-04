@@ -4,12 +4,14 @@ import {
   createContext,
   useCallback,
   useContext,
+  useEffect,
   useMemo,
   useRef,
   useState,
   type ReactNode,
 } from "react";
 import { Modal } from "@/components/ui/modal";
+import { applyDevResetEpoch } from "@/lib/dev/reset-epoch";
 
 type Toast = { id: number; message: string };
 
@@ -24,6 +26,14 @@ type AppUiContextValue = {
 const AppUiContext = createContext<AppUiContextValue | null>(null);
 
 export function AppUiProvider({ children }: { children: ReactNode }) {
+  // A dev database wipe leaves the browser's `axis:*` mirror behind, so the
+  // portal shows properties that no longer exist and two tabs can disagree
+  // (PRP-195). No-ops entirely unless NEXT_PUBLIC_DEV_RESET_EPOCH is set, which
+  // it never is in production.
+  useEffect(() => {
+    applyDevResetEpoch();
+  }, []);
+
   const [toasts, setToasts] = useState<Toast[]>([]);
   const toastSeq = useRef(0);
   const [modal, setModal] = useState<{ title: string; body: string } | null>(

@@ -31,6 +31,21 @@ origin and auth redirects carry on landing on the port it started with. The pin
 looks like it did nothing. `sandbox:pin` checks whether a server is answering on
 that port and warns when one is, but it cannot restart it for you.
 
+**If the database was wiped or re-seeded, clear the browser's local mirror
+first.** The portal keeps listings, charges and prefs under `axis:*` in
+localStorage, so a reset leaves the database empty and the browser full — the
+portal then shows properties that no longer exist, and two tabs can show
+*different* counts for the same account. That reads as a data bug, and it
+silently invalidates the run, because a passing check may be passing on cached
+rows. Either:
+
+```bash
+# set what the wipe/seed script printed, then restart the dev server
+NEXT_PUBLIC_DEV_RESET_EPOCH=<value>     # every tab clears itself on next load
+```
+
+or open `http://localhost:<port>/auth/sign-in?clear_cache=1` once per port.
+
 **Check the accounts before you start.** They are seeded, not permanent — a dev
 reset removes them, and the sign-in page reports a missing account with the same
 "Invalid login credentials" a wrong password gets:

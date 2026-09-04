@@ -360,6 +360,47 @@ export function safePropertyOptionLabel(candidates: Array<string | null | undefi
   return "Untitled property";
 }
 
+/** A short, stable tail of the id — enough to tell two otherwise identical rows apart. */
+function propertyIdSuffix(id: string): string {
+  const trimmed = id.trim();
+  return trimmed.length > 6 ? trimmed.slice(-6) : trimmed;
+}
+
+/**
+ * Make every label in a picker distinct.
+ *
+ * `buildingName` is optional, so an unnamed listing falls back to a generic
+ * "Property · N rooms" placeholder — and EVERY such listing renders the same
+ * string, so a manager with two of them cannot tell which is which (PRP-211).
+ * That is a nuisance in most dropdowns and a real hazard in the co-manager
+ * property picker, where picking the wrong row grants a third party access to
+ * the wrong property.
+ *
+ * Disambiguation is by ADDRESS first, because that is how managers actually
+ * refer to a property and it is already required at step 0; only when two rows
+ * share even that does it fall back to a slice of the id.
+ */
+export function disambiguatePropertyOptionLabels<T extends { id: string; label: string; address?: string | null }>(
+  options: T[],
+): T[] {
+  const counts = new Map<string, number>();
+  for (const option of options) counts.set(option.label, (counts.get(option.label) ?? 0) + 1);
+
+  const usedLabels = new Set<string>();
+  return options.map((option) => {
+    if ((counts.get(option.label) ?? 0) <= 1) {
+      usedLabels.add(option.label);
+      return option;
+    }
+    const address = (option.address ?? "").trim();
+    const byAddress = address && address !== option.label ? `${option.label} · ${address}` : "";
+    const candidate = byAddress && !usedLabels.has(byAddress) ? byAddress : "";
+    const label = candidate || `${option.label} · ${propertyIdSuffix(option.id)}`;
+    usedLabels.add(label);
+    return { ...option, label };
+  });
+}
+
 /** Human-readable label for a property id across owned, linked, and pending pipeline rows. */
 export function resolvePropertyLabelForId(id: string, fallback?: string): string {
   const pid = id.trim();

@@ -58,18 +58,24 @@ async function buildStatus(
     entitlement.reason === "legacy_unknown";
 
   return {
-    provisioningAvailable: provisioningEnvEnabled && workspaceRole === "primary",
+    // Same reasoning as `canRequest` below — provisioning is available to any
+    // manager account, co-manager included.
+    provisioningAvailable: provisioningEnvEnabled,
     sendingAvailable: sendEnvEnabled,
     storageReady,
     planTier,
     entitlement,
     workspaceRole,
     address: row?.address ?? null,
+    // No `workspaceRole === "primary"` condition. That was the gate that
+    // actually mattered: the POST refusal was visible, but this quietly made the
+    // request button never appear for a co-manager, so removing only the
+    // refusal would have left the feature unreachable. Every manager who clears
+    // the plan check can request their own address.
     canRequest:
       storageReady &&
       entitlementCanBeReconciled &&
       provisioningEnvEnabled &&
-      workspaceRole === "primary" &&
       !row,
     canUse: entitlement.eligible && sendEnvEnabled && Boolean(row),
   };
@@ -116,13 +122,21 @@ export async function POST(req: Request) {
     });
   }
 
-  const pureCoManager = await isPureCoManagerWorkspace(actor.db, actor.userId);
-  if (pureCoManager) {
-    return NextResponse.json(
-      { error: "Co-managers use the account owner's assistant email." },
-      { status: 403 },
-    );
-  }
+  // A co-manager gets their OWN assistant address, not the owner's.
+  //
+  // They were refused here and told to email the account owner's address, which
+  // meant two people shared one mailbox and one assistant identity: the owner
+  // saw the co-manager's questions in their own thread, and the co-manager had
+  // nothing to hand a resident. Every manager who sets one up now has their own.
+  //
+  // Scope is unchanged and comes from the assignment, not the address:
+  // `resolveManagerEmailInboundIdentity` resolves the mailbox owner and then
+  // `resolveManagerSmsAccess` scopes the turn to the houses assigned to them —
+  // so a co-manager's address answers about their assigned houses across every
+  // owner who assigned them, and about nothing else.
+  //
+  // `mailbox_local` is allocated uniquely (`allocateAssistantMailboxLocal`), so
+  // two managers never share an address.
 
   if (!isAssistantEmailProvisioningEnabled()) {
     return NextResponse.json(

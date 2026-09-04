@@ -116,6 +116,38 @@ function latestApplicationOf(owned: OwnedApplication[]): {
 }
 
 /** Server-side: returns true when the resident has a lease that both manager and resident signed. */
+/**
+ * A manager attested this person is an existing tenant.
+ *
+ * "Onboard an existing resident" is the flow for someone who signed on paper
+ * before PropLane, so having no PDF is the NORMAL case there. Keying portal
+ * access on a signed document therefore locked a real rent-paying tenant out of
+ * Payments, Services, Lease and Documents entirely, and showed them Tour and
+ * Application tabs instead (PRP-239). The gate keys on the tenancy as well.
+ *
+ * Kept separate from `loadResidentLeaseSignedStatus`: this is NOT a signature,
+ * and nothing downstream that asks "is the lease signed" should start getting
+ * `true` for a lease that is not.
+ */
+export async function loadResidentManagerAttestedTenancy(
+  email: string,
+  managerUserId?: string,
+): Promise<boolean> {
+  const normalizedEmail = email.trim().toLowerCase();
+  if (!normalizedEmail) return false;
+  const db = createSupabaseServiceRoleClient();
+  let query = db
+    .from("portal_lease_pipeline_records")
+    .select("row_data")
+    .eq("resident_email", normalizedEmail);
+  if (managerUserId) query = query.eq("manager_user_id", managerUserId);
+  const { data } = await query.order("updated_at", { ascending: false });
+  return (data ?? []).some((record) => {
+    const row = record.row_data as Record<string, unknown> | null;
+    return Boolean(row && typeof row.managerAttestedTenancyAt === "string" && row.managerAttestedTenancyAt.trim());
+  });
+}
+
 export async function loadResidentLeaseSignedStatus(email: string, managerUserId?: string): Promise<boolean> {
   const normalizedEmail = email.trim().toLowerCase();
   if (!normalizedEmail) return false;
@@ -225,13 +257,19 @@ const loadResidentPortalAccessStateCached = cache(
     }
 
     const leaseSigned = await loadResidentLeaseSignedStatus(email, managerUserId ?? undefined);
-    const leaseAccessUnlocked = leaseSigned;
+    // A tenant onboarded from a paper lease has no signed document and is still
+    // a tenant. `leaseSigned` stays honest about the document; access keys on
+    // either (PRP-239).
+    const attestedTenancy = leaseSigned
+      ? false
+      : await loadResidentManagerAttestedTenancy(email, managerUserId ?? undefined);
+    const leaseAccessUnlocked = leaseSigned || attestedTenancy;
     let hasTourLink = false;
     if (userId) {
       hasTourLink = await residentHasTourLinks(db, userId, email);
     }
     const isPreLeaseResident =
-      roleOk && !leaseSigned && (hasTourLink || hasSubmittedApplication || applicationApproved);
+      roleOk && !leaseAccessUnlocked && (hasTourLink || hasSubmittedApplication || applicationApproved);
 
     return {
       roleOk,

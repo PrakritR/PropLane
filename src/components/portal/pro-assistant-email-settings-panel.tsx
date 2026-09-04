@@ -119,10 +119,10 @@ export function ManagerAssistantEmailSettingsPanel() {
 
   if (!status) return null;
 
-  const planMessage =
-    status.workspaceRole === "co_manager"
-      ? "Co-managers email the account owner's assistant address from the email on their PropLane profile."
-      : assistantEmailUpsellMessage(status.planTier, status.entitlement);
+  // A co-manager now gets their OWN address, so the upsell copy is the same for
+  // everyone; only the scope sentence differs, because their assistant answers
+  // about the houses assigned to them rather than a portfolio they own.
+  const planMessage = assistantEmailUpsellMessage(status.planTier, status.entitlement);
   const isCoManager = status.workspaceRole === "co_manager";
   const unverifiedEntitlement = assistantEmailEntitlementIsUnverified(status.entitlement);
   const canRefreshEligibility =
@@ -134,7 +134,7 @@ export function ManagerAssistantEmailSettingsPanel() {
       title="Assistant email"
       description={
         isCoManager
-          ? "Email the workspace owner's assistant address from your PropLane profile email."
+          ? "Request your own address, then email it to ask about the houses assigned to you — same assistant as your work number texts."
           : "Request a dedicated address, then email it to ask about your portfolio — same assistant as your work number texts."
       }
     >
