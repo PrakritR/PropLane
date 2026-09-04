@@ -143,9 +143,7 @@ describe("unified conversation inbox (no folder tabs)", () => {
     // Archive segment — routed links in the list chrome (internal mode).
     const archivedLink = screen.getByRole("link", { name: /Archived/ });
     expect(archivedLink.getAttribute("href")).toContain("/archived");
-
-    const unreadLink = screen.getByRole("link", { name: /Unread/ });
-    expect(unreadLink.getAttribute("href")).toContain("/unread");
+    expect(screen.queryByRole("link", { name: /Unread/ })).toBeNull();
 
     cleanup();
     render(<ManagerUnifiedInbox tabId="unopened" commBase="/portal/communication" listSegment="unread" />);

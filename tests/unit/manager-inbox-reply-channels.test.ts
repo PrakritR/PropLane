@@ -4,6 +4,7 @@ import {
   inboxThreadPhoneHint,
   resolveManagerInboxReplyChannels,
   resolveManagerInboxSmsTarget,
+  resolvePropLaneUnifiedReplyChannels,
 } from "@/lib/manager-inbox-reply-channels";
 
 describe("manager inbox reply channels", () => {
@@ -40,6 +41,18 @@ describe("manager inbox reply channels", () => {
         smsAvailable: false,
         preferred: { viaEmail: false, viaSms: true },
       }),
+    ).toEqual({ viaEmail: true, viaSms: false });
+  });
+
+  it("unified Communication mode enables every available channel", () => {
+    expect(
+      resolvePropLaneUnifiedReplyChannels({ emailAvailable: true, smsAvailable: true }),
+    ).toEqual({ viaEmail: true, viaSms: true });
+    expect(
+      resolvePropLaneUnifiedReplyChannels({ emailAvailable: false, smsAvailable: true }),
+    ).toEqual({ viaEmail: false, viaSms: true });
+    expect(
+      resolvePropLaneUnifiedReplyChannels({ emailAvailable: true, smsAvailable: false }),
     ).toEqual({ viaEmail: true, viaSms: false });
   });
 

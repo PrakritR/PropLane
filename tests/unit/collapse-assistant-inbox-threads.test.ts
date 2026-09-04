@@ -3,6 +3,8 @@ import { RESIDENT_AGENT_THREAD_TYPE } from "@/lib/agent/resident-inbox-agent.ser
 import { canonicalResidentAgentThreadId } from "@/lib/communication-inbox-assistant";
 import {
   collapseAssistantInboxThreads,
+  inboxMessageOutbound,
+  inboxThreadMessages,
   type PersistedInboxThread,
 } from "@/lib/portal-inbox-storage";
 
@@ -51,5 +53,31 @@ describe("collapseAssistantInboxThreads", () => {
     };
     const collapsed = collapseAssistantInboxThreads([human]);
     expect(collapsed).toEqual([human]);
+  });
+
+  it("renders PropLane Assistant intro turns as inbound, not manager outbound", () => {
+    const thread: PersistedInboxThread = {
+      id: `agent_notice_${MANAGER_A}`,
+      folder: "inbox",
+      from: "PropLane Assistant",
+      email: "",
+      subject: "PropLane Assistant",
+      preview: "Hi",
+      body: "Hi — I am PropLane Assistant.",
+      time: "Aug 3, 5:31 PM",
+      unread: false,
+      threadType: "agent_notice",
+      messages: [
+        {
+          id: "manager-agent-intro",
+          from: "PropLane Assistant",
+          body: "Hi — I am PropLane Assistant.",
+          at: "Aug 3, 5:31 PM",
+        },
+      ],
+    };
+    const turns = inboxThreadMessages(thread);
+    expect(turns).toHaveLength(1);
+    expect(inboxMessageOutbound(turns[0]!, 0, thread.folder, thread)).toBe(false);
   });
 });

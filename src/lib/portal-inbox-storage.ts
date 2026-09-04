@@ -4,6 +4,7 @@ import {
   canonicalResidentAgentThreadId,
 } from "@/lib/communication-inbox-assistant";
 import { isDemoModeActive } from "@/lib/demo/demo-session";
+import { RESIDENT_AGENT_FROM_NAME } from "@/lib/agent/resident-inbox-agent-ids";
 import { formatPacificDateTime } from "@/lib/pacific-time";
 import {
   notePortalResponse,
@@ -532,13 +533,34 @@ export function inboxThreadCounterpartyEmail(
   return email;
 }
 
+function isPropLaneAssistantInboxThreadRow(thread: PersistedInboxThread): boolean {
+  const extended = thread as PersistedInboxThread & { threadType?: string };
+  return (
+    extended.threadType === "resident_agent" ||
+    extended.threadType === "agent_notice" ||
+    thread.id.startsWith("resident-agent-") ||
+    thread.id.startsWith("agent_notice_") ||
+    thread.from.trim() === RESIDENT_AGENT_FROM_NAME
+  );
+}
+
+function isPropLaneAssistantSenderName(from: string | undefined): boolean {
+  const name = from?.trim() ?? "";
+  return name === RESIDENT_AGENT_FROM_NAME || name === "PropLane Assistant";
+}
+
 /** Whether a thread turn is outbound from the inbox owner's perspective. */
 export function inboxMessageOutbound(
   message: InboxThreadMessage,
   index: number,
   folder: PersistedInboxThread["folder"],
+  thread?: PersistedInboxThread,
 ): boolean {
-  return message.outbound ?? (index === 0 ? folder === "sent" : true);
+  if (message.outbound !== undefined) return message.outbound;
+  if (thread && isPropLaneAssistantInboxThreadRow(thread)) {
+    return !isPropLaneAssistantSenderName(message.from);
+  }
+  return index === 0 ? folder === "sent" : true;
 }
 
 /**
@@ -554,14 +576,15 @@ export function inboxThreadManagerReplyPending(
   const turns = inboxThreadMessages(thread as PersistedInboxThread);
   if (turns.length === 0) return Boolean(thread.body?.trim());
 
+  const fullThread = thread as PersistedInboxThread;
   let lastInboundIndex = -1;
   for (let i = 0; i < turns.length; i++) {
-    if (!inboxMessageOutbound(turns[i]!, i, thread.folder)) lastInboundIndex = i;
+    if (!inboxMessageOutbound(turns[i]!, i, thread.folder, fullThread)) lastInboundIndex = i;
   }
   if (lastInboundIndex < 0) return false;
 
   for (let i = lastInboundIndex + 1; i < turns.length; i++) {
-    if (inboxMessageOutbound(turns[i]!, i, thread.folder)) return false;
+    if (inboxMessageOutbound(turns[i]!, i, thread.folder, fullThread)) return false;
   }
   return true;
 }
@@ -599,6 +622,13 @@ export function inboxThreadMessages(thread: PersistedInboxThread): InboxThreadMe
   const seenIds = new Set([rootId]);
   const extras = (thread.messages ?? []).filter((message) => {
     if (!message.id || seenIds.has(message.id)) return false;
+    if (
+      isPropLaneAssistantInboxThreadRow(thread) &&
+      isPropLaneAssistantSenderName(message.from) &&
+      message.body.trim() === (thread.body ?? "").trim()
+    ) {
+      return false;
+    }
     seenIds.add(message.id);
     return true;
   });

@@ -2505,6 +2505,13 @@ html[data-native] [class*="PORTAL_SECTION_SURFACE"] {
     padding-right: 3.5rem;
   }
 
+  /* Unified Communication list scrolls inside the left pane — pad it when the
+     fixed bulk bar is open so the last row is not trapped underneath. */
+  html[data-bulk-action-bar] [data-communication-inbox-list] {
+    padding-bottom: calc(4.75rem + env(safe-area-inset-bottom, 0px));
+    scroll-padding-bottom: calc(4.75rem + env(safe-area-inset-bottom, 0px));
+  }
+
   /* Record detail footer actions — float FAB above the centered action row. */
   html:has([data-slot="portal-page-footer-actions"]) .axis-assistant-fab {
     bottom: calc(var(--portal-native-bottom-nav-inset, 0px) + 5.75rem) !important;
@@ -2523,6 +2530,11 @@ html[data-native] [class*="PORTAL_SECTION_SURFACE"] {
 
   html[data-bulk-action-bar][data-bulk-action-variant="payments"] .axis-assistant-fab {
     bottom: 7.5rem !important;
+  }
+
+  html[data-bulk-action-bar] [data-communication-inbox-list] {
+    padding-bottom: 4.75rem;
+    scroll-padding-bottom: 4.75rem;
   }
 
   /* Pinned record-detail footer (resident profile sections) — sit above the action row. */

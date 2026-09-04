@@ -34,6 +34,7 @@ import {
   upsertPersistedInboxRows,
   inboxThreadMessages,
   inboxThreadSortMs,
+  inboxMessageOutbound,
   appendReplyToInboxThread,
   collapsePersonInboxThreads,
   inboxThreadManagerReplyPending,
@@ -88,6 +89,7 @@ import {
   inboxThreadHasEmail,
   resolveManagerInboxReplyChannels,
   resolveManagerInboxSmsTarget,
+  resolvePropLaneUnifiedReplyChannels,
 } from "@/lib/manager-inbox-reply-channels";
 import { buildManagerInboxLiveContacts } from "@/lib/manager-inbox-contacts";
 import {
@@ -1134,6 +1136,17 @@ export const ManagerInbox = forwardRef<
 
 
   useEffect(() => {
+    if (embeddedInCommunication) {
+      const unified = resolvePropLaneUnifiedReplyChannels({
+        emailAvailable: activeEmailAvailable,
+        smsAvailable: activeSmsAvailable,
+      });
+      setReplyViaEmail(unified.viaEmail);
+      setReplyViaSms(unified.viaSms);
+      setAiDraftViaEmail(unified.viaEmail);
+      setAiDraftViaSms(unified.viaSms);
+      return;
+    }
     const preferred = channelsFor("inbox_default");
     const next = resolveManagerInboxReplyChannels({
       emailAvailable: activeEmailAvailable,
@@ -1144,7 +1157,7 @@ export const ManagerInbox = forwardRef<
     setReplyViaSms(next.viaSms);
     setAiDraftViaEmail(next.viaEmail);
     setAiDraftViaSms(next.viaSms);
-  }, [expandedId, channelsFor, activeEmailAvailable, activeSmsAvailable]);
+  }, [embeddedInCommunication, expandedId, channelsFor, activeEmailAvailable, activeSmsAvailable]);
 
   const activeIsSent = activeThread?.folder === "sent";
   const activeFolder = activeThread
@@ -1161,7 +1174,7 @@ export const ManagerInbox = forwardRef<
       // messages default to outbound (a reply we sent), but a new message
       // delivered into this person-thread carries an explicit direction so an
       // inbound turn on our inbox copy renders inbound rather than as our reply.
-      const outbound = m.outbound ?? (i === 0 ? activeFolder === "sent" : true);
+      const outbound = inboxMessageOutbound(m, i, activeFolder, activeThread);
       const delivery =
         m.delivery ?? (pendingRoot && i === 0 && outbound ? ("sending" as const) : undefined);
       return {
@@ -1497,10 +1510,16 @@ export const ManagerInbox = forwardRef<
     // state right after opening a phone-only thread) still picks SMS when
     // email is impossible — never toast "choose a channel" and stick the
     // auto-send latch forever.
+    const preferred = embeddedInCommunication
+      ? resolvePropLaneUnifiedReplyChannels({
+          emailAvailable: activeEmailAvailable,
+          smsAvailable: activeSmsAvailable,
+        })
+      : { viaEmail: aiDraftViaEmail, viaSms: aiDraftViaSms };
     const channels = resolveManagerInboxReplyChannels({
       emailAvailable: activeEmailAvailable,
       smsAvailable: activeSmsAvailable,
-      preferred: { viaEmail: aiDraftViaEmail, viaSms: aiDraftViaSms },
+      preferred,
     });
     if (!channels.viaEmail && !channels.viaSms) {
       showToast("Choose Email, SMS, or both.");
@@ -1525,10 +1544,19 @@ export const ManagerInbox = forwardRef<
     } finally {
       setApprovingDraft(false);
     }
-  }, [activeEmailAvailable, activeSmsAvailable, activeThread, aiDraftViaEmail, aiDraftViaSms, handleReply, showToast]);
+  }, [activeEmailAvailable, activeSmsAvailable, activeThread, aiDraftViaEmail, aiDraftViaSms, embeddedInCommunication, handleReply, showToast]);
 
   useEffect(() => {
     if (!activeThread?.aiDraft?.text || activeThread.aiDraft.status !== "pending_approval") return;
+    if (embeddedInCommunication) {
+      const unified = resolvePropLaneUnifiedReplyChannels({
+        emailAvailable: activeEmailAvailable,
+        smsAvailable: activeSmsAvailable,
+      });
+      setAiDraftViaEmail(unified.viaEmail);
+      setAiDraftViaSms(unified.viaSms);
+      return;
+    }
     const preferred = channelsFor("inbox_default");
     const next = resolveManagerInboxReplyChannels({
       emailAvailable: activeEmailAvailable,
@@ -1538,6 +1566,7 @@ export const ManagerInbox = forwardRef<
     setAiDraftViaEmail(next.viaEmail);
     setAiDraftViaSms(next.viaSms);
   }, [
+    embeddedInCommunication,
     activeThread?.aiDraft?.text,
     activeThread?.aiDraft?.status,
     activeThread?.id,
@@ -1794,7 +1823,8 @@ export const ManagerInbox = forwardRef<
     </div>
   );
 
-  const threadHeaderActions = activeThread ? (
+  const threadHeaderActions =
+    activeThread && !embeddedInCommunication ? (
     activeThread.folder === "trash" ? (
       <>
         <Button
@@ -1852,6 +1882,7 @@ export const ManagerInbox = forwardRef<
 
   const scheduledCards =
     activeThread &&
+    !embeddedInCommunication &&
     activeThread.folder !== "trash" &&
     threadScheduledItems.length > 0 ? (
       <InboxScheduledThreadList
@@ -1931,7 +1962,7 @@ export const ManagerInbox = forwardRef<
                 onApprove={() => void approveActiveDraft()}
                 onEdit={editActiveDraft}
                 onDiscard={() => void discardActiveDraft()}
-                channelControl={aiDraftChannelPicker}
+                channelControl={embeddedInCommunication ? undefined : aiDraftChannelPicker}
                 autoSend={aiAutoSend}
                 onAutoSendChange={setAiAutoSend}
                 onGenerate={
@@ -1964,9 +1995,9 @@ export const ManagerInbox = forwardRef<
               onSubmit={() => void sendActiveReply()}
               sending={replySending}
               placeholder="Write a reply…"
-              maxLength={replyViaSms && !replyViaEmail ? 1600 : undefined}
+              maxLength={!embeddedInCommunication && replyViaSms && !replyViaEmail ? 1600 : undefined}
               dataAttr="inbox-reply"
-              channelControl={replyChannelPicker}
+              channelControl={embeddedInCommunication ? undefined : replyChannelPicker}
               attachments={replyAttachments}
               onAttachmentsPick={pickReplyAttachments}
               onAttachmentRemove={removeReplyAttachment}

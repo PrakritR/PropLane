@@ -28,7 +28,7 @@ import {
   PORTAL_COMMAND_PRIMARY_ACTION_BTN,
   PORTAL_COMMAND_PRIMARY_ACTION_STYLE,
 } from "@/components/portal/portal-metrics";
-import { filterEmailInboxThreads } from "@/lib/communication-inbox-filters";
+import { canonicalResidentAgentThreadId } from "@/lib/agent/resident-inbox-agent-ids";
 import {
   mergeUnifiedInboxItems,
   parseUnifiedInboxKey,
@@ -40,8 +40,22 @@ import {
   RESIDENT_INBOX_STORAGE_KEY,
   inboxThreadMessages,
   inboxThreadSortMs,
+  inboxMessageOutbound,
   loadPersistedInbox,
+  syncPersistedInboxFromServer,
+  stagePersistedInboxRows,
 } from "@/lib/portal-inbox-storage";
+import { isPropLaneAssistantInboxThread } from "@/lib/communication-inbox-assistant";
+import { filterEmailInboxThreads } from "@/lib/communication-inbox-filters";
+import {
+  buildResidentAssistantPlaceholderThread,
+  communicationInboxListPreview,
+  pinPropLaneAssistantUnifiedItems,
+  propLaneAssistantThreadIdForPortal,
+  resolveCommunicationViewerId,
+  withPinnedPropLaneAssistantThreads,
+} from "@/lib/communication-assistant-inbox-list";
+import { usePortalSession } from "@/hooks/use-portal-session";
 import {
   clearCommunicationThreadUrl,
   selectCommunicationThreadUrl,
@@ -61,12 +75,6 @@ import type { PersistedInboxThread } from "@/lib/portal-inbox-storage";
 const SMS_THREAD_ID = "text-messages";
 const SMS_OPENED_KEY = "axis_role_sms_opened_resident";
 
-function previewLine(body: string, max = 80) {
-  const t = body.trim().replace(/\s+/g, " ");
-  if (t.length <= max) return t;
-  return `${t.slice(0, max)}…`;
-}
-
 function loadOpenedIds(): Set<string> {
   if (typeof window === "undefined") return new Set();
   try {
@@ -80,6 +88,12 @@ function loadOpenedIds(): Set<string> {
   }
 }
 
+function inboxUsesDesktopSplit(): boolean {
+  if (typeof window === "undefined") return true;
+  if (typeof window.matchMedia !== "function") return true;
+  return window.matchMedia("(min-width: 1024px)").matches;
+}
+
 function ResidentUnifiedInbox({
   inboxRef,
   smsUiEnabled,
@@ -90,6 +104,7 @@ function ResidentUnifiedInbox({
   onThreadSelectedChange,
   commBase,
   onAddConversation,
+  residentUserId,
 }: {
   inboxRef: React.RefObject<ResidentInboxPanelHandle | null>;
   smsUiEnabled: boolean;
@@ -100,12 +115,16 @@ function ResidentUnifiedInbox({
   onThreadSelectedChange?: (selected: boolean) => void;
   commBase: string;
   onAddConversation?: () => void;
+  residentUserId?: string | null;
 }) {
+  const { userId } = usePortalSession({ userId: residentUserId ?? null });
+  const viewerId = resolveCommunicationViewerId(residentUserId, userId);
   // Inbox rows hydrate from sessionStorage — never read them in useState initializers (SSR mismatch).
   const [emailThreads, setEmailThreads] = useState<PersistedInboxThread[]>([]);
   const [smsMessages, setSmsMessages] = useState<ManagerSmsMessageRow[]>([]);
   const [smsOpened, setSmsOpened] = useState<Set<string>>(() => new Set());
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
+  const assistantThreadId = viewerId ? propLaneAssistantThreadIdForPortal("resident", viewerId) : null;
 
   useEffect(() => {
     const syncEmail = () => setEmailThreads(loadPersistedInbox(RESIDENT_INBOX_STORAGE_KEY, []));
@@ -114,6 +133,32 @@ function ResidentUnifiedInbox({
     window.addEventListener(PORTAL_INBOX_CHANGED_EVENT, syncEmail as EventListener);
     return () => window.removeEventListener(PORTAL_INBOX_CHANGED_EVENT, syncEmail as EventListener);
   }, []);
+
+  useEffect(() => {
+    if (!viewerId) return;
+    void syncPersistedInboxFromServer(RESIDENT_INBOX_STORAGE_KEY, { force: true }).then((rows) => {
+      setEmailThreads(rows);
+    });
+  }, [viewerId]);
+
+  useEffect(() => {
+    if (!viewerId?.trim() || listSegment !== "active") return;
+    let staged: PersistedInboxThread[] | null = null;
+    setEmailThreads((current) => {
+      const hasAssistant = current.some(
+        (thread) =>
+          isPropLaneAssistantInboxThread(thread) ||
+          thread.id === canonicalResidentAgentThreadId(viewerId),
+      );
+      if (hasAssistant) return current;
+      const next = [buildResidentAssistantPlaceholderThread(viewerId), ...current];
+      staged = next;
+      return next;
+    });
+    if (staged) {
+      queueMicrotask(() => stagePersistedInboxRows(RESIDENT_INBOX_STORAGE_KEY, staged!));
+    }
+  }, [listSegment, viewerId]);
 
   useEffect(() => {
     if (!smsUiEnabled) return;
@@ -133,10 +178,10 @@ function ResidentUnifiedInbox({
     setSelectedKey(null);
   }, [listSegment]);
 
-  const filteredEmail = useMemo(
-    () => filterEmailInboxThreads(emailThreads, { keepSmsLike: !smsUiEnabled }),
-    [emailThreads, smsUiEnabled],
-  );
+  const filteredEmail = useMemo(() => {
+    const base = filterEmailInboxThreads(emailThreads, { keepSmsLike: !smsUiEnabled });
+    return withPinnedPropLaneAssistantThreads(base, "resident", viewerId, listSegment);
+  }, [emailThreads, listSegment, smsUiEnabled, viewerId]);
 
   const emailItems = useMemo((): UnifiedInboxListItem[] => {
     let rows = filteredEmail;
@@ -152,14 +197,18 @@ function ResidentUnifiedInbox({
       const msgs = inboxThreadMessages(t);
       const lastMsg = msgs[msgs.length - 1];
       const sentSemantics = t.folder === "sent";
+      const lastIndex = Math.max(0, msgs.length - 1);
+      const lastOutbound = lastMsg
+        ? inboxMessageOutbound(lastMsg, lastIndex, t.folder, t)
+        : sentSemantics;
       return {
         key: unifiedInboxKey("email", t.id),
         channel: "email" as const,
         threadId: t.id,
         name: sentSemantics ? t.email || "Recipient" : t.from || t.email || "Sender",
         subtitle: t.subject,
-        preview: previewLine(lastMsg?.body ?? t.preview ?? "", 80),
-        previewPrefix: t.folder === "sent" ? "You: " : undefined,
+        preview: communicationInboxListPreview(lastMsg?.body ?? t.preview ?? "", listSegment, 80),
+        previewPrefix: lastOutbound ? "You: " : undefined,
         time: t.time,
         unread: t.folder === "inbox" && t.unread,
         // Sort on the SAME field the row is labelled with — only `thread.time`
@@ -183,7 +232,7 @@ function ResidentUnifiedInbox({
       threadId: SMS_THREAD_ID,
       name: "Text messages",
       subtitle: "Property manager",
-      preview: previewLine(last.body, 80),
+      preview: communicationInboxListPreview(last.body, listSegment, 80),
       previewPrefix: last.direction === "outbound" ? "You: " : undefined,
       time: formatPacificDate(last.createdAt, { hour: "numeric", minute: "2-digit" }),
       unread,
@@ -193,10 +242,10 @@ function ResidentUnifiedInbox({
     return [item];
   }, [listSegment, smsMessages, smsOpened, smsUiEnabled]);
 
-  const merged = useMemo(
-    () => mergeUnifiedInboxItems([...emailItems, ...smsItems], "recent"),
-    [emailItems, smsItems],
-  );
+  const merged = useMemo(() => {
+    const rows = mergeUnifiedInboxItems([...emailItems, ...smsItems], "recent");
+    return pinPropLaneAssistantUnifiedItems(rows, assistantThreadId);
+  }, [assistantThreadId, emailItems, smsItems]);
 
   const bulk = useUnifiedCommunicationBulk({
     mergedRows: merged,
@@ -227,9 +276,27 @@ function ResidentUnifiedInbox({
     onThreadSelectedChange?.(Boolean(selection));
   }, [onThreadSelectedChange, selection]);
 
+  useEffect(() => {
+    if (merged.length === 0) {
+      if (!routeThreadId) setSelectedKey(null);
+      return;
+    }
+    setSelectedKey((cur) => {
+      if (routeThreadId) {
+        const routed = merged.find((row) => row.threadId === routeThreadId);
+        if (routed) return routed.key;
+        if (cur && merged.some((row) => row.key === cur)) return cur;
+        return null;
+      }
+      if (cur && merged.some((row) => row.key === cur)) return cur;
+      if (inboxUsesDesktopSplit()) return merged[0]!.key;
+      return null;
+    });
+  }, [merged, routeThreadId]);
+
   const listPane = (
-    <div className="flex min-h-0 flex-1 flex-col">
-      <div className={INBOX_LIST_SCROLL}>
+    <div className="flex h-full min-h-0 flex-1 flex-col overflow-hidden">
+      <div className={`${INBOX_LIST_SCROLL} min-h-0 flex-1`} data-communication-inbox-list>
         {merged.length === 0 ? (
           listSegment === "archived" ? (
             <div className="p-4">
@@ -270,6 +337,13 @@ function ResidentUnifiedInbox({
           ))
         )}
       </div>
+      <CommunicationListBulkBar
+        count={bulk.selectedCount}
+        listSegment={listSegment}
+        onArchive={listSegment !== "archived" ? () => void bulk.handleArchive() : undefined}
+        onRestore={listSegment === "archived" ? () => void bulk.handleRestore() : undefined}
+        onDelete={listSegment === "archived" ? () => void bulk.handleDelete() : undefined}
+      />
     </div>
   );
 
@@ -321,14 +395,6 @@ function ResidentUnifiedInbox({
         list={listPane}
         thread={threadPane}
       />
-      <CommunicationListBulkBar
-        count={bulk.selectedCount}
-        listSegment={listSegment}
-        onArchive={listSegment !== "archived" ? () => void bulk.handleArchive() : undefined}
-        onRestore={listSegment === "archived" ? () => void bulk.handleRestore() : undefined}
-        onDelete={listSegment === "archived" ? () => void bulk.handleDelete() : undefined}
-        onClear={bulk.selection.clearSelection}
-      />
     </>
   );
 }
@@ -340,6 +406,7 @@ export function ResidentCommunication({
   listSegment = "active",
   threadId,
   smsUiEnabled = false,
+  residentUserId = null,
 }: {
   /** Routed conversation list segment (Active / Unread / Archived). */
   listSegment?: InboxListSegment;
@@ -348,6 +415,7 @@ export function ResidentCommunication({
   /** @deprecated Folder tabs removed; kept so legacy routes still resolve. */
   inboxTabId?: ResidentEmailTabId;
   smsUiEnabled?: boolean;
+  residentUserId?: string | null;
 }) {
   const commBase = `${RESIDENT_PORTAL_BASE_PATH}/communication`;
   const inboxRef = useRef<ResidentInboxPanelHandle>(null);
@@ -414,12 +482,6 @@ export function ResidentCommunication({
       destinations={[
         { id: "active", label: "Active", href: `${commBase}/active`, dataAttr: "communication-segment-active" },
         {
-          id: "unread",
-          label: "Unread",
-          href: `${commBase}/unread`,
-          dataAttr: "communication-segment-unread",
-        },
-        {
           id: "archived",
           label: "Archived",
           href: `${commBase}/archived`,
@@ -452,6 +514,7 @@ export function ResidentCommunication({
         onThreadSelectedChange={setThreadSelected}
         commBase={commBase}
         onAddConversation={() => inboxRef.current?.openCompose()}
+        residentUserId={residentUserId}
       />
       <Modal
         open={communicationSettingsOpen}

@@ -13,8 +13,10 @@ import {
   sendManagerNotificationSms,
 } from "@/lib/manager-notification-routing.server";
 import type { ManagerNotificationCategory } from "@/lib/manager-notification-preferences";
+import { formatPacificDateTime } from "@/lib/pacific-time";
 
 const MANAGER_INBOX_SCOPE = "axis_portal_inbox_manager_v1";
+const MANAGER_AGENT_FROM_NAME = "PropLane Assistant";
 
 export async function notifyManagerFromAgent(
   db: SupabaseClient,
@@ -138,4 +140,59 @@ export async function notifyManagerFromAgent(
 
   const suppressed = !channels.inbox && !smsRequested;
   return { delivered: inboxDelivered || smsDelivered, suppressed };
+}
+
+/**
+ * Create the manager's PropLane Assistant inbox thread if missing.
+ *
+ * Idempotent on `agent_notice_{landlordId}` so Communication always has a
+ * conversation to open even before the first agent notification lands.
+ */
+export async function ensureManagerAgentNoticeThread(
+  db: SupabaseClient,
+  landlordId: string,
+): Promise<string> {
+  const threadId = `agent_notice_${landlordId.trim()}`;
+  const { data: existing } = await db
+    .from("portal_inbox_thread_records")
+    .select("id")
+    .eq("id", threadId)
+    .maybeSingle();
+  if (existing) return threadId;
+
+  const when = formatPacificDateTime(new Date());
+  const intro = [
+    "Hi — I am PropLane Assistant.",
+    "",
+    "Ask me about residents, leases, maintenance, tours, or anything else in your portfolio.",
+    "When something needs your OK, I will show you exactly what it is before anything happens.",
+  ].join("\n");
+
+  const { error } = await db.from("portal_inbox_thread_records").upsert(
+    {
+      id: threadId,
+      scope: MANAGER_INBOX_SCOPE,
+      owner_user_id: landlordId,
+      participant_email: null,
+      thread_type: "agent_notice",
+      row_data: {
+        id: threadId,
+        folder: "inbox",
+        from: MANAGER_AGENT_FROM_NAME,
+        email: "",
+        subject: "PropLane Assistant",
+        preview: intro.slice(0, 100).replace(/\n/g, " "),
+        time: when,
+        unread: false,
+        scope: MANAGER_INBOX_SCOPE,
+        threadType: "agent_notice",
+        body: intro,
+        messages: [],
+      },
+      updated_at: new Date().toISOString(),
+    },
+    { onConflict: "id" },
+  );
+  if (error) throw error;
+  return threadId;
 }

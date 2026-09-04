@@ -889,6 +889,7 @@ export function InboxConversationRow({
             </div>
           </div>
           {subtitle ? <p className="truncate text-xs text-muted">{subtitle}</p> : null}
+          {preview.trim() ? (
           <div className="mt-0.5 flex items-center gap-2">
             {channelBadge ? (
               <span className="shrink-0 rounded-full border border-primary/25 bg-primary/10 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-primary">
@@ -901,9 +902,10 @@ export function InboxConversationRow({
               }`}
             >
               {previewPrefix ?? ""}
-              {preview || " "}
+              {preview}
             </p>
           </div>
+          ) : null}
         </div>
       </button>
       {trailing ? <div className="shrink-0">{trailing}</div> : null}
@@ -923,7 +925,6 @@ export function InboxListSegmentTabs({
 }) {
   const tabs: { id: InboxListSegment; label: string }[] = [
     { id: "active", label: "Active" },
-    { id: "unread", label: "Unread" },
     { id: "archived", label: "Archived" },
   ];
   return (
