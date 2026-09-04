@@ -449,9 +449,24 @@ Explicitly verify after recent template work:
 
 ## 6. AI assistant — action previews (all portals)
 
-**Ticket:** PRP-283. **Unit smoke:** `npm run test:unit -- tests/unit/agent/loop-write-proposal.test.ts tests/unit/tools/work-order-writes.test.ts`.
+**Tickets:** PRP-283, PRP-272. **Unit smoke:**
 
-Open the floating assistant (or dock if pinned). Each prompt must end with a **confirm card** (`ActionPreview`: title, fields, Confirm) — not a dead-end apology.
+```bash
+npm run test:unit -- tests/unit/tools/write-tool-preview-harness.test.ts \
+  tests/unit/agent/loop-write-proposal.test.ts tests/unit/tools/work-order-writes.test.ts
+```
+
+**What the harness already covers, so this pass does not need to re-check it (PRP-272):** every
+write tool in all six registries declares a preview, no destructive tool reaches the manager SMS
+registry, and the cards for `create_work_order` and `report_maintenance_issue` are built through
+the real preview gate and come out with a title, a confirm label and readable field labels.
+
+**What only a human can check, which is why this section exists:** that the model picks the
+RIGHT tool for a sentence a person would actually type, and that the card renders legibly at the
+width it is read on. A green harness with the wrong tool chosen is still a failed action.
+
+Open the floating assistant (or dock if pinned). Each prompt must end with a **confirm card**
+(`ActionPreview`: title, fields, Confirm) — not a dead-end apology.
 
 | Portal | Login | Prompt | Expected tool / preview |
 | --- | --- | --- | --- |
