@@ -2,7 +2,7 @@
 
 Generated September 4, 2026. There are 27 active assigned issues, all currently marked High in Linear. The priority tiers below are recommended execution order, not changes to Linear's stored priority.
 
-Progress: 9 completed locally (7 + PRP-192, already shipped and only just discovered to be stale in this doc, + PRP-239, cherry-picked from `claude-1` today), 18 remaining. **Linear re-triage, September 4 2026 (Prakrit Ramachandran):** PRP-260, PRP-261, PRP-262, PRP-284, PRP-286, PRP-287, PRP-288, PRP-294 were all closed Canceled as duplicates/superseded — verified each one via its Linear comment: none is a scope cut, every capability is tracked (and, where already built, credited) under a surviving canonical ticket (PRP-264, PRP-265, PRP-271, PRP-279, PRP-297). Linear now also shows PRP-297 and PRP-279 as Done to match the local work below, and their acceptance checklists are checked off. Nothing needed to be reverted from this repo. Of the 18 remaining issues, 6 need no separate work (closed as duplicates/superseded above), 12 are actionable (including the PRP-264 epic itself and PRP-184, which still needs breaking into fixes).
+Progress: 10 completed locally (7 + PRP-192, already shipped and only just discovered to be stale in this doc, + PRP-239, cherry-picked from `claude-1` today, + PRP-266), 17 remaining. **Linear re-triage, September 4 2026 (Prakrit Ramachandran):** PRP-260, PRP-261, PRP-262, PRP-284, PRP-286, PRP-287, PRP-288, PRP-294 were all closed Canceled as duplicates/superseded — verified each one via its Linear comment: none is a scope cut, every capability is tracked (and, where already built, credited) under a surviving canonical ticket (PRP-264, PRP-265, PRP-271, PRP-279, PRP-297). Linear now also shows PRP-297 and PRP-279 as Done to match the local work below, and their acceptance checklists are checked off. Nothing needed to be reverted from this repo. Of the 17 remaining issues, 6 need no separate work (closed as duplicates/superseded above), 11 are actionable (including the PRP-264 epic itself and PRP-184, which still needs breaking into fixes).
 
 ## P0 — user harm, data integrity, and access
 
@@ -69,8 +69,8 @@ Three near-identical umbrella epics overlapped: [PRP-260](https://linear.app/axi
 - [PRP-263 — Proactive outbound engine](https://linear.app/axishousing/issue/PRP-263/proactive-outbound-engine-the-system-texts-first-rent-due-job-stalled) — **Linear: closed Canceled as superseded by PRP-266 + PRP-267.**
   Build a general scheduled trigger-to-audience-to-message engine for rent, stalled jobs, invoices, and other attention-needed events. Neither successor is built yet — both remain actionable.
 
-- [PRP-266 — Automated rent payment reminders](https://linear.app/axishousing/issue/PRP-266/sms-automated-rent-payment-reminders-to-residents-with-pay-link)
-  Deliver the first use case for that engine: configurable, opt-out-aware rent reminders with platform payment links and auditability.
+- [x] [PRP-266 — Automated rent payment reminders](https://linear.app/axishousing/issue/PRP-266/sms-automated-rent-payment-reminders-to-residents-with-pay-link)
+  Completed locally September 4, 2026. Existing cadence and preference-aware SMS delivery now creates an ownership-scoped hosted ACH checkout and appends its Stripe URL, falls back to the original text-only reminder when checkout is unavailable, and emits a PII-free Langfuse system-notification trace alongside the existing durable send log.
 
 - [PRP-267 — Manager attention digest](https://linear.app/axishousing/issue/PRP-267/sms-manager-digest-tasks-that-need-attention-payments-wos-applications)
   Send managers a daily or weekly SMS digest sourced from existing dashboard attention groups, without bypassing portal confirmation for destructive actions.

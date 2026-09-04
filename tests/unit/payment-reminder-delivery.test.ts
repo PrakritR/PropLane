@@ -8,8 +8,32 @@ vi.mock("@/lib/agent-notify.server", () => ({
   notifyManagerFromAgent: vi.fn().mockResolvedValue(undefined),
 }));
 
+vi.mock("@/lib/resident-outbound-sms.server", () => ({
+  canSendResidentOutboundSms: vi.fn(() => true),
+  sendResidentOutboundSms: vi.fn().mockResolvedValue({ sent: true, channel: "managed" }),
+}));
+
+vi.mock("@/lib/stripe-household-charge-checkout.server", () => ({
+  createHouseholdChargeCheckout: vi.fn(),
+}));
+
+vi.mock("@/lib/observability/langfuse", () => ({
+  traceSystemNotification: vi.fn(async (opts: { run: () => Promise<unknown> }) => opts.run()),
+}));
+
+vi.mock("@/lib/notification-preferences", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/notification-preferences")>();
+  return {
+    ...actual,
+    resolveChannels: vi.fn().mockResolvedValue({ inbox: true, email: true, sms: true }),
+  };
+});
+
 import { sendPushToUser } from "@/lib/push-notifications.server";
 import { notifyManagerFromAgent } from "@/lib/agent-notify.server";
+import { traceSystemNotification } from "@/lib/observability/langfuse";
+import { sendResidentOutboundSms } from "@/lib/resident-outbound-sms.server";
+import { createHouseholdChargeCheckout } from "@/lib/stripe-household-charge-checkout.server";
 import { deliverPaymentReminder, reminderHtmlFromText } from "@/lib/payment-reminder-delivery";
 import type { HouseholdCharge } from "@/lib/household-charges";
 
@@ -148,6 +172,105 @@ describe("deliverPaymentReminder", () => {
       category: "payment_reminders",
       url: "/portal/payments",
     });
+  });
+
+  it("adds an ownership-scoped hosted checkout URL to payment reminder SMS", async () => {
+    vi.mocked(createHouseholdChargeCheckout).mockResolvedValue({
+      ok: true,
+      mode: "hosted",
+      url: "https://checkout.stripe.test/session",
+      sessionId: "cs_test_1",
+      amountCents: 120000,
+      subtotalCents: 120000,
+      processingFeeCents: 0,
+      axisFeeCents: 0,
+      platformFeeCents: 0,
+      totalCents: 120000,
+      paymentMethod: "ach",
+      chargeIds: ["charge-1"],
+    });
+    const upsert = vi.fn().mockResolvedValue({ error: null });
+    const maybeSingle = vi.fn().mockResolvedValue({
+      data: { id: "user-res-1", phone: "+12065550113", phone_verified_at: "2026-07-01T00:00:00.000Z" },
+    });
+    const eq = vi.fn().mockReturnValue({ maybeSingle });
+    const select = vi.fn().mockReturnValue({ eq });
+    const from = vi.fn().mockImplementation((table: string) =>
+      table === "profiles" ? { select } : { upsert },
+    );
+
+    await deliverPaymentReminder({
+      db: { from } as never,
+      charge: makeCharge(),
+      managerId: "mgr-1",
+      dedupId: "payment_reminder_sms_link",
+      managerName: "Manager",
+      managerSmsFromNumber: "+12065550111",
+      apiKey: "",
+      from: "PropLane <test@example.com>",
+      subject: "Rent due",
+      text: "Your July rent is due.",
+      html: "<p>test</p>",
+      slotLabel: "due_date",
+      managerDeliverViaSms: true,
+    });
+
+    expect(createHouseholdChargeCheckout).toHaveBeenCalledWith(expect.anything(), {
+      userId: "user-res-1",
+      userEmail: "resident@example.com",
+      chargeIds: ["charge-1"],
+      mode: "hosted",
+      paymentMethod: "ach",
+      expectedManagerUserId: "mgr-1",
+      appOrigin: "http://localhost:3000",
+    });
+    expect(sendResidentOutboundSms).toHaveBeenCalledWith(
+      expect.objectContaining({
+        text: expect.stringContaining("Pay securely: https://checkout.stripe.test/session"),
+      }),
+    );
+    expect(traceSystemNotification).toHaveBeenCalledWith(
+      expect.objectContaining({
+        domain: "payment_reminder",
+        managerUserId: "mgr-1",
+        recipientUserId: "user-res-1",
+        entityId: "charge-1",
+        cadence: "due_date",
+      }),
+    );
+  });
+
+  it("still sends a text-only SMS when checkout creation fails", async () => {
+    vi.mocked(createHouseholdChargeCheckout).mockRejectedValueOnce(new Error("Stripe unavailable"));
+    const upsert = vi.fn().mockResolvedValue({ error: null });
+    const maybeSingle = vi.fn().mockResolvedValue({
+      data: { id: "user-res-1", phone: "+12065550113", phone_verified_at: "2026-07-01T00:00:00.000Z" },
+    });
+    const eq = vi.fn().mockReturnValue({ maybeSingle });
+    const select = vi.fn().mockReturnValue({ eq });
+    const from = vi.fn().mockImplementation((table: string) =>
+      table === "profiles" ? { select } : { upsert },
+    );
+
+    await deliverPaymentReminder({
+      db: { from } as never,
+      charge: makeCharge(),
+      managerId: "mgr-1",
+      dedupId: "payment_reminder_sms_fallback",
+      managerName: "Manager",
+      managerSmsFromNumber: "+12065550111",
+      apiKey: "",
+      from: "PropLane <test@example.com>",
+      subject: "Rent due",
+      text: "Your July rent is due.",
+      html: "<p>test</p>",
+      slotLabel: "due_date",
+      managerDeliverViaSms: true,
+    });
+
+    expect(sendResidentOutboundSms).toHaveBeenCalledWith(
+      expect.objectContaining({ text: "(Rent due)\nYour July rent is due." }),
+    );
   });
 
   it("escapes HTML in reminder bodies", () => {

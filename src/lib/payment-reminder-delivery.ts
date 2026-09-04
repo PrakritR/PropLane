@@ -11,6 +11,9 @@ import {
 } from "@/lib/notification-preferences";
 import { deliverPortalMessageThreadSide } from "@/lib/portal-inbox-delivery";
 import { notifyManagerFromAgent } from "@/lib/agent-notify.server";
+import { resolveShareableAppOrigin } from "@/lib/app-url";
+import { traceSystemNotification } from "@/lib/observability/langfuse";
+import { createHouseholdChargeCheckout } from "@/lib/stripe-household-charge-checkout.server";
 
 type ServiceDb = ReturnType<typeof createSupabaseServiceRoleClient>;
 
@@ -167,21 +170,63 @@ export async function deliverPaymentReminder(input: {
     try {
       const residentPhone = String(residentProfile?.phone ?? "").trim();
       if (residentPhone) {
-        const smsBody = `(${subject})\n${text.slice(0, 300)}`;
-        const smsResult = await sendResidentOutboundSms({
-          to: residentPhone,
-          text: smsBody,
-          fromNumber: managerSmsFromNumber,
-          linkKind: category === "leases" ? "lease" : "payments",
-          openThread: managerId
-            ? {
-                managerUserId: managerId,
-                residentUserId,
-                residentEmail: residentLower,
-                topic: category === "leases" ? "lease" : "payment",
-              }
-            : null,
-        });
+        let checkoutUrl: string | null = null;
+        if (category === "payments" && managerId && residentUserId) {
+          try {
+            const checkout = await createHouseholdChargeCheckout(db, {
+              userId: residentUserId,
+              userEmail: residentLower,
+              chargeIds: [charge.id],
+              mode: "hosted",
+              paymentMethod: "ach",
+              expectedManagerUserId: managerId,
+              appOrigin: resolveShareableAppOrigin(),
+            });
+            if (checkout.ok && checkout.mode === "hosted") checkoutUrl = checkout.url;
+          } catch {
+            // A reminder remains useful when Stripe/Connect is unavailable.
+            // Keep delivery on the existing text-only path and try again next cadence.
+          }
+        }
+
+        const smsBody = [
+          `(${subject})`,
+          text.slice(0, 300),
+          checkoutUrl ? `Pay securely: ${checkoutUrl}` : null,
+        ]
+          .filter((line): line is string => Boolean(line))
+          .join("\n");
+        const sendSms = () =>
+          sendResidentOutboundSms({
+            to: residentPhone,
+            text: smsBody,
+            fromNumber: managerSmsFromNumber,
+            linkKind: category === "leases" ? "lease" : "payments",
+            openThread: managerId
+              ? {
+                  managerUserId: managerId,
+                  residentUserId,
+                  residentEmail: residentLower,
+                  topic: category === "leases" ? "lease" : "payment",
+                }
+              : null,
+          });
+        const smsResult = managerId
+          ? await traceSystemNotification({
+              domain: "payment_reminder",
+              managerUserId: managerId,
+              recipientUserId: residentUserId,
+              entityId: charge.id,
+              cadence: slotLabel,
+              run: sendSms,
+              summarize: (result) => ({
+                ok: result.sent,
+                deliveredChannels: ["inbox", ...(emailSent ? ["email"] : []), ...(result.sent ? ["sms"] : [])],
+                smsChannel: result.channel ?? null,
+                checkoutIncluded: Boolean(checkoutUrl),
+              }),
+            })
+          : await sendSms();
         if (smsResult.sent) {
           smsDelivered = true;
           const smsLogId = `${dedupId}_sms`;
