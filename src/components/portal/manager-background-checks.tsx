@@ -450,14 +450,18 @@ export function ManagerBackgroundChecks({
           }
         >
           <div className="flex min-h-0 flex-1 flex-col">
-            <PortalPageScrollBody className="min-w-0 max-w-full pt-3 pb-[calc(2.75rem+var(--portal-native-bottom-nav-inset,0px)+env(safe-area-inset-bottom,0px))] lg:pb-3">
+            {/*
+              The action dock is `position: fixed` and rendered with omitSpacer,
+              so this padding is the only thing keeping the last rows reachable;
+              `lg:pb-3` was 12px against a ~56px dock.
+            */}
+            <PortalPageScrollBody className="min-w-0 max-w-full pt-3 pb-[calc(3.5rem+var(--portal-native-bottom-nav-inset,0px)+env(safe-area-inset-bottom,0px))]">
               {applicationShowsBackgroundCheck(detailRow) ? (
                 <ApplicationScreeningPanel
                   row={activeScreeningRow ?? detailRow}
                   collapsible={false}
                   presentation="full"
                   bareCanvas
-                  stretch
                   headerActionsPlacement="parent"
                   compactTabFooterActions
                   onHeaderActionsChange={setDetailScreeningFooterActions}
@@ -482,7 +486,6 @@ export function ManagerBackgroundChecks({
                       cosignerSubmissionId: cosignerSubmissionIdForSubject(detailScreeningSubjects, firstId),
                     });
                   }}
-                  className="min-h-0 flex-1"
                 />
               ) : (
                 <p className="text-sm text-muted">No background check for this application.</p>
