@@ -583,6 +583,30 @@ function ProrationMethodFields({
 }
 
 /**
+ * The LONG-TERM half of a rent row.
+ *
+ * It used to be loose, unlabelled fields sitting directly above a boxed and
+ * clearly-titled "Short-term" section. The asymmetry was the problem a manager
+ * ran into (PRP-146): the short stay announced itself, the monthly terms did
+ * not, so the row read as one pile of money fields with a short-term box tacked
+ * on. Both halves are now sections with a heading, so which rate you are typing
+ * is never in question.
+ *
+ * Rendered only when the listing offers short-term stays too. On a long-term-only
+ * listing there is nothing to distinguish it FROM, and a lone "Long-term" heading
+ * over the only pricing on the page is noise.
+ */
+function LongTermRentSection({ heading, children }: { heading: boolean; children: ReactNode }) {
+  if (!heading) return <>{children}</>;
+  return (
+    <div className="w-full rounded-lg border border-dashed border-border bg-accent/10 p-3">
+      <FieldLabel hint="Monthly rate, billed with utilities and fees.">Long-term</FieldLabel>
+      <div className="mt-1 flex w-full flex-wrap items-end gap-x-4 gap-y-2">{children}</div>
+    </div>
+  );
+}
+
+/**
  * The dedicated SHORT-TERM section on every rent row (round 20) — room, grouped lease, and
  * whole-place. It appears only when the listing offers short-term stays and holds an ALL-IN
  * nightly rent plus a short-term move-in fee and deposit. There is NO utilities control here
@@ -2992,6 +3016,9 @@ export function ManagerAddListingForm({
               toggleDataAttr: `listing-room-price-toggle-${room.id}`,
               detail: (
                 <div className="flex flex-wrap items-end gap-x-4 gap-y-2">
+                  {/* Two labelled halves when the listing offers both, so a
+                      manager can see which rate they are typing (PRP-146). */}
+                  <LongTermRentSection heading={Boolean(sub.shortTermRentalsAllowed)}>
                   <GridField>
                     <FieldLabel>Monthly rent *</FieldLabel>
                     <div data-wizard-field={roomRentKey}>
@@ -3065,6 +3092,7 @@ export function ManagerAddListingForm({
                       onDailyUtilities={(n) => setRoom(i, { dailyUtilitiesRate: n })}
                     />
                   </div>
+                  </LongTermRentSection>
                   {sub.shortTermRentalsAllowed ? (
                     <ShortTermRentSection
                       labelFor={roomLabel}
