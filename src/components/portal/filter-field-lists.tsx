@@ -128,17 +128,31 @@ export const PORTAL_FILTER_ICON_CLASS = "size-3.5 shrink-0";
 const FILTER_TRIGGER_CLASS =
   "flex h-11 max-h-11 w-full min-w-0 items-center justify-between gap-2 rounded-2xl border border-border bg-auth-input-bg px-4 py-2.5 text-left text-sm text-foreground shadow-[0_1px_2px_rgba(15,23,42,0.03)] transition-[border-color,background-color,box-shadow] duration-200 hover:border-primary/25 focus-visible:border-primary/40 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-primary/10 max-lg:rounded-xl";
 
-/** Portal filter menus always show the search row (consistent with Resident/House pickers). */
-export const FILTER_FIELD_MENU_ALWAYS_SHOW_SEARCH = true;
+/**
+ * Show the search row only once the list is long enough to need it.
+ *
+ * This was forced ON for every portal filter menu. The search row is budgeted out
+ * of the menu's HEIGHT rather than out of its five option rows, so on a short
+ * list it bought nothing and simply made the menu 52px taller — which on the
+ * calendar's house picker is the "have to scroll through, remove search in
+ * dropdown" complaint (AXI-161). The rule the lists below already spell out —
+ * more than {@link FILTER_LIST_VISIBLE_ROWS} options — is the one that applies.
+ */
+export const FILTER_FIELD_MENU_ALWAYS_SHOW_SEARCH = false;
 
-const FILTER_FIELD_MENU_SEARCH_PX = FILTER_FIELD_MENU_ALWAYS_SHOW_SEARCH
-  ? FIELD_SELECT_MENU_SEARCH_PX
-  : 0;
-
-/** Estimated menu height (search row + 5 option rows) for positioning math. */
+/**
+ * The TALLEST a filter menu can get: 5 option rows AND the search row.
+ *
+ * Deliberately the worst case rather than the conditional height. A field with
+ * more than {@link FILTER_LIST_VISIBLE_ROWS} options still renders the search
+ * row, so a host panel that budgeted only for the short-list height would seat
+ * that menu over its own Filter / Reset / ✕ chrome. Each menu still sizes itself
+ * to what it actually shows (`menuContentPx` at the call sites below); this is
+ * the planning number the panels are laid out against.
+ */
 export const FILTER_MENU_CONTENT_PX = fieldSelectMenuContentPx(
   FIELD_SELECT_MENU_VISIBLE_ITEMS,
-  FILTER_FIELD_MENU_SEARCH_PX,
+  FIELD_SELECT_MENU_SEARCH_PX,
 );
 
 /**
