@@ -265,6 +265,21 @@ function ListingWizardChevron({ open }: { open: boolean }) {
  */
 const RENT_BY_ROOM_HIDDEN_FEE_ROWS: ReadonlySet<ListingFeeRowId> = new Set(["securityDeposit"]);
 
+/** Right-aligned headline value on a wizard list row (rent, bathroom type). */
+function ListingWizardRowMeta({ value, muted = false }: { value: string; muted?: boolean }) {
+  return (
+    <span
+      className={`whitespace-nowrap rounded-full px-2.5 py-1 text-xs font-bold tabular-nums ${
+        muted
+          ? "border border-dashed border-border bg-card text-muted"
+          : "bg-primary/[0.08] text-primary"
+      }`}
+    >
+      {value}
+    </span>
+  );
+}
+
 const LISTING_WIZARD_ACTION_BTN = "h-8 rounded-full px-3 text-xs";
 const LISTING_WIZARD_REMOVE_BTN = `${LISTING_WIZARD_ACTION_BTN} shrink-0 border-rose-200 text-rose-800 portal-danger-outline`;
 
@@ -296,11 +311,21 @@ function listingItemKey(kind: string, id: string) {
   return `${kind}:${id}`;
 }
 
+/**
+ * One row per room, bathroom or shared space — collapsed it is a list row, open
+ * it is the editor.
+ *
+ * `meta` is the right-aligned answer the row exists to show: a room's rent, a
+ * bathroom's type. Collapsed, these steps used to show a bare name and nothing
+ * else, so comparing two rooms' rent meant opening both — the thing a manager
+ * most wants to see side by side (PRP-137/138/139). The facts belong in the row.
+ */
 function ListingWizardCollapsibleCard({
   expanded,
   onToggle,
   title,
   subtitle,
+  meta,
   headerActions,
   hasError,
   bodyClassName = "p-4 sm:p-5",
@@ -311,6 +336,8 @@ function ListingWizardCollapsibleCard({
   onToggle: () => void;
   title: string;
   subtitle?: string;
+  /** Right-aligned headline value (rent, type). Shown collapsed AND open. */
+  meta?: ReactNode;
   headerActions?: ReactNode;
   hasError?: boolean;
   bodyClassName?: string;
@@ -332,10 +359,11 @@ function ListingWizardCollapsibleCard({
           onClick={onToggle}
         >
           <ListingWizardChevron open={expanded} />
-          <div className="min-w-0">
+          <div className="min-w-0 flex-1">
             <p className="text-sm font-bold text-foreground">{title}</p>
             {subtitle ? <p className="mt-0.5 line-clamp-2 text-xs text-muted">{subtitle}</p> : null}
           </div>
+          {meta ? <div className="ml-auto shrink-0 self-center pl-2">{meta}</div> : null}
         </button>
         {headerActions ? (
           <div className="flex flex-wrap gap-2 pl-6 sm:pl-0" onClick={(e) => e.stopPropagation()} onKeyDown={(e) => e.stopPropagation()}>
@@ -654,6 +682,16 @@ function MoneyInput({
     </div>
   );
 }
+
+/** Tile icon per shared-space kind — recognisable beats a wall of identical pills (PRP-139). */
+const SHARED_SPACE_KIND_ICONS: Record<string, string> = {
+  kitchen: "🍳",
+  living: "🛋️",
+  laundry: "🧺",
+  outdoor: "🌳",
+  workspace: "💻",
+  other: "🪑",
+};
 
 const SHARED_SPACE_TEMPLATES = [
   {
@@ -1948,6 +1986,30 @@ export function ManagerAddListingForm({
   const addBathroom = () => {
     if (sub.bathrooms.length >= 12) return;
     const next = emptyBathroom(sub.bathrooms.length);
+    expandListingItem(listingItemKey("bathroom", next.id));
+    setSub((s) => {
+      if (s.bathrooms.length === 0) return { ...s, bathrooms: [next] };
+      return { ...s, bathrooms: [s.bathrooms[0]!, next, ...s.bathrooms.slice(1)] };
+    });
+  };
+
+  /**
+   * The three answers a bathroom has 95% of the time (PRP-138).
+   *
+   * Fixtures were four loose checkboxes, so every bathroom had to be assembled
+   * from parts. These preset them and name the row; anything unusual is still
+   * one chip away inside the row, so nothing is taken off the table.
+   */
+  const addBathroomOfType = (type: "full" | "half" | "ensuite") => {
+    if (sub.bathrooms.length >= 12) return;
+    const base = emptyBathroom(sub.bathrooms.length);
+    const preset =
+      type === "half"
+        ? { name: "Half bath", shower: false, bathtub: false, toilet: true }
+        : type === "ensuite"
+          ? { name: "En-suite", shower: true, bathtub: false, toilet: true, allResidents: false }
+          : { name: "Full bath", shower: true, bathtub: false, toilet: true };
+    const next = { ...base, ...preset };
     expandListingItem(listingItemKey("bathroom", next.id));
     setSub((s) => {
       if (s.bathrooms.length === 0) return { ...s, bathrooms: [next] };
@@ -4222,14 +4284,19 @@ export function ManagerAddListingForm({
                 const roomNameErr = stepFieldErrors[roomNameKey];
                 const roomRentErr = stepFieldErrors[roomRentKey];
                 const roomHasErr = Boolean(roomNameErr || roomRentErr);
+                // The facts a manager compares rooms on, on the row itself
+                // (PRP-137): where it is, how big, whether it is furnished.
+                // Furnishing used to print the whole item list here, which
+                // pushed the rest of the line off the end.
                 const roomSubtitle = [
                   room.floor.trim() || null,
-                  room.furnishing.trim() || null,
+                  room.sizeSqft != null && room.sizeSqft > 0 ? `${room.sizeSqft} sq ft` : null,
+                  room.furnishing.trim() ? "Furnished" : null,
                   room.photoDataUrls.length > 0 ? `${room.photoDataUrls.length} photo${room.photoDataUrls.length === 1 ? "" : "s"}` : null,
                   room.videoDataUrl?.trim() ? "Video" : null,
                 ]
                   .filter(Boolean)
-                  .join(" · ") || "Tap to add name, floor, and amenities";
+                  .join(" · ") || "Tap to add floor, size, and amenities";
                 const roomMediaScore = scoreRoomMedia(room);
                 const roomKey = listingItemKey("room", room.id);
                 return (
@@ -4239,6 +4306,13 @@ export function ManagerAddListingForm({
                     onToggle={() => toggleListingItem(roomKey)}
                     title={room.name.trim() || `Room ${i + 1}`}
                     subtitle={roomSubtitle}
+                    meta={
+                      room.monthlyRent > 0 ? (
+                        <ListingWizardRowMeta value={`$${room.monthlyRent} / mo`} />
+                      ) : (
+                        <ListingWizardRowMeta value="Rent not set" muted />
+                      )
+                    }
                     hasError={roomHasErr}
                     bodyClassName="grid gap-3 sm:grid-cols-2"
                     toggleDataAttr={`listing-room-toggle-${room.id}`}
@@ -4515,6 +4589,33 @@ export function ManagerAddListingForm({
             title="Bathrooms"
             description="Name, location, and amenities for each bathroom on the public listing."
           >
+              {/* Answer the type in one tap; the fixtures it presets stay
+                  editable inside each row (PRP-138). */}
+              <div className="mb-4 grid gap-2 sm:grid-cols-3">
+                {(
+                  [
+                    { id: "full", icon: "🛁", label: "Full bath", detail: "Shower · toilet · sink" },
+                    { id: "half", icon: "🚽", label: "Half bath", detail: "Toilet · sink" },
+                    { id: "ensuite", icon: "🚪", label: "En-suite", detail: "Attached to a room" },
+                  ] as const
+                ).map((option) => (
+                  <button
+                    key={option.id}
+                    type="button"
+                    data-attr={`listing-add-bathroom-${option.id}`}
+                    disabled={sub.bathrooms.length >= 12}
+                    onClick={() => addBathroomOfType(option.id)}
+                    className="rounded-xl border border-border bg-card px-3 py-3 text-center transition hover:border-primary/35 hover:bg-primary/[0.04] disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    <span className="block text-xl leading-none" aria-hidden>
+                      {option.icon}
+                    </span>
+                    <span className="mt-1.5 block text-sm font-semibold text-foreground">{option.label}</span>
+                    <span className="mt-0.5 block text-xs text-muted">{option.detail}</span>
+                  </button>
+                ))}
+              </div>
+
               <div
                 className={`space-y-3 ${wizardSectionErrorClass(Boolean(stepFieldErrors.bathrooms))}`}
                 data-wizard-field="bathrooms"
@@ -4526,6 +4627,15 @@ export function ManagerAddListingForm({
                   const bathNameKey = listingBathroomNameKey(b.id);
                   const bathNameErr = stepFieldErrors[bathNameKey];
                   const fixtures = [b.shower && "Shower", b.toilet && "Toilet", b.bathtub && "Tub"].filter(Boolean).join(", ");
+                  // Derived from the fixtures, never stored: a manager who
+                  // unticks the shower has a half bath, whichever tile added it.
+                  const bathTypeLabel = !b.toilet
+                    ? "Bathroom"
+                    : b.shower || b.bathtub
+                      ? b.allResidents
+                        ? "Full bath"
+                        : "En-suite"
+                      : "Half bath";
                   const bathSubtitle = [
                     b.location?.trim() || null,
                     fixtures || null,
@@ -4541,6 +4651,7 @@ export function ManagerAddListingForm({
                     onToggle={() => toggleListingItem(bathKey)}
                     title={b.name.trim() || `Bathroom ${i + 1}`}
                     subtitle={bathSubtitle || "Tap to set name, location, and fixtures"}
+                    meta={<ListingWizardRowMeta value={bathTypeLabel} />}
                     hasError={Boolean(bathNameErr)}
                     bodyClassName="grid gap-3 sm:grid-cols-2"
                     toggleDataAttr={`listing-bathroom-toggle-${b.id}`}
@@ -4794,33 +4905,38 @@ export function ManagerAddListingForm({
             title="Shared spaces"
             description="Optional — add kitchens, living rooms, and other common areas if you want them on the listing. You can skip this step."
           >
-              <div className="mb-5 rounded-2xl border p-4 portal-banner-info">
-                <p className="text-sm font-semibold text-blue-950">Quick add</p>
-                <div className="mt-3 flex flex-wrap gap-2">
-                  {SHARED_SPACE_TEMPLATES.map((template) => (
-                    <Button
-                      key={template.label}
-                      type="button"
-                      variant="outline"
-                      className="rounded-full bg-card text-xs"
-                      onClick={() => addSharedSpaceFromTemplate(template)}
-                      disabled={sub.sharedSpaces.length >= 24}
-                    >
-                      + {template.label}
-                    </Button>
-                  ))}
-                  <Button type="button" variant="primary" className="rounded-full text-xs" onClick={addSharedSpace}>
-                    + Blank shared space
-                  </Button>
-                </div>
+              {/*
+                The bright blue "Quick add" banner is gone (PRP-139). It put the
+                primary actions ABOVE the list, which is the opposite of every
+                other list surface in the portal, and it produced two empty
+                states at once — a "Quick add" heading and a separate dashed box
+                telling you to use it. Tiles to add, rows to review, and one
+                dashed ADD row underneath, like Properties.
+              */}
+              <p className="mb-4 text-sm text-muted">
+                <span className="font-semibold text-foreground">Optional.</span> Add the common areas you want on
+                the listing, or skip this step.
+              </p>
+
+              <div className="mb-4 grid grid-cols-2 gap-2 sm:grid-cols-3">
+                {SHARED_SPACE_TEMPLATES.map((template) => (
+                  <button
+                    key={template.label}
+                    type="button"
+                    data-attr={`listing-add-shared-${template.kind}`}
+                    onClick={() => addSharedSpaceFromTemplate(template)}
+                    disabled={sub.sharedSpaces.length >= 24}
+                    className="rounded-xl border border-border bg-card px-3 py-3 text-center transition hover:border-primary/35 hover:bg-primary/[0.04] disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    <span className="block text-xl leading-none" aria-hidden>
+                      {SHARED_SPACE_KIND_ICONS[template.kind] ?? SHARED_SPACE_KIND_ICONS.other}
+                    </span>
+                    <span className="mt-1.5 block text-sm font-semibold text-foreground">{template.label}</span>
+                  </button>
+                ))}
               </div>
 
-              {sub.sharedSpaces.length === 0 ? (
-                <div className="rounded-2xl border border-dashed border-border bg-accent/30 px-4 py-8 text-center">
-                  <p className="text-sm font-semibold text-foreground">No shared spaces added yet.</p>
-                  <p className="mt-1 text-xs text-muted">Optional — continue without adding any, or use Quick add above.</p>
-                </div>
-              ) : (
+              {sub.sharedSpaces.length === 0 ? null : (
                 <div
                   className={`space-y-3 ${wizardSectionErrorClass(Boolean(stepFieldErrors.sharedSpaces))}`}
                   data-wizard-field="sharedSpaces"
@@ -5028,6 +5144,24 @@ export function ManagerAddListingForm({
                   })}
                 </div>
               )}
+
+              {/* The house theme's ADD row: dashed, uppercase, BELOW the list.
+                  This is where every other portal list puts it, and it replaces
+                  the "+ Blank shared space" button that used to sit inside the
+                  blue banner at the top (PRP-139). */}
+              <button
+                type="button"
+                data-attr="listing-add-shared-blank"
+                onClick={addSharedSpace}
+                disabled={sub.sharedSpaces.length >= 24}
+                aria-label="Add a shared space"
+                className="mt-3 w-full rounded-xl border border-dashed border-border bg-card px-4 py-4 text-center transition hover:border-primary/40 hover:bg-primary/[0.03] disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                <span className="block text-xs font-bold uppercase tracking-[0.09em] text-primary">
+                  + Add shared space
+                </span>
+                <span className="mt-1 block text-xs text-muted">Or pick one above to prefill its amenities</span>
+              </button>
           </FormSection>
           ) : null}
 
