@@ -60,9 +60,9 @@ export default function PartnerLandingPage() {
       </MarketingHero>
 
       <MarketingSection>
-        <h2 className="lp-center max-w-[18ch]">Built for how managers and landlords actually work</h2>
+        <h2 className="lp-center max-w-[22ch]">Built for how managers and landlords actually work</h2>
         <p className="lp-section-lede lp-center">
-          One account for leasing, rent, maintenance, inbox, and books, on web and iOS.
+          One account for leasing, rent, maintenance, inbox, and books — whether you self-manage or run a portfolio, on web and iOS.
         </p>
         <div className="lp-page-grid-2">
           {CAPABILITIES.map((item) => (

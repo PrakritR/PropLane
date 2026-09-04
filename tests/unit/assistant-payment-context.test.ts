@@ -36,8 +36,9 @@ describe("PRP-133: assistant payment-system context", () => {
     // payment matching is ever re-enabled, this prompt text becomes a lie and
     // must be rewritten with it.
     expect(GMAIL_PAYMENTS_ENABLED).toBe(false);
-    expect(SYSTEM_PROMPT).toContain("does NOT read anyone's email");
-    expect(SYSTEM_PROMPT).toContain("only ever about Google Calendar");
+    expect(SYSTEM_PROMPT).toContain("currently switched OFF");
+    expect(SYSTEM_PROMPT).toContain("no email is read");
+    expect(SYSTEM_PROMPT).toContain("only Google connection offered today is Google Calendar");
     expect(RESIDENT_SYSTEM_PROMPT).toContain("does not read anyone's email");
   });
 });

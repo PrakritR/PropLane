@@ -155,6 +155,7 @@ export function ManagerLegacyServiceIntakeForm({
   managerUserId,
   defaultPropertyId,
   defaultResident,
+  defaultNotes,
   submitLabel = "Add service",
   onComplete,
   onRegisterFooter,
@@ -164,6 +165,7 @@ export function ManagerLegacyServiceIntakeForm({
   managerUserId: string | null;
   defaultPropertyId?: string;
   defaultResident?: ManagerServiceResidentOption | null;
+  defaultNotes?: string;
   submitLabel?: string;
   onComplete?: (composePrefill?: ManagerComposePrefill | null) => void;
   onRegisterFooter?: (state: ServiceIntakeFooterState | null) => void;
@@ -220,7 +222,7 @@ export function ManagerLegacyServiceIntakeForm({
         setResidentEmail("");
       }
       setOfferId("");
-      setNotes("");
+      setNotes(defaultNotes?.trim() ?? "");
       setCustomTitle("");
       setCustomPriceLimit("");
       setCatalogModalOpen(false);
@@ -230,7 +232,7 @@ export function ManagerLegacyServiceIntakeForm({
       setMaintenanceCategory("General");
       setAssignee(null);
     });
-  }, [open, defaultPropertyId, defaultResident]);
+  }, [open, defaultPropertyId, defaultResident, defaultNotes]);
 
   const propertyOptions = useMemo(() => {
     void tick;

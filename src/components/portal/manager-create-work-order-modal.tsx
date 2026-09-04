@@ -162,6 +162,8 @@ export function ManagerCreateWorkOrderModal({
   managerUserId,
   defaultPropertyId,
   defaultResident,
+  defaultTitle,
+  defaultDescription,
 }: {
   open: boolean;
   onClose: () => void;
@@ -178,6 +180,8 @@ export function ManagerCreateWorkOrderModal({
   defaultPropertyId?: string;
   /** When set, the work order is created for this resident (property + resident fields locked). */
   defaultResident?: (ManagerServiceResidentOption & { assignedRoomChoice?: string }) | null;
+  defaultTitle?: string;
+  defaultDescription?: string;
 }) {
   const { showToast } = useAppUi();
   const photoInputRef = useRef<HTMLInputElement>(null);
@@ -216,8 +220,8 @@ export function ManagerCreateWorkOrderModal({
     if (!open) return;
     queueMicrotask(() => {
       setMode("request");
-      setTitle("");
-      setDescription("");
+      setTitle(defaultTitle?.trim() ?? "");
+      setDescription(defaultDescription?.trim() ?? "");
       setCategoryLabel("General");
       setLogCategory("general");
       setPriority("Medium");
@@ -235,7 +239,7 @@ export function ManagerCreateWorkOrderModal({
       setPaymentStatus("paid");
       if (photoInputRef.current) photoInputRef.current.value = "";
     });
-  }, [open, defaultPropertyId, defaultResident]);
+  }, [open, defaultPropertyId, defaultResident, defaultTitle, defaultDescription]);
 
   const propertyOptions = useMemo(() => {
     void tick;

@@ -69,6 +69,7 @@ import {
   inboxAttachmentPathFromServeUrl,
 } from "@/lib/inbox-attachments";
 import { cn } from "@/lib/utils";
+import type { InboundWorkflowSuggestion } from "@/lib/inbox/inbound-message-workflow-suggestions";
 
 /** Same chrome as other portal data tables */
 export const PORTAL_INBOX_TABLE_WRAP = PORTAL_DATA_TABLE_WRAP;
@@ -1433,6 +1434,41 @@ export function InboxAiAssistBar({
 
 const INBOX_AI_DRAFT_ACTION_BTN =
   "h-7 min-h-0 gap-1 rounded-lg px-2.5 text-xs font-medium";
+
+/**
+ * Suggested workflows from an inbound resident message (maintenance / add-on service).
+ */
+export function InboundMessageWorkflowCard({
+  suggestions,
+  onSelect,
+}: {
+  suggestions: InboundWorkflowSuggestion[];
+  onSelect: (kind: InboundWorkflowSuggestion["kind"]) => void;
+}) {
+  if (suggestions.length === 0) return null;
+  return (
+    <div
+      className="shrink-0 border-t border-border bg-accent/20 px-3.5 py-2.5"
+      data-attr="inbox-message-workflow-suggestions"
+    >
+      <p className="text-[12px] font-medium text-muted">Suggested from this message</p>
+      <div className="mt-2 flex flex-wrap gap-2">
+        {suggestions.map((suggestion) => (
+          <Button
+            key={suggestion.kind}
+            type="button"
+            variant="outline"
+            className="h-8 min-h-0 px-3 text-[12px] font-medium"
+            data-attr={`inbox-workflow-${suggestion.kind}`}
+            onClick={() => onSelect(suggestion.kind)}
+          >
+            {suggestion.label}
+          </Button>
+        ))}
+      </div>
+    </div>
+  );
+}
 
 /**
  * Approval-first AI reply card, shown above the reply composer on an incoming
