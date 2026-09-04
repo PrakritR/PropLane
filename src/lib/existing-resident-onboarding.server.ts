@@ -101,6 +101,13 @@ export async function runExistingResidentOnboarding(
         propertyId: propertyId || undefined,
         managerUserId: actor.userId,
         application: row.application ?? undefined,
+        // The manager is onboarding an EXISTING tenant. Without this the portal
+        // gate saw no signed document and resolved them to `pre_approval` —
+        // someone who already lives there and pays rent was shown Tour and
+        // Application tabs and could not reach Payments (PRP-239). Not a
+        // signature: there is no document to hash, and inventing one would
+        // fabricate execution evidence.
+        managerAttestedTenancyAt: iso,
         thread: [],
       });
 
