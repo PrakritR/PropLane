@@ -1,6 +1,6 @@
-import { applicationRentalTypeFor } from "@/lib/rental-application/lease-terms";
 "use client";
 
+import { applicationRentalTypeFor } from "@/lib/rental-application/lease-terms";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { useAppUi } from "@/components/providers/app-ui-provider";
