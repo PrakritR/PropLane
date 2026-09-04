@@ -144,19 +144,21 @@ function stubFetchSequence(sendResponses: { status: number; body: Record<string,
 }
 
 /**
- * Turn the SMS leg on through the real channel picker, so the test exercises the
- * same two-request path a resident does. The panel renders a composer for each
- * breakpoint, so scope to the first picker — they share one piece of state.
+ * Select email + SMS through the real channel picker (PropLane off) so dual-channel
+ * send tests exercise the same two-request path a resident uses.
  */
-async function enableSmsChannel() {
+async function enableEmailAndSmsChannels() {
   await waitFor(() => expect(document.querySelectorAll('[aria-label="Send via"]').length).toBeGreaterThan(0));
   const picker = document.querySelectorAll('[aria-label="Send via"]')[0] as HTMLElement;
   fireEvent.click(picker);
-  const smsOption = await screen.findByRole("option", { name: /^SMS$/i });
-  // The listbox picks on pointerup (with a movement slop) so a scroll gesture is not a pick,
-  // so a tap here is pointerdown + pointerup at the same point, not pointerdown alone.
-  fireEvent.pointerDown(smsOption, { pointerId: 1, clientX: 10, clientY: 10 });
-  fireEvent.pointerUp(smsOption, { pointerId: 1, clientX: 10, clientY: 10 });
+  const tapOption = async (name: RegExp) => {
+    const option = await screen.findByRole("option", { name });
+    fireEvent.pointerDown(option, { pointerId: 1, clientX: 10, clientY: 10 });
+    fireEvent.pointerUp(option, { pointerId: 1, clientX: 10, clientY: 10 });
+  };
+  await tapOption(/^Email$/i);
+  await tapOption(/^SMS$/i);
+  await tapOption(/^PropLane$/i);
   await waitFor(() => expect(picker.textContent).toContain("Email & SMS"));
 }
 
@@ -255,7 +257,7 @@ describe("resident reply where one channel succeeds and the other fails", () => 
     );
     // Turn the SMS leg on through the real channel picker, so the test exercises
     // the same two-request path a resident does.
-    await enableSmsChannel();
+    await enableEmailAndSmsChannels();
 
     const composer = await screen.findByPlaceholderText(/reply/i);
     fireEvent.change(composer, { target: { value: text } });
@@ -303,7 +305,7 @@ describe("resident reply where one channel succeeds and the other fails", () => 
         controlledExpandedId={THREAD.id}
       />,
     );
-    await enableSmsChannel();
+    await enableEmailAndSmsChannels();
     const composer = await screen.findByPlaceholderText(/reply/i);
     fireEvent.change(composer, { target: { value: "REJECTED SMS probe" } });
     fireEvent.click(document.querySelector("[data-attr=resident-inbox-reply-send]") as HTMLButtonElement);

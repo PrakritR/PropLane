@@ -153,6 +153,19 @@ export function resolveAssistantInboxReplyChannels(    args: {
   };
 }
 
+/** Person threads in Communication default to in-app PropLane; email/SMS stay opt-in. */
+export function resolveCommunicationPersonThreadReplyChannels(args: {
+  emailAvailable: boolean;
+  smsAvailable: boolean;
+}): InboxReplyChannelFlags {
+  void args;
+  return {
+    viaProplane: true,
+    viaEmail: false,
+    viaSms: false,
+  };
+}
+
 export function hasInboxReplyChannelSelected(channels: InboxReplyChannelFlags): boolean {
   return channels.viaEmail || channels.viaSms || channels.viaProplane;
 }

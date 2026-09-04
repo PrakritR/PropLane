@@ -28,11 +28,11 @@ import { resolveCommunicationInboxThread } from "@/lib/communication-assistant-i
 import { demoResidentInboxThreads } from "@/data/demo-portal";
 import { usePortalSession } from "@/hooks/use-portal-session";
 import { isUpcomingScheduledInboxMessage, type ScheduledInboxMessageRecord } from "@/lib/scheduled-inbox-messages";
-import { resolvePropLaneUnifiedReplyChannels } from "@/lib/manager-inbox-reply-channels";
 import { isPropLaneAssistantInboxThread } from "@/lib/communication-inbox-assistant";
 import {
   hasInboxReplyChannelSelected,
   resolveAssistantInboxReplyChannels,
+  resolveCommunicationPersonThreadReplyChannels,
 } from "@/lib/manager-inbox-reply-channels";
 import { sendPropLaneAssistantInboxMessage } from "@/lib/assistant-inbox-reply";
 
@@ -1241,13 +1241,13 @@ export const ResidentInboxPanel = forwardRef<
       return;
     }
     if (!embeddedInCommunication) return;
-    const unified = resolvePropLaneUnifiedReplyChannels({
+    const person = resolveCommunicationPersonThreadReplyChannels({
       emailAvailable: true,
       smsAvailable: activeSmsAvailable,
     });
-    setReplyViaProplane(false);
-    setReplyViaEmail(unified.viaEmail);
-    setReplyViaSms(unified.viaSms);
+    setReplyViaProplane(person.viaProplane);
+    setReplyViaEmail(person.viaEmail);
+    setReplyViaSms(person.viaSms);
   }, [activeIsAssistantThread, activeSmsAvailable, embeddedInCommunication, expandedId]);
 
   const autoMarkReadAttemptedRef = useRef<Set<string>>(new Set());
@@ -1571,10 +1571,7 @@ export const ResidentInboxPanel = forwardRef<
   ]);
 
   const showResidentAiDraftUi = Boolean(
-    activeThread &&
-      activeThread.folder !== "trash" &&
-      tabId !== "trash" &&
-      ((activeThread.messages ?? []).length > 0 || Boolean(activeThread.body?.trim())),
+    activeThread && activeThread.folder !== "trash" && tabId !== "trash",
   );
 
   const activeThreadComposer = useMemo(() => {
