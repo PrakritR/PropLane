@@ -24,6 +24,7 @@ import {
   teamId,
 } from "./linear/graphql.mjs";
 import { signInToPortal } from "./qa-portal-sign-in.mjs";
+import { qaPortalAccounts } from "../tests/fixtures/qa-accounts.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const REPO = join(__dirname, "..");
@@ -36,12 +37,10 @@ const OUT_MD = join(REPO, "docs/linear/manifests", `qa-exhaustive-${DATE}.md`);
 
 mkdirSync(SHOT_DIR, { recursive: true });
 
-const ACCOUNTS = {
-  manager: { email: "manager@test.proplane.local", password: "TestManager123!", role: "manager", home: "/portal/dashboard" },
-  resident: { email: "resident@test.proplane.local", password: "TestResident123!", role: "resident", home: "/resident/dashboard" },
-  vendor: { email: "vendor@test.proplane.local", password: "TestVendor123!", role: "vendor", home: "/vendor/dashboard" },
-  admin: { email: "admin@test.proplane.local", password: "TestAdmin123!", role: "admin", home: "/admin/dashboard" },
-};
+// Hardcoding these is how an audit ends up signing in as an account that does
+// not exist and filing every authenticated page as a product bug. One source:
+// tests/fixtures/qa-accounts.mjs, checked by `npm run test:accounts:check`.
+const ACCOUNTS = qaPortalAccounts();
 
 /** @type {import('./qa-exhaustive-types').Finding[]} */
 const findings = [];
