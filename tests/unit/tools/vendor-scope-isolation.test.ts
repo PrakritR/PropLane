@@ -67,6 +67,7 @@ class FakeVendorQuery {
   private predicates: Predicate[] = [];
   private ordering: { col: string; ascending: boolean } | null = null;
   private conflictCols: string[] = ["id"];
+  private ignoreDuplicates = false;
   private pending:
     | { kind: "insert"; values: FakeRow[] }
     | { kind: "upsert"; values: FakeRow[] }
@@ -101,6 +102,22 @@ class FakeVendorQuery {
     this.predicates.push((row) => !match(row));
     return this;
   }
+  gte(col: string, val: unknown) {
+    this.predicates.push((row) => {
+      const resolved = resolveColumn(row, col);
+      if (resolved === undefined || resolved === null) return false;
+      return String(resolved) >= String(val);
+    });
+    return this;
+  }
+  lte(col: string, val: unknown) {
+    this.predicates.push((row) => {
+      const resolved = resolveColumn(row, col);
+      if (resolved === undefined || resolved === null) return false;
+      return String(resolved) <= String(val);
+    });
+    return this;
+  }
   in(col: string, vals: unknown[]) {
     const set = new Set((vals ?? []).map((v) => String(v)));
     this.predicates.push((row) => {
@@ -119,9 +136,10 @@ class FakeVendorQuery {
     this.pending = { kind: "insert", values: Array.isArray(values) ? values : [values] };
     return this;
   }
-  upsert(values: FakeRow | FakeRow[], opts?: { onConflict?: string }) {
+  upsert(values: FakeRow | FakeRow[], opts?: { onConflict?: string; ignoreDuplicates?: boolean }) {
     this.pending = { kind: "upsert", values: Array.isArray(values) ? values : [values] };
     this.conflictCols = (opts?.onConflict ?? "id").split(",").map((s) => s.trim());
+    this.ignoreDuplicates = opts?.ignoreDuplicates === true;
     return this;
   }
   update(values: FakeRow) {
@@ -141,10 +159,14 @@ class FakeVendorQuery {
     return matched;
   }
 
-  private run(): { data: FakeRow[] | null; error: { code?: string; message: string } | null } {
-    if (!this.pending) return { data: this.apply(), error: null };
+  private run(): { data: FakeRow[] | null; error: { code?: string; message: string } | null; count?: number } {
+    if (!this.pending) {
+      const rows = this.apply();
+      return { data: rows, error: null, count: rows.length };
+    }
 
     if (this.pending.kind === "insert" || this.pending.kind === "upsert") {
+      const written: FakeRow[] = [];
       for (const values of this.pending.values) {
         // audit_log dedupe: a second insert with the same non-null dedupe_key
         // violates the unique index, exactly like production.
@@ -159,24 +181,30 @@ class FakeVendorQuery {
               )
             : -1;
         if (existingIdx >= 0) {
+          // ON CONFLICT DO NOTHING: no write, and Postgrest returns no row for it.
+          if (this.ignoreDuplicates) continue;
           this.rows[existingIdx] = { ...this.rows[existingIdx], ...values };
+          written.push(this.rows[existingIdx]);
         } else {
-          this.rows.push({ ...values });
+          const row = { ...values };
+          this.rows.push(row);
+          written.push(row);
         }
         this.mutations.push({ table: this.table, kind: this.pending.kind, values: { ...values } });
       }
-      return { data: null, error: null };
+      return { data: written, error: null };
     }
 
     const patch = this.pending.values;
-    for (const row of this.apply()) Object.assign(row, patch);
+    const updated = this.apply();
+    for (const row of updated) Object.assign(row, patch);
     this.mutations.push({ table: this.table, kind: "update", values: { ...patch } });
-    return { data: null, error: null };
+    return { data: updated, error: null };
   }
 
   maybeSingle() {
-    const rows = this.apply();
-    return Promise.resolve({ data: rows[0] ?? null, error: null });
+    const { data, error } = this.run();
+    return Promise.resolve({ data: data?.[0] ?? null, error });
   }
 
   range(from: number, to: number) {
@@ -184,7 +212,7 @@ class FakeVendorQuery {
   }
 
   // Thenable: `await query` resolves selects and pending mutations alike.
-  then<T>(resolve: (v: { data: FakeRow[] | null; error: { code?: string; message: string } | null }) => T) {
+  then<T>(resolve: (v: { data: FakeRow[] | null; error: { code?: string; message: string } | null; count?: number }) => T) {
     return Promise.resolve(this.run()).then(resolve);
   }
 }
