@@ -18,9 +18,21 @@ export type ResidentMoveInResolved = {
   addressLine: string;
   roomLabel: string;
   earliestMoveInDateLabel: string | null;
+  /** The resident's OWN space — their room, or the home on an entire-home listing. */
   instructions: string | null;
   moveInPhotoDataUrls: string[];
   moveInVideoDataUrl: string | null;
+  /**
+   * Move-in details that apply to the WHOLE house — the front door code, parking,
+   * bins — as opposed to the resident's own room.
+   *
+   * Only populated for a room-by-room listing, where the two are genuinely
+   * different things. On an entire-home listing the house IS the space, so it
+   * would be the same text printed twice and this stays null.
+   */
+  houseInstructions: string | null;
+  houseMoveInPhotoDataUrls: string[];
+  houseMoveInVideoDataUrl: string | null;
   generalHouseInfo: string | null;
   houseRulesText: string | null;
   /** Property amenities offered (from the listing's amenitiesText), one entry per amenity. */
@@ -191,7 +203,18 @@ export function resolveResidentMoveInFromApplications(
   let roomLevelPhotoDataUrls: string[] = [];
   let roomLevelVideoDataUrl: string | null = null;
   let listingMoveInDate: string | null = null;
+  let houseInstructions: string | null = null;
+  let houseMoveInPhotoDataUrls: string[] = [];
+  let houseMoveInVideoDataUrl: string | null = null;
   if (sub) {
+    // A room listing has two levels of move-in detail and the resident needs
+    // both: the shared house one (door code, bins) and their own room's. Before
+    // this the house level was written by the manager and read by nobody.
+    if (!isEntireHomeListing(sub)) {
+      houseInstructions = sub.houseMoveInInstructions?.trim() || null;
+      houseMoveInPhotoDataUrls = sub.houseMoveInPhotoDataUrls ?? [];
+      houseMoveInVideoDataUrl = sub.houseMoveInVideoDataUrl ?? null;
+    }
     if (isEntireHomeListing(sub)) {
       listingMoveInDate = sub.houseMoveInAvailableDate?.trim() || null;
       roomLevelInstructions = sub.houseMoveInInstructions?.trim() || null;
@@ -246,6 +269,9 @@ export function resolveResidentMoveInFromApplications(
     instructions,
     moveInPhotoDataUrls: roomLevelPhotoDataUrls,
     moveInVideoDataUrl: roomLevelVideoDataUrl,
+    houseInstructions,
+    houseMoveInPhotoDataUrls,
+    houseMoveInVideoDataUrl,
     generalHouseInfo,
     houseRulesText,
     amenities,
