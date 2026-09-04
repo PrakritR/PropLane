@@ -119,6 +119,7 @@ import {
   prevActiveWizardStep,
 } from "@/lib/wizard-step-nav";
 import { residentBrowseFromApplicationHref } from "@/lib/resident-public-nav";
+import { BROWSE_IDS_PARAM, parseBrowseIdsParam } from "@/lib/manager-property-links";
 import { isDemoModeActive, DEMO_GUIDED_USER_ID } from "@/lib/demo/demo-session";
 import { isElementOnScreen } from "@/lib/dom-visibility";
 import { buildDemoApplicationAutofill } from "@/lib/demo/demo-application-autofill";
@@ -577,8 +578,21 @@ function RentalApplicationWizardInner({
     ].join("|");
   }, [linkedPropertyIdProp, linkedRentalType, searchParams]);
 
+  /**
+   * A multi-property apply share (`/rent/apply?ids=a,b,c`) offers exactly those
+   * homes. The wizard opens on the FIRST and lets the applicant switch between
+   * the shared set — never the whole public catalogue (AXI-154).
+   */
+  const portfolioPropertyIds = useMemo(
+    () => (mode === "public" ? parseBrowseIdsParam(searchParams.get(BROWSE_IDS_PARAM)) : []),
+    [mode, searchParams],
+  );
+
   const linkedPropertyId =
-    linkedPropertyIdProp?.trim() || searchParams.get("propertyId")?.trim() || "";
+    linkedPropertyIdProp?.trim() ||
+    searchParams.get("propertyId")?.trim() ||
+    portfolioPropertyIds[0] ||
+    "";
 
   /** listingPrefillKey already applied to the form — prevents re-clobbering user edits when catalogs refresh. */
   const listingPrefillAppliedRef = useRef("");
@@ -765,11 +779,17 @@ function RentalApplicationWizardInner({
         .map((property) => ({ value: property.id, label: property.title }))
         .sort((a, b) => a.label.localeCompare(b.label));
     }
+    if (portfolioPropertyIds.length > 1) {
+      return portfolioPropertyIds
+        .map((id) => getPropertyForPublicLink(id))
+        .filter((property): property is NonNullable<typeof property> => Boolean(property))
+        .map((property) => ({ value: property.id, label: property.title }));
+    }
     if (!linkedPropertyId) return [];
     const prop = getPropertyForPublicLink(linkedPropertyId);
     if (!prop) return [];
     return [{ value: prop.id, label: prop.title }];
-  }, [extrasTick, linkedPropertyId, mode]);
+  }, [extrasTick, linkedPropertyId, mode, portfolioPropertyIds]);
 
   const linkedProperty = useMemo(() => {
     void extrasTick;
@@ -2197,7 +2217,10 @@ function RentalApplicationWizardInner({
                 propertyLocked={
                   templatePreview
                     ? Boolean(linkedPropertyId?.trim())
-                    : mode !== "portal" && Boolean(linkedPropertyId && linkedProperty)
+                    : // A shared SET is switchable; a single shared listing stays locked.
+                      portfolioPropertyIds.length > 1
+                      ? false
+                      : mode !== "portal" && Boolean(linkedPropertyId && linkedProperty)
                 }
                 emailLocked={(mode === "portal" || mode === "manager") && Boolean(sessionEmail?.includes("@"))}
                 patch={patchForm}

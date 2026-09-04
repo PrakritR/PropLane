@@ -133,7 +133,16 @@ export function PublicApplyClient({ signedInNonResident = false }: { signedInNon
     hasResidentRole: false,
   });
 
-  if (portfolioPropertyIds.length > 0 && !propertyId) {
+  // A multi-home share now opens the wizard on the FIRST property with the rest
+  // switchable inside it (AXI-154), so the standalone picker is only still the
+  // right screen while the account gate is up, or when nothing resolved. One
+  // resolvable home is not a choice either — the wizard handles that itself.
+  const portfolioPickerBlocks =
+    portfolioPropertyIds.length > 0 &&
+    !propertyId &&
+    (view !== "wizard" || portfolioProperties.length === 0);
+
+  if (portfolioPickerBlocks) {
     return (
       <div className="mx-auto max-w-3xl px-4 py-8 sm:py-12">
         <h1 className="text-2xl font-bold tracking-tight text-foreground sm:text-3xl">Rental application</h1>
