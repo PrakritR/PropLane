@@ -112,4 +112,21 @@ describe("InboxReplyChannelPicker", () => {
     );
     expect(screen.getByLabelText("Send via")).toHaveTextContent("Email & SMS");
   });
+
+  it("lists PropLane when the assistant thread supports in-app send", () => {
+    render(
+      <InboxReplyChannelPicker
+        viaProplane
+        viaEmail={false}
+        viaSms={false}
+        onViaProplaneChange={vi.fn()}
+        onViaEmailChange={vi.fn()}
+        onViaSmsChange={vi.fn()}
+        proplaneAvailable
+        emailAvailable={false}
+        smsAvailable={false}
+      />,
+    );
+    expect(screen.getByLabelText("Send via")).toHaveTextContent("PropLane");
+  });
 });

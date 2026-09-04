@@ -133,3 +133,26 @@ export function resolvePropLaneUnifiedReplyChannels(args: {
     viaSms: args.smsAvailable,
   };
 }
+
+export type InboxReplyChannelFlags = {
+  viaEmail: boolean;
+  viaSms: boolean;
+  viaProplane: boolean;
+};
+
+/** PropLane Assistant threads default to in-app PropLane; external channels are opt-in. */
+export function resolveAssistantInboxReplyChannels(    args: {
+  emailAvailable: boolean;
+  smsAvailable: boolean;
+}): InboxReplyChannelFlags {
+  void args;
+  return {
+    viaProplane: true,
+    viaEmail: false,
+    viaSms: false,
+  };
+}
+
+export function hasInboxReplyChannelSelected(channels: InboxReplyChannelFlags): boolean {
+  return channels.viaEmail || channels.viaSms || channels.viaProplane;
+}

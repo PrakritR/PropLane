@@ -5,6 +5,8 @@ import {
   resolveManagerInboxReplyChannels,
   resolveManagerInboxSmsTarget,
   resolvePropLaneUnifiedReplyChannels,
+  resolveAssistantInboxReplyChannels,
+  hasInboxReplyChannelSelected,
 } from "@/lib/manager-inbox-reply-channels";
 
 describe("manager inbox reply channels", () => {
@@ -107,5 +109,14 @@ describe("manager inbox reply channels", () => {
         true,
       ),
     ).toMatchObject({ phone: "+16504484183" });
+  });
+
+  it("defaults assistant threads to PropLane in-app send", () => {
+    expect(resolveAssistantInboxReplyChannels({ emailAvailable: true, smsAvailable: true })).toEqual({
+      viaProplane: true,
+      viaEmail: false,
+      viaSms: false,
+    });
+    expect(hasInboxReplyChannelSelected({ viaProplane: true, viaEmail: false, viaSms: false })).toBe(true);
   });
 });

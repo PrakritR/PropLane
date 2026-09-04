@@ -546,7 +546,11 @@ function isPropLaneAssistantInboxThreadRow(thread: PersistedInboxThread): boolea
 
 function isPropLaneAssistantSenderName(from: string | undefined): boolean {
   const name = from?.trim() ?? "";
-  return name === RESIDENT_AGENT_FROM_NAME || name === "PropLane Assistant";
+  return (
+    name === RESIDENT_AGENT_FROM_NAME ||
+    name === "PropLane Assistant" ||
+    name === "PropLane"
+  );
 }
 
 /** Whether a thread turn is outbound from the inbox owner's perspective. */
