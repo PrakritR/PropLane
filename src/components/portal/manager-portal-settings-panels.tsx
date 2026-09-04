@@ -315,11 +315,11 @@ export function LeaseSettingsPanel({
         onPropertyIdChange={onPropertyIdChange}
         disabled={loading || saving || propertyOptions.length === 0}
       />
-      <p className="text-xs text-muted">
-        After you approve an application, PropLane can build and send the lease for you. Every safety check
-        that applies when you do this manually still applies. The landlord named on generated leases comes
-        from your full name in Settings → Profile.
-      </p>
+      {/*
+        The paragraph that stood here restated what the two toggles below
+        already say, on a modal whose whole job is two toggles. Each toggle
+        keeps its own one-line hint; that is where the explanation belongs.
+      */}
       {(
         [
           {
