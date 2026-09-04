@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { PRIMARY_ADMIN_EMAIL } from "@/lib/auth/primary-admin";
 import { syncOAuthProfile } from "@/lib/auth/sync-oauth-profile";
 
 function mockSupabase(existingProfile: Record<string, unknown> | null) {
@@ -54,7 +55,7 @@ describe("syncOAuthProfile", () => {
 
     await syncOAuthProfile(supabase as never, {
       id: "admin-1",
-      email: "founders@axis-seattle-housing.com",
+      email: PRIMARY_ADMIN_EMAIL,
       user_metadata: { name: "Prakrit" },
     } as never);
 
@@ -66,14 +67,14 @@ describe("syncOAuthProfile", () => {
   it("re-asserts admin and skips manager provisioning for an existing primary admin", async () => {
     const supabase = mockSupabase({
       id: "admin-1",
-      email: "founders@axis-seattle-housing.com",
+      email: PRIMARY_ADMIN_EMAIL,
       full_name: "Axis Admin",
       role: "admin",
     });
 
     await syncOAuthProfile(supabase as never, {
       id: "admin-1",
-      email: "founders@axis-seattle-housing.com",
+      email: PRIMARY_ADMIN_EMAIL,
       user_metadata: { full_name: "Axis Admin" },
       identities: [{ provider: "google" }],
       app_metadata: { provider: "google" },

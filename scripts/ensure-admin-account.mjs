@@ -4,7 +4,7 @@
  * Requires SUPABASE_SERVICE_ROLE_KEY and NEXT_PUBLIC_SUPABASE_URL in the environment.
  *
  * Usage (from repo root, with .env loaded):
- *   node --env-file=.env scripts/ensure-admin-account.mjs founders@axis-seattle-housing.com 'YourPasswordHere'
+ *   node --env-file=.env scripts/ensure-admin-account.mjs prakritramachandran@gmail.com 'YourPasswordHere'
  *
  * Promote primary admin + strip admin from all other accounts (no password change):
  *   node --env-file=.env scripts/ensure-admin-account.mjs --roles-only
@@ -16,7 +16,7 @@
 import { createClient } from "@supabase/supabase-js";
 
 /** Keep in sync with src/lib/auth/primary-admin.ts */
-const PRIMARY_ADMIN_EMAIL = "founders@axis-seattle-housing.com";
+const PRIMARY_ADMIN_EMAIL = "prakritramachandran@gmail.com";
 
 const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
