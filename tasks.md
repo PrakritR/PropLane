@@ -2,7 +2,7 @@
 
 Generated September 4, 2026. There are 27 active assigned issues, all currently marked High in Linear. The priority tiers below are recommended execution order, not changes to Linear's stored priority.
 
-Progress: 2 completed locally, 25 remaining. Of the remaining issues, 24 are actionable and PRP-239 is waiting on its required captain approval.
+Progress: 3 completed locally, 24 remaining. Of the remaining issues, 23 are actionable and PRP-239 is waiting on its required captain approval.
 
 ## P0 — user harm, data integrity, and access
 
@@ -27,8 +27,8 @@ Three near-identical umbrella epics overlap: [PRP-260](https://linear.app/axisho
 - [PRP-261 — Work-order reference resolution](https://linear.app/axishousing/issue/PRP-261/work-order-reference-resolution-make-andquotwo-1234andquot-a)
   Create stable, human-typeable work-order references and resolve them from inbound text within the sender's permitted scope.
 
-- [PRP-286 — WO number parser](https://linear.app/axishousing/issue/PRP-286/ai-wo-number-parser-smsinbound-text-resolves-to-portal-work-order)
-  This is the implementation-sized version of PRP-261: parse a work-order number from SMS or inbound text and map it to the record. Treat it as PRP-261's child rather than a separate initiative.
+- [x] [PRP-286 — WO number parser](https://linear.app/axishousing/issue/PRP-286/ai-wo-number-parser-smsinbound-text-resolves-to-portal-work-order)
+  Completed locally September 4, 2026. A pure, client-safe parser now extracts and normalizes human work-order references from inbound text, rejects common numeric false positives, deduplicates candidates, and bounds hostile input. Scoped record lookup remains in PRP-261.
 
 - [PRP-297 — Reply with work-order number](https://linear.app/axishousing/issue/PRP-297/sms-reply-with-work-order-number-to-get-status-or-take-allowed-actions)
   Let authorized managers, residents, and vendors text a work-order number for status and only permitted actions. Unknown or cross-tenant references must reveal nothing.
@@ -103,6 +103,14 @@ Three near-identical umbrella epics overlap: [PRP-260](https://linear.app/axisho
 5. Role-specific workflows and reminders
 
 ## Completed work log
+
+### September 4, 2026 — PRP-286
+
+- Added `resolveWorkOrderReference` for `WO-1042`, `wo 1042`, `work order #1042`, `#1042`, `status 1042`, and standalone-number messages.
+- Normalized every candidate to the canonical `WO-<sequence>` display form while leaving database ids untouched.
+- Kept the parser authorization-neutral with an explicit scoped-lookup invariant for PRP-261; arbitrary numbers in prose do not become job claims.
+- Added table-driven coverage for real formats, multiple/deduplicated references, numeric false positives, invalid sequences, and bounded hostile input.
+- Verification: all 949 unit-test files / 6,312 unique tests passed (one unrelated import hook that timed out under full-suite parallel load passed all 8 cases in isolation); focused ESLint passed with no errors; TypeScript and diff checks passed.
 
 ### September 4, 2026 — PRP-189
 
