@@ -1,28 +1,16 @@
 "use client";
 
+import { Badge } from "@/components/ui/badge";
 import { Modal } from "@/components/ui/modal";
 import { bookingGuestLabel } from "@/lib/channel-calendar/booking-guest-label";
 import type { PropertyBookingEntry } from "@/lib/channel-calendar/property-bookings";
+import {
+  bookingSourceLabel,
+  bookingStatusTone,
+  formatBookingStayRange,
+} from "@/lib/channel-calendar/bookings-ui";
 
-/**
- * The day detail shows PropLane stays and Airbnb reservations side by side, so
- * every line has to say WHICH — otherwise a resident mid-signature is
- * indistinguishable from a confirmed Airbnb guest.
- */
 export type BookingsDayEntry = PropertyBookingEntry;
-
-function formatStayRange(start: string, end: string, openEnded?: boolean): string {
-  const fmt = (iso: string) => {
-    const [y, m, d] = iso.split("-").map(Number);
-    if (!y || !m || !d) return iso;
-    return new Date(y, m - 1, d).toLocaleDateString("en-US", { month: "short", day: "numeric" });
-  };
-  // An open-ended stay's `end` is the internal horizon key, not a date the
-  // manager entered — printing it reads as a real (and often earlier-looking)
-  // move-out date, so show the start alone and let the "onward" suffix carry it.
-  if (openEnded || start === end) return fmt(start);
-  return `${fmt(start)} – ${fmt(end)}`;
-}
 
 export function BookingsDayDetailModal({
   open,
@@ -56,18 +44,27 @@ export function BookingsDayDetailModal({
           {entries.map((entry) => (
             <li
               key={`${entry.source}-${entry.propertyId}-${entry.roomId}-${entry.start}-${entry.summary}`}
-              className="rounded-lg border border-border bg-accent/20 px-4 py-3"
+              className="rounded-xl border border-border bg-card px-4 py-3 shadow-[var(--shadow-sm)]"
             >
-              <p className="text-sm font-semibold text-foreground">{entry.propertyLabel}</p>
-              <p className="mt-0.5 text-xs text-muted">{entry.roomLabel}</p>
+              <div className="flex flex-wrap items-start justify-between gap-2">
+                <div className="min-w-0">
+                  <p className="text-sm font-semibold text-foreground">{entry.propertyLabel}</p>
+                  <p className="mt-0.5 text-xs text-muted">{entry.roomLabel}</p>
+                </div>
+                <div className="flex shrink-0 flex-wrap gap-1">
+                  <Badge tone={entry.source === "airbnb" ? "pending" : "info"}>
+                    {bookingSourceLabel(entry.source)}
+                  </Badge>
+                  {entry.statusLabel ? (
+                    <Badge tone={bookingStatusTone(entry)}>{entry.statusLabel}</Badge>
+                  ) : null}
+                </div>
+              </div>
               <p className="mt-2 text-sm font-medium text-foreground">
                 {entry.source === "airbnb" ? bookingGuestLabel(entry.summary) : entry.summary}
               </p>
               <p className="mt-1 text-xs text-muted">
-                Stay · {formatStayRange(entry.start, entry.end, entry.openEnded)}
-                {entry.openEnded ? " onward" : ""} ·{" "}
-                {entry.source === "airbnb" ? "Airbnb" : "PropLane"}
-                {entry.statusLabel ? ` · ${entry.statusLabel}` : ""}
+                {formatBookingStayRange(entry.start, entry.end, entry.openEnded)}
               </p>
             </li>
           ))}

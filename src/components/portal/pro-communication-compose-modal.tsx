@@ -17,6 +17,7 @@ import {
   PortalMessageSubjectField,
   portalMessageChannelsFromSelection,
   portalMessageFieldLabel,
+  portalMessageSendViaFooterNote,
 } from "@/components/portal/portal-message-compose-fields";
 import { useManagerCommunicationDeliverVia } from "@/hooks/use-manager-communication-deliver-via";
 import { portalMessageSelectionFromDeliverVia } from "@/lib/manager-communication-deliver-via";
@@ -26,7 +27,10 @@ import { mergeInboxScopedContacts } from "@/lib/manager-inbox-contacts";
 import {
   composeDirectoryCategories,
   composeValidPersonKeys,
+  houseComposeCategoryLabel,
+  houseIdFromComposeCategory,
   isAdminOnlyDirectorySelection,
+  isHouseComposeCategory,
   mergeAdminComposePersonKey,
   type InboxComposeDirectoryCategory,
 } from "@/lib/inbox-compose-recipients";
@@ -113,13 +117,11 @@ function contactOptionLabel(contact: InboxScopedContact): string {
   return [name, property].filter(Boolean).join(" · ");
 }
 
-function categoryLabel(category: ComposeCategory): string {
-  // Three resident buckets rather than one lumped "Residents & applicants"
-  // (PRP-150) — a broadcast to residents should not quietly reach a prospect or
-  // someone who has moved out.
-  if (category === "applicant") return "Potential residents";
-  if (category === "resident") return "Current residents";
-  if (category === "past_resident") return "Past residents";
+function categoryLabel(category: ComposeCategory, contacts: InboxScopedContact[]): string {
+  if (isHouseComposeCategory(category)) {
+    return houseComposeCategoryLabel(category, contacts);
+  }
+  if (category === "unassigned_residents") return "Residents (no house)";
   if (category === "management") return "Manager";
   if (category === "vendor") return "Vendor";
   if (category === "other") return "Other";
@@ -172,28 +174,31 @@ function peopleForCategory(
       .sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: "base" }))
       .map((c) => ({ key: `id:${c.id}` as const, label: contactOptionLabel(c) }));
   }
-  if (category === "applicant" || category === "resident" || category === "past_resident") {
-    const wanted =
-      category === "applicant" ? "applicant" : category === "past_resident" ? "past" : "resident";
-    const matching = contacts
-      .filter((c) => c.role === "resident" && (c.tenancyStatus ?? "resident") === wanted)
-      .sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: "base" }));
-    const people = matching.map((c) => ({
-      key: `id:${c.id}` as const,
-      label: contactOptionLabel(c),
-    }));
-    // Only CURRENT residents get a broadcast row. "All residents" that also
-    // reached applicants and people who moved out is the thing this split
-    // exists to prevent (PRP-150).
-    if (category !== "resident") return people;
-    return [
-      { key: "broadcast:resident" as const, label: "All current residents" },
-      // …then one row per house. At the scale the captain described — 20 houses,
-      // 10 residents each — picking "everyone at Brooklyn House" from a flat list
-      // of 200 names is the difference between one tap and twenty (PRP-150).
-      ...houseBroadcastOptions(matching),
-      ...people,
-    ];
+  if (isHouseComposeCategory(category)) {
+    const propertyId = houseIdFromComposeCategory(category);
+    const atHouse = contacts.filter(
+      (c) => c.role === "resident" && c.propertyId?.trim() === propertyId,
+    );
+    const currentResidents = atHouse.filter(
+      (c) => (c.tenancyStatus ?? "resident") === "resident",
+    );
+    const people = atHouse
+      .sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: "base" }))
+      .map((c) => ({
+        key: `id:${c.id}` as const,
+        label: contactOptionLabel(c),
+      }));
+    return [...houseBroadcastOptions(currentResidents), ...people];
+  }
+  if (category === "unassigned_residents") {
+    return contacts
+      .filter(
+        (c) =>
+          c.role === "resident" &&
+          !(c.propertyId?.trim() && c.propertyLabel?.trim()),
+      )
+      .sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: "base" }))
+      .map((c) => ({ key: `id:${c.id}` as const, label: contactOptionLabel(c) }));
   }
   const people = contacts
     .filter((c) => categoryForContactRole("manager", c.role) === "management")
@@ -289,14 +294,14 @@ export function ManagerCommunicationComposeModal({
   );
 
   const sectionOptions = useMemo(
-    () => categoryOptions.map((c) => ({ value: c, label: categoryLabel(c) })),
-    [categoryOptions],
+    () => categoryOptions.map((c) => ({ value: c, label: categoryLabel(c, contacts) })),
+    [categoryOptions, contacts],
   );
 
   const personGroups = useMemo((): CheckboxMultiSelectGroup[] => {
     return directoryCategories
       .map((category) => ({
-        label: categoryLabel(category),
+        label: categoryLabel(category, contacts),
         options: peopleForCategory(category, contacts).map((p) => ({
           value: p.key,
           label: p.label,
@@ -954,8 +959,8 @@ export function ManagerCommunicationComposeModal({
             smsAvailable={smsUiEnabled}
             footerNote={
               smsUiEnabled
-                ? "SMS uses your work number; recipients need a phone on file or under Other."
-                : "Messages are sent by email and saved to PropLane inbox."
+                ? portalMessageSendViaFooterNote(true)
+                : portalMessageSendViaFooterNote(false)
             }
             dataAttr="communication-compose-send-via"
           />

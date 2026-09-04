@@ -937,6 +937,7 @@ export function ManagerLeasesPipelinePanel({
         emailAvailable
         smsAvailable
         confirmLabel="Send reminder"
+        dynamicSendLabel
         confirmBusy={Boolean(leaseReminderPreview?.row && reminderBusyForRow === leaseReminderPreview.row.id)}
         confirmBusyLabel="Sending…"
         onConfirm={(skipMessage, channels, draft) => {

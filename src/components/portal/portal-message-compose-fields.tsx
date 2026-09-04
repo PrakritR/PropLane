@@ -24,6 +24,32 @@ export const PORTAL_MESSAGE_SEND_VIA_OPTIONS: CheckboxMultiSelectOption[] = [
 export const PORTAL_MESSAGE_DEFAULT_FOOTER_NOTE =
   "Always saved to PropLane inbox. SMS uses your work number when enabled.";
 
+/** Send-via helper copy — matches the Communication compose modal. */
+export function portalMessageSendViaFooterNote(smsAvailable: boolean): string {
+  return smsAvailable
+    ? "SMS uses your work number; recipients need a phone on file or under Other."
+    : "Messages are sent by email and saved to PropLane inbox.";
+}
+
+/** Primary CTA label for compose-style modals (Send email / SMS / message / Schedule). */
+export function portalMessageConfirmSendLabel(args: {
+  busy: boolean;
+  busyLabel?: string;
+  skipMessage: boolean;
+  staticLabel: string;
+  scheduleLater: boolean;
+  viaEmail: boolean;
+  viaSms: boolean;
+  dynamic?: boolean;
+}): string {
+  if (args.busy) return args.busyLabel ?? "Sending…";
+  if (args.skipMessage || !args.dynamic) return args.staticLabel;
+  if (args.scheduleLater) return "Schedule";
+  if (args.viaEmail && args.viaSms) return "Send message";
+  if (args.viaSms) return "Send SMS";
+  return "Send email";
+}
+
 export function portalMessageFieldLabel(className?: string) {
   return cn("text-xs font-medium text-muted", className);
 }
@@ -258,6 +284,37 @@ export function PortalMessageRecipientReadonly({
         {recipient}
       </p>
     </div>
+  );
+}
+
+/** Locked recipient — same dropdown chrome as New message, read-only for reminders. */
+export function PortalMessageRecipientLockedField({
+  recipient,
+  dataAttr = "portal-message-recipient-locked",
+}: {
+  recipient: string;
+  dataAttr?: string;
+}) {
+  const label = recipient.trim() || "—";
+  const lockedValue = "locked-recipient";
+  return (
+    <fieldset className="min-w-0 border-0 p-0">
+      <legend className={PORTAL_MESSAGE_COMPOSE_SELECT_LABEL_CLASS}>To</legend>
+      <div className="mt-1">
+        <CheckboxMultiSelect
+          label="Recipients"
+          hideLabel
+          labelClassName={PORTAL_MESSAGE_COMPOSE_SELECT_LABEL_CLASS}
+          options={[{ value: lockedValue, label }]}
+          selected={[lockedValue]}
+          onChange={() => {}}
+          disabled
+          selectionTriggerLabel={label}
+          emptyLabel="Choose recipients"
+          dataAttr={dataAttr}
+        />
+      </div>
+    </fieldset>
   );
 }
 

@@ -26,30 +26,35 @@ const resident: InboxScopedContact = {
   name: "Sam Resident",
   email: "sam@example.com",
   role: "resident",
+  propertyId: "prop-1",
+  propertyLabel: "Brooklyn House",
 };
 
 describe("composeDirectoryCategories", () => {
-  it("hides Manager and Vendor on manager portal until contacts exist", () => {
-    expect(composeDirectoryCategories("manager", [])).toEqual(["resident"]);
-    expect(composeDirectoryCategories("manager", [resident])).toEqual(["resident"]);
-    expect(composeDirectoryCategories("manager", [resident, coManager])).toEqual([
-      "resident",
-      "management",
-    ]);
-    expect(composeDirectoryCategories("manager", [resident, coManager, vendor])).toEqual([
-      "resident",
+  it("groups manager portal recipients by house, then role sections", () => {
+    expect(composeDirectoryCategories("manager", [])).toEqual(["management", "vendor", "admin"]);
+    expect(composeDirectoryCategories("manager", [resident])).toEqual([
+      "house:prop-1",
       "management",
       "vendor",
+      "admin",
+    ]);
+    expect(composeDirectoryCategories("manager", [resident, coManager])).toEqual([
+      "house:prop-1",
+      "management",
+      "vendor",
+      "admin",
+    ]);
+    expect(composeDirectoryCategories("manager", [resident, coManager, vendor])).toEqual([
+      "house:prop-1",
+      "management",
+      "vendor",
+      "admin",
     ]);
   });
 
-  it("PRP-150: a manager is not offered PropLane admin as a contact", () => {
-    // Writing to us is a support request, not portal correspondence. Sitting in
-    // the same picker as their own residents and co-managers made the list read
-    // as though PropLane were one of their contacts.
-    expect(composeDirectoryCategories("manager", [resident, coManager, vendor])).not.toContain(
-      "admin",
-    );
+  it("offers PropLane admin to managers alongside house and role groups", () => {
+    expect(composeDirectoryCategories("manager", [resident, coManager, vendor])).toContain("admin");
   });
 
   it("…but residents and vendors keep it — it is their only way out", () => {

@@ -1901,6 +1901,7 @@ export function ManagerResidents({
   const sendApplicationCompletionReminder = async (
     row: DemoApplicantRow,
     channels?: { viaEmail?: boolean; viaSms?: boolean },
+    draft?: { subject?: string; body?: string },
   ) => {
     if (applicationReminderBusyId) return;
     setApplicationReminderBusyId(row.id);
@@ -1917,6 +1918,8 @@ export function ManagerResidents({
           applicationId: row.id,
           viaEmail: channels?.viaEmail !== false,
           viaSms: channels?.viaSms === true,
+          subject: draft?.subject?.trim() || undefined,
+          text: draft?.body?.trim() || undefined,
         }),
       });
       const data = (await res.json().catch(() => ({}))) as { ok?: boolean; error?: string; mailtoHref?: string };
@@ -4364,17 +4367,19 @@ export function ManagerResidents({
         recipient={applicationReminderPreview?.to ?? ""}
         subject={applicationReminderPreview?.subject ?? APPLICATION_COMPLETION_REMINDER_SUBJECT}
         body={applicationReminderPreview?.text ?? ""}
-        intro="Choose Email and/or SMS. Always saved to PropLane inbox."
         showSkipMessage={false}
         showChannelPicker
         emailAvailable
         smsAvailable
+        deliverViaKind="applications"
+        dynamicSendLabel
+        assistantContext="Application completion reminder"
         confirmLabel="Send reminder"
         confirmBusy={applicationReminderBusyId !== null}
         confirmBusyLabel="Sending…"
-        onConfirm={(_skip, channels) => {
+        onConfirm={(_skip, channels, draft) => {
           if (!applicationReminderPreview) return;
-          void sendApplicationCompletionReminder(applicationReminderPreview.row, channels);
+          void sendApplicationCompletionReminder(applicationReminderPreview.row, channels, draft);
         }}
       />
 

@@ -1,10 +1,18 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { CheckboxMultiSelect } from "@/components/ui/checkbox-multi-select";
 import { Input } from "@/components/ui/input";
-import { InboxScheduledCard, ScheduledMessageDetailModal } from "@/components/portal/portal-inbox-ui";
+import { Modal, ModalFooter } from "@/components/ui/modal";
+import {
+  PORTAL_MESSAGE_COMPOSE_MODAL_PANEL_CLASS,
+  PORTAL_MESSAGE_COMPOSE_TWO_COL_CLASS,
+  PortalMessageBodyField,
+  PortalMessageComposeModalBody,
+  PortalMessageSubjectField,
+  portalMessageFieldLabel,
+} from "@/components/portal/portal-message-compose-fields";
 import { normalizeTourReminderMinutesBeforeList } from "@/lib/payment-automation-settings";
 
 export const REMINDER_FIELD_LABEL_CLASS = "text-xs font-semibold text-muted";
@@ -114,27 +122,69 @@ export function ReminderMessageUpdateModal({
   placeholders: string;
   onSave: (next: { subject: string; body: string }) => void;
 }) {
+  const [draftSubject, setDraftSubject] = useState(subject);
+  const [draftBody, setDraftBody] = useState(body);
+
+  useEffect(() => {
+    if (!open) return;
+    queueMicrotask(() => {
+      setDraftSubject(subject);
+      setDraftBody(body);
+    });
+  }, [open, subject, body]);
+
+  const canSave = draftSubject.trim().length > 0 && draftBody.trim().length > 0;
+
   return (
-    <ScheduledMessageDetailModal open={open} onClose={onClose} title="Update message">
-      <div className="space-y-3">
-        <InboxScheduledCard
-          sendLabel="Preview"
-          subject={subject}
-          body={body}
-          meta="Placeholders are filled when the reminder sends."
-          source="automation"
-          editable
-          presentation="detail"
-          showSendActions={false}
-          onCancel={onClose}
-          onSendNow={() => {}}
-          onSaveEdit={async (next) => {
-            onSave(next);
-          }}
+    <Modal
+      open={open}
+      onClose={onClose}
+      title="Update message"
+      dense
+      assistantContext="Automated reminder message template"
+      panelClassName={PORTAL_MESSAGE_COMPOSE_MODAL_PANEL_CLASS}
+      footer={
+        <ModalFooter>
+          <Button
+            type="button"
+            variant="primary"
+            className="rounded-full"
+            data-attr="reminder-update-message-save"
+            disabled={!canSave}
+            onClick={() => {
+              onSave({ subject: draftSubject.trim(), body: draftBody.trim() });
+              onClose();
+            }}
+          >
+            Save message
+          </Button>
+        </ModalFooter>
+      }
+    >
+      <PortalMessageComposeModalBody>
+        <div className={PORTAL_MESSAGE_COMPOSE_TWO_COL_CLASS}>
+          <PortalMessageSubjectField
+            value={draftSubject}
+            onChange={setDraftSubject}
+            dataAttr="reminder-update-message-subject"
+          />
+          <div>
+            <p className={portalMessageFieldLabel()}>Template</p>
+            <p className="mt-1 rounded-xl border border-border bg-accent/20 px-3 py-2 text-xs text-muted">
+              Automated reminder
+            </p>
+          </div>
+        </div>
+        <PortalMessageBodyField
+          value={draftBody}
+          onChange={setDraftBody}
+          placeholder="Write your message…"
+          minHeightClass="min-h-[9rem]"
+          dataAttr="reminder-update-message-body"
         />
         <p className="text-[11px] text-muted">{placeholders}</p>
-      </div>
-    </ScheduledMessageDetailModal>
+      </PortalMessageComposeModalBody>
+    </Modal>
   );
 }
 
