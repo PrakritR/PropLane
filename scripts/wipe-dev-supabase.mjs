@@ -140,9 +140,26 @@ async function main() {
   } else {
     console.log("  node --env-file=.env.test scripts/seed-demo-manager-workflow.mjs");
   }
+  printDevResetEpochInstruction();
 }
 
 main().catch((err) => {
   console.error(err);
   process.exit(1);
 });
+
+// A dev wipe leaves the browser's `axis:*` mirror behind, so the portal keeps
+// showing properties that no longer exist — which reads as "deletion didn't
+// work", not as a stale cache, and silently invalidates any QA run made after
+// it (PRP-195). Print the epoch to set so the client clears itself on boot.
+function printDevResetEpochInstruction() {
+  const epoch = new Date().toISOString();
+  console.log(
+    `\n  ⚠  The browser still holds a local mirror of the data just removed.\n` +
+      `     Set this in .env.local and restart the dev server so every tab clears\n` +
+      `     its cache on next load:\n\n` +
+      `       NEXT_PUBLIC_DEV_RESET_EPOCH=${epoch}\n\n` +
+      `     Or clear site data for the dev origin by hand.\n`,
+  );
+}
+
