@@ -13,6 +13,7 @@
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { isAdminUser } from "@/lib/auth/admin-preview";
+import { resolveManagerSmsAccess } from "@/lib/sms/manager-sms-access.server";
 
 import type { ManagerSmsAccess } from "@/lib/sms/manager-sms-access";
 
@@ -34,9 +35,17 @@ export type AgentContext = {
   /** Present only on leasing SMS agent turns; pins links to the prospect phone. */
   leasingScope?: LeasingSmsAgentScope;
   /**
-   * Present only on manager-SMS turns. Delegated turns keep `landlordId` as
-   * the work-number owner and `userId` as the verified co-manager. Combined
-   * turns keep both as the texter and add assigned co-managed houses.
+   * This manager's data reach beyond their own portfolio, on ANY surface.
+   *
+   * Named for SMS because that is where it started, but it is not SMS-specific:
+   * a co-manager asking the assistant in the PORTAL needs exactly the same
+   * widening, and without it every tool filtered on `landlordId` alone and a
+   * pure co-manager — who owns no properties — got an empty answer to every
+   * question while their texts to the same assistant worked.
+   *
+   * Delegated turns (someone else's work number) keep `landlordId` as the
+   * work-number owner and `userId` as the verified co-manager. Combined turns
+   * keep both as the actor and add the houses assigned to them.
    */
   managerSmsAccess?: ManagerSmsAccess;
 };
@@ -88,6 +97,13 @@ export async function resolveAgentContext(): Promise<AgentContext | null> {
   const isManagerOrOwner = roles.some((r) => r === "manager" || r === "owner");
   if (!isAdmin && !isManagerOrOwner) return null;
 
+  // The same access decision the SMS and email assistants make, so a manager's reach cannot
+  // differ depending on which surface they asked from. For a manager with no incoming
+  // assignments this resolves to plain `owner` and changes nothing; for a co-manager it is what
+  // makes the portal assistant able to answer at all.
+  const managerSmsAccess =
+    (await resolveManagerSmsAccess(db, { actorUserId: user.id, workNumberOwnerId: user.id })) ?? undefined;
+
   return {
     landlordId: user.id,
     userId: user.id,
@@ -95,6 +111,7 @@ export async function resolveAgentContext(): Promise<AgentContext | null> {
     roles,
     isAdmin,
     db,
+    managerSmsAccess,
   };
 }
 
