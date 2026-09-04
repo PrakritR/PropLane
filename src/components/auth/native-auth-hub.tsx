@@ -366,11 +366,9 @@ function NativeAuthHubInner({ defaultMode = "sign-in" }: NativeAuthHubProps) {
           )}
         </p>
         <AuthLegalConsent action="continue" className="px-1" />
-        <p className="native-hide text-muted">
-          <Link href="/app" className="font-semibold text-primary hover:opacity-90" data-attr="auth-hub-mobile-app">
-            PropLane mobile app
-          </Link>
-        </p>
+        {/* The "PropLane mobile app" link is gone from the sign-in screen: at the
+            point of signing in, the app is a detour away from the thing the
+            person came to do. /app still exists and is linked from marketing. */}
       </div>
     </div>
   );
