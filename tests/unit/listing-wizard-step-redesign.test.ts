@@ -10,7 +10,7 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
-const form = readFileSync("src/components/portal/manager-add-listing-form.tsx", "utf8");
+const form = readFileSync("src/components/portal/pro-add-listing-form.tsx", "utf8");
 
 describe("one row component across all three steps", () => {
   it("the wizard row can carry a right-aligned headline value", () => {

@@ -92,7 +92,7 @@ import {
   createScheduledWorkTask,
   scheduledTaskTitleForTour,
 } from "@/lib/manager-scheduled-work-tasks";
-import { ManagerTaskFormModal } from "@/components/portal/manager-task-form-modal";
+import { ManagerTaskFormModal } from "@/components/portal/pro-task-form-modal";
 import { deleteManagerTask } from "@/lib/manager-tasks";
 import {
   compactTaskPropertyLabel,

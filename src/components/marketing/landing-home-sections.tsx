@@ -83,7 +83,6 @@ export function LearnSection() {
               <Image
                 src="/marketing/guide-messages-dark.webp"
                 alt=""
-                aria-hidden
                 fill
                 sizes="(max-width: 700px) 100vw, 460px"
                 className="lp-art-img lp-art-img-dark"
@@ -106,7 +105,6 @@ export function LearnSection() {
               <Image
                 src="/marketing/guide-tours-dark.webp"
                 alt=""
-                aria-hidden
                 fill
                 sizes="(max-width: 700px) 100vw, 460px"
                 className="lp-art-img lp-art-img-dark"

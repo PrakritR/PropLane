@@ -2,7 +2,7 @@
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { ManagerNotificationRoutingSetting } from "@/components/portal/manager-notification-routing-setting";
+import { ManagerNotificationRoutingSetting } from "@/components/portal/pro-notification-routing-setting";
 import { DEFAULT_MANAGER_AUTOMATION_SETTINGS } from "@/lib/payment-automation-settings";
 import type { ManagerMessagingNumberStatus } from "@/lib/sms/manager-messaging-number";
 

@@ -70,7 +70,7 @@ async function renderPropertyToursPanel(options: {
   managerUserId: string | null;
   showToast?: (message: string) => void;
 }) {
-  const { ManagerPropertyTourPanel } = await import("@/components/portal/manager-property-tour-panel");
+  const { ManagerPropertyTourPanel } = await import("@/components/portal/pro-property-tour-panel");
   render(
     <ManagerPropertyTourPanel
       listingId="mgr-demo-ballard"

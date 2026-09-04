@@ -93,7 +93,7 @@ describe("property calendar sub-tabs", () => {
     // house's occupancy could only be seen by leaving it for the portfolio
     // Bookings page and filtering back down. The wrapper is deleted; the panel
     // is now a Bookings tab beside Tours.
-    const panel = read("src/components/portal/manager-house-properties-panel.tsx");
+    const panel = read("src/components/portal/pro-house-properties-panel.tsx");
     expect(panel).toContain("ManagerPropertyBookingsPanel");
     expect(panel).toContain('activeDetailTab === "bookings"');
     expect(panel).toContain('pushTopTab("bookings", "bookings")');

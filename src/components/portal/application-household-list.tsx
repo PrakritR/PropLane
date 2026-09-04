@@ -3,7 +3,7 @@
 import type { Dispatch, ReactNode, SetStateAction } from "react";
 import { Badge } from "@/components/ui/badge";
 import { PortalCollapsibleSection } from "@/components/portal/portal-collapsible-section";
-import { ApplicationCosignerPlannedCard } from "@/components/portal/manager-application-readonly-review";
+import { ApplicationCosignerPlannedCard } from "@/components/portal/pro-application-readonly-review";
 import type { CosignerSubmission } from "@/lib/cosigner-submissions-storage";
 import { stripPropertyRoomCountSuffix } from "@/lib/portal-mobile-preview";
 import { describeGroupBadge, type ApplicationGroup } from "@/lib/rental-application/application-groups";

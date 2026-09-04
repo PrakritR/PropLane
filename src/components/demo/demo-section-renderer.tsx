@@ -38,22 +38,22 @@ const loading = () => (
 );
 
 // Manager / pro panels
-const ManagerDashboard = dynamic(() => import("@/components/portal/manager-dashboard").then((m) => m.ManagerDashboard), { ssr: false, loading });
-const ManagerProperties = dynamic(() => import("@/components/portal/manager-properties").then((m) => m.ManagerProperties), { ssr: false, loading });
-const ManagerApplications = dynamic(() => import("@/components/portal/manager-applications").then((m) => m.ManagerApplications), { ssr: false, loading });
-const ManagerResidents = dynamic(() => import("@/components/portal/manager-residents").then((m) => m.ManagerResidents), { ssr: false, loading });
-const ManagerLeases = dynamic(() => import("@/components/portal/manager-leases").then((m) => m.ManagerLeases), { ssr: false, loading });
-const ManagerPayments = dynamic(() => import("@/components/portal/manager-payments").then((m) => m.ManagerPayments), { ssr: false, loading });
-const ManagerTaskList = dynamic(() => import("@/components/portal/manager-task-list").then((m) => m.ManagerTaskList), { ssr: false, loading });
-const ManagerInbox = dynamic(() => import("@/components/portal/manager-inbox").then((m) => m.ManagerInbox), { ssr: false, loading });
-const ManagerAllServicesPanel = dynamic(() => import("@/components/portal/manager-all-services-panel").then((m) => m.ManagerAllServicesPanel), { ssr: false, loading });
-const ManagerFinancesPanel = dynamic(() => import("@/components/portal/manager-finances-panel").then((m) => m.ManagerFinancesPanel), { ssr: false, loading });
-const ManagerDocumentsPanel = dynamic(() => import("@/components/portal/manager-documents-panel").then((m) => m.ManagerDocumentsPanel), { ssr: false, loading });
+const ManagerDashboard = dynamic(() => import("@/components/portal/pro-dashboard").then((m) => m.ManagerDashboard), { ssr: false, loading });
+const ManagerProperties = dynamic(() => import("@/components/portal/pro-properties").then((m) => m.ManagerProperties), { ssr: false, loading });
+const ManagerApplications = dynamic(() => import("@/components/portal/pro-applications").then((m) => m.ManagerApplications), { ssr: false, loading });
+const ManagerResidents = dynamic(() => import("@/components/portal/pro-residents").then((m) => m.ManagerResidents), { ssr: false, loading });
+const ManagerLeases = dynamic(() => import("@/components/portal/pro-leases").then((m) => m.ManagerLeases), { ssr: false, loading });
+const ManagerPayments = dynamic(() => import("@/components/portal/pro-payments").then((m) => m.ManagerPayments), { ssr: false, loading });
+const ManagerTaskList = dynamic(() => import("@/components/portal/pro-task-list").then((m) => m.ManagerTaskList), { ssr: false, loading });
+const ManagerInbox = dynamic(() => import("@/components/portal/pro-inbox").then((m) => m.ManagerInbox), { ssr: false, loading });
+const ManagerAllServicesPanel = dynamic(() => import("@/components/portal/pro-all-services-panel").then((m) => m.ManagerAllServicesPanel), { ssr: false, loading });
+const ManagerFinancesPanel = dynamic(() => import("@/components/portal/pro-finances-panel").then((m) => m.ManagerFinancesPanel), { ssr: false, loading });
+const ManagerDocumentsPanel = dynamic(() => import("@/components/portal/pro-documents-panel").then((m) => m.ManagerDocumentsPanel), { ssr: false, loading });
 const PortalCalendar = dynamic(() => import("@/components/portal/portal-calendar").then((m) => m.PortalCalendar), { ssr: false, loading });
 const ProAccountLinksPanel = dynamic(() => import("@/components/portal/pro-account-links-panel").then((m) => m.ProAccountLinksPanel), { ssr: false, loading });
-const ManagerPromotion = dynamic(() => import("@/components/portal/manager-promotion").then((m) => m.ManagerPromotion), { ssr: false, loading });
+const ManagerPromotion = dynamic(() => import("@/components/portal/pro-promotion").then((m) => m.ManagerPromotion), { ssr: false, loading });
 const ManagerMobileAppPanel = dynamic(
-  () => import("@/components/portal/manager-mobile-app-panel").then((m) => m.ManagerMobileAppPanel),
+  () => import("@/components/portal/pro-mobile-app-panel").then((m) => m.ManagerMobileAppPanel),
   { ssr: false, loading },
 );
 const PortalBugFeedbackPanel = dynamic(() => import("@/components/portal/portal-bug-feedback-panel").then((m) => m.PortalBugFeedbackPanel), { ssr: false, loading });

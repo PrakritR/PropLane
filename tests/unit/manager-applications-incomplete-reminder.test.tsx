@@ -50,7 +50,7 @@ vi.mock("@/lib/household-charges", () => ({
   findHoldingDepositCharge: () => undefined,
 }));
 
-import { ManagerApplications } from "@/components/portal/manager-applications";
+import { ManagerApplications } from "@/components/portal/pro-applications";
 
 afterEach(cleanup);
 

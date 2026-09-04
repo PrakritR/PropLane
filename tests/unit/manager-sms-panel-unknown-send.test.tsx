@@ -14,11 +14,11 @@ const showToast = vi.fn();
 vi.mock("@/components/providers/app-ui-provider", () => ({
   useAppUi: () => ({ showToast }),
 }));
-vi.mock("@/components/portal/manager-sms-compose-modal", () => ({
+vi.mock("@/components/portal/pro-sms-compose-modal", () => ({
   ManagerSmsComposeModal: () => null,
 }));
 
-import { ManagerSmsPanel } from "@/components/portal/manager-sms-panel";
+import { ManagerSmsPanel } from "@/components/portal/pro-sms-panel";
 
 const ROW_ID = "mgr-1:resident:res-1";
 const PAYLOAD = {

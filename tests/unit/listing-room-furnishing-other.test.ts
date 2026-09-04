@@ -12,7 +12,7 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 
 const source = readFileSync(
-  path.join(process.cwd(), "src/components/portal/manager-add-listing-form.tsx"),
+  path.join(process.cwd(), "src/components/portal/pro-add-listing-form.tsx"),
   "utf8",
 );
 

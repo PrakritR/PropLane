@@ -5,7 +5,7 @@ own payment-notification emails, and the setup a manager and resident each do.
 
 The in-product setup UI is the source of truth managers actually use:
 **Payments → Payment setup → Link Zelle / Link Venmo**
-(`src/components/portal/manager-payment-setup-modal.tsx`). This doc is the
+(`src/components/portal/pro-payment-setup-modal.tsx`). This doc is the
 architecture reference behind it; keep the two in sync.
 
 ## The two detection paths

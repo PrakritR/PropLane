@@ -11,7 +11,7 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 
 const panel = readFileSync(
-  path.join(process.cwd(), "src/components/portal/manager-property-house-details-panel.tsx"),
+  path.join(process.cwd(), "src/components/portal/pro-property-house-details-panel.tsx"),
   "utf8",
 );
 

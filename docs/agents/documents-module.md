@@ -53,7 +53,7 @@ Capacitor WebView instead of downloading. Shared types/constants/mappers live in
 
 **UI** — new **Library** tab (the first tab, also the section's default landing)
 on the manager Documents page: `ManagerDocumentLibrary`
-(`src/components/portal/manager-document-library.tsx`), rendered by
+(`src/components/portal/pro-document-library.tsx`), rendered by
 `manager-documents-panel.tsx`. Adding/removing a Documents tab id still requires
 editing THREE in-sync lists: `DOCUMENT_TABS` (panel), the `documents` section
 `tabs` in `src/lib/portals/pro.ts`, and `DOCUMENTS_TABS` in

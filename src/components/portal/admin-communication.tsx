@@ -3,7 +3,7 @@
 import { useCallback, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { AdminInboxClient, type AdminInboxClientHandle, type AdminInboxTabCounts } from "@/components/portal/admin-inbox-client";
-import { ManagerSmsPanel, type ManagerSmsPanelHandle } from "@/components/portal/manager-sms-panel";
+import { ManagerSmsPanel, type ManagerSmsPanelHandle } from "@/components/portal/pro-sms-panel";
 import { PortalCommunicationShell } from "@/components/portal/portal-communication-shell";
 import { PORTAL_HEADER_ACTION_BTN } from "@/components/portal/portal-metrics";
 

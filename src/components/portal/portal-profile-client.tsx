@@ -30,14 +30,14 @@ import {
   PortalSettingsSection,
   PortalSettingsSections,
 } from "@/components/portal/portal-settings-ui";
-import { ManagerPlan } from "@/components/portal/manager-plan";
-import { ManagerApiKeysPanel } from "@/components/portal/manager-api-keys-panel";
-import { ManagerMessagingSettingsPanel } from "@/components/portal/manager-messaging-settings-panel";
+import { ManagerPlan } from "@/components/portal/pro-plan";
+import { ManagerApiKeysPanel } from "@/components/portal/pro-api-keys-panel";
+import { ManagerMessagingSettingsPanel } from "@/components/portal/pro-messaging-settings-panel";
 import { PortalTextNotificationsBlock } from "@/components/portal/portal-text-notifications-block";
 import { MANAGER_PLAN_PORTAL_HASH } from "@/lib/portals/manager-plan-path";
 import { AssistantDisplaySetting } from "@/components/portal/assistant-display-setting";
 import { AssistantCustomInstructionsSetting } from "@/components/portal/assistant-custom-instructions-setting";
-import { ManagerNotificationRoutingSetting } from "@/components/portal/manager-notification-routing-setting";
+import { ManagerNotificationRoutingSetting } from "@/components/portal/pro-notification-routing-setting";
 import { NotificationsToggle } from "@/components/native/notifications-toggle";
 import { ThemeToggle } from "@/components/layout/theme-toggle";
 import { useAppUi } from "@/components/providers/app-ui-provider";

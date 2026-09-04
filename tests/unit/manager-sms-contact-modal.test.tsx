@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { ManagerSmsContactModal } from "@/components/portal/manager-sms-contact-modal";
+import { ManagerSmsContactModal } from "@/components/portal/pro-sms-contact-modal";
 
 afterEach(() => {
   cleanup();

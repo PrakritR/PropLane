@@ -35,7 +35,7 @@ vi.mock("@/lib/manager-applications-storage", () => ({
 }));
 vi.mock("@/lib/demo/demo-session", () => ({ isDemoModeActive: () => false }));
 vi.mock("@/lib/resident-public-nav", () => ({ residentBrowseFromApplicationHref: () => "/rent/browse" }));
-vi.mock("@/components/portal/manager-applications", () => ({
+vi.mock("@/components/portal/pro-applications", () => ({
   applicationPdfHref: () => "/api/manager-applications/test/pdf?disposition=inline",
 }));
 vi.mock("@/components/portal/resident-application-editor", () => ({ ResidentApplicationEditor: () => null }));

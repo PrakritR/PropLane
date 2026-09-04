@@ -66,7 +66,7 @@ vi.mock("@/lib/demo/demo-session", () => ({
   resolveManagerScopeUserId: (id: string | null) => id,
 }));
 
-import { ManagerApplications } from "@/components/portal/manager-applications";
+import { ManagerApplications } from "@/components/portal/pro-applications";
 
 // Unmount between tests. Clearing `document.body.innerHTML` detaches React's
 // committed tree WITHOUT unmounting it, so its scheduler later runs against a

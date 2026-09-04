@@ -29,7 +29,7 @@ import {
   ApplicationDocumentPreview,
   ApplicationPdfDownloadButton,
   runApplicationPdfDownload,
-} from "@/components/portal/manager-applications";
+} from "@/components/portal/pro-applications";
 import { PortalRecordDetailPage } from "@/components/portal/portal-record-detail-page";
 import {
   RESIDENT_DOCUMENTS_DETAIL_FOOTER_BTN,

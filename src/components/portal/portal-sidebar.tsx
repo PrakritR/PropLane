@@ -194,14 +194,18 @@ function buildPortalNavItems(
           },
         ];
       }
+      const tabPrefetchHrefs =
+        section.tabs.length > 0
+          ? section.section === "communication" && definition.kind === "admin"
+            ? section.tabs.map((tab) => `${definition.basePath}/communication/inbox/${tab.id}`)
+            : section.tabs.map((tab) => `${definition.basePath}/${section.section}/${tab.id}`)
+          : [`${definition.basePath}/${section.section}`];
       return [
         {
           section: section.section,
           label: section.label,
           href: hrefForSection(definition, section.section),
-          prefetchHrefs: section.tabs.length
-            ? section.tabs.map((tab) => `${definition.basePath}/${section.section}/${tab.id}`)
-            : [`${definition.basePath}/${section.section}`],
+          prefetchHrefs: tabPrefetchHrefs,
         },
       ];
     });

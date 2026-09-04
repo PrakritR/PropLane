@@ -43,10 +43,10 @@ vi.mock("@/lib/portal-inbox-storage", () => ({
   },
   inboxThreadMessages: () => [],
 }));
-vi.mock("@/components/portal/manager-inbox", () => ({ ManagerInbox: () => <div /> }));
-vi.mock("@/components/portal/manager-sms-panel", () => ({ ManagerSmsPanel: () => <div /> }));
+vi.mock("@/components/portal/pro-inbox", () => ({ ManagerInbox: () => <div /> }));
+vi.mock("@/components/portal/pro-sms-panel", () => ({ ManagerSmsPanel: () => <div /> }));
 
-import { ManagerUnifiedInbox } from "@/components/portal/manager-unified-inbox";
+import { ManagerUnifiedInbox } from "@/components/portal/pro-unified-inbox";
 
 const SMS_URL = "/api/manager/sms-conversations";
 

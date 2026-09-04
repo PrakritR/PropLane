@@ -7,7 +7,7 @@ const portalSource = (filename: string) =>
 
 describe("scheduled message modal layout", () => {
   it("opens manager scheduled-message detail in a dialog with the inline scheduled card", () => {
-    const source = portalSource("manager-inbox-schedule-panel.tsx");
+    const source = portalSource("pro-inbox-schedule-panel.tsx");
     const threadList = portalSource("portal-inbox-ui.tsx");
 
     // The panel opens the SHARED detail modal, which owns the title as a default

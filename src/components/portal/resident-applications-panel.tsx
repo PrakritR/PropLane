@@ -46,7 +46,7 @@ import {
   PORTAL_TABLE_TD,
 } from "@/components/portal/portal-data-table";
 import { Badge } from "@/components/ui/badge";
-import { ApplicationDocumentPreview } from "@/components/portal/manager-applications";
+import { ApplicationDocumentPreview } from "@/components/portal/pro-applications";
 import {
   ApplicationCosignerListRow,
   ApplicationCosignerSection,
@@ -58,7 +58,7 @@ import {
   groupIdForRow,
   groupRowInputForRow,
 } from "@/components/portal/application-group-section";
-import { ManagerCosignerReadonlyReview } from "@/components/portal/manager-cosigner-readonly-review";
+import { ManagerCosignerReadonlyReview } from "@/components/portal/pro-cosigner-readonly-review";
 import { useCosignerSubmissionsMap } from "@/hooks/use-cosigner-submissions-map";
 import { buildApplicationGroups, describeGroupBadge, groupForRow, type ApplicationGroupMember } from "@/lib/rental-application/application-groups";
 import {

@@ -62,7 +62,7 @@ describe("the three resident sections", () => {
 });
 
 describe("what a recipient row says", () => {
-  const modal = new URL("../../src/components/portal/manager-communication-compose-modal.tsx", import.meta.url);
+  const modal = new URL("../../src/components/portal/pro-communication-compose-modal.tsx", import.meta.url);
   const src = require("node:fs").readFileSync(modal, "utf8") as string;
 
   it("shows the name and the house, not an address", () => {

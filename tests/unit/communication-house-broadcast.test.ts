@@ -8,7 +8,7 @@
  */
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import { houseBroadcastOptions } from "@/components/portal/manager-communication-compose-modal";
+import { houseBroadcastOptions } from "@/components/portal/pro-communication-compose-modal";
 import { PROPLANE_SYSTEM_COUNTERPARTY_KEY, isProplaneSystemSenderEmail } from "@/lib/portal-inbox-storage";
 import type { InboxScopedContact } from "@/data/inbox-scoped-directory";
 
@@ -55,7 +55,7 @@ describe("one row per house", () => {
 });
 
 describe("the send path resolves houses late", () => {
-  const src = readFileSync("src/components/portal/manager-communication-compose-modal.tsx", "utf8");
+  const src = readFileSync("src/components/portal/pro-communication-compose-modal.tsx", "utf8");
 
   it("expands house: keys when the message is sent, not when the picker opened", () => {
     // A resident who moves in between opening the modal and hitting send should

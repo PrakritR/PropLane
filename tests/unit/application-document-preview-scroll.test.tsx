@@ -9,7 +9,7 @@ vi.mock("@/lib/demo-mode", () => ({
   isDemoModeActive: () => false,
 }));
 
-import { ApplicationDocumentPreview } from "@/components/portal/manager-applications";
+import { ApplicationDocumentPreview } from "@/components/portal/pro-applications";
 
 afterEach(cleanup);
 

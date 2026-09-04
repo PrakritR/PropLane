@@ -1,7 +1,7 @@
 "use client";
 
 import { Breadcrumbs, type Crumb } from "@/components/layout/breadcrumbs";
-import { PortalPropertyFilter } from "@/components/portal/manager-section-shell";
+import { PortalPropertyFilter } from "@/components/portal/pro-section-shell";
 import {
   MANAGER_TABLE_TH,
   PortalKpiTabStrip,

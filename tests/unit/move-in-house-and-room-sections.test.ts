@@ -75,7 +75,7 @@ describe("move-in: whole house vs the resident's own room", () => {
 });
 
 describe("manager move-in panel", () => {
-  const panel = readFileSync("src/components/portal/manager-property-room-move-in-panel.tsx", "utf8");
+  const panel = readFileSync("src/components/portal/pro-property-room-move-in-panel.tsx", "utf8");
   const view = readFileSync("src/components/portal/resident-move-in-view.tsx", "utf8");
 
   it("offers the house section to a room-by-room listing too", () => {

@@ -5,7 +5,7 @@
 // These tests drive the real modal and assert the persist path is only ever hit on Save.
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
-import { ManagerApplicationQuestionsEditorModal } from "@/components/portal/manager-application-questions-editor-modal";
+import { ManagerApplicationQuestionsEditorModal } from "@/components/portal/pro-application-questions-editor-modal";
 import { createDefaultListingSubmission } from "@/lib/manager-listing-submission";
 
 const persistBulk = vi.fn(() => ({ saved: 4, failed: 0 }));

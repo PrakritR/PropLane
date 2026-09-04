@@ -71,7 +71,7 @@ vi.mock("@/lib/demo/demo-session", () => ({
   resolveManagerScopeUserId: (id: string | null) => id,
 }));
 
-import { ManagerApplications } from "@/components/portal/manager-applications";
+import { ManagerApplications } from "@/components/portal/pro-applications";
 
 const NAMELESS_DRAFT: DemoApplicantRow = {
   id: "AXIS-40404",

@@ -2,7 +2,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 
-import { ManagerApiKeysPanel } from "@/components/portal/manager-api-keys-panel";
+import { ManagerApiKeysPanel } from "@/components/portal/pro-api-keys-panel";
 
 describe("ManagerApiKeysPanel permissions", () => {
   afterEach(() => {

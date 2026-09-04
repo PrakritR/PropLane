@@ -51,7 +51,7 @@ vi.mock("@/components/portal/portal-metrics", () => ({
   ManagerPortalPageShell: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
 }));
 
-import { ManagerPlanNative } from "@/components/portal/manager-plan-native";
+import { ManagerPlanNative } from "@/components/portal/pro-plan-native";
 import { PortalTierPaywall } from "@/components/portal/portal-tier-paywall";
 
 /** Any href that would take a native user off-app to buy/upgrade. */

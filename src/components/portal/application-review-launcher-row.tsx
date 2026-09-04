@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, type ReactNode } from "react";
-import { ManagerApplicationReadonlyReview } from "@/components/portal/manager-application-readonly-review";
+import { ManagerApplicationReadonlyReview } from "@/components/portal/pro-application-readonly-review";
 import { ApplicationScreeningPanel } from "@/components/portal/application-screening-panel";
 import { ApplicationVerificationPhotos } from "@/components/portal/application-verification-photos";
 import { applicationShowsBackgroundCheck } from "@/lib/application-background-check";

@@ -88,7 +88,7 @@ vi.mock("@/lib/demo/demo-session", () => ({
   resolveManagerScopeUserId: (id: string | null) => (SCOPE_RESOLVES ? id : null),
 }));
 
-import { ManagerApplications } from "@/components/portal/manager-applications";
+import { ManagerApplications } from "@/components/portal/pro-applications";
 
 const APPLICANT_NAME = "Maya Alvarez";
 const APPLICANT_EMAIL = "maya.alvarez@example.com";

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { listingWizardStepIndices } from "@/components/portal/manager-add-listing-form";
+import { listingWizardStepIndices } from "@/components/portal/pro-add-listing-form";
 import {
   applyListingBedroomSlots,
   applyListingBathroomSlots,

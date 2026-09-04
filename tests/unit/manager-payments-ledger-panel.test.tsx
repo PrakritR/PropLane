@@ -2,7 +2,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import type { DemoManagerPaymentLedgerRow } from "@/data/demo-portal";
-import { ManagerPaymentsLedgerPanel } from "@/components/portal/manager-payments-ledger-panel";
+import { ManagerPaymentsLedgerPanel } from "@/components/portal/pro-payments-ledger-panel";
 
 const navigate = vi.fn();
 

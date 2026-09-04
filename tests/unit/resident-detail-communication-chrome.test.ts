@@ -4,7 +4,7 @@ import { join } from "node:path";
 
 const read = (p: string) => readFileSync(join(process.cwd(), p), "utf8");
 
-const RESIDENTS = read("src/components/portal/manager-residents.tsx");
+const RESIDENTS = read("src/components/portal/pro-residents.tsx");
 const DETAIL_PAGE = read("src/components/portal/portal-record-detail-page.tsx");
 const GLOBALS_CSS = read("src/app/globals.css");
 

@@ -14,7 +14,7 @@ vi.mock("@/components/providers/app-ui-provider", () => ({
 import {
   ManagerSmsWorkNumberHint,
   ManagerWorkNumberCopyControl,
-} from "@/components/portal/manager-sms-work-number-hint";
+} from "@/components/portal/pro-sms-work-number-hint";
 
 afterEach(() => {
   cleanup();

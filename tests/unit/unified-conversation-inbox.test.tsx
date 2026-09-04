@@ -110,19 +110,19 @@ vi.mock("@/lib/portal-inbox-storage", () => ({
     { id: `${t.id}-root`, from: t.from, body: t.body, at: t.time },
   ],
 }));
-vi.mock("@/components/portal/manager-inbox", () => ({
+vi.mock("@/components/portal/pro-inbox", () => ({
   ManagerInbox: () => <div data-testid="embedded-email-thread" />,
 }));
-vi.mock("@/components/portal/manager-resident-detail-inbox", () => ({
+vi.mock("@/components/portal/pro-resident-detail-inbox", () => ({
   ResidentDirectChatPane: ({ onSent }: { onSent: () => void }) => (
     <button type="button" data-testid="direct-chat-sent" onClick={onSent}>
       Sent
     </button>
   ),
 }));
-vi.mock("@/components/portal/manager-sms-panel", () => ({ ManagerSmsPanel: () => <div /> }));
+vi.mock("@/components/portal/pro-sms-panel", () => ({ ManagerSmsPanel: () => <div /> }));
 
-import { ManagerUnifiedInbox } from "@/components/portal/manager-unified-inbox";
+import { ManagerUnifiedInbox } from "@/components/portal/pro-unified-inbox";
 
 afterEach(() => {
   cleanup();

@@ -37,7 +37,7 @@ vi.mock("@/lib/channel-calendar/client", () => ({
   saveManagerChannelCalendarLink: () => Promise.resolve({ ok: true }),
 }));
 
-import { ManagerPropertyBookingsPanel } from "@/components/portal/manager-property-bookings-panel";
+import { ManagerPropertyBookingsPanel } from "@/components/portal/pro-property-bookings-panel";
 import { createDefaultListingSubmission } from "@/lib/manager-listing-submission";
 
 const LEASES = [

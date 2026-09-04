@@ -94,7 +94,7 @@ vi.mock("@/lib/demo/demo-session", () => ({
   resolveManagerScopeUserId: (id: string | null) => id,
 }));
 
-import { ManagerApplications } from "@/components/portal/manager-applications";
+import { ManagerApplications } from "@/components/portal/pro-applications";
 import { PROPERTY_PIPELINE_EVENT } from "@/lib/demo-property-pipeline";
 
 const MY_PROPERTY_ID = "mgr-magnolia-2b-a1b2c3";

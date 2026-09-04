@@ -76,7 +76,7 @@ vi.stubGlobal("fetch", async (input: RequestInfo | URL) => {
   });
 });
 
-import { ManagerPropertyTourPanel } from "@/components/portal/manager-property-tour-panel";
+import { ManagerPropertyTourPanel } from "@/components/portal/pro-property-tour-panel";
 
 const EVIDENCE_DIR = process.env.EVIDENCE_DIR ?? "";
 const captured: { name: string; html: string }[] = [];

@@ -13,7 +13,7 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 
 const panel = readFileSync(
-  path.join(process.cwd(), "src/components/portal/manager-house-properties-panel.tsx"),
+  path.join(process.cwd(), "src/components/portal/pro-house-properties-panel.tsx"),
   "utf8",
 );
 const modal = readFileSync(
