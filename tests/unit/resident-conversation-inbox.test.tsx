@@ -43,6 +43,7 @@ vi.mock("@/lib/portal-inbox-storage", async () => {
     "@/lib/portal-inbox-storage",
   );
   return {
+    ...actual,
     PORTAL_INBOX_CHANGED_EVENT: "portal-inbox-changed",
     RESIDENT_INBOX_STORAGE_KEY: "resident-inbox",
     inboxThreadSortMs: actual.inboxThreadSortMs,

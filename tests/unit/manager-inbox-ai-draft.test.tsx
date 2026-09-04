@@ -39,7 +39,8 @@ const THREADS = [
 
 let inboxRows = THREADS;
 
-vi.mock("@/lib/portal-inbox-storage", () => ({
+vi.mock("@/lib/portal-inbox-storage", async (importOriginal) => ({
+  ...(await importOriginal<Record<string, unknown>>()),
   collapsePersonInboxThreads: (threads: unknown[]) => threads,
   resolveCollapsedInboxThread: (id: string | null, collapsed: Array<{ id: string }>) => collapsed.find((t) => t.id === id) ?? null,
   inboxThreadCounterpartyEmail: (t: { email?: string }) => t.email ?? "",
