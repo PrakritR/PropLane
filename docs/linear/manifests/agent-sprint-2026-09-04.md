@@ -154,10 +154,12 @@ bin/fm-proplane-promote-to-prakrit.sh cursor-1
 
 | Agent | Ticket | Status |
 | --- | --- | --- |
-| cursor-1 | PRP-275 | **Plan ready** — waiting `approved — build` |
-| cursor-2 | PRP-193 | **Plan ready** — waiting `approved — build` |
-| claude-1 | PRP-254 | **Merged to prakrit** (`1eb0db93`) |
-| claude-1 | PRP-184 #11 | Plan pending — run workflow:plan on :3012 |
+| cursor-1 | PRP-275 | **Done** — on `prakrit` |
+| cursor-1 | PRP-184 #1 + #2 | **In progress** — resident nested controls + public/auth contrast |
+| cursor-2 | PRP-193 | **Done** — on `prakrit` |
+| claude-1 | PRP-254 | **Done** — on `prakrit` |
+| claude-1 | PRP-192 | **Done** — account deletion script on `prakrit` |
+| claude-1 | PRP-184 #11 | **Next** — admin schedule soft-404 |
 
 ---
 

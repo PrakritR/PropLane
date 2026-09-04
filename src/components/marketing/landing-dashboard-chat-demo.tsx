@@ -182,7 +182,7 @@ export function LandingDashboardChatDemo() {
           </div>
 
           <div className="lp-dash-demo-split">
-            <div className={`lp-dash-pane${dashLive ? " lp-dash-pane--live" : ""}`} aria-hidden={false}>
+            <div className={`lp-dash-pane${dashLive ? " lp-dash-pane--live" : ""}`}>
               <DemoDashboardShell
                 overdueAccent={overdueAccent}
                 overdueSub={overdueSub}

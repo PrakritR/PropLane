@@ -2302,7 +2302,7 @@
 }
 
 .lp-page-list .lp-mark-muted {
-  color: color-mix(in srgb, var(--lp-muted) 55%, transparent);
+  color: color-mix(in srgb, var(--lp-ink) 55%, var(--lp-muted));
   font-weight: 500;
 }
 
