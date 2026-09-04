@@ -138,6 +138,10 @@ async function main() {
 
   console.log(`\nDone. Deleted ${portalRows} portal/profile rows and ${deletedUsers} auth users.`);
   console.log("E2E fixtures: run `npm run test:seed` only when running Playwright tests.");
+  console.log("\nBrowser caches are NOT cleared by this script.");
+  console.log("On each sandbox port, run once after wipe:");
+  console.log("  npm run sandbox:pin -- <port>   # e.g. 3010 for cursor-1");
+  console.log("  open http://localhost:<port>/auth/sign-in?clear_cache=1");
 }
 
 main().catch((err) => {

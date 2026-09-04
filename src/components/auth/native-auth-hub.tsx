@@ -23,6 +23,7 @@ import {
 } from "@/lib/auth/post-oauth-routing";
 import { detectNativePlatformSync } from "@/lib/native/detect-native";
 import { createSupabaseBrowserClient } from "@/lib/supabase/browser";
+import { clearPortalBrowserCache, isLocalDevHost } from "@/lib/auth/clear-portal-browser-cache";
 import { recoverImplicitAuthHash } from "@/lib/auth/recover-implicit-auth-hash";
 import { waitForOAuthUser } from "@/lib/auth/wait-for-oauth-user";
 import { isNativeOAuthInProgress } from "@/lib/native/open-url";
@@ -113,6 +114,16 @@ function NativeAuthHubInner({ defaultMode = "sign-in" }: NativeAuthHubProps) {
     // eslint-disable-next-line react-hooks/set-state-in-effect -- one-time hydration from stored login on mount
     if (remembered) setEmail(remembered);
   }, []);
+
+  // After `npm run wipe:test:all`, open `/auth/sign-in?clear_cache=1` on localhost to drop stale portal caches.
+  useEffect(() => {
+    if (searchParams.get("clear_cache") !== "1" || !isLocalDevHost()) return;
+    clearPortalBrowserCache();
+    const params = new URLSearchParams(searchParams.toString());
+    params.delete("clear_cache");
+    const qs = params.toString();
+    router.replace(qs ? `${window.location.pathname}?${qs}` : window.location.pathname);
+  }, [router, searchParams]);
 
   // Magic-link / implicit-flow redirects land with tokens in the hash on sign-in.
   useEffect(() => {

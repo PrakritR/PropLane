@@ -32,6 +32,9 @@ _Pick up after PRP-171 — resident apply → lease → payments on **3010**._
 
 | # | Issue | PRP | Lavish plan | Status |
 | --- | --- | --- | --- | --- |
+| 1 | Auth blockers (login 404, magic link hash, get-started spinner, signup sign-in lag, manager tier routing) | PRP-172–177 | — | **Fixed on `prakrit`** (`e3086e9b` / `980c84bb`) |
+| 2 | DB wipe leaves ghost portal data in browser storage | PRP-178 | — | **Fixed** — `/auth/sign-in?clear_cache=1` on localhost + wipe script hint |
+| 3 | Sandbox port drift breaks auth redirects | PRP-179 | — | **Mitigated** — `npm run sandbox:pin -- 3010` |
 
 ## Claude 1 log (comms / vendor / admin)
 
