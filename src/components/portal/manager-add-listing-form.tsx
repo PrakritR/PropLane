@@ -1413,6 +1413,19 @@ export function ManagerAddListingForm({
       else next.delete(roomId);
       return next;
     });
+  /**
+   * Rooms whose furnishing "Other" write-in is open (AXI-136). Same shape as the
+   * amenities toggle above: the box also counts as open whenever `detail`
+   * already holds text, so a saved note is never hidden behind an unticked box.
+   */
+  const [otherFurnishingOpenRooms, setOtherFurnishingOpenRooms] = useState<Set<string>>(() => new Set());
+  const toggleOtherFurnishingOpen = (roomId: string, on: boolean) =>
+    setOtherFurnishingOpenRooms((prev) => {
+      const next = new Set(prev);
+      if (on) next.add(roomId);
+      else next.delete(roomId);
+      return next;
+    });
   const roomIsFurnished = (room: ManagerRoomSubmission): boolean =>
     furnishedOpenRooms.has(room.id) || roomFurnishingIsFurnished(room.furnishing);
   const setRoomFurnished = (index: number, room: ManagerRoomSubmission, on: boolean) => {
@@ -4207,12 +4220,41 @@ export function ManagerAddListingForm({
                                   );
                                 })}
                               </div>
-                              <Input
-                                className="mt-2 h-9 text-sm"
-                                value={room.detail}
-                                onChange={(e) => setRoom(i, { detail: e.target.value })}
-                                placeholder="Other furnishing notes (optional)"
-                              />
+                              {(() => {
+                                const otherOn =
+                                  otherFurnishingOpenRooms.has(room.id) || room.detail.trim() !== "";
+                                return (
+                                  <>
+                                    <label
+                                      className={`mt-2 flex w-full cursor-pointer items-center gap-2 rounded-lg border px-3 py-2 text-sm transition sm:w-auto ${otherOn ? "border-primary/30 bg-primary/[0.05]" : "border-border bg-card"}`}
+                                    >
+                                      <input
+                                        type="checkbox"
+                                        className="h-4 w-4 rounded border-border"
+                                        checked={otherOn}
+                                        data-attr={`listing-room-furnishing-other-${room.id}`}
+                                        onChange={(e) => {
+                                          toggleOtherFurnishingOpen(room.id, e.target.checked);
+                                          // Unticking clears the note, or the box
+                                          // would re-open itself on the next render.
+                                          if (!e.target.checked && room.detail.trim()) {
+                                            setRoom(i, { detail: "" });
+                                          }
+                                        }}
+                                      />
+                                      <span className="font-medium text-foreground">Other</span>
+                                    </label>
+                                    {otherOn ? (
+                                      <Input
+                                        className="mt-2 h-9 text-sm"
+                                        value={room.detail}
+                                        onChange={(e) => setRoom(i, { detail: e.target.value })}
+                                        placeholder="Other furnishing, comma-separated"
+                                      />
+                                    ) : null}
+                                  </>
+                                );
+                              })()}
                             </>
                           ) : null}
                         </div>
