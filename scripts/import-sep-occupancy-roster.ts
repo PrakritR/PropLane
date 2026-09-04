@@ -15,6 +15,7 @@ import { createClient } from "@supabase/supabase-js";
 import type { DemoApplicantRow } from "@/data/demo-portal";
 import { AIRBNB_LEASE_TERM } from "@/lib/rental-application/lease-terms";
 import { LISTING_ROOM_CHOICE_SEP } from "@/lib/rental-application/data";
+import { createInitialRentalWizardState } from "@/lib/rental-application/state";
 import {
   SEP_2026_OCCUPANCY_SEGMENTS,
   occupancyImportAxisId,
@@ -91,7 +92,13 @@ function buildRow(
       leaseTerm: isAirbnb ? "airbnb" : "long_term",
       notes: "Sep 2026 occupancy import",
     },
+    // A full RentalWizardFormState, not a partial: the row is written verbatim
+    // into `row_data`, and every reader (charges, lease generation, the resident
+    // portal) expects the whole shape. Building from the same factory the form
+    // uses means a field added later arrives with its real default rather than
+    // as undefined.
     application: {
+      ...createInitialRentalWizardState(),
       propertyId: segment.propertyId,
       roomChoice1: roomChoice,
       leaseTerm: isAirbnb ? AIRBNB_LEASE_TERM : "12-Month",
@@ -197,7 +204,11 @@ async function main() {
     const values = {
       id: row.id,
       manager_user_id: row.managerUserId || effectiveManagerId,
-      resident_email: row.email.trim().toLowerCase(),
+      // `email` is optional on the row type; every row this script builds has one
+      // (slugEmail always returns a string), so this is a type guard rather than
+      // a real case — but an empty resident_email would silently orphan the row,
+      // so it refuses instead.
+      resident_email: (row.email ?? "").trim().toLowerCase(),
       property_id: row.assignedPropertyId || null,
       assigned_property_id: row.assignedPropertyId || null,
       row_data: row,

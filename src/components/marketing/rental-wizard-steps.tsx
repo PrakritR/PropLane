@@ -1,3 +1,4 @@
+import { applicationRentalTypeFor } from "@/lib/rental-application/lease-terms";
 "use client";
 
 import { type ReactNode } from "react";
@@ -368,7 +369,7 @@ export function RentalWizardStepBody(p: WizardStepsProps) {
   // independently-configured question sets. `rentalType` is derived from the
   // step-3 lease-term dropdown (the single listing-permission gate), so the two
   // can never disagree.
-  const applicationConfig = applicationConfigForVariant(listingSub, form.rentalType);
+  const applicationConfig = applicationConfigForVariant(listingSub, applicationRentalTypeFor(form.rentalType));
   const showWizardField = (key: string) => isWizardFormFieldEnabled(applicationConfig, key);
 
   // Photo uploads are read-only in the portal's editor (an already-submitted
@@ -436,7 +437,7 @@ export function RentalWizardStepBody(p: WizardStepsProps) {
     const inviteAppId = savedApplicationId.trim();
     const propertyOffersBundles =
       form.propertyId.trim().length > 0 &&
-      getBundleOptionsForProperty(form.propertyId, { rentalType: form.rentalType }).length > 0;
+      getBundleOptionsForProperty(form.propertyId, { rentalType: applicationRentalTypeFor(form.rentalType) }).length > 0;
 
     return (
       <div className="rental-wizard-step space-y-4">
@@ -677,7 +678,7 @@ export function RentalWizardStepBody(p: WizardStepsProps) {
     // there is nothing to choose (the application is for the whole home).
     const entireHome = Boolean(form.propertyId) && isEntireHomeProperty(form.propertyId);
     const bundleOptions = form.propertyId
-      ? getBundleOptionsForProperty(form.propertyId, { rentalType: form.rentalType })
+      ? getBundleOptionsForProperty(form.propertyId, { rentalType: applicationRentalTypeFor(form.rentalType) })
       : [];
     const bundleSelected = Boolean(form.bundleId.trim());
     const propertySearchOptions = propertyOptions.map((o) => {
@@ -1977,7 +1978,7 @@ export function RentalWizardStepBody(p: WizardStepsProps) {
     const roomLabel = (id: string) => getRoomChoiceLabel(id);
     const reviewByRoom = isPropertyRentedByRoom(form.propertyId);
     const reviewBundleLabel = form.bundleId.trim()
-      ? getBundleChoiceLabel(form.propertyId, form.bundleId, { rentalType: form.rentalType })
+      ? getBundleChoiceLabel(form.propertyId, form.bundleId, { rentalType: applicationRentalTypeFor(form.rentalType) })
       : "";
     // Only review the sections this form actually asks. The short-term form
     // skips the screening sections, so the summary (and its "Edit" links) must
@@ -2368,7 +2369,7 @@ export function RentalWizardStepBody(p: WizardStepsProps) {
               residentEmail={form.email.trim()}
               residentName={form.fullLegalName.trim() || undefined}
               managerUserId={managerUserIdForPay}
-              rentalType={form.rentalType}
+              rentalType={applicationRentalTypeFor(form.rentalType)}
               returnPath={applyReturnPath ?? "/rent/apply"}
             />
           ) : (

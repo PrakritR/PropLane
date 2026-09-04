@@ -42,6 +42,22 @@ export function isAirbnbRentalType(rentalType?: string | null): boolean {
   return rentalType === "airbnb";
 }
 
+/**
+ * The two-value rental type the application form, its field catalog and the
+ * bundle helpers understand.
+ *
+ * `RentalWizardFormState.rentalType` gained "airbnb" for the September occupancy
+ * roster, but those consumers were written for `standard | short_term` and were
+ * left un-widened — which is what put 14 type errors on the branch. An Airbnb
+ * stay IS a short stay to every one of them, and the charge path already treats
+ * it that way (`household-charges.ts` skips both when syncing approved standard
+ * charges), so mapping here keeps one definition of that rule instead of
+ * scattering `=== "airbnb"` through the form.
+ */
+export function applicationRentalTypeFor(rentalType?: string | null): "standard" | "short_term" {
+  return rentalType === "short_term" || rentalType === "airbnb" ? "short_term" : "standard";
+}
+
 /** Order lease terms into `LEASE_TERM_DISPLAY_ORDER`; unknown values sort last, stably. */
 export function sortLeaseTermsCanonical(terms: string[]): string[] {
   const rank = (t: string): number => {

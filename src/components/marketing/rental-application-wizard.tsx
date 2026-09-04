@@ -42,7 +42,10 @@ import {
   listingAllowedLeaseTerms,
   LISTING_ROOM_CHOICE_SEP,
 } from "@/lib/rental-application/data";
-import { SHORT_TERM_LEASE_TERM } from "@/lib/rental-application/lease-terms";
+import {
+  SHORT_TERM_LEASE_TERM,
+  applicationRentalTypeFor,
+} from "@/lib/rental-application/lease-terms";
 import { resolveApplicationFeePayChannel, isAchApplicationFeeChannel } from "@/lib/rental-application/application-fee-channel";
 import {
   clearRentalWizardDraft,
@@ -481,7 +484,7 @@ function RentalApplicationWizardInner({
     const prop = form.propertyId.trim() ? getPropertyById(form.propertyId.trim()) : undefined;
     const listingSub = prop?.listingSubmission?.v === 1 ? prop.listingSubmission : undefined;
     return activeApplicationWizardSteps(
-      applicationConfigForVariant(listingSub, form.rentalType),
+      applicationConfigForVariant(listingSub, applicationRentalTypeFor(form.rentalType)),
       normalizeCustomApplicationFields,
     );
   }, [form.propertyId, form.rentalType, extrasTick]);
@@ -696,7 +699,7 @@ function RentalApplicationWizardInner({
       void fetchApplicationFeePreview({
         propertyId: pid,
         managerUserId,
-        rentalType: form.rentalType,
+        rentalType: applicationRentalTypeFor(form.rentalType),
         residentEmail: email,
       }).then((preview) => {
         if (cancelled) return;
@@ -1394,7 +1397,7 @@ function RentalApplicationWizardInner({
           ? await fetchApplicationFeePreview({
               propertyId: pid,
               managerUserId: managerUserIdForFee,
-              rentalType: form.rentalType,
+              rentalType: applicationRentalTypeFor(form.rentalType),
             })
           : null;
       ensurePendingApplicationFeeCharge({
@@ -1578,7 +1581,7 @@ function RentalApplicationWizardInner({
           const preview = await fetchApplicationFeePreview({
             propertyId: pid,
             managerUserId: managerUserIdForFee,
-            rentalType: form.rentalType,
+            rentalType: applicationRentalTypeFor(form.rentalType),
           });
           if (preview) applicationFeeAmount = preview.applicationFeeCents / 100;
         }
@@ -1776,7 +1779,7 @@ function RentalApplicationWizardInner({
         ? await fetchApplicationFeePreview({
             propertyId: pid,
             managerUserId: managerUserIdForFee,
-            rentalType: form.rentalType,
+            rentalType: applicationRentalTypeFor(form.rentalType),
           })
         : null;
       const feeAmountOverride = feePreview ? feePreview.applicationFeeCents / 100 : undefined;
@@ -1897,7 +1900,7 @@ function RentalApplicationWizardInner({
           feePreview = await fetchApplicationFeePreview({
             propertyId: pid,
             managerUserId: managerUserIdForFee,
-            rentalType: form.rentalType,
+            rentalType: applicationRentalTypeFor(form.rentalType),
             residentEmail: emailTrim,
           });
           if (!feePreview) {
