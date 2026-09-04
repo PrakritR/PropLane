@@ -1,16 +1,25 @@
 #!/usr/bin/env node
 /**
- * Nuclear wipe of the dev/test Supabase project — all portal rows + all auth users.
- * NEVER runs against production.
+ * Nuclear wipe of the dev/test Supabase project — all portal rows + all auth users
+ * except the captain dogfood keep-list (akhil-manager / akhil-resident + that
+ * portfolio's residents). NEVER runs against production.
+ *
+ * This is NEVER automatic (not CI, not a hook, not test:seed). Do not run it
+ * unless a human explicitly asked for a full wipe.
  *
  * Usage:
  *   ALLOW_DEV_WIPE=1 npm run wipe:test:all
  *   ALLOW_DEV_WIPE=1 node --env-file=.env.test scripts/wipe-test-db-all.mjs
  *
- * Does NOT re-seed. Run `npm run test:seed` only when E2E fixtures are needed.
+ * Does NOT re-seed. Run `npm run test:seed` to restore E2E fixtures and the
+ * dogfood pair.
  */
 import { createClient } from "@supabase/supabase-js";
-import { assertTestProjectUrl, TEST_SUPABASE_PROJECT_REF } from "../tests/helpers/canonical-test-accounts.mjs";
+import {
+  assertTestProjectUrl,
+  DOGFOOD_KEEP_EMAILS,
+  TEST_SUPABASE_PROJECT_REF,
+} from "../tests/helpers/canonical-test-accounts.mjs";
 import { PRODUCTION_SUPABASE_PROJECT_REF } from "../tests/helpers/canonical-production-accounts.mjs";
 
 const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -126,18 +135,28 @@ async function main() {
   await deleteAllFrom("profile_roles");
   portalRows += await deleteAllFrom("profiles");
 
+  const keepEmails = new Set(DOGFOOD_KEEP_EMAILS.map((email) => email.trim().toLowerCase()));
   const users = await listAllUsers();
   let deletedUsers = 0;
+  let keptUsers = 0;
   for (const user of users) {
-    const email = user.email ?? user.id;
+    const email = (user.email ?? "").trim().toLowerCase();
+    if (email && keepEmails.has(email)) {
+      console.log(`  kept dogfood auth user ${email}`);
+      keptUsers += 1;
+      continue;
+    }
+    const label = email || user.id;
     const { error } = await sb.auth.admin.deleteUser(user.id);
-    if (error) throw new Error(`deleteUser(${email}): ${error.message}`);
-    console.log(`  deleted auth user ${email}`);
+    if (error) throw new Error(`deleteUser(${label}): ${error.message}`);
+    console.log(`  deleted auth user ${label}`);
     deletedUsers += 1;
   }
 
-  console.log(`\nDone. Deleted ${portalRows} portal/profile rows and ${deletedUsers} auth users.`);
-  console.log("E2E fixtures: run `npm run test:seed` only when running Playwright tests.");
+  console.log(
+    `\nDone. Deleted ${portalRows} portal/profile rows and ${deletedUsers} auth users; kept ${keptUsers} dogfood auth users.`,
+  );
+  console.log("Restore fixtures + dogfood portfolio: `npm run test:seed`.");
 }
 
 main().catch((err) => {
