@@ -392,7 +392,11 @@ export function getRoomOptionsForProperty(propertyId: string, options: RoomAvail
         const daily = roomDailyRentPrice(r);
         const rent = daily !== undefined ? `$${daily}/day` : r.monthlyRent > 0 ? `$${r.monthlyRent}/mo` : "Rent TBD";
         const floor = normFloorLabel(r.floor);
-        const label = [r.name.trim(), floor, rent].filter(Boolean).join(" · ");
+        // Size sits beside the rent so a prospect ranking rooms can see WHY one
+        // costs more (AXI-167). Omitted entirely when the manager did not state
+        // it — never "0 sq ft", which would assert a fact nobody supplied.
+        const size = r.sizeSqft != null && r.sizeSqft > 0 ? `${r.sizeSqft} sq ft` : "";
+        const label = [r.name.trim(), floor, size, rent].filter(Boolean).join(" · ");
         return { value: `${selected.id}${LISTING_ROOM_CHOICE_SEP}${r.id}`, label };
       });
     }

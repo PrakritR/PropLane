@@ -74,6 +74,7 @@ import {
   formatLeaseTermsBodyFromAllowed,
   isEntireHomeListing,
   normalizeManagerListingSubmissionV1,
+  normalizeRoomSizeSqft,
   resolveAllowedLeaseTerms,
   syncAirbnbLeaseTermInAllowed,
   syncShortTermLeaseTermInAllowed,
@@ -4232,6 +4233,23 @@ export function ManagerAddListingForm({
                             </option>
                           ))}
                         </Select>
+                      </GridField>
+                      <GridField>
+                        <FieldLabel optional hint="Shown beside the rent so a prospect can see why one room costs more.">
+                          Size (sq ft)
+                        </FieldLabel>
+                        <Input
+                          inputMode="numeric"
+                          aria-label={`Size in square feet for ${room.name || `room ${i + 1}`}`}
+                          className={listingTextInputCls}
+                          value={room.sizeSqft != null ? String(room.sizeSqft) : ""}
+                          placeholder="120"
+                          onChange={(e) =>
+                            // Blank clears it back to "not stated" rather than 0 —
+                            // a 0 would render as "0 sq ft" on the listing.
+                            setRoom(i, { sizeSqft: normalizeRoomSizeSqft(e.target.value) })
+                          }
+                        />
                       </GridField>
                       <div className="sm:col-span-2">
                         <FieldLabel hint="Check Furnished to list included items.">Furnishing</FieldLabel>
