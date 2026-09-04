@@ -48,7 +48,13 @@ New tickets from `npm run linear:ticket` get the same assignee + priority automa
 Cursor rule: `.cursor/rules/linear-chat-tickets.mdc`.
 
 **Full pipeline:** Ticket is phase ① only. See **`docs/agents/captain-dev-workflow.md`**
-for ② Lavish plan → ③ build → ④ review → ⑤ promote to prakrit.
+for ② Lavish plan + `ticket.md` share → ③ execute → ④ review → ⑤ promote to prakrit.
+
+**Export ticket for friends (phase ②):**
+
+```bash
+npm run linear:export -- --ticket PRP-180 --out .lavish/plans/PRP-180-slug/ticket.md
+```
 
 ---
 

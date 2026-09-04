@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>PropLane — Captain workflow</title>
+  <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
+  <link href="https://cdn.jsdelivr.net/npm/daisyui@5/dist/full.min.css" rel="stylesheet" />
+  <script type="module">
+    import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs";
+    mermaid.initialize({ startOnLoad: true, theme: "neutral" });
+  </script>
+  <style>
+    body { min-height: 100vh; }
+    .wrap { max-width: 56rem; margin: 0 auto; }
+    .phase-num { font-variant-numeric: tabular-nums; }
+    pre { overflow-x: auto; font-size: 0.8rem; }
+    .mermaid { background: transparent; }
+  </style>
+</head>
+<body class="bg-base-200 text-base-content p-6 md:p-10">
+  <div class="wrap">
+    <div class="badge badge-primary mb-3">Captain workflow</div>
+    <h1 class="text-3xl md:text-4xl font-bold mb-2">Ticket → Plan → Execute</h1>
+    <p class="text-base-content/70 mb-8 max-w-2xl">
+      The default pipeline for every agent pane. <strong>No code</strong> until Lavish plan is approved.
+      Share <code>ticket.md</code> with a friend; review <code>plan.html</code> in Lavish.
+    </p>
+
+    <div class="grid gap-4 md:grid-cols-5 mb-10">
+      <div class="card bg-base-100 shadow-md border-l-4 border-primary">
+        <div class="card-body p-4">
+          <div class="text-xs font-semibold uppercase text-primary phase-num">① Ticket</div>
+          <h2 class="font-bold text-lg">Linear first</h2>
+          <p class="text-sm opacity-80">Every idea, bug, or task gets PRP-### before planning.</p>
+        </div>
+      </div>
+      <div class="card bg-base-100 shadow-md border-l-4 border-secondary">
+        <div class="card-body p-4">
+          <div class="text-xs font-semibold uppercase text-secondary phase-num">② Plan</div>
+          <h2 class="font-bold text-lg">Lavish + MD</h2>
+          <p class="text-sm opacity-80">plan.html for you; ticket.md to share.</p>
+        </div>
+      </div>
+      <div class="card bg-base-100 shadow-md border-l-4 border-accent">
+        <div class="card-body p-4">
+          <div class="text-xs font-semibold uppercase text-accent phase-num">③ Execute</div>
+          <h2 class="font-bold text-lg">Build</h2>
+          <p class="text-sm opacity-80">Keeper branch, MCP, docs, tests.</p>
+        </div>
+      </div>
+      <div class="card bg-base-100 shadow-md border-l-4 border-info">
+        <div class="card-body p-4">
+          <div class="text-xs font-semibold uppercase text-info phase-num">④ Review</div>
+          <h2 class="font-bold text-lg">Sandbox</h2>
+          <p class="text-sm opacity-80">localhost:3010 etc. — not prakrit yet.</p>
+        </div>
+      </div>
+      <div class="card bg-base-100 shadow-md border-l-4 border-success">
+        <div class="card-body p-4">
+          <div class="text-xs font-semibold uppercase text-success phase-num">⑤ Promote</div>
+          <h2 class="font-bold text-lg">prakrit</h2>
+          <p class="text-sm opacity-80">Captain approves merge to integration.</p>
+        </div>
+      </div>
+    </div>
+
+    <section class="card bg-base-100 shadow-md mb-6">
+      <div class="card-body">
+        <h2 class="card-title">Flow</h2>
+        <pre class="mermaid">
+flowchart LR
+  T[① Linear ticket] --> E[Export ticket.md]
+  E --> P[② Lavish plan.html]
+  P --> A{Captain approved?}
+  A -->|no| P
+  A -->|yes| B[③ Execute on keeper branch]
+  B --> R[④ Review sandbox]
+  R --> M[⑤ Promote prakrit]
+        </pre>
+      </div>
+    </section>
+
+    <section class="card bg-base-100 shadow-md mb-6">
+      <div class="card-body">
+        <h2 class="card-title">Commands (copy-paste)</h2>
+        <div class="space-y-4 text-sm">
+          <div>
+            <p class="font-semibold mb-1">① Create ticket</p>
+            <pre class="bg-base-200 p-3 rounded-lg"><code>npm run linear:ticket -- --chat "describe the work"</code></pre>
+          </div>
+          <div>
+            <p class="font-semibold mb-1">②a Export Markdown (send to friend)</p>
+            <pre class="bg-base-200 p-3 rounded-lg"><code>npm run linear:export -- --ticket PRP-### \
+  --out .lavish/plans/PRP-###-slug/ticket.md</code></pre>
+          </div>
+          <div>
+            <p class="font-semibold mb-1">②b Lavish plan</p>
+            <pre class="bg-base-200 p-3 rounded-lg"><code>npm run lavish:plan -- --ticket PRP-### --title "..." --summary "..." --open
+npx -y lavish-axi poll .lavish/plans/PRP-###-slug/plan.html</code></pre>
+          </div>
+          <div>
+            <p class="font-semibold mb-1">②c Optional public share</p>
+            <pre class="bg-base-200 p-3 rounded-lg"><code>npx -y lavish-axi share .lavish/plans/PRP-###-slug/plan.html</code></pre>
+          </div>
+          <div>
+            <p class="font-semibold mb-1">③ After approval</p>
+            <pre class="bg-base-200 p-3 rounded-lg"><code># Captain says: approved — build
+# Agent reads docs/agents/&lt;area&gt;.md + docs/portal-ui-system.md
+# Commit on keeper branch (cursor-1 → :3010)</code></pre>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="card bg-base-100 shadow-md mb-6">
+      <div class="card-body">
+        <h2 class="card-title">Per-ticket folder</h2>
+        <pre class="bg-base-200 p-4 rounded-lg text-sm"><code>.lavish/plans/PRP-###-short-slug/
+├── ticket.md      ← Linear snapshot (email to friend)
+├── plan.html      ← Lavish review (you + annotations)
+└── assets/        ← Screenshots from Cursor chat</code></pre>
+      </div>
+    </section>
+
+    <section class="card bg-base-100 shadow-md mb-6">
+      <div class="card-body">
+        <h2 class="card-title">MCP (phase ③)</h2>
+        <div class="overflow-x-auto">
+          <table class="table table-sm">
+            <thead><tr><th>Server</th><th>When</th></tr></thead>
+            <tbody>
+              <tr><td><code>linear</code></td><td>Read/update issues in Cursor</td></tr>
+              <tr><td><code>supabase</code></td><td>Dev schema only</td></tr>
+              <tr><td><code>playwright</code> / <code>chrome-devtools</code></td><td>Browser QA on localhost</td></tr>
+              <tr><td><code>browser-use</code></td><td>Interactive walkthroughs</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p class="text-sm mt-2 opacity-70">Full index: <code>docs/agents/agent-tooling-index.md</code></p>
+      </div>
+    </section>
+
+    <section class="card bg-base-100 shadow-md mb-6">
+      <div class="card-body">
+        <h2 class="card-title">Skip gates (hotfix only)</h2>
+        <ul class="list-disc pl-5 space-y-1 text-sm">
+          <li><strong>no ticket</strong> — skip ①</li>
+          <li><strong>skip plan</strong> — skip ② (build immediately)</li>
+        </ul>
+      </div>
+    </section>
+
+    <div class="alert alert-success">
+      <span>Say <strong>approved — build</strong> in chat or Lavish when ② is done.</span>
+    </div>
+
+    <p class="text-xs text-center text-base-content/50 mt-8">
+      Source: <code>docs/lavish/captain-workflow.html</code> ·
+      <code>docs/agents/captain-dev-workflow.md</code>
+    </p>
+  </div>
+</body>
+</html>

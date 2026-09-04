@@ -120,9 +120,10 @@ function buildHtml({ ticket, title, summary, imageFiles }) {
       </div>
     </section>
 
-    <div class="alert alert-info">
+    <div class="alert alert-info mt-8">
       <span>Approve in Lavish or reply in chat: <strong>approved — build</strong></span>
     </div>
+    <p class="text-sm text-base-content/60 mt-4">Companion: <code>ticket.md</code> in this folder — run <code>npm run linear:export -- --ticket ${ticket}</code></p>
   </div>
 </body>
 </html>`;
