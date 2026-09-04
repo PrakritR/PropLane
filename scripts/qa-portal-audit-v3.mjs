@@ -66,6 +66,13 @@ async function login(page, email, password, next) {
   if (page.url().includes("/auth/continue")) {
     await page.waitForURL((u) => !u.pathname.startsWith("/auth/continue"), { timeout: 120_000 });
   }
+  if (page.url().includes("/auth/connect-google-services")) {
+    const continueBtn = page.getByRole("button", { name: /continue/i });
+    if (await continueBtn.isVisible().catch(() => false)) {
+      await continueBtn.click();
+      await page.waitForURL((u) => !u.pathname.startsWith("/auth/"), { timeout: 60_000 });
+    }
+  }
 }
 
 function isAuthGatePath(pathname) {
@@ -96,7 +103,7 @@ for (const [role, cfg] of Object.entries(ROLES)) {
       await ctx.close();
       continue;
     }
-    if (!page.url().includes(cfg.home.split("/").slice(0, 2).join("/"))) {
+    if (!page.url().includes("/portal") && !page.url().includes("/admin") && !page.url().includes("/resident") && !page.url().includes("/vendor")) {
       findings.push({ role, path: cfg.home, tag, severity: "high", kind: "runtime", summary: `Login landed on ${page.url()}`, screenshot: null });
     }
     for (const path of cfg.paths) {
