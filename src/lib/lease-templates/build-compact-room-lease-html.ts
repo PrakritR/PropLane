@@ -489,9 +489,29 @@ export function buildCompactRoomLeaseBody(input: CompactRoomLeaseInput): string 
 
   const monthToMonthNotice =
     input.config.monthToMonthTerminationNotice ?? "within the period required by applicable law";
+  /**
+   * A fixed term that CONTINUES month-to-month rather than ending. Opt-in per
+   * listing: the default clause promises the opposite, and a lease document must
+   * never assert a continuation the manager did not choose.
+   *
+   * The vacate-by sentence and the holdover charge are dropped in this branch on
+   * purpose — both describe staying on WITHOUT a tenancy, which is exactly what
+   * a rollover prevents. Leaving them in would have the document threaten a
+   * holdover rate for the tenancy it just granted.
+   */
+  const rollsOverToMonthToMonth = input.sub?.rolloverToMonthToMonth === true;
+  const mtmSurchargeAmount = input.parseAmount(input.sub?.monthToMonthSurcharge ?? "") ?? 0;
+  const monthToMonthSurchargeClause =
+    rollsOverToMonthToMonth && mtmSurchargeAmount > 0
+      ? ` A month-to-month surcharge of <strong>${fmtUsd(mtmSurchargeAmount)}</strong> per month applies during that period.`
+      : "";
   const leaseTermSection = isMonthToMonthLease
     ? `<p>This tenancy is month-to-month beginning <strong>${leaseStart}</strong> and continuing until lawfully ended. Either party may provide written notice to terminate ${monthToMonthNotice}.</p>`
-    : `<p>This is a fixed-term lease beginning <strong>${leaseStart}</strong>, and ending <strong>${leaseEnd}</strong>.</p>
+    : rollsOverToMonthToMonth
+      ? `<p>This is a fixed-term lease beginning <strong>${leaseStart}</strong>, and ending <strong>${leaseEnd}</strong>.</p>
+<p>At the end of the lease term this Agreement <strong>continues as a month-to-month tenancy</strong> on the same terms, unless either party gives written notice to end it ${monthToMonthNotice}. All other terms of this Agreement remain in effect during the month-to-month period.${monthToMonthSurchargeClause}</p>
+${earlyTerminationBlock(input)}`
+      : `<p>This is a fixed-term lease beginning <strong>${leaseStart}</strong>, and ending <strong>${leaseEnd}</strong>.</p>
 <p>This Agreement automatically terminates at the end of the lease term and does not convert to a month-to-month tenancy unless both parties agree in writing.</p>
 <p>Resident agrees to vacate the Premises no later than <strong>12:00 PM</strong> on the final day of the lease term.${holdoverClause}</p>
 ${earlyTerminationBlock(input)}`;

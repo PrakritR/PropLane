@@ -404,6 +404,18 @@ export type ManagerListingSubmissionV1 = {
   otherMonthlyFees: string;
   /** Extra monthly charge added automatically when tenant is on month-to-month (e.g. $25). */
   monthToMonthSurcharge?: string;
+  /**
+   * When true, a fixed-term lease CONTINUES month-to-month at the end of its
+   * term instead of terminating.
+   *
+   * This changes what the lease document promises, so it is opt-in and defaults
+   * to false: the standard clause says the agreement "automatically terminates
+   * at the end of the lease term and does not convert to a month-to-month
+   * tenancy", and a listing must positively choose the other behaviour before
+   * the document may say otherwise. Absent means the existing promise, never a
+   * guess.
+   */
+  rolloverToMonthToMonth?: boolean;
   /** Extra monthly charge when the resident's lease does not align to calendar months (1st through last day). */
   customLeaseSurcharge?: string;
   /** Manager-defined fees beyond the standard fields (shown on the listing). */
@@ -1556,6 +1568,11 @@ export function normalizeManagerListingSubmissionV1(sub: ManagerListingSubmissio
     holdingDeposit: typeof sub.holdingDeposit === "string" ? sub.holdingDeposit : "",
     holdingDepositTiming: sub.holdingDepositTiming === "at_application" ? "at_application" : "after_approval",
     monthToMonthSurcharge: typeof sub.monthToMonthSurcharge === "string" ? sub.monthToMonthSurcharge : "",
+    // Only an explicit `true` turns rollover on. Anything else — absent, a
+    // string, a stored null — keeps the standard "terminates at the end of the
+    // term" promise, because the lease document must never assert a continuation
+    // the manager did not choose.
+    rolloverToMonthToMonth: sub.rolloverToMonthToMonth === true ? true : undefined,
     customLeaseSurcharge: typeof sub.customLeaseSurcharge === "string" ? sub.customLeaseSurcharge : "",
     allowedLeaseTerms,
     leaseTermsBody,

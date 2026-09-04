@@ -3946,6 +3946,44 @@ export function ManagerAddListingForm({
                   </div>
                   <StepFieldError msg={stepFieldErrors.allowedLeaseTerms} />
                   </div>
+
+                  {/*
+                    What happens when a fixed term RUNS OUT. Off by default,
+                    because the lease document's standard clause promises the
+                    opposite ("terminates … does not convert to a month-to-month
+                    tenancy") and it may not claim a continuation the manager
+                    never chose. Shown only when the listing actually offers a
+                    term that can end — a month-to-month-only listing has no
+                    end to roll over from.
+                  */}
+                  {(sub.allowedLeaseTerms ?? []).some((t) => t !== "Month-to-Month") ? (
+                    <label className="flex cursor-pointer items-start gap-2.5 rounded-xl border border-border bg-card px-3 py-3 text-sm shadow-sm">
+                      <input
+                        type="checkbox"
+                        className="mt-0.5 h-4 w-4 rounded border-border"
+                        checked={sub.rolloverToMonthToMonth === true}
+                        data-attr="listing-rollover-month-to-month"
+                        onChange={(e) =>
+                          setSub((s) => ({
+                            ...s,
+                            rolloverToMonthToMonth: e.target.checked ? true : undefined,
+                          }))
+                        }
+                      />
+                      <span>
+                        <span className="font-medium text-foreground">
+                          Continue month-to-month when the lease ends
+                        </span>
+                        <span className="mt-0.5 block text-xs text-muted">
+                          Instead of ending on the move-out date, the lease rolls into a
+                          month-to-month tenancy on the same terms until either side gives notice.
+                          {(sub.monthToMonthSurcharge ?? "").trim()
+                            ? " Your month-to-month surcharge applies during that period."
+                            : ""}
+                        </span>
+                      </span>
+                    </label>
+                  ) : null}
                 </div>
               </ListingSubsection>
 

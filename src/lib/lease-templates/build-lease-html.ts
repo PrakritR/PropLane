@@ -915,6 +915,23 @@ export function buildLeaseHtml(ctx: LeaseGenerationContext, config: LeaseJurisdi
 
   // Same guard the ledger uses: a daily-priced term that begins and ends inside one calendar
   // month is billed once as its first period, so it has no separate last month.
+  /**
+   * A fixed term that CONTINUES month-to-month instead of ending. Opt-in per
+   * listing (`rolloverToMonthToMonth`), because the default clause promises the
+   * opposite and a lease may not assert a continuation nobody chose.
+   *
+   * The vacate-by sentence and the holdover rate are dropped in that branch on
+   * purpose: both describe staying on WITHOUT a tenancy, which is precisely what
+   * a rollover prevents, so keeping them would have the document threaten a
+   * holdover charge for the tenancy it just granted.
+   */
+  const rollsOverToMonthToMonth = subNorm?.rolloverToMonthToMonth === true;
+  const rolloverSurchargeAmount = parseAmount(subNorm?.monthToMonthSurcharge ?? "") ?? 0;
+  const rolloverSurchargeClause =
+    rollsOverToMonthToMonth && rolloverSurchargeAmount > 0
+      ? ` A month-to-month surcharge of <strong>${fmtUsd(rolloverSurchargeAmount)}</strong> per month applies during that period.`
+      : "";
+
   const endsInsideFirstMonth = isDailyBasis && intraMonthStaySpan(a.leaseStart, a.leaseEnd) !== null;
   const lastMonthTotals: ProratedLastMonthTotals | null = stripPreviewFinancials
     ? null
@@ -1411,7 +1428,10 @@ ${
   isMonthToMonthLease(a)
     ? `<p>The initial term is <strong>${leaseTerm}</strong>, beginning <strong>${leaseStart}</strong> and ending <strong>${leaseEnd}</strong>. ${leaseTermsBody}</p>
 <p>This tenancy is month-to-month and continues under the agreed terms until lawfully ended. Either party may provide written notice to terminate ${config.monthToMonthTerminationNotice ?? "within the period required by applicable law"}.</p>`
-    : `<p>This is a fixed-term lease beginning <strong>${leaseStart}</strong> and ending <strong>${leaseEnd}</strong> (${leaseTerm}). ${leaseTermsBody}</p>
+    : rollsOverToMonthToMonth
+      ? `<p>This is a fixed-term lease beginning <strong>${leaseStart}</strong> and ending <strong>${leaseEnd}</strong> (${leaseTerm}). ${leaseTermsBody}</p>
+<p>At the end of the lease term this Agreement <strong>continues as a month-to-month tenancy</strong> on the same terms, unless either party gives written notice to end it ${config.monthToMonthTerminationNotice ?? "within the period required by applicable law"}. All other terms of this Agreement remain in effect during the month-to-month period.${rolloverSurchargeClause}</p>`
+      : `<p>This is a fixed-term lease beginning <strong>${leaseStart}</strong> and ending <strong>${leaseEnd}</strong> (${leaseTerm}). ${leaseTermsBody}</p>
 <p>This Agreement automatically terminates at the end of the lease term and does not convert to a month-to-month tenancy unless both parties agree in writing.</p>
 <p>Resident agrees to vacate the Premises no later than <strong>12:00 PM</strong> on the final day of the lease term.${
       hasConfiguredHoldover
