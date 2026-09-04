@@ -306,6 +306,8 @@ export function ManagerInboxSchedulePanel({
           editable={scheduled.editable && isScheduled}
           busy={editBusy}
           presentation="detail"
+          recipient={recipientEmail ?? undefined}
+          sendAt={scheduled.sendAt}
           onCancel={() => {
             if (!isScheduled) return;
             setEditBusy(true);
@@ -357,6 +359,7 @@ export function ManagerInboxSchedulePanel({
                             ? { deliverViaEmail: next.deliverViaEmail }
                             : {}),
                           ...(next.deliverViaSms !== undefined ? { deliverViaSms: next.deliverViaSms } : {}),
+                          ...(next.sendAt ? { sendAt: next.sendAt } : {}),
                         }),
                       },
                     );
@@ -367,6 +370,7 @@ export function ManagerInboxSchedulePanel({
                     await patchScheduledMessage(row.message.id, {
                       customSubject: next.subject,
                       customBody: next.body,
+                      ...(next.sendAt ? { customSendAt: next.sendAt } : {}),
                     });
                   }
                   showToast("Scheduled message updated.");
