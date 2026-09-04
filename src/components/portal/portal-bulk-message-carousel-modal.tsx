@@ -1,6 +1,5 @@
 "use client";
 
-import { ChevronLeft, ChevronRight } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Modal, ModalFooter, MODAL_INSET_BOX_CLASS } from "@/components/ui/modal";
@@ -39,6 +38,48 @@ export type BulkMessageCarouselDraft = {
   subject: string;
   body: string;
 };
+
+function BulkCarouselArrow({
+  direction,
+  disabled,
+  onClick,
+  ariaLabel,
+}: {
+  direction: "left" | "right";
+  disabled: boolean;
+  onClick: () => void;
+  ariaLabel: string;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      aria-label={ariaLabel}
+      className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-border bg-card text-foreground shadow-sm transition hover:border-primary/35 hover:bg-accent disabled:cursor-not-allowed disabled:opacity-40 [html[data-theme=dark]_&]:portal-outline-control"
+    >
+      <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" aria-hidden>
+        {direction === "left" ? (
+          <path
+            d="M14 6l-6 6 6 6"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+        ) : (
+          <path
+            d="M10 6l6 6-6 6"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+        )}
+      </svg>
+    </button>
+  );
+}
 
 export function PortalBulkMessageCarouselModal({
   open,
@@ -295,29 +336,21 @@ export function PortalBulkMessageCarouselModal({
 
         {count > 1 ? (
           <div className="flex items-center justify-between gap-2">
-            <Button
-              type="button"
-              variant="outline"
-              className="h-9 w-9 min-h-0 shrink-0 rounded-full px-0"
-              aria-label="Previous message"
+            <BulkCarouselArrow
+              direction="left"
+              ariaLabel="Previous message"
               disabled={activeIndex <= 0}
               onClick={() => scrollToIndex(activeIndex - 1)}
-            >
-              <ChevronLeft className="h-4 w-4" />
-            </Button>
+            />
             <p className="text-center text-xs font-medium tabular-nums text-muted">
               {activeIndex + 1} of {count}
             </p>
-            <Button
-              type="button"
-              variant="outline"
-              className="h-9 w-9 min-h-0 shrink-0 rounded-full px-0"
-              aria-label="Next message"
+            <BulkCarouselArrow
+              direction="right"
+              ariaLabel="Next message"
               disabled={activeIndex >= count - 1}
               onClick={() => scrollToIndex(activeIndex + 1)}
-            >
-              <ChevronRight className="h-4 w-4" />
-            </Button>
+            />
           </div>
         ) : null}
 
@@ -503,29 +536,21 @@ export function PortalBulkMessageReadonlyCarouselModal({
       {intro ? <p className="mb-4 text-sm leading-snug text-muted">{intro}</p> : null}
       {count > 1 ? (
         <div className="mb-3 flex items-center justify-between gap-2">
-          <Button
-            type="button"
-            variant="outline"
-            className="h-9 w-9 min-h-0 shrink-0 rounded-full px-0"
-            aria-label="Previous reminder"
+          <BulkCarouselArrow
+            direction="left"
+            ariaLabel="Previous reminder"
             disabled={activeIndex <= 0}
             onClick={() => scrollToIndex(activeIndex - 1)}
-          >
-            <ChevronLeft className="h-4 w-4" />
-          </Button>
+          />
           <p className="text-center text-xs font-medium tabular-nums text-muted">
             {activeIndex + 1} of {count}
           </p>
-          <Button
-            type="button"
-            variant="outline"
-            className="h-9 w-9 min-h-0 shrink-0 rounded-full px-0"
-            aria-label="Next reminder"
+          <BulkCarouselArrow
+            direction="right"
+            ariaLabel="Next reminder"
             disabled={activeIndex >= count - 1}
             onClick={() => scrollToIndex(activeIndex + 1)}
-          >
-            <ChevronRight className="h-4 w-4" />
-          </Button>
+          />
         </div>
       ) : null}
       {count > 1 ? (

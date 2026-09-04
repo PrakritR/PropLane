@@ -45,6 +45,18 @@ export type ScheduledPaymentMessage = {
   bundledChargeIds?: string[];
 };
 
+/** Every charge id covered by a scheduled row (single or bundled). */
+export function scheduledPaymentMessageChargeIds(message: ScheduledPaymentMessage): string[] {
+  return message.bundledChargeIds?.length ? message.bundledChargeIds : [message.chargeId];
+}
+
+export function scheduledPaymentMessageAppliesToCharge(
+  message: ScheduledPaymentMessage,
+  chargeId: string,
+): boolean {
+  return scheduledPaymentMessageChargeIds(message).includes(chargeId);
+}
+
 function startOfLocalDay(d: Date): Date {
   return new Date(d.getFullYear(), d.getMonth(), d.getDate(), 0, 0, 0, 0);
 }
@@ -622,7 +634,7 @@ export function manageableRemindersForCharge(
   return messages
     .filter(
       (m) =>
-        m.chargeId === chargeId &&
+        scheduledPaymentMessageAppliesToCharge(m, chargeId) &&
         (m.status === "scheduled" || m.status === "cancelled") &&
         startOfLocalDay(new Date(m.sendAt)).getTime() >= today,
     )

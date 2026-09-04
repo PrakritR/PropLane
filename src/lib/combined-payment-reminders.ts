@@ -12,6 +12,9 @@ import {
   formatDaysUntilDueShort,
 } from "@/lib/payment-reminder-email";
 import type { ScheduledPaymentMessage } from "@/lib/scheduled-payment-messages";
+import { scheduledPaymentMessageChargeIds } from "@/lib/scheduled-payment-messages";
+
+export { scheduledPaymentMessageChargeIds };
 
 const COMBINABLE_KINDS = new Set<PaymentReminderKind>([
   "pre_due",
@@ -42,8 +45,13 @@ export function scheduledPaymentMessageBundleKey(message: ScheduledPaymentMessag
   ].join("|");
 }
 
-export function scheduledPaymentMessageChargeIds(message: ScheduledPaymentMessage): string[] {
-  return message.bundledChargeIds?.length ? message.bundledChargeIds : [message.chargeId];
+export function scheduledMessagesTouchingCharges(
+  messages: readonly ScheduledPaymentMessage[],
+  chargeIds: ReadonlySet<string>,
+): ScheduledPaymentMessage[] {
+  return messages.filter((message) =>
+    scheduledPaymentMessageChargeIds(message).some((id) => chargeIds.has(id)),
+  );
 }
 
 export type PaymentReminderDedupPlan = {
