@@ -1580,7 +1580,25 @@ html:has([data-auth-layout]) body {
  * below, and `:has()` would otherwise outrank it.
  */
 html:not([data-native]) .auth-layout-panel:has(.auth-plan-picker-wide) {
-  max-width: min(100%, 76rem);
+  max-width: min(100%, 88rem);
+}
+
+/*
+ * …and stop framing it in margin. The auth shell's 1.25rem gutter plus the
+ * card's own 2.5rem inner padding is right for a 460px form and reads as a wide
+ * empty border once the panel is 88rem: the plans are the page here, not a form
+ * sitting on one.
+ */
+@media (min-width: 768px) {
+  html:not([data-native]) .auth-layout-main:has(.auth-plan-picker-wide) {
+    padding-left: 1.5rem;
+    padding-right: 1.5rem;
+  }
+
+  html:not([data-native]) .auth-card:has(.auth-plan-picker-wide) {
+    padding-left: 1.75rem;
+    padding-right: 1.75rem;
+  }
 }
 
 /*

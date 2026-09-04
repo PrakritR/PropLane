@@ -56,7 +56,7 @@ describe("the trial ends on its own", () => {
 
 describe("web and mobile are laid out separately", () => {
   it("both plan surfaces get the widest shell, not the single-column form width", () => {
-    expect(authCard).toContain('widest ? "max-w-[76rem]"');
+    expect(authCard).toContain('widest ? "max-w-[88rem]"');
     expect(chooser).toContain("<AuthCard widest");
     expect(readFileSync("src/components/auth/manager-plan-picker.tsx", "utf8")).toContain("<AuthCard widest");
   });
