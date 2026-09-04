@@ -2720,6 +2720,19 @@ html[data-portal-sticky-chrome] .portal-list-page-scroll .portal-calendar-flow-s
   touch-action: pan-y;
 }
 
+/* A pinned footer is `position: fixed`, and `PortalPageFooterActions` renders it
+   with `omitSpacer` on these pages — "scroll clearance lives on the scroller via
+   padding". Nothing was actually adding that padding on the property-detail
+   scroller, so the last rows of the tours grid sat permanently under the Filter /
+   Link Airbnb dock: not merely covered, unreachable, because the scroller had
+   already hit its end. This is that clearance, matched to the dock's own height. */
+html[data-portal-sticky-chrome]:has([data-slot="portal-page-footer-actions"][data-pinned])
+  .portal-list-page-scroll {
+  padding-bottom: calc(
+    3.5rem + var(--portal-native-bottom-nav-inset, 0px) + env(safe-area-inset-bottom, 0px)
+  );
+}
+
 html[data-communication-surface] .portal-communication-inbox {
   flex: 1 1 0%;
   min-height: 0;
