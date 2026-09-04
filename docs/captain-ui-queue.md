@@ -61,11 +61,13 @@ lost; none are started.
 
 ## Still open from tonight's queue
 
-* **"24 reminders scheduled" for one resident** — the SEND side is fixed (one
-  message per person). The SCHEDULE side is not: 6 charges × 4 reminder times
-  still creates 24 scheduled rows. Same fix, one layer down — group the
-  projection by recipient and date so a resident with several payments due the
-  same day gets one scheduled message, not one per charge.
+* ~~**"24 reminders scheduled" for one resident**~~ — DONE. The schedule now
+  groups where the messages are read (`useScheduledPaymentMessages`), so the
+  count a manager sees is the count that goes out: 6 charges × 4 reminder times
+  collapses from 24 rows to 4. The grouping already existed for the send side;
+  it just was not applied to the list. It is idempotent, so the two panels that
+  already grouped downstream are unaffected. Pinned by
+  `tests/unit/scheduled-reminders-grouped-by-recipient.test.ts`.
 * **Payment generation timing** — application fee on submission; lease-signing
   charges on approval; rent/utilities once the lease is signed; custom deposits
   and fees at their own points, each with the right reminders. Substantial, and
