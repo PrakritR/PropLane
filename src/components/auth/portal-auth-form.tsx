@@ -34,6 +34,8 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 
 const LOGIN_TIMEOUT_MS = 6000;
+/** Hub signup can lag GoTrue propagation; retries need a longer ceiling than sign-in. */
+const SIGNUP_SIGNIN_TIMEOUT_MS = 15_000;
 const REMEMBERED_EMAIL_KEY = "axis:remembered-login-email";
 
 type SignInResult = {
@@ -337,7 +339,7 @@ export function PortalAuthForm({
       const supabase = createSupabaseBrowserClient();
       const { data, error } = await withTimeout(
         signInAfterSignup(supabase, email.trim(), password),
-        LOGIN_TIMEOUT_MS,
+        SIGNUP_SIGNIN_TIMEOUT_MS,
         "This is taking too long. Please check your connection and try again.",
       );
       if (error || !data.user) {
