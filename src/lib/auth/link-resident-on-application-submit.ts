@@ -1,5 +1,8 @@
 import type { DemoApplicantRow } from "@/data/demo-portal";
-import { resolveManagerUserIdForProperty } from "@/lib/auth/guest-application-upsert";
+import {
+  LISTING_NOT_ACCEPTING_APPLICATIONS_ERROR,
+  resolvePropertyApplicationTarget,
+} from "@/lib/auth/guest-application-upsert";
 import { normalizeApplicationAxisId } from "@/lib/manager-applications-storage";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
@@ -33,11 +36,21 @@ export async function linkResidentOnApplicationSubmit(
   },
 ): Promise<ResidentApplicationSubmitResult> {
   const propertyId = readPropertyId(params.row);
-  const resolvedManagerUserId = propertyId ? await resolveManagerUserIdForProperty(db, propertyId) : null;
-  const managerUserId = resolvedManagerUserId || params.existingManagerUserId?.trim() || null;
+  const target = propertyId
+    ? await resolvePropertyApplicationTarget(db, propertyId)
+    : { managerUserId: null, status: null, acceptsApplications: false };
+  const managerUserId = target.managerUserId || params.existingManagerUserId?.trim() || null;
 
   if (!managerUserId && params.isNewSubmit) {
     return { ok: false, status: 400, error: "This listing cannot accept applications yet." };
+  }
+
+  // A NEW application against a listing the manager has taken down is refused
+  // before anything is written or charged. An application already in flight is
+  // not — this path also stamps updates, and stranding work already done is a
+  // worse outcome than one late application.
+  if (params.isNewSubmit && !target.acceptsApplications) {
+    return { ok: false, status: 409, error: LISTING_NOT_ACCEPTING_APPLICATIONS_ERROR };
   }
 
   const normalizedRow: DemoApplicantRow = {

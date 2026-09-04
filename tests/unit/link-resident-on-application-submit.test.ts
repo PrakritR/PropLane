@@ -3,7 +3,7 @@ import type { DemoApplicantRow } from "@/data/demo-portal";
 import { linkResidentOnApplicationSubmit } from "@/lib/auth/link-resident-on-application-submit";
 
 function makeDbMock(options: {
-  propertyRecord?: { manager_user_id?: string | null; property_data?: unknown } | null;
+  propertyRecord?: { manager_user_id?: string | null; status?: string | null; property_data?: unknown } | null;
   profile?: { manager_id?: string | null } | null;
 }) {
   const profileUpdateEq = vi.fn().mockResolvedValue({ error: null });
@@ -44,7 +44,7 @@ function makeDbMock(options: {
 describe("linkResidentOnApplicationSubmit", () => {
   it("resolves manager_user_id from property record and links profile on new submit", async () => {
     const db = makeDbMock({
-      propertyRecord: { manager_user_id: "manager-1" },
+      propertyRecord: { manager_user_id: "manager-1", status: "live" },
       profile: { manager_id: null },
     });
     const row: DemoApplicantRow = {
@@ -78,7 +78,7 @@ describe("linkResidentOnApplicationSubmit", () => {
 
   it("keeps existing profile manager_id on edits", async () => {
     const db = makeDbMock({
-      propertyRecord: { manager_user_id: "manager-1" },
+      propertyRecord: { manager_user_id: "manager-1", status: "live" },
       profile: { manager_id: "AXIS-EXISTING" },
     });
     const row: DemoApplicantRow = {
@@ -154,7 +154,7 @@ describe("linkResidentOnApplicationSubmit", () => {
   });
 
   it("skips profile.manager_id when linkProfile is false", async () => {
-    const db = makeDbMock({ propertyRecord: { manager_user_id: "manager-1" }, profile: { manager_id: null } });
+    const db = makeDbMock({ propertyRecord: { manager_user_id: "manager-1", status: "live" }, profile: { manager_id: null } });
     const row: DemoApplicantRow = {
       id: "AXIS-ABC123",
       name: "Manager applicant",
