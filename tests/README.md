@@ -60,11 +60,11 @@ account is single-role. The seed marks `manager@` `onlyRole: true`, but it can
 still acquire a `resident` role by applying from its own portal — that is
 legitimate, and the helpers handle it.
 
-> **The `e2e` CI job does NOT run `test:seed`.** It signs in as whatever the
-> shared test project currently holds, so account state (including the roles
-> above) persists between runs. If a role goes missing or an account's state
-> drifts, re-run `npm run test:seed`. Adding a seed step to the `e2e` workflow is
-> a sensible follow-up.
+> **Neither browser CI job (`e2e`, `e2e-full`) runs `test:seed`.** They sign in
+> as whatever the shared test project currently holds, so account state
+> (including the roles above) persists between runs. If a role goes missing or an
+> account's state drifts, re-run `npm run test:seed`. Adding a seed step to those
+> workflow jobs is a sensible follow-up.
 
 ## GitHub Actions secrets
 
@@ -81,9 +81,11 @@ Configure these in your repository settings for CI:
 | `STRIPE_WEBHOOK_SECRET` | Stripe test webhook secret |
 | `CRON_SECRET` | Cron route auth |
 
-The `e2e` job additionally sets `E2E_TESTS_ENABLED=1`, so it also needs the portal
+Both browser jobs set `E2E_TESTS_ENABLED=1`, so they also need the portal
 credentials below **and** the matching accounts seeded into the test project — the
-`globalSetup` preflight fails the job fast if they are absent:
+`globalSetup` preflight fails the job fast if they are absent. That holds for the
+`e2e` smoke job too: its 9 cases are public flows, but the preflight still signs
+in as all three roles before any of them run:
 
 | Secret | Purpose |
 |--------|---------|

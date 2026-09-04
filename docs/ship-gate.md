@@ -131,6 +131,10 @@ still runs, but the later fixtures it would have created are missing.
 
 ### Known-failing specs — expect these, don't re-triage them
 
+All of these live outside the 9-case `main` smoke, so they now surface only in
+the nightly/manual `e2e-full` job or a local full run — a green `e2e` on `main`
+says nothing about them.
+
 As of `main` @`94cfc09f` (run `30778729243`) 18 of the 20 failures are
 **long-standing**, and they are not a long tail of unrelated bugs — they are
 **three root causes**. Evidence: each one also fails in the four earlier `main`
