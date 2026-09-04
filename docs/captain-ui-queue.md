@@ -175,9 +175,16 @@ Listed newest first; the ones already fixed say so.
 * **Vendor Payments never names the manager who owes the money.** `managerName`
   is not a field on the vendor work-order row at all, so `row.managerName` is
   always `undefined`: demo prints the canonical "Test Manager" on every row and
-  production prints "Property manager" on every row. Fixing it means threading
-  the manager through the vendor work-order read — a data change, not a label
-  one. Until then the vendor cannot tell two managers' invoices apart.
+  production prints "Property manager" on every row. The row DOES carry
+  `managerUserId`, so the id is present and only the name is missing. Supplying
+  it means the vendor's work-order GET joins `profiles` — a decision about what
+  one party may read about another, on the very table AGENTS.md singles out for
+  its privilege-escalation history. That needs the captain's word rather than
+  mine; "a vendor should know who hired them" is almost certainly the right
+  answer, but it is not a call to make silently. Worth settling at the same
+  time: the manager's own `full_name`, or the business / landlord name a vendor
+  would recognise on an invoice. Until then the vendor cannot tell two
+  managers' invoices apart.
 * **`pro-unified-inbox.tsx` carries a dead third segment.** Its internal
   toolbar renders Active / Unread / Archived, but the only caller
   (`pro-communication.tsx`) passes `listChrome="external"`, so that branch never

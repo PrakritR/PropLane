@@ -193,11 +193,13 @@ export function resolveCommunicationInboxThread(
   if (!expandedId) return null;
   const stored = resolveCollapsedInboxThread(expandedId, collapsed, raw);
   if (stored) return stored;
-  const assistantId = viewerId?.trim()
-    ? propLaneAssistantThreadIdForPortal(portal, viewerId.trim())
-    : null;
+  // Hoisted so the non-empty check narrows the value the builders actually
+  // receive. Trimming again below reads as safe but does not typecheck: the
+  // compiler cannot carry the narrowing across `assistantId`.
+  const viewer = viewerId?.trim() ?? "";
+  const assistantId = viewer ? propLaneAssistantThreadIdForPortal(portal, viewer) : null;
   if (!assistantId || expandedId !== assistantId) return null;
   return portal === "resident"
-    ? buildResidentAssistantPlaceholderThread(viewerId.trim())
-    : buildManagerAssistantPlaceholderThread(viewerId.trim());
+    ? buildResidentAssistantPlaceholderThread(viewer)
+    : buildManagerAssistantPlaceholderThread(viewer);
 }
