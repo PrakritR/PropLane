@@ -582,6 +582,7 @@ export function ManagerResidents({
     let cancelled = false;
     void Promise.resolve().then(async () => {
       if (cancelled) return;
+      if (!authReady || !userId) return;
       if (emails.length === 0) {
         setResidentAccountEmails(new Set());
         return;
@@ -603,7 +604,7 @@ export function ManagerResidents({
     return () => {
       cancelled = true;
     };
-  }, [userId, hcTick, propertyTick]);
+  }, [authReady, userId, hcTick, propertyTick]);
 
   // Silently purge server-side orphaned records for deleted residents on mount.
   useEffect(() => {

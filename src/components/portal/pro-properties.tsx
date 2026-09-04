@@ -228,7 +228,12 @@ export function ManagerProperties({
       propertyKey={propertyKeyProp}
       detailTab={detailTabProp}
       onAddProperty={tryOpenAdd}
-      addPropertyDisabled={!skuLoaded}
+      addPropertyDisabled={!skuLoaded || atPropertyLimit}
+      addPropertyHint={
+        atPropertyLimit && limitMax != null
+          ? `Plan limit (${limitMax}) reached — upgrade to add more`
+          : undefined
+      }
     />
   );
 

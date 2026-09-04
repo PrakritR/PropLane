@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { isDemoModeActive } from "@/lib/demo/demo-session";
+import { usePortalSession } from "@/hooks/use-portal-session";
 import {
   DEFAULT_MANAGER_AUTOMATION_SETTINGS,
   PAYMENT_AUTOMATION_SETTINGS_EVENT,
@@ -15,6 +16,7 @@ import {
 
 export function useManagerCommunicationDeliverVia() {
   const demo = isDemoModeActive();
+  const { userId, ready } = usePortalSession();
   const [settings, setSettings] = useState<ManagerAutomationSettings>(
     DEFAULT_MANAGER_AUTOMATION_SETTINGS,
   );
@@ -42,11 +44,12 @@ export function useManagerCommunicationDeliverVia() {
   }, [demo]);
 
   useEffect(() => {
+    if (!demo && (!ready || !userId)) return;
     void load();
     const onSettings = () => void load();
     window.addEventListener(PAYMENT_AUTOMATION_SETTINGS_EVENT, onSettings);
     return () => window.removeEventListener(PAYMENT_AUTOMATION_SETTINGS_EVENT, onSettings);
-  }, [load]);
+  }, [demo, load, ready, userId]);
 
   const channelsFor = useCallback(
     (kind: ManagerDeliverViaKind): DeliverViaChannels =>

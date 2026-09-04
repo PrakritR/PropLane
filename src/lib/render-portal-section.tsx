@@ -81,6 +81,7 @@ const LEGACY_FINANCIALS_TAB_MAP: Record<string, string> = {
   "income-statement": "expenses",
   vendors: "expenses",
   "profit-loss": "expenses",
+  "cash-flow": "cash-flow-statement",
 };
 
 const DOCUMENTS_TABS = ["library", "templates", "applications", "leases", "income-documents", "expense-documents", "occupancy", "1099", "tax-summary"] as const;

@@ -86,6 +86,7 @@ export function useResidentLeasePipelineRow(): LeasePipelineRow | null {
 
     let cancelled = false;
     void (async () => {
+      if (!userId) return;
       const matchingApplication = readManagerApplicationRows()
         .filter((row) => row.email?.trim().toLowerCase() === email)
         .sort((a, b) => {

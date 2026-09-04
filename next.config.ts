@@ -83,6 +83,10 @@ const nextConfig: NextConfig = {
   async redirects() {
     return [
       { source: "/auth/login", destination: "/auth/sign-in", permanent: false },
+      { source: "/browse", destination: "/rent/browse", permanent: false },
+      { source: "/browse/:path*", destination: "/rent/browse/:path*", permanent: false },
+      { source: "/resident/move-in", destination: "/resident/move-in/placement", permanent: false },
+      { source: "/portal/financials/cash-flow", destination: "/portal/financials/cash-flow-statement", permanent: false },
       { source: "/dashboard", destination: "/auth/continue", permanent: false },
       { source: "/admin/applications", destination: "/admin/dashboard", permanent: false },
       { source: "/admin/applications/:path*", destination: "/admin/dashboard", permanent: false },
