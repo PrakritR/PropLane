@@ -14,7 +14,13 @@ const { showToast } = vi.hoisted(() => ({ showToast: vi.fn() }));
 vi.mock("@/components/providers/app-ui-provider", () => ({
   useAppUi: () => ({ showToast }),
 }));
-vi.mock("@/lib/demo/demo-session", () => ({ isDemoModeActive: () => false }));
+vi.mock("@/lib/demo/demo-session", async (importOriginal) => ({
+  // Spread the real module: this file only needs to override demo mode,
+  // and a hand-listed mock silently breaks every time the module gains an
+  // export a component calls at import time.
+  ...(await importOriginal<typeof import("@/lib/demo/demo-session")>()),
+  isDemoModeActive: () => false,
+}));
 vi.mock("@/hooks/use-manager-user-id", () => ({ useManagerUserId: () => ({ userId: "mgr-1" }) }));
 vi.mock("@/hooks/use-work-assignment-directory", () => ({
   useWorkAssignmentDirectory: () => ({ teamMembers: [] }),

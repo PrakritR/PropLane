@@ -6,7 +6,13 @@ import {
   managerContactCaption,
 } from "@/components/portal/resident-manager-number-card";
 
-vi.mock("@/lib/demo/demo-session", () => ({ isDemoModeActive: () => false }));
+vi.mock("@/lib/demo/demo-session", async (importOriginal) => ({
+  // Spread the real module: this file only needs to override demo mode,
+  // and a hand-listed mock silently breaks every time the module gains an
+  // export a component calls at import time.
+  ...(await importOriginal<typeof import("@/lib/demo/demo-session")>()),
+  isDemoModeActive: () => false,
+}));
 
 afterEach(cleanup);
 
