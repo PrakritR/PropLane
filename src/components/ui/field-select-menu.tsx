@@ -193,6 +193,8 @@ export function computePortalFilterDropdownRect(
     horizontalBoundary?: Pick<DOMRect, "left" | "right">;
     /** Filter panels always open below the trigger — never flip above it. */
     preferOpenDown?: boolean;
+    /** `start` pins the panel's left edge to the trigger; default `end` right-aligns. */
+    alignToTrigger?: "start" | "end";
   },
 ): FieldSelectMenuRect {
   const rect = button.getBoundingClientRect();
@@ -210,8 +212,13 @@ export function computePortalFilterDropdownRect(
   const availableWidth = Math.max(0, boundaryRight - boundaryLeft);
   const width = fullBleed ? viewportW : Math.min(preferredWidth, availableWidth);
 
-  let left = fullBleed ? 0 : rect.right - width;
-  if (!fullBleed) {
+  let left: number;
+  if (fullBleed) {
+    left = 0;
+  } else if (options?.alignToTrigger === "start") {
+    left = Math.min(Math.max(boundaryLeft, rect.left), boundaryRight - width);
+  } else {
+    left = rect.right - width;
     const startAlignedLeft = rect.left;
     if (left < boundaryLeft && startAlignedLeft + width <= boundaryRight) {
       left = startAlignedLeft;
@@ -444,6 +451,7 @@ export function useFieldSelectMenu({
   matchTriggerWidth = false,
   fullBleed = false,
   constrainToTitleBand = false,
+  filterDropdownAlign = "end",
   closeOnOutsidePointerDown = true,
   closeOnEscape = true,
 }: {
@@ -462,6 +470,8 @@ export function useFieldSelectMenu({
   fullBleed?: boolean;
   /** Keep a title-row dropdown inside that title band's horizontal content bounds. */
   constrainToTitleBand?: boolean;
+  /** Horizontal alignment for the portal filter dropdown shell (`align === "end"` path). */
+  filterDropdownAlign?: "start" | "end";
   /**
    * When false, outside pointerdown does not call `onOpenChange(false)` — use for the
    * portal filter shell, which closes only via its scrim / header / toggle.
@@ -527,6 +537,7 @@ export function useFieldSelectMenu({
               widthPx: minMenuWidth,
               fullBleed,
               preferOpenDown: true,
+              alignToTrigger: filterDropdownAlign,
               horizontalBoundary: constrainToTitleBand
                 ? (button
                     .closest('[data-slot="portal-page-title-band"], [data-slot="portal-page-shell"]')
@@ -570,6 +581,7 @@ export function useFieldSelectMenu({
     matchTriggerWidth,
     fullBleed,
     constrainToTitleBand,
+    filterDropdownAlign,
   ]);
 
   useEffect(() => {

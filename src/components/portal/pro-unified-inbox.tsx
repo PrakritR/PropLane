@@ -32,8 +32,12 @@ import {
 import { filterEmailInboxThreads } from "@/lib/communication-inbox-filters";
 import { isPropLaneAssistantInboxThread } from "@/lib/communication-inbox-assistant";
 import {
+  buildManagerAssistantPlaceholderThread,
   communicationInboxListPreview,
+  managerAgentNoticeThreadId,
   pinPropLaneAssistantUnifiedItems,
+  propLaneAssistantListPreview,
+  propLaneAssistantListSubtitle,
   propLaneAssistantThreadIdForPortal,
   resolveCommunicationViewerId,
   withPinnedPropLaneAssistantThreads,
@@ -55,7 +59,9 @@ import {
   inboxThreadMessages,
   inboxThreadSortMs,
   inboxMessageOutbound,
+  stagePersistedInboxRows,
   syncPersistedInboxFromServer,
+  type PersistedInboxThread,
 } from "@/lib/portal-inbox-storage";
 import {
   mergeUnifiedInboxItems,
@@ -244,6 +250,25 @@ export function ManagerUnifiedInbox({
     });
   }, []);
 
+  useEffect(() => {
+    if (!viewerId?.trim() || listSegment !== "active") return;
+    let staged: PersistedInboxThread[] | null = null;
+    setEmailThreads((current) => {
+      const hasAssistant = current.some(
+        (thread) =>
+          isPropLaneAssistantInboxThread(thread) ||
+          thread.id === managerAgentNoticeThreadId(viewerId),
+      );
+      if (hasAssistant) return current;
+      const next = [buildManagerAssistantPlaceholderThread(viewerId), ...current];
+      staged = next;
+      return next;
+    });
+    if (staged) {
+      queueMicrotask(() => stagePersistedInboxRows(MANAGER_INBOX_STORAGE_KEY, staged!));
+    }
+  }, [listSegment, viewerId]);
+
   const loadSms = useCallback(async () => {
     // SMS UI hidden until A2P clears — never fetch SMS conversations. Inbound
     // texts still land as inbox notices and fall through to the unified list
@@ -403,8 +428,12 @@ export function ManagerUnifiedInbox({
         personKey: unifiedInboxPersonKey(t.email),
         personEmail: t.email?.trim() || undefined,
         name: displayName,
-        subtitle: t.subject,
-        preview: communicationInboxListPreview(lastMsg?.body ?? t.preview ?? "", listSegment, 80),
+        subtitle: isPropLaneAssistantInboxThread(t)
+          ? propLaneAssistantListSubtitle(t)
+          : t.subject,
+        preview: isPropLaneAssistantInboxThread(t)
+          ? propLaneAssistantListPreview(t, listSegment)
+          : communicationInboxListPreview(lastMsg?.body ?? t.preview ?? "", listSegment, 80),
         previewPrefix: lastOutbound ? "You: " : undefined,
         time: t.time,
         unread: t.folder === "inbox" && t.unread,
@@ -616,7 +645,7 @@ export function ManagerUnifiedInbox({
     }
   }, [onRouteThreadChange, placeholderContact, smsUiEnabled, threadDetailHref]);
 
-  const threadOpen = (mobileThreadOpen || Boolean(routeThreadId)) && Boolean(selection);
+  const threadOpen = Boolean(selection);
 
   useEffect(() => {
     onThreadOpenChange?.(threadOpen);
@@ -814,6 +843,13 @@ export function ManagerUnifiedInbox({
             onRouteThreadChange?.(undefined);
             clearCommunicationThreadUrl(threadListHref());
             return;
+          }
+          setSelectedKey(unifiedInboxKey("email", id));
+          setMobileThreadOpen(true);
+          onRouteThreadChange?.(id);
+          const href = threadDetailHref(id);
+          if (routeThreadId !== id) {
+            selectCommunicationThreadUrl(href, { replaceExisting: Boolean(routeThreadId) });
           }
         }}
       />

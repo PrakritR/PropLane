@@ -70,6 +70,10 @@ import {
 } from "@/lib/portal-detail-routes";
 
 import { resolveDefaultTourAvailabilityConfig } from "@/lib/tour-slot-math";
+import {
+  buildCalendarCopyDestinationHouses,
+  resolveCalendarCopySourcePropertyId,
+} from "@/lib/calendar-copy-availability";
 
 const MANAGER_PORTAL_BASE = "/portal";
 const NO_DEFAULT_TOUR_AVAILABILITY = resolveDefaultTourAvailabilityConfig({ enabled: false });
@@ -208,6 +212,21 @@ export function PortalCalendar({
 
   const calendarEditingPropertyId =
     activeCalendarPropertyFilters.length === 1 ? activeCalendarPropertyFilters[0]! : "";
+
+  const availabilityCopySourcePropertyId = useMemo(
+    () => resolveCalendarCopySourcePropertyId(activeCalendarPropertyFilters, scopedCalendarPropertyIds),
+    [activeCalendarPropertyFilters, scopedCalendarPropertyIds],
+  );
+
+  const copyDestinationHouses = useMemo(
+    () =>
+      buildCalendarCopyDestinationHouses(
+        availabilityCopySourcePropertyId,
+        managerProperties,
+        activeCalendarPropertyFilters,
+      ),
+    [availabilityCopySourcePropertyId, managerProperties, activeCalendarPropertyFilters],
+  );
 
   const soleCalendarPropertyId = calendarEditingPropertyId;
 
@@ -505,8 +524,8 @@ export function PortalCalendar({
         activeCount={portalFilterActiveCount([activeCalendarPropertyFilters])}
         compactPanel
         commandStripTrigger
+        dropdownAlign="start"
         filterFieldCount={1}
-        constrainDropdownToTitleBand={false}
         mobileFlushBody
         onReset={() => setCalendarPropertyFilters([])}
         dataAttr="calendar-filter-sheet-open"
@@ -733,22 +752,19 @@ export function PortalCalendar({
             anchorDate={calendarAnchorDate}
             onAnchorDateChange={setCalendarAnchorDate}
             flowScroll
-            otherProperties={
-              portal === "manager" && calendarEditingPropertyId
-                ? managerProperties.filter((p) => {
-                    if (p.id === calendarEditingPropertyId) return false;
-                    if (activeCalendarPropertyFilters.length > 1) {
-                      return activeCalendarPropertyFilters.includes(p.id);
-                    }
-                    return true;
-                  })
-                : undefined
-            }
+            otherProperties={portal === "manager" ? copyDestinationHouses : undefined}
             onCopyWeekToHouses={
-              portal === "manager" && userId && calendarEditingPropertyId && availabilityView && !servicesOnlyView
+              portal === "manager" &&
+              userId &&
+              availabilityCopySourcePropertyId &&
+              availabilityView &&
+              !servicesOnlyView
                 ? (propertyIds, weekDateStrs, scope) => {
-                    if (!userId || !calendarEditingPropertyId) return;
-                    const srcKey = managerPropertyAvailabilityStorageKey(userId, calendarEditingPropertyId);
+                    if (!userId || !availabilityCopySourcePropertyId) return;
+                    const srcKey = managerPropertyAvailabilityStorageKey(
+                      userId,
+                      availabilityCopySourcePropertyId,
+                    );
                     const srcSlots = readAvailabilityDateSetForStorageKey(srcKey);
                     const weekStrs = new Set(weekDateStrs);
                     const slotsToCopy =

@@ -2668,6 +2668,23 @@ html[data-portal-sticky-chrome] .portal-calendar-page-body {
   min-height: 0;
 }
 
+/* /portal/calendar (flowScroll): page body must grow with the slot grid so
+   .portal-list-page-scroll can reach the last row. flex-1 + min-h-0 caps height
+   to the viewport; overflowing slots never extend the scroller and the pinned
+   availability footer makes the bottom rows unreachable. */
+html[data-portal-sticky-chrome]
+  .portal-calendar-page-body:has(.portal-calendar-flow-scroll) {
+  flex: none;
+  min-height: auto;
+}
+
+html[data-portal-sticky-chrome]
+  .portal-calendar-page-body:has(.portal-calendar-flow-scroll)
+  > * {
+  flex: none;
+  min-height: auto;
+}
+
 html[data-portal-sticky-chrome] .portal-calendar-compact {
   display: flex;
   flex-direction: column;

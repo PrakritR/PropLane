@@ -24,6 +24,7 @@ import { useAppUi } from "@/components/providers/app-ui-provider";
 import { formatPacificDateTime } from "@/lib/pacific-time";
 import { isDemoModeActive } from "@/lib/demo/demo-session";
 import { filterEmailInboxThreads } from "@/lib/communication-inbox-filters";
+import { resolveCommunicationInboxThread } from "@/lib/communication-assistant-inbox-list";
 import { demoResidentInboxThreads } from "@/data/demo-portal";
 import { usePortalSession } from "@/hooks/use-portal-session";
 import { isUpcomingScheduledInboxMessage, type ScheduledInboxMessageRecord } from "@/lib/scheduled-inbox-messages";
@@ -1181,8 +1182,15 @@ export const ResidentInboxPanel = forwardRef<
   };
 
   const activeThread = useMemo(
-    () => (expandedId ? local.find((t) => t.id === expandedId) ?? null : null),
-    [expandedId, local],
+    () =>
+      resolveCommunicationInboxThread(
+        expandedId,
+        emailThreads,
+        local,
+        "resident",
+        session.userId,
+      ),
+    [expandedId, emailThreads, local, session.userId],
   );
 
   const autoMarkReadAttemptedRef = useRef<Set<string>>(new Set());

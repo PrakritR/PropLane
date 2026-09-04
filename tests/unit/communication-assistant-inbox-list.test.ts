@@ -5,7 +5,9 @@ import {
   ensureAssistantThreadInRows,
   managerAgentNoticeThreadId,
   pinPropLaneAssistantUnifiedItems,
+  propLaneAssistantListSubtitle,
   propLaneAssistantThreadIdForPortal,
+  resolveCommunicationInboxThread,
   resolveCommunicationViewerId,
   withPinnedPropLaneAssistantThreads,
 } from "@/lib/communication-assistant-inbox-list";
@@ -73,5 +75,18 @@ describe("communication assistant inbox list", () => {
     expect(communicationInboxListPreview("No messages yet.", "archived")).toBe("");
     expect(communicationInboxListPreview("Hello there", "archived")).toBe("Hello there");
     expect(communicationInboxListPreview("No messages yet.", "active")).toBe("No messages yet.");
+  });
+
+  it("resolves assistant placeholder when list pins it before persistence", () => {
+    const assistantId = `resident-agent-${RESIDENT}`;
+    const placeholder = buildResidentAssistantPlaceholderThread(RESIDENT);
+    const resolved = resolveCommunicationInboxThread(assistantId, [placeholder], [], "resident", RESIDENT);
+    expect(resolved?.id).toBe(assistantId);
+    expect(resolved?.from).toBe("PropLane Assistant");
+  });
+
+  it("labels assistant rows with the PropLane channel", () => {
+    const thread = buildResidentAssistantPlaceholderThread(RESIDENT);
+    expect(propLaneAssistantListSubtitle(thread)).toBe("PropLane");
   });
 });
