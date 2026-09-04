@@ -70,6 +70,7 @@ vi.mock("@/lib/auth/manager-lease-scope", () => ({
 vi.mock("@/lib/documents/document-auto-file-hooks.server", () => ({
   autoFileLeaseDocument: async () => undefined,
 }));
+vi.mock("@/lib/domain-action-events.server", () => ({ emitLeaseTransition: vi.fn(async () => undefined) }));
 // Creating a lease record (no stored row) re-checks the manager role through the portal
 // context, not just the profile role this file's user mock carries.
 vi.mock("@/lib/auth/portal-access", () => ({

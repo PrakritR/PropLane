@@ -1,8 +1,7 @@
 import "server-only";
 
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { deliverPortalInboxMessage } from "@/lib/portal-inbox-delivery";
-import { isWithinQuietHours } from "@/lib/sms/number-registration-policy";
+import { actionDeliveryPolicy, emitActionEvent } from "@/lib/action-events.server";
 
 export type WorkOrderEventType =
   | "created"
@@ -83,20 +82,11 @@ export function workOrderDeliveryPolicy(input: {
   emergency?: boolean;
   recentEventCount: number;
 }): { deferSms: boolean; digest: boolean; nextAttemptAt: string | null } {
-  if (input.emergency) return { deferSms: false, digest: false, nextAttemptAt: null };
-  const digest = input.recentEventCount >= 4;
-  const quiet = isWithinQuietHours(input.now);
-  if (!quiet && !digest) return { deferSms: false, digest: false, nextAttemptAt: null };
-  const next = new Date(input.now);
-  if (quiet) {
-    // Walk to the first non-quiet hour in the same canonical timezone used by
-    // the transport gate. This remains DST-safe without persisting local times.
-    next.setMinutes(0, 0, 0);
-    do next.setHours(next.getHours() + 1); while (isWithinQuietHours(next));
-  } else {
-    next.setMinutes(next.getMinutes() + 10, 0, 0);
-  }
-  return { deferSms: true, digest, nextAttemptAt: next.toISOString() };
+  return actionDeliveryPolicy({
+    now: input.now,
+    urgent: input.emergency,
+    recentEventCount: input.recentEventCount,
+  });
 }
 
 export async function workOrderEvent(
@@ -115,57 +105,26 @@ export async function workOrderEvent(
     now?: Date;
   },
 ): Promise<{ eventId: string; duplicate: boolean; delivered: number; deferred: number; failed: number }> {
-  const eventKey = input.eventId.trim();
-  if (!eventKey) throw new Error("workOrderEvent requires an idempotency eventId");
-  const occurredAt = input.occurredAt ?? new Date().toISOString();
-  const { data: inserted, error: insertError } = await db
-    .from("work_order_events")
-    .upsert({ event_key: eventKey, manager_user_id: input.managerUserId, work_order_id: input.workOrderId, event_type: input.event, occurred_at: occurredAt, payload: input.facts }, { onConflict: "event_key", ignoreDuplicates: true })
-    .select("id")
-    .maybeSingle();
-  if (insertError) throw new Error(`Could not record work-order event: ${insertError.message}`);
-  let eventRow = inserted as { id: string } | null;
-  const duplicate = !eventRow;
-  if (!eventRow) {
-    const { data, error } = await db.from("work_order_events").select("id").eq("event_key", eventKey).maybeSingle();
-    if (error || !data) throw new Error(`Could not resolve work-order event: ${error?.message ?? "missing event"}`);
-    eventRow = data as { id: string };
-  }
-
-  let delivered = 0;
-  let deferred = 0;
-  let failed = 0;
-  for (const recipient of input.recipients) {
-    const rendered = renderWorkOrderEvent(input.event, recipient.audience, input.facts);
-    const recipientKey = recipient.userId?.trim() || recipient.email?.trim().toLowerCase() || "";
-    if (!rendered || !recipientKey) continue;
-    const since = new Date((input.now ?? new Date()).getTime() - 10 * 60_000).toISOString();
-    const { count } = await db.from("work_order_event_deliveries").select("id", { count: "exact", head: true }).eq("recipient_key", recipientKey).gte("created_at", since);
-    const policy = workOrderDeliveryPolicy({ now: input.now ?? new Date(), emergency: input.facts.emergency, recentEventCount: count ?? 0 });
-    const deliveryStatus = policy.deferSms ? (policy.digest ? "digested" : "deferred") : "pending";
-    const { data: delivery } = await db.from("work_order_event_deliveries").upsert({ event_id: eventRow.id, audience: recipient.audience, recipient_key: recipientKey, recipient_user_id: recipient.userId ?? null, recipient_email: recipient.email?.trim().toLowerCase() ?? null, status: deliveryStatus, next_attempt_at: policy.nextAttemptAt, rendered }, { onConflict: "event_id,audience,recipient_key", ignoreDuplicates: true }).select("id,status").maybeSingle();
-    if (!delivery) continue;
-    const result = await deliverPortalInboxMessage(db, {
-      senderUserId: input.senderUserId,
-      senderEmail: input.senderEmail,
-      fromName: input.senderName?.trim() || "PropLane Portal",
-      subject: rendered.subject,
-      text: policy.digest ? `Several updates were recorded for ${input.facts.reference}. Open PropLane for the latest status.` : rendered.text,
-      smsText: rendered.smsText,
-      toUserIds: recipient.userId ? [recipient.userId] : undefined,
-      toEmails: recipient.email ? [recipient.email] : undefined,
-      eventCategory: "maintenance",
-      suppressSms: policy.deferSms,
-    }).catch((error: unknown) => ({ ok: false as const, error: error instanceof Error ? error.message : "Delivery failed" }));
-    if (result.ok) {
-      await db.from("work_order_event_deliveries").update({ status: policy.deferSms ? deliveryStatus : "delivered", attempts: 1, delivered_at: new Date().toISOString(), updated_at: new Date().toISOString() }).eq("id", delivery.id);
-      if (policy.deferSms) deferred++;
-      else delivered++;
-    } else {
-      await db.from("work_order_event_deliveries").update({ status: "failed", attempts: 1, last_error: result.error, next_attempt_at: new Date(Date.now() + 5 * 60_000).toISOString(), updated_at: new Date().toISOString() }).eq("id", delivery.id);
-      failed++;
-    }
-  }
-  await db.from("work_order_events").update({ processed_at: new Date().toISOString() }).eq("id", eventRow.id);
-  return { eventId: eventKey, duplicate, delivered, deferred, failed };
+  return emitActionEvent(db, {
+    eventId: input.eventId,
+    domain: "work_order",
+    event: input.event,
+    managerUserId: input.managerUserId,
+    entityId: input.workOrderId,
+    category: "maintenance",
+    senderUserId: input.senderUserId,
+    senderEmail: input.senderEmail,
+    senderName: input.senderName,
+    payload: {
+      reference: input.facts.reference,
+      emergency: input.facts.emergency === true,
+    },
+    recipients: input.recipients.flatMap((recipient) => {
+      const rendered = renderWorkOrderEvent(input.event, recipient.audience, input.facts);
+      return rendered ? [{ ...recipient, rendered }] : [];
+    }),
+    urgent: input.facts.emergency,
+    occurredAt: input.occurredAt,
+    now: input.now,
+  });
 }

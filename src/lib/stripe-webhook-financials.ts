@@ -5,6 +5,7 @@ import { createNsfFeeForFailedPayment } from "@/lib/nsf-fees";
 import { postGlRefundEntry } from "@/lib/reports/gl-posting";
 import { syncLedgerRefundEntry } from "@/lib/reports/ledger-sync";
 import type { HouseholdCharge } from "@/lib/household-charges";
+import { emitHouseholdChargeTransition } from "@/lib/domain-action-events.server";
 
 export async function resolveUserIdByConnectAccountId(
   db: SupabaseClient,
@@ -238,13 +239,19 @@ export async function handlePaymentIntentFailed(
     const charge = row.row_data as HouseholdCharge | null;
     if (!charge) continue;
 
+    const failedCharge = {
+      ...charge,
+      status: "failed" as const,
+      stripePaymentStatus: "failed",
+      stripePaymentFailedAt: now,
+    };
     await db.from("portal_household_charge_records").upsert(
       {
         id: chargeId,
         manager_user_id: row.manager_user_id,
         resident_email: charge.residentEmail?.trim().toLowerCase() ?? "",
         status: "failed",
-        row_data: { ...charge, status: "failed", stripePaymentStatus: "failed", stripePaymentFailedAt: now },
+        row_data: failedCharge,
         updated_at: now,
       },
       { onConflict: "id" },
@@ -253,6 +260,12 @@ export async function handlePaymentIntentFailed(
     const managerUserId = String(row.manager_user_id ?? charge.managerUserId ?? "");
     if (managerUserId) {
       await createNsfFeeForFailedPayment(db, charge, managerUserId).catch(() => undefined);
+      await emitHouseholdChargeTransition(db, {
+        managerUserId,
+        previousStatus: charge.status,
+        charge: failedCharge,
+        transitionId: `${chargeId}:payment_failed:${paymentIntent.id}`,
+      }).catch(() => undefined);
     }
   }
 }

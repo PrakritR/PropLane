@@ -2,7 +2,7 @@
 
 Generated September 4, 2026. There are 27 active assigned issues, all currently marked High in Linear. The priority tiers below are recommended execution order, not changes to Linear's stored priority.
 
-Progress: 5 completed locally, 22 remaining. Of the remaining issues, 21 are actionable and PRP-239 is waiting on its required captain approval.
+Progress: 7 completed locally, 20 remaining. Of the remaining issues, 18 are actionable, PRP-239 is waiting on its required captain approval, and PRP-294 needs no separate work (folded into the canonical action-event bus delivered under PRP-262/PRP-279).
 
 ## P0 — user harm, data integrity, and access
 
@@ -35,16 +35,20 @@ Three near-identical umbrella epics overlap: [PRP-260](https://linear.app/axisho
 
 ### Canonical action-event bus
 
-- [PRP-262 — Work-order event orchestration](https://linear.app/axishousing/issue/PRP-262/work-order-event-orchestration-one-state-change-everyone-correctly)
+- [x] [PRP-262 — Work-order event orchestration](https://linear.app/axishousing/issue/PRP-262/work-order-event-orchestration-one-state-change-everyone-correctly)
   Replace ad-hoc work-order notifications with one lifecycle event emitter that renders the correct message for each audience.
 
   Completed locally September 4, 2026. Added the idempotent `workOrderEvent` lifecycle emitter, privacy-scoped audience renderers, durable retry/defer delivery records, notification-preference fanout, quiet-hours suppression, rapid-change digesting, and initial offer/accept/invoice/pay producers.
 
-- [PRP-279 — Action event bus](https://linear.app/axishousing/issue/PRP-279/comm-action-event-bus-work-order-payment-lease-events-fan-out-to)
+- [x] [PRP-279 — Action event bus](https://linear.app/axishousing/issue/PRP-279/comm-action-event-bus-work-order-payment-lease-events-fan-out-to)
   Generalize the event bus beyond work orders to payments and leases, with idempotent thread, SMS, and email consumers.
+
+  Completed locally September 4, 2026. Generalized the work-order outbox in place into one action-event bus, documented the work-order/payment/lease catalog, wired confirmed charge and lease transitions, made inbox appends replay-safe with deterministic message ids, and added atomically claimed scheduled retries for failed/deferred deliveries.
 
 - [PRP-294 — Unified action bus](https://linear.app/axishousing/issue/PRP-294/messaging-unified-action-bus-wo-events-notify-all-parties-in-app-sms)
   This overlaps heavily with PRP-262 and PRP-279, specifically emphasizing multi-channel fanout. Fold it into the canonical event-bus work.
+
+  Folded into the PRP-262/PRP-279 canonical bus implementation; no parallel bus should be built for this ticket.
 
 ### Role-specific SMS workflows
 
@@ -105,6 +109,16 @@ Three near-identical umbrella epics overlap: [PRP-260](https://linear.app/axisho
 5. Role-specific workflows and reminders
 
 ## Completed work log
+
+### September 4, 2026 — PRP-262 / PRP-279
+
+- Generalized the work-order-only lifecycle emitter into one canonical `action_events` / `action_event_deliveries` bus (`src/lib/action-events.server.ts`), migrating the existing tables in place (`20260904140000_action_event_bus.sql`) rather than standing up a parallel store.
+- Added payment and lease transition producers (`src/lib/domain-action-events.server.ts`) with privacy-scoped resident/manager renderers, and wired them into the charge-status write paths (`household-charges.server.ts`, the household-charges route, both Stripe webhook/session handlers) and the lease-pipeline route; replaced the old ad-hoc FCM "payment received" push with the same durable inbox/email/SMS fanout every other event gets.
+- Made inbox appends replay-safe with deterministic per-recipient message ids and added an idempotent `ON CONFLICT DO NOTHING` delivery upsert so a re-delivered event can't double-send.
+- Added `/api/cron/action-event-deliveries` (every 10 minutes) to retry due failed/deferred deliveries via an atomic compare-and-swap claim, so a crashed worker's claim naturally expires back to due.
+- Documented the domain/event catalog in `docs/action-event-catalog.md`. PRP-294 is folded into this work; no parallel bus was built for it.
+- Fixed a pre-existing bug in the vendor-tool test fixture (`tests/unit/tools/vendor-scope-isolation.test.ts`): its fake Postgrest client never executed a mutation queued behind `.select().maybeSingle()` and didn't model `ignoreDuplicates`/`.gte()`, so any idempotent upsert-then-select call (used by both the old and new event bus) silently no-opted. Fixed the fixture to actually run pending writes and return the affected rows, which also fixed `mark_job_done`'s manager-notification assertion.
+- Verification: full suite (954 unit-test files / 6,339 tests) passed; focused ESLint on every touched/added file passed with no errors; TypeScript passed with no errors.
 
 ### September 4, 2026 — PRP-297
 

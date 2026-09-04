@@ -447,6 +447,11 @@ export async function deliverPortalInboxMessage(
     eventCategory?: NotificationCategory;
     /** Keep durable inbox/email fanout, but defer automated SMS in quiet hours or a digest window. */
     suppressSms?: boolean;
+    /** Retry a deferred SMS without re-sending already-delivered inbox/email legs. */
+    suppressEmail?: boolean;
+    suppressInbox?: boolean;
+    /** Deterministic action-event message id. Replays append at most once. */
+    messageId?: string;
   },
 ): Promise<{ ok: true; recipientCount: number } | { ok: false; error: string }> {
   const senderEmail = opts.senderEmail.trim().toLowerCase();
@@ -454,7 +459,7 @@ export async function deliverPortalInboxMessage(
   const text = opts.text.trim();
   const fromName = opts.fromName.trim() || "PropLane Portal";
   // Inbox is always written for category-driven sends (non-suppressible record).
-  const deliverToPortalInbox = opts.eventCategory ? true : opts.deliverToPortalInbox !== false;
+  const deliverToPortalInbox = opts.suppressInbox ? false : opts.eventCategory ? true : opts.deliverToPortalInbox !== false;
   const deliverViaEmail = opts.deliverViaEmail !== false;
   const deliverViaSms = opts.deliverViaSms === true;
 
@@ -571,7 +576,7 @@ export async function deliverPortalInboxMessage(
   }
 
   const emailWanted = (recipient: InboxDeliveryRecipient): boolean =>
-    channelByEmail ? channelByEmail.get(recipient.email)?.email === true : deliverViaEmail;
+    !opts.suppressEmail && (channelByEmail ? channelByEmail.get(recipient.email)?.email === true : deliverViaEmail);
 
   // Recipients that will actually receive email (channel on + not a sandbox skip).
   // In legacy mode this collapses to "all non-skip recipients when deliverViaEmail",
@@ -606,6 +611,7 @@ export async function deliverPortalInboxMessage(
         when,
         unread: false,
         outbound: true,
+        messageId: opts.messageId ? `${opts.messageId}:sent:${recipientLower}` : undefined,
       });
 
       if (recipientLower === senderEmail) continue;
@@ -625,6 +631,7 @@ export async function deliverPortalInboxMessage(
         when,
         unread: true,
         outbound: false,
+        messageId: opts.messageId ? `${opts.messageId}:inbox:${recipientLower}` : undefined,
       });
     }
 

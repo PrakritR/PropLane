@@ -75,6 +75,7 @@ vi.mock("@/lib/auth/manager-lease-scope", () => ({
 vi.mock("@/lib/documents/document-auto-file-hooks.server", () => ({
   autoFileLeaseDocument: async () => undefined,
 }));
+vi.mock("@/lib/domain-action-events.server", () => ({ emitLeaseTransition: vi.fn(async () => undefined) }));
 
 /** Chainable Supabase stub that applies the route's `.or()` resident scope. */
 function makeDb() {

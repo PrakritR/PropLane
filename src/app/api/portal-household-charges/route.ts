@@ -23,6 +23,7 @@ import {
   reconcileDuplicateChargeList,
   syncLedgerChargeEntry,
 } from "@/lib/reports/ledger-sync";
+import { emitHouseholdChargeTransition } from "@/lib/domain-action-events.server";
 
 export const runtime = "nodejs";
 
@@ -360,6 +361,12 @@ export async function POST(req: Request) {
           await syncLedgerChargeEntry(db, { ...(row.row_data as HouseholdCharge), managerUserId: managerId }).catch(
             () => undefined,
           );
+          await emitHouseholdChargeTransition(db, {
+            managerUserId: managerId,
+            previousStatus: prevStatus,
+            charge: { ...(row.row_data as HouseholdCharge), managerUserId: managerId },
+            transitionId: `${chargeId}:${nextStatus}:${now}`,
+          }).catch(() => undefined);
         }
       }
     }
