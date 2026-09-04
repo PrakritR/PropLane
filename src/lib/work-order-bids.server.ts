@@ -198,10 +198,29 @@ export async function submitWorkOrderBid(
     updated_at: new Date().toISOString(),
   };
 
-  const { error } = await db
-    .from("work_order_bids")
-    .upsert(existing ? { id: existing.id, ...record } : record, { onConflict: "work_order_id,vendor_user_id" });
-  if (error) return { ok: false, status: 500, error: error.message };
+  // The `existing.status` read above is a stale read by the time we write. A
+  // manager accepting the bid in between used to lose: an unconditional upsert
+  // overwrote the accepted amount and flipped the row back to "submitted",
+  // which then made the payout's `status = "accepted"` anchor lookup miss and
+  // fall through to a caller-supplied number. Re-check the status in the WHERE
+  // clause, the same compare-and-swap `setVendorPriceForWorkOrder` already
+  // uses, and treat zero rows affected as the conflict it is.
+  if (existing) {
+    const { data: updated, error } = await db
+      .from("work_order_bids")
+      .update(record)
+      .eq("id", existing.id)
+      .eq("status", "submitted")
+      .select("id")
+      .maybeSingle();
+    if (error) return { ok: false, status: 500, error: error.message };
+    if (!updated) {
+      return { ok: false, status: 409, error: "This bid was just accepted — it can no longer be re-priced." };
+    }
+  } else {
+    const { error } = await db.from("work_order_bids").insert(record);
+    if (error) return { ok: false, status: 500, error: error.message };
+  }
 
   track("work_order_bid_submitted", actor.userId, { work_order_id: workOrderId });
   return { ok: true };
