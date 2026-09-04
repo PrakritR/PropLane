@@ -186,7 +186,18 @@ export function ManagerProperties({
       return;
     }
     if (atPropertyLimit) {
+      // Take the manager to the plans page rather than only saying no. This is
+      // the highest-intent moment there is — they clicked the primary action
+      // BECAUSE they want another property — and a toast that names an upgrade
+      // without going there wastes it. It is the same rule as the sidebar's
+      // `upsell` nav lock in AGENTS.md: the locked control stays live because
+      // its destination is the only route to upgrade.
+      //
+      // Native is the exception, and deliberately: the app may not steer to an
+      // external purchase, which is what `omitUpgradeCta` already encodes, so
+      // there the message alone is the whole response.
       showToast(managerPropertyLimitMessage(skuTier, { omitUpgradeCta: isNativeRuntimeSync() }));
+      if (!isNativeRuntimeSync()) router.push(MANAGER_PLAN_PORTAL_URL);
       return;
     }
     setWizardOpen(true);
