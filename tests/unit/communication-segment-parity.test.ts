@@ -19,6 +19,10 @@ const PANELS = {
   manager: "src/components/portal/pro-communication.tsx",
   resident: "src/components/portal/resident-communication.tsx",
   vendor: "src/components/portal/vendor-communication.tsx",
+  // Renders for nobody today — its only caller passes listChrome="external" —
+  // but a dead branch that disagrees with every live one is an inconsistency
+  // waiting for whoever first turns it on.
+  "shared unified inbox": "src/components/portal/pro-unified-inbox.tsx",
 } as const;
 
 const read = (p: string) => readFileSync(join(process.cwd(), p), "utf8");
@@ -33,6 +37,9 @@ describe.each(Object.entries(PANELS))("%s Communication segments", (_portal, pat
   });
 
   it("still resolves a bookmarked /unread onto Active", () => {
-    expect(src).toContain('activeDestinationId={listSegment === "unread" ? "active" : listSegment}');
+    // The prop differs by component (`activeDestinationId` on the control
+    // stack, `activeId` on the destination nav), so assert the MAPPING rather
+    // than one spelling of it.
+    expect(src).toMatch(/active(?:DestinationId|Id)=\{listSegment === "unread" \? "active" : listSegment\}/);
   });
 });

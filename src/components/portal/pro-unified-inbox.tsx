@@ -721,7 +721,7 @@ export function ManagerUnifiedInbox({
                 dataAttr: "communication-segment-archived",
               },
             ]}
-            activeId={listSegment}
+            activeId={listSegment === "unread" ? "active" : listSegment}
             ariaLabel="Conversation folders"
             size="toolbar"
             className="mb-2 gap-0.5 rounded-xl border-0 bg-transparent p-0"
