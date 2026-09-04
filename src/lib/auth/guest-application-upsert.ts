@@ -1,13 +1,19 @@
 import type { DemoApplicantRow } from "@/data/demo-portal";
 import { attachResidentSetupToken, isResidentSetupTokenValid } from "@/lib/auth/resident-setup-token";
 import { normalizeApplicationAxisId } from "@/lib/manager-applications-storage";
+import { isDraftShapedApplicationRow } from "@/lib/rental-application/draft-shape";
+import { findDuplicateApplication } from "@/lib/rental-application/duplicate-application.server";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 const EMAIL_RE = /^[^\s@]+@[^\s@.]+(?:\.[^\s@.]+)+$/;
 
 export type GuestApplicationUpsertResult =
   | { ok: true; row: DemoApplicantRow; setupToken: string }
-  | { ok: false; status: number; error: string };
+  | { ok: false; status: number; error: string; existingApplicationId?: string };
+
+/** Shown when the same person already has a submitted application for this room. */
+export const DUPLICATE_APPLICATION_ERROR =
+  "You have already applied to this room. Open your existing application to check its status.";
 
 export function isValidGuestApplicationEmail(email: string): boolean {
   return EMAIL_RE.test(email.trim().toLowerCase());
@@ -135,6 +141,29 @@ export async function prepareGuestApplicationUpsert(
   // this path handles progressive saves as well as the final submit.
   if (!params.existing && !target.acceptsApplications) {
     return { ok: false, status: 409, error: LISTING_NOT_ACCEPTING_APPLICATIONS_ERROR };
+  }
+
+  // The only duplicate guard was in the browser's sessionStorage, so it passed
+  // in a new tab, on another device, in incognito, and for every guest — the
+  // manager got two identical pending applications and the applicant could be
+  // billed the fee twice. Skipped for a row that is still a draft: an applicant
+  // partway through the wizard has not applied yet.
+  if (!isDraftShapedApplicationRow(params.row)) {
+    const duplicate = await findDuplicateApplication(db, {
+      residentEmail: email,
+      row: { ...params.row, propertyId },
+      excludeId: normalizeApplicationAxisId(params.row.id),
+    });
+    if (duplicate) {
+      return {
+        ok: false,
+        status: 409,
+        error: DUPLICATE_APPLICATION_ERROR,
+        // So the client can take them to the application they already have
+        // rather than leaving them at an error.
+        existingApplicationId: duplicate.id,
+      };
+    }
   }
 
   const baseRow: DemoApplicantRow = {

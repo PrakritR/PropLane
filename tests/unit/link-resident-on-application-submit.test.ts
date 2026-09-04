@@ -4,6 +4,8 @@ import { linkResidentOnApplicationSubmit } from "@/lib/auth/link-resident-on-app
 
 function makeDbMock(options: {
   propertyRecord?: { manager_user_id?: string | null; status?: string | null; property_data?: unknown } | null;
+  /** Prior applications for the duplicate guard; empty unless a test needs one. */
+  applicationRecords?: { id: string; row_data: unknown }[];
   profile?: { manager_id?: string | null } | null;
 }) {
   const profileUpdateEq = vi.fn().mockResolvedValue({ error: null });
@@ -15,6 +17,16 @@ function makeDbMock(options: {
           select: vi.fn().mockReturnValue({
             eq: vi.fn().mockReturnValue({
               maybeSingle: vi.fn().mockResolvedValue({ data: options.propertyRecord ?? null, error: null }),
+            }),
+          }),
+        };
+      }
+      if (table === "manager_application_records") {
+        // The server-side duplicate guard (PRP-204) reads this table.
+        return {
+          select: vi.fn().mockReturnValue({
+            eq: vi.fn().mockReturnValue({
+              limit: vi.fn().mockResolvedValue({ data: options.applicationRecords ?? [], error: null }),
             }),
           }),
         };

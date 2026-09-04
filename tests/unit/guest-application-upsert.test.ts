@@ -42,6 +42,17 @@ describe("prepareGuestApplicationUpsert", () => {
             }),
           };
         }
+        if (table === "manager_application_records") {
+          // The server-side duplicate guard (PRP-204) reads this table; these
+          // fixtures have no prior applications, so it finds none.
+          return {
+            select: vi.fn().mockReturnValue({
+              eq: vi.fn().mockReturnValue({
+                limit: vi.fn().mockResolvedValue({ data: [], error: null }),
+              }),
+            }),
+          };
+        }
         throw new Error(`unexpected table ${table}`);
       }),
     };

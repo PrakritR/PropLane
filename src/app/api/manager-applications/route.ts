@@ -840,7 +840,13 @@ export async function POST(req: Request) {
         clientSetupToken: typeof body.setupToken === "string" ? body.setupToken : null,
       });
       if (!guest.ok) {
-        return NextResponse.json({ error: guest.error }, { status: guest.status });
+        // `existingApplicationId` rides along on a duplicate so the client can
+        // open the application the person already has, instead of stopping at
+        // an error about work they have already done.
+        return NextResponse.json(
+          { error: guest.error, existingApplicationId: guest.existingApplicationId },
+          { status: guest.status },
+        );
       }
       row = anchorServerOwnedSmsConsent(guest.row, existing ?? null);
       const previousRow = existing ?? null;
@@ -939,7 +945,10 @@ export async function POST(req: Request) {
         linkProfile: role === "resident",
       });
       if (!linked.ok) {
-        return NextResponse.json({ error: linked.error }, { status: linked.status });
+        return NextResponse.json(
+          { error: linked.error, existingApplicationId: linked.existingApplicationId },
+          { status: linked.status },
+        );
       }
       row = linked.row;
       row = anchorServerOwnedSmsConsent(row, existing ?? null);
