@@ -34,6 +34,7 @@ import {
 import { createSupabaseBrowserClient } from "@/lib/supabase/browser";
 import { usePortalSession } from "@/hooks/use-portal-session";
 import { isDemoModeActive } from "@/lib/demo/demo-session";
+import { formatProplaneIdForDisplay } from "@/lib/manager-id";
 
 const SETTINGS_TAB_PARAM = "tab";
 
@@ -254,7 +255,12 @@ export function ResidentProfilePanel() {
                 <label className="text-sm font-medium text-foreground" htmlFor="resident-pf-id">
                   PropLane ID
                 </label>
-                <Input id="resident-pf-id" value={axisId} readOnly className="bg-muted/40 font-mono text-sm" />
+                <Input
+                  id="resident-pf-id"
+                  value={formatProplaneIdForDisplay(axisId)}
+                  readOnly
+                  className="bg-muted/40 font-mono text-sm"
+                />
               </div>
             </div>
           </PortalSettingsFormBody>
@@ -263,7 +269,14 @@ export function ResidentProfilePanel() {
             <PortalSettingsField label="Full name" value={emptyToDash(name)} />
             <PortalSettingsField label="Email" value={email} />
             <PortalSettingsField label="Phone" value={emptyToDash(phone)} />
-            <PortalSettingsField label="PropLane ID" value={axisId} mono />
+            {/*
+              Shown through the display formatter. Accounts created before the
+              rebrand still STORE an `AXIS-` id — every lookup accepts both
+              prefixes and renaming the stored value is a migration, not a
+              label change — but a field captioned "PropLane ID" must never
+              read AXIS to the person whose id it is.
+            */}
+            <PortalSettingsField label="PropLane ID" value={formatProplaneIdForDisplay(axisId)} mono />
           </>
         )}
       </PortalSettingsGroup>
