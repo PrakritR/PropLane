@@ -195,12 +195,12 @@ Listed newest first; the ones already fixed say so.
   time: the manager's own `full_name`, or the business / landlord name a vendor
   would recognise on an invoice. Until then the vendor cannot tell two
   managers' invoices apart.
-* **`pro-unified-inbox.tsx` carries a dead third segment.** Its internal
-  toolbar renders Active / Unread / Archived, but the only caller
-  (`pro-communication.tsx`) passes `listChrome="external"`, so that branch never
-  runs. Harmless today; the moment someone passes `internal` they get an inbox
-  that disagrees with every other one. Delete the branch or drop its Unread
-  entry.
+* ~~**`pro-unified-inbox.tsx` carries a dead third segment.**~~ — DONE. Its
+  internal toolbar now offers the same Active / Archived every live inbox has,
+  and `/unread` still resolves onto Active. The branch still renders for nobody
+  (its only caller passes `listChrome="external"`), but it no longer disagrees
+  with the rest of the product for whoever first turns it on. All four inboxes
+  are covered by `tests/unit/communication-segment-parity.test.ts`.
 * **Vendor Communication has no filter sheet.** The manager and resident panels
   both mount `PortalFilterSortSheet`; `vendor-communication.tsx` does not. Pure
   parity gap, in the communication lane's territory.
