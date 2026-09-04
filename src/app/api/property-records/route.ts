@@ -7,11 +7,26 @@ import { asStringArray } from "@/app/api/pro/account-links/route";
 import { isCrossSandboxPortalPair } from "@/lib/portal-sandbox-accounts";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
+import { upsertPropertyApplicationFeeWaiverCode } from "@/lib/application-fee-waiver";
 import { MANAGER_PROPERTY_LIMIT_ERROR_CODE } from "@/lib/manager-access";
 import { assertManagerPropertyListingQuota } from "@/lib/manager-property-quota.server";
 import { propertyRowsToSnapshot, type ManagerPropertyRecordStatus } from "@/lib/persisted-property-records";
 
 export const runtime = "nodejs";
+
+function listingApplicationFeeWaiverCodeFromPayload(rowData: unknown, propertyData: unknown): string | null {
+  const read = (container: unknown): string | null => {
+    if (!container || typeof container !== "object") return null;
+    const record = container as Record<string, unknown>;
+    const submission = record.submission ?? record.listingSubmission;
+    if (!submission || typeof submission !== "object") return null;
+    const code = (submission as { applicationFeeWaiverCode?: unknown }).applicationFeeWaiverCode;
+    return typeof code === "string" ? code.trim() : "";
+  };
+  const fromRow = read(rowData);
+  if (fromRow != null) return fromRow;
+  return read(propertyData);
+}
 
 async function sessionUser() {
   const supabase = await createSupabaseServerClient();
@@ -301,6 +316,22 @@ export async function POST(req: Request) {
       { onConflict: "id" },
     );
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+
+    if (managerUserIdForWrite) {
+      const waiverCode = listingApplicationFeeWaiverCodeFromPayload(body.rowData, body.propertyData);
+      if (waiverCode != null) {
+        const waiverResult = await upsertPropertyApplicationFeeWaiverCode(
+          db,
+          managerUserIdForWrite,
+          id,
+          waiverCode,
+        );
+        if (!waiverResult.ok) {
+          return NextResponse.json({ error: waiverResult.error }, { status: 400 });
+        }
+      }
+    }
+
     return NextResponse.json({ ok: true });
   } catch (e) {
     const message = e instanceof Error ? e.message : "Failed to save property record.";

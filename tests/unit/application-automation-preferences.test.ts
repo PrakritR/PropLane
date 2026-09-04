@@ -11,6 +11,8 @@ import { describe, expect, it } from "vitest";
 import {
   DEFAULT_APPLICATION_AUTOMATION,
   normalizeApplicationAutomation,
+  normalizeApplicationAutomationByPropertyId,
+  resolveApplicationAutomationForProperty,
   shouldAutomate,
 } from "@/lib/application-automation-preferences";
 
@@ -38,6 +40,17 @@ describe("automation defaults", () => {
     const prefs = normalizeApplicationAutomation({ autoDeleteEverything: true, autoSendLease: true });
     expect(prefs).toEqual({ ...DEFAULT_APPLICATION_AUTOMATION, autoSendLease: true });
     expect("autoDeleteEverything" in prefs).toBe(false);
+  });
+
+  it("resolves per-property overrides before the portfolio default", () => {
+    const state = {
+      portfolio: DEFAULT_APPLICATION_AUTOMATION,
+      byPropertyId: normalizeApplicationAutomationByPropertyId({
+        "prop-1": { autoApproveApplications: true },
+      }),
+    };
+    expect(resolveApplicationAutomationForProperty(state, "prop-1").autoApproveApplications).toBe(true);
+    expect(resolveApplicationAutomationForProperty(state, "prop-2").autoApproveApplications).toBe(false);
   });
 });
 

@@ -1,8 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Modal, ModalFooter } from "@/components/ui/modal";
-import { MODAL_TALL_PANEL_CLASS, PORTAL_MODAL_BODY_SCROLL_CLASS } from "@/components/ui/modal-styles";
+import { Modal } from "@/components/ui/modal";
 import { useAppUi } from "@/components/providers/app-ui-provider";
 import { isDemoModeActive } from "@/lib/demo/demo-session";
 import {
@@ -22,7 +21,6 @@ import type { ApplicationAutomationPreferences } from "@/lib/application-automat
 import { useWorkAssignmentDirectory } from "@/hooks/use-work-assignment-directory";
 import { useManagerUserId } from "@/hooks/use-manager-user-id";
 import { CANONICAL_DEMO_MANAGER_NAME } from "@/lib/demo/demo-canonical-accounts";
-import { cn } from "@/lib/utils";
 import { cacheLandlordLegalName } from "@/lib/manager-landlord-profile";
 import { PORTAL_TOOLBAR_PILL_BUTTON, PORTAL_TOOLBAR_PILL_BUTTON_ACTIVE } from "@/components/portal/portal-metrics";
 import { ManagerPortalAutomationSettingsPanel } from "@/components/portal/manager-portal-automation-settings-panel";
@@ -55,6 +53,8 @@ export function ManagerPortalSettingsModal({
   scoped = true,
   scopedTitle,
   onCalendarSettingsSaved,
+  propertyOptions = [],
+  initialPropertyId,
 }: {
   open: boolean;
   onClose: () => void;
@@ -72,6 +72,10 @@ export function ManagerPortalSettingsModal({
   scopedTitle?: string;
   /** Called after Calendar settings save so the availability grid can pick up new defaults. */
   onCalendarSettingsSaved?: () => void;
+  /** Live manager properties for Applications / Lease automation settings. */
+  propertyOptions?: { id: string; label: string }[];
+  /** Pre-select a property when opening from a filtered section. */
+  initialPropertyId?: string;
 }) {
   const { showToast } = useAppUi();
   const demo = isDemoModeActive();
@@ -80,7 +84,7 @@ export function ManagerPortalSettingsModal({
   const [tab, setTab] = useState<ManagerPortalSettingsTab>(initialTab);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [waiverCode, setWaiverCode] = useState("");
+  const [propertyId, setPropertyId] = useState("");
   const [automation, setAutomation] = useState<ApplicationAutomationPreferences>(DEFAULT_APPLICATION_AUTOMATION);
   const [panelFooter, setPanelFooter] = useState<ManagerSettingsPanelFooter | null>(null);
 
@@ -89,22 +93,33 @@ export function ManagerPortalSettingsModal({
   }, [open, initialTab]);
 
   useEffect(() => {
+    if (!open) return;
+    const preferred = initialPropertyId?.trim() || propertyOptions[0]?.id || "";
+    setPropertyId(preferred);
+  }, [open, initialPropertyId, propertyOptions]);
+
+  useEffect(() => {
     setPanelFooter(null);
-  }, [tab]);
+  }, [tab, propertyId]);
 
   const loadApplications = useCallback(async () => {
+    if (!propertyId) {
+      setAutomation(DEFAULT_APPLICATION_AUTOMATION);
+      return;
+    }
     if (demo) {
-      setWaiverCode("WELCOME50");
       setAutomation(DEFAULT_APPLICATION_AUTOMATION);
       cacheLandlordLegalName(CANONICAL_DEMO_MANAGER_NAME);
       return;
     }
     setLoading(true);
     try {
-      const res = await fetch("/api/portal/manager-application-settings", { credentials: "include" });
+      const res = await fetch(
+        `/api/portal/manager-application-settings?propertyId=${encodeURIComponent(propertyId)}`,
+        { credentials: "include" },
+      );
       const data = (await res.json().catch(() => ({}))) as {
         automation?: unknown;
-        waiverCode?: string | null;
         error?: string;
       };
       if (!res.ok) {
@@ -112,13 +127,12 @@ export function ManagerPortalSettingsModal({
         return;
       }
       setAutomation(normalizeApplicationAutomation(data.automation));
-      setWaiverCode((data.waiverCode ?? "").trim());
     } catch {
       showToast("Could not load settings.");
     } finally {
       setLoading(false);
     }
-  }, [demo, showToast]);
+  }, [demo, propertyId, showToast]);
 
   useEffect(() => {
     if (!open) return;
@@ -127,10 +141,11 @@ export function ManagerPortalSettingsModal({
     }
   }, [open, tab, loadApplications]);
 
-  async function saveApplicationBundle(patch: {
-    waiverCode?: string;
-    automation?: ApplicationAutomationPreferences;
-  }) {
+  async function saveApplicationAutomationSettings() {
+    if (!propertyId) {
+      showToast("Choose a property first.");
+      return;
+    }
     if (demo) {
       showToast("Settings saved (demo).");
       return;
@@ -142,8 +157,8 @@ export function ManagerPortalSettingsModal({
         credentials: "include",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          waiverCode: patch.waiverCode ?? waiverCode.trim(),
-          automation: patch.automation ?? automation,
+          propertyId,
+          automation,
         }),
       });
       const data = (await res.json().catch(() => ({}))) as {
@@ -153,7 +168,6 @@ export function ManagerPortalSettingsModal({
         showToast(data.error ?? "Could not save settings.");
         return;
       }
-      if (patch.automation) setAutomation(patch.automation);
       showToast("Settings saved.");
     } catch {
       showToast("Could not save settings.");
@@ -162,29 +176,18 @@ export function ManagerPortalSettingsModal({
     }
   }
 
-  const modalFooter = useMemo((): ManagerSettingsPanelFooter | null => {
-    if (tab === "applications") {
-      return {
-        saving,
-        disabled: loading,
-        onSave: () =>
-          void saveApplicationBundle({
-            waiverCode: waiverCode.trim(),
-            automation,
-          }),
-        dataAttr: "manager-application-settings-save",
-      };
-    }
-    if (tab === "lease") {
-      return {
-        saving,
-        disabled: loading,
-        onSave: () => void saveApplicationBundle({ automation }),
-      };
-    }
-    if (tab === "resident") return null;
-    return panelFooter;
-  }, [automation, loading, panelFooter, saving, tab, waiverCode]);
+  const scopedAutomationFooter = useMemo((): ManagerSettingsPanelFooter | null => {
+    if (tab !== "applications" && tab !== "lease") return null;
+    return {
+      saving,
+      disabled: loading || !propertyId || propertyOptions.length === 0,
+      onSave: () => void saveApplicationAutomationSettings(),
+      dataAttr: tab === "applications" ? "manager-application-settings-save" : "manager-lease-settings-save",
+    };
+  }, [loading, propertyId, propertyOptions.length, saving, tab]);
+
+  const inlineFooter =
+    scopedAutomationFooter ?? (tab === "resident" ? null : panelFooter);
 
   return (
     <Modal
@@ -201,16 +204,9 @@ export function ManagerPortalSettingsModal({
           ? `${scopedTitle ?? TABS.find((item) => item.id === tab)?.label ?? "Settings"} settings`
           : "Portal settings"
       }
-      panelClassName={cn("max-w-lg p-3 sm:p-4", MODAL_TALL_PANEL_CLASS)}
-      footer={
-        modalFooter ? (
-          <ModalFooter>
-            <SettingsPanelModalSaveButton {...modalFooter} />
-          </ModalFooter>
-        ) : undefined
-      }
+      panelClassName="max-w-lg p-3 sm:p-4"
+      scrollableContent={!inlineFooter}
     >
-      <div className={PORTAL_MODAL_BODY_SCROLL_CLASS}>
       {/* A scoped dialog is already ON its one section, so a switcher would only offer the manager
           a way to wander out of it. */}
       {scoped ? null : (
@@ -234,9 +230,10 @@ export function ManagerPortalSettingsModal({
           automation={automation}
           loading={loading}
           saving={saving}
-          waiverCode={waiverCode}
+          propertyOptions={propertyOptions}
+          propertyId={propertyId}
+          onPropertyIdChange={setPropertyId}
           onAutomationChange={setAutomation}
-          onWaiverCodeChange={setWaiverCode}
         />
       ) : null}
 
@@ -250,6 +247,9 @@ export function ManagerPortalSettingsModal({
           automation={automation}
           loading={loading}
           saving={saving}
+          propertyOptions={propertyOptions}
+          propertyId={propertyId}
+          onPropertyIdChange={setPropertyId}
           onAutomationChange={setAutomation}
         />
       ) : null}
@@ -265,7 +265,12 @@ export function ManagerPortalSettingsModal({
       {open && tab === "communication" ? (
         <CommunicationSettingsPanel onFooterReady={setPanelFooter} />
       ) : null}
-      </div>
+
+      {inlineFooter ? (
+        <div className="mt-4 flex justify-end border-t border-border pt-3">
+          <SettingsPanelModalSaveButton {...inlineFooter} />
+        </div>
+      ) : null}
     </Modal>
   );
 }
@@ -274,9 +279,19 @@ export function ManagerPortalSettingsModal({
 export function ManagerApplicationSettingsModal({
   open,
   onClose,
+  propertyOptions = [],
 }: {
   open: boolean;
   onClose: () => void;
+  propertyOptions?: { id: string; label: string }[];
 }) {
-  return <ManagerPortalSettingsModal open={open} onClose={onClose} initialTab="applications" scoped />;
+  return (
+    <ManagerPortalSettingsModal
+      open={open}
+      onClose={onClose}
+      initialTab="applications"
+      scoped
+      propertyOptions={propertyOptions}
+    />
+  );
 }

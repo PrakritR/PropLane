@@ -4007,6 +4007,26 @@ export function ManagerAddListingForm({
                 />
                 </div>
 
+                <div className="mt-4 space-y-2 border-t border-border pt-4">
+                  <FieldLabel optional>Application fee waive code</FieldLabel>
+                  <Input
+                    aria-label="Application fee waive code"
+                    value={sub.applicationFeeWaiverCode ?? ""}
+                    onChange={(e) =>
+                      setSub((s) => ({
+                        ...s,
+                        applicationFeeWaiverCode: e.target.value.toUpperCase(),
+                      }))
+                    }
+                    placeholder="E.G. WELCOME50"
+                    data-attr="listing-application-fee-waiver-code"
+                    className="w-full font-mono uppercase"
+                  />
+                  <p className="text-xs text-muted">
+                    Applicants entering this code apply for free on this listing. Leave empty to turn it off.
+                  </p>
+                </div>
+
                 <div className="mt-4 space-y-3 border-t border-border pt-4">
                   <FieldLabel optional>Payment at signing</FieldLabel>
                   <div className="grid gap-2 sm:grid-cols-2">

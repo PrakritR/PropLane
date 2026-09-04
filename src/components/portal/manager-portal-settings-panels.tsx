@@ -2,7 +2,6 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { FieldSingleSelect } from "@/components/ui/checkbox-multi-select";
 import { useAppUi } from "@/components/providers/app-ui-provider";
 import { isDemoModeActive } from "@/lib/demo/demo-session";
@@ -106,20 +105,52 @@ function useReportSettingsPanelFooter(
   }, [dataAttr, disabled, footer, onFooterReady, onSave, saving]);
 }
 
+export function ManagerSettingsPropertyField({
+  propertyOptions,
+  propertyId,
+  onPropertyIdChange,
+  disabled,
+}: {
+  propertyOptions: { id: string; label: string }[];
+  propertyId: string;
+  onPropertyIdChange: (propertyId: string) => void;
+  disabled?: boolean;
+}) {
+  if (propertyOptions.length === 0) {
+    return (
+      <p className="rounded-xl border border-border bg-accent/30 px-3 py-2.5 text-sm text-muted">
+        Add a property listing before configuring these settings.
+      </p>
+    );
+  }
+  return (
+    <FieldSingleSelect
+      label="Property"
+      value={propertyId}
+      options={propertyOptions.map((option) => ({ value: option.id, label: option.label }))}
+      onChange={onPropertyIdChange}
+      disabled={disabled}
+      dataAttr="manager-settings-property"
+    />
+  );
+}
+
 export function ApplicationsSettingsPanel({
   automation,
   loading,
   saving,
-  waiverCode,
+  propertyOptions,
+  propertyId,
+  onPropertyIdChange,
   onAutomationChange,
-  onWaiverCodeChange,
 }: {
   automation: ApplicationAutomationPreferences;
   loading: boolean;
   saving: boolean;
-  waiverCode: string;
+  propertyOptions: { id: string; label: string }[];
+  propertyId: string;
+  onPropertyIdChange: (propertyId: string) => void;
   onAutomationChange: (next: ApplicationAutomationPreferences) => void;
-  onWaiverCodeChange: (value: string) => void;
 }) {
   const confirmAutoApproveEnable = () =>
     window.confirm(
@@ -128,6 +159,12 @@ export function ApplicationsSettingsPanel({
 
   return (
     <div className="space-y-4">
+      <ManagerSettingsPropertyField
+        propertyOptions={propertyOptions}
+        propertyId={propertyId}
+        onPropertyIdChange={onPropertyIdChange}
+        disabled={loading || saving || propertyOptions.length === 0}
+      />
       <label className="flex items-start gap-3">
         <input
           type="checkbox"
@@ -150,22 +187,9 @@ export function ApplicationsSettingsPanel({
       </label>
       {automation.autoApproveApplications ? (
         <p className="rounded-xl border border-amber-500/30 bg-amber-500/10 px-3 py-2.5 text-xs text-foreground">
-          Auto-approve is on. New submissions are approved without a manual review step.
+          Auto-approve is on for this property. New submissions are approved without a manual review step.
         </p>
       ) : null}
-      <div className="space-y-2 border-t border-border pt-4">
-        <p className="text-[13px] font-semibold text-foreground">Promo code</p>
-        <Input
-          aria-label="Promo code"
-          value={waiverCode}
-          onChange={(e) => onWaiverCodeChange(e.target.value)}
-          placeholder="E.G. WELCOME50"
-          data-attr="manager-application-waiver-code-input"
-          disabled={loading || saving}
-          className="w-full font-mono uppercase"
-        />
-        <p className="text-xs text-muted">Applicants entering this code apply for free. Leave empty to turn it off.</p>
-      </div>
     </div>
   );
 }
@@ -270,15 +294,27 @@ export function LeaseSettingsPanel({
   automation,
   loading,
   saving,
+  propertyOptions,
+  propertyId,
+  onPropertyIdChange,
   onAutomationChange,
 }: {
   automation: ApplicationAutomationPreferences;
   loading: boolean;
   saving: boolean;
+  propertyOptions: { id: string; label: string }[];
+  propertyId: string;
+  onPropertyIdChange: (propertyId: string) => void;
   onAutomationChange: (next: ApplicationAutomationPreferences) => void;
 }) {
   return (
     <div className="space-y-4">
+      <ManagerSettingsPropertyField
+        propertyOptions={propertyOptions}
+        propertyId={propertyId}
+        onPropertyIdChange={onPropertyIdChange}
+        disabled={loading || saving || propertyOptions.length === 0}
+      />
       <p className="text-xs text-muted">
         After you approve an application, PropLane can build and send the lease for you. Every safety check
         that applies when you do this manually still applies. The landlord named on generated leases comes
