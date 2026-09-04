@@ -4,8 +4,8 @@ import { parseMoneyAmount } from "@/lib/parse-money";
 import { residentConnectApplicationFeeCents, type ResidentAxisPaymentMethod } from "@/lib/payment-policy";
 import type { HouseholdCharge } from "@/lib/household-charges";
 import { cancelFuturePaymentRemindersForCharge } from "@/lib/payment-reminder-lifecycle.server";
-import { sendPushToUser } from "@/lib/push-notifications.server";
 import { syncLedgerPaymentEntry } from "@/lib/reports/ledger-sync";
+import { emitHouseholdChargeTransition } from "@/lib/domain-action-events.server";
 
 export const HOUSEHOLD_CHARGE_CHECKOUT_PURPOSE = "household_charge";
 
@@ -95,7 +95,18 @@ export async function markHouseholdChargeProcessingFromStripeSession(
       },
       { onConflict: "id" },
     );
-    if (!error) marked += 1;
+    if (!error) {
+      marked += 1;
+      const managerUserId = charge.managerUserId?.trim() || session.metadata?.manager_user_id?.trim() || "";
+      if (managerUserId) {
+        await emitHouseholdChargeTransition(db, {
+          managerUserId,
+          previousStatus: charge.status,
+          charge: nextCharge,
+          transitionId: `${chargeId}:payment_processing:${session.id}`,
+        }).catch(() => undefined);
+      }
+    }
   }
   return { ok: marked > 0, marked };
 }
@@ -240,18 +251,12 @@ export async function markHouseholdChargePaidFromStripeSession(
       const managerUserId = charge.managerUserId?.trim() || expectedManagerUserId;
       if (managerUserId) {
         await cancelFuturePaymentRemindersForCharge(db, managerUserId, chargeId).catch(() => undefined);
-      }
-      if (charge.residentUserId) {
-        try {
-          await sendPushToUser(charge.residentUserId, {
-            title: "Payment received",
-            body: `Your payment for ${charge.title || "your charge"} has been confirmed.`,
-            url: "/resident/payments",
-            data: { chargeId },
-          });
-        } catch {
-          /* non-critical — no-ops when FCM is not configured */
-        }
+        await emitHouseholdChargeTransition(db, {
+          managerUserId,
+          previousStatus: charge.status,
+          charge: nextCharge,
+          transitionId: `${chargeId}:payment_received:${session.id}`,
+        }).catch(() => undefined);
       }
     }
   }

@@ -12,13 +12,14 @@
  */
 import { track } from "@/lib/analytics/posthog";
 import type { DemoManagerWorkOrderRow } from "@/data/demo-portal";
-import { deliverPortalInboxMessage } from "@/lib/portal-inbox-delivery";
 import type { WorkOrderCategory } from "@/lib/reports/categories";
 import { createExpensesFromWorkOrder, markWorkOrderPaid, mergeWorkOrderCompletion } from "@/lib/work-order-expenses";
 import { payoutVendorForWorkOrder, type VendorPayoutOutcome } from "@/lib/stripe-vendor-payout";
 import { centsToUsd } from "@/lib/reports/money";
 import type { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import type { WorkOrderActionFailure } from "@/lib/work-order-bids.server";
+import { workOrderEvent } from "@/lib/work-order-events.server";
+import { resolvePropertyScopedManagerRecipientIds } from "@/lib/co-manager-notification-recipients.server";
 
 type Db = ReturnType<typeof createSupabaseServiceRoleClient>;
 
@@ -169,55 +170,41 @@ export async function approveAndPayWorkOrder(
   const title = paid.title || "Service";
   const residentEmail = (paid.residentEmail ?? "").trim();
   if (residentEmail.includes("@")) {
-    await deliverPortalInboxMessage(db, {
+    await workOrderEvent(db, {
+      eventId: `${workOrder.id}:completed:${paid.completedAt || paid.paidAt || "completed"}`,
+      event: "completed",
+      managerUserId: ownerManagerUserId,
+      workOrderId: workOrder.id,
       senderUserId: actor.userId,
       senderEmail: actor.email,
-      fromName: "PropLane Portal",
-      subject: `${title} completed`,
-      text: `Your service "${title}"${propertyLabel ? ` at ${propertyLabel}` : ""} has been completed.`,
-      toEmails: [residentEmail],
-      deliverToPortalInbox: true,
-      deliverViaEmail: false,
-      deliverViaSms: false,
-    }).catch(() => undefined);
-  }
-  if (existing.vendor_user_id) {
-    // A failed transfer must not be reported to the vendor as "paid" — that is
-    // the message that leaves them owed money believing it is on the way.
-    const payoutFailed = payoutOutcome?.status === "failed";
-    const amountLabel = payoutOutcome ? centsToUsd(payoutOutcome.amountCents) : "";
-    await deliverPortalInboxMessage(db, {
-      senderUserId: actor.userId,
-      senderEmail: actor.email,
-      fromName: "PropLane Portal",
-      subject: payoutFailed ? `${title} approved — payout pending` : `${title} approved and paid`,
-      text: payoutFailed
-        ? `"${title}"${propertyLabel ? ` at ${propertyLabel}` : ""} has been approved${amountLabel ? ` for ${amountLabel}` : ""}, but the transfer could not be sent: ${payoutOutcome?.failureReason ?? "the payout failed."} Finish connecting your payout account in Settings and we will send it automatically — you do not need the manager to approve the job again.`
-        : `"${title}"${propertyLabel ? ` at ${propertyLabel}` : ""} has been approved and marked paid. Thanks for the work.`,
-      toUserIds: [existing.vendor_user_id],
-      deliverToPortalInbox: true,
-      deliverViaEmail: false,
-      deliverViaSms: false,
+      facts: { reference: paid.reference || "Work order", title, propertyLabel: propertyLabel || undefined },
+      recipients: [{ audience: "resident", email: residentEmail }],
     }).catch(() => undefined);
   }
 
-  // …and tell the MANAGER, who otherwise has no way to learn the transfer did
-  // not happen: their bookkeeping succeeded, the job reads as paid, and the
-  // only record of the failure was a vendor_payouts row with no surface.
-  if (payoutOutcome?.status === "failed") {
-    const amountLabel = centsToUsd(payoutOutcome.amountCents);
-    await deliverPortalInboxMessage(db, {
-      senderUserId: actor.userId,
-      senderEmail: actor.email,
-      fromName: "PropLane Portal",
-      subject: `Payout pending for ${title}`,
-      text: `"${title}"${propertyLabel ? ` at ${propertyLabel}` : ""} is approved and recorded as paid in your books, but the ${amountLabel} transfer to the vendor has not gone out: ${payoutOutcome.failureReason ?? "the payout failed."} We retry automatically as soon as the blocker clears, so no action is needed from you.`,
-      toUserIds: [ownerManagerUserId],
-      deliverToPortalInbox: true,
-      deliverViaEmail: false,
-      deliverViaSms: false,
-    }).catch(() => undefined);
-  }
+  const managerRecipients = await resolvePropertyScopedManagerRecipientIds(db, {
+    ownerManagerUserId,
+    propertyId: paid.assignedPropertyId || paid.propertyId || undefined,
+    channel: "services",
+  });
+  await workOrderEvent(db, {
+    eventId: `${workOrder.id}:paid:${paid.paidAt || "completed"}`,
+    event: "paid",
+    managerUserId: ownerManagerUserId,
+    workOrderId: workOrder.id,
+    senderUserId: actor.userId,
+    senderEmail: actor.email,
+    facts: {
+      reference: paid.reference || "Work order",
+      title,
+      propertyLabel: propertyLabel || undefined,
+      amountCents: (acceptedVendorCostCents ?? 0) + (acceptedMaterialsCostCents ?? 0),
+    },
+    recipients: [
+      ...(existing.vendor_user_id ? [{ audience: "vendor" as const, userId: existing.vendor_user_id }] : []),
+      ...managerRecipients.map((userId) => ({ audience: "manager" as const, userId })),
+    ],
+  }).catch(() => undefined);
 
   track("work_order_completed", actor.userId, {
     work_order_id: workOrder.id,

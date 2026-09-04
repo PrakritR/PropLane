@@ -36,6 +36,11 @@ import type { AgentContext } from "@/lib/tools/context";
 import { PROMPT_IDS } from "@/lib/agent/prompt-metadata";
 import { MANAGER_SMS_AGENT_SYSTEM_PROMPT } from "@/lib/agent/system-prompts";
 import { managerSmsScopePrompt } from "@/lib/sms/manager-sms-access";
+import {
+  resolveManagerWorkOrderReference,
+  workOrderReferencePromptContext,
+} from "@/lib/tools/work-order-reference-resolution";
+import { resolveWorkOrderReference } from "@/lib/work-order-reference";
 import type { TraceActor } from "@/lib/observability/langfuse";
 import {
   runSmsAgentTurn,
@@ -98,6 +103,9 @@ export async function runManagerSmsAgentTurn(
   const surface: SmsAgentSurface = scopeNote
     ? { ...MANAGER_SMS_SURFACE, basePrompt: `${MANAGER_SMS_AGENT_SYSTEM_PROMPT}\n\n${scopeNote}` }
     : MANAGER_SMS_SURFACE;
+  const referenceResolution = resolveWorkOrderReference(args.inboundText).length
+    ? await resolveManagerWorkOrderReference(args.ctx, args.inboundText)
+    : null;
   return runSmsAgentTurn<AgentContext>(db, {
     ctx: args.ctx,
     surface,
@@ -106,6 +114,13 @@ export async function runManagerSmsAgentTurn(
     phoneE164: args.managerPhoneE164,
     inboundText: args.inboundText,
     inboundMessageSid: args.inboundMessageSid,
+    precomputedReply:
+      referenceResolution?.kind === "not_found" || referenceResolution?.kind === "ambiguous"
+        ? referenceResolution.message
+        : null,
+    additionalSystemContext: referenceResolution
+      ? workOrderReferencePromptContext(referenceResolution)
+      : null,
     traceActor: managerSmsTraceActor(args.ctx),
     traceMetadata: {
       landlordId: args.ctx.landlordId,
@@ -114,6 +129,10 @@ export async function runManagerSmsAgentTurn(
       activeManagerId: args.ctx.landlordId,
       channel: "sms",
       smsAccessMode: access?.mode ?? "owner",
+      workOrderReference:
+        referenceResolution?.kind === "resolved"
+          ? referenceResolution.candidates[0].reference
+          : undefined,
     },
   });
 }

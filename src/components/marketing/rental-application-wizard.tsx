@@ -96,7 +96,10 @@ import {
 } from "@/lib/rental-application/application-field-catalog";
 import { digitsOnly, maskPhoneInput, maskSsnInput } from "@/lib/rental-application/masks";
 import { countValidationErrors, validateRentalWizardStep } from "@/lib/rental-application/validate";
-import { sanitizeApplicationFormForListing } from "@/lib/rental-application/validate-application-submit";
+import {
+  sanitizeApplicationFormForListing,
+  validateResidentApplicationSubmit,
+} from "@/lib/rental-application/validate-application-submit";
 import {
   RENTAL_WIZARD_STEP_FIELD_ORDER,
   scrollToFirstWizardFieldError,
@@ -1378,24 +1381,25 @@ function RentalApplicationWizardInner({
   }, [maxStepReached]);
 
   const validateAllPrior = useCallback(() => {
-    // The ACTIVE steps, not a hardcoded 1..9. A required custom question mapped
-    // to the Review or Application-fee section lives on step 10 or 11, so this
-    // loop never validated it — the manager configured a required question and
-    // received blanks, with nothing to say it had been skipped rather than
-    // declined (PRP-202).
-    for (const s of activeSteps) {
-      const e = validateRentalWizardStep(s, form);
-      if (countValidationErrors(e) > 0) {
-        setErrors(e);
-        setStep(s);
-        showToast("Please review the highlighted fields before submitting.");
-        queueMicrotask(() =>
-          scrollToFirstWizardFieldError(RENTAL_WIZARD_STEP_FIELD_ORDER[s] ?? [], e),
-        );
-        return false;
-      }
-    }
-    return true;
+    const property = form.propertyId.trim() ? getPropertyById(form.propertyId) : undefined;
+    const result = validateResidentApplicationSubmit({
+      application: form,
+      property,
+      inProgress: false,
+    });
+    if (result.ok) return true;
+
+    const validationStep = result.step ?? 1;
+    setErrors(result.fieldErrors);
+    setStep(validationStep);
+    showToast("Please review the highlighted fields before submitting.");
+    queueMicrotask(() =>
+      scrollToFirstWizardFieldError(
+        RENTAL_WIZARD_STEP_FIELD_ORDER[validationStep] ?? [],
+        result.fieldErrors,
+      ),
+    );
+    return false;
   }, [form, setStep, showToast]);
 
   const applicationFeeGate = useMemo(() => {

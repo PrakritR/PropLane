@@ -899,7 +899,7 @@ export function VendorWorkOrdersPanel() {
             <div key={row.id} id={`portal-work-order-${row.id}`}>
               <PortalServiceRecordRow
                 title={row.title}
-                subtitle={[propertyLabel(row), row.scheduled || "Not yet scheduled", phaseLabel]
+                subtitle={[row.reference, propertyLabel(row), row.scheduled || "Not yet scheduled", phaseLabel]
                   .filter(Boolean)
                   .join(" · ")}
                 selected={isExpanded}

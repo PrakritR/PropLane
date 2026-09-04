@@ -58,6 +58,7 @@ import {
   withPinnedPropLaneAssistantThreads,
 } from "@/lib/communication-assistant-inbox-list";
 import { usePortalSession } from "@/hooks/use-portal-session";
+import { inboxThreadLastTurnDirection } from "@/lib/inbox-turn-direction";
 import {
   clearCommunicationThreadUrl,
   selectCommunicationThreadUrl,
@@ -214,7 +215,7 @@ function ResidentUnifiedInbox({
         preview: isPropLaneAssistantInboxThread(t)
           ? propLaneAssistantListPreview(t, listSegment)
           : communicationInboxListPreview(lastMsg?.body ?? t.preview ?? "", listSegment, 80),
-        previewPrefix: lastOutbound ? "You: " : undefined,
+        previewPrefix: inboxThreadLastTurnDirection(t) === "outbound" ? "You: " : undefined,
         time: t.time,
         unread: t.folder === "inbox" && t.unread,
         // Sort on the SAME field the row is labelled with — only `thread.time`

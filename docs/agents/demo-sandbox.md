@@ -81,7 +81,11 @@ seed CLI (`tests/helpers/seed-canonical-demo-portfolio.ts`, spawned from
 accounts` (accounts + roles + pro tier + portfolio; `{"seedPortfolio":false}`
 for accounts only; idempotent, never deletes). Dev/test: `npm run test:seed`
 (also PRUNES non-canonical accounts — including any personal Gmail — by
-design). Production: run the route once as the production admin after deploy;
+design, except the captain dogfood keep-list in
+`tests/helpers/canonical-test-accounts.mjs`: `akhil-manager@prop-lane.space`,
+`akhil-resident@prop-lane.space`, and that portfolio's residents). The seed
+recreates that pair via `scripts/seed-akhil-dev-accounts.mjs`. A nuclear wipe
+is never automatic (not CI, not a hook) and must not run unless a human asked. Production: run the route once as the production admin after deploy;
 credentials never leave the environment. `admin@test.proplane.local` is deliberately
 NOT provisioned by the route — never auto-create an admin-role account with a
 well-known password in production. Signups always land in whatever DB the

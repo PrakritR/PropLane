@@ -18,7 +18,8 @@ export type RentalApplicationSectionId =
   | "employment"
   | "references"
   | "additional"
-  | "consent";
+  | "consent"
+  | "review";
 
 export type RentalApplicationSection = {
   id: RentalApplicationSectionId;
@@ -132,6 +133,12 @@ export const RENTAL_APPLICATION_SECTIONS: readonly RentalApplicationSection[] = 
       "Truthfulness certification",
       "Digital signature & date",
     ],
+  },
+  {
+    id: "review",
+    title: "Review",
+    wizardStep: 10,
+    standardFields: [],
   },
 ];
 

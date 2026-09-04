@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
-import { describe, expect, it } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { afterEach, describe, expect, it } from "vitest";
+import { cleanup, render, screen } from "@testing-library/react";
 import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
 import { PortalSectionActionRow } from "@/components/portal/portal-section-action-row";
 import {
@@ -42,6 +42,11 @@ import {
   promotionDetailHref,
   promotionListHref,
 } from "@/lib/portal-detail-routes";
+
+// Same race as manager-portal-primitives.test.tsx: DestinationNav via next/link
+// keeps scheduling work after act(), and a leftover tree loses to jsdom teardown
+// with "ReferenceError: window is not defined".
+afterEach(cleanup);
 
 describe("portal-detail-routes", () => {
   it("parses property detail tabs with preview fallback", () => {

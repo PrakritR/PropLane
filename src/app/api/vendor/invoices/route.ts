@@ -10,11 +10,12 @@ import {
   VENDOR_INVOICE_SUBMIT_ERROR_STATUS,
   VendorInvoiceSubmitError,
 } from "@/lib/vendor-invoice-submit.server";
+import { workOrderEvent } from "@/lib/work-order-events.server";
 
 export const runtime = "nodejs";
 
 async function requireVendor(): Promise<
-  | { ok: true; userId: string; db: ReturnType<typeof createSupabaseServiceRoleClient> }
+  | { ok: true; userId: string; email: string; db: ReturnType<typeof createSupabaseServiceRoleClient> }
   | { ok: false; status: number; error: string }
 > {
   const auth = await createSupabaseServerClient();
@@ -27,7 +28,7 @@ async function requireVendor(): Promise<
   if (String(profile?.role ?? "").toLowerCase() !== "vendor") {
     return { ok: false, status: 403, error: "Forbidden." };
   }
-  return { ok: true, userId: user.id, db };
+  return { ok: true, userId: user.id, email: user.email ?? "", db };
 }
 
 /** Returns the signed-in vendor's own invoices, most recent first. */
@@ -62,7 +63,7 @@ export async function POST(req: Request) {
   try {
     const gate = await requireVendor();
     if (!gate.ok) return NextResponse.json({ error: gate.error }, { status: gate.status });
-    const { db, userId } = gate;
+    const { db, userId, email } = gate;
 
     const body = (await req.json()) as {
       managerUserId?: string;
@@ -107,6 +108,23 @@ export async function POST(req: Request) {
       line_items: prepared.lineItems.length,
       has_work_order: Boolean(prepared.workOrderId),
     });
+
+    if (prepared.workOrderId) {
+      await workOrderEvent(db, {
+        eventId: `${prepared.workOrderId}:invoiced:${String(data.id)}`,
+        event: "invoiced",
+        managerUserId: prepared.target.managerUserId,
+        workOrderId: prepared.workOrderId,
+        senderUserId: userId,
+        senderEmail: email,
+        facts: {
+          reference: prepared.workOrderReference || "Work order",
+          title: prepared.workOrderTitle || "Work order",
+          amountCents: prepared.totalCents,
+        },
+        recipients: [{ audience: "manager", userId: prepared.target.managerUserId }],
+      }).catch(() => undefined);
+    }
 
     return NextResponse.json({ invoice: mapVendorInvoiceRow(data) });
   } catch (e) {

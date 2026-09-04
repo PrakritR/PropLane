@@ -147,6 +147,7 @@ function wrapUntrusted(source: string, text: string): { untrustedContent: string
 function summarizeWorkOrder(r: DemoManagerWorkOrderRow) {
   return {
     id: r.id,
+    reference: r.reference || null,
     title: r.title || null,
     status: r.status || null,
     bucket: r.bucket || null,
@@ -174,7 +175,7 @@ function summarizeWorkOrder(r: DemoManagerWorkOrderRow) {
 export const listWorkOrdersTool = defineTool({
   name: "list_work_orders",
   description:
-    "List the current landlord's maintenance work orders with status, priority, property/unit, resident, scheduled date, cost, assigned vendor, bidding state, and vendor-marked-done/paid automation status. Use to answer questions like 'what work orders are open', 'which maintenance is scheduled', or 'how many work orders are completed', and to collect work order ids for the work-order action tools.",
+    "List the current landlord's maintenance work orders with their human WO reference, status, priority, property/unit, resident, scheduled date, cost, assigned vendor, bidding state, and vendor-marked-done/paid automation status. Use to answer questions like 'what work orders are open', 'which maintenance is scheduled', or 'how many work orders are completed', and to collect work order ids for the work-order action tools.",
   kind: "read",
   inputSchema: z
     .object({

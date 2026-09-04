@@ -27,6 +27,7 @@ import type { LeasePipelineRow } from "@/lib/lease-pipeline-storage";
 import { syncLeaseLifecycleTasks } from "@/lib/manager-default-tasks.server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
+import { emitLeaseTransition } from "@/lib/domain-action-events.server";
 
 /** The resident-identity scope for this route's two reads; null = match nothing. */
 function residentIdentityFilter(user: { id?: string | null; email?: string | null }): string | null {
@@ -38,7 +39,7 @@ function residentIdentityFilter(user: { id?: string | null; email?: string | nul
 
 export const runtime = "nodejs";
 
-type RecordUser = { id: string; email?: string | null; role: string };
+type RecordUser = { id: string; email?: string | null; name?: string | null; role: string };
 
 async function getUserContext() {
   const supabase = await createSupabaseServerClient();
@@ -47,7 +48,7 @@ async function getUserContext() {
   } = await supabase.auth.getUser();
   if (!user) return null;
   const db = createSupabaseServiceRoleClient();
-  const { data: profile } = await db.from("profiles").select("email, role").eq("id", user.id).maybeSingle();
+  const { data: profile } = await db.from("profiles").select("email, full_name, role").eq("id", user.id).maybeSingle();
   const admin = await isAdminUser(user.id);
   const role = admin
     ? "admin"
@@ -60,6 +61,7 @@ async function getUserContext() {
     user: {
       id: user.id,
       email: (profile?.email ?? user.email ?? "").trim().toLowerCase(),
+      name: String(profile?.full_name ?? "").trim() || null,
       role,
     } satisfies RecordUser,
   };
@@ -747,6 +749,16 @@ export async function POST(req: Request) {
 
       const managerUserId = plan.record.manager_user_id;
       if (managerUserId) {
+        await emitLeaseTransition(ctx.db, {
+          managerUserId,
+          previous: plan.previousRow,
+          lease: plan.record.row_data as LeasePipelineRow,
+          actor: {
+            userId: ctx.user.id,
+            email: ctx.user.email ?? "",
+            name: ctx.user.name ?? undefined,
+          },
+        }).catch(() => undefined);
         void syncLeaseLifecycleTasks(
           ctx.db,
           managerUserId,

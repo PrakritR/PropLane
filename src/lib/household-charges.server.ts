@@ -24,6 +24,7 @@ import {
 } from "@/lib/payment-automation-settings";
 import { ensureChargeDueDateForReminders } from "@/lib/payment-reminder-bootstrap";
 import { reconcileDuplicateHouseholdChargeRecords, syncLedgerChargeEntry } from "@/lib/reports/ledger-sync";
+import { emitHouseholdChargeTransition } from "@/lib/domain-action-events.server";
 
 function toUuid(id: unknown): string | null {
   if (!id || typeof id !== "string") return null;
@@ -116,5 +117,11 @@ export async function upsertManagerCharges(
       await restoreFuturePaymentRemindersForCharge(db, managerId, chargeId).catch(() => undefined);
     }
     await syncLedgerChargeEntry(db, c as HouseholdCharge);
+    await emitHouseholdChargeTransition(db, {
+      managerUserId: managerId,
+      previousStatus: prevStatus,
+      charge: { ...(c as HouseholdCharge), managerUserId: managerId },
+      transitionId: `${chargeId}:${nextStatus}:${now}`,
+    }).catch(() => undefined);
   }
 }

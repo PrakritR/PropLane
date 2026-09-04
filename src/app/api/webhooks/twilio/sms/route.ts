@@ -8,7 +8,7 @@
  */
 import { after } from "next/server";
 import twilio from "twilio";
-import { findVendorAgentSessionByPhone, runVendorAgentSessionTurn } from "@/lib/agent/vendor-agent.server";
+import { resolveVendorAgentSessionForInbound, runVendorAgentSessionTurn } from "@/lib/agent/vendor-agent.server";
 import { resolveAppOrigin } from "@/lib/app-url";
 import { rateLimit } from "@/lib/rate-limit";
 import { normalizeConsentPhone, profilePhoneVariants } from "@/lib/sms-consent";
@@ -164,16 +164,21 @@ export async function POST(req: Request) {
     return twiml();
   }
 
-  const session = await findVendorAgentSessionByPhone(db, from);
-  if (!session) {
+  const sessionResolution = await resolveVendorAgentSessionForInbound(db, from, body);
+  if (sessionResolution.kind === "unknown_phone") {
     // Silent drop: replying to unknown numbers turns us into an SMS echo
     // service and a cost amplifier. Nothing actionable to audit either.
     console.warn("twilio sms from unknown number, dropped", maskedPhone(from));
     return twiml();
   }
 
+  const session = sessionResolution.session;
+
   const task = () =>
-    runVendorAgentSessionTurn(db, session, body, "sms").catch((e) =>
+    runVendorAgentSessionTurn(db, session, body, "sms", {
+      precomputedReply: sessionResolution.kind === "reply" ? sessionResolution.reply : null,
+      reference: sessionResolution.kind === "session" ? sessionResolution.reference : null,
+    }).catch((e) =>
       console.error("vendor-agent sms turn failed", session.id, e),
     );
   try {

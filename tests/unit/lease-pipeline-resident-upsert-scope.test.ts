@@ -86,6 +86,7 @@ vi.mock("@/lib/auth/manager-lease-scope", () => ({
 vi.mock("@/lib/documents/document-auto-file-hooks.server", () => ({
   autoFileLeaseDocument: (...a: unknown[]) => autoFileLeaseDocument(...(a as [])),
 }));
+vi.mock("@/lib/domain-action-events.server", () => ({ emitLeaseTransition: vi.fn(async () => undefined) }));
 
 /** The stored row is looked up by id, so a batch can mix existing and new rows. */
 function storedFor(id: string) {

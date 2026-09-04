@@ -1153,7 +1153,7 @@ export function ManagerWorkOrdersPanel({
       <PortalRecordDetailPage
         pageTitle="Services"
         title={routeWorkOrder.title}
-        subtitle={[routeWorkOrder.propertyName, routeWorkOrder.unit].filter(Boolean).join(" · ") || undefined}
+        subtitle={[routeWorkOrder.reference, routeWorkOrder.propertyName, routeWorkOrder.unit].filter(Boolean).join(" · ") || undefined}
         backHref={listBasePath ? workOrderListHref(listBasePath, bucket) : "#"}
         hideBackText
         dataAttrBack="work-order-detail-back"
@@ -1210,7 +1210,7 @@ export function ManagerWorkOrdersPanel({
         }
       >
         {rows.map((row) => {
-          const subtitle = [row.propertyName, row.unit].filter(Boolean).join(" · ");
+          const subtitle = [row.reference, row.propertyName, row.unit].filter(Boolean).join(" · ");
           return (
             <PortalServiceRecordRow
               key={row.id}

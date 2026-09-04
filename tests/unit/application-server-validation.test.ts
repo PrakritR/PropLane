@@ -84,14 +84,25 @@ describe("the submit paths use it", () => {
     }
   });
 
-  it("the client walks the ACTIVE steps, so a custom question on Review is validated", async () => {
+  it("the client submit gate validates the Review step, where a custom question can live", async () => {
+    // This used to assert the wizard's own `for (const s of activeSteps)` loop (PRP-202: a
+    // required custom question mapped to Review sits past step 9, so a hardcoded 1..9 never
+    // validated it). That loop is gone — the client and the server now share ONE validator,
+    // which is strictly better than two implementations agreeing by luck. What still has to
+    // hold is the INTENT, so it is asserted against the shared list rather than a code shape.
+    const { SUBMIT_VALIDATION_STEPS } = await import("@/lib/rental-application/validate-application-submit");
     const { readFileSync } = await import("node:fs");
     const { join } = await import("node:path");
+
+    const REVIEW_STEP = 10;
+    expect(SUBMIT_VALIDATION_STEPS).toContain(REVIEW_STEP);
+
     const wizard = readFileSync(
       join(process.cwd(), "src/components/marketing/rental-application-wizard.tsx"),
       "utf8",
     );
-    expect(wizard).toContain("for (const s of activeSteps)");
+    expect(wizard).toContain("validateResidentApplicationSubmit");
+    // The old bug in its most literal form must not come back.
     expect(wizard).not.toContain("for (let s = 1; s <= 9; s++)");
   });
 });

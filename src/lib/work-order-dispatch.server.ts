@@ -12,13 +12,10 @@ import { ensureVendorAgentSession } from "@/lib/agent/vendor-agent.server";
 import { track } from "@/lib/analytics/posthog";
 import { formatPacificDateTime } from "@/lib/pacific-time";
 import { syncWorkOrderToGoogleCalendar } from "@/lib/google-calendar/sync.server";
-import { deliverPortalInboxMessage } from "@/lib/portal-inbox-delivery";
-import { buildResidentWorkOrderUpdate } from "@/lib/work-order-resident-notifications";
 import { DEFAULT_VISIT_DURATION_MINUTES } from "@/lib/vendor-availability";
 import { resolveVendorNextAvailableSlot } from "@/lib/vendor-availability-server";
 import { loadVendorDispatchSettings } from "@/lib/vendor-dispatch-settings";
-import { sendVendorNotification } from "@/lib/vendor-notification-delivery";
-import { buildVendorAssignedEmail, buildVendorVisitEmail } from "@/lib/vendor-visit-email";
+import { workOrderEvent } from "@/lib/work-order-events.server";
 import { suggestVendorsForWorkOrder } from "@/lib/work-order-auto-match";
 import {
   evaluateDispatchGuardrails,
@@ -291,52 +288,27 @@ export async function executeDispatch(
     }
   }
 
-  // Resident notification is best-effort and mirrors the manual manager flow:
-  // vendor-assigned always, plus a visit-scheduled note when a slot was booked.
   const residentEmail = (row.residentEmail ?? "").trim();
-  if (residentEmail) {
-    const updates = [buildResidentWorkOrderUpdate("vendor_assigned", nextRow)];
-    if (scheduledIso) {
-      updates.push(buildResidentWorkOrderUpdate("visit_scheduled", nextRow, { scheduledLabel: formatPacificDateTime(scheduledIso) }));
-    }
-    for (const update of updates) {
-      await deliverPortalInboxMessage(db, {
-        senderUserId: args.landlordId,
-        senderEmail: args.actor.email,
-        fromName: "PropLane Portal",
-        subject: update.subject,
-        text: update.text,
-        toEmails: [residentEmail],
-        deliverToPortalInbox: true,
-        deliverViaEmail: false,
-      }).catch(() => undefined);
-    }
-  }
-
-  // Vendor notification is best-effort — the assignment above already committed.
-  const message = scheduledIso
-    ? buildVendorVisitEmail({
-        vendorName,
-        workOrderTitle: row.title,
-        propertyLabel: row.propertyName,
-        unit: row.unit,
-        visitLabel: formatPacificDateTime(scheduledIso),
-        description: row.description,
-        preferredArrival: row.preferredArrival,
-      })
-    : buildVendorAssignedEmail({
-        vendorName,
-        workOrderTitle: row.title,
-        propertyLabel: row.propertyName,
-        unit: row.unit,
-        description: row.description,
-      });
-  await sendVendorNotification(db, args.actor, {
-    vendorEmail: (vendorRowData.email ?? "").trim(),
-    vendorDirectoryId: dispatch.vendorId,
-    vendorUserId,
-    subject: message.subject,
-    body: message.body,
+  await workOrderEvent(db, {
+    eventId: `${args.workOrderId}:${scheduledIso ? "scheduled" : "accepted"}:${dedupeKey}`,
+    event: scheduledIso ? "scheduled" : "accepted",
+    managerUserId: args.landlordId,
+    workOrderId: args.workOrderId,
+    senderUserId: args.actor.userId,
+    senderEmail: args.actor.email,
+    senderName: args.actor.fullName,
+    facts: {
+      reference: row.reference || "Work order",
+      title: row.title || "Work order",
+      propertyLabel: row.propertyName || undefined,
+      scheduledFor: scheduledIso ? formatPacificDateTime(scheduledIso) : undefined,
+      vendorName,
+      emergency: isEmergencyWorkOrder(row),
+    },
+    recipients: [
+      { audience: "vendor", userId: vendorUserId ?? undefined, email: (vendorRowData.email ?? "").trim() || undefined },
+      ...(residentEmail ? [{ audience: "resident" as const, email: residentEmail }] : []),
+    ],
   }).catch(() => undefined);
 
   // Open the 24/7 conversation for this job when the manager opted in.

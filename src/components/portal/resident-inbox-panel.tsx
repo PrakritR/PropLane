@@ -68,6 +68,7 @@ import {
   inboxThreadCounterpartyEmail,
   type InboxThreadMessage,
 } from "@/lib/portal-inbox-storage";
+import { inboxThreadLastTurnDirection, inboxTurnDirection } from "@/lib/inbox-turn-direction";
 import {
   consumeResidentComposePrefill,
   type ResidentComposePrefill,
@@ -1281,15 +1282,15 @@ export const ResidentInboxPanel = forwardRef<
     if (!activeThread) return [];
     const pendingRoot = pendingSendingThreadIds.has(activeThread.id);
     return inboxThreadMessages(activeThread).map((m, i) => {
-      const outbound = inboxMessageOutbound(m, i, activeFolder, activeThread);
+      const direction = inboxTurnDirection(activeThread, m, i, activeFolder);
       const delivery =
-        m.delivery ?? (pendingRoot && i === 0 && outbound ? ("sending" as const) : undefined);
+        m.delivery ?? (pendingRoot && i === 0 && direction === "outbound" ? ("sending" as const) : undefined);
       return {
         id: m.id,
         author: m.from,
         body: m.body,
         at: m.at,
-        direction: outbound ? "outbound" : "inbound",
+        direction,
         delivery,
         channel: "email",
         attachments: m.attachments,
@@ -1868,15 +1869,13 @@ export const ResidentInboxPanel = forwardRef<
                   const displayName = sentSemantics ? recipientLabel : thread.from || thread.email || "Unknown sender";
                   const msgs = inboxThreadMessages(thread);
                   const lastMsg = msgs[msgs.length - 1];
-                  const folder = thread.folder === "trash" ? inferPreviousFolder(thread) : thread.folder;
-                  const lastOutbound = lastMsg?.outbound ?? (msgs.length > 1 ? true : folder === "sent");
                   return (
                     <InboxConversationRow
                       key={thread.id}
                       name={displayName}
                       subtitle={thread.subject}
                       preview={previewLine(lastMsg?.body ?? thread.preview ?? "", 80)}
-                      previewPrefix={lastOutbound ? "You: " : undefined}
+                      previewPrefix={inboxThreadLastTurnDirection(thread) === "outbound" ? "You: " : undefined}
                       time={thread.time}
                       unread={thread.folder === "inbox" && thread.unread}
                       selected={expandedId === thread.id}

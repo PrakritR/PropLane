@@ -4,6 +4,7 @@
  * Usage: node --env-file=.env.test tests/helpers/cleanup-test-db.mjs <testRunId>
  */
 import { createClient } from "@supabase/supabase-js";
+import { DOGFOOD_KEEP_EMAILS } from "./canonical-test-accounts.mjs";
 
 const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -62,9 +63,12 @@ try {
   // Remove test auth users (resident@test.proplane.local pattern or testRunId in email)
   try {
     const { data: users } = await supabase.auth.admin.listUsers({ perPage: 1000 });
-    const testUsers = (users?.users ?? []).filter(
-      (u) => u.email?.includes("@test.proplane.local") || u.email?.includes(testRunId),
-    );
+    const keep = new Set(DOGFOOD_KEEP_EMAILS.map((email) => email.toLowerCase()));
+    const testUsers = (users?.users ?? []).filter((u) => {
+      const email = (u.email ?? "").toLowerCase();
+      if (!email || keep.has(email)) return false;
+      return email.includes("@test.proplane.local") || email.includes(testRunId);
+    });
     for (const u of testUsers) {
       await supabase.auth.admin.deleteUser(u.id);
       console.log(`Deleted auth user ${u.email}`);

@@ -56,6 +56,7 @@ describe("application section catalog", () => {
     expect(RENTAL_APPLICATION_SECTIONS.find((s) => s.id === "household")?.wizardStep).toBe(1);
     expect(RENTAL_APPLICATION_SECTIONS.find((s) => s.id === "personal")?.wizardStep).toBe(2);
     expect(RENTAL_APPLICATION_SECTIONS.find((s) => s.id === "property")?.wizardStep).toBe(3);
+    expect(RENTAL_APPLICATION_SECTIONS.find((s) => s.id === "review")?.wizardStep).toBe(10);
   });
 
   // Additional details is step 8 (consent is 9) since the wizard was renumbered.

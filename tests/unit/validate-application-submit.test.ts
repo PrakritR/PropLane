@@ -9,6 +9,7 @@ import {
   validateResidentApplicationSubmit,
 } from "@/lib/rental-application/validate-application-submit";
 import { STANDARD_APPLICATION_FIELD_CATALOG } from "@/lib/rental-application/application-field-catalog";
+import { validateResidentApplicationRowForPersistence } from "@/lib/rental-application/validate-application-submit.server";
 
 function createFullApplicationListingSubmission() {
   return {
@@ -25,8 +26,8 @@ function validSubmittedApplication() {
     propertyId: "prop-1",
     roomChoice1: "prop-1",
     leaseTerm: "12-Month",
-    leaseStart: "2026-08-01",
-    leaseEnd: "2027-07-31",
+    leaseStart: "2027-08-01",
+    leaseEnd: "2028-07-31",
     fullLegalName: "Jordan Lee",
     dateOfBirth: "1995-01-15",
     ssn: "123-45-6789",
@@ -106,6 +107,93 @@ describe("validate-application-submit", () => {
     expect(result.ok).toBe(false);
     if (!result.ok) {
       expect(result.error.length).toBeGreaterThan(0);
+    }
+  });
+
+  it("returns the same field-level error used by step validation", () => {
+    const application = validSubmittedApplication();
+    application.fullLegalName = "";
+    const property = { id: "prop-1", listingSubmission: createDefaultListingSubmission() };
+    const result = validateResidentApplicationSubmit({ application, property, inProgress: false });
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.step).toBe(2);
+      expect(result.fieldErrors.fullLegalName).toBe("Full name is required.");
+    }
+  });
+
+  it("blocks a required manager question attached to the Review step", () => {
+    const sub = {
+      ...createDefaultListingSubmission(),
+      applicationConfigMode: "custom" as const,
+      customApplicationFields: [
+        {
+          id: "caf-review",
+          key: "review-confirmation",
+          label: "Confirm the information above",
+          type: "checkbox" as const,
+          required: true,
+          options: [],
+          section: "review" as const,
+        },
+      ],
+    };
+    const result = validateResidentApplicationSubmit({
+      application: validSubmittedApplication(),
+      property: { id: "prop-1", listingSubmission: sub },
+      inProgress: false,
+    });
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.step).toBe(10);
+      expect(result.fieldErrors["custom:review-confirmation"]).toBe(
+        "This box must be checked to continue.",
+      );
+    }
+  });
+
+  it("keeps client and server validation aligned on the same submitted fixture", async () => {
+    const application = validSubmittedApplication();
+    application.email = "not-an-email";
+    const property = {
+      id: "prop-1",
+      listingSubmission: createDefaultListingSubmission(),
+    };
+    const db = {
+      from: () => ({
+        select: () => ({
+          eq: () => ({
+            maybeSingle: async () => ({ data: { property_data: property }, error: null }),
+          }),
+        }),
+      }),
+    };
+
+    const clientResult = validateResidentApplicationSubmit({
+      application,
+      property,
+      inProgress: false,
+    });
+    const serverResult = await validateResidentApplicationRowForPersistence(db as never, {
+      id: "PROPLANE-VALIDATION1",
+      name: "Jordan Lee",
+      property: "Test property",
+      propertyId: property.id,
+      stage: "Submitted",
+      bucket: "pending",
+      email: application.email,
+      detail: "Submitted",
+      application,
+    });
+
+    expect(clientResult.ok).toBe(false);
+    expect(serverResult.ok).toBe(false);
+    if (!clientResult.ok && !serverResult.ok) {
+      expect(serverResult.step).toBe(clientResult.step);
+      expect(serverResult.fieldErrors).toEqual(clientResult.fieldErrors);
+      expect(serverResult.error).toBe(clientResult.error);
     }
   });
 
@@ -218,7 +306,7 @@ describe("validate-application-submit", () => {
     expect(sanitized.fullLegalName).toBe("Jordan Lee");
     expect(sanitized.email).toBe("jordan@example.com");
     expect(sanitized.phone).toBe("(206) 555-0100");
-    expect(sanitized.leaseStart).toBe("2026-08-01");
+    expect(sanitized.leaseStart).toBe("2027-08-01");
     expect(sanitized.shortTermCheckInTime).toBe("15:00");
     expect(sanitized.shortTermCheckOutTime).toBe("11:00");
     expect(sanitized.shortTermRulesAck).toBe(true);

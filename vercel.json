@@ -51,6 +51,10 @@
     {
       "path": "/api/cron/sms-outbox",
       "schedule": "0 16 * * *"
+    },
+    {
+      "path": "/api/cron/action-event-deliveries",
+      "schedule": "*/10 * * * *"
     }
   ]
 }

@@ -41,6 +41,7 @@ import {
   type InboxThreadMessage,
   type PersistedInboxThread,
 } from "@/lib/portal-inbox-storage";
+import { inboxTurnDirection } from "@/lib/inbox-turn-direction";
 import {
   InboxSendRefusal,
   inboxReplySentToastMessage,
@@ -784,13 +785,13 @@ export const VendorInboxPanel = forwardRef<
   const activeBubbles = useMemo((): InboxBubbleMessage[] => {
     if (!activeThread) return [];
     return inboxThreadMessages(activeThread).map((m, i) => {
-      const outbound = inboxMessageOutbound(m, i, activeFolder, activeThread);
+      const direction = inboxTurnDirection(activeThread, m, i, activeFolder);
       return {
         id: m.id,
         author: m.from,
         body: m.body,
         at: m.at,
-        direction: outbound ? "outbound" : "inbound",
+        direction,
         delivery: m.delivery,
         channel: "email",
         attachments: m.attachments,

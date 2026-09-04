@@ -12,9 +12,11 @@
  */
 import { track } from "@/lib/analytics/posthog";
 import { deliverPortalInboxMessage } from "@/lib/portal-inbox-delivery";
+import { workOrderEvent } from "@/lib/work-order-events.server";
+import { resolvePropertyScopedManagerRecipientIds } from "@/lib/co-manager-notification-recipients.server";
 import type { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { resolveVendorNextAvailableSlot } from "@/lib/vendor-availability-server";
-import { buildVendorBidAcceptedEmail, buildVendorBidDeclinedEmail } from "@/lib/vendor-visit-email";
+import { buildVendorBidDeclinedEmail } from "@/lib/vendor-visit-email";
 import type { DemoManagerWorkOrderRow } from "@/data/demo-portal";
 import { generateWorkOrderPaymentReference } from "@/lib/payment-reference";
 
@@ -480,28 +482,6 @@ export async function acceptWorkOrderBid(
     const workOrderTitle = rowData.title || "";
     vendorName = winningVendor?.name || rowData.vendorName || "";
 
-    if (winningVendor?.email?.includes("@")) {
-      const { subject, body: messageBody } = buildVendorBidAcceptedEmail({
-        vendorName: winningVendor.name,
-        workOrderTitle,
-        propertyLabel,
-        unit,
-      });
-      // Best-effort notification: the bid + work-order reassignment above have already
-      // committed, so a delivery failure here must not surface as an "accept failed" error.
-      await deliverPortalInboxMessage(db, {
-        senderUserId: actor.userId,
-        senderEmail: actor.email,
-        fromName: actor.fullName || "PropLane Portal",
-        subject,
-        text: messageBody,
-        toUserIds: [record.vendor_user_id],
-        deliverToPortalInbox: true,
-        deliverViaEmail: false,
-        deliverViaSms: false,
-      }).catch(() => undefined);
-    }
-
     for (const other of declined) {
       const otherVendor = other.vendor_directory_id ? vendors.get(other.vendor_directory_id) : undefined;
       if (!otherVendor) continue;
@@ -523,6 +503,34 @@ export async function acceptWorkOrderBid(
         deliverViaSms: false,
       }).catch(() => undefined);
     }
+
+    const managerRecipients = await resolvePropertyScopedManagerRecipientIds(db, {
+      ownerManagerUserId: String(workOrder.manager_user_id),
+      propertyId: String(workOrder.assigned_property_id ?? workOrder.property_id ?? "") || undefined,
+      channel: "services",
+    });
+    await workOrderEvent(db, {
+      eventId: `${record.work_order_id}:accepted:${bidId}`,
+      event: "accepted",
+      managerUserId: String(workOrder.manager_user_id),
+      workOrderId: record.work_order_id,
+      senderUserId: actor.userId,
+      senderEmail: actor.email,
+      senderName: actor.fullName,
+      facts: {
+        reference: rowData.reference || "Work order",
+        title: workOrderTitle || "Work order",
+        propertyLabel: propertyLabel || undefined,
+        scheduledFor: record.proposed_time ?? undefined,
+        vendorName: vendorName || undefined,
+        amountCents: record.amount_cents + record.materials_cents,
+      },
+      recipients: [
+        { audience: "vendor", userId: record.vendor_user_id },
+        ...(workOrder.resident_email ? [{ audience: "resident" as const, email: String(workOrder.resident_email) }] : []),
+        ...managerRecipients.map((userId) => ({ audience: "manager" as const, userId })),
+      ],
+    }).catch(() => undefined);
   }
 
   track("work_order_bid_accepted", actor.userId, { work_order_id: record.work_order_id });
@@ -677,18 +685,24 @@ export async function markWorkOrderDoneByVendor(
     .eq("id", workOrderId);
   if (error) return { ok: false, status: 500, error: error.message };
 
-  await deliverPortalInboxMessage(db, {
+  await workOrderEvent(db, {
+    eventId: `${workOrderId}:completed:${now}`,
+    event: "completed",
+    managerUserId: String(workOrder.manager_user_id),
+    workOrderId,
     senderUserId: actor.userId,
     senderEmail: actor.email,
-    fromName: actor.fullName || "PropLane Portal",
-    subject: `${rowData.title || "Service"} marked done — approval needed`,
-    text: `${actor.fullName || "Your vendor"} marked "${rowData.title || "the service"}"${
-      rowData.propertyName ? ` at ${rowData.propertyName}` : ""
-    } as done.${note ? ` Note: ${note}` : ""} Review and approve payment in Work Orders.`,
-    toUserIds: [workOrder.manager_user_id],
-    deliverToPortalInbox: true,
-    deliverViaEmail: false,
-    deliverViaSms: false,
+    senderName: actor.fullName,
+    facts: {
+      reference: rowData.reference || "Work order",
+      title: rowData.title || "Work order",
+      propertyLabel: rowData.propertyName || undefined,
+      vendorName: actor.fullName || rowData.vendorName || undefined,
+    },
+    recipients: [
+      { audience: "manager", userId: String(workOrder.manager_user_id) },
+      ...(rowData.residentEmail ? [{ audience: "resident" as const, email: rowData.residentEmail }] : []),
+    ],
   }).catch(() => undefined);
 
   track("work_order_vendor_marked_done", actor.userId, { work_order_id: workOrderId });

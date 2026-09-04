@@ -29,6 +29,7 @@ const KEEP_ADMIN_EMAILS = new Set([PRIMARY_ADMIN_EMAIL]);
 /** Canonical manager accounts (property portal). */
 const KEEP_MANAGER_EMAILS = new Set(
   [
+    "akhil-manager@prop-lane.space",
     "akhilthebest23@gmail.com",
     "hiteshkjm@gmail.com",
     "ocenedella@gmail.com",
@@ -40,6 +41,12 @@ const KEEP_MANAGER_EMAILS = new Set(
 /** Canonical resident accounts. */
 const KEEP_RESIDENT_EMAILS = new Set(
   [
+    "akhil-resident@prop-lane.space",
+    "maya.chen.akhil@test.proplane.local",
+    "marcus.lee.akhil@test.proplane.local",
+    "sofia.diaz.akhil@test.proplane.local",
+    "liam.foster.akhil@test.proplane.local",
+    "olivia.brooks.akhil@test.proplane.local",
     "arnavjs78@gmail.com",
     "connorgrome89@gmail.com",
     "davidhyoo1@gmail.com",

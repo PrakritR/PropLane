@@ -8,12 +8,17 @@ import {
   AuthLoadingCard,
 } from "@/components/auth/auth-mobile-primitives";
 import { OAuthSocialStack } from "@/components/auth/oauth-social-stack";
+import { SignInErrorNotice } from "@/components/auth/sign-in-error-notice";
 import { useAuthWelcomeChrome } from "@/components/auth/use-auth-welcome-chrome";
 import { useIsNativeApp } from "@/hooks/use-is-native-app";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { PasswordInput } from "@/components/ui/password-input";
 import { resolveFormCredentials } from "@/lib/auth/form-credentials";
+import {
+  presentSignInError,
+  type SignInErrorPresentation,
+} from "@/lib/auth/sign-in-error";
 import { oauthErrorFromParams } from "@/lib/auth/oauth-error-params";
 import { oauthContinuePath } from "@/lib/auth/oauth-redirect";
 import { isUnsafeRedirectPath } from "@/lib/auth/normalize-post-auth-path";
@@ -94,9 +99,10 @@ function NativeAuthHubInner({ defaultMode = "sign-in" }: NativeAuthHubProps) {
   // navigates here with ?error=oauth&message=…). Reading those params is what turns that
   // navigation from a bare page reload — "it just refreshes and goes back" — into an
   // explanation. `PortalAuthForm` already did this; this screen dropped it on the floor.
-  const [errorText, setErrorText] = useState<string | null>(() =>
-    oauthErrorFromParams(searchParams),
-  );
+  const [signInError, setSignInError] = useState<SignInErrorPresentation | null>(() => {
+    const oauthError = oauthErrorFromParams(searchParams);
+    return oauthError ? presentSignInError(oauthError) : null;
+  });
   const [failedSignInAttempts, setFailedSignInAttempts] = useState(0);
 
   const nextFromUrl = searchParams.get("next")?.trim() ?? "";
@@ -133,7 +139,7 @@ function NativeAuthHubInner({ defaultMode = "sign-in" }: NativeAuthHubProps) {
       const supabase = createSupabaseBrowserClient();
       const { recovered } = await recoverImplicitAuthHash(supabase);
       if (cancelled || !recovered) return;
-      setErrorText(null);
+      setSignInError(null);
       window.location.replace(signInContinueHref);
     })();
     return () => {
@@ -225,14 +231,14 @@ function NativeAuthHubInner({ defaultMode = "sign-in" }: NativeAuthHubProps) {
   const signIn = async () => {
     const credentials = credentialsFromDom();
     if (!credentials.email || !credentials.password) {
-      setErrorText("Enter email and password.");
+      setSignInError(presentSignInError("Enter email and password."));
       return;
     }
     // Re-sync state so a later retry, and the remembered-email write below, see
     // what was autofilled.
     if (credentials.email !== email.trim()) setEmail(credentials.email);
     if (credentials.password !== password) setPassword(credentials.password);
-    setErrorText(null);
+    setSignInError(null);
     setBusy(true);
     try {
       const supabase = createSupabaseBrowserClient();
@@ -252,7 +258,7 @@ function NativeAuthHubInner({ defaultMode = "sign-in" }: NativeAuthHubProps) {
         }
       }
       if (error) {
-        setErrorText(error.message);
+        setSignInError(presentSignInError(error.message));
         setFailedSignInAttempts((n) => n + 1);
         return;
       }
@@ -265,7 +271,7 @@ function NativeAuthHubInner({ defaultMode = "sign-in" }: NativeAuthHubProps) {
       }
       window.location.replace(signInContinueHref);
     } catch (e) {
-      setErrorText(e instanceof Error ? e.message : "Sign-in failed");
+      setSignInError(presentSignInError(e instanceof Error ? e.message : "Sign-in failed"));
       setFailedSignInAttempts((n) => n + 1);
     } finally {
       setBusy(false);
@@ -277,7 +283,7 @@ function NativeAuthHubInner({ defaultMode = "sign-in" }: NativeAuthHubProps) {
   }, [createAccountHref, router]);
 
   const locked = busy;
-  const showForgotPassword = failedSignInAttempts >= 2;
+  const showForgotPassword = failedSignInAttempts >= 2 && !signInError?.credentialMismatch;
 
   if (checkingSession) {
     return (
@@ -309,7 +315,7 @@ function NativeAuthHubInner({ defaultMode = "sign-in" }: NativeAuthHubProps) {
               nextPath={signInNextPath}
               intent={signInIntent}
               disabled={locked}
-              onError={(message) => setErrorText(message || null)}
+              onError={(message) => setSignInError(message ? presentSignInError(message) : null)}
             />
             <AuthDivider label="or enter your details" />
             {/* A real <form> with NAMED fields, not loose inputs in a div.
@@ -340,9 +346,11 @@ function NativeAuthHubInner({ defaultMode = "sign-in" }: NativeAuthHubProps) {
                 onChange={(e) => {
                   setEmail(e.target.value);
                   setFailedSignInAttempts(0);
-                  setErrorText(null);
+                  setSignInError(null);
                 }}
                 disabled={locked}
+                aria-invalid={signInError?.credentialMismatch || undefined}
+                aria-describedby={signInError ? "auth-sign-in-error" : undefined}
               />
               <div>
                 <PasswordInput
@@ -351,8 +359,14 @@ function NativeAuthHubInner({ defaultMode = "sign-in" }: NativeAuthHubProps) {
                   autoComplete="current-password"
                   placeholder="Password"
                   value={password}
-                  onChange={(e) => setPassword(e.target.value)}
+                  onChange={(e) => {
+                    setPassword(e.target.value);
+                    setFailedSignInAttempts(0);
+                    setSignInError(null);
+                  }}
                   disabled={locked}
+                  aria-invalid={signInError?.credentialMismatch || undefined}
+                  aria-describedby={signInError ? "auth-sign-in-error" : undefined}
                 />
                 {showForgotPassword ? (
                   <p className="mt-1.5 text-right text-[12px]">
@@ -362,7 +376,9 @@ function NativeAuthHubInner({ defaultMode = "sign-in" }: NativeAuthHubProps) {
                   </p>
                 ) : null}
               </div>
-              {errorText ? <p className="text-center text-xs text-rose-600">{errorText}</p> : null}
+              {signInError ? (
+                <SignInErrorNotice error={signInError} createAccountHref={createAccountHref} />
+              ) : null}
               <Button
                 type="submit"
                 className="btn-cobalt w-full rounded-full py-2.5 text-[15px] font-semibold"

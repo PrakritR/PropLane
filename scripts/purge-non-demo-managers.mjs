@@ -20,7 +20,12 @@ const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 const confirm = process.env.CONFIRM_PURGE === "yes";
 
-const defaultDemoKeep = ["demo.manager@example.com", "manager.demo@example.com", "alex.manager@example.com"];
+const defaultDemoKeep = [
+  "akhil-manager@prop-lane.space",
+  "demo.manager@example.com",
+  "manager.demo@example.com",
+  "alex.manager@example.com",
+];
 
 const extraKeep = (process.env.AXIS_KEEP_MANAGER_EMAILS ?? "")
   .split(",")

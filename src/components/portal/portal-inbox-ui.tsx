@@ -586,7 +586,7 @@ export function PortalInboxMessageTable({
  * surfaces not yet migrated.                                          *
  * ------------------------------------------------------------------ */
 
-export type InboxMessageDirection = "inbound" | "outbound";
+export type InboxMessageDirection = "inbound" | "outbound" | "assistant";
 
 /**
  * Channel a thread message arrived / sent on. Email is the only live channel
@@ -968,7 +968,7 @@ export function InboxListSegmentTabs({
   );
 }
 
-/** A single chat bubble — outbound right (accent), inbound left (neutral). */
+/** A single chat bubble — outbound right (cobalt), assistant right (ice), inbound left (gray). */
 export function InboxBubble({
   message,
   showAuthor = false,
@@ -983,12 +983,12 @@ export function InboxBubble({
   showChannel?: boolean;
 }) {
   const outbound = message.direction === "outbound";
+  const assistant = message.direction === "assistant";
+  const alignEnd = outbound || assistant;
   const channel = message.channel ?? "email";
   const sending = message.delivery === "sending";
   const failed = message.delivery === "failed";
-  const radius = outbound
-    ? inboxBubbleClusterRadius(true, cluster)
-    : inboxBubbleClusterRadius(false, cluster);
+  const radius = inboxBubbleClusterRadius(alignEnd, cluster);
 
   const metaCaption = (() => {
     if (failed) return "Couldn't send";
@@ -997,27 +997,28 @@ export function InboxBubble({
     return message.at;
   })();
 
+  const fillClass = outbound
+    ? "portal-inbox-outbound-bubble text-white"
+    : assistant
+      ? "portal-inbox-assistant-bubble"
+      : "border border-border bg-secondary text-foreground";
+
   // `min-w-0` + `ml-auto`/`mr-auto` so long URLs cannot expand the row and
   // leave outbound (blue) bubbles sitting on the left.
   return (
     <div className="flex w-full min-w-0">
       <div
         className={`portal-inbox-bubble-wrap flex min-w-0 flex-col ${
-          outbound ? "ml-auto items-end" : "mr-auto items-start"
+          alignEnd ? "ml-auto items-end" : "mr-auto items-start"
         }`}
-        data-inbox-bubble-align={outbound ? "end" : "start"}
+        data-inbox-bubble-align={alignEnd ? "end" : "start"}
+        data-inbox-bubble-kind={message.direction}
       >
-        {showAuthor && !outbound && cluster === "single" ? (
+        {showAuthor && message.direction === "inbound" && cluster === "single" ? (
           <span className="mb-1 px-1 text-[11px] font-medium text-muted">{message.author}</span>
         ) : null}
         <div
-          className={`portal-inbox-inbound-bubble w-full px-4 py-2.5 text-[15px] leading-relaxed sm:text-base ${radius} ${
-            outbound
-              ? "portal-inbox-outbound-bubble text-white"
-              : cluster === "single"
-                ? "border border-border bg-secondary text-foreground"
-                : "border border-border bg-secondary text-foreground"
-          } ${sending ? "opacity-80" : ""} ${failed ? "ring-2 ring-rose-400/50" : ""}`}
+          className={`portal-inbox-inbound-bubble w-full px-4 py-2.5 text-[15px] leading-relaxed sm:text-base ${radius} ${fillClass} ${sending ? "opacity-80" : ""} ${failed ? "ring-2 ring-rose-400/50" : ""}`}
         >
           <p className="whitespace-pre-wrap break-words [overflow-wrap:anywhere]">{message.body || " "}</p>
           {message.attachments?.length ? (
@@ -1031,7 +1032,7 @@ export function InboxBubble({
         {showMeta && metaCaption ? (
           <span
             className={`mt-1 flex max-w-full items-center gap-1.5 px-1 text-[11px] text-muted ${
-              outbound ? "flex-row-reverse" : ""
+              alignEnd ? "flex-row-reverse" : ""
             }`}
           >
             {showChannel ? <InboxChannelTag channel={channel} /> : null}

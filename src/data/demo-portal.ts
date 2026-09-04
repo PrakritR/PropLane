@@ -215,6 +215,8 @@ export type ManagerWorkOrderBucket = "open" | "scheduled" | "completed";
 
 export type DemoManagerWorkOrderRow = {
   id: string;
+  /** Stable human handle, unique within the owning manager (for example WO-1042). */
+  reference?: string;
   propertyName: string;
   unit: string;
   title: string;

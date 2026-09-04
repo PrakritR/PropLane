@@ -1,6 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
-import { buildAlternatingHistory, deliverVendorAgentReply } from "@/lib/agent/vendor-agent.server";
+import {
+  buildAlternatingHistory,
+  deliverVendorAgentReply,
+  resolveVendorAgentSessionForInbound,
+} from "@/lib/agent/vendor-agent.server";
 import { buildRegistry, defineTool, defineWriteTool, runReadTool, toAnthropicTools } from "@/lib/tools/registry";
 import { buildVendorAgentContext } from "@/lib/tools/context";
 import { sendSms } from "@/lib/twilio";
@@ -28,6 +32,70 @@ describe("buildAlternatingHistory", () => {
 
   it("drops empty rows", () => {
     expect(buildAlternatingHistory([{ role: "user", content: "  " }])).toEqual([]);
+  });
+});
+
+describe("vendor inbound work-order reference routing", () => {
+  const sessions = [
+    {
+      id: "newest",
+      work_order_id: "opaque-new",
+      vendor_phone_e164: "+12065550001",
+      status: "active",
+    },
+    {
+      id: "older",
+      work_order_id: "opaque-old",
+      vendor_phone_e164: "+12065550001",
+      status: "active",
+    },
+  ];
+
+  function referenceDb(rows: Array<{ id: string; row_data: Record<string, unknown> }>) {
+    return {
+      from(table: string) {
+        const chain: Record<string, unknown> = {
+          select: () => chain,
+          eq: () => chain,
+          order: () => chain,
+          limit: () => chain,
+          in: (_column: string, values: string[]) => {
+            if (table === "portal_work_order_records") {
+              return Promise.resolve({ data: rows.filter((item) => values.includes(item.id)), error: null });
+            }
+            return chain;
+          },
+          then: (resolve: (value: unknown) => unknown) =>
+            Promise.resolve({ data: table === "agent_sessions" ? sessions : [], error: null }).then(resolve),
+        };
+        return chain;
+      },
+    } as never;
+  }
+
+  it("routes a reference to an older authorized job instead of the newest session", async () => {
+    const result = await resolveVendorAgentSessionForInbound(
+      referenceDb([
+        { id: "opaque-new", row_data: { id: "opaque-new", reference: "WO-1001", title: "Fan" } },
+        { id: "opaque-old", row_data: { id: "opaque-old", reference: "WO-1000", title: "Sink" } },
+      ]),
+      "+12065550001",
+      "status WO-1000",
+    );
+    expect(result).toMatchObject({
+      kind: "session",
+      session: { id: "older", work_order_id: "opaque-old" },
+      reference: { id: "opaque-old", reference: "WO-1000" },
+    });
+  });
+
+  it("uses the same generic reply for an unknown or out-of-scope reference", async () => {
+    const result = await resolveVendorAgentSessionForInbound(
+      referenceDb([{ id: "opaque-new", row_data: { id: "opaque-new", reference: "WO-1001", title: "Fan" } }]),
+      "+12065550001",
+      "WO-9999",
+    );
+    expect(result).toMatchObject({ kind: "reply", reply: "We can't find that work order." });
   });
 });
 

@@ -82,6 +82,45 @@ describe("inbox bubble alignment", () => {
     for (const el of ends) expect(el.className).toMatch(/ml-auto/);
     for (const el of starts) expect(el.className).toMatch(/mr-auto/);
   });
+
+  it("pins assistant ice bubbles right with timestamp only and no author label", () => {
+    const messages: InboxBubbleMessage[] = [
+      {
+        id: "intro",
+        author: "PropLane Assistant",
+        body: "Hi - you can ask me about your lease.",
+        at: "2:14 PM",
+        direction: "assistant",
+      },
+      {
+        id: "ask",
+        author: "Jordan",
+        body: "What is my rent this month?",
+        at: "2:14 PM",
+        direction: "outbound",
+      },
+      {
+        id: "answer",
+        author: "PropLane Assistant",
+        body: "Rent is due on the 1st. Let me know if you want a receipt.",
+        at: "2:14 PM",
+        direction: "assistant",
+      },
+    ];
+    render(<InboxMessageTimeline messages={messages} showAuthors />);
+    const ice = [...document.querySelectorAll('[data-inbox-bubble-kind="assistant"]')];
+    const you = [...document.querySelectorAll('[data-inbox-bubble-kind="outbound"]')];
+    expect(ice).toHaveLength(2);
+    expect(you).toHaveLength(1);
+    for (const el of ice) {
+      expect(el.className).toMatch(/ml-auto/);
+      expect(el.querySelector(".portal-inbox-assistant-bubble")).toBeTruthy();
+      expect(el.textContent).not.toMatch(/Assistant/i);
+      expect(el.textContent).toMatch(/2:14 PM/);
+    }
+    expect(you[0]?.className).toMatch(/ml-auto/);
+    expect(you[0]?.querySelector(".portal-inbox-outbound-bubble")).toBeTruthy();
+  });
 });
 
 describe("manager SMS bubble alignment", () => {

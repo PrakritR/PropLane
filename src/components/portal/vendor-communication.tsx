@@ -36,6 +36,7 @@ import {
   syncPersistedInboxFromServer,
 } from "@/lib/portal-inbox-storage";
 import { usePortalSession } from "@/hooks/use-portal-session";
+import { inboxThreadLastTurnDirection } from "@/lib/inbox-turn-direction";
 import { useCommunicationThreadId } from "@/hooks/use-communication-thread-id";
 import {
   clearCommunicationThreadUrl,
@@ -157,7 +158,7 @@ function VendorUnifiedInbox({
         name: sentSemantics ? t.email || "Recipient" : t.from || t.email || "Sender",
         subtitle: t.subject,
         preview: communicationInboxListPreview(lastMsg?.body ?? t.preview ?? "", listSegment, 80),
-        previewPrefix: t.folder === "sent" ? "You: " : undefined,
+        previewPrefix: inboxThreadLastTurnDirection(t) === "outbound" ? "You: " : undefined,
         time: t.time,
         unread: t.folder === "inbox" && t.unread,
         // Sort on the SAME field the row is labelled with — only `thread.time`

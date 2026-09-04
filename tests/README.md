@@ -146,6 +146,8 @@ rather than as a mystery failure three layers down.
 | Resident | `resident@test.proplane.local` | `TestResident123!` |
 | Vendor | `vendor@test.proplane.local` | `TestVendor123!` |
 | All portals | `testeverything@test.proplane.local` | `TestEverything123!` |
+| Captain dogfood manager | `akhil-manager@prop-lane.space` | `Password123!` |
+| Captain dogfood resident | `akhil-resident@prop-lane.space` | `Password123!` |
 
 **Workflow applicant residents** (manager@test portfolio — applications, leases, charges at varied pipeline stages):
 

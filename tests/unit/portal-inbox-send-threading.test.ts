@@ -92,6 +92,18 @@ function baseOpts(text: string, subject: string) {
 }
 
 describe("deliverPortalInboxMessage person-thread collapsing", () => {
+  it("does not append a replayed action-event message twice", async () => {
+    const { db, tables } = makeFakeDb();
+    const opts = { ...baseOpts("payment received", "Payment update"), messageId: "action-event:evt-1:resident:user-1" };
+
+    await deliverPortalInboxMessage(db, opts);
+    await deliverPortalInboxMessage(db, opts);
+
+    for (const row of tables.portal_inbox_thread_records!) {
+      expect(inboxThreadMessages(row.row_data as PersistedInboxThread)).toHaveLength(1);
+    }
+  });
+
   it("appends repeated sends to the same person into ONE sent + ONE inbox thread", async () => {
     const { db, tables } = makeFakeDb();
 
