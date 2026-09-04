@@ -69,3 +69,27 @@ describe("admin Feedback", () => {
     expect(src).toContain("onDelete={() => void handleDelete(row)}");
   });
 });
+
+describe("admin Settings", () => {
+  const src = read("src/components/portal/portal-profile-client.tsx");
+
+  it("takes the same grouped rail the manager has, not a second composition", () => {
+    // There was one `if (variant === "manager")` return with the rail and a
+    // second, legacy admin return below it that stacked every section in one
+    // scroll. One shape now serves both.
+    expect(src).not.toContain("Admin keeps the legacy single-scroll settings composition");
+    expect(src.match(/<ManagerPortalPageShell\b/g)?.length).toBe(1);
+    expect(src).toContain("PortalSettingsNav");
+  });
+
+  it("offers admin only the groups it actually has", () => {
+    // Billing is a manager subscription, the work number is a manager's, and
+    // API keys authorize against the manager tool layer.
+    expect(src).toContain('if (!demo && variant === "manager") {');
+    expect(src.match(/if \(!demo && variant === "manager"\) \{/g)?.length).toBe(3);
+  });
+
+  it("files an admin's own feedback as admin", () => {
+    expect(src).toContain('reporterRole={variant === "admin" ? "admin"');
+  });
+});
