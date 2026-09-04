@@ -34,9 +34,9 @@ describe("manager partner-pricing create-account routing", () => {
     "utf8",
   );
 
-  it("uses ManagerTrialSignupForm when role=manager and tier is in the URL", () => {
+  it("uses ManagerTrialSignupForm for every role=manager create-account link", () => {
     expect(router).toMatch(/ManagerTrialSignupForm/);
-    expect(router).toMatch(/tierParam \|\| googleSignedIn \|\| accountReady/);
+    expect(router).toMatch(/role === "manager"/);
   });
 });
 

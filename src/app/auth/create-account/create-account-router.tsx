@@ -22,7 +22,7 @@ function parseBilling(raw: string | null): "monthly" | "annual" {
  * Default path: role-agnostic account creation, then `/auth/get-started` for
  * resident / manager / vendor. Legacy `axis_id` links keep `ResidentSignupBlocked`
  * (emailed setup-token handoff). Manager checkout `session_id` uses CreateAccountClient.
- * Partner-pricing / marketing manager links (`role=manager&tier=…`) use
+ * Partner-pricing / marketing manager links (`role=manager`, optional `tier=…`) use
  * `ManagerTrialSignupForm` (phone + tier-aware manager-register).
  * Tour / message prospect handoffs use the same hub create form as generic signup.
  */
@@ -49,10 +49,7 @@ export default function CreateAccountRouter() {
     );
   }
 
-  if (
-    role === "manager" &&
-    (tierParam || googleSignedIn || accountReady)
-  ) {
+  if (role === "manager") {
     return (
       <AuthCard>
         <ManagerTrialSignupForm
