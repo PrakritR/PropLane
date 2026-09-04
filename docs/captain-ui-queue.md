@@ -164,6 +164,14 @@ Listed newest first; the ones already fixed say so.
 
 ### Open
 
+* **Three inbox tests expect buttons the new bulk bar only shows on selection.**
+  `manager-inbox-search`, `manager-inbox-resident-scope-selection` and
+  `resident-refused-send-not-delivered` look for Archive / Restore as
+  always-present buttons; the unified-inbox redesign moved them into
+  `CommunicationListBulkBar`, which renders only while something is selected.
+  Left for the communication lane, since it is their contract to settle — the
+  tests may simply need to select a row first, or the buttons may be meant to
+  stay.
 * **Vendor Payments never names the manager who owes the money.** `managerName`
   is not a field on the vendor work-order row at all, so `row.managerName` is
   always `undefined`: demo prints the canonical "Test Manager" on every row and
