@@ -2,7 +2,7 @@
 
 Generated September 4, 2026. There are 27 active assigned issues, all currently marked High in Linear. The priority tiers below are recommended execution order, not changes to Linear's stored priority.
 
-Progress: 7 completed locally, 20 remaining. Of the remaining issues, 18 are actionable, PRP-239 is waiting on its required captain approval, and PRP-294 needs no separate work (folded into the canonical action-event bus delivered under PRP-262/PRP-279).
+Progress: 8 completed locally (7 + PRP-192, already shipped and only just discovered to be stale in this doc), 19 remaining. **Linear re-triage, September 4 2026 (Prakrit Ramachandran):** PRP-260, PRP-261, PRP-262, PRP-284, PRP-286, PRP-287, PRP-288, PRP-294 were all closed Canceled as duplicates/superseded — verified each one via its Linear comment: none is a scope cut, every capability is tracked (and, where already built, credited) under a surviving canonical ticket (PRP-264, PRP-265, PRP-271, PRP-279, PRP-297). Linear now also shows PRP-297 and PRP-279 as Done to match the local work below, and their acceptance checklists are checked off. Nothing needed to be reverted from this repo. Of the 19 remaining issues, 6 need no separate work (closed as duplicates/superseded above), 12 are actionable (including the PRP-264 epic itself and PRP-184, which still needs breaking into fixes), and PRP-239 is a separate, unresolved gap (Linear says Done, but the fix lives only on another session's unmerged `claude-1` branch) — see its P0 entry below.
 
 ## P0 — user harm, data integrity, and access
 
@@ -10,7 +10,7 @@ Progress: 7 completed locally, 20 remaining. Of the remaining issues, 18 are act
   Completed locally September 4, 2026. Applicant-owned submissions now run the shared wizard validator against the server-stored listing configuration before persistence, return field-level errors, validate required Review-step questions, and keep draft autosaves plus manager repair edits intact.
 
 - [PRP-239 — Existing tenant locked out of Payments without signed PDF](https://linear.app/axishousing/issue/PRP-239/a-real-rent-paying-tenant-is-locked-out-of-payments-when-onboarded)
-  Existing tenants without a signed-PDF lease are treated as prospects and lose access to Payments, Services, Lease, and Documents. Separate residency/access entitlement from the PDF-signature path. **Status: implementation awaiting the captain's explicit `approved — build` sign-off required by Linear.** Read-only diagnosis confirmed the no-PDF onboarding branch writes a manager-review lease, while `loadResidentLeaseSignedStatus` is the downstream full-access gate.
+  Existing tenants without a signed-PDF lease are treated as prospects and lose access to Payments, Services, Lease, and Documents. **Status, checked September 4 2026: Linear shows this Done, but the fix is NOT on this repo's `main`.** Per Linear's comment, it was built on a different session's `claude-1` branch (commit `ac3b4189`, its own 6,937-test suite green) — `git fetch origin` here shows `origin/claude-1` is ahead of the commit `main` branched from, and that commit hash doesn't exist locally. The fix itself (per the comment): `managerAttestedTenancyAt` stamped on the no-PDF onboarding branch, read alongside the signed-lease check so `leaseAccessUnlocked` reflects tenancy rather than document upload, deliberately without fabricating `externallySignedLease`/signature evidence for a document that doesn't exist. **Action needed: merge or cherry-pick `claude-1`'s PRP-239 commit onto `main` before treating this as shipped here** — do not re-implement it from scratch.
 
 - [PRP-184 — Website UI audit findings](https://linear.app/axishousing/issue/PRP-184/website-ui-audit-aug-2026-11-open-findings-incl-19-colour-contrast)
   The August UI audit contains 11 unresolved findings, including 19 contrast failures, nested interactive controls, and a soft 404. Break this parent audit into executable accessibility and task-completion fixes.
@@ -20,32 +20,32 @@ Progress: 7 completed locally, 20 remaining. Of the remaining issues, 18 are act
 
 ## P1 — text-first operations foundation
 
-Three near-identical umbrella epics overlap: [PRP-260](https://linear.app/axishousing/issue/PRP-260/epic-sms-first-operations-text-a-work-order-number-the-system-does-the), [PRP-264](https://linear.app/axishousing/issue/PRP-264/epic-text-first-operations-work-order-number-drives-actions-for-all), and [PRP-284](https://linear.app/axishousing/issue/PRP-284/epic-text-first-ai-operations-work-order-number-as-universal-handle). Pick PRP-260 as the canonical epic and relate or close the duplicate planning tickets.
+Three near-identical umbrella epics overlapped: [PRP-260](https://linear.app/axishousing/issue/PRP-260/epic-sms-first-operations-text-a-work-order-number-the-system-does-the), [PRP-264](https://linear.app/axishousing/issue/PRP-264/epic-text-first-operations-work-order-number-drives-actions-for-all), and [PRP-284](https://linear.app/axishousing/issue/PRP-284/epic-text-first-ai-operations-work-order-number-as-universal-handle). **Already resolved in Linear on September 4 2026** — the captain picked PRP-264 as canonical (not PRP-260 as this doc originally recommended) and closed PRP-260 and PRP-284 as duplicates of it. No action needed here.
 
 ### Work-order identity and routing
 
-- [x] [PRP-261 — Work-order reference resolution](https://linear.app/axishousing/issue/PRP-261/work-order-reference-resolution-make-andquotwo-1234andquot-a)
-  Completed locally September 4, 2026. Work orders now receive stable per-manager `WO-####` handles without changing their primary keys; manager, resident, and vendor lookup paths resolve only from their existing authorized row sets, handle ambiguity explicitly, and show the handle in each portal.
+- [x] [PRP-261 — Work-order reference resolution](https://linear.app/axishousing/issue/PRP-261/work-order-reference-resolution-make-andquotwo-1234andquot-a) — **Linear: closed Canceled as superseded by PRP-297.**
+  Completed locally September 4, 2026. Work orders now receive stable per-manager `WO-####` handles without changing their primary keys; manager, resident, and vendor lookup paths resolve only from their existing authorized row sets, handle ambiguity explicitly, and show the handle in each portal. The code is real and shipped; only the tracking ticket was closed as a duplicate.
 
-- [x] [PRP-286 — WO number parser](https://linear.app/axishousing/issue/PRP-286/ai-wo-number-parser-smsinbound-text-resolves-to-portal-work-order)
+- [x] [PRP-286 — WO number parser](https://linear.app/axishousing/issue/PRP-286/ai-wo-number-parser-smsinbound-text-resolves-to-portal-work-order) — **Linear: closed Canceled as an empty-stub duplicate of PRP-297.**
   Completed locally September 4, 2026. A pure, client-safe parser now extracts and normalizes human work-order references from inbound text, rejects common numeric false positives, deduplicates candidates, and bounds hostile input. Scoped record lookup remains in PRP-261.
 
-- [x] [PRP-297 — Reply with work-order number](https://linear.app/axishousing/issue/PRP-297/sms-reply-with-work-order-number-to-get-status-or-take-allowed-actions)
+- [x] [PRP-297 — Reply with work-order number](https://linear.app/axishousing/issue/PRP-297/sms-reply-with-work-order-number-to-get-status-or-take-allowed-actions) — **Linear: marked Done September 4, 2026, acceptance checklist checked off.**
   Completed locally September 4, 2026. Manager, resident, and vendor SMS paths now resolve a texted work-order handle inside their existing authorization scope before intent handling; status/action context uses the opaque id internally, while unknown and cross-tenant handles share one generic response.
 
 ### Canonical action-event bus
 
-- [x] [PRP-262 — Work-order event orchestration](https://linear.app/axishousing/issue/PRP-262/work-order-event-orchestration-one-state-change-everyone-correctly)
+- [x] [PRP-262 — Work-order event orchestration](https://linear.app/axishousing/issue/PRP-262/work-order-event-orchestration-one-state-change-everyone-correctly) — **Linear: closed Canceled as superseded by PRP-279.**
   Replace ad-hoc work-order notifications with one lifecycle event emitter that renders the correct message for each audience.
 
-  Completed locally September 4, 2026. Added the idempotent `workOrderEvent` lifecycle emitter, privacy-scoped audience renderers, durable retry/defer delivery records, notification-preference fanout, quiet-hours suppression, rapid-change digesting, and initial offer/accept/invoice/pay producers.
+  Completed locally September 4, 2026. Added the idempotent `workOrderEvent` lifecycle emitter, privacy-scoped audience renderers, durable retry/defer delivery records, notification-preference fanout, quiet-hours suppression, rapid-change digesting, and initial offer/accept/invoice/pay producers. The code is real and shipped; only the tracking ticket was closed as a duplicate.
 
-- [x] [PRP-279 — Action event bus](https://linear.app/axishousing/issue/PRP-279/comm-action-event-bus-work-order-payment-lease-events-fan-out-to)
+- [x] [PRP-279 — Action event bus](https://linear.app/axishousing/issue/PRP-279/comm-action-event-bus-work-order-payment-lease-events-fan-out-to) — **Linear: marked Done September 4, 2026, acceptance checklist checked off.**
   Generalize the event bus beyond work orders to payments and leases, with idempotent thread, SMS, and email consumers.
 
   Completed locally September 4, 2026. Generalized the work-order outbox in place into one action-event bus, documented the work-order/payment/lease catalog, wired confirmed charge and lease transitions, made inbox appends replay-safe with deterministic message ids, and added atomically claimed scheduled retries for failed/deferred deliveries.
 
-- [PRP-294 — Unified action bus](https://linear.app/axishousing/issue/PRP-294/messaging-unified-action-bus-wo-events-notify-all-parties-in-app-sms)
+- [PRP-294 — Unified action bus](https://linear.app/axishousing/issue/PRP-294/messaging-unified-action-bus-wo-events-notify-all-parties-in-app-sms) — **Linear: closed Canceled as an empty-stub duplicate of PRP-279.**
   This overlaps heavily with PRP-262 and PRP-279, specifically emphasizing multi-channel fanout. Fold it into the canonical event-bus work.
 
   Folded into the PRP-262/PRP-279 canonical bus implementation; no parallel bus should be built for this ticket.
@@ -55,19 +55,19 @@ Three near-identical umbrella epics overlap: [PRP-260](https://linear.app/axisho
 - [PRP-265 — Resident maintenance text creates work order](https://linear.app/axishousing/issue/PRP-265/sms-resident-texts-maintenance-issue-create-work-order-notify-manager)
   Convert a resident maintenance text into a real, deduplicated work order, notify the manager and vendor, and reply with the new reference.
 
-- [PRP-288 — Text-only resident workflow](https://linear.app/axishousing/issue/PRP-288/sms-text-only-resident-workflow-maintenance-payment-reminders)
-  Umbrella for resident maintenance texting and payment reminders. Make PRP-265 and PRP-266 its concrete children.
+- [PRP-288 — Text-only resident workflow](https://linear.app/axishousing/issue/PRP-288/sms-text-only-resident-workflow-maintenance-payment-reminders) — **Linear: closed Canceled as an empty-stub duplicate of PRP-265.**
+  Umbrella for resident maintenance texting and payment reminders. PRP-265 remains unbuilt and actionable; this row is now just a pointer to it.
 
 - [PRP-271 — Vendor SMS completion loop](https://linear.app/axishousing/issue/PRP-271/vendor-sms-completion-loop-accept-schedule-done-and-invoice-entirely)
-  Enable vendors to accept, schedule, complete, and invoice jobs by text instead of the current answer-only SMS surface.
+  Enable vendors to accept, schedule, complete, and invoice jobs by text instead of the current answer-only SMS surface. Still Backlog in Linear, unbuilt — actionable.
 
-- [PRP-287 — Text-only vendor workflow](https://linear.app/axishousing/issue/PRP-287/sms-text-only-vendor-workflow-bidacceptstatus-without-portal-login)
-  The shorter vendor-workflow version of PRP-271. Consolidate it under PRP-271.
+- [PRP-287 — Text-only vendor workflow](https://linear.app/axishousing/issue/PRP-287/sms-text-only-vendor-workflow-bidacceptstatus-without-portal-login) — **Linear: closed Canceled as an empty-stub duplicate of PRP-271.**
+  The shorter vendor-workflow version of PRP-271. PRP-271 remains unbuilt and actionable; this row is now just a pointer to it.
 
 ### System-initiated reminders
 
-- [PRP-263 — Proactive outbound engine](https://linear.app/axishousing/issue/PRP-263/proactive-outbound-engine-the-system-texts-first-rent-due-job-stalled)
-  Build a general scheduled trigger-to-audience-to-message engine for rent, stalled jobs, invoices, and other attention-needed events.
+- [PRP-263 — Proactive outbound engine](https://linear.app/axishousing/issue/PRP-263/proactive-outbound-engine-the-system-texts-first-rent-due-job-stalled) — **Linear: closed Canceled as superseded by PRP-266 + PRP-267.**
+  Build a general scheduled trigger-to-audience-to-message engine for rent, stalled jobs, invoices, and other attention-needed events. Neither successor is built yet — both remain actionable.
 
 - [PRP-266 — Automated rent payment reminders](https://linear.app/axishousing/issue/PRP-266/sms-automated-rent-payment-reminders-to-residents-with-pay-link)
   Deliver the first use case for that engine: configurable, opt-out-aware rent reminders with platform payment links and auditability.
@@ -97,18 +97,25 @@ Three near-identical umbrella epics overlap: [PRP-260](https://linear.app/axisho
 - [PRP-280 — SaaS webhooks API](https://linear.app/axishousing/issue/PRP-280/infra-saas-webhooks-api-subscribe-to-wo-payment-and-message-events)
   Offer manager-scoped, HMAC-signed, retried webhooks for work-order, payment, and message events. Reuse the canonical action-event bus once that exists.
 
-- [PRP-192 — Supported account teardown](https://linear.app/axishousing/issue/PRP-192/no-supported-way-to-delete-an-account-and-its-data-every-teardown-is)
-  Create a supported, carefully scoped account teardown process instead of manually deleting rows across roughly 40 tables. It is valuable for test and development operations, but lower urgency than production-user harm.
+- [x] [PRP-192 — Supported account teardown](https://linear.app/axishousing/issue/PRP-192/no-supported-way-to-delete-an-account-and-its-data-every-teardown-is) — **Already done, predates this digest.** `POST /api/auth/delete-my-account` + `deleteOwnPortalAccount` (`src/lib/auth/delete-portal-account.ts`) already ship self-service account deletion on `main` (commit `a95cb112`, well before this session). Linear marked it Done September 4, 2026. This digest's original "not started" note was stale.
 
 ## Recommended immediate sequence
 
-1. Break PRP-184 into executable accessibility fixes and land each as its own commit
-2. Consolidate the overlapping text-first epics and tickets
-3. PRP-261 / PRP-286 / PRP-297
-4. PRP-262 / PRP-279 / PRP-294
-5. Role-specific workflows and reminders
+1. Merge or cherry-pick `claude-1`'s PRP-239 fix (commit `ac3b4189`) onto `main` — do not re-implement
+2. Break PRP-184 into executable accessibility fixes and land each as its own commit
+3. ~~Consolidate the overlapping text-first epics and tickets~~ — done in Linear September 4, 2026
+4. ~~PRP-261 / PRP-286 / PRP-297~~ — done
+5. ~~PRP-262 / PRP-279 / PRP-294~~ — done
+6. Role-specific workflows and reminders: PRP-265, PRP-271, PRP-266, PRP-267 (still unbuilt)
 
 ## Completed work log
+
+### September 4, 2026 — Linear reconciliation
+
+- Synced Linear against this repo's actual state. Marked PRP-297 and PRP-279 Done with a commit-referenced summary comment on each and checked off their acceptance boxes, matching work already on `main`.
+- Investigated every issue Linear showed Canceled that this doc listed as built or actionable (PRP-260, 261, 262, 263, 271's duplicate PRP-287, 284, 286, 288, 294). Read each cancellation comment: every one is a duplicate/superseded-by note pointing at a surviving canonical ticket (PRP-264, 265, 266, 267, 271, 279, 297), authored by Prakrit Ramachandran at 19:16-19:34 UTC. None is a scope cut — no code needed to be reverted from this repo.
+- Found PRP-192 (account teardown) already shipped on `main` (`a95cb112`, predates this session) and marked Done in Linear — this doc's P3 listing was simply stale.
+- Found a real gap: PRP-239 shows Done in Linear (comment cites commit `ac3b4189` on a `claude-1` branch, 6,937 tests), but `git fetch origin` shows that commit is not on `origin/main` or this repo's `main` — it exists only on `origin/claude-1`, an unmerged sibling worktree branch from the multi-agent setup in `AGENTS.md`. Flagged rather than re-implemented; needs a merge/cherry-pick decision from the captain, not fresh code.
 
 ### September 4, 2026 — PRP-262 / PRP-279
 
