@@ -15,6 +15,7 @@ import {
   leaseAllowsManagerDocumentEdits,
   leaseDocumentBody,
   leaseDocumentBodyChanged,
+  refuseResidentLeaseSignatureWrite,
   replacesSignedLeaseDocument,
   rowHasAnySignature,
 } from "@/lib/lease-execution-evidence";
@@ -614,6 +615,12 @@ export async function POST(req: Request) {
               { error: "A lease document cannot be replaced and signed in the same request." },
               { status: 409 },
             );
+          }
+          if (storedRow) {
+            const signatureRefusal = refuseResidentLeaseSignatureWrite(storedRow, nextRow);
+            if (!signatureRefusal.ok) {
+              return NextResponse.json({ error: signatureRefusal.error }, { status: signatureRefusal.status });
+            }
           }
           scope = storedScopeColumns(existingRecord);
         } else {

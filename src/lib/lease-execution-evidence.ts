@@ -209,6 +209,76 @@ export function replacesSignedLeaseDocument(stored: LeasePipelineRow, next: Leas
   return true;
 }
 
+function residentSignaturePresent(
+  row: Pick<LeasePipelineRow, "residentSignature" | "signatureName" | "signedAtIso">,
+): boolean {
+  return Boolean(row.residentSignature || (row.signatureName && row.signedAtIso));
+}
+
+function residentSignaturesMatch(
+  a: Pick<LeasePipelineRow, "residentSignature" | "signatureName" | "signedAtIso">,
+  b: Pick<LeasePipelineRow, "residentSignature" | "signatureName" | "signedAtIso">,
+): boolean {
+  if (a.residentSignature && b.residentSignature) {
+    return (
+      a.residentSignature.name === b.residentSignature.name &&
+      a.residentSignature.signedAtIso === b.residentSignature.signedAtIso &&
+      (a.residentSignature.documentSha256 ?? null) === (b.residentSignature.documentSha256 ?? null)
+    );
+  }
+  if (!a.residentSignature && !b.residentSignature) {
+    return a.signatureName === b.signatureName && a.signedAtIso === b.signedAtIso;
+  }
+  return false;
+}
+
+/**
+ * Server-side resident signing gate — mirrors the browser store predicate but
+ * refuses double-sign, sign-before-send, and stale-body writes on the route.
+ */
+export function refuseResidentLeaseSignatureWrite(
+  stored: LeasePipelineRow,
+  next: LeasePipelineRow,
+): { ok: true } | { ok: false; error: string; status: number } {
+  const storedSigned = residentSignaturePresent(stored);
+  const nextSigned = residentSignaturePresent(next);
+
+  if (storedSigned && nextSigned && !residentSignaturesMatch(stored, next)) {
+    return {
+      ok: false,
+      error: "This lease already has your signature; it cannot be signed again.",
+      status: 409,
+    };
+  }
+
+  if (storedSigned && nextSigned) {
+    return { ok: true };
+  }
+
+  if (!nextSigned) {
+    return { ok: true };
+  }
+
+  if (stored.bucket !== "resident" || stored.status !== "Resident Signature Pending") {
+    return {
+      ok: false,
+      error: "This lease is not ready for your signature yet.",
+      status: 409,
+    };
+  }
+
+  if (leaseDocumentBodyChanged(stored, next)) {
+    return {
+      ok: false,
+      error:
+        "The lease was updated after you opened it. Refresh and review the latest version before signing.",
+      status: 409,
+    };
+  }
+
+  return { ok: true };
+}
+
 function leaseDocumentBodyReplaced(stored: LeasePipelineRow, next: LeasePipelineRow): boolean {
   const before = leaseDocumentBody(stored);
   const after = leaseDocumentBody(next);

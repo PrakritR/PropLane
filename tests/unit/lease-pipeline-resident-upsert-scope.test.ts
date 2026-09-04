@@ -585,7 +585,13 @@ describe("portal-lease-pipeline — one plan per id in a batch", () => {
 describe("portal-lease-pipeline resident — cannot author and sign in one write", () => {
   beforeEach(() => {
     asResident();
-    STORED.row_data = { ...DEFAULT_STORED_ROW_DATA, generatedHtml: "<p>Manager's lease</p>" };
+    STORED.row_data = {
+      ...DEFAULT_STORED_ROW_DATA,
+      generatedHtml: "<p>Manager's lease</p>",
+      bucket: "resident",
+      status: "Resident Signature Pending",
+      managerSignature: { role: "manager", name: "Property Manager", signedAtIso: "2026-05-01T00:00:00Z" },
+    };
   });
 
   it("refuses a write that supplies the document body and the signature together", async () => {
@@ -833,6 +839,84 @@ describe("portal-lease-pipeline resident — cannot author and sign in one write
 
     expect(second.status).toBe(409);
     expect(upsert).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("portal-lease-pipeline resident — signature write guards (PRP-251)", () => {
+  const awaitingResident = {
+    ...DEFAULT_STORED_ROW_DATA,
+    generatedHtml: "<p>Manager's lease v1</p>",
+    bucket: "resident",
+    status: "Resident Signature Pending",
+    managerSignature: { role: "manager", name: "Property Manager", signedAtIso: "2026-05-01T00:00:00Z" },
+  };
+
+  beforeEach(() => {
+    asResident();
+    STORED.row_data = { ...awaitingResident };
+  });
+
+  it("refuses a second resident signature over an existing one", async () => {
+    STORED.row_data = {
+      ...awaitingResident,
+      residentSignature: { role: "resident", name: "Resident", signedAtIso: "2026-05-01T00:00:00Z" },
+      signatureName: "Resident",
+      signedAtIso: "2026-05-01T00:00:00Z",
+    };
+
+    const res = await post({
+      action: "upsert",
+      row: {
+        id: LEASE_ID,
+        residentEmail: RESIDENT_EMAIL,
+        generatedHtml: "<p>Manager's lease v1</p>",
+        residentSignature: { role: "resident", name: "Resident Again", signedAtIso: "2026-05-02T00:00:00Z" },
+        signatureName: "Resident Again",
+        signedAtIso: "2026-05-02T00:00:00Z",
+      },
+    });
+
+    expect(res.status).toBe(409);
+    expect(upsert).not.toHaveBeenCalled();
+  });
+
+  it("refuses signing while the lease is still in manager review", async () => {
+    STORED.row_data = {
+      ...awaitingResident,
+      bucket: "manager",
+      status: "Manager Review",
+      managerSignature: null,
+    };
+
+    const res = await post({
+      action: "upsert",
+      row: {
+        id: LEASE_ID,
+        residentEmail: RESIDENT_EMAIL,
+        generatedHtml: "<p>Manager's lease v1</p>",
+        signatureName: "Resident",
+        signedAtIso: "2026-05-01T00:00:00Z",
+      },
+    });
+
+    expect(res.status).toBe(409);
+    expect(upsert).not.toHaveBeenCalled();
+  });
+
+  it("refuses signing when the submitted document body is stale", async () => {
+    const res = await post({
+      action: "upsert",
+      row: {
+        id: LEASE_ID,
+        residentEmail: RESIDENT_EMAIL,
+        generatedHtml: "<p>Stale copy the resident still has open</p>",
+        signatureName: "Resident",
+        signedAtIso: "2026-05-01T00:00:00Z",
+      },
+    });
+
+    expect(res.status).toBe(409);
+    expect(upsert).not.toHaveBeenCalled();
   });
 });
 
