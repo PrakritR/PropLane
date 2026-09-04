@@ -32,8 +32,17 @@ import { downloadOrShareFile } from "@/lib/native/download-or-share";
 import { MANAGER_TABLE_TH } from "@/components/portal/portal-metrics";
 import {
   defaultPortalMessageChannelSelection,
-  PortalMessageSendViaField,
+  PORTAL_MESSAGE_COMPOSE_MODAL_PANEL_CLASS,
+  PORTAL_MESSAGE_COMPOSE_TWO_COL_CLASS,
+  PORTAL_MESSAGE_DEFAULT_FOOTER_NOTE,
+  PortalMessageBodyField,
+  PortalMessageComposeModalBody,
+  PortalMessageRecipientReadonly,
+  PortalMessageScheduleFields,
+  PortalMessageSendViaDropdown,
+  PortalMessageSubjectField,
   portalMessageChannelsFromSelection,
+  portalMessageRecipientDisplay,
 } from "@/components/portal/portal-message-compose-fields";
 import {
   PORTAL_DATA_TABLE, 
@@ -1644,67 +1653,111 @@ export type InboxScheduledSaveEdit = {
   body: string;
   deliverViaEmail?: boolean;
   deliverViaSms?: boolean;
+  sendAt?: string;
 };
+
+function scheduledSendAtToLocalInput(iso: string): string {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return "";
+  const pad = (value: number) => String(value).padStart(2, "0");
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}
 
 function ScheduledMessageActionFooter({
   showSendActions,
   editable,
   hasSaveEdit,
   busy,
+  editing,
+  canSave,
   onCancelSend,
   onEdit,
+  onCancelEdit,
+  onSave,
   onSendNow,
 }: {
   showSendActions: boolean;
   editable: boolean;
   hasSaveEdit: boolean;
   busy?: boolean;
+  editing?: boolean;
+  canSave?: boolean;
   onCancelSend: () => void;
   onEdit: () => void;
+  onCancelEdit?: () => void;
+  onSave?: () => void;
   onSendNow: () => void;
 }) {
-  const hasFooter = (showSendActions && true) || (editable && hasSaveEdit);
+  const hasFooter =
+    (showSendActions && true) || (editable && hasSaveEdit) || (editing && hasSaveEdit);
   if (!hasFooter) return null;
 
   return (
     <div className="flex w-full flex-wrap items-center justify-end gap-2">
-      {showSendActions ? (
-        <Button
-          type="button"
-          variant="ghost"
-          className="h-8 min-h-0 px-3 text-[12px] text-muted hover:text-danger"
-          onClick={onCancelSend}
-          disabled={busy}
-          data-attr="inbox-scheduled-cancel"
-        >
-          Cancel send
-        </Button>
-      ) : null}
-      {editable && hasSaveEdit ? (
-        <Button
-          type="button"
-          variant="ghost"
-          className="h-8 min-h-0 gap-1.5 px-3 text-[12px]"
-          onClick={onEdit}
-          disabled={busy}
-          data-attr="inbox-scheduled-edit"
-        >
-          <Pencil className="h-3.5 w-3.5" strokeWidth={2.25} />
-          Edit
-        </Button>
-      ) : null}
-      {showSendActions ? (
-        <Button
-          type="button"
-          variant="primary"
-          className="h-8 min-h-0 rounded-full px-4 text-[12px]"
-          onClick={onSendNow}
-          disabled={busy}
-          data-attr="inbox-scheduled-send-now"
-        >
-          Send now
-        </Button>
-      ) : null}
+      {editing && hasSaveEdit ? (
+        <>
+          <Button
+            type="button"
+            variant="ghost"
+            className="h-8 min-h-0 px-3 text-[12px]"
+            onClick={onCancelEdit}
+            disabled={busy}
+            data-attr="inbox-scheduled-cancel-edit"
+          >
+            Cancel
+          </Button>
+          <Button
+            type="button"
+            variant="primary"
+            className="h-8 min-h-0 rounded-full px-4 text-[12px]"
+            onClick={onSave}
+            disabled={busy || !canSave}
+            data-attr="inbox-scheduled-save"
+          >
+            {busy ? "Saving…" : "Save"}
+          </Button>
+        </>
+      ) : (
+        <>
+          {showSendActions ? (
+            <Button
+              type="button"
+              variant="ghost"
+              className="h-8 min-h-0 px-3 text-[12px] text-muted hover:text-danger"
+              onClick={onCancelSend}
+              disabled={busy}
+              data-attr="inbox-scheduled-cancel"
+            >
+              Cancel send
+            </Button>
+          ) : null}
+          {editable && hasSaveEdit ? (
+            <Button
+              type="button"
+              variant="ghost"
+              className="h-8 min-h-0 gap-1.5 px-3 text-[12px]"
+              onClick={onEdit}
+              disabled={busy}
+              data-attr="inbox-scheduled-edit"
+            >
+              <Pencil className="h-3.5 w-3.5" strokeWidth={2.25} />
+              Edit
+            </Button>
+          ) : null}
+          {showSendActions ? (
+            <Button
+              type="button"
+              variant="primary"
+              className="h-8 min-h-0 rounded-full px-4 text-[12px]"
+              onClick={onSendNow}
+              disabled={busy}
+              data-attr="inbox-scheduled-send-now"
+            >
+              Send now
+            </Button>
+          ) : null}
+        </>
+      )}
     </div>
   );
 }
@@ -1744,6 +1797,9 @@ export type InboxScheduledCardProps = {
   expanded?: boolean;
   onToggleExpand?: () => void;
   presentation?: "compact" | "detail";
+  recipient?: string;
+  recipientPhone?: string;
+  sendAt?: string;
   onCancel: () => void;
   onSendNow: () => void;
   onSaveEdit?: (next: InboxScheduledSaveEdit) => void | Promise<void>;
@@ -1787,7 +1843,7 @@ export function ScheduledMessageDetailModal({
       dense
       assistantContext={assistantContext}
       scrollableContent={false}
-      panelClassName={cn("max-w-lg p-3 sm:p-4", MODAL_TALL_PANEL_CLASS, panelClassName)}
+      panelClassName={cn(PORTAL_MESSAGE_COMPOSE_MODAL_PANEL_CLASS, "p-3 sm:p-4", panelClassName)}
       dataAttr={dataAttr}
       footer={footer ? <ModalFooter className="w-full justify-end gap-2">{footer}</ModalFooter> : undefined}
     >
@@ -1819,6 +1875,9 @@ export function InboxScheduledCard({
   expanded: _expanded = true,
   onToggleExpand: _onToggleExpand,
   presentation = "compact",
+  recipient,
+  recipientPhone,
+  sendAt,
   onCancel,
   onSendNow,
   onSaveEdit,
@@ -1835,12 +1894,41 @@ export function InboxScheduledCard({
   const [draftSubject, setDraftSubject] = useState(subject);
   const [draftBody, setDraftBody] = useState(body);
   const [draftSendVia, setDraftSendVia] = useState<string[]>([]);
+  const [draftSendAt, setDraftSendAt] = useState("");
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
 
-  const draftChannels = portalMessageChannelsFromSelection(draftSendVia);
+  const viewSendVia = useMemo(
+    () =>
+      defaultPortalMessageChannelSelection(
+        emailAvailable,
+        smsAvailable,
+        deliverViaEmail !== false,
+        deliverViaSms === true,
+      ),
+    [deliverViaEmail, deliverViaSms, emailAvailable, smsAvailable],
+  );
+
+  const activeSendVia = editing ? draftSendVia : viewSendVia;
+  const draftChannels = portalMessageChannelsFromSelection(activeSendVia);
   const draftChannelsOk =
     !canEditChannels || !editing || draftChannels.viaEmail || draftChannels.viaSms;
+
+  const recipientDisplay =
+    portalMessageRecipientDisplay({
+      email: recipient,
+      phone: recipientPhone,
+      viaEmail: draftChannels.viaEmail,
+      viaSms: draftChannels.viaSms,
+    }) ||
+    recipient?.trim() ||
+    "—";
+
+  const sendAtLocal = editing
+    ? draftSendAt
+    : sendAt
+      ? scheduledSendAtToLocalInput(sendAt)
+      : "";
 
   const closeModal = () => {
     setModalOpen(false);
@@ -1851,14 +1939,8 @@ export function InboxScheduledCard({
   const startEdit = () => {
     setDraftSubject(subject);
     setDraftBody(body);
-    setDraftSendVia(
-      defaultPortalMessageChannelSelection(
-        emailAvailable,
-        smsAvailable,
-        deliverViaEmail !== false,
-        deliverViaSms === true,
-      ),
-    );
+    setDraftSendVia(viewSendVia);
+    setDraftSendAt(sendAt ? scheduledSendAtToLocalInput(sendAt) : "");
     setSaveError(null);
     setEditing(true);
   };
@@ -1871,6 +1953,10 @@ export function InboxScheduledCard({
     setSaving(true);
     setSaveError(null);
     const channels = portalMessageChannelsFromSelection(draftSendVia);
+    const nextSendAt =
+      draftSendAt.trim() && !Number.isNaN(new Date(draftSendAt).getTime())
+        ? new Date(draftSendAt).toISOString()
+        : undefined;
     void Promise.resolve(
       onSaveEdit({
         subject: draftSubject.trim(),
@@ -1878,6 +1964,7 @@ export function InboxScheduledCard({
         ...(canEditChannels
           ? { deliverViaEmail: channels.viaEmail, deliverViaSms: channels.viaSms }
           : {}),
+        ...(nextSendAt ? { sendAt: nextSendAt } : {}),
       }),
     )
       .then(() => {
@@ -1892,20 +1979,24 @@ export function InboxScheduledCard({
   };
 
   const pinFooterActions = presentation === "compact" || pinActionsInModalFooter;
+  const actionBusy = busy || saving;
 
   const actionFooter = useMemo(() => {
-    if (editing) return null;
     return (
       <ScheduledMessageActionFooter
-        showSendActions={showSendActions}
-        editable={editable}
+        showSendActions={showSendActions && !editing}
+        editable={editable && !editing}
         hasSaveEdit={Boolean(onSaveEdit)}
-        busy={busy}
+        busy={actionBusy}
+        editing={editing}
+        canSave={Boolean(draftBody.trim() && draftChannelsOk)}
         onCancelSend={() => {
           onCancel();
           if (presentation === "compact") closeModal();
         }}
         onEdit={startEdit}
+        onCancelEdit={cancelEdit}
+        onSave={saveEdit}
         onSendNow={() => {
           onSendNow();
           if (presentation === "compact") closeModal();
@@ -1913,7 +2004,9 @@ export function InboxScheduledCard({
       />
     );
   }, [
-    busy,
+    actionBusy,
+    draftBody,
+    draftChannelsOk,
     editable,
     editing,
     onCancel,
@@ -1929,6 +2022,84 @@ export function InboxScheduledCard({
     return () => onModalFooterChange(null);
   }, [actionFooter, onModalFooterChange, pinActionsInModalFooter]);
 
+  const composeBody = (
+    <PortalMessageComposeModalBody>
+      <PortalMessageRecipientReadonly recipient={recipientDisplay} />
+
+      <div className={PORTAL_MESSAGE_COMPOSE_TWO_COL_CLASS}>
+        <PortalMessageSubjectField
+          value={editing ? draftSubject : subject}
+          onChange={setDraftSubject}
+          readOnly={!editing}
+          dataAttr="inbox-scheduled-edit-subject"
+        />
+        <PortalMessageSendViaDropdown
+          selected={activeSendVia}
+          onChange={setDraftSendVia}
+          emailAvailable={emailAvailable}
+          smsAvailable={smsAvailable}
+          disabled={!editing || !canEditChannels}
+          footerNote={PORTAL_MESSAGE_DEFAULT_FOOTER_NOTE}
+          dataAttr="inbox-scheduled-edit-send-via"
+        />
+      </div>
+
+      <PortalMessageBodyField
+        value={editing ? draftBody : body}
+        onChange={setDraftBody}
+        readOnly={!editing}
+        minHeightClass="min-h-[7rem]"
+        dataAttr="inbox-scheduled-edit-body"
+      />
+
+      {meta && !editing ? <p className="text-[11px] text-muted">{meta}</p> : null}
+
+      {editing ? (
+        <PortalMessageScheduleFields
+          scheduleLater
+          onScheduleLaterChange={() => {}}
+          sendAt={draftSendAt}
+          onSendAtChange={setDraftSendAt}
+          scheduleDataAttr="inbox-scheduled-schedule-later"
+          sendAtDataAttr="inbox-scheduled-schedule-at"
+        />
+      ) : (
+        <div className="flex flex-nowrap items-center gap-3">
+          <label className="flex shrink-0 items-center gap-2 text-sm">
+            <input
+              type="checkbox"
+              className="h-4 w-4 shrink-0 rounded border-border accent-primary"
+              checked
+              disabled
+              readOnly
+              data-attr="inbox-scheduled-schedule-later"
+            />
+            <span className="font-medium text-foreground">Schedule for later</span>
+          </label>
+          {sendAtLocal ? (
+            <Input
+              type="datetime-local"
+              className="min-w-0 flex-1"
+              value={sendAtLocal}
+              disabled
+              readOnly
+              aria-label="Send date and time"
+              data-attr="inbox-scheduled-schedule-at"
+            />
+          ) : (
+            <p className="min-w-0 flex-1 text-sm text-muted">sends {sendLabel}</p>
+          )}
+        </div>
+      )}
+
+      {saveError ? (
+        <p className="text-[12px] font-medium text-danger" role="alert" data-attr="inbox-scheduled-save-error">
+          {saveError}
+        </p>
+      ) : null}
+    </PortalMessageComposeModalBody>
+  );
+
   const detailBody = (
     <div
       className={
@@ -1938,128 +2109,24 @@ export function InboxScheduledCard({
       }
       data-attr="inbox-scheduled-card"
     >
-      <div className="mb-2 flex flex-col items-start gap-1.5">
-        <p
-          className="flex flex-wrap items-center gap-1.5 text-[12px] text-muted"
-          data-attr="inbox-scheduled-meta"
-        >
-          <Clock className="h-3.5 w-3.5 shrink-0 text-muted" strokeWidth={2.25} aria-hidden />
-          <span>
-            <span className="font-semibold text-foreground">Scheduled</span>
-            <span> · sends {sendLabel}</span>
-          </span>
-        </p>
-        <InboxScheduledChannelTags
-          channel={channel}
-          deliverViaEmail={deliverViaEmail}
-          deliverViaSms={deliverViaSms}
-        />
-      </div>
-
-      {editing ? (
-        <div className="space-y-2 text-left">
-          {canEditChannels ? (
-            <PortalMessageSendViaField
-              selected={draftSendVia}
-              onChange={setDraftSendVia}
-              emailAvailable={emailAvailable}
-              smsAvailable={smsAvailable}
-              dataAttr="inbox-scheduled-edit-send-via"
-            />
-          ) : null}
-          <Input
-            value={draftSubject}
-            onChange={(e) => setDraftSubject(e.target.value)}
-            placeholder="Subject"
-            className="text-sm"
-            data-attr="inbox-scheduled-edit-subject"
-          />
-          <Textarea
-            rows={5}
-            value={draftBody}
-            onChange={(e) => setDraftBody(e.target.value)}
-            placeholder="Message…"
-            className="text-[15px] leading-relaxed sm:text-sm"
-            data-attr="inbox-scheduled-edit-body"
-          />
-          {saveError ? (
-            <p className="text-[12px] font-medium text-danger" role="alert" data-attr="inbox-scheduled-save-error">
-              {saveError}
-            </p>
-          ) : null}
-          <div className="flex flex-wrap items-center justify-start gap-2">
-            <Button
-              type="button"
-              variant="primary"
-              className="h-8 min-h-0 px-3 text-[12px]"
-              onClick={saveEdit}
-              disabled={saving || !draftBody.trim() || !draftChannelsOk}
-              data-attr="inbox-scheduled-save"
-            >
-              {saving ? "Saving…" : "Save"}
-            </Button>
-            <Button
-              type="button"
-              variant="ghost"
-              className="h-8 min-h-0 px-3 text-[12px]"
-              onClick={cancelEdit}
-              disabled={saving}
-              data-attr="inbox-scheduled-cancel-edit"
-            >
-              Cancel
-            </Button>
-          </div>
-        </div>
-      ) : (
-        <>
-          {subject ? <p className="text-sm font-semibold text-foreground">{subject}</p> : null}
-          <p className="mt-1 whitespace-pre-wrap break-words text-sm leading-relaxed text-foreground/90 [overflow-wrap:anywhere]">
-            {body || " "}
-          </p>
-          {meta ? <p className="mt-1 text-[11px] text-muted">{meta}</p> : null}
-          {!pinFooterActions ? (
-            <div className="mt-2.5 flex flex-wrap items-center justify-start gap-2">
-              {showSendActions ? (
-                <>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    className="h-8 min-h-0 px-3 text-[12px] text-muted hover:text-danger"
-                    onClick={() => {
-                      onCancel();
-                    }}
-                    disabled={busy}
-                    data-attr="inbox-scheduled-cancel"
-                  >
-                    Cancel send
-                  </Button>
-                  {editable && onSaveEdit ? (
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      className="h-8 min-h-0 gap-1.5 px-3 text-[12px]"
-                      onClick={startEdit}
-                      disabled={busy}
-                      data-attr="inbox-scheduled-edit"
-                    >
-                      <Pencil className="h-3.5 w-3.5" strokeWidth={2.25} />
-                      Edit
-                    </Button>
-                  ) : null}
-                  <Button
-                    type="button"
-                    variant="primary"
-                    className="h-8 min-h-0 rounded-full px-4 text-[12px]"
-                    onClick={() => {
-                      onSendNow();
-                    }}
-                    disabled={busy}
-                    data-attr="inbox-scheduled-send-now"
-                  >
-                    Send now
-                  </Button>
-                </>
-              ) : editable && onSaveEdit ? (
+      {composeBody}
+      {!pinFooterActions && !editing ? (
+        <div className="mt-2.5 flex flex-wrap items-center justify-start gap-2">
+          {showSendActions ? (
+            <>
+              <Button
+                type="button"
+                variant="ghost"
+                className="h-8 min-h-0 px-3 text-[12px] text-muted hover:text-danger"
+                onClick={() => {
+                  onCancel();
+                }}
+                disabled={busy}
+                data-attr="inbox-scheduled-cancel"
+              >
+                Cancel send
+              </Button>
+              {editable && onSaveEdit ? (
                 <Button
                   type="button"
                   variant="ghost"
@@ -2072,10 +2139,34 @@ export function InboxScheduledCard({
                   Edit
                 </Button>
               ) : null}
-            </div>
+              <Button
+                type="button"
+                variant="primary"
+                className="h-8 min-h-0 rounded-full px-4 text-[12px]"
+                onClick={() => {
+                  onSendNow();
+                }}
+                disabled={busy}
+                data-attr="inbox-scheduled-send-now"
+              >
+                Send now
+              </Button>
+            </>
+          ) : editable && onSaveEdit ? (
+            <Button
+              type="button"
+              variant="ghost"
+              className="h-8 min-h-0 gap-1.5 px-3 text-[12px]"
+              onClick={startEdit}
+              disabled={busy}
+              data-attr="inbox-scheduled-edit"
+            >
+              <Pencil className="h-3.5 w-3.5" strokeWidth={2.25} />
+              Edit
+            </Button>
           ) : null}
-        </>
-      )}
+        </div>
+      ) : null}
     </div>
   );
 
@@ -2108,7 +2199,7 @@ export function InboxScheduledCard({
         dense
         assistantContext="Scheduled message"
         scrollableContent={false}
-        panelClassName={cn("max-w-lg p-3 sm:p-4", MODAL_TALL_PANEL_CLASS)}
+        panelClassName={cn(PORTAL_MESSAGE_COMPOSE_MODAL_PANEL_CLASS, "p-3 sm:p-4")}
         dataAttr="inbox-scheduled-detail-modal"
         footer={
           actionFooter ? (

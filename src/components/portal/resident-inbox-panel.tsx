@@ -1349,6 +1349,8 @@ export const ResidentInboxPanel = forwardRef<
                 source={item.source}
                 editable={false}
                 busy={scheduledBusyId === item.id}
+                recipient={activeThread.email}
+                sendAt={item.sendAt}
                 onCancel={() => void cancelResidentScheduled(item.id)}
                 onSendNow={() => void sendResidentScheduledNow(item.id)}
               />

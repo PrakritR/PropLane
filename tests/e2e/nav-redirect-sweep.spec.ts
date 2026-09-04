@@ -28,7 +28,7 @@ function shot(name: string) {
  */
 async function signInForNavSweep(
   page: Page,
-  role: "manager" | "resident",
+  role: "manager" | "resident" | "admin" | "vendor",
   email: string,
   password: string,
   next: string,
@@ -134,5 +134,71 @@ test.describe("legacy nav redirects land on a real page", () => {
 
     // Prototype keys are not legacy tabs.
     expect.soft(byPath.get("/portal/financials/toString")!.isNotFound).toBe(true);
+  });
+
+  /**
+   * Tabs that stopped existing tonight.
+   *
+   * Admin Communication was five URL folder tabs over a panel that had already
+   * stopped reading which one was in the URL, and vendor Documents was four
+   * category tabs a vendor had to classify into before uploading. Both
+   * collapsed. Every one of those URLs is still in somebody's bookmark bar or
+   * an old email, so the contract is the same as every other entry here: it
+   * renders or it redirects, it never dead-ends.
+   */
+  test("admin Communication folder tabs still resolve after collapsing to one inbox", async ({ page }) => {
+    await signInForNavSweep(
+      page,
+      "admin",
+      E2E_ACCOUNTS.admin.email,
+      E2E_ACCOUNTS.admin.password,
+      "/admin/dashboard",
+    );
+
+    const results: Landing[] = [];
+    // The section's own path must RENDER, not bounce to a folder that is gone.
+    results.push(await land(page, "/admin/communication", "admin-communication"));
+    for (const legacy of ["unopened", "opened", "sent", "trash", "schedule"]) {
+      results.push(await land(page, `/admin/communication/inbox/${legacy}`));
+    }
+
+    console.log("[admin] " + JSON.stringify(results, null, 2));
+
+    for (const r of results) {
+      expect.soft(r.isNotFound, `${r.requested} must not 404`).toBe(false);
+    }
+    // The bare section is the inbox now; it must not redirect away from itself.
+    expect.soft(new Map(results.map((r) => [r.requested, r])).get("/admin/communication")!.finalPath).toBe(
+      "/admin/communication",
+    );
+  });
+
+  test("vendor Documents category tabs land on the one list", async ({ page }) => {
+    await signInForNavSweep(
+      page,
+      "vendor",
+      E2E_ACCOUNTS.vendor.email,
+      E2E_ACCOUNTS.vendor.password,
+      "/vendor/dashboard",
+    );
+
+    const results: Landing[] = [];
+    results.push(await land(page, "/vendor/documents/mine", "vendor-documents-mine"));
+    results.push(await land(page, "/vendor/documents/shared"));
+    for (const legacy of ["tax", "insurance", "licensing"]) {
+      results.push(await land(page, `/vendor/documents/${legacy}`));
+    }
+
+    console.log("[vendor] " + JSON.stringify(results, null, 2));
+
+    const byPath = new Map(results.map((r) => [r.requested, r]));
+    for (const r of results) {
+      expect.soft(r.isNotFound, `${r.requested} must not 404`).toBe(false);
+    }
+    for (const legacy of ["tax", "insurance", "licensing"]) {
+      expect
+        .soft(byPath.get(`/vendor/documents/${legacy}`)!.finalPath, `${legacy} should land on Mine`)
+        .toBe("/vendor/documents/mine");
+    }
   });
 });

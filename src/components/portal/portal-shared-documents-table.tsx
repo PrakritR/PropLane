@@ -62,6 +62,7 @@ export function PortalSharedDocumentsTable({
   const [documents, setDocuments] = useState<ManagerDocumentDTO[]>([]);
   const [loading, setLoading] = useState(false);
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [accessDenied, setAccessDenied] = useState(false);
   const [preview, setPreview] = useState<ManagerDocumentDTO | null>(null);
 
   const load = useCallback(async () => {
@@ -70,9 +71,23 @@ export function PortalSharedDocumentsTable({
       return;
     }
     setLoading(true);
+    setAccessDenied(false);
     try {
       const res = await fetch(listUrl, { credentials: "include" });
       const data = await res.json().catch(() => ({}));
+      /*
+        Not signed in, or not linked yet, is an ORDINARY state here — not a
+        failure to shout about. It used to throw like any other error, so the
+        tab greeted an unauthorized vendor with a red "Failed to load shared
+        documents." toast and a 401 in the console, while the sibling tab in
+        the same panel answered the identical condition with a calm banner.
+        Same condition, same explanation.
+      */
+      if (res.status === 401 || res.status === 403) {
+        setDocuments([]);
+        setAccessDenied(true);
+        return;
+      }
       if (!res.ok) throw new Error(data.error ?? "Failed to load shared documents.");
       setDocuments((data.documents as ManagerDocumentDTO[]) ?? []);
     } catch (e) {
@@ -88,6 +103,15 @@ export function PortalSharedDocumentsTable({
 
   if (demo) {
     return <PortalDataTableEmpty message={demoMessage} icon="document" />;
+  }
+
+  if (accessDenied) {
+    return (
+      <PortalDataTableEmpty
+        icon="document"
+        message="Sign in with a vendor account to see documents shared with you."
+      />
+    );
   }
 
   if (!loading && documents.length === 0) {

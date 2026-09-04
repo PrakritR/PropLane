@@ -27,8 +27,11 @@ once the workspace has room.
   Renaming them is a migration: lease ids and charge references derive from that
   id, and the fixtures cross-reference each other, so they move together or not
   at all. Production rows are not something to rewrite without a plan.
-* **Tasks settings dropdowns clip.** Fixed the text overflow; a menu opened near
-  the bottom of a tall modal can still render past the panel edge.
+* ~~**Tasks settings dropdowns clip.**~~ — DONE, and more thoroughly than the
+  note assumed. `useFieldSelectMenu` portals the menu out of the modal and
+  positions it `fixed`, so a scroll container cannot clip it at all; it also
+  flips above the trigger when there is more room there, and clamps its height
+  to the viewport. Nothing left here.
 
 ## Redesigns the captain asked for — these need plans, not late-night edits
 
@@ -61,24 +64,31 @@ lost; none are started.
 
 ## Still open from tonight's queue
 
-* **"24 reminders scheduled" for one resident** — the SEND side is fixed (one
-  message per person). The SCHEDULE side is not: 6 charges × 4 reminder times
-  still creates 24 scheduled rows. Same fix, one layer down — group the
-  projection by recipient and date so a resident with several payments due the
-  same day gets one scheduled message, not one per charge.
+* ~~**"24 reminders scheduled" for one resident**~~ — DONE. The schedule now
+  groups where the messages are read (`useScheduledPaymentMessages`), so the
+  count a manager sees is the count that goes out: 6 charges × 4 reminder times
+  collapses from 24 rows to 4. The grouping already existed for the send side;
+  it just was not applied to the list. It is idempotent, so the two panels that
+  already grouped downstream are unaffected. Pinned by
+  `tests/unit/scheduled-reminders-grouped-by-recipient.test.ts`.
 * **Payment generation timing** — application fee on submission; lease-signing
   charges on approval; rent/utilities once the lease is signed; custom deposits
   and fees at their own points, each with the right reminders. Substantial, and
   it changes what a resident is billed and when, so it wants its own plan.
-* **Payments tab: Pending / Overdue / Paid** on the resident detail Payments tab
-  (the portfolio Payments page already has them).
+* ~~**Payments tab: Pending / Overdue / Paid** on the resident detail Payments
+  tab~~ — DONE, and the buckets were already there; what was wrong is that this
+  one surface listed them Overdue-first while the portfolio page, both route
+  parsers and the captain's own words read Pending / Overdue / Paid. It reads
+  the shared `PAYMENT_BUCKETS` constant now instead of a re-typed array.
 * **Services settings** on the resident Services tab — needs defining: what
   would it configure that the property-level service catalog does not?
-* **Send via should stay openable even when only one channel is available** —
-  today it collapses to a disabled Email with a hint about adding a work number.
-* **Background-check report card** — the dark panel uses a different type scale
-  from the rest of the portal, and several tiles render the literal string
-  "null" where a value is missing. The "null" is a bug, not a style issue.
+* ~~**Send via should stay openable even when only one channel is available**~~
+  — DONE. Pinned by `tests/unit/send-via-dropdown-opens.test.tsx`.
+* **Background-check report card** — the literal "null" tiles are FIXED (a
+  falsy branch returned `null` into a template string, which renders the word;
+  it returns `""` now, pinned by `tests/unit/checkr-tenant-report-html.ts`).
+  Still open: the dark panel uses a different type scale from the rest of the
+  portal. Style only.
 * **Share background check** — held deliberately. The only share we have mints
   an unauthenticated public link that lives 90 days with no revoke; pointing one
   at a consumer report is a privacy decision, not a UI one.
@@ -185,12 +195,12 @@ Listed newest first; the ones already fixed say so.
   time: the manager's own `full_name`, or the business / landlord name a vendor
   would recognise on an invoice. Until then the vendor cannot tell two
   managers' invoices apart.
-* **`pro-unified-inbox.tsx` carries a dead third segment.** Its internal
-  toolbar renders Active / Unread / Archived, but the only caller
-  (`pro-communication.tsx`) passes `listChrome="external"`, so that branch never
-  runs. Harmless today; the moment someone passes `internal` they get an inbox
-  that disagrees with every other one. Delete the branch or drop its Unread
-  entry.
+* ~~**`pro-unified-inbox.tsx` carries a dead third segment.**~~ — DONE. Its
+  internal toolbar now offers the same Active / Archived every live inbox has,
+  and `/unread` still resolves onto Active. The branch still renders for nobody
+  (its only caller passes `listChrome="external"`), but it no longer disagrees
+  with the rest of the product for whoever first turns it on. All four inboxes
+  are covered by `tests/unit/communication-segment-parity.test.ts`.
 * **Vendor Communication has no filter sheet.** The manager and resident panels
   both mount `PortalFilterSortSheet`; `vendor-communication.tsx` does not. Pure
   parity gap, in the communication lane's territory.

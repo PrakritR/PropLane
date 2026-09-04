@@ -123,7 +123,13 @@ export function PortalComposeScheduledMessagesSection({
   const saveEdit = useCallback(
     async (
       item: ThreadScheduledItem,
-      next: { subject: string; body: string; deliverViaEmail?: boolean; deliverViaSms?: boolean },
+      next: {
+        subject: string;
+        body: string;
+        deliverViaEmail?: boolean;
+        deliverViaSms?: boolean;
+        sendAt?: string;
+      },
     ) => {
       if (item.source === "manual") {
         const res = await fetch(`/api/portal/scheduled-inbox-messages/${encodeURIComponent(item.id)}`, {
@@ -135,11 +141,16 @@ export function PortalComposeScheduledMessagesSection({
             body: next.body,
             ...(next.deliverViaEmail !== undefined ? { deliverViaEmail: next.deliverViaEmail } : {}),
             ...(next.deliverViaSms !== undefined ? { deliverViaSms: next.deliverViaSms } : {}),
+            ...(next.sendAt ? { sendAt: next.sendAt } : {}),
           }),
         });
         if (!res.ok) throw new Error(await readPortalApiError(res, "Could not save changes."));
       } else {
-        await patchScheduledMessage(item.id, { customSubject: next.subject, customBody: next.body });
+        await patchScheduledMessage(item.id, {
+          customSubject: next.subject,
+          customBody: next.body,
+          ...(next.sendAt ? { customSendAt: next.sendAt } : {}),
+        });
       }
       notifyChanged();
     },
@@ -201,6 +212,8 @@ export function PortalComposeScheduledMessagesSection({
             editable={editing.editable}
             busy={busyId === editing.id}
             presentation="detail"
+            recipient={recipientEmail}
+            sendAt={editing.sendAt}
             onCancel={() => void cancelItem(editing)}
             onSendNow={() => void sendNow(editing)}
             onSaveEdit={
