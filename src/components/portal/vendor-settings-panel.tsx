@@ -1,15 +1,32 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ComponentType, type ReactNode } from "react";
+import { usePathname, useSearchParams } from "next/navigation";
+import {
+  Briefcase,
+  CalendarClock,
+  Lock,
+  MessageSquareText,
+  Settings2,
+  SlidersHorizontal,
+  Smartphone,
+
+  Wrench,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input, Select } from "@/components/ui/input";
 import { PortalCollapsibleSection } from "@/components/portal/portal-collapsible-section";
 import {
   PortalSettingsFormBody,
   PortalSettingsGroup,
+  PortalSettingsLinkRow,
+  PortalSettingsNav,
+  PortalSettingsProfileHeader,
   PortalSettingsSection,
   PortalSettingsSections,
 } from "@/components/portal/portal-settings-ui";
+import { PortalChangePasswordPanel } from "@/components/portal/portal-change-password-panel";
+import { PortalDetailHeader } from "@/components/portal/portal-list-detail-shell";
 import { ManagerPortalPageShell } from "@/components/portal/portal-metrics";
 import { PortalBugFeedbackPanel } from "@/components/portal/portal-bug-feedback-panel";
 import { PortalSettingsExtras } from "@/components/portal/portal-settings-extras";
@@ -32,6 +49,26 @@ import {
   isFlexibleWeeklyRule,
   type VendorAvailabilityRule,
 } from "@/lib/vendor-availability";
+
+const SETTINGS_TAB_PARAM = "tab";
+
+type VendorSettingsGroupId =
+  | "profile"
+  | "capabilities"
+  | "availability"
+  | "messaging"
+  | "preferences"
+  | "security"
+  | "feedback"
+  | "account";
+
+type VendorSettingsGroup = {
+  id: VendorSettingsGroupId;
+  label: string;
+  description: string;
+  icon: ComponentType<{ className?: string }>;
+  group: "Business" | "Availability" | "Account";
+};
 
 /** Tap target for the small chip/row "remove" glyphs — keeps the glyph small while meeting the 44px minimum. */
 const AVAILABILITY_REMOVE_BTN =
@@ -874,6 +911,8 @@ export function VendorAvailabilityEditor() {
 export function VendorSettingsPanel() {
   const { showToast } = useAppUi();
   const demo = isDemoModeActive();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
 
   const [profileDraft, setProfileDraft] = useState<VendorProfileDraft>(() => (demo ? DEMO_VENDOR_PROFILE : EMPTY_PROFILE));
   const [trades, setTrades] = useState<string[]>(() => (demo ? DEMO_VENDOR_TRADES : []));
@@ -969,140 +1008,350 @@ export function VendorSettingsPanel() {
     }
   }
 
-  return (
-    <ManagerPortalPageShell title="Settings" hideTitleOnMobileNav subtitle="Manage your business profile, capabilities, and account preferences.">
-      <PortalSettingsSections>
-        {unlinked ? (
-          <p className="rounded-lg border px-4 py-3 text-sm portal-banner-pending" data-attr="vendor-settings-unlinked-banner">
-            Waiting on a property manager to connect with you. You&apos;ll be able to save your profile once linked.
-          </p>
-        ) : null}
+  // Both writable panes are dead until a manager links the account, so the
+  // banner rides with them rather than sitting once at the top of a scroll the
+  // vendor may never reach.
+  const unlinkedBanner = unlinked ? (
+    <p
+      className="rounded-lg border px-4 py-3 text-sm portal-banner-pending"
+      data-attr="vendor-settings-unlinked-banner"
+    >
+      Waiting on a property manager to connect with you. You&apos;ll be able to save your profile once linked.
+    </p>
+  ) : null;
 
-        <PortalSettingsSection title="Business profile" description="Shown to the property managers you work with.">
-          <PortalSettingsGroup>
-          {profileLoading ? (
-            <p className="px-4 py-4 text-sm text-muted">Loading…</p>
-          ) : (
-            <PortalSettingsFormBody>
-            <div className="grid gap-3 sm:grid-cols-2">
-              <label className="flex flex-col gap-1 text-xs font-medium text-muted sm:col-span-2">
-                Business name
-                <Input
-                  value={profileDraft.name}
-                  onChange={(e) => setProfileDraft({ ...profileDraft, name: e.target.value })}
-                  data-attr="vendor-settings-name"
-                />
-              </label>
-              <label className="flex flex-col gap-1 text-xs font-medium text-muted">
-                Phone
-                <Input
-                  value={profileDraft.phone}
-                  onChange={(e) => setProfileDraft({ ...profileDraft, phone: e.target.value })}
-                  data-attr="vendor-settings-phone"
-                />
-              </label>
-              <label className="flex flex-col gap-1 text-xs font-medium text-muted">
-                Email
-                <Input
-                  type="email"
-                  value={profileDraft.email}
-                  onChange={(e) => setProfileDraft({ ...profileDraft, email: e.target.value })}
-                  data-attr="vendor-settings-email"
-                />
-              </label>
-              <label className="flex flex-col gap-1 text-xs font-medium text-muted">
-                Preferred language / Idioma
-                <Select
-                  value={profileDraft.preferredLanguage}
-                  onChange={(e) => setProfileDraft({ ...profileDraft, preferredLanguage: e.target.value })}
-                  data-attr="vendor-language-select"
-                >
-                  <option value="">Select…</option>
-                  <option value="en">English</option>
-                  <option value="es">Español</option>
-                </Select>
-              </label>
-              <label className="flex items-start gap-2 text-xs font-medium text-muted sm:col-span-2">
+  const groups = useMemo<VendorSettingsGroup[]>(
+    () => [
+      {
+        id: "profile",
+        label: "Profile",
+        description: "Business name, contact details, and how managers reach you.",
+        icon: Briefcase,
+        group: "Business",
+      },
+      {
+        id: "capabilities",
+        label: "Work capabilities",
+        description: "The trades managers can match you with.",
+        icon: Wrench,
+        group: "Business",
+      },
+      {
+        id: "availability",
+        label: "Hours & dates",
+        description: "Weekly hours, one-off open dates, and blocked dates.",
+        icon: CalendarClock,
+        group: "Availability",
+      },
+      {
+        id: "messaging",
+        label: "Messaging",
+        description: "Verify your phone for job texts.",
+        icon: Smartphone,
+        group: "Account",
+      },
+      {
+        id: "preferences",
+        label: "Preferences",
+        description: "Assistant and device options.",
+        icon: SlidersHorizontal,
+        group: "Account",
+      },
+      {
+        id: "security",
+        label: "Login & security",
+        description: "Password and sign-in options.",
+        icon: Lock,
+        group: "Account",
+      },
+      {
+        id: "feedback",
+        label: "Feedback",
+        description: "Report issues or share product feedback.",
+        icon: MessageSquareText,
+        group: "Account",
+      },
+      {
+        id: "account",
+        label: "Account",
+        description: "Switch portals, sign out, or delete your account.",
+        icon: Settings2,
+        group: "Account",
+      },
+    ],
+    [],
+  );
+
+  const rawTab = searchParams.get(SETTINGS_TAB_PARAM);
+  const activeGroup = groups.find((g) => g.id === rawTab) ?? null;
+  const paneGroup = activeGroup ?? groups[0];
+
+  const pushedDepthRef = useRef(0);
+  const backInFlightRef = useRef(false);
+  useEffect(() => {
+    const onPop = () => {
+      if (backInFlightRef.current) {
+        backInFlightRef.current = false;
+      } else {
+        pushedDepthRef.current = Math.max(0, pushedDepthRef.current - 1);
+      }
+    };
+    window.addEventListener("popstate", onPop);
+    return () => window.removeEventListener("popstate", onPop);
+  }, []);
+
+  const urlForTab = useCallback(
+    (id: string | null) => {
+      const params = new URLSearchParams(searchParams.toString());
+      if (id) params.set(SETTINGS_TAB_PARAM, id);
+      else params.delete(SETTINGS_TAB_PARAM);
+      const query = params.toString();
+      return query ? `${pathname}?${query}` : pathname;
+    },
+    [pathname, searchParams],
+  );
+
+  const openGroup = useCallback(
+    (id: string) => {
+      pushedDepthRef.current += 1;
+      window.history.pushState(null, "", urlForTab(id));
+    },
+    [urlForTab],
+  );
+
+  const backToRoot = useCallback(() => {
+    if (backInFlightRef.current) return;
+    if (pushedDepthRef.current > 0) {
+      pushedDepthRef.current -= 1;
+      backInFlightRef.current = true;
+      window.history.back();
+      return;
+    }
+    window.history.pushState(null, "", urlForTab(null));
+  }, [urlForTab]);
+
+  const layoutTopRef = useRef<HTMLDivElement>(null);
+  const skipInitialScroll = useRef(true);
+  useEffect(() => {
+    if (skipInitialScroll.current) {
+      skipInitialScroll.current = false;
+      return;
+    }
+    layoutTopRef.current?.scrollIntoView({ block: "start", behavior: "auto" });
+  }, [activeGroup?.id]);
+
+  const renderPane = (id: VendorSettingsGroupId): ReactNode => {
+    switch (id) {
+      case "profile":
+        return (
+          <>
+            {unlinkedBanner}
+    <PortalSettingsSection title="Business profile" description="Shown to the property managers you work with.">
+      <PortalSettingsGroup>
+      {profileLoading ? (
+        <p className="px-4 py-4 text-sm text-muted">Loading…</p>
+      ) : (
+        <PortalSettingsFormBody>
+        <div className="grid gap-3 sm:grid-cols-2">
+          <label className="flex flex-col gap-1 text-xs font-medium text-muted sm:col-span-2">
+            Business name
+            <Input
+              value={profileDraft.name}
+              onChange={(e) => setProfileDraft({ ...profileDraft, name: e.target.value })}
+              data-attr="vendor-settings-name"
+            />
+          </label>
+          <label className="flex flex-col gap-1 text-xs font-medium text-muted">
+            Phone
+            <Input
+              value={profileDraft.phone}
+              onChange={(e) => setProfileDraft({ ...profileDraft, phone: e.target.value })}
+              data-attr="vendor-settings-phone"
+            />
+          </label>
+          <label className="flex flex-col gap-1 text-xs font-medium text-muted">
+            Email
+            <Input
+              type="email"
+              value={profileDraft.email}
+              onChange={(e) => setProfileDraft({ ...profileDraft, email: e.target.value })}
+              data-attr="vendor-settings-email"
+            />
+          </label>
+          <label className="flex flex-col gap-1 text-xs font-medium text-muted">
+            Preferred language / Idioma
+            <Select
+              value={profileDraft.preferredLanguage}
+              onChange={(e) => setProfileDraft({ ...profileDraft, preferredLanguage: e.target.value })}
+              data-attr="vendor-language-select"
+            >
+              <option value="">Select…</option>
+              <option value="en">English</option>
+              <option value="es">Español</option>
+            </Select>
+          </label>
+          <label className="flex items-start gap-2 text-xs font-medium text-muted sm:col-span-2">
+            <input
+              type="checkbox"
+              className="mt-0.5 h-4 w-4 shrink-0 rounded border-border"
+              checked={profileDraft.smsConsent}
+              onChange={(e) => setProfileDraft({ ...profileDraft, smsConsent: e.target.checked })}
+              data-attr="vendor-sms-consent"
+            />
+            <span>
+              Text me about jobs at this number. Message and data rates may apply; reply STOP to opt out.
+            </span>
+          </label>
+        </div>
+        </PortalSettingsFormBody>
+      )}
+
+      <div className="border-t border-border px-4 py-4">
+        <Button
+          variant="primary"
+          className="px-4 text-[13px]"
+          onClick={() => saveProfile()}
+          disabled={profileSaving || profileLoading || unlinked}
+          data-attr="vendor-settings-profile-save"
+        >
+          {profileSaving ? "Saving…" : "Save"}
+        </Button>
+      </div>
+      </PortalSettingsGroup>
+    </PortalSettingsSection>
+          </>
+        );
+      case "capabilities":
+        return (
+          <>
+            {unlinkedBanner}
+    <PortalSettingsSection
+      title="Work capabilities"
+      description="Managers use this to match you with the right services."
+    >
+      <PortalSettingsGroup>
+      {profileLoading ? (
+        <p className="px-4 py-4 text-sm text-muted">Loading…</p>
+      ) : (
+        <PortalSettingsFormBody>
+        <div className="grid gap-2 rounded-lg border border-border bg-muted/30 p-3 sm:grid-cols-2 lg:grid-cols-3">
+          {VENDOR_TRADE_OPTIONS.map((option) => {
+            const on = trades.includes(option);
+            return (
+              <label key={option} className="flex cursor-pointer items-center gap-2 text-sm">
                 <input
                   type="checkbox"
-                  className="mt-0.5 h-4 w-4 shrink-0 rounded border-border"
-                  checked={profileDraft.smsConsent}
-                  onChange={(e) => setProfileDraft({ ...profileDraft, smsConsent: e.target.checked })}
-                  data-attr="vendor-sms-consent"
+                  className="h-4 w-4 rounded border-border"
+                  checked={on}
+                  onChange={(e) => toggleTrade(option, e.target.checked)}
+                  data-attr={`vendor-capability-${option.toLowerCase().replace(/\s+/g, "-")}`}
                 />
-                <span>
-                  Text me about jobs at this number. Message and data rates may apply; reply STOP to opt out.
-                </span>
+                <span className="font-medium text-foreground">{option}</span>
               </label>
-            </div>
-            </PortalSettingsFormBody>
-          )}
+            );
+          })}
+        </div>
+        </PortalSettingsFormBody>
+      )}
 
-          <div className="border-t border-border px-4 py-4">
-            <Button
-              variant="primary"
-              className="px-4 text-[13px]"
-              onClick={() => saveProfile()}
-              disabled={profileSaving || profileLoading || unlinked}
-              data-attr="vendor-settings-profile-save"
-            >
-              {profileSaving ? "Saving…" : "Save"}
-            </Button>
-          </div>
-          </PortalSettingsGroup>
-        </PortalSettingsSection>
-
-        <PortalSettingsSection
-          title="Work capabilities"
-          description="Managers use this to match you with the right services."
+      <div className="border-t border-border px-4 py-4">
+        <Button
+          variant="primary"
+          className="px-4 text-[13px]"
+          onClick={() => saveCapabilities()}
+          disabled={capabilitiesSaving || profileLoading || unlinked}
+          data-attr="vendor-settings-capabilities-save"
         >
-          <PortalSettingsGroup>
-          {profileLoading ? (
-            <p className="px-4 py-4 text-sm text-muted">Loading…</p>
-          ) : (
-            <PortalSettingsFormBody>
-            <div className="grid gap-2 rounded-lg border border-border bg-muted/30 p-3 sm:grid-cols-2 lg:grid-cols-3">
-              {VENDOR_TRADE_OPTIONS.map((option) => {
-                const on = trades.includes(option);
+          {capabilitiesSaving ? "Saving…" : "Save capabilities"}
+        </Button>
+      </div>
+      </PortalSettingsGroup>
+    </PortalSettingsSection>
+          </>
+        );
+      case "availability":
+        // Weekly hours, one-off open dates and blocked dates are one decision a
+        // vendor makes in one sitting, so they share a pane. The editor itself
+        // existed and was mounted nowhere — a vendor could not set hours at all.
+        return <VendorAvailabilityEditor />;
+      case "messaging":
+        return <PortalTextNotificationsBlock dataAttrPrefix="vendor" demo={demo} />;
+      case "preferences":
+        return <AssistantCustomInstructionsSetting role="vendor" />;
+      case "security":
+        return <PortalChangePasswordPanel accountEmail={profileDraft.email} />;
+      case "feedback":
+        return <PortalBugFeedbackPanel reporterRole="vendor" embedded />;
+      case "account":
+        return <PortalSettingsExtras currentKind="vendor" variant="session" />;
+    }
+  };
+
+  return (
+    <ManagerPortalPageShell
+      title="Settings"
+      hideTitleOnMobileNav
+      subtitle="Manage your business profile, capabilities, and account preferences."
+    >
+      <div ref={layoutTopRef} className="lg:flex lg:items-start lg:gap-10">
+        <PortalSettingsNav
+          className="sticky top-0 max-lg:hidden"
+          name={profileDraft.name || DEMO_VENDOR_NAME}
+          email={profileDraft.email || DEMO_VENDOR_EMAIL}
+          items={groups.map((g) => ({
+            id: g.id,
+            label: g.label,
+            icon: <g.icon className="h-4 w-4" />,
+            group: g.group,
+          }))}
+          activeId={paneGroup.id}
+          onSelect={openGroup}
+        />
+        <div className="min-w-0 flex-1 lg:max-w-3xl">
+          {activeGroup === null ? (
+            <div className="space-y-5 lg:hidden">
+              <PortalSettingsProfileHeader
+                name={profileDraft.name || DEMO_VENDOR_NAME}
+                email={profileDraft.email || DEMO_VENDOR_EMAIL}
+              />
+              {(["Business", "Availability", "Account"] as const).map((group) => {
+                const groupItems = groups.filter((item) => item.group === group);
+                if (groupItems.length === 0) return null;
                 return (
-                  <label key={option} className="flex cursor-pointer items-center gap-2 text-sm">
-                    <input
-                      type="checkbox"
-                      className="h-4 w-4 rounded border-border"
-                      checked={on}
-                      onChange={(e) => toggleTrade(option, e.target.checked)}
-                      data-attr={`vendor-capability-${option.toLowerCase().replace(/\s+/g, "-")}`}
-                    />
-                    <span className="font-medium text-foreground">{option}</span>
-                  </label>
+                  <section key={group} className="space-y-2">
+                    <h2 className="px-1 text-[11px] font-bold uppercase tracking-[0.12em] text-muted">{group}</h2>
+                    <PortalSettingsGroup>
+                      {groupItems.map((g) => (
+                        <PortalSettingsLinkRow
+                          key={g.id}
+                          icon={<g.icon className="h-4 w-4" />}
+                          label={g.label}
+                          description={g.description}
+                          onClick={() => openGroup(g.id)}
+                          dataAttr={`settings-open-${g.id}`}
+                        />
+                      ))}
+                    </PortalSettingsGroup>
+                  </section>
                 );
               })}
             </div>
-            </PortalSettingsFormBody>
+          ) : (
+            <div className="mb-4 lg:hidden">
+              <PortalDetailHeader
+                title={activeGroup.label}
+                onBack={backToRoot}
+                backLabel="Settings"
+                bare
+                dataAttrBack="settings-back-to-root"
+              />
+            </div>
           )}
-
-          <div className="border-t border-border px-4 py-4">
-            <Button
-              variant="primary"
-              className="px-4 text-[13px]"
-              onClick={() => saveCapabilities()}
-              disabled={capabilitiesSaving || profileLoading || unlinked}
-              data-attr="vendor-settings-capabilities-save"
-            >
-              {capabilitiesSaving ? "Saving…" : "Save capabilities"}
-            </Button>
-          </div>
-          </PortalSettingsGroup>
-        </PortalSettingsSection>
-
-        <AssistantCustomInstructionsSetting role="vendor" />
-
-        <PortalTextNotificationsBlock dataAttrPrefix="vendor" demo={demo} />
-
-        <PortalBugFeedbackPanel reporterRole="vendor" embedded />
-
-        <PortalSettingsExtras currentKind="vendor" />
-      </PortalSettingsSections>
+          <PortalSettingsSections className={activeGroup === null ? "max-lg:hidden" : undefined}>
+            {renderPane(paneGroup.id)}
+          </PortalSettingsSections>
+        </div>
+      </div>
     </ManagerPortalPageShell>
   );
 }
