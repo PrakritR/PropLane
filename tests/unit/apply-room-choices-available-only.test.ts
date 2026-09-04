@@ -18,10 +18,16 @@ const block = steps.split("const availableRooms =")[1]?.split("const isByRoom")[
 
 describe("ranked room choices", () => {
   it("builds the offered list from AVAILABLE rooms", () => {
-    expect(block).toContain("roomSelectOptionsWithNone(form.propertyId)");
-    // No `includeUnavailable` on the availability query itself.
-    const availabilityLine = block.split("\n")[0] ?? "";
-    expect(availabilityLine).not.toContain("includeUnavailable");
+    expect(block).toContain("roomSelectOptionsWithNone(form.propertyId, {");
+    expect(block).not.toContain("includeUnavailable: true,\n      leaseStart");
+  });
+
+  it("judges availability against the applicant's requested dates, not today", () => {
+    // The occupancy check compares the requested window with the leases of the
+    // residents already in the house. Omitting the dates asks "is it free right
+    // now", which is a different question from the one the applicant is asking.
+    expect(block).toContain("leaseStart: form.leaseStart");
+    expect(block).toContain("leaseEnd: form.leaseEnd");
   });
 
   it("keeps a room the applicant already chose, even once it fills up", () => {
