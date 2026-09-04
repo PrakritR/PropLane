@@ -329,7 +329,13 @@ export function PortalAuthForm({
       const res = await fetch("/api/auth/signup", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email: email.trim(), password, fullName: fullName.trim() || undefined }),
+        body: JSON.stringify({
+          email: email.trim(),
+          password,
+          fullName: fullName.trim() || undefined,
+          // Was collected into state and then dropped on the floor here.
+          phone: phone.trim() || undefined,
+        }),
       });
       const body = (await res.json()) as { error?: string; existingAccount?: boolean };
       if (!res.ok) {
@@ -434,7 +440,20 @@ export function PortalAuthForm({
         disabled={busy}
         readOnly={prospectHandoff && Boolean(emailFromUrl)}
       />
-      {prospectHandoff ? (
+      {/*
+        PRP-186: this input used to render ONLY for a prospect handoff, so
+        someone signing up cold here and then choosing Manager at
+        /auth/get-started was never asked for a phone — and nothing later in
+        manager onboarding asks either. A manager without one cannot have a work
+        number, because inbound SMS identity binds the sender to their verified
+        cell, so the whole texting path was dead for anyone who arrived by this
+        door rather than through a ?role=manager marketing link.
+
+        It stays optional here: this form is role-agnostic and a resident does
+        not need one. `?role=manager` continues to use ManagerTrialSignupForm,
+        which requires it.
+      */}
+      {isCreate ? (
         <Input
           type="tel"
           autoComplete="tel"
