@@ -1,6 +1,6 @@
-import { applicationRentalTypeFor } from "@/lib/rental-application/lease-terms";
 "use client";
 
+import { applicationRentalTypeFor } from "@/lib/rental-application/lease-terms";
 import { type ReactNode } from "react";
 import { Button } from "@/components/ui/button";
 import { Input, Select, Textarea } from "@/components/ui/input";
