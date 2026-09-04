@@ -2718,6 +2718,11 @@ export function ManagerAddListingForm({
 
       try {
         let submission = current;
+        // Per ATTEMPT, not per session. A failed attachment now stays in the
+        // form, so a retry that uploads it really does save it — carrying the
+        // previous attempt's warning forward would tell the manager to "add
+        // them again next time" about photos that are now stored.
+        droppedAttachmentsRef.current = false;
         try {
           const uploaded = await uploadSubmissionMedia(current);
           submission = uploaded.submission;

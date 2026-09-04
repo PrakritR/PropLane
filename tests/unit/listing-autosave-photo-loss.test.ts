@@ -56,3 +56,17 @@ describe("the manager is told, on every path", () => {
     expect(FORM).toContain('status === "saved" || status === "saved-without-photos" ? "idle" : status');
   });
 });
+
+describe("the warning describes THIS attempt", () => {
+  it("resets before each save, so a successful retry is not reported as lossy", () => {
+    // A failed attachment now stays in the form, so a retry that uploads it
+    // really does save it. Carrying the previous attempt's flag forward would
+    // tell the manager to "add them again next time" about photos that are
+    // stored — covered end-to-end by listing-wizard-draft-autosave.test.tsx.
+    const body = FORM.slice(FORM.indexOf("let submission = current;"));
+    expect(body.slice(0, 500)).toContain("droppedAttachmentsRef.current = false;");
+    expect(body.indexOf("droppedAttachmentsRef.current = false;")).toBeLessThan(
+      body.indexOf("uploadSubmissionMedia(current)"),
+    );
+  });
+});
