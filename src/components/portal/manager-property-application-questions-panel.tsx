@@ -2,11 +2,14 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
-import { BulkActionBar } from "@/components/ui/bulk-action-bar";
+import { Modal } from "@/components/ui/modal";
 import { ManagerApplicationQuestionsEditorModal } from "@/components/portal/manager-application-questions-editor-modal";
+import { ManagerPortalSettingsModal } from "@/components/portal/manager-portal-settings-modal";
 import {
+  PORTAL_PROPERTY_DETAIL_ACTION_BUTTON_CLASS,
   PORTAL_PROPERTY_DETAIL_LIST_ROW_CLASS,
   PortalPropertyDetailSection,
+  PropertyDetailFooterActions,
 } from "@/components/portal/portal-property-detail-section";
 import {
   type ManagerListingSubmissionV1,
@@ -36,8 +39,6 @@ import {
 } from "@/components/portal/portal-list-add-row";
 import { formatApplicationLeaseTermsLabel } from "@/lib/property-lease-template-sync";
 import { normalizePropertyApplicationTemplateLabel } from "@/lib/property-application-template-sync";
-import { usePortalRowSelection } from "@/hooks/use-portal-row-selection";
-import { PORTAL_BULK_BAR_BTN } from "@/lib/portal-bulk-bar";
 
 type QuestionsSaveTarget =
   | { mode: "pending"; saveId: string }
@@ -75,6 +76,8 @@ export function ManagerPropertyApplicationQuestionsPanel({
   managerUserId,
   propertyIds,
   listingId,
+  settingsPropertyId,
+  settingsPropertyLabel,
   onUpdated,
   showToast,
   onRegisterAddApplication,
@@ -86,18 +89,27 @@ export function ManagerPropertyApplicationQuestionsPanel({
   propertyIds?: string[];
   /** Live listing id — used for the in-portal application preview. */
   listingId?: string | null;
+  /** Property record id for per-house application settings (promo code, auto-approve). */
+  settingsPropertyId?: string | null;
+  settingsPropertyLabel?: string | null;
   onUpdated: () => void;
   showToast: (m: string) => void;
   onRegisterAddApplication?: (openAdd: (() => void) | null) => void;
 }) {
+  const [editModalOpen, setEditModalOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const [editorOpen, setEditorOpen] = useState(false);
   const [editorMode, setEditorMode] = useState<"add" | "edit">("edit");
   const [editingTemplate, setEditingTemplate] = useState<PropertyApplicationTemplate | null>(null);
   const syncedSub = useMemo(() => syncPropertyApplicationTemplatesFromListing(sub), [sub]);
   const templates = useMemo(() => readPropertyApplicationTemplates(syncedSub), [syncedSub]);
-  const { selectedIds, toggleSelected, clearSelection } = usePortalRowSelection(templates.length);
 
   const bulkPropertyIds = propertyIds?.filter((id) => id.trim()) ?? [];
+  const settingsPropertyOptions = useMemo(() => {
+    const id = settingsPropertyId?.trim();
+    if (!id) return [];
+    return [{ id, label: settingsPropertyLabel?.trim() || "This property" }];
+  }, [settingsPropertyId, settingsPropertyLabel]);
 
   const persistSubmission = useCallback(
     (merged: ManagerListingSubmissionV1, opts: { message: string }) => {
@@ -258,9 +270,14 @@ export function ManagerPropertyApplicationQuestionsPanel({
   );
 
   const openAdd = useCallback(() => {
+    setEditModalOpen(true);
     setEditorMode("add");
     setEditingTemplate(null);
     setEditorOpen(true);
+  }, []);
+
+  const openEditModal = useCallback(() => {
+    setEditModalOpen(true);
   }, []);
 
   useEffect(() => {
@@ -292,72 +309,32 @@ export function ManagerPropertyApplicationQuestionsPanel({
     setEditingTemplate(null);
   };
 
-  const selectedTemplates = useMemo(
-    () => templates.filter((template) => selectedIds.has(template.id)),
-    [selectedIds, templates],
-  );
-
-  const bulkDeleteTemplates = () => {
-    if (selectedTemplates.length === 0) return;
-    if (
-      !window.confirm(
-        `Delete ${selectedTemplates.length} application template${selectedTemplates.length === 1 ? "" : "s"}?`,
-      )
-    ) {
-      return;
-    }
-    let next = templates;
-    for (const template of selectedTemplates) {
-      next = removePropertyApplicationTemplate(next, template.id);
-    }
-    const persisted = persistRemoval(next);
-    if (!persisted) {
-      showToast("Could not delete application.");
-      return;
-    }
-    clearSelection();
-    setEditorOpen(false);
-    setEditingTemplate(null);
-    onUpdated();
-    showToast(
-      selectedTemplates.length === 1 ? "Application deleted." : `${selectedTemplates.length} applications deleted.`,
-    );
-  };
+  const editorTitle = editorMode === "add" ? "Add application" : "Edit application";
 
   if (!managerUserId || (!saveTarget && bulkPropertyIds.length === 0)) return null;
 
-  const editorTitle = editorMode === "add" ? "Add application" : "Edit application";
-
-  return (
+  const editorBody = (
     <>
-      <PortalPropertyDetailSection contentClassName="space-y-0">
-        {templates.map((template) => (
-          <div key={template.id} className={PORTAL_PROPERTY_DETAIL_LIST_ROW_CLASS}>
-            <label className="flex min-w-0 flex-1 cursor-pointer items-start gap-3">
-              <input
-                type="checkbox"
-                className="mt-0.5 h-4 w-4 shrink-0 accent-primary"
-                checked={selectedIds.has(template.id)}
-                data-attr={`application-select-${template.id}`}
-                onChange={() => toggleSelected(template.id)}
-                onClick={(e) => e.stopPropagation()}
-              />
-              <div className="min-w-0 flex-1">
-                <p className="text-sm font-semibold text-foreground">
-                  {normalizePropertyApplicationTemplateLabel(template.label)}
-                </p>
-                {formatApplicationLeaseTermsLabel(template.applicationLeaseTerms) ? (
-                  <p className="mt-0.5 text-xs text-muted">
-                    Applicants: {formatApplicationLeaseTermsLabel(template.applicationLeaseTerms)}
-                  </p>
-                ) : null}
-              </div>
-            </label>
-          </div>
-        ))}
-      </PortalPropertyDetailSection>
+      {templates.map((template) => (
+        <div key={template.id} className={PORTAL_PROPERTY_DETAIL_LIST_ROW_CLASS}>
+          <button
+            type="button"
+            className="flex min-w-0 flex-1 flex-col items-start text-left"
+            data-attr={`property-application-edit-${template.id}`}
+            onClick={() => openEditApplication(template)}
+          >
+            <p className="text-sm font-semibold text-foreground">
+              {normalizePropertyApplicationTemplateLabel(template.label)}
+            </p>
+            {formatApplicationLeaseTermsLabel(template.applicationLeaseTerms) ? (
+              <p className="mt-0.5 text-xs text-muted">
+                Applicants: {formatApplicationLeaseTermsLabel(template.applicationLeaseTerms)}
+              </p>
+            ) : null}
+          </button>
+        </div>
+      ))}
 
-      {/* PropLane defaults first — same as Lease and Requests. */}
       {availableSeeds.length > 0 ? (
         <div className="px-3 py-4 max-md:px-2.5 sm:py-5">
           <PropertyTemplatePresetList
@@ -391,6 +368,73 @@ export function ManagerPropertyApplicationQuestionsPanel({
           dataAttr="property-application-add"
         />
       </div>
+    </>
+  );
+
+  return (
+    <>
+      <PortalPropertyDetailSection
+        actions={
+          <PropertyDetailFooterActions>
+            <Button
+              type="button"
+              variant="outline"
+              className={PORTAL_PROPERTY_DETAIL_ACTION_BUTTON_CLASS}
+              data-attr="property-application-edit-open"
+              onClick={openEditModal}
+            >
+              Edit application
+            </Button>
+            {settingsPropertyOptions.length > 0 ? (
+              <Button
+                type="button"
+                variant="outline"
+                className={PORTAL_PROPERTY_DETAIL_ACTION_BUTTON_CLASS}
+                data-attr="property-application-settings-open"
+                onClick={() => setSettingsOpen(true)}
+              >
+                Settings
+              </Button>
+            ) : null}
+          </PropertyDetailFooterActions>
+        }
+      >
+        {templates.length === 0 ? (
+          <p className="px-3 py-4 text-sm text-muted max-md:px-2.5">
+            No applications on this property yet. Use Edit application to add long-term, short-term, or
+            co-signer forms.
+          </p>
+        ) : (
+          templates.map((template) => (
+            <div key={template.id} className={PORTAL_PROPERTY_DETAIL_LIST_ROW_CLASS}>
+              <div className="min-w-0 flex-1">
+                <p className="text-sm font-semibold text-foreground">
+                  {normalizePropertyApplicationTemplateLabel(template.label)}
+                </p>
+                {formatApplicationLeaseTermsLabel(template.applicationLeaseTerms) ? (
+                  <p className="mt-0.5 text-xs text-muted">
+                    Applicants: {formatApplicationLeaseTermsLabel(template.applicationLeaseTerms)}
+                  </p>
+                ) : null}
+              </div>
+            </div>
+          ))
+        )}
+      </PortalPropertyDetailSection>
+
+      <Modal
+        open={editModalOpen}
+        title="Edit application"
+        description="Add or edit application forms for each stay type on this property."
+        onClose={() => {
+          setEditModalOpen(false);
+          closeEditor();
+        }}
+        panelClassName="max-w-4xl"
+        assistantContext="Edit application"
+      >
+        {editorBody}
+      </Modal>
 
       {editorOpen ? (
         <ManagerApplicationQuestionsEditorModal
@@ -418,31 +462,16 @@ export function ManagerPropertyApplicationQuestionsPanel({
         />
       ) : null}
 
-      {selectedIds.size > 0 ? (
-        <BulkActionBar count={selectedIds.size} hideCount variant="payments">
-          <div className="flex min-w-0 flex-wrap items-center justify-start gap-2">
-            {selectedIds.size === 1 && selectedTemplates[0] ? (
-              <Button
-                type="button"
-                variant="outline"
-                className={PORTAL_BULK_BAR_BTN}
-                data-attr="property-application-bulk-edit"
-                onClick={() => openEditApplication(selectedTemplates[0]!)}
-              >
-                Edit
-              </Button>
-            ) : null}
-            <Button
-              type="button"
-              variant="outline"
-              className={`${PORTAL_BULK_BAR_BTN} text-rose-800`}
-              data-attr="property-application-bulk-delete"
-              onClick={bulkDeleteTemplates}
-            >
-              Delete
-            </Button>
-          </div>
-        </BulkActionBar>
+      {settingsPropertyOptions.length > 0 ? (
+        <ManagerPortalSettingsModal
+          open={settingsOpen}
+          onClose={() => setSettingsOpen(false)}
+          initialTab="applications"
+          scoped
+          scopedTitle="Application"
+          propertyOptions={settingsPropertyOptions}
+          initialPropertyId={settingsPropertyOptions[0]?.id}
+        />
       ) : null}
     </>
   );

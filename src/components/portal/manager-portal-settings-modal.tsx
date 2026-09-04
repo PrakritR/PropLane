@@ -90,7 +90,9 @@ export function ManagerPortalSettingsModal({
   const [saving, setSaving] = useState(false);
   const [propertyId, setPropertyId] = useState("");
   const [automation, setAutomation] = useState<ApplicationAutomationPreferences>(DEFAULT_APPLICATION_AUTOMATION);
+  const [waiverCode, setWaiverCode] = useState("");
   const [panelFooter, setPanelFooter] = useState<ManagerSettingsPanelFooter | null>(null);
+  const lockPropertyField = Boolean(initialPropertyId?.trim()) && propertyOptions.length <= 1;
 
   useEffect(() => {
     if (open) setTab(initialTab);
@@ -124,6 +126,7 @@ export function ManagerPortalSettingsModal({
       );
       const data = (await res.json().catch(() => ({}))) as {
         automation?: unknown;
+        waiverCode?: string | null;
         error?: string;
       };
       if (!res.ok) {
@@ -131,6 +134,7 @@ export function ManagerPortalSettingsModal({
         return;
       }
       setAutomation(normalizeApplicationAutomation(data.automation));
+      setWaiverCode(typeof data.waiverCode === "string" ? data.waiverCode : "");
     } catch {
       showToast("Could not load settings.");
     } finally {
@@ -163,6 +167,7 @@ export function ManagerPortalSettingsModal({
         body: JSON.stringify({
           propertyId,
           automation,
+          waiverCode,
         }),
       });
       const data = (await res.json().catch(() => ({}))) as {
@@ -238,6 +243,9 @@ export function ManagerPortalSettingsModal({
           propertyId={propertyId}
           onPropertyIdChange={setPropertyId}
           onAutomationChange={setAutomation}
+          waiverCode={waiverCode}
+          onWaiverCodeChange={setWaiverCode}
+          hidePropertyField={lockPropertyField}
         />
       ) : null}
 
@@ -255,6 +263,7 @@ export function ManagerPortalSettingsModal({
           propertyId={propertyId}
           onPropertyIdChange={setPropertyId}
           onAutomationChange={setAutomation}
+          hidePropertyField={lockPropertyField}
         />
       ) : null}
 

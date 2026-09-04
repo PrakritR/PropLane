@@ -17,29 +17,32 @@ afterEach(() => {
   cleanup();
 });
 
-describe("ManagerPropertyRoomMoveInPanel", () => {
-  it("opens a room move-in editor when a room row is clicked", () => {
-    const sub = createDefaultListingSubmission();
-    sub.rooms = [
-      {
-        ...sub.rooms[0]!,
-        id: "room-a",
-        name: "Room A",
-        floor: "2nd floor",
-        moveInInstructions: "",
-      },
-      {
-        ...sub.rooms[0]!,
-        id: "room-b",
-        name: "Room B",
-        floor: "3rd floor",
-        moveInInstructions: "Lockbox on porch",
-      },
-    ];
+function roomListing() {
+  const sub = createDefaultListingSubmission();
+  sub.rooms = [
+    {
+      ...sub.rooms[0]!,
+      id: "room-a",
+      name: "Room A",
+      floor: "2nd floor",
+      moveInInstructions: "",
+    },
+    {
+      ...sub.rooms[0]!,
+      id: "room-b",
+      name: "Room B",
+      floor: "3rd floor",
+      moveInInstructions: "Lockbox on porch",
+    },
+  ];
+  return sub;
+}
 
+describe("ManagerPropertyRoomMoveInPanel", () => {
+  it("expands a room editor inline when a room row is clicked", () => {
     render(
       <ManagerPropertyRoomMoveInPanel
-        sub={sub}
+        sub={roomListing()}
         saveTarget={{ mode: "listing", saveId: "mgr-test" }}
         managerUserId="mgr-1"
         canEdit
@@ -48,37 +51,21 @@ describe("ManagerPropertyRoomMoveInPanel", () => {
       />,
     );
 
-    // The list now carries the whole-house section (AXI-163), so the room
-    // editor is identified by its own save action rather than by "is there a
-    // move-in textarea on screen at all".
     expect(screen.getByText(/The whole house/i)).toBeTruthy();
-    expect(screen.queryByTestId?.("room-move-in-save") ?? null).toBeNull();
     expect(screen.getAllByPlaceholderText(/Keys, parking/i)).toHaveLength(1);
-    expect(screen.queryByText(/Earliest move-in date/i)).toBeNull();
 
     fireEvent.click(screen.getByRole("button", { name: /Room B/i }));
 
     expect(screen.getByDisplayValue("Lockbox on porch")).toBeTruthy();
-    expect(screen.getAllByPlaceholderText(/Keys, parking/i)).toHaveLength(1);
-    expect(screen.queryByText(/The whole house/i)).toBeNull();
-    expect(screen.queryByText(/Earliest move-in date/i)).toBeNull();
+    expect(screen.getAllByPlaceholderText(/Keys, parking/i)).toHaveLength(2);
+    expect(screen.getByText(/The whole house/i)).toBeTruthy();
+    expect(screen.getByTestId("room-move-in-save")).toBeTruthy();
   });
 
-  it("returns to the room list from the room editor back control", () => {
-    const sub = createDefaultListingSubmission();
-    sub.rooms = [
-      {
-        ...sub.rooms[0]!,
-        id: "room-a",
-        name: "Room A",
-        floor: "2nd floor",
-        moveInInstructions: "",
-      },
-    ];
-
+  it("collapses the inline room editor when the row is clicked again", () => {
     render(
       <ManagerPropertyRoomMoveInPanel
-        sub={sub}
+        sub={roomListing()}
         saveTarget={{ mode: "listing", saveId: "mgr-test" }}
         managerUserId="mgr-1"
         canEdit
@@ -87,14 +74,34 @@ describe("ManagerPropertyRoomMoveInPanel", () => {
       />,
     );
 
-    fireEvent.click(screen.getByRole("button", { name: /Room A/i }));
-    expect(screen.getByPlaceholderText(/Keys, parking/i)).toBeTruthy();
-    expect(screen.queryByText(/The whole house/i)).toBeNull();
+    const roomButton = screen.getByRole("button", { name: /Room B/i });
+    fireEvent.click(roomButton);
+    expect(screen.getByDisplayValue("Lockbox on porch")).toBeTruthy();
 
-    fireEvent.click(screen.getByRole("button", { name: /Rooms/i }));
+    fireEvent.click(roomButton);
+    expect(screen.queryByDisplayValue("Lockbox on porch")).toBeNull();
+    expect(screen.getAllByPlaceholderText(/Keys, parking/i)).toHaveLength(1);
+  });
 
-    expect(screen.getByRole("button", { name: /Room A/i })).toBeTruthy();
-    // Back on the list: the house section, not the room editor.
-    expect(screen.getByText(/The whole house/i)).toBeTruthy();
+  it("hides save actions while rooms are selected and shows edit + share bulk actions", () => {
+    render(
+      <ManagerPropertyRoomMoveInPanel
+        sub={roomListing()}
+        saveTarget={{ mode: "listing", saveId: "mgr-test" }}
+        managerUserId="mgr-1"
+        canEdit
+        onUpdated={() => {}}
+        showToast={() => {}}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /Room B/i }));
+    expect(screen.getByTestId("room-move-in-save")).toBeTruthy();
+
+    fireEvent.click(screen.getByLabelText("Select Room B"));
+    expect(screen.queryByTestId("room-move-in-save")).toBeNull();
+    expect(screen.queryByTestId("house-move-in-save")).toBeNull();
+    expect(screen.getByRole("button", { name: /^Edit$/i })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /^Share$/i })).toBeTruthy();
   });
 });

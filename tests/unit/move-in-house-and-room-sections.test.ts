@@ -85,9 +85,10 @@ describe("manager move-in panel", () => {
     expect(byRoom).toContain('data-attr="house-move-in-save"');
   });
 
-  it("makes rooms selectable and offers one copy action", () => {
+  it("makes rooms selectable with edit and share bulk actions", () => {
     expect(panel).toContain("property-move-in-room-select-");
-    expect(panel).toContain('data-attr="property-move-in-copy-house"');
+    expect(panel).toContain('data-attr="property-move-in-bulk-edit"');
+    expect(panel).toContain('data-attr="property-move-in-share"');
     expect(panel).toContain("<BulkActionBar");
   });
 

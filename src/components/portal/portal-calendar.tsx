@@ -628,7 +628,7 @@ export function PortalCalendar({
           <div
             className={
               bookingsView
-                ? "flex min-h-[min(72vh,52rem)] flex-1 flex-col gap-3 pb-20"
+                ? "flex min-h-0 flex-1 flex-col gap-2 overflow-hidden pb-20"
                 : "portal-calendar-page-body mt-1 flex min-h-[min(72vh,52rem)] flex-1 flex-col bg-accent/30 pb-20"
             }
           >

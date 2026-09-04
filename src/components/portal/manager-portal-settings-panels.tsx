@@ -143,6 +143,9 @@ export function ApplicationsSettingsPanel({
   propertyId,
   onPropertyIdChange,
   onAutomationChange,
+  waiverCode = "",
+  onWaiverCodeChange,
+  hidePropertyField = false,
 }: {
   automation: ApplicationAutomationPreferences;
   loading: boolean;
@@ -151,6 +154,10 @@ export function ApplicationsSettingsPanel({
   propertyId: string;
   onPropertyIdChange: (propertyId: string) => void;
   onAutomationChange: (next: ApplicationAutomationPreferences) => void;
+  waiverCode?: string;
+  onWaiverCodeChange?: (code: string) => void;
+  /** When opened from one property's Application tab, the house is already known. */
+  hidePropertyField?: boolean;
 }) {
   const confirmAutoApproveEnable = () =>
     window.confirm(
@@ -159,12 +166,35 @@ export function ApplicationsSettingsPanel({
 
   return (
     <div className="space-y-4">
-      <ManagerSettingsPropertyField
-        propertyOptions={propertyOptions}
-        propertyId={propertyId}
-        onPropertyIdChange={onPropertyIdChange}
-        disabled={loading || saving || propertyOptions.length === 0}
-      />
+      {hidePropertyField ? null : (
+        <ManagerSettingsPropertyField
+          propertyOptions={propertyOptions}
+          propertyId={propertyId}
+          onPropertyIdChange={onPropertyIdChange}
+          disabled={loading || saving || propertyOptions.length === 0}
+        />
+      )}
+      {onWaiverCodeChange ? (
+        <div className="space-y-2">
+          <label className="block text-[13px] font-medium text-foreground" htmlFor="manager-application-promo-code">
+            Promo code
+          </label>
+          <input
+            id="manager-application-promo-code"
+            type="text"
+            className="w-full rounded-xl border border-border bg-background px-3 py-2 font-mono text-sm uppercase text-foreground"
+            value={waiverCode}
+            disabled={loading || saving || !propertyId}
+            placeholder="E.G. WELCOME50"
+            data-attr="manager-application-settings-promo-code"
+            onChange={(e) => onWaiverCodeChange(e.target.value.toUpperCase())}
+          />
+          <p className="text-xs text-muted">
+            Applicants who enter this code on this property&apos;s application waive the application fee. Leave
+            empty to turn it off.
+          </p>
+        </div>
+      ) : null}
       <label className="flex items-start gap-3">
         <input
           type="checkbox"
@@ -298,6 +328,7 @@ export function LeaseSettingsPanel({
   propertyId,
   onPropertyIdChange,
   onAutomationChange,
+  hidePropertyField = false,
 }: {
   automation: ApplicationAutomationPreferences;
   loading: boolean;
@@ -306,15 +337,18 @@ export function LeaseSettingsPanel({
   propertyId: string;
   onPropertyIdChange: (propertyId: string) => void;
   onAutomationChange: (next: ApplicationAutomationPreferences) => void;
+  hidePropertyField?: boolean;
 }) {
   return (
     <div className="space-y-4">
-      <ManagerSettingsPropertyField
-        propertyOptions={propertyOptions}
-        propertyId={propertyId}
-        onPropertyIdChange={onPropertyIdChange}
-        disabled={loading || saving || propertyOptions.length === 0}
-      />
+      {hidePropertyField ? null : (
+        <ManagerSettingsPropertyField
+          propertyOptions={propertyOptions}
+          propertyId={propertyId}
+          onPropertyIdChange={onPropertyIdChange}
+          disabled={loading || saving || propertyOptions.length === 0}
+        />
+      )}
       <p className="text-xs text-muted">
         After you approve an application, PropLane can build and send the lease for you. Every safety check
         that applies when you do this manually still applies. The landlord named on generated leases comes
