@@ -821,10 +821,20 @@ export function RentalWizardStepBody(p: WizardStepsProps) {
         {bundleOptions.length > 0 ? (
           <div className="space-y-2" data-wizard-field="bundleId">
             <Label htmlFor="bundleId">Lease bundle</Label>
+            {/*
+              State-aware, because the old copy always read as an invitation
+              ("choose a bundle… or leave as none") even when a bundle was
+              ALREADY chosen — arriving pre-filled from an "Apply for this
+              bundle" link. An applicant then read the filled field as a decision
+              already made for them and did not realise they could change it
+              (AXI-166). When one is selected, say so and name the way out.
+            */}
             <p className="text-xs text-muted">
-              {form.rentalType === "short_term"
-                ? "Short-term bundle pricing for your stay. Choose a bundle or leave as none."
-                : `This listing offers bundle pricing. Choose a bundle to apply for it${isByRoom ? " instead of individual rooms" : ""}, or leave as none.`}
+              {bundleSelected
+                ? `You're applying for this bundle. Pick a different one, or choose “None” to apply ${isByRoom ? "for individual rooms" : "on the standard lease"} instead.`
+                : form.rentalType === "short_term"
+                  ? "Short-term bundle pricing for your stay. Choose a bundle or leave as none."
+                  : `This listing offers bundle pricing. Choose a bundle to apply for it${isByRoom ? " instead of individual rooms" : ""}, or leave as none.`}
             </p>
             <Select
               id="bundleId"
