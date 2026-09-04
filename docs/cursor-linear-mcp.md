@@ -8,17 +8,28 @@ Official docs: [Linear MCP server](https://linear.app/docs/mcp) ·
 
 ## Repo config (checked in)
 
-`.cursor/mcp.json` includes a `linear` entry that proxies Linear's hosted MCP
-through `mcp-remote` (Linear's recommended manual setup for Cursor).
+`.cursor/mcp.json` includes a `linear` entry pointing at Linear's hosted MCP
+(`https://mcp.linear.app/mcp`). Cursor authenticates via **OAuth** on first connect.
 
 After pulling:
 
-1. Open **Cursor Settings → Tools & MCP** (or **Features → MCP** on older builds).
-2. Confirm **`linear`** is enabled (green).
-3. On first use, complete the **Linear OAuth** prompt in the browser.
-4. Restart Cursor if the server stays red — remote MCP can need a second attempt.
+1. Open **Cursor Settings → Tools & MCP** (⌘⇧J).
+2. Find **`linear`** under MCP servers and **enable** it.
+3. Click the **pencil / Connect** control next to `linear` and sign in to Linear when prompted.
+4. Restart Cursor if the status stays red.
 
-## Manual block
+## Manual block (native Cursor OAuth)
+
+```json
+"linear": {
+  "type": "http",
+  "url": "https://mcp.linear.app/mcp"
+}
+```
+
+## Fallback: mcp-remote (older Cursor builds)
+
+If OAuth never appears, use Linear's stdio proxy instead:
 
 ```json
 "linear": {

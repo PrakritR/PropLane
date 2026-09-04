@@ -23,8 +23,8 @@
       "args": ["--python", "3.12", "browser-use@latest", "--cli-mcp"]
     },
     "linear": {
-      "command": "npx",
-      "args": ["-y", "mcp-remote", "https://mcp.linear.app/mcp"]
+      "type": "http",
+      "url": "https://mcp.linear.app/mcp"
     }
   }
 }
