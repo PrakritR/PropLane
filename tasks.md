@@ -2,7 +2,7 @@
 
 Generated September 4, 2026. There are 27 active assigned issues, all currently marked High in Linear. The priority tiers below are recommended execution order, not changes to Linear's stored priority.
 
-Progress: 3 completed locally, 24 remaining. Of the remaining issues, 23 are actionable and PRP-239 is waiting on its required captain approval.
+Progress: 4 completed locally, 23 remaining. Of the remaining issues, 22 are actionable and PRP-239 is waiting on its required captain approval.
 
 ## P0 — user harm, data integrity, and access
 
@@ -24,8 +24,8 @@ Three near-identical umbrella epics overlap: [PRP-260](https://linear.app/axisho
 
 ### Work-order identity and routing
 
-- [PRP-261 — Work-order reference resolution](https://linear.app/axishousing/issue/PRP-261/work-order-reference-resolution-make-andquotwo-1234andquot-a)
-  Create stable, human-typeable work-order references and resolve them from inbound text within the sender's permitted scope.
+- [x] [PRP-261 — Work-order reference resolution](https://linear.app/axishousing/issue/PRP-261/work-order-reference-resolution-make-andquotwo-1234andquot-a)
+  Completed locally September 4, 2026. Work orders now receive stable per-manager `WO-####` handles without changing their primary keys; manager, resident, and vendor lookup paths resolve only from their existing authorized row sets, handle ambiguity explicitly, and show the handle in each portal.
 
 - [x] [PRP-286 — WO number parser](https://linear.app/axishousing/issue/PRP-286/ai-wo-number-parser-smsinbound-text-resolves-to-portal-work-order)
   Completed locally September 4, 2026. A pure, client-safe parser now extracts and normalizes human work-order references from inbound text, rejects common numeric false positives, deduplicates candidates, and bounds hostile input. Scoped record lookup remains in PRP-261.
@@ -103,6 +103,14 @@ Three near-identical umbrella epics overlap: [PRP-260](https://linear.app/axisho
 5. Role-specific workflows and reminders
 
 ## Completed work log
+
+### September 4, 2026 — PRP-261
+
+- Added an atomic per-manager sequence allocator and deterministic backfill that stamps `WO-####` into each work order's JSON projection while preserving the existing opaque primary key.
+- Added one authorization-neutral matcher plus manager, resident, and vendor adapters that reuse the existing delegated-property, resident-email/active-manager, and assigned/live-offer scopes.
+- Made out-of-scope and unknown references share the same non-oracular response; multiple visible matches produce a concrete clarification question.
+- Added the reference to all three agent tool projections and to manager, resident, and vendor portal work-order surfaces.
+- Verification: 5 focused test files / 84 tests passed; focused ESLint passed with no errors (pre-existing warnings remain); TypeScript and diff checks passed.
 
 ### September 4, 2026 — PRP-286
 

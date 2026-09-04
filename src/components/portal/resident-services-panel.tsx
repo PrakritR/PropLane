@@ -436,6 +436,12 @@ export function WorkOrderDetail({
   const [cancelOpen, setCancelOpen] = useState(false);
   return (
     <>
+      {row.reference ? (
+        <div className="mb-3">
+          <p className="text-xs font-medium uppercase tracking-wide text-muted">Work order</p>
+          <p className="mt-1 text-sm font-semibold tabular-nums text-foreground">{row.reference}</p>
+        </div>
+      ) : null}
       <p className="text-xs font-medium uppercase tracking-wide text-muted">Priority</p>
       <span className={`mt-1 inline-flex rounded-full px-2 py-0.5 text-[10px] font-semibold ${priorityClass(row.priority)}`}>{row.priority}</span>
       <p className="mt-3 text-xs font-medium uppercase tracking-wide text-muted">Preferred arrival</p>
@@ -1029,6 +1035,7 @@ export function ResidentServicesPanel({
             data: row,
             primary: row.title,
             meta: [
+              row.reference,
               showPropertyInMeta ? propertyLabel : null,
               unified.statusLabel,
               row.description?.trim(),

@@ -49,7 +49,7 @@ export function resolveWorkOrderReference(text: string): string[] {
 
   const bare = input.match(BARE_REFERENCE_RE);
   const bareReference = bare?.[1] ? formatWorkOrderReference(bare[1]) : null;
-  if (bareReference) matches.push({ index: bare.index ?? 0, reference: bareReference });
+  if (bareReference) matches.push({ index: bare?.index ?? 0, reference: bareReference });
 
   matches.sort((a, b) => a.index - b.index);
   return [...new Set(matches.map((match) => match.reference))].slice(

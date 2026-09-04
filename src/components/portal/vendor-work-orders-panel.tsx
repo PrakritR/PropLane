@@ -760,7 +760,9 @@ export function VendorWorkOrdersPanel() {
                       <PortalTableInlineExpand expanded={isExpanded} className="font-semibold text-foreground">
                         <span className="truncate">{row.title}</span>
                       </PortalTableInlineExpand>
-                      <p className="mt-0.5 truncate text-xs text-muted">{propertyLabel(row)}</p>
+                      <p className="mt-0.5 truncate text-xs text-muted">
+                        {[row.reference, propertyLabel(row)].filter(Boolean).join(" · ")}
+                      </p>
                       <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
                         <WorkOrderStatusBadge bucket={row.bucket} />
                       </div>
@@ -804,6 +806,7 @@ export function VendorWorkOrdersPanel() {
                             <PortalTableInlineExpand expanded={isExpanded} className="font-medium text-foreground">
                               {row.title}
                             </PortalTableInlineExpand>
+                            {row.reference ? <p className="mt-0.5 text-xs tabular-nums text-muted">{row.reference}</p> : null}
                             {row.description ? <p className="mt-0.5 line-clamp-2 text-xs text-muted">{row.description}</p> : null}
                           </td>
                           <td className={PORTAL_TABLE_TD}>{propertyLabel(row)}</td>
