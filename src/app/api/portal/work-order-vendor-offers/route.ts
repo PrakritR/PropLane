@@ -2,11 +2,18 @@ import { NextResponse } from "next/server";
 import { isAdminUser } from "@/lib/auth/admin-preview";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
-import { sendWorkOrderVendorOffers, vendorDirectoryRowsById } from "@/lib/work-order-offers.server";
+import {
+  declineWorkOrderVendorOffer,
+  sendWorkOrderVendorOffers,
+  vendorDirectoryRowsById,
+} from "@/lib/work-order-offers.server";
 
 export const runtime = "nodejs";
 
 type Db = ReturnType<typeof createSupabaseServiceRoleClient>;
+
+/** `withdrawn` is the manager pulling the offer back; `declined` is the vendor answering it. */
+type OfferStatus = "sent" | "withdrawn" | "declined";
 
 type OfferRecord = {
   id: string;
@@ -14,7 +21,8 @@ type OfferRecord = {
   vendor_directory_id: string;
   vendor_user_id: string | null;
   manager_user_id: string;
-  status: "sent" | "withdrawn";
+  status: OfferStatus;
+  declined_reason: string | null;
   created_at: string;
   updated_at: string;
 };
@@ -26,7 +34,9 @@ type OfferJson = {
   vendorUserId: string | null;
   vendorName?: string;
   vendorEmail?: string;
-  status: "sent" | "withdrawn";
+  status: OfferStatus;
+  /** Why the vendor said no, when they gave a reason. Vendor-entered — display as data. */
+  declinedReason?: string | null;
   createdAt: string;
 };
 
@@ -58,6 +68,7 @@ function toJson(offer: OfferRecord, vendors: Map<string, { name: string; email: 
     vendorName: vendor?.name,
     vendorEmail: vendor?.email,
     status: offer.status,
+    declinedReason: offer.declined_reason ?? null,
     createdAt: offer.created_at,
   };
 }
@@ -106,7 +117,21 @@ export async function POST(req: Request) {
     const actor = await sessionActor(db);
     if (!actor) return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
 
-    const body = (await req.json().catch(() => ({}))) as { workOrderId?: string; vendorIds?: string[] };
+    const body = (await req.json().catch(() => ({}))) as {
+      action?: string;
+      workOrderId?: string;
+      vendorIds?: string[];
+      offerId?: string;
+      reason?: string;
+    };
+
+    // One route, two verbs: a vendor declining an offer is an answer to the manager's send,
+    // and keeping it here means both sides read the same ownership rules.
+    if (typeof (body as { action?: string }).action === "string" && (body as { action?: string }).action === "decline") {
+      const declined = await declineWorkOrderVendorOffer(db, actor, body as { offerId?: string; reason?: string });
+      if (!declined.ok) return NextResponse.json({ error: declined.error }, { status: declined.status });
+      return NextResponse.json({ ok: true });
+    }
 
     const result = await sendWorkOrderVendorOffers(db, actor, body);
     if (!result.ok) return NextResponse.json({ error: result.error }, { status: result.status });
