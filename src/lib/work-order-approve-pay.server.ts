@@ -15,7 +15,8 @@ import type { DemoManagerWorkOrderRow } from "@/data/demo-portal";
 import { deliverPortalInboxMessage } from "@/lib/portal-inbox-delivery";
 import type { WorkOrderCategory } from "@/lib/reports/categories";
 import { createExpensesFromWorkOrder, markWorkOrderPaid, mergeWorkOrderCompletion } from "@/lib/work-order-expenses";
-import { payoutVendorForWorkOrder } from "@/lib/stripe-vendor-payout";
+import { payoutVendorForWorkOrder, type VendorPayoutOutcome } from "@/lib/stripe-vendor-payout";
+import { centsToUsd } from "@/lib/reports/money";
 import type { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import type { WorkOrderActionFailure } from "@/lib/work-order-bids.server";
 
@@ -151,16 +152,17 @@ export async function approveAndPayWorkOrder(
   );
   if (error) return { ok: false, status: 500, error: error.message };
 
+  let payoutOutcome: VendorPayoutOutcome | null = null;
   if (existing.vendor_user_id && paymentChannel === "ach") {
     // amountCents here is only a fallback for jobs assigned without formal bidding —
     // payoutVendorForWorkOrder anchors to the work order's accepted bid when one exists,
     // so a forged vendorCostCents can't inflate a payout beyond the agreed bid.
-    await payoutVendorForWorkOrder(db, {
+    payoutOutcome = await payoutVendorForWorkOrder(db, {
       workOrderId: workOrder.id,
       managerUserId: ownerManagerUserId,
       vendorUserId: existing.vendor_user_id,
       amountCents: acceptedVendorCostCents ?? 0,
-    }).catch(() => undefined);
+    }).catch(() => null);
   }
 
   const propertyLabel = paid.propertyName ? `${paid.propertyName}${paid.unit ? ` · ${paid.unit}` : ""}` : "";
@@ -180,13 +182,37 @@ export async function approveAndPayWorkOrder(
     }).catch(() => undefined);
   }
   if (existing.vendor_user_id) {
+    // A failed transfer must not be reported to the vendor as "paid" — that is
+    // the message that leaves them owed money believing it is on the way.
+    const payoutFailed = payoutOutcome?.status === "failed";
+    const amountLabel = payoutOutcome ? centsToUsd(payoutOutcome.amountCents) : "";
     await deliverPortalInboxMessage(db, {
       senderUserId: actor.userId,
       senderEmail: actor.email,
       fromName: "PropLane Portal",
-      subject: `${title} approved and paid`,
-      text: `"${title}"${propertyLabel ? ` at ${propertyLabel}` : ""} has been approved and marked paid. Thanks for the work.`,
+      subject: payoutFailed ? `${title} approved — payout pending` : `${title} approved and paid`,
+      text: payoutFailed
+        ? `"${title}"${propertyLabel ? ` at ${propertyLabel}` : ""} has been approved${amountLabel ? ` for ${amountLabel}` : ""}, but the transfer could not be sent: ${payoutOutcome?.failureReason ?? "the payout failed."} Finish connecting your payout account in Settings and we will send it automatically — you do not need the manager to approve the job again.`
+        : `"${title}"${propertyLabel ? ` at ${propertyLabel}` : ""} has been approved and marked paid. Thanks for the work.`,
       toUserIds: [existing.vendor_user_id],
+      deliverToPortalInbox: true,
+      deliverViaEmail: false,
+      deliverViaSms: false,
+    }).catch(() => undefined);
+  }
+
+  // …and tell the MANAGER, who otherwise has no way to learn the transfer did
+  // not happen: their bookkeeping succeeded, the job reads as paid, and the
+  // only record of the failure was a vendor_payouts row with no surface.
+  if (payoutOutcome?.status === "failed") {
+    const amountLabel = centsToUsd(payoutOutcome.amountCents);
+    await deliverPortalInboxMessage(db, {
+      senderUserId: actor.userId,
+      senderEmail: actor.email,
+      fromName: "PropLane Portal",
+      subject: `Payout pending for ${title}`,
+      text: `"${title}"${propertyLabel ? ` at ${propertyLabel}` : ""} is approved and recorded as paid in your books, but the ${amountLabel} transfer to the vendor has not gone out: ${payoutOutcome.failureReason ?? "the payout failed."} We retry automatically as soon as the blocker clears, so no action is needed from you.`,
+      toUserIds: [ownerManagerUserId],
       deliverToPortalInbox: true,
       deliverViaEmail: false,
       deliverViaSms: false,

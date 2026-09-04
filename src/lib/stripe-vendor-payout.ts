@@ -26,10 +26,26 @@ import { retrieveManagerConnectAccountOrNull, connectAccountTransfersActive } fr
  * caller-supplied amount ONLY for jobs assigned without formal bidding — a job that HAS bids but
  * no accepted one is a missing anchor, and pays nothing rather than an unverified number.
  */
+/**
+ * What actually happened, so the caller can tell somebody.
+ *
+ * The manager marks a job paid and their bookkeeping succeeds either way; without
+ * this they had no way to learn the transfer did not happen, and the vendor was
+ * owed money with nothing on screen saying so.
+ *
+ * `skipped` means no transfer was attempted and none is owed through this path
+ * (nothing to pay, or another call already owns this payout).
+ */
+export type VendorPayoutOutcome = {
+  status: "paid" | "failed" | "skipped";
+  amountCents: number;
+  failureReason?: string;
+};
+
 export async function payoutVendorForWorkOrder(
   db: SupabaseClient,
   opts: { workOrderId: string; managerUserId: string; vendorUserId: string; amountCents: number },
-): Promise<void> {
+): Promise<VendorPayoutOutcome> {
   const { data: bids } = await db
     .from("work_order_bids")
     .select("amount_cents, status")
@@ -39,9 +55,9 @@ export async function payoutVendorForWorkOrder(
   // A job with bids but none accepted has LOST its anchor — a bid re-priced by a
   // race used to land here, and falling through to `opts.amountCents` turned that
   // race into a payment of the one number the anchor exists to stop us trusting.
-  if (!acceptedBid && bidRows.length > 0) return;
+  if (!acceptedBid && bidRows.length > 0) return { status: "skipped", amountCents: 0 };
   const amountCents = (acceptedBid?.amount_cents as number | null) ?? opts.amountCents;
-  if (!amountCents || amountCents <= 0) return;
+  if (!amountCents || amountCents <= 0) return { status: "skipped", amountCents: 0 };
 
   const nowIso = new Date().toISOString();
   const { data: claimed } = await db
@@ -67,7 +83,7 @@ export async function payoutVendorForWorkOrder(
         .select("id")
         .maybeSingle();
   const payoutId = ((claimed ?? reclaimed) as { id?: string } | null)?.id;
-  if (!payoutId) return;
+  if (!payoutId) return { status: "skipped", amountCents };
 
   const finish = (row: { status: "paid" | "failed"; stripeTransferId?: string; failureReason?: string }) =>
     db
@@ -89,19 +105,18 @@ export async function payoutVendorForWorkOrder(
     ?.stripe_connect_account_id?.trim();
 
   if (!accountId) {
-    await finish({ status: "failed", failureReason: "Vendor has not connected a Stripe payout account yet." });
-    return;
+    const failureReason = "Vendor has not connected a Stripe payout account yet.";
+    await finish({ status: "failed", failureReason });
+    return { status: "failed", amountCents, failureReason };
   }
 
   try {
     const stripe = getStripe();
     const account = await retrieveManagerConnectAccountOrNull(stripe, accountId);
     if (!account || !connectAccountTransfersActive(account)) {
-      await finish({
-        status: "failed",
-        failureReason: "Vendor's Stripe payout account has not finished onboarding.",
-      });
-      return;
+      const failureReason = "Vendor's Stripe payout account has not finished onboarding.";
+      await finish({ status: "failed", failureReason });
+      return { status: "failed", amountCents, failureReason };
     }
 
     const transfer = await stripe.transfers.create(
@@ -114,9 +129,11 @@ export async function payoutVendorForWorkOrder(
       { idempotencyKey: `vendor-payout:${opts.workOrderId}` },
     );
     await finish({ status: "paid", stripeTransferId: transfer.id });
+    return { status: "paid", amountCents };
   } catch (e) {
     const message = e instanceof Error ? e.message : "Stripe transfer failed.";
     await finish({ status: "failed", failureReason: message });
+    return { status: "failed", amountCents, failureReason: message };
   }
 }
 
