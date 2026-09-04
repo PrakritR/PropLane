@@ -16,6 +16,7 @@ import { createSupabaseBrowserClient } from "@/lib/supabase/browser";
 import { isUnsafeRedirectPath } from "@/lib/auth/normalize-post-auth-path";
 import { nativeAwarePath } from "@/lib/auth/native-auth-entry";
 import { navigateAfterRoleSignup } from "@/lib/auth/navigate-after-role-signup";
+import { normalizeAuthEmail } from "@/lib/auth/normalize-auth-email";
 
 type RegisterResponse = {
   error?: string;
@@ -110,7 +111,7 @@ export function ResidentSignupForm({
       const res = await fetch("/api/auth/resident-register", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email: email.trim(), password, fullName: fullName.trim(), phone: phone.trim() }),
+        body: JSON.stringify({ email: normalizeAuthEmail(email), password, fullName: fullName.trim(), phone: phone.trim() }),
       });
       const body = (await res.json()) as RegisterResponse;
       if (!res.ok) {
@@ -119,7 +120,7 @@ export function ResidentSignupForm({
       }
       const supabase = createSupabaseBrowserClient();
       const { data: signInData, error: signInError } = await supabase.auth.signInWithPassword({
-        email: email.trim(),
+        email: normalizeAuthEmail(email),
         password,
       });
       if (signInError) {
@@ -165,6 +166,11 @@ export function ResidentSignupForm({
       <Input
         type="email"
         autoComplete="email"
+        // iOS/macOS autocapitalise the first letter by default, which used to
+        // make Manager@… a different account from manager@… (PRP-196).
+        autoCapitalize="none"
+        autoCorrect="off"
+        spellCheck={false}
         placeholder="Email"
         value={email}
         onChange={(e) => setEmail(e.target.value)}
@@ -217,6 +223,11 @@ export function ResidentSignupForm({
           type="email"
           className="mt-1.5"
           autoComplete="email"
+          // iOS/macOS autocapitalise the first letter by default, which used to
+          // make Manager@… a different account from manager@… (PRP-196).
+          autoCapitalize="none"
+          autoCorrect="off"
+          spellCheck={false}
           value={email}
           onChange={(e) => setEmail(e.target.value)}
           disabled={locked}

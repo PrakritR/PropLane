@@ -32,6 +32,7 @@ import {
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
+import { normalizeAuthEmail } from "@/lib/auth/normalize-auth-email";
 
 const LOGIN_TIMEOUT_MS = 6000;
 /** Hub signup can lag GoTrue propagation; retries need a longer ceiling than sign-in. */
@@ -55,7 +56,7 @@ async function signInAfterSignup(
   let last: SignInResult = { data: { user: null, session: null }, error: { message: "Sign-in failed" } };
   for (let attempt = 0; attempt < 4; attempt++) {
     last = (await supabase.auth.signInWithPassword({
-      email: email.trim(),
+      email: normalizeAuthEmail(email),
       password,
     })) as SignInResult;
     if (last.data.user && !last.error) return last;
@@ -121,7 +122,7 @@ async function tryResidentAutoConfirm(email: string): Promise<boolean> {
     const res = await fetch("/api/auth/confirm-resident-email", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ email: email.trim() }),
+      body: JSON.stringify({ email: normalizeAuthEmail(email) }),
     });
     return res.ok;
   } catch {
@@ -239,14 +240,14 @@ export function PortalAuthForm({
     try {
       const supabase = createSupabaseBrowserClient();
       let authResult = await withTimeout(
-        supabase.auth.signInWithPassword({ email: email.trim(), password }) as PromiseLike<SignInResult>,
+        supabase.auth.signInWithPassword({ email: normalizeAuthEmail(email), password }) as PromiseLike<SignInResult>,
         LOGIN_TIMEOUT_MS,
         "Login is taking too long. Please check your connection and try again.",
       );
       if (authResult.error?.message.toLowerCase().includes("email not confirmed")) {
         if (await tryResidentAutoConfirm(email)) {
           authResult = await withTimeout(
-            supabase.auth.signInWithPassword({ email: email.trim(), password }) as PromiseLike<SignInResult>,
+            supabase.auth.signInWithPassword({ email: normalizeAuthEmail(email), password }) as PromiseLike<SignInResult>,
             LOGIN_TIMEOUT_MS,
             "Login is taking too long. Please check your connection and try again.",
           );
@@ -260,7 +261,7 @@ export function PortalAuthForm({
       if (!user) throw new Error("No active session.");
       posthog.identify(user.id);
       try {
-        window.localStorage.setItem(REMEMBERED_EMAIL_KEY, email.trim());
+        window.localStorage.setItem(REMEMBERED_EMAIL_KEY, normalizeAuthEmail(email));
       } catch {
         /* ignore */
       }
@@ -293,7 +294,7 @@ export function PortalAuthForm({
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            email: email.trim(),
+            email: normalizeAuthEmail(email),
             password,
             fullName: fullName.trim() || undefined,
             phone: phone.trim() || undefined,
@@ -308,7 +309,7 @@ export function PortalAuthForm({
         }
         const supabase = createSupabaseBrowserClient();
         const { data, error } = await withTimeout(
-          supabase.auth.signInWithPassword({ email: email.trim(), password }) as PromiseLike<SignInResult>,
+          supabase.auth.signInWithPassword({ email: normalizeAuthEmail(email), password }) as PromiseLike<SignInResult>,
           LOGIN_TIMEOUT_MS,
           "This is taking too long. Please check your connection and try again.",
         );
@@ -330,7 +331,7 @@ export function PortalAuthForm({
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          email: email.trim(),
+          email: normalizeAuthEmail(email),
           password,
           fullName: fullName.trim() || undefined,
           // Was collected into state and then dropped on the floor here.
@@ -344,7 +345,7 @@ export function PortalAuthForm({
       }
       const supabase = createSupabaseBrowserClient();
       const { data, error } = await withTimeout(
-        signInAfterSignup(supabase, email.trim(), password),
+        signInAfterSignup(supabase, normalizeAuthEmail(email), password),
         SIGNUP_SIGNIN_TIMEOUT_MS,
         "This is taking too long. Please check your connection and try again.",
       );
@@ -434,6 +435,11 @@ export function PortalAuthForm({
       <Input
         type="email"
         autoComplete="email"
+        // iOS/macOS autocapitalise the first letter by default, which used to
+        // make Manager@… a different account from manager@… (PRP-196).
+        autoCapitalize="none"
+        autoCorrect="off"
+        spellCheck={false}
         placeholder="Email"
         value={email}
         onChange={(e) => setEmail(e.target.value)}
@@ -503,6 +509,11 @@ export function PortalAuthForm({
           className="mt-1.5"
           type="email"
           autoComplete="email"
+          // iOS/macOS autocapitalise the first letter by default, which used to
+          // make Manager@… a different account from manager@… (PRP-196).
+          autoCapitalize="none"
+          autoCorrect="off"
+          spellCheck={false}
           value={email}
           onChange={(e) => setEmail(e.target.value)}
           disabled={busy}

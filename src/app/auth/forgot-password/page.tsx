@@ -50,6 +50,11 @@ export default function ForgotPasswordPage() {
           className="mt-1.5"
           placeholder="you@example.com"
           autoComplete="email"
+          // iOS/macOS autocapitalise the first letter by default, which used to
+          // make Manager@… a different account from manager@… (PRP-196).
+          autoCapitalize="none"
+          autoCorrect="off"
+          spellCheck={false}
           value={email}
           onChange={(e) => setEmail(e.target.value)}
           disabled={busy}

@@ -28,6 +28,7 @@ import { createSupabaseBrowserClient } from "@/lib/supabase/browser";
 import { navigateAfterRoleSignup } from "@/lib/auth/navigate-after-role-signup";
 import { managerPortalEntryPath } from "@/lib/auth/manager-google-services-onboarding";
 import { portalDashboardPath } from "@/components/auth/portal-switcher";
+import { normalizeAuthEmail } from "@/lib/auth/normalize-auth-email";
 
 function trialSignupSubtitle(tier: PlanTierId): string {
   if (tier === "free") return "Free plan · no card required";
@@ -191,7 +192,7 @@ export function ManagerTrialSignupForm({
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          email: email.trim(),
+          email: normalizeAuthEmail(email),
           password,
           fullName: fullName.trim(),
           phone: normalizedPhone,
@@ -212,7 +213,7 @@ export function ManagerTrialSignupForm({
         }
       }
       const { data: signInData, error: signInError } = await supabase.auth.signInWithPassword({
-        email: email.trim(),
+        email: normalizeAuthEmail(email),
         password,
       });
       if (signInError) {
@@ -292,6 +293,11 @@ export function ManagerTrialSignupForm({
           <Input
             type="email"
             autoComplete="email"
+            // iOS/macOS autocapitalise the first letter by default, which used to
+            // make Manager@… a different account from manager@… (PRP-196).
+            autoCapitalize="none"
+            autoCorrect="off"
+            spellCheck={false}
             placeholder="Email"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
