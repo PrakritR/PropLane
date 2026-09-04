@@ -56,10 +56,6 @@ import {
   saveRentalWizardDraft,
   saveRentalWizardDraftAxisId,
 } from "@/lib/rental-application/drafts";
-import {
-  mergeApplicationProfilePrefill,
-  saveApplicationProfilePrefill,
-} from "@/lib/rental-application/application-profile-prefill";
 import type { DemoApplicantRow } from "@/data/demo-portal";
 import {
   applicationsForResidentEmail,
@@ -376,22 +372,14 @@ function RentalApplicationWizardInner({
       };
     }
     const draft = loadRentalWizardDraft();
-    if (!draft) {
-      return mergeApplicationProfilePrefill(
-        { ...createInitialRentalWizardState(), ...groupInvitePatch },
-        sessionEmail,
-      );
-    }
+    if (!draft) return { ...createInitialRentalWizardState(), ...groupInvitePatch };
     // A draft still loaded (same tab, no reload) for a DIFFERENT property/room
     // than this request must never flash onto a fresh apply — start blank and
     // let the reconciliation effect resolve the real target (an existing
     // in-progress application for it, or a clean new one).
     if (requestedTarget && draft && !targetMatchesApplication(requestedTarget, { application: draft })) {
       clearRentalWizardDraft();
-      return mergeApplicationProfilePrefill(
-        { ...createInitialRentalWizardState(), ...groupInvitePatch },
-        sessionEmail,
-      );
+      return { ...createInitialRentalWizardState(), ...groupInvitePatch };
     }
     return { ...createInitialRentalWizardState(), ...draft, ...groupInvitePatch };
   });
@@ -992,7 +980,7 @@ function RentalApplicationWizardInner({
       // new draft (and a new axis id, minted on next save) starts clean.
       if (target && existingDraft) {
         clearRentalWizardDraft();
-        setForm(mergeApplicationProfilePrefill({ ...createInitialRentalWizardState(), email }, sessionEmail));
+        setForm({ ...createInitialRentalWizardState(), email });
       }
       // Either a match was found and loaded above, or none exists and this is
       // confirmed to be a genuinely fresh target — either way, it is now safe
@@ -1682,7 +1670,6 @@ function RentalApplicationWizardInner({
         email_sent: emailSent,
         group_role: submittedForm.applyingAsGroup === "yes" ? submittedForm.groupRole ?? undefined : undefined,
       });
-      saveApplicationProfilePrefill(submittedForm);
       clearRentalWizardDraft();
       setForm(createInitialRentalWizardState());
       setStep(1);
