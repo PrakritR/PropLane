@@ -47,6 +47,7 @@
     "db:baseline": "supabase migration repair --status applied $(ls supabase/migrations | sed -E 's/_.*//')",
     "db:status": "supabase migration list --linked",
     "lockfile:verify": "node scripts/verify-lockfile.mjs",
+    "delete:account": "node --env-file=.env scripts/delete-account.mjs",
     "seed:env": "node scripts/seed-worktree-env.mjs",
     "linear:ticket": "node scripts/linear-file-ticket.mjs",
     "linear:export": "node scripts/linear-export-ticket.mjs",

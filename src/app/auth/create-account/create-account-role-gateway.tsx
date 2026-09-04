@@ -86,11 +86,9 @@ export function CreateAccountRoleGateway() {
         subtitle="Choose how you will use PropLane — you can add another role later."
       />
       <AuthRoleStack options={pickerOptions} onSelect={selectRole} />
-      <AuthAccountFooterLink
-        prompt="Already have an account?"
-        href="/auth/sign-in"
-        label="Sign in"
-      />
+      <AuthAccountFooterLink href="/auth/sign-in">
+        Already have an account? Sign in
+      </AuthAccountFooterLink>
     </AuthCard>
   );
 }
