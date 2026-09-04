@@ -8,7 +8,7 @@ Generated September 4, 2026. There are 27 active assigned issues, all currently 
   Completed locally September 4, 2026. Applicant-owned submissions now run the shared wizard validator against the server-stored listing configuration before persistence, return field-level errors, validate required Review-step questions, and keep draft autosaves plus manager repair edits intact.
 
 - [PRP-239 — Existing tenant locked out of Payments without signed PDF](https://linear.app/axishousing/issue/PRP-239/a-real-rent-paying-tenant-is-locked-out-of-payments-when-onboarded)
-  Existing tenants without a signed-PDF lease are treated as prospects and lose access to Payments, Services, Lease, and Documents. Separate residency/access entitlement from the PDF-signature path.
+  Existing tenants without a signed-PDF lease are treated as prospects and lose access to Payments, Services, Lease, and Documents. Separate residency/access entitlement from the PDF-signature path. **Status: implementation awaiting the captain's explicit `approved — build` sign-off required by Linear.** Read-only diagnosis confirmed the no-PDF onboarding branch writes a manager-review lease, while `loadResidentLeaseSignedStatus` is the downstream full-access gate.
 
 - [PRP-184 — Website UI audit findings](https://linear.app/axishousing/issue/PRP-184/website-ui-audit-aug-2026-11-open-findings-incl-19-colour-contrast)
   The August UI audit contains 11 unresolved findings, including 19 contrast failures, nested interactive controls, and a soft 404. Break this parent audit into executable accessibility and task-completion fixes.
@@ -109,3 +109,10 @@ Three near-identical umbrella epics overlap: [PRP-260](https://linear.app/axisho
 - Added Review as a configurable application section and included step 10 in the shared submit-validation sequence.
 - Preserved incomplete draft autosaves and existing manager/admin repair workflows; existing submitted applicant records are not retroactively blocked by newly introduced requirements.
 - Verification: 947 unit-test files / 6,282 tests passed; focused ESLint passed with no errors; repository lint passed with no errors (pre-existing warnings remain); TypeScript passed; Next.js production build passed.
+
+### September 4, 2026 — PRP-239 ready-to-build plan
+
+- Linear carries a hard approval gate, so no product behavior was changed without the requested captain review. The referenced Lavish plan lives under another user's `/Users/prakrit/...` path and is not available in this workspace.
+- Confirmed failure chain: the no-PDF branch in `existing-resident-onboarding.server.ts` creates a `bucket: "manager"` lease without execution evidence; `loadResidentLeaseSignedStatus` therefore returns false; resident nav resolves to the prospect/pre-approval surface.
+- Proposed implementation after approval: make existing-resident onboarding explicitly attest an already-executed off-platform tenancy, persist server-authored execution evidence independently of whether a PDF was uploaded, and keep a missing document visible as a document-completeness concern rather than an access entitlement.
+- Required regression coverage: no-PDF onboarding creates coherent executed-tenancy state; `loadResidentLeaseSignedStatus` recognizes it; `resolveResidentPortalNavStage` unlocks the current-resident sections; Payments is present in the web/native resident nav; uploaded-PDF onboarding remains unchanged.
