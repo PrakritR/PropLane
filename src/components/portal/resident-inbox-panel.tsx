@@ -29,6 +29,12 @@ import { demoResidentInboxThreads } from "@/data/demo-portal";
 import { usePortalSession } from "@/hooks/use-portal-session";
 import { isUpcomingScheduledInboxMessage, type ScheduledInboxMessageRecord } from "@/lib/scheduled-inbox-messages";
 import { resolvePropLaneUnifiedReplyChannels } from "@/lib/manager-inbox-reply-channels";
+import { isPropLaneAssistantInboxThread } from "@/lib/communication-inbox-assistant";
+import {
+  hasInboxReplyChannelSelected,
+  resolveAssistantInboxReplyChannels,
+} from "@/lib/manager-inbox-reply-channels";
+import { sendPropLaneAssistantInboxMessage } from "@/lib/assistant-inbox-reply";
 
 function resolveResidentReplyRecipientEmail(threadEmail: string, contacts: InboxScopedContact[]): string {
   const normalized = threadEmail.trim().toLowerCase();
@@ -231,6 +237,7 @@ export const ResidentInboxPanel = forwardRef<
   const [replySending, setReplySending] = useState(false);
   const [replyViaEmail, setReplyViaEmail] = useState(true);
   const [replyViaSms, setReplyViaSms] = useState(false);
+  const [replyViaProplane, setReplyViaProplane] = useState(false);
   const [autoSend, setAutoSend] = useState(false);
   const [replyAttachments, setReplyAttachments] = useState<InboxComposerAttachment[]>([]);
   const [smsConfigured, setSmsConfigured] = useState(false);
@@ -855,26 +862,18 @@ export const ResidentInboxPanel = forwardRef<
 
   const activeSmsAvailable = smsUiEnabled && smsConfigured;
 
-  useEffect(() => {
-    if (!embeddedInCommunication) return;
-    const unified = resolvePropLaneUnifiedReplyChannels({
-      emailAvailable: true,
-      smsAvailable: activeSmsAvailable,
-    });
-    setReplyViaEmail(unified.viaEmail);
-    setReplyViaSms(unified.viaSms);
-  }, [activeSmsAvailable, embeddedInCommunication, expandedId]);
-
   const handleReply = useCallback(
     async (
       row: PortalInboxTableRow,
       text: string,
-      channels: { email: boolean; sms: boolean },
+      channels: { email: boolean; sms: boolean; proplane?: boolean },
       attachmentUrls: string[] = [],
     ) => {
       const thread = localRef.current.find((t) => t.id === row.id);
       if (!thread) return;
-      if (!channels.email && !channels.sms) throw new InboxSendRefusal(null);
+      const assistantThread = isPropLaneAssistantInboxThread(thread);
+      const proplaneAllowed = Boolean(channels.proplane && assistantThread);
+      if (!proplaneAllowed && !channels.email && !channels.sms) throw new InboxSendRefusal(null);
       const replyId = `reply-${Date.now().toString(36)}`;
       const attachmentMeta = attachmentMetaFromUrls(attachmentUrls);
       const reply: InboxThreadMessage = {
@@ -933,12 +932,29 @@ export const ResidentInboxPanel = forwardRef<
       // delivered, so no later error may withdraw the bubble or report a failure.
       let emailOk = false;
       let smsOk = false;
+      let proplaneOk = false;
       let failureMessage = "";
       // One window, one exit contract: the "sending" bubble and the disabled
       // persist flag can never outlive this call, including when a fetch REJECTS
       // (offline, aborted, DNS) rather than answering.
       try {
         try {
+          if (proplaneAllowed) {
+            const subject = thread.subject.startsWith("Re:") ? thread.subject : `Re: ${thread.subject}`;
+            const result = await sendPropLaneAssistantInboxMessage({
+              threadId: thread.id,
+              subject,
+              text,
+              fromName: "Resident",
+              senderPortal: "resident",
+              attachmentUrls,
+            });
+            proplaneOk = result.ok;
+            if (!result.ok) {
+              failureMessage = result.error ?? "";
+              throw new InboxSendRefusal(failureMessage.trim() || null);
+            }
+          }
           if (channels.email) {
             const res = await fetch("/api/portal/send-inbox-message", {
               method: "POST",
@@ -987,7 +1003,7 @@ export const ResidentInboxPanel = forwardRef<
               throw new InboxSendRefusal(failureMessage.trim() || null);
             }
           }
-          if (!emailOk && !smsOk) throw new InboxSendRefusal(failureMessage.trim() || null);
+          if (!emailOk && !smsOk && !proplaneOk) throw new InboxSendRefusal(failureMessage.trim() || null);
         } catch (e) {
           if (!emailOk && !smsOk) {
             rollbackReply();
@@ -1193,6 +1209,33 @@ export const ResidentInboxPanel = forwardRef<
     [expandedId, emailThreads, local, session.userId],
   );
 
+  const activeIsAssistantThread = Boolean(
+    activeThread && isPropLaneAssistantInboxThread(activeThread),
+  );
+  const activeProplaneAvailable = activeIsAssistantThread;
+  const showReplyChannelPicker = !embeddedInCommunication || activeIsAssistantThread;
+
+  useEffect(() => {
+    if (activeIsAssistantThread) {
+      const next = resolveAssistantInboxReplyChannels({
+        emailAvailable: true,
+        smsAvailable: activeSmsAvailable,
+      });
+      setReplyViaProplane(next.viaProplane);
+      setReplyViaEmail(next.viaEmail);
+      setReplyViaSms(next.viaSms);
+      return;
+    }
+    if (!embeddedInCommunication) return;
+    const unified = resolvePropLaneUnifiedReplyChannels({
+      emailAvailable: true,
+      smsAvailable: activeSmsAvailable,
+    });
+    setReplyViaProplane(false);
+    setReplyViaEmail(unified.viaEmail);
+    setReplyViaSms(unified.viaSms);
+  }, [activeIsAssistantThread, activeSmsAvailable, embeddedInCommunication, expandedId]);
+
   const autoMarkReadAttemptedRef = useRef<Set<string>>(new Set());
 
   useEffect(() => {
@@ -1356,10 +1399,13 @@ export const ResidentInboxPanel = forwardRef<
     <InboxReplyChannelPicker
       viaEmail={replyViaEmail}
       viaSms={replyViaSms}
+      viaProplane={replyViaProplane}
+      onViaProplaneChange={setReplyViaProplane}
       onViaEmailChange={setReplyViaEmail}
       onViaSmsChange={setReplyViaSms}
       emailAvailable
       smsAvailable={activeSmsAvailable}
+      proplaneAvailable={activeProplaneAvailable}
     />
   );
 
@@ -1370,10 +1416,13 @@ export const ResidentInboxPanel = forwardRef<
       .filter((a) => a.uploadUrl && !a.uploading && !a.error)
       .map((a) => a.uploadUrl!);
     if (!text && attachmentUrls.length === 0) return;
-    const viaEmail = replyViaEmail || !activeSmsAvailable;
+    const viaProplane = replyViaProplane && activeProplaneAvailable;
+    const viaEmail = activeIsAssistantThread
+      ? replyViaEmail
+      : replyViaEmail || !activeSmsAvailable;
     const viaSms = replyViaSms && activeSmsAvailable;
-    if (!viaEmail && !viaSms) {
-      showToast("Choose Email, SMS, or both.");
+    if (!hasInboxReplyChannelSelected({ viaEmail, viaSms, viaProplane })) {
+      showToast("Choose PropLane, Email, SMS, or a combination.");
       return;
     }
     if (replyAttachments.some((a) => a.uploading)) {
@@ -1392,7 +1441,7 @@ export const ResidentInboxPanel = forwardRef<
           read: !activeThread.unread,
         },
         text,
-        { email: viaEmail, sms: viaSms },
+        { email: viaEmail, sms: viaSms, proplane: viaProplane },
         attachmentUrls,
       );
       if (!outcome) {
@@ -1415,23 +1464,30 @@ export const ResidentInboxPanel = forwardRef<
       setReplySending(false);
     }
   }, [
+    activeIsAssistantThread,
+    activeProplaneAvailable,
     activeSmsAvailable,
     activeThread,
     handleReply,
     replyAttachments,
     replyDraft,
     replyViaEmail,
+    replyViaProplane,
     replyViaSms,
     showToast,
   ]);
 
   useEffect(() => {
     if (!autoSend) return;
+    if (activeIsAssistantThread) {
+      if (!replyViaProplane) setReplyViaProplane(true);
+      return;
+    }
     if (!replyViaEmail && !replyViaSms) {
       setReplyViaEmail(true);
       if (activeSmsAvailable) setReplyViaSms(true);
     }
-  }, [activeSmsAvailable, autoSend, replyViaEmail, replyViaSms]);
+  }, [activeIsAssistantThread, activeSmsAvailable, autoSend, replyViaEmail, replyViaProplane, replyViaSms]);
 
   const emptyCopy =
     tabId === "trash"
@@ -1561,7 +1617,15 @@ export const ResidentInboxPanel = forwardRef<
                       onChange={setReplyDraft}
                       onSubmit={() => void sendActiveReply()}
                       sending={replySending}
-                      disabled={!replyViaEmail && !replyViaSms}
+                      disabled={
+                        !hasInboxReplyChannelSelected({
+                          viaEmail: activeIsAssistantThread
+                            ? replyViaEmail
+                            : replyViaEmail || !activeSmsAvailable,
+                          viaSms: replyViaSms && activeSmsAvailable,
+                          viaProplane: replyViaProplane && activeProplaneAvailable,
+                        })
+                      }
                       placeholder={
                         !embeddedInCommunication && replyViaSms && !replyViaEmail
                           ? "Text message"
@@ -1571,7 +1635,7 @@ export const ResidentInboxPanel = forwardRef<
                         !embeddedInCommunication && replyViaSms && !replyViaEmail ? 1600 : undefined
                       }
                       dataAttr="resident-inbox-reply"
-                      channelControl={embeddedInCommunication ? undefined : replyChannelPicker}
+                      channelControl={showReplyChannelPicker ? replyChannelPicker : undefined}
                       attachments={replyAttachments}
                       onAttachmentsPick={pickReplyAttachments}
                       onAttachmentRemove={(id) => {
@@ -1718,7 +1782,15 @@ export const ResidentInboxPanel = forwardRef<
                         onChange={setReplyDraft}
                         onSubmit={() => void sendActiveReply()}
                         sending={replySending}
-                        disabled={!replyViaEmail && !replyViaSms}
+                        disabled={
+                        !hasInboxReplyChannelSelected({
+                          viaEmail: activeIsAssistantThread
+                            ? replyViaEmail
+                            : replyViaEmail || !activeSmsAvailable,
+                          viaSms: replyViaSms && activeSmsAvailable,
+                          viaProplane: replyViaProplane && activeProplaneAvailable,
+                        })
+                      }
                         placeholder={
                           !embeddedInCommunication && replyViaSms && !replyViaEmail
                             ? "Text message"
@@ -1728,7 +1800,7 @@ export const ResidentInboxPanel = forwardRef<
                           !embeddedInCommunication && replyViaSms && !replyViaEmail ? 1600 : undefined
                         }
                         dataAttr="resident-inbox-reply"
-                        channelControl={embeddedInCommunication ? undefined : replyChannelPicker}
+                        channelControl={showReplyChannelPicker ? replyChannelPicker : undefined}
                         attachments={replyAttachments}
                         onAttachmentsPick={pickReplyAttachments}
                         onAttachmentRemove={(id) => {

@@ -164,7 +164,13 @@ export async function resolveInboxThreadReplyTarget(
 export async function commitInboxThreadReply(
   db: SupabaseClient,
   target: InboxThreadReplyTarget,
-  opts: { fromName: string; text: string; attachments?: { url: string; name?: string }[] },
+  opts: {
+    fromName: string;
+    text: string;
+    attachments?: { url: string; name?: string }[];
+    /** When set, stamps direction on the appended turn for assistant-thread rendering. */
+    outbound?: boolean;
+  },
 ): Promise<void> {
   const { data: freshRow } = await db
     .from("portal_inbox_thread_records")
@@ -180,6 +186,7 @@ export async function commitInboxThreadReply(
     from: opts.fromName,
     body: opts.text,
     at: when,
+    ...(opts.outbound !== undefined ? { outbound: opts.outbound } : {}),
     ...(opts.attachments?.length ? { attachments: opts.attachments } : {}),
   });
   await db.from("portal_inbox_thread_records").upsert(

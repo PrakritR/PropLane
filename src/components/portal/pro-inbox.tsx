@@ -87,6 +87,8 @@ import { readPortalApiError } from "@/lib/portal-api-error";
 import { MANAGER_APPLICATIONS_EVENT } from "@/lib/manager-applications-storage";
 import {
   inboxThreadHasEmail,
+  hasInboxReplyChannelSelected,
+  resolveAssistantInboxReplyChannels,
   resolveManagerInboxReplyChannels,
   resolveManagerInboxSmsTarget,
   resolvePropLaneUnifiedReplyChannels,
@@ -94,6 +96,8 @@ import {
 import {
   resolveCommunicationInboxThread,
 } from "@/lib/communication-assistant-inbox-list";
+import { isPropLaneAssistantInboxThread } from "@/lib/communication-inbox-assistant";
+import { sendPropLaneAssistantInboxMessage } from "@/lib/assistant-inbox-reply";
 import { buildManagerInboxLiveContacts } from "@/lib/manager-inbox-contacts";
 import {
   isUpcomingScheduledInboxMessage,
@@ -145,6 +149,7 @@ type InboxThread = {
 };
 
 function threadEligibleForAiDraft(thread: InboxThread): boolean {
+  if (isPropLaneAssistantInboxThread(thread)) return false;
   return inboxThreadManagerReplyPending(thread);
 }
 
@@ -681,16 +686,18 @@ export const ManagerInbox = forwardRef<
     async (
       rowId: string,
       text: string,
-      channels: { email: boolean; sms: boolean },
+      channels: { email: boolean; sms: boolean; proplane?: boolean },
       attachmentUrls: string[] = [],
     ) => {
       const thread = localRef.current.find((t) => t.id === rowId);
       if (!thread) return;
+      const assistantThread = isPropLaneAssistantInboxThread(thread);
+      const proplaneAllowed = Boolean(channels.proplane && assistantThread);
       const emailAllowed = channels.email && inboxThreadHasEmail(thread.email);
       const smsAllowed =
         channels.sms &&
         Boolean(resolveManagerInboxSmsTarget(thread, smsRecipients, smsOutboundEnabled)?.phone?.trim());
-      if (!emailAllowed && !smsAllowed) {
+      if (!proplaneAllowed && !emailAllowed && !smsAllowed) {
         throw new InboxSendRefusal(
           channels.email && !inboxThreadHasEmail(thread.email)
             ? "This conversation has no email address. Send via SMS instead."
@@ -753,9 +760,30 @@ export const ManagerInbox = forwardRef<
         : `Re: ${thread.subject}`;
       let emailOk = false;
       let smsOk = false;
+      let proplaneOk = false;
       let smsUnknown = false;
       let failureMessage = "";
       try {
+        if (proplaneAllowed) {
+          try {
+            const subject = thread.subject.startsWith("Re:")
+              ? thread.subject
+              : `Re: ${thread.subject}`;
+            const result = await sendPropLaneAssistantInboxMessage({
+              threadId: thread.id,
+              subject,
+              text,
+              fromName: "Property manager",
+              senderPortal: "manager",
+              attachmentUrls,
+            });
+            proplaneOk = result.ok;
+            if (!result.ok) failureMessage = result.error?.trim() ?? "";
+          } catch {
+            failureMessage = "";
+          }
+        }
+
         if (emailAllowed) {
           try {
             const res = await fetch("/api/portal/send-inbox-message", {
@@ -847,7 +875,7 @@ export const ManagerInbox = forwardRef<
           }
         }
 
-        if (!emailOk && !smsOk) {
+        if (!emailOk && !smsOk && !proplaneOk) {
           rollbackReply();
           throw new InboxSendRefusal(failureMessage || null);
         }
@@ -1037,6 +1065,7 @@ export const ManagerInbox = forwardRef<
   const [replySending, setReplySending] = useState(false);
   const [replyViaEmail, setReplyViaEmail] = useState(true);
   const [replyViaSms, setReplyViaSms] = useState(false);
+  const [replyViaProplane, setReplyViaProplane] = useState(false);
   const [aiDraftViaEmail, setAiDraftViaEmail] = useState(true);
   const [aiDraftViaSms, setAiDraftViaSms] = useState(false);
   const [approvingDraft, setApprovingDraft] = useState(false);
@@ -1101,6 +1130,11 @@ export const ManagerInbox = forwardRef<
     [activeThread, smsRecipients, smsOutboundEnabled],
   );
   const activeSmsAvailable = Boolean(activeSmsTarget?.phone?.trim());
+  const activeIsAssistantThread = Boolean(
+    activeThread && isPropLaneAssistantInboxThread(activeThread),
+  );
+  const activeProplaneAvailable = activeIsAssistantThread;
+  const showReplyChannelPicker = !embeddedInCommunication || activeIsAssistantThread;
 
   /**
    * An email-only conversation has no SMS channel until someone supplies a
@@ -1155,11 +1189,22 @@ export const ManagerInbox = forwardRef<
 
 
   useEffect(() => {
+    if (activeIsAssistantThread) {
+      const next = resolveAssistantInboxReplyChannels({
+        emailAvailable: activeEmailAvailable,
+        smsAvailable: activeSmsAvailable,
+      });
+      setReplyViaProplane(next.viaProplane);
+      setReplyViaEmail(next.viaEmail);
+      setReplyViaSms(next.viaSms);
+      return;
+    }
     if (embeddedInCommunication) {
       const unified = resolvePropLaneUnifiedReplyChannels({
         emailAvailable: activeEmailAvailable,
         smsAvailable: activeSmsAvailable,
       });
+      setReplyViaProplane(false);
       setReplyViaEmail(unified.viaEmail);
       setReplyViaSms(unified.viaSms);
       setAiDraftViaEmail(unified.viaEmail);
@@ -1172,11 +1217,19 @@ export const ManagerInbox = forwardRef<
       smsAvailable: activeSmsAvailable,
       preferred,
     });
+    setReplyViaProplane(false);
     setReplyViaEmail(next.viaEmail);
     setReplyViaSms(next.viaSms);
     setAiDraftViaEmail(next.viaEmail);
     setAiDraftViaSms(next.viaSms);
-  }, [embeddedInCommunication, expandedId, channelsFor, activeEmailAvailable, activeSmsAvailable]);
+  }, [
+    activeIsAssistantThread,
+    embeddedInCommunication,
+    expandedId,
+    channelsFor,
+    activeEmailAvailable,
+    activeSmsAvailable,
+  ]);
 
   const activeIsSent = activeThread?.folder === "sent";
   const activeFolder = activeThread
@@ -1395,8 +1448,14 @@ export const ManagerInbox = forwardRef<
       .filter((a) => a.uploadUrl && !a.uploading && !a.error)
       .map((a) => a.uploadUrl!);
     if (!text && attachmentUrls.length === 0) return;
-    if (!replyViaEmail && !replyViaSms) {
-      showToast("Choose Email, SMS, or both.");
+    if (
+      !hasInboxReplyChannelSelected({
+        viaEmail: replyViaEmail && activeEmailAvailable,
+        viaSms: replyViaSms && activeSmsAvailable,
+        viaProplane: replyViaProplane && activeProplaneAvailable,
+      })
+    ) {
+      showToast("Choose PropLane, Email, SMS, or a combination.");
       return;
     }
     if (replyAttachments.some((a) => a.uploading)) {
@@ -1405,7 +1464,16 @@ export const ManagerInbox = forwardRef<
     }
     setReplySending(true);
     try {
-      const outcome = await handleReply(activeThread.id, text, { email: replyViaEmail, sms: replyViaSms }, attachmentUrls);
+      const outcome = await handleReply(
+        activeThread.id,
+        text,
+        {
+          email: replyViaEmail,
+          sms: replyViaSms,
+          proplane: replyViaProplane,
+        },
+        attachmentUrls,
+      );
       if (!outcome) return;
       setReplyDraft("");
       setReplyAttachments((prev) => {
@@ -1428,6 +1496,10 @@ export const ManagerInbox = forwardRef<
     replyAttachments,
     replyViaEmail,
     replyViaSms,
+    replyViaProplane,
+    activeEmailAvailable,
+    activeSmsAvailable,
+    activeProplaneAvailable,
     handleReply,
     showToast,
   ]);
@@ -1626,10 +1698,13 @@ export const ManagerInbox = forwardRef<
     <InboxReplyChannelPicker
       viaEmail={replyViaEmail}
       viaSms={replyViaSms}
+      viaProplane={replyViaProplane}
+      onViaProplaneChange={setReplyViaProplane}
       onViaEmailChange={setReplyViaEmail}
       onViaSmsChange={setReplyViaSms}
       emailAvailable={activeEmailAvailable}
       smsAvailable={activeSmsAvailable}
+      proplaneAvailable={activeProplaneAvailable}
       onAddPhone={canAddThreadPhone ? openThreadPhone : undefined}
     />
   );
@@ -1648,6 +1723,7 @@ export const ManagerInbox = forwardRef<
 
   const showAiDraftUi = Boolean(
     activeThread &&
+      !activeIsAssistantThread &&
       activeThread.folder === "inbox" &&
       ((activeThread.messages ?? []).length > 0 || Boolean(activeThread.body?.trim())),
   );
@@ -2013,7 +2089,7 @@ export const ManagerInbox = forwardRef<
               placeholder="Write a reply…"
               maxLength={!embeddedInCommunication && replyViaSms && !replyViaEmail ? 1600 : undefined}
               dataAttr="inbox-reply"
-              channelControl={embeddedInCommunication ? undefined : replyChannelPicker}
+              channelControl={showReplyChannelPicker ? replyChannelPicker : undefined}
               attachments={replyAttachments}
               onAttachmentsPick={pickReplyAttachments}
               onAttachmentRemove={removeReplyAttachment}

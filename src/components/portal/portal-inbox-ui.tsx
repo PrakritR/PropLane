@@ -1087,14 +1087,17 @@ export function inboxReplyModeToChannels(mode: InboxReplyChannelMode): { viaEmai
 const INBOX_REPLY_CHANNEL_COMPACT_TRIGGER_CLASS =
   "min-h-9 w-[min(7.5rem,28vw)] rounded-xl px-2 py-1 text-[11px] font-medium sm:text-xs";
 
-/** Email / SMS channel multi-select for thread replies — compact control beside the reply field. */
+/** Email / SMS / PropLane channel multi-select for thread replies — compact control beside the reply field. */
 export function InboxReplyChannelPicker({
   viaEmail,
   viaSms,
   onViaEmailChange,
   onViaSmsChange,
+  viaProplane = false,
+  onViaProplaneChange,
   emailAvailable = true,
   smsAvailable = true,
+  proplaneAvailable = false,
   onAddEmail,
   onAddPhone,
 }: {
@@ -1102,19 +1105,20 @@ export function InboxReplyChannelPicker({
   viaSms: boolean;
   onViaEmailChange: (next: boolean) => void;
   onViaSmsChange: (next: boolean) => void;
+  viaProplane?: boolean;
+  onViaProplaneChange?: (next: boolean) => void;
   emailAvailable?: boolean;
   smsAvailable?: boolean;
+  proplaneAvailable?: boolean;
   /** Offered when the thread has no address — opens the contact editor. */
   onAddEmail?: () => void;
   /** Offered when the thread has no number — opens the contact editor. */
   onAddPhone?: () => void;
 }) {
-  /**
-   * Both channels are always listed. Hiding the one a thread cannot reach made
-   * the menu look like the conversation only ever had one option, with nothing
-   * saying what was missing or how to supply it.
-   */
   const options = [
+    ...(proplaneAvailable
+      ? [{ value: "proplane", label: "PropLane", disabled: false }]
+      : []),
     {
       value: "email",
       label: emailAvailable ? "Email" : "Email (no address)",
@@ -1128,20 +1132,25 @@ export function InboxReplyChannelPicker({
   ];
 
   const selected = [
+    ...(viaProplane && proplaneAvailable ? ["proplane"] : []),
     ...(viaEmail && emailAvailable ? ["email"] : []),
     ...(viaSms && smsAvailable ? ["sms"] : []),
   ];
-  const effectiveSelected =
-    selected.length > 0 ? selected : emailAvailable ? ["email"] : smsAvailable ? ["sms"] : [];
+  const fallback = proplaneAvailable
+    ? ["proplane"]
+    : emailAvailable
+      ? ["email"]
+      : smsAvailable
+        ? ["sms"]
+        : [];
+  const effectiveSelected = selected.length > 0 ? selected : fallback;
 
+  const labels: string[] = [];
+  if (effectiveSelected.includes("proplane")) labels.push("PropLane");
+  if (effectiveSelected.includes("email")) labels.push("Email");
+  if (effectiveSelected.includes("sms")) labels.push("SMS");
   const selectionTriggerLabel =
-    effectiveSelected.includes("email") && effectiveSelected.includes("sms")
-      ? "Email & SMS"
-      : effectiveSelected.includes("sms")
-        ? "SMS"
-        : effectiveSelected.includes("email")
-          ? "Email"
-          : undefined;
+    labels.length > 1 ? labels.join(" & ") : labels[0];
 
   const addAction = !emailAvailable && onAddEmail
     ? { label: "Add an email address", onClick: onAddEmail, dataAttr: "inbox-reply-add-email" }
@@ -1162,9 +1171,18 @@ export function InboxReplyChannelPicker({
         emptyLabel="Choose channels…"
         onChange={(next) => {
           const enabled = next.filter(
-            (value) => (value !== "sms" || smsAvailable) && (value !== "email" || emailAvailable),
+            (value) =>
+              (value !== "sms" || smsAvailable) &&
+              (value !== "email" || emailAvailable) &&
+              (value !== "proplane" || proplaneAvailable),
           );
-          if (enabled.length === 0) return;
+          if (enabled.length === 0) {
+            if (proplaneAvailable) onViaProplaneChange?.(true);
+            else if (emailAvailable) onViaEmailChange(true);
+            else if (smsAvailable) onViaSmsChange(true);
+            return;
+          }
+          onViaProplaneChange?.(enabled.includes("proplane"));
           onViaEmailChange(enabled.includes("email"));
           onViaSmsChange(enabled.includes("sms"));
         }}

@@ -31,6 +31,7 @@ import {
   RESIDENT_AGENT_THREAD_TYPE,
   runResidentInboxAgentTurn,
 } from "@/lib/agent/resident-inbox-agent.server";
+import { runManagerInboxAgentTurn } from "@/lib/agent/manager-inbox-agent.server";
 import {
   findThreadByResidentPhone,
   forwardResidentMessageToManagers,
@@ -274,7 +275,7 @@ export async function POST(req: Request) {
       // branch commits its own reply. The turn runs AFTER the response so a slow
       // model never delays the resident's own message from appearing.
       if (replyTarget.threadType === RESIDENT_AGENT_THREAD_TYPE && replyTarget.ownerUserId === user.id) {
-        await commitInboxThreadReply(db, replyTarget, replyBody);
+        await commitInboxThreadReply(db, replyTarget, { ...replyBody, outbound: true });
         const turnTask = () =>
           runResidentInboxAgentTurn(db, replyTarget, user.id, senderEmail, text)
             .then((outcome) => {
@@ -285,6 +286,24 @@ export async function POST(req: Request) {
               }
             })
             .catch((e) => console.error("resident-agent inbox turn failed", e));
+        try {
+          after(turnTask);
+        } catch {
+          void turnTask();
+        }
+        return NextResponse.json({ ok: true, agentHandled: true });
+      }
+
+      if (replyTarget.threadType === "agent_notice" && replyTarget.ownerUserId === user.id) {
+        await commitInboxThreadReply(db, replyTarget, { ...replyBody, outbound: true });
+        const turnTask = () =>
+          runManagerInboxAgentTurn(db, replyTarget, user.id, text)
+            .then((outcome) => {
+              if (!outcome.replied) {
+                console.error("manager-agent inbox turn did not reply", outcome.reason);
+              }
+            })
+            .catch((e) => console.error("manager-agent inbox turn failed", e));
         try {
           after(turnTask);
         } catch {
