@@ -136,7 +136,15 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ inviteId: str
           return NextResponse.json({ error: ownership.error }, { status: 500 });
         }
         if (ownership.unowned.length > 0) {
-          return NextResponse.json({ error: "You can only assign properties you manage." }, { status: 403 });
+          // Same reasoning as the create route: name what failed, because the
+          // usual cause is a listing that has not synced yet (PRP-210).
+          return NextResponse.json(
+            {
+              error: `${ownership.unowned.length === 1 ? "One selected property isn't" : `${ownership.unowned.length} selected properties aren't`} on your account yet (${ownership.unowned.join(", ")}). Open Properties to let them finish saving, then try again.`,
+              unownedPropertyIds: ownership.unowned,
+            },
+            { status: 403 },
+          );
         }
       }
 

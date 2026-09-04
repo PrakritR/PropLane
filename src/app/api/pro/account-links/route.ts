@@ -283,8 +283,19 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: ownership.error }, { status: 500 });
     }
     if (ownership.unowned.length > 0) {
+      // Name WHICH property failed. The bare message accused the manager of
+      // overreaching while giving them nothing to act on: with several
+      // properties selected there was no way to tell which one the server did
+      // not recognise, and the usual cause is a listing that has not synced to
+      // the server yet — a gap they cannot see and did not create (PRP-210).
       return NextResponse.json(
-        { error: "You can only assign properties you manage." },
+        {
+          error:
+            ownership.unowned.length === 1
+              ? `One selected property isn't on your account yet (${ownership.unowned[0]}). Open Properties to let it finish saving, then try again.`
+              : `${ownership.unowned.length} selected properties aren't on your account yet (${ownership.unowned.join(", ")}). Open Properties to let them finish saving, then try again.`,
+          unownedPropertyIds: ownership.unowned,
+        },
         { status: 403 },
       );
     }

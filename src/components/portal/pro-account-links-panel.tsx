@@ -147,10 +147,21 @@ type InviteDraft = {
   propertyCoManagerPermissions: PropertyCoManagerPermissions;
 };
 
-function propertyChoices(userId: string): { id: string; label: string }[] {
+/**
+ * The properties this manager can assign to a co-manager.
+ *
+ * `notYetSynced` marks a listing that exists only in this browser's cache.
+ * The server validates the invite against `manager_property_records`, so
+ * offering one of those as selectable produced a 403 telling the manager they
+ * do not manage a property sitting in their own Properties list — an accusation
+ * for a sync gap they cannot see and did not cause (PRP-210). They stay VISIBLE,
+ * because hiding a property the manager can see elsewhere is its own confusion;
+ * they are simply not selectable until they exist server-side.
+ */
+function propertyChoices(userId: string): { id: string; label: string; notYetSynced?: boolean }[] {
   const live = readExtraListingsForUser(userId);
   const pend = readPendingManagerPropertiesForUser(userId);
-  const out: { id: string; label: string }[] = [];
+  const out: { id: string; label: string; notYetSynced?: boolean }[] = [];
   for (const p of live) {
     out.push({
       id: p.id,
@@ -158,10 +169,11 @@ function propertyChoices(userId: string): { id: string; label: string }[] {
     });
   }
   for (const r of pend) {
-    const joined = `${r.buildingName} · ${r.unitLabel} (pending)`;
+    const joined = `${r.buildingName} · ${r.unitLabel}`;
     out.push({
       id: r.id,
       label: safePropertyOptionLabel([joined, r.buildingName, r.address], r.id),
+      notYetSynced: true,
     });
   }
   return out;
@@ -2041,14 +2053,26 @@ export function ProAccountLinksPanel({ userId, linkId: linkIdProp }: { userId: s
                   ) : (
                     propertyOptions.map((p) => (
                       <li key={p.id}>
-                        <label className="flex cursor-pointer items-start gap-3 rounded-lg px-2 py-2 hover:bg-accent/30">
+                        <label
+                          className={`flex items-start gap-3 rounded-lg px-2 py-2 ${
+                            p.notYetSynced ? "cursor-not-allowed opacity-60" : "cursor-pointer hover:bg-accent/30"
+                          }`}
+                        >
                           <input
                             type="checkbox"
                             checked={Boolean(selectedProps[p.id])}
                             onChange={() => toggleProp(p.id)}
+                            disabled={p.notYetSynced}
                             className="mt-1 h-4 w-4 rounded border-border text-primary"
                           />
-                          <span className="text-sm text-foreground">{p.label}</span>
+                          <span className="text-sm text-foreground">
+                            {p.label}
+                            {p.notYetSynced ? (
+                              <span className="mt-0.5 block text-xs text-muted">
+                                Still saving — you can assign this once it finishes.
+                              </span>
+                            ) : null}
+                          </span>
                         </label>
                       </li>
                     ))
