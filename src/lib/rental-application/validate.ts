@@ -1,3 +1,4 @@
+import { applicationRentalTypeFor } from "@/lib/rental-application/lease-terms";
 import { validateGroupLeaderAppIdInput } from "@/lib/rental-application/group-leader-link";
 import {
   validateDateRequired,
@@ -110,7 +111,7 @@ export function validateRentalWizardStep(
   // Field visibility + custom questions are resolved for the form variant the
   // applicant is on (short-term vs long-term), so each form validates only its
   // own questions.
-  const configSlice = applicationConfigForVariant(sub, f.rentalType);
+  const configSlice = applicationConfigForVariant(sub, applicationRentalTypeFor(f.rentalType));
   const fieldEnabled = (key: string) => isWizardFormFieldEnabled(configSlice, key);
   const e = validateStandardWizardStep(step, f, fieldEnabled, prop);
   // Manager custom questions are asked inside their configured section's step (untagged → step 8).

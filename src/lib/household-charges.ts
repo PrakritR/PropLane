@@ -3296,7 +3296,10 @@ export function recordApprovedApplicationCharges(row: DemoApplicantRow, managerU
     );
     if (hasExisting) {
       if (!sub) return synced;
-      if (row.application?.rentalType === "short_term" || row.application?.rentalType === "airbnb") return synced;
+      // Airbnb is not re-tested here: this function already returned for it at
+      // the top, so the clause that used to be here was dead and TS flagged it
+      // as a comparison with no overlap.
+      if (row.application?.rentalType === "short_term") return synced;
       const drafts = buildApprovedStandardChargeDrafts(row, sub, {
         allowListingDefaults,
         applicationId,

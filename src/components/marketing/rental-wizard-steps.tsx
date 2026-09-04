@@ -1,3 +1,4 @@
+import { applicationRentalTypeFor } from "@/lib/rental-application/lease-terms";
 "use client";
 
 import { type ReactNode } from "react";
@@ -368,7 +369,7 @@ export function RentalWizardStepBody(p: WizardStepsProps) {
   // independently-configured question sets. `rentalType` is derived from the
   // step-3 lease-term dropdown (the single listing-permission gate), so the two
   // can never disagree.
-  const applicationConfig = applicationConfigForVariant(listingSub, form.rentalType);
+  const applicationConfig = applicationConfigForVariant(listingSub, applicationRentalTypeFor(form.rentalType));
   const showWizardField = (key: string) => isWizardFormFieldEnabled(applicationConfig, key);
 
   // Photo uploads are read-only in the portal's editor (an already-submitted
@@ -436,7 +437,7 @@ export function RentalWizardStepBody(p: WizardStepsProps) {
     const inviteAppId = savedApplicationId.trim();
     const propertyOffersBundles =
       form.propertyId.trim().length > 0 &&
-      getBundleOptionsForProperty(form.propertyId, { rentalType: form.rentalType }).length > 0;
+      getBundleOptionsForProperty(form.propertyId, { rentalType: applicationRentalTypeFor(form.rentalType) }).length > 0;
 
     return (
       <div className="rental-wizard-step space-y-4">
@@ -648,8 +649,28 @@ export function RentalWizardStepBody(p: WizardStepsProps) {
     const leaseTermOptions = form.propertyId.trim()
       ? listingAllowedLeaseTerms(form.propertyId)
       : [...LEASE_TERM_OPTIONS];
-    const rooms = roomSelectOptionsWithNone(form.propertyId, { includeUnavailable: true }).filter((o) => o.value !== "");
-    const roomsWithNone = roomSelectOptionsWithNone(form.propertyId, { includeUnavailable: true });
+    /**
+     * The ranked 1st/2nd/3rd choices offer only rooms that are ACTUALLY
+     * AVAILABLE. This list used to pass `includeUnavailable: true`, so an
+     * applicant was asked to rank ten bedrooms most of which they could not
+     * have (AXI-167).
+     *
+     * The one exception is a room ALREADY chosen on this application: a resumed
+     * draft, or a room that filled up after the applicant picked it. Dropping it
+     * from the options would blank their answer without a word, so it stays
+     * selectable and validation — not a vanishing option — is what tells them.
+     */
+    const availableRooms = roomSelectOptionsWithNone(form.propertyId).filter((o) => o.value !== "");
+    const allRooms = roomSelectOptionsWithNone(form.propertyId, { includeUnavailable: true }).filter(
+      (o) => o.value !== "",
+    );
+    const chosenRoomValues = new Set(
+      [form.roomChoice1, form.roomChoice2, form.roomChoice3].map((v) => v.trim()).filter(Boolean),
+    );
+    const rooms = allRooms.filter(
+      (o) => availableRooms.some((a) => a.value === o.value) || chosenRoomValues.has(o.value),
+    );
+    const roomsWithNone = [{ value: "", label: "None" }, ...rooms];
     // Whole-unit listings (leased as one place, not room-by-room) don't ask for
     // ranked 1st/2nd/3rd room choices — see the property step below.
     const isByRoom = isPropertyRentedByRoom(form.propertyId);
@@ -657,7 +678,7 @@ export function RentalWizardStepBody(p: WizardStepsProps) {
     // there is nothing to choose (the application is for the whole home).
     const entireHome = Boolean(form.propertyId) && isEntireHomeProperty(form.propertyId);
     const bundleOptions = form.propertyId
-      ? getBundleOptionsForProperty(form.propertyId, { rentalType: form.rentalType })
+      ? getBundleOptionsForProperty(form.propertyId, { rentalType: applicationRentalTypeFor(form.rentalType) })
       : [];
     const bundleSelected = Boolean(form.bundleId.trim());
     const propertySearchOptions = propertyOptions.map((o) => {
@@ -800,10 +821,20 @@ export function RentalWizardStepBody(p: WizardStepsProps) {
         {bundleOptions.length > 0 ? (
           <div className="space-y-2" data-wizard-field="bundleId">
             <Label htmlFor="bundleId">Lease bundle</Label>
+            {/*
+              State-aware, because the old copy always read as an invitation
+              ("choose a bundle… or leave as none") even when a bundle was
+              ALREADY chosen — arriving pre-filled from an "Apply for this
+              bundle" link. An applicant then read the filled field as a decision
+              already made for them and did not realise they could change it
+              (AXI-166). When one is selected, say so and name the way out.
+            */}
             <p className="text-xs text-muted">
-              {form.rentalType === "short_term"
-                ? "Short-term bundle pricing for your stay. Choose a bundle or leave as none."
-                : `This listing offers bundle pricing. Choose a bundle to apply for it${isByRoom ? " instead of individual rooms" : ""}, or leave as none.`}
+              {bundleSelected
+                ? `You're applying for this bundle. Pick a different one, or choose “None” to apply ${isByRoom ? "for individual rooms" : "on the standard lease"} instead.`
+                : form.rentalType === "short_term"
+                  ? "Short-term bundle pricing for your stay. Choose a bundle or leave as none."
+                  : `This listing offers bundle pricing. Choose a bundle to apply for it${isByRoom ? " instead of individual rooms" : ""}, or leave as none.`}
             </p>
             <Select
               id="bundleId"
@@ -1957,7 +1988,7 @@ export function RentalWizardStepBody(p: WizardStepsProps) {
     const roomLabel = (id: string) => getRoomChoiceLabel(id);
     const reviewByRoom = isPropertyRentedByRoom(form.propertyId);
     const reviewBundleLabel = form.bundleId.trim()
-      ? getBundleChoiceLabel(form.propertyId, form.bundleId, { rentalType: form.rentalType })
+      ? getBundleChoiceLabel(form.propertyId, form.bundleId, { rentalType: applicationRentalTypeFor(form.rentalType) })
       : "";
     // Only review the sections this form actually asks. The short-term form
     // skips the screening sections, so the summary (and its "Edit" links) must
@@ -2348,7 +2379,7 @@ export function RentalWizardStepBody(p: WizardStepsProps) {
               residentEmail={form.email.trim()}
               residentName={form.fullLegalName.trim() || undefined}
               managerUserId={managerUserIdForPay}
-              rentalType={form.rentalType}
+              rentalType={applicationRentalTypeFor(form.rentalType)}
               returnPath={applyReturnPath ?? "/rent/apply"}
             />
           ) : (

@@ -1,3 +1,4 @@
+import { applicationRentalTypeFor } from "@/lib/rental-application/lease-terms";
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
@@ -95,7 +96,7 @@ export function ResidentApplicationEditor({ row, residentEmail, onCancel, onSave
     const prop = pid ? getPropertyById(pid) : undefined;
     const listingSub = prop?.listingSubmission?.v === 1 ? prop.listingSubmission : undefined;
     return activeApplicationWizardSteps(
-      applicationConfigForVariant(listingSub, form.rentalType),
+      applicationConfigForVariant(listingSub, applicationRentalTypeFor(form.rentalType)),
       normalizeCustomApplicationFields,
     ).filter((s) => s <= EDIT_STEP_COUNT);
   }, [extrasTick, form.propertyId, form.rentalType, row.application?.propertyId, row.propertyId]);
