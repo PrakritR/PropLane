@@ -9,6 +9,39 @@ and **Milestones** as sub-folders inside each project.
 
 ---
 
+## Create tickets from Cursor chat (preferred)
+
+Just type in chat — the agent files Linear for you.
+
+**Examples:**
+
+- *"Create a ticket: calendar bookings UI needs a revamp"*
+- *"File this bug in Linear — manager Residents tab crashes on open"*
+- *"Linear: add feature for sending applications via SMS"*
+
+The agent runs `npm run linear:ticket -- --chat "…"` (or Linear MCP) and replies
+with **PRP-###** + URL. Routing, labels, project, and milestone are inferred from
+`docs/linear-ticket-system.md` and `scripts/linear/ticket-routing.mjs`.
+
+**Manual CLI (same routing):**
+
+```bash
+npm run linear:ticket -- --chat "Residents tab crashes when clicking Payments"
+npm run linear:ticket -- --title "[Calendar] Revamp bookings panel" \
+  --project "11 — Calendar & Tours" --milestone "Manager calendar UI" \
+  --labels "Improvement,area:calendar,portal:manager"
+npm run linear:ticket -- --chat "…" --dry-run   # preview payload only
+```
+
+**Auth:** `cursor agent mcp login linear` once per machine, or set `LINEAR_API_KEY`.
+
+Cursor rule: `.cursor/rules/linear-chat-tickets.mdc`.
+
+**Full pipeline:** Ticket is phase ① only. See **`docs/agents/captain-dev-workflow.md`**
+for ② Lavish plan → ③ build → ④ review → ⑤ promote to prakrit.
+
+---
+
 ## Folder map (Projects → Milestones)
 
 ```

@@ -1,5 +1,5 @@
-import { NextResponse } from "next/server";
-import { knownProductionWebOrigins, resolveShareableAppOrigin } from "@/lib/app-url";
+import { NextRequest, NextResponse } from "next/server";
+import { knownProductionWebOrigins, resolveRequestOrigin } from "@/lib/app-url";
 import { supabaseGoogleOAuthRedirectUri } from "@/lib/auth/google-oauth-redirect";
 import {
   httpsOAuthCallbackUrls,
@@ -22,7 +22,7 @@ type ProviderSettings = {
  * Best-effort check whether Google OAuth is enabled in the linked Supabase project.
  * Supabase exposes this on the public auth settings endpoint.
  */
-export async function GET() {
+export async function GET(req: NextRequest) {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL?.trim().replace(/\/$/, "") ?? null;
   if (!supabaseUrl) {
     return NextResponse.json({
@@ -49,7 +49,7 @@ export async function GET() {
     }
     const settings = (await res.json()) as ProviderSettings;
     const googleEnabled = settings.external?.google === true;
-    const appOrigin = resolveShareableAppOrigin();
+    const appOrigin = resolveRequestOrigin(req);
     await warmGoogleCalendarOAuthConfig();
     const googleRedirectUri = supabaseGoogleOAuthRedirectUri(supabaseUrl);
     const httpsCallbacks = httpsOAuthCallbackUrls(appOrigin);

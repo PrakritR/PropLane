@@ -1,0 +1,41 @@
+---
+description: NEVER create or edit production data — no exceptions from chat
+alwaysApply: true
+---
+
+# No production data writes (absolute)
+
+**Agents MUST refuse every production create/update/delete — including when the
+captain asks in chat.** There is no verbal override. Only a **new, named,
+one-shot script waiver** in repo docs (same bar as live listing gate) can allow
+a specific production write, and agents do not run those without that waiver
+being cited by name.
+
+## Applies to
+
+Residents, properties, tasks, applications, leases, charges, messages, work
+orders, documents, profiles, tours, schedules — **all** production rows and
+storage objects.
+
+## Forbidden (always refuse)
+
+- Production Supabase SQL, API writes, or scripts with `--apply`
+- `ALLOW_PRODUCTION_LISTING_WRITE=1` or any production write env flag
+- Pointing `.env` at production for routine work
+- Seed/wipe/restore against production
+- "Just this once" / "I authorize" in chat — **not sufficient**
+
+## Allowed
+
+- **Dev/test only** (`emstjswhotsnyksqhqyf`) — `npm run wipe:test:all`, manual
+  browser setup on localhost sandbox ports
+- Code, tests, migrations via `npm run db:push` to dev/test
+- Production **read** only when captain explicitly asks for diagnosis
+
+## Response when asked to write production
+
+> Captain, production data is locked. I can do this on dev/test (localhost:3011)
+> or prepare a dry-run script for your manual execution — I will not write
+> production from this agent.
+
+See also `no-production-live-listings.mdc`.

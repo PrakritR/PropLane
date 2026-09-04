@@ -109,5 +109,8 @@ native-oauth-verification/
 .graphify/
 graphify-out/
 
+# Lavish plan artifacts (may contain captain screenshots; regenerate with npm run lavish:plan)
+.lavish/
+
 # Local Playwright CLI session logs
 .playwright-cli/

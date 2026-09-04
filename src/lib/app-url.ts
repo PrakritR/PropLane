@@ -114,9 +114,11 @@ export function resolveShareableAppOrigin(browserOrigin?: string): string {
   if (browser) {
     try {
       const host = new URL(browser).hostname;
-      if (!isLocalHost(host) && !isVercelDeploymentHost(host)) {
-        return browser;
-      }
+      // Multi-agent sandboxes (cursor-1 @3010, cursor-2 @3011, …) must keep the
+      // port the browser is on. Folding localhost to NEXT_PUBLIC_APP_URL bounced
+      // signup and OAuth return URLs to :3000 or another agent's port.
+      if (isLocalHost(host)) return browser;
+      if (!isVercelDeploymentHost(host)) return browser;
     } catch {
       /* ignore malformed browser origin */
     }

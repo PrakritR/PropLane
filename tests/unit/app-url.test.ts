@@ -34,6 +34,13 @@ describe("resolveShareableAppOrigin", () => {
     delete process.env.NEXT_PUBLIC_APP_URL;
     expect(resolveShareableAppOrigin()).toBe("http://localhost:3000");
   });
+
+  it("honors localhost browser port over NEXT_PUBLIC_APP_URL (agent sandboxes)", () => {
+    delete process.env.NEXT_PUBLIC_CANONICAL_APP_URL;
+    process.env.NEXT_PUBLIC_APP_URL = "http://localhost:3000";
+    expect(resolveShareableAppOrigin("http://localhost:3011")).toBe("http://localhost:3011");
+    expect(resolveShareableAppOrigin("http://localhost:3010")).toBe("http://localhost:3010");
+  });
 });
 
 describe("resolveEmailLinkBaseUrl", () => {
@@ -99,6 +106,15 @@ describe("resolveAppOrigin", () => {
     process.env.NEXT_PUBLIC_APP_URL = "https://axis-2.vercel.app";
     const req = new Request("http://localhost:3000/api/stripe/checkout", { method: "POST" });
     expect(resolveAppOrigin(req)).toBe("http://localhost:3000");
+  });
+
+  it("uses Host header port when dev server binds 0.0.0.0 (cursor-2 @3011)", () => {
+    process.env.NEXT_PUBLIC_APP_URL = "http://localhost:3000";
+    const req = new Request("http://0.0.0.0:3011/api/auth/signup", {
+      method: "POST",
+      headers: { host: "localhost:3011" },
+    });
+    expect(resolveAppOrigin(req)).toBe("http://localhost:3011");
   });
 
   it("uses production env URL for non-local requests", () => {

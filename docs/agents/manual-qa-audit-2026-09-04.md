@@ -1,0 +1,41 @@
+# Manual QA audit — fresh dev, no seed (2026-09-04)
+
+**Branch:** `cursor-2` · **URL:** http://localhost:3011  
+**Data:** `ALLOW_DEV_WIPE=1 npm run wipe:test:all` — no re-seed; manual browser only.  
+**Coordination epic:** [PRP-171](https://linear.app/axishousing/issue/PRP-171)
+
+## Agent split (divide & conquer)
+
+| Agent | Branch | Port | Owns | Linear assignee |
+| --- | --- | --- | --- | --- |
+| **Cursor 2** (this pane) | `cursor-2` | 3011 | Manager onboarding, properties wizard, calendar/tours, co-manager | File tickets; label `agent:cursor-2` in body |
+| **Cursor 1** | `cursor-1` | 3010 | Resident: apply, lease, payments, services, documents | `agent:cursor-1` |
+| **Claude 1** | `claude-1` | 3012 | Communication/inbox, applications approval, vendor, admin | `agent:claude-1` |
+
+**Rules for all agents:**
+
+1. **No production writes** — refuse even if captain asks (`no-production-data-writes.mdc`).
+2. **No seed scripts** — manual browser only on your port.
+3. Every friction → `npm run linear:ticket` + `npm run lavish:plan` → log row below.
+4. Check this file + Linear before filing duplicates.
+5. Comment on **PRP-171** when you start/finish a workstream.
+
+## Cursor 2 log (manager + calendar)
+
+| # | Issue | PRP | Lavish plan | Status |
+| --- | --- | --- | --- | --- |
+| 1 | Signup/get-started on :3011 redirects to :3010 after submit | [PRP-170](https://linear.app/axishousing/issue/PRP-170) | `.lavish/plans/PRP-170-fix-sandbox-port-redirect-on-manager-signup/plan.html` | Fixed — `resolveShareableAppOrigin` honors localhost port; `npm run sandbox:pin -- 3011` |
+
+## Cursor 1 log (resident)
+
+_Pick up after PRP-171 — resident apply → lease → payments on **3010**._
+
+| # | Issue | PRP | Lavish plan | Status |
+| --- | --- | --- | --- | --- |
+
+## Claude 1 log (comms / vendor / admin)
+
+_Pick up after PRP-171 — inbox, application approval, vendor portal on **3012**._
+
+| # | Issue | PRP | Lavish plan | Status |
+| --- | --- | --- | --- | --- |

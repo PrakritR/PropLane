@@ -1,0 +1,60 @@
+---
+description: File PropLane Linear tickets from natural language in Cursor chat
+alwaysApply: true
+---
+
+# Linear tickets from chat (Phase ①)
+
+Part of **`captain-dev-workflow.mdc`**. Ticket comes **before** Lavish plan and build.
+
+When the captain asks to **create**, **file**, **log**, or **open** a Linear ticket
+—or describes any work/bug/idea without saying **"no ticket"**— **create the issue**
+first. Do not jump to planning or coding.
+
+## Protocol
+
+1. Read folder routing: `docs/linear-ticket-system.md` (decision tree + projects).
+2. Parse: title, bug vs feature, portal, area, urgency.
+3. **Create** via one of:
+   - **Preferred:** `npm run linear:ticket -- --chat "<captain's words>"` from repo root
+   - **Or** Linear MCP `save_issue` when `linear` tools are available in session
+4. Reply with **PRP-###** and the **full Linear URL**.
+5. **Next:** Phase ② — `npm run lavish:plan` (see `captain-dev-workflow.mdc`).
+
+## Chat triggers (examples)
+
+- "Create a ticket: calendar UI needs work"
+- "File this bug in Linear — residents tab crashes"
+- "Log a feature request for SMS applications"
+- "Ticket:" / "Linear:" prefix
+
+## Routing (auto)
+
+| Captain mentions… | Project | Milestone |
+| --- | --- | --- |
+| production, resend, cron, env | 01 — Infrastructure & Ops | Production env / email |
+| manager portal, /portal/ | 02 — Manager Portal | matching section |
+| resident, /resident/ | 03 — Resident Portal | matching section |
+| SMS, inbox, email | 06 — Communication Hub | SMS or Email & Inbox |
+| lease, application | 07 — Leases & Applications | … |
+| payment, stripe, charge | 08 — Payments & Finance | Charges & ledger |
+| assistant, AI | 09 — AI Assistant | Manager assistant |
+| listing, wizard | 10 — Listings & Properties | Create wizard |
+| calendar, tour | 11 — Calendar & Tours | Manager calendar UI |
+
+Always add labels: `portal:*`, `area:*`, and `Bug` | `Feature` | `Improvement`.
+
+## Title format
+
+`[Area] Short imperative — user-visible outcome`
+
+## Do not
+
+- Ask the captain to open Linear manually unless MCP and `npm run linear:ticket` both fail.
+- Create tickets without project + milestone.
+- Put secrets in descriptions.
+
+## Auth
+
+Terminal agent: `cursor agent mcp login linear` (once per machine).
+Optional: `LINEAR_API_KEY` in env for `npm run linear:ticket` without agent fallback.

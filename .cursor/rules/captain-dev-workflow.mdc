@@ -1,0 +1,71 @@
+---
+description: Captain workflow — ticket → Lavish plan → build → review → promote
+alwaysApply: true
+---
+
+# Captain dev workflow (mandatory)
+
+Read **`docs/agents/captain-dev-workflow.md`** for full detail. Every task follows:
+
+**① Ticket → ② Lavish plan (captain approves) → ③ Build → ④ Review → ⑤ Promote**
+
+## ① Ticket first (default)
+
+If the captain describes work, a bug, an idea, or pastes feedback — **create a Linear
+ticket before anything else**, even if they did not ask.
+
+```bash
+npm run linear:ticket -- --chat "<their message>"
+```
+
+Skip only when they explicitly say **"no ticket"**.
+
+Reply with **PRP-###** + full Linear URL.
+
+## ② Plan in Lavish (before code)
+
+**Do not implement** until the captain approves the plan.
+
+1. `npm run lavish:plan -- --ticket PRP-### --title "..." --summary "..."`
+2. **Images:** for every image the captain attached in chat, pass
+   `--image <absolute-path>` (Cursor saves under `.cursor/.../assets/`). Copy into
+   `.lavish/plans/PRP-###-slug/assets/` and show in the HTML.
+3. `npx -y lavish-axi playbook plan` before writing HTML; add comparison/diagram if useful.
+4. `npx -y lavish-axi .lavish/plans/.../plan.html` to open.
+5. `npx -y lavish-axi poll <plan.html>` — wait for annotations; apply feedback.
+6. **Stop** until captain says **"approved — build"** (or equivalent).
+
+Skip only when they say **"skip plan"** (hotfix).
+
+## ③ Build
+
+- **Default:** commit on **this pane's keeper branch only** (`cursor-2` here — see
+  `local-agent-branch.mdc`). Push to `origin/cursor-2`. No remote feature branches.
+- **Experiments:** `scripts/proplane-test-branch.sh start <slug>` → work → `finish` or `abort`.
+- Reference **PRP-###** in commits.
+- Read `docs/agents/<area>.md` before coding.
+
+## ④ Review
+
+Test on **http://localhost:3011** (this sandbox). Update Linear. Hand off to captain —
+do not merge to prakrit yourself.
+
+## ⑤ Promote (captain only)
+
+When captain says merge to **prakrit**:
+
+```bash
+bin/fm-proplane-promote-to-prakrit.sh cursor-2
+```
+
+That merges into integration and **resets all agent sandboxes** from `origin/prakrit`.
+Captain verifies localhost:3000.
+
+## Subagents
+
+Paste phases ①–③ constraints into every subagent brief (security-review, bugbot, explore).
+
+## Production data (never)
+
+**Never read/write/update production** resident, property, task, lease, charge, or
+message data. Dev/test Supabase only. See `no-production-data-writes.mdc`.
