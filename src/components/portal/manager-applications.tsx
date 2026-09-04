@@ -1596,12 +1596,20 @@ export function ManagerApplications({
         </div>
       ) : null}
 
+      {/*
+        NOT `stretch` here, unlike the Residents tab's copy of this body. Stretch
+        makes the review body its own bounded, scrolling column — correct inside
+        a flex parent that gives it a height, which is what Residents does. This
+        page already renders it inside PortalPageScrollBody, so stretching put a
+        scroller inside a scroller: the page scroller had nothing to scroll, the
+        inner one ended underneath the fixed action dock, and the application
+        simply would not move. One scroller per surface.
+      */}
       <ApplicationDetailReviewBody
         row={row}
         group={group}
         cosignerSubmissions={cosignerSubmissions}
         bareCanvas
-        stretch
         showDownload={false}
         onScreeningUpdated={handleScreeningFlowComplete}
         onOpenScreeningModal={(opts) =>
@@ -1890,7 +1898,14 @@ export function ManagerApplications({
           })()}
         >
           <div className="flex min-h-0 flex-1 flex-col">
-            <PortalPageScrollBody className="min-w-0 max-w-full pt-3 pb-[calc(2.75rem+var(--portal-native-bottom-nav-inset,0px)+env(safe-area-inset-bottom,0px))] lg:pb-3">
+            {/*
+              The action dock (Share / Approve / Reject / Holding fee /
+              Download) is `position: fixed` and rendered with omitSpacer, so
+              this padding is the only thing keeping the last rows reachable.
+              It used to drop to `lg:pb-3` — 12px against a ~56px dock — which
+              hid the end of every application on desktop.
+            */}
+            <PortalPageScrollBody className="min-w-0 max-w-full pt-3 pb-[calc(3.5rem+var(--portal-native-bottom-nav-inset,0px)+env(safe-area-inset-bottom,0px))]">
               {activeCosignerSubmission ? (
                 <ManagerCosignerReadonlyReview
                   sub={activeCosignerSubmission}
@@ -1900,9 +1915,7 @@ export function ManagerApplications({
                   }
                 />
               ) : (
-                <div className="flex min-h-0 flex-1 flex-col">
-                  {renderApplicationDetail(detailRow)}
-                </div>
+                renderApplicationDetail(detailRow)
               )}
             </PortalPageScrollBody>
           </div>
