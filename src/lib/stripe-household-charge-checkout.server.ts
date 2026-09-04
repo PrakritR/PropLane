@@ -1,9 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { HouseholdCharge } from "@/lib/household-charges";
-import {
-  listingFromPropertyData,
-  resolveListingForHouseholdCharge,
-} from "@/lib/household-charge-payment-eligibility";
+import { listingFromPropertyData } from "@/lib/household-charge-payment-eligibility";
+import { resolveListingForHouseholdCharge } from "@/lib/household-charge-payment-eligibility.server";
 import { normalizeManagerSkuTier } from "@/lib/manager-access";
 import { getManagerPurchaseSku } from "@/lib/manager-access-server";
 import { loadManagerManualPaymentSettings } from "@/lib/manager-manual-payment-settings";

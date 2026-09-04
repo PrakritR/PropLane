@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
-import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { requireVendorApiAccess } from "@/lib/auth/vendor-api-access";
+import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { getStripe } from "@/lib/stripe";
 import {
   clearManagerConnectAccountId,
@@ -9,6 +10,7 @@ import {
   isStripeConnectAccountAccessError,
   retrieveManagerConnectAccountOrNull,
 } from "@/lib/stripe-connect";
+import { retryFailedVendorPayoutsForVendor } from "@/lib/stripe-vendor-payout";
 
 export const runtime = "nodejs";
 
@@ -18,22 +20,21 @@ export const runtime = "nodejs";
  */
 export async function GET() {
   try {
-    const supabase = await createSupabaseServerClient();
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
-    if (!user) {
-      return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
+    const access = await requireVendorApiAccess();
+    if (!access.ok) {
+      return NextResponse.json(
+        { error: access.status === 401 ? "Unauthorized." : "Forbidden." },
+        { status: access.status },
+      );
     }
+    const userId = access.actor.userId;
 
-    const { data: profile } = await supabase
+    const db = createSupabaseServiceRoleClient();
+    const { data: profile } = await db
       .from("profiles")
-      .select("role, stripe_connect_account_id")
-      .eq("id", user.id)
+      .select("stripe_connect_account_id")
+      .eq("id", userId)
       .maybeSingle();
-    if (String(profile?.role ?? "").toLowerCase() !== "vendor") {
-      return NextResponse.json({ error: "Forbidden." }, { status: 403 });
-    }
 
     const accountId =
       (profile as { stripe_connect_account_id?: string | null } | null)?.stripe_connect_account_id?.trim() ?? null;
@@ -54,7 +55,7 @@ export async function GET() {
       const stripe = getStripe();
       const existing = await retrieveManagerConnectAccountOrNull(stripe, accountId);
       if (!existing) {
-        await clearManagerConnectAccountId(supabase, user.id);
+        await clearManagerConnectAccountId(db, userId);
         return NextResponse.json({
           connected: false,
           accountId: null,
@@ -70,6 +71,9 @@ export async function GET() {
       const acct = await ensureConnectAccountTransfersRequested(stripe, accountId);
       const transfersEnabled = connectAccountTransfersActive(acct);
       const paymentReady = connectAccountReadyForAchPayouts(acct);
+      if (paymentReady) {
+        await retryFailedVendorPayoutsForVendor(db, userId).catch(() => undefined);
+      }
       return NextResponse.json({
         connected: true,
         accountId: acct.id,

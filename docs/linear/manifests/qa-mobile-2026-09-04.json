@@ -1,0 +1,72 @@
+{
+  "date": "2026-09-04",
+  "viewport": {
+    "width": 390,
+    "height": 844
+  },
+  "findings": [
+    {
+      "portal": "manager",
+      "path": "/portal/dashboard",
+      "category": "a11y",
+      "severity": "medium",
+      "title": "Dashboard (mobile): tap targets under 40px",
+      "detail": "Account menu (36×36); Revenue (71×36); Profit (55×36); Expense (70×36); 3M (41×29); 6M (41×29); 1Y (39×29); 2Y (39×29)",
+      "screenshot": "/Users/prakrit/firstmate/projects/proplane-cursor-branch-1/docs/linear/qa-screenshots/2026-09-04/mobile-manager-001-dashboard-tap-targets.png"
+    },
+    {
+      "portal": "manager",
+      "path": "/portal/payments/incoming",
+      "category": "ui",
+      "severity": "high",
+      "title": "Payments (mobile): no mobile nav chrome visible",
+      "detail": "Expected .portal-mobile-nav-bar and/or .portal-native-bottom-nav or section strip.",
+      "screenshot": "/Users/prakrit/firstmate/projects/proplane-cursor-branch-1/docs/linear/qa-screenshots/2026-09-04/mobile-manager-002-payments-no-chrome.png"
+    },
+    {
+      "portal": "manager",
+      "path": "/portal/services",
+      "category": "ui",
+      "severity": "high",
+      "title": "Services (mobile): no mobile nav chrome visible",
+      "detail": "Expected .portal-mobile-nav-bar and/or .portal-native-bottom-nav or section strip.",
+      "screenshot": "/Users/prakrit/firstmate/projects/proplane-cursor-branch-1/docs/linear/qa-screenshots/2026-09-04/mobile-manager-003-services-no-chrome.png"
+    },
+    {
+      "portal": "resident",
+      "path": "/resident/dashboard",
+      "category": "a11y",
+      "severity": "medium",
+      "title": "Dashboard (mobile): tap targets under 40px",
+      "detail": "Account menu (36×36); Customize (100×27); Open Tour pending (11×12); Open Application pending (11×12); Open Lease (11×12); Open House details (11×12); Open Services (11×12); Open Pending & overdue payments (11×12)",
+      "screenshot": "/Users/prakrit/firstmate/projects/proplane-cursor-branch-1/docs/linear/qa-screenshots/2026-09-04/mobile-resident-004-dashboard-tap-targets.png"
+    },
+    {
+      "portal": "resident",
+      "path": "/resident/services",
+      "category": "ux",
+      "severity": "high",
+      "title": "resident (mobile): bottom nav tab did not navigate",
+      "detail": "Stayed on /resident/services",
+      "screenshot": "/Users/prakrit/firstmate/projects/proplane-cursor-branch-1/docs/linear/qa-screenshots/2026-09-04/mobile-resident-005-bottom-nav-dead.png"
+    },
+    {
+      "portal": "admin",
+      "path": "/admin/dashboard",
+      "category": "a11y",
+      "severity": "medium",
+      "title": "Dashboard (mobile): tap targets under 40px",
+      "detail": "Account menu (36×36); Meetings → (69×16); Communication → (107×16); Feedback → (72×16); Show all sections (390×10)",
+      "screenshot": "/Users/prakrit/firstmate/projects/proplane-cursor-branch-1/docs/linear/qa-screenshots/2026-09-04/mobile-admin-006-dashboard-tap-targets.png"
+    },
+    {
+      "portal": "admin",
+      "path": "/admin/axis-users",
+      "category": "a11y",
+      "severity": "medium",
+      "title": "Accounts (mobile): tap targets under 40px",
+      "detail": "Account menu (36×36); All tiers (83×36); Free (62×36); Pro (55×36); Business (93×36); Show all sections (390×10)",
+      "screenshot": "/Users/prakrit/firstmate/projects/proplane-cursor-branch-1/docs/linear/qa-screenshots/2026-09-04/mobile-admin-007-accounts-tap-targets.png"
+    }
+  ]
+}

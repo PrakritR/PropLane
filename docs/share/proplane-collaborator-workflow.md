@@ -31,11 +31,16 @@ reviewed plan. This doc is for anyone joining the team (engineers, designers, QA
 | --- | --- |
 | **Communication Hub** (SMS, inbox, email, messaging) | **Akhil** |
 | Everything else | **Prakrit (M)** |
-| **High priority** | Breaks signup/login/apply/pay/messaging; Communication work |
-| **Medium** | Properties, residents, payments, listings, calendar — daily use |
-| **Low** | Typos, polish, admin-only, dev tooling |
+| **High priority** | Breaks signup/login/apply/pay/messaging; wrong charges; unusable UI |
+| **Medium** | Properties, residents, payments, listings, calendar — daily use; annoying but completable |
+| **Low** | Cosmetic UI, copy, contrast audit, rename, dev tooling — **not** “looks off” alone |
+
+**UI rule:** polish and layout tweaks are **Low** unless the user cannot finish the task.
+
+**Backlog sort (Linear view):** Project (category) → Priority → Assignee. Pull Todo in that order.
 
 Re-run triage anytime: `npm run linear:triage` (needs `LINEAR_API_KEY` in `.env.local`).
+Full rules: `docs/linear-ticket-system.md` → **Priority & backlog sort**.
 
 ---
 

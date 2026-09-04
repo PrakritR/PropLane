@@ -284,7 +284,7 @@ function AttentionGroup<T>({
           onClick={(e) => e.stopPropagation()}
           aria-label={`Open ${title}`}
           data-attr="resident-dashboard-attention-link"
-          className="ml-auto shrink-0 self-center whitespace-nowrap text-xs font-semibold leading-none hover:underline underline-offset-2 [html[data-native]_&]:text-sm"
+          className="ml-auto inline-flex min-h-11 min-w-11 shrink-0 items-center justify-center self-center whitespace-nowrap px-2 text-xs font-semibold leading-none hover:underline underline-offset-2 [html[data-native]_&]:text-sm"
           style={{ color: isEmpty ? "var(--muted)" : accent.fg }}
         >
           →
@@ -781,7 +781,7 @@ export function ResidentDashboard({
               type="button"
               onClick={() => setCustomizeOpen(true)}
               data-attr="resident-dashboard-customize-open"
-              className="ml-auto inline-flex shrink-0 items-center gap-1.5 rounded-full border border-border bg-card px-2.5 py-1 text-[11px] font-semibold text-muted transition-colors hover:border-primary/40 hover:text-foreground"
+              className="ml-auto inline-flex min-h-11 shrink-0 items-center gap-1.5 rounded-full border border-border bg-card px-3 py-2 text-[11px] font-semibold text-muted transition-colors hover:border-primary/40 hover:text-foreground"
             >
               <SlidersHorizontal className={PORTAL_FILTER_ICON_CLASS} aria-hidden />
               <span className="[html[data-native]_&]:sr-only">Customize</span>

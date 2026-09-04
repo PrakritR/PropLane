@@ -1,0 +1,20 @@
+[
+  {
+    "portal": "admin",
+    "path": "/admin/communication/inbox/unopened",
+    "category": "ui",
+    "severity": "medium",
+    "title": "Admin inbox missing status filter pills row",
+    "detail": "Reference: admin-bug-feedback + portal-ui-system admin table tabs",
+    "screenshot": "/Users/prakrit/firstmate/projects/proplane-cursor-branch-1/docs/linear/qa-screenshots/2026-09-04/admin-201-inbox-no-filters.png"
+  },
+  {
+    "portal": "admin",
+    "path": "/admin/axis-users",
+    "category": "ux",
+    "severity": "low",
+    "title": "Admin Accounts: no obvious Create manager/resident CTA",
+    "detail": "",
+    "screenshot": "/Users/prakrit/firstmate/projects/proplane-cursor-branch-1/docs/linear/qa-screenshots/2026-09-04/admin-202-accounts-no-create.png"
+  }
+]

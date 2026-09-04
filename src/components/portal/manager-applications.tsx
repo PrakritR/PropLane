@@ -197,6 +197,21 @@ function tabForRow(row: DemoApplicantRow): ManagerApplicationTabId {
   return isInProgressApplicationRow(row) ? "incomplete" : "pending";
 }
 
+function applicationsListEmptyMessage(tab: ManagerApplicationTabId): string {
+  switch (tab) {
+    case "pending":
+      return "No applications pending review yet.";
+    case "incomplete":
+      return "No in-progress applications yet.";
+    case "approved":
+      return "No approved applications yet.";
+    case "rejected":
+      return "No rejected applications yet.";
+    default:
+      return "No applications in this tab yet.";
+  }
+}
+
 /** Client-resolved room label used by both the PDF download and the inline document view. */
 function applicationRoomLabel(row: DemoApplicantRow): string {
   const roomChoice = row.assignedRoomChoice?.trim() || row.application?.roomChoice1?.trim() || "";
@@ -1967,7 +1982,9 @@ export function ManagerApplications({
           empty={
             propertyFilters.length > 0 ? (
               <PortalDataTableEmpty icon="default" message="No applications match your filters." />
-            ) : null
+            ) : (
+              <PortalDataTableEmpty icon="application" message={applicationsListEmptyMessage(bucket)} />
+            )
           }
           add={{
             label: "Add",

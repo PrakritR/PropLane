@@ -153,7 +153,7 @@ export function MonthlyProfitChart({
                 aria-selected={metric === opt.id}
                 data-attr={`cashflow-metric-${opt.id}`}
             className={cn(
-              "portal-pressable min-h-9 min-w-0 rounded-full px-3 py-1.5 text-center text-[11px] font-semibold transition-colors sm:text-xs",
+              "portal-pressable min-h-11 min-w-0 rounded-full px-3 py-2 text-center text-[11px] font-semibold transition-colors sm:text-xs",
                   metric === opt.id
                     ? "bg-card text-foreground shadow-[var(--shadow-sm)]"
                     : "text-muted hover:text-foreground",
@@ -265,7 +265,7 @@ export function MonthlyProfitChart({
                 aria-selected={rangeMonths === months}
                 data-attr={`cashflow-range-${months}`}
                 className={cn(
-                  "portal-pressable rounded-full px-3 py-1.5 text-[11px] font-semibold tabular-nums transition-colors sm:px-3.5 sm:text-xs",
+                  "portal-pressable min-h-11 rounded-full px-3 py-2 text-[11px] font-semibold tabular-nums transition-colors sm:px-3.5 sm:text-xs",
                   rangeMonths === months
                     ? "bg-foreground text-background"
                     : "text-muted hover:bg-accent/40 hover:text-foreground",

@@ -131,6 +131,8 @@ const nextConfig: NextConfig = {
       { source: "/portal/services/work-done/:path*", destination: "/portal/financials/expenses", permanent: false },
       { source: "/portal/work-orders", destination: "/portal/services/work-orders", permanent: false },
       { source: "/portal/work-orders/:path*", destination: "/portal/services/work-orders", permanent: false },
+      { source: "/browse", destination: "/rent/browse", permanent: false },
+      { source: "/browse/:path*", destination: "/rent/browse", permanent: false },
     ];
   },
 };

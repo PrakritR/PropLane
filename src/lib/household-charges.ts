@@ -17,7 +17,8 @@ import {
   type ManagerListingSubmissionV1,
   type ManagerRoomSubmission,
 } from "@/lib/manager-listing-submission";
-import { listingPresetFeeAmount, resolvedShortTermPlacementDeposit } from "@/lib/listing-fees";
+import { resolvedShortTermPlacementDeposit } from "@/lib/listing-fees";
+import { listingPresetFeeAmountIfEnabled } from "@/lib/listing-fee-term-toggles";
 import { formatRoomPriceAmount, resolveStayPricing, roomDailyRentPrice } from "@/lib/room-pricing";
 import { resolveSubmissionRoom } from "@/lib/listing-room-resolution";
 import { utilitiesBillableMonthlyAmount } from "@/lib/listing-utilities-payment";
@@ -165,6 +166,8 @@ export type HouseholdCharge = {
   paidViaGmailMessageId?: string;
   /** Snapshot of whether Axis ACH was enabled on the listing when the charge was created or synced. */
   axisPaymentsEnabledSnapshot?: boolean;
+  /** Server-synced: manager Stripe Connect ready for destination charges (false blocks Pay). */
+  managerStripeConnectReadySnapshot?: boolean;
   /** Payment methods the property currently accepts, refreshed from the listing on each server sync. */
   acceptedPaymentMethodsSnapshot?: ResidentAcceptedPaymentMethod[];
   /** When true, lease signing stays disabled until this line is paid */
@@ -3076,7 +3079,7 @@ function buildApprovedStandardChargeDrafts(
       ? String(row.manualResidentDetails.securityDeposit)
       : opts.allowListingDefaults
         ? (roomSecurityDeposit ??
-          String(listingPresetFeeAmount(sub, "security_deposit") || parseMoneyAmount(sub.securityDeposit ?? "")))
+          String(listingPresetFeeAmountIfEnabled(sub, "security_deposit") || parseMoneyAmount(sub.securityDeposit ?? "")))
         : undefined,
   );
   const holdingCredit = paidHoldingDepositCreditCents(opts.applicationId) / 100;
@@ -3103,7 +3106,7 @@ function buildApprovedStandardChargeDrafts(
       ? String(row.manualResidentDetails.moveInFee)
       : opts.allowListingDefaults
         ? (roomMoveInFee ??
-          String(listingPresetFeeAmount(sub, "move_in_fee") || parseMoneyAmount(sub.moveInFee ?? "")))
+          String(listingPresetFeeAmountIfEnabled(sub, "move_in_fee") || parseMoneyAmount(sub.moveInFee ?? "")))
         : undefined,
   );
   pushDraft("move_in_fee", moveInFee, chargeTitle("move_in_fee"));
@@ -3185,7 +3188,7 @@ function syncPendingApprovedChargesFromListing(
               : allowListingDefaults
                 ? (stayRoom?.shortTermMoveInFee ?? "").trim() ||
                   String(
-                    listingPresetFeeAmount(sub, "short_term_move_in") || parseMoneyAmount(sub.shortTermMoveInFee ?? ""),
+                    listingPresetFeeAmountIfEnabled(sub, "short_term_move_in") || parseMoneyAmount(sub.shortTermMoveInFee ?? ""),
                   )
                 : undefined,
           );
@@ -3478,7 +3481,7 @@ export function recordApprovedApplicationCharges(row: DemoApplicantRow, managerU
         : allowListingDefaults
           ? // per-room short-term move-in wins; else the listing's short-term move-in
             (room?.shortTermMoveInFee ?? "").trim() ||
-            (sub ? String(listingPresetFeeAmount(sub, "short_term_move_in") || parseMoneyAmount(sub.shortTermMoveInFee ?? "")) : "")
+            (sub ? String(listingPresetFeeAmountIfEnabled(sub, "short_term_move_in") || parseMoneyAmount(sub.shortTermMoveInFee ?? "")) : "")
           : undefined,
     );
     pushCharge("move_in_fee", shortMoveIn, chargeTitle("move_in_fee"), false, "Before check-in");
@@ -3604,7 +3607,7 @@ export function recordApprovedApplicationCharges(row: DemoApplicantRow, managerU
       : allowListingDefaults && sub
         ? // per-room deposit wins; else the listing's deposit (unified fee row → legacy field)
           (roomSecurityDeposit ??
-            String(listingPresetFeeAmount(sub, "security_deposit") || parseMoneyAmount(sub.securityDeposit ?? "")))
+            String(listingPresetFeeAmountIfEnabled(sub, "security_deposit") || parseMoneyAmount(sub.securityDeposit ?? "")))
         : undefined,
   );
   const holdingCredit = paidHoldingDepositCreditCents(applicationId) / 100;
@@ -3636,7 +3639,7 @@ export function recordApprovedApplicationCharges(row: DemoApplicantRow, managerU
       : allowListingDefaults && sub
         ? // per-room move-in wins; else the listing's move-in (unified fee row → legacy field)
           (roomMoveInFee ??
-            String(listingPresetFeeAmount(sub, "move_in_fee") || parseMoneyAmount(sub.moveInFee ?? "")))
+            String(listingPresetFeeAmountIfEnabled(sub, "move_in_fee") || parseMoneyAmount(sub.moveInFee ?? "")))
         : undefined,
   );
   pushCharge("move_in_fee", moveInFee, chargeTitle("move_in_fee"), false, "Before move-in");

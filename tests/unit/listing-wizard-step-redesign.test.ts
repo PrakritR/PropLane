@@ -38,23 +38,19 @@ describe("PRP-137 rooms", () => {
 });
 
 describe("PRP-138 bathrooms", () => {
-  it("offers the three answers as one tap each", () => {
+  it("offers fixture shortcuts as one tap each without storing a bathroom type label", () => {
     expect(form).toContain("data-attr={`listing-add-bathroom-${option.id}`}");
     expect(form).toContain("const addBathroomOfType = (type: \"full\" | \"half\" | \"ensuite\")");
     for (const label of ["Full bath", "Half bath", "En-suite"]) {
       expect(form).toContain(`label: "${label}"`);
     }
-  });
-
-  it("presets the fixtures rather than storing a type", () => {
-    // A manager who unticks the shower has a half bath, whichever tile made it —
-    // so the label is derived from the fixtures, never a second stored field.
-    expect(form).toContain("const bathTypeLabel = !b.toilet");
+    expect(form).not.toContain("const bathTypeLabel");
     expect(form).not.toContain("bathroomType:");
   });
 
-  it("shows that type on the row", () => {
-    expect(form).toContain("meta={<ListingWizardRowMeta value={bathTypeLabel} />}");
+  it("shows fixtures on the row subtitle, not a derived full/half label", () => {
+    expect(form).toContain('b.shower && "Shower"');
+    expect(form).not.toContain("meta={<ListingWizardRowMeta value={bathTypeLabel} />}");
   });
 });
 
@@ -79,13 +75,18 @@ describe("PRP-139 shared spaces", () => {
     expect(form).toContain("listing-add-shared-${template.kind}");
   });
 
-  it("puts ADD below the list, dashed and uppercase, like every other portal list", () => {
-    expect(form).toContain('data-attr="listing-add-shared-blank"');
-    expect(form).toContain("+ Add shared space");
-    expect(form).toContain('aria-label="Add a shared space"');
+  it("uses the portal ADD row below the list — blue outline, no extra hint copy", () => {
+    expect(form).toContain('dataAttr="listing-add-shared-blank"');
+    expect(form).toContain("ListingWizardListAddRow");
+    expect(form).toContain('label="Add shared space"');
+    expect(form).not.toContain("Or pick one above to prefill its amenities");
+    expect(form).not.toContain("Add the common areas you want on");
   });
 
-  it("says the step is optional once, up front", () => {
-    expect(form).toContain("Add the common areas you want on\n                the listing, or skip this step.");
+  it("uses the same ADD row for rooms and bathrooms", () => {
+    expect(form).toContain('dataAttr="listing-add-room"');
+    expect(form).toContain('dataAttr="listing-add-bathroom-blank"');
+    expect(form).toContain('label="Add room"');
+    expect(form).toContain('label="Add bathroom"');
   });
 });

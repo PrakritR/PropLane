@@ -26,6 +26,19 @@
 | --- | --- | --- | --- | --- |
 | 1 | Signup/get-started on :3011 redirects to :3010 after submit | [PRP-170](https://linear.app/axishousing/issue/PRP-170) | `.lavish/plans/PRP-170-fix-sandbox-port-redirect-on-manager-signup/plan.html` | Fixed — `resolveShareableAppOrigin` honors localhost port; `npm run sandbox:pin -- 3011` |
 
+## Cursor 1 log (resident + full portal QA 2026-09-04)
+
+**Session:** `/goal` rigorous QA — manager, resident, vendor on **3010**.
+
+| # | Issue | PRP | Status |
+| --- | --- | --- | --- |
+| 1 | Applications pending — no empty state | _pending API key_ | Batch script ready |
+| 2 | Vendor calendar 403 | _pending API key_ | Batch script ready |
+| 3 | Manager Listed tab empty (seed?) | _pending API key_ | Verify after `test:seed` |
+| 4 | Listings fee gating A1–A3 + wizard B1–B2 | _pending API key_ | `linear-file-cursor1-sep3-batch.sh` |
+
+**Manifest:** `docs/linear/manifests/qa-session-cursor1-2026-09-04.md`
+
 ## Cursor 1 log (resident)
 
 _Pick up after PRP-171 — resident apply → lease → payments on **3010**._

@@ -46,6 +46,22 @@ Always add labels: `portal:*`, `area:*`, and `Bug` | `Feature` | `Improvement`.
 
 Assignee + priority are auto-inferred (`scripts/linear/triage-rules.mjs`).
 
+## Priority (when filing)
+
+| Level | Use when |
+| --- | --- |
+| **High** | Blocks core workflow (signup, login, pay, apply, wrong charges) |
+| **Medium** | Frequent surface; annoying but completable |
+| **Low** | Cosmetic UI, copy, rename, dev tooling — **unless unusable** |
+
+Override: `npm run linear:ticket -- … --priority 2` (1=urgent … 4=low).
+
+UI polish → **Low** by default. Only **High** if the user cannot finish the task.
+
+Full matrix: `docs/linear-ticket-system.md` → **Priority & backlog sort**.
+
+After filing a batch, run `npm run linear:triage` to normalize assignee + priority on open issues.
+
 ## Title format
 
 `[Area] Short imperative — user-visible outcome`

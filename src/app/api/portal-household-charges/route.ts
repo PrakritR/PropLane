@@ -8,7 +8,7 @@ import { managerHasCoManagerPermissionForProperty } from "@/lib/auth/manager-lea
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import type { HouseholdCharge } from "@/lib/household-charges";
-import { enrichHouseholdChargesFromPropertyRecords } from "@/lib/household-charge-payment-eligibility";
+import { enrichHouseholdChargesFromPropertyRecords } from "@/lib/household-charge-payment-eligibility.server";
 import {
   cancelFuturePaymentRemindersForCharge,
   restoreFuturePaymentRemindersForCharge,

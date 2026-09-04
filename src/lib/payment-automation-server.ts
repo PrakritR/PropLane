@@ -1,4 +1,4 @@
-import { enrichHouseholdChargesFromPropertyRecords } from "@/lib/household-charge-payment-eligibility";
+import { enrichHouseholdChargesFromPropertyRecords } from "@/lib/household-charge-payment-eligibility.server";
 import type { HouseholdCharge, RecurringRentProfile } from "@/lib/household-charges";
 import { filterChargesEligibleForPaymentReminders } from "@/lib/household-charges";
 import { normalizeManagerListingSubmissionV1, type ManagerListingSubmissionV1 } from "@/lib/manager-listing-submission";

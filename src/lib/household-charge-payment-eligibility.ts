@@ -1,4 +1,3 @@
-import type { SupabaseClient } from "@supabase/supabase-js";
 import type { HouseholdCharge } from "@/lib/household-charges";
 import { normalizeManagerListingSubmissionV1, type ManagerListingSubmissionV1 } from "@/lib/manager-listing-submission";
 import { acceptedPaymentMethodsForListing, axisPaymentsEnabledOnListing } from "@/lib/payment-policy";
@@ -18,7 +17,7 @@ export function listingFromPropertyData(propertyData: unknown): ManagerListingSu
   return normalizeManagerListingSubmissionV1(submission as ManagerListingSubmissionV1);
 }
 
-function listingBuildingName(propertyData: unknown): string {
+export function listingBuildingName(propertyData: unknown): string {
   if (!propertyData || typeof propertyData !== "object") return "";
   const row = propertyData as { buildingName?: string; listingSubmission?: { buildingName?: string } };
   return displayPropertyLabel(row.listingSubmission?.buildingName ?? row.buildingName ?? "");
@@ -61,6 +60,7 @@ export function enrichHouseholdChargePaymentFlags(
 
 export function canPayHouseholdChargeWithAxisAch(charge: HouseholdCharge): boolean {
   if (charge.status === "paid") return false;
+  if (charge.managerStripeConnectReadySnapshot === false) return false;
   if (charge.axisPaymentsEnabledSnapshot === true) return true;
   if (charge.axisPaymentsEnabledSnapshot === false) return false;
 
@@ -68,94 +68,4 @@ export function canPayHouseholdChargeWithAxisAch(charge: HouseholdCharge): boole
   const sub =
     prop?.listingSubmission?.v === 1 ? normalizeManagerListingSubmissionV1(prop.listingSubmission) : null;
   return Boolean(sub && axisPaymentsEnabledOnListing(sub));
-}
-
-export async function resolveListingForHouseholdCharge(
-  db: SupabaseClient,
-  charge: HouseholdCharge,
-  managerUserId: string,
-): Promise<ManagerListingSubmissionV1 | null> {
-  const propertyId = charge.propertyId?.trim();
-  if (propertyId) {
-    const { data } = await db
-      .from("manager_property_records")
-      .select("property_data")
-      .eq("id", propertyId)
-      .maybeSingle();
-    const listing = listingFromPropertyData(data?.property_data);
-    if (listing) return listing;
-  }
-
-  const managerId = managerUserId.trim();
-  const label = displayPropertyLabel(charge.propertyLabel ?? "");
-  if (!managerId || !label) return null;
-
-  const { data: rows } = await db
-    .from("manager_property_records")
-    .select("property_data")
-    .eq("manager_user_id", managerId)
-    .limit(200);
-
-  for (const row of rows ?? []) {
-    if (listingBuildingName(row.property_data).toLowerCase() !== label.toLowerCase()) continue;
-    const listing = listingFromPropertyData(row.property_data);
-    if (listing) return listing;
-  }
-
-  return null;
-}
-
-export async function enrichHouseholdChargesFromPropertyRecords(
-  db: SupabaseClient,
-  charges: HouseholdCharge[],
-): Promise<HouseholdCharge[]> {
-  if (charges.length === 0) return charges;
-
-  const propertyIds = [...new Set(charges.map((c) => c.propertyId?.trim()).filter(Boolean))] as string[];
-  const listingByPropertyId = new Map<string, ManagerListingSubmissionV1 | null>();
-
-  if (propertyIds.length > 0) {
-    const { data } = await db
-      .from("manager_property_records")
-      .select("id, property_data")
-      .in("id", propertyIds);
-    for (const row of data ?? []) {
-      listingByPropertyId.set(String(row.id), listingFromPropertyData(row.property_data));
-    }
-  }
-
-  const managerIds = [...new Set(charges.map((c) => c.managerUserId?.trim()).filter(Boolean))] as string[];
-  const listingsByManager = new Map<string, Array<{ buildingName: string; listing: ManagerListingSubmissionV1 | null }>>();
-
-  if (managerIds.length > 0) {
-    const { data } = await db
-      .from("manager_property_records")
-      .select("manager_user_id, property_data")
-      .in("manager_user_id", managerIds)
-      .limit(500);
-    for (const row of data ?? []) {
-      const managerId = String(row.manager_user_id ?? "").trim();
-      if (!managerId) continue;
-      const bucket = listingsByManager.get(managerId) ?? [];
-      bucket.push({
-        buildingName: listingBuildingName(row.property_data),
-        listing: listingFromPropertyData(row.property_data),
-      });
-      listingsByManager.set(managerId, bucket);
-    }
-  }
-
-  return charges.map((charge) => {
-    let listing = listingByPropertyId.get(charge.propertyId?.trim() ?? "") ?? null;
-    if (!listing) {
-      const label = displayPropertyLabel(charge.propertyLabel ?? "").toLowerCase();
-      const managerId = charge.managerUserId?.trim() ?? "";
-      if (label && managerId) {
-        listing =
-          listingsByManager.get(managerId)?.find((row) => row.buildingName.toLowerCase() === label)?.listing ??
-          null;
-      }
-    }
-    return enrichHouseholdChargePaymentFlags(charge, listing);
-  });
 }

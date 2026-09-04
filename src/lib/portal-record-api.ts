@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { isAdminUser } from "@/lib/auth/admin-preview";
-import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { getPortalAccessContext } from "@/lib/auth/portal-access";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 
 type RecordUser = { id: string; email?: string | null; role: string };
@@ -29,31 +29,27 @@ type RecordConfig = {
   ) => Record<string, unknown>;
 };
 
-async function sessionUser() {
-  const supabase = await createSupabaseServerClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  return user;
+async function getUserContext() {
+  const portalCtx = await getPortalAccessContext();
+  if (!portalCtx.user) return null;
+  const db = createSupabaseServiceRoleClient();
+  const admin = await isAdminUser(portalCtx.user.id);
+  const role = admin
+    ? "admin"
+    : String(
+        portalCtx.effectiveRole ?? portalCtx.roles[0] ?? portalCtx.profile?.role ?? "",
+      ).toLowerCase();
+  return {
+    db,
+    user: {
+      id: portalCtx.user.id,
+      email: (portalCtx.profile?.email ?? portalCtx.user.email ?? "").trim().toLowerCase(),
+      role,
+    },
+  };
 }
 
 export function createJsonRecordRoute(config: RecordConfig) {
-  async function getUserContext() {
-    const user = await sessionUser();
-    if (!user) return null;
-    const db = createSupabaseServiceRoleClient();
-    const { data: profile } = await db.from("profiles").select("email, role").eq("id", user.id).maybeSingle();
-    const admin = await isAdminUser(user.id);
-    return {
-      db,
-      user: {
-        id: user.id,
-        email: (profile?.email ?? user.email ?? "").trim().toLowerCase(),
-        role: admin ? "admin" : String(profile?.role ?? user.user_metadata?.role ?? "").toLowerCase(),
-      },
-    };
-  }
-
   return {
     GET: async () => {
       try {

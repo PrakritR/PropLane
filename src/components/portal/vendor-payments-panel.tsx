@@ -84,8 +84,10 @@ function payoutStatusLabel(payout: VendorPayout | undefined): string | null {
   return null;
 }
 
-function managerPayeeLabel(_row: DemoManagerWorkOrderRow): string {
-  return CANONICAL_DEMO_MANAGER_NAME;
+function managerPayeeLabel(row: DemoManagerWorkOrderRow): string {
+  if (isDemoModeActive()) return CANONICAL_DEMO_MANAGER_NAME;
+  const name = row.managerName?.trim();
+  return name || "Property manager";
 }
 
 function toLedgerRow(row: DemoManagerWorkOrderRow, payout: VendorPayout | undefined): VendorPaymentLedgerRow | null {

@@ -96,3 +96,33 @@ export async function payoutVendorForWorkOrder(
     await finish({ status: "failed", failureReason: message });
   }
 }
+
+const RETRYABLE_VENDOR_PAYOUT_FAILURE = /not connected|onboarding|Connect|payout account/i;
+
+/** Re-attempt failed vendor payouts after Stripe Connect onboarding completes. */
+export async function retryFailedVendorPayoutsForVendor(
+  db: SupabaseClient,
+  vendorUserId: string,
+): Promise<void> {
+  const { data: failed } = await db
+    .from("vendor_payouts")
+    .select("id, work_order_id, manager_user_id, vendor_user_id, amount_cents, failure_reason")
+    .eq("vendor_user_id", vendorUserId)
+    .eq("status", "failed");
+
+  for (const row of failed ?? []) {
+    const reason = String(row.failure_reason ?? "");
+    if (!RETRYABLE_VENDOR_PAYOUT_FAILURE.test(reason)) continue;
+    const workOrderId = String(row.work_order_id ?? "").trim();
+    const managerUserId = String(row.manager_user_id ?? "").trim();
+    if (!workOrderId || !managerUserId) continue;
+
+    await db.from("vendor_payouts").delete().eq("id", row.id);
+    await payoutVendorForWorkOrder(db, {
+      workOrderId,
+      managerUserId,
+      vendorUserId,
+      amountCents: Number(row.amount_cents) || 0,
+    });
+  }
+}
