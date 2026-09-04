@@ -2801,7 +2801,8 @@ export function PortalCalendarPanels({
                     <div className="mt-2 flex justify-center">{renderFlexibleToggle(mobileDate.getDay())}</div>
                   ) : null}
                   <div className={bareSurface ? "mt-2" : "mt-2 overflow-hidden rounded-2xl border border-border bg-card"}>
-                    <div className={`grid grid-cols-[3.25rem_1fr] text-[10px] ${CALENDAR_GRID_GAP}`}>
+                    {/* Same overflow, same fix, on the single-day (mobile) grid. */}
+                    <div className={`grid grid-cols-[4rem_1fr] text-[10px] ${CALENDAR_GRID_GAP}`}>
                       <div className={`px-1 py-1.5 text-[9px] font-semibold uppercase tracking-wide ${bareSurface ? "bg-transparent" : ""} ${CALENDAR_HEADER_CELL}`}>
                         Time
                       </div>
@@ -2827,7 +2828,15 @@ export function PortalCalendarPanels({
                 <div className={`${compactGridTopGap} hidden min-w-0 lg:block`}>
                   <div className={bareSurface ? "min-w-0" : "min-w-0 overflow-hidden rounded-2xl border border-border bg-card"}>
                     <div className="min-w-0 overflow-x-auto" onMouseLeave={cancelDragSelection} onMouseUp={finishDragSelection}>
-                      <div className={`grid w-full min-w-0 grid-cols-[44px_repeat(7,minmax(0,1fr))] text-[10px] ${CALENDAR_GRID_GAP}`}>
+                      {/*
+                        64px, not 44px (AXI-161). `CALENDAR_TIME_CELL` is
+                        `whitespace-nowrap`, so a label that does not fit does not
+                        wrap — it OVERFLOWS into the first day column. "11:30 am" at
+                        11px is about 47px of text, and 44px minus its own padding
+                        left roughly 28px, which is where the "overlap with am"
+                        came from. Every half-hour past 10 o'clock collided.
+                      */}
+                      <div className={`grid w-full min-w-0 grid-cols-[64px_repeat(7,minmax(0,1fr))] text-[10px] ${CALENDAR_GRID_GAP}`}>
                         <div className={`px-1 py-1.5 sm:px-1.5 ${CALENDAR_HEADER_CELL}`}>Time</div>
                         {activeBlockDates.map((d) => {
                           const ds = toLocalDateStr(d);
