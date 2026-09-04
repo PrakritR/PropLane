@@ -1,6 +1,12 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import {
+  CommunicationInboxRowCheckbox,
+  CommunicationListBulkBar,
+} from "@/components/portal/communication-list-bulk-bar";
+import { PortalFilterSortSheet } from "@/components/portal/portal-filter-sort-sheet";
+import { useUnifiedCommunicationBulk } from "@/hooks/use-unified-communication-bulk";
 import { Button } from "@/components/ui/button";
 import { Modal } from "@/components/ui/modal";
 import { MODAL_LARGE_PANEL_CLASS } from "@/components/ui/modal-styles";
@@ -191,6 +197,20 @@ function ResidentUnifiedInbox({
     () => mergeUnifiedInboxItems([...emailItems, ...smsItems], "recent"),
     [emailItems, smsItems],
   );
+
+  const bulk = useUnifiedCommunicationBulk({
+    mergedRows: merged,
+    listSegment,
+    storageKey: RESIDENT_INBOX_STORAGE_KEY,
+    emailThreads,
+    onEmailThreadsChange: setEmailThreads,
+    onSelectionCleared: () => {
+      setSelectedKey(null);
+      onRouteThreadChange?.(undefined);
+      clearCommunicationThreadUrl(`${commBase}/${listSegment}`);
+    },
+  });
+
   const selection = useMemo(() => (selectedKey ? parseUnifiedInboxKey(selectedKey) : null), [selectedKey]);
 
   useEffect(() => {
@@ -209,9 +229,6 @@ function ResidentUnifiedInbox({
 
   const listPane = (
     <div className="flex min-h-0 flex-1 flex-col">
-      {/* Above the list on purpose: the first thing on the screen they opened in
-          order to reach someone, and it does not scroll away inside a thread. */}
-      <ResidentManagerNumberCard />
       <div className={INBOX_LIST_SCROLL}>
         {merged.length === 0 ? (
           listSegment === "archived" ? (
@@ -227,6 +244,13 @@ function ResidentUnifiedInbox({
           merged.map((row) => (
             <InboxConversationRow
               key={row.key}
+              leading={
+                <CommunicationInboxRowCheckbox
+                  checked={bulk.selection.selectedIds.has(row.key)}
+                  onToggle={() => bulk.selection.toggleSelected(row.key)}
+                  label={`Select conversation with ${row.name}`}
+                />
+              }
               name={row.name}
               subtitle={row.subtitle}
               preview={row.preview}
@@ -286,16 +310,26 @@ function ResidentUnifiedInbox({
   );
 
   return (
-    <InboxTwoPane
-      heightMode="viewport"
-      fillViewport={Boolean(selection)}
-      fillParent
-      mobileCompact
-      className="min-h-0 flex-1 max-md:rounded-xl max-md:shadow-[var(--shadow-sm)]"
-      threadOpen={Boolean(selection)}
-      list={listPane}
-      thread={threadPane}
-    />
+    <>
+      <InboxTwoPane
+        heightMode="viewport"
+        fillViewport={Boolean(selection)}
+        fillParent
+        mobileCompact
+        className="min-h-0 flex-1 max-md:rounded-xl max-md:shadow-[var(--shadow-sm)]"
+        threadOpen={Boolean(selection)}
+        list={listPane}
+        thread={threadPane}
+      />
+      <CommunicationListBulkBar
+        count={bulk.selectedCount}
+        listSegment={listSegment}
+        onArchive={listSegment !== "archived" ? () => void bulk.handleArchive() : undefined}
+        onRestore={listSegment === "archived" ? () => void bulk.handleRestore() : undefined}
+        onDelete={listSegment === "archived" ? () => void bulk.handleDelete() : undefined}
+        onClear={bulk.selection.clearSelection}
+      />
+    </>
   );
 }
 
@@ -323,6 +357,22 @@ export function ResidentCommunication({
   const [communicationSettingsOpen, setCommunicationSettingsOpen] = useState(false);
   const demo = isDemoModeActive();
 
+  const communicationFilterSheet = (
+    <PortalFilterSortSheet
+      activeCount={0}
+      compactPanel
+      commandStripTrigger
+      filterFieldCount={1}
+      className="flex-none"
+      mobileFlushBody
+      dataAttr="resident-communication-filter-open"
+    >
+      <p className="text-sm text-muted">
+        Resident Communication shows all of your conversations. Use Archived to review older threads.
+      </p>
+    </PortalFilterSortSheet>
+  );
+
   const openCompose = () => inboxRef.current?.openCompose();
 
   const communicationNewMessageButton = (
@@ -343,6 +393,7 @@ export function ResidentCommunication({
 
   const communicationCommandActions = (
     <>
+      {communicationFilterSheet}
       <Button
         type="button"
         variant="outline"
@@ -350,7 +401,7 @@ export function ResidentCommunication({
         data-attr="communication-settings-open"
         onClick={() => setCommunicationSettingsOpen(true)}
       >
-        Settings
+        Set up messaging
       </Button>
       {communicationNewMessageButton}
     </>
@@ -363,13 +414,19 @@ export function ResidentCommunication({
       destinations={[
         { id: "active", label: "Active", href: `${commBase}/active`, dataAttr: "communication-segment-active" },
         {
+          id: "unread",
+          label: "Unread",
+          href: `${commBase}/unread`,
+          dataAttr: "communication-segment-unread",
+        },
+        {
           id: "archived",
           label: "Archived",
           href: `${commBase}/archived`,
           dataAttr: "communication-segment-archived",
         },
       ]}
-      activeDestinationId={listSegment === "unread" ? "active" : listSegment}
+      activeDestinationId={listSegment}
       destinationAriaLabel="Conversation folders"
       actions={communicationCommandActions}
     />
@@ -399,14 +456,17 @@ export function ResidentCommunication({
       <Modal
         open={communicationSettingsOpen}
         onClose={() => setCommunicationSettingsOpen(false)}
-        title="Messaging"
+        title="Set up messaging"
         panelClassName={MODAL_LARGE_PANEL_CLASS}
       >
-        <PortalTextNotificationsBlock
-          dataAttrPrefix="resident"
-          demo={demo}
-          description="Verify your mobile number to receive property updates and securely use the resident text assistant."
-        />
+        <div className="space-y-4">
+          <ResidentManagerNumberCard />
+          <PortalTextNotificationsBlock
+            dataAttrPrefix="resident"
+            demo={demo}
+            description="Verify your mobile number to receive property updates and securely use the resident text assistant."
+          />
+        </div>
       </Modal>
     </PortalCommunicationShell>
   );

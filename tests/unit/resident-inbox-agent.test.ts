@@ -18,20 +18,26 @@ const RESIDENT = "d1b42a92-0784-4ccc-b857-41db374547e1";
 const MANAGER = "552b562f-e9cb-443b-84ec-48018fc0fa19";
 
 describe("thread identity", () => {
-  it("is stable for one resident+manager pair, so the assistant is one conversation", () => {
-    expect(residentAgentThreadId(RESIDENT, MANAGER)).toBe(residentAgentThreadId(RESIDENT, MANAGER));
+  it("is stable for one resident regardless of manager argument", () => {
+    expect(residentAgentThreadId(RESIDENT, MANAGER)).toBe(`resident-agent-${RESIDENT}`);
+    expect(residentAgentThreadId(RESIDENT)).toBe(residentAgentThreadId(RESIDENT, MANAGER));
   });
 
-  it("round-trips the manager the thread is bound to", () => {
-    const id = residentAgentThreadId(RESIDENT, MANAGER);
-    expect(managerUserIdFromAgentThreadId(id, RESIDENT)).toBe(MANAGER);
+  it("round-trips the manager from a legacy thread id", () => {
+    const legacyId = `resident-agent-${RESIDENT}-${MANAGER}`;
+    expect(managerUserIdFromAgentThreadId(legacyId, RESIDENT)).toBe(MANAGER);
+  });
+
+  it("reads boundManagerUserId from row data on canonical ids", () => {
+    const canonicalId = residentAgentThreadId(RESIDENT);
+    expect(
+      managerUserIdFromAgentThreadId(canonicalId, RESIDENT, { boundManagerUserId: MANAGER }),
+    ).toBe(MANAGER);
   });
 
   it("refuses to read a manager out of a thread that is not this resident's", () => {
-    // The binding is a security boundary: guessing it wrong would scope the
-    // assistant's tools against the wrong tenant.
-    const id = residentAgentThreadId(RESIDENT, MANAGER);
-    expect(managerUserIdFromAgentThreadId(id, "someone-else")).toBeNull();
+    const legacyId = `resident-agent-${RESIDENT}-${MANAGER}`;
+    expect(managerUserIdFromAgentThreadId(legacyId, "someone-else")).toBeNull();
     expect(managerUserIdFromAgentThreadId("portal-message-123", RESIDENT)).toBeNull();
     expect(managerUserIdFromAgentThreadId(`resident-agent-${RESIDENT}-`, RESIDENT)).toBeNull();
   });

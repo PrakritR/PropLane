@@ -2,6 +2,11 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
+import {
+  CommunicationInboxRowCheckbox,
+  CommunicationListBulkBar,
+} from "@/components/portal/communication-list-bulk-bar";
+import { useUnifiedCommunicationBulk } from "@/hooks/use-unified-communication-bulk";
 import { VendorInboxPanel, type VendorInboxPanelHandle } from "@/components/portal/vendor-inbox-panel";
 import { RoleSmsPanel } from "@/components/portal/role-sms-panel";
 import {
@@ -184,6 +189,20 @@ function VendorUnifiedInbox({
   }, [listSegment, searchQuery, smsMessages, smsOpened, smsUiEnabled]);
 
   const merged = useMemo(() => mergeUnifiedInboxItems([...emailItems, ...smsItems]), [emailItems, smsItems]);
+
+  const bulk = useUnifiedCommunicationBulk({
+    mergedRows: merged,
+    listSegment,
+    storageKey: VENDOR_INBOX_STORAGE_KEY,
+    emailThreads,
+    onEmailThreadsChange: setEmailThreads,
+    onSelectionCleared: () => {
+      setSelectedKey(null);
+      onRouteThreadChange?.(undefined);
+      clearCommunicationThreadUrl(`${commBase}/${listSegment}`);
+    },
+  });
+
   const selection = useMemo(() => (selectedKey ? parseUnifiedInboxKey(selectedKey) : null), [selectedKey]);
 
   useEffect(() => {
@@ -226,6 +245,13 @@ function VendorUnifiedInbox({
           merged.map((row) => (
             <InboxConversationRow
               key={row.key}
+              leading={
+                <CommunicationInboxRowCheckbox
+                  checked={bulk.selection.selectedIds.has(row.key)}
+                  onToggle={() => bulk.selection.toggleSelected(row.key)}
+                  label={`Select conversation with ${row.name}`}
+                />
+              }
               name={row.name}
               subtitle={row.subtitle}
               preview={row.preview}
@@ -285,16 +311,26 @@ function VendorUnifiedInbox({
   );
 
   return (
-    <InboxTwoPane
-      heightMode="viewport"
-      fillViewport={Boolean(selection)}
-      fillParent
-      mobileCompact
-      className="min-h-0 flex-1 max-md:rounded-xl max-md:shadow-[var(--shadow-sm)]"
-      threadOpen={Boolean(selection)}
-      list={listPane}
-      thread={threadPane}
-    />
+    <>
+      <InboxTwoPane
+        heightMode="viewport"
+        fillViewport={Boolean(selection)}
+        fillParent
+        mobileCompact
+        className="min-h-0 flex-1 max-md:rounded-xl max-md:shadow-[var(--shadow-sm)]"
+        threadOpen={Boolean(selection)}
+        list={listPane}
+        thread={threadPane}
+      />
+      <CommunicationListBulkBar
+        count={bulk.selectedCount}
+        listSegment={listSegment}
+        onArchive={listSegment !== "archived" ? () => void bulk.handleArchive() : undefined}
+        onRestore={listSegment === "archived" ? () => void bulk.handleRestore() : undefined}
+        onDelete={listSegment === "archived" ? () => void bulk.handleDelete() : undefined}
+        onClear={bulk.selection.clearSelection}
+      />
+    </>
   );
 }
 

@@ -9,6 +9,16 @@ import { ManagerInbox, type ManagerInboxHandle } from "@/components/portal/pro-i
 import { ManagerSmsPanel, type ManagerSmsPanelHandle } from "@/components/portal/pro-sms-panel";
 import { DestinationNav } from "@/components/ui/destination-nav";
 import {
+  CommunicationInboxRowCheckbox,
+  CommunicationListBulkBar,
+} from "@/components/portal/communication-list-bulk-bar";
+import {
+  PortalContactDetailsModal,
+} from "@/components/portal/portal-contact-details-modal";
+import { dispatchManagerSmsContactsChanged } from "@/lib/manager-sms-messages";
+import { useUnifiedCommunicationBulk } from "@/hooks/use-unified-communication-bulk";
+import { useOptionalAppUi } from "@/components/providers/app-ui-provider";
+import {
   INBOX_LIST_SCROLL,
   InboxConversationListAddRow,
   InboxConversationRow,
@@ -191,6 +201,7 @@ export function ManagerUnifiedInbox({
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
   const [mobileThreadOpen, setMobileThreadOpen] = useState(Boolean(routeThreadId));
   const listSegment = listSegmentProp;
+  const appUi = useOptionalAppUi();
 
   const threadListHref = useCallback(
     () => `${commBase}/${listSegment}`,
@@ -501,6 +512,22 @@ export function ManagerUnifiedInbox({
     [emailListItems, smsListItems, placeholderListItems, listSort],
   );
 
+  const bulk = useUnifiedCommunicationBulk({
+    mergedRows,
+    listSegment,
+    storageKey: MANAGER_INBOX_STORAGE_KEY,
+    emailThreads,
+    onEmailThreadsChange: setEmailThreads,
+    onSmsArchiveChange: () => setSmsArchivedIds(loadManagerSmsArchivedIds()),
+    showToast: appUi?.showToast,
+    onSelectionCleared: () => {
+      setSelectedKey(null);
+      setMobileThreadOpen(false);
+      onRouteThreadChange?.(undefined);
+      clearCommunicationThreadUrl(threadListHref());
+    },
+  });
+
   const selection = useMemo(() => (selectedKey ? parseUnifiedInboxKey(selectedKey) : null), [selectedKey]);
 
   /**
@@ -694,6 +721,13 @@ export function ManagerUnifiedInbox({
           mergedRows.map((row) => (
             <InboxConversationRow
               key={row.key}
+              leading={
+                <CommunicationInboxRowCheckbox
+                  checked={bulk.selection.selectedIds.has(row.key)}
+                  onToggle={() => bulk.selection.toggleSelected(row.key)}
+                  label={`Select conversation with ${row.name}`}
+                />
+              }
               name={row.name}
               subtitle={row.subtitle}
               preview={row.preview}
@@ -790,15 +824,40 @@ export function ManagerUnifiedInbox({
     );
 
   return (
-    <InboxTwoPane
-      heightMode="viewport"
-      fillViewport={threadOpen}
-      fillParent
-      mobileCompact
-      className="min-h-0 flex-1 max-md:rounded-xl max-md:shadow-[var(--shadow-sm)]"
-      threadOpen={threadOpen}
-      list={listPane}
-      thread={threadPane}
-    />
+    <>
+      <InboxTwoPane
+        heightMode="viewport"
+        fillViewport={threadOpen}
+        fillParent
+        mobileCompact
+        className="min-h-0 flex-1 max-md:rounded-xl max-md:shadow-[var(--shadow-sm)]"
+        threadOpen={threadOpen}
+        list={listPane}
+        thread={threadPane}
+      />
+      <CommunicationListBulkBar
+        count={bulk.selectedCount}
+        listSegment={listSegment}
+        onArchive={listSegment !== "archived" ? () => void bulk.handleArchive() : undefined}
+        onRestore={listSegment === "archived" ? () => void bulk.handleRestore() : undefined}
+        onDelete={listSegment === "archived" ? () => void bulk.handleDelete() : undefined}
+        onEdit={bulk.canEditContact ? bulk.openEdit : undefined}
+        showEdit={bulk.canEditContact}
+        onClear={bulk.selection.clearSelection}
+      />
+      <PortalContactDetailsModal
+        open={bulk.editOpen}
+        onClose={() => bulk.setEditOpen(false)}
+        initial={bulk.editInitial}
+        onSave={(values) => {
+          void bulk.saveEdit(values, "manager").then(() => {
+            dispatchManagerSmsContactsChanged();
+          });
+        }}
+        saving={bulk.editSaving}
+        error={bulk.editError}
+        formId="manager-unified-inbox-contact-edit"
+      />
+    </>
   );
 }

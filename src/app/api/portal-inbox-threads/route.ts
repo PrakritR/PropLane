@@ -10,7 +10,11 @@ import {
 } from "@/lib/portal-inbox-thread-scope";
 import { ensureResidentAgentThread } from "@/lib/agent/resident-inbox-agent.server";
 import { managerIdsOwningResident } from "@/lib/resident-manager-scope";
-import { collapsePersonInboxThreads, type PersistedInboxThread } from "@/lib/portal-inbox-storage";
+import {
+  collapseAssistantInboxThreads,
+  collapsePersonInboxThreads,
+  type PersistedInboxThread,
+} from "@/lib/portal-inbox-storage";
 
 export const runtime = "nodejs";
 
@@ -82,9 +86,16 @@ export async function GET(request: Request) {
     const collapsed =
       scopeParam === MANAGER_INBOX_SCOPE
         ? collapsePersonInboxThreads(rows, { mergeFolders: true })
-        : rows;
+        : scopeParam === RESIDENT_INBOX_SCOPE
+          ? collapseAssistantInboxThreads(rows)
+          : rows;
 
-    return NextResponse.json({ rows: collapsed });
+    return NextResponse.json({
+      rows:
+        scopeParam === MANAGER_INBOX_SCOPE
+          ? collapseAssistantInboxThreads(collapsed)
+          : collapsed,
+    });
   } catch (e) {
     const message = e instanceof Error ? e.message : "Failed to load records.";
     return NextResponse.json({ error: message }, { status: 500 });
