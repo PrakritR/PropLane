@@ -2492,33 +2492,29 @@ export function ManagerResidents({
     return true;
   }
 
-  async function deleteListSelectedResidents() {
-    const ids = [...selectedIds];
-    if (ids.length === 0) return;
-    const label =
-      ids.length === 1
-        ? residentDirectoryRows.find((row) => row.id === ids[0])?.name ||
-          residentDirectoryRows.find((row) => row.id === ids[0])?.email ||
-          "this resident"
-        : `${ids.length} residents`;
-    if (!window.confirm(`Delete ${label}? This cannot be undone.`)) return;
-
-    let deleted = 0;
-    for (const id of ids) {
-      const resident = residentDirectoryRows.find((row) => row.id === id);
-      if (!resident) continue;
-      if (await executeResidentDelete(resident)) deleted += 1;
+  /**
+   * Delete the resident the Edit modal is open on. Separate from the list's
+   * bulk delete: this one knows exactly which record it is destroying, names it
+   * in the confirmation, and closes the modal it was invoked from.
+   */
+  async function deleteEditedResident() {
+    const targetId = editResidentTargetId;
+    if (!targetId) return;
+    const resident = residentDirectoryRows.find((row) => row.id === targetId);
+    if (!resident) {
+      showToast("Resident record not found.");
+      return;
     }
-    if (deleted === 0) return;
+    const label = resident.name || resident.email || "this resident";
+    if (!window.confirm(`Delete ${label}? This cannot be undone.`)) return;
+    if (!(await executeResidentDelete(resident))) return;
+    setEditResidentOpen(false);
+    setEditResidentTargetId(null);
     clearSelection();
-    if (activeResidentId && ids.includes(activeResidentId)) {
+    if (activeResidentId === targetId) {
       navigate(`${portalBase}/residents/${residentsTab}`);
     }
-    showToast(
-      deleted === 1
-        ? "Resident and all related portal data deleted."
-        : `${deleted} residents and related portal data deleted.`,
-    );
+    showToast("Resident and all related portal data deleted.");
   }
 
   function leaseGenerationGateTitle(row: LeasePipelineRow): string | undefined {
@@ -3420,6 +3416,9 @@ export function ManagerResidents({
         }}
         bulkCount={listSelectedCount}
         bulkActions={
+          // Delete lives inside Edit resident, beside the record it would
+          // destroy — not one click from a row that may have been ticked by
+          // accident, on a bar showing nothing about who is about to go.
           <>
             <Button
               type="button"
@@ -3444,15 +3443,6 @@ export function ManagerResidents({
               }}
             >
               Edit
-            </Button>
-            <Button
-              type="button"
-              variant="outline"
-              className={`${PORTAL_BULK_BAR_BTN} border-rose-200 text-rose-800 hover:bg-[var(--status-overdue-bg)] portal-danger-outline`}
-              data-attr="residents-bulk-delete"
-              onClick={() => void deleteListSelectedResidents()}
-            >
-              Delete
             </Button>
           </>
         }
@@ -3828,8 +3818,24 @@ export function ManagerResidents({
         assistantContext="Edit resident"
         scrollableContent
         footer={
-          <ModalFooter>
-            <Button type="button" variant="primary" className="rounded-full" disabled={erSaving} onClick={saveEditedResident}>
+          <ModalFooter className="w-full">
+            <Button
+              type="button"
+              variant="outline"
+              className="rounded-full border-rose-200 text-rose-800 hover:bg-[var(--status-overdue-bg)] portal-danger-outline"
+              data-attr="edit-resident-delete"
+              disabled={erSaving || !editResidentTargetId}
+              onClick={() => void deleteEditedResident()}
+            >
+              Delete
+            </Button>
+            <Button
+              type="button"
+              variant="primary"
+              className="ml-auto rounded-full"
+              disabled={erSaving}
+              onClick={saveEditedResident}
+            >
               {erSaving ? "Saving…" : "Save resident"}
             </Button>
           </ModalFooter>
