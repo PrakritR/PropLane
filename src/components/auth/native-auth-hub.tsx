@@ -23,6 +23,7 @@ import {
 } from "@/lib/auth/post-oauth-routing";
 import { detectNativePlatformSync } from "@/lib/native/detect-native";
 import { createSupabaseBrowserClient } from "@/lib/supabase/browser";
+import { recoverImplicitAuthHash } from "@/lib/auth/recover-implicit-auth-hash";
 import { waitForOAuthUser } from "@/lib/auth/wait-for-oauth-user";
 import { isNativeOAuthInProgress } from "@/lib/native/open-url";
 import { getNativeInfo } from "@/lib/native/push-client";
@@ -112,6 +113,21 @@ function NativeAuthHubInner({ defaultMode = "sign-in" }: NativeAuthHubProps) {
     // eslint-disable-next-line react-hooks/set-state-in-effect -- one-time hydration from stored login on mount
     if (remembered) setEmail(remembered);
   }, []);
+
+  // Magic-link / implicit-flow redirects land with tokens in the hash on sign-in.
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      const supabase = createSupabaseBrowserClient();
+      const { recovered } = await recoverImplicitAuthHash(supabase);
+      if (cancelled || !recovered) return;
+      setErrorText(null);
+      window.location.replace(signInContinueHref);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [signInContinueHref]);
 
   // Legacy deep links (?mode=create) → unified create-account.
   useEffect(() => {

@@ -94,6 +94,16 @@ function GetStartedContent() {
     }
 
     void (async () => {
+      const supabase = createSupabaseBrowserClient();
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+      if (cancelled) return;
+      if (!session) {
+        router.replace("/auth/sign-in?next=%2Fauth%2Fget-started");
+        return;
+      }
+
       const { redirectTo, resolutionFailed } = await resolvePostAuthDestination("/auth/continue");
       if (cancelled) return;
       if (redirectTo && !isGetStartedDestination(redirectTo)) {

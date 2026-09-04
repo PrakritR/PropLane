@@ -82,6 +82,7 @@ const nextConfig: NextConfig = {
   },
   async redirects() {
     return [
+      { source: "/auth/login", destination: "/auth/sign-in", permanent: false },
       { source: "/dashboard", destination: "/auth/continue", permanent: false },
       { source: "/admin/applications", destination: "/admin/dashboard", permanent: false },
       { source: "/admin/applications/:path*", destination: "/admin/dashboard", permanent: false },
