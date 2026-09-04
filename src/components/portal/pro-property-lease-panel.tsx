@@ -1,8 +1,8 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { Button } from "@/components/ui/button";
-import { Modal } from "@/components/ui/modal";
+import { BulkActionBar } from "@/components/ui/bulk-action-bar";
 import { ProPortalSettingsModal } from "@/components/portal/pro-portal-settings-modal";
 import { PropertyLeaseFormModal } from "@/components/portal/property-lease-form-modal";
 import {
@@ -11,6 +11,8 @@ import {
   PortalPropertyDetailSection,
   PropertyDetailFooterActions,
 } from "@/components/portal/portal-property-detail-section";
+import { usePortalRowSelection } from "@/hooks/use-portal-row-selection";
+import { PORTAL_BULK_BAR_BTN } from "@/lib/portal-bulk-bar";
 import type { ManagerListingSubmissionV1 } from "@/lib/manager-listing-submission";
 import {
   persistManagerListingSubmission,
@@ -89,6 +91,7 @@ export function ManagerPropertyLeasePanel({
   settingsPropertyId,
   settingsPropertyLabel,
   onRegisterAddLease,
+  onBulkActionsChange,
 }: {
   sub: ManagerListingSubmissionV1;
   saveTarget: LeaseSaveTarget;
@@ -106,8 +109,12 @@ export function ManagerPropertyLeasePanel({
   settingsPropertyLabel?: string | null;
   /** Parent header "Add lease" — same handler as the dashed list footer row. */
   onRegisterAddLease?: (openAdd: (() => void) | null) => void;
+  /**
+   * When set (e.g. Edit lease modal), show the selectable catalog inline and
+   * publish selection actions to the parent dialog footer.
+   */
+  onBulkActionsChange?: (actions: ReactNode | null) => void;
 }) {
-  const [editModalOpen, setEditModalOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [formOpen, setFormOpen] = useState(false);
   const [formMode, setFormMode] = useState<"add" | "edit">("add");
@@ -116,6 +123,8 @@ export function ManagerPropertyLeasePanel({
   const syncedSub = useMemo(() => syncPropertyLeaseTemplatesFromListing(sub), [sub]);
   const templates = useMemo(() => readPropertyLeaseTemplates(syncedSub), [syncedSub]);
   const availableSeeds = useMemo(() => availableLeaseTemplateSeeds(syncedSub), [syncedSub]);
+  const embedInModal = Boolean(onBulkActionsChange);
+  const { selectedIds, toggleSelected, clearSelection } = usePortalRowSelection(templates.length);
 
   const bulkPropertyIds = useMemo(
     () => propertyIds?.filter((id) => id.trim()) ?? [],
@@ -176,15 +185,42 @@ export function ManagerPropertyLeasePanel({
   };
 
   const openAdd = useCallback(() => {
-    setEditModalOpen(true);
     setFormMode("add");
     setEditingTemplateId(null);
     setFormOpen(true);
   }, []);
 
-  const openEditModal = useCallback(() => {
-    setEditModalOpen(true);
+  const openEdit = useCallback((templateId: string) => {
+    setFormMode("edit");
+    setEditingTemplateId(templateId);
+    setFormOpen(true);
   }, []);
+
+  const selectedTemplates = useMemo(
+    () => templates.filter((template) => selectedIds.has(template.id)),
+    [selectedIds, templates],
+  );
+  const selectedTemplateId = selectedIds.size === 1 ? selectedTemplates[0]?.id ?? null : null;
+
+  useEffect(() => {
+    if (!onBulkActionsChange) return;
+    if (!selectedTemplateId) {
+      onBulkActionsChange(null);
+      return;
+    }
+    const templateId = selectedTemplateId;
+    onBulkActionsChange(
+      <Button
+        type="button"
+        variant="outline"
+        className={PORTAL_BULK_BAR_BTN}
+        data-attr="property-lease-bulk-edit"
+        onClick={() => openEdit(templateId)}
+      >
+        Edit lease
+      </Button>,
+    );
+  }, [onBulkActionsChange, openEdit, selectedTemplateId]);
 
   const addSeedTemplate = useCallback(
     (seedKey: PropertyLeaseListingSeedKey) => {
@@ -234,7 +270,10 @@ export function ManagerPropertyLeasePanel({
         return;
       }
 
-      if (!saveTarget) return;
+      if (!saveTarget) {
+        showToast("Could not add lease.");
+        return;
+      }
       const nextSub = addLeaseTemplateFromSeed(syncedSub, seedKey);
       if (nextSub === syncedSub) {
         showToast("That lease is already on this property.");
@@ -260,12 +299,6 @@ export function ManagerPropertyLeasePanel({
     onRegisterAddLease?.(openAdd);
     return () => onRegisterAddLease?.(null);
   }, [onRegisterAddLease, openAdd]);
-
-  const openEdit = (templateId: string) => {
-    setFormMode("edit");
-    setEditingTemplateId(templateId);
-    setFormOpen(true);
-  };
 
   const deleteTemplateAcrossProperties = (target: PropertyLeaseTemplate) => {
     if (!managerUserId) return false;
@@ -330,26 +363,51 @@ export function ManagerPropertyLeasePanel({
 
   const editingTemplate = templates.find((t) => t.id === editingTemplateId) ?? null;
 
-  const editorBody = (
+  const settingsFooter =
+    !embedInModal && settingsPropertyOptions.length > 0 ? (
+      <PropertyDetailFooterActions>
+        <Button
+          type="button"
+          variant="outline"
+          className={PORTAL_PROPERTY_DETAIL_ACTION_BUTTON_CLASS}
+          data-attr="property-lease-settings-open"
+          onClick={() => setSettingsOpen(true)}
+        >
+          Settings
+        </Button>
+      </PropertyDetailFooterActions>
+    ) : null;
+
+  const catalogBody = (
     <>
-      {templates.map((template) => (
-        <div key={template.id} className={PORTAL_PROPERTY_DETAIL_LIST_ROW_CLASS}>
-          <button
-            type="button"
-            className="flex min-w-0 flex-1 flex-col items-start text-left"
-            data-attr={`property-lease-edit-${template.id}`}
-            onClick={() => openEdit(template.id)}
-          >
-            <p className="text-sm font-semibold text-foreground">{template.label}</p>
-            <p className="mt-0.5 text-xs text-muted">{leaseDocumentSummary(template)}</p>
-            {formatApplicationLeaseTermsLabel(template.applicationLeaseTerms) ? (
-              <p className="mt-0.5 text-xs text-muted">
-                Applicants: {formatApplicationLeaseTermsLabel(template.applicationLeaseTerms)}
-              </p>
-            ) : null}
-          </button>
-        </div>
-      ))}
+      <PortalPropertyDetailSection
+        contentClassName="space-y-0"
+        actions={settingsFooter}
+      >
+        {templates.map((template) => (
+          <div key={template.id} className={PORTAL_PROPERTY_DETAIL_LIST_ROW_CLASS}>
+            <label className="flex min-w-0 flex-1 cursor-pointer items-start gap-3">
+              <input
+                type="checkbox"
+                className="mt-0.5 h-4 w-4 shrink-0 accent-primary"
+                checked={selectedIds.has(template.id)}
+                data-attr={`property-lease-select-${template.id}`}
+                onChange={() => toggleSelected(template.id)}
+                onClick={(event) => event.stopPropagation()}
+              />
+              <div className="min-w-0 flex-1">
+                <p className="text-sm font-semibold text-foreground">{template.label}</p>
+                <p className="mt-0.5 text-xs text-muted">{leaseDocumentSummary(template)}</p>
+                {formatApplicationLeaseTermsLabel(template.applicationLeaseTerms) ? (
+                  <p className="mt-0.5 text-xs text-muted">
+                    Applicants: {formatApplicationLeaseTermsLabel(template.applicationLeaseTerms)}
+                  </p>
+                ) : null}
+              </div>
+            </label>
+          </div>
+        ))}
+      </PortalPropertyDetailSection>
 
       {availableSeeds.length > 0 ? (
         <div className="px-3 py-4 max-md:px-2.5 sm:py-5">
@@ -369,71 +427,8 @@ export function ManagerPropertyLeasePanel({
     </>
   );
 
-  return (
+  const formModals = (
     <>
-      <PortalPropertyDetailSection
-        actions={
-          <PropertyDetailFooterActions>
-            <Button
-              type="button"
-              variant="outline"
-              className={PORTAL_PROPERTY_DETAIL_ACTION_BUTTON_CLASS}
-              data-attr="property-lease-edit-open"
-              onClick={openEditModal}
-            >
-              Edit lease
-            </Button>
-            {settingsPropertyOptions.length > 0 ? (
-              <Button
-                type="button"
-                variant="outline"
-                className={PORTAL_PROPERTY_DETAIL_ACTION_BUTTON_CLASS}
-                data-attr="property-lease-settings-open"
-                onClick={() => setSettingsOpen(true)}
-              >
-                Settings
-              </Button>
-            ) : null}
-          </PropertyDetailFooterActions>
-        }
-      >
-        {templates.length === 0 ? (
-          <p className="px-3 py-4 text-sm text-muted max-md:px-2.5">
-            No leases on this property yet. Use Edit lease to add long-term, short-term, or uploaded
-            lease templates.
-          </p>
-        ) : (
-          templates.map((template) => (
-            <div key={template.id} className={PORTAL_PROPERTY_DETAIL_LIST_ROW_CLASS}>
-              <div className="min-w-0 flex-1">
-                <p className="text-sm font-semibold text-foreground">{template.label}</p>
-                <p className="mt-0.5 text-xs text-muted">{leaseDocumentSummary(template)}</p>
-                {formatApplicationLeaseTermsLabel(template.applicationLeaseTerms) ? (
-                  <p className="mt-0.5 text-xs text-muted">
-                    Applicants: {formatApplicationLeaseTermsLabel(template.applicationLeaseTerms)}
-                  </p>
-                ) : null}
-              </div>
-            </div>
-          ))
-        )}
-      </PortalPropertyDetailSection>
-
-      <Modal
-        open={editModalOpen}
-        title="Edit lease"
-        description="Add or edit lease templates for each stay type on this property."
-        onClose={() => {
-          setEditModalOpen(false);
-          setFormOpen(false);
-          setEditingTemplateId(null);
-        }}
-        panelClassName="max-w-4xl"
-        assistantContext="Edit lease"
-      >
-        {editorBody}
-      </Modal>
-
       <PropertyLeaseFormModal
         open={formOpen}
         mode={formMode}
@@ -447,14 +442,13 @@ export function ManagerPropertyLeasePanel({
         onClose={() => {
           setFormOpen(false);
           setEditingTemplateId(null);
+          clearSelection();
         }}
         onAssistantRefresh={() => {
           void syncPropertyPipelineFromServer({ force: true }).then(() => onUpdated());
         }}
         onDelete={
-          editingTemplateId
-            ? () => handleDelete(editingTemplateId)
-            : undefined
+          editingTemplateId ? () => handleDelete(editingTemplateId) : undefined
         }
         onSave={(nextTemplates) => {
           if (!persistTemplates(nextTemplates)) {
@@ -478,6 +472,28 @@ export function ManagerPropertyLeasePanel({
           initialPropertyId={settingsPropertyOptions[0]?.id}
         />
       ) : null}
+    </>
+  );
+
+  return (
+    <>
+      {catalogBody}
+      {!embedInModal && selectedTemplateId ? (
+        <BulkActionBar count={selectedIds.size} hideCount variant="payments">
+          <div className="flex min-w-0 flex-wrap items-center justify-start gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              className={PORTAL_BULK_BAR_BTN}
+              data-attr="property-lease-bulk-edit"
+              onClick={() => openEdit(selectedTemplateId)}
+            >
+              Edit lease
+            </Button>
+          </div>
+        </BulkActionBar>
+      ) : null}
+      {formModals}
     </>
   );
 }

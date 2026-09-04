@@ -81,6 +81,7 @@ export function ManagerPropertyApplicationQuestionsPanel({
   onUpdated,
   showToast,
   onRegisterAddApplication,
+  embedInModal = false,
 }: {
   sub: ManagerListingSubmissionV1;
   saveTarget: QuestionsSaveTarget;
@@ -95,6 +96,8 @@ export function ManagerPropertyApplicationQuestionsPanel({
   onUpdated: () => void;
   showToast: (m: string) => void;
   onRegisterAddApplication?: (openAdd: (() => void) | null) => void;
+  /** When true (Edit application modal), render the catalog inline without a nested list modal. */
+  embedInModal?: boolean;
 }) {
   const [editModalOpen, setEditModalOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -270,11 +273,11 @@ export function ManagerPropertyApplicationQuestionsPanel({
   );
 
   const openAdd = useCallback(() => {
-    setEditModalOpen(true);
+    if (!embedInModal) setEditModalOpen(true);
     setEditorMode("add");
     setEditingTemplate(null);
     setEditorOpen(true);
-  }, []);
+  }, [embedInModal]);
 
   const openEditModal = useCallback(() => {
     setEditModalOpen(true);
@@ -370,6 +373,37 @@ export function ManagerPropertyApplicationQuestionsPanel({
       </div>
     </>
   );
+
+  if (embedInModal) {
+    return (
+      <>
+        {editorBody}
+        {editorOpen ? (
+          <ManagerApplicationQuestionsEditorModal
+            open
+            title={editorTitle}
+            sub={syncedSub}
+            saveTarget={saveTarget ?? undefined}
+            propertyIds={bulkPropertyIds.length > 0 ? bulkPropertyIds : undefined}
+            managerUserId={managerUserId}
+            initialVariant={editingTemplate?.formVariant ?? "standard"}
+            lockVariant={Boolean(editingTemplate)}
+            templateEditorMode={editorMode}
+            applicationTemplate={editingTemplate}
+            templates={templates}
+            onPersistSubmission={persistSubmission}
+            canDelete={editorMode === "edit"}
+            onDelete={
+              editingTemplate ? () => handleDeleteTemplate(editingTemplate.id) : undefined
+            }
+            onClose={closeEditor}
+            onSaved={onUpdated}
+            showToast={showToast}
+          />
+        ) : null}
+      </>
+    );
+  }
 
   return (
     <>

@@ -41,11 +41,14 @@ export function ManagerEditLeasesModal({
 }) {
   const [selectedId, setSelectedId] = useState("");
   const [editorRevision, setEditorRevision] = useState(0);
+  /** The lease panel's own selection action, rendered in this modal's footer. */
+  const [bulkActions, setBulkActions] = useState<ReactNode | null>(null);
 
   useEffect(() => {
     if (!open) {
       setSelectedId("");
       setEditorRevision(0);
+      setBulkActions(null);
     }
   }, [open]);
 
@@ -59,10 +62,18 @@ export function ManagerEditLeasesModal({
     }
   }, [open, propertyOptions, selectedId]);
 
-  const resolved = useMemo(() => {
+  const syncedSub = useMemo(() => {
     const id = selectedId.trim();
     if (!id || !managerUserId) return null;
-    return resolveManagerListingSubmissionForPropertyId(managerUserId, id);
+    const hit = resolveManagerListingSubmissionForPropertyId(managerUserId, id);
+    if (!hit) return null;
+    return syncPropertyLeaseTemplatesFromListing(hit.sub);
+  }, [editorRevision, selectedId, managerUserId]);
+
+  const resolvedSaveTarget = useMemo(() => {
+    const id = selectedId.trim();
+    if (!id || !managerUserId) return null;
+    return resolveManagerListingSubmissionForPropertyId(managerUserId, id)?.saveTarget ?? null;
   }, [editorRevision, selectedId, managerUserId]);
 
   const selectedLabel = selectedId
@@ -72,10 +83,9 @@ export function ManagerEditLeasesModal({
 
   const closeAll = () => {
     setSelectedId("");
+    setBulkActions(null);
     onClose();
   };
-
-  const syncedSub = resolved ? syncPropertyLeaseTemplatesFromListing(resolved.sub) : null;
 
   return (
     <Modal
@@ -85,6 +95,11 @@ export function ManagerEditLeasesModal({
       onClose={closeAll}
       panelClassName="max-w-4xl"
       assistantContext="Edit lease"
+      footer={
+        bulkActions ? (
+          <ModalFooter className="w-full justify-start">{bulkActions}</ModalFooter>
+        ) : undefined
+      }
     >
       <div className="space-y-4">
         <ManagerSettingsPropertyField
@@ -95,17 +110,18 @@ export function ManagerEditLeasesModal({
 
         {!selectedId ? (
           <p className="text-sm text-muted">Choose a property to see its leases.</p>
-        ) : !resolved || !managerUserId || !syncedSub ? (
+        ) : !resolvedSaveTarget || !managerUserId || !syncedSub ? (
           <p className="text-sm text-muted">Could not load leases for that property.</p>
         ) : (
           <ManagerPropertyLeasePanel
             key={selectedId}
             sub={syncedSub}
-            saveTarget={resolved.saveTarget}
+            saveTarget={resolvedSaveTarget}
             managerUserId={managerUserId}
             propertyHint={selectedLabel ? { buildingName: selectedLabel } : undefined}
             propertyId={selectedId}
             propertyLabel={selectedLabel}
+            onBulkActionsChange={setBulkActions}
             onUpdated={() => {
               setEditorRevision((revision) => revision + 1);
               onSaved();

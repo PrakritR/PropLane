@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
-import { Modal } from "@/components/ui/modal";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { Modal, ModalFooter } from "@/components/ui/modal";
 import { ManagerPropertyRequestsPanel } from "@/components/portal/pro-property-requests-panel";
 import { ManagerSettingsPropertyField } from "@/components/portal/pro-portal-settings-panels";
 import type { ManagerPropertyFilterOption } from "@/lib/manager-portfolio-access";
@@ -34,11 +34,13 @@ export function ManagerEditServiceRequestsModal({
 }) {
   const [selectedId, setSelectedId] = useState("");
   const [refreshTick, setRefreshTick] = useState(0);
+  const [bulkActions, setBulkActions] = useState<ReactNode | null>(null);
 
   useEffect(() => {
     if (!open) {
       setSelectedId("");
       setRefreshTick(0);
+      setBulkActions(null);
     }
   }, [open]);
 
@@ -66,10 +68,14 @@ export function ManagerEditServiceRequestsModal({
 
   const closeAll = () => {
     setSelectedId("");
+    setBulkActions(null);
     onClose();
   };
 
-  const sub = resolved ? normalizeManagerListingSubmissionV1(resolved.sub) : null;
+  const sub = useMemo(
+    () => (resolved ? normalizeManagerListingSubmissionV1(resolved.sub) : null),
+    [resolved],
+  );
 
   return (
     <Modal
@@ -80,6 +86,11 @@ export function ManagerEditServiceRequestsModal({
       panelClassName="max-w-4xl"
       dataAttr="services-edit-request-types"
       assistantContext="Edit service types"
+      footer={
+        bulkActions ? (
+          <ModalFooter className="w-full justify-start">{bulkActions}</ModalFooter>
+        ) : undefined
+      }
     >
       <div className="space-y-4">
         <ManagerSettingsPropertyField
@@ -103,6 +114,7 @@ export function ManagerEditServiceRequestsModal({
               onSaved();
             }}
             showToast={showToast}
+            onBulkActionsChange={setBulkActions}
           />
         )}
       </div>
