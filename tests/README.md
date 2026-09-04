@@ -22,6 +22,12 @@ Playwright headless. Setup, macOS permissions, and example prompts:
 The server is declared in [`.cursor/mcp.json`](../.cursor/mcp.json) as
 `chrome-devtools`. Enable it under **Cursor Settings → MCP** after pull.
 
+## Cursor + Linear MCP (issues & project context)
+
+To let agents read or create Linear issues from Cursor, enable the `linear` server
+in [`.cursor/mcp.json`](../.cursor/mcp.json). Setup and OAuth/API-key options:
+[`docs/cursor-linear-mcp.md`](../docs/cursor-linear-mcp.md).
+
 ## Environment
 
 Use a **dedicated Supabase test project** — never production credentials. See [`.env.test.example`](../.env.test.example).
