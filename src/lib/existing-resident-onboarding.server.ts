@@ -105,11 +105,12 @@ export async function runExistingResidentOnboarding(
       });
 
   // `leaseId` is derived from the application's axis id, which is the SAME id
-  // space real approved-application leases use, and the route falls back to a
-  // client-supplied `row` when the scoped application lookup misses. Without
-  // this check an upsert on a colliding id would replace another manager's
-  // fully executed lease (document, signatures and all) and re-parent the row
-  // to the caller. Never write onto a lease record somebody else owns.
+  // space real approved-application leases use, so two managers can arrive at
+  // the same lease id from applications each of them legitimately owns.
+  // Without this check an upsert on a colliding id would replace another
+  // manager's fully executed lease (document, signatures and all) and
+  // re-parent the row to the caller. Never write onto a lease record somebody
+  // else owns.
   const { data: existingLease } = await db
     .from("portal_lease_pipeline_records")
     .select("id, manager_user_id")
@@ -153,6 +154,9 @@ export async function runExistingResidentOnboarding(
         ...(manualPdf ? { externallySignedLease: true as const } : {}),
       },
     };
+    // Scoped to the caller as defence in depth: the route only hands us a row
+    // it read back under this manager's id, and this update must not be able
+    // to reach another manager's application even if that ever changes.
     await db
       .from("manager_application_records")
       .update({
@@ -160,7 +164,8 @@ export async function runExistingResidentOnboarding(
         resident_email: email,
         updated_at: iso,
       })
-      .eq("id", row.id);
+      .eq("id", row.id)
+      .eq("manager_user_id", actor.userId);
   }
 
   return { ok: true, leaseId, welcomeEmailSent, axisId, row: nextRow };
