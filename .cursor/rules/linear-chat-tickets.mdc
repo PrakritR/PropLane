@@ -15,11 +15,11 @@ first. Do not jump to planning or coding.
 
 1. Read folder routing: `docs/linear-ticket-system.md` (decision tree + projects).
 2. Parse: title, bug vs feature, portal, area, urgency.
-3. **Create** via one of:
-   - **Preferred:** `npm run linear:ticket -- --chat "<captain's words>"` from repo root
-   - **Or** Linear MCP `save_issue` when `linear` tools are available in session
+3. **Create** via `npm run linear:ticket -- --chat "<captain's words>"` (GraphQL API only).
 4. Reply with **PRP-###** and the **full Linear URL**.
 5. **Next:** Phase ② — `npm run lavish:plan` (see `captain-dev-workflow.mdc`).
+
+**Do not use Linear MCP** — `LINEAR_API_KEY` in `.env.local` is required.
 
 ## Chat triggers (examples)
 
@@ -44,17 +44,18 @@ first. Do not jump to planning or coding.
 
 Always add labels: `portal:*`, `area:*`, and `Bug` | `Feature` | `Improvement`.
 
+Assignee + priority are auto-inferred (`scripts/linear/triage-rules.mjs`).
+
 ## Title format
 
 `[Area] Short imperative — user-visible outcome`
 
 ## Do not
 
-- Ask the captain to open Linear manually unless MCP and `npm run linear:ticket` both fail.
+- Use Linear MCP or `cursor agent` for tickets.
 - Create tickets without project + milestone.
 - Put secrets in descriptions.
 
 ## Auth
 
-Terminal agent: `cursor agent mcp login linear` (once per machine).
-Optional: `LINEAR_API_KEY` in env for `npm run linear:ticket` without agent fallback.
+`LINEAR_API_KEY` in `.env.local` — https://linear.app/settings/api

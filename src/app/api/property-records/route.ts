@@ -21,7 +21,7 @@ function listingApplicationFeeWaiverCodeFromPayload(rowData: unknown, propertyDa
     const submission = record.submission ?? record.listingSubmission;
     if (!submission || typeof submission !== "object") return null;
     const code = (submission as { applicationFeeWaiverCode?: unknown }).applicationFeeWaiverCode;
-    return typeof code === "string" ? code.trim() : "";
+    return typeof code === "string" ? code.trim() : null;
   };
   const fromRow = read(rowData);
   if (fromRow != null) return fromRow;

@@ -1131,7 +1131,11 @@ function RentalApplicationWizardInner({
             ? maskPhoneInput("", phoneDigits)
             : prev.phone;
 
-        const rentalType = shortTermFromLink ? "short_term" : prev.rentalType;
+        const rentalType = shortTermFromLink
+          ? "short_term"
+          : prev.rentalType === "short_term"
+            ? "standard"
+            : prev.rentalType;
         // When the listing offers exactly ONE lease term there is nothing for the
         // applicant to decide, so carry it over rather than making them re-pick
         // the only option (AXI-153). Only ever fills a BLANK field — an answer
@@ -1141,9 +1145,7 @@ function RentalApplicationWizardInner({
         const soleListingTerm = listingTerms.length === 1 ? listingTerms[0]! : "";
         const leaseTerm = shortTermFromLink
           ? (prev.leaseTerm || SHORT_TERM_LEASE_TERM)
-          : prev.rentalType === "short_term" && !shortTermFromLink
-            ? soleListingTerm
-            : prev.leaseTerm || soleListingTerm;
+          : prev.leaseTerm || soleListingTerm;
         return {
           ...base,
           propertyId: pid,

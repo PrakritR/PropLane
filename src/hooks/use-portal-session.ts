@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useSyncExternalStore } from "react";
 import type { AuthChangeEvent, Session } from "@supabase/supabase-js";
+import posthog from "posthog-js";
 import { setPortalSessionViewer } from "@/lib/auth/portal-session-gate";
 import { createSupabaseBrowserClient } from "@/lib/supabase/browser";
 import { safeBrowserGetSession } from "@/lib/supabase/safe-browser-session";
@@ -45,6 +46,13 @@ function updateSnapshot(next: PortalSessionSnapshot) {
 
 function applySession(session: Session | null) {
   const userId = session?.user?.id ?? null;
+  if (userId) {
+    try {
+      posthog.identify(userId);
+    } catch {
+      /* analytics must never break the portal */
+    }
+  }
   // Publish the identity BEFORE the snapshot so any cache listening for an
   // account change has already dropped the previous account's rows by the time
   // a subscribed component re-renders and reads from it.
