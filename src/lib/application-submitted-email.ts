@@ -21,7 +21,8 @@ export function buildApplicationSubmittedEmailBody(params: {
     return [
       greeting,
       "",
-      `We received your rental application${propertyLine}.`,
+      `Thanks for submitting your rental application${propertyLine}.`,
+      "We'll review it and get back to you.",
       "",
       `Your Application ID: ${params.axisId.trim()}`,
       "",
@@ -36,7 +37,8 @@ export function buildApplicationSubmittedEmailBody(params: {
   return [
     greeting,
     "",
-    `We received your rental application${propertyLine}.`,
+    `Thanks for submitting your rental application${propertyLine}.`,
+    "We'll review it and get back to you.",
     "",
     `Your Application ID: ${params.axisId.trim()}`,
     "",
@@ -81,7 +83,8 @@ export function buildApplicationSubmittedEmailHtml(params: {
 <body style="margin:0;padding:24px;font-family:system-ui,-apple-system,sans-serif;line-height:1.55;color:#0f172a;font-size:15px;background:#f8fafc">
 <div style="max-width:36rem;margin:0 auto;background:#ffffff;border-radius:12px;padding:28px;border:1px solid #e2e8f0">
 <p style="margin:0 0 12px 0">${greeting}</p>
-<p style="margin:0 0 12px 0">We received your rental application${propertyLine}.</p>
+<p style="margin:0 0 12px 0">Thanks for submitting your rental application${propertyLine}.</p>
+<p style="margin:0 0 12px 0">We'll review it and get back to you.</p>
 <p style="margin:0 0 8px 0"><strong>Application ID:</strong> ${escapeHtmlText(params.axisId.trim())}</p>
 <table role="presentation" cellspacing="0" cellpadding="0" border="0" style="margin:16px 0">
 <tr><td style="border-radius:10px;background:#2563eb">
