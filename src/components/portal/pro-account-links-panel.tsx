@@ -191,9 +191,29 @@ function teamPropertyPreview(propertyIds: string[], labelFor: (id: string) => st
   return labels.join(" · ");
 }
 
+/**
+ * How long a pending invite has left, in words.
+ *
+ * A pending invite used to be acceptable forever, so nothing on this screen
+ * ever told a manager that one had gone stale (PRP-205). Returns "" for a row
+ * written before the column existed, rather than guessing a date.
+ */
+export function teamInvitePendingExpiryLabel(expiresAt: string | null | undefined, now = Date.now()): string {
+  const at = expiresAt ? Date.parse(expiresAt) : Number.NaN;
+  if (!Number.isFinite(at)) return "";
+  const msLeft = at - now;
+  if (msLeft <= 0) return "Expired";
+  const days = Math.ceil(msLeft / 86_400_000);
+  if (days <= 1) return "Expires today";
+  return `Expires in ${days} days`;
+}
+
 function teamInviteStatusLabel(inv: AccountLinkInviteDto): string {
-  if (inv.status === "pending" && inv.direction === "incoming") return "Needs approval";
-  if (inv.status === "pending" && inv.direction === "outgoing") return "Invite sent";
+  if (inv.status === "pending") {
+    const base = inv.direction === "incoming" ? "Needs approval" : "Invite sent";
+    const expiry = teamInvitePendingExpiryLabel(inv.expiresAt);
+    return expiry ? `${base} · ${expiry}` : base;
+  }
   if (inv.direction === "incoming") return "Linked to you";
   return TEAM_MEMBER_ROLE_LABEL;
 }
@@ -1027,7 +1047,12 @@ export function ProAccountLinksPanel({ userId, linkId: linkIdProp }: { userId: s
         resetLinkDraft();
         setLinkInvitePreview(null);
         showToast(
-          skipMessage ? "Invite sent. Waiting for their approval." : "Invite sent and team member notified.",
+          skipMessage
+            ? // "Invite sent" while nothing left the building is the sentence
+              // that left managers waiting on an approval the other person was
+              // never told to give (PRP-205). Say what actually happened.
+              "Invite created, but nothing was sent. Tell them to open PropLane → Co-managers to accept it."
+            : "Invite sent and team member notified.",
         );
         return;
       }
@@ -1036,7 +1061,9 @@ export function ProAccountLinksPanel({ userId, linkId: linkIdProp }: { userId: s
       setLinkInvitePreview(null);
       refreshLocal();
       showToast(
-        skipMessage ? "Link saved locally." : "Link saved and team member notified.",
+        skipMessage
+          ? "Link saved locally. Nothing was sent — tell them to open PropLane → Co-managers."
+          : "Link saved and team member notified.",
       );
     } finally {
       setLinkInviteBusy(false);

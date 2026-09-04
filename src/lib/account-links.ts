@@ -27,6 +27,14 @@ export type AccountLinkInviteDto = {
   payoutPercentForManager: number;
   /** Merged flat permissions across all assigned properties (nav gating). */
   coManagerPermissions: CoManagerPermissions;
+  /**
+   * When the invite stops being acceptable (30 days from creation).
+   *
+   * A pending invite used to live forever, and one that was never delivered was
+   * also never chased — a stale, invisible, maximum-lifetime grant (PRP-205).
+   * Null only on a row written before the column existed.
+   */
+  expiresAt?: string | null;
   /** Per-property permission grants. */
   propertyCoManagerPermissions: PropertyCoManagerPermissions;
   createdAt: string;

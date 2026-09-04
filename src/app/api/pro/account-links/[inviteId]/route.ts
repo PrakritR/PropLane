@@ -257,6 +257,19 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ inviteId: str
       return NextResponse.json({ error: "This invite is no longer pending." }, { status: 409 });
     }
 
+    // A pending invite used to be acceptable forever. Combined with one that was
+    // never delivered — so never chased, and forgotten by the manager who sent
+    // it — that is a stale, invisible grant of module access to the assigned
+    // properties (PRP-205). Cancelling is still allowed past the date, so the
+    // inviter can tidy up what lapsed.
+    const expiresAt = invite.expires_at ? Date.parse(String(invite.expires_at)) : Number.NaN;
+    if (actionNorm === "accept" && Number.isFinite(expiresAt) && expiresAt < Date.now()) {
+      return NextResponse.json(
+        { error: "This invite has expired. Ask the manager to send a new one." },
+        { status: 409 },
+      );
+    }
+
     if (actionNorm === "cancel") {
       if (invite.inviter_user_id !== user.id) {
         return NextResponse.json({ error: "Only the inviter can cancel." }, { status: 403 });

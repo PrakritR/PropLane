@@ -35,6 +35,7 @@ export type InviteRow = {
   status: string;
   created_at: string;
   responded_at: string | null;
+  expires_at?: string | null;
 };
 
 export function asStringArray(v: unknown): string[] {
@@ -91,6 +92,7 @@ export function serializeInvite(
     propertyCoManagerPermissions,
     createdAt: row.created_at,
     respondedAt: row.responded_at,
+    expiresAt: row.expires_at ?? null,
   };
 }
 
