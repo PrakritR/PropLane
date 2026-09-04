@@ -27,8 +27,11 @@ once the workspace has room.
   Renaming them is a migration: lease ids and charge references derive from that
   id, and the fixtures cross-reference each other, so they move together or not
   at all. Production rows are not something to rewrite without a plan.
-* **Tasks settings dropdowns clip.** Fixed the text overflow; a menu opened near
-  the bottom of a tall modal can still render past the panel edge.
+* ~~**Tasks settings dropdowns clip.**~~ — DONE, and more thoroughly than the
+  note assumed. `useFieldSelectMenu` portals the menu out of the modal and
+  positions it `fixed`, so a scroll container cannot clip it at all; it also
+  flips above the trigger when there is more room there, and clamps its height
+  to the viewport. Nothing left here.
 
 ## Redesigns the captain asked for — these need plans, not late-night edits
 
