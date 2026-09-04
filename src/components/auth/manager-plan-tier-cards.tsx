@@ -124,7 +124,12 @@ export function ManagerPlanTierCards({
   }
 
   return (
-    <div className="grid gap-3 sm:gap-4">
+    // Three across from `md` up. Stacked, the three plans were taller than the
+    // viewport on a desktop browser, so comparing them meant scrolling — the one
+    // thing a pricing chooser must not ask for (AXI-128). Both call sites render
+    // inside `AuthCard wide` (52rem), which leaves ~16rem per column at md.
+    // Still one column on a phone, where side-by-side would be unreadable.
+    <div className="grid gap-3 sm:gap-4 md:grid-cols-3">
       {tiers.map((tier) => {
         const price = billing === "monthly" ? tier.monthly : tier.annual;
         const isSelected = selectedTierId === tier.id;
@@ -136,7 +141,7 @@ export function ManagerPlanTierCards({
             type="button"
             disabled={disabled}
             onClick={() => onSelectTier(tier.id)}
-            className={`auth-plan-tier-card w-full rounded-2xl border p-4 text-left transition sm:rounded-[1.35rem] sm:p-5 ${
+            className={`auth-plan-tier-card flex h-full w-full flex-col rounded-2xl border p-4 text-left transition sm:rounded-[1.35rem] sm:p-5 ${
               isSelected
                 ? "border-primary/50 bg-primary/[0.06] shadow-[0_0_0_1px_rgba(47,107,255,0.2)]"
                 : "border-border bg-card/50 hover:border-primary/25"
