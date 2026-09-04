@@ -18,6 +18,8 @@ import {
   leaseClaimsExecution,
   refuseResidentLeaseSignatureWrite,
   replacesSignedLeaseDocument,
+  leaseSignatureRoleForgedBy,
+  leaseSignatureWriteRefusal,
   rowHasAnySignature,
 } from "@/lib/lease-execution-evidence";
 import { leaseBodyMatchesManagerFiledLease } from "@/lib/lease-manager-filed-document.server";
@@ -484,14 +486,62 @@ export async function POST(req: Request) {
       // browser also materializes — is admitted only by matching the bytes the
       // manager filed on the application record, keyed on the STORED row's
       // `axisId` and owner.
+      const introducesDocumentClaimingExecution = introducesUntrustedLeaseDocument(
+        storedRow,
+        normalized as unknown as LeasePipelineRow,
+      );
       const untrustedDocument =
-        introducesUntrustedLeaseDocument(storedRow, normalized as unknown as LeasePipelineRow) &&
+        introducesDocumentClaimingExecution &&
         !(await leaseBodyMatchesManagerFiledLease(
           ctx.db,
           storedRow?.axisId,
           existingRecord?.manager_user_id,
           leaseDocumentBody(normalized as unknown as LeasePipelineRow),
         ));
+
+      // The signature itself, same reasoning as the document-body rule above.
+      // `residentSignLease` / `managerSignLease` already refuse a second signature and a row
+      // that was never sent, but they run in the browser against a store the browser owns —
+      // and `row_data` is writable by the row's own resident, so that check was advisory.
+      // Without this, a resident could sign twice (destroying the hash the first signature
+      // recorded, which is the only evidence of what they agreed to) or sign a lease still
+      // sitting in manager review. Keyed on the signature rather than the actor: writing
+      // someone else's signature is the same forgery whoever's session it arrives on.
+      //
+      // Exempt: the corroborated filing of an already-executed OFF-PLATFORM lease, which is
+      // not signing at all. Its trust comes from the bytes matching the lease the manager
+      // filed on the application — the check immediately above — so it legitimately arrives
+      // carrying both signatures on a row that was never "awaiting" either. The exemption is
+      // keyed on that corroboration actually having run and passed, never on a request flag,
+      // and it does not cover a write that adds signatures WITHOUT introducing the document
+      // they attest to: that is the sign-before-send shape this guard exists to refuse.
+      const filesCorroboratedExternalLease = introducesDocumentClaimingExecution && !untrustedDocument;
+      if (storedRow && !filesCorroboratedExternalLease) {
+        const signatureRefusal = leaseSignatureWriteRefusal(
+          storedRow,
+          normalized as unknown as LeasePipelineRow,
+        );
+        if (signatureRefusal) {
+          return NextResponse.json({ error: signatureRefusal }, { status: 409 });
+        }
+
+        // Whose signature it is, which the refusal above deliberately does not judge. From the
+        // row's own state a manager countersignature is legitimate — the lease IS awaiting one
+        // — so nothing else stopped a RESIDENT from writing it and marking the lease fully
+        // executed against a manager who never countersigned. A party may only ever add their
+        // own signature.
+        const forgedRole = leaseSignatureRoleForgedBy(
+          storedRow,
+          normalized as unknown as LeasePipelineRow,
+          ctx.user.role === "resident" ? "resident" : "manager",
+        );
+        if (forgedRole) {
+          return NextResponse.json(
+            { error: `Only the ${forgedRole} can add the ${forgedRole}'s signature.` },
+            { status: 403 },
+          );
+        }
+      }
 
       // P4's signature check above is authoritative once signing begins. These two
       // companion checks close the earlier window: a document must not be replaced
