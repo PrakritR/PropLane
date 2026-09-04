@@ -858,7 +858,16 @@ export function PortalCalendarPanels({
     observer.observe(toolbar);
     return () => observer.disconnect();
   });
-  const { teamMembers, vendors } = useWorkAssignmentDirectory({ managerUserId: userId });
+  // This calendar renders in the VENDOR portal too, where the assignment
+  // directory (the manager's team + vendor list) is not the viewer's to read —
+  // /api/portal-vendors answers 403 by design. `vendorDayFlexibility` is the
+  // prop only the vendor calendar passes, and is already how `vendorMode` is
+  // derived further down.
+  const isVendorViewer = Boolean(vendorDayFlexibility);
+  const { teamMembers, vendors } = useWorkAssignmentDirectory({
+    managerUserId: userId,
+    enabled: !isVendorViewer,
+  });
   const writeStorageKeys = useMemo(() => {
     if (availabilityStorageKeys?.length) return availabilityStorageKeys;
     return storageKey ? [storageKey] : [];
