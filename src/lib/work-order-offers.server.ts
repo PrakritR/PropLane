@@ -7,6 +7,8 @@
 import { track } from "@/lib/analytics/posthog";
 import type { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { sendVendorNotification } from "@/lib/vendor-notification-delivery";
+import { resolvePropertyScopedManagerRecipientIds } from "@/lib/co-manager-notification-recipients.server";
+import { notifyWorkOrderEvent } from "@/lib/work-order-notification.server";
 import { buildVendorBidOfferEmail } from "@/lib/vendor-visit-email";
 import type { DemoManagerWorkOrderRow } from "@/data/demo-portal";
 import type { WorkOrderActionFailure, WorkOrderActor } from "@/lib/work-order-bids.server";
@@ -143,4 +145,117 @@ export async function sendWorkOrderVendorOffers(
 
   track("work_order_vendor_offer_sent", actor.userId, { work_order_id: workOrderId, vendor_count: sent.length });
   return { ok: true, sent, skipped };
+}
+
+/**
+ * A vendor's answer to an offer: no, and optionally why.
+ *
+ * Before this the offer had exactly two states, and 'withdrawn' is the MANAGER pulling it
+ * back — so a vendor who was booked, or did not cover that trade, had no way to say no. The
+ * offer sat in their list indefinitely while the manager waited for a reply the product gave
+ * no way to send, unable to tell "not interested" from "hasn't looked yet".
+ *
+ * The vendor is read-only on `work_order_vendor_offers` at the database layer, so this runs
+ * service-role and re-derives ownership here: an offer is theirs when it names their user id,
+ * or names a directory row that does. Never by the offer id alone.
+ */
+export async function declineWorkOrderVendorOffer(
+  db: Db,
+  actor: { userId: string; role: string; admin: boolean; fullName?: string; email?: string },
+  body: { offerId?: string; reason?: string },
+): Promise<{ ok: true } | WorkOrderActionFailure> {
+  if (actor.role !== "vendor" && !actor.admin) {
+    return { ok: false, status: 403, error: "Forbidden." };
+  }
+  const offerId = body.offerId?.trim();
+  if (!offerId) return { ok: false, status: 400, error: "Offer id required." };
+
+  const { data: offer, error } = await db
+    .from("work_order_vendor_offers")
+    .select("id, work_order_id, vendor_directory_id, vendor_user_id, manager_user_id, status")
+    .eq("id", offerId)
+    .maybeSingle();
+  if (error) return { ok: false, status: 500, error: error.message };
+  if (!offer) return { ok: false, status: 404, error: "Offer not found." };
+
+  if (!actor.admin) {
+    let mine = offer.vendor_user_id === actor.userId;
+    if (!mine) {
+      // An offer sent to a directory row before the vendor claimed their account still names
+      // the row rather than the user, so ownership has to be checked both ways.
+      const { data: directoryRows } = await db
+        .from("manager_vendor_records")
+        .select("id")
+        .eq("vendor_user_id", actor.userId);
+      mine = (directoryRows ?? []).some((row) => String(row.id) === String(offer.vendor_directory_id));
+    }
+    // Not-mine reads as missing rather than forbidden: the id comes from the client and must
+    // never confirm that someone else's offer exists.
+    if (!mine) return { ok: false, status: 404, error: "Offer not found." };
+  }
+
+  if (offer.status !== "sent") {
+    return { ok: false, status: 409, error: `This offer is already ${offer.status}.` };
+  }
+
+  const reason = body.reason?.trim().slice(0, 500) || null;
+  const now = new Date().toISOString();
+  const { data: updated, error: updateError } = await db
+    .from("work_order_vendor_offers")
+    .update({ status: "declined", declined_reason: reason, declined_at: now, updated_at: now })
+    .eq("id", offerId)
+    // Re-asserted in the write: a manager withdrawing the offer between the read and here
+    // makes this a no-op rather than reviving it as declined.
+    .eq("status", "sent")
+    .select("id")
+    .maybeSingle();
+  if (updateError) return { ok: false, status: 500, error: updateError.message };
+  if (!updated) return { ok: false, status: 409, error: "This offer changed before your reply saved." };
+
+  await notifyManagerOfDeclinedOffer(db, actor, {
+    workOrderId: String(offer.work_order_id),
+    managerUserId: String(offer.manager_user_id),
+    reason,
+  });
+
+  return { ok: true };
+}
+
+/** Best-effort: the decline is recorded whether or not the manager's notification lands. */
+async function notifyManagerOfDeclinedOffer(
+  db: Db,
+  actor: { userId: string; fullName?: string; email?: string },
+  input: { workOrderId: string; managerUserId: string; reason: string | null },
+): Promise<void> {
+  try {
+    const { data: workOrder } = await db
+      .from("portal_work_order_records")
+      .select("row_data")
+      .eq("id", input.workOrderId)
+      .maybeSingle();
+    const rowData = (workOrder?.row_data ?? {}) as { title?: string; propertyLabel?: string };
+    const title = String(rowData.title ?? "").trim() || "Service";
+
+    const recipientIds = await resolvePropertyScopedManagerRecipientIds(db, {
+      ownerManagerUserId: input.managerUserId,
+      channel: "services",
+    });
+    if (recipientIds.length === 0) return;
+
+    await notifyWorkOrderEvent(db, {
+      event: "vendor_declined",
+      senderUserId: actor.userId,
+      senderEmail: actor.email ?? "",
+      senderName: actor.fullName || undefined,
+      subject: `Vendor declined: ${title}`,
+      text: `${actor.fullName || "A vendor"} declined "${title}".${input.reason ? ` Reason: ${input.reason}` : ""}`,
+      title,
+      propertyLabel: String(rowData.propertyLabel ?? "").trim() || undefined,
+      note: input.reason ?? undefined,
+      toUserIds: recipientIds,
+      audience: "manager",
+    });
+  } catch {
+    // Swallowed on purpose: the vendor said no, and that answer must survive a mail outage.
+  }
 }

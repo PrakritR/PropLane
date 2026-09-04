@@ -11,6 +11,7 @@ export type WorkOrderSmsEvent =
   | "vendor_marked_done"
   | "completed"
   | "approved_paid"
+  | "vendor_declined"
   | "reminder";
 
 export type ResidentFiledItemKind = "work-order" | "service-request";
@@ -49,6 +50,15 @@ function workOrderSmsBody(
       return `(Service completed)\n"${title}"${at} is done.`;
     case "approved_paid":
       return `(Service paid)\n"${title}"${at} approved and paid. Thanks for the work.`;
+    case "vendor_declined":
+      // The manager was waiting on an answer they previously had no way to receive, so the
+      // point of this message is that the job needs another vendor — not that one said no.
+      return [
+        `(Vendor declined) "${title}"${at}${input.actorName ? ` — ${input.actorName}` : ""}${
+          input.note ? `: ${input.note.slice(0, 120)}` : ""
+        }`,
+        `Send it to someone else: ${residentSmsLinkOrigin()}/portal/services/work-orders`,
+      ].join("\n");
     case "reminder": {
       const pendingLabel =
         input.itemKind === "service-request" ? "add-on service request" : "work order";
