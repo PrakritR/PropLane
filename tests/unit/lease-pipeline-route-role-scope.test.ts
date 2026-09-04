@@ -9,6 +9,7 @@
  * open it" symptom, one layer below the nav fix.
  */
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { parseOrFilterClauses } from "@/lib/supabase/or-filter";
 
 const USER_ID = "user-both";
 const RESIDENT_EMAIL = "both@example.com";
@@ -84,9 +85,12 @@ function makeDb() {
       const rowsFor = () => {
         if (table !== "portal_lease_pipeline_records") return [];
         if (!orFilter) return ALL_LEASES;
-        const clauses = orFilter.split(",").map((clause) => clause.split("."));
+        // Parse with the same helper the filter builder is paired with:
+        // splitting on "," here modelled a PostgREST where a comma inside a
+        // value ends a clause, which is the bug the quoted builder prevents.
+        const clauses = parseOrFilterClauses(orFilter);
         return ALL_LEASES.filter((lease) =>
-          clauses.some(([column, , value]) => {
+          clauses.some(({ column, value }) => {
             if (column === "resident_user_id") return lease.resident_user_id === value;
             if (column === "resident_email") return lease.resident_email === value;
             return false;

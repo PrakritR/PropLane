@@ -1,9 +1,34 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { orFilterForIdentity } from "@/lib/supabase/or-filter";
 import type { HouseholdCharge } from "@/lib/household-charges";
 import { householdChargeDueDate } from "@/lib/household-charges";
 import { centsToUsd } from "@/lib/reports/money";
 import type { ReportResult } from "@/lib/reports/types";
 import { householdChargeAmountCents } from "@/lib/stripe-household-charge";
+
+/**
+ * The shape returned when the caller carries no resident identity: a real,
+ * zeroed summary rather than an unscoped query. Same columns as the live path,
+ * so the assistant renders it normally instead of erroring.
+ */
+function emptyResidentBalanceSummary(): ReportResult {
+  return {
+    id: "resident-balance-summary",
+    title: "Balance summary",
+    columns: [
+      { key: "label", label: "Item" },
+      { key: "value", label: "Amount", align: "right" },
+    ],
+    rows: [
+      { label: "Balance due", value: centsToUsd(0) },
+      { label: "Open charges", value: "0" },
+      { label: "Paid to date", value: centsToUsd(0) },
+      { label: "Next charge", value: "None scheduled" },
+      { label: "Last payment", value: "No payments recorded" },
+    ],
+    meta: { balanceCents: 0, openCharges: 0, paidCents: 0 },
+  };
+}
 
 /**
  * Resident balance summary for the resident agent tool — not a manager report.
@@ -16,14 +41,22 @@ export async function queryResidentBalance(
   residentEmail: string,
   managerUserId?: string,
 ): Promise<ReportResult> {
+  // No identity means no rows. The interpolated form used to emit
+  // `resident_user_id.eq.,resident_email.eq.` here, which is malformed rather
+  // than restrictive — and this filter is a tenant boundary.
+  const scope = orFilterForIdentity([
+    ["resident_user_id", residentUserId],
+    ["resident_email", residentEmail],
+  ]);
+  if (!scope) return emptyResidentBalanceSummary();
   let chargeQuery = db
     .from("portal_household_charge_records")
     .select("row_data")
-    .or(`resident_user_id.eq.${residentUserId},resident_email.eq.${residentEmail}`);
+    .or(scope);
   let ledgerQuery = db
     .from("ledger_entries")
     .select("entry_type, amount_cents, posted_date")
-    .or(`resident_user_id.eq.${residentUserId},resident_email.eq.${residentEmail}`);
+    .or(scope);
   if (managerUserId) {
     chargeQuery = chargeQuery.eq("manager_user_id", managerUserId);
     ledgerQuery = ledgerQuery.eq("manager_user_id", managerUserId);

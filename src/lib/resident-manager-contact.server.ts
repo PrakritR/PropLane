@@ -15,6 +15,7 @@
  */
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { resolveActiveManagerSendNumber } from "@/lib/sms/manager-number-provisioning.server";
+import { orFilterForIdentity } from "@/lib/supabase/or-filter";
 
 export type ResidentManagerContact = {
   managerUserId: string;
@@ -85,11 +86,11 @@ export async function resolveResidentManagerContacts(
     .limit(50);
   // Scope by the resident's OWN identity. Both columns are theirs; neither is
   // supplied by the caller of the API above this.
-  query = userId && email
-    ? query.or(`resident_user_id.eq.${userId},resident_email.eq.${email}`)
-    : userId
-      ? query.eq("resident_user_id", userId)
-      : query.eq("resident_email", email);
+  const scope = orFilterForIdentity([
+    ["resident_user_id", userId],
+    ["resident_email", email],
+  ]);
+  query = scope ? query.or(scope) : query.eq("resident_user_id", "");
 
   const { data, error } = await query;
   if (error) return [];

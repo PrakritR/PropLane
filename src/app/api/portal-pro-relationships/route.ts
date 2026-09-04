@@ -1,4 +1,5 @@
 import { createJsonRecordRoute } from "@/lib/portal-record-api";
+import { orFilterForIdentity } from "@/lib/supabase/or-filter";
 
 export const runtime = "nodejs";
 
@@ -7,7 +8,13 @@ const route = createJsonRecordRoute({
   scope: (query, user) => {
     const q = query as { or: (expr: string) => unknown };
     if (user.role === "admin") return query;
-    return q.or(`manager_user_id.eq.${user.id},related_user_id.eq.${user.id},related_email.eq.${user.email ?? ""}`);
+    const scope = orFilterForIdentity([
+      ["manager_user_id", user.id],
+      ["related_user_id", user.id],
+      ["related_email", user.email],
+    ]);
+    // No identity means no rows, never the whole table.
+    return scope ? q.or(scope) : (query as { eq: (c: string, v: string) => unknown }).eq("manager_user_id", "");
   },
   buildUpsert: (row) => ({
     id: row.id,
