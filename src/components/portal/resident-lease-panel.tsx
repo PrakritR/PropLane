@@ -48,6 +48,8 @@ import {
   residentUploadLeasePdf,
   syncLeasePipelineFromServer,
 } from "@/lib/lease-pipeline-storage";
+import { residentLeaseRenewalStatus } from "@/lib/resident-lease-renewal-status";
+import { cn } from "@/lib/utils";
 import { safeFormatDateTime } from "@/lib/pacific-time";
 import { useResidentPortalAxisContext } from "@/hooks/use-resident-portal-axis";
 
@@ -134,6 +136,14 @@ export function ResidentLeasePanel({
     if (!isShortTerm) return null;
     return shortToLongTermUpgradeBreakdown(propertyId, true);
   }, [pipelineRow, leaseCtx.application]);
+
+  /**
+   * The renewal line at the top of the Lease tab. Until now the only way to
+   * extend was to open a signed lease's detail page and find "Renew" in the
+   * footer, so a resident whose lease ended in two weeks saw nothing about it on
+   * the screen they actually land on.
+   */
+  const renewalStatus = useMemo(() => residentLeaseRenewalStatus(pipelineRow), [pipelineRow]);
 
   const onDownloadAiLease = useCallback(() => {
     downloadAiGeneratedLeaseHtml(leaseCtx);
@@ -437,6 +447,38 @@ export function ResidentLeasePanel({
             activeDestinationId={bucket}
             destinationAriaLabel="Lease status"
           />
+          {renewalStatus.kind !== "none" ? (
+            <div
+              className={cn(
+                "mb-3 rounded-2xl border px-4 py-3.5 max-lg:mb-2.5",
+                renewalStatus.kind === "awaiting_signature"
+                  ? "portal-banner-pending"
+                  : renewalStatus.kind === "ending" && renewalStatus.soon
+                    ? "portal-banner-pending"
+                    : "border-border bg-accent/30",
+              )}
+              data-attr="resident-lease-renewal-banner"
+              data-renewal-kind={renewalStatus.kind}
+            >
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div className="min-w-[12rem] flex-1">
+                  <p className="text-sm font-semibold text-foreground">{renewalStatus.headline}</p>
+                  <p className="mt-1 text-xs text-muted">{renewalStatus.body}</p>
+                </div>
+                {renewalStatus.kind !== "awaiting_signature" ? (
+                  <Button
+                    type="button"
+                    variant="primary"
+                    className="h-9 min-h-0 shrink-0 rounded-full px-4 text-[13px]"
+                    data-attr="resident-lease-renew-open"
+                    onClick={() => setShowMoveOutModal(true)}
+                  >
+                    {renewalStatus.cta}
+                  </Button>
+                ) : null}
+              </div>
+            </div>
+          ) : null}
           {!email ? (
             <p className="text-sm text-muted">Sign in to view your lease.</p>
           ) : !axisResolved ? (

@@ -8,12 +8,17 @@ import { ModalAssistantStrip } from "@/components/portal/modal-assistant-strip";
 import { useAppUi } from "@/components/providers/app-ui-provider";
 import { computeLeaseEndDate, shouldAutoComputeLeaseEnd } from "@/lib/rental-application/lease-dates";
 import { CUSTOM_LEASE_TERM, SHORT_TERM_LEASE_TERM } from "@/lib/rental-application/lease-terms";
+import { listingRollsOverToMonthToMonth } from "@/lib/rental-application/data";
 import {
   extendMoveOutTypesForProperty,
   renewalLeaseTermOptionsForProperty,
   renewalRentalTypeForTerm,
   type ExtendMoveOutTypeId,
 } from "@/lib/lease-renewal-terms";
+import {
+  formatRenewalUsd,
+  leaseRenewalPaymentPreview,
+} from "@/lib/lease-renewal-preview";
 import { formatPacificDate } from "@/lib/pacific-time";
 import { cn } from "@/lib/utils";
 
@@ -140,7 +145,83 @@ function LeaseRenewalFormFields({
           Leave blank to keep current rent{currentRentLabel ? ` (${currentRentLabel})` : ""}.
         </p>
       </div>
+
+      <RenewalPaymentPreviewCard
+        leaseTerm={leaseTerm}
+        leaseStart={leaseStart}
+        leaseEnd={leaseEnd}
+        rent={rent}
+        currentRentLabel={currentRentLabel}
+      />
     </>
+  );
+}
+
+/**
+ * What this renewal will actually bill, stated before the resident confirms it.
+ *
+ * The renewal never touches charges until both parties sign, so previously the
+ * only answer to "what will I pay?" was a toast promising payments would update
+ * later. The numbers come from the same proration helpers the ledger and the
+ * lease document use, so this cannot quote a figure nothing goes on to bill.
+ */
+function RenewalPaymentPreviewCard({
+  leaseTerm,
+  leaseStart,
+  leaseEnd,
+  rent,
+  currentRentLabel,
+}: {
+  leaseTerm: string;
+  leaseStart: string;
+  leaseEnd: string;
+  rent: string;
+  currentRentLabel: string;
+}) {
+  const preview = useMemo(() => {
+    const typed = rent.trim() ? Number(rent.replace(/[^\d.]/g, "")) : null;
+    const current = Number(currentRentLabel.replace(/[^\d.]/g, ""));
+    return leaseRenewalPaymentPreview({
+      leaseTerm,
+      leaseStart,
+      leaseEnd,
+      monthlyRent: typed != null && Number.isFinite(typed) && typed > 0 ? typed : null,
+      currentMonthlyRent: Number.isFinite(current) && current > 0 ? current : null,
+    });
+  }, [leaseTerm, leaseStart, leaseEnd, rent, currentRentLabel]);
+
+  if (!preview.applies) {
+    return preview.note ? <p className="mb-4 text-xs text-muted">{preview.note}</p> : null;
+  }
+
+  return (
+    <div className="mb-4 rounded-xl border border-border bg-accent/20 px-4 py-3" data-attr="lease-renew-payment-preview">
+      <p className="text-sm font-semibold text-foreground">What you&rsquo;ll pay</p>
+      <ul className="mt-2 space-y-2">
+        {preview.lines.map((line) => (
+          <li key={line.id} className="flex items-start justify-between gap-3 text-sm">
+            <span className="min-w-0">
+              <span className="block text-foreground">{line.label}</span>
+              <span className="block text-xs text-muted">{line.detail}</span>
+            </span>
+            <span className="shrink-0 font-semibold text-foreground">
+              {line.amount == null ? "—" : formatRenewalUsd(line.amount)}
+              {line.recurring ? <span className="font-normal text-muted">/mo</span> : null}
+            </span>
+          </li>
+        ))}
+      </ul>
+      {preview.total != null ? (
+        <div className="mt-3 flex items-center justify-between border-t border-border pt-2.5 text-sm">
+          <span className="font-semibold text-foreground">Total for the term</span>
+          <span className="font-semibold text-foreground">{formatRenewalUsd(preview.total)}</span>
+        </div>
+      ) : null}
+      <p className="mt-2 text-xs text-muted">
+        {preview.note} Utilities and any other recurring charges continue unchanged. Charges are only created once
+        both parties have signed.
+      </p>
+    </div>
   );
 }
 
@@ -263,6 +344,13 @@ export function LeaseAmendMoveOutModal({
   const checkTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const extendTypeOptions = useMemo(() => extendMoveOutTypesForProperty(propertyId), [propertyId]);
+  // A listing that rolls over has already promised the continuation IN the signed
+  // document, so doing nothing is a real option here — saying so stops a resident
+  // signing a fresh lease to get a tenancy they already have.
+  const rollsOverToMonthToMonth = useMemo(
+    () => (propertyId.trim() ? listingRollsOverToMonthToMonth(propertyId) : false),
+    [propertyId],
+  );
   const longTermOption = extendTypeOptions.find((option) => option.id === "long_term");
   const longTermChoices = longTermOption?.id === "long_term" ? longTermOption.leaseTerms : [];
   const defaultRenewStart = currentEnd ? dayAfter(currentEnd) : new Date().toISOString().slice(0, 10);
@@ -496,6 +584,11 @@ export function LeaseAmendMoveOutModal({
       assistantStrip={false}
       footer={
         <div className="flex flex-col gap-0">
+          {showRenewFooter || showAmendFooter ? (
+            <p className="w-full pb-2 text-center text-xs text-muted" data-attr="lease-amend-resign-notice">
+              Both you and your manager sign the updated lease before it takes effect.
+            </p>
+          ) : null}
           {showRenewFooter ? (
             <ModalFooter className="w-full pb-0">
               <Button
@@ -557,6 +650,16 @@ export function LeaseAmendMoveOutModal({
               <option value="early">Early move-out</option>
             </Select>
           </div>
+
+          {showExtendTypePicker && rollsOverToMonthToMonth && intent === "extend" ? (
+            <p
+              className="mb-4 rounded-xl border border-border bg-accent/30 px-4 py-3 text-xs text-muted"
+              data-attr="lease-amend-rollover-note"
+            >
+              Your lease already continues month-to-month at the same rent when it ends — you do not have to do
+              anything. Use this only if you want a different term instead.
+            </p>
+          ) : null}
 
           {showExtendTypePicker ? (
             <div className="mb-4">

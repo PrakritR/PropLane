@@ -36,6 +36,20 @@ export function listingAllowedLeaseTerms(propertyId: string): string[] {
   return terms.length > 0 ? terms : [...LEASE_TERM_CHOICES];
 }
 
+/**
+ * Does this listing's lease continue month-to-month when its fixed term ends?
+ *
+ * Opt-in per listing (`rolloverToMonthToMonth`), because the standard lease
+ * document promises the opposite — it "does not convert to a month-to-month
+ * tenancy". A listing that has not opted in reads false, so the resident is told
+ * the lease ends rather than that it quietly continues.
+ */
+export function listingRollsOverToMonthToMonth(propertyId: string): boolean {
+  const prop = getPropertyById(propertyId);
+  const sub = prop?.listingSubmission?.v === 1 ? prop.listingSubmission : undefined;
+  return sub?.rolloverToMonthToMonth === true;
+}
+
 /** Separates listing property id from submission room id in `roomChoice*` values. */
 export const LISTING_ROOM_CHOICE_SEP = "::";
 

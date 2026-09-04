@@ -36,9 +36,11 @@ import {
   HOUSEHOLD_CHARGES_EVENT,
   readChargesForManager,
   reconcileApprovedResidentPaymentSchedules,
+
   removeResidentHouseholdPaymentData,
   syncHouseholdChargesFromServer,
 } from "@/lib/household-charges";
+import { convertLapsedRolloverLeasesToMonthToMonth } from "@/lib/lease-rollover-conversion";
 import { useManagerUserId } from "@/hooks/use-manager-user-id";
 import { isDemoModeActive } from "@/lib/demo/demo-session";
 import { ManagerAddPaymentModal } from "@/components/portal/manager-add-payment-modal";
@@ -379,7 +381,12 @@ export function ManagerPayments({
       (row) => row.bucket === "approved" && applicationVisibleToPortalUser(row, userId),
     ).length;
     if (visibleApprovedCount === 0) return;
-    reconcileApprovedResidentPaymentSchedules(userId);
+    // A lease whose listing rolls over has already promised, in the signed
+    // document, that it continues month-to-month. Charges are bounded by the
+    // lease end date, so the record has to be carried past it BEFORE the
+    // schedule is rebuilt — otherwise the promised tenancy bills nothing.
+    const converted = convertLapsedRolloverLeasesToMonthToMonth(userId);
+    reconcileApprovedResidentPaymentSchedules(userId, converted > 0);
   }, [authReady, userId, applicationTick]);
 
   useEffect(() => {
