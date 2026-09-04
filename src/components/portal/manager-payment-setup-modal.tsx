@@ -390,7 +390,6 @@ export function ManagerPaymentSetupModal({
   const [activeChannel, setActiveChannel] = useState<PaymentChannel | null>(null);
   const [skuTier, setSkuTier] = useState<ManagerSkuTier | null>(null);
   const [savingFeePayer, setSavingFeePayer] = useState(false);
-  const legacyBusinessFeePayerMigratedRef = useRef(false);
   const [selectedPropertyIds, setSelectedPropertyIds] = useState<Set<string>>(() => new Set());
   const [propertySelectionComplete, setPropertySelectionComplete] = useState(false);
 
@@ -479,7 +478,6 @@ export function ManagerPaymentSetupModal({
       setActiveChannel(null);
       setPropertySelectionComplete(false);
       setSelectedPropertyIds(new Set());
-      legacyBusinessFeePayerMigratedRef.current = false;
       return;
     }
     void loadStripeStatus();
@@ -582,15 +580,10 @@ export function ManagerPaymentSetupModal({
     }
   }
 
-  useEffect(() => {
-    if (!open || demo || skuTier !== "business" || legacyBusinessFeePayerMigratedRef.current) return;
-    if ((draft.serviceFeePayer ?? "resident") !== "resident") {
-      legacyBusinessFeePayerMigratedRef.current = true;
-      return;
-    }
-    legacyBusinessFeePayerMigratedRef.current = true;
-    void persistSettings({ serviceFeePayer: "proplane" }, null, { silent: true });
-  }, [open, demo, skuTier, draft.serviceFeePayer]);
+  // A Business account used to be silently REWRITTEN to "proplane" on modal open,
+  // which also overwrote a manager who had deliberately chosen "resident". The
+  // paid-plan default now lives in `resolveServiceFeePayerFor` (AXI-149), so
+  // nothing has to be written to get it — and an explicit choice survives.
 
   const zelleContactConnected = draft.zellePaymentsEnabled && draft.zelleContact.trim().length > 0;
   const venmoContactConnected = draft.venmoPaymentsEnabled && draft.venmoContact.trim().length > 0;
@@ -713,12 +706,15 @@ export function ManagerPaymentSetupModal({
             <div className="space-y-2 rounded-xl border border-border bg-card px-4 py-3.5">
               <p className="text-sm font-semibold text-foreground">Online payment service fee</p>
               <p className="text-xs text-muted">
-                Choose who covers the payment processing fee on resident online payments (card, bank, Link). Your rent
-                still deposits into your own Stripe account either way.
+                PropLane covers the payment processing fee on resident online payments (card, bank, Link) while you
+                are on a paid plan. Change it below if you would rather your residents cover it. Your rent still
+                deposits into your own Stripe account either way.
               </p>
               <div className="grid grid-cols-1 gap-2 pt-1 sm:grid-cols-3">
                 {SERVICE_FEE_PAYER_OPTIONS.map((option) => {
-                  const selected = (draft.serviceFeePayer ?? "resident") === option.id;
+                  // Must match the resolver's unset default or the modal shows a
+                  // different answer than the one that actually bills.
+                  const selected = (draft.serviceFeePayer ?? "proplane") === option.id;
                   return (
                     <button
                       key={option.id}
@@ -741,8 +737,8 @@ export function ManagerPaymentSetupModal({
             </div>
           ) : skuTier === "free" ? (
             <p className="text-xs text-muted">
-              On the Free plan, residents cover the payment processing fee on online payments. Upgrade to Pro or Business
-              to choose who pays.
+              On the Free plan, residents cover the payment processing fee on online payments. On Pro and Business,
+              PropLane covers it.
             </p>
           ) : null}
           <HubRow

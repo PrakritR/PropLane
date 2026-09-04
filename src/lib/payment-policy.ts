@@ -103,26 +103,36 @@ export type ServiceFeePayerInputs = {
  *   2. **The property's own Pricing setting**, so a manager running one building where they
  *      absorb fees and another where residents pay is expressible.
  *   3. **The manager's account default**, which is what a new property inherits.
- *   4. **`resident`**, the default when nothing is set.
+ *   4. **The plan default** — `proplane` on a paid plan, `resident` on Free.
  *
- * Steps 2-4 stay subject to the plan floor: a free-tier manager cannot shift the fee onto
- * themselves, because absorbing fees is a paid capability. Only staff can override that.
+ * Step 4 is the AXI-149 rule: "PropLane takes all processing fees for paid accounts." A manager
+ * who is paying for the product does not additionally hand Stripe's cost to their residents by
+ * default; PropLane's own balance bears it. It is a DEFAULT, not a floor — a paid manager who has
+ * explicitly chosen `resident` or `manager`, on the account or on one property, keeps that choice,
+ * because a manager who deliberately passes the fee on should not silently stop.
  *
- * `proplane` from a MANAGER or PROPERTY field is honoured only on Business, where PropLane
- * absorbing the fee is a plan entitlement the manager is entitled to select. On Free and Pro it is
- * discarded and the plan rule applies: there, it would let a manager stop paying by writing a
- * value the settings UI never offers them into their own record, with PropLane picking up the
- * bill. Staff can still direct it at PropLane on any plan.
+ * Steps 2-4 stay subject to the plan floor: a free-tier manager cannot shift the fee off their
+ * residents, because absorbing fees is a paid capability. Only staff can override that.
+ *
+ * `proplane` from a MANAGER or PROPERTY field is honoured on any PAID plan, since absorbing the
+ * fee is now what a paid plan does. On Free it is still discarded and the plan rule applies:
+ * there, it would let a manager stop paying by writing a value the settings UI never offers them
+ * into their own record, with PropLane picking up the bill. Staff can still direct it at PropLane
+ * on any plan.
  */
 export function resolveServiceFeePayerFor(input: ServiceFeePayerInputs): ServiceFeePayer {
   if (input.adminOverride) return normalizeServiceFeeChoice(input.adminOverride);
 
-  const chosen = input.propertyChoice ?? input.managerChoice ?? "resident";
-  const normalized = normalizeServiceFeeChoice(chosen);
-  // Business includes PropLane absorbing the fee, so the choice is theirs to make. Below that it
-  // is not on offer, and a value that appears anyway is discarded rather than honoured.
+  // `??` rather than a normalize call, so "nothing is set" stays distinguishable
+  // from "explicitly resident" — normalizeServiceFeeChoice collapses both to
+  // "resident", which would make the paid-plan default unreachable.
+  const stored = input.propertyChoice ?? input.managerChoice ?? null;
+  const planDefault: ServiceFeePayer = input.tier === "free" ? "resident" : "proplane";
+  const normalized = stored == null ? planDefault : normalizeServiceFeeChoice(stored);
+  // Absorbing the fee is a paid capability; a value that appears on Free anyway is
+  // discarded rather than honoured.
   const manageable: ServiceFeePayer =
-    normalized === "proplane" && input.tier !== "business" ? "resident" : normalized;
+    normalized === "proplane" && input.tier === "free" ? "resident" : normalized;
   return resolveServiceFeePayer(input.tier, manageable);
 }
 

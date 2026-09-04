@@ -20,8 +20,22 @@ const payer = (over: Partial<Parameters<typeof resolveServiceFeePayerFor>[0]> = 
   resolveServiceFeePayerFor({ tier: "pro", ...over });
 
 describe("precedence", () => {
-  it("defaults to the resident when nothing is set anywhere", () => {
-    expect(payer()).toBe("resident");
+  it("AXI-149: a paid plan defaults to PropLane absorbing the fee", () => {
+    // "PropLane takes all processing fees for paid accounts." A manager who is
+    // paying for the product does not additionally hand Stripe's cost to their
+    // residents by default.
+    expect(payer()).toBe("proplane");
+    expect(resolveServiceFeePayerFor({ tier: "business" })).toBe("proplane");
+  });
+
+  it("Free still defaults to the resident — absorbing fees is a paid capability", () => {
+    expect(resolveServiceFeePayerFor({ tier: "free" })).toBe("resident");
+  });
+
+  it("an explicit choice still beats the paid-plan default", () => {
+    // A manager who deliberately passes the fee on must not silently stop.
+    expect(payer({ managerChoice: "resident" })).toBe("resident");
+    expect(payer({ managerChoice: "proplane", propertyChoice: "resident" })).toBe("resident");
   });
 
   it("uses the manager's account default when the property says nothing", () => {
@@ -55,15 +69,15 @@ describe("the plan floor", () => {
 });
 
 describe("what a manager cannot do to themselves", () => {
-  it("ignores a proplane value below Business, where it is not on offer", () => {
-    // On Free and Pro the settings UI never offers it, so honouring it would let a manager stop
-    // paying fees by writing one word into their own record.
-    expect(resolveServiceFeePayerFor({ tier: "pro", managerChoice: "proplane" })).toBe("resident");
+  it("ignores a proplane value on Free, where it is not on offer", () => {
+    // Honouring it there would let a free manager stop paying fees by writing one
+    // word into their own record, with PropLane picking up the bill.
     expect(resolveServiceFeePayerFor({ tier: "free", propertyChoice: "proplane" })).toBe("resident");
+    expect(resolveServiceFeePayerFor({ tier: "free", managerChoice: "proplane" })).toBe("resident");
   });
 
-  it("honours it on Business, where PropLane absorbing the fee is part of the plan", () => {
-    // This is an entitlement the manager bought, not a manager helping themselves.
+  it("honours it on every PAID plan, where absorbing the fee is what the plan does", () => {
+    expect(resolveServiceFeePayerFor({ tier: "pro", managerChoice: "proplane" })).toBe("proplane");
     expect(resolveServiceFeePayerFor({ tier: "business", managerChoice: "proplane" })).toBe("proplane");
     expect(resolveServiceFeePayerFor({ tier: "business", propertyChoice: "proplane" })).toBe("proplane");
   });
@@ -73,7 +87,13 @@ describe("what a manager cannot do to themselves", () => {
   });
 
   it("falls back to the plan rule rather than to whatever was written", () => {
-    expect(payer({ managerChoice: "proplane" as ServiceFeePayer, propertyChoice: null })).toBe("resident");
+    expect(
+      resolveServiceFeePayerFor({
+        tier: "free",
+        managerChoice: "proplane" as ServiceFeePayer,
+        propertyChoice: null,
+      }),
+    ).toBe("resident");
   });
 });
 
