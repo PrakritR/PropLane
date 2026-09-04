@@ -64,7 +64,7 @@ async function openSubmitModal() {
 }
 
 function picker(): HTMLSelectElement | null {
-  return document.querySelector('[data-attr="vendor-invoice-manager-picker"]');
+  return document.querySelector('[data-attr="vendor-invoice-manager"]');
 }
 
 describe("vendor invoice manager picker", () => {
