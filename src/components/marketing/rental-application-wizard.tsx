@@ -39,6 +39,7 @@ import {
   isPropertyRentedByRoom,
   isRoomApprovedConflict,
   isRoomPendingConflict,
+  listingAllowedLeaseTerms,
   LISTING_ROOM_CHOICE_SEP,
 } from "@/lib/rental-application/data";
 import { SHORT_TERM_LEASE_TERM } from "@/lib/rental-application/lease-terms";
@@ -1128,11 +1129,18 @@ function RentalApplicationWizardInner({
             : prev.phone;
 
         const rentalType = shortTermFromLink ? "short_term" : prev.rentalType;
+        // When the listing offers exactly ONE lease term there is nothing for the
+        // applicant to decide, so carry it over rather than making them re-pick
+        // the only option (AXI-153). Only ever fills a BLANK field — an answer
+        // already given, or a term the listing no longer offers, is left alone
+        // for validation to surface rather than silently rewritten.
+        const listingTerms = listingAllowedLeaseTerms(pid);
+        const soleListingTerm = listingTerms.length === 1 ? listingTerms[0]! : "";
         const leaseTerm = shortTermFromLink
           ? (prev.leaseTerm || SHORT_TERM_LEASE_TERM)
           : prev.rentalType === "short_term" && !shortTermFromLink
-            ? ""
-            : prev.leaseTerm;
+            ? soleListingTerm
+            : prev.leaseTerm || soleListingTerm;
         return {
           ...base,
           propertyId: pid,
