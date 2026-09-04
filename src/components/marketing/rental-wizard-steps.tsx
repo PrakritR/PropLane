@@ -648,8 +648,28 @@ export function RentalWizardStepBody(p: WizardStepsProps) {
     const leaseTermOptions = form.propertyId.trim()
       ? listingAllowedLeaseTerms(form.propertyId)
       : [...LEASE_TERM_OPTIONS];
-    const rooms = roomSelectOptionsWithNone(form.propertyId, { includeUnavailable: true }).filter((o) => o.value !== "");
-    const roomsWithNone = roomSelectOptionsWithNone(form.propertyId, { includeUnavailable: true });
+    /**
+     * The ranked 1st/2nd/3rd choices offer only rooms that are ACTUALLY
+     * AVAILABLE. This list used to pass `includeUnavailable: true`, so an
+     * applicant was asked to rank ten bedrooms most of which they could not
+     * have (AXI-167).
+     *
+     * The one exception is a room ALREADY chosen on this application: a resumed
+     * draft, or a room that filled up after the applicant picked it. Dropping it
+     * from the options would blank their answer without a word, so it stays
+     * selectable and validation — not a vanishing option — is what tells them.
+     */
+    const availableRooms = roomSelectOptionsWithNone(form.propertyId).filter((o) => o.value !== "");
+    const allRooms = roomSelectOptionsWithNone(form.propertyId, { includeUnavailable: true }).filter(
+      (o) => o.value !== "",
+    );
+    const chosenRoomValues = new Set(
+      [form.roomChoice1, form.roomChoice2, form.roomChoice3].map((v) => v.trim()).filter(Boolean),
+    );
+    const rooms = allRooms.filter(
+      (o) => availableRooms.some((a) => a.value === o.value) || chosenRoomValues.has(o.value),
+    );
+    const roomsWithNone = [{ value: "", label: "None" }, ...rooms];
     // Whole-unit listings (leased as one place, not room-by-room) don't ask for
     // ranked 1st/2nd/3rd room choices — see the property step below.
     const isByRoom = isPropertyRentedByRoom(form.propertyId);
