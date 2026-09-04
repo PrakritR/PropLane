@@ -80,6 +80,8 @@ import {
 } from "@/lib/dev/resident-list-fixtures";
 import {
   PORTAL_LIST_ADD_ICONS,
+  PORTAL_LIST_ADD_ROW_WRAP_CLASS,
+  PortalListAddRow,
 } from "@/components/portal/portal-list-add-row";
 import { LeaseDocumentPreview } from "@/components/portal/lease-document-preview";
 import { LeasePrimaryHeaderActions } from "@/components/portal/lease-primary-header-actions";
@@ -2791,6 +2793,8 @@ export function ManagerResidents({
       />
     ) : null;
 
+  // No Add payment here: the list's own dashed ADD row is the add path, and a
+  // second one in the dock was the same action twice on one screen.
   const residentPaymentsListFooterActions = (
     <>
       <Button
@@ -2811,34 +2815,29 @@ export function ManagerResidents({
       >
         Payment setup
       </Button>
-      <Button
-        type="button"
-        variant="primary"
-        className={PORTAL_DETAIL_BTN}
-        onClick={() => setAddResidentPaymentOpen(true)}
-        data-attr="resident-add-payment"
-      >
-        Add payment
-      </Button>
     </>
   );
 
-  const residentServicesTabFooterActions = (
-    <Button
-      type="button"
-      variant="primary"
-      className={PORTAL_DETAIL_BTN}
-      data-attr="resident-add-service"
-      disabled={!canAddResidentServiceItem}
-      title={
-        canAddResidentServiceItem
-          ? undefined
-          : "Link this resident to a property before adding services."
-      }
-      onClick={() => setAddResidentServiceOpen(true)}
-    >
-      Add service
-    </Button>
+  // Services adds through the dashed ADD row in the list itself, the same way
+  // every other list in the portal does — so this tab publishes no dock action.
+  const residentServicesTabFooterActions = null;
+
+  const residentServicesAddRow = (
+    <div className={PORTAL_LIST_ADD_ROW_WRAP_CLASS}>
+      <PortalListAddRow
+        label="Add service"
+        ariaLabel="Add service for this resident"
+        icon={PORTAL_LIST_ADD_ICONS.service}
+        disabled={!canAddResidentServiceItem}
+        hint={
+          canAddResidentServiceItem
+            ? undefined
+            : "Link this resident to a property before adding services."
+        }
+        onClick={() => setAddResidentServiceOpen(true)}
+        dataAttr="resident-add-service"
+      />
+    </div>
   );
 
   const residentDetailBottomBarActions = useMemo(() => {
@@ -3290,6 +3289,7 @@ export function ManagerResidents({
                                   </div>
                                 </div>
                               )}
+                              {residentServicesAddRow}
                               </>
                               )}
                             </ResidentDetailTabPanel>

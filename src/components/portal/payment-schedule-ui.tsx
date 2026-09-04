@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useImperativeHandle, useMemo, useState } from "react";
+import { useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
 import { isDemoModeActive } from "@/lib/demo/demo-session";
 import { Button } from "@/components/ui/button";
 import { CheckboxMultiSelect, FieldSingleSelect } from "@/components/ui/checkbox-multi-select";
@@ -843,7 +843,15 @@ function PaymentAutomationSettingsForm({
   const [draft, setDraft] = useState(initialSettings);
   const [selectedPreset, setSelectedPreset] = useState<ReminderPresetId>(() => detectReminderPreset(initialSettings));
   const [visibilityDaysInput, setVisibilityDaysInput] = useState(String(initialSettings.scheduleVisibilityDays));
-  const [applyToExisting, setApplyToExisting] = useState(false);
+  /*
+    Autosaving panels always apply the schedule to existing unpaid payments.
+    The checkbox was only meaningful next to an explicit Save; with the save
+    implicit there is nothing to tick it before. And the intent behind it is
+    the rule anyway — every unpaid payment carries reminders — so a schedule
+    that skipped the ones already on the books would be the surprising half.
+  */
+  const [applyToExistingChoice, setApplyToExistingChoice] = useState(false);
+  const applyToExisting = autoSaveOnClose ? true : applyToExistingChoice;
   const [busy, setBusy] = useState(false);
   const [messageModalOpen, setMessageModalOpen] = useState(false);
 
@@ -914,7 +922,7 @@ function PaymentAutomationSettingsForm({
         }
       }
       if (variant === "payments") {
-        setApplyToExisting(false);
+        setApplyToExistingChoice(false);
       }
       return true;
     } catch (e) {
@@ -955,9 +963,15 @@ function PaymentAutomationSettingsForm({
 
   const activePreset = selectedPreset;
 
+  /*
+    No "Start from template" picker here. Basics / Standard / Gentle / Due date
+    only were five names for arrangements of the same chips shown directly
+    below, and picking one only rewrote those chips — so the dropdown mostly
+    said "Custom", describing what the manager had already done rather than
+    offering anything. The chips are the control.
+  */
   const paymentsScheduleBlock = (
     <div className="space-y-3">
-      <ReminderPresetDropdown activePreset={activePreset} busy={busy} onSelect={selectPreset} />
       <UnifiedReminderScheduleSelect draft={draft} busy={busy} onChange={applySchedulePatch} />
     </div>
   );
@@ -979,9 +993,11 @@ function PaymentAutomationSettingsForm({
         onUpdate={() => setMessageModalOpen(true)}
         dataAttr="payment-reminder-update-message"
       />
+      {/* Both channels by default: a reminder that only emails is the one the
+          resident misses, and SMS is the channel they actually read. */}
       <ReminderSendViaField
         viaEmail={draft.paymentReminderDeliverViaEmail !== false}
-        viaSms={draft.paymentReminderDeliverViaSms === true}
+        viaSms={draft.paymentReminderDeliverViaSms !== false}
         onChange={({ viaEmail, viaSms }) =>
           setDraft((prev) => ({
             ...prev,
@@ -1120,7 +1136,7 @@ function PaymentAutomationSettingsForm({
               <input
                 type="checkbox"
                 checked={applyToExisting}
-                onChange={(e) => setApplyToExisting(e.target.checked)}
+                onChange={(e) => setApplyToExistingChoice(e.target.checked)}
                 disabled={busy}
               />
               Apply to existing unpaid payments
@@ -1245,6 +1261,12 @@ export async function restoreFutureRemindersForPendingCharge(chargeId: string): 
   }
 }
 
+/**
+ * Payment reminders autosaves: there is no Save button, and closing the dialog
+ * commits whatever was changed. The form already had the machinery for it
+ * (`autoSaveOnClose` + `saveIfDirty`); this just uses it, so a manager who
+ * ticks a reminder and closes does not silently lose it.
+ */
 export function ReminderSettingsModal({
   open,
   onClose,
@@ -1258,12 +1280,20 @@ export function ReminderSettingsModal({
   onSaved: (next: ManagerAutomationSettings) => void;
   variant?: ScheduleSettingsVariant;
 }) {
+  const formRef = useRef<PaymentAutomationSettingsHandle | null>(null);
+  const closeAndSave = useCallback(() => {
+    // Close first: the save is silent and the dialog should not sit there while
+    // the request runs. A failure still raises its own toast.
+    onClose();
+    void formRef.current?.saveIfDirty();
+  }, [onClose]);
+
   if (!settings) return null;
 
   return (
     <Modal
       open={open}
-      onClose={onClose}
+      onClose={closeAndSave}
       title={variant === "inbox" ? "Schedule settings" : "Payment reminders"}
       dense={variant === "payments"}
       assistantContext={variant === "payments" ? "Payment reminders modal" : undefined}
@@ -1275,8 +1305,9 @@ export function ReminderSettingsModal({
         settings={settings}
         variant={variant}
         layout={variant === "payments" ? "modal" : "card"}
+        autoSaveOnClose
+        formRef={formRef}
         onSaved={onSaved}
-        onAfterSave={onClose}
       />
       </div>
     </Modal>
