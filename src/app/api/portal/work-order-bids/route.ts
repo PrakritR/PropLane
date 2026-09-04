@@ -6,6 +6,7 @@ import {
   acceptWorkOrderBid,
   scheduleWorkOrderConsultation,
   submitWorkOrderBid,
+  withdrawWorkOrderBid,
   vendorNamesById,
   type BidRecord,
   type QuoteMode,
@@ -108,7 +109,7 @@ export async function POST(req: Request) {
     if (!actor) return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
 
     const body = (await req.json().catch(() => ({}))) as {
-      action?: "submit" | "accept" | "schedule_consultation";
+      action?: "submit" | "accept" | "schedule_consultation" | "withdraw";
       workOrderId?: string;
       amountCents?: number;
       materialsCents?: number;
@@ -133,6 +134,11 @@ export async function POST(req: Request) {
       const result = await scheduleWorkOrderConsultation(db, actor, body);
       if (!result.ok) return NextResponse.json({ error: result.error }, { status: result.status });
       return NextResponse.json({ ok: true, consultationVisitAt: result.consultationVisitAt });
+    }
+    if (body.action === "withdraw") {
+      const result = await withdrawWorkOrderBid(db, actor, body);
+      if (!result.ok) return NextResponse.json({ error: result.error }, { status: result.status });
+      return NextResponse.json({ ok: true });
     }
     return NextResponse.json({ error: "Unknown action." }, { status: 400 });
   } catch (e) {

@@ -226,6 +226,35 @@ export async function submitWorkOrderBid(
   return { ok: true };
 }
 
+/** Vendor withdraws their own unaccepted bid so the manager is not waiting on a quote they will not send. */
+export async function withdrawWorkOrderBid(
+  db: Db,
+  actor: WorkOrderActor,
+  body: { workOrderId?: string },
+): Promise<{ ok: true } | WorkOrderActionFailure> {
+  if (actor.role !== "vendor") return { ok: false, status: 403, error: "Forbidden." };
+
+  const workOrderId = String(body.workOrderId ?? "").trim();
+  if (!workOrderId) return { ok: false, status: 400, error: "Work order id required." };
+
+  const access = await resolveVendorWorkOrderAccess(db, actor, workOrderId);
+  if (!access.ok) return access;
+
+  const { data, error } = await db
+    .from("work_order_bids")
+    .delete()
+    .eq("work_order_id", workOrderId)
+    .eq("vendor_user_id", actor.userId)
+    .eq("status", "submitted")
+    .select("id")
+    .maybeSingle();
+  if (error) return { ok: false, status: 500, error: error.message };
+  if (!data) {
+    return { ok: false, status: 409, error: "This bid was already accepted or declined." };
+  }
+  return { ok: true };
+}
+
 /** Vendor's first step of the "quote after consultation" mode: book (or manually set) a
  * consultation visit and save a pricing-pending placeholder bid row. The vendor prices the
  * job afterward via submitWorkOrderBid, which preserves quote_mode/consultation_visit_at. */

@@ -7,7 +7,8 @@ export type WorkOrderVendorOffer = {
   vendorUserId: string | null;
   vendorName?: string;
   vendorEmail?: string;
-  status: "sent" | "withdrawn";
+  status: "sent" | "withdrawn" | "declined";
+  declinedReason?: string | null;
   createdAt: string;
 };
 
@@ -41,5 +42,25 @@ export async function sendWorkOrderToVendors(
     return { ok: true, sent: data.sent };
   } catch {
     return { ok: false, error: "Could not send to vendors." };
+  }
+}
+
+/** Vendor declines a work-order offer they cannot or do not want to take. */
+export async function declineWorkOrderVendorOffer(
+  offerId: string,
+  reason?: string,
+): Promise<{ ok: boolean; error?: string }> {
+  try {
+    const res = await fetch("/api/portal/work-order-vendor-offers", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      credentials: "include",
+      body: JSON.stringify({ action: "decline", offerId, reason: reason?.trim() || undefined }),
+    });
+    const data = await res.json();
+    if (!res.ok) return { ok: false, error: data.error ?? "Could not decline this offer." };
+    return { ok: true };
+  } catch {
+    return { ok: false, error: "Could not decline this offer." };
   }
 }

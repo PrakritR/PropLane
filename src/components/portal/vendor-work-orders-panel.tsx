@@ -29,6 +29,11 @@ import { fetchWorkOrderBidsResult, type WorkOrderBid } from "@/lib/work-order-bi
 import { fetchVendorPayoutsResult, type VendorPayout } from "@/lib/vendor-payouts";
 import { upsertWorkOrderBid, WORK_ORDER_BIDS_EVENT } from "@/lib/work-order-bids-storage";
 import {
+  declineWorkOrderVendorOffer,
+  fetchWorkOrderVendorOffers,
+  type WorkOrderVendorOffer,
+} from "@/lib/work-order-vendor-offers";
+import {
   isPricingPendingBid,
   vendorWorkOrderPhaseLabel,
   vendorWorkOrderTab,
@@ -85,6 +90,7 @@ export function VendorWorkOrdersPanel() {
   const demo = isDemoModeActive();
   const [rows, setRows] = useState<DemoManagerWorkOrderRow[]>(() => readVendorWorkOrderRows());
   const [bidsByWorkOrderId, setBidsByWorkOrderId] = useState<Record<string, WorkOrderBid>>({});
+  const [offersByWorkOrderId, setOffersByWorkOrderId] = useState<Record<string, WorkOrderVendorOffer>>({});
   const [payoutsByWorkOrderId, setPayoutsByWorkOrderId] = useState<Record<string, VendorPayout>>({});
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
@@ -100,6 +106,8 @@ export function VendorWorkOrdersPanel() {
   const [tab, setTab] = useState<VendorWorkOrderTab>("quote");
   const [bidsSyncFailed, setBidsSyncFailed] = useState(false);
   const [payoutsSyncFailed, setPayoutsSyncFailed] = useState(false);
+  const [decliningOfferId, setDecliningOfferId] = useState<string | null>(null);
+  const [withdrawingBidId, setWithdrawingBidId] = useState<string | null>(null);
 
   const loadBids = useCallback(async () => {
     const result = await fetchWorkOrderBidsResult();
@@ -115,6 +123,11 @@ export function VendorWorkOrdersPanel() {
     setPayoutsByWorkOrderId(Object.fromEntries(result.payouts.map((p) => [p.workOrderId, p])));
   }, []);
 
+  const loadOffers = useCallback(async () => {
+    const offers = await fetchWorkOrderVendorOffers();
+    setOffersByWorkOrderId(Object.fromEntries(offers.map((o) => [o.workOrderId, o])));
+  }, []);
+
   useEffect(() => {
     const sync = () => setRows(readVendorWorkOrderRows());
     const onBidsChanged = () => void loadBids();
@@ -123,6 +136,7 @@ export function VendorWorkOrdersPanel() {
     void syncManagerWorkOrdersFromServer().then(() => sync());
     void loadBids();
     void loadPayouts();
+    void loadOffers();
 
     // Bidding state (open/accepted) and payout status can change server-side while this
     // tab sits idle (manager accepts another bid, a payout posts) — refresh on a short
@@ -131,6 +145,7 @@ export function VendorWorkOrdersPanel() {
       void syncManagerWorkOrdersFromServer({ force: true }).then(() => sync());
       void loadBids();
       void loadPayouts();
+      void loadOffers();
     };
     // Don't poll three endpoints for a hidden/background tab (egress on the free
     // plan); visibilitychange re-syncs the moment it comes back to the foreground.
@@ -150,7 +165,7 @@ export function VendorWorkOrdersPanel() {
       document.removeEventListener("visibilitychange", onVisible);
       window.removeEventListener("focus", refreshAll);
     };
-  }, [loadBids, loadPayouts]);
+  }, [loadBids, loadPayouts, loadOffers]);
 
   const sorted = useMemo(
     () => [...rows].sort((a, b) => (b.scheduledAtIso ?? "").localeCompare(a.scheduledAtIso ?? "")),
@@ -403,6 +418,63 @@ export function VendorWorkOrdersPanel() {
     }
   };
 
+  const declineOffer = async (row: DemoManagerWorkOrderRow, offer: WorkOrderVendorOffer) => {
+    setDecliningOfferId(offer.id);
+    try {
+      if (demo) {
+        setOffersByWorkOrderId((prev) => {
+          const next = { ...prev };
+          delete next[row.id];
+          return next;
+        });
+        showToast("Offer declined.");
+        return;
+      }
+      const result = await declineWorkOrderVendorOffer(offer.id);
+      if (!result.ok) throw new Error(result.error ?? "Could not decline offer.");
+      await loadOffers();
+      showToast("Offer declined.");
+    } catch (e) {
+      showToast(e instanceof Error ? e.message : "Could not decline offer.");
+    } finally {
+      setDecliningOfferId(null);
+    }
+  };
+
+  const withdrawBid = async (row: DemoManagerWorkOrderRow) => {
+    setWithdrawingBidId(row.id);
+    try {
+      if (demo) {
+        setBidsByWorkOrderId((prev) => {
+          const next = { ...prev };
+          delete next[row.id];
+          return next;
+        });
+        showToast("Bid withdrawn.");
+        return;
+      }
+      const res = await fetch("/api/portal/work-order-bids", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ action: "withdraw", workOrderId: row.id }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "Could not withdraw bid.");
+      await loadBids();
+      setDraftById((prev) => {
+        const next = { ...prev };
+        delete next[row.id];
+        return next;
+      });
+      showToast("Bid withdrawn.");
+    } catch (e) {
+      showToast(e instanceof Error ? e.message : "Could not withdraw bid.");
+    } finally {
+      setWithdrawingBidId(null);
+    }
+  };
+
   const renderInvoice = (row: DemoManagerWorkOrderRow) => {
     const bid = bidsByWorkOrderId[row.id];
     // Fall back to the accepted bid when the row's own cents weren't mirrored,
@@ -456,6 +528,9 @@ export function VendorWorkOrdersPanel() {
 
   const renderRowDetail = (row: DemoManagerWorkOrderRow) => {
     const bid = bidsByWorkOrderId[row.id];
+    const offer = offersByWorkOrderId[row.id];
+    const offerDeclined = offer?.status === "declined";
+    const canDeclineOffer = offer?.status === "sent" && row.biddingOpen && !bid;
     const draft = draftById[row.id] ?? defaultBidDraft(row, bid);
     const pricingPending = isPricingPendingBid(bid);
     const canEditBid = (row.biddingOpen || pricingPending) && (!bid || bid.status === "submitted");
@@ -481,7 +556,27 @@ export function VendorWorkOrdersPanel() {
           <p className="mt-1.5 text-xs font-medium text-muted">Approved and paid.</p>
         ) : null}
 
+        {offerDeclined ? (
+          <p className="mt-1.5 text-xs font-medium text-muted">You declined this offer.</p>
+        ) : null}
+
         {row.bucket === "completed" ? renderInvoice(row) : null}
+
+        {canDeclineOffer && offer ? (
+          <div className="mt-3 border-t border-border pt-3">
+            <p className="text-xs text-muted">Not available or not interested?</p>
+            <Button
+              type="button"
+              variant="outline"
+              className={`${PORTAL_DETAIL_BTN} mt-2`}
+              data-attr="vendor-decline-offer"
+              disabled={decliningOfferId === offer.id}
+              onClick={() => declineOffer(row, offer)}
+            >
+              {decliningOfferId === offer.id ? "Declining…" : "Decline offer"}
+            </Button>
+          </div>
+        ) : null}
 
         {row.biddingOpen || bid ? (
           <div className="mt-4 border-t border-border pt-3">
@@ -654,6 +749,18 @@ export function VendorWorkOrdersPanel() {
             >
               {pricingPending ? "Submit price" : bid ? "Update bid" : "Submit bid"}
             </Button>
+            {bid && bid.status === "submitted" ? (
+              <Button
+                type="button"
+                variant="outline"
+                data-attr="vendor-withdraw-bid"
+                className={PORTAL_DETAIL_BTN}
+                disabled={withdrawingBidId === row.id}
+                onClick={() => withdrawBid(row)}
+              >
+                {withdrawingBidId === row.id ? "Withdrawing…" : "Withdraw bid"}
+              </Button>
+            ) : null}
           </PortalTableDetailActions>
         ) : null}
 
