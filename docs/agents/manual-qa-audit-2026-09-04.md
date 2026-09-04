@@ -55,7 +55,10 @@ _Pick up after PRP-171 — resident apply → lease → payments on **3010**._
 
 ## Claude 1 log (comms / vendor / admin)
 
-_Pick up after PRP-171 — inbox, application approval, vendor portal on **3012**._
+**Sprint handoff:** `docs/linear/manifests/agent-sprint-2026-09-04.md` (section **Claude 1**)
 
-| # | Issue | PRP | Lavish plan | Status |
-| --- | --- | --- | --- | --- |
+| # | Issue | PRP | Status |
+| --- | --- | --- | --- |
+| 1 | Vendor multi-manager invoicing + decline | PRP-254 | **On prakrit** (`1eb0db93`) — sync :3012 |
+| 2 | Admin schedule soft-404 | PRP-184 #11 | **Next** — workflow:plan then build |
+

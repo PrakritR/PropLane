@@ -71,6 +71,22 @@ export function availableManualChannelsForCharges(
   return out;
 }
 
+/** True when at least one pending charge can start PropLane / Stripe checkout. */
+export function chargesSupportPlatformCheckout(charges: HouseholdCharge[]): boolean {
+  return charges.some((c) => c.status === "pending" && canPayHouseholdChargeWithAxisAch(c));
+}
+
+/**
+ * Zelle/Venmo are a fallback when the manager has not finished card/ACH setup.
+ * When platform checkout is available, residents pay through PropLane only (PRP-275).
+ */
+export function residentManualChannelsForCharges(
+  charges: HouseholdCharge[],
+): ResidentManualPaymentChannel[] {
+  if (chargesSupportPlatformCheckout(charges)) return [];
+  return availableManualChannelsForCharges(charges);
+}
+
 export function manualContactForCharges(
   charges: HouseholdCharge[],
   channel: ResidentManualPaymentChannel,

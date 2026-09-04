@@ -3,10 +3,12 @@ import type { HouseholdCharge } from "@/lib/household-charges";
 import {
   availableManualChannelsForCharges,
   canPayHouseholdChargeWithManualChannel,
+  chargesSupportPlatformCheckout,
   coerceResidentPaymentMethodForSurface,
   filterChargesForPayMethod,
   isPayableHouseholdCharge,
   isStripeResidentPayMethod,
+  residentManualChannelsForCharges,
   residentPaymentMethodsForSurface,
   RESIDENT_NATIVE_PAYMENT_METHODS,
   RESIDENT_WEB_PAYMENT_METHODS,
@@ -85,6 +87,32 @@ describe("manual household charge payments", () => {
     expect(filterChargesForPayMethod(charges, "ach").map((c) => c.id)).toEqual(["ach"]);
     expect(filterChargesForPayMethod(charges, "zelle").map((c) => c.id)).toEqual(["zelle"]);
     expect(isPayableHouseholdCharge(charges[1]!)).toBe(true);
+  });
+
+  it("hides manual channels when platform checkout is available", () => {
+    const charges = [
+      mkCharge({
+        id: "platform",
+        axisPaymentsEnabledSnapshot: true,
+        managerStripeConnectReadySnapshot: true,
+        zelleContactSnapshot: "z@x.com",
+      }),
+    ];
+    expect(chargesSupportPlatformCheckout(charges)).toBe(true);
+    expect(residentManualChannelsForCharges(charges)).toEqual([]);
+  });
+
+  it("offers manual channels only when platform checkout is unavailable", () => {
+    const charges = [
+      mkCharge({
+        id: "manual",
+        axisPaymentsEnabledSnapshot: true,
+        managerStripeConnectReadySnapshot: false,
+        zelleContactSnapshot: "z@x.com",
+      }),
+    ];
+    expect(chargesSupportPlatformCheckout(charges)).toBe(false);
+    expect(residentManualChannelsForCharges(charges)).toEqual(["zelle"]);
   });
 });
 
