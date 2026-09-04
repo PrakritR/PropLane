@@ -34,16 +34,16 @@ function syncAirbnb(terms, enabled) {
 
 const { data: rows, error } = await db
   .from("manager_property_records")
-  .select("id, row_data")
+  .select("id, property_data")
   .in("id", LIVE_PROPERTY_IDS);
 
 if (error) throw new Error(error.message);
 
 for (const row of rows ?? []) {
-  const data = row.row_data ?? {};
-  const submission = data.listingSubmission ?? data.submission ?? {};
-  if (submission.v !== 1 && !submission.rooms) {
-    console.warn(`Skip ${row.id}: no v1 listing submission`);
+  const propertyData = row.property_data ?? {};
+  const submission = propertyData.listingSubmission ?? {};
+  if (submission.v !== 1 && !Array.isArray(submission.rooms)) {
+    console.warn(`Skip ${row.id}: no v1 listing submission on property_data`);
     continue;
   }
   const allowed = syncAirbnb(submission.allowedLeaseTerms, true);
@@ -55,14 +55,13 @@ for (const row of rows ?? []) {
     leaseTermsBody:
       allowed.length > 0 ? `Available lease lengths: ${allowed.join(", ")}.` : submission.leaseTermsBody,
   };
-  const nextRow = {
-    ...data,
+  const nextPropertyData = {
+    ...propertyData,
     listingSubmission: nextSubmission,
-    submission: nextSubmission,
   };
   const { error: upErr } = await db
     .from("manager_property_records")
-    .update({ row_data: nextRow, updated_at: new Date().toISOString() })
+    .update({ property_data: nextPropertyData, updated_at: new Date().toISOString() })
     .eq("id", row.id);
   if (upErr) throw new Error(`${row.id}: ${upErr.message}`);
   console.log(`Enabled Airbnb on ${row.id}`);
