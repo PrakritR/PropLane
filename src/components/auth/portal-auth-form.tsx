@@ -20,6 +20,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { PasswordInput } from "@/components/ui/password-input";
 import { createSupabaseBrowserClient } from "@/lib/supabase/browser";
+import { recoverImplicitAuthHash } from "@/lib/auth/recover-implicit-auth-hash";
 import { waitForOAuthUser } from "@/lib/auth/wait-for-oauth-user";
 import { isNativeOAuthInProgress } from "@/lib/native/open-url";
 import { portalNavClick } from "@/lib/portal-nav-client";
@@ -39,6 +40,27 @@ type SignInResult = {
   data: { user: { id: string } | null; session: unknown | null };
   error: { message: string } | null;
 };
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => window.setTimeout(resolve, ms));
+}
+
+async function signInAfterSignup(
+  supabase: ReturnType<typeof createSupabaseBrowserClient>,
+  email: string,
+  password: string,
+): Promise<SignInResult> {
+  let last: SignInResult = { data: { user: null, session: null }, error: { message: "Sign-in failed" } };
+  for (let attempt = 0; attempt < 4; attempt++) {
+    last = (await supabase.auth.signInWithPassword({
+      email: email.trim(),
+      password,
+    })) as SignInResult;
+    if (last.data.user && !last.error) return last;
+    if (attempt < 3) await sleep(350 * (attempt + 1));
+  }
+  return last;
+}
 
 class AuthTimeoutError extends Error {
   constructor(message: string) {
@@ -165,6 +187,20 @@ export function PortalAuthForm({
     if (!prospectHandoffSnapshot) return;
     persistProspectHandoff(prospectHandoffSnapshot);
   }, [prospectHandoffSnapshot]);
+
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      const supabase = createSupabaseBrowserClient();
+      const { recovered } = await recoverImplicitAuthHash(supabase);
+      if (cancelled || !recovered) return;
+      setErrorText(null);
+      window.location.replace(continueHref(nextPath));
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [nextPath]);
 
   useEffect(() => {
     if (isCreate) return;
@@ -300,7 +336,7 @@ export function PortalAuthForm({
       }
       const supabase = createSupabaseBrowserClient();
       const { data, error } = await withTimeout(
-        supabase.auth.signInWithPassword({ email: email.trim(), password }) as PromiseLike<SignInResult>,
+        signInAfterSignup(supabase, email.trim(), password),
         LOGIN_TIMEOUT_MS,
         "This is taking too long. Please check your connection and try again.",
       );
