@@ -38,7 +38,7 @@ export function AssistantDock({
   const portalConfig = usePortalAssistantConfig();
   const resolvedEndpoint = portalConfig?.endpoint ?? endpoint;
   const resolvedName = managerName ?? portalConfig?.managerName ?? null;
-  const { input, setInput, messages, lastTools, pendingAction, loading, error, send, resolvePendingAction, reset } =
+  const { input, setInput, messages, pendingAction, loading, error, send, resolvePendingAction, reset } =
     useAssistantConversation(resolvedEndpoint);
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -163,9 +163,6 @@ export function AssistantDock({
             ) : null}
             {error ? (
               <p className="rounded-xl border border-danger/20 bg-danger/5 px-3 py-2 text-sm text-danger">{error}</p>
-            ) : null}
-            {lastTools.length > 0 ? (
-              <p className="text-xs text-muted">Used: {lastTools.map((t) => t.tool).join(", ")}</p>
             ) : null}
           </div>
         )}

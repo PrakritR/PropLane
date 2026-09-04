@@ -95,7 +95,7 @@ import {
 } from "@/lib/scheduled-inbox-messages";
 import { useManagerUserId } from "@/hooks/use-manager-user-id";
 import { isDemoModeActive } from "@/lib/demo/demo-session";
-import { filterEmailInboxThreads } from "@/lib/communication-inbox-filters";
+import { filterEmailInboxThreads, filterManagerCommunicationThreads } from "@/lib/communication-inbox-filters";
 import { dispatchManagerSmsContactsChanged, type ManagerSmsResidentConversation } from "@/lib/manager-sms-messages";
 import {
   threadPassesCommunicationFilters,
@@ -353,7 +353,8 @@ export const ManagerInbox = forwardRef<
   const embeddedResidentChat = Boolean(residentEmailNorm);
 
   const emailThreads = useMemo(() => {
-    const base = embeddedInCommunication ? filterEmailInboxThreads(local) : local;
+    let base = embeddedInCommunication ? filterEmailInboxThreads(local) : local;
+    base = filterManagerCommunicationThreads(base);
     const scoped =
       !threadFilters || !filterContacts
         ? base

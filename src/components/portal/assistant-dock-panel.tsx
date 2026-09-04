@@ -67,7 +67,6 @@ export function AssistantDockPanel({
     messages,
     ratings,
     submitFeedback,
-    lastTools,
     pendingAction,
     loading,
     error,
@@ -318,9 +317,6 @@ export function AssistantDockPanel({
             ) : null}
             {error ? (
               <p className="rounded-xl border border-danger/20 bg-danger/5 px-3 py-2 text-sm text-danger">{error}</p>
-            ) : null}
-            {lastTools.length > 0 ? (
-              <p className="text-xs text-muted">Used: {lastTools.map((t) => t.tool).join(", ")}</p>
             ) : null}
           </div>
         ) : null}

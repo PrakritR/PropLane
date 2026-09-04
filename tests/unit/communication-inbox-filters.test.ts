@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { filterEmailInboxThreads, isPhoneLikeContact, isSmsLikeInboxThread } from "@/lib/communication-inbox-filters";
+import { filterEmailInboxThreads, filterManagerCommunicationThreads, isPhoneLikeContact, isSmsLikeInboxThread } from "@/lib/communication-inbox-filters";
+import { PRIMARY_ADMIN_EMAIL } from "@/lib/auth/primary-admin";
 import { threadPassesCommunicationFilters } from "@/lib/communication-thread-filters";
 import type { PersistedInboxThread } from "@/lib/portal-inbox-storage";
 
@@ -44,6 +45,14 @@ describe("communication-inbox-filters", () => {
       "email-1",
       "sms-notice",
     ]);
+  });
+
+  it("filters PropLane admin ops threads out of the manager Communication list", () => {
+    const rows = [
+      thread({ id: "resident-1", from: "Test Resident", email: "resident@test.proplane.local" }),
+      thread({ id: "admin-1", from: "PropLane", email: PRIMARY_ADMIN_EMAIL }),
+    ];
+    expect(filterManagerCommunicationThreads(rows).map((r) => r.id)).toEqual(["resident-1"]);
   });
 
   it("uses an SMS conversation's role instead of assuming every SMS row is a resident", () => {

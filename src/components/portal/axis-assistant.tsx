@@ -167,7 +167,6 @@ function AxisAssistantChrome({ managerName, endpoint = "/api/agent/chat" }: { ma
     messages,
     ratings,
     submitFeedback,
-    lastTools,
     pendingAction,
     loading,
     error,
@@ -478,9 +477,6 @@ function AxisAssistantChrome({ managerName, endpoint = "/api/agent/chat" }: { ma
                     </div>
                   )}
                   {error && <p className="rounded-xl border border-danger/20 bg-danger/5 px-3 py-2 text-sm text-danger">{error}</p>}
-                  {lastTools.length > 0 && (
-                    <p className="text-xs text-muted">Used: {lastTools.map((t) => t.tool).join(", ")}</p>
-                  )}
                 </div>
               )}
             </div>
