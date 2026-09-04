@@ -1542,11 +1542,6 @@ export function ManagerResidents({
     }
   }
 
-  function openResidentMessageModal(scheduleLater = true) {
-    setMessageScheduleLater(scheduleLater);
-    setMessageOpen(true);
-  }
-
   async function sendResidentAccountEmail(
     res: ActiveResident,
     opts?: {
@@ -2965,7 +2960,6 @@ export function ManagerResidents({
                                 residentName={selected.name}
                                 portalBase={portalBase}
                                 smsUiEnabled={smsUiEnabled}
-                                onNewMessage={() => openResidentMessageModal(false)}
                                 scheduledRefreshKey={messageScheduledRefresh}
                               />
                             </ResidentDetailTabPanel>
@@ -3311,7 +3305,7 @@ export function ManagerResidents({
                                     </table>
                                   </div>
                                 </div>
-                              )}
+                              ) : null}
                               {residentServicesAddRow}
                               </>
                               )}
