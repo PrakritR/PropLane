@@ -3263,7 +3263,12 @@ export function ManagerResidents({
                               </div>
                               {residentServicesHasRows ? (
                                 <div className={PORTAL_DATA_TABLE_WRAP}>
-                                  <div className={`${PORTAL_DATA_TABLE_SCROLL} overflow-x-auto`}>
+                                  <div
+                                    className={`${PORTAL_DATA_TABLE_SCROLL} overflow-x-auto`}
+                                    tabIndex={0}
+                                    role="region"
+                                    aria-label="Services table"
+                                  >
                                     <table className="w-full min-w-[28rem] table-fixed border-collapse text-left text-sm lg:min-w-0">
                                       <thead>
                                         <tr className={PORTAL_TABLE_HEAD_ROW}>
