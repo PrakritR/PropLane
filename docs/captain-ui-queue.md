@@ -182,9 +182,10 @@ Listed newest first; the ones already fixed say so.
   "Email" with nothing said. In the real app the fetch usually wins the race, so
   it is rarely seen; in tests it is reliable, which is why the two remaining
   cases in `resident-refused-send-not-delivered` cannot select SMS at all.
-  Suspected, not proven — the effect is the communication lane's, and the fix
-  (don't clobber an explicit choice) is theirs to make. **This is the only unit
-  test still red on prakrit** (2 cases in that one file).
+  Suspected, not proven — the effect is the communication lane's. They have
+  since landed a change to that file and the two cases now pass, so the symptom
+  is gone; whether the underlying race was fixed or only avoided in the test is
+  worth one look before trusting it.
   The other two files in that group ARE fixed: `manager-inbox-search` and
   `manager-inbox-resident-scope-selection` now drive selection, or identify the
   open thread by its own content, rather than reading action buttons that moved
