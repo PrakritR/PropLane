@@ -209,85 +209,8 @@ export function replacesSignedLeaseDocument(stored: LeasePipelineRow, next: Leas
   return true;
 }
 
-function residentSignaturePresent(
-  row: Pick<LeasePipelineRow, "residentSignature" | "signatureName" | "signedAtIso" | "bucket" | "status">,
-): boolean {
-  if (row.residentSignature) return true;
-  return Boolean(
-    row.signatureName &&
-      row.signedAtIso &&
-      row.bucket === "resident" &&
-      row.status === "Resident Signature Pending",
-  );
-}
 
-function residentSignaturesMatch(
-  a: Pick<LeasePipelineRow, "residentSignature" | "signatureName" | "signedAtIso">,
-  b: Pick<LeasePipelineRow, "residentSignature" | "signatureName" | "signedAtIso">,
-): boolean {
-  if (a.residentSignature && b.residentSignature) {
-    return (
-      a.residentSignature.name === b.residentSignature.name &&
-      a.residentSignature.signedAtIso === b.residentSignature.signedAtIso &&
-      (a.residentSignature.documentSha256 ?? null) === (b.residentSignature.documentSha256 ?? null)
-    );
-  }
-  if (!a.residentSignature && !b.residentSignature) {
-    return a.signatureName === b.signatureName && a.signedAtIso === b.signedAtIso;
-  }
-  return false;
-}
 
-/**
- * Server-side resident signing gate — mirrors the browser store predicate but
- * refuses double-sign, sign-before-send, and stale-body writes on the route.
- */
-export function refuseResidentLeaseSignatureWrite(
-  stored: LeasePipelineRow,
-  next: LeasePipelineRow,
-  opts?: { exemptNotReady?: boolean },
-): { ok: true } | { ok: false; error: string; status: number } {
-  const storedSigned = residentSignaturePresent(stored);
-  const nextSigned = residentSignaturePresent(next);
-  const awaitingResident =
-    stored.bucket === "resident" && stored.status === "Resident Signature Pending";
-
-  if (storedSigned && nextSigned && !residentSignaturesMatch(stored, next)) {
-    return {
-      ok: false,
-      error: "This lease already has your signature; it cannot be signed again.",
-      status: 409,
-    };
-  }
-
-  if (storedSigned && nextSigned) {
-    return { ok: true };
-  }
-
-  const attemptingFirstSign = nextSigned && !storedSigned;
-  if (!attemptingFirstSign) {
-    return { ok: true };
-  }
-
-  if (!awaitingResident && !opts?.exemptNotReady) {
-    return {
-      ok: false,
-      error: "This lease is not ready for your signature yet.",
-      status: 409,
-    };
-  }
-
-  if (awaitingResident && leaseDocumentBodyChanged(stored, next)) {
-    return {
-      ok: false,
-      error:
-        "The lease was updated after you opened it. Refresh and review the latest version before signing.",
-      status: 409,
-    };
-  }
-
-  return { ok: true };
-}
 
 function leaseDocumentBodyReplaced(stored: LeasePipelineRow, next: LeasePipelineRow): boolean {
   const before = leaseDocumentBody(stored);
@@ -328,17 +251,19 @@ export function leaseSignatureWriteRefusal(
     LeasePipelineRow,
     "bucket" | "status" | "managerSignature" | "residentSignature" | "signatureName" | "signedAtIso"
   >,
-  next: Pick<LeasePipelineRow, "managerSignature" | "residentSignature">,
+  next: Pick<
+    LeasePipelineRow,
+    "bucket" | "status" | "managerSignature" | "residentSignature" | "signatureName" | "signedAtIso"
+  >,
 ): string | null {
   for (const role of ["resident", "manager"] as const) {
-    const field = role === "resident" ? "residentSignature" : "managerSignature";
-    const before = stored[field] ?? null;
-    const after = next[field] ?? null;
-    if (!after) continue;
+    const before = signatureFor(stored, role, true);
+    const after = signatureFor(next, role);
+    if (!after.present) continue;
 
-    if (before) {
+    if (before.present) {
       // An unchanged resend is the normal save path, not a re-signing.
-      if (sameLeaseSignature(before, after)) continue;
+      if (sameSignatureEvidence(before, after)) continue;
       return `This lease already carries the ${role}'s signature; it cannot be signed again.`;
     }
 
@@ -349,17 +274,50 @@ export function leaseSignatureWriteRefusal(
   return null;
 }
 
+type SignatureEvidence = { present: boolean; name: string | null; at: string | null; sha: string | null };
+
+/**
+ * A party's signature, from EITHER signal.
+ *
+ * The resident's signature has two representations: the `residentSignature` object, and the
+ * legacy row-level `signatureName` + `signedAtIso` pair that older rows and the store's own
+ * write path still use. A guard keyed on only one of them is bypassed by a payload written in
+ * the other — the same drift `leaseClaimsExecution` exists to prevent for execution claims.
+ */
+function signatureFor(
+  row: Pick<
+    LeasePipelineRow,
+    "managerSignature" | "residentSignature" | "signatureName" | "signedAtIso" | "bucket" | "status"
+  >,
+  role: "manager" | "resident",
+  /** Set when reading the STORED row — see the legacy-pair note below. */
+  requireStateForLegacyPair = false,
+): SignatureEvidence {
+  const sig = role === "resident" ? row.residentSignature : row.managerSignature;
+  if (sig) {
+    return { present: true, name: sig.name ?? null, at: sig.signedAtIso ?? null, sha: sig.documentSha256 ?? null };
+  }
+  // The legacy pair is the RESIDENT's only; a manager countersignature has always been an
+  // object. The two sides read it differently, on purpose:
+  //
+  // - On the INCOMING row it always counts. The question there is "is this write claiming a
+  //   signature?", and a request carrying the pair is claiming one whatever else it says.
+  // - On the STORED row it counts only in the state where it would have been written, since
+  //   the store stamps `bucket`/`status` in the same write. A stored row carrying the pair in
+  //   any other state is residue, and reading it as a held signature would let a genuine
+  //   first signature be refused as a duplicate.
+  if (role === "resident" && row.signatureName && row.signedAtIso) {
+    const corroborated = row.bucket === "resident" && row.status === "Resident Signature Pending";
+    if (!requireStateForLegacyPair || corroborated) {
+      return { present: true, name: row.signatureName, at: row.signedAtIso, sha: null };
+    }
+  }
+  return { present: false, name: null, at: null, sha: null };
+}
+
 /** Two signature records are the same evidence: same signer, same moment, same document. */
-function sameLeaseSignature(
-  a: NonNullable<LeasePipelineRow["residentSignature"]>,
-  b: NonNullable<LeasePipelineRow["residentSignature"]>,
-): boolean {
-  return (
-    a.name === b.name &&
-    a.signedAtIso === b.signedAtIso &&
-    a.role === b.role &&
-    (a.documentSha256 ?? null) === (b.documentSha256 ?? null)
-  );
+function sameSignatureEvidence(a: SignatureEvidence, b: SignatureEvidence): boolean {
+  return a.name === b.name && a.at === b.at && a.sha === b.sha;
 }
 
 /** Whether the row is at the point where this party's signature is the expected next step. */
@@ -389,15 +347,20 @@ export function leaseAwaitsSignature(
  * resending an unchanged signature is what every ordinary save does.
  */
 export function leaseSignatureRoleForgedBy(
-  stored: Pick<LeasePipelineRow, "managerSignature" | "residentSignature">,
-  next: Pick<LeasePipelineRow, "managerSignature" | "residentSignature">,
+  stored: Pick<
+    LeasePipelineRow,
+    "managerSignature" | "residentSignature" | "signatureName" | "signedAtIso" | "bucket" | "status"
+  >,
+  next: Pick<
+    LeasePipelineRow,
+    "managerSignature" | "residentSignature" | "signatureName" | "signedAtIso" | "bucket" | "status"
+  >,
   actor: "manager" | "resident",
 ): "manager" | "resident" | null {
   const other = actor === "resident" ? "manager" : "resident";
-  const field = other === "manager" ? "managerSignature" : "residentSignature";
-  const before = stored[field] ?? null;
-  const after = next[field] ?? null;
-  if (!after) return null;
-  if (before && sameLeaseSignature(before, after)) return null;
+  const before = signatureFor(stored, other, true);
+  const after = signatureFor(next, other);
+  if (!after.present) return null;
+  if (before.present && sameSignatureEvidence(before, after)) return null;
   return other;
 }

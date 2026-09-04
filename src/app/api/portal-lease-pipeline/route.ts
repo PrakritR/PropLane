@@ -16,7 +16,6 @@ import {
   leaseDocumentBody,
   leaseDocumentBodyChanged,
   leaseClaimsExecution,
-  refuseResidentLeaseSignatureWrite,
   replacesSignedLeaseDocument,
   leaseSignatureRoleForgedBy,
   leaseSignatureWriteRefusal,
@@ -667,19 +666,11 @@ export async function POST(req: Request) {
               { status: 409 },
             );
           }
-          if (storedRow) {
-            const residentSigningExempt =
-              !untrustedDocument &&
-              leaseClaimsExecution(nextRow) &&
-              !leaseClaimsExecution(storedRow) &&
-              nextRow.externallySignedLease === true;
-            const signatureRefusal = refuseResidentLeaseSignatureWrite(storedRow, nextRow, {
-              exemptNotReady: residentSigningExempt,
-            });
-            if (!signatureRefusal.ok) {
-              return NextResponse.json({ error: signatureRefusal.error }, { status: signatureRefusal.status });
-            }
-          }
+          // The signature rules themselves ran earlier, for EVERY actor
+          // (`leaseSignatureWriteRefusal` + `leaseSignatureRoleForgedBy`). A second
+          // resident-only copy here would be a second source of truth for one rule, and the
+          // narrower of the two: it never judged who the signature belongs to, so it could
+          // not catch a resident writing the manager's countersignature.
           scope = storedScopeColumns(existingRecord);
         } else {
           const allowed = existingRecord

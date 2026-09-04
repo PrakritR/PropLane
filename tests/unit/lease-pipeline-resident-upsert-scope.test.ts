@@ -210,6 +210,14 @@ describe("portal-lease-pipeline resident upsert — scope columns are server-pin
   });
 
   it("still lets the resident update their own row body", async () => {
+    // The row has to be AWAITING the resident's signature for a write carrying one to be
+    // legitimate — a bare row with no bucket or status is the sign-before-send shape the
+    // signature guard exists to refuse (PRP-251), not an ordinary body update.
+    STORED.row_data = {
+      ...DEFAULT_STORED_ROW_DATA,
+      bucket: "resident",
+      status: "Resident Signature Pending",
+    };
     const res = await post({
       action: "upsert",
       row: { id: LEASE_ID, residentEmail: RESIDENT_EMAIL, signatureName: "Resident", signedAtIso: "2026-05-01T00:00:00Z" },
