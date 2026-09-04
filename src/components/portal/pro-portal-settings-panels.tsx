@@ -25,7 +25,7 @@ import {
 import {
   ManagerSmsWorkNumberHint,
   ManagerWorkNumberCopyControl,
-} from "@/components/portal/manager-sms-work-number-hint";
+} from "@/components/portal/pro-sms-work-number-hint";
 import type { ManagerMessagingNumberStatus } from "@/lib/sms/manager-messaging-number";
 import {
   PAYMENT_REMINDER_PRESETS,
