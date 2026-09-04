@@ -1715,9 +1715,15 @@ export function ManagerPaymentsLedgerPanel({
         hideBackText
         bareHeader
         dataAttrBack="payment-detail-back"
-        inlineActions
-        actions={renderDetailActions(detailRow)}
+        footerOmitSpacer
+        footer={renderDetailActions(detailRow)}
       >
+        {/*
+          The actions dock at the bottom rather than sitting in the header.
+          Every other detail page in the portal puts them there, and on a
+          payment the manager reads the amount and the schedule first — the
+          decision belongs after what it is based on, not above it.
+        */}
         {renderPaymentDetailPanel(detailRow)}
       </PortalRecordDetailPage>
       )

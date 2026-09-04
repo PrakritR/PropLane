@@ -787,7 +787,79 @@ export function ManagerWorkOrdersPanel({
     }
   };
 
-  const renderRowDetail = (row: DemoManagerWorkOrderRow) => {
+  /**
+   * The service's actions, rendered either inline under an expanded list row or
+   * docked at the bottom of the detail route. One definition, so the two places
+   * cannot drift into offering different things for the same service.
+   */
+  const workOrderDetailActions = (row: DemoManagerWorkOrderRow) => (
+    <>
+      {row.bucket === "open" ? (
+        <>
+          <Button
+            type="button"
+            variant="primary"
+            className={`${PORTAL_DETAIL_BTN} rounded-full`}
+            onClick={() => saveScheduleFromOpen(row)}
+          >
+            Schedule visit
+          </Button>
+          <Button
+            type="button"
+            variant="outline"
+            className={`${PORTAL_DETAIL_BTN} border-rose-200 text-rose-800 hover:bg-[var(--status-overdue-bg)]`}
+            onClick={() => onDeleteWorkOrder(row)}
+          >
+            Delete
+          </Button>
+        </>
+      ) : row.bucket === "scheduled" ? (
+        <Button type="button" variant="outline" className={PORTAL_DETAIL_BTN} onClick={() => rescheduleVisit(row)}>
+          Save new time
+        </Button>
+      ) : null}
+      {!row.selfAssigned && row.vendorId && row.bucket !== "completed" ? (
+        <Button
+          type="button"
+          variant="outline"
+          data-attr="work-order-auto-schedule"
+          className={PORTAL_DETAIL_BTN}
+          disabled={autoSchedulingId === row.id}
+          onClick={() => autoScheduleVisit(row)}
+        >
+          {autoSchedulingId === row.id ? "Finding a slot…" : "Auto-schedule"}
+        </Button>
+      ) : null}
+      {row.bucket === "scheduled" && row.automationStatus === "vendor_marked_done" ? (
+        <Button
+          type="button"
+          variant="primary"
+          data-attr="work-order-approve-pay"
+          className={`${PORTAL_DETAIL_BTN} rounded-full`}
+          disabled={approvePayBusy}
+          onClick={() => approvePay(row)}
+        >
+          Approve &amp; pay
+        </Button>
+      ) : row.bucket === "scheduled" ? (
+        <Button type="button" variant="outline" className={PORTAL_DETAIL_BTN} onClick={() => markComplete(row)}>
+          Mark complete
+        </Button>
+      ) : null}
+      {row.bucket !== "open" ? (
+        <Button
+          type="button"
+          variant="outline"
+          className={`${PORTAL_DETAIL_BTN} border-rose-200 text-rose-800 hover:bg-[var(--status-overdue-bg)]`}
+          onClick={() => onDeleteWorkOrder(row)}
+        >
+          Delete
+        </Button>
+      ) : null}
+    </>
+  );
+
+  const renderRowDetail = (row: DemoManagerWorkOrderRow, dockActions = false) => {
     const draft = billDraftById[row.id] ?? defaultBillDraft(row);
     const linkedCharge = chargeByWoId.get(row.id);
     const visitAt = visitAtById[row.id] ?? "";
@@ -1066,70 +1138,9 @@ export function ManagerWorkOrdersPanel({
                           </div>
                         ) : null}
 
-                        <PortalTableDetailActions>
-                          {row.bucket === "open" ? (
-                            <>
-                              <Button
-                                type="button"
-                                variant="primary"
-                                className={`${PORTAL_DETAIL_BTN} rounded-full`}
-                                onClick={() => saveScheduleFromOpen(row)}
-                              >
-                                Schedule visit
-                              </Button>
-                              <Button
-                                type="button"
-                                variant="outline"
-                                className={`${PORTAL_DETAIL_BTN} border-rose-200 text-rose-800 hover:bg-[var(--status-overdue-bg)]`}
-                                onClick={() => onDeleteWorkOrder(row)}
-                              >
-                                Delete
-                              </Button>
-                            </>
-                          ) : row.bucket === "scheduled" ? (
-                            <Button type="button" variant="outline" className={PORTAL_DETAIL_BTN} onClick={() => rescheduleVisit(row)}>
-                              Save new time
-                            </Button>
-                          ) : null}
-                          {!row.selfAssigned && row.vendorId && row.bucket !== "completed" ? (
-                            <Button
-                              type="button"
-                              variant="outline"
-                              data-attr="work-order-auto-schedule"
-                              className={PORTAL_DETAIL_BTN}
-                              disabled={autoSchedulingId === row.id}
-                              onClick={() => autoScheduleVisit(row)}
-                            >
-                              {autoSchedulingId === row.id ? "Finding a slot…" : "Auto-schedule"}
-                            </Button>
-                          ) : null}
-                          {row.bucket === "scheduled" && row.automationStatus === "vendor_marked_done" ? (
-                            <Button
-                              type="button"
-                              variant="primary"
-                              data-attr="work-order-approve-pay"
-                              className={`${PORTAL_DETAIL_BTN} rounded-full`}
-                              disabled={approvePayBusy}
-                              onClick={() => approvePay(row)}
-                            >
-                              Approve &amp; pay
-                            </Button>
-                          ) : row.bucket === "scheduled" ? (
-                            <Button type="button" variant="outline" className={PORTAL_DETAIL_BTN} onClick={() => markComplete(row)}>
-                              Mark complete
-                            </Button>
-                          ) : null}
-                          {row.bucket !== "open" ? (
-                            <Button
-                              type="button"
-                              variant="outline"
-                              className={`${PORTAL_DETAIL_BTN} border-rose-200 text-rose-800 hover:bg-[var(--status-overdue-bg)]`}
-                              onClick={() => onDeleteWorkOrder(row)}
-                            >
-                              Delete
-                            </Button>
-                          ) : null}
-                        </PortalTableDetailActions>
+                        {dockActions ? null : (
+                          <PortalTableDetailActions>{workOrderDetailActions(row)}</PortalTableDetailActions>
+                        )}
       </>
     );
   };
@@ -1144,10 +1155,17 @@ export function ManagerWorkOrdersPanel({
         title={routeWorkOrder.title}
         subtitle={[routeWorkOrder.propertyName, routeWorkOrder.unit].filter(Boolean).join(" · ") || undefined}
         backHref={listBasePath ? workOrderListHref(listBasePath, bucket) : "#"}
-        backLabel="Back to services"
+        hideBackText
         dataAttrBack="work-order-detail-back"
+        footerOmitSpacer
+        footer={workOrderDetailActions(routeWorkOrder)}
       >
-        {renderRowDetail(routeWorkOrder)}
+        {/*
+          On the detail ROUTE the actions dock at the bottom like every other
+          detail page; the same body rendered inline under an expanded list row
+          keeps them where they are, because there is no dock there to move to.
+        */}
+        {renderRowDetail(routeWorkOrder, true)}
       </PortalRecordDetailPage>
     );
   }
