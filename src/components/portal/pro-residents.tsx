@@ -8,7 +8,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } fro
 import { useSearchParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { PortalDetailDestinationNav } from "@/components/portal/portal-detail-destination-nav";
-import { PortalPageChrome, PortalPageScrollBody } from "@/lib/portal-page-chrome-layout";
+import { PortalPageChrome } from "@/lib/portal-page-chrome-layout";
 import {Input, Textarea, Select, NativeSelect} from "@/components/ui/input";
 import {
   Modal,
@@ -1230,6 +1230,12 @@ export function ManagerResidents({
     });
   }, [residentCharges, selected?.roomLabel]);
 
+  const residentPaymentBucketCounts = useMemo(() => {
+    const counts: Record<ManagerPaymentBucket, number> = { pending: 0, overdue: 0, paid: 0 };
+    for (const row of residentLedgerRows) counts[row.bucket] += 1;
+    return counts;
+  }, [residentLedgerRows]);
+
   useEffect(() => {
     if (!paymentIdProp || !residentLedgerRows.length) return;
     const decoded = decodeURIComponent(paymentIdProp);
@@ -1238,14 +1244,12 @@ export function ManagerResidents({
   }, [paymentIdProp, residentLedgerRows, chargeBucket]);
 
   const residentLedgerRowsForBucket = useMemo(() => {
-    const bucketOrder: Record<ManagerPaymentBucket, number> = { overdue: 0, pending: 1, paid: 2 };
-    return [...residentLedgerRows].sort((a, b) => {
-      const bucketCmp = bucketOrder[a.bucket] - bucketOrder[b.bucket];
-      if (bucketCmp !== 0) return bucketCmp;
-      const direction = a.bucket === "paid" ? "desc" : "asc";
-      return compareDueDateMs(a.dueDateSortMs, b.dueDateSortMs, direction);
-    });
-  }, [residentLedgerRows]);
+    const filtered = residentLedgerRows.filter((row) => row.bucket === chargeBucket);
+    const direction = chargeBucket === "paid" ? "desc" : "asc";
+    return [...filtered].sort((a, b) =>
+      compareDueDateMs(a.dueDateSortMs, b.dueDateSortMs, direction),
+    );
+  }, [residentLedgerRows, chargeBucket]);
 
   const selectedApplicationRow = useMemo<DemoApplicantRow | null>(() => {
     void hcTick;
@@ -3045,10 +3049,34 @@ export function ManagerResidents({
                             </ResidentDetailTabPanel>
                             </div>
                             ) : (
-                            <PortalPageScrollBody>
+                            <>
 
                             {resolvedDetailTab === "payments" ? (
                             <ResidentDetailTabPanel>
+                              {!paymentIdProp ? (
+                                <div className="mb-3 shrink-0">
+                                  <LocalDestinationNav
+                                    items={(
+                                      ["overdue", "pending", "paid"] as const
+                                    ).map((id) => ({
+                                      id,
+                                      label:
+                                        id === "overdue"
+                                          ? "Overdue"
+                                          : id === "pending"
+                                            ? "Pending"
+                                            : "Paid",
+                                      count: residentPaymentBucketCounts[id],
+                                      alert: id === "overdue" && residentPaymentBucketCounts.overdue > 0,
+                                      dataAttr: `resident-payments-bucket-${id}`,
+                                    }))}
+                                    activeId={chargeBucket}
+                                    onChange={(id) => setChargeBucket(id as ManagerPaymentBucket)}
+                                    ariaLabel="Payment status"
+                                    size="toolbar"
+                                  />
+                                </div>
+                              ) : null}
                               <ManagerPaymentsLedgerPanel
                                 rows={paymentIdProp ? residentLedgerRows : residentLedgerRowsForBucket}
                                 managerUserId={userId ?? null}
@@ -3227,7 +3255,7 @@ export function ManagerResidents({
                             </ResidentDetailTabPanel>
                             ) : null}
 
-                            </PortalPageScrollBody>
+                            </>
                             )}
 
                             {residentDetailBottomBarActions ? (
