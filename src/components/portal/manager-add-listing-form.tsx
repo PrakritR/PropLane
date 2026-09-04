@@ -75,6 +75,7 @@ import {
   isEntireHomeListing,
   normalizeManagerListingSubmissionV1,
   resolveAllowedLeaseTerms,
+  syncAirbnbLeaseTermInAllowed,
   syncShortTermLeaseTermInAllowed,
   duplicateRoomEntry,
   emptyBathroom,
@@ -182,7 +183,7 @@ import {
   wizardSectionErrorClass,
 } from "@/lib/wizard-field-errors";
 import { LEASE_TERM_OPTIONS } from "@/lib/rental-application/data";
-import { CUSTOM_LEASE_TERM, SHORT_TERM_LEASE_TERM } from "@/lib/rental-application/lease-terms";
+import { AIRBNB_LEASE_TERM, CUSTOM_LEASE_TERM, SHORT_TERM_LEASE_TERM } from "@/lib/rental-application/lease-terms";
 import { usePortalContainer } from "@/components/ui/portal-container-context";
 
 const selectInputCls =
@@ -3805,7 +3806,7 @@ export function ManagerAddListingForm({
                     {/* Standard lengths, then Short-term (a listing-wide toggle, not a lease
                         term), then Custom last — Short-term sits with the other lease-length
                         choices instead of a separate titled block. */}
-                    {[...LEASE_TERM_OPTIONS.filter((t) => t !== CUSTOM_LEASE_TERM), "__short_term__", CUSTOM_LEASE_TERM].map((term) => {
+                    {[...LEASE_TERM_OPTIONS.filter((t) => t !== CUSTOM_LEASE_TERM), "__short_term__", "__airbnb__", CUSTOM_LEASE_TERM].map((term) => {
                       if (term === "__short_term__") {
                         const on = Boolean(sub.shortTermRentalsAllowed);
                         return (
@@ -3823,7 +3824,9 @@ export function ManagerAddListingForm({
                                 clearListingFieldError("allowedLeaseTerms");
                                 const enabled = e.target.checked;
                                 setSub((s) => {
-                                  const standard = resolveAllowedLeaseTerms(s).filter((t) => t !== SHORT_TERM_LEASE_TERM);
+                                  const standard = resolveAllowedLeaseTerms(s).filter(
+                                    (t) => t !== SHORT_TERM_LEASE_TERM && t !== AIRBNB_LEASE_TERM,
+                                  );
                                   const next = syncShortTermLeaseTermInAllowed(standard, enabled);
                                   const bundles = enabled
                                     ? s.bundles
@@ -3839,6 +3842,44 @@ export function ManagerAddListingForm({
                               }}
                             />
                             <span className="font-medium text-foreground">Short-term</span>
+                          </label>
+                        );
+                      }
+                      if (term === "__airbnb__") {
+                        const on = Boolean(sub.airbnbRentalsAllowed);
+                        return (
+                          <label
+                            key="__airbnb__"
+                            className={`flex cursor-pointer items-center gap-2.5 rounded-xl border px-3 py-3 text-sm shadow-sm transition-colors ${
+                              on ? "border-foreground/25 bg-accent/40" : "border-border bg-card"
+                            }`}
+                          >
+                            <input
+                              type="checkbox"
+                              className="h-4 w-4 rounded border-border"
+                              checked={on}
+                              onChange={(e) => {
+                                clearListingFieldError("allowedLeaseTerms");
+                                const enabled = e.target.checked;
+                                setSub((s) => {
+                                  const standard = resolveAllowedLeaseTerms(s).filter(
+                                    (t) => t !== SHORT_TERM_LEASE_TERM && t !== AIRBNB_LEASE_TERM,
+                                  );
+                                  const withShort = syncShortTermLeaseTermInAllowed(
+                                    standard,
+                                    Boolean(s.shortTermRentalsAllowed),
+                                  );
+                                  const next = syncAirbnbLeaseTermInAllowed(withShort, enabled);
+                                  return syncPropertyLeaseTemplatesFromListing({
+                                    ...s,
+                                    airbnbRentalsAllowed: enabled,
+                                    allowedLeaseTerms: next,
+                                    leaseTermsBody: formatLeaseTermsBodyFromAllowed(next),
+                                  });
+                                });
+                              }}
+                            />
+                            <span className="font-medium text-foreground">Airbnb</span>
                           </label>
                         );
                       }
@@ -3858,14 +3899,17 @@ export function ManagerAddListingForm({
                               clearListingFieldError("allowedLeaseTerms");
                               const on = e.target.checked;
                               setSub((s) => {
-                                const current = resolveAllowedLeaseTerms(s).filter((t) => t !== SHORT_TERM_LEASE_TERM);
+                                const current = resolveAllowedLeaseTerms(s).filter(
+                                  (t) => t !== SHORT_TERM_LEASE_TERM && t !== AIRBNB_LEASE_TERM,
+                                );
                                 const nextStandard = on
                                   ? [...new Set([...current, term])]
                                   : current.filter((t) => t !== term);
-                                const next = syncShortTermLeaseTermInAllowed(
+                                const withShort = syncShortTermLeaseTermInAllowed(
                                   nextStandard,
                                   Boolean(s.shortTermRentalsAllowed),
                                 );
+                                const next = syncAirbnbLeaseTermInAllowed(withShort, Boolean(s.airbnbRentalsAllowed));
                                 return syncPropertyLeaseTemplatesFromListing({
                                   ...s,
                                   allowedLeaseTerms: next,

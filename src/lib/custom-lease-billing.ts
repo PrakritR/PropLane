@@ -13,12 +13,12 @@ export type LeaseRecurringFeeBillingContext = {
 };
 
 export function shouldBillMonthToMonthSurcharge(input: LeaseRecurringFeeBillingContext): boolean {
-  if (input.rentalType === "short_term") return false;
+  if (input.rentalType === "short_term" || input.rentalType === "airbnb") return false;
   return input.leaseTerm?.trim() === "Month-to-Month";
 }
 
 export function shouldBillCustomLeaseSurcharge(input: LeaseRecurringFeeBillingContext): boolean {
-  if (input.rentalType === "short_term") return false;
+  if (input.rentalType === "short_term" || input.rentalType === "airbnb") return false;
   const term = input.leaseTerm?.trim();
   if (!term || term === "Month-to-Month") return false;
   return isCustomCalendarLease(input.leaseStart, input.leaseEnd);
