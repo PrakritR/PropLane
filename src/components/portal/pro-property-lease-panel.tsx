@@ -200,27 +200,27 @@ export function ManagerPropertyLeasePanel({
     () => templates.filter((template) => selectedIds.has(template.id)),
     [selectedIds, templates],
   );
-  const selectedTemplate = selectedIds.size === 1 ? selectedTemplates[0] : null;
+  const selectedTemplateId = selectedIds.size === 1 ? selectedTemplates[0]?.id ?? null : null;
 
   useEffect(() => {
     if (!onBulkActionsChange) return;
-    if (selectedTemplate) {
-      onBulkActionsChange(
-        <Button
-          type="button"
-          variant="outline"
-          className={PORTAL_BULK_BAR_BTN}
-          data-attr="property-lease-bulk-edit"
-          onClick={() => openEdit(selectedTemplate.id)}
-        >
-          Edit lease
-        </Button>,
-      );
-    } else {
+    if (!selectedTemplateId) {
       onBulkActionsChange(null);
+      return;
     }
-    return () => onBulkActionsChange(null);
-  }, [onBulkActionsChange, openEdit, selectedTemplate]);
+    const templateId = selectedTemplateId;
+    onBulkActionsChange(
+      <Button
+        type="button"
+        variant="outline"
+        className={PORTAL_BULK_BAR_BTN}
+        data-attr="property-lease-bulk-edit"
+        onClick={() => openEdit(templateId)}
+      >
+        Edit lease
+      </Button>,
+    );
+  }, [onBulkActionsChange, openEdit, selectedTemplateId]);
 
   const addSeedTemplate = useCallback(
     (seedKey: PropertyLeaseListingSeedKey) => {
@@ -270,7 +270,10 @@ export function ManagerPropertyLeasePanel({
         return;
       }
 
-      if (!saveTarget) return;
+      if (!saveTarget) {
+        showToast("Could not add lease.");
+        return;
+      }
       const nextSub = addLeaseTemplateFromSeed(syncedSub, seedKey);
       if (nextSub === syncedSub) {
         showToast("That lease is already on this property.");
@@ -475,20 +478,18 @@ export function ManagerPropertyLeasePanel({
   return (
     <>
       {catalogBody}
-      {!embedInModal && selectedIds.size > 0 ? (
+      {!embedInModal && selectedTemplateId ? (
         <BulkActionBar count={selectedIds.size} hideCount variant="payments">
           <div className="flex min-w-0 flex-wrap items-center justify-start gap-2">
-            {selectedTemplate ? (
-              <Button
-                type="button"
-                variant="outline"
-                className={PORTAL_BULK_BAR_BTN}
-                data-attr="property-lease-bulk-edit"
-                onClick={() => openEdit(selectedTemplate.id)}
-              >
-                Edit lease
-              </Button>
-            ) : null}
+            <Button
+              type="button"
+              variant="outline"
+              className={PORTAL_BULK_BAR_BTN}
+              data-attr="property-lease-bulk-edit"
+              onClick={() => openEdit(selectedTemplateId)}
+            >
+              Edit lease
+            </Button>
           </div>
         </BulkActionBar>
       ) : null}

@@ -79,7 +79,10 @@ export function ManagerEditLeasesModal({
     onClose();
   };
 
-  const syncedSub = resolved ? syncPropertyLeaseTemplatesFromListing(resolved.sub) : null;
+  const syncedSub = useMemo(
+    () => (resolved ? syncPropertyLeaseTemplatesFromListing(resolved.sub) : null),
+    [resolved],
+  );
 
   return (
     <Modal

@@ -72,7 +72,10 @@ export function ManagerEditServiceRequestsModal({
     onClose();
   };
 
-  const sub = resolved ? normalizeManagerListingSubmissionV1(resolved.sub) : null;
+  const sub = useMemo(
+    () => (resolved ? normalizeManagerListingSubmissionV1(resolved.sub) : null),
+    [resolved],
+  );
 
   return (
     <Modal

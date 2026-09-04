@@ -136,27 +136,30 @@ export function ServiceRequestCatalogEditor({
     [offers, selectedIds],
   );
 
-  const selectedOffer = selectedIds.size === 1 ? selectedOffers[0] : null;
+  const selectedOfferId = selectedIds.size === 1 ? selectedOffers[0]?.id ?? null : null;
 
   useEffect(() => {
     if (!onBulkActionsChange) return;
-    if (selectedOffer) {
-      onBulkActionsChange(
-        <Button
-          type="button"
-          variant="outline"
-          className={PORTAL_BULK_BAR_BTN}
-          data-attr="catalog-request-bulk-edit"
-          onClick={() => openEdit(selectedOffer, false)}
-        >
-          Edit service
-        </Button>,
-      );
-    } else {
+    if (!selectedOfferId) {
       onBulkActionsChange(null);
+      return;
     }
-    return () => onBulkActionsChange(null);
-  }, [onBulkActionsChange, openEdit, selectedOffer]);
+    const offerId = selectedOfferId;
+    onBulkActionsChange(
+      <Button
+        type="button"
+        variant="outline"
+        className={PORTAL_BULK_BAR_BTN}
+        data-attr="catalog-request-bulk-edit"
+        onClick={() => {
+          const offer = offers.find((row) => row.id === offerId);
+          if (offer) openEdit(offer, false);
+        }}
+      >
+        Edit service
+      </Button>,
+    );
+  }, [offers, onBulkActionsChange, openEdit, selectedOfferId]);
 
   if (!saveTarget) return null;
 
@@ -226,20 +229,21 @@ export function ServiceRequestCatalogEditor({
         bar, one click from a row you may have ticked by accident, is the wrong
         distance from a destructive action.
       */}
-      {!onBulkActionsChange && selectedIds.size > 0 ? (
+      {!onBulkActionsChange && selectedOfferId ? (
         <BulkActionBar count={selectedIds.size} hideCount variant="payments">
           <div className="flex min-w-0 flex-wrap items-center justify-start gap-2">
-            {selectedOffer ? (
-              <Button
-                type="button"
-                variant="outline"
-                className={PORTAL_BULK_BAR_BTN}
-                data-attr="catalog-request-bulk-edit"
-                onClick={() => openEdit(selectedOffer, false)}
-              >
-                Edit service
-              </Button>
-            ) : null}
+            <Button
+              type="button"
+              variant="outline"
+              className={PORTAL_BULK_BAR_BTN}
+              data-attr="catalog-request-bulk-edit"
+              onClick={() => {
+                const offer = offers.find((row) => row.id === selectedOfferId);
+                if (offer) openEdit(offer, false);
+              }}
+            >
+              Edit service
+            </Button>
           </div>
         </BulkActionBar>
       ) : null}
