@@ -5,7 +5,7 @@
 // application submit) POST on click, so a button that can be clicked twice
 // before React re-renders posts twice.
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { Button } from "@/components/ui/button";
 import { track } from "@/lib/analytics/track-client";
 
@@ -52,10 +52,13 @@ describe("Button loading state", () => {
 
     d.resolve();
     await d.promise;
-    // Flush the state update queued in the promise's .finally.
-    await new Promise((r) => setTimeout(r, 0));
+    // WAIT for the state update queued in the promise's `.finally` rather than
+    // assuming one macrotask is enough. A bare `setTimeout(0)` is not a promise
+    // that React has re-rendered — under a loaded full-suite run it sometimes
+    // is not, and the assertion below fails on a button that re-arms correctly
+    // a tick later.
+    await waitFor(() => expect(btn).not.toBeDisabled());
     expect(spinner()).toBeNull();
-    expect(btn).not.toBeDisabled();
   });
 
   it("CANNOT be double-fired: a second click in the same tick is ignored", () => {
@@ -88,11 +91,11 @@ describe("Button loading state", () => {
     const settled = d.promise.catch(() => undefined);
     d.reject(new Error("network down"));
     await settled;
-    await new Promise((r) => setTimeout(r, 0));
+    // Same reason as above: wait for the re-arm instead of one macrotask.
+    await waitFor(() => expect(btn).not.toBeDisabled());
     expect(logged).toHaveBeenCalledWith("Button action failed", expect.any(Error));
     logged.mockRestore();
 
-    expect(btn).not.toBeDisabled();
     expect(spinner()).toBeNull();
     fireEvent.click(btn);
     expect(onClick).toHaveBeenCalledTimes(2);
