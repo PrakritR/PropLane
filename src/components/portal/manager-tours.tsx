@@ -1219,9 +1219,12 @@ export function ManagerTours({
             label: "Add tour",
             ariaLabel: "Schedule tour",
             icon: PORTAL_LIST_ADD_ICONS.tour,
-            inline: true,
-            className:
-              "portal-list-add-row--tour [&_span_span]:text-sm [&_span_span]:font-semibold [&_span_span]:normal-case [&_span_span]:tracking-normal",
+            // No `inline` override and no typography override: Tours used to
+            // force the compact footer at every state AND re-style the label to
+            // normal-case text-sm, which made it the only tab whose ADD row did
+            // not match the rest (AXI-160). It now follows the house rule — the
+            // full dashed block on an empty list, inline once rows exist — the
+            // same as Finances, Promotion and Documents.
             onClick: () => setAddTourOpen(true),
             disabled: !authReady || propertyOptions.length === 0,
             dataAttr: "tours-list-add",

@@ -39,7 +39,8 @@ export type PortalListAddConfig = {
   onClick: () => void;
   disabled?: boolean;
   dataAttr?: string;
-  /** Override the default inline-when-nonempty rule (e.g. tours always use the compact footer). */
+  /** Override the default inline-when-nonempty rule. No surface does today — Tours
+   *  used to and was the one tab whose ADD row looked different (AXI-160). */
   inline?: boolean;
   className?: string;
 };
