@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   clearCommunicationThreadUrl,
   selectCommunicationThreadUrl,
@@ -16,6 +16,7 @@ import {
   PortalContactDetailsModal,
 } from "@/components/portal/portal-contact-details-modal";
 import { dispatchManagerSmsContactsChanged } from "@/lib/manager-sms-messages";
+import { pollShouldHaltAfterStatus } from "@/lib/poll-halt";
 import { useUnifiedCommunicationBulk } from "@/hooks/use-unified-communication-bulk";
 import { useIsClient } from "@/hooks/use-is-client";
 import { usePortalSession } from "@/hooks/use-portal-session";
@@ -271,13 +272,25 @@ export function ManagerUnifiedInbox({
     }
   }, [isClient, listSegment, viewerId]);
 
+  // Set once the SMS poll has been refused for an auth reason. The next tick
+  // would be refused identically, so the loop stops instead of failing every
+  // 20 seconds for the life of the tab. A 5xx still retries — see
+  // pollShouldHaltAfterStatus.
+  const smsPollHaltedRef = useRef(false);
+  const [smsPollHalted, setSmsPollHalted] = useState(false);
+
   const loadSms = useCallback(async () => {
     // SMS UI hidden until A2P clears — never fetch SMS conversations. Inbound
     // texts still land as inbox notices and fall through to the unified list
     // (see filterEmailInboxThreads keepSmsLike below); transport is unaffected.
-    if (!smsUiEnabled) return;
+    if (!smsUiEnabled || smsPollHaltedRef.current) return;
     try {
       const res = await fetch("/api/manager/sms-conversations", { credentials: "include", cache: "no-store" });
+      if (pollShouldHaltAfterStatus(res.status)) {
+        smsPollHaltedRef.current = true;
+        setSmsPollHalted(true);
+        return;
+      }
       if (!res.ok) return;
       const body = (await res.json()) as { residents?: ManagerSmsResidentConversation[] };
       const normalized = normalizeManagerSmsConversationsPayload(body);
@@ -309,7 +322,7 @@ export function ManagerUnifiedInbox({
   useEffect(() => {
     // smsUiEnabled is a stable server prop; when off, loadSms no-ops and
     // smsResidents stays its initial [] — no fetch, no polling.
-    if (!smsUiEnabled) return;
+    if (!smsUiEnabled || smsPollHalted) return;
     void loadSms();
     // Poll for inbound texts, but skip while the tab is backgrounded (no point
     // spending egress on a hidden page) and refetch immediately on refocus so
@@ -327,7 +340,7 @@ export function ManagerUnifiedInbox({
       window.clearInterval(id);
       document.removeEventListener("visibilitychange", onVis);
     };
-  }, [loadSms, smsUiEnabled]);
+  }, [loadSms, smsUiEnabled, smsPollHalted]);
 
   useEffect(() => {
     if (!smsUiEnabled) return;
