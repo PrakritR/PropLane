@@ -9,6 +9,7 @@ import {
   appendManagerReachabilityToWelcomeBody,
   managerReachabilityWelcomeHtmlBlock,
   type ManagerReachabilityLines,
+  NO_MANAGER_REACHABILITY,
 } from "@/lib/manager-reachability-for-resident";
 
 export const EXISTING_RESIDENT_WELCOME_EMAIL_SUBJECT =
@@ -49,7 +50,7 @@ export function buildExistingResidentWelcomeEmailBody(params: {
     "",
     "— PropLane",
   ];
-  return appendManagerReachabilityToWelcomeBody(base, params.managerReachability ?? {}).join("\n");
+  return appendManagerReachabilityToWelcomeBody(base, params.managerReachability ?? NO_MANAGER_REACHABILITY).join("\n");
 }
 
 function escapeHtmlText(s: string): string {
@@ -76,7 +77,7 @@ export function buildExistingResidentWelcomeEmailHtml(params: {
   const propertyLine = params.propertyLabel?.trim()
     ? `You're set up for <strong>${escapeHtmlText(params.propertyLabel.trim())}</strong> on PropLane.`
     : "You're set up on PropLane as a resident.";
-  const reachBlock = managerReachabilityWelcomeHtmlBlock(params.managerReachability ?? {});
+  const reachBlock = managerReachabilityWelcomeHtmlBlock(params.managerReachability ?? NO_MANAGER_REACHABILITY);
   const ctaButton = `<table role="presentation" cellspacing="0" cellpadding="0" border="0" style="margin:20px 0 8px 0">
 <tr>
 <td style="border-radius:10px;background:#2563eb">

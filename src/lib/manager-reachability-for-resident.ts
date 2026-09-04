@@ -8,6 +8,18 @@ export type ManagerReachabilityLines = {
   assistantEmail: string | null;
 };
 
+/**
+ * "We could not resolve any way to reach this manager."
+ *
+ * Both fields are required, so `{}` does not satisfy the type — five call sites
+ * were passing one as their fallback and failing the build. A named constant
+ * also says what the empty case MEANS, which `{}` did not.
+ */
+export const NO_MANAGER_REACHABILITY: ManagerReachabilityLines = {
+  workPhoneLabel: null,
+  assistantEmail: null,
+};
+
 export function hasManagerReachability(lines: ManagerReachabilityLines): boolean {
   return Boolean(lines.workPhoneLabel?.trim() || lines.assistantEmail?.trim());
 }
