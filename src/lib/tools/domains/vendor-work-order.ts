@@ -62,6 +62,7 @@ export const getJobDetailsTool = defineTool({
       found: true,
       job: {
         id: row.id,
+        reference: row.reference || null,
         title: row.title || null,
         description: row.description || null,
         category: row.category ?? null,
@@ -129,6 +130,7 @@ export const listMyJobsWithThisManagerTool = defineTool({
       .slice(0, 10)
       .map((row) => ({
         id: row.id,
+        reference: row.reference || null,
         title: row.title || null,
         property: row.propertyName || null,
         stage: row.bucket,

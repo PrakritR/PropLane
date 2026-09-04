@@ -293,12 +293,16 @@ export async function runSmsAgentTurn<Ctx extends SmsAgentActor>(
     phoneE164: string;
     inboundText: string;
     inboundMessageSid?: string | null;
+    /** Optional deterministic response for a scoped lookup miss/ambiguity. */
+    precomputedReply?: string | null;
+    /** Tool-grounded context resolved before intent classification. */
+    additionalSystemContext?: string | null;
     traceActor: TraceActor;
     /** Langfuse metadata for confirm/deny decisions; the session id is merged in. */
     traceMetadata: Record<string, unknown>;
   },
 ): Promise<SmsAgentTurn | null> {
-  if (!process.env.ANTHROPIC_API_KEY?.trim()) return null;
+  if (!process.env.ANTHROPIC_API_KEY?.trim() && !args.precomputedReply?.trim()) return null;
   const text = args.inboundText.trim().slice(0, 2000);
   if (!text) return null;
 
@@ -361,6 +365,13 @@ export async function runSmsAgentTurn<Ctx extends SmsAgentActor>(
   });
   if (confirmation) return { ...confirmation, inboundMessageId };
 
+  const precomputedReply = args.precomputedReply?.trim().slice(0, maxReplyChars);
+  if (precomputedReply) {
+    const assistantMessageId = await recordAssistantReply(db, session, precomputedReply, [], null);
+    track(surface.analytics.messageOut, ctx.userId, { channel: "sms", tools: 0 });
+    return { reply: precomputedReply, sessionId: session.id, inboundMessageId, assistantMessageId };
+  }
+
   const { data: historyRows } = await db
     .from("agent_messages")
     .select("role, content")
@@ -378,7 +389,10 @@ export async function runSmsAgentTurn<Ctx extends SmsAgentActor>(
   let result;
   try {
     const customInstructions = await loadAgentCustomInstructions(db, ctx.userId);
-    const system = withAgentCustomInstructions(surface.basePrompt, customInstructions);
+    const system = withAgentCustomInstructions(
+      [surface.basePrompt, args.additionalSystemContext?.trim()].filter(Boolean).join("\n\n"),
+      customInstructions,
+    );
     result = await traceAgentTurn(
       args.traceActor,
       history as { role: string; content: string }[],

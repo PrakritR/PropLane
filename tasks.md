@@ -2,7 +2,7 @@
 
 Generated September 4, 2026. There are 27 active assigned issues, all currently marked High in Linear. The priority tiers below are recommended execution order, not changes to Linear's stored priority.
 
-Progress: 4 completed locally, 23 remaining. Of the remaining issues, 22 are actionable and PRP-239 is waiting on its required captain approval.
+Progress: 5 completed locally, 22 remaining. Of the remaining issues, 21 are actionable and PRP-239 is waiting on its required captain approval.
 
 ## P0 — user harm, data integrity, and access
 
@@ -30,8 +30,8 @@ Three near-identical umbrella epics overlap: [PRP-260](https://linear.app/axisho
 - [x] [PRP-286 — WO number parser](https://linear.app/axishousing/issue/PRP-286/ai-wo-number-parser-smsinbound-text-resolves-to-portal-work-order)
   Completed locally September 4, 2026. A pure, client-safe parser now extracts and normalizes human work-order references from inbound text, rejects common numeric false positives, deduplicates candidates, and bounds hostile input. Scoped record lookup remains in PRP-261.
 
-- [PRP-297 — Reply with work-order number](https://linear.app/axishousing/issue/PRP-297/sms-reply-with-work-order-number-to-get-status-or-take-allowed-actions)
-  Let authorized managers, residents, and vendors text a work-order number for status and only permitted actions. Unknown or cross-tenant references must reveal nothing.
+- [x] [PRP-297 — Reply with work-order number](https://linear.app/axishousing/issue/PRP-297/sms-reply-with-work-order-number-to-get-status-or-take-allowed-actions)
+  Completed locally September 4, 2026. Manager, resident, and vendor SMS paths now resolve a texted work-order handle inside their existing authorization scope before intent handling; status/action context uses the opaque id internally, while unknown and cross-tenant handles share one generic response.
 
 ### Canonical action-event bus
 
@@ -103,6 +103,14 @@ Three near-identical umbrella epics overlap: [PRP-260](https://linear.app/axisho
 5. Role-specific workflows and reminders
 
 ## Completed work log
+
+### September 4, 2026 — PRP-297
+
+- Narrowed manager and resident SMS turns with the PRP-261 scoped resolvers before model intent handling; resolved handles provide the internal id and current status while existing tool confirmation rules remain unchanged.
+- Changed vendor inbound routing so a referenced work order selects its own authorized job session instead of always using the newest session; the vendor catalog remains job-bound and answer-only except for `escalate_to_manager`.
+- Added deterministic miss and ambiguity replies before the model call, with the exact same message for an unknown handle and a real handle outside scope.
+- Documented the parser/auth matrix and allowed-action boundary in `docs/agents/sms-system.md`.
+- Verification: 9 affected SMS test files / 95 tests passed; focused ESLint, TypeScript, and diff checks passed.
 
 ### September 4, 2026 — PRP-261
 

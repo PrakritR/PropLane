@@ -13,13 +13,13 @@ vi.mock("@/lib/twilio-client.server", () => ({
   fetchTwilioMessageCreatedAt: mocks.fetchCreatedAt,
 }));
 vi.mock("@/lib/agent/vendor-agent.server", () => ({
-  findVendorAgentSessionByPhone: vi.fn(),
+  resolveVendorAgentSessionForInbound: vi.fn(),
   runVendorAgentSessionTurn: vi.fn().mockResolvedValue("ok"),
 }));
 
 import twilio from "twilio";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
-import { findVendorAgentSessionByPhone, runVendorAgentSessionTurn } from "@/lib/agent/vendor-agent.server";
+import { resolveVendorAgentSessionForInbound, runVendorAgentSessionTurn } from "@/lib/agent/vendor-agent.server";
 import { POST } from "@/app/api/webhooks/twilio/sms/route";
 
 const SESSION = {
@@ -113,7 +113,11 @@ describe("/api/webhooks/twilio/sms", () => {
     vi.stubEnv("TWILIO_WEBHOOK_URL", "https://axis.example/api/webhooks/twilio/sms");
     const { client } = mockDb();
     vi.mocked(createSupabaseServiceRoleClient).mockReturnValue(client);
-    vi.mocked(findVendorAgentSessionByPhone).mockResolvedValue(SESSION as never);
+    vi.mocked(resolveVendorAgentSessionForInbound).mockResolvedValue({
+      kind: "session",
+      session: SESSION,
+      reference: null,
+    } as never);
   });
 
   afterEach(() => vi.unstubAllEnvs());
@@ -133,7 +137,7 @@ describe("/api/webhooks/twilio/sms", () => {
   });
 
   it("silently drops unknown numbers with an empty TwiML 200", async () => {
-    vi.mocked(findVendorAgentSessionByPhone).mockResolvedValue(null);
+    vi.mocked(resolveVendorAgentSessionForInbound).mockResolvedValue({ kind: "unknown_phone" });
     const res = await POST(smsRequest({ From: "+19998887777", Body: "who dis" }));
     expect(res.status).toBe(200);
     expect(await res.text()).toContain("<Response></Response>");
@@ -143,12 +147,17 @@ describe("/api/webhooks/twilio/sms", () => {
   it("binds the newest active session for the sender and runs a turn", async () => {
     const res = await POST(smsRequest({ From: "+1 (206) 555-0001", Body: "cual es el codigo del porton?" }));
     expect(res.status).toBe(200);
-    expect(findVendorAgentSessionByPhone).toHaveBeenCalledWith(expect.anything(), "+12065550001");
+    expect(resolveVendorAgentSessionForInbound).toHaveBeenCalledWith(
+      expect.anything(),
+      "+12065550001",
+      "cual es el codigo del porton?",
+    );
     expect(runVendorAgentSessionTurn).toHaveBeenCalledWith(
       expect.anything(),
       SESSION,
       "cual es el codigo del porton?",
       "sms",
+      { precomputedReply: null, reference: null },
     );
   });
 

@@ -22,6 +22,20 @@ export type WorkOrderReferenceResolution =
   | { kind: "resolved"; candidates: [WorkOrderReferenceCandidate]; message: null }
   | { kind: "ambiguous"; candidates: WorkOrderReferenceCandidate[]; message: string };
 
+export function workOrderReferencePromptContext(
+  resolution: WorkOrderReferenceResolution,
+): string | null {
+  if (resolution.kind !== "resolved") return null;
+  const match = resolution.candidates[0];
+  return [
+    "Scoped work-order reference context:",
+    `- The sender's ${match.reference} resolves to internal work-order id ${match.id}.`,
+    `- Current status: ${match.status || "not set"}.`,
+    `- Job: ${match.title}${match.propertyName ? ` at ${match.propertyName}${match.unit ? ` ${match.unit}` : ""}` : ""}.`,
+    "Use that internal id for any tool input. Answer the current status and the single next step relevant to the sender's request. Any write still uses this surface's existing confirmation rules.",
+  ].join("\n");
+}
+
 function candidate(row: DemoManagerWorkOrderRow): WorkOrderReferenceCandidate {
   return {
     id: row.id,
@@ -89,4 +103,3 @@ export async function resolveVendorWorkOrderReference(
   const jobs = await loadVendorWorkOrders(ctx);
   return resolveVisibleWorkOrderReference(text, jobs.map((job) => job.row));
 }
-

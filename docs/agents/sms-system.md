@@ -3,6 +3,31 @@
 
 # SMS / phone system (Twilio)
 
+## Work-order reference routing
+
+Inbound `WO-1042`, `wo 1042`, `#1042`, `status 1042`, or a message containing
+only `1042` is parsed before intent handling. The parser only identifies a
+claim; it never grants access. Resolution happens through the same scoped row
+loaders used by each portal and agent registry:
+
+| Sender | Rows eligible for resolution | Allowed action path |
+| --- | --- | --- |
+| Manager | Owned work orders plus only co-managed properties available through the current manager-SMS access grant | Manager tool catalog; writes retain the SMS `YES` confirmation gate and destructive tools remain portal-only |
+| Resident | `resident_email` match, additionally pinned to the owner of the work number texted | Resident tools; writes retain the SMS `YES` confirmation gate |
+| Vendor | Work orders represented by that verified phone's active job sessions (assigned/live-offered jobs only) | Job-bound read tools; only `escalate_to_manager` remains inline-allowed |
+
+The stable handle is per manager, so a co-manager or vendor can legitimately
+see two `WO-1042` records under different owners. Several visible matches return
+a clarification naming only those visible jobs. No visible match, including a
+real reference outside scope, always returns the same `We can't find that work
+order.` response. Never add a global reference lookup to distinguish those
+cases: that would turn the reference into a cross-tenant existence oracle.
+
+On one visible match, the internal primary key is added to the agent's system
+context so the model uses the already-scoped row for intent narrowing and can
+pass the opaque id to existing tools. The primary key remains unchanged and is
+never exposed as the conversational handle.
+
 ## Conversation identity is per-counterparty, NOT the phone pair (read this first)
 
 A conversation used to be derived from the phone-number pair on the wire

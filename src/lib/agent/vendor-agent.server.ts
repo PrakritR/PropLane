@@ -19,6 +19,13 @@ import { vendorWorkOrderAgentRegistry } from "@/lib/tools";
 import { ESCALATE_TOOL_NAME } from "@/lib/tools/domains/vendor-work-order";
 import { isPhoneOptedOut, optedOutFromTimestamps } from "@/lib/sms-consent";
 import { normalizeE164, sendSms } from "@/lib/twilio";
+import { resolveWorkOrderReference } from "@/lib/work-order-reference";
+import {
+  resolveVisibleWorkOrderReference,
+  workOrderReferencePromptContext,
+  type WorkOrderReferenceCandidate,
+} from "@/lib/tools/work-order-reference-resolution";
+import type { DemoManagerWorkOrderRow } from "@/data/demo-portal";
 
 type Db = SupabaseClient;
 
@@ -79,6 +86,57 @@ export async function findVendorAgentSessionByPhone(db: Db, phoneE164: string): 
     .limit(1)
     .maybeSingle();
   return (data as VendorAgentSessionRow | null) ?? null;
+}
+
+export type VendorInboundSessionResolution =
+  | { kind: "unknown_phone" }
+  | { kind: "session"; session: VendorAgentSessionRow; reference: WorkOrderReferenceCandidate | null }
+  | { kind: "reply"; session: VendorAgentSessionRow; reply: string };
+
+/**
+ * A vendor phone can have several job-bound sessions. When the text names a
+ * WO reference, resolve only among those sessions instead of blindly choosing
+ * the newest job. Unknown/cross-manager references share one generic reply.
+ */
+export async function resolveVendorAgentSessionForInbound(
+  db: Db,
+  phoneE164: string,
+  inboundText: string,
+): Promise<VendorInboundSessionResolution> {
+  if (resolveWorkOrderReference(inboundText).length === 0) {
+    const session = await findVendorAgentSessionByPhone(db, phoneE164);
+    return session ? { kind: "session", session, reference: null } : { kind: "unknown_phone" };
+  }
+
+  const { data } = await db
+    .from("agent_sessions")
+    .select(SESSION_COLUMNS)
+    .eq("kind", "vendor_work_order")
+    .eq("vendor_phone_e164", phoneE164)
+    .in("status", ["active", "escalated"])
+    .order("updated_at", { ascending: false })
+    .limit(100);
+  const sessions = (data ?? []) as VendorAgentSessionRow[];
+  if (sessions.length === 0) return { kind: "unknown_phone" };
+
+  const workOrderIds = [...new Set(sessions.map((session) => session.work_order_id).filter(Boolean))] as string[];
+  const { data: workOrders } = workOrderIds.length
+    ? await db.from("portal_work_order_records").select("id, row_data").in("id", workOrderIds)
+    : { data: [] };
+  const visibleRows = (workOrders ?? [])
+    .map((record: { row_data?: unknown }) => record.row_data as DemoManagerWorkOrderRow | null)
+    .filter((row): row is DemoManagerWorkOrderRow => Boolean(row));
+  const resolution = resolveVisibleWorkOrderReference(inboundText, visibleRows);
+
+  if (resolution.kind === "resolved") {
+    const reference = resolution.candidates[0];
+    const session = sessions.find((item) => item.work_order_id === reference.id);
+    if (session) return { kind: "session", session, reference };
+  }
+  if (resolution.kind === "ambiguous") {
+    return { kind: "reply", session: sessions[0]!, reply: resolution.message };
+  }
+  return { kind: "reply", session: sessions[0]!, reply: "We can't find that work order." };
 }
 
 function shortNow(): string {
@@ -200,6 +258,7 @@ export async function runVendorAgentSessionTurn(
   session: VendorAgentSessionRow,
   inboundText: string,
   channel: "sms" | "inbox",
+  options?: { precomputedReply?: string | null; reference?: WorkOrderReferenceCandidate | null },
 ): Promise<string | null> {
   const text = inboundText.trim().slice(0, 2000);
   if (!text) return null;
@@ -235,6 +294,27 @@ export async function runVendorAgentSessionTurn(
     await appendToInboxThread(db, session.inbox_thread_id, { from: "Vendor (text message)", body: text }, { unread: false });
   }
 
+  const precomputedReply = options?.precomputedReply?.trim();
+  if (precomputedReply) {
+    await db.from("agent_messages").insert({
+      session_id: session.id,
+      landlord_id: session.landlord_id,
+      role: "assistant",
+      content: precomputedReply,
+      channel: "agent",
+      tool_trace: [],
+      trace_id: null,
+    });
+    await db.from("agent_sessions").update({ updated_at: nowIso }).eq("id", session.id);
+    track("vendor_agent_message_out", session.landlord_id, {
+      work_order_id: session.work_order_id,
+      channel,
+      tools: 0,
+    });
+    await deliverVendorAgentReply(db, session, precomputedReply, channel);
+    return precomputedReply;
+  }
+
   const { data: historyRows } = await db
     .from("agent_messages")
     .select("role, content")
@@ -257,6 +337,10 @@ export async function runVendorAgentSessionTurn(
   });
 
   let traceId: string | null = null;
+  const referenceContext = options?.reference
+    ? workOrderReferencePromptContext({ kind: "resolved", candidates: [options.reference], message: null })
+    : null;
+  const system = [VENDOR_WORK_ORDER_SMS_SYSTEM_PROMPT, referenceContext].filter(Boolean).join("\n\n");
   const result = await traceAgentTurn(
     vendorWorkOrderTraceActor(session, channel),
     history as { role: string; content: string }[],
@@ -266,7 +350,7 @@ export async function runVendorAgentSessionTurn(
         registry: vendorWorkOrderAgentRegistry,
         messages: history,
         observer,
-        system: VENDOR_WORK_ORDER_SMS_SYSTEM_PROMPT,
+        system,
         model: { model: TIER_MODELS.standard, tier: "standard" },
         readOnly: true,
         allowWriteTools: [ESCALATE_TOOL_NAME],
@@ -274,7 +358,7 @@ export async function runVendorAgentSessionTurn(
     {
       name: "vendor-agent-turn",
       sessionId: session.id,
-      promptMeta: resolvePromptMeta(PROMPT_IDS.vendorSmsAgent, VENDOR_WORK_ORDER_SMS_SYSTEM_PROMPT),
+      promptMeta: resolvePromptMeta(PROMPT_IDS.vendorSmsAgent, system),
       onTraceId: (id) => {
         traceId = id;
       },

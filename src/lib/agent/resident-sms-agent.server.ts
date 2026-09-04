@@ -23,6 +23,11 @@ import { PROMPT_IDS } from "@/lib/agent/prompt-metadata";
 import { RESIDENT_SMS_AGENT_SYSTEM_PROMPT } from "@/lib/agent/system-prompts";
 import type { TraceActor } from "@/lib/observability/langfuse";
 import {
+  resolveResidentWorkOrderReference,
+  workOrderReferencePromptContext,
+} from "@/lib/tools/work-order-reference-resolution";
+import { resolveWorkOrderReference } from "@/lib/work-order-reference";
+import {
   findOrCreateSmsAgentSession,
   runSmsAgentTurn,
   type SmsAgentSessionRow,
@@ -105,6 +110,9 @@ export async function runResidentSmsAgentTurn(
     console.error("resident-sms turn refused: active manager mismatch", args.ctx.userId);
     return null;
   }
+  const referenceResolution = resolveWorkOrderReference(args.inboundText).length
+    ? await resolveResidentWorkOrderReference(args.ctx, args.inboundText)
+    : null;
   return runSmsAgentTurn<ResidentAgentContext>(db, {
     ctx: args.ctx,
     surface: RESIDENT_SMS_SURFACE,
@@ -113,6 +121,13 @@ export async function runResidentSmsAgentTurn(
     phoneE164: args.residentPhoneE164,
     inboundText: args.inboundText,
     inboundMessageSid: args.inboundMessageSid,
+    precomputedReply:
+      referenceResolution?.kind === "not_found" || referenceResolution?.kind === "ambiguous"
+        ? referenceResolution.message
+        : null,
+    additionalSystemContext: referenceResolution
+      ? workOrderReferencePromptContext(referenceResolution)
+      : null,
     traceActor: residentSmsTraceActor(args.ctx, args.ownerManagerUserId),
     traceMetadata: {
       landlordId: args.ctx.landlordId,
@@ -120,6 +135,10 @@ export async function runResidentSmsAgentTurn(
       managerIds: [args.ownerManagerUserId],
       activeManagerId: args.ownerManagerUserId,
       channel: "sms",
+      workOrderReference:
+        referenceResolution?.kind === "resolved"
+          ? referenceResolution.candidates[0].reference
+          : undefined,
     },
   });
 }
