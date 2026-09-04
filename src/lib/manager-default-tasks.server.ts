@@ -19,6 +19,7 @@ import type { WorkAssignee } from "@/lib/work-assignment";
 import { resolveEmailLinkBaseUrl } from "@/lib/app-url";
 import { isManagerTaskLate } from "@/lib/manager-task-display";
 import { managerTaskListHref } from "@/lib/portal-detail-routes";
+import { deliverPortalInboxMessage } from "@/lib/portal-inbox-delivery";
 import { shouldNotifyManagerOfApplicationSubmit } from "@/lib/application-submitted-notification.server";
 
 type ServiceDb = SupabaseClient;
@@ -334,6 +335,24 @@ export async function assigneeEmail(db: ServiceDb, assignee: WorkAssignee): Prom
   return email.includes("@") ? email : null;
 }
 
+/**
+ * Notify a task's assignee on every channel they accept.
+ *
+ * This used to POST Resend directly, so a task reminder was email-ONLY, it left on the shared
+ * `RESEND_FROM` no matter which manager the task belonged to, and it appeared nowhere in the
+ * portal. It now goes through `deliverPortalInboxMessage`, the same path every other portal
+ * notification uses, which means:
+ *
+ * - the portal inbox always gets it, so the reminder exists somewhere the person can find it
+ *   again rather than only in a mailbox;
+ * - email and SMS follow each recipient's own saved preferences for this category, so "all
+ *   three channels" never means overriding someone who turned one off, and SMS keeps the
+ *   consent and quiet-hours gates it already had;
+ * - the email carries the MANAGER's work email as its sender when they have one, so a reply
+ *   reaches that manager's assistant inbox instead of a shared address.
+ *
+ * The name is unchanged because the callers and their tests are; what it does is wider.
+ */
 export async function sendTaskAssigneeEmail(input: {
   db: ServiceDb;
   managerUserId: string;
@@ -346,9 +365,7 @@ export async function sendTaskAssigneeEmail(input: {
 }): Promise<{ sent: boolean; error?: string }> {
   const to = await assigneeEmail(input.db, input.assignee);
   if (!to) return { sent: false, error: "assignee_email_missing" };
-  const apiKey = process.env.RESEND_API_KEY?.trim();
-  if (!apiKey) return { sent: false, error: "mailer_unconfigured" };
-  const from = process.env.RESEND_FROM?.trim() || "PropLane <onboarding@resend.dev>";
+
   const origin = resolveEmailLinkBaseUrl().replace(/\/$/, "");
   const late = isManagerTaskLate(input.task);
   const tasksUrl = `${origin}${managerTaskListHref("/portal", late ? "overdue" : "in-progress")}`;
@@ -366,10 +383,11 @@ export async function sendTaskAssigneeEmail(input: {
     input.kind === "advance" && input.minutesBeforeDue
       ? formatTaskReminderTimingLabel(input.minutesBeforeDue)
       : null;
+  const greetingName = taskAssigneeGreetingName(input.assignee, to);
   const lines =
     input.text?.trim() ||
     [
-      `Hi ${input.assignee.name},`,
+      `Hi ${greetingName},`,
       "",
       input.kind === "due"
         ? `This task is due now: ${input.task.title}`
@@ -385,12 +403,61 @@ export async function sendTaskAssigneeEmail(input: {
     ]
       .filter((line): line is string => line !== null)
       .join("\n");
-  const res = await fetch("https://api.resend.com/emails", {
-    method: "POST",
-    headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
-    body: JSON.stringify({ from, to: [to], subject, text: lines }),
+
+  const { data: managerProfile } = await input.db
+    .from("profiles")
+    .select("email, full_name")
+    .eq("id", input.managerUserId)
+    .maybeSingle();
+  const senderEmail = String((managerProfile as { email?: string } | null)?.email ?? "").trim().toLowerCase();
+  const managerName = String((managerProfile as { full_name?: string } | null)?.full_name ?? "").trim();
+
+  const result = await deliverPortalInboxMessage(input.db, {
+    senderUserId: input.managerUserId,
+    senderEmail,
+    fromName: managerName || "PropLane",
+    subject,
+    text: lines,
+    toEmails: [to],
+    // A text has no room for notes and a link the reader must retype, so SMS gets the one
+    // line that matters and the full body stays in the inbox and the email.
+    smsText: taskReminderSmsBody(input.kind, input.task, advanceLine, tasksUrl),
+    senderRole: "manager",
+    // Per-recipient preferences decide email and SMS; the inbox copy is always written.
+    eventCategory: "maintenance",
   });
-  return { sent: res.ok };
+
+  return result.ok ? { sent: true } : { sent: false, error: result.error };
+}
+
+/**
+ * Who the message greets.
+ *
+ * A vendor directory row can carry a blank name, and the greeting then fell through to the
+ * raw email address — "Hi ogambik2@gmail.com," is what a person actually received. An address
+ * is an identifier, not a name, so a nameless assignee gets a plain greeting instead.
+ */
+function taskAssigneeGreetingName(assignee: WorkAssignee, fallbackEmail: string): string {
+  const name = assignee.name?.trim() ?? "";
+  if (name && name.toLowerCase() !== fallbackEmail.toLowerCase() && !name.includes("@")) return name;
+  return "there";
+}
+
+/** One line, because a text is read at a glance and cannot be scrolled back to. */
+function taskReminderSmsBody(
+  kind: "created" | "due" | "advance",
+  task: ManagerTask,
+  advanceLine: string | null,
+  tasksUrl: string,
+): string {
+  const at = task.propertyTitle?.trim() ? ` at ${task.propertyTitle.trim()}` : "";
+  const lead =
+    kind === "due"
+      ? `(Task due now) "${task.title}"${at}`
+      : kind === "advance"
+        ? `(Task ${advanceLine ?? "due soon"}) "${task.title}"${at}`
+        : `(New task) "${task.title}"${at}`;
+  return `${lead}\n${tasksUrl}`;
 }
 
 /** Fire lifecycle default tasks after application submit or approval. */

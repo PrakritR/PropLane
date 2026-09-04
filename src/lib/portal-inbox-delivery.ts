@@ -1,6 +1,7 @@
 import { viewerAndLinkedOwnerIdsForModule } from "@/lib/auth/co-manager-module-scope";
 import { shouldSkipOutboundEmail } from "@/lib/portal-sandbox-accounts";
 import { sendPortalConversationEmails } from "@/lib/portal-email-send.server";
+import { resolveManagerOutboundFrom } from "@/lib/manager-outbound-identity.server";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { userHoldsAdminRole } from "@/lib/auth/admin-role";
 import { filterRecipientsBySenderScope } from "@/lib/inbox-recipient-scope";
@@ -681,6 +682,9 @@ export async function deliverPortalInboxMessage(
       subject,
       text,
       html,
+      // Resolved per SEND rather than cached: a manager can set up their work email at any
+      // time, and the next message should carry it without a deploy.
+      fromAddress: await resolveManagerOutboundFrom(db, opts.senderUserId),
     });
     for (const email of toEmails) {
       if (!emailResults.get(email)?.sent) willEmail.delete(email);

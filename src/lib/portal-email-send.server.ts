@@ -45,13 +45,21 @@ export async function sendPortalConversationEmails(opts: {
   subject: string;
   text: string;
   html: string;
+  /**
+   * The sending manager's own work email, when they have one. Their mail then carries their
+   * identity instead of the shared PropLane sender, and a reply lands in their assistant
+   * inbox rather than a synthetic address. Omitted or empty keeps the shared sender.
+   */
+  fromAddress?: string | null;
 }): Promise<Map<string, ConversationEmailResult>> {
   const results = new Map<string, ConversationEmailResult>(
     opts.toEmails.map((email) => [email, { sent: false, resendId: null }]),
   );
   const apiKey = process.env.RESEND_API_KEY?.trim();
   if (!apiKey || opts.toEmails.length === 0) return results;
-  const from = process.env.RESEND_FROM?.trim() || DEFAULT_FROM;
+  // The manager's own work email wins when they have one; the shared sender is the fallback
+  // for managers who have not set one up and for every non-manager sender.
+  const from = opts.fromAddress?.trim() || process.env.RESEND_FROM?.trim() || DEFAULT_FROM;
   const domain = fromDomain(from);
 
   const payloads = opts.toEmails.map((email) => {
