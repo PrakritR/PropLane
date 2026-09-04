@@ -1,7 +1,6 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from "react";
-import { Button } from "@/components/ui/button";
 import { ManagerInbox, type ManagerInboxHandle } from "@/components/portal/pro-inbox";
 import {
   InboxComposer,
@@ -126,7 +125,6 @@ export function ResidentDirectChatPane({
   smsResident,
   smsUiEnabled,
   onSent,
-  onNewMessage,
   scheduledRefreshKey = 0,
 }: {
   residentEmail: string;
@@ -134,7 +132,6 @@ export function ResidentDirectChatPane({
   smsResident?: ManagerSmsResidentConversation | null;
   smsUiEnabled: boolean;
   onSent: () => void;
-  onNewMessage?: () => void;
   scheduledRefreshKey?: number;
 }) {
   const { showToast } = useAppUi();
@@ -480,19 +477,6 @@ export function ResidentDirectChatPane({
       scrollMode="pane"
       hideIdentityHeader
       emptyLabel="No messages yet. Send the first message below."
-      headerActions={
-        onNewMessage ? (
-          <Button
-            type="button"
-            variant="primary"
-            className="min-h-0 rounded-full px-3 py-1.5 text-xs"
-            data-attr="resident-detail-new-message"
-            onClick={onNewMessage}
-          >
-            New message
-          </Button>
-        ) : null
-      }
       composer={
         <>
           {scheduledCards ? (
@@ -551,8 +535,6 @@ export function ManagerResidentDetailInbox({
   smsUiEnabled = false,
   inboxRef,
   emptyThreadFallback,
-  onScheduleMessage,
-  onNewMessage,
   scheduledRefreshKey = 0,
 }: {
   residentEmail: string;
@@ -561,10 +543,6 @@ export function ManagerResidentDetailInbox({
   smsUiEnabled?: boolean;
   inboxRef?: RefObject<ManagerInboxHandle | null>;
   emptyThreadFallback?: ReactNode;
-  /** @deprecated Use onNewMessage */
-  onScheduleMessage?: () => void;
-  /** Opens the compose modal. */
-  onNewMessage?: () => void;
   scheduledRefreshKey?: number;
 }) {
   const commBase = `${portalBase}/communication`;
@@ -629,7 +607,6 @@ export function ManagerResidentDetailInbox({
         smsResident={smsResidentForEmail}
         smsUiEnabled={smsUiEnabled}
         onSent={refreshConversations}
-        onNewMessage={onNewMessage ?? onScheduleMessage}
         scheduledRefreshKey={scheduledRefreshKey}
       />
     );
@@ -674,7 +651,6 @@ export function ManagerResidentDetailInbox({
             commBase={commBase}
             smsUiEnabled={smsUiEnabled}
             smsRecipients={smsResidents}
-            onNewMessage={onNewMessage ?? onScheduleMessage}
             scheduledRefreshKey={scheduledRefreshKey}
           />
         }

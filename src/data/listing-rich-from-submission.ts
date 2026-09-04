@@ -1092,6 +1092,8 @@ export function listingRichFromManagerSubmission(
       if (b.shower) tags.push("Shower");
       if (b.toilet) tags.push("Toilet");
       if (b.bathtub) tags.push("Bathtub");
+      if (b.sink) tags.push("Sink");
+      if (b.mirror) tags.push("Mirror");
       const extra = splitRoomAmenityLines(b.amenitiesText ?? "");
       const mergedTags = [...tags, ...extra];
       const usedByRoomNames = bathroomAssignedRoomNames(b, sub);

@@ -1232,6 +1232,12 @@ export function ManagerResidents({
     });
   }, [residentCharges, selected?.roomLabel]);
 
+  const residentPaymentBucketCounts = useMemo(() => {
+    const counts: Record<ManagerPaymentBucket, number> = { pending: 0, overdue: 0, paid: 0 };
+    for (const row of residentLedgerRows) counts[row.bucket] += 1;
+    return counts;
+  }, [residentLedgerRows]);
+
   useEffect(() => {
     if (!paymentIdProp || !residentLedgerRows.length) return;
     const decoded = decodeURIComponent(paymentIdProp);
@@ -1240,14 +1246,12 @@ export function ManagerResidents({
   }, [paymentIdProp, residentLedgerRows, chargeBucket]);
 
   const residentLedgerRowsForBucket = useMemo(() => {
-    const bucketOrder: Record<ManagerPaymentBucket, number> = { overdue: 0, pending: 1, paid: 2 };
-    return [...residentLedgerRows].sort((a, b) => {
-      const bucketCmp = bucketOrder[a.bucket] - bucketOrder[b.bucket];
-      if (bucketCmp !== 0) return bucketCmp;
-      const direction = a.bucket === "paid" ? "desc" : "asc";
-      return compareDueDateMs(a.dueDateSortMs, b.dueDateSortMs, direction);
-    });
-  }, [residentLedgerRows]);
+    const filtered = residentLedgerRows.filter((row) => row.bucket === chargeBucket);
+    const direction = chargeBucket === "paid" ? "desc" : "asc";
+    return [...filtered].sort((a, b) =>
+      compareDueDateMs(a.dueDateSortMs, b.dueDateSortMs, direction),
+    );
+  }, [residentLedgerRows, chargeBucket]);
 
   const selectedApplicationRow = useMemo<DemoApplicantRow | null>(() => {
     void hcTick;
@@ -1385,6 +1389,8 @@ export function ManagerResidents({
     // Resident-detail Communication is always a single open thread (no list pane),
     // so treat it like an active conversation for assistant chrome.
     threadSelected: Boolean(residentIdProp && resolvedDetailTab === "communication"),
+    // Hide the floating FAB on resident Communication — the inline Ask PropLane
+    // Assistant strip above the composer is the entry point (same as main Communication).
     hideAssistantFab: Boolean(residentIdProp && resolvedDetailTab === "communication"),
   });
 
@@ -1440,10 +1446,8 @@ export function ManagerResidents({
     [residentWorkOrders, residentServicesBucket],
   );
 
-  const residentServicesEmpty =
-    residentServiceRequests.length === 0 && residentWorkOrders.length === 0;
-  const residentServicesBucketEmpty =
-    residentFilteredServiceRequests.length === 0 && residentFilteredWorkOrders.length === 0;
+  const residentServicesHasRows =
+    residentFilteredServiceRequests.length > 0 || residentFilteredWorkOrders.length > 0;
 
   const residentServiceDetailItem = useMemo(() => {
     if (!serviceItemIdProp) return null;
@@ -1538,11 +1542,6 @@ export function ManagerResidents({
     } finally {
       setMessageBusy(false);
     }
-  }
-
-  function openResidentMessageModal(scheduleLater = true) {
-    setMessageScheduleLater(scheduleLater);
-    setMessageOpen(true);
   }
 
   async function sendResidentAccountEmail(
@@ -2915,6 +2914,15 @@ export function ManagerResidents({
     (showResidentApplication &&
       (resolvedDetailTab === "application" || resolvedDetailTab === "background-check"));
 
+  const residentDetailPaymentsScroll =
+    Boolean(residentIdProp && selected && resolvedDetailTab === "payments");
+
+  const residentDetailInternalScroll =
+    residentDetailViewportFill || residentDetailPaymentsScroll;
+
+  const residentDetailScrollBodyPadding =
+    "pb-[calc(3.5rem+var(--portal-native-bottom-nav-inset,0px)+env(safe-area-inset-bottom,0px))]";
+
   const residentDetailPanel =
     selected ? (
                           <div className="flex min-h-0 flex-1 flex-col gap-0">
@@ -2963,7 +2971,6 @@ export function ManagerResidents({
                                 residentName={selected.name}
                                 portalBase={portalBase}
                                 smsUiEnabled={smsUiEnabled}
-                                onNewMessage={() => openResidentMessageModal(false)}
                                 scheduledRefreshKey={messageScheduledRefresh}
                               />
                             </ResidentDetailTabPanel>
@@ -3113,41 +3120,71 @@ export function ManagerResidents({
                             </ResidentDetailTabPanel>
                             </div>
                             ) : (
-                            <PortalPageScrollBody>
+                            <>
 
                             {resolvedDetailTab === "payments" ? (
-                            <ResidentDetailTabPanel>
-                              <ManagerPaymentsLedgerPanel
-                                rows={paymentIdProp ? residentLedgerRows : residentLedgerRowsForBucket}
-                                managerUserId={userId ?? null}
-                                activeBucket={chargeBucket}
-                                scheduledMessages={scheduledPaymentMessages}
-                                reminderScheduleSummary={residentReminderScheduleSummary}
-                                onOpenReminderSettings={() => setResidentReminderSettingsOpen(true)}
-                                onScheduleChanged={() => void reloadResidentPaymentSchedule()}
-                                onRowsChanged={() => {
-                                  setHcTick((n) => n + 1);
-                                  setLeaseTick((n) => n + 1);
-                                }}
-                                paymentId={paymentIdProp}
-                                listBasePath={residentPaymentsListHref}
-                                embeddedInResident
-                                buildPaymentDetailHref={
-                                  selected
-                                    ? (row) =>
-                                        residentPaymentDetailHref(
-                                          portalBase,
-                                          residentsTab,
-                                          selected.id,
-                                          publicChargeIdForUrl(row.id),
-                                        )
-                                    : undefined
-                                }
-                                onEmbeddedDetailActions={handleEmbeddedPaymentFooterActions}
-                                onEmbeddedBulkActions={handleEmbeddedPaymentBulkActions}
-                                onAddPayment={() => setAddResidentPaymentOpen(true)}
-                              />
+                            <div className="flex min-h-0 flex-1 flex-col">
+                            <ResidentDetailTabPanel fill>
+                              {!paymentIdProp ? (
+                                <div className="mb-3 shrink-0 bg-background">
+                                  <LocalDestinationNav
+                                    items={(
+                                      ["overdue", "pending", "paid"] as const
+                                    ).map((id) => ({
+                                      id,
+                                      label:
+                                        id === "overdue"
+                                          ? "Overdue"
+                                          : id === "pending"
+                                            ? "Pending"
+                                            : "Paid",
+                                      count: residentPaymentBucketCounts[id],
+                                      alert: id === "overdue" && residentPaymentBucketCounts.overdue > 0,
+                                      dataAttr: `resident-payments-bucket-${id}`,
+                                    }))}
+                                    activeId={chargeBucket}
+                                    onChange={(id) => setChargeBucket(id as ManagerPaymentBucket)}
+                                    ariaLabel="Payment status"
+                                    size="toolbar"
+                                  />
+                                </div>
+                              ) : null}
+                              <PortalPageScrollBody
+                                className={`min-w-0 max-w-full pt-0 ${residentDetailScrollBodyPadding}`}
+                              >
+                                <ManagerPaymentsLedgerPanel
+                                  rows={paymentIdProp ? residentLedgerRows : residentLedgerRowsForBucket}
+                                  managerUserId={userId ?? null}
+                                  activeBucket={chargeBucket}
+                                  scheduledMessages={scheduledPaymentMessages}
+                                  reminderScheduleSummary={residentReminderScheduleSummary}
+                                  onOpenReminderSettings={() => setResidentReminderSettingsOpen(true)}
+                                  onScheduleChanged={() => void reloadResidentPaymentSchedule()}
+                                  onRowsChanged={() => {
+                                    setHcTick((n) => n + 1);
+                                    setLeaseTick((n) => n + 1);
+                                  }}
+                                  paymentId={paymentIdProp}
+                                  listBasePath={residentPaymentsListHref}
+                                  embeddedInResident
+                                  buildPaymentDetailHref={
+                                    selected
+                                      ? (row) =>
+                                          residentPaymentDetailHref(
+                                            portalBase,
+                                            residentsTab,
+                                            selected.id,
+                                            publicChargeIdForUrl(row.id),
+                                          )
+                                      : undefined
+                                  }
+                                  onEmbeddedDetailActions={handleEmbeddedPaymentFooterActions}
+                                  onEmbeddedBulkActions={handleEmbeddedPaymentBulkActions}
+                                  onAddPayment={() => setAddResidentPaymentOpen(true)}
+                                />
+                              </PortalPageScrollBody>
                             </ResidentDetailTabPanel>
+                            </div>
                             ) : null}
 
                             {resolvedDetailTab === "services" ? (
@@ -3209,11 +3246,7 @@ export function ManagerResidents({
                                   size="toolbar"
                                 />
                               </div>
-                              {residentServicesEmpty ? (
-                                <PortalDataTableEmpty message="No services yet." icon="service" />
-                              ) : residentServicesBucketEmpty ? (
-                                <PortalDataTableEmpty message="No services in this status yet." icon="service" />
-                              ) : (
+                              {residentServicesHasRows ? (
                                 <div className={PORTAL_DATA_TABLE_WRAP}>
                                   <div className={`${PORTAL_DATA_TABLE_SCROLL} overflow-x-auto`}>
                                     <table className="w-full min-w-[28rem] table-fixed border-collapse text-left text-sm lg:min-w-0">
@@ -3289,18 +3322,22 @@ export function ManagerResidents({
                                     </table>
                                   </div>
                                 </div>
-                              )}
+                              ) : null}
                               {residentServicesAddRow}
                               </>
                               )}
                             </ResidentDetailTabPanel>
                             ) : null}
 
-                            </PortalPageScrollBody>
+                            </>
                             )}
 
                             {residentDetailBottomBarActions ? (
-                              <PortalPageFooterActions pinned rowVariant="header">
+                              <PortalPageFooterActions
+                                pinned
+                                rowVariant="header"
+                                omitSpacer={residentDetailPaymentsScroll}
+                              >
                                 <ResidentDocumentsDetailFooter>
                                   {residentDetailBottomBarActions}
                                 </ResidentDocumentsDetailFooter>
@@ -3419,11 +3456,12 @@ export function ManagerResidents({
           hideBackText
           bareHeader
           dataAttrBack="resident-detail-back"
-          // Communication, tours, and application review fill the viewport; lease scrolls
+          // Communication, tours, application review, and payments fill the
+          // viewport with pinned chrome + an internal scroll body; lease scrolls
           // with the pinned page body via `flow` document preview.
           pinScrollBody
-          scrollBody={!residentDetailViewportFill}
-          fillBody={residentDetailViewportFill}
+          scrollBody={!residentDetailInternalScroll}
+          fillBody={residentDetailInternalScroll}
         >
           {residentDetailPanel}
         </PortalRecordDetailPage>
@@ -3482,7 +3520,7 @@ export function ManagerResidents({
           ) : null
         }
         add={{
-          label: "Add",
+          label: "Add resident",
           ariaLabel: "Add resident",
           icon: PORTAL_LIST_ADD_ICONS.resident,
           onClick: () => setAddResidentOpen(true),

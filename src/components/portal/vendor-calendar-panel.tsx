@@ -10,7 +10,6 @@ import { VENDOR_AVAILABILITY_CHANGED_EVENT } from "@/components/portal/vendor-se
 import { readVendorWorkOrderRows, syncManagerWorkOrdersFromServer, MANAGER_WORK_ORDERS_EVENT } from "@/lib/manager-work-orders-storage";
 import {
   SLOT_DURATION_MINUTES,
-  syncScheduleRecordsFromServer,
   toLocalDateStr,
   vendorAvailabilityStorageKey,
 } from "@/lib/demo-admin-scheduling";
@@ -162,11 +161,7 @@ export function VendorCalendarPanel() {
     void reloadAvailability();
   }, [reloadAvailability]);
 
-  useEffect(() => {
-    if (!storageKey || demo) return;
-    void syncScheduleRecordsFromServer({ force: true }).then(() => setCalendarRefreshSignal((n) => n + 1));
-  }, [storageKey, demo]);
-
+  // Vendors use /api/vendor/availability — not manager portal-schedule-records.
   useEffect(() => {
     const bump = (event: Event) => {
       const detail = (event as CustomEvent<{ rules?: VendorAvailabilityRule[] }>).detail;

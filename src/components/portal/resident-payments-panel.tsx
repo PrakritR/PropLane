@@ -297,6 +297,17 @@ export function ResidentPaymentsPanel({
     [unpaidPayableCharges],
   );
 
+  const managerStripeConnectBlocked = useMemo(
+    () =>
+      charges.some(
+        (c) =>
+          c.status === "pending" &&
+          c.axisPaymentsEnabledSnapshot === true &&
+          c.managerStripeConnectReadySnapshot === false,
+      ),
+    [charges],
+  );
+
   useEffect(() => {
     if (
       !isStripeResidentPayMethod(paymentMethod) &&
@@ -1647,6 +1658,14 @@ export function ResidentPaymentsPanel({
           destinationAriaLabel="Payment status"
           actions={paymentsCommandActions ?? undefined}
         />
+        {managerStripeConnectBlocked ? (
+          <div
+            className={`${PORTAL_INLINE_STATUS_NOTICE_CLASS} mb-3 border-[var(--status-pending-border)] bg-[var(--status-pending-bg)] text-[var(--status-pending-fg)]`}
+          >
+            Card and bank payments are temporarily unavailable while your property manager finishes
+            payment setup. Use Zelle or Venmo below if your manager shared those options.
+          </div>
+        ) : null}
         {paymentsBody}
       </ManagerPortalPageShell>
       <ResidentPortalListBottomBar

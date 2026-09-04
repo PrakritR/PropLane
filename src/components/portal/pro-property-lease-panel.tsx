@@ -1,12 +1,15 @@
 "use client";
 
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
-import { BulkActionBar } from "@/components/ui/bulk-action-bar";
+import { Modal } from "@/components/ui/modal";
+import { ProPortalSettingsModal } from "@/components/portal/pro-portal-settings-modal";
 import { PropertyLeaseFormModal } from "@/components/portal/property-lease-form-modal";
 import {
+  PORTAL_PROPERTY_DETAIL_ACTION_BUTTON_CLASS,
   PORTAL_PROPERTY_DETAIL_LIST_ROW_CLASS,
   PortalPropertyDetailSection,
+  PropertyDetailFooterActions,
 } from "@/components/portal/portal-property-detail-section";
 import type { ManagerListingSubmissionV1 } from "@/lib/manager-listing-submission";
 import {
@@ -39,8 +42,6 @@ import {
   documentModeFromLease,
   propertyLeaseDocumentModeLabel,
 } from "@/lib/property-lease-source";
-import { usePortalRowSelection } from "@/hooks/use-portal-row-selection";
-import { PORTAL_BULK_BAR_BTN } from "@/lib/portal-bulk-bar";
 
 type LeaseSaveTarget =
   | { mode: "pending"; saveId: string }
@@ -85,9 +86,9 @@ export function ManagerPropertyLeasePanel({
   propertyId,
   propertyLabel,
   demoMode = false,
-  sectionActions,
+  settingsPropertyId,
+  settingsPropertyLabel,
   onRegisterAddLease,
-  onBulkActionsChange,
 }: {
   sub: ManagerListingSubmissionV1;
   saveTarget: LeaseSaveTarget;
@@ -100,19 +101,14 @@ export function ManagerPropertyLeasePanel({
   propertyId?: string | null;
   propertyLabel?: string | null;
   demoMode?: boolean;
-  sectionActions?: ReactNode;
+  /** Property record id for per-house lease automation settings. */
+  settingsPropertyId?: string | null;
+  settingsPropertyLabel?: string | null;
   /** Parent header "Add lease" — same handler as the dashed list footer row. */
   onRegisterAddLease?: (openAdd: (() => void) | null) => void;
-  /**
-   * Publish the selection action to a parent instead of the fixed bulk bar.
-   *
-   * `BulkActionBar` is `position: fixed`, so inside a modal it escapes to the
-   * page behind it — the Edit button appeared bottom-left of the window, under
-   * the dimmed backdrop, while the dialog it belonged to sat in the middle.
-   * A parent that passes this renders the action in its own footer.
-   */
-  onBulkActionsChange?: (actions: ReactNode | null) => void;
 }) {
+  const [editModalOpen, setEditModalOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const [formOpen, setFormOpen] = useState(false);
   const [formMode, setFormMode] = useState<"add" | "edit">("add");
   const [editingTemplateId, setEditingTemplateId] = useState<string | null>(null);
@@ -120,12 +116,17 @@ export function ManagerPropertyLeasePanel({
   const syncedSub = useMemo(() => syncPropertyLeaseTemplatesFromListing(sub), [sub]);
   const templates = useMemo(() => readPropertyLeaseTemplates(syncedSub), [syncedSub]);
   const availableSeeds = useMemo(() => availableLeaseTemplateSeeds(syncedSub), [syncedSub]);
-  const { selectedIds, toggleSelected, clearSelection } = usePortalRowSelection(templates.length);
 
   const bulkPropertyIds = useMemo(
     () => propertyIds?.filter((id) => id.trim()) ?? [],
     [propertyIds],
   );
+
+  const settingsPropertyOptions = useMemo(() => {
+    const id = settingsPropertyId?.trim();
+    if (!id) return [];
+    return [{ id, label: settingsPropertyLabel?.trim() || "This property" }];
+  }, [settingsPropertyId, settingsPropertyLabel]);
 
   const persistSubmission = useCallback(
     (nextSub: ManagerListingSubmissionV1, successMessage: string) => {
@@ -175,9 +176,14 @@ export function ManagerPropertyLeasePanel({
   };
 
   const openAdd = useCallback(() => {
+    setEditModalOpen(true);
     setFormMode("add");
     setEditingTemplateId(null);
     setFormOpen(true);
+  }, []);
+
+  const openEditModal = useCallback(() => {
+    setEditModalOpen(true);
   }, []);
 
   const addSeedTemplate = useCallback(
@@ -320,76 +326,30 @@ export function ManagerPropertyLeasePanel({
     showToast("Lease deleted.");
   };
 
-  const selectedTemplates = useMemo(
-    () => templates.filter((template) => selectedIds.has(template.id)),
-    [selectedIds, templates],
-  );
-
-  /** The one selection action, rendered either in the fixed bar or by a parent. */
-  const bulkEditAction =
-    selectedIds.size === 1 && selectedTemplates[0] ? (
-      <Button
-        type="button"
-        variant="outline"
-        className={PORTAL_BULK_BAR_BTN}
-        data-attr="property-lease-bulk-edit"
-        onClick={() => openEdit(selectedTemplates[0]!.id)}
-      >
-        Edit lease
-      </Button>
-    ) : null;
-
-  // Keyed on WHAT the action is, not the node: the JSX is rebuilt every render,
-  // so publishing on identity would loop the parent's state forever.
-  const bulkEditSignature = selectedIds.size === 1 ? (selectedTemplates[0]?.id ?? "") : "";
-  const onBulkActionsChangeRef = useRef(onBulkActionsChange);
-  const bulkEditActionRef = useRef(bulkEditAction);
-  // Written in a layout effect, not during render: a render-phase ref write is
-  // unsafe under concurrent rendering.
-  useLayoutEffect(() => {
-    onBulkActionsChangeRef.current = onBulkActionsChange;
-    bulkEditActionRef.current = bulkEditAction;
-  });
-  useEffect(() => {
-    const publish = onBulkActionsChangeRef.current;
-    if (!publish) return;
-    publish(bulkEditActionRef.current);
-    return () => publish(null);
-  }, [bulkEditSignature]);
-
-
   if (!managerUserId || (!saveTarget && bulkPropertyIds.length === 0)) return null;
 
   const editingTemplate = templates.find((t) => t.id === editingTemplateId) ?? null;
 
-  return (
+  const editorBody = (
     <>
-      <PortalPropertyDetailSection contentClassName="space-y-0">
-          {sectionActions}
-          {templates.map((template) => (
-            <div key={template.id} className={PORTAL_PROPERTY_DETAIL_LIST_ROW_CLASS}>
-              <label className="flex min-w-0 flex-1 cursor-pointer items-start gap-3">
-                <input
-                  type="checkbox"
-                  className="mt-0.5 h-4 w-4 shrink-0 accent-primary"
-                  checked={selectedIds.has(template.id)}
-                  data-attr={`property-lease-select-${template.id}`}
-                  onChange={() => toggleSelected(template.id)}
-                  onClick={(e) => e.stopPropagation()}
-                />
-                <div className="min-w-0 flex-1">
-                  <p className="text-sm font-semibold text-foreground">{template.label}</p>
-                  <p className="mt-0.5 text-xs text-muted">{leaseDocumentSummary(template)}</p>
-                  {formatApplicationLeaseTermsLabel(template.applicationLeaseTerms) ? (
-                    <p className="mt-0.5 text-xs text-muted">
-                      Applicants: {formatApplicationLeaseTermsLabel(template.applicationLeaseTerms)}
-                    </p>
-                  ) : null}
-                </div>
-              </label>
-            </div>
-          ))}
-      </PortalPropertyDetailSection>
+      {templates.map((template) => (
+        <div key={template.id} className={PORTAL_PROPERTY_DETAIL_LIST_ROW_CLASS}>
+          <button
+            type="button"
+            className="flex min-w-0 flex-1 flex-col items-start text-left"
+            data-attr={`property-lease-edit-${template.id}`}
+            onClick={() => openEdit(template.id)}
+          >
+            <p className="text-sm font-semibold text-foreground">{template.label}</p>
+            <p className="mt-0.5 text-xs text-muted">{leaseDocumentSummary(template)}</p>
+            {formatApplicationLeaseTermsLabel(template.applicationLeaseTerms) ? (
+              <p className="mt-0.5 text-xs text-muted">
+                Applicants: {formatApplicationLeaseTermsLabel(template.applicationLeaseTerms)}
+              </p>
+            ) : null}
+          </button>
+        </div>
+      ))}
 
       {availableSeeds.length > 0 ? (
         <div className="px-3 py-4 max-md:px-2.5 sm:py-5">
@@ -406,6 +366,73 @@ export function ManagerPropertyLeasePanel({
           dataAttr="property-lease-add"
         />
       </div>
+    </>
+  );
+
+  return (
+    <>
+      <PortalPropertyDetailSection
+        actions={
+          <PropertyDetailFooterActions>
+            <Button
+              type="button"
+              variant="outline"
+              className={PORTAL_PROPERTY_DETAIL_ACTION_BUTTON_CLASS}
+              data-attr="property-lease-edit-open"
+              onClick={openEditModal}
+            >
+              Edit lease
+            </Button>
+            {settingsPropertyOptions.length > 0 ? (
+              <Button
+                type="button"
+                variant="outline"
+                className={PORTAL_PROPERTY_DETAIL_ACTION_BUTTON_CLASS}
+                data-attr="property-lease-settings-open"
+                onClick={() => setSettingsOpen(true)}
+              >
+                Settings
+              </Button>
+            ) : null}
+          </PropertyDetailFooterActions>
+        }
+      >
+        {templates.length === 0 ? (
+          <p className="px-3 py-4 text-sm text-muted max-md:px-2.5">
+            No leases on this property yet. Use Edit lease to add long-term, short-term, or uploaded
+            lease templates.
+          </p>
+        ) : (
+          templates.map((template) => (
+            <div key={template.id} className={PORTAL_PROPERTY_DETAIL_LIST_ROW_CLASS}>
+              <div className="min-w-0 flex-1">
+                <p className="text-sm font-semibold text-foreground">{template.label}</p>
+                <p className="mt-0.5 text-xs text-muted">{leaseDocumentSummary(template)}</p>
+                {formatApplicationLeaseTermsLabel(template.applicationLeaseTerms) ? (
+                  <p className="mt-0.5 text-xs text-muted">
+                    Applicants: {formatApplicationLeaseTermsLabel(template.applicationLeaseTerms)}
+                  </p>
+                ) : null}
+              </div>
+            </div>
+          ))
+        )}
+      </PortalPropertyDetailSection>
+
+      <Modal
+        open={editModalOpen}
+        title="Edit lease"
+        description="Add or edit lease templates for each stay type on this property."
+        onClose={() => {
+          setEditModalOpen(false);
+          setFormOpen(false);
+          setEditingTemplateId(null);
+        }}
+        panelClassName="max-w-4xl"
+        assistantContext="Edit lease"
+      >
+        {editorBody}
+      </Modal>
 
       <PropertyLeaseFormModal
         open={formOpen}
@@ -420,10 +447,6 @@ export function ManagerPropertyLeasePanel({
         onClose={() => {
           setFormOpen(false);
           setEditingTemplateId(null);
-          // The bar exists to reach this editor; leaving the row ticked
-          // afterwards just parks a floating bar over a row the manager is
-          // done with.
-          clearSelection();
         }}
         onAssistantRefresh={() => {
           void syncPropertyPipelineFromServer({ force: true }).then(() => onUpdated());
@@ -444,19 +467,16 @@ export function ManagerPropertyLeasePanel({
         showToast={showToast}
       />
 
-      {/*
-        Edit is the only action out here. Delete lives inside the editor, next
-        to what it would destroy — a delete sitting in a floating bar, one click
-        from a row you may have selected by accident, is the wrong distance from
-        a destructive action.
-
-        A parent that supplied `onBulkActionsChange` renders it itself; the
-        fixed bar is only for the full-page tab.
-      */}
-      {!onBulkActionsChange && selectedIds.size > 0 ? (
-        <BulkActionBar count={selectedIds.size} hideCount variant="payments">
-          <div className="flex min-w-0 flex-wrap items-center justify-start gap-2">{bulkEditAction}</div>
-        </BulkActionBar>
+      {settingsPropertyOptions.length > 0 ? (
+        <ProPortalSettingsModal
+          open={settingsOpen}
+          onClose={() => setSettingsOpen(false)}
+          initialTab="lease"
+          scoped
+          scopedTitle="Lease"
+          propertyOptions={settingsPropertyOptions}
+          initialPropertyId={settingsPropertyOptions[0]?.id}
+        />
       ) : null}
     </>
   );

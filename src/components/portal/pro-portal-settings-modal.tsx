@@ -1,7 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
-import type { PaymentAutomationSettingsHandle } from "@/components/portal/payment-schedule-ui";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Modal } from "@/components/ui/modal";
 import { useAppUi } from "@/components/providers/app-ui-provider";
 import { isDemoModeActive } from "@/lib/demo/demo-session";
@@ -51,7 +50,7 @@ const TABS: { id: ManagerPortalSettingsTab; label: string }[] = [
   { id: "automation", label: "Automation" },
 ];
 
-export function ManagerPortalSettingsModal({
+export function ProPortalSettingsModal({
   open,
   onClose,
   initialTab = "applications",
@@ -91,20 +90,9 @@ export function ManagerPortalSettingsModal({
   const [saving, setSaving] = useState(false);
   const [propertyId, setPropertyId] = useState("");
   const [automation, setAutomation] = useState<ApplicationAutomationPreferences>(DEFAULT_APPLICATION_AUTOMATION);
+  const [waiverCode, setWaiverCode] = useState("");
   const [panelFooter, setPanelFooter] = useState<ManagerSettingsPanelFooter | null>(null);
-
-  /**
-   * Payments settings autosaves on close, so closing the dialog has to be what
-   * commits it. Without this the tab has no Save button AND no save — the
-   * manager changes the schedule, closes, and nothing was written.
-   */
-  const paymentsFormRef = useRef<PaymentAutomationSettingsHandle | null>(null);
-  const closeAndSave = useCallback(() => {
-    // Close first: the save is silent and the dialog should not sit open while
-    // the request runs. A failure still raises its own toast.
-    onClose();
-    void paymentsFormRef.current?.saveIfDirty();
-  }, [onClose]);
+  const lockPropertyField = Boolean(initialPropertyId?.trim()) && propertyOptions.length <= 1;
 
   useEffect(() => {
     if (open) setTab(initialTab);
@@ -138,6 +126,7 @@ export function ManagerPortalSettingsModal({
       );
       const data = (await res.json().catch(() => ({}))) as {
         automation?: unknown;
+        waiverCode?: string | null;
         error?: string;
       };
       if (!res.ok) {
@@ -145,6 +134,7 @@ export function ManagerPortalSettingsModal({
         return;
       }
       setAutomation(normalizeApplicationAutomation(data.automation));
+      setWaiverCode(typeof data.waiverCode === "string" ? data.waiverCode : "");
     } catch {
       showToast("Could not load settings.");
     } finally {
@@ -159,57 +149,59 @@ export function ManagerPortalSettingsModal({
     }
   }, [open, tab, loadApplications]);
 
-  /**
-   * These panels autosave: a toggle IS the save, so there is no Save button.
-   *
-   * The write takes the next value as an argument rather than reading
-   * `automation` state, and is called from the change handler rather than an
-   * effect watching that state. An effect would also fire when `loadApplications`
-   * seeds the state on open and on every property change — writing settings back
-   * to the server that nobody touched, and racing the load it was triggered by.
-   */
-  const saveApplicationAutomationSettings = useCallback(
-    async (next: ApplicationAutomationPreferences) => {
-      if (!propertyId || demo) return;
-      setSaving(true);
-      try {
-        const res = await fetch("/api/portal/manager-application-settings", {
-          method: "PATCH",
-          credentials: "include",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ propertyId, automation: next }),
-        });
-        const data = (await res.json().catch(() => ({}))) as { error?: string };
-        // Silent on success — a toast per checkbox is noise when the toggle
-        // itself is the feedback. A failure still has to be visible, or the
-        // switch sits there looking saved when nothing was written.
-        if (!res.ok) showToast(data.error ?? "Could not save settings.");
-      } catch {
-        showToast("Could not save settings.");
-      } finally {
-        setSaving(false);
+  async function saveApplicationAutomationSettings() {
+    if (!propertyId) {
+      showToast("Choose a property first.");
+      return;
+    }
+    if (demo) {
+      showToast("Settings saved (demo).");
+      return;
+    }
+    setSaving(true);
+    try {
+      const res = await fetch("/api/portal/manager-application-settings", {
+        method: "PATCH",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          propertyId,
+          automation,
+          waiverCode,
+        }),
+      });
+      const data = (await res.json().catch(() => ({}))) as {
+        error?: string;
+      };
+      if (!res.ok) {
+        showToast(data.error ?? "Could not save settings.");
+        return;
       }
-    },
-    [demo, propertyId, showToast],
-  );
+      showToast("Settings saved.");
+    } catch {
+      showToast("Could not save settings.");
+    } finally {
+      setSaving(false);
+    }
+  }
 
-  const changeAutomation = useCallback(
-    (next: ApplicationAutomationPreferences) => {
-      setAutomation(next);
-      void saveApplicationAutomationSettings(next);
-    },
-    [saveApplicationAutomationSettings],
-  );
+  const scopedAutomationFooter = useMemo((): ManagerSettingsPanelFooter | null => {
+    if (tab !== "applications" && tab !== "lease") return null;
+    return {
+      saving,
+      disabled: loading || !propertyId || propertyOptions.length === 0,
+      onSave: () => void saveApplicationAutomationSettings(),
+      dataAttr: tab === "applications" ? "manager-application-settings-save" : "manager-lease-settings-save",
+    };
+  }, [loading, propertyId, propertyOptions.length, saving, tab]);
 
-  // Applications and Lease autosave, so they publish no footer at all. The other
-  // tabs still own their own Save through `panelFooter`.
   const inlineFooter =
-    tab === "applications" || tab === "lease" || tab === "resident" ? null : panelFooter;
+    scopedAutomationFooter ?? (tab === "resident" ? null : panelFooter);
 
   return (
     <Modal
       open={open}
-      onClose={closeAndSave}
+      onClose={onClose}
       title={
         scoped
           ? `${scopedTitle ?? TABS.find((item) => item.id === tab)?.label ?? "Settings"} settings`
@@ -250,7 +242,10 @@ export function ManagerPortalSettingsModal({
           propertyOptions={propertyOptions}
           propertyId={propertyId}
           onPropertyIdChange={setPropertyId}
-          onAutomationChange={changeAutomation}
+          onAutomationChange={setAutomation}
+          waiverCode={waiverCode}
+          onWaiverCodeChange={setWaiverCode}
+          hidePropertyField={lockPropertyField}
         />
       ) : null}
 
@@ -267,7 +262,8 @@ export function ManagerPortalSettingsModal({
           propertyOptions={propertyOptions}
           propertyId={propertyId}
           onPropertyIdChange={setPropertyId}
-          onAutomationChange={changeAutomation}
+          onAutomationChange={setAutomation}
+          hidePropertyField={lockPropertyField}
         />
       ) : null}
 
@@ -277,9 +273,7 @@ export function ManagerPortalSettingsModal({
 
       {tab === "resident" ? <ResidentSettingsPanel /> : null}
 
-      {open && tab === "payments" ? (
-        <PaymentsSettingsPanel onFooterReady={setPanelFooter} formRef={paymentsFormRef} />
-      ) : null}
+      {open && tab === "payments" ? <PaymentsSettingsPanel onFooterReady={setPanelFooter} /> : null}
 
       {open && tab === "communication" ? (
         <CommunicationSettingsPanel onFooterReady={setPanelFooter} />
@@ -294,7 +288,10 @@ export function ManagerPortalSettingsModal({
   );
 }
 
-/** @deprecated Use ManagerPortalSettingsModal — kept for imports that open application settings only. */
+/** @deprecated Use ProPortalSettingsModal — kept for manager-* import sites. */
+export const ManagerPortalSettingsModal = ProPortalSettingsModal;
+
+/** @deprecated Use ProPortalSettingsModal — kept for imports that open application settings only. */
 export function ManagerApplicationSettingsModal({
   open,
   onClose,
@@ -305,7 +302,7 @@ export function ManagerApplicationSettingsModal({
   propertyOptions?: { id: string; label: string }[];
 }) {
   return (
-    <ManagerPortalSettingsModal
+    <ProPortalSettingsModal
       open={open}
       onClose={onClose}
       initialTab="applications"

@@ -2,6 +2,7 @@
 
 import type { DragEvent, ReactNode } from "react";
 import { Children, useCallback, useEffect, useMemo, useRef, useState, startTransition } from "react";
+import { Bath, DoorOpen, LayoutGrid, type LucideIcon } from "lucide-react";
 import { useIsClient } from "@/hooks/use-is-client";
 import { useManagerUserId } from "@/hooks/use-manager-user-id";
 import { isDemoModeActive } from "@/lib/demo/demo-session";
@@ -11,6 +12,7 @@ import {
   DEMO_LISTING_SUBMITTED_EVENT,
 } from "@/lib/demo/demo-playback";
 import { Button } from "@/components/ui/button";
+import { PortalListAddRow, PORTAL_LIST_ADD_ROW_WRAP_CLASS } from "@/components/portal/portal-list-add-row";
 import { ModalShell, useModalPresentation } from "@/components/ui/modal";
 import { MODAL_FULL_PAGE_PANEL_CLASS } from "@/components/ui/modal-styles";
 import { ModalAssistantStrip } from "@/components/portal/modal-assistant-strip";
@@ -151,6 +153,7 @@ import {
   applyListingStFeeToggle,
   deriveListingLtFeeToggles,
   deriveListingStFeeToggles,
+  leaseLengthGatedHiddenFeeRowIds,
   LISTING_STANDARD_FEE_ROWS,
   type ListingFeeRowId,
   type ListingLtFeeToggles,
@@ -214,6 +217,43 @@ const DEFAULT_LISTING_PRESETS: ListingPresetConfig = {
   availability: [],
   furnishing: ROOM_FURNISHING_OPTIONS,
 };
+
+/** Blue-outlined ADD row — same affordance as Properties → Add property. */
+const LISTING_WIZARD_ADD_ROW_CLASS =
+  "!border-solid min-h-[7rem] border-2 border-primary bg-card shadow-none hover:border-primary hover:bg-primary/[0.04] sm:min-h-[8.5rem] sm:py-10 [&>svg]:h-8 [&>svg]:w-8 sm:[&>svg]:h-9 sm:[&>svg]:w-9";
+
+function ListingWizardListAddRow({
+  label,
+  ariaLabel,
+  icon,
+  onClick,
+  disabled,
+  dataAttr,
+  inline = false,
+}: {
+  label: string;
+  ariaLabel: string;
+  icon: LucideIcon;
+  onClick: () => void;
+  disabled?: boolean;
+  dataAttr: string;
+  inline?: boolean;
+}) {
+  return (
+    <div className={cn(PORTAL_LIST_ADD_ROW_WRAP_CLASS, inline ? "py-3 sm:py-4" : undefined)}>
+      <PortalListAddRow
+        label={label}
+        ariaLabel={ariaLabel}
+        icon={icon}
+        onClick={onClick}
+        disabled={disabled}
+        dataAttr={dataAttr}
+        inline={inline}
+        className={LISTING_WIZARD_ADD_ROW_CLASS}
+      />
+    </div>
+  );
+}
 
 function FormSection({
   id,
@@ -1409,6 +1449,20 @@ export function ManagerAddListingForm({
     () => removedStandardListingFeeRowSet(sub) as Set<ListingFeeRowId>,
     [sub.removedStandardListingFeeRows],
   );
+  const hiddenStandardFeeRows = useMemo(() => {
+    const hidden = new Set(leaseLengthGatedHiddenFeeRowIds(sub));
+    if (!isEntireHomeListing(sub)) {
+      for (const id of RENT_BY_ROOM_HIDDEN_FEE_ROWS) hidden.add(id);
+    }
+    return hidden;
+  }, [
+    sub.allowedLeaseTerms,
+    sub.leaseTermsBody,
+    sub.shortTermRentalsAllowed,
+    sub.airbnbRentalsAllowed,
+    sub.rolloverToMonthToMonth,
+    sub.listingPlaceCategoryId,
+  ]);
   // Furnishing is a "Furnished" checkbox (default off = unfurnished). This holds rooms the
   // manager just checked Furnished on that have no furniture ticked yet (an empty furnished
   // state the `furnishing` string alone can't represent), plus the furniture we remember so
@@ -2029,11 +2083,15 @@ export function ManagerAddListingForm({
     const base = emptyBathroom(sub.bathrooms.length);
     const preset =
       type === "half"
-        ? { name: "Half bath", shower: false, bathtub: false, toilet: true }
+        ? { shower: false, bathtub: false, toilet: true, sink: true, mirror: false }
         : type === "ensuite"
-          ? { name: "En-suite", shower: true, bathtub: false, toilet: true, allResidents: false }
-          : { name: "Full bath", shower: true, bathtub: false, toilet: true };
-    const next = { ...base, ...preset };
+          ? { shower: true, bathtub: false, toilet: true, sink: true, mirror: true, allResidents: false }
+          : { shower: true, bathtub: false, toilet: true, sink: true, mirror: true };
+    const next = {
+      ...base,
+      ...preset,
+      name: `Bathroom ${sub.bathrooms.length + 1}`,
+    };
     expandListingItem(listingItemKey("bathroom", next.id));
     setSub((s) => {
       if (s.bathrooms.length === 0) return { ...s, bathrooms: [next] };
@@ -4036,44 +4094,6 @@ export function ManagerAddListingForm({
                   </div>
                   <StepFieldError msg={stepFieldErrors.allowedLeaseTerms} />
                   </div>
-
-                  {/*
-                    What happens when a fixed term RUNS OUT. Off by default,
-                    because the lease document's standard clause promises the
-                    opposite ("terminates … does not convert to a month-to-month
-                    tenancy") and it may not claim a continuation the manager
-                    never chose. Shown only when the listing actually offers a
-                    term that can end — a month-to-month-only listing has no
-                    end to roll over from.
-                  */}
-                  {(sub.allowedLeaseTerms ?? []).some((t) => t !== "Month-to-Month") ? (
-                    <label className="flex cursor-pointer items-start gap-2.5 rounded-xl border border-border bg-card px-3 py-3 text-sm shadow-sm">
-                      <input
-                        type="checkbox"
-                        className="mt-0.5 h-4 w-4 rounded border-border"
-                        checked={sub.rolloverToMonthToMonth === true}
-                        data-attr="listing-rollover-month-to-month"
-                        onChange={(e) =>
-                          setSub((s) => ({
-                            ...s,
-                            rolloverToMonthToMonth: e.target.checked ? true : undefined,
-                          }))
-                        }
-                      />
-                      <span>
-                        <span className="font-medium text-foreground">
-                          Continue month-to-month when the lease ends
-                        </span>
-                        <span className="mt-0.5 block text-xs text-muted">
-                          Instead of ending on the move-out date, the lease rolls into a
-                          month-to-month tenancy on the same terms until either side gives notice.
-                          {(sub.monthToMonthSurcharge ?? "").trim()
-                            ? " Your month-to-month surcharge applies during that period."
-                            : ""}
-                        </span>
-                      </span>
-                    </label>
-                  ) : null}
                 </div>
               </ListingSubsection>
 
@@ -4101,7 +4121,7 @@ export function ManagerAddListingForm({
                   onStAmount={handleStFeeAmount}
                   onLtAmount={handleLtFeeAmount}
                   onLtAmountForRow={handleLtFeeAmountForRow}
-                  hiddenRowIds={isEntireHome ? undefined : RENT_BY_ROOM_HIDDEN_FEE_ROWS}
+                  hiddenRowIds={hiddenStandardFeeRows}
                   removedRowIds={removedFeeRows}
                   onRemoveStandardRow={handleRemoveStandardRow}
                   onAddStandardRow={handleAddStandardRow}
@@ -4288,14 +4308,6 @@ export function ManagerAddListingForm({
                 : "Name, floor, furnishing, amenities, photos, video, and per-room move-in notes. Rent is set on Pricing."
             }
           >
-            <div className="mb-2 flex flex-wrap items-end justify-between gap-2">
-              <p className="text-sm text-muted">
-                Layout details plus optional photos and video per room — same as bathrooms.
-              </p>
-              <Button type="button" variant="outline" className={LISTING_WIZARD_ACTION_BTN} onClick={addRoom}>
-                + Add room
-              </Button>
-            </div>
             <div
               className={`space-y-3 ${wizardSectionErrorClass(Boolean(stepFieldErrors.rooms))}`}
               data-wizard-field="rooms"
@@ -4599,6 +4611,15 @@ export function ManagerAddListingForm({
               })}
             </div>
 
+            <ListingWizardListAddRow
+              label="Add room"
+              ariaLabel="Add room"
+              icon={DoorOpen}
+              onClick={addRoom}
+              dataAttr="listing-add-room"
+              inline={sub.rooms.length > 0}
+            />
+
             {/* The "Room media readiness" panel was removed at the captain's request. The
                 underlying summarizePropertyMediaReadiness still backs the publish-time
                 warning (shouldWarnOnPublish) below, which is a separate safety gate. */}
@@ -4654,20 +4675,19 @@ export function ManagerAddListingForm({
                 {sub.bathrooms.map((b, i) => {
                   const bathNameKey = listingBathroomNameKey(b.id);
                   const bathNameErr = stepFieldErrors[bathNameKey];
-                  const fixtures = [b.shower && "Shower", b.toilet && "Toilet", b.bathtub && "Tub"].filter(Boolean).join(", ");
-                  // Derived from the fixtures, never stored: a manager who
-                  // unticks the shower has a half bath, whichever tile added it.
-                  const bathTypeLabel = !b.toilet
-                    ? "Bathroom"
-                    : b.shower || b.bathtub
-                      ? b.allResidents
-                        ? "Full bath"
-                        : "En-suite"
-                      : "Half bath";
+                  const fixtures = [
+                    b.shower && "Shower",
+                    b.toilet && "Toilet",
+                    b.bathtub && "Tub",
+                    b.sink && "Sink",
+                    b.mirror && "Mirror",
+                  ]
+                    .filter(Boolean)
+                    .join(", ");
                   const bathSubtitle = [
                     b.location?.trim() || null,
                     fixtures || null,
-                    b.allResidents ? "Whole-house bath" : `${(b.assignedRoomIds ?? []).length} room(s)`,
+                    `${(b.assignedRoomIds ?? []).length} room(s)`,
                   ]
                     .filter(Boolean)
                     .join(" · ");
@@ -4679,7 +4699,6 @@ export function ManagerAddListingForm({
                     onToggle={() => toggleListingItem(bathKey)}
                     title={b.name.trim() || `Bathroom ${i + 1}`}
                     subtitle={bathSubtitle || "Tap to set name, location, and fixtures"}
-                    meta={<ListingWizardRowMeta value={bathTypeLabel} />}
                     hasError={Boolean(bathNameErr)}
                     bodyClassName="grid gap-3 sm:grid-cols-2"
                     toggleDataAttr={`listing-bathroom-toggle-${b.id}`}
@@ -4706,7 +4725,7 @@ export function ManagerAddListingForm({
                             clearListingFieldError("bathrooms");
                             setBath(i, { name: sanitizePlaceNameInput(e.target.value) });
                           }}
-                          placeholder="Full bath (hall)"
+                          placeholder="Hall bathroom"
                         />
                         <StepFieldError msg={bathNameErr} />
                       </div>
@@ -4741,64 +4760,45 @@ export function ManagerAddListingForm({
                             <input type="checkbox" className="h-4 w-4 rounded border-border" checked={b.bathtub} onChange={(e) => setBath(i, { bathtub: e.target.checked })} />
                             Bathtub
                           </label>
+                          <label className="flex cursor-pointer items-center gap-2 text-sm">
+                            <input type="checkbox" className="h-4 w-4 rounded border-border" checked={b.sink} onChange={(e) => setBath(i, { sink: e.target.checked })} />
+                            Sink
+                          </label>
+                          <label className="flex cursor-pointer items-center gap-2 text-sm">
+                            <input type="checkbox" className="h-4 w-4 rounded border-border" checked={b.mirror} onChange={(e) => setBath(i, { mirror: e.target.checked })} />
+                            Mirror
+                          </label>
                         </div>
                       </div>
-                      <label className="flex cursor-pointer items-center gap-2 text-sm sm:col-span-2">
-                        <input
-                          type="checkbox"
-                          className="h-4 w-4 shrink-0 rounded border-border"
-                          checked={Boolean(b.allResidents)}
-                          onChange={(e) => {
-                            const on = e.target.checked;
-                            setBath(i, {
-                              allResidents: on,
-                              assignedRoomIds: on ? [] : (b.assignedRoomIds ?? []),
-                              accessKindByRoomId: on ? undefined : b.accessKindByRoomId,
-                            });
-                          }}
-                        />
-                        <span className="font-medium text-foreground">Whole-house bathroom</span>
-                      </label>
                       {sub.rooms.length > 0 ? (
                         <div className="sm:col-span-2">
                           <FieldLabel>Used by rooms</FieldLabel>
-                          {/* Same pattern as Shared spaces "Room access" (round 29): "All rooms"
-                              select-all first, three columns, indeterminate. "Whole-house
-                              bathroom" ticks and LOCKS this list (all checked, disabled) so the
-                              two controls can never contradict; the data model still keeps
-                              allResidents' assignedRoomIds empty. */}
                           <div className="mt-1 grid gap-x-4 gap-y-1.5 sm:grid-cols-2 lg:grid-cols-3">
                             <SelectAllCheckbox
-                              allChecked={
-                                Boolean(b.allResidents) ||
-                                sub.rooms.every((room) => (b.assignedRoomIds ?? []).includes(room.id))
-                              }
+                              allChecked={sub.rooms.every((room) => (b.assignedRoomIds ?? []).includes(room.id))}
                               someChecked={
-                                !b.allResidents &&
                                 (b.assignedRoomIds ?? []).length > 0 &&
                                 !sub.rooms.every((room) => (b.assignedRoomIds ?? []).includes(room.id))
                               }
                               onToggle={(checkAll) =>
                                 setBath(i, { assignedRoomIds: checkAll ? sub.rooms.map((room) => room.id) : [] })
                               }
-                              disabled={Boolean(b.allResidents)}
                               label="All rooms"
                             />
                             {sub.rooms.map((room) => {
-                              const checked = Boolean(b.allResidents) || (b.assignedRoomIds ?? []).includes(room.id);
+                              const checked = (b.assignedRoomIds ?? []).includes(room.id);
                               return (
                                 <div key={`${b.id}-${room.id}`} className="min-w-0">
                                   <label className="flex cursor-pointer items-center gap-2 text-sm">
                                     <input
                                       type="checkbox"
-                                      className="h-4 w-4 shrink-0 rounded border-border disabled:opacity-60"
+                                      className="h-4 w-4 shrink-0 rounded border-border"
                                       checked={checked}
-                                      disabled={Boolean(b.allResidents)}
                                       onChange={(e) => toggleBathroomRoom(i, room.id, e.target.checked)}
                                     />
                                     <span className="truncate font-medium text-foreground">{room.name.trim() || `Room (${room.id.slice(-6)})`}</span>
                                   </label>
-                                  {checked && !b.allResidents ? (
+                                  {checked ? (
                                     <Select
                                       aria-label={`Bathroom situation for ${room.name.trim() || "room"}`}
                                       className={`${selectInputCls} mt-1 h-8 text-xs`}
@@ -4912,40 +4912,21 @@ export function ManagerAddListingForm({
                   </ListingWizardCollapsibleCard>
                   );
                 })}
-                <div className="flex justify-center pt-1">
-                  <Button
-                    type="button"
-                    variant="outline"
-                    className={LISTING_WIZARD_ACTION_BTN}
-                    onClick={addBathroom}
-                    disabled={sub.bathrooms.length >= 12}
-                  >
-                    + Add bathroom
-                  </Button>
-                </div>
+                <ListingWizardListAddRow
+                  label="Add bathroom"
+                  ariaLabel="Add bathroom"
+                  icon={Bath}
+                  onClick={addBathroom}
+                  disabled={sub.bathrooms.length >= 12}
+                  dataAttr="listing-add-bathroom-blank"
+                  inline={sub.bathrooms.length > 0}
+                />
               </div>
           </FormSection>
           ) : null}
 
           {stepIndex === 3 ? (
-          <FormSection
-            id="edit-shared"
-            title="Shared spaces"
-            description="Optional — add kitchens, living rooms, and other common areas if you want them on the listing. You can skip this step."
-          >
-              {/*
-                The bright blue "Quick add" banner is gone (PRP-139). It put the
-                primary actions ABOVE the list, which is the opposite of every
-                other list surface in the portal, and it produced two empty
-                states at once — a "Quick add" heading and a separate dashed box
-                telling you to use it. Tiles to add, rows to review, and one
-                dashed ADD row underneath, like Properties.
-              */}
-              <p className="mb-4 text-sm text-muted">
-                <span className="font-semibold text-foreground">Optional.</span> Add the common areas you want on
-                the listing, or skip this step.
-              </p>
-
+          <FormSection id="edit-shared" title="Shared spaces">
               <div className="mb-4 grid grid-cols-2 gap-2 sm:grid-cols-3">
                 {SHARED_SPACE_TEMPLATES.map((template) => (
                   <button
@@ -5173,23 +5154,15 @@ export function ManagerAddListingForm({
                 </div>
               )}
 
-              {/* The house theme's ADD row: dashed, uppercase, BELOW the list.
-                  This is where every other portal list puts it, and it replaces
-                  the "+ Blank shared space" button that used to sit inside the
-                  blue banner at the top (PRP-139). */}
-              <button
-                type="button"
-                data-attr="listing-add-shared-blank"
+              <ListingWizardListAddRow
+                label="Add shared space"
+                ariaLabel="Add a shared space"
+                icon={LayoutGrid}
                 onClick={addSharedSpace}
                 disabled={sub.sharedSpaces.length >= 24}
-                aria-label="Add a shared space"
-                className="mt-3 w-full rounded-xl border border-dashed border-border bg-card px-4 py-4 text-center transition hover:border-primary/40 hover:bg-primary/[0.03] disabled:cursor-not-allowed disabled:opacity-60"
-              >
-                <span className="block text-xs font-bold uppercase tracking-[0.09em] text-primary">
-                  + Add shared space
-                </span>
-                <span className="mt-1 block text-xs text-muted">Or pick one above to prefill its amenities</span>
-              </button>
+                dataAttr="listing-add-shared-blank"
+                inline={sub.sharedSpaces.length > 0}
+              />
           </FormSection>
           ) : null}
 

@@ -855,7 +855,10 @@ function ManagerPropertyInlineDetails({
     Boolean(propertyTabFooterActions) ||
     activeDetailTab === "house-details" ||
     activeDetailTab === "move-in" ||
-    activeDetailTab === "tours";
+    activeDetailTab === "tours" ||
+    activeDetailTab === "bookings" ||
+    activeDetailTab === "application" ||
+    activeDetailTab === "lease";
 
   // Every hook above runs unconditionally. This guard used to sit ~470 lines earlier, so a
   // row/mock/submission flipping between renders changed the hook COUNT, which is the
@@ -893,6 +896,7 @@ function ManagerPropertyInlineDetails({
       <PortalPageScrollBody
         className={cn(
           "min-w-0 max-w-full pt-3",
+          activeDetailTab === "bookings" && "flex flex-col overflow-hidden",
           hasPinnedPropertyFooter &&
             "pb-[calc(2.75rem+var(--portal-native-bottom-nav-inset,0px)+env(safe-area-inset-bottom,0px))] lg:pb-3",
         )}
@@ -945,6 +949,8 @@ function ManagerPropertyInlineDetails({
           saveTarget={houseSaveTarget}
           managerUserId={managerUserId}
           listingId={listingId}
+          settingsPropertyId={listingId ?? stablePropertyId}
+          settingsPropertyLabel={propertyShareLabel}
           onUpdated={onUpdated}
           showToast={showToast}
           onRegisterAddApplication={registerApplicationAddHandler}
@@ -958,6 +964,8 @@ function ManagerPropertyInlineDetails({
           managerUserId={managerUserId}
           propertyId={stablePropertyId}
           propertyLabel={leasePropertyHint?.buildingName ?? row?.buildingName}
+          settingsPropertyId={listingId ?? stablePropertyId}
+          settingsPropertyLabel={propertyShareLabel}
           onUpdated={onUpdated}
           showToast={showToast}
           propertyHint={leasePropertyHint}

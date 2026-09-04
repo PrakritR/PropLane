@@ -1,4 +1,5 @@
 import { GET_STARTED_PATH } from "@/lib/auth/get-started-path";
+import { MANAGER_GOOGLE_SERVICES_ONBOARDING_PATH } from "@/lib/auth/manager-google-services-onboarding";
 import { normalizePostAuthPath } from "@/lib/auth/normalize-post-auth-path";
 import { normalizePortalRoles, portalDashboardPath } from "@/lib/auth/portal-roles";
 import { isPrimaryAdminEmail } from "@/lib/auth/primary-admin";
@@ -11,7 +12,7 @@ const VALID_CONTINUE_DESTINATIONS = new Set([
   GET_STARTED_PATH,
   "/auth/choose-portal",
   "/auth/manager-register-oauth",
-  "/auth/connect-google-services",
+  MANAGER_GOOGLE_SERVICES_ONBOARDING_PATH,
 ]);
 
 function isValidPostAuthDestination(path: string): boolean {

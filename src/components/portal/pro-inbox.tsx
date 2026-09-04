@@ -205,8 +205,6 @@ export const ManagerInbox = forwardRef<
     filterResidentEmail?: string;
     /** Rendered when suppressListPane is set and no thread matches filterResidentEmail. */
     emptyThreadFallback?: React.ReactNode;
-    /** Resident profile Communication — opens compose modal. */
-    onNewMessage?: () => void;
     /** Bumps when a parent modal schedules/cancels for the filtered resident. */
     scheduledRefreshKey?: number;
   }
@@ -228,7 +226,6 @@ export const ManagerInbox = forwardRef<
     smsRecipients = [],
     filterResidentEmail,
     emptyThreadFallback,
-    onNewMessage,
     scheduledRefreshKey = 0,
   },
   ref,
@@ -1819,17 +1816,6 @@ export const ManagerInbox = forwardRef<
       </>
     ) : (
       <>
-        {embeddedResidentChat && onNewMessage ? (
-          <Button
-            type="button"
-            variant="primary"
-            className="min-h-0 rounded-full px-3 py-1.5 text-xs"
-            data-attr="resident-detail-new-message"
-            onClick={onNewMessage}
-          >
-            New message
-          </Button>
-        ) : null}
         {canAddThreadPhone ? (
           <button
             type="button"

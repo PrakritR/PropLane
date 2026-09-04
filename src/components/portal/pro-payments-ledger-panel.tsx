@@ -1732,11 +1732,12 @@ export function ManagerPaymentsLedgerPanel({
         <PortalRecordListSurface
           isEmpty
           add={{
-            label: addPaymentLabel,
+            label: embeddedInResident ? "Add payment" : addPaymentLabel,
             ariaLabel: addPaymentAriaLabel,
             icon: PORTAL_LIST_ADD_ICONS.payment,
             onClick: onAddPayment,
             dataAttr: "payments-list-add",
+            ...(embeddedInResident ? { inline: false } : {}),
           }}
           className="pt-5 sm:pt-6"
           dataAttr="payments-list-empty"
@@ -1749,11 +1750,14 @@ export function ManagerPaymentsLedgerPanel({
         add={
           onAddPayment
             ? {
-                label: addPaymentLabel,
+                label: embeddedInResident ? "Add payment" : addPaymentLabel,
                 ariaLabel: addPaymentAriaLabel,
                 icon: PORTAL_LIST_ADD_ICONS.payment,
                 onClick: onAddPayment,
                 dataAttr: "payments-list-add",
+                // Resident profile matches Services: full dashed ADD footer, not the
+                // compact inline strip used on the main Payments ledger when rows exist.
+                ...(embeddedInResident ? { inline: false } : {}),
               }
             : undefined
         }

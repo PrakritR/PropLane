@@ -240,6 +240,8 @@ export type DemoManagerWorkOrderRow = {
   assignedPropertyId?: string;
   assignedRoomChoice?: string;
   managerUserId?: string | null;
+  /** Resolved server-side for vendor payout display — not persisted in row_data. */
+  managerName?: string;
   photoDataUrls?: string[];
   vendorId?: string;
   vendorName?: string;
