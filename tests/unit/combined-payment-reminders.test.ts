@@ -2,7 +2,9 @@ import { describe, expect, it } from "vitest";
 import {
   buildCombinedPaymentReminderContent,
   combineScheduledPaymentMessages,
+  scheduledMessagesTouchingCharges,
 } from "@/lib/combined-payment-reminders";
+import { manageableRemindersForCharge } from "@/lib/scheduled-payment-messages";
 import type { ScheduledPaymentMessage } from "@/lib/scheduled-payment-messages";
 
 function makeMessage(overrides: Partial<ScheduledPaymentMessage>): ScheduledPaymentMessage {
@@ -67,6 +69,32 @@ describe("combineScheduledPaymentMessages", () => {
     ]);
 
     expect(messages).toHaveLength(2);
+  });
+
+  it("counts one combined send for cluster badges", () => {
+    const combined = combineScheduledPaymentMessages([
+      makeMessage({ chargeId: "hc-1" }),
+      makeMessage({ id: "sched|hc-2|pre_due|3|2026-08-15", chargeId: "hc-2" }),
+    ]);
+    const touching = scheduledMessagesTouchingCharges(combined, new Set(["hc-1", "hc-2"]));
+    expect(touching).toHaveLength(1);
+  });
+});
+
+describe("manageableRemindersForCharge with bundled sends", () => {
+  it("returns the combined row for every bundled charge", () => {
+    const futureSendAt = "2030-08-15T17:00:00.000Z";
+    const combined = combineScheduledPaymentMessages([
+      makeMessage({ chargeId: "hc-1", sendAt: futureSendAt }),
+      makeMessage({
+        id: "sched|hc-2|pre_due|3|2030-08-15",
+        chargeId: "hc-2",
+        sendAt: futureSendAt,
+      }),
+    ]);
+    expect(manageableRemindersForCharge(combined, "hc-1")).toHaveLength(1);
+    expect(manageableRemindersForCharge(combined, "hc-2")).toHaveLength(1);
+    expect(manageableRemindersForCharge(combined, "hc-2")[0]!.bundledChargeIds).toHaveLength(2);
   });
 });
 
