@@ -109,7 +109,19 @@ async function visit(page, portal, path, label, account) {
   }
 
   for (const err of [...new Set(consoleErrors)].slice(0, 3)) {
-    if (/favicon|hydration|devtools|posthog|ResizeObserver|Failed to fetch.*auth-js/i.test(err)) continue;
+    // NOTE the `s` flag. A console error arrives as message + stack separated by
+    // newlines, and `.` does not cross a newline — so `Failed to fetch.*auth-js`
+    // never matched the very thing it was written to suppress. That silent
+    // no-op is what filed a wall of "[resident] <page>: console error" tickets
+    // whose whole content was an aborted Supabase token refresh (PRP-235…250).
+    //
+    // Why it is noise: navigating away mid-request aborts it, and @supabase
+    // /auth-js reports the abort as a bare "TypeError: Failed to fetch" from a
+    // background refresh nobody was waiting on. An audit that walks pages fast
+    // triggers it constantly. A REAL fetch failure still surfaces — as a 4xx/5xx
+    // in the checks above, not as an aborted request.
+    if (/favicon|hydration|devtools|posthog|ResizeObserver/is.test(err)) continue;
+    if (/Failed to fetch[\s\S]*auth-js/is.test(err)) continue;
     if (/403.*Forbidden/i.test(err) && portal === "vendor") {
       const shot = await screenshot(page, portal, `${label}-403`.replace(/\s+/g, "-").toLowerCase());
       addFinding({ portal, path, category: "runtime", severity: "medium", title: `${label}: 403 in console`, detail: err.slice(0, 400), screenshot: shot });
