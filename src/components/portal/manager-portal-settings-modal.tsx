@@ -1,6 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import type { PaymentAutomationSettingsHandle } from "@/components/portal/payment-schedule-ui";
 import { Modal } from "@/components/ui/modal";
 import { useAppUi } from "@/components/providers/app-ui-provider";
 import { isDemoModeActive } from "@/lib/demo/demo-session";
@@ -91,6 +92,19 @@ export function ManagerPortalSettingsModal({
   const [propertyId, setPropertyId] = useState("");
   const [automation, setAutomation] = useState<ApplicationAutomationPreferences>(DEFAULT_APPLICATION_AUTOMATION);
   const [panelFooter, setPanelFooter] = useState<ManagerSettingsPanelFooter | null>(null);
+
+  /**
+   * Payments settings autosaves on close, so closing the dialog has to be what
+   * commits it. Without this the tab has no Save button AND no save — the
+   * manager changes the schedule, closes, and nothing was written.
+   */
+  const paymentsFormRef = useRef<PaymentAutomationSettingsHandle | null>(null);
+  const closeAndSave = useCallback(() => {
+    // Close first: the save is silent and the dialog should not sit open while
+    // the request runs. A failure still raises its own toast.
+    onClose();
+    void paymentsFormRef.current?.saveIfDirty();
+  }, [onClose]);
 
   useEffect(() => {
     if (open) setTab(initialTab);
@@ -195,7 +209,7 @@ export function ManagerPortalSettingsModal({
   return (
     <Modal
       open={open}
-      onClose={onClose}
+      onClose={closeAndSave}
       title={
         scoped
           ? `${scopedTitle ?? TABS.find((item) => item.id === tab)?.label ?? "Settings"} settings`
@@ -263,7 +277,9 @@ export function ManagerPortalSettingsModal({
 
       {tab === "resident" ? <ResidentSettingsPanel /> : null}
 
-      {open && tab === "payments" ? <PaymentsSettingsPanel onFooterReady={setPanelFooter} /> : null}
+      {open && tab === "payments" ? (
+        <PaymentsSettingsPanel onFooterReady={setPanelFooter} formRef={paymentsFormRef} />
+      ) : null}
 
       {open && tab === "communication" ? (
         <CommunicationSettingsPanel onFooterReady={setPanelFooter} />

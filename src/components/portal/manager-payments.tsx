@@ -3,12 +3,6 @@
 import { MANAGER_MANUAL_PAYMENT_AUTO_CHECK_MS } from "@/lib/resident-manual-payment-client";
 import { useEffect, useMemo, useState, useCallback, useRef } from "react";
 import { Button } from "@/components/ui/button";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
 import { PortalFilterSortSheet } from "@/components/portal/portal-filter-sort-sheet";
 import { PORTAL_PROPERTY_FILTER_SHEET_CLASS } from "@/components/portal/portal-filter-shell";
 import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
@@ -644,39 +638,24 @@ export function ManagerPayments({
 
   const paymentsFilterSort = <PaymentsFilterSheet {...paymentsFilterSheetProps} />;
 
-  const paymentsSettingsMenu =
-    direction === "incoming" ? (
-      <DropdownMenu>
-        <DropdownMenuTrigger asChild>
-          <Button
-            type="button"
-            variant="outline"
-            className={PORTAL_COMMAND_ACTION_BTN}
-            data-attr="payments-settings-menu"
-          >
-            Settings
-          </Button>
-        </DropdownMenuTrigger>
-        <DropdownMenuContent align="start" backdrop>
-          <DropdownMenuItem data-attr="payments-settings-open" onSelect={() => setPaymentSettingsOpen(true)}>
-            Settings
-          </DropdownMenuItem>
-          <DropdownMenuItem data-attr="payments-reminder-settings" onSelect={() => setReminderSettingsOpen(true)}>
-            Reminders
-          </DropdownMenuItem>
-        </DropdownMenuContent>
-      </DropdownMenu>
-    ) : (
-      <Button
-        type="button"
-        variant="outline"
-        className={PORTAL_COMMAND_ACTION_BTN}
-        data-attr="payments-settings-open"
-        onClick={() => setPaymentSettingsOpen(true)}
-      >
-        Settings
-      </Button>
-    );
+  /*
+    One Settings, not a menu of two.
+    "Settings" and "Reminders" were two dialogs over the SAME
+    `/api/portal/automation-settings` fields, so each could silently undo the
+    other. Payments settings now IS the reminder schedule, and the menu that
+    offered a choice between them has nothing left to choose.
+  */
+  const paymentsSettingsMenu = (
+    <Button
+      type="button"
+      variant="outline"
+      className={PORTAL_COMMAND_ACTION_BTN}
+      data-attr="payments-settings-open"
+      onClick={() => setPaymentSettingsOpen(true)}
+    >
+      Settings
+    </Button>
+  );
 
   const paymentsCheckButton =
     direction === "incoming" ? (
