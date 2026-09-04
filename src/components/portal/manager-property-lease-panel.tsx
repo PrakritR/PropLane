@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Button } from "@/components/ui/button";
 import { BulkActionBar } from "@/components/ui/bulk-action-bar";
 import { PropertyLeaseFormModal } from "@/components/portal/property-lease-form-modal";
@@ -87,6 +87,7 @@ export function ManagerPropertyLeasePanel({
   demoMode = false,
   sectionActions,
   onRegisterAddLease,
+  onBulkActionsChange,
 }: {
   sub: ManagerListingSubmissionV1;
   saveTarget: LeaseSaveTarget;
@@ -102,6 +103,15 @@ export function ManagerPropertyLeasePanel({
   sectionActions?: ReactNode;
   /** Parent header "Add lease" — same handler as the dashed list footer row. */
   onRegisterAddLease?: (openAdd: (() => void) | null) => void;
+  /**
+   * Publish the selection action to a parent instead of the fixed bulk bar.
+   *
+   * `BulkActionBar` is `position: fixed`, so inside a modal it escapes to the
+   * page behind it — the Edit button appeared bottom-left of the window, under
+   * the dimmed backdrop, while the dialog it belonged to sat in the middle.
+   * A parent that passes this renders the action in its own footer.
+   */
+  onBulkActionsChange?: (actions: ReactNode | null) => void;
 }) {
   const [formOpen, setFormOpen] = useState(false);
   const [formMode, setFormMode] = useState<"add" | "edit">("add");
@@ -315,6 +325,39 @@ export function ManagerPropertyLeasePanel({
     [selectedIds, templates],
   );
 
+  /** The one selection action, rendered either in the fixed bar or by a parent. */
+  const bulkEditAction =
+    selectedIds.size === 1 && selectedTemplates[0] ? (
+      <Button
+        type="button"
+        variant="outline"
+        className={PORTAL_BULK_BAR_BTN}
+        data-attr="property-lease-bulk-edit"
+        onClick={() => openEdit(selectedTemplates[0]!.id)}
+      >
+        Edit lease
+      </Button>
+    ) : null;
+
+  // Keyed on WHAT the action is, not the node: the JSX is rebuilt every render,
+  // so publishing on identity would loop the parent's state forever.
+  const bulkEditSignature = selectedIds.size === 1 ? (selectedTemplates[0]?.id ?? "") : "";
+  const onBulkActionsChangeRef = useRef(onBulkActionsChange);
+  const bulkEditActionRef = useRef(bulkEditAction);
+  // Written in a layout effect, not during render: a render-phase ref write is
+  // unsafe under concurrent rendering.
+  useLayoutEffect(() => {
+    onBulkActionsChangeRef.current = onBulkActionsChange;
+    bulkEditActionRef.current = bulkEditAction;
+  });
+  useEffect(() => {
+    const publish = onBulkActionsChangeRef.current;
+    if (!publish) return;
+    publish(bulkEditActionRef.current);
+    return () => publish(null);
+  }, [bulkEditSignature]);
+
+
   if (!managerUserId || (!saveTarget && bulkPropertyIds.length === 0)) return null;
 
   const editingTemplate = templates.find((t) => t.id === editingTemplateId) ?? null;
@@ -406,22 +449,13 @@ export function ManagerPropertyLeasePanel({
         to what it would destroy — a delete sitting in a floating bar, one click
         from a row you may have selected by accident, is the wrong distance from
         a destructive action.
+
+        A parent that supplied `onBulkActionsChange` renders it itself; the
+        fixed bar is only for the full-page tab.
       */}
-      {selectedIds.size > 0 ? (
+      {!onBulkActionsChange && selectedIds.size > 0 ? (
         <BulkActionBar count={selectedIds.size} hideCount variant="payments">
-          <div className="flex min-w-0 flex-wrap items-center justify-start gap-2">
-            {selectedIds.size === 1 && selectedTemplates[0] ? (
-              <Button
-                type="button"
-                variant="outline"
-                className={PORTAL_BULK_BAR_BTN}
-                data-attr="property-lease-bulk-edit"
-                onClick={() => openEdit(selectedTemplates[0]!.id)}
-              >
-                Edit lease
-              </Button>
-            ) : null}
-          </div>
+          <div className="flex min-w-0 flex-wrap items-center justify-start gap-2">{bulkEditAction}</div>
         </BulkActionBar>
       ) : null}
     </>

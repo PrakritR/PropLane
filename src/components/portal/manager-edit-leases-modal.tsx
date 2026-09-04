@@ -1,7 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
-import { Button } from "@/components/ui/button";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { Modal, ModalFooter } from "@/components/ui/modal";
 import { ManagerPropertyLeasePanel } from "@/components/portal/manager-property-lease-panel";
 import { ManagerSettingsPropertyField } from "@/components/portal/manager-portal-settings-panels";
@@ -12,12 +11,18 @@ import { syncPropertyLeaseTemplatesFromListing } from "@/lib/property-lease-temp
 /**
  * Pick ONE property, then manage its lease templates.
  *
- * The property step is the same dropdown Leases settings uses, deliberately:
- * these two open from adjacent buttons and asking the same question two
- * different ways — a checkbox list here, a select there — reads as two
- * unrelated features. It was a multi-select ("apply to all") before; a single
+ * The property dropdown is the same one Leases settings uses, on the same page
+ * as the leases it filters — no Continue step. These two open from adjacent
+ * buttons, so asking the same question two different ways reads as two
+ * unrelated features.
+ *
+ * It was a multi-select ("apply to all") behind a Continue before. A single
  * property is the captain's call, and it also removes the quiet hazard of one
  * Save rewriting the lease templates of every house at once.
+ *
+ * The panel's own selection action is published up and rendered in this modal's
+ * footer: `BulkActionBar` is `position: fixed`, so left to itself it escaped to
+ * the page behind the dialog.
  */
 export function ManagerEditLeasesModal({
   open,
@@ -35,14 +40,15 @@ export function ManagerEditLeasesModal({
   showToast: (m: string) => void;
 }) {
   const [selectedId, setSelectedId] = useState("");
-  const [editingPropertyId, setEditingPropertyId] = useState<string | null>(null);
   const [editorRevision, setEditorRevision] = useState(0);
+  /** The lease panel's own selection action, rendered in this modal's footer. */
+  const [bulkActions, setBulkActions] = useState<ReactNode | null>(null);
 
   useEffect(() => {
     if (!open) {
       setSelectedId("");
-      setEditingPropertyId(null);
       setEditorRevision(0);
+      setBulkActions(null);
     }
   }, [open]);
 
@@ -55,99 +61,63 @@ export function ManagerEditLeasesModal({
   }, [open, propertyOptions, selectedId]);
 
   const resolved = useMemo(() => {
-    const id = editingPropertyId?.trim();
+    const id = selectedId.trim();
     if (!id || !managerUserId) return null;
     return resolveManagerListingSubmissionForPropertyId(managerUserId, id);
-  }, [editorRevision, editingPropertyId, managerUserId]);
+  }, [editorRevision, selectedId, managerUserId]);
 
-  const editingPropertyLabel = editingPropertyId
-    ? (propertyOptions.find((o) => o.id === editingPropertyId)?.label ?? null)
+  const selectedLabel = selectedId
+    ? (propertyOptions.find((o) => o.id === selectedId)?.label ?? null)
     : null;
-  const editorTitle = editingPropertyLabel ? `Edit lease · ${editingPropertyLabel}` : "Edit lease";
+  const title = selectedLabel ? `Edit lease · ${selectedLabel}` : "Edit lease";
 
   const closeAll = () => {
     setSelectedId("");
-    setEditingPropertyId(null);
+    setBulkActions(null);
     onClose();
-  };
-
-  const continueFromSelect = () => {
-    if (!selectedId) {
-      showToast("Choose a property.");
-      return;
-    }
-    if (!managerUserId) {
-      showToast("Sign in to edit leases.");
-      return;
-    }
-    if (!resolveManagerListingSubmissionForPropertyId(managerUserId, selectedId)) {
-      showToast("Could not load leases for that property.");
-      return;
-    }
-    setEditingPropertyId(selectedId);
-  };
-
-  const onEditorClose = () => {
-    setEditingPropertyId(null);
   };
 
   const syncedSub = resolved ? syncPropertyLeaseTemplatesFromListing(resolved.sub) : null;
 
   return (
-    <>
-      <Modal
-        open={open && !editingPropertyId}
-        title="Edit lease"
-        onClose={closeAll}
-        dense
-        panelClassName="max-w-md"
-        assistantContext="Edit lease"
-        footer={
-          <ModalFooter>
-            <Button
-              type="button"
-              variant="primary"
-              className="rounded-full"
-              data-attr="leases-edit-continue"
-              disabled={!selectedId || propertyOptions.length === 0}
-              onClick={continueFromSelect}
-            >
-              Continue
-            </Button>
-          </ModalFooter>
-        }
-      >
+    <Modal
+      open={open}
+      title={title}
+      description="Choose a property, then add a lease or edit one of its templates."
+      onClose={closeAll}
+      panelClassName="max-w-4xl"
+      assistantContext="Edit lease"
+      footer={bulkActions ? <ModalFooter className="w-full">{bulkActions}</ModalFooter> : undefined}
+    >
+      <div className="space-y-4">
         <ManagerSettingsPropertyField
           propertyOptions={propertyOptions.map((option) => ({ id: option.id, label: option.label }))}
           propertyId={selectedId}
           onPropertyIdChange={setSelectedId}
         />
-      </Modal>
 
-      {resolved && managerUserId && syncedSub && editingPropertyId ? (
-        <Modal
-          open
-          title={editorTitle}
-          description="Add a lease or edit an existing template. Choose PropLane default (long or short term) or upload a PDF."
-          onClose={onEditorClose}
-          panelClassName="max-w-4xl"
-          assistantContext="Edit lease"
-        >
+        {!selectedId ? (
+          <p className="text-sm text-muted">Choose a property to see its leases.</p>
+        ) : !resolved || !managerUserId || !syncedSub ? (
+          <p className="text-sm text-muted">Could not load leases for that property.</p>
+        ) : (
           <ManagerPropertyLeasePanel
+            key={selectedId}
             sub={syncedSub}
             saveTarget={resolved.saveTarget}
             managerUserId={managerUserId}
-            propertyHint={editingPropertyLabel ? { buildingName: editingPropertyLabel } : undefined}
-            propertyId={editingPropertyId}
-            propertyLabel={editingPropertyLabel}
+            propertyHint={selectedLabel ? { buildingName: selectedLabel } : undefined}
+            propertyId={selectedId}
+            propertyLabel={selectedLabel}
+            onBulkActionsChange={setBulkActions}
             onUpdated={() => {
               setEditorRevision((revision) => revision + 1);
               onSaved();
             }}
             showToast={showToast}
           />
-        </Modal>
-      ) : null}
-    </>
+        )}
+      </div>
+    </Modal>
   );
 }
