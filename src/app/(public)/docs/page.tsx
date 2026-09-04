@@ -222,7 +222,7 @@ export default function DocsPage() {
             <DocList>
               <DocLi>
                 <b className="font-medium text-foreground">Reminders</b> go out before and after the
-                due date, by email, and by text if you&rsquo;ve set up a work number.
+                due date by email, and by text if you&rsquo;ve set up a work number.
               </DocLi>
               <DocLi>
                 <b className="font-medium text-foreground">Late fees</b> apply automatically according
