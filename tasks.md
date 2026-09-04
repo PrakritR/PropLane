@@ -2,7 +2,7 @@
 
 Generated September 4, 2026. There are 27 active assigned issues, all currently marked High in Linear. The priority tiers below are recommended execution order, not changes to Linear's stored priority.
 
-Progress: 10 completed locally (7 + PRP-192, already shipped and only just discovered to be stale in this doc, + PRP-239, cherry-picked from `claude-1` today, + PRP-266), 17 remaining. **Linear re-triage, September 4 2026 (Prakrit Ramachandran):** PRP-260, PRP-261, PRP-262, PRP-284, PRP-286, PRP-287, PRP-288, PRP-294 were all closed Canceled as duplicates/superseded — verified each one via its Linear comment: none is a scope cut, every capability is tracked (and, where already built, credited) under a surviving canonical ticket (PRP-264, PRP-265, PRP-271, PRP-279, PRP-297). Linear now also shows PRP-297 and PRP-279 as Done to match the local work below, and their acceptance checklists are checked off. Nothing needed to be reverted from this repo. Of the 17 remaining issues, 6 need no separate work (closed as duplicates/superseded above), 11 are actionable (including the PRP-264 epic itself and PRP-184, which still needs breaking into fixes).
+Progress: 11 completed locally (7 + PRP-192, already shipped and only just discovered to be stale in this doc, + PRP-239, cherry-picked from `claude-1` today, + PRP-265 + PRP-266), 16 remaining. **Linear re-triage, September 4 2026 (Prakrit Ramachandran):** PRP-260, PRP-261, PRP-262, PRP-284, PRP-286, PRP-287, PRP-288, PRP-294 were all closed Canceled as duplicates/superseded — verified each one via its Linear comment: none is a scope cut, every capability is tracked (and, where already built, credited) under a surviving canonical ticket (PRP-264, PRP-265, PRP-271, PRP-279, PRP-297). Linear now also shows PRP-297 and PRP-279 as Done to match the local work below, and their acceptance checklists are checked off. Nothing needed to be reverted from this repo. Of the 16 remaining issues, 6 need no separate work (closed as duplicates/superseded above), 10 are actionable (including the PRP-264 epic itself and PRP-184, which still needs breaking into fixes).
 
 ## P0 — user harm, data integrity, and access
 
@@ -52,8 +52,8 @@ Three near-identical umbrella epics overlapped: [PRP-260](https://linear.app/axi
 
 ### Role-specific SMS workflows
 
-- [PRP-265 — Resident maintenance text creates work order](https://linear.app/axishousing/issue/PRP-265/sms-resident-texts-maintenance-issue-create-work-order-notify-manager)
-  Convert a resident maintenance text into a real, deduplicated work order, notify the manager and vendor, and reply with the new reference.
+- [x] [PRP-265 — Resident maintenance text creates work order](https://linear.app/axishousing/issue/PRP-265/sms-resident-texts-maintenance-issue-create-work-order-notify-manager)
+  Completed locally September 4, 2026. The existing real, deduplicated work-order upsert now reads back the database-stamped `WO-####` reference for the resident acknowledgment and emits the canonical created event to property-scoped managers/co-managers plus the filing resident before reusing the existing vendor auto-dispatch path.
 
 - [PRP-288 — Text-only resident workflow](https://linear.app/axishousing/issue/PRP-288/sms-text-only-resident-workflow-maintenance-payment-reminders) — **Linear: closed Canceled as an empty-stub duplicate of PRP-265.**
   Umbrella for resident maintenance texting and payment reminders. PRP-265 remains unbuilt and actionable; this row is now just a pointer to it.
