@@ -1934,8 +1934,12 @@ function RentalApplicationWizardInner({
             data: { user },
           } = await supabase.auth.getUser();
           residentUserId = user?.id ?? null;
-        } catch {
-          /* ignore */
+        } catch (error) {
+          // A transient auth blip here submits the application UNLINKED to the
+          // resident's account, so it never appears in their Applications tab
+          // and the nav stage never unlocks — an orphaned record produced
+          // silently. Still non-blocking, but no longer invisible (PRP-209).
+          console.error("[best-effort] resident identity for application submit failed —", error);
         }
         const pid = form.propertyId.trim();
         const emailTrim = form.email.trim();

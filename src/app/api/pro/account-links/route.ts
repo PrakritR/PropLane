@@ -15,6 +15,7 @@ import { isCrossSandboxPortalPair, CROSS_SANDBOX_PORTAL_PAIR_ERROR } from "@/lib
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { labelFromManagerPropertyRecordRow } from "@/lib/co-manager-property-label";
+import { bestEffortFailed } from "@/lib/observability/best-effort";
 
 export const runtime = "nodejs";
 
@@ -536,8 +537,11 @@ export async function POST(req: Request) {
               "A manager",
             propertyLabels: labels.length > 0 ? labels : assignedPropertyIds,
           });
-        } catch {
-          /* notification failure should not block invite */
+        } catch (error) {
+          // Not blocking the invite, but not silent either: the UI already says
+          // "Invite sent", so a swallowed failure here is the difference
+          // between a delivered invite and one nobody knows was lost.
+          bestEffortFailed("co-manager invite notification", { invitee: inviteeAxisId })(error);
         }
       })();
     }

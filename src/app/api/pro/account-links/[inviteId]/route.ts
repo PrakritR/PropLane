@@ -10,6 +10,7 @@ import { isCrossSandboxPortalPair, CROSS_SANDBOX_PORTAL_PAIR_ERROR } from "@/lib
 import { scopedRelationshipDeletesForRevokedInvite } from "@/lib/pro-relationships";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
+import { bestEffortFailed } from "@/lib/observability/best-effort";
 
 export const runtime = "nodejs";
 
@@ -335,8 +336,10 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ inviteId: str
             inviteeUserId: invite.invitee_user_id,
             inviteeName,
           });
-        } catch {
-          /* notification failure should not block accept */
+        } catch (error) {
+          bestEffortFailed("co-manager invite-accepted notification", {
+            invite: invite.id,
+          })(error);
         }
       })();
     }
