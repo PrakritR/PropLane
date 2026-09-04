@@ -106,20 +106,69 @@ export function shouldAutomate(input: {
 }
 
 const ROW_DATA_KEY = "applicationAutomation";
+const ROW_DATA_BY_PROPERTY_KEY = "applicationAutomationByPropertyId";
 
-export async function loadApplicationAutomation(
+export type ApplicationAutomationState = {
+  /** Portfolio-wide defaults when a property has no override. */
+  portfolio: ApplicationAutomationPreferences;
+  /** Per-property overrides keyed by property record id. */
+  byPropertyId: Record<string, ApplicationAutomationPreferences>;
+};
+
+export function normalizeApplicationAutomationByPropertyId(
+  raw: unknown,
+): Record<string, ApplicationAutomationPreferences> {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return {};
+  const out: Record<string, ApplicationAutomationPreferences> = {};
+  for (const [key, value] of Object.entries(raw as Record<string, unknown>)) {
+    const id = key.trim();
+    if (!id) continue;
+    out[id] = normalizeApplicationAutomation(value);
+  }
+  return out;
+}
+
+/** Resolve automation for one property: property override wins, else portfolio default. */
+export function resolveApplicationAutomationForProperty(
+  state: ApplicationAutomationState,
+  propertyId: string | null | undefined,
+): ApplicationAutomationPreferences {
+  const id = propertyId?.trim() ?? "";
+  if (id && state.byPropertyId[id]) return state.byPropertyId[id];
+  return state.portfolio;
+}
+
+async function readAutomationRowData(
   db: SupabaseClient,
   managerUserId: string,
-): Promise<ApplicationAutomationPreferences> {
+): Promise<Record<string, unknown>> {
   const { data, error } = await db
     .from("manager_automation_settings")
     .select("row_data")
     .eq("manager_user_id", managerUserId)
     .maybeSingle();
   if (error) throw error;
-  return normalizeApplicationAutomation(
-    (data?.row_data as Record<string, unknown> | null)?.[ROW_DATA_KEY],
-  );
+  const raw = data?.row_data;
+  return raw && typeof raw === "object" && !Array.isArray(raw) ? { ...(raw as Record<string, unknown>) } : {};
+}
+
+export async function loadApplicationAutomationState(
+  db: SupabaseClient,
+  managerUserId: string,
+): Promise<ApplicationAutomationState> {
+  const rowData = await readAutomationRowData(db, managerUserId);
+  return {
+    portfolio: normalizeApplicationAutomation(rowData[ROW_DATA_KEY]),
+    byPropertyId: normalizeApplicationAutomationByPropertyId(rowData[ROW_DATA_BY_PROPERTY_KEY]),
+  };
+}
+
+export async function loadApplicationAutomation(
+  db: SupabaseClient,
+  managerUserId: string,
+): Promise<ApplicationAutomationPreferences> {
+  const state = await loadApplicationAutomationState(db, managerUserId);
+  return state.portfolio;
 }
 
 export async function saveApplicationAutomation(
@@ -128,18 +177,33 @@ export async function saveApplicationAutomation(
   prefs: unknown,
 ): Promise<ApplicationAutomationPreferences> {
   const normalized = normalizeApplicationAutomation(prefs);
-  // Read-modify-write the shared blob. Writing `{ [ROW_DATA_KEY]: … }` alone would drop
-  // `applicationSettings`, taking the manager's application fee with it.
-  const { data: existing } = await db
-    .from("manager_automation_settings")
-    .select("row_data")
-    .eq("manager_user_id", managerUserId)
-    .maybeSingle();
-  const rowData =
-    existing?.row_data && typeof existing.row_data === "object" && !Array.isArray(existing.row_data)
-      ? { ...(existing.row_data as Record<string, unknown>) }
-      : {};
+  const rowData = await readAutomationRowData(db, managerUserId);
   rowData[ROW_DATA_KEY] = normalized;
+  const { error } = await db.from("manager_automation_settings").upsert(
+    {
+      manager_user_id: managerUserId,
+      row_data: rowData,
+      updated_at: new Date().toISOString(),
+    },
+    { onConflict: "manager_user_id" },
+  );
+  if (error) throw error;
+  return normalized;
+}
+
+export async function saveApplicationAutomationForProperty(
+  db: SupabaseClient,
+  managerUserId: string,
+  propertyId: string,
+  prefs: unknown,
+): Promise<ApplicationAutomationPreferences> {
+  const id = propertyId.trim();
+  if (!id) throw new Error("propertyId is required.");
+  const normalized = normalizeApplicationAutomation(prefs);
+  const rowData = await readAutomationRowData(db, managerUserId);
+  const byPropertyId = normalizeApplicationAutomationByPropertyId(rowData[ROW_DATA_BY_PROPERTY_KEY]);
+  byPropertyId[id] = normalized;
+  rowData[ROW_DATA_BY_PROPERTY_KEY] = byPropertyId;
   const { error } = await db.from("manager_automation_settings").upsert(
     {
       manager_user_id: managerUserId,

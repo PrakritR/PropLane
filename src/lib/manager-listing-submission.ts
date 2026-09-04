@@ -353,6 +353,8 @@ export type ManagerListingSubmissionV1 = {
   /** Short-term month-to-month surcharge (parallel to {@link monthToMonthSurcharge}). */
   shortTermMonthToMonthSurcharge?: string;
   applicationFee: string;
+  /** Optional code applicants enter to waive the application fee for this listing. */
+  applicationFeeWaiverCode?: string;
   /** Short-term application fee when it differs from {@link applicationFee}. */
   shortTermApplicationFee?: string;
   /**
@@ -1620,6 +1622,11 @@ export function normalizeManagerListingSubmissionV1(sub: ManagerListingSubmissio
     applicationFeeOtherEnabled,
     applicationFeeOtherInstructions:
       typeof sub.applicationFeeOtherInstructions === "string" ? sub.applicationFeeOtherInstructions : "",
+    applicationFeeWaiverCode: (() => {
+      const raw =
+        typeof sub.applicationFeeWaiverCode === "string" ? sub.applicationFeeWaiverCode.trim() : "";
+      return raw ? raw.toUpperCase().replace(/\s+/g, "") : "";
+    })(),
     allowMultiplePropertyApplications: sub.allowMultiplePropertyApplications === true,
     applicationFeeOnlyFirstApplication: sub.applicationFeeOnlyFirstApplication === true,
     rentDueDayMode: sub.rentDueDayMode === "last_of_month" ? "last_of_month" : "first_of_month",

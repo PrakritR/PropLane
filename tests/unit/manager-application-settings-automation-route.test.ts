@@ -15,7 +15,9 @@ const saveManagerApplicationSettings = vi.fn();
 const validateManagerApplicationFeeCents = vi.fn();
 const suggestedManagerApplicationFeeCents = vi.fn();
 const loadApplicationAutomation = vi.fn();
+const loadApplicationAutomationState = vi.fn();
 const saveApplicationAutomation = vi.fn();
+const saveApplicationAutomationForProperty = vi.fn();
 const loadManagerLandlordLegalNameFromProfile = vi.fn();
 const listApplicationFeeWaiverCodes = vi.fn();
 const pickPrimaryApplicationFeeWaiverCode = vi.fn();
@@ -40,7 +42,11 @@ vi.mock("@/lib/manager-application-settings.server", () => ({
 }));
 vi.mock("@/lib/application-automation-preferences", () => ({
   loadApplicationAutomation: (...a: unknown[]) => loadApplicationAutomation(...a),
+  loadApplicationAutomationState: (...a: unknown[]) => loadApplicationAutomationState(...a),
   saveApplicationAutomation: (...a: unknown[]) => saveApplicationAutomation(...a),
+  saveApplicationAutomationForProperty: (...a: unknown[]) => saveApplicationAutomationForProperty(...a),
+  resolveApplicationAutomationForProperty: (state: { portfolio: typeof AUTOMATION; byPropertyId: Record<string, typeof AUTOMATION> }, propertyId: string) =>
+    state.byPropertyId[propertyId] ?? state.portfolio,
 }));
 // The route now reads the default-task preferences alongside application
 // automation, and the guard hands these tests a bare `{}` for `db` — without
@@ -87,7 +93,9 @@ beforeEach(() => {
   vi.clearAllMocks();
   requireManagerRouteUser.mockResolvedValue({ db: {}, userId: "mgr-1" });
   saveApplicationAutomation.mockResolvedValue(AUTOMATION);
+  saveApplicationAutomationForProperty.mockResolvedValue(AUTOMATION);
   loadApplicationAutomation.mockResolvedValue(AUTOMATION);
+  loadApplicationAutomationState.mockResolvedValue({ portfolio: AUTOMATION, byPropertyId: {} });
   loadTaskAutomation.mockResolvedValue(TASK_AUTOMATION);
   saveTaskAutomation.mockResolvedValue(TASK_AUTOMATION);
   loadManagerLandlordLegalNameFromProfile.mockResolvedValue("Doe Holdings LLC");
@@ -149,7 +157,19 @@ describe("PATCH automation", () => {
   });
 
   it("returns the saved automation on GET", async () => {
-    const res = await route.GET();
-    expect(await res.json()).toMatchObject({ automation: AUTOMATION, taskAutomation: TASK_AUTOMATION });
+    const res = await route.GET(new Request("http://localhost/api/portal/manager-application-settings"));
+    expect(await res.json()).toMatchObject({
+      automation: AUTOMATION,
+      automationState: { portfolio: AUTOMATION, byPropertyId: {} },
+      taskAutomation: TASK_AUTOMATION,
+    });
+  });
+
+  it("saves automation for a property without touching the portfolio default", async () => {
+    const res = await route.PATCH(patch({ propertyId: "prop-1", automation: AUTOMATION }));
+
+    expect(res.status).toBe(200);
+    expect(saveApplicationAutomationForProperty).toHaveBeenCalledWith({}, "mgr-1", "prop-1", AUTOMATION);
+    expect(saveApplicationAutomation).not.toHaveBeenCalled();
   });
 });

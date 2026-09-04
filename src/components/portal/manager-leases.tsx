@@ -248,6 +248,8 @@ export function ManagerLeases({
         onClose={() => setLeaseSettingsOpen(false)}
         initialTab="lease"
         scopedTitle="Leases"
+        propertyOptions={propertyOptions}
+        initialPropertyId={propertyFilters.length === 1 ? propertyFilters[0] : undefined}
       />
     </>
   );
