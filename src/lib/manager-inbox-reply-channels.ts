@@ -156,3 +156,16 @@ export function resolveAssistantInboxReplyChannels(    args: {
 export function hasInboxReplyChannelSelected(channels: InboxReplyChannelFlags): boolean {
   return channels.viaEmail || channels.viaSms || channels.viaProplane;
 }
+
+/** Counterparty for portal-only delivery on a person thread (not assistant). */
+export function resolveManagerInboxPortalRecipient(
+  thread: { from?: string | null; email?: string | null },
+  smsRecipients: ManagerInboxSmsRecipientLike[],
+  smsOutboundEnabled: boolean,
+): { toEmails?: string[]; toUserIds?: string[] } | null {
+  const email = String(thread.email ?? "").trim().toLowerCase();
+  if (inboxThreadHasEmail(email)) return { toEmails: [email] };
+  const smsTarget = resolveManagerInboxSmsTarget(thread, smsRecipients, smsOutboundEnabled);
+  if (smsTarget?.residentUserId) return { toUserIds: [smsTarget.residentUserId] };
+  return null;
+}

@@ -2,6 +2,7 @@
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
+  AiDraftReplyCard,
   InboxReplyChannelPicker,
   inboxReplyChannelsToMode,
   inboxReplyModeToChannels,
@@ -113,20 +114,37 @@ describe("InboxReplyChannelPicker", () => {
     expect(screen.getByLabelText("Send via")).toHaveTextContent("Email & SMS");
   });
 
-  it("lists PropLane when the assistant thread supports in-app send", () => {
+  it("lists PropLane alongside email and sms when all channels are available", () => {
     render(
       <InboxReplyChannelPicker
-        viaProplane
-        viaEmail={false}
+        viaEmail
         viaSms={false}
+        viaProplane={false}
         onViaProplaneChange={vi.fn()}
         onViaEmailChange={vi.fn()}
         onViaSmsChange={vi.fn()}
         proplaneAvailable
-        emailAvailable={false}
-        smsAvailable={false}
+        emailAvailable
+        smsAvailable
       />,
     );
-    expect(screen.getByLabelText("Send via")).toHaveTextContent("PropLane");
+    fireEvent.click(screen.getByLabelText("Send via"));
+    expect(screen.getByRole("option", { name: /^PropLane$/i })).toBeTruthy();
+    expect(screen.getByRole("option", { name: /^Email$/i })).toBeTruthy();
+    expect(screen.getByRole("option", { name: /^SMS$/i })).toBeTruthy();
+  });
+});
+
+describe("AiDraftReplyCard", () => {
+  it("uses a custom generate label when provided", () => {
+    render(
+      <AiDraftReplyCard
+        onApprove={vi.fn()}
+        onDiscard={vi.fn()}
+        onGenerate={vi.fn()}
+        generateLabel="Draft with AI"
+      />,
+    );
+    expect(screen.getByRole("button", { name: "Draft with AI" })).toBeTruthy();
   });
 });

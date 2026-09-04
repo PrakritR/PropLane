@@ -21,6 +21,10 @@ describe("calendar copy availability helpers", () => {
     );
   });
 
+  it("resolves the first scoped house when the portfolio is unfiltered", () => {
+    expect(resolveCalendarCopySourcePropertyId([], ["house-a", "house-b", "house-c"])).toBe("house-a");
+  });
+
   it("lists every other house as a destination for one filtered source", () => {
     expect(buildCalendarCopyDestinationHouses("house-a", portfolio, ["house-a"])).toEqual([
       { id: "house-b", name: "House B" },
@@ -31,6 +35,13 @@ describe("calendar copy availability helpers", () => {
   it("limits destinations to the other filtered houses when multiple filters are active", () => {
     expect(buildCalendarCopyDestinationHouses("house-a", portfolio, ["house-a", "house-b"])).toEqual([
       { id: "house-b", name: "House B" },
+    ]);
+  });
+
+  it("lists every other scoped house when the portfolio is unfiltered", () => {
+    expect(buildCalendarCopyDestinationHouses("house-a", portfolio, [])).toEqual([
+      { id: "house-b", name: "House B" },
+      { id: "house-c", name: "House C" },
     ]);
   });
 

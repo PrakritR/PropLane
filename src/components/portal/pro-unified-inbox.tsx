@@ -17,6 +17,7 @@ import {
 } from "@/components/portal/portal-contact-details-modal";
 import { dispatchManagerSmsContactsChanged } from "@/lib/manager-sms-messages";
 import { useUnifiedCommunicationBulk } from "@/hooks/use-unified-communication-bulk";
+import { useIsClient } from "@/hooks/use-is-client";
 import { usePortalSession } from "@/hooks/use-portal-session";
 import { useOptionalAppUi } from "@/components/providers/app-ui-provider";
 import {
@@ -204,9 +205,8 @@ export function ManagerUnifiedInbox({
   /** Opens the new-message / compose flow when the list is empty on Active. */
   onAddConversation?: () => void;
 }) {
-  const [emailThreads, setEmailThreads] = useState(() =>
-    loadPersistedInbox(MANAGER_INBOX_STORAGE_KEY, []),
-  );
+  const isClient = useIsClient();
+  const [emailThreads, setEmailThreads] = useState<PersistedInboxThread[]>([]);
   const [smsResidents, setSmsResidents] = useState<ManagerSmsResidentConversation[]>([]);
   const [smsOpenedIds, setSmsOpenedIds] = useState<Set<string>>(() => loadSmsOpenedIds());
   const [smsHiddenIds, setSmsHiddenIds] = useState<Set<string>>(() => loadSmsHiddenIds());
@@ -239,19 +239,21 @@ export function ManagerUnifiedInbox({
   }, []);
 
   useEffect(() => {
+    if (!isClient) return;
+    setEmailThreads(loadPersistedInbox(MANAGER_INBOX_STORAGE_KEY, []));
+    void syncPersistedInboxFromServer(MANAGER_INBOX_STORAGE_KEY).then((rows) => {
+      setEmailThreads(rows);
+    });
+  }, [isClient]);
+
+  useEffect(() => {
     const sync = () => setEmailThreads(loadPersistedInbox(MANAGER_INBOX_STORAGE_KEY, []));
     window.addEventListener(PORTAL_INBOX_CHANGED_EVENT, sync as EventListener);
     return () => window.removeEventListener(PORTAL_INBOX_CHANGED_EVENT, sync as EventListener);
   }, []);
 
   useEffect(() => {
-    void syncPersistedInboxFromServer(MANAGER_INBOX_STORAGE_KEY).then((rows) => {
-      setEmailThreads(rows);
-    });
-  }, []);
-
-  useEffect(() => {
-    if (!viewerId?.trim() || listSegment !== "active") return;
+    if (!isClient || !viewerId?.trim() || listSegment !== "active") return;
     let staged: PersistedInboxThread[] | null = null;
     setEmailThreads((current) => {
       const hasAssistant = current.some(
@@ -267,7 +269,7 @@ export function ManagerUnifiedInbox({
     if (staged) {
       queueMicrotask(() => stagePersistedInboxRows(MANAGER_INBOX_STORAGE_KEY, staged!));
     }
-  }, [listSegment, viewerId]);
+  }, [isClient, listSegment, viewerId]);
 
   const loadSms = useCallback(async () => {
     // SMS UI hidden until A2P clears — never fetch SMS conversations. Inbound
@@ -566,8 +568,11 @@ export function ManagerUnifiedInbox({
     return pinPropLaneAssistantUnifiedItems(merged, assistantThreadId);
   }, [assistantThreadId, emailListItems, listSort, placeholderListItems, smsListItems]);
 
+  // SSR and the first client paint must agree — local inbox + contact rows load only after mount.
+  const listRows = isClient ? mergedRows : [];
+
   const bulk = useUnifiedCommunicationBulk({
-    mergedRows,
+    mergedRows: listRows,
     listSegment,
     storageKey: MANAGER_INBOX_STORAGE_KEY,
     emailThreads,
@@ -660,13 +665,13 @@ export function ManagerUnifiedInbox({
   }, [routeThreadId]);
 
   useEffect(() => {
-    if (!routeThreadId) return;
-    const match = mergedRows.find((r) => r.threadId === routeThreadId);
+    if (!isClient || !routeThreadId) return;
+    const match = listRows.find((r) => r.threadId === routeThreadId);
     if (match) {
       setSelectedKey(match.key);
       setMobileThreadOpen(true);
     }
-  }, [routeThreadId, mergedRows]);
+  }, [isClient, listRows, routeThreadId]);
 
   // Toggling the segment is a different result set — clear search; return to list on phones.
   useEffect(() => {
@@ -680,7 +685,8 @@ export function ManagerUnifiedInbox({
   }, [listSegment, routeThreadId]);
 
   useEffect(() => {
-    if (mergedRows.length === 0) {
+    if (!isClient) return;
+    if (listRows.length === 0) {
       // A deep-linked / just-created thread may land before its SMS row is in
       // the merged list. Keep the pending route alive until the row arrives.
       if (!routeThreadId) {
@@ -691,21 +697,21 @@ export function ManagerUnifiedInbox({
     }
     setSelectedKey((cur) => {
       if (routeThreadId) {
-        const routed = mergedRows.find((r) => r.threadId === routeThreadId);
+        const routed = listRows.find((r) => r.threadId === routeThreadId);
         if (routed) return routed.key;
         // Do not fall through to the first desktop row while the routed thread
         // is still missing — that is the contact-create race.
-        if (cur && mergedRows.some((r) => r.key === cur)) {
+        if (cur && listRows.some((r) => r.key === cur)) {
           const current = parseUnifiedInboxKey(cur);
           if (current?.threadId === routeThreadId) return cur;
         }
         return null;
       }
-      if (cur && mergedRows.some((r) => r.key === cur)) return cur;
-      if (inboxUsesDesktopSplit()) return mergedRows[0]!.key;
+      if (cur && listRows.some((r) => r.key === cur)) return cur;
+      if (inboxUsesDesktopSplit()) return listRows[0]!.key;
       return null;
     });
-  }, [mergedRows, routeThreadId]);
+  }, [isClient, listRows, routeThreadId]);
 
   const listPane = (
     <div className="flex h-full min-h-0 flex-1 flex-col overflow-hidden">
@@ -736,20 +742,22 @@ export function ManagerUnifiedInbox({
               data-attr="unified-inbox-search"
             />
           </div>
-          {mergedRows.length > 0 ? (
+          {listRows.length > 0 ? (
             <p className="hidden px-1 text-[11px] text-muted sm:block">
-              {mergedRows.length} conversation{mergedRows.length === 1 ? "" : "s"}
+              {listRows.length} conversation{listRows.length === 1 ? "" : "s"}
               {query.trim() ? ` matching “${query.trim()}”` : ""}
             </p>
           ) : null}
         </div>
-      ) : mergedRows.length > 0 && query.trim() ? (
+      ) : listRows.length > 0 && query.trim() ? (
         <p className="mb-2 hidden px-1 text-[11px] text-muted sm:block">
-          {mergedRows.length} conversation{mergedRows.length === 1 ? "" : "s"} matching “{query.trim()}”
+          {listRows.length} conversation{listRows.length === 1 ? "" : "s"} matching “{query.trim()}”
         </p>
       ) : null}
       <div className={`${INBOX_LIST_SCROLL} min-h-0 flex-1`} data-communication-inbox-list>
-        {mergedRows.length === 0 ? (
+        {!isClient ? (
+          <div className="min-h-[12rem]" aria-hidden />
+        ) : listRows.length === 0 ? (
           query.trim() ? (
             <div className="p-4">
               <PortalInboxEmptyState title={`No messages match “${query.trim()}”.`} />
@@ -766,7 +774,7 @@ export function ManagerUnifiedInbox({
             <InboxConversationListAddRow onClick={onAddConversation} />
           ) : null
         ) : (
-          mergedRows.map((row) => (
+          listRows.map((row) => (
             <InboxConversationRow
               key={row.key}
               leading={

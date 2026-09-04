@@ -23,14 +23,15 @@ export function buildCalendarCopyDestinationHouses(
 }
 
 /**
- * Property whose availability grid is the copy source. Requires a single-house
- * edit scope: one active filter, or an unfiltered portfolio with one house.
+ * Property whose availability grid is the copy source. Uses the first active
+ * filter when filtered; otherwise the first house in the current portfolio scope
+ * (including the unfiltered "all houses" view).
  */
 export function resolveCalendarCopySourcePropertyId(
   activePropertyFilters: readonly string[],
   scopedPropertyIds: readonly string[],
 ): string {
   if (activePropertyFilters.length >= 1) return activePropertyFilters[0]!;
-  if (scopedPropertyIds.length === 1) return scopedPropertyIds[0]!;
+  if (scopedPropertyIds.length >= 1) return scopedPropertyIds[0]!;
   return "";
 }

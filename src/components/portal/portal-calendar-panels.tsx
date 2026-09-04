@@ -2556,7 +2556,7 @@ export function PortalCalendarPanels({
             disabled={!onCopyWeekToHouses || !otherProperties?.length}
             title={
               !onCopyWeekToHouses
-                ? "Filter to one house to copy its schedule to others"
+                ? "Add another house to copy availability"
                 : !otherProperties?.length
                   ? "Add another house to copy availability"
                   : undefined

@@ -90,6 +90,7 @@ import {
   hasInboxReplyChannelSelected,
   resolveAssistantInboxReplyChannels,
   resolveManagerInboxReplyChannels,
+  resolveManagerInboxPortalRecipient,
   resolveManagerInboxSmsTarget,
   resolvePropLaneUnifiedReplyChannels,
 } from "@/lib/manager-inbox-reply-channels";
@@ -692,16 +693,23 @@ export const ManagerInbox = forwardRef<
       const thread = localRef.current.find((t) => t.id === rowId);
       if (!thread) return;
       const assistantThread = isPropLaneAssistantInboxThread(thread);
-      const proplaneAllowed = Boolean(channels.proplane && assistantThread);
+      const portalRecipient = assistantThread
+        ? null
+        : resolveManagerInboxPortalRecipient(thread, smsRecipients, smsOutboundEnabled);
+      const proplaneAllowed = Boolean(
+        channels.proplane && (assistantThread || portalRecipient),
+      );
       const emailAllowed = channels.email && inboxThreadHasEmail(thread.email);
       const smsAllowed =
         channels.sms &&
         Boolean(resolveManagerInboxSmsTarget(thread, smsRecipients, smsOutboundEnabled)?.phone?.trim());
       if (!proplaneAllowed && !emailAllowed && !smsAllowed) {
         throw new InboxSendRefusal(
-          channels.email && !inboxThreadHasEmail(thread.email)
-            ? "This conversation has no email address. Send via SMS instead."
-            : null,
+          channels.proplane && !assistantThread && !portalRecipient
+            ? "This person is not reachable in the PropLane app yet."
+            : channels.email && !inboxThreadHasEmail(thread.email)
+              ? "This conversation has no email address. Send via SMS instead."
+              : null,
         );
       }
 
@@ -766,9 +774,6 @@ export const ManagerInbox = forwardRef<
       try {
         if (proplaneAllowed) {
           try {
-            const subject = thread.subject.startsWith("Re:")
-              ? thread.subject
-              : `Re: ${thread.subject}`;
             const result = await sendPropLaneAssistantInboxMessage({
               threadId: thread.id,
               subject,
@@ -776,6 +781,8 @@ export const ManagerInbox = forwardRef<
               fromName: "Property manager",
               senderPortal: "manager",
               attachmentUrls,
+              toEmails: portalRecipient?.toEmails,
+              toUserIds: portalRecipient?.toUserIds,
             });
             proplaneOk = result.ok;
             if (!result.ok) failureMessage = result.error?.trim() ?? "";
@@ -1133,8 +1140,8 @@ export const ManagerInbox = forwardRef<
   const activeIsAssistantThread = Boolean(
     activeThread && isPropLaneAssistantInboxThread(activeThread),
   );
-  const activeProplaneAvailable = activeIsAssistantThread;
-  const showReplyChannelPicker = !embeddedInCommunication || activeIsAssistantThread;
+  const activeProplaneAvailable = Boolean(activeThread);
+  const showReplyChannelPicker = Boolean(activeThread);
 
   /**
    * An email-only conversation has no SMS channel until someone supplies a
@@ -1713,10 +1720,13 @@ export const ManagerInbox = forwardRef<
     <InboxReplyChannelPicker
       viaEmail={aiDraftViaEmail}
       viaSms={aiDraftViaSms}
+      viaProplane={replyViaProplane}
+      onViaProplaneChange={setReplyViaProplane}
       onViaEmailChange={setAiDraftViaEmail}
       onViaSmsChange={setAiDraftViaSms}
       emailAvailable={activeEmailAvailable}
       smsAvailable={activeSmsAvailable}
+      proplaneAvailable={activeProplaneAvailable}
       onAddPhone={canAddThreadPhone ? openThreadPhone : undefined}
     />
   );

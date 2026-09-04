@@ -1515,6 +1515,7 @@ export function AiDraftReplyCard({
   onAutoSendChange,
   scheduledSection,
   maxLength,
+  generateLabel = "Draft reply with PropLane AI",
 }: {
   /** True while a draft is being generated. */
   drafting?: boolean;
@@ -1538,6 +1539,8 @@ export function AiDraftReplyCard({
   /** Scheduled messages for this thread — pinned above the draft composer. */
   scheduledSection?: ReactNode;
   maxLength?: number;
+  /** Label for the generate affordance when no draft is present yet. */
+  generateLabel?: string;
 }) {
   if (drafting) {
     return (
@@ -1593,7 +1596,7 @@ export function AiDraftReplyCard({
             data-attr="inbox-ai-draft-generate"
           >
             <Sparkles className="h-3 w-3 text-primary" strokeWidth={2.25} />
-            Draft reply with PropLane AI
+            {generateLabel}
           </Button>
         </div>
       );

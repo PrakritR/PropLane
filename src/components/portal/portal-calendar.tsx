@@ -760,12 +760,14 @@ export function PortalCalendar({
               availabilityView &&
               !servicesOnlyView
                 ? (propertyIds, weekDateStrs, scope) => {
-                    if (!userId || !availabilityCopySourcePropertyId) return;
-                    const srcKey = managerPropertyAvailabilityStorageKey(
-                      userId,
-                      availabilityCopySourcePropertyId,
-                    );
-                    const srcSlots = readAvailabilityDateSetForStorageKey(srcKey);
+                    if (!userId || scopedCalendarPropertyIds.length === 0) return;
+                    const srcSlots = new Set<string>();
+                    for (const propertyId of scopedCalendarPropertyIds) {
+                      const key = managerPropertyAvailabilityStorageKey(userId, propertyId);
+                      for (const slot of readAvailabilityDateSetForStorageKey(key)) {
+                        srcSlots.add(slot);
+                      }
+                    }
                     const weekStrs = new Set(weekDateStrs);
                     const slotsToCopy =
                       scope === "entire"

@@ -3,6 +3,7 @@ import {
   inboxThreadHasEmail,
   inboxThreadPhoneHint,
   resolveManagerInboxReplyChannels,
+  resolveManagerInboxPortalRecipient,
   resolveManagerInboxSmsTarget,
   resolvePropLaneUnifiedReplyChannels,
   resolveAssistantInboxReplyChannels,
@@ -118,5 +119,25 @@ describe("manager inbox reply channels", () => {
       viaSms: false,
     });
     expect(hasInboxReplyChannelSelected({ viaProplane: true, viaEmail: false, viaSms: false })).toBe(true);
+  });
+
+  it("resolves portal recipients for person threads by email or linked resident", () => {
+    expect(
+      resolveManagerInboxPortalRecipient(
+        { email: "dana@example.com" },
+        [],
+        true,
+      ),
+    ).toEqual({ toEmails: ["dana@example.com"] });
+    expect(
+      resolveManagerInboxPortalRecipient(
+        { from: "+16504484183", email: "" },
+        [{ phone: "+16504484183", residentUserId: "user-1" }],
+        true,
+      ),
+    ).toEqual({ toUserIds: ["user-1"] });
+    expect(
+      resolveManagerInboxPortalRecipient({ from: "Prospect", email: "" }, [], true),
+    ).toBeNull();
   });
 });
