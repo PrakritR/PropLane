@@ -1260,7 +1260,7 @@ export function ManagerTours({
       <ManagerPortalSettingsModal
         open={settingsOpen}
         onClose={() => setSettingsOpen(false)}
-        initialTab="calendar"
+        initialTab="tours"
         scopedTitle="Tours"
       />
     </ManagerPortalPageShell>

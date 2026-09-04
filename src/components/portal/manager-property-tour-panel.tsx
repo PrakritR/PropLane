@@ -177,7 +177,7 @@ export function ManagerPropertyTourPanel({
       <ManagerPortalSettingsModal
         open={settingsOpen}
         onClose={() => setSettingsOpen(false)}
-        initialTab="calendar"
+        initialTab="tours"
         scoped
         scopedTitle="Tours"
       />

@@ -6,7 +6,7 @@ import { useAppUi } from "@/components/providers/app-ui-provider";
 import { isDemoModeActive } from "@/lib/demo/demo-session";
 import {
   ApplicationsSettingsPanel,
-  CalendarSettingsPanel,
+  TourSettingsPanel,
   CommunicationSettingsPanel,
   DEFAULT_APPLICATION_AUTOMATION,
   LeaseSettingsPanel,
@@ -27,7 +27,7 @@ import { ManagerPortalAutomationSettingsPanel } from "@/components/portal/manage
 
 export type ManagerPortalSettingsTab =
   | "applications"
-  | "calendar"
+  | "tours"
   | "lease"
   | "tasks"
   | "resident"
@@ -37,7 +37,11 @@ export type ManagerPortalSettingsTab =
 
 const TABS: { id: ManagerPortalSettingsTab; label: string }[] = [
   { id: "applications", label: "Applications" },
-  { id: "calendar", label: "Calendar" },
+  // Renamed from "Calendar" (AXI-161): every control on this panel is a TOUR
+  // setting — notice required, auto-confirm, tour reminders — so calling it
+  // Calendar sent a manager looking for tour rules to the wrong tab, and one
+  // looking for calendar rules to a tab that has none.
+  { id: "tours", label: "Tours" },
   { id: "lease", label: "Lease" },
   { id: "tasks", label: "Tasks" },
   { id: "resident", label: "Residents" },
@@ -238,8 +242,8 @@ export function ManagerPortalSettingsModal({
       ) : null}
 
       {open && tab === "automation" ? <ManagerPortalAutomationSettingsPanel /> : null}
-      {open && tab === "calendar" ? (
-        <CalendarSettingsPanel onFooterReady={setPanelFooter} onSaved={onCalendarSettingsSaved} />
+      {open && tab === "tours" ? (
+        <TourSettingsPanel onFooterReady={setPanelFooter} onSaved={onCalendarSettingsSaved} />
       ) : null}
 
       {tab === "lease" ? (

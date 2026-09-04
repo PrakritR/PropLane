@@ -2,7 +2,7 @@
 
 import { ManagerPortalSettingsModal } from "@/components/portal/manager-portal-settings-modal";
 
-/** @deprecated Use ManagerPortalSettingsModal with initialTab="calendar". */
+/** @deprecated Use ManagerPortalSettingsModal with initialTab="tours". */
 export function TourReminderSettingsModal({
   open,
   onClose,
@@ -10,5 +10,5 @@ export function TourReminderSettingsModal({
   open: boolean;
   onClose: () => void;
 }) {
-  return <ManagerPortalSettingsModal open={open} onClose={onClose} initialTab="calendar" scoped />;
+  return <ManagerPortalSettingsModal open={open} onClose={onClose} initialTab="tours" scoped />;
 }

@@ -9,7 +9,7 @@ const SRC = readFileSync(
 
 describe("ManagerPortalSettingsModal mount gating", () => {
   it("mounts self-loading panels only while the modal is open", () => {
-    expect(SRC).toMatch(/\{open && tab === "calendar" \?/);
+    expect(SRC).toMatch(/\{open && tab === "tours" \?/);
     expect(SRC).toMatch(/\{open && tab === "payments" \?/);
     expect(SRC).toMatch(/\{open && tab === "communication" \?/);
     expect(SRC).toMatch(/\{open && tab === "automation" \?/);

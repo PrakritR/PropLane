@@ -362,7 +362,7 @@ export function ResidentSettingsPanel() {
   );
 }
 
-export function CalendarSettingsPanel({
+export function TourSettingsPanel({
   onSaved,
   onFooterReady,
 }: {
@@ -436,7 +436,7 @@ export function CalendarSettingsPanel({
     setSaving(true);
     try {
       if (demo) {
-        showToast("Calendar settings saved (demo).");
+        showToast("Tour settings saved (demo).");
         onSaved?.();
         return;
       }
@@ -464,10 +464,10 @@ export function CalendarSettingsPanel({
       ]);
       if (!tourRes.ok || !autoRes.ok) throw new Error("Could not save calendar settings.");
       window.dispatchEvent(new Event(PAYMENT_AUTOMATION_SETTINGS_EVENT));
-      showToast("Calendar settings saved.");
+      showToast("Tour settings saved.");
       onSaved?.();
     } catch (e) {
-      showToast(e instanceof Error ? e.message : "Could not save calendar settings.");
+      showToast(e instanceof Error ? e.message : "Could not save tour settings.");
     } finally {
       setSaving(false);
     }
@@ -484,7 +484,7 @@ export function CalendarSettingsPanel({
         : {
             saving,
             onSave: triggerSave,
-            dataAttr: "manager-calendar-settings-save",
+            dataAttr: "manager-tour-settings-save",
           },
     [loading, saving, triggerSave],
   );

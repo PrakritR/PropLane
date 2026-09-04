@@ -1066,7 +1066,7 @@ function ManagerPropertyInlineDetails({
       <ManagerPortalSettingsModal
         open={portalSettingsOpen}
         onClose={() => setPortalSettingsOpen(false)}
-        initialTab="calendar"
+        initialTab="tours"
         scopedTitle="Tour"
       />
     </div>

@@ -15,7 +15,7 @@ vi.mock("@/lib/demo/demo-session", () => ({
   isDemoModeActive: () => false,
 }));
 
-import { CalendarSettingsPanel } from "@/components/portal/manager-portal-settings-panels";
+import { TourSettingsPanel } from "@/components/portal/manager-portal-settings-panels";
 
 afterEach(() => {
   cleanup();
@@ -24,7 +24,7 @@ afterEach(() => {
   showToast.mockClear();
 });
 
-describe("CalendarSettingsPanel", () => {
+describe("TourSettingsPanel", () => {
   it("leaves the loading state after tour and automation settings load", async () => {
     vi.stubGlobal(
       "fetch",
@@ -40,7 +40,7 @@ describe("CalendarSettingsPanel", () => {
       }),
     );
 
-    render(<CalendarSettingsPanel />);
+    render(<TourSettingsPanel />);
 
     expect(screen.getByText("Loading…")).toBeTruthy();
     expect(await screen.findByText("Notice required")).toBeTruthy();
@@ -62,7 +62,7 @@ describe("CalendarSettingsPanel", () => {
       }),
     );
 
-    render(<CalendarSettingsPanel />);
+    render(<TourSettingsPanel />);
 
     await waitFor(() => expect(showToast).toHaveBeenCalledWith("Unauthorized."));
     expect(screen.queryByText("Loading…")).toBeNull();

@@ -826,9 +826,12 @@ export function PortalCalendar({
       <ManagerPortalSettingsModal
         open={calendarSettingsOpen}
         onClose={() => setCalendarSettingsOpen(false)}
-        initialTab="calendar"
+        initialTab="tours"
         scoped
-        scopedTitle="Calendar"
+        // The panel behind this gear is entirely TOUR rules — notice required,
+        // auto-confirm, tour reminders — so it says so (AXI-161). Titling it
+        // "Calendar" sent a manager looking for tour rules straight past it.
+        scopedTitle="Tours"
       />
     </>
   );
