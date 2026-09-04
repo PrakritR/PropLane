@@ -1,9 +1,6 @@
 import type { ReportResult } from "@/lib/reports/types";
+import { escapeCsv } from "@/lib/csv";
 
-function escapeCsv(value: string): string {
-  if (/[",\n]/.test(value)) return `"${value.replace(/"/g, '""')}"`;
-  return value;
-}
 
 export function reportToCsv(report: ReportResult): string {
   const header = report.columns.map((c) => escapeCsv(c.label)).join(",");

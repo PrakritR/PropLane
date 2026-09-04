@@ -99,8 +99,9 @@ export async function prepareVendorInvoiceSubmission(
   if (links.length === 0) {
     throw new VendorInvoiceSubmitError("no_linked_manager", "No linked manager found for this vendor account.");
   }
-  // Multiple linked managers require an explicit picker — the UI sends
-  // `managerUserId` (defaulting from the chosen work order when present).
+  // With several linked managers and no explicit choice, refuse rather than guess which
+  // client is being billed. The submit form asks (PRP-254); before it did, this refusal was
+  // unreachable to satisfy and permanently blocked every contractor serving two managers.
   const linkedManagerIds = new Set(links.map((l) => l.managerUserId));
   if (!input.managerUserId && linkedManagerIds.size > 1) {
     throw new VendorInvoiceSubmitError(

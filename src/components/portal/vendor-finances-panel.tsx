@@ -292,6 +292,7 @@ function SubmitInvoiceModal({
   open: boolean;
   onClose: () => void;
   onSubmitted: () => void;
+  /** Managers this vendor is linked to. Serving several clients is the normal case. */
   linkedManagers: VendorLinkedManagerOption[];
 }) {
   const [invoiceNumber, setInvoiceNumber] = useState("");
@@ -320,12 +321,8 @@ function SubmitInvoiceModal({
     if (!open) return;
     if (linkedManagers.length === 1) {
       setManagerUserId(linkedManagers[0]!.managerUserId);
-      return;
     }
-    if (linkedManagers.length > 1 && !managerUserId) {
-      setManagerUserId(linkedManagers[0]!.managerUserId);
-    }
-  }, [open, linkedManagers, managerUserId]);
+  }, [open, linkedManagers]);
 
   useEffect(() => {
     const trimmed = workOrderId.trim();
@@ -414,13 +411,14 @@ function SubmitInvoiceModal({
       <div className="space-y-4">
         {showManagerPicker ? (
           <label className="block space-y-1">
-            <span className="text-xs font-semibold uppercase tracking-[0.06em] text-muted">Manager</span>
+            <span className="text-xs font-semibold uppercase tracking-[0.06em] text-muted">Bill to</span>
             <select
               className={INVOICE_FORM_INPUT}
               value={managerUserId}
               onChange={(e) => setManagerUserId(e.target.value)}
-              data-attr="vendor-invoice-manager-picker"
+              data-attr="vendor-invoice-manager"
             >
+              <option value="">Choose a manager…</option>
               {linkedManagers.map((manager) => (
                 <option key={manager.managerUserId} value={manager.managerUserId}>
                   {manager.label}
