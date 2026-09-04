@@ -8,8 +8,6 @@ import {
 } from "@/lib/auth/manager-onboarding";
 import { primaryRoleWhenAddingManager } from "@/lib/auth/profile-primary-role";
 import { ensureProfileRoleRow } from "@/lib/auth/profile-role-row";
-import { isPrimaryAdminEmail } from "@/lib/auth/primary-admin";
-
 export type EnsureFreeManagerResult =
   | { status: "portal_ready"; managerId: string; provisioned: boolean }
   | { status: "skipped"; reason: string };
@@ -67,7 +65,6 @@ export async function ensureFreeManagerPortalAccess(
   const trialForNewManager = opts?.trialForNewManager !== false;
   const email = user.email?.trim().toLowerCase() ?? "";
   if (!email) return { status: "skipped", reason: "no_email" };
-  if (isPrimaryAdminEmail(email)) return { status: "skipped", reason: "primary_admin" };
   if (await isResidentOnlyAccount(supabase, user.id)) return { status: "skipped", reason: "resident_only" };
 
   const fullName = oauthFullName(user);

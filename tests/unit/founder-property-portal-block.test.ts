@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { AuthRole } from "@/components/auth/portal-switcher";
+import { PRIMARY_ADMIN_EMAIL } from "@/lib/auth/primary-admin";
 import {
   adminBlockedFromManagerPortal,
   isPortalRoleReachable,
@@ -7,9 +8,9 @@ import {
   type PortalAccessContext,
 } from "@/lib/auth/portal-access";
 
-function ctx(roles: AuthRole[]): PortalAccessContext {
+function ctx(roles: AuthRole[], email = "founders@axis-seattle-housing.com"): PortalAccessContext {
   return {
-    user: { id: "user-1", email: "founders@axis-seattle-housing.com" },
+    user: { id: "user-1", email },
     profile: null,
     roles,
     effectiveRole: roles.length === 1 ? roles[0]! : null,
@@ -28,7 +29,7 @@ describe("founder/admin cannot reach the property portal in production", () => {
       process.env = { ...originalEnv, NODE_ENV: "production", VERCEL_ENV: "production" };
     });
 
-    it("blocks an admin identity from the manager/property portal", () => {
+    it("still blocks a non-primary admin identity from the manager/property portal", () => {
       const account = ctx(["admin", "manager"]);
       expect(adminBlockedFromManagerPortal(account)).toBe(true);
       // Switch/route authorization decision — must refuse manager.
@@ -37,7 +38,15 @@ describe("founder/admin cannot reach the property portal in production", () => {
       expect(reachablePortalRoles(account)).toEqual(["admin"]);
     });
 
-    it("still lets the admin identity reach the admin portal", () => {
+    it("lets the primary admin reach both admin and property portals", () => {
+      const account = ctx(["admin", "manager"], PRIMARY_ADMIN_EMAIL);
+      expect(adminBlockedFromManagerPortal(account)).toBe(false);
+      expect(isPortalRoleReachable(account, "manager")).toBe(true);
+      expect(isPortalRoleReachable(account, "admin")).toBe(true);
+      expect(reachablePortalRoles(account)).toEqual(["admin", "manager"]);
+    });
+
+    it("still lets a non-primary admin identity reach the admin portal", () => {
       const account = ctx(["admin", "manager"]);
       expect(isPortalRoleReachable(account, "admin")).toBe(true);
     });

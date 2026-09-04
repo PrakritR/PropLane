@@ -9,11 +9,15 @@
  * Promote primary admin + strip admin from all other accounts (no password change):
  *   node --env-file=.env scripts/ensure-admin-account.mjs --roles-only
  *
+ * Production (captain runs manually — never from an agent):
+ *   node --env-file=.env.production.local scripts/ensure-admin-account.mjs --roles-only
+ *
  * Or:
  *   EMAIL=x PASSWORD=y node --env-file=.env scripts/ensure-admin-account.mjs
  */
 
 import { createClient } from "@supabase/supabase-js";
+import { randomUUID } from "node:crypto";
 
 /** Keep in sync with src/lib/auth/primary-admin.ts */
 const PRIMARY_ADMIN_EMAIL = "prakritramachandran@gmail.com";
@@ -145,6 +149,110 @@ async function promotePrimaryAdmin(userId) {
   }
 }
 
+function generateManagerId() {
+  const alphabet = "abcdefghijklmnopqrstuvwxyz0123456789";
+  let suffix = "";
+  for (let i = 0; i < 6; i += 1) {
+    suffix += alphabet[Math.floor(Math.random() * alphabet.length)];
+  }
+  return `mgr-${suffix}`;
+}
+
+function isManagerOnboardingComplete(purchase) {
+  if (!purchase) return false;
+  const sessionId = String(purchase.stripe_checkout_session_id ?? "");
+  if (sessionId.startsWith("axis_pending_")) return false;
+  const tier = String(purchase.tier ?? "").trim().toLowerCase();
+  if (!tier) return false;
+  if (!purchase.paid_at) return false;
+  return true;
+}
+
+async function findManagerPurchaseForAccount(userId, targetEmail) {
+  const { data: byUser } = await supabase
+    .from("manager_purchases")
+    .select("id, email, manager_id, tier, billing, stripe_checkout_session_id, user_id, full_name, paid_at")
+    .eq("user_id", userId)
+    .order("paid_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (byUser) return byUser;
+
+  const { data: byEmail } = await supabase
+    .from("manager_purchases")
+    .select("id, email, manager_id, tier, billing, stripe_checkout_session_id, user_id, full_name, paid_at")
+    .eq("email", targetEmail)
+    .order("paid_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  return byEmail ?? null;
+}
+
+/** Idempotent manager portal row so the primary admin can enter /portal on production. */
+async function ensurePrimaryAdminManagerPortal(userId, targetEmail) {
+  const { data: existingProfile } = await supabase.from("profiles").select("*").eq("id", userId).maybeSingle();
+  let purchase = await findManagerPurchaseForAccount(userId, targetEmail);
+
+  if (!purchase) {
+    const managerId = existingProfile?.manager_id ?? generateManagerId();
+    const pendingSessionId = `axis_pending_${randomUUID()}`;
+    const { error: insErr } = await supabase.from("manager_purchases").insert({
+      stripe_checkout_session_id: pendingSessionId,
+      email: targetEmail,
+      manager_id: managerId,
+      tier: null,
+      billing: null,
+      user_id: userId,
+      full_name: existingProfile?.full_name ?? null,
+    });
+    if (insErr) {
+      throw new Error(`manager_purchases insert: ${insErr.message}`);
+    }
+    purchase = await findManagerPurchaseForAccount(userId, targetEmail);
+  }
+
+  if (!purchase) {
+    throw new Error("manager_purchases row missing after insert");
+  }
+
+  if (!isManagerOnboardingComplete(purchase)) {
+    const sessionId = String(purchase.stripe_checkout_session_id ?? "").startsWith("axis_pending_")
+      ? `axis_intent_${randomUUID()}`
+      : purchase.stripe_checkout_session_id;
+    const { error: updErr } = await supabase
+      .from("manager_purchases")
+      .update({
+        stripe_checkout_session_id: sessionId,
+        tier: "free",
+        billing: "monthly",
+        paid_at: new Date().toISOString(),
+        user_id: userId,
+      })
+      .eq("id", purchase.id);
+    if (updErr) {
+      throw new Error(`manager_purchases finalize: ${updErr.message}`);
+    }
+  }
+
+  const managerId = purchase.manager_id;
+  const { error: profileErr } = await supabase.from("profiles").upsert(
+    {
+      id: userId,
+      email: targetEmail,
+      role: "admin",
+      manager_id: managerId,
+      full_name: existingProfile?.full_name ?? null,
+      application_approved: existingProfile?.application_approved ?? true,
+    },
+    { onConflict: "id" },
+  );
+  if (profileErr) {
+    throw new Error(`profiles manager link: ${profileErr.message}`);
+  }
+
+  console.log("Manager portal provisioned for primary admin. manager_id:", managerId);
+}
+
 let userId;
 
 if (rolesOnly) {
@@ -194,10 +302,11 @@ if (rolesOnly) {
 
 try {
   await promotePrimaryAdmin(userId);
+  await ensurePrimaryAdminManagerPortal(userId, email);
   await demoteOtherAdmins(userId);
 } catch (error) {
   console.error(error instanceof Error ? error.message : error);
   process.exit(1);
 }
 
-console.log("Admin role synced on profiles + profile_roles. You can sign in at /auth/sign-in");
+console.log("Admin + property manager roles synced. Sign in at /auth/sign-in — choose Admin or Property.");

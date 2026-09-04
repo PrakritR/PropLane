@@ -5,6 +5,7 @@ import type { AuthRole } from "@/components/auth/portal-switcher";
 import { normalizePortalRoles } from "@/lib/auth/portal-roles";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { getServerSessionProfile, type ServerProfile } from "@/lib/auth/server-profile";
+import { isPrimaryAdminEmail } from "@/lib/auth/primary-admin";
 import { isProductionRuntime } from "@/lib/server-env";
 
 export const ACTIVE_PORTAL_COOKIE = "axis_active_portal";
@@ -94,8 +95,12 @@ export function hasAdminRole(ctx: PortalAccessContext): boolean {
  * production (local, preview) so day-to-day and staging work is unaffected, and
  * it keys on the `admin` role, which genuine manager accounts never hold, so
  * real managers are untouched.
+ *
+ * The sole primary admin (`PRIMARY_ADMIN_EMAIL`) is exempt: that account is
+ * intentionally both ops and property manager on production.
  */
 export function adminBlockedFromManagerPortal(ctx: PortalAccessContext): boolean {
+  if (isPrimaryAdminEmail(ctx.user?.email)) return false;
   return hasAdminRole(ctx) && isProductionRuntime();
 }
 
