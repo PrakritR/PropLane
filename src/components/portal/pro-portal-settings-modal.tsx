@@ -23,7 +23,7 @@ import { useManagerUserId } from "@/hooks/use-manager-user-id";
 import { CANONICAL_DEMO_MANAGER_NAME } from "@/lib/demo/demo-canonical-accounts";
 import { cacheLandlordLegalName } from "@/lib/manager-landlord-profile";
 import { PORTAL_TOOLBAR_PILL_BUTTON, PORTAL_TOOLBAR_PILL_BUTTON_ACTIVE } from "@/components/portal/portal-metrics";
-import { ManagerPortalAutomationSettingsPanel } from "@/components/portal/manager-portal-automation-settings-panel";
+import { ManagerPortalAutomationSettingsPanel } from "@/components/portal/pro-portal-automation-settings-panel";
 
 export type ManagerPortalSettingsTab =
   | "applications"
