@@ -2,15 +2,15 @@
 
 Generated September 4, 2026. There are 27 active assigned issues, all currently marked High in Linear. The priority tiers below are recommended execution order, not changes to Linear's stored priority.
 
-Progress: 8 completed locally (7 + PRP-192, already shipped and only just discovered to be stale in this doc), 19 remaining. **Linear re-triage, September 4 2026 (Prakrit Ramachandran):** PRP-260, PRP-261, PRP-262, PRP-284, PRP-286, PRP-287, PRP-288, PRP-294 were all closed Canceled as duplicates/superseded — verified each one via its Linear comment: none is a scope cut, every capability is tracked (and, where already built, credited) under a surviving canonical ticket (PRP-264, PRP-265, PRP-271, PRP-279, PRP-297). Linear now also shows PRP-297 and PRP-279 as Done to match the local work below, and their acceptance checklists are checked off. Nothing needed to be reverted from this repo. Of the 19 remaining issues, 6 need no separate work (closed as duplicates/superseded above), 12 are actionable (including the PRP-264 epic itself and PRP-184, which still needs breaking into fixes), and PRP-239 is a separate, unresolved gap (Linear says Done, but the fix lives only on another session's unmerged `claude-1` branch) — see its P0 entry below.
+Progress: 9 completed locally (7 + PRP-192, already shipped and only just discovered to be stale in this doc, + PRP-239, cherry-picked from `claude-1` today), 18 remaining. **Linear re-triage, September 4 2026 (Prakrit Ramachandran):** PRP-260, PRP-261, PRP-262, PRP-284, PRP-286, PRP-287, PRP-288, PRP-294 were all closed Canceled as duplicates/superseded — verified each one via its Linear comment: none is a scope cut, every capability is tracked (and, where already built, credited) under a surviving canonical ticket (PRP-264, PRP-265, PRP-271, PRP-279, PRP-297). Linear now also shows PRP-297 and PRP-279 as Done to match the local work below, and their acceptance checklists are checked off. Nothing needed to be reverted from this repo. Of the 18 remaining issues, 6 need no separate work (closed as duplicates/superseded above), 12 are actionable (including the PRP-264 epic itself and PRP-184, which still needs breaking into fixes).
 
 ## P0 — user harm, data integrity, and access
 
 - [x] [PRP-202 — Rental applications lack server-side validation](https://linear.app/axishousing/issue/PRP-202/rental-applications-get-no-server-side-validation-the-api-accepts)
   Completed locally September 4, 2026. Applicant-owned submissions now run the shared wizard validator against the server-stored listing configuration before persistence, return field-level errors, validate required Review-step questions, and keep draft autosaves plus manager repair edits intact.
 
-- [PRP-239 — Existing tenant locked out of Payments without signed PDF](https://linear.app/axishousing/issue/PRP-239/a-real-rent-paying-tenant-is-locked-out-of-payments-when-onboarded)
-  Existing tenants without a signed-PDF lease are treated as prospects and lose access to Payments, Services, Lease, and Documents. **Status, checked September 4 2026: Linear shows this Done, but the fix is NOT on this repo's `main`.** Per Linear's comment, it was built on a different session's `claude-1` branch (commit `ac3b4189`, its own 6,937-test suite green) — `git fetch origin` here shows `origin/claude-1` is ahead of the commit `main` branched from, and that commit hash doesn't exist locally. The fix itself (per the comment): `managerAttestedTenancyAt` stamped on the no-PDF onboarding branch, read alongside the signed-lease check so `leaseAccessUnlocked` reflects tenancy rather than document upload, deliberately without fabricating `externallySignedLease`/signature evidence for a document that doesn't exist. **Action needed: merge or cherry-pick `claude-1`'s PRP-239 commit onto `main` before treating this as shipped here** — do not re-implement it from scratch.
+- [x] [PRP-239 — Existing tenant locked out of Payments without signed PDF](https://linear.app/axishousing/issue/PRP-239/a-real-rent-paying-tenant-is-locked-out-of-payments-when-onboarded)
+  Existing tenants without a signed-PDF lease are treated as prospects and lose access to Payments, Services, Lease, and Documents. **Cherry-picked onto `main` September 4, 2026** (commit `92649905`, cherry-picked from `origin/claude-1`'s `ac3b4189` — not a full branch merge, that branch has 306 commits of unrelated work). `managerAttestedTenancyAt` is stamped on the no-PDF onboarding branch and read alongside the signed-lease check so portal access reflects tenancy, not document upload; `loadResidentLeaseSignedStatus` deliberately keeps reporting the document as unsigned (no signature fabricated for a document that doesn't exist). Verified against this repo, not just trusted from the other branch: the 3 touched files hadn't diverged from `origin/claude-1`'s common ancestor with `main`, so the cherry-pick applied clean; reran the new test plus 11 other resident-portal-access/nav test files (86 tests) and the full suite (955 files / 6,345 tests) locally, all green; focused ESLint and TypeScript clean.
 
 - [PRP-184 — Website UI audit findings](https://linear.app/axishousing/issue/PRP-184/website-ui-audit-aug-2026-11-open-findings-incl-19-colour-contrast)
   The August UI audit contains 11 unresolved findings, including 19 contrast failures, nested interactive controls, and a soft 404. Break this parent audit into executable accessibility and task-completion fixes.
@@ -101,7 +101,7 @@ Three near-identical umbrella epics overlapped: [PRP-260](https://linear.app/axi
 
 ## Recommended immediate sequence
 
-1. Merge or cherry-pick `claude-1`'s PRP-239 fix (commit `ac3b4189`) onto `main` — do not re-implement
+1. ~~Merge or cherry-pick `claude-1`'s PRP-239 fix~~ — done, commit `92649905`
 2. Break PRP-184 into executable accessibility fixes and land each as its own commit
 3. ~~Consolidate the overlapping text-first epics and tickets~~ — done in Linear September 4, 2026
 4. ~~PRP-261 / PRP-286 / PRP-297~~ — done
@@ -109,6 +109,13 @@ Three near-identical umbrella epics overlapped: [PRP-260](https://linear.app/axi
 6. Role-specific workflows and reminders: PRP-265, PRP-271, PRP-266, PRP-267 (still unbuilt)
 
 ## Completed work log
+
+### September 4, 2026 — PRP-239 cherry-pick
+
+- Cherry-picked `origin/claude-1`'s `ac3b4189` onto `main` as `92649905` (`-x`, so the pick trailer records the source commit) rather than merging the whole branch, which carries 306 commits of unrelated work from repeated integration with `prakrit`/`cursor-1`/`cursor-2`.
+- Confirmed low risk before picking: the 3 touched files (`existing-resident-onboarding.server.ts`, `lease-pipeline-storage.ts`, `resident-portal-access.ts`) hadn't changed on `main` since its merge-base with `origin/claude-1`, so the pick applied with no conflicts.
+- Verified independently rather than trusting the other branch's report: ran the new `existing-resident-portal-access.test.ts` (6 cases) plus 11 other resident-portal-access/nav/onboarding test files (86 tests total), then the full suite (955 files / 6,345 tests, up from 954/6,339) — all green. Focused ESLint and TypeScript clean.
+- Net effect: `managerAttestedTenancyAt` is stamped when a manager onboards an existing resident with no PDF, and read alongside the signed-lease check so portal access reflects tenancy rather than document upload — `loadResidentLeaseSignedStatus` still honestly reports the document as unsigned; only access widens, no signature is fabricated.
 
 ### September 4, 2026 — Linear reconciliation
 
