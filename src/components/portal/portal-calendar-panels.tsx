@@ -843,7 +843,17 @@ export function PortalCalendarPanels({
     const toolbar = compactToolbarRef.current;
     if (!shell || !toolbar) return;
     const publish = () => {
-      shell.style.setProperty("--portal-calendar-header-top", `${Math.round(toolbar.offsetHeight)}px`);
+      // ONLY in flowScroll. There, the toolbar and the grid share the page's
+      // one scroll container, so a header row stuck at 0 would slide under the
+      // toolbar and the offset is what keeps it clear. Everywhere else the grid
+      // scrolls inside its own body while the toolbar sits OUTSIDE that
+      // scroller — nothing to clear — and offsetting anyway pushed the day row
+      // down by a toolbar's height, leaving a blank band under the week nav and
+      // the time gutter colliding with the dates.
+      shell.style.setProperty(
+        "--portal-calendar-header-top",
+        flowScroll ? `${Math.round(toolbar.offsetHeight)}px` : "0px",
+      );
     };
     publish();
     if (typeof ResizeObserver === "undefined") return;

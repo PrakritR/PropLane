@@ -12,8 +12,6 @@ import { ApplicationFilterSortFields } from "@/components/portal/application-fil
 import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
 import {
   ManagerPortalPageShell,
-  PORTAL_COMMAND_PRIMARY_ACTION_BTN,
-  PORTAL_COMMAND_PRIMARY_ACTION_STYLE,
 } from "@/components/portal/portal-metrics";
 import {
   PortalDataTableEmpty,
@@ -1864,25 +1862,12 @@ export function ProAccountLinksPanel({ userId, linkId: linkIdProp }: { userId: s
     />
   );
 
-  const teamLinkButton = (
-    <Button
-      type="button"
-      className={PORTAL_COMMAND_PRIMARY_ACTION_BTN}
-      style={PORTAL_COMMAND_PRIMARY_ACTION_STYLE}
-      disabled={linkAccountBlocked}
-      onClick={openLinkModal}
-      title={
-        skuTier != null && !planAllowsInvites
-          ? "Upgrade to Pro or Business to link team accounts."
-          : atLinkCap
-            ? "Remove a link or upgrade your plan to add another."
-            : undefined
-      }
-      data-attr="co-manager-link-account"
-    >
-      Link account
-    </Button>
-  );
+  /*
+    No toolbar button. The list's own dashed ADD row already links an account,
+    and it carries the same disabled state and the same reason for it — this was
+    the same action a second time on one screen.
+  */
+  const teamLinkButton = null;
 
   const renderInviteDetail = (inv: AccountLinkInviteDto) => {
     const draft = getInviteDraft(inv);

@@ -118,10 +118,13 @@ export const LIFECYCLE_TASK_META: Record<LifecycleTaskKey, LifecycleTaskMeta> = 
   collect_rent: {
     key: "collect_rent",
     section: "payments",
-    label: "Collect first rent",
+    // "Collect payment", not "Collect first rent": the same task covers the
+    // deposit, the move-in fee and every later charge, and calling it rent sent
+    // a manager looking for the others to a task that appeared to be about one.
+    label: "Collect payment",
     triggerLabel: "an application is approved",
     anchor: "after_trigger",
-    taskTitle: "Collect first rent",
+    taskTitle: "Collect payment",
   },
 };
 

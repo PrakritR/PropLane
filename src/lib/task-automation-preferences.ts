@@ -30,7 +30,7 @@ export type TaskAutomationPreferences = Record<DefaultTaskTemplateKey, TaskTempl
 export const DEFAULT_TASK_TEMPLATE_LABELS: Record<DefaultTaskTemplateKey, string> = {
   review_application: "Review application",
   review_and_send_lease: "Review and send lease",
-  collect_rent: "Collect rent",
+  collect_rent: "Collect payment",
 };
 
 export const DEFAULT_TASK_AUTOMATION: TaskAutomationPreferences = {

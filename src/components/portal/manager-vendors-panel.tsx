@@ -4,8 +4,6 @@ import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useSt
 import {
   ManagerPortalPageShell,
   PORTAL_COMMAND_ACTION_BTN,
-  PORTAL_COMMAND_PRIMARY_ACTION_BTN,
-  PORTAL_COMMAND_PRIMARY_ACTION_STYLE,
 } from "@/components/portal/portal-metrics";
 import { Button } from "@/components/ui/button";
 import { useAppUi } from "@/components/providers/app-ui-provider";
@@ -64,14 +62,14 @@ export type ManagerVendorsPanelHandle = {
   openAddVendor: (trade?: string) => void;
 };
 
+/** Vendor catalog and Defaults. Adding happens through the list's own ADD row —
+ *  a toolbar Add beside it was the same action twice on one screen. */
 export function ManagerVendorsToolbar({
   onCatalog,
   onDefaults,
-  onAdd,
 }: {
   onCatalog: () => void;
   onDefaults: () => void;
-  onAdd: () => void;
 }) {
   return (
     <>
@@ -92,15 +90,6 @@ export function ManagerVendorsToolbar({
         data-attr="manager-vendor-defaults-open"
       >
         Defaults
-      </Button>
-      <Button
-        type="button"
-        className={PORTAL_COMMAND_PRIMARY_ACTION_BTN}
-        style={PORTAL_COMMAND_PRIMARY_ACTION_STYLE}
-        onClick={onAdd}
-        data-attr="manager-vendor-add"
-      >
-        Add
       </Button>
     </>
   );
@@ -739,7 +728,6 @@ export const ManagerVendorsPanel = forwardRef(function ManagerVendorsPanel(
     <ManagerVendorsToolbar
       onCatalog={openCatalogForm}
       onDefaults={() => openDefaultsForm()}
-      onAdd={() => openAddVendorForm()}
     />
   );
 

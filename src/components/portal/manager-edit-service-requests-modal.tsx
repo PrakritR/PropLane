@@ -42,9 +42,12 @@ export function ManagerEditServiceRequestsModal({
     }
   }, [open]);
 
-  // One possible answer is not a question worth asking.
+  // Open on the first property rather than an empty Select. The dialog's job is
+  // to show service types; opening on "choose a property to see them" makes the
+  // manager spend a click before the dialog does anything, and with one
+  // property in the portfolio it is a click with a single possible answer.
   useEffect(() => {
-    if (open && !selectedId && propertyOptions.length === 1) {
+    if (open && !selectedId && propertyOptions.length > 0) {
       setSelectedId(propertyOptions[0]!.id);
     }
   }, [open, propertyOptions, selectedId]);
