@@ -103,7 +103,10 @@ playwright.config.ts
 # OAuth verification screenshots — evidence only, never committed (contains account picker frame)
 native-oauth-verification/
 
-# Graphify local knowledge graph (regenerated with `graphify update .`)
+# Graphify local knowledge graph (regenerated with `graphify update .`).
+# `.graphify/` is the current directory; `graphify-out/` is the pre-0.10 name and
+# stays ignored so an older checkout does not start committing one.
+.graphify/
 graphify-out/
 
 # Local Playwright CLI session logs
