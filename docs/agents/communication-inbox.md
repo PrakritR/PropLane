@@ -98,6 +98,14 @@ conversations) plus the archive toggle. Invariants:
   `buildInboxMessageTimeline`, which tags only when the thread truly spans
   channels, so single-channel threads stay untagged with no flag to keep in
   sync. Coverage: `tests/unit/unified-inbox-person-merge.test.ts`.
+- **PropLane Assistant ice bubbles sit on the right.** Assistant-authored
+  turns (`from` is PropLane Assistant) are a third kind: right-aligned like
+  the viewer, ice fill (cobalt mixed into white; dark theme uses the purple
+  wash), timestamp only - never an "Assistant" / "PropLane Assistant" label
+  on the bubble. The viewer's turns stay cobalt. Human counterparties stay
+  gray on the left. List previews do not prefix assistant turns with "You: ".
+  Coverage: `tests/unit/inbox-turn-direction.test.ts`,
+  `tests/unit/inbox-bubble-alignment.test.tsx`.
 - **Thread messages are channel-tagged** (`InboxBubbleMessage.channel`,
   `InboxChannel = email|sms|whatsapp|gmail`). Email is the only live channel; the
   tag exists so SMS/WhatsApp/Gmail tag into the SAME per-person thread (built on

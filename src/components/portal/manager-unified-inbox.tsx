@@ -37,6 +37,7 @@ import {
   inboxThreadSortMs,
   syncPersistedInboxFromServer,
 } from "@/lib/portal-inbox-storage";
+import { inboxThreadLastTurnDirection } from "@/lib/inbox-turn-direction";
 import {
   mergeUnifiedInboxItems,
   parseUnifiedInboxKey,
@@ -365,7 +366,7 @@ export function ManagerUnifiedInbox({
       const lastMsg = msgs[msgs.length - 1];
       const sentSemantics = t.folder === "sent";
       const displayName = sentSemantics ? t.email || "Unknown recipient" : t.from || t.email || "Unknown sender";
-      const lastOutbound = lastMsg?.outbound ?? (msgs.length > 1 ? true : t.folder === "sent");
+      const lastOutbound = inboxThreadLastTurnDirection(t) === "outbound";
       return {
         key: unifiedInboxKey("email", t.id),
         channel: "email" as const,

@@ -57,6 +57,9 @@ export type PersistedInboxThread = {
   messages?: InboxThreadMessage[];
   /** Manager-only pending AI reply draft (never present on resident-scope rows). */
   aiDraft?: InboxAiDraft;
+  /** Server thread_type when the row still carries it (resident_agent / vendor_agent). */
+  threadType?: string | null;
+  thread_type?: string | null;
 };
 
 export const MANAGER_INBOX_STORAGE_KEY = "axis_portal_inbox_manager_v1";
@@ -442,7 +445,10 @@ export function inboxThreadCounterpartyEmail(
   return email;
 }
 
-/** Whether a thread turn is outbound from the inbox owner's perspective. */
+/**
+ * Whether a thread turn is outbound from the inbox owner's perspective.
+ * Assistant-authored ice bubbles are a separate kind — see `inboxTurnDirection`.
+ */
 export function inboxMessageOutbound(
   message: InboxThreadMessage,
   index: number,
