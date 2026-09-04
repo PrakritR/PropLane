@@ -44,6 +44,42 @@ export const VENDOR_INVOICE_SUBMIT_ERROR_STATUS: Record<VendorInvoiceSubmitError
   no_line_items: 400,
 };
 
+export type VendorLinkedManagerOption = {
+  managerUserId: string;
+  label: string;
+};
+
+/** Labels each manager a vendor is linked to — used by the invoice submit picker. */
+export async function listVendorLinkedManagers(
+  db: SupabaseClient,
+  vendorUserId: string,
+): Promise<VendorLinkedManagerOption[]> {
+  const links = await resolveOwnVendorRecords(db, vendorUserId);
+  if (links.length === 0) return [];
+  // One manager can hold more than one directory row for the same vendor, which would
+  // otherwise offer that manager twice in the picker.
+  const seen = new Set<string>();
+  const uniqueLinks = links.filter((link) => {
+    if (seen.has(link.managerUserId)) return false;
+    seen.add(link.managerUserId);
+    return true;
+  });
+  const managerIds = uniqueLinks.map((link) => link.managerUserId);
+  const { data: profiles } = await db.from("profiles").select("id, full_name").in("id", managerIds);
+  const nameById = new Map<string, string>();
+  for (const profile of profiles ?? []) {
+    const id = String(profile.id ?? "").trim();
+    const name = typeof profile.full_name === "string" ? profile.full_name.trim() : "";
+    if (id && name) nameById.set(id, name);
+  }
+  return uniqueLinks.map((link) => {
+    const directoryName = typeof link.row.name === "string" ? link.row.name.trim() : "";
+    const profileName = nameById.get(link.managerUserId) ?? "";
+    const label = profileName || directoryName || "Property manager";
+    return { managerUserId: link.managerUserId, label };
+  });
+}
+
 export type VendorInvoiceSubmitInput = {
   managerUserId?: string;
   workOrderId?: string;
@@ -71,14 +107,13 @@ export async function prepareVendorInvoiceSubmission(
   if (links.length === 0) {
     throw new VendorInvoiceSubmitError("no_linked_manager", "No linked manager found for this vendor account.");
   }
-  // With several linked managers and no explicit choice, refuse rather than guess which
-  // client is being billed. The submit form asks (PRP-254); before it did, this refusal was
-  // unreachable to satisfy and permanently blocked every contractor serving two managers.
+  // Multiple linked managers require an explicit picker — the UI sends
+  // `managerUserId` (defaulting from the chosen work order when present).
   const linkedManagerIds = new Set(links.map((l) => l.managerUserId));
   if (!input.managerUserId && linkedManagerIds.size > 1) {
     throw new VendorInvoiceSubmitError(
       "multiple_managers",
-      "Choose which manager this invoice is for.",
+      "Choose which manager to bill before submitting this invoice.",
     );
   }
   const target = input.managerUserId

@@ -110,8 +110,27 @@ export async function resolveApplicationFeeProperty(
     .eq("id", input.propertyId)
     .maybeSingle();
 
-  const ownerUserId = String(propertyRow?.manager_user_id ?? "").trim();
-  if (!ownerUserId || input.managerUserId !== ownerUserId) {
+  if (!propertyRow) {
+    return {
+      ok: false,
+      status: 404,
+      code: "PROPERTY_NOT_FOUND",
+      error: "This listing is no longer available.",
+    };
+  }
+
+  const ownerUserId = String(propertyRow.manager_user_id ?? "").trim();
+  if (!ownerUserId) {
+    return {
+      ok: false,
+      status: 404,
+      code: "PROPERTY_NOT_FOUND",
+      error: "This listing is no longer available.",
+    };
+  }
+
+  const claimedManager = input.managerUserId.trim();
+  if (claimedManager && claimedManager !== ownerUserId) {
     return { ok: false, status: 403, error: "This property is not owned by the specified manager." };
   }
 

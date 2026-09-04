@@ -32,7 +32,6 @@ import {
   type VendorIncomeRow,
 } from "@/lib/vendor-income";
 import { fetchVendorPayoutsResult, type VendorPayout } from "@/lib/vendor-payouts";
-import type { VendorLinkedManager } from "@/lib/vendor-own-record";
 import {
   formatInvoiceMoney,
   normalizeLineItems,
@@ -42,6 +41,11 @@ import {
   type VendorInvoice,
   type VendorInvoiceStatus,
 } from "@/lib/vendor-invoices";
+
+type VendorLinkedManagerOption = {
+  managerUserId: string;
+  label: string;
+};
 
 const VENDOR_FINANCE_TABS = [
   { id: "income", label: "Income" },
@@ -283,18 +287,15 @@ function SubmitInvoiceModal({
   open,
   onClose,
   onSubmitted,
-  managers,
+  linkedManagers,
 }: {
   open: boolean;
   onClose: () => void;
   onSubmitted: () => void;
-  /** Managers this vendor is linked to. Serving several clients is the normal case. */
-  managers: VendorLinkedManager[];
+  linkedManagers: VendorLinkedManagerOption[];
 }) {
   const [invoiceNumber, setInvoiceNumber] = useState("");
   const [workOrderId, setWorkOrderId] = useState("");
-  // Only asked for when there is a real choice. The server picks the sole link otherwise, and
-  // refuses an id this vendor is not linked to either way.
   const [managerUserId, setManagerUserId] = useState("");
   const [memo, setMemo] = useState("");
   const [lines, setLines] = useState<InvoiceFormLine[]>([emptyLine()]);
@@ -313,11 +314,35 @@ function SubmitInvoiceModal({
     [lines],
   );
   const totalCents = useMemo(() => sumLineItemsCents(previewLines), [previewLines]);
+  const showManagerPicker = linkedManagers.length > 1;
+
+  useEffect(() => {
+    if (!open) return;
+    if (linkedManagers.length === 1) {
+      setManagerUserId(linkedManagers[0]!.managerUserId);
+      return;
+    }
+    // Deliberately NOT defaulted when there is a real choice. The server refuses to guess
+    // which client is being billed, and pre-selecting the first one here would re-introduce
+    // that guess in the UI — an invoice silently sent to the wrong manager is worse than an
+    // error, and the vendor has no way to unsend it. The work-order effect below may fill it
+    // in, because that IS an answer rather than a guess.
+  }, [open, linkedManagers, managerUserId]);
+
+  useEffect(() => {
+    const trimmed = workOrderId.trim();
+    if (!trimmed) return;
+    const workOrder = readVendorWorkOrderRows().find((row) => row.id === trimmed);
+    const ownerId = workOrder?.managerUserId?.trim();
+    if (ownerId && linkedManagers.some((m) => m.managerUserId === ownerId)) {
+      setManagerUserId(ownerId);
+    }
+  }, [workOrderId, linkedManagers]);
 
   function reset() {
     setInvoiceNumber("");
     setWorkOrderId("");
-    setManagerUserId("");
+    setManagerUserId(linkedManagers.length === 1 ? linkedManagers[0]!.managerUserId : "");
     setMemo("");
     setLines([emptyLine()]);
     setError(null);
@@ -328,8 +353,8 @@ function SubmitInvoiceModal({
       setError("Add at least one line item with an amount.");
       return;
     }
-    if (managers.length > 1 && !managerUserId) {
-      setError("Choose which manager this invoice is for.");
+    if (showManagerPicker && !managerUserId.trim()) {
+      setError("Choose which manager to bill.");
       return;
     }
     setSaving(true);
@@ -389,19 +414,19 @@ function SubmitInvoiceModal({
       }
     >
       <div className="space-y-4">
-        {managers.length > 1 ? (
+        {showManagerPicker ? (
           <label className="block space-y-1">
-            <span className="text-xs font-semibold uppercase tracking-[0.06em] text-muted">Bill to</span>
+            <span className="text-xs font-semibold uppercase tracking-[0.06em] text-muted">Manager</span>
             <select
               className={INVOICE_FORM_INPUT}
               value={managerUserId}
               onChange={(e) => setManagerUserId(e.target.value)}
-              data-attr="vendor-invoice-manager"
+              data-attr="vendor-invoice-manager-picker"
             >
               <option value="">Choose a manager…</option>
-              {managers.map((m) => (
-                <option key={m.managerUserId} value={m.managerUserId}>
-                  {m.name}
+              {linkedManagers.map((manager) => (
+                <option key={manager.managerUserId} value={manager.managerUserId}>
+                  {manager.label}
                 </option>
               ))}
             </select>
@@ -510,7 +535,7 @@ function formatInvoiceDate(iso: string): string {
 
 function VendorInvoicesView({ tabItems, tabId }: { tabItems: { id: string; label: string; href: string }[]; tabId: string }) {
   const [invoices, setInvoices] = useState<VendorInvoice[]>([]);
-  const [managers, setManagers] = useState<VendorLinkedManager[]>([]);
+  const [linkedManagers, setLinkedManagers] = useState<VendorLinkedManagerOption[]>([]);
   const [loading, setLoading] = useState(true);
   const [statusFilter, setStatusFilter] = useState<"all" | VendorInvoiceStatus>("all");
   const [modalOpen, setModalOpen] = useState(false);
@@ -518,16 +543,22 @@ function VendorInvoicesView({ tabItems, tabId }: { tabItems: { id: string; label
   const load = useCallback(async () => {
     setLoading(true);
     try {
+      void syncManagerWorkOrdersFromServer();
       const res = await fetch("/api/vendor/invoices");
       if (!res.ok) {
         setInvoices([]);
+        setLinkedManagers([]);
         return;
       }
-      const body = (await res.json()) as { invoices?: VendorInvoice[]; managers?: VendorLinkedManager[] };
+      const body = (await res.json()) as {
+        invoices?: VendorInvoice[];
+        linkedManagers?: VendorLinkedManagerOption[];
+      };
       setInvoices(body.invoices ?? []);
-      setManagers(body.managers ?? []);
+      setLinkedManagers(body.linkedManagers ?? []);
     } catch {
       setInvoices([]);
+      setLinkedManagers([]);
     } finally {
       setLoading(false);
     }
@@ -636,7 +667,12 @@ function VendorInvoicesView({ tabItems, tabId }: { tabItems: { id: string; label
         </>
       )}
 
-      <SubmitInvoiceModal open={modalOpen} onClose={() => setModalOpen(false)} onSubmitted={load} managers={managers} />
+      <SubmitInvoiceModal
+        open={modalOpen}
+        onClose={() => setModalOpen(false)}
+        onSubmitted={load}
+        linkedManagers={linkedManagers}
+      />
     </ManagerPortalPageShell>
   );
 }

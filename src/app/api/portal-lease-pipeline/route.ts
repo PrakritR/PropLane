@@ -15,6 +15,7 @@ import {
   leaseAllowsManagerDocumentEdits,
   leaseDocumentBody,
   leaseDocumentBodyChanged,
+  leaseClaimsExecution,
   replacesSignedLeaseDocument,
   leaseSignatureRoleForgedBy,
   leaseSignatureWriteRefusal,
@@ -665,6 +666,11 @@ export async function POST(req: Request) {
               { status: 409 },
             );
           }
+          // The signature rules themselves ran earlier, for EVERY actor
+          // (`leaseSignatureWriteRefusal` + `leaseSignatureRoleForgedBy`). A second
+          // resident-only copy here would be a second source of truth for one rule, and the
+          // narrower of the two: it never judged who the signature belongs to, so it could
+          // not catch a resident writing the manager's countersignature.
           scope = storedScopeColumns(existingRecord);
         } else {
           const allowed = existingRecord

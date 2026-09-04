@@ -11,7 +11,7 @@ import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/re
 import { VendorFinancesPanel } from "@/components/portal/vendor-finances-panel";
 
 const state = vi.hoisted(() => ({
-  managers: [] as { managerUserId: string; name: string }[],
+  managers: [] as { managerUserId: string; label: string }[],
   posted: [] as Record<string, unknown>[],
 }));
 
@@ -43,7 +43,7 @@ beforeEach(() => {
       return {
         ok: true,
         status: 200,
-        json: async () => ({ invoices: [], managers: state.managers }),
+        json: async () => ({ invoices: [], linkedManagers: state.managers }),
       } as unknown as Response;
     }),
   );
@@ -64,14 +64,14 @@ async function openSubmitModal() {
 }
 
 function picker(): HTMLSelectElement | null {
-  return document.querySelector('[data-attr="vendor-invoice-manager"]');
+  return document.querySelector('[data-attr="vendor-invoice-manager-picker"]');
 }
 
 describe("vendor invoice manager picker", () => {
   it("asks which manager to bill when the vendor serves more than one", async () => {
     state.managers = [
-      { managerUserId: "mgr-a", name: "Alex Manager" },
-      { managerUserId: "mgr-b", name: "Blair Manager" },
+      { managerUserId: "mgr-a", label: "Alex Manager" },
+      { managerUserId: "mgr-b", label: "Blair Manager" },
     ];
     renderInvoices();
     await openSubmitModal();
@@ -82,7 +82,7 @@ describe("vendor invoice manager picker", () => {
   });
 
   it("does not ask when there is only one manager to bill", async () => {
-    state.managers = [{ managerUserId: "mgr-a", name: "Alex Manager" }];
+    state.managers = [{ managerUserId: "mgr-a", label: "Alex Manager" }];
     renderInvoices();
     await openSubmitModal();
 
@@ -92,8 +92,8 @@ describe("vendor invoice manager picker", () => {
 
   it("sends the chosen manager with the invoice", async () => {
     state.managers = [
-      { managerUserId: "mgr-a", name: "Alex Manager" },
-      { managerUserId: "mgr-b", name: "Blair Manager" },
+      { managerUserId: "mgr-a", label: "Alex Manager" },
+      { managerUserId: "mgr-b", label: "Blair Manager" },
     ];
     renderInvoices();
     await openSubmitModal();
@@ -111,8 +111,8 @@ describe("vendor invoice manager picker", () => {
 
   it("refuses to submit without a choice rather than billing an arbitrary client", async () => {
     state.managers = [
-      { managerUserId: "mgr-a", name: "Alex Manager" },
-      { managerUserId: "mgr-b", name: "Blair Manager" },
+      { managerUserId: "mgr-a", label: "Alex Manager" },
+      { managerUserId: "mgr-b", label: "Blair Manager" },
     ];
     renderInvoices();
     await openSubmitModal();

@@ -25,34 +25,3 @@ export async function resolveOwnVendorRecord(
 ): Promise<OwnVendorRecord | null> {
   return (await resolveOwnVendorRecords(db, userId))[0] ?? null;
 }
-
-export type VendorLinkedManager = { managerUserId: string; name: string };
-
-/**
- * The managers this vendor may bill, with a display name each.
- *
- * Serving several clients is the normal condition for a contractor, so anything that asks a
- * vendor to choose a manager needs this list. It is derived from the vendor's own directory
- * links — never from a client-supplied id — and deduplicated, because one manager can hold
- * more than one directory row for the same vendor.
- */
-export async function resolveVendorLinkedManagers(
-  db: SupabaseClient,
-  vendorUserId: string,
-): Promise<VendorLinkedManager[]> {
-  const records = await resolveOwnVendorRecords(db, vendorUserId);
-  const managerIds = [...new Set(records.map((r) => r.managerUserId).filter(Boolean))];
-  if (managerIds.length === 0) return [];
-
-  const { data } = await db.from("profiles").select("id, full_name").in("id", managerIds);
-  const nameById = new Map(
-    (data ?? []).map((row) => [
-      String((row as { id?: string }).id ?? ""),
-      String((row as { full_name?: string }).full_name ?? "").trim(),
-    ]),
-  );
-  return managerIds.map((managerUserId) => ({
-    managerUserId,
-    name: nameById.get(managerUserId) || "Property manager",
-  }));
-}

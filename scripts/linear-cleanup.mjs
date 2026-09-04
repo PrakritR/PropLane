@@ -42,6 +42,22 @@ const MARK_DONE = [
     id: "PRP-222",
     note: "Wizard ADD rows for rooms, bathrooms, and shared spaces shipped on cursor-1 (`PortalListAddRow` on listing wizard steps).",
   },
+  {
+    id: "PRP-203",
+    note: "Phantom $50 application fee fixed — server fee preview resolves manager from property id; no $50 fallback when catalog misses listing (cursor-2).",
+  },
+  {
+    id: "PRP-251",
+    note: "Resident lease signing guarded server-side — refuse double-sign, sign-before-send, and stale document body on `/api/portal-lease-pipeline` (cursor-2).",
+  },
+  {
+    id: "PRP-192",
+    note: "Self-service account deletion shipped — `POST /api/auth/delete-my-account` + `deleteOwnPortalAccount` across portals (App Store 5.1.1(v)).",
+  },
+  {
+    id: "PRP-224",
+    note: "Manager calendar empty portfolio still shows week navigation (`portal-calendar-empty-week-nav.test.tsx`).",
+  },
 ];
 
 /**

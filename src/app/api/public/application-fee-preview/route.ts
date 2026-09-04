@@ -55,8 +55,8 @@ export async function POST(req: Request) {
     const body = (await req.json()) as Body;
     const propertyId = typeof body.propertyId === "string" ? body.propertyId.trim() : "";
     const managerUserId = typeof body.managerUserId === "string" ? body.managerUserId.trim() : "";
-    if (!propertyId || !managerUserId) {
-      return NextResponse.json({ error: "propertyId and managerUserId are required." }, { status: 400 });
+    if (!propertyId) {
+      return NextResponse.json({ error: "propertyId is required." }, { status: 400 });
     }
 
     const db = createSupabaseServiceRoleClient();
@@ -76,13 +76,14 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: resolved.error, code: resolved.code }, { status: resolved.status });
     }
 
+    const ownerUserId = resolved.value.managerUserId;
     const channel = body.channel === "manual" ? "manual" : "card";
-    const itemization = await resolveApplicationFeeItemization(db, managerUserId, resolved.value.applicationFeeCents, channel);
+    const itemization = await resolveApplicationFeeItemization(db, ownerUserId, resolved.value.applicationFeeCents, channel);
 
-    const managerSettings = await loadManagerApplicationSettings(db, managerUserId);
+    const managerSettings = await loadManagerApplicationSettings(db, ownerUserId);
 
     const waiverCode = typeof body.waiverCode === "string" ? body.waiverCode.trim() : "";
-    const waiver = waiverCode ? await previewApplicationFeeWaiverCode(db, managerUserId, waiverCode) : null;
+    const waiver = waiverCode ? await previewApplicationFeeWaiverCode(db, ownerUserId, waiverCode) : null;
 
     const residentEmail = typeof body.residentEmail === "string" ? body.residentEmail.trim().toLowerCase() : "";
     let repeatApplicantFeeWaived: boolean | undefined;
@@ -90,7 +91,7 @@ export async function POST(req: Request) {
       const applicant = await sessionApplicant();
       if (applicant && applicant.email === residentEmail) {
         repeatApplicantFeeWaived = await shouldWaiveApplicationFeeForResidentServer(db, {
-          managerUserId,
+          managerUserId: ownerUserId,
           residentEmail: applicant.email,
           residentUserId: applicant.userId,
           chargePolicy: managerSettings.applicationFeeChargePolicy,
@@ -99,6 +100,7 @@ export async function POST(req: Request) {
     }
 
     return NextResponse.json({
+      managerUserId: resolved.value.managerUserId,
       applicationFeeCents: itemization.applicationFeeCents,
       serviceFeeCents: itemization.serviceFeeCents,
       totalCents: itemization.totalCents,

@@ -174,7 +174,11 @@ export type WizardStepsProps = {
     waived?: boolean;
     /** True while the server's authoritative fee is still being resolved — hold payment UI, never claim "no fee". */
     pending?: boolean;
+    listingUnavailable?: boolean;
+    feePreviewFailed?: boolean;
   };
+  /** Manager id resolved from the server fee preview when the browser catalog missed it. */
+  resolvedManagerUserId?: string;
   applicationFeeCheckBusy?: boolean;
   applicationFeeCheckError?: string | null;
   applicationFeePaymentVerified?: boolean;
@@ -353,6 +357,7 @@ export function RentalWizardStepBody(p: WizardStepsProps) {
     waiverCodeError,
     onApplyWaiverCode,
     applyReturnPath,
+    resolvedManagerUserId = "",
     onEnsureApplicationId,
     savedApplicationId = "",
     savedAutofillAvailable = false,
@@ -2208,7 +2213,7 @@ export function RentalWizardStepBody(p: WizardStepsProps) {
     // before the applicant pays — never a surprise here.
     const appFeeLabel = applicationFeeGate.needsFee ? applicationFeeGate.displayLabel : "—";
     const codeWaived = Boolean(form.applicationFeeWaived);
-    const managerUserIdForPay = prop?.managerUserId?.trim() ?? "";
+    const managerUserIdForPay = resolvedManagerUserId.trim() || prop?.managerUserId?.trim() || "";
     const enabledChannels = [
       channels.ach ? ("ach" as const) : null,
       channels.zelle ? ("zelle" as const) : null,
@@ -2238,6 +2243,18 @@ export function RentalWizardStepBody(p: WizardStepsProps) {
             you&apos;re approved.
           </StepIntro>
         </div>
+
+        {applicationFeeGate.listingUnavailable ? (
+          <div className="rounded-2xl border px-4 py-4 text-sm portal-banner-pending">
+            This listing is no longer available. Go back and choose another property, or contact the manager for help.
+          </div>
+        ) : null}
+        {applicationFeeGate.feePreviewFailed ? (
+          <div className="rounded-2xl border px-4 py-4 text-sm portal-banner-pending">
+            We couldn&apos;t confirm the application fee right now. Check your connection and refresh this page, or contact
+            the manager before submitting.
+          </div>
+        ) : null}
 
         {applicationFeeGate.needsFee ? (
           <div className="rounded-2xl border border-border bg-accent/30 p-5 sm:p-6">

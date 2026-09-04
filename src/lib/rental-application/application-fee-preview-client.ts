@@ -30,13 +30,20 @@ export type ApplicationFeePreview = {
   applicationFeeOtherInstructions?: string;
 };
 
+export type ApplicationFeePreviewFetchResult = {
+  preview: ApplicationFeePreview | null;
+  /** Resolved from the property record when the browser catalog missed the manager id. */
+  managerUserId?: string;
+  propertyNotFound?: boolean;
+};
+
 const PREVIEW_TTL_MS = 60_000;
 
-const cache = new Map<string, { at: number; value: ApplicationFeePreview }>();
-const inFlight = new Map<string, Promise<ApplicationFeePreview | null>>();
+const cache = new Map<string, { at: number; value: ApplicationFeePreviewFetchResult }>();
+const inFlight = new Map<string, Promise<ApplicationFeePreviewFetchResult>>();
 
 function keyFor(propertyId: string, managerUserId: string): string {
-  return `${propertyId.trim()}::${managerUserId.trim()}`;
+  return `${propertyId.trim()}::${managerUserId.trim() || "server"}`;
 }
 
 /** Local-only session read — this identifies a cache bucket, never authorizes. */
@@ -51,14 +58,14 @@ async function viewerCacheId(): Promise<string> {
 }
 
 /**
- * Resolves the server's effective application fee for one listing, or `null`
- * when the server could not answer (network failure, unowned property, …).
- * Callers must treat `null` as "unknown — do not claim no fee is required",
- * never as free.
+ * Resolves the server's effective application fee for one listing.
+ * Callers must treat `preview: null` as "unknown — do not claim no fee is required",
+ * never as free, unless `propertyNotFound` is true.
  */
 export async function fetchApplicationFeePreview(input: {
   propertyId: string;
-  managerUserId: string;
+  /** Optional — when omitted the server resolves the owner from the property id. */
+  managerUserId?: string;
   rentalType?: "standard" | "short_term";
   /**
    * Only the signed-in caller's own address earns a repeat-applicant waiver —
@@ -66,10 +73,10 @@ export async function fetchApplicationFeePreview(input: {
    * session, never from the browser.
    */
   residentEmail?: string;
-}): Promise<ApplicationFeePreview | null> {
+}): Promise<ApplicationFeePreviewFetchResult> {
   const propertyId = input.propertyId.trim();
-  const managerUserId = input.managerUserId.trim();
-  if (!propertyId || !managerUserId) return null;
+  const managerUserId = input.managerUserId?.trim() ?? "";
+  if (!propertyId) return { preview: null };
 
   const rentalType = input.rentalType === "short_term" ? "short_term" : "standard";
   const residentEmail = input.residentEmail?.trim() ?? "";
@@ -82,19 +89,25 @@ export async function fetchApplicationFeePreview(input: {
   const pending = inFlight.get(key);
   if (pending) return pending;
 
-  const request = (async (): Promise<ApplicationFeePreview | null> => {
+  const request = (async (): Promise<ApplicationFeePreviewFetchResult> => {
     try {
       const res = await fetch("/api/public/application-fee-preview", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           propertyId,
-          managerUserId,
+          ...(managerUserId ? { managerUserId } : {}),
           rentalType: rentalType === "short_term" ? "short_term" : undefined,
           residentEmail: residentEmail.includes("@") ? residentEmail : undefined,
         }),
       });
+      if (res.status === 404) {
+        const value: ApplicationFeePreviewFetchResult = { preview: null, propertyNotFound: true };
+        cache.set(key, { at: Date.now(), value });
+        return value;
+      }
       const data = (await res.json().catch(() => ({}))) as {
+        managerUserId?: string;
         applicationFeeCents?: number;
         serviceFeeCents?: number;
         totalCents?: number;
@@ -103,8 +116,10 @@ export async function fetchApplicationFeePreview(input: {
         applicationFeeOtherEnabled?: boolean;
         applicationFeeOtherInstructions?: string;
       };
-      if (!res.ok || typeof data.applicationFeeCents !== "number") return null;
-      const value: ApplicationFeePreview = {
+      if (!res.ok || typeof data.applicationFeeCents !== "number") {
+        return { preview: null };
+      }
+      const preview: ApplicationFeePreview = {
         applicationFeeCents: data.applicationFeeCents,
         serviceFeeCents: typeof data.serviceFeeCents === "number" ? data.serviceFeeCents : 0,
         totalCents: typeof data.totalCents === "number" ? data.totalCents : data.applicationFeeCents,
@@ -113,10 +128,14 @@ export async function fetchApplicationFeePreview(input: {
         applicationFeeOtherEnabled: data.applicationFeeOtherEnabled,
         applicationFeeOtherInstructions: data.applicationFeeOtherInstructions,
       };
+      const value: ApplicationFeePreviewFetchResult = {
+        preview,
+        managerUserId: typeof data.managerUserId === "string" ? data.managerUserId.trim() : managerUserId || undefined,
+      };
       cache.set(key, { at: Date.now(), value });
       return value;
     } catch {
-      return null;
+      return { preview: null };
     } finally {
       inFlight.delete(key);
     }
