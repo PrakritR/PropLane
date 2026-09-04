@@ -464,8 +464,10 @@ export function ResidentDashboard({
   }, [clientReady, email, tick]);
 
   useEffect(() => {
+    if (!session.ready || !userId) return;
+    const bump = () => setTick((n) => n + 1);
     void Promise.allSettled([
-      syncManagerApplicationsFromServer({ force: true }),
+      syncManagerApplicationsFromServer({ force: true, selfScope: true }),
       syncLeasePipelineFromServer(),
       syncManagerWorkOrdersFromServer(),
       syncServiceRequestsFromServer({ force: true }),
@@ -490,7 +492,7 @@ export function ResidentDashboard({
       window.removeEventListener("storage", bump);
       window.removeEventListener(PORTAL_INBOX_CHANGED_EVENT, onInbox as EventListener);
     };
-  }, []);
+  }, [session.ready, userId]);
 
   useEffect(() => {
     let alive = true;
@@ -532,7 +534,12 @@ export function ResidentDashboard({
       }
     };
     apply();
-    void syncManagerApplicationsFromServer({ force: true }).then(() => { if (alive) apply(); });
+    if (!session.ready || !userId) {
+      return () => {
+        alive = false;
+      };
+    }
+    void syncManagerApplicationsFromServer({ force: true, selfScope: true }).then(() => { if (alive) apply(); });
     window.addEventListener(MANAGER_APPLICATIONS_EVENT, apply);
     window.addEventListener("storage", apply);
     return () => {
@@ -540,7 +547,7 @@ export function ResidentDashboard({
       window.removeEventListener(MANAGER_APPLICATIONS_EVENT, apply);
       window.removeEventListener("storage", apply);
     };
-  }, [applicationApproved, email]);
+  }, [applicationApproved, email, session.ready, userId]);
 
   const data = useMemo(() => {
     void tick;

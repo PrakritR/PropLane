@@ -64,6 +64,7 @@ export function useResidentLeasePipelineRow(): LeasePipelineRow | null {
   const [axisResolved, setAxisResolved] = useState(false);
 
   useEffect(() => {
+    if (!session.ready || !userId) return;
     const on = () => setTick((value) => value + 1);
     void syncLeasePipelineFromServer().then(on);
     window.addEventListener(LEASE_PIPELINE_EVENT, on);
@@ -72,7 +73,7 @@ export function useResidentLeasePipelineRow(): LeasePipelineRow | null {
       window.removeEventListener(LEASE_PIPELINE_EVENT, on);
       window.removeEventListener("storage", on);
     };
-  }, []);
+  }, [session.ready, userId]);
 
   useEffect(() => {
     if (!email) {

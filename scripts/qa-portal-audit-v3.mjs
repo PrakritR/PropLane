@@ -57,21 +57,71 @@ const ROLES = {
   },
 };
 
-async function login(page, email, password, next) {
-  await page.goto(`${BASE}/auth/sign-in?next=${encodeURIComponent(next)}`);
-  await page.getByPlaceholder("Email").fill(email);
-  await page.getByPlaceholder("Password").fill(password);
-  await page.getByRole("button", { name: /sign in/i }).click();
-  await page.waitForURL((u) => !u.pathname.startsWith("/auth/sign-in"), { timeout: 120_000 });
-  if (page.url().includes("/auth/continue")) {
-    await page.waitForURL((u) => !u.pathname.startsWith("/auth/continue"), { timeout: 120_000 });
-  }
-  if (page.url().includes("/auth/connect-google-services")) {
-    const continueBtn = page.getByRole("button", { name: /continue/i });
-    if (await continueBtn.isVisible().catch(() => false)) {
-      await continueBtn.click();
+function portalPrefixForRole(role) {
+  if (role === "admin") return "/admin";
+  if (role === "resident") return "/resident";
+  if (role === "vendor") return "/vendor";
+  return "/portal";
+}
+
+async function login(page, email, password, next, role) {
+  const portalPrefix = portalPrefixForRole(role);
+  const run = async () => {
+    await page.goto(`${BASE}/auth/sign-in?next=${encodeURIComponent(next)}`);
+    await page.getByPlaceholder("Email").fill(email);
+    await page.getByPlaceholder("Password").fill(password);
+    await page.getByRole("button", { name: /sign in/i }).click();
+    await page.waitForURL((u) => !u.pathname.startsWith("/auth/sign-in"), { timeout: 120_000 });
+    if (page.url().includes("/auth/continue")) {
+      await page.waitForURL(
+        (u) =>
+          !u.pathname.startsWith("/auth/continue") && !u.pathname.startsWith("/auth/sign-in"),
+        { timeout: 120_000 },
+      );
+    }
+    if (isAuthGatePath(new URL(page.url()).pathname)) {
+      throw new Error(`Auth bounced to ${page.url()}`);
+    }
+    if (page.url().includes("/auth/manager/choose-plan")) {
+      const skip = page.locator('[data-attr="manager-entry-plan-skip"]');
+      if (await skip.isVisible().catch(() => false)) {
+        await skip.click();
+        await page.waitForURL((u) => !u.pathname.includes("choose-plan"), { timeout: 60_000 });
+      }
+    }
+    if (page.url().includes("/auth/connect-google-services")) {
+      const continueBtn = page.locator('[data-attr="onboarding-google-services-continue"]');
+      await continueBtn.waitFor({ state: "visible", timeout: 30_000 });
+      await Promise.all([
+        page.waitForURL(
+          (u) =>
+            u.pathname.startsWith("/portal") ||
+            u.pathname.startsWith("/vendor") ||
+            u.pathname.startsWith("/resident") ||
+            u.pathname.startsWith("/admin"),
+          { timeout: 90_000 },
+        ),
+        continueBtn.click(),
+      ]);
+    }
+    if (page.url().includes("/auth/choose-portal")) {
+      const roleBtn =
+        role === "vendor"
+          ? /vendor/i
+          : role === "resident"
+            ? /resident/i
+            : role === "admin"
+              ? /admin/i
+              : /property/i;
+      await page.getByRole("button", { name: roleBtn }).first().click();
       await page.waitForURL((u) => !u.pathname.startsWith("/auth/"), { timeout: 60_000 });
     }
+    await page.waitForURL((u) => u.pathname.startsWith(portalPrefix), { timeout: 60_000 });
+  };
+  try {
+    await run();
+  } catch (first) {
+    await run();
   }
 }
 
@@ -97,14 +147,11 @@ for (const [role, cfg] of Object.entries(ROLES)) {
     const errors = [];
     page.on("pageerror", (e) => errors.push(e.message));
     try {
-      await login(page, cfg.email, cfg.password, cfg.home);
+      await login(page, cfg.email, cfg.password, cfg.home, role);
     } catch (e) {
       findings.push({ role, path: cfg.home, tag, severity: "high", kind: "runtime", summary: `Login failed: ${e.message}`, screenshot: null });
       await ctx.close();
       continue;
-    }
-    if (!page.url().includes("/portal") && !page.url().includes("/admin") && !page.url().includes("/resident") && !page.url().includes("/vendor")) {
-      findings.push({ role, path: cfg.home, tag, severity: "high", kind: "runtime", summary: `Login landed on ${page.url()}`, screenshot: null });
     }
     for (const path of cfg.paths) {
       await page.goto(`${BASE}${path}`, { waitUntil: "domcontentloaded", timeout: 45_000 });
@@ -112,7 +159,7 @@ for (const [role, cfg] of Object.entries(ROLES)) {
       let url = new URL(page.url());
       if (url.pathname.startsWith("/auth/sign-in")) {
         try {
-          await login(page, cfg.email, cfg.password, path);
+          await login(page, cfg.email, cfg.password, path, role);
           await page.goto(`${BASE}${path}`, { waitUntil: "domcontentloaded", timeout: 45_000 });
           await page.waitForTimeout(1500);
           url = new URL(page.url());

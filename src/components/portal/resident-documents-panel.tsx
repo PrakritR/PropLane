@@ -170,11 +170,12 @@ function ApplicationDocumentsTable({ basePath }: { basePath: string }) {
   const [tick, setTick] = useState(0);
 
   useEffect(() => {
+    if (!session.ready || !userId) return;
     const on = () => setTick((t) => t + 1);
     void syncManagerApplicationsFromServer({ selfScope: true }).then(on);
     window.addEventListener(MANAGER_APPLICATIONS_EVENT, on);
     return () => window.removeEventListener(MANAGER_APPLICATIONS_EVENT, on);
-  }, []);
+  }, [session.ready, userId]);
 
   const rows = useMemo<DemoApplicantRow[]>(() => {
     void tick;
@@ -267,11 +268,12 @@ function ResidentApplicationDocumentDetail({
   const [tick, setTick] = useState(0);
 
   useEffect(() => {
+    if (!session.ready || !userId) return;
     const on = () => setTick((t) => t + 1);
     void syncManagerApplicationsFromServer({ selfScope: true }).then(on);
     window.addEventListener(MANAGER_APPLICATIONS_EVENT, on);
     return () => window.removeEventListener(MANAGER_APPLICATIONS_EVENT, on);
-  }, []);
+  }, [session.ready, userId]);
 
   const row = useMemo(() => {
     void tick;
