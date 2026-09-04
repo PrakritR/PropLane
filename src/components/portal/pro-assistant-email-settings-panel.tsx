@@ -67,7 +67,7 @@ export function ManagerAssistantEmailSettingsPanel() {
     const address = status?.address;
     if (!address) return;
     const ok = await copyTextToClipboard(address);
-    showToast(ok ? "Assistant email copied." : "Could not copy address.", ok ? "success" : "error");
+    showToast(ok ? "Assistant email copied." : "Could not copy address.");
   }, [showToast, status?.address]);
 
   const requestAddress = useCallback(async () => {
@@ -85,7 +85,7 @@ export function ManagerAssistantEmailSettingsPanel() {
       };
       if (!res.ok) throw new Error(body.error ?? "Could not set up assistant email.");
       setStatus(body);
-      showToast("Your PropLane assistant email is ready.", "success");
+      showToast("Your PropLane assistant email is ready.");
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Could not set up assistant email.");
     } finally {
@@ -166,7 +166,7 @@ export function ManagerAssistantEmailSettingsPanel() {
           ) : planMessage ? (
             <div className="space-y-3">
               <p className="text-sm leading-relaxed text-muted">{planMessage}</p>
-              {status.entitlement.reason === "free" ? (
+              {!status.entitlement.eligible && status.entitlement.reason === "free" ? (
                 <Button asChild variant="outline" data-attr="assistant-email-open-billing">
                   <Link href="/portal/profile?tab=billing">View plans</Link>
                 </Button>

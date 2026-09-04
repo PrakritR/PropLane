@@ -1,7 +1,10 @@
 import "server-only";
 
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { resolveManagerSmsAccess, type ManagerSmsAccess } from "@/lib/sms/manager-sms-access";
+// resolveManagerSmsAccess lives in the .server module; the type is in the
+// client-safe one. Importing both from the latter did not resolve.
+import { resolveManagerSmsAccess } from "@/lib/sms/manager-sms-access.server";
+import type { ManagerSmsAccess } from "@/lib/sms/manager-sms-access";
 
 export type ManagerEmailInboundIdentity = {
   workNumberOwnerId: string;
