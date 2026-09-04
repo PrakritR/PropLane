@@ -140,12 +140,6 @@ export function ManagerPropertyTourPanel({
         </PropertyDetailFooterActions>
       }
     >
-      <p className="mb-3 text-sm text-muted">
-        Set when prospects can book a tour at{" "}
-        <span className="font-medium text-foreground">{propertyLabel}</span>. Click an empty slot or
-        drag across a range, then confirm in the schedule dialog. Use Add availability for a recurring
-        block — only painted windows are bookable.
-      </p>
       <div className="min-w-0 max-w-full overflow-x-clip">
       <PortalCalendarPanels
         key={storageKey ?? "property-calendar-unavailable"}

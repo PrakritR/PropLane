@@ -1,4 +1,5 @@
 import type { PersistedInboxThread } from "@/lib/portal-inbox-storage";
+import { isPrimaryAdminEmail } from "@/lib/auth/primary-admin";
 
 /** True when a contact label looks like a phone number rather than a person/email. */
 export function isPhoneLikeContact(value: string | null | undefined): boolean {
@@ -34,4 +35,19 @@ export function filterEmailInboxThreads<T extends Pick<PersistedInboxThread, "fr
 ): T[] {
   if (opts?.keepSmsLike) return threads;
   return threads.filter((thread) => !isSmsLikeInboxThread(thread));
+}
+
+/** PropLane admin ops threads belong in the admin portal, not the manager Communication list. */
+export function isPrimaryAdminInboxThread(
+  thread: Pick<PersistedInboxThread, "from" | "email">,
+): boolean {
+  const email = String(thread.email ?? "").trim();
+  const from = String(thread.from ?? "").trim();
+  return (email && isPrimaryAdminEmail(email)) || (from && isPrimaryAdminEmail(from));
+}
+
+export function filterManagerCommunicationThreads<T extends Pick<PersistedInboxThread, "from" | "email" | "subject">>(
+  threads: T[],
+): T[] {
+  return threads.filter((thread) => !isPrimaryAdminInboxThread(thread));
 }
