@@ -13,7 +13,14 @@ export type InboxScopedContact = {
   propertyLabel?: string;
   propertyId?: string;
   /** Approved tenant vs pending applicant on a house (resident role only). */
-  tenancyStatus?: "resident" | "applicant";
+  /**
+   * Where this person is in their tenancy.
+   *
+   * `past` is a resident whose move-out date has gone by. It exists so the To
+   * picker can separate potential, current and past residents (PRP-150) —
+   * writing to "residents" should not silently include people who moved out.
+   */
+  tenancyStatus?: "resident" | "applicant" | "past";
 };
 
 import { PRIMARY_ADMIN_EMAIL } from "@/lib/auth/primary-admin";

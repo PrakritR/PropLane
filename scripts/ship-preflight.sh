@@ -65,6 +65,24 @@ else
   pass "working tree clean"
 fi
 
+# PRP-114: a critical variable that is EMPTY in Vercel Production reads as
+# present in the dashboard, so a whole feature ships dark and fails closed in
+# silence. This names the feature that would go dark, not the variable.
+if [[ -f "scripts/check-production-env.mjs" ]]; then
+  echo
+  echo "-- production env --"
+  echo "INFO checking THIS shell's env; run against production with:"
+  echo "     vercel env pull .env.production.check --environment=production && \\"
+  echo "       node --env-file=.env.production.check scripts/check-production-env.mjs"
+  if node scripts/check-production-env.mjs; then
+    pass "critical production variables provisioned in this environment"
+  else
+    note "critical variables empty here — verify against Vercel Production before promoting"
+  fi
+else
+  note "missing scripts/check-production-env.mjs — cannot detect silently-dark features"
+fi
+
 echo
 echo "Required before promote (see docs/ship-gate.md):"
 echo "  [ ] security-review + bugbot on branch changes"

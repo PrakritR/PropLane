@@ -234,7 +234,6 @@ function ResidentUnifiedInbox({
               time={row.time}
               unread={row.unread}
               selected={selectedKey === row.key}
-              channelBadge={row.channel === "email" ? "Email" : "SMS"}
               onOpen={() => {
                 setSelectedKey(row.key);
                 onRouteThreadChange?.(row.threadId);

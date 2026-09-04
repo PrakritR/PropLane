@@ -470,8 +470,40 @@ export function inboxThreadSortMs(id: string, activityTime?: string | null): num
   return 0;
 }
 
-/** PropLane system senders — never a real conversation counterparty. */
+/**
+ * A system sender that STANDS IN for a real person, so the counterparty is
+ * somebody else and has to be recovered from the body.
+ *
+ * Only tour notifications work this way: PropLane sends them, but the person the
+ * manager is actually corresponding with is the guest named inside.
+ */
 const INBOX_SYSTEM_COUNTERPARTY_EMAILS = new Set(["tours@axis.local"]);
+
+/**
+ * PropLane's own addresses — where PropLane IS the counterparty.
+ *
+ * These are not stand-ins for anyone, so they all resolve to one key and their
+ * threads collapse into a single PropLane conversation. Each address used to key
+ * its own thread, which is why the inbox showed a stack of near-identical
+ * PropLane rows with no way to tell them apart (PRP-150).
+ *
+ * Matching is by LOCAL PART on the PropLane system domain rather than a literal
+ * list, so a notification sent from a new `something@axis.local` joins the same
+ * thread instead of starting the pile over.
+ */
+const PROPLANE_SYSTEM_SENDER_DOMAIN = "axis.local";
+
+/** The one counterparty key every PropLane system thread collapses onto. */
+export const PROPLANE_SYSTEM_COUNTERPARTY_KEY = "proplane@axis.local";
+
+/** True for a PropLane system address that speaks for PropLane itself. */
+export function isProplaneSystemSenderEmail(raw: string | null | undefined): boolean {
+  const email = String(raw ?? "").trim().toLowerCase();
+  if (!email.endsWith(`@${PROPLANE_SYSTEM_SENDER_DOMAIN}`)) return false;
+  // A tour notification is PropLane's address but the guest's conversation, so
+  // it is deliberately not one of these.
+  return !INBOX_SYSTEM_COUNTERPARTY_EMAILS.has(email);
+}
 
 /** Guest email embedded in a tour-request manager notification body. */
 export function parseTourNotificationGuestEmail(body: string): string {
@@ -484,10 +516,14 @@ export function inboxThreadCounterpartyEmail(
   thread: Pick<PersistedInboxThread, "email" | "from" | "body">,
 ): string {
   const email = String(thread.email ?? "").trim().toLowerCase();
+  // Every PropLane system address is the SAME counterparty — PropLane — so they
+  // share one key and one thread (PRP-150).
+  if (isProplaneSystemSenderEmail(email)) return PROPLANE_SYSTEM_COUNTERPARTY_KEY;
   if (email.includes("@") && !INBOX_SYSTEM_COUNTERPARTY_EMAILS.has(email)) return email;
   const fromBody = parseTourNotificationGuestEmail(String(thread.body ?? ""));
   if (fromBody.includes("@")) return fromBody;
   const from = String(thread.from ?? "").trim().toLowerCase();
+  if (isProplaneSystemSenderEmail(from)) return PROPLANE_SYSTEM_COUNTERPARTY_KEY;
   if (from.includes("@")) return from;
   return email;
 }

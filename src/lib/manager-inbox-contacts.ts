@@ -19,6 +19,14 @@ export function mergeInboxScopedContacts(...lists: InboxScopedContact[][]): Inbo
   return out;
 }
 
+/** Local calendar date as YYYY-MM-DD, to compare against a stored move-out date. */
+function todayIsoDate(): string {
+  const now = new Date();
+  const m = String(now.getMonth() + 1).padStart(2, "0");
+  const d = String(now.getDate()).padStart(2, "0");
+  return `${now.getFullYear()}-${m}-${d}`;
+}
+
 /** Approved residents + pending applicants + linked co-managers + vendors for Communication. */
 export function buildManagerInboxLiveContacts(userId: string | null | undefined): InboxScopedContact[] {
   const out: InboxScopedContact[] = [];
@@ -34,7 +42,14 @@ export function buildManagerInboxLiveContacts(userId: string | null | undefined)
     seen.add(email);
     const propertyLabel = row.property?.trim() || undefined;
     const propertyId = row.assignedPropertyId?.trim() || row.propertyId?.trim() || undefined;
-    const tenancyStatus = bucket === "approved" ? "resident" : "applicant";
+    // A resident whose move-out date has passed is PAST, not current (PRP-150).
+    // Read from the manual detail first and the application second, the same
+    // order `resolveLeaseDatesForBilling` uses, so the picker and the ledger
+    // agree about when a tenancy ended.
+    const moveOut = (row.manualResidentDetails?.moveOutDate ?? row.application?.leaseEnd ?? "").trim();
+    const movedOut = Boolean(moveOut) && moveOut < todayIsoDate();
+    const tenancyStatus =
+      bucket === "approved" ? (movedOut ? "past" : "resident") : "applicant";
     out.push({
       id: `res-${row.id}`,
       name: row.name || row.email.trim(),

@@ -114,9 +114,30 @@ export default function DocsPage() {
           <DocSection id="getting-started" kicker="Overview" title="Getting started">
             <p>
               PropLane is a property-management platform for independent landlords and small
-              managers. You run everything (applications, leases, rent, maintenance, and the books)
-              from one account that works on the web and as an iOS app.
+              managers &mdash; one account, on the web and as an iOS app.
             </p>
+            <DocList>
+              <DocCheckLi>
+                <b className="font-medium text-foreground">Applications</b>{" "}&mdash; a public link,
+                screening, and approvals
+              </DocCheckLi>
+              <DocCheckLi>
+                <b className="font-medium text-foreground">Leases</b>{" "}&mdash; generated, e&#8209;signed
+                and filed
+              </DocCheckLi>
+              <DocCheckLi>
+                <b className="font-medium text-foreground">Rent</b>{" "}&mdash; online payments,
+                reminders, late fees, balances
+              </DocCheckLi>
+              <DocCheckLi>
+                <b className="font-medium text-foreground">Maintenance</b>{" "}&mdash; requests, work
+                orders and the vendors who do them
+              </DocCheckLi>
+              <DocCheckLi>
+                <b className="font-medium text-foreground">The books</b>{" "}&mdash; every payment posts
+                itself, with statements and exports
+              </DocCheckLi>
+            </DocList>
             <p>
               Create a manager account from <b className="font-medium text-foreground">Get started</b>.
               It&rsquo;s free, and no card is required. New accounts get a 14-day Pro trial, so you
@@ -222,7 +243,7 @@ export default function DocsPage() {
             <DocList>
               <DocLi>
                 <b className="font-medium text-foreground">Reminders</b> go out before and after the
-                due date, by email, and by text if you&rsquo;ve set up a work number.
+                due date by email, and by text if you&rsquo;ve set up a work number.
               </DocLi>
               <DocLi>
                 <b className="font-medium text-foreground">Late fees</b> apply automatically according
@@ -442,6 +463,36 @@ function DocLi({ children }: { children: React.ReactNode }) {
         aria-hidden
         className="mt-[9px] h-1 w-1 shrink-0 rounded-full bg-primary/80"
       />
+      <span className="min-w-0">{children}</span>
+    </li>
+  );
+}
+
+/**
+ * A "what PropLane does" line — a tick, not a bullet.
+ *
+ * The overview used to state the whole product as one sentence with five
+ * capabilities inside a parenthesis, which is the hardest possible shape to skim
+ * (PRP-117). A reader deciding whether this tool is for them wants to run their
+ * eye down a list and stop at the thing they came for.
+ */
+function DocCheckLi({ children }: { children: React.ReactNode }) {
+  return (
+    <li className="flex gap-2.5 text-[14.5px] leading-relaxed text-muted">
+      <svg
+        aria-hidden
+        viewBox="0 0 24 24"
+        fill="none"
+        className="mt-[3px] h-4 w-4 shrink-0 text-primary"
+      >
+        <path
+          d="M20 6 9 17l-5-5"
+          stroke="currentColor"
+          strokeWidth="2.5"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
+      </svg>
       <span className="min-w-0">{children}</span>
     </li>
   );
