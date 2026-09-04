@@ -210,9 +210,15 @@ export function replacesSignedLeaseDocument(stored: LeasePipelineRow, next: Leas
 }
 
 function residentSignaturePresent(
-  row: Pick<LeasePipelineRow, "residentSignature" | "signatureName" | "signedAtIso">,
+  row: Pick<LeasePipelineRow, "residentSignature" | "signatureName" | "signedAtIso" | "bucket" | "status">,
 ): boolean {
-  return Boolean(row.residentSignature || (row.signatureName && row.signedAtIso));
+  if (row.residentSignature) return true;
+  return Boolean(
+    row.signatureName &&
+      row.signedAtIso &&
+      row.bucket === "resident" &&
+      row.status === "Resident Signature Pending",
+  );
 }
 
 function residentSignaturesMatch(
@@ -239,9 +245,12 @@ function residentSignaturesMatch(
 export function refuseResidentLeaseSignatureWrite(
   stored: LeasePipelineRow,
   next: LeasePipelineRow,
+  opts?: { exemptNotReady?: boolean },
 ): { ok: true } | { ok: false; error: string; status: number } {
   const storedSigned = residentSignaturePresent(stored);
   const nextSigned = residentSignaturePresent(next);
+  const awaitingResident =
+    stored.bucket === "resident" && stored.status === "Resident Signature Pending";
 
   if (storedSigned && nextSigned && !residentSignaturesMatch(stored, next)) {
     return {
@@ -255,11 +264,12 @@ export function refuseResidentLeaseSignatureWrite(
     return { ok: true };
   }
 
-  if (!nextSigned) {
+  const attemptingFirstSign = nextSigned && !storedSigned;
+  if (!attemptingFirstSign) {
     return { ok: true };
   }
 
-  if (stored.bucket !== "resident" || stored.status !== "Resident Signature Pending") {
+  if (!awaitingResident && !opts?.exemptNotReady) {
     return {
       ok: false,
       error: "This lease is not ready for your signature yet.",
@@ -267,7 +277,7 @@ export function refuseResidentLeaseSignatureWrite(
     };
   }
 
-  if (leaseDocumentBodyChanged(stored, next)) {
+  if (awaitingResident && leaseDocumentBodyChanged(stored, next)) {
     return {
       ok: false,
       error:

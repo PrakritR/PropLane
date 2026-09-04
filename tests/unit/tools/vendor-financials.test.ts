@@ -157,7 +157,7 @@ describe("vendor invoice scoping", () => {
       submitVendorInvoiceTool.handler(ctx, {
         lineItems: [{ description: "Labor", quantity: 1, unitAmountCents: 5000 }],
       }),
-    ).rejects.toThrow(/multiple managers/i);
+    ).rejects.toThrow(/choose which manager/i);
   });
 
   it("submit_vendor_invoice rejects a work order id that does not exist", async () => {
@@ -301,7 +301,7 @@ describe("submit_vendor_invoice preview/confirm gate", () => {
       },
       { userId: "vendor_a", roles: ["vendor"] },
     );
-    await expect(submitVendorInvoiceTool.preview!(ctx, { lineItems })).rejects.toThrow(/multiple managers/i);
+    await expect(submitVendorInvoiceTool.preview!(ctx, { lineItems })).rejects.toThrow(/choose which manager/i);
   });
 
   it("handler writes the invoice and records its id on the audit row", async () => {

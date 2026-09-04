@@ -5,6 +5,7 @@ import { track } from "@/lib/analytics/posthog";
 import { mapVendorInvoiceRow, VENDOR_INVOICE_SELECT } from "@/lib/vendor-invoices";
 import {
   insertVendorInvoiceRow,
+  listVendorLinkedManagers,
   prepareVendorInvoiceSubmission,
   VENDOR_INVOICE_SUBMIT_ERROR_STATUS,
   VendorInvoiceSubmitError,
@@ -35,14 +36,21 @@ export async function GET() {
     const gate = await requireVendor();
     if (!gate.ok) return NextResponse.json({ error: gate.error }, { status: gate.status });
 
-    const { data, error } = await gate.db
-      .from("vendor_invoices")
-      .select(VENDOR_INVOICE_SELECT)
-      .eq("vendor_user_id", gate.userId)
-      .order("submitted_at", { ascending: false });
+    const [invoicesResult, linkedManagers] = await Promise.all([
+      gate.db
+        .from("vendor_invoices")
+        .select(VENDOR_INVOICE_SELECT)
+        .eq("vendor_user_id", gate.userId)
+        .order("submitted_at", { ascending: false }),
+      listVendorLinkedManagers(gate.db, gate.userId),
+    ]);
 
+    const { data, error } = invoicesResult;
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-    return NextResponse.json({ invoices: (data ?? []).map(mapVendorInvoiceRow) });
+    return NextResponse.json({
+      invoices: (data ?? []).map(mapVendorInvoiceRow),
+      linkedManagers,
+    });
   } catch (e) {
     const message = e instanceof Error ? e.message : "Failed to load invoices.";
     return NextResponse.json({ error: message }, { status: 500 });

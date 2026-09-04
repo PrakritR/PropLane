@@ -15,6 +15,7 @@ import {
   leaseAllowsManagerDocumentEdits,
   leaseDocumentBody,
   leaseDocumentBodyChanged,
+  leaseClaimsExecution,
   refuseResidentLeaseSignatureWrite,
   replacesSignedLeaseDocument,
   rowHasAnySignature,
@@ -617,7 +618,11 @@ export async function POST(req: Request) {
             );
           }
           if (storedRow) {
-            const signatureRefusal = refuseResidentLeaseSignatureWrite(storedRow, nextRow);
+            const residentSigningExempt =
+              !untrustedDocument && leaseClaimsExecution(nextRow) && !leaseClaimsExecution(storedRow);
+            const signatureRefusal = refuseResidentLeaseSignatureWrite(storedRow, nextRow, {
+              exemptNotReady: residentSigningExempt,
+            });
             if (!signatureRefusal.ok) {
               return NextResponse.json({ error: signatureRefusal.error }, { status: signatureRefusal.status });
             }
