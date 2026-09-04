@@ -55,6 +55,7 @@ import {
   buildManagerPropertyFilterOptions,
   readLinkedListingsForUser,
   resolvePropertyLabelForId,
+  disambiguatePropertyOptionLabels,
   safePropertyOptionLabel,
   samePropertyId,
   syncManagerPortfolioFromServer,
@@ -161,11 +162,12 @@ type InviteDraft = {
 function propertyChoices(userId: string): { id: string; label: string; notYetSynced?: boolean }[] {
   const live = readExtraListingsForUser(userId);
   const pend = readPendingManagerPropertiesForUser(userId);
-  const out: { id: string; label: string; notYetSynced?: boolean }[] = [];
+  const out: { id: string; label: string; address?: string | null; notYetSynced?: boolean }[] = [];
   for (const p of live) {
     out.push({
       id: p.id,
       label: safePropertyOptionLabel([`${p.buildingName} · ${p.unitLabel || "Unit"}`, p.buildingName, p.address], p.id),
+      address: p.address,
     });
   }
   for (const r of pend) {
@@ -173,10 +175,13 @@ function propertyChoices(userId: string): { id: string; label: string; notYetSyn
     out.push({
       id: r.id,
       label: safePropertyOptionLabel([joined, r.buildingName, r.address], r.id),
+      address: r.address,
       notYetSynced: true,
     });
   }
-  return out;
+  // Two unnamed listings render the same placeholder, and picking the wrong row
+  // here grants a third party access to the wrong property (PRP-211).
+  return disambiguatePropertyOptionLabels(out);
 }
 
 function resolvePropertyLabel(id: string, fallback: string): string {
@@ -646,15 +651,17 @@ export function ProAccountLinksPanel({ userId, linkId: linkIdProp }: { userId: s
     const live = readExtraListingsForUser(userId).map((p) => ({
       id: p.id,
       label: safePropertyOptionLabel([`${p.buildingName} · ${p.unitLabel || "Unit"}`, p.buildingName, p.address], p.id),
+      address: p.address,
     }));
     const pending = readPendingManagerPropertiesForUser(userId).map((r) => {
       const joined = `${r.buildingName} · ${r.unitLabel} (pending)`;
       return {
         id: r.id,
         label: safePropertyOptionLabel([joined, r.buildingName, r.address], r.id),
+        address: r.address,
       };
     });
-    return [...live, ...pending];
+    return disambiguatePropertyOptionLabels([...live, ...pending]);
   }, [userId, localTick]);
 
   // Properties this manager co-manages via an incoming account link (e.g. Brooklyn
