@@ -16,6 +16,20 @@ once the workspace has room.
 | Delete removed from the bulk bar; single `Edit <thing>` action | Application, Lease, Services, Promotion |
 | Selection clears when the editor closes | same four tabs |
 
+## Also open, smaller
+
+* **Phone asked for twice.** A number set in Settings → Profile should not be
+  asked for again in Messaging; account creation should ask permission to use it
+  for SMS instead.
+* **Stored ids still say AXIS.** Display is fixed everywhere (localhost and
+  production, no data change). The stored values on pre-rebrand accounts, and
+  the seed fixtures for the canonical test accounts, still mint `AXIS-`.
+  Renaming them is a migration: lease ids and charge references derive from that
+  id, and the fixtures cross-reference each other, so they move together or not
+  at all. Production rows are not something to rewrite without a plan.
+* **Tasks settings dropdowns clip.** Fixed the text overflow; a menu opened near
+  the bottom of a tall modal can still render past the panel edge.
+
 ## Redesigns the captain asked for — these need plans, not late-night edits
 
 Each of these is a section-sized rebuild rather than a fix, and several change
