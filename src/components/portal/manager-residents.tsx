@@ -1820,12 +1820,18 @@ export function ManagerResidents({
     nextBucket: ManagerApplicationBucket,
     opts?: { skipWelcomeEmail?: boolean },
   ) => {
+    const row = readManagerApplicationRows().find((candidate) => candidate.id === id);
+    const propertyId =
+      row?.assignedPropertyId?.trim() ||
+      row?.propertyId?.trim() ||
+      row?.application?.propertyId?.trim() ||
+      "";
     const result = await transitionApplicationBucket(id, nextBucket, {
       userId: userId ?? null,
       skipWelcomeEmail: opts?.skipWelcomeEmail,
       // Without this a manager who switched automation on sees it do nothing when they approve
       // from this surface.
-      automation: applicationAutomation,
+      automation: applicationAutomation.forProperty(propertyId),
     });
     if (!result) return;
     setHcTick((n) => n + 1);

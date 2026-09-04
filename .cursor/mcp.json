@@ -21,6 +21,10 @@
     "browser-use": {
       "command": "/opt/homebrew/bin/uvx",
       "args": ["--python", "3.12", "browser-use@latest", "--cli-mcp"]
+    },
+    "linear": {
+      "type": "http",
+      "url": "https://mcp.linear.app/mcp"
     }
   }
 }

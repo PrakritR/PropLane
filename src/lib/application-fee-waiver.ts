@@ -371,6 +371,74 @@ export type SetPrimaryWaiverCodeResult =
   | { ok: true; code: ApplicationFeeWaiverCode | null }
   | { ok: false; error: string };
 
+export const LISTING_WAIVER_LABEL_PREFIX = "listing:";
+
+export function listingWaiverLabel(propertyId: string): string {
+  return `${LISTING_WAIVER_LABEL_PREFIX}${propertyId.trim()}`;
+}
+
+/**
+ * Upsert the waiver code tied to one listing/property. Uses the code `label` column
+ * (`listing:<propertyId>`) so multiple properties can each have their own active code
+ * without revoking the manager's other listings.
+ */
+export async function upsertPropertyApplicationFeeWaiverCode(
+  db: SupabaseClient,
+  managerUserId: string,
+  propertyId: string,
+  rawCode: string | null | undefined,
+): Promise<SetPrimaryWaiverCodeResult> {
+  const pid = propertyId.trim();
+  if (!pid) return { ok: false, error: "propertyId is required." };
+  const label = listingWaiverLabel(pid);
+  const existing = await listApplicationFeeWaiverCodes(db, managerUserId);
+  const tagged = existing.filter((c) => c.label === label);
+  const trimmed = (rawCode ?? "").trim();
+
+  if (!trimmed) {
+    for (const c of tagged.filter((row) => row.status === "active")) {
+      const revoked = await revokeApplicationFeeWaiverCode(db, managerUserId, c.id);
+      if (!revoked.ok) return { ok: false, error: revoked.error };
+    }
+    return { ok: true, code: null };
+  }
+
+  if (!isValidWaiverCodeFormat(trimmed)) {
+    return { ok: false, error: "Codes must be 4-32 letters, numbers, or hyphens." };
+  }
+  const normalized = normalizeWaiverCode(trimmed);
+  const matching =
+    tagged.find((c) => c.code === normalized && c.status === "active") ??
+    existing.find((c) => c.code === normalized && c.status === "active") ??
+    null;
+
+  for (const c of tagged.filter((row) => row.status === "active" && row.id !== matching?.id)) {
+    const revoked = await revokeApplicationFeeWaiverCode(db, managerUserId, c.id);
+    if (!revoked.ok) return { ok: false, error: revoked.error };
+  }
+
+  if (matching) {
+    if (matching.label !== label) {
+      const { error } = await db
+        .from("manager_application_fee_waiver_codes")
+        .update({ label })
+        .eq("id", matching.id)
+        .eq("manager_user_id", managerUserId.trim());
+      if (error) return { ok: false, error: error.message };
+      return { ok: true, code: { ...matching, label } };
+    }
+    return { ok: true, code: matching };
+  }
+
+  const created = await createApplicationFeeWaiverCode(db, managerUserId, {
+    code: normalized,
+    label,
+    maxUses: null,
+  });
+  if (!created.ok) return { ok: false, error: created.error };
+  return { ok: true, code: created.code };
+}
+
 /**
  * Collapse the manager's waiver codes to at most one unlimited primary code.
  * Compatible with the multi-code table: extras are revoked, not deleted.

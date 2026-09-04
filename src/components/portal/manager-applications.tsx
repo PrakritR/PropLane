@@ -1011,10 +1011,14 @@ export function ManagerApplications({
    */
   useEffect(() => {
     if (autoApproveRanRef.current) return;
-    if (!applicationAutomation.autoApproveApplications || !userId || rows.length === 0) return;
+    if (!userId || rows.length === 0) return;
+    const autoApproveRows = rows.filter(
+      (row) => applicationAutomation.forProperty(applicationRowPropertyId(row)).autoApproveApplications,
+    );
+    if (autoApproveRows.length === 0) return;
     autoApproveRanRef.current = true;
     const picked = selectAutoApprovals(
-      rows.map((row) => ({
+      autoApproveRows.map((row) => ({
         id: row.id,
         bucket: row.bucket,
         withdrawnAt: row.withdrawnAt,
@@ -1039,17 +1043,18 @@ export function ManagerApplications({
     // Deliberately keyed on the automation flag and the row set only — `setRowBucket` is redefined
     // every render and would retrigger the pass.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [applicationAutomation.autoApproveApplications, rows, userId]);
+  }, [applicationAutomation, rows, userId]);
 
   const setRowBucket = async (
     id: string,
     nextBucket: ManagerApplicationBucket,
     opts?: { skipWelcomeEmail?: boolean; skipNavigate?: boolean; quiet?: boolean },
   ) => {
+    const row = rows.find((candidate) => candidate.id === id);
     const result = await transitionApplicationBucket(id, nextBucket, {
       userId: userId ?? null,
       skipWelcomeEmail: opts?.skipWelcomeEmail,
-      automation: applicationAutomation,
+      automation: applicationAutomation.forProperty(row ? applicationRowPropertyId(row) : ""),
     });
     if (!result) return;
     setRows(readManagerApplicationRows());
@@ -1944,6 +1949,8 @@ export function ManagerApplications({
         onClose={() => setApplicationSettingsOpen(false)}
         initialTab="applications"
         scoped
+        propertyOptions={propertyOptions}
+        initialPropertyId={propertyFilters.length === 1 ? propertyFilters[0] : undefined}
       />
       {checkrScreeningModal}
       {!authReady && rows.length === 0 ? (

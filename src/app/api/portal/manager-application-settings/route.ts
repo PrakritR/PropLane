@@ -4,6 +4,8 @@ import {
   listApplicationFeeWaiverCodes,
   pickPrimaryApplicationFeeWaiverCode,
   setPrimaryApplicationFeeWaiverCode,
+  upsertPropertyApplicationFeeWaiverCode,
+  listingWaiverLabel,
 } from "@/lib/application-fee-waiver";
 import {
   loadManagerApplicationSettings,
@@ -16,7 +18,10 @@ import {
 import { suggestedManagerApplicationFeeCents } from "@/lib/manager-application-settings.server";
 import {
   loadApplicationAutomation,
+  loadApplicationAutomationState,
   saveApplicationAutomation,
+  saveApplicationAutomationForProperty,
+  resolveApplicationAutomationForProperty,
   type ApplicationAutomationPreferences,
 } from "@/lib/application-automation-preferences";
 import {
@@ -32,12 +37,17 @@ import { requireManagerRouteUser } from "@/lib/manager-route-guard.server";
 
 export const runtime = "nodejs";
 
-export async function GET() {
+export async function GET(req: Request) {
   try {
     const ctx = await requireManagerRouteUser();
     if (!ctx) return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
+    const url = new URL(req.url);
+    const propertyId = url.searchParams.get("propertyId")?.trim() ?? "";
     const settings = await loadManagerApplicationSettings(ctx.db, ctx.userId);
-    const automation = await loadApplicationAutomation(ctx.db, ctx.userId);
+    const automationState = await loadApplicationAutomationState(ctx.db, ctx.userId);
+    const automation = propertyId
+      ? resolveApplicationAutomationForProperty(automationState, propertyId)
+      : automationState.portfolio;
     const taskAutomation = await loadTaskAutomation(ctx.db, ctx.userId);
     const landlordLegalName = await loadManagerLandlordLegalNameFromProfile(ctx.db, ctx.userId);
     const landlord = { landlordLegalName };
@@ -47,13 +57,17 @@ export async function GET() {
     const suggestedFeeCents = await suggestedManagerApplicationFeeCents(ctx.db, ctx.userId);
     const codes = await listApplicationFeeWaiverCodes(ctx.db, ctx.userId);
     const primary = pickPrimaryApplicationFeeWaiverCode(codes);
+    const propertyWaiverCode = propertyId
+      ? codes.find((c) => c.label === listingWaiverLabel(propertyId) && c.status === "active")?.code ?? null
+      : null;
     return NextResponse.json({
       settings,
       automation,
+      automationState,
       taskAutomation,
       landlord,
       suggestedFeeCents,
-      waiverCode: primary?.code ?? null,
+      waiverCode: propertyWaiverCode ?? primary?.code ?? null,
     });
   } catch (e) {
     const message = e instanceof Error ? e.message : "Failed";
@@ -72,8 +86,12 @@ export async function PATCH(req: Request) {
     // fee branch below reads an absent key as "clear it", so saving automation through that path
     // would silently zero the manager's application fee.
     let automation: ApplicationAutomationPreferences | undefined;
+    const propertyId =
+      typeof body.propertyId === "string" && body.propertyId.trim() ? body.propertyId.trim() : "";
     if ("automation" in body) {
-      automation = await saveApplicationAutomation(ctx.db, ctx.userId, body.automation);
+      automation = propertyId
+        ? await saveApplicationAutomationForProperty(ctx.db, ctx.userId, propertyId, body.automation)
+        : await saveApplicationAutomation(ctx.db, ctx.userId, body.automation);
     }
 
     let taskAutomation: TaskAutomationPreferences | undefined;
@@ -127,7 +145,11 @@ export async function PATCH(req: Request) {
     }
 
     const raw = body.waiverCode == null ? "" : String(body.waiverCode);
-    const result = await setPrimaryApplicationFeeWaiverCode(ctx.db, ctx.userId, raw);
+    const waiverPropertyId =
+      typeof body.propertyId === "string" && body.propertyId.trim() ? body.propertyId.trim() : "";
+    const result = waiverPropertyId
+      ? await upsertPropertyApplicationFeeWaiverCode(ctx.db, ctx.userId, waiverPropertyId, raw)
+      : await setPrimaryApplicationFeeWaiverCode(ctx.db, ctx.userId, raw);
     if (!result.ok) {
       return NextResponse.json({ error: result.error }, { status: 400 });
     }
