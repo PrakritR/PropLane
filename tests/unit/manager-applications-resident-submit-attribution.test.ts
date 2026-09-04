@@ -13,6 +13,9 @@ import { beforeEach, afterAll, describe, expect, it, vi } from "vitest";
 import fs from "node:fs";
 import path from "node:path";
 import type { DemoApplicantRow } from "@/data/demo-portal";
+import { createDefaultListingSubmission } from "@/lib/manager-listing-submission";
+import { createInitialRentalWizardState } from "@/lib/rental-application/state";
+import type { RentalWizardFormState } from "@/lib/rental-application/types";
 
 const TRANSCRIPT_PATH = process.env.RESIDENT_SUBMIT_TRANSCRIPT;
 const transcript: string[] = [];
@@ -86,6 +89,47 @@ const OWNER = "mgr-owner-of-the-magnolia";
 const VICTIM = "mgr-someone-elses-portfolio";
 const LISTING = "mgr-magnolia-2b-a1b2c3";
 
+function validSubmittedApplication(
+  over: Partial<RentalWizardFormState> = {},
+): RentalWizardFormState {
+  return {
+    ...createInitialRentalWizardState(),
+    applyingAsGroup: "no",
+    hasCosigner: "no",
+    propertyId: LISTING,
+    roomChoice1: LISTING,
+    leaseTerm: "12-Month",
+    leaseStart: "2027-08-01",
+    leaseEnd: "2028-07-31",
+    fullLegalName: "Maya Alvarez",
+    dateOfBirth: "1995-01-15",
+    ssn: "123-45-6789",
+    driversLicense: "WA1234567",
+    phone: "(206) 555-0100",
+    email: "maya.alvarez@example.com",
+    currentStreet: "100 Main St",
+    currentCity: "Seattle",
+    currentState: "WA",
+    currentZip: "98101",
+    noPreviousAddress: true,
+    notEmployed: false,
+    employer: "PropLane",
+    monthlyIncome: "5,000",
+    ref1Name: "Sam Rivera",
+    ref1Relationship: "Friend",
+    ref1Phone: "(206) 555-0101",
+    occupancyCount: "1",
+    evictionHistory: "no",
+    bankruptcyHistory: "no",
+    criminalHistory: "no",
+    consentCredit: true,
+    consentTruth: true,
+    digitalSignature: "Maya Alvarez",
+    dateSigned: "2026-09-04",
+    ...over,
+  };
+}
+
 function residentRow(over: Partial<DemoApplicantRow> = {}): DemoApplicantRow {
   return {
     id: "AXIS-90210",
@@ -96,6 +140,7 @@ function residentRow(over: Partial<DemoApplicantRow> = {}): DemoApplicantRow {
     stage: "Submitted",
     bucket: "pending",
     detail: "",
+    application: validSubmittedApplication(),
     ...over,
   };
 }
@@ -119,7 +164,15 @@ beforeEach(() => {
     data: { user: { id: "resident-user-1", email: "maya.alvarez@example.com", user_metadata: {} } },
     error: null,
   });
-  PROPERTY_RECORDS = { [LISTING]: { manager_user_id: OWNER, property_data: {} } };
+  PROPERTY_RECORDS = {
+    [LISTING]: {
+      manager_user_id: OWNER,
+      property_data: {
+        id: LISTING,
+        listingSubmission: createDefaultListingSubmission(),
+      },
+    },
+  };
   STORED_ROWS = [];
   UPSERTS = [];
 });
@@ -131,6 +184,49 @@ afterAll(() => {
 });
 
 describe("POST /api/manager-applications — resident submit attribution", () => {
+  it("rejects a submitted row with a valid id but no application answers", async () => {
+    const res = await submit(residentRow({ application: undefined }));
+
+    expect(res.status).toBe(422);
+    expect(res.body.fieldErrors).toMatchObject({
+      _general: "Application answers are required before submission.",
+    });
+    expect(UPSERTS).toHaveLength(0);
+  });
+
+  it("rejects an unanswered required custom question on the Review step", async () => {
+    PROPERTY_RECORDS[LISTING] = {
+      manager_user_id: OWNER,
+      property_data: {
+        id: LISTING,
+        listingSubmission: {
+          ...createDefaultListingSubmission(),
+          applicationConfigMode: "custom",
+          customApplicationFields: [
+            {
+              id: "caf-review",
+              key: "review-confirmation",
+              label: "Confirm the information above",
+              type: "checkbox",
+              required: true,
+              options: [],
+              section: "review",
+            },
+          ],
+        },
+      },
+    };
+
+    const res = await submit(residentRow());
+
+    expect(res.status).toBe(422);
+    expect(res.body.step).toBe(10);
+    expect(res.body.fieldErrors).toMatchObject({
+      "custom:review-confirmation": "This box must be checked to continue.",
+    });
+    expect(UPSERTS).toHaveLength(0);
+  });
+
   it("attributes a resident's submit to the listing's manager", async () => {
     const res = await submit(residentRow());
 

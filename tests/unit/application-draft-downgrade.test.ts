@@ -149,6 +149,12 @@ vi.mock("@/lib/screening/order-screening", () => ({
   tryAutoOrderScreening: async () => undefined,
 }));
 
+// Submit validation has dedicated route-level coverage. This suite isolates the
+// persistence race and intentionally uses a compact application snapshot.
+vi.mock("@/lib/rental-application/validate-application-submit.server", () => ({
+  validateResidentApplicationRowForPersistence: async () => ({ ok: true }),
+}));
+
 vi.mock("@/lib/auth/admin-preview", () => ({ isAdminUser: async () => false }));
 
 import { POST } from "@/app/api/manager-applications/route";

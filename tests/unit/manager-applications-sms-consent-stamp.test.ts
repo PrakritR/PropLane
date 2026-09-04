@@ -11,6 +11,7 @@ import type { DemoApplicantRow } from "@/data/demo-portal";
 import type { RentalWizardFormState } from "@/lib/rental-application/types";
 import { createInitialRentalWizardState } from "@/lib/rental-application/state";
 import { SMS_CONSENT_WORDING_VERSION } from "@/lib/rental-application/sms-consent";
+import { createDefaultListingSubmission } from "@/lib/manager-listing-submission";
 
 const getUser = vi.fn();
 let PROFILE: { role: string; email: string } | null = null;
@@ -98,7 +99,42 @@ const LISTING = "mgr-magnolia-2b-a1b2c3";
 const FORGED_AT = "1999-01-01T00:00:00.000Z";
 
 function application(over: Partial<RentalWizardFormState> = {}): RentalWizardFormState {
-  return { ...createInitialRentalWizardState(), propertyId: LISTING, ...over };
+  return {
+    ...createInitialRentalWizardState(),
+    applyingAsGroup: "no",
+    hasCosigner: "no",
+    propertyId: LISTING,
+    roomChoice1: LISTING,
+    leaseTerm: "12-Month",
+    leaseStart: "2027-08-01",
+    leaseEnd: "2028-07-31",
+    fullLegalName: "Maya Alvarez",
+    dateOfBirth: "1995-01-15",
+    ssn: "123-45-6789",
+    driversLicense: "WA1234567",
+    phone: "(206) 555-0100",
+    email: "maya.alvarez@example.com",
+    currentStreet: "100 Main St",
+    currentCity: "Seattle",
+    currentState: "WA",
+    currentZip: "98101",
+    noPreviousAddress: true,
+    notEmployed: false,
+    employer: "PropLane",
+    monthlyIncome: "5,000",
+    ref1Name: "Sam Rivera",
+    ref1Relationship: "Friend",
+    ref1Phone: "(206) 555-0101",
+    occupancyCount: "1",
+    evictionHistory: "no",
+    bankruptcyHistory: "no",
+    criminalHistory: "no",
+    consentCredit: true,
+    consentTruth: true,
+    digitalSignature: "Maya Alvarez",
+    dateSigned: "2026-09-04",
+    ...over,
+  };
 }
 
 function residentRow(over: Partial<DemoApplicantRow> = {}): DemoApplicantRow {
@@ -134,7 +170,15 @@ beforeEach(() => {
     data: { user: { id: "resident-user-1", email: "maya.alvarez@example.com", user_metadata: {} } },
     error: null,
   });
-  PROPERTY_RECORDS = { [LISTING]: { manager_user_id: OWNER, property_data: {} } };
+  PROPERTY_RECORDS = {
+    [LISTING]: {
+      manager_user_id: OWNER,
+      property_data: {
+        id: LISTING,
+        listingSubmission: createDefaultListingSubmission(),
+      },
+    },
+  };
   STORED_ROWS = [];
   UPSERTS = [];
   UPSERT_ERROR = null;

@@ -17,10 +17,12 @@ import { syncApplicationLifecycleTasks } from "@/lib/manager-default-tasks.serve
 import { purgeApplicationPortalData } from "@/lib/auth/purge-portal-account-data";
 import { isWithdrawnApplicationRow } from "@/lib/rental-application/resident-application-list";
 import { residentOwnsApplicationRow } from "@/lib/rental-application/resident-application-ownership";
+import { isDraftShapedApplicationRow } from "@/lib/rental-application/draft-shape";
 import { tryAutoOrderScreening } from "@/lib/screening/order-screening";
 import { runExistingResidentOnboarding } from "@/lib/existing-resident-onboarding.server";
 import { SMS_CONSENT_WORDING_VERSION } from "@/lib/rental-application/sms-consent";
 import { revokeApplicationScopedSmsConsentOnWithdrawal } from "@/lib/sms/application-consent.server";
+import { validateResidentApplicationRowForPersistence } from "@/lib/rental-application/validate-application-submit.server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 
@@ -843,6 +845,19 @@ export async function POST(req: Request) {
         return NextResponse.json({ error: guest.error }, { status: guest.status });
       }
       row = anchorServerOwnedSmsConsent(guest.row, existing ?? null);
+      if (!existing || isDraftShapedApplicationRow(existing)) {
+        const validation = await validateResidentApplicationRowForPersistence(db, row);
+        if (!validation.ok) {
+          return NextResponse.json(
+            {
+              error: validation.error,
+              fieldErrors: validation.fieldErrors,
+              ...(validation.step ? { step: validation.step } : {}),
+            },
+            { status: validation.status },
+          );
+        }
+      }
       const previousRow = existing ?? null;
       await persistNormalizedRow(db, row.id, row);
       await revokeMaterializedApplicationConsentAfterWrite(db, existingRecord ?? null, row);
@@ -931,6 +946,19 @@ export async function POST(req: Request) {
               }
             : row.application,
       };
+      if (!existing || isDraftShapedApplicationRow(existing)) {
+        const validation = await validateResidentApplicationRowForPersistence(db, row);
+        if (!validation.ok) {
+          return NextResponse.json(
+            {
+              error: validation.error,
+              fieldErrors: validation.fieldErrors,
+              ...(validation.step ? { step: validation.step } : {}),
+            },
+            { status: validation.status },
+          );
+        }
+      }
       const linked = await linkResidentOnApplicationSubmit(db, {
         userId: user.id,
         row,

@@ -11,10 +11,18 @@ import {
 import { listingCustomApplicationFields } from "@/lib/rental-application/custom-fields";
 import { IN_PROGRESS_APPLICATION_STAGE } from "@/lib/rental-application/in-progress-application";
 import { createInitialRentalWizardState } from "@/lib/rental-application/state";
-import type { RentalWizardFormState } from "@/lib/rental-application/types";
+import type { RentalWizardErrors, RentalWizardFormState } from "@/lib/rental-application/types";
 import { countValidationErrors, validateRentalWizardStep } from "@/lib/rental-application/validate";
 
-const SUBMIT_VALIDATION_STEPS = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 12] as const;
+/**
+ * Every non-payment step that can carry applicant-entered content.
+ *
+ * Keep the client submit gate and the server persistence gate on this shared
+ * list. Step 11 is intentionally excluded: payment is verified by its own
+ * server routes, while application-answer validation must not depend on a
+ * browser-side payment snapshot.
+ */
+export const SUBMIT_VALIDATION_STEPS = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10] as const;
 
 function mergeApplicationForm(application: Partial<RentalWizardFormState>): RentalWizardFormState {
   return { ...createInitialRentalWizardState(), ...application };
@@ -112,18 +120,27 @@ export function residentApplicationScreeningAllowed(
 
 export type ValidateResidentApplicationSubmitResult =
   | { ok: true }
-  | { ok: false; error: string; step?: number };
+  | { ok: false; error: string; step?: number; fieldErrors: RentalWizardErrors };
 
 export function validateResidentApplicationSubmit(input: {
   application: Partial<RentalWizardFormState>;
   property?: Pick<MockProperty, "id" | "listingSubmission"> | null;
   inProgress: boolean;
 }): ValidateResidentApplicationSubmitResult {
+  // Drafts deliberately preserve answers while an applicant moves between
+  // variants. Full validation (and disabled-field rejection) belongs at the
+  // submitted-state boundary, not on each autosave keystroke.
+  if (input.inProgress) return { ok: true };
+
   const sub = listingSubmissionFromProperty(input.property);
   const disabledViolation = findDisabledApplicationFieldViolation(input.application, sub);
-  if (disabledViolation) return { ok: false, error: disabledViolation };
-
-  if (input.inProgress) return { ok: true };
+  if (disabledViolation) {
+    return {
+      ok: false,
+      error: disabledViolation,
+      fieldErrors: { _general: disabledViolation },
+    };
+  }
 
   void resolveListingApplicationFields(sub, normalizeCustomApplicationFields);
   const form = mergeApplicationForm(input.application);
@@ -134,7 +151,7 @@ export function validateResidentApplicationSubmit(input: {
         errors._general ??
         Object.values(errors).find((value): value is string => typeof value === "string" && value.length > 0) ??
         "Application validation failed.";
-      return { ok: false, error: message, step };
+      return { ok: false, error: message, step, fieldErrors: errors };
     }
   }
   return { ok: true };
