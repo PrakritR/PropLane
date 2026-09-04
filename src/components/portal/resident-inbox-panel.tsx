@@ -1536,16 +1536,14 @@ export const ResidentInboxPanel = forwardRef<
               composer={
                 activeThread.folder === "trash" || tabId === "trash" ? undefined : (
                   <>
-                    {embeddedInCommunication ? null : (
-                      <InboxThreadAssistantStrip
-                        contextHint={buildInboxThreadAssistantContext({
-                          subject: activeThread.subject,
-                          email: activeThread.email,
-                          from: activeThread.from,
-                          sentSemantics: activeIsSent,
-                        })}
-                      />
-                    )}
+                    <InboxThreadAssistantStrip
+                      contextHint={buildInboxThreadAssistantContext({
+                        subject: activeThread.subject,
+                        email: activeThread.email,
+                        from: activeThread.from,
+                        sentSemantics: activeIsSent,
+                      })}
+                    />
                     <InboxComposer
                       value={replyDraft}
                       onChange={setReplyDraft}

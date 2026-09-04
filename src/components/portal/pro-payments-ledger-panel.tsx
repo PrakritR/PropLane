@@ -63,6 +63,10 @@ import { PaymentScheduledMessagesLead } from "@/components/portal/payment-schedu
 import type { ScheduledPaymentMessage } from "@/lib/scheduled-payment-messages";
 import { manageableRemindersForCharge, formatScheduledSendAt } from "@/lib/scheduled-payment-messages";
 import { scheduledSendBadgeLabel, summariseScheduledSends } from "@/lib/scheduled-send-summary";
+import {
+  combineScheduledPaymentMessages,
+  scheduledMessagesTouchingCharges,
+} from "@/lib/combined-payment-reminders";
 import { paymentReminderRecipientLabel } from "@/lib/payment-reminder-ui";
 import {
   buildCombinedPaymentReminderBody,
@@ -229,6 +233,17 @@ export function ManagerPaymentsLedgerPanel({
   groupMode?: PortalListGroupMode;
 }) {
   const { showToast } = useAppUi();
+  const displayScheduledMessages = useMemo(
+    () => combineScheduledPaymentMessages(scheduledMessages),
+    [scheduledMessages],
+  );
+  const clusterScheduledBadgeLabel = useCallback(
+    (chargeIds: ReadonlySet<string>) =>
+      scheduledSendBadgeLabel(
+        summariseScheduledSends(scheduledMessagesTouchingCharges(displayScheduledMessages, chargeIds)),
+      ),
+    [displayScheduledMessages],
+  );
   const [returningDepositId, setReturningDepositId] = useState<string | null>(null);
   const navigate = usePortalNavigate();
   const [editingRowId, setEditingRowId] = useState<string | null>(null);
@@ -853,7 +868,7 @@ export function ManagerPaymentsLedgerPanel({
           // `householdChargeId` is optional on a ledger row; without it there is no charge to
           // match reminders against, so there is nothing to show rather than everything.
           if (!row.householdChargeId) return null;
-          const reminders = manageableRemindersForCharge(scheduledMessages, row.householdChargeId)
+          const reminders = manageableRemindersForCharge(displayScheduledMessages, row.householdChargeId)
             .filter((message) => message.status === "scheduled")
             .filter((message) => Date.parse(message.sendAt) > Date.now());
           if (reminders.length === 0) return null;
@@ -863,12 +878,18 @@ export function ManagerPaymentsLedgerPanel({
                 {reminders.length === 1 ? "Scheduled reminder" : "Scheduled reminders"}
               </p>
               <ul className="mt-1 space-y-1">
-                {reminders.map((message) => (
-                  <li key={message.id} className="text-foreground">
-                    {formatScheduledSendAt(message.sendAt)}
-                    <span className="text-muted"> · {message.typeLabel}</span>
-                  </li>
-                ))}
+                {reminders.map((message) => {
+                  const bundledCount = message.bundledChargeIds?.length ?? 0;
+                  return (
+                    <li key={message.id} className="text-foreground">
+                      {formatScheduledSendAt(message.sendAt)}
+                      <span className="text-muted"> · {message.typeLabel}</span>
+                      {bundledCount > 1 ? (
+                        <span className="text-muted"> · {bundledCount} charges in one email</span>
+                      ) : null}
+                    </li>
+                  );
+                })}
               </ul>
             </div>
           );
@@ -1486,14 +1507,14 @@ export function ManagerPaymentsLedgerPanel({
           id: row.id,
           data: row,
           primary: ledgerRowPrimaryLabel(row),
-          meta: ledgerRowMetaLine(row, scheduledMessages, {
+          meta: ledgerRowMetaLine(row, displayScheduledMessages, {
             includeProperty: !options?.omitPropertyInMeta,
             includeReminder: false,
           }),
           leading: (
             <PaymentScheduledMessagesLead
               row={row}
-              scheduledMessages={scheduledMessages}
+              scheduledMessages={displayScheduledMessages}
               onOpenReminders={openChargeRemindersModal}
             />
           ),
@@ -1565,13 +1586,11 @@ export function ManagerPaymentsLedgerPanel({
                   </Badge>
                   {(() => {
                     const chargeIds = new Set(
-                      cluster.rows.map((row) => row.householdChargeId).filter(Boolean),
+                      cluster.rows
+                        .map((row) => row.householdChargeId)
+                        .filter((id): id is string => Boolean(id)),
                     );
-                    const label = scheduledSendBadgeLabel(
-                      summariseScheduledSends(
-                        scheduledMessages.filter((message) => chargeIds.has(message.chargeId)),
-                      ),
-                    );
+                    const label = clusterScheduledBadgeLabel(chargeIds);
                     return label ? (
                       <Badge tone="pending">
                         <span data-attr="payments-cluster-scheduled">{label}</span>
@@ -1611,12 +1630,12 @@ export function ManagerPaymentsLedgerPanel({
                     {cluster.rows.length === 1 ? "1 charge" : `${cluster.rows.length} charges`}
                   </Badge>
                   {(() => {
-                    const chargeIds = new Set(cluster.rows.map((row) => row.householdChargeId));
-                    const label = scheduledSendBadgeLabel(
-                      summariseScheduledSends(
-                        scheduledMessages.filter((message) => chargeIds.has(message.chargeId)),
-                      ),
+                    const chargeIds = new Set(
+                      cluster.rows
+                        .map((row) => row.householdChargeId)
+                        .filter((id): id is string => Boolean(id)),
                     );
+                    const label = clusterScheduledBadgeLabel(chargeIds);
                     return label ? (
                       <Badge tone="pending">
                         <span data-attr="payments-cluster-scheduled">{label}</span>

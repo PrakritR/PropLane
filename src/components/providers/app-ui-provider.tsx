@@ -86,3 +86,8 @@ export function useAppUi() {
   }
   return ctx;
 }
+
+/** Like {@link useAppUi} but returns null outside a provider (unit tests, isolated renders). */
+export function useOptionalAppUi() {
+  return useContext(AppUiContext);
+}

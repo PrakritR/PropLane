@@ -62,6 +62,10 @@ describe("BulkActionBar call sites", () => {
     join("src", "components", "portal", "pro-house-properties-panel.tsx"),
     join("src", "components", "portal", "pro-promotion.tsx"),
     join("src", "components", "portal", "pro-account-links-panel.tsx"),
+    // The inbox list's Delete is gated on the ARCHIVED segment — a thread the
+    // person already put away, on a list whose whole point is clearing many at
+    // once. Same exemption, same reason as the other portfolio lists.
+    join("src", "components", "portal", "communication-list-bulk-bar.tsx"),
   ]);
 
   it("on a property detail tab, never carry a destructive action", () => {

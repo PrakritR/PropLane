@@ -12,6 +12,10 @@
  * resident's own message from appearing.
  */
 import type { SupabaseClient } from "@supabase/supabase-js";
+import {
+  canonicalResidentAgentThreadId,
+  parseResidentAgentThreadId,
+} from "@/lib/communication-inbox-assistant";
 import { formatPacificDateTime } from "@/lib/pacific-time";
 import {
   commitInboxThreadReply,
@@ -28,9 +32,10 @@ const RESIDENT_INBOX_SCOPE = "axis_portal_inbox_resident_v1";
 /** Shown as the other party. Never a manager's name — see the file header. */
 export const RESIDENT_AGENT_FROM_NAME = "PropLane Assistant";
 
-/** Stable per resident+manager, so the assistant is one continuing conversation. */
-export function residentAgentThreadId(residentUserId: string, managerUserId: string): string {
-  return `resident-agent-${residentUserId}-${managerUserId}`;
+/** Stable per resident — one assistant conversation regardless of manager count. */
+export function residentAgentThreadId(residentUserId: string, _managerUserId?: string): string {
+  void _managerUserId;
+  return canonicalResidentAgentThreadId(residentUserId);
 }
 
 /**
@@ -68,10 +73,22 @@ export async function ensureResidentAgentThread(
   const threadId = residentAgentThreadId(input.residentUserId, input.managerUserId);
   const { data: existing } = await db
     .from("portal_inbox_thread_records")
-    .select("id")
+    .select("id, row_data")
     .eq("id", threadId)
     .maybeSingle();
-  if (existing) return threadId;
+  if (existing) {
+    const rowData = (existing.row_data ?? {}) as Record<string, unknown>;
+    if (!rowData.boundManagerUserId) {
+      await db
+        .from("portal_inbox_thread_records")
+        .update({
+          row_data: { ...rowData, boundManagerUserId: input.managerUserId },
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", threadId);
+    }
+    return threadId;
+  }
 
   const when = formatPacificDateTime(new Date());
   await db.from("portal_inbox_thread_records").upsert(
@@ -91,6 +108,7 @@ export async function ensureResidentAgentThread(
         time: when,
         unread: false,
         threadType: RESIDENT_AGENT_THREAD_TYPE,
+        boundManagerUserId: input.managerUserId,
         messages: [
           {
             id: "resident-agent-intro",
@@ -111,11 +129,26 @@ export async function ensureResidentAgentThread(
   return threadId;
 }
 
-/** The manager this assistant thread is bound to, parsed from its own id. */
-export function managerUserIdFromAgentThreadId(threadId: string, residentUserId: string): string | null {
-  const prefix = `resident-agent-${residentUserId}-`;
-  if (!threadId.startsWith(prefix)) return null;
-  const managerUserId = threadId.slice(prefix.length).trim();
+/** The manager this assistant thread is bound to — from row data or a legacy id suffix. */
+export function managerUserIdFromAgentThreadId(
+  threadId: string,
+  residentUserId: string,
+  rowData?: Record<string, unknown> | null,
+): string | null {
+  const bound = rowData?.boundManagerUserId;
+  if (typeof bound === "string" && bound.trim()) return bound.trim();
+
+  const canonical = canonicalResidentAgentThreadId(residentUserId);
+  if (threadId === canonical) return null;
+
+  const parsed = parseResidentAgentThreadId(threadId);
+  if (parsed?.residentUserId === residentUserId && parsed.managerUserId) {
+    return parsed.managerUserId;
+  }
+
+  const legacyPrefix = `resident-agent-${residentUserId}-`;
+  if (!threadId.startsWith(legacyPrefix)) return null;
+  const managerUserId = threadId.slice(legacyPrefix.length).trim();
   return managerUserId || null;
 }
 
@@ -133,15 +166,16 @@ export async function runResidentInboxAgentTurn(
   residentEmail: string,
   incomingText: string,
 ): Promise<{ replied: boolean; reason?: string }> {
-  const managerUserId = managerUserIdFromAgentThreadId(target.threadId, residentUserId);
-  if (!managerUserId) return { replied: false, reason: "thread_not_bound_to_manager" };
-
   const { data: row } = await db
     .from("portal_inbox_thread_records")
     .select("row_data")
     .eq("id", target.threadId)
     .maybeSingle();
-  const history = threadHistory(row?.row_data as Record<string, unknown> | null);
+  const rowData = (row?.row_data ?? null) as Record<string, unknown> | null;
+  const managerUserId = managerUserIdFromAgentThreadId(target.threadId, residentUserId, rowData);
+  if (!managerUserId) return { replied: false, reason: "thread_not_bound_to_manager" };
+
+  const history = threadHistory(rowData);
   // The incoming message is already committed to the thread by the caller, so
   // drop the trailing copy rather than sending it to the model twice.
   const priorHistory = history.slice(0, -1);

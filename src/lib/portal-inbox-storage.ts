@@ -1,3 +1,8 @@
+import {
+  assistantInboxCollapseKey,
+  boundManagerUserIdFromThread,
+  canonicalResidentAgentThreadId,
+} from "@/lib/communication-inbox-assistant";
 import { isDemoModeActive } from "@/lib/demo/demo-session";
 import { formatPacificDateTime } from "@/lib/pacific-time";
 import {
@@ -62,6 +67,10 @@ export type PersistedInboxThread = {
   messages?: InboxThreadMessage[];
   /** Manager-only pending AI reply draft (never present on resident-scope rows). */
   aiDraft?: InboxAiDraft;
+  /** Server row metadata mirrored into `row_data` for assistant threads. */
+  threadType?: string;
+  /** Resident assistant: which manager's tools this thread is bound to. */
+  boundManagerUserId?: string;
 };
 
 export const MANAGER_INBOX_STORAGE_KEY = "axis_portal_inbox_manager_v1";
@@ -251,10 +260,7 @@ export async function syncPersistedInboxFromServer(
     const rows = (Array.isArray(body.rows) ? body.rows : []).filter(looksLikeThread);
     const existing = memoryByKey.get(viewerCacheKey(key)) ?? [];
     const merged = mergeInboxRowsWithLocalTrash(rows, existing, { excludeIds: opts?.excludeIds });
-    const collapsed =
-      key === MANAGER_INBOX_STORAGE_KEY
-        ? collapsePersonInboxThreads(merged, { mergeFolders: true })
-        : merged;
+    const collapsed = applyInboxCollapseForScope(key, merged);
     memoryByKey.set(viewerCacheKey(key), collapsed);
     persistInboxToSession(key, collapsed);
     inboxLastSyncedAtByKey.set(viewerCacheKey(key), Date.now());
@@ -277,9 +283,7 @@ export function loadPersistedInbox(key: string, fallback: PersistedInboxThread[]
   hydrateInboxFromSession(key);
   if (memoryByKey.has(viewerCacheKey(key))) {
     const rows = memoryByKey.get(viewerCacheKey(key)) ?? [];
-    return key === MANAGER_INBOX_STORAGE_KEY
-      ? collapsePersonInboxThreads(rows, { mergeFolders: true })
-      : rows;
+    return applyInboxCollapseForScope(key, rows);
   }
   void syncPersistedInboxFromServer(key).catch(() => undefined);
   return fallback;
@@ -734,6 +738,100 @@ export function collapsePersonInboxThreads(
       unread: group.some((t) => t.unread),
     });
   }
+  return merged;
+}
+
+function applyInboxCollapseForScope(key: string, rows: PersistedInboxThread[]): PersistedInboxThread[] {
+  let result = rows;
+  if (key === MANAGER_INBOX_STORAGE_KEY) {
+    result = collapsePersonInboxThreads(result, { mergeFolders: true });
+  }
+  if (
+    key === MANAGER_INBOX_STORAGE_KEY ||
+    key === RESIDENT_INBOX_STORAGE_KEY ||
+    key === VENDOR_INBOX_STORAGE_KEY
+  ) {
+    result = collapseAssistantInboxThreads(result);
+  }
+  return result;
+}
+
+/**
+ * Collapse duplicate PropLane Assistant threads (legacy per-manager ids, etc.)
+ * into one row per resident or manager without rewriting storage.
+ */
+export function collapseAssistantInboxThreads(threads: PersistedInboxThread[]): PersistedInboxThread[] {
+  const solo: PersistedInboxThread[] = [];
+  const groups = new Map<string, PersistedInboxThread[]>();
+
+  for (const thread of threads) {
+    const key = assistantInboxCollapseKey(thread);
+    if (!key) {
+      solo.push(thread);
+      continue;
+    }
+    const bucket = groups.get(key) ?? [];
+    bucket.push(thread);
+    groups.set(key, bucket);
+  }
+
+  const merged: PersistedInboxThread[] = [...solo];
+  for (const [groupKey, group] of groups) {
+    if (group.length <= 1) {
+      merged.push(group[0]!);
+      continue;
+    }
+
+    const sorted = [...group].sort(
+      (a, b) => inboxThreadSortMs(a.id, a.time) - inboxThreadSortMs(b.id, b.time),
+    );
+
+    let canonical = sorted[sorted.length - 1]!;
+    const residentMatch = groupKey.match(/^resident_agent:(.+)$/);
+    if (residentMatch?.[1]) {
+      const canonicalId = canonicalResidentAgentThreadId(residentMatch[1]);
+      canonical =
+        group.find((thread) => thread.id === canonicalId) ??
+        sorted[sorted.length - 1]!;
+      canonical = { ...canonical, id: canonicalId };
+    }
+
+    const allMessages: InboxThreadMessage[] = [];
+    for (const thread of sorted) {
+      allMessages.push(...inboxThreadMessages(thread));
+    }
+    const seenIds = new Set<string>();
+    const ordered = allMessages
+      .filter((message) => {
+        if (!message.id || seenIds.has(message.id)) return false;
+        seenIds.add(message.id);
+        return message.body.trim().length > 0;
+      })
+      .sort((a, b) => inboxThreadSortMs(a.id, a.at) - inboxThreadSortMs(b.id, b.at));
+
+    const first = ordered[0];
+    const last = ordered[ordered.length - 1];
+    const canonicalRootId = `${canonical.id}-root`;
+    const messages = ordered.slice(1).map((message) =>
+      message.id === canonicalRootId ? { ...message, id: `merged:${message.id}` } : message,
+    );
+    const boundManagerUserId =
+      boundManagerUserIdFromThread(canonical) ??
+      [...group].reverse().map(boundManagerUserIdFromThread).find(Boolean) ??
+      undefined;
+
+    merged.push({
+      ...canonical,
+      boundManagerUserId,
+      unread: group.some((thread) => thread.folder === "inbox" && thread.unread),
+      body: first?.body ?? canonical.body,
+      from: first?.from ?? canonical.from,
+      preview: (last?.body ?? canonical.preview).slice(0, 100).replace(/\n/g, " "),
+      time: canonical.time,
+      messages,
+    });
+  }
+
   return merged;
 }
 

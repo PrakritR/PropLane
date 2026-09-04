@@ -15,6 +15,7 @@ import {
 import { ServiceOfferingEditModal } from "@/components/portal/service-offering-edit-modal";
 import { ServiceRequestCatalogSuggestions } from "@/components/portal/service-request-catalog-suggestions";
 import { usePortalRowSelection } from "@/hooks/use-portal-row-selection";
+import { usePublishModalBulkActions } from "@/hooks/use-publish-modal-bulk-actions";
 import { PORTAL_BULK_BAR_BTN } from "@/lib/portal-bulk-bar";
 import {
   createManagerListingServiceOption,
@@ -138,14 +139,10 @@ export function ServiceRequestCatalogEditor({
 
   const selectedOfferId = selectedIds.size === 1 ? selectedOffers[0]?.id ?? null : null;
 
-  useEffect(() => {
-    if (!onBulkActionsChange) return;
-    if (!selectedOfferId) {
-      onBulkActionsChange(null);
-      return;
-    }
+  const modalBulkActions = useMemo(() => {
+    if (!selectedOfferId) return null;
     const offerId = selectedOfferId;
-    onBulkActionsChange(
+    return (
       <Button
         type="button"
         variant="outline"
@@ -157,9 +154,15 @@ export function ServiceRequestCatalogEditor({
         }}
       >
         Edit service
-      </Button>,
+      </Button>
     );
-  }, [offers, onBulkActionsChange, openEdit, selectedOfferId]);
+  }, [offers, openEdit, selectedOfferId]);
+
+  usePublishModalBulkActions(
+    onBulkActionsChange,
+    selectedOfferId ?? "",
+    modalBulkActions,
+  );
 
   if (!saveTarget) return null;
 

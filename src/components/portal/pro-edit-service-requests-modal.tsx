@@ -54,12 +54,19 @@ export function ManagerEditServiceRequestsModal({
     }
   }, [open, propertyOptions, selectedId]);
 
-  const resolved = useMemo(() => {
-    void refreshTick;
+  const sub = useMemo(() => {
     const id = selectedId.trim();
     if (!id || !managerUserId) return null;
-    return resolveManagerListingSubmissionForPropertyId(managerUserId, id);
-  }, [selectedId, managerUserId, refreshTick]);
+    const hit = resolveManagerListingSubmissionForPropertyId(managerUserId, id);
+    if (!hit) return null;
+    return normalizeManagerListingSubmissionV1(hit.sub);
+  }, [refreshTick, selectedId, managerUserId]);
+
+  const resolvedSaveTarget = useMemo(() => {
+    const id = selectedId.trim();
+    if (!id || !managerUserId) return null;
+    return resolveManagerListingSubmissionForPropertyId(managerUserId, id)?.saveTarget ?? null;
+  }, [refreshTick, selectedId, managerUserId]);
 
   const selectedLabel = selectedId
     ? (propertyOptions.find((o) => o.id === selectedId)?.label ?? null)
@@ -71,11 +78,6 @@ export function ManagerEditServiceRequestsModal({
     setBulkActions(null);
     onClose();
   };
-
-  const sub = useMemo(
-    () => (resolved ? normalizeManagerListingSubmissionV1(resolved.sub) : null),
-    [resolved],
-  );
 
   return (
     <Modal
@@ -101,13 +103,13 @@ export function ManagerEditServiceRequestsModal({
 
         {!selectedId ? (
           <p className="text-sm text-muted">Choose a property to see its service types.</p>
-        ) : !resolved || !managerUserId || !sub ? (
+        ) : !resolvedSaveTarget || !managerUserId || !sub ? (
           <p className="text-sm text-muted">Could not load service types for that property.</p>
         ) : (
           <ManagerPropertyRequestsPanel
             key={selectedId}
             sub={sub}
-            saveTarget={resolved.saveTarget}
+            saveTarget={resolvedSaveTarget}
             managerUserId={managerUserId}
             onUpdated={() => {
               setRefreshTick((t) => t + 1);
