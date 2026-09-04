@@ -144,9 +144,9 @@ export default function WhyPropLanePage() {
           {[
             {
               href: "/partner",
-              title: "Managers",
+              title: "Managers & landlords",
               body: "Run the portfolio with AI approvals.",
-              cta: "For managers",
+              cta: "For managers & landlords",
               attr: "why-role-managers",
             },
             {

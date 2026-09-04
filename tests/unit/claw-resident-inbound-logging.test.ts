@@ -95,6 +95,11 @@ vi.mock("@/lib/supabase/service", () => {
 });
 
 describe("handleClawLeasingInbound — known resident thread", () => {
+  // 30s, not the 10s default: this hook's first `await import(...)` is what pays
+  // the transform cost for claw-leasing-bot.server and its dependency tree. Run
+  // alone that is milliseconds, but under the full suite (990+ files competing
+  // for workers) it has exceeded 10s and timed out the hook — a load-dependent
+  // flake, not a real failure. The import itself is cached after the first test.
   beforeEach(async () => {
     vi.clearAllMocks();
     const { __resetClawInboundSeenForTests } = await import("@/lib/claw-leasing-bot.server");
@@ -117,7 +122,7 @@ describe("handleClawLeasingInbound — known resident thread", () => {
       lastMessageAt: new Date(0).toISOString(),
     });
     openClawResidentThread.mockResolvedValue(null);
-  });
+  }, 30000);
 
   it("persists the resident's raw inbound text (direction=inbound) for the two-way portal thread", async () => {
     const { handleClawLeasingInbound } = await import("@/lib/claw-leasing-bot.server");

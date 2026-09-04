@@ -100,6 +100,11 @@ vi.mock("@/lib/supabase/service", () => {
 });
 
 describe("handleClawLeasingInbound — per-manager work number stays scoped", () => {
+  // 30s, not the 10s default: this hook's first `await import(...)` is what pays
+  // the transform cost for claw-leasing-bot.server and its dependency tree. Run
+  // alone that is milliseconds, but under the full suite (990+ files competing
+  // for workers) it has exceeded 10s and timed out the hook — a load-dependent
+  // flake, not a real failure. The import itself is cached after the first test.
   beforeEach(async () => {
     vi.clearAllMocks();
     const { __resetClawInboundSeenForTests } = await import("@/lib/claw-leasing-bot.server");
@@ -112,7 +117,7 @@ describe("handleClawLeasingInbound — per-manager work number stays scoped", ()
     runManagerSmsAgentTurn.mockResolvedValue({ reply: "here you go", sessionId: "s1" });
     deliverManagerSmsReply.mockResolvedValue({ ok: true });
     isMappedManagerPhone.mockResolvedValue(true);
-  });
+  }, 30000);
 
   it("does NOT treat a DIFFERENT registered manager's verified phone as staff on this manager's dedicated number", async () => {
     const { handleClawLeasingInbound } = await import("@/lib/claw-leasing-bot.server");
