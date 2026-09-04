@@ -35,7 +35,6 @@ import {
   categoryForContactRole,
   contactsForPortal,
   PRIMARY_AXIS_ADMIN_LABEL,
-  type InboxRecipientCategory,
   type InboxScopedContact,
 } from "@/data/inbox-scoped-directory";
 import type { ManagerSmsResidentConversation } from "@/lib/manager-sms-messages";
@@ -91,20 +90,31 @@ export function buildSmsSchedulePayloads(args: {
   }));
 }
 
+/**
+ * A person's row in the To picker: their NAME, and the house they are at.
+ *
+ * Never their email or phone number (PRP-150). The status word is gone too —
+ * the section heading above them already says whether they are a potential,
+ * current or past resident, so repeating it on every row was noise. The email
+ * fallback is what produced a list of addresses instead of people whenever a
+ * contact had no property attached.
+ */
 function contactOptionLabel(contact: InboxScopedContact): string {
   const property = contact.propertyLabel?.trim();
-  const status =
-    contact.role === "resident"
-      ? contact.tenancyStatus === "applicant"
-        ? "Applicant"
-        : "Resident"
-      : null;
-  const bits = [contact.name, status, property || contact.email].filter(Boolean);
-  return bits.join(" · ");
+  const name = contact.name?.trim();
+  // A contact with no name at all is the one case an address is better than a
+  // blank row — it is at least identifiable.
+  if (!name) return contact.email;
+  return [name, property].filter(Boolean).join(" · ");
 }
 
 function categoryLabel(category: ComposeCategory): string {
-  if (category === "resident") return "Residents & applicants";
+  // Three resident buckets rather than one lumped "Residents & applicants"
+  // (PRP-150) — a broadcast to residents should not quietly reach a prospect or
+  // someone who has moved out.
+  if (category === "applicant") return "Potential residents";
+  if (category === "resident") return "Current residents";
+  if (category === "past_resident") return "Past residents";
   if (category === "management") return "Manager";
   if (category === "vendor") return "Vendor";
   if (category === "other") return "Other";
@@ -124,14 +134,24 @@ function peopleForCategory(
       .sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: "base" }))
       .map((c) => ({ key: `id:${c.id}` as const, label: contactOptionLabel(c) }));
   }
-  const roleCategory: InboxRecipientCategory = category === "resident" ? "resident" : "management";
+  if (category === "applicant" || category === "resident" || category === "past_resident") {
+    const wanted =
+      category === "applicant" ? "applicant" : category === "past_resident" ? "past" : "resident";
+    const people = contacts
+      .filter((c) => c.role === "resident" && (c.tenancyStatus ?? "resident") === wanted)
+      .sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: "base" }))
+      .map((c) => ({ key: `id:${c.id}` as const, label: contactOptionLabel(c) }));
+    // Only CURRENT residents get a broadcast row. "All residents" that also
+    // reached applicants and people who moved out is the thing this split
+    // exists to prevent (PRP-150).
+    return category === "resident"
+      ? [{ key: "broadcast:resident" as const, label: "All current residents" }, ...people]
+      : people;
+  }
   const people = contacts
-    .filter((c) => categoryForContactRole("manager", c.role) === roleCategory)
+    .filter((c) => categoryForContactRole("manager", c.role) === "management")
     .sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: "base" }))
     .map((c) => ({ key: `id:${c.id}` as const, label: contactOptionLabel(c) }));
-  if (category === "resident") {
-    return [{ key: "broadcast:resident", label: "All residents" }, ...people];
-  }
   if (category === "management") {
     return [{ key: "broadcast:management", label: "All management" }, ...people];
   }

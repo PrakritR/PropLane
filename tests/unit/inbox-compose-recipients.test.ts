@@ -30,19 +30,31 @@ const resident: InboxScopedContact = {
 
 describe("composeDirectoryCategories", () => {
   it("hides Manager and Vendor on manager portal until contacts exist", () => {
-    expect(composeDirectoryCategories("manager", [])).toEqual(["resident", "admin"]);
-    expect(composeDirectoryCategories("manager", [resident])).toEqual(["resident", "admin"]);
+    expect(composeDirectoryCategories("manager", [])).toEqual(["resident"]);
+    expect(composeDirectoryCategories("manager", [resident])).toEqual(["resident"]);
     expect(composeDirectoryCategories("manager", [resident, coManager])).toEqual([
       "resident",
       "management",
-      "admin",
     ]);
     expect(composeDirectoryCategories("manager", [resident, coManager, vendor])).toEqual([
       "resident",
       "management",
-      "admin",
       "vendor",
     ]);
+  });
+
+  it("PRP-150: a manager is not offered PropLane admin as a contact", () => {
+    // Writing to us is a support request, not portal correspondence. Sitting in
+    // the same picker as their own residents and co-managers made the list read
+    // as though PropLane were one of their contacts.
+    expect(composeDirectoryCategories("manager", [resident, coManager, vendor])).not.toContain(
+      "admin",
+    );
+  });
+
+  it("…but residents and vendors keep it — it is their only way out", () => {
+    expect(composeDirectoryCategories("resident", [])).toContain("admin");
+    expect(composeDirectoryCategories("vendor", [])).toContain("admin");
   });
 
   it("keeps resident portal management for property managers", () => {

@@ -43,7 +43,9 @@ export function isPrimaryAdminInboxThread(
 ): boolean {
   const email = String(thread.email ?? "").trim();
   const from = String(thread.from ?? "").trim();
-  return (email && isPrimaryAdminEmail(email)) || (from && isPrimaryAdminEmail(from));
+  // `Boolean(...)`, not `email && …`: the `&&` form yields the empty STRING when
+  // the field is blank, which is not the declared `boolean` return type.
+  return Boolean(email && isPrimaryAdminEmail(email)) || Boolean(from && isPrimaryAdminEmail(from));
 }
 
 export function filterManagerCommunicationThreads<T extends Pick<PersistedInboxThread, "from" | "email" | "subject">>(
