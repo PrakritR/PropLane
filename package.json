@@ -51,6 +51,7 @@
     "linear:ticket": "node scripts/linear-file-ticket.mjs",
     "linear:export": "node scripts/linear-export-ticket.mjs",
     "linear:triage": "node scripts/linear-triage.mjs",
+    "linear:cleanup": "node scripts/linear-cleanup.mjs",
     "qa:portal-audit": "node scripts/qa-full-portal-audit.mjs",
     "qa:portal-deep": "node scripts/qa-deep-portal-interactions.mjs",
     "qa:mobile": "node scripts/qa-mobile-portal-audit.mjs",
