@@ -53,6 +53,7 @@ import {
   scheduledReminderShortLabel,
   type ScheduledPaymentMessage,
 } from "@/lib/scheduled-payment-messages";
+import { combineScheduledPaymentMessages } from "@/lib/combined-payment-reminders";
 import { cn } from "@/lib/utils";
 
 export { formatFriendlyReminderSchedule };
@@ -1375,7 +1376,20 @@ export function useScheduledPaymentMessages(opts?: { includeHidden?: boolean }) 
     if (applyVisibilityFilter && settings) {
       list = filterScheduledPaymentMessagesForVisibility(list, settings);
     }
-    return applyClientPatchesToMessages(list);
+    /*
+      Group before anyone counts them.
+
+      The projection is per CHARGE, so a resident with six charges due the same
+      day and four reminder times produced 24 scheduled rows — the captain saw
+      "24 reminders scheduled" for one person and asked why six were repeats.
+      The send side already bundles (one message per person per slot); this is
+      the same grouping one layer down, so the schedule shows what will actually
+      go out.
+
+      Combining is idempotent — a bucket of one is left alone — so the two
+      panels that already call it downstream are unaffected.
+    */
+    return combineScheduledPaymentMessages(applyClientPatchesToMessages(list));
   }, [rawMessages, chargeRevision, settingsRevision, settings, applyVisibilityFilter]);
 
   return { settings, messages, loading, reload, setSettings };

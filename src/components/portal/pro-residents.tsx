@@ -52,6 +52,7 @@ import {
   RESIDENT_DETAIL_TAB_LABELS,
   RESIDENT_DETAIL_TAB_SHORT_LABELS,
   RESIDENT_DIRECTORY_TABS,
+  PAYMENT_BUCKETS,
   managerResidentItemDetailHref,
   residentDetailHref,
   residentListHref,
@@ -3128,9 +3129,14 @@ export function ManagerResidents({
                               {!paymentIdProp ? (
                                 <div className="mb-3 shrink-0 bg-background">
                                   <LocalDestinationNav
-                                    items={(
-                                      ["overdue", "pending", "paid"] as const
-                                    ).map((id) => ({
+                                    /*
+                                      The shared bucket order, not a re-typed
+                                      one. This tab listed Overdue first while
+                                      every other payments surface — and the
+                                      route parser they all share — reads
+                                      Pending / Overdue / Paid.
+                                    */
+                                    items={PAYMENT_BUCKETS.map((id) => ({
                                       id,
                                       label:
                                         id === "overdue"
