@@ -1,10 +1,8 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
-import { Button } from "@/components/ui/button";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Textarea } from "@/components/ui/input";
 import {
-  PORTAL_PROPERTY_DETAIL_ACTION_BUTTON_CLASS,
   PortalPropertyDetailSection,
 } from "@/components/portal/portal-property-detail-section";
 import { updateRequestChangeProperty } from "@/lib/demo-admin-property-inventory";
@@ -18,6 +16,10 @@ import {
   savePortalListingNote,
   type PortalListingNote,
 } from "@/lib/portal-listing-notes";
+
+/** Debounce before an edit is written. Long enough not to write per keystroke,
+ *  short enough that switching tabs almost never has to flush. */
+const HOUSE_DETAILS_AUTOSAVE_MS = 1200;
 
 type HouseSaveTarget =
   | { mode: "pending"; saveId: string }
@@ -71,14 +73,12 @@ export function ManagerPropertyHouseDetailsPanel({
   saveTarget,
   managerUserId,
   onUpdated,
-  showToast,
 }: {
   noteKey: string | null;
   sub: ManagerListingSubmissionV1;
   saveTarget: HouseSaveTarget;
   managerUserId: string | null;
   onUpdated: () => void;
-  showToast: (m: string) => void;
 }) {
   const [notesTick, setNotesTick] = useState(0);
   const [dirty, setDirty] = useState(false);
@@ -98,45 +98,88 @@ export function ManagerPropertyHouseDetailsPanel({
   );
 
   const [draft, setDraft] = useState(baseline);
+  const [status, setStatus] = useState<"idle" | "saving" | "saved" | "error">("idle");
 
   useEffect(() => {
     if (!dirty) setDraft(baseline);
   }, [baseline, dirty]);
 
-  if (!noteKey) return null;
+  // Latest draft, readable from inside a debounce/unmount callback without
+  // making every one of them a dependency.
+  const draftRef = useRef(draft);
+  useEffect(() => {
+    draftRef.current = draft;
+  }, [draft]);
 
-  const save = () => {
-    if (!noteKey || !managerUserId) return;
-    const next: ManagerListingSubmissionV1 = {
-      ...sub,
-      houseDescription: draft.houseDescription ?? "",
-      houseRulesText: draft.houseRulesText ?? "",
-      generalHouseInfo: draft.generalHouseInfo ?? "",
-      wifiNetworkName: "",
-      wifiPassword: "",
+  const persist = useCallback(
+    (snapshot: { houseDescription: string; houseRulesText: string; generalHouseInfo: string }) => {
+      if (!noteKey || !managerUserId) return;
+      setStatus("saving");
+      const next: ManagerListingSubmissionV1 = {
+        ...sub,
+        houseDescription: snapshot.houseDescription ?? "",
+        houseRulesText: snapshot.houseRulesText ?? "",
+        generalHouseInfo: snapshot.generalHouseInfo ?? "",
+        wifiNetworkName: "",
+        wifiPassword: "",
+      };
+      let ok = false;
+      if (saveTarget?.mode === "pending") {
+        ok = updatePendingManagerProperty(saveTarget.saveId, next, managerUserId);
+      } else if (saveTarget?.mode === "listing") {
+        ok = updateExtraListingFromSubmission(saveTarget.saveId, managerUserId, next);
+      } else if (saveTarget?.mode === "requestChange") {
+        ok = updateRequestChangeProperty(saveTarget.saveId, managerUserId, next);
+      }
+      if (!ok) {
+        // Stay dirty so the next keystroke retries. A failed autosave must never
+        // look like a saved one — there is no button here to tell them otherwise.
+        setStatus("error");
+        return;
+      }
+      savePortalListingNote(noteKey, {
+        houseDescription: snapshot.houseDescription,
+        houseRulesText: snapshot.houseRulesText,
+        generalHouseInfo: snapshot.generalHouseInfo,
+      });
+      // Only stop treating the form as dirty when nothing changed WHILE saving,
+      // or a keystroke landing mid-save would never be written.
+      if (JSON.stringify(draftRef.current) === JSON.stringify(snapshot)) {
+        setDirty(false);
+      }
+      setStatus("saved");
+      setNotesTick((t) => t + 1);
+      onUpdated();
+    },
+    [managerUserId, noteKey, onUpdated, saveTarget, sub],
+  );
+
+  // Debounced autosave. The manager asked for no Save button (AXI-164), so the
+  // write has to happen on its own — and the status line below is then the only
+  // thing telling them it did.
+  useEffect(() => {
+    if (!dirty) return;
+    const timer = window.setTimeout(() => persist(draftRef.current), HOUSE_DETAILS_AUTOSAVE_MS);
+    return () => window.clearTimeout(timer);
+  }, [dirty, draft, persist]);
+
+  // Flush on unmount — switching tabs or going Back inside the debounce window
+  // would otherwise drop the last edit silently.
+  const dirtyRef = useRef(dirty);
+  useEffect(() => {
+    dirtyRef.current = dirty;
+  }, [dirty]);
+  const persistRef = useRef(persist);
+  useEffect(() => {
+    persistRef.current = persist;
+  }, [persist]);
+  useEffect(() => {
+    return () => {
+      if (dirtyRef.current) persistRef.current(draftRef.current);
     };
-    let ok = false;
-    if (saveTarget?.mode === "pending") {
-      ok = updatePendingManagerProperty(saveTarget.saveId, next, managerUserId);
-    } else if (saveTarget?.mode === "listing") {
-      ok = updateExtraListingFromSubmission(saveTarget.saveId, managerUserId, next);
-    } else if (saveTarget?.mode === "requestChange") {
-      ok = updateRequestChangeProperty(saveTarget.saveId, managerUserId, next);
-    }
-    if (!ok) {
-      showToast("Could not save house details.");
-      return;
-    }
-    savePortalListingNote(noteKey, {
-      houseDescription: draft.houseDescription,
-      houseRulesText: draft.houseRulesText,
-      generalHouseInfo: draft.generalHouseInfo,
-    });
-    showToast("House details saved.");
-    setDirty(false);
-    setNotesTick((t) => t + 1);
-    onUpdated();
-  };
+  }, []);
+
+  if (!noteKey) return null;
 
   const updateField = (key: keyof typeof draft, value: string) => {
     setDirty(true);
@@ -146,16 +189,30 @@ export function ManagerPropertyHouseDetailsPanel({
   return (
     <PortalPropertyDetailSection
       actions={
-        <Button
-          type="button"
-          variant="primary"
-          className={PORTAL_PROPERTY_DETAIL_ACTION_BUTTON_CLASS}
-          data-attr="house-details-save"
-          disabled={!dirty}
-          onClick={save}
+        // No Save button (AXI-164) — but silence is not an option either. With
+        // the button gone this line is the ONLY signal that the typing is
+        // persisted, and the error state is the only way a failed write is
+        // distinguishable from a saved one.
+        <p
+          className={
+            status === "error"
+              ? "text-xs font-medium text-red-600"
+              : "text-xs text-muted"
+          }
+          role="status"
+          aria-live="polite"
+          data-attr="house-details-autosave-status"
         >
-          Save
-        </Button>
+          {status === "saving"
+            ? "Saving…"
+            : status === "error"
+              ? "Couldn't save — check your connection"
+              : dirty
+                ? "Unsaved changes"
+                : status === "saved"
+                  ? "Saved"
+                  : ""}
+        </p>
       }
     >
       <div className="space-y-6">

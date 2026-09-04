@@ -923,7 +923,6 @@ function ManagerPropertyInlineDetails({
           saveTarget={houseSaveTarget}
           managerUserId={managerUserId}
           onUpdated={onUpdated}
-          showToast={showToast}
         />
       ) : null}
 
