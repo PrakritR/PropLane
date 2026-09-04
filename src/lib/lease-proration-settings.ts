@@ -61,8 +61,7 @@ export function resolveLeaseProrationInputForApplicant(
   const dailyBasisRate = roomDailyRentPrice(room);
   const leaseStart = applicant.application?.leaseStart?.trim() ?? "";
   const leaseEnd = applicant.application?.leaseEnd?.trim() ?? "";
-  const endsInsideFirstMonth =
-    (dailyBasisRate ?? 0) > 0 && intraMonthStaySpan(leaseStart, leaseEnd) !== null;
+  const endsInsideFirstMonth = intraMonthStaySpan(leaseStart, leaseEnd) !== null;
 
   return {
     method: prorateMethod,

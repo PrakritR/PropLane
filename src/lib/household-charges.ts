@@ -1310,7 +1310,7 @@ function firstMonthRentChargeForLeaseStart(
   dailyRentRate?: number,
   /** Headline daily rate when the room is priced by the day — bills EVERY first month (full or partial) per day. */
   dailyBasisRate?: number,
-  /** Lease end, so a DAILY-priced lease that starts and ends in one month bills its true span once. */
+  /** Lease end, so a lease that starts and ends in one calendar month bills its true span once. */
   leaseEnd?: string,
 ): {
   kind: HouseholdChargeKind;
@@ -1318,8 +1318,11 @@ function firstMonthRentChargeForLeaseStart(
   title: string;
   proration: ReturnType<typeof leaseStartProration>;
 } | null {
-  const isDailyBasis = (dailyBasisRate ?? 0) > 0;
-  const proration = leaseFirstPeriodProration(leaseStart, leaseEnd, isDailyBasis);
+  const proration = leaseFirstPeriodProration(leaseStart, leaseEnd, true);
+  const proratedRentNoun =
+    intraMonthStaySpan(leaseStart, leaseEnd) !== null
+      ? "Prorated term rent"
+      : "Prorated first month's rent";
   // Room priced by the day: the first month bills its billable days × daily rate
   // whether it is a full or partial month (billableDays is daysInMonth for a full month).
   if (dailyBasisRate && dailyBasisRate > 0) {
@@ -1332,7 +1335,7 @@ function firstMonthRentChargeForLeaseStart(
       kind: proration.prorated ? "prorated_rent" : "first_month_rent",
       amount,
       title: proration.prorated
-        ? `Prorated first month's rent (${days} days × ${formatRoomPriceAmount(dailyBasisRate)}/day)`
+        ? `${proratedRentNoun} (${days} days × ${formatRoomPriceAmount(dailyBasisRate)}/day)`
         : `First month's rent (${days} days × ${formatRoomPriceAmount(dailyBasisRate)}/day)`,
       proration,
     };
@@ -1348,8 +1351,8 @@ function firstMonthRentChargeForLeaseStart(
     amount,
     title: proration.prorated
       ? prorateMethod === "daily_rate" && dailyRentRate && dailyRentRate > 0
-        ? `Prorated first month's rent (${proration.billableDays} days × $${dailyRentRate}/day)`
-        : `Prorated first month's rent (${proration.label})`
+        ? `${proratedRentNoun} (${proration.billableDays} days × $${dailyRentRate}/day)`
+        : `${proratedRentNoun} (${proration.label})`
       : "First month's rent",
     proration,
   };
@@ -3002,8 +3005,9 @@ function buildApprovedStandardChargeDrafts(
   const dailyUtilitiesRate = entireHome ? sub.entireHomeDailyUtilitiesRate : room?.dailyUtilitiesRate;
   const dailyBasisRate =
     residentNegotiatedMonthlyRent(row) > 0 ? undefined : roomDailyRentPrice(room);
-  const endsInsideFirstMonth =
-    (dailyBasisRate ?? 0) > 0 && intraMonthStaySpan(opts.leaseStart, opts.leaseEnd) !== null;
+  const endsInsideFirstMonth = intraMonthStaySpan(opts.leaseStart, opts.leaseEnd) !== null;
+  const dailyUtilInRange =
+    prorateMethod !== "daily_rate" || Boolean(dailyUtilitiesRate && dailyUtilitiesRate > 0);
 
   const rentAmount = selectedRoomRentAmount(row);
   if (rentAmount > 0 || (dailyBasisRate && dailyBasisRate > 0)) {
@@ -3021,20 +3025,19 @@ function buildApprovedStandardChargeDrafts(
   const utilities = selectedRoomUtilities(row);
   if (utilities.amount > 0) {
     const proration = leaseFirstPeriodProration(opts.leaseStart, opts.leaseEnd, endsInsideFirstMonth);
-    let utilAmount: number;
-    let utilTitle: string;
-    if (proration.prorated && prorateMethod === "daily_rate" && dailyUtilitiesRate && dailyUtilitiesRate > 0) {
-      utilAmount = Number((proration.billableDays * dailyUtilitiesRate).toFixed(2));
-      utilTitle = `Prorated utilities (${proration.billableDays} days × ${formatRoomPriceAmount(dailyUtilitiesRate)}/day)`;
+    if (proration.prorated && prorateMethod === "daily_rate") {
+      if (dailyUtilitiesRate && dailyUtilitiesRate > 0) {
+        pushDraft(
+          "prorated_utilities",
+          Number((proration.billableDays * dailyUtilitiesRate).toFixed(2)),
+          `Prorated utilities (${proration.billableDays} days × ${formatRoomPriceAmount(dailyUtilitiesRate)}/day)`,
+        );
+      }
     } else {
-      utilAmount = proration.prorated ? utilities.amount * proration.factor : utilities.amount;
-      utilTitle = proration.prorated ? `Prorated utilities (${proration.label})` : "Utilities";
+      const utilAmount = proration.prorated ? utilities.amount * proration.factor : utilities.amount;
+      const utilTitle = proration.prorated ? `Prorated utilities (${proration.label})` : "Utilities";
+      pushDraft(proration.prorated ? "prorated_utilities" : "utilities", utilAmount, utilTitle);
     }
-    pushDraft(
-      proration.prorated ? "prorated_utilities" : "utilities",
-      utilAmount,
-      utilTitle,
-    );
   }
 
   const lastMonthRentCharge =
@@ -3051,7 +3054,7 @@ function buildApprovedStandardChargeDrafts(
   }
 
   const lastMonthUtilitiesCharge =
-    !endsInsideFirstMonth && utilities.amount > 0
+    !endsInsideFirstMonth && utilities.amount > 0 && dailyUtilInRange
       ? lastMonthChargeForLeaseEnd(utilities.amount, opts.leaseEnd, "utilities", prorateMethod, dailyUtilitiesRate)
       : null;
   if (lastMonthUtilitiesCharge) {
@@ -3523,11 +3526,11 @@ export function recordApprovedApplicationCharges(row: DemoApplicantRow, managerU
   const dailyBasisRate =
     residentNegotiatedMonthlyRent(row) > 0 ? undefined : roomDailyRentPrice(room);
 
-  // A DAILY-priced lease that starts and ends in one calendar month is billed once, by the
-  // first-period charges below; its last-month charges would re-bill the same days. Monthly
-  // rooms are left on their legacy two-charge path so their billing is unchanged.
-  const endsInsideFirstMonth =
-    (dailyBasisRate ?? 0) > 0 && intraMonthStaySpan(leaseStart, leaseEnd) !== null;
+  // A lease that starts and ends in one calendar month is billed once, by the first-period
+  // charges below; its last-month charges would re-bill the same days. Keyed on the calendar
+  // span ALONE, never on the pricing basis — gating it on a daily rate billed a
+  // monthly-priced intra-month term twice over the same days.
+  const endsInsideFirstMonth = intraMonthStaySpan(leaseStart, leaseEnd) !== null;
 
   const rentAmount = selectedRoomRentAmount(row);
   if (rentAmount > 0 || (dailyBasisRate && dailyBasisRate > 0)) {

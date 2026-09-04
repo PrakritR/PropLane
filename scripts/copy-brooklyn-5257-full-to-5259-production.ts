@@ -5,7 +5,8 @@
  * Makes 5259 Brooklyn Ave NE an exact listing copy of 5257 Brooklyn Ave NE from
  * production (rooms, bathrooms, photos, pricing, fees, bundles, move-in copy,
  * lease/application config, property_data summary fields). Only 5259 identity
- * is preserved: record id, buildingId, street address, and building name.
+ * is preserved: record id, buildingId, street address, ZIP, map coordinates,
+ * availability, and building name.
  *
  * Dry run (default):
  *   npx tsx --env-file=.env.production.local scripts/copy-brooklyn-5257-full-to-5259-production.ts
@@ -18,6 +19,7 @@ import { createClient } from "@supabase/supabase-js";
 import { deriveLegacyFields } from "../src/lib/demo-property-pipeline";
 import {
   normalizeManagerListingSubmissionV1,
+  type ManagerBathroomRoomAccessKind,
   type ManagerListingSubmissionV1,
 } from "../src/lib/manager-listing-submission";
 
@@ -41,6 +43,9 @@ type PropertyData = Record<string, unknown> & {
   title?: string;
   address?: string;
   zip?: string;
+  mapLat?: number;
+  mapLng?: number;
+  available?: string;
   listingSubmission?: ManagerListingSubmissionV1;
 };
 
@@ -90,6 +95,78 @@ function propertyDataFingerprint(pd: PropertyData | null): string {
   ].join(" ");
 }
 
+/** Map source room ids onto target ids when names match so live applications keep roomChoice refs. */
+function remapListingRoomIdsToTarget(
+  sourceSub: ManagerListingSubmissionV1,
+  targetSub: ManagerListingSubmissionV1,
+): ManagerListingSubmissionV1 {
+  const cloned = deepClone(sourceSub);
+  const targetIdByName = new Map(
+    targetSub.rooms.map((room) => [room.name.trim().toLowerCase(), room.id]),
+  );
+  const usedTargetIds = new Set<string>();
+  const idMap = new Map<string, string>();
+  cloned.rooms = cloned.rooms.map((room, index) => {
+    const preferredId = targetIdByName.get(room.name.trim().toLowerCase());
+    const newId =
+      preferredId && !usedTargetIds.has(preferredId)
+        ? preferredId
+        : `room-new-${index}-${Math.random().toString(36).slice(2, 9)}`;
+    usedTargetIds.add(newId);
+    idMap.set(room.id, newId);
+    return { ...room, id: newId };
+  });
+  const remapIds = (ids: string[] | undefined) =>
+    (ids ?? [])
+      .map((id) => idMap.get(id))
+      .filter((id): id is string => Boolean(id && cloned.rooms.some((r) => r.id === id)));
+  cloned.bathrooms = cloned.bathrooms.map((bath) => ({
+    ...bath,
+    assignedRoomIds: remapIds(bath.assignedRoomIds),
+    accessKindByRoomId: Object.fromEntries(
+      Object.entries(bath.accessKindByRoomId ?? {})
+        .map(([id, kind]) => {
+          const mapped = idMap.get(id);
+          return mapped && kind ? ([mapped, kind] as [string, ManagerBathroomRoomAccessKind]) : null;
+        })
+        .filter((entry): entry is [string, ManagerBathroomRoomAccessKind] => Boolean(entry)),
+    ),
+  }));
+  cloned.sharedSpaces = cloned.sharedSpaces.map((space) => ({
+    ...space,
+    roomAccessIds: remapIds(space.roomAccessIds),
+  }));
+  if (cloned.bundles) {
+    cloned.bundles = cloned.bundles.map((bundle) => ({
+      ...bundle,
+      includedRoomIds: remapIds(bundle.includedRoomIds),
+    }));
+  }
+  return cloned;
+}
+
+/** Resident-only move-in secrets stay on the target — public listing copy must not overwrite them. */
+function preserveTargetMoveInSecrets(
+  copiedSub: ManagerListingSubmissionV1,
+  targetSub: ManagerListingSubmissionV1,
+): ManagerListingSubmissionV1 {
+  copiedSub.generalHouseInfo = targetSub.generalHouseInfo;
+  copiedSub.wifiNetworkName = targetSub.wifiNetworkName;
+  copiedSub.wifiPassword = targetSub.wifiPassword;
+  copiedSub.houseMoveInInstructions = targetSub.houseMoveInInstructions;
+  copiedSub.rooms = copiedSub.rooms.map((room) => {
+    const match = targetSub.rooms.find((r) => r.name.trim() === room.name.trim());
+    if (!match) return room;
+    return {
+      ...room,
+      moveInInstructions: match.moveInInstructions,
+      moveInPhotoDataUrls: match.moveInPhotoDataUrls,
+      moveInVideoDataUrl: match.moveInVideoDataUrl,
+    };
+  });
+  return copiedSub;
+}
+
 function buildTargetPropertyData(
   sourcePd: PropertyData,
   targetPd: PropertyData,
@@ -98,7 +175,7 @@ function buildTargetPropertyData(
 ): PropertyData {
   const identity = submissionIdentity(targetSub);
   const nextSub = normalizeManagerListingSubmissionV1({
-    ...deepClone(sourceSub),
+    ...preserveTargetMoveInSecrets(remapListingRoomIdsToTarget(sourceSub, targetSub), targetSub),
     ...identity,
   });
   const legacy = deriveLegacyFields(nextSub);
@@ -108,9 +185,15 @@ function buildTargetPropertyData(
     id: TARGET_PROPERTY_ID,
     buildingId: targetPd.buildingId ?? TARGET_PROPERTY_ID,
     buildingName: identity.buildingName,
-    title: targetPd.title ?? `${identity.buildingName} · ${legacy.unitLabel}`,
+    title: `${identity.buildingName} · ${legacy.unitLabel}`,
     address: targetPd.address ?? identity.address,
     zip: targetPd.zip ?? identity.zip,
+    // Geographic identity belongs to 5259, not to the listing being copied. An inherited
+    // pin drops the map on the source building; with none, listing detail geocodes the
+    // target's own address.
+    mapLat: targetPd.mapLat,
+    mapLng: targetPd.mapLng,
+    available: targetPd.available ?? sourcePd.available,
     neighborhood: legacy.neighborhood,
     unitLabel: legacy.unitLabel,
     beds: legacy.beds,
@@ -180,6 +263,14 @@ async function main() {
     }
   }
 
+  const targetStatus = String(target.status ?? "").trim().toLowerCase();
+  if (apply && targetStatus !== "live" && targetStatus !== "review") {
+    console.error(
+      `Refusing apply: target status is "${target.status}" — only live/review listings read property_data publicly.`,
+    );
+    process.exit(1);
+  }
+
   const sourcePd = asObject(source.property_data) as PropertyData | null;
   const targetPd = asObject(target.property_data) as PropertyData | null;
   if (!sourcePd || !targetPd) {
@@ -207,6 +298,9 @@ async function main() {
     console.log("\nDry run only — pass --apply with production confirm env vars to write.");
     return;
   }
+
+  console.log("\nRollback snapshot (target property_data before write):");
+  console.log(JSON.stringify(targetPd));
 
   const { error: updateError } = await db
     .from("manager_property_records")

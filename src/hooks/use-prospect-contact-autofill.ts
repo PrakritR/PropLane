@@ -39,23 +39,42 @@ export function useProspectContactAutofill(): ProspectContactAutofill {
       }
 
       const user = session.user;
-      const [{ data: profile }, { data: roleRows }] = await Promise.all([
-        supabase.from("profiles").select("full_name, email, phone, role").eq("id", user.id).maybeSingle(),
-        supabase.from("profile_roles").select("role").eq("user_id", user.id),
-      ]);
+      try {
+        const [{ data: profile, error: profileError }, { data: roleRows, error: rolesError }] =
+          await Promise.all([
+            supabase.from("profiles").select("full_name, email, phone, role").eq("id", user.id).maybeSingle(),
+            supabase.from("profile_roles").select("role").eq("user_id", user.id),
+          ]);
 
-      if (cancelled) return;
+        if (profileError || rolesError) {
+          throw new Error(profileError?.message ?? rolesError?.message ?? "profile read failed");
+        }
 
-      const roles = normalizePortalRoles(roleRows, profile?.role ?? user.user_metadata?.role);
-      const meta = user.user_metadata as { full_name?: string; name?: string } | undefined;
-      setState({
-        ready: true,
-        userId: user.id,
-        hasResidentRole: roles.includes("resident"),
-        name: profile?.full_name?.trim() || meta?.full_name?.trim() || meta?.name?.trim() || "",
-        email: profile?.email?.trim() || user.email?.trim() || "",
-        phone: profile?.phone?.trim() || "",
-      });
+        if (cancelled) return;
+
+        const roles = normalizePortalRoles(roleRows, profile?.role ?? user.user_metadata?.role);
+        const meta = user.user_metadata as { full_name?: string; name?: string } | undefined;
+        setState({
+          ready: true,
+          userId: user.id,
+          hasResidentRole: roles.includes("resident"),
+          name: profile?.full_name?.trim() || meta?.full_name?.trim() || meta?.name?.trim() || "",
+          email: profile?.email?.trim() || user.email?.trim() || "",
+          phone: profile?.phone?.trim() || "",
+        });
+      } catch {
+        if (cancelled) return;
+        const meta = user.user_metadata as { full_name?: string; name?: string; role?: string } | undefined;
+        const fallbackRoles = normalizePortalRoles(null, meta?.role);
+        setState({
+          ready: true,
+          userId: user.id,
+          hasResidentRole: fallbackRoles.includes("resident"),
+          name: meta?.full_name?.trim() || meta?.name?.trim() || "",
+          email: user.email?.trim() || "",
+          phone: "",
+        });
+      }
     }
 
     void safeBrowserGetSession(supabase).then(({ session }) => {

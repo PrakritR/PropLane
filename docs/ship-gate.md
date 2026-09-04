@@ -72,12 +72,37 @@ For interactive debugging in Cursor (screenshots, console logs, live DOM), conne
 
 ## Run e2e locally before you promote
 
-The `e2e` job in `.github/workflows/test.yml` is gated on
-`github.event_name == 'push' && github.ref == 'refs/heads/main' || schedule`, so
-it is **skipped on every pull request** — a PR whose Test workflow is green has
-had zero e2e signal, and the first real run happens after the merge lands on
-`main`. That gap is why e2e breakage is only ever found post-merge, and why a
-long tail of failures can persist unnoticed.
+The `e2e` job in `.github/workflows/test.yml` is a bounded smoke gate that runs
+on pushes to `main`; it is **skipped on pull requests**. It runs the ladder,
+landing-page, and public-tour flows with zero retries. Playwright's global setup
+still signs in once as admin, manager, and resident, so missing or drifted
+credentials fail quickly even though the smoke command skips the slower
+storage-state setup project. The sandbox-backed public application spec stays in
+the full suite because a production-mode server correctly hides test listings.
+
+The complete 158-case suite runs as `e2e-full` on the nightly schedule or a
+manual workflow dispatch. It uses one worker and zero retries. Keeping it off the
+per-push critical path prevents known 60-second failures from consuming three
+attempts each and cancelling every `main` run before later specs execute.
+
+**Both** browser jobs upload `test-results/` (traces, screenshots, videos) as a
+build artifact on every outcome, so a failure is debuggable after the runner is
+gone. Note what a trace of an authenticated spec contains: the `fill` arguments
+and auth response bodies of the sign-in, i.e. the seeded dev/test passwords and
+their Supabase session tokens. The `e2e-full` artifact therefore carries
+credential material for the dev/test project only (the default passwords are
+already in `tests/fixtures/index.ts`) and is retained 5 days; the `e2e` smoke
+artifact runs only public flows and has none. Do not point either job at
+production credentials.
+
+Each browser job's Playwright `globalTimeout` must land under that job's own
+`timeout-minutes`, with enough margin for the `npm ci` and
+`playwright install --with-deps` steps Playwright does not govern — otherwise
+GitHub kills the runner first and you get no Playwright report at all. The
+config's 45 minutes is sized for `e2e-full` (50), and `test:e2e:smoke` passes its
+own `--global-timeout` of 12 minutes for the `e2e` job (18).
+`tests/unit/ci-test-workflow.test.ts` fails if either pair drifts under 5 minutes
+of headroom.
 
 Pin the dev/test Supabase project first (a plain production build silently uses
 the **production** project — see
@@ -90,13 +115,25 @@ PLAYWRIGHT_SKIP_WEBSERVER=1 PLAYWRIGHT_BASE_URL=http://localhost:<port> \
   E2E_TESTS_ENABLED=1 node --env-file=.env.test node_modules/.bin/playwright test
 ```
 
-Locally `retries: 0` while CI uses `retries: 2`, so a local run surfaces flaky
-tests that CI hides in its `flaky` bucket. Note `npm run test:seed` currently
+Both local runs and the two CI E2E jobs use zero retries so a flaky failure stays
+visible and does not multiply the suite's memory/time cost. `retries: 0` in
+`playwright.config.ts` is the single source of that — no npm script or CI step
+passes `--retries`, and `tests/unit/ci-test-workflow.test.ts` fails if one starts
+to. Prefer a targeted
+spec list locally; use `npm run test:e2e:smoke` for the same bounded slice as
+`main`. Avoid `next dev` for broad E2E runs: cold Turbopack route compilation can
+exceed assertion timeouts on a constrained machine. Let Playwright build and
+start the production server, or build once and set `PLAYWRIGHT_SKIP_WEBSERVER=1`
+for repeated targeted runs. Note `npm run test:seed` currently
 aborts partway with a `profiles_manager_id_key` duplicate on a workflow
 resident — the core role accounts are already provisioned by then, so the suite
 still runs, but the later fixtures it would have created are missing.
 
 ### Known-failing specs — expect these, don't re-triage them
+
+All of these live outside the 9-case `main` smoke, so they now surface only in
+the nightly/manual `e2e-full` job or a local full run — a green `e2e` on `main`
+says nothing about them.
 
 As of `main` @`94cfc09f` (run `30778729243`) 18 of the 20 failures are
 **long-standing**, and they are not a long tail of unrelated bugs — they are
@@ -192,7 +229,8 @@ the broad one:
 - **Seed the public-facing fixtures under a non-sandbox manager domain** —
   narrow. Changes only which listings `isPortalSandboxEmail()` classifies, which
   is exactly the thing these 6 cases trip over.
-- **Set `VERCEL_ENV: preview` on the `e2e` job** — one line, but it flips
+- **Set `VERCEL_ENV: preview` on the `e2e-full` job** (these 6 cases live only
+  in the full suite now, not in the `main` smoke gate) — one line, but it flips
   `isProductionRuntime()` for the whole suite, and 11 modules read it: not just
   `public/property-lead`, but `src/lib/auth/portal-access.ts`
   (`adminBlockedFromManagerPortal` stops blocking admin→manager portal crossing),
@@ -206,8 +244,10 @@ the broad one:
   one-liner without re-reading the whole suite's result set.
 
 `admin-portal.spec.ts:68` and `mobile-portal-layout.spec.ts:22` are **flaky**,
-not failing — they pass on CI retry and pass locally. Do not file them as
-failures.
+not failing — they pass locally and pass on a re-run. Both CI E2E jobs run at
+`retries: 0`, so a flake there reddens the nightly `e2e-full` on its first
+attempt: re-run the job before filing either as a failure, and fix the specs
+rather than reintroducing retries.
 
 ## Land work on `main` (Vercel Preview)
 

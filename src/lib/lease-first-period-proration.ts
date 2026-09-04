@@ -60,7 +60,7 @@ export function leaseEndProration(leaseEnd: string | undefined): LeaseBoundaryPr
     billableDays: day,
     daysInMonth,
     label: `${day}/${daysInMonth} days through lease end`,
-    dueDateLabel: `By ${reminderDate.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })}`,
+    dueDateLabel: `By ${reminderDate.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}`,
   };
 }
 
@@ -115,7 +115,7 @@ export function computeProratedFirstMonthTotals(input: ProratedFirstMonthCompute
     return { proratedRent: 0, proratedUtilities: 0, total: 0, applies: false };
   }
 
-  const span = utilitiesOnly ? intraMonthStaySpan(input.leaseStart, input.leaseEnd ?? "") : null;
+  const span = intraMonthStaySpan(input.leaseStart, input.leaseEnd ?? "");
   const day = start.getDate();
   const hasLedgerProration =
     (input.ledgerProratedRent != null && input.ledgerProratedRent > 0) ||
@@ -204,14 +204,26 @@ export type ProratedLastMonthComputeInput = {
   /** Headline daily rate when the room itself is priced by the day. */
   dailyBasisRate?: number;
   /**
-   * The ledger creates NO last-month charge for a daily-priced stay that ends inside its
-   * own first month — the first-period charge already covers the whole term. The document
-   * has to skip it on exactly the same condition or it states a charge nobody bills.
+   * The ledger creates NO last-month charge for a stay that ends inside its own first
+   * month — the first-period charge already covers the whole term. The document has to
+   * skip it on exactly the same condition or it states a charge nobody bills.
    */
   endsInsideFirstMonth?: boolean;
   /** Ledger amounts, when a snapshot exists, so the document matches what actually bills. */
   ledgerProratedLastMonthRent?: number;
   ledgerProratedLastMonthUtilities?: number;
+};
+
+/**
+ * The RATE a partial-final-month line was priced from, so the document can print a real
+ * basis instead of repeating its own day count. `null` when a ledger amount overrode the
+ * computed one and the two disagree — the stored charge's basis is then unknown, and a
+ * guessed rate in an executed lease is worse than none.
+ */
+export type ProratedLastMonthRateBasis = {
+  useDailyRate: boolean;
+  dailyRate: number;
+  monthlyAmount: number;
 };
 
 export type ProratedLastMonthTotals = {
@@ -227,6 +239,8 @@ export type ProratedLastMonthTotals = {
   dueDateLabel?: string;
   /** Calendar month the amounts belong to, e.g. "December 2027". */
   monthLabel: string;
+  rentBasis: ProratedLastMonthRateBasis | null;
+  utilitiesBasis: ProratedLastMonthRateBasis | null;
 };
 
 const NO_LAST_MONTH_PRORATION: ProratedLastMonthTotals = {
@@ -238,6 +252,8 @@ const NO_LAST_MONTH_PRORATION: ProratedLastMonthTotals = {
   daysInMonth: 0,
   label: "full last month",
   monthLabel: "",
+  rentBasis: null,
+  utilitiesBasis: null,
 };
 
 /**
@@ -252,7 +268,7 @@ export function computeProratedLastMonthTotals(
   const proration = leaseEndProration(input.leaseEnd);
   if (!proration.prorated) return NO_LAST_MONTH_PRORATION;
 
-  const rent =
+  const rentCalc =
     input.monthlyRent > 0 || (input.dailyBasisRate ?? 0) > 0
       ? proratedLastMonthAmount(
           input.monthlyRent,
@@ -260,17 +276,34 @@ export function computeProratedLastMonthTotals(
           input.method,
           input.dailyRentRate,
           input.dailyBasisRate,
-        ).amount
-      : 0;
-  const utilities =
-    input.monthlyUtilities > 0
+        )
+      : null;
+  const utilitiesCalc =
+    input.monthlyUtilities > 0 &&
+    (input.method !== "daily_rate" || Boolean(input.dailyUtilitiesRate && input.dailyUtilitiesRate > 0))
       ? proratedLastMonthAmount(input.monthlyUtilities, proration, input.method, input.dailyUtilitiesRate)
-          .amount
-      : 0;
+      : null;
+  const rent = rentCalc?.amount ?? 0;
+  const utilities = utilitiesCalc?.amount ?? 0;
 
   const proratedRent = input.ledgerProratedLastMonthRent ?? rent;
   const proratedUtilities = input.ledgerProratedLastMonthUtilities ?? utilities;
   if (proratedRent <= 0 && proratedUtilities <= 0) return NO_LAST_MONTH_PRORATION;
+
+  const basisFor = (
+    calc: ReturnType<typeof proratedLastMonthAmount> | null,
+    computed: number,
+    resolved: number,
+    monthlyAmount: number,
+  ): ProratedLastMonthRateBasis | null => {
+    if (!calc || resolved <= 0) return null;
+    if (Math.abs(computed - resolved) > 0.005) return null;
+    return {
+      useDailyRate: calc.useDailyRate,
+      dailyRate: calc.effectiveDailyRate,
+      monthlyAmount,
+    };
+  };
 
   return {
     applies: true,
@@ -282,5 +315,7 @@ export function computeProratedLastMonthTotals(
     label: proration.label,
     dueDateLabel: proration.dueDateLabel,
     monthLabel: prorationMonthLabel(input.leaseEnd),
+    rentBasis: basisFor(rentCalc, rent, proratedRent, input.monthlyRent),
+    utilitiesBasis: basisFor(utilitiesCalc, utilities, proratedUtilities, input.monthlyUtilities),
   };
 }

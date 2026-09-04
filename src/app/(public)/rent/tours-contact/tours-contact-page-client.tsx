@@ -115,7 +115,8 @@ export function ToursContactPageClient({ signedInNonResident = false }: { signed
       .filter((property): property is MockProperty => Boolean(property));
   }, [extrasTick, portfolioPropertyIds]);
 
-  const tourGate = useProspectActionGate("tour", linkedPropertyId, signedInNonResident);
+  const contactAutofill = useProspectContactAutofill();
+  const tourGate = useProspectActionGate("tour", linkedPropertyId, signedInNonResident, contactAutofill);
 
   return (
     <div className="min-h-screen px-4 py-12 sm:py-16">
@@ -215,6 +216,7 @@ export function ToursContactPageClient({ signedInNonResident = false }: { signed
               propertyTitle={linkedProperty.title}
               propertyAddress={linkedProperty.address}
               signedInNonResident={signedInNonResident}
+              contactAutofill={contactAutofill}
             />
           )}
         </div>
@@ -270,11 +272,13 @@ function MessageFlow({
   propertyTitle,
   propertyAddress,
   signedInNonResident = false,
+  contactAutofill,
 }: {
   propertyId: string;
   propertyTitle?: string;
   propertyAddress?: string;
   signedInNonResident?: boolean;
+  contactAutofill: ReturnType<typeof useProspectContactAutofill>;
 }) {
   const { showToast } = useAppUi();
   const router = useRouter();
@@ -285,7 +289,6 @@ function MessageFlow({
     phone: string;
     topic: string;
   } | null>(null);
-  const contactAutofill = useProspectContactAutofill();
   const signedInUserId = contactAutofill.userId;
   const hasResidentRole = contactAutofill.hasResidentRole;
   const [topic, setTopic] = useState("");
@@ -299,7 +302,7 @@ function MessageFlow({
   const [linkingSignedInAccount, setLinkingSignedInAccount] = useState(false);
   const isOther = topic === "Other";
 
-  const messageGate = useProspectActionGate("message", propertyId, signedInNonResident);
+  const messageGate = useProspectActionGate("message", propertyId, signedInNonResident, contactAutofill);
 
   useEffect(() => {
     if (!contactAutofill.ready) return;

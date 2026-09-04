@@ -26,6 +26,8 @@ export type LeaseBillingSnapshot = {
   otherCostAmount: number;
   proratedRent?: number;
   proratedUtilities?: number;
+  proratedLastMonthRent?: number;
+  proratedLastMonthUtilities?: number;
   applicationFee?: number;
   dueAtSigning: number;
 };
@@ -40,8 +42,6 @@ const SIGNING_CHARGE_KINDS: HouseholdChargeKind[] = [
   "payment_at_signing",
   "prorated_rent",
   "prorated_utilities",
-  "prorated_last_month_rent",
-  "prorated_last_month_utilities",
   "other_cost",
 ];
 
@@ -169,6 +169,8 @@ export function buildLeaseBillingSnapshot(
 
   const chargeProratedRent = sumByKind(charges, "prorated_rent");
   const chargeProratedUtilities = sumByKind(charges, "prorated_utilities");
+  const chargeProratedLastMonthRent = sumByKind(charges, "prorated_last_month_rent");
+  const chargeProratedLastMonthUtilities = sumByKind(charges, "prorated_last_month_utilities");
 
   const resolvedProratedRent =
     computedProration?.applies && computedProration.proratedRent > 0
@@ -228,6 +230,8 @@ export function buildLeaseBillingSnapshot(
     otherCostAmount: placement.otherCostAmount,
     proratedRent: resolvedProratedRent,
     proratedUtilities: resolvedProratedUtilities,
+    proratedLastMonthRent: chargeProratedLastMonthRent,
+    proratedLastMonthUtilities: chargeProratedLastMonthUtilities,
     applicationFee,
     dueAtSigning,
   };
