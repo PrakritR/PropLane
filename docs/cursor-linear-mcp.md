@@ -3,6 +3,8 @@
 Connect Cursor to your Linear workspace so the agent can list issues, create tasks,
 and pull project context without leaving the IDE.
 
+**Ticket filing rules, labels, and workflow:** [`docs/linear-ticket-system.md`](linear-ticket-system.md)
+
 Official docs: [Linear MCP server](https://linear.app/docs/mcp) ·
 [Cursor integration](https://linear.app/integrations/cursor-mcp)
 
