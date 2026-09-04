@@ -5,6 +5,11 @@
 import { resolveEmailLinkBaseUrl } from "@/lib/app-url";
 import { residentSetupAccountUrl } from "@/lib/auth/resident-setup-token";
 import { formatProplaneIdForDisplay } from "@/lib/manager-id";
+import {
+  appendManagerReachabilityToWelcomeBody,
+  managerReachabilityWelcomeHtmlBlock,
+  type ManagerReachabilityLines,
+} from "@/lib/manager-reachability-for-resident";
 
 export const RESIDENT_WELCOME_EMAIL_SUBJECT = "Your PropLane resident portal — account setup";
 
@@ -29,10 +34,11 @@ export function buildResidentWelcomeEmailBody(params: {
   residentName?: string;
   axisId: string;
   signupUrl: string;
+  managerReachability?: ManagerReachabilityLines;
 }): string {
   const greeting = params.residentName?.trim() ? `Hi ${params.residentName.trim()},` : "Hi,";
   const id = formatProplaneIdForDisplay(params.axisId);
-  return [
+  const base = [
     greeting,
     "",
     "Welcome to PropLane. Your rental application has been approved.",
@@ -51,7 +57,8 @@ export function buildResidentWelcomeEmailBody(params: {
     "Use the same email address you used on your rental application when you sign in. Continue with Google usually works when that email is a Gmail account.",
     "",
     "— PropLane",
-  ].join("\n");
+  ];
+  return appendManagerReachabilityToWelcomeBody(base, params.managerReachability ?? {}).join("\n");
 }
 
 function escapeHtmlText(s: string): string {
@@ -67,6 +74,7 @@ export function buildResidentWelcomeEmailHtml(params: {
   residentName?: string;
   axisId: string;
   signupUrl: string;
+  managerReachability?: ManagerReachabilityLines;
 }): string {
   const greeting = params.residentName?.trim()
     ? `Hi ${escapeHtmlText(params.residentName.trim())},`
@@ -74,6 +82,7 @@ export function buildResidentWelcomeEmailHtml(params: {
   const id = escapeHtmlText(formatProplaneIdForDisplay(params.axisId));
   const href = escapeHtmlAttr(params.signupUrl);
   const urlPlain = escapeHtmlText(params.signupUrl);
+  const reachBlock = managerReachabilityWelcomeHtmlBlock(params.managerReachability ?? {});
   /* Table-based CTA: best support across Gmail, Outlook, Apple Mail. */
   const ctaButton = `<table role="presentation" cellspacing="0" cellpadding="0" border="0" style="margin:20px 0 8px 0">
 <tr>
@@ -90,6 +99,7 @@ export function buildResidentWelcomeEmailHtml(params: {
 <p style="margin:0 0 12px 0">${greeting}</p>
 <p style="margin:0 0 12px 0">Welcome to PropLane. Your rental application has been approved.</p>
 <p style="margin:0 0 8px 0"><strong>Your PropLane ID:</strong> ${id}</p>
+${reachBlock}
 ${ctaButton}
 <p style="margin:0 0 12px 0">You can use the portal for lease signing, payments, maintenance and add-on service requests, and move-in details your property shares with you.</p>
 <p style="margin:0 0 12px 0">Use the same email address you used on your rental application when you create your account.</p>
@@ -104,10 +114,11 @@ function buildResidentWelcomeMailtoBody(params: {
   residentName?: string;
   axisId: string;
   signupUrl: string;
+  managerReachability?: ManagerReachabilityLines;
 }): string {
   const greeting = params.residentName?.trim() ? `Hi ${params.residentName.trim()},` : "Hi,";
   const id = formatProplaneIdForDisplay(params.axisId);
-  return [
+  const base = [
     greeting,
     "",
     "Your rental application was approved. Create your resident portal account using this link:",
@@ -119,7 +130,8 @@ function buildResidentWelcomeMailtoBody(params: {
     "Use the same email address you used on your rental application when you sign up.",
     "",
     "— PropLane",
-  ].join("\n");
+  ];
+  return appendManagerReachabilityToWelcomeBody(base, params.managerReachability ?? {}).join("\n");
 }
 
 export function buildResidentWelcomeMailtoHref(params: {
@@ -128,12 +140,14 @@ export function buildResidentWelcomeMailtoHref(params: {
   axisId: string;
   origin: string;
   setupToken?: string;
+  managerReachability?: ManagerReachabilityLines;
 }): string {
   const signupUrl = residentAccountCreationUrl(params.origin, params.axisId, params.setupToken);
   const body = buildResidentWelcomeMailtoBody({
     residentName: params.residentName,
     axisId: params.axisId,
     signupUrl,
+    managerReachability: params.managerReachability,
   });
   const subject = encodeURIComponent(RESIDENT_WELCOME_EMAIL_SUBJECT);
   const encBody = encodeURIComponent(body);

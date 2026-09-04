@@ -232,6 +232,13 @@ export function ManagerUnifiedInbox({
     [commBase, listSegment],
   );
 
+  const closeActiveThread = useCallback(() => {
+    setSelectedKey(null);
+    setMobileThreadOpen(false);
+    onRouteThreadChange?.(undefined);
+    clearCommunicationThreadUrl(threadListHref());
+  }, [onRouteThreadChange, threadListHref]);
+
   useEffect(() => {
     const syncArchive = () => setSmsArchivedIds(loadManagerSmsArchivedIds());
     window.addEventListener(MANAGER_SMS_ARCHIVE_CHANGED_EVENT, syncArchive as EventListener);
@@ -829,6 +836,7 @@ export function ManagerUnifiedInbox({
       }
       smsUiEnabled={smsUiEnabled}
       onSent={refreshAfterDirectSend}
+      onBack={closeActiveThread}
     />
   ) : selection?.channel === "email" ? (
       <ManagerInbox

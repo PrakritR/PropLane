@@ -25,6 +25,7 @@ import {
 } from "@/lib/existing-resident-welcome-email";
 import { sendSms } from "@/lib/twilio";
 import { ensureResidentSetupTokenForApplication } from "@/lib/auth/resident-setup-token";
+import { resolveManagerReachabilityForResident } from "@/lib/manager-reachability-for-resident.server";
 
 // Domain is matched as dot-separated labels (no char class overlaps the "." delimiter)
 // so there is exactly one way to parse a match — avoids polynomial backtracking on
@@ -128,16 +129,20 @@ export async function deliverResidentWelcome(
   });
   const setupToken = ensured.ok ? ensured.token : undefined;
 
+  const managerReachability = await resolveManagerReachabilityForResident(db, actor.userId);
+
   const signupUrl = residentAccountCreationUrl("", axisId, setupToken);
   const text = buildResidentWelcomeEmailBody({
     residentName: residentName || undefined,
     axisId,
     signupUrl,
+    managerReachability,
   });
   const html = buildResidentWelcomeEmailHtml({
     residentName: residentName || undefined,
     axisId,
     signupUrl,
+    managerReachability,
   });
   const mailtoHref = buildResidentWelcomeMailtoHref({
     residentEmail: to,
@@ -145,6 +150,7 @@ export async function deliverResidentWelcome(
     axisId,
     origin: "",
     setupToken,
+    managerReachability,
   });
 
   let payloadId: string | null = null;
@@ -290,18 +296,22 @@ export async function deliverExistingResidentWelcome(
   });
   const setupToken = ensured.ok ? ensured.token : undefined;
 
+  const managerReachability = await resolveManagerReachabilityForResident(db, actor.userId);
+
   const signupUrl = residentAccountCreationUrl("", axisId, setupToken);
   const text = buildExistingResidentWelcomeEmailBody({
     residentName: residentName || undefined,
     axisId,
     signupUrl,
     propertyLabel: propertyLabel || undefined,
+    managerReachability,
   });
   const html = buildExistingResidentWelcomeEmailHtml({
     residentName: residentName || undefined,
     axisId,
     signupUrl,
     propertyLabel: propertyLabel || undefined,
+    managerReachability,
   });
   const mailtoHref = buildExistingResidentWelcomeMailtoHref({
     residentEmail: to,
@@ -310,6 +320,7 @@ export async function deliverExistingResidentWelcome(
     origin: "",
     setupToken,
     propertyLabel: propertyLabel || undefined,
+    managerReachability,
   });
 
   let payloadId: string | null = null;

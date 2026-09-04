@@ -771,6 +771,11 @@ export const VendorInboxPanel = forwardRef<
   }, [activeThread?.id, activeThread?.folder, activeThread?.unread, markReadSilent]);
 
   const activeIsSent = activeThread?.folder === "sent";
+  const activeThreadAvatarName = activeThread
+    ? activeIsSent
+      ? activeThread.email || undefined
+      : activeThread.from || activeThread.email || undefined
+    : undefined;
   const activeFolder = activeThread
     ? activeThread.folder === "trash"
       ? "inbox"
@@ -912,6 +917,7 @@ export const VendorInboxPanel = forwardRef<
             <InboxThreadView
               scrollMode={pageScroll ? "page" : "pane"}
               title={activeIsSent ? activeThread.email || "Unknown recipient" : activeThread.from || activeThread.email || "Unknown sender"}
+              avatarName={activeThreadAvatarName}
               subtitle={activeThread.subject || (activeIsSent ? undefined : activeThread.email)}
               messages={activeBubbles}
               threadKey={activeThread.id}

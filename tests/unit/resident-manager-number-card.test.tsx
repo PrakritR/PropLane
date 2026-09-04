@@ -28,7 +28,7 @@ describe("resident manager number card", () => {
   it("shows the number as a tappable sms link", async () => {
     stubContacts([{ phone: "+12065559000", propertyLabel: "4709A", leaseStart: null, leaseEnd: null, status: "current" }]);
     const { container } = render(<ResidentManagerNumberCard />);
-    await waitFor(() => expect(screen.getByText("Text your manager")).toBeTruthy());
+    await waitFor(() => expect(screen.getByText("Contact your manager")).toBeTruthy());
     // A tel/sms link so a phone opens its messages app pre-addressed rather
     // than making the resident copy digits off the screen.
     const link = container.querySelector('[data-attr="resident-manager-number-link"]');
@@ -40,6 +40,23 @@ describe("resident manager number card", () => {
     stubContacts([]);
     const { container } = render(<ResidentManagerNumberCard />);
     await waitFor(() => expect(container.querySelector('[data-attr="resident-manager-number"]')).toBeNull());
+  });
+
+  it("shows the manager assistant email when provisioned", async () => {
+    stubContacts([
+      {
+        phone: null,
+        assistantEmail: "assist-acme@prop-lane.space",
+        propertyLabel: "4709A",
+        leaseStart: null,
+        leaseEnd: null,
+        status: "current",
+      },
+    ]);
+    const { container } = render(<ResidentManagerNumberCard />);
+    await waitFor(() => expect(screen.getByText("assist-acme@prop-lane.space")).toBeTruthy());
+    const link = container.querySelector('[data-attr="resident-manager-email-link"]');
+    expect(link?.getAttribute("href")).toBe("mailto:assist-acme@prop-lane.space");
   });
 
   it("labels each number by property only when there are several", async () => {
@@ -57,7 +74,9 @@ describe("managerContactCaption", () => {
   const base = { phone: "+1", propertyLabel: null, leaseStart: null, leaseEnd: null } as const;
 
   it("stays plain for a single tenancy", () => {
-    expect(managerContactCaption({ ...base, status: "current" }, false)).toBe("Replies show up here too.");
+    expect(managerContactCaption({ ...base, status: "current" }, false)).toBe(
+      "Replies in PropLane show up in your conversations below.",
+    );
   });
 
   it("dates an upcoming home so a mid-move resident can tell them apart", () => {
