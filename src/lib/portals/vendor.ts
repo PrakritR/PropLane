@@ -24,10 +24,13 @@ export const vendorPortal: PortalDefinition = {
     {
       section: "documents",
       label: "Documents",
+      // Mine vs From managers is the only cut that matters to a vendor. The
+      // old Tax & income / Insurance / Business & licensing tabs asked them to
+      // classify a file before uploading it; the category is a label on the
+      // row now. The document KIND stays structural — it is what the upload
+      // route keys on — so nothing that depended on it changed.
       tabs: [
-        { id: "tax", label: "Tax & income" },
-        { id: "insurance", label: "Insurance" },
-        { id: "licensing", label: "Business & licensing" },
+        { id: "mine", label: "Mine" },
         { id: "shared", label: "From managers" },
       ],
     },
@@ -45,6 +48,6 @@ export const VENDOR_PORTAL_SMOKE_PATHS = [
   { label: "Finances", path: "/vendor/financials/income" },
   { label: "Invoices", path: "/vendor/financials/invoices" },
   { label: "Payments", path: "/vendor/payments" },
-  { label: "Documents", path: "/vendor/documents/tax" },
+  { label: "Documents", path: "/vendor/documents/mine" },
   { label: "Settings", path: "/vendor/profile" },
 ] as const;

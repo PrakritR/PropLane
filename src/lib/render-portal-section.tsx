@@ -1451,6 +1451,11 @@ export async function renderPortalSection(
       notFound();
     }
     const documentsTab = tabParts[0]!;
+    // The three category tabs collapsed into one "Mine" list. A vendor's
+    // bookmark, or a manager's emailed link, must still land somewhere.
+    if (documentsTab === "tax" || documentsTab === "insurance" || documentsTab === "licensing") {
+      redirect(`${def.basePath}/${section}/mine`);
+    }
     if (!meta.tabs.some((tab) => tab.id === documentsTab)) notFound();
     return <VendorDocumentsPanel tabId={documentsTab} basePath={def.basePath} />;
   }
