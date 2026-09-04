@@ -499,8 +499,11 @@ export async function renderPortalSection(
   }
 
   if (kind === "admin" && section === "communication") {
+    // The bare section IS the inbox. It used to redirect to
+    // `/communication/inbox/unopened`, which made the nav's own href a folder
+    // path for a panel that has no folders.
     if (!tabParts?.length) {
-      redirect(`${def.basePath}/communication/inbox/unopened`);
+      return <AdminCommunication smsUiEnabled={isSmsCommUiEnabled()} />;
     }
     const channel = tabParts[0]!;
     if (channel === "sms" || channel === "email") {

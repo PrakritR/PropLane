@@ -64,7 +64,7 @@ function hrefForSection(def: PortalDefinition, section: string) {
     if (def.basePath === "/portal" || def.basePath === "/resident" || def.basePath === "/vendor") {
       return `${def.basePath}/communication/active`;
     }
-    return `${def.basePath}/communication/inbox/unopened`;
+    return `${def.basePath}/communication`;
   }
   if (!meta.tabs.length) return `${def.basePath}/${section}`;
   // Most tabbed sections use `/section/tab` only. Bucketed queues (applications,
@@ -196,9 +196,7 @@ function buildPortalNavItems(
       }
       const tabPrefetchHrefs =
         section.tabs.length > 0
-          ? section.section === "communication" && definition.kind === "admin"
-            ? section.tabs.map((tab) => `${definition.basePath}/communication/inbox/${tab.id}`)
-            : section.tabs.map((tab) => `${definition.basePath}/${section.section}/${tab.id}`)
+          ? section.tabs.map((tab) => `${definition.basePath}/${section.section}/${tab.id}`)
           : [`${definition.basePath}/${section.section}`];
       return [
         {
