@@ -41,14 +41,11 @@ export function ManagerEditLeasesModal({
 }) {
   const [selectedId, setSelectedId] = useState("");
   const [editorRevision, setEditorRevision] = useState(0);
-  /** The lease panel's own selection action, rendered in this modal's footer. */
-  const [bulkActions, setBulkActions] = useState<ReactNode | null>(null);
 
   useEffect(() => {
     if (!open) {
       setSelectedId("");
       setEditorRevision(0);
-      setBulkActions(null);
     }
   }, [open]);
 
@@ -75,7 +72,6 @@ export function ManagerEditLeasesModal({
 
   const closeAll = () => {
     setSelectedId("");
-    setBulkActions(null);
     onClose();
   };
 
@@ -89,7 +85,6 @@ export function ManagerEditLeasesModal({
       onClose={closeAll}
       panelClassName="max-w-4xl"
       assistantContext="Edit lease"
-      footer={bulkActions ? <ModalFooter className="w-full">{bulkActions}</ModalFooter> : undefined}
     >
       <div className="space-y-4">
         <ManagerSettingsPropertyField
@@ -111,7 +106,6 @@ export function ManagerEditLeasesModal({
             propertyHint={selectedLabel ? { buildingName: selectedLabel } : undefined}
             propertyId={selectedId}
             propertyLabel={selectedLabel}
-            onBulkActionsChange={setBulkActions}
             onUpdated={() => {
               setEditorRevision((revision) => revision + 1);
               onSaved();

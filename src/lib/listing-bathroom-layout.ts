@@ -31,6 +31,10 @@ function emptyBathroomShell(
     shower: patch.shower ?? true,
     toilet: patch.toilet ?? true,
     bathtub: patch.bathtub ?? false,
+    // Added to the type on another branch while this builder landed on this
+    // one, so the merge left the shell short two required fields.
+    sink: patch.sink ?? true,
+    mirror: patch.mirror ?? true,
     assignedRoomIds: patch.assignedRoomIds,
     allResidents: patch.allResidents,
     accessKindByRoomId: patch.accessKindByRoomId,

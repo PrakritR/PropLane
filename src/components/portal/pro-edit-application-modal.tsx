@@ -17,9 +17,6 @@ import { syncPropertyApplicationTemplatesFromListing } from "@/lib/property-appl
  * is the one Applications settings uses, on the same page as the applications
  * it filters: no Continue step.
  *
- * The panel's own selection action is published up and rendered in this
- * modal's footer, because `BulkActionBar` is `position: fixed` and would
- * otherwise escape to the page behind the dialog.
  */
 export function ManagerEditApplicationModal({
   open,
@@ -38,13 +35,11 @@ export function ManagerEditApplicationModal({
 }) {
   const [selectedId, setSelectedId] = useState("");
   const [editorRevision, setEditorRevision] = useState(0);
-  const [bulkActions, setBulkActions] = useState<ReactNode | null>(null);
 
   useEffect(() => {
     if (!open) {
       setSelectedId("");
       setEditorRevision(0);
-      setBulkActions(null);
     }
   }, [open]);
 
@@ -71,7 +66,6 @@ export function ManagerEditApplicationModal({
 
   const closeAll = () => {
     setSelectedId("");
-    setBulkActions(null);
     onClose();
   };
 
@@ -85,7 +79,6 @@ export function ManagerEditApplicationModal({
       onClose={closeAll}
       panelClassName="max-w-4xl"
       assistantContext="Edit application"
-      footer={bulkActions ? <ModalFooter className="w-full">{bulkActions}</ModalFooter> : undefined}
     >
       <div className="space-y-4">
         <ManagerSettingsPropertyField
@@ -105,7 +98,6 @@ export function ManagerEditApplicationModal({
             saveTarget={resolved.saveTarget}
             managerUserId={managerUserId}
             listingId={resolved.saveTarget.mode === "listing" ? resolved.saveTarget.saveId : selectedId}
-            onBulkActionsChange={setBulkActions}
             onUpdated={() => {
               setEditorRevision((revision) => revision + 1);
               onSaved();

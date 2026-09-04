@@ -26,7 +26,7 @@ vi.mock("@/hooks/use-work-assignment-directory", () => ({
   useWorkAssignmentDirectory: () => ({ teamMembers: [] }),
 }));
 
-import { ManagerPortalSettingsModal } from "@/components/portal/pro-portal-settings-modal";
+import { ProPortalSettingsModal } from "@/components/portal/pro-portal-settings-modal";
 
 const PROPERTY_OPTIONS = [{ id: "prop-1", label: "Ballard House" }];
 
@@ -61,10 +61,17 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
+/**
+ * These three assertions exist because this exact work was silently reverted
+ * once already: a peer branch carrying the pre-autosave version of the settings
+ * modal merged cleanly over it, and the only symptom was the captain reporting
+ * "does not save edits" — no conflict, no failing build. The guard is the
+ * behaviour, not the file.
+ */
 describe("Applications settings", () => {
   it("writes the toggle without a Save button", async () => {
     render(
-      <ManagerPortalSettingsModal
+      <ProPortalSettingsModal
         open
         onClose={() => undefined}
         initialTab="applications"
@@ -89,7 +96,7 @@ describe("Applications settings", () => {
     const confirmSpy = vi.fn(() => true);
     vi.stubGlobal("confirm", confirmSpy);
     render(
-      <ManagerPortalSettingsModal
+      <ProPortalSettingsModal
         open
         onClose={() => undefined}
         initialTab="applications"
@@ -104,7 +111,7 @@ describe("Applications settings", () => {
 
   it("keeps the toggle on after the write, rather than letting a re-read clobber it", async () => {
     render(
-      <ManagerPortalSettingsModal
+      <ProPortalSettingsModal
         open
         onClose={() => undefined}
         initialTab="applications"
