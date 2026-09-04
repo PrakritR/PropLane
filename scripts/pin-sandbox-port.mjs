@@ -40,4 +40,25 @@ if (lineRe.test(text)) {
 
 writeFileSync(envPath, text, "utf8");
 console.log(`Pinned ${key}=${origin} in .env.local`);
-console.log("Restart the dev server on this port so the client bundle picks up the change.");
+
+// `NEXT_PUBLIC_*` is inlined into the CLIENT BUNDLE at build time, so a dev
+// server that was already running keeps serving the old origin — auth redirects
+// carry on landing on whatever port it started with, and the pin looks like it
+// did nothing. Saying "restart" in passing was not enough; if a server is
+// answering on this port right now, that is precisely the footgun, so say so
+// loudly (PRP-217).
+const alreadyServing = await fetch(`${origin}/`, { method: "HEAD" })
+  .then(() => true)
+  .catch(() => false);
+
+if (alreadyServing) {
+  console.warn(
+    `\n  ⚠  A dev server is ALREADY RUNNING on ${port}.\n` +
+      `     It is still serving the old ${key}, because NEXT_PUBLIC_* values are\n` +
+      `     baked into the client bundle at build time. Auth redirects will keep\n` +
+      `     landing on the old port until you restart it:\n\n` +
+      `       npm run dev -- -p ${port}\n`,
+  );
+} else {
+  console.log(`Start the dev server on this port:  npm run dev -- -p ${port}`);
+}

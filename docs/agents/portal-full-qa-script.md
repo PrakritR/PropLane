@@ -24,6 +24,13 @@ npm run test:seed         # dev/test Supabase seed (core accounts)
 npm run dev -- -p 3010
 ```
 
+**If you pin the port with `npm run sandbox:pin -- <port>`, restart the dev
+server afterwards — always.** `NEXT_PUBLIC_APP_URL` is inlined into the client
+bundle at build time, so a server that was already running keeps serving the old
+origin and auth redirects carry on landing on the port it started with. The pin
+looks like it did nothing. `sandbox:pin` checks whether a server is answering on
+that port and warns when one is, but it cannot restart it for you.
+
 **Check the accounts before you start.** They are seeded, not permanent — a dev
 reset removes them, and the sign-in page reports a missing account with the same
 "Invalid login credentials" a wrong password gets:
