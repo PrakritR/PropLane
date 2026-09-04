@@ -18,7 +18,6 @@ import {
   PORTAL_DETAIL_BTN,
   PortalTableDetailActions,
 } from "@/components/portal/portal-data-table";
-import { ApplicationHouseholdCluster } from "@/components/portal/application-household-list";
 import {
   PortalListAddRow,
   PORTAL_LIST_ADD_ICONS,
@@ -256,6 +255,39 @@ const CO_MANAGER_PERMISSION_PRESETS: { label: string; preset: CoManagerBulkPrese
   { label: "All full access", preset: "full" },
 ];
 
+const permissionToggleActive =
+  "border-primary bg-primary/10 text-foreground shadow-sm";
+const permissionToggleInactive =
+  "border-border bg-card text-muted hover:border-primary/40 hover:text-foreground";
+
+function PermissionLevelToggle({
+  label,
+  active,
+  disabled,
+  onToggle,
+  dataAttr,
+}: {
+  label: string;
+  active: boolean;
+  disabled?: boolean;
+  onToggle: () => void;
+  dataAttr?: string;
+}) {
+  return (
+    <button
+      type="button"
+      disabled={disabled}
+      onClick={onToggle}
+      data-attr={dataAttr}
+      className={`rounded-full border px-2.5 py-1 text-[11px] font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
+        active ? permissionToggleActive : permissionToggleInactive
+      }`}
+    >
+      {label}
+    </button>
+  );
+}
+
 function CoManagerPermissionsEditor({
   value,
   onChange,
@@ -276,7 +308,7 @@ function CoManagerPermissionsEditor({
   const isEmpty = Object.keys(value).length === 0;
 
   return (
-    <div className="space-y-2">
+    <div className="space-y-3">
       <div className="flex flex-wrap gap-1.5">
         {CO_MANAGER_PERMISSION_PRESETS.map((preset) => (
           <button
@@ -293,60 +325,108 @@ function CoManagerPermissionsEditor({
       </div>
       {isEmpty ? (
         <p className="rounded-lg border border-dashed border-border bg-accent/20 px-3 py-2 text-xs text-muted">
-          No access. This team member cannot open any module on this property. Check the
-          modules they should reach, or use a preset above. (To remove the property
-          entirely, use &ldquo;Remove access&rdquo;.)
+          No access. Turn on Read, Write, or Delete for each module below, or use a preset above.
         </p>
       ) : null}
-      <div className="grid gap-2 sm:grid-cols-2">
-      {CO_MANAGER_PERMISSION_OPTIONS.map(({ id, label }) => {
-        const levels = grantToLevels(value[id]);
-        const enabled = Boolean(levels.read);
-        return (
-          <div
-            key={id}
-            className={`rounded-lg border border-border bg-card px-3 py-2.5 text-sm ${disabled ? "opacity-60" : ""}`}
-          >
-            <label className={`flex items-start gap-2 ${disabled ? "" : "cursor-pointer"}`}>
-              <input
-                type="checkbox"
-                disabled={disabled}
-                checked={enabled}
-                onChange={(e) =>
-                  setLevels(id, e.target.checked ? { read: true } : {})
-                }
-                className="mt-0.5 h-4 w-4 rounded border-border text-primary"
-              />
-              <span className="font-medium text-foreground">{label}</span>
-            </label>
-            {enabled ? (
-              <div className="mt-2 flex items-center gap-4 pl-6 text-xs text-muted">
-                <label className={`inline-flex items-center gap-1.5 ${disabled ? "" : "cursor-pointer"}`}>
-                  <input
-                    type="checkbox"
-                    disabled={disabled}
-                    checked={Boolean(levels.edit)}
-                    onChange={(e) => setLevels(id, { ...levels, edit: e.target.checked })}
-                    className="h-3.5 w-3.5 rounded border-border text-primary"
-                  />
-                  Write
-                </label>
-                <label className={`inline-flex items-center gap-1.5 ${disabled ? "" : "cursor-pointer"}`}>
-                  <input
-                    type="checkbox"
-                    disabled={disabled}
-                    checked={Boolean(levels.delete)}
-                    onChange={(e) => setLevels(id, { ...levels, delete: e.target.checked })}
-                    className="h-3.5 w-3.5 rounded border-border text-primary"
-                  />
-                  Delete
-                </label>
+      <div className="space-y-2">
+        {CO_MANAGER_PERMISSION_OPTIONS.map(({ id, label }) => {
+          const levels = grantToLevels(value[id]);
+          return (
+            <div
+              key={id}
+              className={`flex flex-col gap-2 rounded-xl border border-border bg-card px-3 py-2.5 sm:flex-row sm:items-center sm:justify-between ${
+                disabled ? "opacity-60" : ""
+              }`}
+            >
+              <span className="text-sm font-medium text-foreground">{label}</span>
+              <div className="flex flex-wrap items-center gap-1.5">
+                <PermissionLevelToggle
+                  label="Read"
+                  active={Boolean(levels.read)}
+                  disabled={disabled}
+                  dataAttr={`co-manager-${id}-read`}
+                  onToggle={() =>
+                    setLevels(
+                      id,
+                      levels.read
+                        ? { edit: levels.edit, delete: levels.delete }
+                        : { read: true, edit: levels.edit, delete: levels.delete },
+                    )
+                  }
+                />
+                <PermissionLevelToggle
+                  label="Write"
+                  active={Boolean(levels.edit)}
+                  disabled={disabled}
+                  dataAttr={`co-manager-${id}-write`}
+                  onToggle={() =>
+                    setLevels(
+                      id,
+                      levels.edit
+                        ? { read: levels.read || levels.delete, delete: levels.delete }
+                        : { read: true, edit: true, delete: levels.delete },
+                    )
+                  }
+                />
+                <PermissionLevelToggle
+                  label="Remove"
+                  active={!levels.read && !levels.edit && !levels.delete}
+                  disabled={disabled}
+                  dataAttr={`co-manager-${id}-remove`}
+                  onToggle={() => setLevels(id, {})}
+                />
+                <PermissionLevelToggle
+                  label="Delete"
+                  active={Boolean(levels.delete)}
+                  disabled={disabled}
+                  dataAttr={`co-manager-${id}-delete`}
+                  onToggle={() =>
+                    setLevels(
+                      id,
+                      levels.delete
+                        ? { read: levels.read || levels.edit, edit: levels.edit }
+                        : { read: true, delete: true, edit: levels.edit },
+                    )
+                  }
+                />
               </div>
-            ) : null}
-          </div>
-        );
-      })}
+            </div>
+          );
+        })}
       </div>
+    </div>
+  );
+}
+
+type PropertyPermissionsModalState = {
+  propertyId: string;
+  propertyLabel: string;
+  draft: CoManagerPermissions;
+  onSave: (next: CoManagerPermissions) => void;
+};
+
+function TeamMemberContactCard({ entry }: { entry: TeamListEntry }) {
+  const email =
+    entry.kind === "remote" ? entry.invite.linkedEmail?.trim() || null : null;
+  const phone =
+    entry.kind === "remote" ? entry.invite.linkedPhone?.trim() || null : null;
+  const rows = [
+    { label: "PropLane ID", value: entry.axisId },
+    { label: "Status", value: entry.statusLabel },
+    ...(email ? [{ label: "Email", value: email }] : []),
+    ...(phone ? [{ label: "Phone", value: phone }] : []),
+  ];
+  return (
+    <div className="rounded-2xl border border-border bg-card px-4 py-3" data-attr="team-member-contact-card">
+      <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-muted">Contact</p>
+      <dl className="mt-2 grid gap-2 sm:grid-cols-2">
+        {rows.map((row) => (
+          <div key={row.label}>
+            <dt className="text-[10px] font-semibold uppercase tracking-wide text-muted">{row.label}</dt>
+            <dd className="mt-0.5 text-sm text-foreground">{row.value}</dd>
+          </div>
+        ))}
+      </dl>
     </div>
   );
 }
@@ -462,6 +542,7 @@ export function ProAccountLinksPanel({ userId, linkId: linkIdProp }: { userId: s
   const [transferCoManagerUserId, setTransferCoManagerUserId] = useState<string | null>(null);
   const [transferPermissions, setTransferPermissions] = useState<CoManagerPermissions>(EMPTY_CO_MANAGER_PERMISSIONS);
   const [transferBusy, setTransferBusy] = useState(false);
+  const [propertyPermissionsModal, setPropertyPermissionsModal] = useState<PropertyPermissionsModalState | null>(null);
 
   // Named function expression so the soft-retry below can re-invoke this exact
   // load directly. It must NOT hop through a ref: a ref captured this deep in the
@@ -1407,31 +1488,57 @@ export function ProAccountLinksPanel({ userId, linkId: linkIdProp }: { userId: s
     removePropertyFromLocalRow(link.id, propertyId);
   };
 
+  const openPropertyPermissionsModal = (
+    propertyId: string,
+    perms: CoManagerPermissions,
+    onSave: (next: CoManagerPermissions) => void,
+  ) => {
+    setPropertyPermissionsModal({
+      propertyId,
+      propertyLabel: teamPropertyLabel(propertyId),
+      draft: normalizeCoManagerPermissions(perms),
+      onSave,
+    });
+  };
+
   const renderCoManagerPropertyActions = (
     propertyId: string,
     link: CoManagerPropertyLink,
     readOnly: boolean,
+    perms: CoManagerPermissions,
+    onPermissionsChange: (next: CoManagerPermissions) => void,
   ) => {
     if (readOnly) return null;
     return (
-      <>
+      <div className="flex flex-wrap gap-2">
         <Button
           type="button"
           variant="outline"
           className="h-8 rounded-full px-4 text-xs"
           onClick={() => openTransferForCoManager(propertyId, link.linkedAxisId, link.linkedUserId)}
+          data-attr="co-manager-make-owner"
         >
-          Make owner of property
+          Make owner
         </Button>
         <Button
           type="button"
           variant="outline"
-          className={`${PORTAL_DETAIL_BTN} border-rose-200 text-rose-800 hover:bg-[var(--status-overdue-bg)] portal-danger-outline`}
+          className="h-8 rounded-full px-4 text-xs"
+          onClick={() => openPropertyPermissionsModal(propertyId, perms, onPermissionsChange)}
+          data-attr="co-manager-edit-permissions"
+        >
+          Edit permissions
+        </Button>
+        <Button
+          type="button"
+          variant="outline"
+          className={`${PORTAL_DETAIL_BTN} border-rose-200 text-rose-800 hover:bg-[var(--status-overdue-bg)] portal-danger-outline h-8 rounded-full px-4 text-xs`}
           onClick={() => removeCoManagerFromProperty(link, propertyId)}
+          data-attr="co-manager-remove-property-access"
         >
           Remove access
         </Button>
-      </>
+      </div>
     );
   };
 
@@ -1534,31 +1641,33 @@ export function ProAccountLinksPanel({ userId, linkId: linkIdProp }: { userId: s
     const label = teamPropertyLabel(propertyId);
     const showSelection = detailPropertiesEditable && !readOnly;
     return (
-      <ApplicationHouseholdCluster
+      <div
         key={propertyId}
-        header={
-          <>
+        className="rounded-2xl border border-border bg-card"
+        data-attr="team-property-access-row"
+      >
+        <div className="flex flex-col gap-3 px-3 py-3 sm:flex-row sm:items-start sm:justify-between">
+          <div className="flex min-w-0 flex-1 items-start gap-3">
             {showSelection ? (
               <input
                 type="checkbox"
                 checked={selectedDetailPropertyIds.has(propertyId)}
                 onChange={() => toggleDetailProperty(propertyId)}
-                className="h-4 w-4 shrink-0 rounded border-border text-primary"
+                className="mt-0.5 h-4 w-4 shrink-0 rounded border-border text-primary"
                 aria-label={`Select ${label}`}
                 data-attr="team-property-select"
               />
             ) : null}
-            <span className="min-w-0 truncate text-xs font-semibold text-foreground">{label}</span>
-          </>
-        }
-      >
-        <div className="space-y-3 px-3 py-3">
-          {!readOnly ? (
-            <div className="flex flex-wrap gap-2">{renderCoManagerPropertyActions(propertyId, link, readOnly)}</div>
-          ) : null}
-          <CoManagerPermissionsEditor value={perms} onChange={onChange} disabled={readOnly} />
+            <div className="min-w-0">
+              <p className="text-sm font-semibold text-foreground">{label}</p>
+              <p className="mt-0.5 text-xs text-muted">{describeCoManagerPermissions(perms)}</p>
+            </div>
+          </div>
+          {!readOnly
+            ? renderCoManagerPropertyActions(propertyId, link, readOnly, perms, onChange)
+            : null}
         </div>
-      </ApplicationHouseholdCluster>
+      </div>
     );
   };
 
@@ -1873,34 +1982,85 @@ export function ProAccountLinksPanel({ userId, linkId: linkIdProp }: { userId: s
           </PortalTableDetailActions>
         );
       }
+      return null;
+    }
+    return null;
+  };
+
+  const renderDetailFooter = (entry: TeamListEntry) => {
+    if (entry.kind === "remote") {
+      const inv = entry.invite;
+      if (inv.status !== "accepted") return null;
       const readOnly = inv.direction === "incoming";
       return (
-        <PortalTableDetailActions>
-          <Button
-            type="button"
-            variant="outline"
-            className={teamDangerBtnClass}
-            onClick={() => openTeamRemovePreview([entry])}
-            data-attr="co-manager-remove-link"
-          >
-            {readOnly ? "Leave team link" : "Remove team link"}
-          </Button>
-        </PortalTableDetailActions>
-      );
-    }
-    return (
-      <PortalTableDetailActions>
         <Button
           type="button"
           variant="outline"
-          className={teamDangerBtnClass}
+          className={`${teamDangerBtnClass} w-full sm:w-auto`}
           onClick={() => openTeamRemovePreview([entry])}
           data-attr="co-manager-remove-link"
         >
-          Remove team link
+          {readOnly ? "Leave team link" : "Remove team link"}
         </Button>
-      </PortalTableDetailActions>
+      );
+    }
+    return (
+      <Button
+        type="button"
+        variant="outline"
+        className={`${teamDangerBtnClass} w-full sm:w-auto`}
+        onClick={() => openTeamRemovePreview([entry])}
+        data-attr="co-manager-remove-link"
+      >
+        Remove team link
+      </Button>
     );
+  };
+
+  const openPermissionsForSelectedDetailProperty = () => {
+    if (!routeEntry || selectedDetailPropertyIds.size !== 1) return;
+    const propertyId = [...selectedDetailPropertyIds][0]!;
+    if (routeEntry.kind === "remote") {
+      const inv = routeEntry.invite;
+      const draft = getInviteDraft(inv);
+      const perms = permissionsForProperty(draft.propertyCoManagerPermissions, propertyId);
+      openPropertyPermissionsModal(propertyId, perms, (next) =>
+        updatePropertyPermissions(inv, propertyId, next),
+      );
+      return;
+    }
+    const row = routeEntry.row;
+    const perms = normalizeCoManagerPermissions(
+      row.propertyCoManagerPermissions?.[propertyId] ?? row.coManagerPermissions,
+    );
+    openPropertyPermissionsModal(propertyId, perms, (next) => {
+      const all = readProRelationships(userId);
+      const updated = all.map((rel) =>
+        rel.id === row.id
+          ? {
+              ...rel,
+              propertyCoManagerPermissions: {
+                ...(rel.propertyCoManagerPermissions ?? {}),
+                [propertyId]: next,
+              },
+            }
+          : rel,
+      );
+      writeProRelationships(userId, updated);
+      refreshLocal();
+    });
+  };
+
+  const openMakeOwnerForSelectedDetailProperty = () => {
+    if (!routeEntry || selectedDetailPropertyIds.size !== 1) return;
+    const propertyId = [...selectedDetailPropertyIds][0]!;
+    if (routeEntry.kind === "remote") {
+      const inv = routeEntry.invite;
+      openTransferForCoManager(propertyId, inv.linkedAxisId, inv.linkedUserId);
+      return;
+    }
+    const row = routeEntry.row;
+    openTransferForCoManager(propertyId, row.linkedAxisId, row.linkedUserId ?? "");
   };
 
   const teamListAddRow = (
@@ -1921,11 +2081,12 @@ export function ProAccountLinksPanel({ userId, linkId: linkIdProp }: { userId: s
   */
   const teamLinkButton = null;
 
-  const renderInviteDetail = (inv: AccountLinkInviteDto) => {
+  const renderInviteDetail = (inv: AccountLinkInviteDto, entry: TeamListEntry) => {
     const draft = getInviteDraft(inv);
     const readOnly = inv.direction === "incoming";
     return (
       <div className="space-y-4" data-attr="team-member-property-access">
+        <TeamMemberContactCard entry={entry} />
         {!readOnly ? (
           <AddPropertyToCoManager
             linkId={inv.id}
@@ -1952,8 +2113,9 @@ export function ProAccountLinksPanel({ userId, linkId: linkIdProp }: { userId: s
     );
   };
 
-  const renderLocalRowDetail = (r: ProRelationshipRecord) => (
+  const renderLocalRowDetail = (r: ProRelationshipRecord, entry: TeamListEntry) => (
     <div className="space-y-4" data-attr="team-member-property-access">
+      <TeamMemberContactCard entry={entry} />
       <AddPropertyToCoManager
         linkId={r.id}
         assignedPropertyIds={r.assignedPropertyIds}
@@ -1972,8 +2134,8 @@ export function ProAccountLinksPanel({ userId, linkId: linkIdProp }: { userId: s
   );
 
   const renderDetailBody = (entry: TeamListEntry) => {
-    if (entry.kind === "remote") return renderInviteDetail(entry.invite);
-    return renderLocalRowDetail(entry.row);
+    if (entry.kind === "remote") return renderInviteDetail(entry.invite, entry);
+    return renderLocalRowDetail(entry.row, entry);
   };
 
   const teamFilterSheet = (
@@ -2175,6 +2337,49 @@ export function ProAccountLinksPanel({ userId, linkId: linkIdProp }: { userId: s
               </div>
             </div>
           )}
+        </Modal>
+
+        <Modal
+          open={propertyPermissionsModal !== null}
+          title={
+            propertyPermissionsModal
+              ? `Edit permissions · ${propertyPermissionsModal.propertyLabel}`
+              : "Edit permissions"
+          }
+          onClose={() => setPropertyPermissionsModal(null)}
+        >
+          {propertyPermissionsModal ? (
+            <div className="space-y-4">
+              <CoManagerPermissionsEditor
+                value={propertyPermissionsModal.draft}
+                onChange={(draft) =>
+                  setPropertyPermissionsModal((current) => (current ? { ...current, draft } : current))
+                }
+              />
+              <div className="flex justify-end gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="rounded-full"
+                  onClick={() => setPropertyPermissionsModal(null)}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  type="button"
+                  className="rounded-full"
+                  data-attr="co-manager-save-permissions"
+                  onClick={() => {
+                    propertyPermissionsModal.onSave(propertyPermissionsModal.draft);
+                    setPropertyPermissionsModal(null);
+                    showToast("Permissions updated.");
+                  }}
+                >
+                  Save permissions
+                </Button>
+              </div>
+            </div>
+          ) : null}
         </Modal>
 
         <Modal
@@ -2419,12 +2624,37 @@ export function ProAccountLinksPanel({ userId, linkId: linkIdProp }: { userId: s
           bareHeader
           dataAttrBack="team-detail-back"
           inlineActions
+          pinScrollBody
+          footerOmitSpacer
           actions={renderDetailHeaderActions(routeEntry)}
+          footer={renderDetailFooter(routeEntry)}
         >
           {renderDetailBody(routeEntry)}
         </PortalRecordDetailPage>
         {detailPropertiesEditable && selectedDetailPropertyIds.size > 0 ? (
           <BulkActionBar count={selectedDetailPropertyIds.size} hideCount variant="payments">
+            {selectedDetailPropertyIds.size === 1 ? (
+              <>
+                <Button
+                  type="button"
+                  variant="outline"
+                  className={PORTAL_BULK_BAR_BTN}
+                  data-attr="team-detail-bulk-make-owner"
+                  onClick={() => openMakeOwnerForSelectedDetailProperty()}
+                >
+                  Make owner
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  className={PORTAL_BULK_BAR_BTN}
+                  data-attr="team-detail-bulk-edit-permissions"
+                  onClick={() => openPermissionsForSelectedDetailProperty()}
+                >
+                  Edit permissions
+                </Button>
+              </>
+            ) : null}
             <Button
               type="button"
               variant="outline"

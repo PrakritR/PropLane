@@ -198,12 +198,15 @@ export async function GET(): Promise<NextResponse<AccountLinksPayload | { error:
       ),
     ];
     const emailByUserId = new Map<string, string>();
+    const phoneByUserId = new Map<string, string>();
     if (participantIds.length > 0) {
-      const { data: profiles } = await db.from("profiles").select("id, email").in("id", participantIds);
+      const { data: profiles } = await db.from("profiles").select("id, email, phone").in("id", participantIds);
       for (const profile of profiles ?? []) {
         const id = String(profile.id ?? "").trim();
         const email = String(profile.email ?? "").trim();
+        const phone = String(profile.phone ?? "").trim();
         if (id && email) emailByUserId.set(id, email);
+        if (id && phone) phoneByUserId.set(id, phone);
       }
     }
 
@@ -213,7 +216,15 @@ export async function GET(): Promise<NextResponse<AccountLinksPayload | { error:
         const otherEmail = emailByUserId.get(String(otherUserId ?? "").trim()) ?? "";
         return !isCrossSandboxPortalPair(viewerEmail, otherEmail);
       })
-      .map((r) => serializeInvite(r, user.id, propertyLabelsById));
+      .map((r) => {
+        const invite = serializeInvite(r, user.id, propertyLabelsById);
+        const linkedId = invite.linkedUserId.trim();
+        return {
+          ...invite,
+          linkedEmail: emailByUserId.get(linkedId) ?? null,
+          linkedPhone: phoneByUserId.get(linkedId) ?? null,
+        };
+      });
     return NextResponse.json({ invites });
   } catch (e) {
     const message = e instanceof Error ? e.message : "Failed";

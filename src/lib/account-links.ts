@@ -21,6 +21,9 @@ export type AccountLinkInviteDto = {
   linkedDisplayName: string | null;
   /** The other workspace's auth user id (for ownership transfer, etc.). */
   linkedUserId: string;
+  /** Resolved from `profiles` when the invite list is loaded. */
+  linkedEmail?: string | null;
+  linkedPhone?: string | null;
   assignedPropertyIds: string[];
   /** Resolved from `manager_property_records` when the invite payload is loaded. */
   assignedPropertyLabels?: Record<string, string>;
