@@ -26,14 +26,29 @@ describe("work number card on the signup step", () => {
     expect(workNumberOnboardingPhone(status)).toBe("+12065550100");
   });
 
-  it("never offers it to a pure co-manager", () => {
-    // They text the OWNER's number by design, and the provisioning route refuses
-    // them — the card would be a dead end.
+  it("AXI-158: offers it to a co-manager the server says may request one", () => {
+    // This used to refuse every co-manager, citing a provisioning route that
+    // "refuses them". It does not — `canRequest` never consults the flag, the
+    // POST never rejects on it, and the entitlement layer deliberately lets a
+    // pure co-manager inherit an inviting owner's plan. Settings offers them the
+    // request; hiding it at signup is why a co-manager never saw the offer.
     expect(
       shouldOfferWorkNumberSetup({
         workspaceRole: "co_manager",
         canRequest: true,
         provisioningAvailable: true,
+        number: null,
+      }),
+    ).toBe(true);
+  });
+
+  it("still hides it from a co-manager the server says may NOT", () => {
+    // The server's answer is the gate, for every role alike.
+    expect(
+      shouldOfferWorkNumberSetup({
+        workspaceRole: "co_manager",
+        canRequest: false,
+        provisioningAvailable: false,
         number: null,
       }),
     ).toBe(false);

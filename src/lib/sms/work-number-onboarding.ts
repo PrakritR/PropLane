@@ -17,13 +17,20 @@ export function workNumberOnboardingPhone(status: WorkNumberOnboardingStatus | n
 }
 
 /**
- * Whether "Connect Google services" should also show a PropLane work number card.
+ * Whether the signup step should also show a PropLane work number card.
  *
- * A PURE CO-MANAGER never gets one — they text the owner's number by design
- * (`isPureCoManager` in the provisioning route refuses them), so offering the
- * card there advertises a dead end. Everyone else sees it either as a status
- * line for a number they already hold, or as a route into Settings where the
- * real provisioning flow lives (area code, plan gate, retry diagnostics).
+ * The server decides eligibility; this only reads its answer. `canRequest` and
+ * `provisioningAvailable` come from `/api/manager/messaging-number`, which
+ * weighs the plan, the environment and the current number state.
+ *
+ * There used to be an extra `workspaceRole === "co_manager"` refusal here,
+ * justified by "the provisioning route refuses them". It does not: `canRequest`
+ * never consults the pure-co-manager flag, the POST never rejects on it, and
+ * `reconcileManagerSmsEntitlement` goes out of its way to let a pure co-manager
+ * INHERIT an inviting owner's plan so they can qualify. Settings offers them the
+ * request for exactly that reason, so this gate was hiding at signup the one
+ * thing the rest of the system says they may have — a co-manager who onboarded
+ * simply never saw the offer (AXI-158).
  *
  * A status that could not be read is `null` and shows nothing: this is an
  * optional signup step, and a failed background read must not become an error
@@ -31,7 +38,6 @@ export function workNumberOnboardingPhone(status: WorkNumberOnboardingStatus | n
  */
 export function shouldOfferWorkNumberSetup(status: WorkNumberOnboardingStatus | null): boolean {
   if (!status) return false;
-  if (status.workspaceRole === "co_manager") return false;
   if (workNumberOnboardingPhone(status)) return true;
   return Boolean(status.canRequest || status.provisioningAvailable);
 }
