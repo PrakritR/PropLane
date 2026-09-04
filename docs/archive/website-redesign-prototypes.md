@@ -1,3 +1,8 @@
+> **ARCHIVED — exploration, not a standard. Do not act on this file.**
+> Design exploration kept for reference only; it was never adopted as a rule.
+> Current UI rules:
+> [`../agents/ui-change-checklist.md`](../agents/ui-change-checklist.md).
+
 # Website Redesign Prototypes
 
 These are structural explorations for the shared portal list-page archetype, using Manager Tours as the representative surface. They preserve the current Blue Steel brand and real seeded record structure. They are not implementation screenshots.

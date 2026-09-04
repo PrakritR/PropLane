@@ -123,4 +123,7 @@ the aside itself (`titleAsideDesktopOnly`) and moves the mobile copy into
 
 ## Audit log
 
-See **Portal layout conformance** in [`ui-review-issue-matrix.md`](ui-review-issue-matrix.md) for per-section pass/fail status.
+The per-section pass/fail table that used to live here is an archived snapshot from
+2026-07-22 — [`archive/ui-review-issue-matrix.md`](archive/ui-review-issue-matrix.md).
+It records what was true then, not what is true now; read the rules above and the
+component, never that table.
