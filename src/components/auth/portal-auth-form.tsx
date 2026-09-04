@@ -30,6 +30,7 @@ import {
   prospectHandoffFromSearchParams,
 } from "@/lib/auth/prospect-handoff-storage";
 import Link from "next/link";
+import { GET_STARTED_PATH } from "@/lib/auth/get-started-path";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import { normalizeAuthEmail } from "@/lib/auth/normalize-auth-email";
@@ -78,7 +79,28 @@ function friendlyAuthError(raw: string): string {
     return "We could not reach PropLane. Please check your connection and try again.";
   }
   if (raw.includes("NEXT_PUBLIC_SUPABASE")) return "PropLane auth is not configured. Set env vars in .env.local.";
+  // "Invalid login credentials" is Supabase's raw string and is not how the rest
+  // of the product speaks; it also routes nowhere, so someone whose account does
+  // not exist has no way to tell that from a typo (PRP-189).
+  //
+  // It deliberately stays AMBIGUOUS between "wrong password" and "no such
+  // account". Distinguishing them would make this form an account-existence
+  // oracle, which is the exact property `POST /api/auth/password-reset` answers
+  // `{ok:true}` for unknown addresses to avoid. What changes is that it now
+  // speaks plainly and names both ways forward, and the form renders those as
+  // real links beneath it.
+  if (lower.includes("invalid login credentials")) {
+    return "That email and password don't match an account. Check the password, or create an account if you don't have one yet.";
+  }
+  if (lower.includes("email not confirmed")) {
+    return "This account hasn't been confirmed yet. Check your email for the confirmation link.";
+  }
   return raw;
+}
+
+/** Whether the failure is one where "reset it" / "create one" are the next steps. */
+export function authErrorOffersAccountRoutes(message: string | null | undefined): boolean {
+  return (message ?? "").includes("don't match an account");
 }
 
 function withTimeout<T>(promise: PromiseLike<T>, timeoutMs: number, message: string): Promise<T> {
@@ -652,7 +674,25 @@ export function PortalAuthForm({
         </div>
       ) : null}
 
-      {errorText ? <p className="mt-4 text-center text-sm text-rose-600">{errorText}</p> : null}
+      {errorText ? (
+        <div className="mt-4 text-center" data-attr="portal-auth-error">
+          <p className="text-sm text-rose-600">{errorText}</p>
+          {authErrorOffersAccountRoutes(errorText) ? (
+            // The error itself routes somewhere. Previously the only ways
+            // forward were small print at the bottom of the page, so someone
+            // whose account did not exist had nothing to act on (PRP-189).
+            <p className="mt-1.5 text-xs text-muted">
+              <Link className="font-semibold underline underline-offset-2" href="/auth/forgot-password">
+                Reset your password
+              </Link>
+              {" · "}
+              <Link className="font-semibold underline underline-offset-2" href={GET_STARTED_PATH}>
+                Create an account
+              </Link>
+            </p>
+          ) : null}
+        </div>
+      ) : null}
 
       <Button
         type="button"
