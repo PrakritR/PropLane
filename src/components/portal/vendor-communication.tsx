@@ -374,19 +374,13 @@ export function VendorCommunication({
       destinations={[
         { id: "active", label: "Active", href: `${commBase}/active`, dataAttr: "communication-segment-active" },
         {
-          id: "unread",
-          label: "Unread",
-          href: `${commBase}/unread`,
-          dataAttr: "communication-segment-unread",
-        },
-        {
           id: "archived",
           label: "Archived",
           href: `${commBase}/archived`,
           dataAttr: "communication-segment-archived",
         },
       ]}
-      activeDestinationId={listSegment}
+      activeDestinationId={listSegment === "unread" ? "active" : listSegment}
       destinationAriaLabel="Conversation folders"
       destinationNavSize="toolbar"
       search={{

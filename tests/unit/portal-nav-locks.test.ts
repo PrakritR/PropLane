@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   portalNavLockKind,
@@ -160,5 +162,34 @@ describe("co-manager nav sections", () => {
     // Free-tier manager locks stay navigable: that row is the only entry point
     // to the upgrade page.
     if (kind !== "none") expect(kind).toBe("upsell");
+  });
+});
+
+/**
+ * A plan cap is a refusal with a reason, never a dead click.
+ *
+ * The Free plan's "+ Add property" was rendered `disabled` once the one listing
+ * it pays for was spent, so the single moment the product has to explain the
+ * limit and offer the upgrade passed in silence. It is the same rule as the
+ * sidebar's `upsell` nav lock above: the row stays live because it is the entry
+ * point to the upgrade, and deleting it deletes a revenue path.
+ *
+ * The button is still disabled while the PLAN ITSELF is unknown — a manager
+ * should not start a listing we may then have to refuse.
+ */
+describe("the Free plan property cap", () => {
+  const src = readFileSync(
+    join(process.cwd(), "src/components/portal/pro-properties.tsx"),
+    "utf8",
+  );
+
+  it("disables Add property only while the plan is still loading", () => {
+    expect(src).toContain("addPropertyDisabled={!skuLoaded}");
+    expect(src).not.toContain("addPropertyDisabled={!skuLoaded || atPropertyLimit}");
+  });
+
+  it("refuses the click with the limit and the upgrade path", () => {
+    expect(src).toContain("if (atPropertyLimit) {");
+    expect(src).toContain("showToast(managerPropertyLimitMessage(skuTier");
   });
 });

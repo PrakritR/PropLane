@@ -45,7 +45,15 @@ describe("resident detail Communication keeps a way back on a phone", () => {
     expect(RESIDENTS).toMatch(
       /const residentDetailViewportFill =[\s\S]{0,400}?resolvedDetailTab === "communication"/,
     );
-    expect(RESIDENTS).toContain("fillBody={residentDetailViewportFill}");
+    // The fill now flows through a derived const — it also covers the payments
+    // tab, which scrolls its own ledger. Assert the CHAIN rather than the name
+    // that happens to sit in the prop today: communication opts in, that opt-in
+    // reaches the value handed to `fillBody`. Pinning the literal failed this
+    // widening twice over while the behaviour it guards never moved.
+    expect(RESIDENTS).toMatch(
+      /const residentDetailInternalScroll =\s*\n?\s*residentDetailViewportFill \|\|/,
+    );
+    expect(RESIDENTS).toContain("fillBody={residentDetailInternalScroll}");
     // The rule (AGENTS.md, portal-ui-system) is an UNBROKEN flex-1 + min-h-0
     // chain — one `display: block` link pushes the page header off-screen. The
     // ternary that used to express it was refactored into a derived `bodyFill`,

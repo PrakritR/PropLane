@@ -155,7 +155,13 @@ describe("resident portal redesign completeness", () => {
       expect(src).toContain('data-attr="communication-new-message"');
       expect(src).toContain("PortalTextNotificationsBlock");
       expect(src).toContain("communicationSettingsOpen");
-      expect(src).not.toContain("PortalFilterSortSheet");
+      // Filtering matches the manager panel rather than being forbidden here.
+      // This once asserted the resident had NO filter sheet, which contradicted
+      // the reference implementation it is supposed to copy: pro-communication
+      // has carried one all along, and the resident gained it for parity. A
+      // guard that forbids the thing the reference does is the drift, not the
+      // fix.
+      expect(src).toContain("PortalFilterSortSheet");
       expect(src).not.toContain("PortalPageHeaderMobileActionsRow");
     });
 

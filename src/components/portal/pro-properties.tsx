@@ -228,7 +228,15 @@ export function ManagerProperties({
       propertyKey={propertyKeyProp}
       detailTab={detailTabProp}
       onAddProperty={tryOpenAdd}
-      addPropertyDisabled={!skuLoaded || atPropertyLimit}
+      /*
+        Disabled only while the PLAN is still unknown — never because the cap is
+        spent. A manager at the Free limit gets a live button that refuses and
+        says why, with the upgrade path in the message. Disabling it instead
+        makes it a dead click: the one moment the product has to explain the
+        limit and offer the upgrade passes in silence. Same rule, same reason as
+        the sidebar's `upsell` nav lock in AGENTS.md.
+      */
+      addPropertyDisabled={!skuLoaded}
       addPropertyHint={
         atPropertyLimit && limitMax != null
           ? `Plan limit (${limitMax}) reached — upgrade to add more`
