@@ -288,6 +288,9 @@ export function ProPortalSettingsModal({
   );
 }
 
+/** @deprecated Use ProPortalSettingsModal — kept for manager-* import sites. */
+export const ManagerPortalSettingsModal = ProPortalSettingsModal;
+
 /** @deprecated Use ProPortalSettingsModal — kept for imports that open application settings only. */
 export function ManagerApplicationSettingsModal({
   open,
