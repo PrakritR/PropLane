@@ -36,11 +36,11 @@ function parseArgs(argv) {
 }
 
 function runNode(script, extraArgs) {
-  const r = spawnSync(
-    process.execPath,
-    ["--env-file=.env.local", "--env-file=.env", script, ...extraArgs],
-    { cwd: REPO_ROOT, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] },
-  );
+  const r = spawnSync(process.execPath, [script, ...extraArgs], {
+    cwd: REPO_ROOT,
+    encoding: "utf8",
+    stdio: ["ignore", "pipe", "pipe"],
+  });
   if (r.status !== 0) {
     throw new Error(r.stderr?.trim() || r.stdout?.trim() || `${script} failed`);
   }

@@ -1,6 +1,10 @@
 # Portal UI system
 
-Canonical patterns for expandable rows, section cards, and data tables across manager, resident, vendor, and admin portals. **Read this before editing portal UI.**
+Canonical patterns for expandable rows, section cards, and data tables across
+manager, resident, vendor, and admin portals.
+
+**Workflow:** portal changes follow **`docs/agents/captain-dev-workflow.md`**
+(ticket → Lavish plan → build). **Read this file before editing portal UI.**
 
 Reference implementation: **resident detail in the property portal** (`manager-residents.tsx` → `ResidentDetailSection` + nested tables).
 

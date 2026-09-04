@@ -175,6 +175,20 @@ async function main() {
     const issue = await createIssue(payload);
     console.log(`Created ${issue.identifier}: ${issue.title}`);
     if (issue.url) console.log(issue.url);
+    const slug = (issue.title || "plan")
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-|-$/g, "")
+      .slice(0, 48);
+    const planDir = `.lavish/plans/${issue.identifier}-${slug}`;
+    console.log("");
+    console.log("Next steps (captain workflow):");
+    console.log(`  1. npm run linear:export -- --ticket ${issue.identifier} --out ${planDir}/ticket.md`);
+    console.log(
+      `  2. npm run lavish:plan -- --ticket ${issue.identifier} --title "${issue.title.replace(/"/g, '\\"')}" --summary "…" --open`,
+    );
+    console.log(`  3. npx -y lavish-axi poll ${planDir}/plan.html`);
+    console.log("  4. Captain: approved — build");
   } catch (e) {
     console.error(`error: ${e.message}`);
     process.exit(1);

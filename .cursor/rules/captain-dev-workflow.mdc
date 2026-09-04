@@ -1,18 +1,21 @@
 ---
-description: Captain workflow — ticket → Lavish plan → build → review → promote
+description: Captain workflow — ticket → Lavish plan + ticket.md → execute → review → promote
 alwaysApply: true
 ---
 
 # Captain dev workflow (mandatory)
 
-Read **`docs/agents/captain-dev-workflow.md`** for full detail. Every task follows:
+Read **`docs/agents/captain-dev-workflow.md`**, **`docs/agents/agent-tooling-index.md`**, and
+**`docs/share/proplane-collaborator-workflow.md`** (for sharing with friends).
 
-**① Ticket → ② Lavish plan (captain approves) → ③ Build → ④ Review → ⑤ Promote**
+**① Ticket → ② Plan + share → ③ Execute → ④ Review → ⑤ Promote**
 
-## ① Ticket first (default)
+Visual board: `npm run lavish:workflow`
+
+## ① Ticket + ② Plan (default)
 
 If the captain describes work, a bug, an idea, or pastes feedback — run **workflow
-plan** (ticket + Lavish) before anything else, even if they did not ask.
+plan** before anything else, even if they did not ask.
 
 ```bash
 npm run workflow:plan -- --chat "<their message>"
@@ -20,51 +23,41 @@ npm run workflow:plan -- --chat "<their message>"
 
 Ticket only (no plan yet): `npm run linear:ticket -- --chat "…"`
 
-Skip only when they explicitly say **"no ticket"**.
+Skip only when they explicitly say **"no ticket"** or **"skip plan"** (hotfix).
 
 Reply with **PRP-###** + full Linear URL + plan path. **Stop until approved — build.**
 
-See **`lavish-plan-gate.mdc`** and `docs/share/proplane-collaborator-workflow.md`.
+See **`lavish-plan-gate.mdc`**.
 
-## ② Plan in Lavish (before code)
+### Share with a friend (phase ②)
 
-**Do not implement** until the captain approves the plan. Phase ② is included in
-`npm run workflow:plan` above; enrich the HTML and poll for feedback:
+```bash
+npm run linear:export -- --ticket PRP-### --out .lavish/plans/PRP-###-slug/ticket.md
+```
 
-1. `npx -y lavish-axi poll .lavish/plans/PRP-###-…/plan.html`
-2. UI work: follow `docs/agents/ui-change-checklist.md`
+Optional public Lavish URL: `npx -y lavish-axi share <plan.html>`
 
-Skip only when they say **"skip plan"** (hotfix).
+Poll: `npx -y lavish-axi poll .lavish/plans/PRP-###-…/plan.html`
 
-## ③ Build
+UI work: follow `docs/agents/ui-change-checklist.md`
 
-- **Default:** commit on **this pane's keeper branch only** (`cursor-2` here — see
-  `local-agent-branch.mdc`). Push to `origin/cursor-2`. No remote feature branches.
-- **Experiments:** `scripts/proplane-test-branch.sh start <slug>` → work → `finish` or `abort`.
+## ③ Execute
+
+- Keeper branch + sandbox port: see **`local-agent-branch.mdc`** (this pane).
+- Read `docs/portal-ui-system.md` before portal UI; `docs/agents/<area>.md` before features.
+- MCP: `.cursor/mcp.json` — see agent-tooling-index.
 - Reference **PRP-###** in commits.
-- Read `docs/agents/<area>.md` before coding.
 
 ## ④ Review
 
-Test on **http://localhost:3011** (this sandbox). Update Linear. Hand off to captain —
-do not merge to prakrit yourself.
+Test on **this pane's sandbox URL**. Update Linear. Do not merge to `prakrit` yourself.
 
 ## ⑤ Promote (captain only)
 
-When captain says merge to **prakrit**:
-
 ```bash
-bin/fm-proplane-promote-to-prakrit.sh cursor-2
+bin/fm-proplane-promote-to-prakrit.sh <keeper-branch>
 ```
-
-That merges into integration and **resets all agent sandboxes** from `origin/prakrit`.
-Captain verifies localhost:3000.
-
-## Subagents
-
-Paste phases ①–③ constraints into every subagent brief (security-review, bugbot, explore).
 
 ## Production data (never)
 
-**Never read/write/update production** resident, property, task, lease, charge, or
-message data. Dev/test Supabase only. See `no-production-data-writes.mdc`.
+Dev/test Supabase only. See `no-production-data-writes.mdc`.
