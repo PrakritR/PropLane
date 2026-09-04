@@ -2707,8 +2707,17 @@ html[data-portal-sticky-chrome] .portal-list-page-scroll .portal-calendar-flow-s
 html[data-theme="dark"][data-portal-sticky-chrome]
   .portal-list-page-scroll
   .portal-calendar-flow-scroll
-  .portal-calendar-toolbar {
+  .portal-calendar-toolbar,
+html[data-theme="dark"][data-portal-sticky-chrome]
+  .portal-list-page-scroll
+  .portal-calendar-flow-scroll
+  .portal-calendar-week-days-header {
   background-color: var(--portal-surface-dark);
+}
+
+html[data-portal-sticky-chrome] .portal-list-page-scroll .portal-calendar-flow-scroll .portal-calendar-week-days-header,
+html[data-portal-sticky-chrome] .portal-list-page-scroll .portal-calendar-flow-scroll .portal-calendar-toolbar {
+  touch-action: pan-y;
 }
 
 html[data-portal-sticky-chrome] .portal-list-page-scroll .portal-calendar-flow-scroll .portal-calendar-grid-slot {

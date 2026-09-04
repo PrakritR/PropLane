@@ -325,15 +325,12 @@ const CALENDAR_HEADER_CELL =
 /**
  * The day/date row pins directly under the week toolbar.
  *
- * Both live in the SAME scroll container, and the toolbar is already
- * `sticky; top: 0`, so a header row stuck at `top: 0` too would simply slide
- * under it — which is what shipped: scroll to the afternoon and the dates were
- * a half-clipped strip behind the toolbar, leaving a wall of unlabelled cells.
- * `--portal-calendar-header-top` is the measured toolbar height, published by
- * the shell below.
+ * Both live in the SAME scroll container when `flowScroll` is on, and the
+ * toolbar is already `sticky; top: 0`. `--portal-calendar-header-top` is the
+ * measured toolbar height so `CALENDAR_WEEK_DAY_STRIP` can stick flush under it.
  */
-const CALENDAR_STICKY_HEADER_CELL =
-  "sticky z-[14] top-[var(--portal-calendar-header-top,0px)]";
+const CALENDAR_WEEK_DAY_STRIP =
+  "portal-calendar-week-days-header sticky z-[14] top-[var(--portal-calendar-header-top,0px)] border-b border-border/60 bg-card shadow-sm";
 const CALENDAR_TIME_CELL =
   "whitespace-nowrap text-[10px] font-semibold tabular-nums text-muted sm:text-[11px] [html[data-theme=dark]_&]:portal-calendar-time-cell";
 const CALENDAR_GRID_GAP = "gap-px bg-accent/40 [html[data-theme=dark]_&]:portal-calendar-grid";
@@ -831,7 +828,7 @@ export function PortalCalendarPanels({
 
   /**
    * Publish the sticky week toolbar's height so the day/date row can pin
-   * directly under it (`CALENDAR_STICKY_HEADER_CELL`). Measured rather than
+   * directly under it (`CALENDAR_WEEK_DAY_STRIP`). Measured rather than
    * hard-coded: the toolbar grows a second row on narrow panels and when the
    * time-range selects wrap, and a stale constant there puts the dates back
    * under the toolbar — the exact bug this fixes.
@@ -2813,8 +2810,8 @@ export function PortalCalendarPanels({
             return (
               <>
                 {/* Mobile: week strip — seven equal columns across full width. */}
-                <div className={`${compactMobileTopGap} min-w-0 lg:hidden`}>
-                  <div className="grid w-full min-w-0 grid-cols-7 gap-0.5 pb-1">
+                <div className={cn(compactMobileTopGap, "min-w-0 lg:hidden", CALENDAR_WEEK_DAY_STRIP)}>
+                  <div className="grid w-full min-w-0 grid-cols-7 gap-0.5 px-0.5 pb-1 pt-1">
                     {activeBlockDates.map((d, idx) => {
                       const ds = toLocalDateStr(d);
                       const count = showEventCountsInDayHeader
@@ -2836,8 +2833,12 @@ export function PortalCalendarPanels({
                           <span className="text-[8px] font-bold uppercase leading-none tracking-[0.06em]">
                             {d.toLocaleDateString(undefined, { weekday: "short" })}
                           </span>
-                          <span className="text-xs font-semibold leading-tight">{d.toLocaleDateString(undefined, { day: "numeric" })}</span>
-                          <span className="text-[8px] font-medium leading-tight opacity-80">{showEventCountsInDayHeader ? `${count} event${count === 1 ? "" : "s"}` : `${count} open`}</span>
+                          <span className="text-[10px] font-semibold leading-tight">
+                            {d.toLocaleDateString(undefined, { month: "short", day: "numeric" })}
+                          </span>
+                          <span className="text-[8px] font-medium leading-tight opacity-80">
+                            {showEventCountsInDayHeader ? `${count} event${count === 1 ? "" : "s"}` : `${count} open`}
+                          </span>
                         </button>
                       );
                     })}
@@ -2869,9 +2870,46 @@ export function PortalCalendarPanels({
                   </div>
                 </div>
 
-                {/* Desktop: full-week grid — columns shrink to fit narrow property panels. */}
+                {/* Desktop: full-week grid — day strip sits above slots so headers never collide with "Add". */}
                 <div className={`${compactGridTopGap} hidden min-w-0 lg:block`}>
                   <div className={bareSurface ? "min-w-0" : "min-w-0 overflow-hidden rounded-2xl border border-border bg-card"}>
+                    <div
+                      className={cn(
+                        "grid w-full min-w-0 grid-cols-[64px_repeat(7,minmax(0,1fr))] gap-px bg-accent/40 text-[10px]",
+                        CALENDAR_WEEK_DAY_STRIP,
+                      )}
+                    >
+                      <div
+                        className={`flex items-center justify-center bg-card px-1 py-2 sm:px-1.5 ${CALENDAR_HEADER_CELL}`}
+                        aria-hidden
+                      >
+                        <span className="text-[9px] font-semibold uppercase tracking-wide text-muted">Time</span>
+                      </div>
+                      {activeBlockDates.map((d) => {
+                        const ds = toLocalDateStr(d);
+                        const count = showEventCountsInDayHeader
+                          ? scheduledMeetings.filter((meeting) => meeting.dateStr === ds).length
+                          : openSlotCountForDate(ds);
+                        return (
+                          <div
+                            key={ds}
+                            className={`bg-card px-0.5 py-2 text-center sm:px-1 ${CALENDAR_HEADER_CELL}`}
+                          >
+                            <p className="text-[10px] font-bold uppercase tracking-[0.08em] text-muted">
+                              {d.toLocaleDateString(undefined, { weekday: "short" })}
+                            </p>
+                            <p className="mt-0.5 text-xs font-semibold leading-tight text-foreground">
+                              {d.toLocaleDateString(undefined, { month: "short", day: "numeric" })}
+                            </p>
+                            <p className={`mt-0.5 text-[9px] font-medium uppercase leading-tight ${CALENDAR_OPEN_COUNT}`}>
+                              {showEventCountsInDayHeader ? `${count} event${count === 1 ? "" : "s"}` : `${count} open`}
+                            </p>
+                            {renderFlexibleToggle(d.getDay())}
+                          </div>
+                        );
+                      })}
+                    </div>
+
                     <div className="min-w-0 overflow-x-auto" onMouseLeave={cancelDragSelection} onMouseUp={finishDragSelection}>
                       {/*
                         64px, not 44px (AXI-161). `CALENDAR_TIME_CELL` is
@@ -2882,35 +2920,6 @@ export function PortalCalendarPanels({
                         came from. Every half-hour past 10 o'clock collided.
                       */}
                       <div className={`grid w-full min-w-0 grid-cols-[64px_repeat(7,minmax(0,1fr))] text-[10px] ${CALENDAR_GRID_GAP}`}>
-                        <div
-                          className={`px-1 py-1.5 sm:px-1.5 ${CALENDAR_HEADER_CELL} ${CALENDAR_STICKY_HEADER_CELL}`}
-                        >
-                          Time
-                        </div>
-                        {activeBlockDates.map((d) => {
-                          const ds = toLocalDateStr(d);
-                          const count = showEventCountsInDayHeader
-                            ? scheduledMeetings.filter((meeting) => meeting.dateStr === ds).length
-                            : openSlotCountForDate(ds);
-                          return (
-                            <div
-                              key={ds}
-                              className={`px-0.5 py-1.5 text-center sm:px-1 ${CALENDAR_HEADER_CELL} ${CALENDAR_STICKY_HEADER_CELL}`}
-                            >
-                              <p className="text-[10px] font-semibold leading-tight text-muted">
-                                {d.toLocaleDateString(undefined, { weekday: "short" })}
-                              </p>
-                              <p className="mt-0.5 text-xs font-semibold leading-tight text-foreground">
-                                {d.toLocaleDateString(undefined, { month: "short", day: "numeric" })}
-                              </p>
-                              <p className={`mt-0.5 text-[9px] font-medium leading-tight ${CALENDAR_OPEN_COUNT}`}>
-                                {showEventCountsInDayHeader ? `${count} event${count === 1 ? "" : "s"}` : `${count} open`}
-                              </p>
-                              {renderFlexibleToggle(d.getDay())}
-                            </div>
-                          );
-                        })}
-
                         {visibleSlotIndices.map((slotIdx) => (
                           <Fragment key={slotIdx}>
                             <div className={`flex min-h-8 items-center bg-card px-1.5 sm:min-h-9 sm:px-2 ${CALENDAR_TIME_CELL}`}>
