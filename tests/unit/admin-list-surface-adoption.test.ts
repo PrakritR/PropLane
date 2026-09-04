@@ -93,3 +93,29 @@ describe("admin Settings", () => {
     expect(src).toContain('reporterRole={variant === "admin" ? "admin"');
   });
 });
+
+describe("admin Meetings", () => {
+  const src = read("src/components/portal/admin-events-client.tsx");
+
+  it("lands on the requests, not the availability editor", () => {
+    // The page used to open straight onto the week grid — an editor where the
+    // list of people waiting on an answer belongs.
+    expect(src).toContain("useState(false)");
+    expect(src).toContain('data-attr="admin-meetings-availability-toggle"');
+    expect(src).toContain("PortalRecordListSurface");
+  });
+
+  it("has the three status tabs that were missing entirely", () => {
+    expect(src).toContain('dataAttr: "admin-meetings-tab-pending"');
+    expect(src).toContain('dataAttr: "admin-meetings-tab-upcoming"');
+    expect(src).toContain('dataAttr: "admin-meetings-tab-past"');
+  });
+
+  it("answers a request only where answering is possible", () => {
+    // Confirmed and past meetings are a record; a dock there would offer
+    // buttons that do nothing.
+    expect(src).toContain('tab === "pending" ? (');
+    expect(src).toContain('data-attr="admin-meeting-confirm"');
+    expect(src).toContain('data-attr="admin-meeting-decline"');
+  });
+});
