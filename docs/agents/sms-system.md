@@ -456,11 +456,24 @@ catalog, over text, with proposals confirmed by a `YES` reply. Session kind
 `agent_pending_actions` row executed by the same confirm gate the portal chat
 route uses.
 
-**Who gets a work number.** Only accounts that own properties can provision a
-PropLane number (`isPureCoManager` in `/api/manager/messaging-number` refuses
-the rest). A co-manager of someone else's house texts **that owner's** number
-for those houses. Resident-facing SMS for a house also sends from the owner's
-number.
+**Who gets a work number and an assistant email.** Every manager account that
+clears the plan check can provision **its own** number and **its own**
+`assist-…@` address — including a pure co-manager, who inherits plan eligibility
+from an inviter (`getEffectiveManagerSmsEntitlement`). A co-manager used to be
+refused the address and told to email the owner's, which meant two people shared
+one mailbox and one assistant identity: the owner saw the co-manager's questions
+in their own thread, and the co-manager had nothing to hand a resident.
+
+**The address does not carry the scope; the assignment does.** A co-manager's
+own number or address resolves through the same
+`resolveManagerSmsAccess(actor === owner)` path, which reads their accepted
+assignments and produces `combined` — the union of houses assigned to them
+across EVERY owner who assigned them, and nothing else. So one co-manager number
+answers about all their houses without any owner's other rows becoming
+reachable.
+
+Resident-facing SMS **sent by the product for a house** still goes from the
+house owner's number; a co-manager's number is how people reach *them*.
 
 **Three access modes** (`ManagerSmsAccess` in `src/lib/sms/manager-sms-access.ts`):
 
@@ -468,7 +481,8 @@ number.
 | --- | --- | --- | --- |
 | Property-owning manager, no incoming co-manage links | Own work number | `owner` | Full owned portfolio |
 | Manager who also co-manages | Own work number | `combined` | Owned houses plus assigned co-managed houses |
-| Co-manager (pure or not) | Owner's work number | `delegated` | Only that owner's assigned houses |
+| Pure co-manager | **Own** work number / assistant email | `combined` | Assigned houses across every owner who assigned them (they own none) |
+| Co-manager texting an owner's number | That owner's work number | `delegated` | Only that owner's assigned houses |
 
 Delegated turns set `landlordId` to the work-number owner (data tenant) and
 `userId` to the co-manager (actor). Combined turns keep both as the texter so

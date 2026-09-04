@@ -141,9 +141,12 @@ the entire "co-manager does nothing" bug. `20260716120000` restores the column.
 The panel now defaults to remote mode and only downgrades on a confirmed
 missing table (`migrationRequired`), never on transient errors.
 
-**Work numbers and Communication.** Each property-owning manager provisions
-their own PropLane number; a pure co-manager does not. SMS and email for a
-house use the **owner's** number/inbox. A co-manager with Communication
+**Work numbers and Communication.** Every manager account that clears the plan
+check provisions its **own** PropLane number and its **own** `assist-…@`
+assistant address — a pure co-manager included, inheriting plan eligibility from
+an inviter. Product-sent SMS *for a house* still goes from the house owner's
+number; a co-manager's own number and address are how people reach **them**, and
+resolve to the houses assigned to them across every owner. A co-manager with Communication
 (`inbox`) on ≥1 assigned property of that owner can view those threads
 (`read`), reply and send (`edit`), and delete (`delete`) in PropLane
 Communication — `viewerAndLinkedOwnerIdsForModule(..., "inbox", level)`.
