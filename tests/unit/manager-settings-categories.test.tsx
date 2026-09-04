@@ -34,7 +34,7 @@ vi.mock("@/lib/demo/demo-session", () => ({ isDemoModeActive: () => false }));
 
 // Panels the Settings layout only slots in; their internals are covered by
 // their own suites. Stubbed so this test fails on composition, not on fetch.
-vi.mock("@/components/portal/manager-plan", () => ({
+vi.mock("@/components/portal/pro-plan", () => ({
   ManagerPlan: () => <div data-testid="pane-manager-plan" />,
 }));
 vi.mock("@/components/portal/portal-change-password-panel", () => ({
@@ -49,10 +49,10 @@ vi.mock("@/components/native/notifications-toggle", () => ({
 vi.mock("@/components/portal/assistant-display-setting", () => ({
   AssistantDisplaySetting: () => <div data-testid="pane-assistant-display" />,
 }));
-vi.mock("@/components/portal/manager-api-keys-panel", () => ({
+vi.mock("@/components/portal/pro-api-keys-panel", () => ({
   ManagerApiKeysPanel: () => <div data-testid="pane-api-keys" />,
 }));
-vi.mock("@/components/portal/manager-messaging-settings-panel", () => ({
+vi.mock("@/components/portal/pro-messaging-settings-panel", () => ({
   ManagerMessagingSettingsPanel: () => <div data-testid="pane-messaging" />,
 }));
 

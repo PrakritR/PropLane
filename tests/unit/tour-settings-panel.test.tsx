@@ -15,7 +15,7 @@ vi.mock("@/lib/demo/demo-session", () => ({
   isDemoModeActive: () => false,
 }));
 
-import { TourSettingsPanel } from "@/components/portal/manager-portal-settings-panels";
+import { TourSettingsPanel } from "@/components/portal/pro-portal-settings-panels";
 
 afterEach(() => {
   cleanup();

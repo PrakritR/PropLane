@@ -16,11 +16,11 @@ vi.mock("@/components/providers/app-ui-provider", () => ({
   useAppUi: () => ({ showToast }),
 }));
 
-import { ManagerMessagingSettingsPanel } from "@/components/portal/manager-messaging-settings-panel";
+import { ManagerMessagingSettingsPanel } from "@/components/portal/pro-messaging-settings-panel";
 import {
   approvedResidentsForWorkNumberAnnounce,
   formatWorkNumberAnnounceRecipientDisplay,
-} from "@/components/portal/manager-messaging-settings-panel";
+} from "@/components/portal/pro-messaging-settings-panel";
 import type { ManagerMessagingNumberStatus } from "@/lib/sms/manager-messaging-number";
 
 vi.mock("@/hooks/use-manager-user-id", () => ({

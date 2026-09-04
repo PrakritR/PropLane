@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
 const SRC = readFileSync(
-  join(process.cwd(), "src/components/portal/manager-portal-settings-modal.tsx"),
+  join(process.cwd(), "src/components/portal/pro-portal-settings-modal.tsx"),
   "utf8",
 );
 

@@ -4,7 +4,7 @@ import { Badge } from "@/components/ui/badge";
 import { PortalCollapsibleSection } from "@/components/portal/portal-collapsible-section";
 import {
   ApplicationManagerPlacementCard,
-} from "@/components/portal/manager-application-readonly-review";
+} from "@/components/portal/pro-application-readonly-review";
 import type { DemoApplicantRow } from "@/data/demo-portal";
 import {
   applicationHasGroup,

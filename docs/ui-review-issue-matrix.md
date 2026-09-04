@@ -23,7 +23,7 @@ Structured audit of all five Blue Steel surfaces against [`design.md`](design.md
 | All portals | Layout | Accessibility | P0 | ~~No skip link~~ | `PortalSkipLink` → `#portal-main-content` | portal layouts | **Done** (Wave 3) |
 | All portals | Modals | Accessibility | P1 | ~~No focus trap~~ | `useFocusTrap` in `Modal` | `ui/modal.tsx` | **Done** (Wave 3) |
 | All portals | Mobile `<lg` | Responsive | P2 | ~~Mobile nav unlabeled~~ | `aria-label="Portal sections"` | `portal-sidebar.tsx` | **Done** (Wave 3) |
-| Pro portal | Naming | Maintainability | P2 | `manager-*` components at `/portal` route | Incremental rename to `pro-*` | `components/portal/manager-*.tsx` | Wave 4 |
+| Pro portal | Naming | Maintainability | P2 | ~~`manager-*` components at `/portal` route~~ | Renamed to `pro-*` | `components/portal/pro-*.tsx` | **Done** |
 | Primitives | Global | Component consistency | P0 | ~~Duplicate, contradictory Button components — `radix-button.tsx` (shadcn/CVA) shipped a filled-red `destructive` variant, violating the documented "danger is text-only red" rule in `design.md`~~ | Single `Button` (`ui/button.tsx`) with `asChild`/Slot support added; the two `radix-button` call sites migrated and the file deleted | `ui/button.tsx`, `ui/navbar1.tsx`, `ui/radix-button.tsx` (deleted) | **Done** (Wave 5) |
 | Pro / Resident portal | Filters | Component consistency | P1 | ~~Two untracked tab one-offs beyond the documented `TabNav` / `ManagerPortalStatusPills` / `PortalSegmentedControl` set: `PortalPanelTabs` ("demo — local state", unused) and `resident-financials-panel.tsx`'s hand-rolled inverted-color (`bg-foreground text-background`) tabs~~ | `PortalPanelTabs` deleted as dead code; the financials panel merged into `ResidentPaymentsPanel` and deleted. Resident Payments has since been simplified to **Charges-only** (no sub-tab switcher; the Pending / Overdue / Paid `ManagerPortalStatusPills` remain) — see [`docs/agents/resident-payments.md`](agents/resident-payments.md) | `panel-tab-strip.tsx` (deleted), `resident-financials-panel.tsx` (deleted), `resident-payments-panel.tsx`, `render-portal-section.tsx` | **Done** (Wave 5) |
 | Documents / PDF export | All formal documents | Visual consistency | P1 | ~~PDF generators (`pdf.ts`, `rent-receipt-pdf.ts`, `form-1099-nec.ts`) were ad hoc, disconnected from the on-screen `DocumentPaper` letterhead — no logo image, no bordered/zebra tables, footer missing on the formal generators~~ | Shared `pdf-theme.ts` template (Blue Steel cobalt/navy tokens, embedded logo mark, bordered/zebra tables, distinct totals row, page-X-of-Y + confidentiality footer) migrated into all three generators | `lib/reports/export/pdf-theme.ts`, `pdf.ts`, `formal/rent-receipt-pdf.ts`, `form-1099-nec.ts` | **Done** (Wave 5) |
@@ -35,22 +35,22 @@ Audit against [`portal-list-section-layout.md`](portal-list-section-layout.md). 
 
 | Section | Component | Status | Notes |
 |---------|-----------|--------|-------|
-| Dashboard | `manager-dashboard.tsx` | Exception | KPI tile grid — not a list section |
-| Properties | `manager-properties.tsx` | OK | Header CTA only; divider via always-on shell rule |
+| Dashboard | `pro-dashboard.tsx` | Exception | KPI tile grid — not a list section |
+| Properties | `pro-properties.tsx` | OK | Header CTA only; divider via always-on shell rule |
 | Calendar | `portal-calendar.tsx` | Exception | Week/month grid |
-| Applications | `manager-applications.tsx` | OK | `filterRow` + table pattern |
-| Residents | `manager-residents.tsx` | **Canonical** | Reference implementation |
-| Leases | `manager-leases.tsx` | **Canonical** | Reference implementation |
-| Payments | `manager-payments.tsx` | OK | `filterRow` + table pattern |
-| Services | `manager-all-services-panel.tsx` | **Canonical** | `TabNav` + conditional header CTA |
-| Inbox | `manager-inbox.tsx` | **Canonical** | Reference implementation |
-| Documents | `manager-documents-panel.tsx` | **Fixed** | Was nested surface + tabs in body; now `TabNav` + flat toolbar |
-| Finances | `manager-finances-panel.tsx` | **Fixed** | Was nested surface; now `TabNav` + `titleAside` actions |
+| Applications | `pro-applications.tsx` | OK | `filterRow` + table pattern |
+| Residents | `pro-residents.tsx` | **Canonical** | Reference implementation |
+| Leases | `pro-leases.tsx` | **Canonical** | Reference implementation |
+| Payments | `pro-payments.tsx` | OK | `filterRow` + table pattern |
+| Services | `pro-all-services-panel.tsx` | **Canonical** | `TabNav` + conditional header CTA |
+| Inbox | `pro-inbox.tsx` | **Canonical** | Reference implementation |
+| Documents | `pro-documents-panel.tsx` | **Fixed** | Was nested surface + tabs in body; now `TabNav` + flat toolbar |
+| Finances | `pro-finances-panel.tsx` | **Fixed** | Was nested surface; now `TabNav` + `titleAside` actions |
 | Co-managers | `pro-account-links-panel.tsx` | **Fixed** | Was multi-card layout; now `filterRow` link form + table body |
 | Feedback | `portal-bug-feedback-panel.tsx` | **Fixed** | Divider via shell; badge sizing aligned |
 | Settings | `portal-profile-client.tsx` | Exception | Form sections, not data table |
 
-| Pro portal | List-section layout | Portal patterns | P1 | ~~Documents / Finances / Co-managers / Feedback off-pattern~~ | Match Inbox / Residents shell | `manager-documents-panel.tsx`, `manager-finances-panel.tsx`, `pro-account-links-panel.tsx`, `portal-bug-feedback-panel.tsx` | **Done** |
+| Pro portal | List-section layout | Portal patterns | P1 | ~~Documents / Finances / Co-managers / Feedback off-pattern~~ | Match Inbox / Residents shell | `pro-documents-panel.tsx`, `pro-finances-panel.tsx`, `pro-account-links-panel.tsx`, `portal-bug-feedback-panel.tsx` | **Done** |
 | Pro portal | Shell divider | Portal patterns | P1 | ~~Missing header rule when no filterRow~~ | Always-on `border-b` in `ManagerPortalPageShell` | `portal-metrics.tsx` | **Done** |
 
 ## Cross-cutting inventory (legacy vs canonical)
@@ -68,5 +68,5 @@ Audit against [`portal-list-section-layout.md`](portal-list-section-layout.md). 
 2. **Wave 1 — Workspace fallback:** Migrate `portal-workspace-client.tsx`
 3. **Wave 2 — Surface polish:** Billing success chrome, move-in empty, dashboard tiles, OAuth loading
 4. **Wave 3 — A11y:** Skip link, modal focus trap, mobile nav audit
-5. **Wave 4 — Naming:** `manager-*` → `pro-*` (incremental, low priority)
+5. **Wave 4 — Naming:** ~~`manager-*` → `pro-*`~~ **Done** (portal panel filenames under `components/portal/pro-*.tsx`)
 6. **Wave 5 — Financials UI cleanup:** Button consolidation (delete `radix-button.tsx`), resolve the two untracked tab one-offs (resident financials merged into `ResidentPaymentsPanel`), shared branded `pdf-theme.ts` across all PDF generators, `Badge` tones in `formal-document-preview.tsx`

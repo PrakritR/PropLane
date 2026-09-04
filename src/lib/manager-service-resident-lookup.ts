@@ -4,7 +4,7 @@ import {
 } from "@/lib/manager-applications-storage";
 import { applicationVisibleToPortalUser } from "@/lib/manager-portfolio-access";
 import { getRoomChoiceLabel } from "@/lib/rental-application/data";
-import type { ManagerServiceResidentOption } from "@/components/portal/manager-create-service-request-modal";
+import type { ManagerServiceResidentOption } from "@/components/portal/pro-create-service-request-modal";
 
 function displayPropertyLabel(raw: string): string {
   const trimmed = raw.trim();

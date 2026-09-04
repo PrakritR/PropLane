@@ -7,7 +7,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, render, screen } from "@testing-library/react";
 import type { DemoManagerPaymentLedgerRow } from "@/data/demo-portal";
-import { ManagerPaymentsLedgerPanel } from "@/components/portal/manager-payments-ledger-panel";
+import { ManagerPaymentsLedgerPanel } from "@/components/portal/pro-payments-ledger-panel";
 
 vi.mock("@/lib/portal-nav-client", () => ({ usePortalNavigate: () => vi.fn() }));
 vi.mock("@/components/providers/app-ui-provider", () => ({ useAppUi: () => ({ showToast: vi.fn() }) }));

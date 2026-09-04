@@ -24,7 +24,7 @@ const PORTAL_DIR = path.join(process.cwd(), "src/components/portal");
  * genuine finding.
  */
 const NOT_A_PICKER: Record<string, string> = {
-  "manager-house-properties-panel.tsx":
+  "pro-house-properties-panel.tsx":
     "Reads readExtraListingsForUser(linkedOwnerId) — the OWNER's store, deliberately, to edit a linked listing.",
 };
 

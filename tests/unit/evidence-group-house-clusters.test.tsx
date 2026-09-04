@@ -186,11 +186,11 @@ vi.mock("@/components/portal/payment-schedule-ui", () => ({
     setSettings: () => {},
   }),
 }));
-vi.mock("@/components/portal/manager-payments-ledger-panel", () => ({
+vi.mock("@/components/portal/pro-payments-ledger-panel", () => ({
   ManagerPaymentsLedgerPanel: () => null,
 }));
-vi.mock("@/components/portal/manager-work-orders-panel", () => ({ ManagerWorkOrdersPanel: () => null }));
-vi.mock("@/components/portal/manager-resident-detail-inbox", () => ({ ManagerResidentDetailInbox: () => null }));
+vi.mock("@/components/portal/pro-work-orders-panel", () => ({ ManagerWorkOrdersPanel: () => null }));
+vi.mock("@/components/portal/pro-resident-detail-inbox", () => ({ ManagerResidentDetailInbox: () => null }));
 
 vi.mock("next/navigation", () => ({
   usePathname: () => "/portal/residents",
@@ -248,9 +248,9 @@ vi.mock("@/lib/demo/demo-session", () => ({
   resolveManagerScopeUserId: (id: string | null) => id,
 }));
 
-import { ManagerApplications } from "@/components/portal/manager-applications";
-import { ManagerResidents } from "@/components/portal/manager-residents";
-import { ManagerLeasesPipelinePanel } from "@/components/portal/manager-leases-pipeline-panel";
+import { ManagerApplications } from "@/components/portal/pro-applications";
+import { ManagerResidents } from "@/components/portal/pro-residents";
+import { ManagerLeasesPipelinePanel } from "@/components/portal/pro-leases-pipeline-panel";
 
 afterEach(() => {
   cleanup();

@@ -126,7 +126,7 @@ vi.mock("@/lib/demo-property-pipeline", () => ({
   readScopedExtraListings: () => [{ id: "live-1" }],
 }));
 
-import { ManagerDashboard } from "@/components/portal/manager-dashboard";
+import { ManagerDashboard } from "@/components/portal/pro-dashboard";
 
 describe("Manager dashboard — top notification banners removed", () => {
   afterEach(cleanup);

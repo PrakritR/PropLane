@@ -7,7 +7,7 @@ vi.mock("@/components/providers/app-ui-provider", () => ({
   useAppUi: () => ({ showToast: vi.fn() }),
 }));
 
-import { ManagerWorkNumberButton } from "@/components/portal/manager-work-number-button";
+import { ManagerWorkNumberButton } from "@/components/portal/pro-work-number-button";
 import type { ManagerMessagingNumberStatus } from "@/lib/sms/manager-messaging-number";
 
 const status: ManagerMessagingNumberStatus = {

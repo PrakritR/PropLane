@@ -10,8 +10,8 @@ function portalSource(file: string): string {
 
 describe("Finance and Documents command layout", () => {
   it("keeps Applications and Leases free of title-row property filters", () => {
-    const documents = portalSource("manager-documents-panel.tsx");
-    const leasingTabs = portalSource("manager-documents-leasing-tabs.tsx");
+    const documents = portalSource("pro-documents-panel.tsx");
+    const leasingTabs = portalSource("pro-documents-leasing-tabs.tsx");
 
     expect(documents).not.toContain("leasingDocumentsFilterSheet");
     expect(documents).not.toContain("leasingPropertyFilter");
@@ -26,10 +26,10 @@ describe("Finance and Documents command layout", () => {
   });
 
   it("renders Finance through a flat left nav without search or header Add", () => {
-    const finances = portalSource("manager-finances-panel.tsx");
-    const bills = portalSource("manager-bills-panel.tsx");
-    const bank = portalSource("manager-bank-reconciliation-panel.tsx");
-    const distributions = portalSource("manager-owner-distributions-panel.tsx");
+    const finances = portalSource("pro-finances-panel.tsx");
+    const bills = portalSource("pro-bills-panel.tsx");
+    const bank = portalSource("pro-bank-reconciliation-panel.tsx");
+    const distributions = portalSource("pro-owner-distributions-panel.tsx");
 
     expect(finances).toContain("titleInlineFilter={null}");
     expect(finances).toContain('variant="command"');
@@ -45,13 +45,13 @@ describe("Finance and Documents command layout", () => {
   });
 
   it("constrains Finance filter sheets away from adjacent portal rails", () => {
-    const finances = portalSource("manager-finances-panel.tsx");
+    const finances = portalSource("pro-finances-panel.tsx");
 
     expect(finances).toContain("constrainDropdownToTitleBand");
   });
 
   it("keeps the Communication filter panel tall enough for four fields", () => {
-    const communication = portalSource("manager-communication.tsx");
+    const communication = portalSource("pro-communication.tsx");
     const filterFields = portalSource("filter-field-lists.tsx");
 
     expect(communication).toContain("constrainDropdownToTitleBand");
@@ -59,8 +59,8 @@ describe("Finance and Documents command layout", () => {
   });
 
   it("uses the Applications command strip for Payments filters and actions", () => {
-    const payments = portalSource("manager-payments.tsx");
-    const applications = portalSource("manager-applications.tsx");
+    const payments = portalSource("pro-payments.tsx");
+    const applications = portalSource("pro-applications.tsx");
 
     expect(payments).toContain("titleInlineFilter={null}");
     expect(payments).toContain('variant="command"');

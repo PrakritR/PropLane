@@ -4,7 +4,7 @@
  * Homepage hero mock of the manager Applications portal — self-playing AND
  * interactively browsable.
  *
- * Copy and structure mirror `src/components/portal/manager-applications.tsx`:
+ * Copy and structure mirror `src/components/portal/pro-applications.tsx`:
  * the "Applications" page title + Invite action, the Pending / Approved /
  * Rejected status tabs with counts plus the property filter pill, applicant
  * rows (avatar initials, name with inline chevron, "property · room"

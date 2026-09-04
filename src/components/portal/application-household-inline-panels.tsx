@@ -5,7 +5,7 @@ import { groupMemberStatusBadge } from "@/components/portal/application-group-se
 import {
   ReviewRow,
   ReviewSection,
-} from "@/components/portal/manager-application-readonly-review";
+} from "@/components/portal/pro-application-readonly-review";
 import type { CosignerSubmission } from "@/lib/cosigner-submissions-storage";
 import { normalizeApplicationAxisId } from "@/lib/manager-applications-storage";
 import type { ApplicationGroup } from "@/lib/rental-application/application-groups";

@@ -12,7 +12,7 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 
 const read = (rel: string) => readFileSync(path.join(process.cwd(), rel), "utf8");
-const tours = read("src/components/portal/manager-tours.tsx");
+const tours = read("src/components/portal/pro-tours.tsx");
 const css = read("src/app/globals.css");
 const surface = read("src/components/portal/portal-record-list-surface.tsx");
 

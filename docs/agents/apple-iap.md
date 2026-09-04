@@ -105,7 +105,7 @@ A manager could pay Stripe (web) AND Apple (iOS). Rules (report §3.4):
 
 ## UI: native purchase surface, web untouched
 
-`src/components/portal/manager-plan-native.tsx` replaces the old "managed outside
+`src/components/portal/pro-plan-native.tsx` replaces the old "managed outside
 the app" `nativeNotice` in `manager-plan.tsx`. It renders ONLY inside the iOS
 shell (`.native-only` + `isNative` self-guard); the web `.native-hide` plan path
 is unchanged. It configures RevenueCat with `user.id`, fetches offerings

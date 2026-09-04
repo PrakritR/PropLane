@@ -1,7 +1,7 @@
 /** @vitest-environment jsdom */
 import { describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen } from "@testing-library/react";
-import { ListingRoomDetailTabToggle } from "@/components/portal/manager-listing-room-detail-tabs";
+import { ListingRoomDetailTabToggle } from "@/components/portal/pro-listing-room-detail-tabs";
 
 describe("ListingRoomDetailTabToggle", () => {
   it("renders Preview then Move-in details and switches on click", () => {

@@ -13,7 +13,7 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
 const layout = readFileSync("src/app/portal/layout.tsx", "utf8");
-const banner = readFileSync("src/components/portal/manager-plan-banner.tsx", "utf8");
+const banner = readFileSync("src/components/portal/pro-plan-banner.tsx", "utf8");
 const proNav = readFileSync("src/lib/portals/pro-nav.ts", "utf8");
 
 describe("the free-plan banner actually reaches the screen", () => {

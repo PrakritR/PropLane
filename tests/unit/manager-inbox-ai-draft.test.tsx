@@ -84,12 +84,12 @@ vi.mock("@/lib/portal-nav-client", () => ({ usePortalNavigate: () => () => {} })
 vi.mock("@/lib/portal-base-path-client", () => ({ usePaidPortalBasePath: () => "/portal" }));
 vi.mock("@/components/providers/app-ui-provider", () => ({ useAppUi: () => ({ showToast: vi.fn() }) }));
 vi.mock("@/components/portal/payment-schedule-ui", () => ({ useScheduledPaymentMessages: () => ({ messages: [] }) }));
-vi.mock("@/components/portal/manager-inbox-schedule-panel", () => ({ ManagerInboxSchedulePanel: () => null }));
+vi.mock("@/components/portal/pro-inbox-schedule-panel", () => ({ ManagerInboxSchedulePanel: () => null }));
 vi.mock("@/lib/manager-inbox-contacts", () => ({ buildManagerInboxLiveContacts: () => [] }));
 // AI drafts are deliberately gated OFF in demo mode; this is the real portal.
 vi.mock("@/lib/demo/demo-session", () => ({ isDemoModeActive: () => false }));
 
-import { ManagerInbox } from "@/components/portal/manager-inbox";
+import { ManagerInbox } from "@/components/portal/pro-inbox";
 
 afterEach(() => cleanup());
 

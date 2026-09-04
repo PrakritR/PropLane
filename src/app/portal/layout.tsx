@@ -4,7 +4,7 @@ import { PropertyPipelineAccountSync } from "@/components/portal/property-pipeli
 import { AxisAssistant } from "@/components/portal/axis-assistant";
 import { PortalAssistantDockRail } from "@/components/portal/portal-assistant-dock-rail";
 import { PortalDataPrefetch } from "@/components/portal/portal-data-prefetch";
-import { ManagerPlanBanner } from "@/components/portal/manager-plan-banner";
+import { ManagerPlanBanner } from "@/components/portal/pro-plan-banner";
 import { PortalMobileNavBar } from "@/components/portal/portal-mobile-nav-bar";
 import { PortalSessionKeepalive } from "@/components/portal/portal-session-keepalive";
 import { PortalSidebar } from "@/components/portal/portal-sidebar";

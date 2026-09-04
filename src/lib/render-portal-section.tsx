@@ -1,12 +1,12 @@
 import { isSmsCommUiEnabled } from "@/lib/sms-comm-ui-flag.server";
 import { AdminDashboard } from "@/components/portal/admin-dashboard";
-import { ManagerDashboard } from "@/components/portal/manager-dashboard";
-import { ManagerLeases } from "@/components/portal/manager-leases";
-import { ManagerPayments } from "@/components/portal/manager-payments";
-import { ManagerPromotion } from "@/components/portal/manager-promotion";
-import { ManagerMobileAppPanel } from "@/components/portal/manager-mobile-app-panel";
+import { ManagerDashboard } from "@/components/portal/pro-dashboard";
+import { ManagerLeases } from "@/components/portal/pro-leases";
+import { ManagerPayments } from "@/components/portal/pro-payments";
+import { ManagerPromotion } from "@/components/portal/pro-promotion";
+import { ManagerMobileAppPanel } from "@/components/portal/pro-mobile-app-panel";
 import { PortalStripeConnectPanel } from "@/components/portal/portal-stripe-connect-panel";
-import { ManagerProfile } from "@/components/portal/manager-profile";
+import { ManagerProfile } from "@/components/portal/pro-profile";
 import { AdminCreateManagerClient } from "@/components/portal/admin-create-manager-client";
 import { AdminCreateResidentClient } from "@/components/portal/admin-create-resident-client";
 import { AdminAxisUsersClient } from "@/components/portal/admin-axis-users-client";
@@ -524,6 +524,11 @@ export async function renderPortalSection(
       if (!["unopened", "opened", "schedule", "sent", "trash"].includes(emailTab)) notFound();
       if (tabParts.length > 2) notFound();
       return <AdminCommunication inboxTabId={emailTab as "unopened" | "opened" | "schedule" | "sent" | "trash"} smsUiEnabled={isSmsCommUiEnabled()} />;
+    }
+    const flatInboxTab = ["unopened", "opened", "schedule", "sent", "trash"] as const;
+    if ((flatInboxTab as readonly string[]).includes(channel)) {
+      if (tabParts.length > 1) notFound();
+      redirect(`${def.basePath}/communication/inbox/${channel}`);
     }
     notFound();
   }

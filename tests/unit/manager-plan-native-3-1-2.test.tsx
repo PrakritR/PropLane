@@ -83,7 +83,7 @@ import {
   ManagerPlanNative,
   NATIVE_PLAN_PRIVACY_URL,
   NATIVE_PLAN_TERMS_URL,
-} from "@/components/portal/manager-plan-native";
+} from "@/components/portal/pro-plan-native";
 
 afterEach(() => {
   cleanup();

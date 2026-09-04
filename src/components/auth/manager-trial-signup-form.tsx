@@ -1,11 +1,10 @@
 "use client";
 
 import posthog from "posthog-js";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
-import { AuthAlreadyHaveRolePanel } from "@/components/auth/auth-already-have-role-panel";
-import { AuthDivider, AuthLegalConsent } from "@/components/auth/auth-mobile-primitives";
-import { AuthSignedInRoleBanner } from "@/components/auth/auth-signed-in-role-banner";
+import { AuthDivider, AuthLegalConsent, AuthLoadingCard } from "@/components/auth/auth-mobile-primitives";
 import { useSignedInPortalRoles } from "@/components/auth/use-signed-in-portal-roles";
 import { PricingAppleContinueButton } from "@/components/auth/pricing-apple-continue-button";
 import { PricingGoogleContinueButton } from "@/components/auth/pricing-google-continue-button";
@@ -28,6 +27,7 @@ import { MANAGER_SUBSCRIPTION_TRIAL_DAYS } from "@/lib/stripe/subscription-check
 import { createSupabaseBrowserClient } from "@/lib/supabase/browser";
 import { navigateAfterRoleSignup } from "@/lib/auth/navigate-after-role-signup";
 import { managerPortalEntryPath } from "@/lib/auth/manager-google-services-onboarding";
+import { portalDashboardPath } from "@/components/auth/portal-switcher";
 
 function trialSignupSubtitle(tier: PlanTierId): string {
   if (tier === "free") return "Free plan · no card required";
@@ -74,12 +74,7 @@ export function ManagerTrialSignupForm({
   const [errorText, setErrorText] = useState<string | null>(null);
   const [signedInUser, setSignedInUser] = useState<SignedInUser | null>(null);
   const [accountReady, setAccountReady] = useState(false);
-  const [creatingAnother, setCreatingAnother] = useState(false);
   const { roles: portalRoles, loading: rolesLoading } = useSignedInPortalRoles();
-  // A signed-in account that already manages property gets the shared "go to
-  // your portal" panel instead of a signup form for access it already holds.
-  // "Create a different property account" reveals the form again — managers can
-  // legitimately run more than one property account, so no capability is lost.
   const alreadyManager = Boolean(signedInUser) && portalRoles.includes("manager");
 
   const locked = disabled || busy || finishingOAuth;
@@ -102,6 +97,11 @@ export function ManagerTrialSignupForm({
       cancelled = true;
     };
   }, [oauthReturn, readSignedInUser]);
+
+  useEffect(() => {
+    if (!signedInUser?.email || initialEmail || alreadyManager) return;
+    setEmail(signedInUser.email);
+  }, [signedInUser, initialEmail, alreadyManager]);
 
   const applyPricingResult = useCallback(
     (result: ContinuePartnerPricingResult) => {
@@ -238,21 +238,9 @@ export function ManagerTrialSignupForm({
       </p>
 
       {finishingOAuth ? (
-        <p className="rounded-2xl border border-border bg-card/50 px-3 py-2 text-center text-sm text-muted">
-          Finishing sign-in…
-        </p>
-      ) : accountReady && !creatingAnother ? (
+        <AuthLoadingCard label="Finishing sign-in…" />
+      ) : accountReady ? (
         <div className="space-y-3">
-          <div className="rounded-2xl border border-border bg-card/50 px-3 py-3 text-center text-[13px] leading-snug text-muted">
-            Your property account is ready
-            {signedInUser?.email ? (
-              <>
-                {" "}
-                for <span className="font-semibold text-foreground">{signedInUser.email}</span>
-              </>
-            ) : null}
-            .
-          </div>
           <Button
             type="button"
             data-attr="manager-trial-signup-go-to-portal"
@@ -265,23 +253,15 @@ export function ManagerTrialSignupForm({
             type="button"
             data-attr="manager-trial-signup-create-another"
             className="w-full text-center text-[12px] font-semibold text-primary hover:opacity-90"
-            onClick={() => setCreatingAnother(true)}
+            onClick={() => setAccountReady(false)}
           >
             Create a different property account
           </button>
         </div>
-      ) : rolesLoading ? null : alreadyManager && !creatingAnother ? (
-        <AuthAlreadyHaveRolePanel
-          role="manager"
-          email={signedInUser?.email ?? null}
-          onCreateAnother={() => setCreatingAnother(true)}
-          createAnotherLabel="Create a different property account"
-        />
+      ) : rolesLoading ? (
+        <AuthLoadingCard label="Loading…" />
       ) : (
         <>
-          {signedInUser && !alreadyManager ? (
-            <AuthSignedInRoleBanner role="manager" email={signedInUser?.email ?? null} />
-          ) : null}
           <div className="space-y-3">
             <PricingAppleContinueButton
               tier={tier}
@@ -345,6 +325,26 @@ export function ManagerTrialSignupForm({
           >
             {busy ? "Creating…" : signedInUser ? "Set up property manager" : "Create property account"}
           </Button>
+
+          {alreadyManager ? (
+            <p className="text-center text-[13px] text-muted">
+              Already managing a property?{" "}
+              <Link
+                href={`/auth/continue?next=${encodeURIComponent(portalDashboardPath("manager"))}`}
+                className="font-semibold text-primary hover:opacity-90"
+                data-attr="manager-trial-signup-go-to-existing-portal"
+              >
+                Go to your portal
+              </Link>
+            </p>
+          ) : signedInUser ? (
+            <p className="text-center text-[13px] text-muted">
+              Signed in as <span className="font-semibold text-foreground">{signedInUser.email}</span>.{" "}
+              <Link href="/auth/continue" className="font-semibold text-primary hover:opacity-90">
+                Continue to your portal
+              </Link>
+            </p>
+          ) : null}
         </>
       )}
 

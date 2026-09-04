@@ -31,7 +31,7 @@
   --pl-surface-raised: #ffffff;
   --pl-surface-muted: #f4f5f8;
   --pl-ink: #17181a;
-  --pl-muted-fg: #5c6068;
+  --pl-muted-fg: #4a4e56;
   --pl-line: rgba(8, 9, 11, 0.09);
   --pl-line-strong: rgba(8, 9, 11, 0.14);
   --pl-accent: var(--pl-blue);
@@ -3136,11 +3136,11 @@ html[data-native] [data-listing-sections-root] {
 }
 
 .landing-hero-line--muted {
-  color: rgba(255, 255, 255, 0.4);
+  color: rgba(255, 255, 255, 0.72);
 }
 
 .landing-hero-sub {
-  color: rgba(255, 255, 255, 0.55);
+  color: rgba(255, 255, 255, 0.78);
 }
 
 .landing-hero-cta-primary {
@@ -3161,7 +3161,7 @@ html[data-native] [data-listing-sections-root] {
 }
 
 .landing-hero-trust {
-  color: rgba(255, 255, 255, 0.5);
+  color: rgba(255, 255, 255, 0.78);
 }
 
 .landing-hero-check {

@@ -55,7 +55,7 @@ vi.mock("@/lib/rental-application/data", () => ({
 vi.mock("@/lib/resident-public-nav", () => ({
   residentBrowseFromApplicationHref: () => "/rent/browse",
 }));
-vi.mock("@/components/portal/manager-applications", () => ({
+vi.mock("@/components/portal/pro-applications", () => ({
   applicationPdfHref: () => "/api/manager-applications/test/pdf?disposition=inline",
   ApplicationDocumentPreview: () => (
     <iframe

@@ -1,27 +1,27 @@
 /** Code-split loaders for heavy portal panels (imported on demand per section). */
 
 export async function loadManagerResidents() {
-  return (await import("@/components/portal/manager-residents")).ManagerResidents;
+  return (await import("@/components/portal/pro-residents")).ManagerResidents;
 }
 
 export async function loadManagerScreenings() {
-  return (await import("@/components/portal/manager-screenings")).ManagerScreenings;
+  return (await import("@/components/portal/pro-screenings")).ManagerScreenings;
 }
 
 export async function loadManagerBackgroundChecks() {
-  return (await import("@/components/portal/manager-background-checks")).ManagerBackgroundChecks;
+  return (await import("@/components/portal/pro-background-checks")).ManagerBackgroundChecks;
 }
 
 export async function loadManagerApplications() {
-  return (await import("@/components/portal/manager-applications")).ManagerApplications;
+  return (await import("@/components/portal/pro-applications")).ManagerApplications;
 }
 
 export async function loadManagerProperties() {
-  return (await import("@/components/portal/manager-properties")).ManagerProperties;
+  return (await import("@/components/portal/pro-properties")).ManagerProperties;
 }
 
 export async function loadManagerTours() {
-  return (await import("@/components/portal/manager-tours")).ManagerTours;
+  return (await import("@/components/portal/pro-tours")).ManagerTours;
 }
 
 export async function loadPortalCalendar() {
@@ -29,31 +29,31 @@ export async function loadPortalCalendar() {
 }
 
 export async function loadManagerAllServicesPanel() {
-  return (await import("@/components/portal/manager-all-services-panel")).ManagerAllServicesPanel;
+  return (await import("@/components/portal/pro-all-services-panel")).ManagerAllServicesPanel;
 }
 
 export async function loadManagerTaskList() {
-  return (await import("@/components/portal/manager-task-list")).ManagerTaskList;
+  return (await import("@/components/portal/pro-task-list")).ManagerTaskList;
 }
 
 export async function loadManagerInbox() {
-  return (await import("@/components/portal/manager-inbox")).ManagerInbox;
+  return (await import("@/components/portal/pro-inbox")).ManagerInbox;
 }
 
 export async function loadManagerCommunication() {
-  return (await import("@/components/portal/manager-communication")).ManagerCommunication;
+  return (await import("@/components/portal/pro-communication")).ManagerCommunication;
 }
 
 export async function loadManagerFinancesPanel() {
-  return (await import("@/components/portal/manager-finances-panel")).ManagerFinancesPanel;
+  return (await import("@/components/portal/pro-finances-panel")).ManagerFinancesPanel;
 }
 
 export async function loadManagerDocumentsPanel() {
-  return (await import("@/components/portal/manager-documents-panel")).ManagerDocumentsPanel;
+  return (await import("@/components/portal/pro-documents-panel")).ManagerDocumentsPanel;
 }
 
 export async function loadManagerVendorsPanel() {
-  return (await import("@/components/portal/manager-vendors-panel")).ManagerVendorsPanel;
+  return (await import("@/components/portal/pro-vendors-panel")).ManagerVendorsPanel;
 }
 
 export async function loadProAccountLinksPanel() {

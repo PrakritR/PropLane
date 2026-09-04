@@ -43,7 +43,7 @@ describe("Gmail payment receipts are off", () => {
     expect(read("src/app/auth/manager/connect-google/page.tsx")).toContain(
       "{GMAIL_PAYMENTS_ENABLED ? (",
     );
-    expect(read("src/components/portal/manager-payment-setup-modal.tsx")).toContain(
+    expect(read("src/components/portal/pro-payment-setup-modal.tsx")).toContain(
       'GMAIL_PAYMENTS_ENABLED ? "" : "hidden"',
     );
     // The signup step's Gmail card was already removed outright.

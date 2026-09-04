@@ -104,7 +104,7 @@ vi.mock("@/components/providers/app-ui-provider", () => ({
 vi.mock("@/components/portal/payment-schedule-ui", () => ({
   useScheduledPaymentMessages: () => ({ messages: [], reload: () => {} }),
 }));
-vi.mock("@/components/portal/manager-inbox-schedule-panel", () => ({
+vi.mock("@/components/portal/pro-inbox-schedule-panel", () => ({
   ManagerInboxSchedulePanel: () => null,
 }));
 vi.mock("@/lib/manager-inbox-contacts", () => ({
@@ -118,7 +118,7 @@ vi.mock("@/components/portal/inbox-thread-assistant-strip", () => ({
   InboxThreadAssistantStrip: () => null,
 }));
 
-import { ManagerInbox } from "@/components/portal/manager-inbox";
+import { ManagerInbox } from "@/components/portal/pro-inbox";
 import { VendorInboxPanel } from "@/components/portal/vendor-inbox-panel";
 
 function responseForBackground(url: string): Response {

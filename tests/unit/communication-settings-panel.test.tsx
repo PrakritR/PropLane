@@ -13,7 +13,7 @@ vi.mock("@/components/providers/app-ui-provider", () => ({
 }));
 vi.mock("@/lib/demo/demo-session", () => ({ isDemoModeActive: () => false }));
 
-import { CommunicationSettingsPanel } from "@/components/portal/manager-portal-settings-panels";
+import { CommunicationSettingsPanel } from "@/components/portal/pro-portal-settings-panels";
 import { DEFAULT_MANAGER_AUTOMATION_SETTINGS } from "@/lib/payment-automation-settings";
 import type { ManagerMessagingNumberStatus } from "@/lib/sms/manager-messaging-number";
 

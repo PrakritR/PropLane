@@ -5,7 +5,7 @@ import { describe, expect, it } from "vitest";
 describe("finance list chrome", () => {
   it("uses Properties/Tours-style command tabs instead of a left rail", () => {
     const source = readFileSync(
-      join(process.cwd(), "src/components/portal/manager-finances-panel.tsx"),
+      join(process.cwd(), "src/components/portal/pro-finances-panel.tsx"),
       "utf8",
     );
     expect(source).toContain('variant="command"');
@@ -17,7 +17,7 @@ describe("finance list chrome", () => {
 
   it("orders transaction tabs before reports", () => {
     const source = readFileSync(
-      join(process.cwd(), "src/components/portal/manager-finances-panel.tsx"),
+      join(process.cwd(), "src/components/portal/pro-finances-panel.tsx"),
       "utf8",
     );
     const incomeIdx = source.indexOf('{ id: "income", label: "Income" }');

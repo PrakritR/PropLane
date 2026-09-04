@@ -77,7 +77,7 @@ vi.mock("@/lib/rental-application/data", () => ({
   getRoomChoiceLabel: (value: string) => value,
   parseRoomChoiceValue: (value: string) => ({ listingRoomId: value.split("::")[1] ?? value }),
 }));
-vi.mock("@/components/portal/manager-applications", () => ({
+vi.mock("@/components/portal/pro-applications", () => ({
   applicationPdfHref: () => "/api/manager-applications/test/pdf?disposition=inline",
 }));
 vi.mock("@/components/portal/resident-application-editor", () => ({

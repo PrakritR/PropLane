@@ -120,7 +120,7 @@ vi.mock("@/components/portal/payment-schedule-ui", () => ({
   useScheduledPaymentMessages: () => ({ messages: [] }),
 }));
 
-vi.mock("@/components/portal/manager-inbox-schedule-panel", () => ({
+vi.mock("@/components/portal/pro-inbox-schedule-panel", () => ({
   ManagerInboxSchedulePanel: () => null,
 }));
 
@@ -132,7 +132,7 @@ vi.mock("@/lib/demo/demo-session", () => ({
   isDemoModeActive: () => true,
 }));
 
-import { ManagerInbox } from "@/components/portal/manager-inbox";
+import { ManagerInbox } from "@/components/portal/pro-inbox";
 
 afterEach(() => {
   cleanup();

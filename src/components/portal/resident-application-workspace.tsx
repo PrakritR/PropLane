@@ -3,7 +3,7 @@
 import { Button } from "@/components/ui/button";
 import { CosignerInviteCallout } from "@/components/marketing/cosigner-invite-callout";
 import { GroupShareCallout } from "@/components/marketing/rental-application-finish-panel";
-import { ApplicationDocumentPreview } from "@/components/portal/manager-applications";
+import { ApplicationDocumentPreview } from "@/components/portal/pro-applications";
 import { PORTAL_HEADER_ACTION_BTN, PORTAL_HEADER_PRIMARY_ACTION_BTN } from "@/components/portal/portal-metrics";
 import { PortalDataTableEmpty } from "@/components/portal/portal-data-table";
 import type { DemoApplicantRow } from "@/data/demo-portal";

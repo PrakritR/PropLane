@@ -4,9 +4,9 @@ import { describe, expect, it } from "vitest";
 
 const PORTAL_DIR = join(process.cwd(), "src/components/portal");
 const SECONDARY_MANUAL_SMS_CALLERS = [
-  "manager-inbox.tsx",
-  "manager-resident-detail-inbox.tsx",
-  "manager-communication-compose-modal.tsx",
+  "pro-inbox.tsx",
+  "pro-resident-detail-inbox.tsx",
+  "pro-communication-compose-modal.tsx",
 ] as const;
 
 describe("secondary manager SMS send callers", () => {

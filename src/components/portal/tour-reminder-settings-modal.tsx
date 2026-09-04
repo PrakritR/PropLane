@@ -1,6 +1,6 @@
 "use client";
 
-import { ManagerPortalSettingsModal } from "@/components/portal/manager-portal-settings-modal";
+import { ManagerPortalSettingsModal } from "@/components/portal/pro-portal-settings-modal";
 
 /** @deprecated Use ManagerPortalSettingsModal with initialTab="tours". */
 export function TourReminderSettingsModal({

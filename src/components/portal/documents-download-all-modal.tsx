@@ -5,7 +5,7 @@ import { ChevronDown } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Modal, ModalFooter } from "@/components/ui/modal";
 import { useAppUi } from "@/components/providers/app-ui-provider";
-import { downloadApplicationPdf } from "@/components/portal/manager-applications";
+import { downloadApplicationPdf } from "@/components/portal/pro-applications";
 import { triggerDocumentDownload } from "@/components/portal/resident-other-documents";
 import { downloadBlobFile } from "@/lib/portal-document-download";
 import type { DemoApplicantRow } from "@/data/demo-portal";

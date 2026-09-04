@@ -69,7 +69,7 @@ vi.mock("@/components/ui/checkbox-multi-select", () => ({
   },
 }));
 
-import { ManagerSmsComposeModal } from "@/components/portal/manager-sms-compose-modal";
+import { ManagerSmsComposeModal } from "@/components/portal/pro-sms-compose-modal";
 
 afterEach(() => {
   cleanup();

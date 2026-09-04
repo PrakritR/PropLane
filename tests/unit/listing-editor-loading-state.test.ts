@@ -12,7 +12,7 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 
 const source = readFileSync(
-  path.join(process.cwd(), "src/components/portal/manager-house-properties-panel.tsx"),
+  path.join(process.cwd(), "src/components/portal/pro-house-properties-panel.tsx"),
   "utf8",
 );
 

@@ -12,7 +12,7 @@ there is no auto-send, ever.
 | Draft generation route (manager-only) | `src/app/api/portal/inbox-draft-reply/route.ts` |
 | Draft data type (`InboxAiDraft`) | `src/lib/portal-inbox-storage.ts` |
 | Approval UI card | `AiDraftReplyCard` in `src/components/portal/portal-inbox-ui.tsx` |
-| Manager wiring (auto-draft, approve/edit/discard) | `src/components/portal/manager-inbox.tsx` |
+| Manager wiring (auto-draft, approve/edit/discard) | `src/components/portal/pro-inbox.tsx` |
 
 ## Data model — drafts never leak to residents
 

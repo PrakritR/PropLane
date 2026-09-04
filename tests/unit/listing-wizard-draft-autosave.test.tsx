@@ -7,7 +7,7 @@
 // or starts calling it for an untouched form.
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { ManagerAddListingForm } from "@/components/portal/manager-add-listing-form";
+import { ManagerAddListingForm } from "@/components/portal/pro-add-listing-form";
 import { readAdminPropertyRows } from "@/lib/demo-admin-property-inventory";
 import { LEASE_TEMPLATE_ROUTE } from "@/lib/lease-template-storage";
 import {

@@ -92,10 +92,10 @@ the aside itself (`titleAsideDesktopOnly`) and moves the mobile copy into
 
 | Section | File | Notes |
 |---------|------|-------|
-| Inbox | [`manager-inbox.tsx`](../src/components/portal/manager-inbox.tsx) | Status pills + header/mobile actions. Layout reference only: its `ManagerPortalPageShell` branch renders on `/demo` alone — the real portal mounts the panel embedded in Communication (see AGENTS.md → "Inbox panels"), so controls added there do not ship. |
-| Residents | [`manager-residents.tsx`](../src/components/portal/manager-residents.tsx) | Property filter + status pills + table |
-| Services | [`manager-all-services-panel.tsx`](../src/components/portal/manager-all-services-panel.tsx) | `TabNav` + conditional header CTA |
-| Leases | [`manager-leases.tsx`](../src/components/portal/manager-leases.tsx) | Property filter + status pills |
+| Inbox | [`manager-inbox.tsx`](../src/components/portal/pro-inbox.tsx) | Status pills + header/mobile actions. Layout reference only: its `ManagerPortalPageShell` branch renders on `/demo` alone — the real portal mounts the panel embedded in Communication (see AGENTS.md → "Inbox panels"), so controls added there do not ship. |
+| Residents | [`manager-residents.tsx`](../src/components/portal/pro-residents.tsx) | Property filter + status pills + table |
+| Services | [`manager-all-services-panel.tsx`](../src/components/portal/pro-all-services-panel.tsx) | `TabNav` + conditional header CTA |
+| Leases | [`manager-leases.tsx`](../src/components/portal/pro-leases.tsx) | Property filter + status pills |
 
 ---
 

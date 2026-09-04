@@ -90,7 +90,7 @@ describe("manager Properties at the Free plan cap — rendered surface", () => {
     expect(countManagerManagedPropertiesForUser(MANAGER_ID)).toBe(1);
 
     const { AppUiProvider } = await import("@/components/providers/app-ui-provider");
-    const { ManagerProperties } = await import("@/components/portal/manager-properties");
+    const { ManagerProperties } = await import("@/components/portal/pro-properties");
 
     render(
       <AppUiProvider>

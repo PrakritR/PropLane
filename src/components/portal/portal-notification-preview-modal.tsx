@@ -8,7 +8,7 @@ import { WorkAssignmentPicker } from "@/components/portal/work-assignment-picker
 import { cn } from "@/lib/utils";
 import type { AssignableWorkKind, WorkAssignee } from "@/lib/work-assignment";
 import { useManagerCommunicationDeliverVia } from "@/hooks/use-manager-communication-deliver-via";
-import { ManagerSmsWorkNumberHint } from "@/components/portal/manager-sms-work-number-hint";
+import { ManagerSmsWorkNumberHint } from "@/components/portal/pro-sms-work-number-hint";
 import {
   portalMessageSelectionFromDeliverVia,
   type ManagerDeliverViaKind,

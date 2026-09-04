@@ -18,7 +18,7 @@ import { describe, expect, it } from "vitest";
  * failure mode is a hung page rather than a caught exception.
  */
 const MODALS = [
-  "src/components/portal/manager-communication-compose-modal.tsx",
+  "src/components/portal/pro-communication-compose-modal.tsx",
   "src/components/portal/inbox-scoped-compose-modal.tsx",
 ];
 

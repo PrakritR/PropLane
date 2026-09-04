@@ -132,7 +132,7 @@ vi.mock("@/lib/demo/demo-session", () => ({
 }));
 
 import { GroupShareCallout } from "@/components/marketing/rental-application-finish-panel";
-import { ManagerApplications } from "@/components/portal/manager-applications";
+import { ManagerApplications } from "@/components/portal/pro-applications";
 import { makeApplicationGroupId } from "@/lib/rental-application/application-groups";
 
 afterEach(cleanup);

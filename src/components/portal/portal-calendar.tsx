@@ -37,8 +37,8 @@ import { buildManagerPropertyFilterOptions, MANAGER_PORTFOLIO_REFRESH_EVENTS } f
 import { buildManagerShareablePropertyOptions } from "@/lib/manager-property-links";
 import { ShareLeadLinkModal } from "@/components/portal/share-lead-link-modal";
 import { TourProposalsPanel } from "@/components/portal/tour-proposals-panel";
-import { ManagerPortalSettingsModal } from "@/components/portal/manager-portal-settings-modal";
-import { ManagerPortfolioBookingsCalendar } from "@/components/portal/manager-portfolio-bookings-calendar";
+import { ManagerPortalSettingsModal } from "@/components/portal/pro-portal-settings-modal";
+import { ManagerPortfolioBookingsCalendar } from "@/components/portal/pro-portfolio-bookings-calendar";
 import {
   leaseBookingEntriesForProperties,
   openEndedBookingHorizonKey,

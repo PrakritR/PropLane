@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, render, screen, waitFor } from "@testing-library/react";
-import { ManagerTaskList } from "@/components/portal/manager-task-list";
+import { ManagerTaskList } from "@/components/portal/pro-task-list";
 
 const { pathnameRef } = vi.hoisted(() => ({
   pathnameRef: { current: "/portal/tasks" },
@@ -66,7 +66,7 @@ vi.mock("@/lib/manager-task-display", async (importOriginal) => {
     taskNotesPreview: (notes: string) => ({ preview: notes, truncated: false }),
   };
 });
-vi.mock("@/components/portal/manager-task-form-modal", () => ({
+vi.mock("@/components/portal/pro-task-form-modal", () => ({
   ManagerTaskFormModal: () => null,
 }));
 

@@ -26,7 +26,7 @@ vi.mock("next/navigation", () => ({
   useSearchParams: () => new URLSearchParams(),
 }));
 
-import { ManagerDocumentLibrary } from "@/components/portal/manager-document-library";
+import { ManagerDocumentLibrary } from "@/components/portal/pro-document-library";
 import {
   loadDocumentExpirationSummary,
   resetDocumentExpirationSummaryCache,

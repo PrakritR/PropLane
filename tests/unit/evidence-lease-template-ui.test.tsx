@@ -28,7 +28,7 @@ vi.mock("@/lib/manager-property-save-target", () => ({
   resolveManagerListingSubmissionForPropertyId: () => null,
 }));
 
-import { ManagerPropertyLeasePanel } from "@/components/portal/manager-property-lease-panel";
+import { ManagerPropertyLeasePanel } from "@/components/portal/pro-property-lease-panel";
 import { createDefaultListingSubmission } from "@/lib/manager-listing-submission";
 import {
   addLeaseTemplateFromSeed,

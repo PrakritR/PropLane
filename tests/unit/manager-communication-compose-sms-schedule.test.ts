@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildSmsSchedulePayloads } from "@/components/portal/manager-communication-compose-modal";
+import { buildSmsSchedulePayloads } from "@/components/portal/pro-communication-compose-modal";
 
 describe("manager Communication SMS scheduling", () => {
   it("creates one scheduled payload for every selected SMS target", () => {
