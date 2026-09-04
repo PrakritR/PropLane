@@ -389,6 +389,8 @@ export function ChargeRemindersModal({
           editable={editingMessage.status === "scheduled"}
           busy={detailBusy}
           presentation="detail"
+          recipient={editingMessage.residentEmail}
+          sendAt={editingMessage.sendAt}
           onCancel={() => void toggleCancelled(editingMessage, true).then(() => setEditingMessage(null))}
           onSendNow={() => {
             if (editingMessage.status !== "scheduled") return;
@@ -410,6 +412,7 @@ export function ChargeRemindersModal({
                   await patchScheduledMessage(editingMessage.id, {
                     customSubject: next.subject,
                     customBody: next.body,
+                    ...(next.sendAt ? { customSendAt: next.sendAt } : {}),
                   });
                   onMessageSaved?.();
                 }

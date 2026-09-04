@@ -1361,7 +1361,13 @@ export const ManagerInbox = forwardRef<
   const saveScheduledEdit = useCallback(
     async (
       item: { id: string; source: "manual" | "automation" },
-      next: { subject: string; body: string; deliverViaEmail?: boolean; deliverViaSms?: boolean },
+      next: {
+        subject: string;
+        body: string;
+        deliverViaEmail?: boolean;
+        deliverViaSms?: boolean;
+        sendAt?: string;
+      },
     ) => {
       // Rejects on failure so the inline editor stays open with the draft text.
       // The card renders the message inline, so there is deliberately no toast.
@@ -1376,11 +1382,16 @@ export const ManagerInbox = forwardRef<
               body: next.body,
               ...(next.deliverViaEmail !== undefined ? { deliverViaEmail: next.deliverViaEmail } : {}),
               ...(next.deliverViaSms !== undefined ? { deliverViaSms: next.deliverViaSms } : {}),
+              ...(next.sendAt ? { sendAt: next.sendAt } : {}),
             }),
           });
           if (!res.ok) throw new Error(await readPortalApiError(res, "Could not save changes."));
         } else {
-          await patchScheduledMessage(item.id, { customSubject: next.subject, customBody: next.body });
+          await patchScheduledMessage(item.id, {
+            customSubject: next.subject,
+            customBody: next.body,
+            ...(next.sendAt ? { customSendAt: next.sendAt } : {}),
+          });
         }
       } catch (e) {
         throw new Error(e instanceof Error && e.message ? e.message : "Could not save changes.");
@@ -1994,6 +2005,8 @@ export const ManagerInbox = forwardRef<
             source={item.source}
             editable={item.editable}
             busy={scheduledBusyId === item.id}
+            recipient={activeThread.email}
+            sendAt={item.sendAt}
             onCancel={() => void cancelScheduledItem(item)}
             onSendNow={() => void sendScheduledItemNow(item)}
             onSaveEdit={item.editable ? (next) => saveScheduledEdit(item, next) : undefined}

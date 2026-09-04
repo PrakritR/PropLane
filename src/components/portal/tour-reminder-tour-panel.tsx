@@ -240,6 +240,8 @@ export function TourReminderTourPanel({
             editable={editingReminder.status === "scheduled"}
             busy={detailBusy}
             presentation="detail"
+            recipient={editingReminder.residentEmail}
+            sendAt={editingReminder.sendAt}
             onCancel={() => void toggleCancelled(editingReminder, true).then(() => setEditingReminder(null))}
             onSendNow={() => {}}
             showSendActions={false}
@@ -251,6 +253,7 @@ export function TourReminderTourPanel({
                       await patchScheduledMessage(editingReminder.id, {
                         customSubject: next.subject,
                         customBody: next.body,
+                        ...(next.sendAt ? { customSendAt: next.sendAt } : {}),
                       });
                       await load();
                       setEditingReminder(null);
