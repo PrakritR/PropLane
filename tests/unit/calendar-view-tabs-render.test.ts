@@ -87,9 +87,15 @@ describe("property calendar sub-tabs", () => {
     expect(parsePropertyCalendarSubTab("tours")).toBe("bookings");
   });
 
-  it("property calendar panel is bookings-only", () => {
-    const src = read("src/components/portal/manager-property-calendar-panel.tsx");
-    expect(src).toContain("ManagerPropertyBookingsPanel");
-    expect(src).not.toContain('calendarSubTab === "tours"');
+  it("PRP-165: the house's Bookings panel is reachable from its own detail tabs", () => {
+    // `ManagerPropertyCalendarPanel` was a pass-through wrapper that rendered
+    // ManagerPropertyBookingsPanel and that NOTHING rendered in turn, so one
+    // house's occupancy could only be seen by leaving it for the portfolio
+    // Bookings page and filtering back down. The wrapper is deleted; the panel
+    // is now a Bookings tab beside Tours.
+    const panel = read("src/components/portal/manager-house-properties-panel.tsx");
+    expect(panel).toContain("ManagerPropertyBookingsPanel");
+    expect(panel).toContain('activeDetailTab === "bookings"');
+    expect(panel).toContain('pushTopTab("bookings", "bookings")');
   });
 });

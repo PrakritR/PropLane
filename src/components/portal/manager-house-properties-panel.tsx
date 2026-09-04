@@ -15,6 +15,7 @@ import { ListingDetailSections } from "@/components/marketing/listing-detail-sec
 import { ListingStickySubnav } from "@/components/marketing/listing-detail-subnav";
 import { getListingRichContent } from "@/data/listing-rich-content";
 import { ManagerAddListingForm } from "@/components/portal/manager-add-listing-form";
+import { ManagerPropertyBookingsPanel } from "@/components/portal/manager-property-bookings-panel";
 import { ManagerPropertyHouseDetailsPanel } from "@/components/portal/manager-property-house-details-panel";
 import { ManagerPropertyRoomMoveInPanel } from "@/components/portal/manager-property-room-move-in-panel";
 import { ManagerPropertyApplicationQuestionsPanel } from "@/components/portal/manager-property-application-questions-panel";
@@ -535,7 +536,7 @@ function ManagerPropertyInlineDetails({
       bucket === 3 || bucket === 5
         ? ["preview"]
         : bucket === 2 && listingId
-          ? ["preview", "house-details", "move-in", "application", "lease", "tours", "requests", "promotion"]
+          ? ["preview", "house-details", "move-in", "application", "lease", "tours", "bookings", "requests", "promotion"]
           : ["preview", "house-details", "move-in", "application", "lease"],
     [bucket, listingId],
   );
@@ -563,6 +564,7 @@ function ManagerPropertyInlineDetails({
     pushTopTab("house-details", "house-details");
     pushTopTab("move-in", "move-in");
     pushTopTab("tours", "tours");
+    pushTopTab("bookings", "bookings");
     pushTopTab("application", "application");
     pushTopTab("lease", "lease");
     pushTopTab("requests", "requests");
@@ -969,6 +971,20 @@ function ManagerPropertyInlineDetails({
           listingId={listingId}
           managerUserId={managerUserId}
           propertyLabel={propertyShareLabel}
+          showToast={showToast}
+        />
+      ) : null}
+
+      {/* Bookings for THIS house, beside its Tours tab (PRP-165). The panel
+          already existed and was complete — room filter, Airbnb link, footer bar
+          — but nothing rendered it, so the only way to see one house's occupancy
+          was to leave it for the portfolio Bookings page and filter back down. */}
+      {activeDetailTab === "bookings" && bucket === 2 && listingId ? (
+        <ManagerPropertyBookingsPanel
+          propertyId={listingId}
+          propertyLabel={propertyShareLabel}
+          submission={managerSubmission}
+          managerUserId={managerUserId}
           showToast={showToast}
         />
       ) : null}
