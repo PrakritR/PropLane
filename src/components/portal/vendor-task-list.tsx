@@ -6,12 +6,14 @@ import { DestinationNav } from "@/components/ui/destination-nav";
 import { useShallowTabId } from "@/components/ui/tabs";
 import { useAppUi } from "@/components/providers/app-ui-provider";
 import { ManagerPortalPageShell } from "@/components/portal/portal-metrics";
-import { PORTAL_LIST_PAGE_BODY } from "@/components/portal/portal-inbox-ui";
 import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
-import { PortalPageFooterActions } from "@/components/portal/portal-section-action-row";
+import { PortalDataTableEmpty } from "@/components/portal/portal-data-table";
+import { PortalRecordListSurface } from "@/components/portal/portal-record-list-surface";
+import { PortalServiceRecordRow } from "@/components/portal/portal-record-row";
+import { PORTAL_BULK_BAR_BTN } from "@/lib/portal-bulk-bar";
 import { usePortalSession } from "@/hooks/use-portal-session";
 import { formatRangeLabel } from "@/lib/demo-admin-scheduling";
-import { compactTaskLocationLabel, taskNotesPreview } from "@/lib/manager-task-display";
+import { compactTaskLocationLabel } from "@/lib/manager-task-display";
 import {
   VENDOR_TASK_LIST_TAB_LABELS,
   VENDOR_TASK_LIST_TABS,
@@ -34,28 +36,6 @@ function formatTaskSchedule(task: VendorAssignedTask): string {
   return "No schedule or due date";
 }
 
-function TaskNotesSnippet({ notes }: { notes: string }) {
-  const [expanded, setExpanded] = useState(false);
-  const { preview, truncated } = taskNotesPreview(notes);
-  if (!notes.trim()) return null;
-  return (
-    <div className="mt-1">
-      <p className={`text-sm text-muted ${expanded ? "whitespace-pre-wrap" : "line-clamp-2"}`}>
-        {expanded ? notes : preview}
-      </p>
-      {truncated ? (
-        <button
-          type="button"
-          className="mt-1 text-xs font-semibold text-primary"
-          onClick={() => setExpanded((open) => !open)}
-        >
-          {expanded ? "Show less" : "Show more"}
-        </button>
-      ) : null}
-    </div>
-  );
-}
-
 export function VendorTaskList({
   tabId: serverTabId,
   basePath = "/vendor",
@@ -70,6 +50,7 @@ export function VendorTaskList({
   const [tasks, setTasks] = useState<VendorAssignedTask[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [expandedKey, setExpandedKey] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
     if (!userId) return;
@@ -184,55 +165,77 @@ export function VendorTaskList({
         }
       />
 
-      <div className={PORTAL_LIST_PAGE_BODY}>
-        {loading ? <p className="text-sm text-muted">Loading…</p> : null}
-        {!loading && visibleTasks.length === 0 ? (
-          <p className="text-sm text-muted">
-            {tabId === "completed" ? "No completed tasks yet." : "No tasks assigned to you right now."}
-          </p>
-        ) : null}
-        {!loading && visibleTasks.length > 0 ? (
-          <ul
-            className={`divide-y divide-border rounded-2xl border border-border bg-card ${tabId === "completed" ? "opacity-80" : ""}`}
-          >
-            {visibleTasks.map((task) => {
-              const key = taskKey(task);
-              const location = compactTaskLocationLabel(task);
-              return (
-                <li key={key} className="flex items-start gap-3 px-4 py-3">
-                  <input
-                    type="checkbox"
-                    className="mt-1"
-                    checked={selectedIds.includes(key)}
-                    aria-label={`Select ${task.title}`}
-                    onChange={(event) =>
-                      setSelectedIds((prev) =>
-                        event.target.checked ? [...prev, key] : prev.filter((id) => id !== key),
-                      )
-                    }
-                  />
-                  <div className="min-w-0 flex-1">
-                    <p className={`font-semibold ${tabId === "completed" ? "text-muted" : "text-foreground"}`}>
-                      {task.title}
-                    </p>
-                    <p className="text-sm text-muted">{formatTaskSchedule(task)}</p>
-                    {location ? <p className="text-xs text-muted">{location}</p> : null}
-                    {task.notes ? <TaskNotesSnippet notes={task.notes} /> : null}
+      {/*
+        The house list surface, so Tasks matches every other list in every other
+        portal: record rows with a leading checkbox, and a FLOATING dock rather
+        than a pinned page footer. A row opens onto the note the manager left,
+        which is the thing a vendor reads before setting out.
+      */}
+      <PortalRecordListSurface
+        isEmpty={!loading && visibleTasks.length === 0}
+        empty={
+          <PortalDataTableEmpty
+            icon="service"
+            message={
+              tabId === "completed" ? "No completed tasks yet." : "No tasks assigned to you right now."
+            }
+          />
+        }
+        bulkCount={selectedTasks.length}
+        bulkActions={
+          selectedTasks.length > 0 ? (
+            <div className="flex min-w-0 flex-wrap items-center justify-start gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                className={PORTAL_BULK_BAR_BTN}
+                data-attr="vendor-tasks-bulk-complete"
+                onClick={() => void bulkComplete(selectedTasks)}
+              >
+                {tabId === "completed" ? "Mark open" : "Mark completed"}
+              </Button>
+            </div>
+          ) : null
+        }
+        dataAttr="vendor-tasks-list"
+      >
+        {loading ? (
+          <p className="px-4 py-3 text-sm text-muted">Loading…</p>
+        ) : (
+          visibleTasks.map((task) => {
+            const key = taskKey(task);
+            const location = compactTaskLocationLabel(task);
+            const open = expandedKey === key;
+            return (
+              <div key={key}>
+                <PortalServiceRecordRow
+                  title={task.title}
+                  subtitle={[formatTaskSchedule(task), location].filter(Boolean).join(" · ")}
+                  selected={open}
+                  checked={selectedIds.includes(key)}
+                  onSelectedChange={() =>
+                    setSelectedIds((prev) =>
+                      prev.includes(key) ? prev.filter((id) => id !== key) : [...prev, key],
+                    )
+                  }
+                  onOpen={() => setExpandedKey((cur) => (cur === key ? null : key))}
+                  dataAttr="vendor-task-row"
+                />
+                {open ? (
+                  <div className="border-b border-border/50 bg-accent/10 px-4 py-3 text-sm">
+                    {task.notes?.trim() ? (
+                      <p className="whitespace-pre-wrap leading-relaxed text-foreground">{task.notes.trim()}</p>
+                    ) : (
+                      <p className="text-muted">No note left with this task.</p>
+                    )}
                   </div>
-                </li>
-              );
-            })}
-          </ul>
-        ) : null}
-      </div>
+                ) : null}
+              </div>
+            );
+          })
+        )}
+      </PortalRecordListSurface>
 
-      {selectedTasks.length > 0 ? (
-        <PortalPageFooterActions pinned>
-          <Button type="button" variant="secondary" onClick={() => void bulkComplete(selectedTasks)}>
-            {tabId === "completed" ? "Mark open" : "Mark completed"}
-          </Button>
-        </PortalPageFooterActions>
-      ) : null}
     </ManagerPortalPageShell>
   );
 }

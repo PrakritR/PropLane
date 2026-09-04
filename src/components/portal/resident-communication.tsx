@@ -488,7 +488,7 @@ export function ResidentCommunication({
           dataAttr: "communication-segment-archived",
         },
       ]}
-      activeDestinationId={listSegment}
+      activeDestinationId={listSegment === "unread" ? "active" : listSegment}
       destinationAriaLabel="Conversation folders"
       actions={communicationCommandActions}
     />
