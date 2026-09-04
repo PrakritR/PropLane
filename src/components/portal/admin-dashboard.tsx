@@ -11,6 +11,7 @@ import {
 } from "@/components/portal/portal-metrics";
 import {
   PortalPreviewOverflowLink,
+  PortalTableExpandChevron,
   usePortalPreviewSlice,
 } from "@/components/portal/portal-data-table";
 import { formatPacificDateTime } from "@/lib/pacific-time";
@@ -163,11 +164,36 @@ function AttentionGroup<T>({
 }) {
   const { visible, overflow } = usePortalPreviewSlice(items);
   const { isNative } = useIsNativeApp();
+  const isEmpty = items.length === 0;
+  // null → follow "open when it has something in it", which stays reactive as
+  // the async loads land; a boolean is staff's own tap and wins over it. Three
+  // groups each printing a "nothing here" line is a wall of empty state on a
+  // phone, and the header alone already says the group is empty.
+  const [override, setOverride] = useState<boolean | null>(null);
+  const open = override ?? !isEmpty;
 
   return (
     <div className="space-y-2 [html[data-native]_&]:space-y-1.5">
-      <PortalDashboardSectionHeader title={title} href={href} linkLabel={linkLabel} badge={badge} />
-      {items.length === 0 ? (
+      <div
+        role="button"
+        tabIndex={0}
+        aria-expanded={open}
+        data-attr="admin-dashboard-attention-toggle"
+        onClick={() => setOverride(!open)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" || e.key === " ") {
+            e.preventDefault();
+            setOverride(!open);
+          }
+        }}
+        className="flex cursor-pointer items-center gap-2"
+      >
+        <PortalTableExpandChevron expanded={open} />
+        <div className="min-w-0 flex-1">
+          <PortalDashboardSectionHeader title={title} href={href} linkLabel={linkLabel} badge={badge} />
+        </div>
+      </div>
+      {!open ? null : isEmpty ? (
         <p className="text-sm text-muted [html[data-native]_&]:text-xs">{emptyMessage}</p>
       ) : (
         <>
@@ -336,7 +362,7 @@ export function AdminDashboard({ displayName = "there" }: { displayName?: string
             <KpiTile
               label="Unread inbox"
               value={inboxUnread}
-              href="/admin/communication/email/unopened"
+              href="/admin/communication"
               dataAttr="admin-dashboard-kpi-inbox"
             />
             <KpiTile
@@ -397,14 +423,14 @@ export function AdminDashboard({ displayName = "there" }: { displayName?: string
 
           <AttentionGroup
             title="Communication"
-            href="/admin/communication/email/unopened"
+            href="/admin/communication"
             linkLabel="Communication →"
             items={inboxPreview}
             emptyMessage="No unread messages. Communication is clear."
             keyForItem={(message) => message.id}
             renderRow={(message) => (
               <IssueRow
-                href="/admin/communication/email/unopened"
+                href="/admin/communication"
                 dot={DOT_INFO}
                 title={message.name || message.email}
                 subtitle={message.topic || message.body.slice(0, 80)}
