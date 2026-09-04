@@ -181,9 +181,9 @@ Listed newest first; the ones already fixed say so.
   parity gap, in the communication lane's territory.
 * **Vendor Finances and Payments are still two nav entries.** The redesign
   merges them into one money section (Owed / Invoiced / Paid). Not started.
-* **Vendor Tasks, Calendar and Dashboard** are still on their own layouts.
-  Smallest deltas of the vendor set; Calendar inherits the shared calendar's
-  sticky date row and scroll fixes once it adopts the component.
+* **Vendor Calendar and Dashboard** are still on their own layouts. Calendar
+  inherits the shared calendar's sticky date row and scroll fixes once it adopts
+  the component. (Tasks is done — it took the list surface and floating dock.)
 
 ### Decisions still needed before those can finish
 
