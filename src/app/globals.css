@@ -1565,6 +1565,43 @@ html:has([data-auth-layout]) body {
   align-self: center;
 }
 
+/*
+ * The plan chooser is a side-by-side COMPARISON and needs room the single-column
+ * auth forms do not.
+ *
+ * `.auth-layout-panel` pins EVERY auth surface to 460px with no responsive step —
+ * a phone width, applied on a 1440px desktop browser. That is what wrapped the
+ * three plan cards' feature copy every couple of words and pushed the page well
+ * past one screen: the shell inside it asked for 76rem and never got it, because
+ * this rule wins. Phones are untouched, since 100% of a phone is narrower than
+ * any of these caps.
+ *
+ * Scoped away from `data-native`: the native shell sets its own panel width just
+ * below, and `:has()` would otherwise outrank it.
+ */
+html:not([data-native]) .auth-layout-panel:has(.auth-plan-picker-wide) {
+  max-width: min(100%, 76rem);
+}
+
+/*
+ * …and give the height back too. The auth shell's 3.5rem top/bottom padding is
+ * sized for a short sign-in form; on the plan page it was the last ~110px
+ * keeping a comparison that otherwise fits from fitting.
+ */
+html:not([data-native]) .auth-layout-main:has(.auth-plan-picker-wide) {
+  padding-top: 1rem;
+  padding-bottom: 1rem;
+}
+
+/* The last few pixels: the stack's own rhythm, tightened only on this page. */
+@media (min-width: 768px) {
+  html:not([data-native]) .auth-plan-picker-wide .auth-plan-tier-grid,
+  html:not([data-native]) .auth-plan-picker-wide .auth-plan-price-block,
+  html:not([data-native]) .auth-plan-picker-wide .auth-plan-form-block {
+    margin-top: 0.875rem;
+  }
+}
+
 @media (min-width: 640px) {
   .auth-layout-main {
     padding: 2.5rem 1.25rem;
