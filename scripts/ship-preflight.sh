@@ -83,6 +83,30 @@ else
   note "missing scripts/check-production-env.mjs — cannot detect silently-dark features"
 fi
 
+# PRP-273: denied agent proposals are the primary eval set — every one is a case where a
+# person looked at what the assistant wanted to do and said no. Replaying them against the
+# CURRENT prompts and tool schemas catches a change that reintroduces a rejected behaviour.
+#
+# A WARNING, never a failure. It depends on a live third-party service, and a promote must not
+# be blocked because an observability provider is unreachable. The weekly
+# `.github/workflows/agent-regression.yml` run is the one that is meant to be watched; this is
+# here so a promote gets a fresh answer when the credentials happen to be present.
+if [[ -f "scripts/langfuse-run-agent-regression.mjs" ]]; then
+  echo
+  echo "-- agent regression --"
+  if [[ -n "${LANGFUSE_PUBLIC_KEY:-}" && -n "${LANGFUSE_SECRET_KEY:-}" ]]; then
+    if npm run --silent langfuse:run-regression -- --run="preflight-$(date +%Y%m%d-%H%M%S)"; then
+      pass "denied agent proposals replay clean against current prompts and tools"
+    else
+      note "agent regression reported a re-proposed denied action — review before promoting"
+    fi
+  else
+    note "LANGFUSE_PUBLIC_KEY / LANGFUSE_SECRET_KEY unset — agent regression not run"
+  fi
+else
+  note "missing scripts/langfuse-run-agent-regression.mjs"
+fi
+
 echo
 echo "Required before promote (see docs/ship-gate.md):"
 echo "  [ ] security-review + bugbot on branch changes"

@@ -1,0 +1,81 @@
+# Weekly replay of the denied-proposal dataset against the CURRENT prompts and tool schemas
+# (PRP-273). Denied proposals are the primary eval set: every one is a case where a person
+# looked at what the assistant wanted to do and said no.
+#
+# Weekly rather than per-push, and a separate workflow rather than a job in Test, for two
+# reasons. It depends on a live third-party service and repo secrets a fork PR never gets, so
+# putting it on the critical path would block merges on infrastructure rather than on code —
+# the same reasoning that keeps `integration` and `e2e` out of the `check` aggregator. And the
+# dataset grows on its own as people deny more actions, so the interesting signal is drift over
+# time, not the state of one commit.
+name: Agent regression
+
+on:
+  schedule:
+    # Monday morning UTC, so a fresh result is waiting at the start of the week.
+    - cron: "0 7 * * 1"
+  workflow_dispatch:
+    inputs:
+      live:
+        description: "Call the agent loop for real (costs tokens) instead of the schema check"
+        type: boolean
+        default: false
+
+jobs:
+  regression:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+
+      # Without credentials there is nothing to replay against. Skipping loudly beats a green
+      # tick that proves nothing — a regression suite reporting success while it never ran is
+      # worse than no suite, because it is trusted.
+      - name: Check Langfuse credentials
+        id: creds
+        env:
+          LANGFUSE_PUBLIC_KEY: ${{ secrets.LANGFUSE_PUBLIC_KEY }}
+          LANGFUSE_SECRET_KEY: ${{ secrets.LANGFUSE_SECRET_KEY }}
+        run: |
+          if [ -z "$LANGFUSE_PUBLIC_KEY" ] || [ -z "$LANGFUSE_SECRET_KEY" ]; then
+            echo "::warning::LANGFUSE_PUBLIC_KEY / LANGFUSE_SECRET_KEY are not set — the regression suite did not run."
+            echo "configured=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "configured=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Sync denied proposals into the eval dataset
+        if: steps.creds.outputs.configured == 'true'
+        env:
+          LANGFUSE_PUBLIC_KEY: ${{ secrets.LANGFUSE_PUBLIC_KEY }}
+          LANGFUSE_SECRET_KEY: ${{ secrets.LANGFUSE_SECRET_KEY }}
+          LANGFUSE_BASEURL: ${{ secrets.LANGFUSE_BASEURL }}
+        run: npm run langfuse:sync-eval-dataset
+
+      # Schema mode by default: it re-checks that every denied case still has a coherent rubric
+      # against today's tools, and costs nothing. `--live` is opt-in through workflow_dispatch
+      # because it spends tokens.
+      - name: Replay denied proposals
+        if: steps.creds.outputs.configured == 'true'
+        env:
+          LANGFUSE_PUBLIC_KEY: ${{ secrets.LANGFUSE_PUBLIC_KEY }}
+          LANGFUSE_SECRET_KEY: ${{ secrets.LANGFUSE_SECRET_KEY }}
+          LANGFUSE_BASEURL: ${{ secrets.LANGFUSE_BASEURL }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          npm run langfuse:run-regression -- \
+            --run="ci-${GITHUB_RUN_ID}" \
+            ${{ github.event.inputs.live == 'true' && '--live' || '' }}
+
+      - name: Agent health report
+        if: steps.creds.outputs.configured == 'true'
+        env:
+          LANGFUSE_PUBLIC_KEY: ${{ secrets.LANGFUSE_PUBLIC_KEY }}
+          LANGFUSE_SECRET_KEY: ${{ secrets.LANGFUSE_SECRET_KEY }}
+          LANGFUSE_BASEURL: ${{ secrets.LANGFUSE_BASEURL }}
+        run: npm run langfuse:agent-health-report
