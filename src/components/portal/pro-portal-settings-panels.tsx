@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useImperativeHandle, useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { FieldSingleSelect } from "@/components/ui/checkbox-multi-select";
 import { useAppUi } from "@/components/providers/app-ui-provider";
@@ -64,6 +64,25 @@ const TOUR_PREVIEW_CONTEXT = {
 
 const TOUR_PLACEHOLDERS =
   "Placeholders: {guestName}, {propertyTitle}, {tourTime}, {managerName}, {instructions}";
+
+function tourAutomationSnapshot(settings: ManagerAutomationSettings) {
+  const minutesBeforeList = normalizeTourReminderMinutesBeforeList(
+    settings.tourReminderMinutesBeforeList,
+    settings.tourReminderMinutesBefore,
+  );
+  return {
+    proposeTourConfirmations: settings.proposeTourConfirmations,
+    tourReminderMinutesBeforeList: minutesBeforeList,
+    tourReminderDeliverViaEmail: settings.tourReminderDeliverViaEmail,
+    tourReminderDeliverViaSms: settings.tourReminderDeliverViaSms,
+    tourReminderDeliverViaInbox: settings.tourReminderDeliverViaInbox,
+    tourReminder: settings.templates.tourReminder,
+  };
+}
+
+export type TourSettingsHandle = {
+  saveIfDirty: () => Promise<boolean>;
+};
 
 export type ManagerSettingsPanelFooter = {
   saving: boolean;
@@ -400,9 +419,11 @@ export function ResidentSettingsPanel() {
 export function TourSettingsPanel({
   onSaved,
   onFooterReady,
+  formRef,
 }: {
   onSaved?: () => void;
   onFooterReady?: (footer: ManagerSettingsPanelFooter | null) => void;
+  formRef?: React.Ref<TourSettingsHandle>;
 }) {
   const { showToast } = useAppUi();
   const demo = isDemoModeActive();
@@ -410,6 +431,10 @@ export function TourSettingsPanel({
   const [saving, setSaving] = useState(false);
   const [tourSettings, setTourSettings] = useState<ManagerTourSettings>(DEFAULT_MANAGER_TOUR_SETTINGS);
   const [automation, setAutomation] = useState<ManagerAutomationSettings>(DEFAULT_MANAGER_AUTOMATION_SETTINGS);
+  const [savedTourSettings, setSavedTourSettings] = useState<ManagerTourSettings>(DEFAULT_MANAGER_TOUR_SETTINGS);
+  const [savedAutomationSnapshot, setSavedAutomationSnapshot] = useState(() =>
+    tourAutomationSnapshot(DEFAULT_MANAGER_AUTOMATION_SETTINGS),
+  );
   const [messageModalOpen, setMessageModalOpen] = useState(false);
 
   useEffect(() => {
@@ -421,6 +446,8 @@ export function TourSettingsPanel({
           if (!cancelled) {
             setTourSettings(DEFAULT_MANAGER_TOUR_SETTINGS);
             setAutomation(DEFAULT_MANAGER_AUTOMATION_SETTINGS);
+            setSavedTourSettings(DEFAULT_MANAGER_TOUR_SETTINGS);
+            setSavedAutomationSnapshot(tourAutomationSnapshot(DEFAULT_MANAGER_AUTOMATION_SETTINGS));
           }
           return;
         }
@@ -436,8 +463,12 @@ export function TourSettingsPanel({
         if (!tourRes.ok) throw new Error(tourBody.error ?? "Could not load tour settings.");
         if (!autoRes.ok) throw new Error(autoBody.error ?? "Could not load automation settings.");
         if (!cancelled) {
-          setTourSettings(tourBody.settings ?? DEFAULT_MANAGER_TOUR_SETTINGS);
-          setAutomation(autoBody.settings ?? DEFAULT_MANAGER_AUTOMATION_SETTINGS);
+          const nextTour = tourBody.settings ?? DEFAULT_MANAGER_TOUR_SETTINGS;
+          const nextAutomation = autoBody.settings ?? DEFAULT_MANAGER_AUTOMATION_SETTINGS;
+          setTourSettings(nextTour);
+          setAutomation(nextAutomation);
+          setSavedTourSettings(nextTour);
+          setSavedAutomationSnapshot(tourAutomationSnapshot(nextAutomation));
         }
       } catch (e) {
         showToast(e instanceof Error ? e.message : "Could not load calendar settings.");
@@ -455,25 +486,37 @@ export function TourSettingsPanel({
     [automation.templates.tourReminder],
   );
 
-  const save = useCallback(async () => {
+  const isDirty = useMemo(() => {
+    if (loading) return false;
+    return (
+      JSON.stringify(tourSettings) !== JSON.stringify(savedTourSettings) ||
+      JSON.stringify(tourAutomationSnapshot(automation)) !== JSON.stringify(savedAutomationSnapshot)
+    );
+  }, [automation, loading, savedAutomationSnapshot, savedTourSettings, tourSettings]);
+
+  const save = useCallback(async (options?: { silent?: boolean }) => {
     const minutesBeforeList = normalizeTourReminderMinutesBeforeList(
       automation.tourReminderMinutesBeforeList,
       automation.tourReminderMinutesBefore,
     );
     if (minutesBeforeList.length === 0) {
       showToast("Choose at least one tour reminder timing.");
-      return;
+      return false;
     }
-    if (!automation.tourReminderDeliverViaEmail && !automation.tourReminderDeliverViaSms) {
+    if (
+      automation.tourReminderDeliverViaInbox === false &&
+      automation.tourReminderDeliverViaEmail === false &&
+      automation.tourReminderDeliverViaSms !== true
+    ) {
       showToast("Choose at least one channel under Tour reminders → Send via.");
-      return;
+      return false;
     }
     setSaving(true);
     try {
       if (demo) {
-        showToast("Tour settings saved (demo).");
+        if (!options?.silent) showToast("Tour settings saved (demo).");
         onSaved?.();
-        return;
+        return true;
       }
       const [tourRes, autoRes] = await Promise.all([
         fetch("/api/portal/manager-tour-settings", {
@@ -493,38 +536,35 @@ export function TourSettingsPanel({
             tourReminderMinutesBeforeList: minutesBeforeList,
             tourReminderDeliverViaEmail: automation.tourReminderDeliverViaEmail,
             tourReminderDeliverViaSms: automation.tourReminderDeliverViaSms,
+            tourReminderDeliverViaInbox: automation.tourReminderDeliverViaInbox,
             templates: { tourReminder: automation.templates.tourReminder },
           }),
         }),
       ]);
       if (!tourRes.ok || !autoRes.ok) throw new Error("Could not save calendar settings.");
       window.dispatchEvent(new Event(PAYMENT_AUTOMATION_SETTINGS_EVENT));
-      showToast("Tour settings saved.");
+      setSavedTourSettings(tourSettings);
+      setSavedAutomationSnapshot(tourAutomationSnapshot(automation));
+      if (!options?.silent) showToast("Tour settings saved.");
       onSaved?.();
+      return true;
     } catch (e) {
       showToast(e instanceof Error ? e.message : "Could not save tour settings.");
+      return false;
     } finally {
       setSaving(false);
     }
   }, [automation, demo, onSaved, showToast, tourSettings]);
 
-  const triggerSave = useCallback(() => {
-    void save();
-  }, [save]);
+  const saveIfDirty = useCallback(async (): Promise<boolean> => {
+    if (!isDirty) return true;
+    return save({ silent: true });
+  }, [isDirty, save]);
 
-  const footerState = useMemo(
-    (): ManagerSettingsPanelFooter | null =>
-      loading
-        ? null
-        : {
-            saving,
-            onSave: triggerSave,
-            dataAttr: "manager-tour-settings-save",
-          },
-    [loading, saving, triggerSave],
-  );
+  useImperativeHandle(formRef, () => ({ saveIfDirty }), [saveIfDirty]);
 
-  useReportSettingsPanelFooter(onFooterReady, footerState);
+  // Autosaves on close — no explicit Save button in the modal footer.
+  useReportSettingsPanelFooter(onFooterReady, null);
 
   if (loading) return <p className="text-sm text-muted">Loading…</p>;
 
@@ -577,12 +617,15 @@ export function TourSettingsPanel({
             }
           />
           <ReminderSendViaField
+            showProplaneChannel
+            viaInbox={automation.tourReminderDeliverViaInbox !== false}
             viaEmail={automation.tourReminderDeliverViaEmail !== false}
             viaSms={automation.tourReminderDeliverViaSms === true}
             smsLabel="SMS (when guest opted in)"
-            onChange={({ viaEmail, viaSms }) =>
+            onChange={({ viaEmail, viaSms, viaInbox }) =>
               setAutomation((prev) => ({
                 ...prev,
+                tourReminderDeliverViaInbox: viaInbox !== false,
                 tourReminderDeliverViaEmail: viaEmail,
                 tourReminderDeliverViaSms: viaSms,
               }))
@@ -775,7 +818,12 @@ export function CommunicationSettingsPanel({
   const save = useCallback(async () => {
     for (const section of MANAGER_COMMUNICATION_SEND_VIA_SECTIONS) {
       const channels = deliverViaFromManagerSettings(draft, section.kind);
-      if (!channels.viaEmail && !channels.viaSms) {
+      const allowsInbox = section.kind === "payment_reminder" || section.kind === "tour_reminder";
+      const hasChannel =
+        channels.viaEmail ||
+        channels.viaSms ||
+        (allowsInbox && channels.viaInbox !== false);
+      if (!hasChannel) {
         showToast(`Choose at least one channel under ${section.label}.`);
         return;
       }
@@ -804,8 +852,10 @@ export function CommunicationSettingsPanel({
           maintenanceDeliverViaSms: draft.maintenanceDeliverViaSms,
           paymentReminderDeliverViaEmail: draft.paymentReminderDeliverViaEmail,
           paymentReminderDeliverViaSms: draft.paymentReminderDeliverViaSms,
+          paymentReminderDeliverViaInbox: draft.paymentReminderDeliverViaInbox,
           tourReminderDeliverViaEmail: draft.tourReminderDeliverViaEmail,
           tourReminderDeliverViaSms: draft.tourReminderDeliverViaSms,
+          tourReminderDeliverViaInbox: draft.tourReminderDeliverViaInbox,
           inboxAiDraftAutoSend: draft.inboxAiDraftAutoSend,
         }),
       });
@@ -885,6 +935,10 @@ export function CommunicationSettingsPanel({
           dataAttr="communication-send-via-category"
         />
         <ReminderSendViaField
+          showProplaneChannel={
+            activeSendViaSection.kind === "payment_reminder" || activeSendViaSection.kind === "tour_reminder"
+          }
+          viaInbox={deliverViaFromManagerSettings(draft, activeSendViaSection.kind).viaInbox}
           viaEmail={deliverViaFromManagerSettings(draft, activeSendViaSection.kind).viaEmail}
           viaSms={deliverViaFromManagerSettings(draft, activeSendViaSection.kind).viaSms}
           smsLabel={
@@ -894,8 +948,10 @@ export function CommunicationSettingsPanel({
                 ? "SMS (when guest opted in)"
                 : "SMS"
           }
-          onChange={({ viaEmail, viaSms }) =>
-            setDraft((prev) => patchDeliverViaForKind(prev, activeSendViaSection.kind, { viaEmail, viaSms }))
+          onChange={({ viaEmail, viaSms, viaInbox }) =>
+            setDraft((prev) =>
+              patchDeliverViaForKind(prev, activeSendViaSection.kind, { viaEmail, viaSms, viaInbox }),
+            )
           }
           dataAttr={`communication-${activeSendViaSection.id}-send-via`}
         />

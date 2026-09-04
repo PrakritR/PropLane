@@ -49,8 +49,12 @@ export type ManagerAutomationSettings = {
   tourReminderMinutesBeforeList: number[];
   tourReminderDeliverViaEmail: boolean;
   tourReminderDeliverViaSms: boolean;
+  /** Resident portal inbox (PropLane channel). */
+  tourReminderDeliverViaInbox: boolean;
   paymentReminderDeliverViaEmail: boolean;
   paymentReminderDeliverViaSms: boolean;
+  /** Resident portal inbox (PropLane channel). */
+  paymentReminderDeliverViaInbox: boolean;
   /** Default channels for manual inbox compose and thread replies. */
   inboxDefaultDeliverViaEmail: boolean;
   inboxDefaultDeliverViaSms: boolean;
@@ -149,10 +153,12 @@ export const DEFAULT_MANAGER_AUTOMATION_SETTINGS: ManagerAutomationSettings = {
   tourReminderMinutesBeforeList: [DEFAULT_TOUR_REMINDER_MINUTES_BEFORE],
   tourReminderDeliverViaEmail: true,
   tourReminderDeliverViaSms: false,
+  tourReminderDeliverViaInbox: true,
   paymentReminderDeliverViaEmail: true,
   // Payment reminders go out on BOTH channels by default. An email-only rent
   // reminder is the one the resident misses; SMS is the channel they read.
   paymentReminderDeliverViaSms: true,
+  paymentReminderDeliverViaInbox: true,
   inboxDefaultDeliverViaEmail: true,
   inboxDefaultDeliverViaSms: false,
   messagesDeliverViaEmail: true,
@@ -368,8 +374,10 @@ export function normalizeManagerAutomationSettings(raw: unknown): ManagerAutomat
     })(),
     tourReminderDeliverViaEmail: row.tourReminderDeliverViaEmail !== false,
     tourReminderDeliverViaSms: row.tourReminderDeliverViaSms === true,
+    tourReminderDeliverViaInbox: row.tourReminderDeliverViaInbox !== false,
     paymentReminderDeliverViaEmail: row.paymentReminderDeliverViaEmail !== false,
     paymentReminderDeliverViaSms: row.paymentReminderDeliverViaSms === true,
+    paymentReminderDeliverViaInbox: row.paymentReminderDeliverViaInbox !== false,
     inboxDefaultDeliverViaEmail: row.inboxDefaultDeliverViaEmail !== false,
     inboxDefaultDeliverViaSms: row.inboxDefaultDeliverViaSms === true,
     messagesDeliverViaEmail: row.messagesDeliverViaEmail !== false,

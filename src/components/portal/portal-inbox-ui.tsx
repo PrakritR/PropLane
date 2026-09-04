@@ -36,7 +36,6 @@ import {
   PORTAL_MESSAGE_COMPOSE_TWO_COL_CLASS,
   PORTAL_MESSAGE_DEFAULT_FOOTER_NOTE,
   PortalMessageBodyField,
-  PortalMessageComposeModalBody,
   PortalMessageRecipientReadonly,
   PortalMessageScheduleFields,
   PortalMessageSendViaDropdown,
@@ -1767,14 +1766,11 @@ export function ScheduledMessageDetailModal({
       description={description}
       dense
       assistantContext={assistantContext}
-      scrollableContent={false}
       panelClassName={cn(PORTAL_MESSAGE_COMPOSE_MODAL_PANEL_CLASS, "p-3 sm:p-4", panelClassName)}
       dataAttr={dataAttr}
       footer={footer ? <ModalFooter className="w-full justify-end gap-2">{footer}</ModalFooter> : undefined}
     >
-      <div className={PORTAL_MODAL_BODY_SCROLL_CLASS}>
-        {enhanceInboxScheduledCardFooter(children, setFooter)}
-      </div>
+      {enhanceInboxScheduledCardFooter(children, setFooter)}
     </Modal>
   );
 }
@@ -1894,25 +1890,39 @@ export function InboxScheduledCard({
 
   const pinFooterActions = presentation === "compact" || pinActionsInModalFooter;
   const actionBusy = busy || saving;
+  const canSave = Boolean(draftBody.trim() && draftChannelsOk);
+
+  const saveEditRef = useRef(saveEdit);
+  saveEditRef.current = saveEdit;
+
+  useEffect(() => {
+    if (!pinActionsInModalFooter || !onModalFooterChange) return;
+    onModalFooterChange(
+      canCompose ? (
+        <ScheduledMessageComposeFooter
+          busy={actionBusy}
+          canSave={canSave}
+          onSave={() => {
+            saveEditRef.current();
+          }}
+        />
+      ) : null,
+    );
+    return () => onModalFooterChange(null);
+  }, [pinActionsInModalFooter, onModalFooterChange, canCompose, actionBusy, canSave]);
 
   const actionFooter = canCompose
     ? (
         <ScheduledMessageComposeFooter
           busy={actionBusy}
-          canSave={Boolean(draftBody.trim() && draftChannelsOk)}
+          canSave={canSave}
           onSave={saveEdit}
         />
       )
     : null;
 
-  useEffect(() => {
-    if (!pinActionsInModalFooter || !onModalFooterChange) return;
-    onModalFooterChange(actionFooter);
-    return () => onModalFooterChange(null);
-  }, [actionFooter, onModalFooterChange, pinActionsInModalFooter]);
-
   const composeBody = (
-    <PortalMessageComposeModalBody>
+    <div className="space-y-3">
       <PortalMessageRecipientReadonly recipient={recipientDisplay} />
 
       <div className={PORTAL_MESSAGE_COMPOSE_TWO_COL_CLASS}>
@@ -1987,7 +1997,7 @@ export function InboxScheduledCard({
           {saveError}
         </p>
       ) : null}
-    </PortalMessageComposeModalBody>
+    </div>
   );
 
   const detailBody = (
@@ -2034,7 +2044,6 @@ export function InboxScheduledCard({
         title="Schedule message"
         dense
         assistantContext="Scheduled message"
-        scrollableContent={false}
         panelClassName={cn(PORTAL_MESSAGE_COMPOSE_MODAL_PANEL_CLASS, "p-3 sm:p-4")}
         dataAttr="inbox-scheduled-detail-modal"
         footer={
@@ -2043,7 +2052,7 @@ export function InboxScheduledCard({
           ) : undefined
         }
       >
-        <div className={PORTAL_MODAL_BODY_SCROLL_CLASS}>{detailBody}</div>
+        {detailBody}
       </Modal>
     </>
   );

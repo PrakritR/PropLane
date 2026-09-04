@@ -83,6 +83,9 @@ export async function sendScheduledInboxMessageNow(
       toUserIds: message.recipientUserId ? [message.recipientUserId] : [],
       broadcastCategories: message.broadcastCategories,
       eventCategory: "messages",
+      deliverViaEmail: message.deliverViaEmail,
+      deliverViaSms: message.deliverViaSms,
+      suppressInbox: message.deliverViaInbox === false,
     });
     if (!result.ok) return { ok: false, error: result.error };
 

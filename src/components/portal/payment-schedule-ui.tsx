@@ -887,7 +887,11 @@ function PaymentAutomationSettingsForm({
       showToast("Choose at least one reminder before saving.");
       return false;
     }
-    if (!draft.paymentReminderDeliverViaEmail && !draft.paymentReminderDeliverViaSms) {
+    if (
+      draft.paymentReminderDeliverViaInbox === false &&
+      draft.paymentReminderDeliverViaEmail === false &&
+      draft.paymentReminderDeliverViaSms === false
+    ) {
       showToast("Choose at least one channel under Send via.");
       return false;
     }
@@ -956,6 +960,15 @@ function PaymentAutomationSettingsForm({
 
   const compact = layout === "modal" && variant === "payments";
 
+  const templatePreviewSubject = applyReminderTemplate(
+    draft.templates.preDue.subject,
+    REMINDER_TEMPLATE_PREVIEW_PARAMS,
+  );
+  const templatePreviewBody = applyReminderTemplate(
+    draft.templates.preDue.body,
+    REMINDER_TEMPLATE_PREVIEW_PARAMS,
+  );
+
   const selectPreset = (presetId: ReminderPresetId) => {
     if (presetId === "custom") {
       setSelectedPreset("custom");
@@ -974,45 +987,33 @@ function PaymentAutomationSettingsForm({
     said "Custom", describing what the manager had already done rather than
     offering anything. The chips are the control.
   */
-  const paymentsScheduleBlock = (
-    <div className="space-y-3">
-      <UnifiedReminderScheduleSelect draft={draft} busy={busy} onChange={applySchedulePatch} />
-    </div>
-  );
-
-  const templatePreviewSubject = applyReminderTemplate(
-    draft.templates.preDue.subject,
-    REMINDER_TEMPLATE_PREVIEW_PARAMS,
-  );
-  const templatePreviewBody = applyReminderTemplate(
-    draft.templates.preDue.body,
-    REMINDER_TEMPLATE_PREVIEW_PARAMS,
-  );
-
-  const paymentsMessageBlock = compact && variant === "payments" ? (
-    <>
-      <ReminderMessagePreviewCard
-        subject={templatePreviewSubject || "Payment reminder"}
-        body={templatePreviewBody}
-        onUpdate={() => setMessageModalOpen(true)}
-        dataAttr="payment-reminder-update-message"
-      />
-      {/* Both channels by default: a reminder that only emails is the one the
-          resident misses, and SMS is the channel they actually read. */}
-      <ReminderSendViaField
-        viaEmail={draft.paymentReminderDeliverViaEmail !== false}
-        viaSms={draft.paymentReminderDeliverViaSms !== false}
-        onChange={({ viaEmail, viaSms }) =>
-          setDraft((prev) => ({
-            ...prev,
-            paymentReminderDeliverViaEmail: viaEmail,
-            paymentReminderDeliverViaSms: viaSms,
-          }))
-        }
-        dataAttr="payment-reminder-send-via"
-      />
-    </>
-  ) : null;
+  const paymentsReminderSection =
+    compact && variant === "payments" ? (
+      <div className="space-y-3 border-t border-border pt-4">
+        <UnifiedReminderScheduleSelect draft={draft} busy={busy} onChange={applySchedulePatch} />
+        <ReminderSendViaField
+          showProplaneChannel
+          viaInbox={draft.paymentReminderDeliverViaInbox !== false}
+          viaEmail={draft.paymentReminderDeliverViaEmail !== false}
+          viaSms={draft.paymentReminderDeliverViaSms !== false}
+          onChange={({ viaEmail, viaSms, viaInbox }) =>
+            setDraft((prev) => ({
+              ...prev,
+              paymentReminderDeliverViaInbox: viaInbox !== false,
+              paymentReminderDeliverViaEmail: viaEmail,
+              paymentReminderDeliverViaSms: viaSms,
+            }))
+          }
+          dataAttr="payment-reminder-send-via"
+        />
+        <ReminderMessagePreviewCard
+          subject={templatePreviewSubject || "Payment reminder"}
+          body={templatePreviewBody}
+          onUpdate={() => setMessageModalOpen(true)}
+          dataAttr="payment-reminder-update-message"
+        />
+      </div>
+    ) : null;
 
   return (
     <>
@@ -1025,10 +1026,7 @@ function PaymentAutomationSettingsForm({
       ) : null}
 
       {compact ? (
-        <>
-          {paymentsScheduleBlock}
-          {paymentsMessageBlock}
-        </>
+        paymentsReminderSection
       ) : (
         <>
           <ReminderPresetDropdown activePreset={activePreset} busy={busy} onSelect={selectPreset} />

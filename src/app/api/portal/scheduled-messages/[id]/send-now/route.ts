@@ -10,6 +10,7 @@ import {
   loadManagerScheduledMessages,
   parseScheduledMessageListId,
 } from "@/lib/payment-automation-server";
+import { loadManagerAutomationSettings } from "@/lib/payment-automation-settings";
 import { decodeScheduledMessagePathId } from "@/lib/scheduled-message-path-id";
 import { deliverPaymentReminder, reminderHtmlFromText } from "@/lib/payment-reminder-delivery";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
@@ -82,6 +83,7 @@ export async function POST(_req: Request, ctx: { params: Promise<{ id: string }>
     const apiKey = process.env.RESEND_API_KEY?.trim() ?? "";
     const from = process.env.RESEND_FROM?.trim() || "PropLane <onboarding@resend.dev>";
     const todayKey = new Date().toISOString().slice(0, 10);
+    const automationSettings = await loadManagerAutomationSettings(auth.db, auth.userId);
 
     const dedupPlan = paymentReminderDedupPlan({
       kind: message.kind,
@@ -108,6 +110,9 @@ export async function POST(_req: Request, ctx: { params: Promise<{ id: string }>
       text: message.body,
       html: reminderHtmlFromText(message.body),
       slotLabel: message.typeLabel,
+      managerDeliverViaEmail: automationSettings.paymentReminderDeliverViaEmail,
+      managerDeliverViaSms: automationSettings.paymentReminderDeliverViaSms,
+      managerDeliverViaInbox: automationSettings.paymentReminderDeliverViaInbox,
       skipManualPaymentInstructions: chargeIds.length > 1,
     });
 

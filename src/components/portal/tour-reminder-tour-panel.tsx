@@ -153,10 +153,14 @@ export function TourReminderTourPanel({
           <div>
             <p className="text-xs font-bold uppercase tracking-[0.14em] text-muted">Tour reminders</p>
             <p className="mt-1 text-xs text-muted">
+              {primary.deliverViaInbox !== false ? "PropLane" : null}
+              {primary.deliverViaInbox !== false && primary.deliverViaEmail ? " · " : null}
               {primary.deliverViaEmail ? "Email" : null}
               {primary.deliverViaEmail && primary.deliverViaSms ? " · " : null}
               {primary.deliverViaSms ? "SMS" : null}
-              {!primary.deliverViaEmail && !primary.deliverViaSms ? "Inbox only" : null}
+              {primary.deliverViaInbox === false && !primary.deliverViaEmail && !primary.deliverViaSms
+                ? "No channels selected"
+                : null}
             </p>
           </div>
           <Link

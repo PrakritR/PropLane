@@ -22,6 +22,8 @@ export type ScheduledInboxMessageRecord = {
   broadcastCategories?: ("management" | "resident")[];
   deliverViaEmail: boolean;
   deliverViaSms: boolean;
+  /** PropLane portal inbox thread; defaults on when unset. */
+  deliverViaInbox: boolean;
   /** When a resident schedules a message to their manager. */
   senderPortal?: "resident" | "manager";
   senderUserId?: string | null;
@@ -61,6 +63,7 @@ function rowFromDb(row: {
       : undefined,
     deliverViaEmail: data.deliverViaEmail !== false,
     deliverViaSms: data.deliverViaSms === true,
+    deliverViaInbox: data.deliverViaInbox !== false,
     senderPortal:
       data.senderPortal === "resident"
         ? "resident"
@@ -142,7 +145,9 @@ export async function loadDueScheduledInboxMessages(
 
 export async function createScheduledInboxMessage(
   db: SupabaseClient,
-  input: Omit<ScheduledInboxMessageRecord, "createdAt" | "sentAt" | "cancelledAt">,
+  input: Omit<ScheduledInboxMessageRecord, "createdAt" | "sentAt" | "cancelledAt" | "deliverViaInbox"> & {
+    deliverViaInbox?: boolean;
+  },
 ): Promise<ScheduledInboxMessageRecord> {
   const now = new Date().toISOString();
   const rowData = {
@@ -154,6 +159,7 @@ export async function createScheduledInboxMessage(
     broadcastCategories: input.broadcastCategories ?? [],
     deliverViaEmail: input.deliverViaEmail,
     deliverViaSms: input.deliverViaSms,
+    deliverViaInbox: input.deliverViaInbox !== false,
     ...(input.senderPortal ? { senderPortal: input.senderPortal } : {}),
     ...(input.senderUserId ? { senderUserId: input.senderUserId } : {}),
     ...(input.senderName ? { senderName: input.senderName } : {}),
@@ -173,7 +179,13 @@ export async function createScheduledInboxMessage(
     updated_at: now,
   });
   if (error) throw error;
-  return { ...input, createdAt: now, sentAt: null, cancelledAt: null };
+  return {
+    ...input,
+    deliverViaInbox: input.deliverViaInbox !== false,
+    createdAt: now,
+    sentAt: null,
+    cancelledAt: null,
+  };
 }
 
 export const RESIDENT_SCHEDULED_MESSAGE_CONTENT_FORBIDDEN =
@@ -201,7 +213,7 @@ function managerContentPatchAttempted(
   patch: Partial<
     Pick<
       ScheduledInboxMessageRecord,
-      "sendAt" | "status" | "subject" | "body" | "recipientEmail" | "recipientName" | "recipientUserId" | "deliverViaEmail" | "deliverViaSms"
+      "sendAt" | "status" | "subject" | "body" | "recipientEmail" | "recipientName" | "recipientUserId" | "deliverViaEmail" | "deliverViaSms" | "deliverViaInbox"
     >
   > & { sentAt?: string | null; cancelledAt?: string | null },
 ): boolean {
@@ -213,7 +225,8 @@ function managerContentPatchAttempted(
     patch.recipientName != null ||
     patch.recipientUserId !== undefined ||
     patch.deliverViaEmail != null ||
-    patch.deliverViaSms != null
+    patch.deliverViaSms != null ||
+    patch.deliverViaInbox != null
   );
 }
 
@@ -224,7 +237,7 @@ export async function updateScheduledInboxMessage(
   patch: Partial<
     Pick<
       ScheduledInboxMessageRecord,
-      "sendAt" | "status" | "subject" | "body" | "recipientEmail" | "recipientName" | "recipientUserId" | "deliverViaEmail" | "deliverViaSms"
+      "sendAt" | "status" | "subject" | "body" | "recipientEmail" | "recipientName" | "recipientUserId" | "deliverViaEmail" | "deliverViaSms" | "deliverViaInbox"
     >
   > & { sentAt?: string | null; cancelledAt?: string | null; tourReminderMinutesBefore?: number },
 ): Promise<void> {
@@ -249,6 +262,7 @@ export async function updateScheduledInboxMessage(
     ...(patch.recipientUserId !== undefined ? { recipientUserId: patch.recipientUserId } : {}),
     ...(patch.deliverViaEmail != null ? { deliverViaEmail: patch.deliverViaEmail } : {}),
     ...(patch.deliverViaSms != null ? { deliverViaSms: patch.deliverViaSms } : {}),
+    ...(patch.deliverViaInbox != null ? { deliverViaInbox: patch.deliverViaInbox } : {}),
     ...(patch.tourReminderMinutesBefore != null ? { tourReminderMinutesBefore: patch.tourReminderMinutesBefore } : {}),
     ...(patch.sentAt !== undefined ? { sentAt: patch.sentAt } : {}),
     ...(patch.cancelledAt !== undefined ? { cancelledAt: patch.cancelledAt } : {}),

@@ -36,6 +36,23 @@ describe("manager-communication-deliver-via", () => {
     expect(next.messagesDeliverViaSms).toBe(true);
   });
 
+  it("patches payment reminder deliver-via including PropLane inbox", () => {
+    const next = patchDeliverViaForKind(DEFAULT_MANAGER_AUTOMATION_SETTINGS, "payment_reminder", {
+      viaEmail: true,
+      viaSms: false,
+      viaInbox: false,
+    });
+    expect(next.paymentReminderDeliverViaInbox).toBe(false);
+  });
+
+  it("reads payment reminder PropLane inbox default on", () => {
+    expect(deliverViaFromManagerSettings(DEFAULT_MANAGER_AUTOMATION_SETTINGS, "payment_reminder")).toEqual({
+      viaEmail: true,
+      viaSms: true,
+      viaInbox: true,
+    });
+  });
+
   it("maps deliver-via to compose channel selection", () => {
     expect(
       portalMessageSelectionFromDeliverVia({ viaEmail: true, viaSms: true }, true),

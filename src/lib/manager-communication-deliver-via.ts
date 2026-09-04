@@ -1,7 +1,7 @@
 import type { NotificationCategory } from "@/lib/notification-preferences";
 import type { ManagerAutomationSettings } from "@/lib/payment-automation-settings";
 
-export type DeliverViaChannels = { viaEmail: boolean; viaSms: boolean };
+export type DeliverViaChannels = { viaEmail: boolean; viaSms: boolean; viaInbox?: boolean };
 
 export type ManagerDeliverViaKind =
   | "inbox_default"
@@ -24,11 +24,13 @@ export function deliverViaFromManagerSettings(
       return {
         viaEmail: settings.paymentReminderDeliverViaEmail !== false,
         viaSms: settings.paymentReminderDeliverViaSms === true,
+        viaInbox: settings.paymentReminderDeliverViaInbox !== false,
       };
     case "tour_reminder":
       return {
         viaEmail: settings.tourReminderDeliverViaEmail !== false,
         viaSms: settings.tourReminderDeliverViaSms === true,
+        viaInbox: settings.tourReminderDeliverViaInbox !== false,
       };
     case "messages":
       return {
@@ -137,12 +139,14 @@ export function patchDeliverViaForKind(
         ...settings,
         paymentReminderDeliverViaEmail: viaEmail,
         paymentReminderDeliverViaSms: viaSms,
+        paymentReminderDeliverViaInbox: channels.viaInbox !== false,
       };
     case "tour_reminder":
       return {
         ...settings,
         tourReminderDeliverViaEmail: viaEmail,
         tourReminderDeliverViaSms: viaSms,
+        tourReminderDeliverViaInbox: channels.viaInbox !== false,
       };
     default:
       return settings;

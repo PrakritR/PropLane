@@ -8,6 +8,7 @@ import { isDemoModeActive } from "@/lib/demo/demo-session";
 import {
   ApplicationsSettingsPanel,
   TourSettingsPanel,
+  type TourSettingsHandle,
   CommunicationSettingsPanel,
   DEFAULT_APPLICATION_AUTOMATION,
   LeaseSettingsPanel,
@@ -186,15 +187,14 @@ export function ProPortalSettingsModal({
   );
 
   /**
-   * Payments settings autosaves on close, so closing the dialog is what commits
-   * it. Without this the tab has no Save button AND no save.
+   * Payments and Tours settings autosave on close — closing the dialog commits changes.
    */
   const paymentsFormRef = useRef<PaymentAutomationSettingsHandle | null>(null);
+  const toursFormRef = useRef<TourSettingsHandle | null>(null);
   const closeAndSave = useCallback(() => {
-    // Close first: the save is silent and the dialog should not sit open while
-    // the request runs. A failure still raises its own toast.
     onClose();
     void paymentsFormRef.current?.saveIfDirty();
+    void toursFormRef.current?.saveIfDirty();
   }, [onClose]);
 
   const changeAutomation = useCallback(
@@ -263,7 +263,11 @@ export function ProPortalSettingsModal({
 
       {open && tab === "automation" ? <ManagerPortalAutomationSettingsPanel /> : null}
       {open && tab === "tours" ? (
-        <TourSettingsPanel onFooterReady={setPanelFooter} onSaved={onCalendarSettingsSaved} />
+        <TourSettingsPanel
+          onFooterReady={setPanelFooter}
+          onSaved={onCalendarSettingsSaved}
+          formRef={toursFormRef}
+        />
       ) : null}
 
       {tab === "lease" ? (

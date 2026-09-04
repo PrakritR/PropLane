@@ -20,7 +20,9 @@ export const REMINDER_FIELD_LABEL_CLASS = "text-xs font-semibold text-muted";
 export function ReminderSendViaField({
   viaEmail,
   viaSms,
+  viaInbox,
   onChange,
+  showProplaneChannel = false,
   smsAvailable = true,
   smsLabel,
   footerNote,
@@ -28,13 +30,16 @@ export function ReminderSendViaField({
 }: {
   viaEmail: boolean;
   viaSms: boolean;
-  onChange: (next: { viaEmail: boolean; viaSms: boolean }) => void;
+  viaInbox?: boolean;
+  onChange: (next: { viaEmail: boolean; viaSms: boolean; viaInbox?: boolean }) => void;
+  showProplaneChannel?: boolean;
   smsAvailable?: boolean;
   smsLabel?: string;
   footerNote?: string;
   dataAttr?: string;
 }) {
   const options = [
+    ...(showProplaneChannel ? [{ value: "proplane", label: "PropLane" }] : []),
     { value: "email", label: "Email" },
     {
       value: "sms",
@@ -43,17 +48,23 @@ export function ReminderSendViaField({
     },
   ];
   const selected = [
+    ...(showProplaneChannel && viaInbox !== false ? ["proplane"] : []),
     ...(viaEmail ? ["email"] : []),
     ...(viaSms ? ["sms"] : []),
   ];
-  const effectiveSelected =
-    selected.length > 0 ? selected : viaEmail || !smsAvailable ? ["email"] : ["sms"];
+  const fallback = showProplaneChannel
+    ? ["proplane", "email"]
+    : viaEmail || !smsAvailable
+      ? ["email"]
+      : ["sms"];
+  const effectiveSelected = selected.length > 0 ? selected : fallback;
+
+  const labels: string[] = [];
+  if (effectiveSelected.includes("proplane")) labels.push("PropLane");
+  if (effectiveSelected.includes("email")) labels.push("Email");
+  if (effectiveSelected.includes("sms")) labels.push("SMS");
   const selectionTriggerLabel =
-    effectiveSelected.includes("email") && effectiveSelected.includes("sms")
-      ? "Email & SMS"
-      : effectiveSelected.includes("sms")
-        ? "SMS"
-        : "Email";
+    labels.length > 1 ? labels.join(" & ") : labels[0] ?? "Email";
 
   return (
     <div>
@@ -67,6 +78,7 @@ export function ReminderSendViaField({
           const enabled = next.filter((value) => value !== "sms" || smsAvailable);
           if (enabled.length === 0) return;
           onChange({
+            viaInbox: showProplaneChannel ? enabled.includes("proplane") : viaInbox,
             viaEmail: enabled.includes("email"),
             viaSms: enabled.includes("sms"),
           });

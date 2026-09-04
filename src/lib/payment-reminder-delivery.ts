@@ -32,6 +32,7 @@ export async function deliverPaymentReminder(input: {
   /** Manager-level channel gates from reminder settings. */
   managerDeliverViaEmail?: boolean;
   managerDeliverViaSms?: boolean;
+  managerDeliverViaInbox?: boolean;
   /** Combined reminders already include portal pay copy — skip per-charge Zelle/Venmo blocks. */
   skipManualPaymentInstructions?: boolean;
   /** Extra dedup rows to record when one send covers several charges. */
@@ -67,8 +68,10 @@ export async function deliverPaymentReminder(input: {
 
   const managerDeliverViaEmail = input.managerDeliverViaEmail !== false;
   const managerDeliverViaSms = input.managerDeliverViaSms === true;
+  const managerDeliverViaInbox = input.managerDeliverViaInbox !== false;
   const emailAllowed = managerDeliverViaEmail && channels.email;
   const smsAllowed = managerDeliverViaSms && channels.sms;
+  const inboxAllowed = managerDeliverViaInbox && channels.inbox;
 
   let emailSent = false;
   if (apiKey && emailAllowed) {
@@ -92,21 +95,23 @@ export async function deliverPaymentReminder(input: {
   const managerEmail = from.match(/<([^>]+)>/)?.[1] ?? from;
 
   try {
-    await deliverPortalMessageThreadSide(db, {
-      scope: "axis_portal_inbox_resident_v1",
-      folder: "inbox",
-      ownerUserId: residentUserId,
-      participantEmail: residentLower,
-      otherPartyEmail: managerEmail.trim().toLowerCase(),
-      fallbackId: `payment_auto_reminder_inbox_${ts}_${rand}`,
-      fromName: managerName,
-      subject,
-      body: text,
-      preview,
-      when,
-      unread: true,
-      outbound: false,
-    });
+    if (inboxAllowed) {
+      await deliverPortalMessageThreadSide(db, {
+        scope: "axis_portal_inbox_resident_v1",
+        folder: "inbox",
+        ownerUserId: residentUserId,
+        participantEmail: residentLower,
+        otherPartyEmail: managerEmail.trim().toLowerCase(),
+        fallbackId: `payment_auto_reminder_inbox_${ts}_${rand}`,
+        fromName: managerName,
+        subject,
+        body: text,
+        preview,
+        when,
+        unread: true,
+        outbound: false,
+      });
+    }
   } catch {
     /* non-critical */
   }
@@ -227,7 +232,7 @@ export async function deliverPaymentReminder(input: {
   }
 
   try {
-    if (residentUserId) {
+    if (residentUserId && inboxAllowed) {
       const pushBody = text.replace(/\s+/g, " ").trim().slice(0, 180);
       await sendPushToUser(residentUserId, {
         title: subject,
@@ -240,12 +245,14 @@ export async function deliverPaymentReminder(input: {
     /* non-critical — no-ops when FCM is not configured */
   }
 
+  const inboxDelivered = inboxAllowed && Boolean(residentUserId);
+
   // An account-less resident (no profile row) can't see the portal inbox — if
   // the email failed and no SMS went out, nothing actually reached them. Drop
   // every dedup row this send wrote (a bundle records one per charge, and the
   // cron skips the whole bundle if ANY of them survives) so the next run
   // retries instead of recording a phantom send.
-  if (!emailSent && !smsDelivered && !residentUserId) {
+  if (!emailSent && !smsDelivered && !inboxDelivered) {
     try {
       await db
         .from("portal_outbound_mail_records")
@@ -257,7 +264,10 @@ export async function deliverPaymentReminder(input: {
     } catch {
       /* keep the row — a duplicate reminder beats silently never retrying */
     }
-    return { sent: false, error: "email_failed_no_other_channel" };
+    return {
+      sent: false,
+      error: residentUserId ? "no_channel_delivered" : "email_failed_no_other_channel",
+    };
   }
 
   return { sent: true };

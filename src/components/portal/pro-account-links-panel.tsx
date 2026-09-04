@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { BulkActionBar } from "@/components/ui/bulk-action-bar";
 import { Button } from "@/components/ui/button";
+import { CheckboxMultiSelect } from "@/components/ui/checkbox-multi-select";
 import { DataList } from "@/components/ui/data-list";
 import { Modal } from "@/components/ui/modal";
 import { PortalActiveFilterChips } from "@/components/portal/portal-filter-chips";
@@ -255,6 +256,11 @@ const CO_MANAGER_PERMISSION_PRESETS: { label: string; preset: CoManagerBulkPrese
   { label: "All full access", preset: "full" },
 ];
 
+const CO_MANAGER_READ_WRITE_PRESETS: { label: string; preset: CoManagerBulkPreset }[] = [
+  { label: "All read-only", preset: "read" },
+  { label: "All write", preset: "edit" },
+];
+
 const permissionToggleActive =
   "border-primary bg-primary/10 text-foreground shadow-sm";
 const permissionToggleInactive =
@@ -292,14 +298,21 @@ function CoManagerPermissionsEditor({
   value,
   onChange,
   disabled,
+  variant = "readWrite",
 }: {
   value: CoManagerPermissions;
   onChange: (next: CoManagerPermissions) => void;
   disabled?: boolean;
+  /** Property permissions expose read + write only; transfer flows may use full. */
+  variant?: "readWrite" | "full";
 }) {
+  const presets = variant === "full" ? CO_MANAGER_PERMISSION_PRESETS : CO_MANAGER_READ_WRITE_PRESETS;
+
   const setLevels = (id: CoManagerPermissionId, levels: GrantLevels) => {
     const next = { ...value };
-    const grant = levelsToGrant(levels);
+    const normalized: GrantLevels =
+      variant === "readWrite" ? { read: levels.read, edit: levels.edit } : levels;
+    const grant = levelsToGrant(normalized);
     if (grant === undefined) delete next[id];
     else next[id] = grant;
     onChange(next);
@@ -310,7 +323,7 @@ function CoManagerPermissionsEditor({
   return (
     <div className="space-y-3">
       <div className="flex flex-wrap gap-1.5">
-        {CO_MANAGER_PERMISSION_PRESETS.map((preset) => (
+        {presets.map((preset) => (
           <button
             key={preset.label}
             type="button"
@@ -325,7 +338,7 @@ function CoManagerPermissionsEditor({
       </div>
       {isEmpty ? (
         <p className="rounded-lg border border-dashed border-border bg-accent/20 px-3 py-2 text-xs text-muted">
-          No access. Turn on Read, Write, or Delete for each module below, or use a preset above.
+          No access. Turn on Read or Write for each module below, or use a preset above.
         </p>
       ) : null}
       <div className="space-y-2">
@@ -349,8 +362,8 @@ function CoManagerPermissionsEditor({
                     setLevels(
                       id,
                       levels.read
-                        ? { edit: levels.edit, delete: levels.delete }
-                        : { read: true, edit: levels.edit, delete: levels.delete },
+                        ? { edit: levels.edit, delete: variant === "full" ? levels.delete : undefined }
+                        : { read: true, edit: levels.edit, delete: variant === "full" ? levels.delete : undefined },
                     )
                   }
                 />
@@ -363,32 +376,36 @@ function CoManagerPermissionsEditor({
                     setLevels(
                       id,
                       levels.edit
-                        ? { read: levels.read || levels.delete, delete: levels.delete }
-                        : { read: true, edit: true, delete: levels.delete },
+                        ? { read: levels.read || (variant === "full" ? levels.delete : false) }
+                        : { read: true, edit: true },
                     )
                   }
                 />
-                <PermissionLevelToggle
-                  label="Remove"
-                  active={!levels.read && !levels.edit && !levels.delete}
-                  disabled={disabled}
-                  dataAttr={`co-manager-${id}-remove`}
-                  onToggle={() => setLevels(id, {})}
-                />
-                <PermissionLevelToggle
-                  label="Delete"
-                  active={Boolean(levels.delete)}
-                  disabled={disabled}
-                  dataAttr={`co-manager-${id}-delete`}
-                  onToggle={() =>
-                    setLevels(
-                      id,
-                      levels.delete
-                        ? { read: levels.read || levels.edit, edit: levels.edit }
-                        : { read: true, delete: true, edit: levels.edit },
-                    )
-                  }
-                />
+                {variant === "full" ? (
+                  <>
+                    <PermissionLevelToggle
+                      label="Remove"
+                      active={!levels.read && !levels.edit && !levels.delete}
+                      disabled={disabled}
+                      dataAttr={`co-manager-${id}-remove`}
+                      onToggle={() => setLevels(id, {})}
+                    />
+                    <PermissionLevelToggle
+                      label="Delete"
+                      active={Boolean(levels.delete)}
+                      disabled={disabled}
+                      dataAttr={`co-manager-${id}-delete`}
+                      onToggle={() =>
+                        setLevels(
+                          id,
+                          levels.delete
+                            ? { read: levels.read || levels.edit, edit: levels.edit }
+                            : { read: true, delete: true, edit: levels.edit },
+                        )
+                      }
+                    />
+                  </>
+                ) : null}
               </div>
             </div>
           );
@@ -981,21 +998,32 @@ export function ProAccountLinksPanel({ userId, linkId: linkIdProp }: { userId: s
     resetLinkDraft();
   };
 
-  const toggleProp = (id: string) => {
-    setSelectedProps((s) => {
-      const next = { ...s, [id]: !s[id] };
-      if (next[id]) {
-        setPropertyPermissionsDraft((perms) => ({
-          // Seed an EXPLICIT read-only grant, never `{}`. An empty map is now
-          // no access at all, so seeding one would silently assign a property
-          // the co-manager cannot open; seeding full access is the fail-open
-          // default this replaced. Read-only is the least grant that still
-          // makes the property useful, and the summary below states it.
-          ...perms,
-          [id]: perms[id] ?? buildAllModulesGrant("read"),
-        }));
-      }
+  const linkInvitePropertySelectOptions = useMemo(
+    () =>
+      propertyOptions.map((p) => ({
+        value: p.id,
+        label: p.label,
+        disabled: Boolean(p.notYetSynced),
+      })),
+    [propertyOptions],
+  );
+
+  const handleLinkPropertySelectionChange = (nextIds: string[]) => {
+    const nextSet = new Set(nextIds);
+    setSelectedProps(() => {
+      const next: Record<string, boolean> = {};
+      for (const id of nextIds) next[id] = true;
       return next;
+    });
+    setPropertyPermissionsDraft((perms) => {
+      const updated = { ...perms };
+      for (const id of nextIds) {
+        if (!updated[id]) updated[id] = buildAllModulesGrant("read");
+      }
+      for (const id of Object.keys(updated)) {
+        if (!nextSet.has(id)) delete updated[id];
+      }
+      return updated;
     });
   };
 
@@ -2180,6 +2208,24 @@ export function ProAccountLinksPanel({ userId, linkId: linkIdProp }: { userId: s
           title={draftAxisId ? "Assign properties & permissions" : "Link account"}
           onClose={closeLinkModal}
           panelClassName={draftAxisId ? "max-w-2xl" : undefined}
+          footer={
+            draftAxisId ? (
+              <div className="flex w-full items-center justify-between gap-2">
+                <Button type="button" variant="outline" className="rounded-full" onClick={backToLookup}>
+                  Back
+                </Button>
+                <Button
+                  type="button"
+                  variant="primary"
+                  className="rounded-full"
+                  disabled={linkAccountBlocked}
+                  onClick={() => saveNewLink()}
+                >
+                  {useRemote ? "Send invite" : "Save link (local)"}
+                </Button>
+              </div>
+            ) : undefined
+          }
         >
           <div className="mb-4 flex flex-wrap items-center gap-2 border-b border-border pb-4 text-xs text-muted">
             <span className={draftAxisId ? "" : "font-semibold text-foreground"}>1. Find account</span>
@@ -2242,38 +2288,20 @@ export function ProAccountLinksPanel({ userId, linkId: linkIdProp }: { userId: s
               ) : null}
 
               <div>
-                <p className="text-xs font-semibold uppercase tracking-wide text-muted">Assigned properties</p>
-                <ul className="mt-3 max-h-56 space-y-2 overflow-y-auto rounded-xl border border-border bg-accent/30 p-3">
-                  {propertyOptions.length === 0 ? (
-                    <li className="text-sm text-muted">No properties yet. Add listings under Properties first.</li>
-                  ) : (
-                    propertyOptions.map((p) => (
-                      <li key={p.id}>
-                        <label
-                          className={`flex items-start gap-3 rounded-lg px-2 py-2 ${
-                            p.notYetSynced ? "cursor-not-allowed opacity-60" : "cursor-pointer hover:bg-accent/30"
-                          }`}
-                        >
-                          <input
-                            type="checkbox"
-                            checked={Boolean(selectedProps[p.id])}
-                            onChange={() => toggleProp(p.id)}
-                            disabled={p.notYetSynced}
-                            className="mt-1 h-4 w-4 rounded border-border text-primary"
-                          />
-                          <span className="text-sm text-foreground">
-                            {p.label}
-                            {p.notYetSynced ? (
-                              <span className="mt-0.5 block text-xs text-muted">
-                                Still saving — you can assign this once it finishes.
-                              </span>
-                            ) : null}
-                          </span>
-                        </label>
-                      </li>
-                    ))
-                  )}
-                </ul>
+                {propertyOptions.length === 0 ? (
+                  <p className="text-sm text-muted">No properties yet. Add listings under Properties first.</p>
+                ) : (
+                  <CheckboxMultiSelect
+                    label="Assigned properties"
+                    labelClassName="text-xs font-semibold uppercase tracking-wide text-muted"
+                    options={linkInvitePropertySelectOptions}
+                    selected={selectedPropIds}
+                    onChange={handleLinkPropertySelectionChange}
+                    emptyLabel="Select properties…"
+                    searchPlaceholder="Search properties…"
+                    dataAttr="co-manager-invite-properties"
+                  />
+                )}
               </div>
 
               {selectedPropIds.length > 0 ? (
@@ -2294,47 +2322,6 @@ export function ProAccountLinksPanel({ userId, linkId: linkIdProp }: { userId: s
                   ))}
                 </div>
               ) : null}
-
-              {selectedPropIds.length > 0 ? (
-                /* State the effective grant in words before the invite goes out — a
-                   co-manager is a real third party, and a checkbox grid is not a
-                   statement of what they can do to leases, finances and documents. */
-                <div
-                  className="rounded-xl border border-border bg-card p-4"
-                  data-attr="co-manager-invite-grant-summary"
-                >
-                  <p className="text-xs font-semibold uppercase tracking-wide text-muted">
-                    What they will be able to do
-                  </p>
-                  <ul className="mt-2 space-y-1.5">
-                    {selectedPropIds.map((pid) => (
-                      <li key={pid} className="text-sm text-foreground">
-                        <span className="font-semibold">{teamPropertyLabel(pid)}</span>{" "}
-                        <span className="text-muted">
-                          {describeCoManagerPermissions(
-                            normalizeCoManagerPermissions(propertyPermissionsDraft[pid]),
-                          )}
-                        </span>
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              ) : null}
-
-              <div className="flex justify-start gap-2">
-                <Button type="button" variant="outline" className="rounded-full" onClick={backToLookup}>
-                  Back
-                </Button>
-                <Button
-                  type="button"
-                  variant="primary"
-                  className="rounded-full"
-                  disabled={linkAccountBlocked}
-                  onClick={() => saveNewLink()}
-                >
-                  {useRemote ? "Send invite" : "Save link (local)"}
-                </Button>
-              </div>
             </div>
           )}
         </Modal>
@@ -2433,7 +2420,7 @@ export function ProAccountLinksPanel({ userId, linkId: linkIdProp }: { userId: s
               <div className="mt-4">
                 <p className="text-xs font-semibold uppercase tracking-wide text-muted">Your team permissions</p>
                 <div className="mt-2">
-                  <CoManagerPermissionsEditor value={transferPermissions} onChange={setTransferPermissions} />
+                  <CoManagerPermissionsEditor value={transferPermissions} onChange={setTransferPermissions} variant="readWrite" />
                 </div>
               </div>
 

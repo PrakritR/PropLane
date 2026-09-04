@@ -24,11 +24,11 @@ describe("scheduled message modal layout", () => {
 
   it("renders scheduled message detail with the shared compose field layout", () => {
     const inboxUi = portalSource("portal-inbox-ui.tsx");
-    expect(inboxUi).toContain("PortalMessageComposeModalBody");
     expect(inboxUi).toContain("PortalMessageRecipientReadonly");
     expect(inboxUi).toContain("PortalMessageScheduleFields");
     expect(inboxUi).toContain("inbox-scheduled-schedule-later");
     expect(inboxUi).toContain("PORTAL_MESSAGE_COMPOSE_MODAL_PANEL_CLASS");
+    expect(inboxUi).toContain('dataAttr="inbox-scheduled-detail-modal"');
   });
 
   it("uses the responsive modal for admin schedule creation and editing", () => {

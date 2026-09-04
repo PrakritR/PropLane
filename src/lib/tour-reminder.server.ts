@@ -45,6 +45,7 @@ function parseTourReminderRow(row: TourReminderDbRow): ScheduledInboxMessageReco
     recipientUserId: typeof data.recipientUserId === "string" ? data.recipientUserId : null,
     deliverViaEmail: data.deliverViaEmail !== false,
     deliverViaSms: data.deliverViaSms === true,
+    deliverViaInbox: data.deliverViaInbox !== false,
     messageKind: TOUR_REMINDER_MESSAGE_KIND,
     tourPlannedEventId: typeof data.tourPlannedEventId === "string" ? data.tourPlannedEventId : undefined,
     tourStartIso: typeof data.tourStartIso === "string" ? data.tourStartIso : undefined,
@@ -181,6 +182,7 @@ export type UpsertTourReminderInput = {
   sendAt?: string;
   deliverViaEmail?: boolean;
   deliverViaSms?: boolean;
+  deliverViaInbox?: boolean;
   minutesBeforeList?: number[];
 };
 
@@ -222,6 +224,7 @@ export async function upsertTourReminderForPlannedEvent(
   const { subject, body } = buildTourReminderContent(input, settings);
   const deliverViaEmail = input.deliverViaEmail ?? settings.tourReminderDeliverViaEmail !== false;
   const deliverViaSms = input.deliverViaSms ?? settings.tourReminderDeliverViaSms === true;
+  const deliverViaInbox = input.deliverViaInbox ?? settings.tourReminderDeliverViaInbox !== false;
 
   const existing = await listTourRemindersForPlannedEvent(db, input.managerUserId, input.plannedEventId);
   const keyedRows = new Map(
@@ -255,6 +258,7 @@ export async function upsertTourReminderForPlannedEvent(
         recipientName: input.recipientName.trim() || email,
         deliverViaEmail,
         deliverViaSms,
+        deliverViaInbox,
         tourReminderMinutesBefore: minutesBefore,
       });
       keptIds.add(prior.id);
@@ -273,6 +277,7 @@ export async function upsertTourReminderForPlannedEvent(
       recipientName: input.recipientName.trim() || email,
       deliverViaEmail,
       deliverViaSms,
+      deliverViaInbox,
       messageKind: TOUR_REMINDER_MESSAGE_KIND,
       tourPlannedEventId: input.plannedEventId,
       tourStartIso: input.tourStartIso,

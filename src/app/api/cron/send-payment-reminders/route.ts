@@ -244,6 +244,7 @@ export async function GET(req: Request) {
         slotLabel: message.typeLabel,
         managerDeliverViaEmail: settings.paymentReminderDeliverViaEmail,
         managerDeliverViaSms: settings.paymentReminderDeliverViaSms,
+        managerDeliverViaInbox: settings.paymentReminderDeliverViaInbox,
         skipManualPaymentInstructions: chargeIds.length > 1,
       });
       if (result.error) errors.push(result.error);
@@ -344,6 +345,7 @@ export async function GET(req: Request) {
                 eventCategory: "payments",
                 managerDeliverViaEmail: settings.paymentReminderDeliverViaEmail,
                 managerDeliverViaSms: settings.paymentReminderDeliverViaSms,
+                managerDeliverViaInbox: settings.paymentReminderDeliverViaInbox,
               });
               if (result.error) errors.push(result.error);
               if (result.sent) noteResidentEmailed(charge.residentEmail);
