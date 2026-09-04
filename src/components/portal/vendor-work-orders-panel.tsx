@@ -8,25 +8,20 @@ import { Input } from "@/components/ui/input";
 import {
   ManagerPortalPageShell,
   ManagerPortalStatusPills,
-  MANAGER_TABLE_TH,
+
   PORTAL_TOOLBAR_GROUP,
   PORTAL_TOOLBAR_PILL_BUTTON,
   PORTAL_TOOLBAR_PILL_BUTTON_ACTIVE,
 } from "@/components/portal/portal-metrics";
-import { PORTAL_DATA_TABLE, PortalDataTableColGroup, portalTableColumnPercents, PORTAL_DATA_TABLE_WRAP,
-  PORTAL_DATA_TABLE_SCROLL,
-  PORTAL_TABLE_HEAD_ROW,
-  PORTAL_TABLE_TR_EXPANDABLE,
-  PORTAL_TABLE_TD,
-  PORTAL_TABLE_DETAIL_ROW,
-  PORTAL_TABLE_DETAIL_CELL,
-  PORTAL_MOBILE_CARD_CLASS,
+import {
   PORTAL_DETAIL_BTN,
-  PortalTableDetailActions,
-  PortalTableInlineExpand,
   PortalDataTableEmpty,
-  createPortalRowExpandClick,} from "@/components/portal/portal-data-table";
-import { WorkOrderStatusBadge } from "@/components/portal/resident-services-panel";
+  PortalTableDetailActions,
+} from "@/components/portal/portal-data-table";
+import { PortalRecordListSurface } from "@/components/portal/portal-record-list-surface";
+import { PortalServiceRecordRow } from "@/components/portal/portal-record-row";
+import { PORTAL_BULK_BAR_BTN } from "@/lib/portal-bulk-bar";
+
 import { readVendorWorkOrderRows, syncManagerWorkOrdersFromServer, MANAGER_WORK_ORDERS_EVENT, updateManagerWorkOrder } from "@/lib/manager-work-orders-storage";
 import { isDemoModeActive } from "@/lib/demo/demo-session";
 import { parseMoneyAmount } from "@/lib/household-charges";
@@ -92,6 +87,7 @@ export function VendorWorkOrdersPanel() {
   const [bidsByWorkOrderId, setBidsByWorkOrderId] = useState<Record<string, WorkOrderBid>>({});
   const [payoutsByWorkOrderId, setPayoutsByWorkOrderId] = useState<Record<string, VendorPayout>>({});
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
   const [draftById, setDraftById] = useState<Record<string, BidDraft>>({});
   const [submittingId, setSubmittingId] = useState<string | null>(null);
   const [savingPriceId, setSavingPriceId] = useState<string | null>(null);
@@ -359,6 +355,33 @@ export function VendorWorkOrdersPanel() {
       setSavingPriceId(null);
     }
   };
+
+  /**
+   * A job can be handed back to the manager in bulk only while it is scheduled
+   * and no automation has already moved it — the same condition the row's own
+   * "Mark done" button uses, read from one place so the dock and the row can
+   * never disagree about what is actionable.
+   */
+  const canBulkMarkDone = (row: DemoManagerWorkOrderRow) =>
+    row.bucket === "scheduled" && !row.automationStatus;
+
+  /** Selection only ever holds rows the dock can act on. */
+  const selectedDoneable = visible.filter((row) => selectedIds.has(row.id) && canBulkMarkDone(row));
+
+  const markSelectedDone = async () => {
+    for (const row of selectedDoneable) {
+      await markDone(row);
+    }
+    setSelectedIds(new Set());
+  };
+
+  const toggleSelected = (id: string) =>
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
 
   const markDone = async (row: DemoManagerWorkOrderRow) => {
     setMarkingDoneId(row.id);
@@ -740,98 +763,54 @@ export function VendorWorkOrdersPanel() {
           Couldn&apos;t refresh the latest bidding/payout status. This may be out of date. Retrying automatically.
         </p>
       ) : null}
-      {visible.length === 0 ? (
-        <PortalDataTableEmpty message={emptyMessage} icon="work-order" />
-      ) : (
-        <div>
-          <div className="space-y-2 lg:hidden">
-            {visible.map((row) => {
-              const isExpanded = expandedId === row.id;
-              const phaseLabel = vendorWorkOrderPhaseLabel(row, bidsByWorkOrderId[row.id]);
-              return (
-                <div key={`wo-mobile-${row.id}`} className={PORTAL_MOBILE_CARD_CLASS}>
-                  <button
-                    type="button"
-                    className="flex w-full gap-2 text-left"
-                    onClick={() => (isExpanded ? setExpandedId(null) : openExpand(row))}
-                    aria-expanded={isExpanded}
-                  >
-                    <div className="min-w-0 flex-1">
-                      <PortalTableInlineExpand expanded={isExpanded} className="font-semibold text-foreground">
-                        <span className="truncate">{row.title}</span>
-                      </PortalTableInlineExpand>
-                      <p className="mt-0.5 truncate text-xs text-muted">{propertyLabel(row)}</p>
-                      <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
-                        <WorkOrderStatusBadge bucket={row.bucket} />
-                      </div>
-                      {/* Same reason as the desktop table: the bucket badge is the
-                          manager-side state, so a job this vendor already quoted reads
-                          identically to an untouched one. This branch is what the
-                          Capacitor iOS app renders, so the label has to be here too. */}
-                      {phaseLabel ? <p className="mt-1 text-xs text-muted">{phaseLabel}</p> : null}
-                    </div>
-                  </button>
-                  {isExpanded ? <div className="mt-3 border-t border-border pt-3">{renderRowDetail(row)}</div> : null}
-                </div>
-              );
-            })}
-          </div>
-          <div className={`${PORTAL_DATA_TABLE_WRAP} hidden lg:block`}>
-            <div className={PORTAL_DATA_TABLE_SCROLL}>
-              <table className={PORTAL_DATA_TABLE}>
-                <PortalDataTableColGroup percents={portalTableColumnPercents(4)} />
-                <thead>
-                  <tr className={PORTAL_TABLE_HEAD_ROW}>
-                    <th className={MANAGER_TABLE_TH}>Service</th>
-                    <th className={MANAGER_TABLE_TH}>Property</th>
-                    <th className={MANAGER_TABLE_TH}>Scheduled visit</th>
-                    <th className={MANAGER_TABLE_TH}>Status</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {visible.map((row) => {
-                    const isExpanded = expandedId === row.id;
-                    const phaseLabel = vendorWorkOrderPhaseLabel(row, bidsByWorkOrderId[row.id]);
-                    return (
-                      <Fragment key={row.id}>
-                        <tr
-                          id={`portal-work-order-${row.id}`}
-                          className={PORTAL_TABLE_TR_EXPANDABLE}
-                          onClick={createPortalRowExpandClick(() => (isExpanded ? setExpandedId(null) : openExpand(row)))}
-                          aria-expanded={isExpanded}
-                        >
-                          <td className={PORTAL_TABLE_TD}>
-                            <PortalTableInlineExpand expanded={isExpanded} className="font-medium text-foreground">
-                              {row.title}
-                            </PortalTableInlineExpand>
-                            {row.description ? <p className="mt-0.5 line-clamp-2 text-xs text-muted">{row.description}</p> : null}
-                          </td>
-                          <td className={PORTAL_TABLE_TD}>{propertyLabel(row)}</td>
-                          <td className={PORTAL_TABLE_TD}>{row.scheduled || "Not yet scheduled"}</td>
-                          <td className={PORTAL_TABLE_TD}>
-                            <WorkOrderStatusBadge bucket={row.bucket} />
-                            {/* The bucket badge is the manager-side state, so a job this
-                                vendor has already quoted looks identical to one they
-                                haven't. Surface the vendor's own next step too. */}
-                            {phaseLabel ? <p className="mt-0.5 text-xs text-muted">{phaseLabel}</p> : null}
-                          </td>
-                        </tr>
-                        {isExpanded ? (
-                          <tr className={PORTAL_TABLE_DETAIL_ROW}>
-                            <td colSpan={4} className={PORTAL_TABLE_DETAIL_CELL}>
-                              {renderRowDetail(row)}
-                            </td>
-                          </tr>
-                        ) : null}
-                      </Fragment>
-                    );
-                  })}
-                </tbody>
-              </table>
+      <PortalRecordListSurface
+        isEmpty={visible.length === 0}
+        empty={<PortalDataTableEmpty message={emptyMessage} icon="work-order" />}
+        bulkCount={selectedDoneable.length}
+        bulkActions={
+          selectedDoneable.length > 0 ? (
+            <div className="flex min-w-0 flex-wrap items-center justify-start gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                className={PORTAL_BULK_BAR_BTN}
+                disabled={Boolean(markingDoneId)}
+                data-attr="vendor-wo-bulk-mark-done"
+                onClick={() => void markSelectedDone()}
+              >
+                Mark done
+              </Button>
             </div>
-          </div>
-        </div>
-      )}
+          ) : null
+        }
+        dataAttr="vendor-services-list"
+      >
+        {visible.map((row) => {
+          const isExpanded = expandedId === row.id;
+          const phaseLabel = vendorWorkOrderPhaseLabel(row, bidsByWorkOrderId[row.id]);
+          return (
+            <div key={row.id} id={`portal-work-order-${row.id}`}>
+              <PortalServiceRecordRow
+                title={row.title}
+                subtitle={[propertyLabel(row), row.scheduled || "Not yet scheduled", phaseLabel]
+                  .filter(Boolean)
+                  .join(" · ")}
+                selected={isExpanded}
+                checked={selectedIds.has(row.id)}
+                // Only a scheduled job can be marked done in bulk, so only those
+                // rows offer a checkbox. A checkbox that selects a row nothing
+                // can act on is a promise the dock cannot keep.
+                onSelectedChange={canBulkMarkDone(row) ? () => toggleSelected(row.id) : undefined}
+                onOpen={() => (isExpanded ? setExpandedId(null) : openExpand(row))}
+                dataAttr="vendor-service-row"
+              />
+              {isExpanded ? (
+                <div className="border-b border-border/50 bg-accent/10 px-4 py-4">{renderRowDetail(row)}</div>
+              ) : null}
+            </div>
+          );
+        })}
+      </PortalRecordListSurface>
     </ManagerPortalPageShell>
   );
 }
