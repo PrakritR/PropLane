@@ -30,6 +30,19 @@
 | 4 | Signed-in create-account pricing UI (no bordered callout) | PRP-171 note | — | **Verified fixed** on :3000 |
 | 5 | PRP-184 admin comm flat-tab redirect | [PRP-184](https://linear.app/axishousing/issue/PRP-184) | — | **Verified fixed** |
 
+## Cursor 1 log (resident + full portal QA 2026-09-04)
+
+**Session:** `/goal` rigorous QA — manager, resident, vendor on **3010**.
+
+| # | Issue | PRP | Status |
+| --- | --- | --- | --- |
+| 1 | Applications pending — no empty state | _pending API key_ | Batch script ready |
+| 2 | Vendor calendar 403 | _pending API key_ | Batch script ready |
+| 3 | Manager Listed tab empty (seed?) | _pending API key_ | Verify after `test:seed` |
+| 4 | Listings fee gating A1–A3 + wizard B1–B2 | _pending API key_ | `linear-file-cursor1-sep3-batch.sh` |
+
+**Manifest:** `docs/linear/manifests/qa-session-cursor1-2026-09-04.md`
+
 ## Cursor 1 log (resident)
 
 _Pick up after PRP-171 — resident apply → lease → payments on **3010**._

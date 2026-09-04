@@ -42,6 +42,18 @@ npm run workflow:plan -- --ticket PRP-### --title "..." --summary "..." --image 
 
 **Ticket only** (plan later): `npm run linear:ticket -- --chat "…"`
 
+**Priority when filing** (auto unless you pass `--priority 1-4`):
+
+| Level | Use when |
+| --- | --- |
+| **High** | Blocks signup → listing → apply → pay; wrong charges; unusable UI |
+| **Medium** | Frequent portal surface; confusing but completable |
+| **Low** | Cosmetic UI, copy, rename, dev tooling |
+
+UI polish is **Low** unless the screen is unusable. Full matrix + backlog sort order:
+`docs/linear-ticket-system.md` → **Priority & backlog sort**. Normalize open issues:
+`npm run linear:triage`.
+
 Manual enrich + poll:
 
 1. `npx -y lavish-axi playbook plan` (and `comparison` / `diagram` if needed).

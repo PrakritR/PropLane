@@ -392,6 +392,7 @@ export const ManagerDocumentLibrary = forwardRef<ManagerDocumentLibraryHandle, M
         setDocuments([]);
         return;
       }
+      if (!userId) return;
       setLoading(true);
       try {
         const params = new URLSearchParams();
@@ -411,7 +412,7 @@ export const ManagerDocumentLibrary = forwardRef<ManagerDocumentLibraryHandle, M
         setLoading(false);
       }
     },
-    [demo, categoryFilter, scopeFilter, propertyFilter, search, showToast],
+    [demo, userId, categoryFilter, scopeFilter, propertyFilter, search, showToast],
   );
 
   // Debounce so typing in search doesn't fire a request per keystroke; abort

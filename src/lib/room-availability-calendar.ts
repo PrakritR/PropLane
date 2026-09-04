@@ -13,6 +13,16 @@ export function addMonths(base: Date, months: number): Date {
   return new Date(base.getFullYear(), base.getMonth() + months, 1);
 }
 
+export function addDays(base: Date, days: number): Date {
+  return new Date(base.getFullYear(), base.getMonth(), base.getDate() + days);
+}
+
+/** Sunday-start week containing `base`. */
+export function startOfWeekSunday(base: Date): Date {
+  const d = startOfLocalDay(base);
+  return addDays(d, -d.getDay());
+}
+
 export function dateKey(d: Date): string {
   const y = d.getFullYear();
   const m = String(d.getMonth() + 1).padStart(2, "0");

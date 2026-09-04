@@ -338,11 +338,15 @@ Not the portals, but breaks portal flows if wrong:
 
 ## Phase 5 — Mobile + accessibility spot checks
 
+**Sequencing (captain 2026-09-04):** Complete **desktop website** polish and happy-path flows first (Phases 1–4). Mobile-specific fixes are **Phase 2** after desktop is ship-ready. File mobile issues with `[Mobile]` prefix; run `npm run qa:mobile` before native app work.
+
 - [ ] 390px width: manager Properties add flow completable
-- [ ] Resident bottom nav: all four primary tabs reachable
+- [ ] Resident bottom nav (`.portal-native-bottom-nav`) or section strip: all primary tabs reachable + More sheet
+- [ ] No assistant FAB overlapping bottom nav (`--portal-native-bottom-nav-inset`)
 - [ ] Expand chevron inline after label (not far-right-only)
 - [ ] Focus trap in modals; Escape closes compose
 - [ ] No horizontal scroll on Communication thread
+- [ ] Tap targets ≥ 40px on primary CTAs (Add property, Pay, Send)
 
 ---
 
@@ -405,6 +409,29 @@ Explicitly verify after recent template work:
 | Communication | `docs/agents/communication-inbox.md` |
 | Web/native parity | `docs/web-and-native-parity.md` |
 | Ladder / ports | firstmate skill `proplane-ladder` |
+
+---
+
+## 6. AI assistant — action previews (all portals)
+
+**Ticket:** PRP-283. **Unit smoke:** `npm run test:unit -- tests/unit/agent/loop-write-proposal.test.ts tests/unit/tools/work-order-writes.test.ts`.
+
+Open the floating assistant (or dock if pinned). Each prompt must end with a **confirm card** (`ActionPreview`: title, fields, Confirm) — not a dead-end apology.
+
+| Portal | Login | Prompt | Expected tool / preview |
+| --- | --- | --- | --- |
+| Manager | `manager@test.proplane.local` | "Create a work order for a leaky faucet at my first property" | `create_work_order` |
+| Manager | same | "Send a message to my newest resident about tomorrow's tour" | `schedule_message` or `send_message` |
+| Resident | `resident@test.proplane.local` | "Report maintenance: no hot water in my unit" | `report_maintenance_issue` |
+| Vendor | `vendor@test.proplane.local` | "What is the status of my current job?" | read tool grounded on assigned WO |
+| Vendor | same | "I cannot access the unit — please contact the manager" | `escalate_to_manager` |
+
+**Edge checks**
+
+- [ ] Confirm → action completes; Discard → no write
+- [ ] `/demo` does not mount a confirm gate for real writes
+- [ ] Mobile width: preview card not clipped (`--portal-floating-bottom-gap`)
+- [ ] File failures with screenshot + PRP id (dedupe against open AI tickets)
 
 ---
 

@@ -285,7 +285,13 @@ export const BATHROOM_EXTRA_AMENITY_PRESETS = [
   { id: "double-shower-head", label: "Double shower head" },
 ] as const;
 
-export const DISALLOWED_BATHROOM_AMENITY_LABELS = new Set(["Shower", "Toilet", "Bathtub"]);
+export const DISALLOWED_BATHROOM_AMENITY_LABELS = new Set([
+  "Shower",
+  "Toilet",
+  "Bathtub",
+  "Sink",
+  "Mirror",
+]);
 
 /** @deprecated Use HOUSE_WIDE_AMENITY_PRESETS — kept as alias for older imports/tests. */
 export const LISTING_AMENITY_PRESETS = [

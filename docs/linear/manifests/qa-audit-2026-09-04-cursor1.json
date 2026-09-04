@@ -1,0 +1,276 @@
+{
+  "base": "http://localhost:3010",
+  "date": "2026-09-04",
+  "findings": [
+    {
+      "id": "QA-1",
+      "portal": "manager",
+      "path": "/portal/leases",
+      "severity": "medium",
+      "title": "Leases: console error",
+      "detail": "Failed to load resource: the server responded with a status of 429 ()",
+      "duplicate": false
+    },
+    {
+      "id": "QA-2",
+      "portal": "manager",
+      "path": "/portal/residents/current",
+      "severity": "medium",
+      "title": "Residents: main content nearly empty",
+      "detail": "len=0",
+      "duplicate": false
+    },
+    {
+      "id": "QA-3",
+      "portal": "manager",
+      "path": "/portal/residents/current",
+      "severity": "medium",
+      "title": "Residents: console error",
+      "detail": "TypeError: Failed to fetch\n    at http://localhost:3010/_next/static/chunks/node_modules_%40supabase_auth-js_dist_module_1vqrmkg._.js:604:23\n    at _handleRequest (http://localhost:3010/_next/static/chunks/node_modules_%40supabase_auth-js_dist_module_1vqrmkg._.js:967:24)\n    at _request (http://loca",
+      "duplicate": false
+    },
+    {
+      "id": "QA-4",
+      "portal": "manager",
+      "path": "/portal/tasks",
+      "severity": "medium",
+      "title": "Tasks: console error",
+      "detail": "Failed to load resource: the server responded with a status of 429 ()",
+      "duplicate": false
+    },
+    {
+      "id": "QA-5",
+      "portal": "manager",
+      "path": "/portal/calendar",
+      "severity": "medium",
+      "title": "Calendar: console error",
+      "detail": "TypeError: Failed to fetch\n    at http://localhost:3010/_next/static/chunks/node_modules_%40supabase_auth-js_dist_module_1vqrmkg._.js:604:23\n    at _handleRequest (http://localhost:3010/_next/static/chunks/node_modules_%40supabase_auth-js_dist_module_1vqrmkg._.js:967:24)\n    at _request (http://loca",
+      "duplicate": false
+    },
+    {
+      "id": "QA-6",
+      "portal": "manager",
+      "path": "/portal/bookings",
+      "severity": "high",
+      "title": "Bookings: session lost — bounced to sign-in",
+      "detail": "http://localhost:3010/auth/sign-in",
+      "duplicate": false
+    },
+    {
+      "id": "QA-7",
+      "portal": "manager",
+      "path": "/portal/communication/active",
+      "severity": "medium",
+      "title": "Communication: console error",
+      "detail": "TypeError: Failed to fetch\n    at http://localhost:3010/_next/static/chunks/node_modules_%40supabase_auth-js_dist_module_1vqrmkg._.js:604:23\n    at _handleRequest (http://localhost:3010/_next/static/chunks/node_modules_%40supabase_auth-js_dist_module_1vqrmkg._.js:967:24)\n    at _request (http://loca",
+      "duplicate": false
+    },
+    {
+      "id": "QA-8",
+      "portal": "manager",
+      "path": "/portal/teams/vendors",
+      "severity": "medium",
+      "title": "Teams vendors: console error",
+      "detail": "Failed to load resource: the server responded with a status of 429 ()",
+      "duplicate": false
+    },
+    {
+      "id": "QA-9",
+      "portal": "manager",
+      "path": "/portal/promotion",
+      "severity": "medium",
+      "title": "Promotion: console error",
+      "detail": "Failed to load resource: the server responded with a status of 401 (Unauthorized)",
+      "duplicate": false
+    },
+    {
+      "id": "QA-10",
+      "portal": "manager",
+      "path": "/portal/financials/income",
+      "severity": "medium",
+      "title": "Finances income: console error",
+      "detail": "Failed to load resource: the server responded with a status of 429 ()",
+      "duplicate": false
+    },
+    {
+      "id": "QA-11",
+      "portal": "manager",
+      "path": "/portal/financials/expenses",
+      "severity": "medium",
+      "title": "Finances expenses: console error",
+      "detail": "TypeError: Failed to fetch\n    at http://localhost:3010/_next/static/chunks/node_modules_%40supabase_auth-js_dist_module_1vqrmkg._.js:604:23\n    at _handleRequest (http://localhost:3010/_next/static/chunks/node_modules_%40supabase_auth-js_dist_module_1vqrmkg._.js:967:24)\n    at _request (http://loca",
+      "duplicate": false
+    },
+    {
+      "id": "QA-12",
+      "portal": "manager",
+      "path": "/portal/financials/general-ledger",
+      "severity": "medium",
+      "title": "Finances GL: console error",
+      "detail": "Failed to load resource: the server responded with a status of 429 ()",
+      "duplicate": false
+    },
+    {
+      "id": "QA-13",
+      "portal": "manager",
+      "path": "/portal/documents/library",
+      "severity": "medium",
+      "title": "Documents library: console error",
+      "detail": "TypeError: Failed to fetch\n    at http://localhost:3010/_next/static/chunks/node_modules_%40supabase_auth-js_dist_module_1vqrmkg._.js:604:23\n    at _handleRequest (http://localhost:3010/_next/static/chunks/node_modules_%40supabase_auth-js_dist_module_1vqrmkg._.js:967:24)\n    at _request (http://loca",
+      "duplicate": false
+    },
+    {
+      "id": "QA-14",
+      "portal": "manager",
+      "path": "/portal/documents/templates",
+      "severity": "medium",
+      "title": "Documents templates: console error",
+      "detail": "Failed to load resource: the server responded with a status of 401 (Unauthorized)",
+      "duplicate": false
+    },
+    {
+      "id": "QA-15",
+      "portal": "manager",
+      "path": "/portal/bugs-feedback",
+      "severity": "medium",
+      "title": "Feedback: console error",
+      "detail": "Failed to load resource: the server responded with a status of 429 ()",
+      "duplicate": false
+    },
+    {
+      "id": "QA-16",
+      "portal": "manager",
+      "path": "/portal/app",
+      "severity": "medium",
+      "title": "App: console error",
+      "detail": "TypeError: Failed to fetch\n    at http://localhost:3010/_next/static/chunks/node_modules_%40supabase_auth-js_dist_module_1vqrmkg._.js:604:23\n    at _handleRequest (http://localhost:3010/_next/static/chunks/node_modules_%40supabase_auth-js_dist_module_1vqrmkg._.js:967:24)\n    at _request (http://loca",
+      "duplicate": false
+    },
+    {
+      "id": "QA-17",
+      "portal": "manager",
+      "path": "/portal/profile",
+      "severity": "medium",
+      "title": "Settings: console error",
+      "detail": "TypeError: Failed to fetch\n    at http://localhost:3010/_next/static/chunks/node_modules_%40supabase_auth-js_dist_module_1vqrmkg._.js:604:23\n    at _handleRequest (http://localhost:3010/_next/static/chunks/node_modules_%40supabase_auth-js_dist_module_1vqrmkg._.js:967:24)\n    at _request (http://loca",
+      "duplicate": false
+    },
+    {
+      "id": "QA-18",
+      "portal": "manager",
+      "path": "/portal/properties",
+      "severity": "medium",
+      "title": "Properties: ADD row missing",
+      "detail": "No ADD affordance on listed tab",
+      "duplicate": false
+    },
+    {
+      "id": "QA-19",
+      "portal": "manager",
+      "path": "/portal/properties",
+      "severity": "low",
+      "title": "Properties: no seeded rows visible",
+      "detail": "Seed may be empty or filters hide rows",
+      "duplicate": false
+    },
+    {
+      "id": "QA-20",
+      "portal": "resident",
+      "path": "/resident/dashboard",
+      "severity": "medium",
+      "title": "Dashboard: console error",
+      "detail": "Failed to load resource: the server responded with a status of 429 ()",
+      "duplicate": false
+    },
+    {
+      "id": "QA-21",
+      "portal": "resident",
+      "path": "/resident/tour",
+      "severity": "medium",
+      "title": "Tour: console error",
+      "detail": "Failed to load resource: the server responded with a status of 429 ()",
+      "duplicate": false
+    },
+    {
+      "id": "QA-22",
+      "portal": "resident",
+      "path": "/resident/applications",
+      "severity": "medium",
+      "title": "Applications: console error",
+      "detail": "TypeError: Failed to fetch\n    at http://localhost:3010/_next/static/chunks/node_modules_%40supabase_auth-js_dist_module_1vqrmkg._.js:604:23\n    at _handleRequest (http://localhost:3010/_next/static/chunks/node_modules_%40supabase_auth-js_dist_module_1vqrmkg._.js:967:24)\n    at _request (http://loca",
+      "duplicate": false
+    },
+    {
+      "id": "QA-23",
+      "portal": "resident",
+      "path": "/resident/lease",
+      "severity": "medium",
+      "title": "Lease: console error",
+      "detail": "TypeError: Failed to fetch\n    at http://localhost:3010/_next/static/chunks/node_modules_%40supabase_auth-js_dist_module_1vqrmkg._.js:604:23\n    at _handleRequest (http://localhost:3010/_next/static/chunks/node_modules_%40supabase_auth-js_dist_module_1vqrmkg._.js:967:24)\n    at _request (http://loca",
+      "duplicate": false
+    },
+    {
+      "id": "QA-24",
+      "portal": "resident",
+      "path": "/resident/payments",
+      "severity": "medium",
+      "title": "Payments: console error",
+      "detail": "TypeError: Failed to fetch\n    at http://localhost:3010/_next/static/chunks/node_modules_%40supabase_auth-js_dist_module_1vqrmkg._.js:604:23\n    at _handleRequest (http://localhost:3010/_next/static/chunks/node_modules_%40supabase_auth-js_dist_module_1vqrmkg._.js:967:24)\n    at _request (http://loca",
+      "duplicate": false
+    },
+    {
+      "id": "QA-25",
+      "portal": "resident",
+      "path": "/resident/payments/pending",
+      "severity": "medium",
+      "title": "Payments pending pill: console error",
+      "detail": "TypeError: Failed to fetch\n    at http://localhost:3010/_next/static/chunks/node_modules_%40supabase_auth-js_dist_module_1vqrmkg._.js:604:23\n    at _handleRequest (http://localhost:3010/_next/static/chunks/node_modules_%40supabase_auth-js_dist_module_1vqrmkg._.js:967:24)\n    at _request (http://loca",
+      "duplicate": false
+    },
+    {
+      "id": "QA-26",
+      "portal": "resident",
+      "path": "/resident/services",
+      "severity": "medium",
+      "title": "Services: console error",
+      "detail": "TypeError: Failed to fetch\n    at http://localhost:3010/_next/static/chunks/node_modules_%40supabase_auth-js_dist_module_1vqrmkg._.js:604:23\n    at _handleRequest (http://localhost:3010/_next/static/chunks/node_modules_%40supabase_auth-js_dist_module_1vqrmkg._.js:967:24)\n    at _request (http://loca",
+      "duplicate": false
+    },
+    {
+      "id": "QA-27",
+      "portal": "resident",
+      "path": "/resident/move-in",
+      "severity": "medium",
+      "title": "House details: main content nearly empty",
+      "detail": "len=0",
+      "duplicate": false
+    },
+    {
+      "id": "QA-28",
+      "portal": "resident",
+      "path": "/resident/move-in",
+      "severity": "medium",
+      "title": "House details: console error",
+      "detail": "Failed to load resource: the server responded with a status of 401 (Unauthorized)",
+      "duplicate": false
+    },
+    {
+      "id": "QA-29",
+      "portal": "resident",
+      "path": "/resident/communication/active",
+      "severity": "medium",
+      "title": "Communication: console error",
+      "detail": "TypeError: Failed to fetch\n    at http://localhost:3010/_next/static/chunks/node_modules_%40supabase_auth-js_dist_module_1vqrmkg._.js:604:23\n    at _handleRequest (http://localhost:3010/_next/static/chunks/node_modules_%40supabase_auth-js_dist_module_1vqrmkg._.js:967:24)\n    at _request (http://loca",
+      "duplicate": false
+    },
+    {
+      "id": "QA-30",
+      "portal": "vendor",
+      "path": "/vendor/calendar",
+      "severity": "medium",
+      "title": "Calendar: console error",
+      "detail": "Failed to load resource: the server responded with a status of 403 (Forbidden)",
+      "duplicate": false
+    }
+  ]
+}

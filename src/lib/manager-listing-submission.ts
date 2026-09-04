@@ -225,6 +225,8 @@ export type ManagerBathroomSubmission = {
   shower: boolean;
   toilet: boolean;
   bathtub: boolean;
+  sink: boolean;
+  mirror: boolean;
   /**
    * Which rooms use this bathroom. Exclusive across bathrooms that are **not** `allResidents`
    * (a listed room should appear on at most one of those rows).
@@ -1348,6 +1350,8 @@ export function normalizeManagerListingSubmissionV1(sub: ManagerListingSubmissio
       shower: legacyBath.shower ?? true,
       toilet: legacyBath.toilet ?? true,
       bathtub: legacyBath.bathtub ?? false,
+      sink: (legacyBath as ManagerBathroomSubmission).sink ?? true,
+      mirror: (legacyBath as ManagerBathroomSubmission).mirror ?? false,
       assignedRoomIds: allResidents ? [] : assignedRoomIds,
       allResidents,
       accessKindByRoomId: allResidents ? undefined : accessKindByRoomId,
@@ -1850,7 +1854,7 @@ export function duplicateRoomEntry(source: ManagerRoomSubmission): ManagerRoomSu
 export function emptyBathroom(index: number): ManagerBathroomSubmission {
   return {
     id: rid("bath"),
-    name: index === 0 ? "Full bath (hall)" : `Bathroom ${index + 1}`,
+    name: `Bathroom ${index + 1}`,
     location: "",
     amenitiesText: "",
     photoDataUrls: [],
@@ -1858,6 +1862,8 @@ export function emptyBathroom(index: number): ManagerBathroomSubmission {
     shower: true,
     toilet: true,
     bathtub: index === 0,
+    sink: true,
+    mirror: true,
     assignedRoomIds: [],
     allResidents: false,
     accessKindByRoomId: undefined,
@@ -1927,7 +1933,12 @@ export function isRoomSlotRemovable(room: ManagerRoomSubmission): boolean {
 export function isBathroomSlotRemovable(bath: ManagerBathroomSubmission): boolean {
   const name = bath.name.trim();
   const defaultName =
-    name.length === 0 || name === "Full bath (hall)" || /^Bathroom \d+$/.test(name);
+    name.length === 0 ||
+    name === "Full bath (hall)" ||
+    name === "Full bath" ||
+    name === "Half bath" ||
+    name === "En-suite" ||
+    /^Bathroom \d+$/.test(name);
   return (
     defaultName &&
     !bath.location.trim() &&
@@ -2010,7 +2021,7 @@ export function applyListingBathroomSlots(
   bathrooms = bathrooms.map((bath, i) =>
     bath.name.trim()
       ? bath
-      : { ...bath, name: i === 0 ? "Full bath (hall)" : `Bathroom ${i + 1}` },
+      : { ...bath, name: `Bathroom ${i + 1}` },
   );
   return { ok: true, sub: { ...sub, bathrooms } };
 }

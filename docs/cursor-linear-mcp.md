@@ -3,7 +3,10 @@
 Connect Cursor to your Linear workspace so the agent can list issues, create tasks,
 and pull project context without leaving the IDE.
 
-**Ticket filing rules, labels, and workflow:** [`docs/linear-ticket-system.md`](linear-ticket-system.md)
+**Ticket filing rules, labels, priority, and workflow:** [`docs/linear-ticket-system.md`](linear-ticket-system.md)
+
+**Filing new issues:** use `npm run linear:ticket` (not MCP). Priority + assignee are auto-inferred;
+override with `--priority 1-4`. Re-sort open backlog: `npm run linear:triage`.
 
 Official docs: [Linear MCP server](https://linear.app/docs/mcp) ·
 [Cursor integration](https://linear.app/integrations/cursor-mcp)

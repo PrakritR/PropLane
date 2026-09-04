@@ -13,6 +13,7 @@ import {
 import {
   RESIDENT_DOCUMENTS_DETAIL_FOOTER_BTN,
   ResidentDocumentsDetailFooter,
+  PortalDataTableEmpty,
 } from "@/components/portal/portal-data-table";
 import { PortalPageScrollBody } from "@/lib/portal-page-chrome-layout";
 import { deliverPortalInboxMessage } from "@/lib/portal-message-delivery";
@@ -1083,6 +1084,12 @@ export function ManagerLeasesPipelinePanel({
         {leaseModals}
         <PortalRecordListSurface
           isEmpty
+          empty={
+            <PortalDataTableEmpty
+              icon="lease"
+              message="No leases in this bucket yet. Add a lease or generate one from an approved application."
+            />
+          }
           add={
             onAddLease
               ? {

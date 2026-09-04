@@ -194,6 +194,7 @@ not **06** or **09**.
 4. **Title** — `[Area] Short imperative — user-visible outcome`
 5. **Labels** — see below (required before moving to Todo)
 6. **Priority** — Urgent / High / Medium / Low (Backlog may stay unset)
+   — see **Priority & backlog sort** below
 7. **Status** — start in **Backlog**; move to **Todo** only with full description
 8. **Description** — paste the template below (screenshots alone = Backlog only)
 9. **Parent issue** — if this is a sub-task, set parent to the epic (e.g. PRP-102)
@@ -208,6 +209,59 @@ not **06** or **09**.
 
 Labels should **agree** with the project/milestone (e.g. Payments bug → project
 **08** or portal **02/03** Payments milestone + `area:payments`).
+
+---
+
+## Priority & backlog sort
+
+**When filing** (`npm run linear:ticket`), priority and assignee are inferred by
+`scripts/linear/triage-rules.mjs`. Override with `--priority 0-4` when you know better.
+
+| Priority | When to use | Examples |
+| --- | --- | --- |
+| **Urgent (1)** | Production down, security, all crons/email dark | Resend missing on prod |
+| **High (2)** | **Blocks a core workflow** — signup/login, pay, apply, ship gate, wrong money | Signup hangs; fee charged when unchecked |
+| **Medium (3)** | Frequent manager/resident surface; confusing but completable | Listing pricing rules; ghost cache confusing edits |
+| **Low (4)** | **Cosmetic UI**, copy, rename, contrast audit, dev-only tooling | ADD row styling; `manager-*` → `pro-*` rename |
+
+**UI rule:** UI polish is **Low** unless the screen is **unusable** (cannot submit,
+dead clicks, trapped modal, blank page). “Looks off” ≠ High.
+
+**Flow rule:** If the captain cannot complete signup → listing → apply → pay on
+the happy path, file **High** minimum.
+
+**Assignee** (auto): **06 — Communication Hub** → Akhil; everything else → M (Prakrit).
+Re-apply on open backlog: `npm run linear:triage` (needs `LINEAR_API_KEY`).
+
+### Recommended backlog view (Linear)
+
+Sort / group in this order:
+
+1. **Project** (numbered folder — category)
+2. **Priority** (Urgent → High → Medium → Low)
+3. **Assignee**
+
+Pull **Todo** in that order: Urgent + High first, then Medium on active surfaces.
+
+### Reference: current open backlog (2026-09-03)
+
+Suggested priority after triage rules (run `npm run linear:triage -- --dry-run` to apply):
+
+| P | ID | Project | Assignee | Title (short) |
+| --- | --- | --- | --- | --- |
+| High | PRP-187 | 02 Manager | M | Signup hangs on “Creating…” |
+| High | PRP-189 | 02 Manager | M | Login error only — no signup path |
+| High | PRP-193 | 02 Manager | M | Two signup doors / divergent APIs |
+| Medium | PRP-196 | 02 Manager | M | Sign-in email case-sensitive |
+| Medium | PRP-186 | 02 Manager | M | Hub signup missing phone |
+| Medium | PRP-195 | 01 Infra or 02 | M | Ghost properties after DB wipe |
+| Medium | PRP-192 | 01 Infra | M | No supported account deletion |
+| Low | PRP-188 | 02 Manager | M | Google sign-in message on optional step |
+| Low | PRP-184 | 12 Marketing / UI | M | UI audit contrast findings |
+| Low | PRP-185 | 02 Manager | M | Rename manager-* → pro-* |
+| Low | PRP-190 | 01 Infra | M | seed:dev prunes agents |
+| Low | PRP-191 | 01 Infra | M | Playwright MCP allowed-origins |
+| Low | PRP-194 | 01 Infra | M | Port-per-lane Next dev server |
 
 ---
 

@@ -23,6 +23,9 @@ npm run workflow:plan -- --chat "<their message>"
 
 Ticket only (no plan yet): `npm run linear:ticket -- --chat "…"`
 
+**Priority:** flow-breaking → High; cosmetic UI → Low (unless unusable). See
+`docs/linear-ticket-system.md`. After a batch: `npm run linear:triage`.
+
 Skip only when they explicitly say **"no ticket"** or **"skip plan"** (hotfix).
 
 Reply with **PRP-###** + full Linear URL + plan path. **Stop until approved — build.**

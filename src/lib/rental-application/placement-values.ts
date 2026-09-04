@@ -16,7 +16,8 @@ import {
   isEntireHomeListing,
   normalizeManagerListingSubmissionV1,
 } from "@/lib/manager-listing-submission";
-import { listingPresetFeeAmount, resolvedShortTermPlacementDeposit } from "@/lib/listing-fees";
+import { listingPresetFeeAmountIfEnabled } from "@/lib/listing-fee-term-toggles";
+import { resolvedShortTermPlacementDeposit } from "@/lib/listing-fees";
 import { parseMoneyAmount } from "@/lib/parse-money";
 import { utilitiesBillableMonthlyAmount } from "@/lib/listing-utilities-payment";
 import { residentLeaseTermToApplicationFields } from "@/lib/resident-manual-lease-terms";
@@ -113,7 +114,7 @@ export function resolvePlacementValuesForRow(
     : roomSecurityDeposit != null
       ? parseMoneyAmount(roomSecurityDeposit)
       : sub
-        ? listingPresetFeeAmount(sub, "security_deposit") || parseMoneyAmount(sub.securityDeposit ?? "")
+        ? listingPresetFeeAmountIfEnabled(sub, "security_deposit") || parseMoneyAmount(sub.securityDeposit ?? "")
         : 0;
 
   const roomMoveInFee = room?.moveInFee?.trim() ? room.moveInFee : undefined;
@@ -123,7 +124,7 @@ export function resolvePlacementValuesForRow(
     : roomMoveInFee != null
       ? parseMoneyAmount(roomMoveInFee)
       : sub
-        ? listingPresetFeeAmount(sub, "move_in_fee") || parseMoneyAmount(sub.moveInFee ?? "")
+        ? listingPresetFeeAmountIfEnabled(sub, "move_in_fee") || parseMoneyAmount(sub.moveInFee ?? "")
         : 0;
 
   const otherCostLabel = app?.managerOtherCostLabel?.trim() || "";
@@ -292,7 +293,7 @@ export function resolveManualResidentPlacementValues(input: {
     const moveInFee =
       room?.shortTermMoveInFee?.trim()
         ? parseMoneyAmount(room.shortTermMoveInFee)
-        : listingPresetFeeAmount(sub, "short_term_move_in") || parseMoneyAmount(sub.shortTermMoveInFee ?? "");
+        : listingPresetFeeAmountIfEnabled(sub, "short_term_move_in") || parseMoneyAmount(sub.shortTermMoveInFee ?? "");
     return {
       rentalType,
       rent: manualResidentMoneyField(nightly),
@@ -312,13 +313,13 @@ export function resolveManualResidentPlacementValues(input: {
   const securityDeposit =
     roomSecurityDeposit != null
       ? parseMoneyAmount(roomSecurityDeposit)
-      : listingPresetFeeAmount(sub, "security_deposit") || parseMoneyAmount(sub.securityDeposit ?? "");
+      : listingPresetFeeAmountIfEnabled(sub, "security_deposit") || parseMoneyAmount(sub.securityDeposit ?? "");
 
   const roomMoveInFee = room?.moveInFee?.trim() ? room.moveInFee : undefined;
   const moveInFee =
     roomMoveInFee != null
       ? parseMoneyAmount(roomMoveInFee)
-      : listingPresetFeeAmount(sub, "move_in_fee") || parseMoneyAmount(sub.moveInFee ?? "");
+      : listingPresetFeeAmountIfEnabled(sub, "move_in_fee") || parseMoneyAmount(sub.moveInFee ?? "");
 
   return {
     rentalType,

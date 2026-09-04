@@ -382,7 +382,7 @@ export function PortalDashboardSectionHeader({
               href={href}
               data-attr={dataAttr}
               aria-label={isNative && linkLabel ? linkLabel : undefined}
-              className="whitespace-nowrap text-xs font-semibold text-primary hover:underline underline-offset-2 [html[data-native]_&]:px-0.5 [html[data-native]_&]:text-sm"
+              className="inline-flex min-h-11 min-w-11 items-center justify-center whitespace-nowrap text-xs font-semibold text-primary hover:underline underline-offset-2 [html[data-native]_&]:text-sm"
             >
               {compactLink}
             </Link>

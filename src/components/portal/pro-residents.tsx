@@ -3498,7 +3498,7 @@ export function ManagerResidents({
           ) : null
         }
         add={{
-          label: "Add",
+          label: "Add resident",
           ariaLabel: "Add resident",
           icon: PORTAL_LIST_ADD_ICONS.resident,
           onClick: () => setAddResidentOpen(true),

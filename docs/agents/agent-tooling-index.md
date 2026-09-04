@@ -29,7 +29,8 @@ app routes and agent tools, not ad-hoc SQL on production.
 
 | Command | Phase | Purpose |
 | --- | --- | --- |
-| `npm run linear:ticket -- --chat "…"` | ① | Create Linear issue |
+| `npm run linear:ticket -- --chat "…"` | ① | Create Linear issue (auto priority + assignee) |
+| `npm run linear:triage` | ① | Re-apply assignee + priority on open backlog |
 | `npm run linear:export -- --ticket PRP-###` | ② | Shareable `ticket.md` |
 | `npm run lavish:plan -- --ticket PRP-### …` | ② | Scaffold `plan.html` |
 | `npx -y lavish-axi <plan.html>` | ② | Open Lavish review |
@@ -51,7 +52,7 @@ new worktrees.
 | Doc | When |
 | --- | --- |
 | `docs/agents/captain-dev-workflow.md` | Every task — ticket → plan → execute |
-| `docs/linear-ticket-system.md` | Filing, labels, project folders |
+| `docs/linear-ticket-system.md` | Filing, labels, project folders, **priority & backlog sort** |
 | `docs/ship-gate.md` | Before promote / non-trivial finish |
 | `docs/agents/deployment-workflow.md` | `main` vs `production` |
 

@@ -467,6 +467,9 @@ export const AdminInboxClient = forwardRef<
   });
   const [scheduledMessages, setScheduledMessages] = useState<ScheduledInboxMessageRecord[]>([]);
   const [scheduledLoading, setScheduledLoading] = useState(true);
+  const [embeddedInboxTab, setEmbeddedInboxTab] = useState<"unopened" | "opened" | "sent">("unopened");
+  const effectiveTabId =
+    embeddedInCommunication && tabId === "all" ? embeddedInboxTab : tabId;
 
   const reloadScheduled = useCallback(async () => {
     setScheduledLoading(true);
@@ -538,23 +541,23 @@ export const AdminInboxClient = forwardRef<
     // Unified Communication view: ONE list of every live conversation (inbox +
     // sent), newest first, no folder tabs. Trash is reachable via the archive
     // toggle. The legacy per-tab callers keep their exact behavior.
-    if (tabId === "all")
+    if (effectiveTabId === "all")
       return all
         .filter((m) => m.folder === "inbox" || m.folder === "sent")
         .sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt));
-    if (tabId === "unopened")
+    if (effectiveTabId === "unopened")
       return all.filter((m) => m.folder === "inbox" && (!m.read || retainedIds.has(m.id)));
-    if (tabId === "opened") return all.filter((m) => m.folder === "inbox" && m.read);
-    if (tabId === "sent") return all.filter((m) => m.folder === "sent");
-    if (tabId === "trash") return all.filter((m) => m.folder === "trash");
+    if (effectiveTabId === "opened") return all.filter((m) => m.folder === "inbox" && m.read);
+    if (effectiveTabId === "sent") return all.filter((m) => m.folder === "sent");
+    if (effectiveTabId === "trash") return all.filter((m) => m.folder === "trash");
     return [] as InboxMessage[];
-  }, [all, tabId, retainedIds]);
+  }, [all, effectiveTabId, retainedIds]);
 
   // Reset the "keep read messages listed" retention whenever the tab changes,
   // so returning to Unopened (or refreshing) shows the true unread set.
   useEffect(() => {
     setRetainedIds(new Set());
-  }, [tabId]);
+  }, [effectiveTabId]);
 
   const folderCounts = useMemo(() => {
     return {
@@ -622,9 +625,10 @@ export const AdminInboxClient = forwardRef<
     }
   };
 
-  const emptyCopy = inboxTabEmptyCopy(tabId);
+  const emptyCopy = inboxTabEmptyCopy(effectiveTabId);
 
-  const fromOrToHeader = tabId === "all" ? "From / To" : tabId === "sent" ? "To" : "From";
+  const fromOrToHeader =
+    effectiveTabId === "all" ? "From / To" : effectiveTabId === "sent" ? "To" : "From";
 
   const bodyById = useMemo(() => {
     const m: Record<string, string> = {};
@@ -663,6 +667,16 @@ export const AdminInboxClient = forwardRef<
       {embeddedInCommunication && !externalTitleActions ? (
         <div className="mb-4 flex flex-wrap justify-end gap-2">{titleAside}</div>
       ) : null}
+      {embeddedInCommunication && tabId === "all" ? (
+        <div className="mb-4">
+          <ManagerPortalStatusPills
+            activeTone="primary"
+            tabs={inboxTabs.filter((tab) => tab.id === "unopened" || tab.id === "opened" || tab.id === "sent")}
+            activeId={embeddedInboxTab}
+            onChange={(id) => setEmbeddedInboxTab(id as "unopened" | "opened" | "sent")}
+          />
+        </div>
+      ) : null}
       <div className="space-y-5">
         <ComposeModal
           open={composeOpen}
@@ -691,7 +705,7 @@ export const AdminInboxClient = forwardRef<
           <PortalInboxMessageTable
             rows={tableRows}
             primaryPartyHeader={fromOrToHeader}
-            onMarkRead={tabId === "unopened" || tabId === "all" ? markRead : undefined}
+            onMarkRead={effectiveTabId === "unopened" || tabId === "all" ? markRead : undefined}
             getDetailBody={(row) => bodyById[row.id]}
             getThreadMessages={(row) => {
               const message = rows.find((r) => r.id === row.id);

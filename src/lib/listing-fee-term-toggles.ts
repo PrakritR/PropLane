@@ -3,9 +3,19 @@ import {
   applyEntireHomeListingPricing,
   isEntireHomeListing,
   isListingFeeAmountFilled,
+  resolveAllowedLeaseTerms,
   type ManagerRoomSubmission,
 } from "@/lib/manager-listing-submission";
-import { removedStandardListingFeeRowSet } from "@/lib/listing-fees";
+import {
+  listingPresetFeeAmount,
+  removedStandardListingFeeRowSet,
+  type ListingFeePresetId,
+} from "@/lib/listing-fees";
+import {
+  CUSTOM_LEASE_TERM,
+  isLegacyFixedLeaseTerm,
+  LONG_TERM_LEASE_TERM,
+} from "@/lib/rental-application/lease-terms";
 import { shortTermNightlyRate } from "@/lib/short-term-stay-pricing";
 
 function listingRoomHasRent(room: ManagerRoomSubmission): boolean {
@@ -335,4 +345,87 @@ export function validateListingLtFeeToggles(
 /** @deprecated Use validateListingLtFeeToggles with toggle state instead. */
 export function listingLtFeeFieldsRequired(_hasLongTerm: boolean): (keyof ManagerListingSubmissionV1)[] {
   return [];
+}
+
+/** Month-to-month surcharge applies only when MTM (or rollover) is offered. */
+export function listingOffersMonthToMonthSurcharge(
+  sub: Pick<ManagerListingSubmissionV1, "allowedLeaseTerms" | "leaseTermsBody" | "shortTermRentalsAllowed" | "airbnbRentalsAllowed" | "rolloverToMonthToMonth">,
+): boolean {
+  const terms = resolveAllowedLeaseTerms(sub);
+  return terms.includes("Month-to-Month") || sub.rolloverToMonthToMonth === true;
+}
+
+/** Custom-lease surcharge applies when the listing offers a fixed or custom calendar term. */
+export function listingOffersCustomLeaseSurcharge(
+  sub: Pick<ManagerListingSubmissionV1, "allowedLeaseTerms" | "leaseTermsBody" | "shortTermRentalsAllowed" | "airbnbRentalsAllowed">,
+): boolean {
+  const terms = resolveAllowedLeaseTerms(sub);
+  return terms.some(
+    (term) => term === CUSTOM_LEASE_TERM || term === LONG_TERM_LEASE_TERM || isLegacyFixedLeaseTerm(term),
+  );
+}
+
+/** Standard fee rows hidden until the matching lease length is offered. */
+export function leaseLengthGatedHiddenFeeRowIds(
+  sub: Pick<
+    ManagerListingSubmissionV1,
+    "allowedLeaseTerms" | "leaseTermsBody" | "shortTermRentalsAllowed" | "airbnbRentalsAllowed" | "rolloverToMonthToMonth"
+  >,
+): ReadonlySet<ListingFeeRowId> {
+  const hidden = new Set<ListingFeeRowId>();
+  if (!listingOffersMonthToMonthSurcharge(sub)) hidden.add("monthToMonthSurcharge");
+  if (!listingOffersCustomLeaseSurcharge(sub)) hidden.add("customLeaseSurcharge");
+  return hidden;
+}
+
+function feeRowIdForPreset(presetId: ListingFeePresetId): ListingFeeRowId | null {
+  switch (presetId) {
+    case "security_deposit":
+      return "securityDeposit";
+    case "move_in_fee":
+      return "moveInFee";
+    case "holding_deposit":
+      return "holdingDeposit";
+    case "parking_monthly":
+      return "parkingMonthly";
+    case "hoa_monthly":
+      return "hoaMonthly";
+    case "other_monthly":
+      return "otherMonthlyFees";
+    case "mtm_surcharge":
+      return "monthToMonthSurcharge";
+    case "custom_lease_surcharge":
+      return "customLeaseSurcharge";
+    case "short_term_nightly":
+      return "rent";
+    case "short_term_deposit":
+      return "securityDeposit";
+    case "short_term_move_in":
+      return "moveInFee";
+    default:
+      return null;
+  }
+}
+
+/** Bill preset-backed fees only when the wizard checkbox is on (and the row is visible). */
+export function listingPresetFeeAmountIfEnabled(
+  sub: ManagerListingSubmissionV1,
+  presetId: ListingFeePresetId,
+): number {
+  const rowId = feeRowIdForPreset(presetId);
+  if (rowId) {
+    if (removedStandardListingFeeRowSet(sub).has(rowId)) return 0;
+    if (rowId === "monthToMonthSurcharge" && !listingOffersMonthToMonthSurcharge(sub)) return 0;
+    if (rowId === "customLeaseSurcharge" && !listingOffersCustomLeaseSurcharge(sub)) return 0;
+    const lt = deriveListingLtFeeToggles(sub);
+    const st = deriveListingStFeeToggles(sub);
+    const row = listingFeeRowById(rowId);
+    const isShortTermPreset = presetId.startsWith("short_term_");
+    if (isShortTermPreset) {
+      if (!sub.shortTermRentalsAllowed || !st[rowId]) return 0;
+    } else if (row?.ltField && !lt[rowId]) {
+      return 0;
+    }
+  }
+  return listingPresetFeeAmount(sub, presetId);
 }

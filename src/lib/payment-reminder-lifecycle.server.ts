@@ -1,6 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { HouseholdCharge } from "@/lib/household-charges";
-import { enrichHouseholdChargesFromPropertyRecords } from "@/lib/household-charge-payment-eligibility";
+import { enrichHouseholdChargesFromPropertyRecords } from "@/lib/household-charge-payment-eligibility.server";
 import {
   loadListingByPropertyId,
   loadSentReminderDedupIds,

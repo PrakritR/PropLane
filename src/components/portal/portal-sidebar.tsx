@@ -1040,7 +1040,7 @@ export function PortalSidebar({
             >
               <button
                 type="button"
-                className="portal-native-bottom-nav-pull absolute inset-x-0 top-0 z-10 flex h-2.5 items-start justify-center border-0 bg-transparent p-0"
+                className="portal-native-bottom-nav-pull absolute inset-x-0 -top-1 z-10 flex h-11 items-start justify-center border-0 bg-transparent p-0"
                 aria-label="Show all sections"
                 onClick={() => setSectionsSheetOpen(true)}
                 onTouchStart={(e) => {
