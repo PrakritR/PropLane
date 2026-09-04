@@ -130,17 +130,25 @@ function buildHtml({ ticket, title, summary, imageFiles }) {
 
 function main() {
   const args = parseArgs(process.argv.slice(2));
-  if (args.help || (!args.ticket && !args.title)) {
+  if (args.help || !args.ticket) {
     console.log(`lavish:plan — scaffold plan HTML for captain review
 
+  npm run workflow:plan -- --chat "…"              # preferred: ticket + plan
   npm run lavish:plan -- --ticket PRP-169 --title "Calendar revamp" --summary "..."
   npm run lavish:plan -- --ticket PRP-169 --image /path/to/upload.png --open
 
-  Images from Cursor chat: pass each attachment path with --image (copied into plan assets/).`);
+Requires --ticket PRP-### (create with npm run linear:ticket or workflow:plan).
+
+Images: pass each attachment path with --image (copied into plan assets/).`);
     process.exit(args.help ? 0 : 1);
   }
 
-  const ticket = args.ticket ?? "DRAFT";
+  if (!/^PRP-\d+$/i.test(args.ticket ?? "")) {
+    console.error("error: --ticket PRP-### required (create with npm run linear:ticket first)");
+    process.exit(1);
+  }
+
+  const ticket = args.ticket.toUpperCase();
   const title = args.title ?? "Plan";
   const dirName = `${ticket}-${slugify(title)}`;
   const planDir = join(REPO_ROOT, ".lavish", "plans", dirName);

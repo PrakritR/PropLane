@@ -17,7 +17,7 @@ first. Do not jump to planning or coding.
 2. Parse: title, bug vs feature, portal, area, urgency.
 3. **Create** via `npm run linear:ticket -- --chat "<captain's words>"` (GraphQL API only).
 4. Reply with **PRP-###** and the **full Linear URL**.
-5. **Next:** Phase ② — `npm run lavish:plan` (see `captain-dev-workflow.mdc`).
+5. **Next:** Phase ② — `npm run workflow:plan -- --ticket PRP-### …` (see `lavish-plan-gate.mdc`).
 
 **Do not use Linear MCP** — `LINEAR_API_KEY` in `.env.local` is required.
 

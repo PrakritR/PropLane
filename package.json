@@ -46,6 +46,7 @@
     "seed:env": "node scripts/seed-worktree-env.mjs",
     "linear:ticket": "node --env-file=.env.local --env-file=.env scripts/linear-file-ticket.mjs",
     "linear:triage": "node --env-file=.env.local --env-file=.env scripts/linear-triage.mjs",
+    "workflow:plan": "node --env-file=.env.local --env-file=.env scripts/workflow-plan.mjs",
     "lavish:plan": "node scripts/lavish-plan.mjs",
     "posthog:verify": "node --env-file=.env.local --env-file=.env scripts/posthog-verify-setup.mjs",
     "sandbox:pin": "node scripts/pin-sandbox-port.mjs",
