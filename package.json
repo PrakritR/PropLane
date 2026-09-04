@@ -28,6 +28,7 @@
     "test:seed:tours": "node --env-file=.env.local scripts/seed-manager-tours.mjs",
     "test:seed:reclaim-properties": "node --env-file=.env.test tests/helpers/reclaim-canonical-property-owners.mjs",
     "test:seed:repair-identity-drift": "node --env-file=.env.test tests/helpers/repair-resident-identity-drift.mjs",
+    "seed:akhil": "node --env-file=.env.local --env-file=.env scripts/seed-akhil-dev-accounts.mjs",
     "seed:production": "node scripts/seed-production-portal.mjs",
     "seed:demo": "node scripts/seed-demo-supabase.mjs",
     "wipe:dev": "node scripts/wipe-dev-supabase.mjs",

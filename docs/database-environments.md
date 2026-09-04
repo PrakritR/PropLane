@@ -20,6 +20,14 @@ Rules:
 - **Production credentials never live in a local file.** They are set in the
   Vercel Production scope only. A local `.env` must point at the dev/test
   project.
+- **Wipes are never automatic.** CI, git hooks, and `npm test` / `test:unit`
+  do not run `wipe:test:all`, `wipe:dev`, or the portal purges. Those scripts
+  require an explicit env flag (`ALLOW_DEV_WIPE=1` or `CONFIRM_PURGE=yes`) and
+  a human request. `npm run test:seed` does prune accounts that are not on the
+  keep-list in `tests/helpers/canonical-test-accounts.mjs`; the captain
+  dogfood pair (`akhil-manager@prop-lane.space` /
+  `akhil-resident@prop-lane.space`) is on that list and is recreated by the
+  seed. Do not wipe the shared project to get a clean E2E fixture.
 
 ### A local production build can silently target production
 

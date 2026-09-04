@@ -44,6 +44,7 @@ import {
   type InboxThreadMessage,
   type PersistedInboxThread,
 } from "@/lib/portal-inbox-storage";
+import { inboxThreadLastTurnDirection, inboxTurnDirection } from "@/lib/inbox-turn-direction";
 import { buildOptimisticSentThread, markThreadMessageDelivery } from "@/lib/inbox-message-timeline";
 import {
   INBOX_MAX_ATTACHMENTS,
@@ -1151,15 +1152,15 @@ export const ManagerInbox = forwardRef<
       // messages default to outbound (a reply we sent), but a new message
       // delivered into this person-thread carries an explicit direction so an
       // inbound turn on our inbox copy renders inbound rather than as our reply.
-      const outbound = m.outbound ?? (i === 0 ? activeFolder === "sent" : true);
+      const direction = inboxTurnDirection(activeThread, m, i, activeFolder);
       const delivery =
-        m.delivery ?? (pendingRoot && i === 0 && outbound ? ("sending" as const) : undefined);
+        m.delivery ?? (pendingRoot && i === 0 && direction === "outbound" ? ("sending" as const) : undefined);
       return {
         id: m.id,
         author: m.from,
         body: m.body,
         at: m.at,
-        direction: outbound ? "outbound" : "inbound",
+        direction,
         delivery,
         // Email is the only live channel today; the tag makes the thread
         // omnichannel-ready so SMS/WhatsApp/Gmail can join the same person-thread.
@@ -1736,15 +1737,13 @@ export const ManagerInbox = forwardRef<
               : thread.from || thread.email || "Unknown sender";
             const msgs = inboxThreadMessages(thread);
             const lastMsg = msgs[msgs.length - 1];
-            const folder = thread.folder === "trash" ? inferPreviousFolder(thread) : thread.folder;
-            const lastOutbound = lastMsg?.outbound ?? (msgs.length > 1 ? true : folder === "sent");
             return (
               <InboxConversationRow
                 key={thread.id}
                 name={displayName}
                 subtitle={thread.subject}
                 preview={previewLine(lastMsg?.body ?? thread.preview ?? "", 80)}
-                previewPrefix={lastOutbound ? "You: " : undefined}
+                previewPrefix={inboxThreadLastTurnDirection(thread) === "outbound" ? "You: " : undefined}
                 time={thread.time}
                 unread={thread.folder === "inbox" && thread.unread}
                 selected={expandedId === thread.id}

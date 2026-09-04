@@ -36,6 +36,7 @@ import {
   inboxThreadSortMs,
   loadPersistedInbox,
 } from "@/lib/portal-inbox-storage";
+import { inboxThreadLastTurnDirection } from "@/lib/inbox-turn-direction";
 import {
   clearCommunicationThreadUrl,
   selectCommunicationThreadUrl,
@@ -153,7 +154,7 @@ function ResidentUnifiedInbox({
         name: sentSemantics ? t.email || "Recipient" : t.from || t.email || "Sender",
         subtitle: t.subject,
         preview: previewLine(lastMsg?.body ?? t.preview ?? "", 80),
-        previewPrefix: t.folder === "sent" ? "You: " : undefined,
+        previewPrefix: inboxThreadLastTurnDirection(t) === "outbound" ? "You: " : undefined,
         time: t.time,
         unread: t.folder === "inbox" && t.unread,
         // Sort on the SAME field the row is labelled with — only `thread.time`

@@ -3266,6 +3266,18 @@ html[data-native] [data-listing-subnav] {
   color: var(--primary-foreground);
 }
 
+.portal-inbox-assistant-bubble {
+  background: color-mix(in srgb, var(--pl-blue) 16%, var(--pl-white));
+  color: var(--pl-blue-deep);
+  box-shadow: 0 1px 2px rgba(47, 107, 255, 0.12);
+}
+
+[data-theme="dark"] .portal-inbox-assistant-bubble {
+  background: color-mix(in srgb, var(--pl-purple-soft) 22%, var(--pl-surface-muted));
+  color: var(--steel-light);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.24);
+}
+
 .portal-inbox-ai-assist-bar .portal-inbox-ai-draft {
   border-top-width: 0;
   border-radius: 0;

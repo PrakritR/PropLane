@@ -35,6 +35,7 @@ import { createClient } from "@supabase/supabase-js";
 import {
   assertTestProjectUrl,
   DEMO_WORKFLOW_RESIDENT_EMAILS,
+  DOGFOOD_KEEP_EMAILS,
   PRODUCTION_ADMIN_EMAIL,
 } from "./canonical-test-accounts.mjs";
 import {
@@ -2361,7 +2362,8 @@ try {
   }
 
   // 6. Account prune: the test DB contains ONLY canonical test accounts — the
-  //    E2E accounts this seed creates plus the demo-workflow residents
+  //    E2E accounts this seed creates, the captain dogfood pair
+  //    (DOGFOOD_KEEP_EMAILS), plus the demo-workflow residents
   //    (scripts/seed-demo-manager-workflow.mjs). Anything else (OAuth-test
   //    artifacts, one-off signups, the production admin) is deleted together
   //    with its rows, so strays never accumulate and prod accounts never live
@@ -2380,6 +2382,7 @@ try {
       "taylor.cosigner.workflow@test.proplane.local",
       "taylor.cosigner.approved@test.proplane.local",
       ...DEMO_WORKFLOW_RESIDENT_EMAILS,
+      ...DOGFOOD_KEEP_EMAILS,
     ]
       .map((email) => (email ?? "").trim().toLowerCase())
       .filter(Boolean),
@@ -2468,6 +2471,17 @@ try {
     await must(supabase.from("profile_roles").delete().in("user_id", orphanProfileIds), "prune orphan profile_roles");
     await must(supabase.from("profiles").delete().in("id", orphanProfileIds), "prune orphan profiles");
     console.error(`Pruned ${orphanProfileIds.length} orphan profiles`);
+  }
+
+  // Recreate the captain dogfood pair + portfolio after prune so a wipe
+  // followed by test:seed always restores login. The script is idempotent.
+  const akhilSeed = spawnSync(
+    process.execPath,
+    [path.join(__dirname, "../../scripts/seed-akhil-dev-accounts.mjs")],
+    { stdio: "inherit", env: process.env },
+  );
+  if (akhilSeed.status !== 0) {
+    throw new Error(`seed-akhil-dev-accounts.mjs failed with status ${akhilSeed.status ?? "null"}`);
   }
 
   // Stamp shared Claw agent line on opted-in manager emails (A2P pending).

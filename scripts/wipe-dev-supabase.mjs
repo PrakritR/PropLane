@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 /**
  * Wipe seeded portal rows for a manager on dev/test or demo Supabase — NEVER production.
+ * Never automatic: do not run unless a human explicitly asked.
  *
  * Deletes rows owned by the target manager across portal tables, then optional
  * re-seed via seed-demo-manager-workflow.mjs or seed-demo-supabase.mjs.

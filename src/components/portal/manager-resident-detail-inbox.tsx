@@ -35,6 +35,7 @@ import {
   parseInboxStampMs,
   type PersistedInboxThread,
 } from "@/lib/portal-inbox-storage";
+import { inboxTurnDirection } from "@/lib/inbox-turn-direction";
 import { filterEmailInboxThreads } from "@/lib/communication-inbox-filters";
 import {
   normalizeManagerSmsConversationsPayload,
@@ -63,13 +64,13 @@ function loadResidentThreadBubbles(email: string): InboxBubbleMessage[] {
     if (thread.email.trim().toLowerCase() !== norm || thread.folder === "trash") continue;
     const folder = thread.folder === "sent" ? "sent" : "inbox";
     for (const [i, m] of inboxThreadMessages(thread).entries()) {
-      const outbound = m.outbound ?? (i === 0 ? folder === "sent" : true);
+      const direction = inboxTurnDirection(thread, m, i, folder);
       bubbles.push({
         id: m.id,
         author: m.from,
         body: m.body,
         at: m.at,
-        direction: outbound ? "outbound" : "inbound",
+        direction,
         channel: "email",
         attachments: m.attachments,
       });
