@@ -216,11 +216,14 @@ function provisioningDb(opts: {
         writes.push({ table, op: "update" });
         return { error: null };
       };
-      const terminal = {
+      // `eq` returns the terminal itself so a chained compare-and-swap
+      // (`.eq("id", …).eq("status", "accepted")`) is modelled, not rejected.
+      const terminal: Record<string, unknown> = {
         is: vi.fn(record),
         then: (resolve: (v: unknown) => unknown, reject: (e: unknown) => unknown) =>
           record().then(resolve, reject),
       };
+      terminal.eq = vi.fn(() => terminal);
       return { eq: vi.fn(() => terminal) };
     }),
   }));
