@@ -237,6 +237,56 @@ export function hasCoManagerPermissionForProperty(
   return hasCoManagerPermission(permissionsForProperty(propertyPermissions, propertyId), id);
 }
 
+/**
+ * Whether a co-manager may use `module` at `level` on `propertyId`.
+ *
+ * THE ONE ANSWER for every caller — server route scoping, the client portfolio
+ * mirror, and the nav — so the three can never drift apart again.
+ *
+ * An EMPTY grant map means **no access**. It used to mean "no restrictions",
+ * i.e. every module at every level including delete on leases, financials and
+ * documents. That default failed open and was reachable two ways without the
+ * manager ever opening the permissions editor: checking a property seeded `{}`,
+ * and turning every level off deleted every module key, which also produced
+ * `{}` — so the gesture that restricts a co-manager to nothing granted them
+ * everything. Access is now positively granted; "everything" is stored
+ * explicitly as `buildAllModulesGrant("full")`.
+ */
+export function coManagerModuleAllowed(
+  perms: PropertyCoManagerPermissions | undefined,
+  propertyId: string,
+  module: CoManagerPermissionId,
+  level: CoManagerPermissionLevel = "read",
+): boolean {
+  return hasCoManagerPermissionLevelForProperty(perms, propertyId, module, level);
+}
+
+/** A grant map that confers nothing — the state an absent or `{}` map resolves to. */
+export function coManagerPermissionsAreEmpty(permissions: CoManagerPermissions | undefined): boolean {
+  return countCoManagerPermissions(permissions) === 0;
+}
+
+/**
+ * The effective grant in words, for the invite confirmation — a manager should
+ * never have to infer what they just handed a third party from a checkbox grid.
+ */
+export function describeCoManagerPermissions(permissions: CoManagerPermissions | undefined): string {
+  const granted = CO_MANAGER_PERMISSION_OPTIONS.filter(({ id }) => hasCoManagerPermission(permissions, id));
+  if (granted.length === 0) return "No access to any module.";
+  const canDelete = granted.filter(({ id }) => hasCoManagerPermissionLevel(permissions, id, "delete"));
+  const canEdit = granted.filter(({ id }) => hasCoManagerPermissionLevel(permissions, id, "edit"));
+  const readOnly = granted.filter(
+    ({ id }) =>
+      !hasCoManagerPermissionLevel(permissions, id, "edit") &&
+      !hasCoManagerPermissionLevel(permissions, id, "delete"),
+  );
+  const parts: string[] = [];
+  if (readOnly.length > 0) parts.push(`view ${readOnly.map(({ label }) => label).join(", ")}`);
+  if (canEdit.length > 0) parts.push(`edit ${canEdit.map(({ label }) => label).join(", ")}`);
+  if (canDelete.length > 0) parts.push(`delete in ${canDelete.map(({ label }) => label).join(", ")}`);
+  return `Can ${parts.join("; ")}.`;
+}
+
 export function countCoManagerPermissions(permissions: CoManagerPermissions | undefined): number {
   return CO_MANAGER_PERMISSION_OPTIONS.filter(({ id }) => hasCoManagerPermission(permissions, id)).length;
 }

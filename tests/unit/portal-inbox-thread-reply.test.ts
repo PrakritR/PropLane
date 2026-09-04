@@ -98,7 +98,7 @@ describe("appendInboxThreadReply", () => {
           inviter_user_id: "owner_1",
           invitee_user_id: "co_mgr",
           assigned_property_ids: ["prop-1"],
-          property_co_manager_permissions: {},
+          property_co_manager_permissions: { "prop-1": { inbox: { read: true, edit: true } } },
         },
       ],
     });

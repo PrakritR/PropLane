@@ -34,6 +34,7 @@ import { PORTAL_BULK_BAR_BTN } from "@/lib/portal-bulk-bar";
 import type { AccountLinkInviteDto } from "@/lib/account-links";
 import {
   buildAllModulesGrant,
+  describeCoManagerPermissions,
   CO_MANAGER_PERMISSION_OPTIONS,
   EMPTY_CO_MANAGER_PERMISSIONS,
   normalizeCoManagerPermissions,
@@ -255,9 +256,9 @@ function CoManagerPermissionsEditor({
       </div>
       {isEmpty ? (
         <p className="rounded-lg border border-dashed border-border bg-accent/20 px-3 py-2 text-xs text-muted">
-          No restrictions. This team member has full access to every module on this property.
-          Check modules below to restrict them. (To remove the property entirely, use
-          &ldquo;Remove access&rdquo;.)
+          No access. This team member cannot open any module on this property. Check the
+          modules they should reach, or use a preset above. (To remove the property
+          entirely, use &ldquo;Remove access&rdquo;.)
         </p>
       ) : null}
       <div className="grid gap-2 sm:grid-cols-2">
@@ -865,8 +866,13 @@ export function ProAccountLinksPanel({ userId, linkId: linkIdProp }: { userId: s
       const next = { ...s, [id]: !s[id] };
       if (next[id]) {
         setPropertyPermissionsDraft((perms) => ({
+          // Seed an EXPLICIT read-only grant, never `{}`. An empty map is now
+          // no access at all, so seeding one would silently assign a property
+          // the co-manager cannot open; seeding full access is the fail-open
+          // default this replaced. Read-only is the least grant that still
+          // makes the property useful, and the summary below states it.
           ...perms,
-          [id]: perms[id] ?? { ...EMPTY_CO_MANAGER_PERMISSIONS },
+          [id]: perms[id] ?? buildAllModulesGrant("read"),
         }));
       }
       return next;
@@ -1133,7 +1139,7 @@ export function ProAccountLinksPanel({ userId, linkId: linkIdProp }: { userId: s
         ...Object.fromEntries(
           nextAssigned
             .filter((id) => !draft.assignedPropertyIds.includes(id))
-            .map((id) => [id, { ...EMPTY_CO_MANAGER_PERMISSIONS }]),
+            .map((id) => [id, buildAllModulesGrant("read")]),
         ),
       },
       nextAssigned,
@@ -2066,6 +2072,32 @@ export function ProAccountLinksPanel({ userId, linkId: linkIdProp }: { userId: s
                       </div>
                     </div>
                   ))}
+                </div>
+              ) : null}
+
+              {selectedPropIds.length > 0 ? (
+                /* State the effective grant in words before the invite goes out — a
+                   co-manager is a real third party, and a checkbox grid is not a
+                   statement of what they can do to leases, finances and documents. */
+                <div
+                  className="rounded-xl border border-border bg-card p-4"
+                  data-attr="co-manager-invite-grant-summary"
+                >
+                  <p className="text-xs font-semibold uppercase tracking-wide text-muted">
+                    What they will be able to do
+                  </p>
+                  <ul className="mt-2 space-y-1.5">
+                    {selectedPropIds.map((pid) => (
+                      <li key={pid} className="text-sm text-foreground">
+                        <span className="font-semibold">{teamPropertyLabel(pid)}</span>{" "}
+                        <span className="text-muted">
+                          {describeCoManagerPermissions(
+                            normalizeCoManagerPermissions(propertyPermissionsDraft[pid]),
+                          )}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
                 </div>
               ) : null}
 

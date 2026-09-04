@@ -21,7 +21,7 @@ export type ManagerNavRole = {
  * `ownsProperties` must be true when the user has their OWN portfolio. An owner
  * who is ALSO a co-manager for someone else's properties is still a PRIMARY
  * manager for nav purposes — they see every section (their own properties grant
- * full access); the per-property co-manager grants only restrict access to the
+ * full access); the per-property co-manager grants decide what they reach on the
  * LINKED properties at the data layer, never the user's own nav. Without this a
  * property-owning manager who received an incoming link would lose nav sections
  * (e.g. Applications) that their own properties require.

@@ -23,9 +23,9 @@ import { MANAGER_APPLICATIONS_EVENT, readManagerApplicationRows } from "@/lib/ma
 import { readProRelationships, syncProRelationshipsFromServer } from "@/lib/pro-relationships";
 import { readCachedAccountLinkInvites } from "@/lib/portal-data-store";
 import {
+  coManagerModuleAllowed,
   hasCoManagerPermission,
   hasCoManagerPermissionForProperty,
-  hasCoManagerPermissionLevelForProperty,
   permissionsForProperty,
   type CoManagerPermissionId,
   type CoManagerPermissionLevel,
@@ -91,10 +91,7 @@ function modulePermsAllow(
   propertyId: string,
   module: CoManagerPermissionId,
 ): boolean {
-  const flat = permissionsForProperty(perms, propertyId);
-  const anyGranted = Object.values(flat).some(Boolean);
-  if (!anyGranted) return true;
-  return hasCoManagerPermissionForProperty(perms, propertyId, module);
+  return coManagerModuleAllowed(perms, propertyId, module);
 }
 
 /** Linked property ids where this user may use `module` (client-side view of accepted links). */
@@ -142,17 +139,14 @@ export function collectLinkedOwnerIdsForModule(userId: string, module: CoManager
   return out;
 }
 
-/** Client mirror of modulePermsAllow but at a specific level (edit/delete). Empty perms = full access. */
+/** Client mirror of modulePermsAllow at a specific level (edit/delete). */
 function modulePermsAllowLevel(
   perms: PropertyCoManagerPermissions | undefined,
   propertyId: string,
   module: CoManagerPermissionId,
   level: CoManagerPermissionLevel,
 ): boolean {
-  const flat = permissionsForProperty(perms, propertyId);
-  const anyGranted = Object.values(flat).some(Boolean);
-  if (!anyGranted) return true;
-  return hasCoManagerPermissionLevelForProperty(perms, propertyId, module, level);
+  return coManagerModuleAllowed(perms, propertyId, module, level);
 }
 
 /**
