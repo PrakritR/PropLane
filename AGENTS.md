@@ -367,7 +367,11 @@ mid-walkthrough. Regression coverage:
 
 ## Portal UI system
 
-**Read [`docs/portal-ui-system.md`](docs/portal-ui-system.md) before editing portal UI.**
+**Start at [`docs/agents/ui-change-checklist.md`](docs/agents/ui-change-checklist.md)
+before editing portal UI.** It names the reading order and, just as importantly,
+separates the four docs that are RULES from the audits and trackers that only
+describe one day in the past — an archived audit reads exactly like a live defect
+list, and acting on one is how solved work gets re-done (PRP-183).
 
 ### Every list tab copies the Properties portal — that is the house theme
 

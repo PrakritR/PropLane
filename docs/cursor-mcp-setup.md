@@ -1,4 +1,10 @@
-# Cursor MCP setup (PropPlane)
+# Cursor MCP setup (PropLane)
+
+> **Superseded by [`agent-mcp-setup.md`](agent-mcp-setup.md) (PRP-182).** MCP is
+> no longer Cursor-only — the server list is shared by Claude Code, Cursor and
+> Codex, and `npm run check:mcp` enforces it. Read that file first; what remains
+> below is the Cursor-specific enablement detail.
+
 
 MCP servers help agents **test and debug** during phases ③–④. They do **not**
 replace Linear tickets — use `LINEAR_API_KEY` + `npm run linear:ticket` instead.

@@ -84,7 +84,8 @@
     "langfuse:sync-eval-dataset": "node scripts/langfuse-sync-eval-dataset.mjs",
     "langfuse:run-regression": "node scripts/langfuse-run-agent-regression.mjs",
     "langfuse:agent-health-report": "node scripts/langfuse-agent-health-report.mjs",
-    "langfuse:verify": "node scripts/langfuse-verify-improvement-loop.mjs"
+    "langfuse:verify": "node scripts/langfuse-verify-improvement-loop.mjs",
+    "check:mcp": "node scripts/check-mcp-parity.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.74.0",

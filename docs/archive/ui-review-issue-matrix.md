@@ -1,3 +1,9 @@
+> **ARCHIVED — snapshot, not current guidance. Do not act on this file.**
+> Completed audit from 2026-07-22; every row is Done, OK, or an explicit
+> Exception. Its one remaining open row (the `manager-*` → `pro-*` rename)
+> was lifted out to PRP-185 before archiving. Current UI rules:
+> [`../agents/ui-change-checklist.md`](../agents/ui-change-checklist.md).
+
 # UI Review Issue Matrix
 
 Structured audit of all five Blue Steel surfaces against [`design.md`](design.md) and the canonical portal list-section pattern in [`portal-list-section-layout.md`](portal-list-section-layout.md) / [`portal-list-section.tsx`](../src/components/portal/portal-list-section.tsx).

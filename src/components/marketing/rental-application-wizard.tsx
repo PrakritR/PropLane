@@ -56,10 +56,6 @@ import {
   saveRentalWizardDraft,
   saveRentalWizardDraftAxisId,
 } from "@/lib/rental-application/drafts";
-import {
-  mergeApplicationProfilePrefill,
-  saveApplicationProfilePrefill,
-} from "@/lib/rental-application/application-profile-prefill";
 import type { DemoApplicantRow } from "@/data/demo-portal";
 import {
   applicationsForResidentEmail,
@@ -263,6 +259,29 @@ export function initialWizardStepFromRequest(
   return parsed;
 }
 
+/**
+ * What a resume should do when a LOCAL draft is already loaded (PRP-181).
+ *
+ * The reconciliation effect refuses to overwrite the form when a draft axis id
+ * is present, because a save may have landed while its reads were in flight and
+ * the server copy could be staler. That guard was right about the FORM and
+ * wrong about the STEP: returning outright also skipped the step restore, so
+ * the fields repopulated from the local draft while `step` stayed at its
+ * initial 1 — which is a resident opening a mostly-finished application and
+ * landing back on "Group Application", exactly as reported.
+ *
+ * Restoring the step is safe only when the draft is the SAME application. A
+ * draft for a different one must be left completely alone.
+ */
+export function resumeActionForLiveDraft(
+  liveDraftAxisId: string | null | undefined,
+  fetchedRowId: unknown,
+): "restore_all" | "restore_step_only" | "leave_alone" {
+  const draftId = String(liveDraftAxisId ?? "").trim();
+  if (!draftId) return "restore_all";
+  return draftId === String(fetchedRowId ?? "").trim() ? "restore_step_only" : "leave_alone";
+}
+
 const activeRentalWizardsByDocument = new WeakMap<Document, number>();
 
 /**
@@ -376,22 +395,14 @@ function RentalApplicationWizardInner({
       };
     }
     const draft = loadRentalWizardDraft();
-    if (!draft) {
-      return mergeApplicationProfilePrefill(
-        { ...createInitialRentalWizardState(), ...groupInvitePatch },
-        sessionEmail,
-      );
-    }
+    if (!draft) return { ...createInitialRentalWizardState(), ...groupInvitePatch };
     // A draft still loaded (same tab, no reload) for a DIFFERENT property/room
     // than this request must never flash onto a fresh apply — start blank and
     // let the reconciliation effect resolve the real target (an existing
     // in-progress application for it, or a clean new one).
     if (requestedTarget && draft && !targetMatchesApplication(requestedTarget, { application: draft })) {
       clearRentalWizardDraft();
-      return mergeApplicationProfilePrefill(
-        { ...createInitialRentalWizardState(), ...groupInvitePatch },
-        sessionEmail,
-      );
+      return { ...createInitialRentalWizardState(), ...groupInvitePatch };
     }
     return { ...createInitialRentalWizardState(), ...draft, ...groupInvitePatch };
   });
@@ -992,7 +1003,7 @@ function RentalApplicationWizardInner({
       // new draft (and a new axis id, minted on next save) starts clean.
       if (target && existingDraft) {
         clearRentalWizardDraft();
-        setForm(mergeApplicationProfilePrefill({ ...createInitialRentalWizardState(), email }, sessionEmail));
+        setForm({ ...createInitialRentalWizardState(), email });
       }
       // Either a match was found and loaded above, or none exists and this is
       // confirmed to be a genuinely fresh target — either way, it is now safe
@@ -1050,8 +1061,36 @@ function RentalApplicationWizardInner({
       }
       if (cancelled || !hit?.application) return;
       if (target && !targetMatchesApplication(target, hit)) return;
-      // A save may have landed while these reads were in flight — never clobber it.
-      if (loadRentalWizardDraftAxisId()?.trim()) return;
+      // A save may have landed while these reads were in flight — never clobber
+      // the form with a staler server copy.
+      //
+      // PRP-181: but returning outright also skipped the STEP restore below,
+      // which is what a resident actually reported — "it has all the saved info
+      // but it takes me back to the beginning". The local draft repopulates the
+      // FIELDS, so the form looked right while `step` stayed at its initial 1
+      // (Group Application). Restoring the step is safe here precisely because
+      // the draft is the same application, so do that and skip only the form
+      // overwrite. A draft for a DIFFERENT application must still be left alone.
+      const resumeAction = resumeActionForLiveDraft(loadRentalWizardDraftAxisId(), hit.id);
+      if (resumeAction !== "restore_all") {
+        if (resumeAction === "restore_step_only") {
+          const stepOnly = parsePersistedWizardStep(
+            hit.application.wizardStep,
+            hit.application.wizardStepSchema,
+          );
+          const maxOnly = parsePersistedWizardStep(
+            hit.application.wizardMaxStepReached,
+            hit.application.wizardStepSchema,
+          );
+          if (stepOnly) {
+            setStep(stepOnly);
+            setMaxStepReached((prev) => Math.max(prev, maxOnly ?? 0, stepOnly));
+          } else if (maxOnly) {
+            setMaxStepReached((prev) => Math.max(prev, maxOnly));
+          }
+        }
+        return;
+      }
       const email = (hit.email ?? "").trim();
       const restored: RentalWizardFormState = {
         ...createInitialRentalWizardState(),
@@ -1682,7 +1721,6 @@ function RentalApplicationWizardInner({
         email_sent: emailSent,
         group_role: submittedForm.applyingAsGroup === "yes" ? submittedForm.groupRole ?? undefined : undefined,
       });
-      saveApplicationProfilePrefill(submittedForm);
       clearRentalWizardDraft();
       setForm(createInitialRentalWizardState());
       setStep(1);

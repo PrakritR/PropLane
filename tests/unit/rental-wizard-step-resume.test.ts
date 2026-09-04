@@ -29,6 +29,7 @@ import {
   initialWizardStepFromRequest,
   isElementOnScreen,
   parsePersistedWizardStep,
+  resumeActionForLiveDraft,
 } from "@/components/marketing/rental-application-wizard";
 import { RENTAL_WIZARD_STEP_SCHEMA } from "@/lib/rental-application/wizard-step-schema";
 
@@ -98,6 +99,38 @@ describe("initialWizardStepFromRequest", () => {
 // redirect (a Stripe checkout) — that reload wipes the in-memory draft entirely.
 // The step PERSISTED on the server application record covers the full range and
 // is what the reconciliation effect uses to land them back where they were.
+/**
+ * PRP-181: "when i click my application it has all the saved info but it takes
+ * me back to the beginning of the application."
+ *
+ * The reconciliation effect refused to overwrite the form when a local draft
+ * was already loaded — correct, a save may have landed while its reads were in
+ * flight. But it returned OUTRIGHT, so the step restore never ran: the fields
+ * repopulated from the local draft while `step` stayed at its initial 1, i.e.
+ * a mostly-finished application reopening on "Group Application".
+ */
+describe("PRP-181: resumeActionForLiveDraft", () => {
+  it("restores everything when no draft is loaded", () => {
+    expect(resumeActionForLiveDraft(null, "app-1")).toBe("restore_all");
+    expect(resumeActionForLiveDraft("", "app-1")).toBe("restore_all");
+    expect(resumeActionForLiveDraft("   ", "app-1")).toBe("restore_all");
+  });
+
+  it("restores the STEP but not the form when the draft is the same application", () => {
+    // The form is already correct from the draft — only the step was lost.
+    expect(resumeActionForLiveDraft("app-1", "app-1")).toBe("restore_step_only");
+    expect(resumeActionForLiveDraft(" app-1 ", "app-1")).toBe("restore_step_only");
+  });
+
+  it("leaves a draft for a DIFFERENT application completely alone", () => {
+    // Restoring another application's step here would jump the resident into
+    // the middle of a form they have not filled in.
+    expect(resumeActionForLiveDraft("app-1", "app-2")).toBe("leave_alone");
+    expect(resumeActionForLiveDraft("app-1", null)).toBe("leave_alone");
+    expect(resumeActionForLiveDraft("app-1", undefined)).toBe("leave_alone");
+  });
+});
+
 describe("parsePersistedWizardStep", () => {
   it("accepts any real step 1..11 on the current schema", () => {
     expect(parsePersistedWizardStep(1, RENTAL_WIZARD_STEP_SCHEMA)).toBe(1);

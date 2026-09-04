@@ -1,3 +1,10 @@
+> **OPEN FINDINGS — not archived, not yet fixed.** Tracked as PRP-184.
+> None of the items below are marked done, and several are real accessibility
+> defects (19 colour-contrast failures across home + sign-in, nested interactive
+> controls, an admin route that soft-404s with HTTP 200). This is a work list,
+> not a description of the current UI. Standing UI rules live in
+> [`agents/ui-change-checklist.md`](agents/ui-change-checklist.md).
+
 # Website UI Audit — August 2026
 
 Status: Complete discovery baseline for the website redesign. Capacitor/native-shell optimization is intentionally deferred to phase two.

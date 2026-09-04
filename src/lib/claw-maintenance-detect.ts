@@ -1,25 +1,29 @@
 /**
  * Pure maintenance-detection helpers (safe for client + server).
+ *
+ * "Is this message a maintenance request?" is NOT decided here any more
+ * (PRP-109). It is `classifyInboundMessage`, shared with the manager inbox
+ * chips, so the auto-created work order a text produces and the chip a manager
+ * sees can never disagree about the same words. What stays here is the
+ * downstream inference — category, title, priority — which only runs once
+ * something has already been judged a request.
  */
 
+import { classifyInboundMessage } from "@/lib/inbox/inbound-message-intent";
 import type { ResidentMaintenanceCategoryLabel } from "@/lib/work-order-taxonomy";
 
-const REPAIR_RE =
-  /\b(fix|broken|broke|leaking|leak|clogged|clog|won't work|wont work|not working|doesn't work|doesnt work|out of order|flooded|no hot water|no heat|no ac|stopped working|needs repair)\b/i;
-const NOUN_RE =
-  /\b(toilet|sink|faucet|shower|bathtub|tub|pipe|drain|plumb|outlet|electric|heater|hvac|furnace|fridge|refrigerator|dishwasher|washer|dryer|stove|oven|microwave|lock|door|window|mold|smoke detector|garbage disposal|ac unit|air conditioner|hot water)\b/i;
-const HELP_RE = /\b(please|can you|could you|help|fix it|come look|send someone)\b/i;
-const EXPLICIT_RE =
-  /\b(maintenance|work[\s-]?order|repair request|something('s| is) (broken|wrong)|need(s)? (a )?fix)\b/i;
-
-/** True when the resident message looks like a maintenance / repair request. */
+/**
+ * True when the resident message looks like a maintenance / repair request.
+ *
+ * Delegates to the shared classifier. The rules it replaced fired on a repair
+ * word plus a noun with no notion of tense or resolution, so "the toilet leak
+ * is fixed, thanks" opened a work order for something already done, and
+ * "can you fix a time to look at the lease?" opened one for nothing at all.
+ * This gate is load-bearing on the live SMS path (`createWorkOrderFromResidentSms`),
+ * so those were real work orders, not just chips.
+ */
 export function looksLikeMaintenanceRequest(text: string): boolean {
-  const t = text.trim();
-  if (t.length < 8) return false;
-  if (REPAIR_RE.test(t) && NOUN_RE.test(t)) return true;
-  if (EXPLICIT_RE.test(t) && (REPAIR_RE.test(t) || NOUN_RE.test(t) || HELP_RE.test(t))) return true;
-  if (REPAIR_RE.test(t) && HELP_RE.test(t)) return true;
-  return false;
+  return classifyInboundMessage(text).intent === "maintenance";
 }
 
 export function inferMaintenanceCategoryLabel(text: string): ResidentMaintenanceCategoryLabel {

@@ -2,13 +2,36 @@
 
 Use this **after** Linear ticket + Lavish plan approval, **before** editing portal UI.
 
-## Mandatory reads
+## The UI docs, in two tiers (PRP-183)
+
+**Only tier 1 is a rule.** Everything else is a snapshot of what someone found on
+a particular day — true then, silently stale now. Before this split, a finished
+July audit sat next to the standards looking exactly like a live defect list,
+and an agent told to "read the area doc first" could spend its context
+re-reading solved work or "fixing" something fixed months ago.
+
+### Tier 1 — standing rules (read these)
 
 | Order | Doc | Why |
 | --- | --- | --- |
 | 1 | `docs/portal-ui-system.md` | Expand chevrons, tables, list surfaces, overflow |
 | 2 | `docs/portal-list-section-layout.md` | Title band vs split mobile actions |
-| 3 | `AGENTS.md` → Portal UI system | `PortalRecordListSurface` — every list tab copies Properties |
+| 3 | `docs/design.md` | The visual system — colour, type, spacing, Blue Steel |
+| 4 | `docs/website-component-standard.md` | Marketing-site counterpart to `design.md` |
+| 5 | `AGENTS.md` → Portal UI system | `PortalRecordListSurface` — every list tab copies Properties |
+
+### Tier 2 — point-in-time, never a rule
+
+| Doc | What it is |
+| --- | --- |
+| `docs/website-ui-audit-2026-08.md` | **Open findings**, tracked as PRP-184 — a work list, not the current state |
+| `docs/archive/ui-review-issue-matrix.md` | Finished 2026-07-22 audit; its one live row became PRP-185 |
+| `docs/archive/website-redesign-prototypes.md` | Exploration that was never adopted |
+
+**Adding a doc?** It goes in tier 1 only if it states a rule that holds
+indefinitely. An audit, a review, or anything with a date in its name is tier 2
+and belongs under `docs/archive/` once its open rows are ticketed — archiving
+must never be how a live finding disappears.
 
 ## Every manager / resident / vendor list tab
 

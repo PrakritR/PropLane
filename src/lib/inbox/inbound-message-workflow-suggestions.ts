@@ -1,3 +1,18 @@
+/**
+ * Manager-inbox chips ("Create maintenance work order" / "Create add-on service
+ * request") offered on an inbound resident message.
+ *
+ * This module owns only the PRESENTATION. Whether a message is asking for
+ * something at all is `classifyInboundMessage` in `inbound-message-intent.ts`,
+ * which the server pass also uses — one decision, so a chip a manager sees and
+ * a proposal the server files can never disagree about the same message.
+ */
+import {
+  INTENT_MIN_CONFIDENCE,
+  classifyInboundMessage,
+  workflowTitleFromMessage,
+} from "@/lib/inbox/inbound-message-intent";
+
 export type InboundWorkflowSuggestionKind = "maintenance_work_order" | "addon_service";
 
 export type InboundWorkflowSuggestion = {
@@ -5,67 +20,26 @@ export type InboundWorkflowSuggestion = {
   label: string;
 };
 
-const MAINTENANCE_PATTERNS = [
-  /\bleak(s|ing)?\b/i,
-  /\bbroken\b/i,
-  /\brepair\b/i,
-  /\bfix\b/i,
-  /\bnot working\b/i,
-  /\bmaintenance\b/i,
-  /\bmold\b/i,
-  /\bplumb(ing|er)\b/i,
-  /\bhvac\b/i,
-  /\bheat(er|ing)?\b/i,
-  /\bac\b/i,
-  /\belectrical\b/i,
-  /\boutlet\b/i,
-  /\bappliance\b/i,
-  /\bclogged\b/i,
-  /\btoilet\b/i,
-  /\bfaucet\b/i,
-  /\bwater damage\b/i,
-  /\block(s|ed)?\b/i,
-];
-
-const ADDON_SERVICE_PATTERNS = [
-  /\bparking\b/i,
-  /\bstorage\b/i,
-  /\badd[- ]?on\b/i,
-  /\bextra key\b/i,
-  /\bpet fee\b/i,
-  /\bamenity\b/i,
-  /\breserved spot\b/i,
-  /\bgarage spot\b/i,
-];
-
-function matchesAny(text: string, patterns: RegExp[]) {
-  return patterns.some((pattern) => pattern.test(text));
-}
+export { workflowTitleFromMessage };
 
 /** Suggest manager workflows from the latest inbound resident message. */
 export function suggestInboundMessageWorkflows(messageText: string): InboundWorkflowSuggestion[] {
-  const text = messageText.trim();
-  if (!text) return [];
+  const result = classifyInboundMessage(messageText);
+  if (result.confidence < INTENT_MIN_CONFIDENCE) return [];
 
-  const suggestions: InboundWorkflowSuggestion[] = [];
-  if (matchesAny(text, MAINTENANCE_PATTERNS)) {
-    suggestions.push({
-      kind: "maintenance_work_order",
-      label: "Create maintenance work order",
-    });
+  if (result.intent === "maintenance") {
+    return [
+      {
+        kind: "maintenance_work_order",
+        label:
+          result.urgency === "emergency"
+            ? "Create urgent maintenance work order"
+            : "Create maintenance work order",
+      },
+    ];
   }
-  if (matchesAny(text, ADDON_SERVICE_PATTERNS)) {
-    suggestions.push({
-      kind: "addon_service",
-      label: "Create add-on service request",
-    });
+  if (result.intent === "add_on_service") {
+    return [{ kind: "addon_service", label: "Create add-on service request" }];
   }
-  return suggestions;
-}
-
-/** Short title for a work order seeded from a message. */
-export function workflowTitleFromMessage(messageText: string, fallback: string): string {
-  const line = messageText.trim().split(/\n/)[0]?.trim() ?? "";
-  if (!line) return fallback;
-  return line.length > 80 ? `${line.slice(0, 77)}…` : line;
+  return [];
 }

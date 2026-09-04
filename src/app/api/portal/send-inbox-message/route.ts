@@ -50,6 +50,7 @@ import {
   type NotificationCategory,
 } from "@/lib/notification-preferences";
 import { deliverResidentPropertyManagerChatMessage } from "@/lib/property-manager-inbox-thread.server";
+import { fileWorkflowFromInboundMessage } from "@/lib/inbox/inbound-message-workflows.server";
 // The recipient's stored chip label must match the sender's optimistic one, so
 // both derive it from the storage key with the SAME helper. The local copy this
 // route used to keep split the URL rather than `?path=`, so every recipient-side
@@ -405,6 +406,52 @@ export async function POST(req: Request) {
     // send refused above returns before this line and writes nothing.
     if (replyTarget) await commitInboxThreadReply(db, replyTarget, replyBody);
 
+    // PRP-109: a resident who TEXTS "the sink is leaking" has had a work order
+    // opened for them since the Claw work; the same sentence typed here did
+    // nothing, so the channel they happened to use decided whether their
+    // manager heard about it. Same rule now, one shared decision.
+    //
+    // Deferred with `after()` and best-effort by contract: the message is
+    // already delivered above, and filing must never be able to fail a send.
+    // The manager identity comes from the recipient the scope filter already
+    // authorized, never from anything written in the body.
+    // At most once per request. A resident property chat satisfies BOTH the
+    // single-recipient case below and the explicit-manager case further down;
+    // the creators would dedupe the second filing, but asking them to is waste,
+    // not a design.
+    let workflowQueued = false;
+    const queueResidentWorkflow = (managerUserId: string, residentName?: string) => {
+      if (workflowQueued || !managerUserId || senderRole !== "resident") return;
+      workflowQueued = true;
+      after(
+        fileWorkflowFromInboundMessage({
+          managerUserId,
+          residentEmail: senderEmail,
+          residentUserId: user.id,
+          residentName: residentName ?? fromName,
+          text,
+          channel: "portal",
+        }).then(() => undefined),
+      );
+    };
+
+    // Only for a reply that just COMMITTED above. The no-thread paths are
+    // handled where they deliver — queuing here would file a work order for a
+    // property-chat message that the ownership check further down can still
+    // refuse with a 403.
+    //
+    // One recipient, so "the manager" is unambiguous; admin ops is not a
+    // manager and must never have a work order filed against it.
+    if (
+      replyTarget &&
+      senderRole === "resident" &&
+      recipients.length === 1 &&
+      recipients[0]!.userId &&
+      !isPrimaryAdminRecipientEmail(recipients[0]!.email)
+    ) {
+      queueResidentWorkflow(recipients[0]!.userId!);
+    }
+
     // Per-recipient channel resolution (category mode) mirrors core delivery:
     // email/SMS follow each recipient's saved prefs; account-less (no userId)
     // recipients get the category-default email and never SMS.
@@ -528,6 +575,14 @@ export async function POST(req: Request) {
         message: text,
       });
       propertyThreadId = chat.threadId;
+      // This branch resolved the property's owning manager explicitly, so it is
+      // a firmer identity than the single-recipient case above — and it is the
+      // path a resident uses to message the manager of a specific property,
+      // which is exactly where a repair gets reported.
+      queueResidentWorkflow(
+        managerUserIdForProperty,
+        fromName || String(senderFull?.full_name ?? "").trim() || "Resident",
+      );
     }
 
     if (deliverToPortalInbox && recipients.length > 0 && !residentPropertyChat) {
@@ -612,6 +667,19 @@ export async function POST(req: Request) {
           outbound: false,
           attachments: inboxAttachmentsFromUrls(attachmentUrls),
         });
+      }
+
+      // The fresh-compose case: no thread to reply into and no property, so
+      // neither hook above fired, but the message has now landed in the
+      // recipient's inbox. `workflowQueued` keeps this a no-op when one of them
+      // already claimed it.
+      if (
+        senderRole === "resident" &&
+        recipients.length === 1 &&
+        recipients[0]!.userId &&
+        !isPrimaryAdminRecipientEmail(recipients[0]!.email)
+      ) {
+        queueResidentWorkflow(recipients[0]!.userId!);
       }
 
       // Push notification, best-effort. Keep the payload generic (sender name
