@@ -283,17 +283,34 @@ function emptyLine(): InvoiceFormLine {
 const INVOICE_FORM_INPUT =
   "w-full rounded-lg border border-border bg-card px-3 py-2 text-sm text-foreground outline-none focus-visible:ring-2 focus-visible:ring-primary/40";
 
+function vendorExportUrl(dataset: "invoices" | "payouts", from?: string, to?: string): string {
+  const params = new URLSearchParams({ dataset });
+  if (from) params.set("from", from);
+  if (to) params.set("to", to);
+  return `/api/vendor/export?${params.toString()}`;
+}
+
+function invoiceToFormLines(invoice: VendorInvoice): InvoiceFormLine[] {
+  return invoice.lineItems.map((item) => ({
+    description: item.description,
+    quantity: String(item.quantity),
+    unitAmount: (item.unitAmountCents / 100).toFixed(2),
+  }));
+}
+
 function SubmitInvoiceModal({
   open,
   onClose,
   onSubmitted,
   linkedManagers,
+  editingInvoice = null,
 }: {
   open: boolean;
   onClose: () => void;
   onSubmitted: () => void;
   /** Managers this vendor is linked to. Serving several clients is the normal case. */
   linkedManagers: VendorLinkedManagerOption[];
+  editingInvoice?: VendorInvoice | null;
 }) {
   const [invoiceNumber, setInvoiceNumber] = useState("");
   const [workOrderId, setWorkOrderId] = useState("");
@@ -319,10 +336,17 @@ function SubmitInvoiceModal({
 
   useEffect(() => {
     if (!open) return;
+    if (editingInvoice) {
+      setInvoiceNumber(editingInvoice.invoiceNumber ?? "");
+      setWorkOrderId(editingInvoice.workOrderId ?? "");
+      setMemo(editingInvoice.memo ?? "");
+      setLines(invoiceToFormLines(editingInvoice).length > 0 ? invoiceToFormLines(editingInvoice) : [emptyLine()]);
+      return;
+    }
     if (linkedManagers.length === 1) {
       setManagerUserId(linkedManagers[0]!.managerUserId);
     }
-  }, [open, linkedManagers]);
+  }, [open, linkedManagers, editingInvoice]);
 
   useEffect(() => {
     const trimmed = workOrderId.trim();
@@ -348,27 +372,36 @@ function SubmitInvoiceModal({
       setError("Add at least one line item with an amount.");
       return;
     }
-    if (showManagerPicker && !managerUserId.trim()) {
+    if (!editingInvoice && showManagerPicker && !managerUserId.trim()) {
       setError("Choose which manager to bill.");
       return;
     }
     setSaving(true);
     setError(null);
     try {
-      const res = await fetch("/api/vendor/invoices", {
-        method: "POST",
+      const lineItemsPayload = lines.map((l) => ({
+        description: l.description,
+        quantity: Number(l.quantity) || 0,
+        unitAmountCents: Math.round((Number(l.unitAmount) || 0) * 100),
+      }));
+      const res = await fetch(editingInvoice ? `/api/vendor/invoices/${editingInvoice.id}` : "/api/vendor/invoices", {
+        method: editingInvoice ? "PATCH" : "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          invoiceNumber: invoiceNumber.trim() || undefined,
-          workOrderId: workOrderId.trim() || undefined,
-          managerUserId: managerUserId.trim() || undefined,
-          memo: memo.trim() || undefined,
-          lineItems: lines.map((l) => ({
-            description: l.description,
-            quantity: Number(l.quantity) || 0,
-            unitAmountCents: Math.round((Number(l.unitAmount) || 0) * 100),
-          })),
-        }),
+        body: JSON.stringify(
+          editingInvoice
+            ? {
+                invoiceNumber: invoiceNumber.trim() || undefined,
+                memo: memo.trim() || undefined,
+                lineItems: lineItemsPayload,
+              }
+            : {
+                invoiceNumber: invoiceNumber.trim() || undefined,
+                workOrderId: workOrderId.trim() || undefined,
+                managerUserId: managerUserId.trim() || undefined,
+                memo: memo.trim() || undefined,
+                lineItems: lineItemsPayload,
+              },
+        ),
       });
       const body = (await res.json()) as { error?: string };
       if (!res.ok) {
@@ -391,7 +424,7 @@ function SubmitInvoiceModal({
   return (
     <Modal
       open={open}
-      title="Submit invoice"
+      title={editingInvoice ? "Edit invoice" : "Submit invoice"}
       onClose={() => {
         if (!saving) onClose();
       }}
@@ -403,13 +436,13 @@ function SubmitInvoiceModal({
             disabled={saving || totalCents === 0}
             data-attr="vendor-invoice-submit"
           >
-            {saving ? "Submitting…" : `Submit ${formatInvoiceMoney(totalCents)}`}
+            {saving ? "Submitting…" : editingInvoice ? `Save ${formatInvoiceMoney(totalCents)}` : `Submit ${formatInvoiceMoney(totalCents)}`}
           </Button>
         </div>
       }
     >
       <div className="space-y-4">
-        {showManagerPicker ? (
+        {showManagerPicker && !editingInvoice ? (
           <label className="block space-y-1">
             <span className="text-xs font-semibold uppercase tracking-[0.06em] text-muted">Bill to</span>
             <select
@@ -438,12 +471,16 @@ function SubmitInvoiceModal({
             />
           </label>
           <label className="block space-y-1">
-            <span className="text-xs font-semibold uppercase tracking-[0.06em] text-muted">Work order (optional)</span>
+            <span className="text-xs font-semibold uppercase tracking-[0.06em] text-muted">
+              Service {editingInvoice ? "" : "(optional)"}
+            </span>
             <input
               className={INVOICE_FORM_INPUT}
               value={workOrderId}
               onChange={(e) => setWorkOrderId(e.target.value)}
               placeholder="Service id"
+              readOnly={Boolean(editingInvoice)}
+              disabled={Boolean(editingInvoice)}
             />
           </label>
         </div>
@@ -534,6 +571,9 @@ function VendorInvoicesView({ tabItems, tabId }: { tabItems: { id: string; label
   const [loading, setLoading] = useState(true);
   const [statusFilter, setStatusFilter] = useState<"all" | VendorInvoiceStatus>("all");
   const [modalOpen, setModalOpen] = useState(false);
+  const [editingInvoice, setEditingInvoice] = useState<VendorInvoice | null>(null);
+  const [withdrawingId, setWithdrawingId] = useState<string | null>(null);
+  const [exportRange] = useState(() => defaultFilters());
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -574,14 +614,59 @@ function VendorInvoicesView({ tabItems, tabId }: { tabItems: { id: string; label
     [invoices, statusFilter],
   );
 
+  async function withdrawInvoice(invoice: VendorInvoice) {
+    if (!window.confirm("Withdraw this invoice? You can submit a corrected one afterward.")) return;
+    setWithdrawingId(invoice.id);
+    try {
+      const res = await fetch(`/api/vendor/invoices/${invoice.id}`, { method: "DELETE" });
+      if (!res.ok) {
+        const body = (await res.json()) as { error?: string };
+        throw new Error(body.error ?? "Could not withdraw invoice.");
+      }
+      await load();
+    } catch (e) {
+      window.alert(e instanceof Error ? e.message : "Could not withdraw invoice.");
+    } finally {
+      setWithdrawingId(null);
+    }
+  }
+
+  function openEdit(invoice: VendorInvoice) {
+    setEditingInvoice(invoice);
+    setModalOpen(true);
+  }
+
+  function closeModal() {
+    setModalOpen(false);
+    setEditingInvoice(null);
+  }
+
   return (
     <ManagerPortalPageShell
       title="Finances"
       hideTitleOnMobileNav
       titleAside={
-        <Button variant="primary" onClick={() => setModalOpen(true)} data-attr="vendor-invoice-new">
-          Submit invoice
-        </Button>
+        <div className="flex flex-wrap items-center gap-2">
+          <Button
+            variant="outline"
+            data-attr="vendor-export-invoices-csv"
+            onClick={() => {
+              window.location.assign(vendorExportUrl("invoices", exportRange.from, exportRange.to));
+            }}
+          >
+            Export CSV
+          </Button>
+          <Button
+            variant="primary"
+            onClick={() => {
+              setEditingInvoice(null);
+              setModalOpen(true);
+            }}
+            data-attr="vendor-invoice-new"
+          >
+            Submit invoice
+          </Button>
+        </div>
       }
       filterRow={
         <ManagerPortalFilterRow>
@@ -637,6 +722,7 @@ function VendorInvoicesView({ tabItems, tabId }: { tabItems: { id: string; label
                     <th className={`${MANAGER_TABLE_TH} text-right`}>Items</th>
                     <th className={`${MANAGER_TABLE_TH} text-right`}>Total</th>
                     <th className={`${MANAGER_TABLE_TH} text-left`}>Status</th>
+                    <th className={`${MANAGER_TABLE_TH} text-right`}>Actions</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -653,6 +739,31 @@ function VendorInvoicesView({ tabItems, tabId }: { tabItems: { id: string; label
                         <Badge tone={vendorInvoiceBadgeTone(inv.status)}>{vendorInvoiceStatusLabel(inv.status)}</Badge>
                         {inv.decisionNote ? <p className="mt-1 text-xs text-muted">{inv.decisionNote}</p> : null}
                       </td>
+                      <td className={`${PORTAL_TABLE_TD} text-right`}>
+                        {inv.status === "submitted" ? (
+                          <div className="flex justify-end gap-2">
+                            <Button
+                              variant="outline"
+                              className="h-8 min-h-0 px-3 text-[13px]"
+                              data-attr="vendor-invoice-edit"
+                              onClick={() => openEdit(inv)}
+                            >
+                              Edit
+                            </Button>
+                            <Button
+                              variant="outline"
+                              className="h-8 min-h-0 px-3 text-[13px]"
+                              data-attr="vendor-invoice-withdraw"
+                              disabled={withdrawingId === inv.id}
+                              onClick={() => withdrawInvoice(inv)}
+                            >
+                              {withdrawingId === inv.id ? "Withdrawing…" : "Withdraw"}
+                            </Button>
+                          </div>
+                        ) : (
+                          "—"
+                        )}
+                      </td>
                     </tr>
                   ))}
                 </tbody>
@@ -664,9 +775,10 @@ function VendorInvoicesView({ tabItems, tabId }: { tabItems: { id: string; label
 
       <SubmitInvoiceModal
         open={modalOpen}
-        onClose={() => setModalOpen(false)}
+        onClose={closeModal}
         onSubmitted={load}
         linkedManagers={linkedManagers}
+        editingInvoice={editingInvoice}
       />
     </ManagerPortalPageShell>
   );
@@ -764,6 +876,17 @@ export function VendorFinancesPanel({
           onRun={() => undefined}
           showRunButton={false}
         />
+        <div className="flex justify-end">
+          <Button
+            variant="outline"
+            data-attr="vendor-export-payouts-csv"
+            onClick={() => {
+              window.location.assign(vendorExportUrl("payouts", filters.from, filters.to));
+            }}
+          >
+            Export payouts CSV
+          </Button>
+        </div>
 
         {filteredRows.length === 0 && allRows.length > 0 ? (
           <PortalDataTableEmpty message="No income entries match these filters yet." icon="finance" />

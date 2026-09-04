@@ -58,6 +58,14 @@ const MARK_DONE = [
     id: "PRP-224",
     note: "Manager calendar empty portfolio still shows week navigation (`portal-calendar-empty-week-nav.test.tsx`).",
   },
+  {
+    id: "PRP-254",
+    note: "Vendor portal gaps closed — multi-manager invoice picker, decline offer, withdraw bid, edit/withdraw submitted invoices, CSV export (cursor-2). Needs `db:push` for declined offer migration.",
+  },
+  {
+    id: "PRP-193",
+    note: "Unified manager signup — `/auth/create-account?role=manager` uses ManagerTrialSignupForm + manager-register; hub variant no longer the default path (cursor-2).",
+  },
 ];
 
 /**

@@ -669,7 +669,10 @@ export async function POST(req: Request) {
           }
           if (storedRow) {
             const residentSigningExempt =
-              !untrustedDocument && leaseClaimsExecution(nextRow) && !leaseClaimsExecution(storedRow);
+              !untrustedDocument &&
+              leaseClaimsExecution(nextRow) &&
+              !leaseClaimsExecution(storedRow) &&
+              nextRow.externallySignedLease === true;
             const signatureRefusal = refuseResidentLeaseSignatureWrite(storedRow, nextRow, {
               exemptNotReady: residentSigningExempt,
             });
