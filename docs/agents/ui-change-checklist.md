@@ -44,6 +44,29 @@ Compose with **`PortalRecordListSurface`** — not hand-rolled wrappers.
 
 Reference: manager **Properties** tab.
 
+## Selection: the checkbox rules
+
+These are cheap to get wrong and invisible to a build — a panel that breaks
+them still compiles, still passes its own tests, and just looks unlike every
+other tab. `tests/unit/bulk-action-bar-house-convention.test.ts` guards the
+bulk-bar half.
+
+- **Bulk bar is `hideCount variant="payments"`, always.** No `N selected`
+  label: the selection is already visible in the rows, and the label pushes the
+  actions off the left gutter that every other list aligns to. Actions go in a
+  `PortalAdaptiveActionRow` with `PORTAL_BULK_BAR_BTN`, outline first, filled
+  primary last.
+- **Bulk-bar actions are LEFT justified**, on the same gutter as the rows —
+  never centred in the bar.
+- **A heading that names a selectable group gets its own checkbox.** If a
+  section lists checkbox rows under a group label ("The whole house" over its
+  rooms), that label is a select-all row: check it to select every child,
+  indeterminate when only some are selected. A group label with no checkbox
+  sitting above a column of checkboxes reads as a broken control, not an
+  absent one.
+- **A checkbox is the leading element of its row**, with the selected row
+  carrying the `border-l-primary` rail and tinted fill.
+
 ## Tables (detail / admin only)
 
 - Chevron **inline after label** — `PortalTableInlineExpand`, never trailing expand column

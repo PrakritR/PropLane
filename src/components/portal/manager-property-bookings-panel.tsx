@@ -37,33 +37,22 @@ export function ManagerPropertyBookingsPanel({
   const [linkModalOpen, setLinkModalOpen] = useState(false);
   const [refreshSignal, setRefreshSignal] = useState(0);
   const leaseRows = useLeasePipelineRows(managerUserId);
-  const [roomFilterId, setRoomFilterId] = useState("");
-
-  // Rent-by-room only: an entire-home listing has no room axis to filter on.
-  const rooms = useMemo(() => {
-    if (!submission || isEntireHomeListing(submission)) return [];
-    return submission.rooms.map((room, index) => ({
-      id: room.id,
-      label: room.name?.trim() || `Room ${index + 1}`,
-    }));
-  }, [submission]);
-
-  // Derived, not stored: a filter pinned to a room the listing no longer has
-  // would hide every booking with no visible cause, and correcting it in an
-  // effect would render the wrong list once first.
-  const activeRoomFilterId =
-    roomFilterId && rooms.some((room) => room.id === roomFilterId) ? roomFilterId : "";
 
   const propertyEntries = useMemo<PropertyBookingEntry[]>(
     () =>
       leaseBookingEntries(leaseRows, {
         propertyId,
         propertyLabel,
-        roomLabelForId: (roomId) => rooms.find((r) => r.id === roomId)?.label ?? "Room",
+        roomLabelForId: (roomId) => {
+          if (!submission || isEntireHomeListing(submission)) return "Room";
+          const index = submission.rooms.findIndex((room) => room.id === roomId);
+          if (index < 0) return "Room";
+          return submission.rooms[index]!.name?.trim() || `Room ${index + 1}`;
+        },
         openEndedHorizonKey: openEndedBookingHorizonKey(),
         entireHomeListing: submission ? isEntireHomeListing(submission) : false,
       }),
-    [leaseRows, propertyId, propertyLabel, rooms, submission],
+    [leaseRows, propertyId, propertyLabel, submission],
   );
 
   const propertyOptions = useMemo(
@@ -78,16 +67,17 @@ export function ManagerPropertyBookingsPanel({
         showToast={showToast}
         refreshSignal={refreshSignal}
         extraEntries={propertyEntries}
-        roomFilterId={activeRoomFilterId}
         emptyMessage="This house is not listed yet, so it has no bookings."
       />
 
-      <BookingsCalendarFooterBar
-        rooms={rooms.length > 1 ? rooms : undefined}
-        roomFilterId={activeRoomFilterId}
-        onRoomFilterIdChange={rooms.length > 1 ? setRoomFilterId : undefined}
-        onLinkAirbnb={() => setLinkModalOpen(true)}
-      />
+      {/*
+        No room filter here. This tab is already one house, and every booking it
+        can show fits on the month grid at once — a filter that only ever hides
+        rows the manager came here to see is a control with nothing to do. The
+        portfolio-wide Bookings section keeps its filter, because that one spans
+        every property.
+      */}
+      <BookingsCalendarFooterBar onLinkAirbnb={() => setLinkModalOpen(true)} />
 
       <ChannelCalendarLinkModal
         open={linkModalOpen}

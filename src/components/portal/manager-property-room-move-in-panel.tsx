@@ -4,6 +4,10 @@ import { useEffect, useMemo, useState } from "react";
 import { ChevronRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { BulkActionBar } from "@/components/ui/bulk-action-bar";
+import { DropdownMenuItem } from "@/components/ui/dropdown-menu";
+import { PortalAdaptiveActionRow } from "@/components/portal/portal-adaptive-action-row";
+import type { PortalAdaptiveAction } from "@/lib/portal-adaptive-actions";
+import { PORTAL_BULK_BAR_BTN } from "@/lib/portal-bulk-bar";
 import { Textarea } from "@/components/ui/input";
 import {
   PORTAL_PROPERTY_DETAIL_ACTION_BUTTON_CLASS,
@@ -193,6 +197,10 @@ export function ManagerPropertyRoomMoveInPanel({
     );
   };
 
+  const allRoomIds = roomIndices.map((index) => sub.rooms[index]!.id);
+  const allRoomsSelected = allRoomIds.length > 0 && allRoomIds.every((id) => selectedRoomIds.includes(id));
+  const someRoomsSelected = selectedRoomIds.length > 0 && !allRoomsSelected;
+
   /**
    * Put the SAVED house move-in details onto the selected rooms.
    *
@@ -338,6 +346,57 @@ export function ManagerPropertyRoomMoveInPanel({
     );
   }
 
+  const bulkSelectionActions: PortalAdaptiveAction[] = [
+    {
+      id: "clear",
+      keepPriority: 1,
+      node: (
+        <Button
+          type="button"
+          variant="outline"
+          className={PORTAL_BULK_BAR_BTN}
+          data-attr="property-move-in-clear-selection"
+          onClick={() => setSelectedRoomIds([])}
+        >
+          Clear
+        </Button>
+      ),
+      menuItem: (
+        <DropdownMenuItem
+          data-attr="property-move-in-clear-selection"
+          onSelect={() => setSelectedRoomIds([])}
+        >
+          Clear
+        </DropdownMenuItem>
+      ),
+    },
+    {
+      id: "copy-house",
+      keepPriority: 2,
+      node: (
+        <Button
+          type="button"
+          variant="primary"
+          className={PORTAL_BULK_BAR_BTN}
+          data-attr="property-move-in-copy-house"
+          disabled={copyingToRooms || !houseHasSavedDetails}
+          onClick={() => copyHouseToSelectedRooms()}
+        >
+          Copy house details here
+        </Button>
+      ),
+      menuItem: (
+        <DropdownMenuItem
+          data-attr="property-move-in-copy-house"
+          disabled={copyingToRooms || !houseHasSavedDetails}
+          onSelect={() => copyHouseToSelectedRooms()}
+        >
+          Copy house details here
+        </DropdownMenuItem>
+      ),
+    },
+  ];
+
   return (
     <>
       {/*
@@ -364,10 +423,34 @@ export function ManagerPropertyRoomMoveInPanel({
         }
       >
         <div className="px-1">
-          <p className="text-sm font-semibold text-foreground">The whole house</p>
-          <p className="mt-0.5 text-sm text-muted">
-            Shown to every resident here, whichever room they take.
-          </p>
+          {/*
+            The house is a selectable row like the rooms below it, not a bare
+            label: ticking it selects every room, which is the commonest thing a
+            manager wants ("put these details everywhere"). A heading with no
+            checkbox sitting above a list of checkboxes reads as a control that
+            is broken rather than one that was never offered.
+          */}
+          <div className="flex items-start gap-2.5">
+            {canEdit && allRoomIds.length > 0 ? (
+              <input
+                type="checkbox"
+                className="mt-1 h-4 w-4 shrink-0 rounded border-border"
+                checked={allRoomsSelected}
+                ref={(node) => {
+                  if (node) node.indeterminate = someRoomsSelected;
+                }}
+                aria-label="Select every room in the house"
+                data-attr="property-move-in-select-whole-house"
+                onChange={() => setSelectedRoomIds(allRoomsSelected ? [] : allRoomIds)}
+              />
+            ) : null}
+            <div className="min-w-0 flex-1">
+              <p className="text-sm font-semibold text-foreground">The whole house</p>
+              <p className="mt-0.5 text-sm text-muted">
+                Shown to every resident here, whichever room they take.
+              </p>
+            </div>
+          </div>
           <div className="mt-4">
             <MoveInInstructionsField
               moveInInstructions={houseInstructions}
@@ -435,25 +518,15 @@ export function ManagerPropertyRoomMoveInPanel({
         </div>
       </PortalPropertyDetailSection>
 
-      <BulkActionBar count={selectedRoomIds.length}>
-        <Button
-          type="button"
-          variant="outline"
-          className="h-9 min-h-0 rounded-full px-4 text-[13px]"
-          onClick={() => setSelectedRoomIds([])}
-        >
-          Clear
-        </Button>
-        <Button
-          type="button"
-          variant="primary"
-          className="h-9 min-h-0 rounded-full px-4 text-[13px]"
-          data-attr="property-move-in-copy-house"
-          disabled={copyingToRooms || !houseHasSavedDetails}
-          onClick={() => copyHouseToSelectedRooms()}
-        >
-          Copy house details here
-        </Button>
+      {/*
+        Same shape as every other bulk bar in the portal: `hideCount` +
+        `variant="payments"` and an adaptive action row, so the actions sit on
+        the left gutter with the list instead of floating centred behind an
+        "N selected" label nobody reads — the selection is already visible in
+        the rows themselves.
+      */}
+      <BulkActionBar count={selectedRoomIds.length} hideCount variant="payments">
+        <PortalAdaptiveActionRow actions={bulkSelectionActions} />
       </BulkActionBar>
     </>
   );
