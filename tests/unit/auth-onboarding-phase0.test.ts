@@ -33,10 +33,18 @@ describe("manager partner-pricing create-account routing", () => {
     path.join(process.cwd(), "src/app/auth/create-account/create-account-router.tsx"),
     "utf8",
   );
+  const gateway = readFileSync(
+    path.join(process.cwd(), "src/app/auth/create-account/create-account-role-gateway.tsx"),
+    "utf8",
+  );
+
+  it("delegates role-based signup to CreateAccountRoleGateway", () => {
+    expect(router).toMatch(/CreateAccountRoleGateway/);
+  });
 
   it("uses ManagerTrialSignupForm for every role=manager create-account link", () => {
-    expect(router).toMatch(/ManagerTrialSignupForm/);
-    expect(router).toMatch(/role === "manager"/);
+    expect(gateway).toMatch(/ManagerTrialSignupForm/);
+    expect(gateway).toMatch(/role === "manager"/);
   });
 });
 
