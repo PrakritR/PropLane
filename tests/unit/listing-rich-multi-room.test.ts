@@ -74,6 +74,9 @@ describe("listing multi-room lease basics", () => {
   it("includes unified long-term fees in the pricing sidebar breakdown", () => {
     const sub = createDefaultListingSubmission();
     sub.applicationFee = "50";
+    // Both surcharges are gated on the listing OFFERING that lease length (PRP-218), and a
+    // submission with no declared terms offers neither — the wizard hides both rows there.
+    sub.allowedLeaseTerms = ["Month-to-Month", "Custom"];
     sub.monthToMonthSurcharge = "25";
     sub.customLeaseSurcharge = "100";
     sub.holdingDeposit = "50";

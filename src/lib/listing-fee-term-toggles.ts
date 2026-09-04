@@ -3,19 +3,15 @@ import {
   applyEntireHomeListingPricing,
   isEntireHomeListing,
   isListingFeeAmountFilled,
-  resolveAllowedLeaseTerms,
   type ManagerRoomSubmission,
 } from "@/lib/manager-listing-submission";
 import {
+  listingOffersCustomLeaseSurcharge,
+  listingOffersMonthToMonthSurcharge,
   listingPresetFeeAmount,
   removedStandardListingFeeRowSet,
   type ListingFeePresetId,
 } from "@/lib/listing-fees";
-import {
-  CUSTOM_LEASE_TERM,
-  isLegacyFixedLeaseTerm,
-  LONG_TERM_LEASE_TERM,
-} from "@/lib/rental-application/lease-terms";
 import { shortTermNightlyRate } from "@/lib/short-term-stay-pricing";
 
 function listingRoomHasRent(room: ManagerRoomSubmission): boolean {
@@ -392,23 +388,9 @@ export function listingLtFeeFieldsRequired(_hasLongTerm: boolean): (keyof Manage
   return [];
 }
 
-/** Month-to-month surcharge applies only when MTM (or rollover) is offered. */
-export function listingOffersMonthToMonthSurcharge(
-  sub: Pick<ManagerListingSubmissionV1, "allowedLeaseTerms" | "leaseTermsBody" | "shortTermRentalsAllowed" | "airbnbRentalsAllowed" | "rolloverToMonthToMonth">,
-): boolean {
-  const terms = resolveAllowedLeaseTerms(sub);
-  return terms.includes("Month-to-Month") || sub.rolloverToMonthToMonth === true;
-}
-
-/** Custom-lease surcharge applies when the listing offers a fixed or custom calendar term. */
-export function listingOffersCustomLeaseSurcharge(
-  sub: Pick<ManagerListingSubmissionV1, "allowedLeaseTerms" | "leaseTermsBody" | "shortTermRentalsAllowed" | "airbnbRentalsAllowed">,
-): boolean {
-  const terms = resolveAllowedLeaseTerms(sub);
-  return terms.some(
-    (term) => term === CUSTOM_LEASE_TERM || term === LONG_TERM_LEASE_TERM || isLegacyFixedLeaseTerm(term),
-  );
-}
+// The two lease-length predicates live in listing-fees so the display and lease-document
+// readers there can apply the same gate without importing this module (which imports them).
+export { listingOffersCustomLeaseSurcharge, listingOffersMonthToMonthSurcharge };
 
 /** Standard fee rows hidden until the matching lease length is offered. */
 export function leaseLengthGatedHiddenFeeRowIds(
