@@ -64,7 +64,12 @@ import type { ScheduledPaymentMessage } from "@/lib/scheduled-payment-messages";
 import { manageableRemindersForCharge, formatScheduledSendAt } from "@/lib/scheduled-payment-messages";
 import { scheduledSendBadgeLabel, summariseScheduledSends } from "@/lib/scheduled-send-summary";
 import { paymentReminderRecipientLabel } from "@/lib/payment-reminder-ui";
-import { buildManualPaymentInstructionLines, buildPaymentReminderBody } from "@/lib/manual-payment-instructions";
+import {
+  buildCombinedPaymentReminderBody,
+  buildManualPaymentInstructionLines,
+  buildPaymentReminderBody,
+  sumPaymentBalanceLabels,
+} from "@/lib/manual-payment-instructions";
 import {
   PortalAdaptiveActionRow,
   type PortalAdaptiveAction,
@@ -563,17 +568,67 @@ export function ManagerPaymentsLedgerPanel({
     setReminderPreview({ row, subject: preview.subject, body: preview.body });
   };
 
+  /**
+   * ONE reminder per person, not one per charge.
+   *
+   * A resident with six outstanding charges got six separate messages, each
+   * naming one of them — the same reminder six times over from their side, and
+   * the review step made you page through six near-identical cards to send it.
+   * Charges are grouped by recipient and a recipient with more than one gets a
+   * single message itemising them with a total.
+   *
+   * The grouping key is the resident's email where there is one, because two
+   * people can share a name and must never share a reminder; a row with no
+   * email falls back to its own id, which groups with nothing.
+   */
   const openBulkReminderPreview = () => {
     const targets = remindableSelectedRows;
     if (targets.length === 0) {
       showToast("Select unpaid charges to remind.");
       return;
     }
-    const items: BulkPaymentReminderPreviewItem[] = [];
+
+    const groups = new Map<string, DemoManagerPaymentLedgerRow[]>();
     for (const row of targets) {
-      const preview = buildReminderPreviewForRow(row);
-      if (preview) items.push(preview);
+      const key = row.residentEmail?.trim().toLowerCase() || `row:${row.id}`;
+      const bucket = groups.get(key);
+      if (bucket) bucket.push(row);
+      else groups.set(key, [row]);
     }
+
+    const items: BulkPaymentReminderPreviewItem[] = [];
+    for (const rows of groups.values()) {
+      const anchor = rows[0]!;
+      if (rows.length === 1) {
+        const preview = buildReminderPreviewForRow(anchor);
+        if (preview) items.push(preview);
+        continue;
+      }
+      const chargeId = anchor.householdChargeId?.trim() || anchor.id?.trim();
+      if (!chargeId) continue;
+      const residentName = anchor.residentName || "Resident";
+      const charges = rows.map((row) => ({
+        title: row.chargeTitle || "Outstanding charge",
+        balanceDue: row.balanceDue,
+        dueDate: row.dueDate,
+      }));
+      items.push({
+        id: anchor.id,
+        coveredRowIds: rows.map((row) => row.id),
+        recipient: paymentReminderRecipientLabel(anchor),
+        chargeLabel: `${rows.length} payments · ${anchor.propertyName}`,
+        subject: `Payment reminder: ${rows.length} outstanding payments`,
+        body: buildCombinedPaymentReminderBody({
+          residentName,
+          residentEmail: anchor.residentEmail?.trim(),
+          charges,
+          propertyLabel: anchor.propertyName,
+          managerName: "Your property manager",
+          totalLabel: sumPaymentBalanceLabels(rows.map((row) => row.balanceDue)),
+        }),
+      });
+    }
+
     if (items.length === 0) {
       showToast("Selected payments are missing charge ids. Sync payments and try again.");
       return;
@@ -626,7 +681,12 @@ export function ManagerPaymentsLedgerPanel({
     }
   };
 
-  const sendBulkReminders = async (targets = remindableSelectedRows) => {
+  const sendBulkReminders = async (
+    targets: Array<
+      | DemoManagerPaymentLedgerRow
+      | { row: DemoManagerPaymentLedgerRow; subject: string; body: string }
+    > = remindableSelectedRows,
+  ) => {
     if (targets.length === 0) {
       showToast("Select unpaid charges to remind.");
       return;
@@ -637,9 +697,11 @@ export function ManagerPaymentsLedgerPanel({
     let failed = 0;
     let lastError = "";
     try {
-      for (const row of targets) {
+      for (const target of targets) {
+        const row = "row" in target ? target.row : target;
+        const draft = "row" in target ? { subject: target.subject, body: target.body } : undefined;
         // Bulk sends inbox + email only — SMS requires per-charge preview and channel pick.
-        const result = await sendReminderForRow(row, { viaEmail: true, viaSms: false });
+        const result = await sendReminderForRow(row, { viaEmail: true, viaSms: false }, draft);
         if (result.chargePaid) continue;
         if (result.ok) {
           ok += 1;
@@ -836,10 +898,21 @@ export function ManagerPaymentsLedgerPanel({
 
   const doSendBulkReminders = async () => {
     if (!bulkReminderPreview?.length) return;
-    const targetIds = new Set(bulkReminderPreview.map((item) => item.id));
-    const targets = remindableSelectedRows.filter((row) => targetIds.has(row.id));
+    // One send per PREVIEW CARD, not per charge: a combined card is one message
+    // that already names every charge it covers, so sending its rows
+    // individually would put the resident back where they started.
+    const items = bulkReminderPreview;
+    const byId = new Map(remindableSelectedRows.map((row) => [row.id, row]));
+    const sends = items
+      .map((item) => {
+        const row = byId.get(item.id);
+        return row ? { row, subject: item.subject, body: item.body } : null;
+      })
+      .filter((entry): entry is { row: DemoManagerPaymentLedgerRow; subject: string; body: string } =>
+        Boolean(entry),
+      );
     setBulkReminderPreview(null);
-    await sendBulkReminders(targets);
+    await sendBulkReminders(sends);
   };
 
   const recordPaid = async (row: DemoManagerPaymentLedgerRow, toastMessage: string) => {
