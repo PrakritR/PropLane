@@ -15,6 +15,7 @@ import {
 import { normalizeManagerSkuTier, type ManagerSkuTier } from "@/lib/manager-access";
 import type { ServiceFeePayer } from "@/lib/payment-policy";
 import { useGmailPaymentTrack } from "@/components/portal/gmail-payment-auto-track-panel";
+import { GMAIL_PAYMENTS_ENABLED } from "@/lib/gmail-payments/enabled";
 import {
   formatGmailPaymentsConnectError,
   isGmailPaymentsOAuthBlocked,
@@ -215,7 +216,16 @@ function ChannelPaymentSetupModal({
           </p>
         </div>
 
-        <div className="space-y-2 rounded-xl border border-border bg-card px-4 py-3">
+        {/* Gmail receipt matching is off (PRP-130): `gmail.readonly` is a
+            RESTRICTED Google scope, and Zelle/Venmo are being recorded by hand
+            for now. The whole step is hidden rather than shown-and-disabled,
+            because a step you cannot complete is worse than one that is not
+            there. Forwarding (Step 4) still works and needs no Google approval. */}
+        <div
+          className={`space-y-2 rounded-xl border border-border bg-card px-4 py-3 ${
+            GMAIL_PAYMENTS_ENABLED ? "" : "hidden"
+          }`}
+        >
           <p className="text-sm font-semibold text-foreground">Step 3 — Link the Gmail inbox for {label} (optional)</p>
           <p className="text-xs text-muted">
             Use the Gmail account that receives your {label} payment alerts — it can be different from the inbox you use

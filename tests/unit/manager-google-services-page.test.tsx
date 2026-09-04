@@ -18,7 +18,12 @@ afterEach(() => {
 });
 
 describe("manager Google services page", () => {
-  it("offers independent Calendar and Gmail consent plus a non-blocking skip", async () => {
+  it("PRP-130: offers Calendar consent and a non-blocking skip, and no longer offers Gmail", async () => {
+    // `gmail.readonly` is a RESTRICTED Google scope — verification plus a paid
+    // annual security assessment — and it exists only to match Zelle/Venmo
+    // receipts, which are being recorded by hand for now. Removing the card is
+    // what takes PropLane out of that tier; `calendar.events` is merely
+    // sensitive.
     vi.stubGlobal(
       "fetch",
       vi.fn(async (input: RequestInfo | URL) => {
@@ -38,13 +43,11 @@ describe("manager Google services page", () => {
     render(<ManagerGoogleServicesPage />);
 
     await waitFor(() => expect(screen.getByText("Connect Calendar")).toBeTruthy());
-    expect(screen.getByText("Connect Gmail")).toBeTruthy();
+    expect(screen.queryByText("Connect Gmail")).toBeNull();
+    expect(screen.queryByText("Gmail payment receipts")).toBeNull();
     expect(screen.getByRole("button", { name: "Skip for now" })).toBeTruthy();
 
     const calendarLink = screen.getByText("Connect Calendar").closest("a");
-    const gmailLink = screen.getByText("Connect Gmail").closest("a");
     expect(calendarLink?.getAttribute("href")).toContain("/api/portal/google-calendar/connect");
-    expect(gmailLink?.getAttribute("href")).toContain("/api/portal/gmail-payments/connect");
-    expect(calendarLink?.getAttribute("href")).not.toBe(gmailLink?.getAttribute("href"));
   });
 });

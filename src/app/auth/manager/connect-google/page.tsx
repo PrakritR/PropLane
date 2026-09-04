@@ -9,6 +9,7 @@ import { AuthPageHeader } from "@/components/auth/auth-mobile-primitives";
 import { useAuthWelcomeChrome } from "@/components/auth/use-auth-welcome-chrome";
 import { Button } from "@/components/ui/button";
 import { isGmailPaymentsOAuthBlocked } from "@/lib/gmail-payments/connect-errors";
+import { GMAIL_PAYMENTS_ENABLED } from "@/lib/gmail-payments/enabled";
 import { MANAGER_GOOGLE_SERVICES_PATH } from "@/lib/auth/manager-google-services";
 
 type ServiceStatus = {
@@ -211,14 +212,20 @@ function GoogleServicesContent() {
             status={calendar}
             loading={loading}
           />
-          <ServiceCard
-            service="gmail"
-            title="Gmail payment receipts"
-            description="Read supported payment receipts and automatically match them to payments. PropLane cannot send or delete email."
-            icon={<Mail className="h-5 w-5" />}
-            status={gmail}
-            loading={loading}
-          />
+          {/* Gmail receipt matching is off (PRP-130) — `gmail.readonly` is a
+              RESTRICTED Google scope, and Zelle/Venmo are recorded by hand for
+              now. Calendar alone is only "sensitive", which is the whole point
+              of removing this card. */}
+          {GMAIL_PAYMENTS_ENABLED ? (
+            <ServiceCard
+              service="gmail"
+              title="Gmail payment receipts"
+              description="Read supported payment receipts and automatically match them to payments. PropLane cannot send or delete email."
+              icon={<Mail className="h-5 w-5" />}
+              status={gmail}
+              loading={loading}
+            />
+          ) : null}
         </div>
 
         <div className="mt-5 flex flex-col items-center gap-3 sm:mt-6">

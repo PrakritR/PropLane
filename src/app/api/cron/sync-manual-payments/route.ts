@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { syncGmailPaymentReceipts } from "@/lib/gmail-payments/sync.server";
+import { GMAIL_PAYMENTS_ENABLED } from "@/lib/gmail-payments/enabled";
 import { listConnectedManagerReceiptChannels } from "@/lib/gmail-payments/settings";
 import { householdChargeDueDate, type HouseholdCharge } from "@/lib/household-charges";
 import { isProductionRuntime } from "@/lib/server-env";
@@ -28,6 +29,13 @@ function minimumIntervalMs(charges: HouseholdCharge[], now: Date): number {
 
 export async function GET(req: Request) {
   if (!isAuthorized(req)) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
+  // Nothing to sync while Gmail receipt matching is off (PRP-130). Returning
+  // early keeps the scheduled job from reading stored Gmail connections that no
+  // manager can renew, rather than failing them one by one.
+  if (!GMAIL_PAYMENTS_ENABLED) {
+    return NextResponse.json({ ok: true, skipped: "gmail_payments_disabled", synced: 0 });
+  }
 
   const db = createSupabaseServiceRoleClient();
   const { data, error } = await db

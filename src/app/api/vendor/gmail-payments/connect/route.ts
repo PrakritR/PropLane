@@ -1,6 +1,11 @@
 import { NextResponse } from "next/server";
 
 import {
+  GMAIL_PAYMENTS_ENABLED,
+  GMAIL_PAYMENTS_DISABLED_REASON,
+} from "@/lib/gmail-payments/enabled";
+
+import {
   buildGmailPaymentsOAuthUrl,
   gmailPaymentsOAuthRedirectUri,
   isGmailPaymentsOAuthConfigured,
@@ -15,6 +20,14 @@ export async function GET(req: Request) {
   const originParam = url.searchParams.get("origin")?.trim();
   const origin = originParam || url.origin;
   const returnTo = `${origin.replace(/\/$/, "")}/vendor/payments`;
+
+  // The one place the `gmail.readonly` scope would be requested. While the
+  // feature is off, refuse here rather than anywhere downstream — a redirect to
+  // Google is exactly what must not happen (PRP-130).
+  if (!GMAIL_PAYMENTS_ENABLED) {
+    const reason = encodeURIComponent(GMAIL_PAYMENTS_DISABLED_REASON);
+    return NextResponse.redirect(`${returnTo}?gmail-pay=error&reason=${reason}`);
+  }
 
   try {
     await warmGoogleCalendarOAuthConfig();
