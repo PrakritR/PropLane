@@ -244,8 +244,8 @@ export async function runResidentSmsAction(args: {
             ? `PropLane matched existing work order ${wo.workOrderId} (${wo.title}).`
             : null;
         wants = wo.created
-          ? `file maintenance work order (${wo.title})`
-          : `follow up on open work order (${wo.title})`;
+          ? `file maintenance service (${wo.title})`
+          : `follow up on open service (${wo.title})`;
       }
       threadTopic = "maintenance";
       break;

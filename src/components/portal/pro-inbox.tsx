@@ -2039,7 +2039,7 @@ export const ManagerInbox = forwardRef<
         onClose={() => setWorkflowWorkOrderOpen(false)}
         onSubmitted={() => {
           setWorkflowWorkOrderOpen(false);
-          showToast("Work order created.");
+          showToast("Service created.");
         }}
         managerUserId={userId}
         defaultResident={workflowResident}

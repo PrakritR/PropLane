@@ -305,15 +305,11 @@ export function ManagerCommunication({
           upsell) before the inbox surface is switched on. It self-hides once a
           number is assigned. */}
       <ManagerWorkNumberButton className={PORTAL_COMMAND_ACTION_BTN} />
-      <Button
-        type="button"
-        variant="outline"
-        className={PORTAL_COMMAND_ACTION_BTN}
-        data-attr="communication-settings-open"
-        onClick={() => setCommunicationSettingsOpen(true)}
-      >
-        Settings
-      </Button>
+      {/*
+        No Settings here. The panel behind it was phone verification, which is
+        the resident's own Settings → Messaging — asking for it again from the
+        Communication toolbar made one number look like two separate settings.
+      */}
       {communicationNewMessageButton}
     </>
   );

@@ -123,16 +123,7 @@ export async function GET() {
       // other landlords' — and additionally rows on properties they own or share
       // via an accepted co-manager link with services access (covers mis-stamped
       // manager_user_id when property_id is correct).
-      const linkedPropertyIds = await linkedPropertyIdsForModule(db, user.id, "services");
-      const { data: ownedProps } = await db
-        .from("manager_property_records")
-        .select("id")
-        .eq("manager_user_id", user.id)
-        .limit(500);
-      for (const prop of ownedProps ?? []) {
-        const id = String((prop as { id?: unknown }).id ?? "").trim();
-        if (id) linkedPropertyIds.add(id);
-      }
+      const linkedPropertyIds = await managerScopedPropertyIds(db, user.id);
       const records = await fetchRowsForManagerWithLinked<WorkOrderScopeRecord>(
         db,
         "portal_work_order_records",
@@ -154,7 +145,19 @@ export async function GET() {
         .limit(500);
       if (legacyError) return NextResponse.json({ error: legacyError.message }, { status: 500 });
       for (const record of (legacyRows ?? []) as unknown as WorkOrderScopeRecord[]) {
-        if (record.id && !byId.has(record.id)) byId.set(record.id, record);
+        if (!record.id || byId.has(record.id)) continue;
+        // A legacy row that names a property belongs to whoever holds that
+        // property — showing it to every manager leaked one landlord's work
+        // orders to all the others. A row that names no property at all stays
+        // broadcast, because there is nothing to attribute it by and hiding it
+        // would strand data its real owner can still only find here.
+        const legacyPropertyId = String(
+          (record.row_data as DemoManagerWorkOrderRow | null)?.assignedPropertyId ??
+            (record.row_data as DemoManagerWorkOrderRow | null)?.propertyId ??
+            "",
+        ).trim();
+        if (legacyPropertyId && !linkedPropertyIds.has(legacyPropertyId)) continue;
+        byId.set(record.id, record);
       }
       const rows = [...byId.values()]
         .sort((a, b) => {
@@ -194,18 +197,39 @@ type Actor = { userId: string; email: string; admin: boolean; role: string };
 
 type OwnerCols = { manager_user_id?: string | null; resident_email?: string | null };
 
-/** Whether the caller may write/delete a row. Managers own their own rows and
- * may also claim legacy rows with no owner; residents own rows addressed to
- * them; admins may act on any row. */
+/** Whether the caller POSITIVELY owns a row: the manager it is stamped to, the
+ * resident it is addressed to, or an admin.
+ *
+ * This deliberately has no "…and legacy rows with no owner" clause. That clause
+ * was `!rec.manager_user_id && actor.role !== "resident"` — a denylist, so it
+ * admitted every other manager on the platform AND any account whose role
+ * failed to resolve to a known string. Claiming a legacy row is a separate,
+ * positive check: see `actorMayWriteRecord` in POST. */
 function actorOwnsRecord(actor: Actor, rec: OwnerCols | null): boolean {
   if (actor.admin) return true;
   if (!rec) return false;
   if (rec.manager_user_id && rec.manager_user_id === actor.userId) return true;
   if (rec.resident_email && actor.email && rec.resident_email.trim().toLowerCase() === actor.email) return true;
-  // Legacy unassigned rows are claimable by a manager (never a resident).
-  if (!rec.manager_user_id && actor.role !== "resident") return true;
   return false;
 }
+
+/** Property ids this manager may act on: the ones they own outright plus those
+ * shared with them through an accepted co-manager link carrying Services
+ * access. */
+async function managerScopedPropertyIds(db: Db, userId: string): Promise<Set<string>> {
+  const ids = await linkedPropertyIdsForModule(db, userId, "services");
+  const { data: ownedProps } = await db
+    .from("manager_property_records")
+    .select("id")
+    .eq("manager_user_id", userId)
+    .limit(500);
+  for (const prop of ownedProps ?? []) {
+    const id = String((prop as { id?: unknown }).id ?? "").trim();
+    if (id) ids.add(id);
+  }
+  return ids;
+}
+
 
 /** Resolve a vendor directory row's linked auth user, so the record can be scoped
  * for the vendor's own GET query and inbox notifications without a join at read time.
@@ -398,6 +422,26 @@ export async function POST(req: Request) {
       return (data as ExistingRecord | null) ?? null;
     };
 
+    /** May this caller write or delete this existing row?
+     *
+     * Ownership first. Only then the narrow legacy claim: a row with no
+     * `manager_user_id` is un-backfilled data, claimable ONLY by a manager who
+     * holds the property the row itself names. A legacy row that names no
+     * property is claimable by nobody here. Backfilling `manager_user_id`
+     * retires this path outright.
+     *
+     * The replace sync walks every row, so the property lookup resolves once
+     * per request. */
+    let scopedPropertyIdsPromise: Promise<Set<string>> | null = null;
+    const actorMayWriteRecord = async (rec: ExistingRecord | null): Promise<boolean> => {
+      if (actorOwnsRecord(actor, rec)) return true;
+      if (!rec || rec.manager_user_id || actor.role === "resident") return false;
+      const propertyId = String(rec.row_data?.assignedPropertyId ?? rec.row_data?.propertyId ?? "").trim();
+      if (!propertyId) return false;
+      scopedPropertyIdsPromise ??= managerScopedPropertyIds(db, actor.userId);
+      return (await scopedPropertyIdsPromise).has(propertyId);
+    };
+
     const maybeSyncWorkOrderGoogleCalendar = async (
       existing: ExistingRecord | null,
       persisted: { manager_user_id: string | null; row_data: DemoManagerWorkOrderRow },
@@ -473,7 +517,7 @@ export async function POST(req: Request) {
         if (!row?.id) continue;
         const existing = await findExisting(row.id);
         // A brand-new id (no existing row) may be created.
-        if (existing && !actorOwnsRecord(actor, existing)) continue;
+        if (existing && !(await actorMayWriteRecord(existing))) continue;
         const stamped = await stampResidentWorkOrder(row);
         if (!stamped) continue;
         const { vendorUserId, rejected } = await resolveVendorUserId(
@@ -509,7 +553,7 @@ export async function POST(req: Request) {
         .eq("id", id)
         .maybeSingle();
       if (!existing) return NextResponse.json({ ok: true });
-      if (!actorOwnsRecord(actor, existing)) {
+      if (!(await actorMayWriteRecord(existing))) {
         return NextResponse.json({ error: "Forbidden." }, { status: 403 });
       }
       const row = existing.row_data as DemoManagerWorkOrderRow | null;
@@ -527,7 +571,7 @@ export async function POST(req: Request) {
     if (!body.row?.id) return NextResponse.json({ error: "row required" }, { status: 400 });
     const existing = await findExisting(body.row.id);
     // A brand-new id (no existing row) may be created.
-    if (existing && !actorOwnsRecord(actor, existing)) {
+    if (existing && !(await actorMayWriteRecord(existing))) {
       return NextResponse.json({ error: "Forbidden." }, { status: 403 });
     }
     const stamped = await stampResidentWorkOrder(body.row);

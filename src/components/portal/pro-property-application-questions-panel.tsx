@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Button } from "@/components/ui/button";
 import { BulkActionBar } from "@/components/ui/bulk-action-bar";
 import { ManagerApplicationQuestionsEditorModal } from "@/components/portal/pro-application-questions-editor-modal";
@@ -77,6 +77,7 @@ export function ManagerPropertyApplicationQuestionsPanel({
   listingId,
   onUpdated,
   showToast,
+  onBulkActionsChange,
   onRegisterAddApplication,
 }: {
   sub: ManagerListingSubmissionV1;
@@ -88,6 +89,12 @@ export function ManagerPropertyApplicationQuestionsPanel({
   listingId?: string | null;
   onUpdated: () => void;
   showToast: (m: string) => void;
+  /**
+   * Publish the selection action to a parent instead of the fixed bulk bar.
+   * `BulkActionBar` is `position: fixed`, so inside a modal it escapes to the
+   * page behind the dialog.
+   */
+  onBulkActionsChange?: (actions: ReactNode | null) => void;
   onRegisterAddApplication?: (openAdd: (() => void) | null) => void;
 }) {
   const [editorOpen, setEditorOpen] = useState(false);
@@ -290,6 +297,9 @@ export function ManagerPropertyApplicationQuestionsPanel({
   const closeEditor = () => {
     setEditorOpen(false);
     setEditingTemplate(null);
+    // The bar exists to reach this editor; leaving the row ticked afterwards
+    // just parks a floating bar over a row the manager is done with.
+    clearSelection();
   };
 
   const selectedTemplates = useMemo(
@@ -297,32 +307,35 @@ export function ManagerPropertyApplicationQuestionsPanel({
     [selectedIds, templates],
   );
 
-  const bulkDeleteTemplates = () => {
-    if (selectedTemplates.length === 0) return;
-    if (
-      !window.confirm(
-        `Delete ${selectedTemplates.length} application template${selectedTemplates.length === 1 ? "" : "s"}?`,
-      )
-    ) {
-      return;
-    }
-    let next = templates;
-    for (const template of selectedTemplates) {
-      next = removePropertyApplicationTemplate(next, template.id);
-    }
-    const persisted = persistRemoval(next);
-    if (!persisted) {
-      showToast("Could not delete application.");
-      return;
-    }
-    clearSelection();
-    setEditorOpen(false);
-    setEditingTemplate(null);
-    onUpdated();
-    showToast(
-      selectedTemplates.length === 1 ? "Application deleted." : `${selectedTemplates.length} applications deleted.`,
-    );
-  };
+  /** The one selection action, rendered either in the fixed bar or by a parent. */
+  const bulkEditAction =
+    selectedIds.size === 1 && selectedTemplates[0] ? (
+      <Button
+        type="button"
+        variant="outline"
+        className={PORTAL_BULK_BAR_BTN}
+        data-attr="property-application-bulk-edit"
+        onClick={() => openEditApplication(selectedTemplates[0]!)}
+      >
+        Edit application
+      </Button>
+    ) : null;
+
+  // Keyed on WHICH template is selected, not the node: the JSX is rebuilt every
+  // render, so publishing on identity would loop the parent's state forever.
+  const bulkEditSignature = selectedIds.size === 1 ? (selectedTemplates[0]?.id ?? "") : "";
+  const onBulkActionsChangeRef = useRef(onBulkActionsChange);
+  const bulkEditActionRef = useRef(bulkEditAction);
+  useLayoutEffect(() => {
+    onBulkActionsChangeRef.current = onBulkActionsChange;
+    bulkEditActionRef.current = bulkEditAction;
+  });
+  useEffect(() => {
+    const publish = onBulkActionsChangeRef.current;
+    if (!publish) return;
+    publish(bulkEditActionRef.current);
+    return () => publish(null);
+  }, [bulkEditSignature]);
 
   if (!managerUserId || (!saveTarget && bulkPropertyIds.length === 0)) return null;
 
@@ -418,30 +431,15 @@ export function ManagerPropertyApplicationQuestionsPanel({
         />
       ) : null}
 
-      {selectedIds.size > 0 ? (
+      {/*
+        Edit is the only action out here. Delete lives inside the editor, next
+        to what it would destroy — a delete sitting in a floating bar, one click
+        from a row you may have selected by accident, is the wrong distance from
+        a destructive action.
+      */}
+      {!onBulkActionsChange && selectedIds.size > 0 ? (
         <BulkActionBar count={selectedIds.size} hideCount variant="payments">
-          <div className="flex min-w-0 flex-wrap items-center justify-start gap-2">
-            {selectedIds.size === 1 && selectedTemplates[0] ? (
-              <Button
-                type="button"
-                variant="outline"
-                className={PORTAL_BULK_BAR_BTN}
-                data-attr="property-application-bulk-edit"
-                onClick={() => openEditApplication(selectedTemplates[0]!)}
-              >
-                Edit
-              </Button>
-            ) : null}
-            <Button
-              type="button"
-              variant="outline"
-              className={`${PORTAL_BULK_BAR_BTN} text-rose-800`}
-              data-attr="property-application-bulk-delete"
-              onClick={bulkDeleteTemplates}
-            >
-              Delete
-            </Button>
-          </div>
+          <div className="flex min-w-0 flex-wrap items-center justify-start gap-2">{bulkEditAction}</div>
         </BulkActionBar>
       ) : null}
     </>

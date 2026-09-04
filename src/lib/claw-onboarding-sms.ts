@@ -37,7 +37,7 @@ export function buildManagerPropLaneAssistantIntroSms(opts: {
   return [
     greeting,
     "I'm your PropLane messaging assistant.",
-    "I'll text your residents about applications, leases, payments, move-in, and work orders — and forward their replies here so you can respond from your phone.",
+    "I'll text your residents about applications, leases, payments, move-in, and services — and forward their replies here so you can respond from your phone.",
     `Your PropLane line: ${line}`,
     "Prospects and residents text this number directly — no registration needed.",
     "Commands: text AGENT help (e.g. AGENT mark payment for Jane paid, AGENT lease).",

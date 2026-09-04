@@ -3,7 +3,11 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, render, waitFor } from "@testing-library/react";
 import type { DemoApplicantRow } from "@/data/demo-portal";
 
-vi.mock("@/lib/demo/demo-session", () => ({
+vi.mock("@/lib/demo/demo-session", async (importOriginal) => ({
+  // Spread the real module: this file only needs to override demo mode,
+  // and a hand-listed mock silently breaks every time the module gains an
+  // export a component calls at import time.
+  ...(await importOriginal<typeof import("@/lib/demo/demo-session")>()),
   isDemoModeActive: () => false,
 }));
 vi.mock("@/lib/screening/screening-test-mode", () => ({

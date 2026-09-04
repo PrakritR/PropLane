@@ -33,7 +33,7 @@ const NAV_GROUPS: NavGroup[] = [
       { id: "applications", label: "Applications & screening" },
       { id: "leases", label: "Leases & e-signature" },
       { id: "rent", label: "Rent & payments" },
-      { id: "maintenance", label: "Maintenance & work orders" },
+      { id: "maintenance", label: "Maintenance & services" },
     ],
   },
   {
@@ -183,7 +183,7 @@ export default function DocsPage() {
             <DocList>
               <DocLi>
                 <b className="font-medium text-foreground">Manager</b>, the control center:
-                portfolio, applications, leases, rent, work orders, double-entry books, documents,
+                portfolio, applications, leases, rent, services, double-entry books, documents,
                 and your team.
               </DocLi>
               <DocLi>
@@ -263,10 +263,10 @@ export default function DocsPage() {
           <DocSection
             id="maintenance"
             kicker="Core workflows"
-            title="Maintenance & work orders"
+            title="Maintenance & services"
           >
             <p>
-              Residents submit maintenance requests from their portal. Each one becomes a work order
+              Residents submit maintenance requests from their portal. Each one becomes a service
               you can assign to a vendor.
             </p>
             <p>
@@ -281,7 +281,7 @@ export default function DocsPage() {
             </DocList>
             <p>
               When you approve and pay, the vendor&rsquo;s labor is paid out through Stripe Connect
-              and the expense is booked for you. A work order moves through{" "}
+              and the expense is booked for you. A service moves through{" "}
               <Chip>submitted → approved → scheduled → paid</Chip>.
             </p>
           </DocSection>
@@ -380,7 +380,7 @@ export default function DocsPage() {
             <p>
               Not ready to sign up? The live demo runs the real product in a sandbox you can click
               through with no account. Open all three portals (manager, resident, and vendor) and
-              click through applications, leases, rent, and work orders at <Chip>/demo</Chip>.
+              click through applications, leases, rent, and services at <Chip>/demo</Chip>.
             </p>
             <p>
               Anything you change in the demo is sandboxed to your browser and reset on refresh, so

@@ -210,7 +210,7 @@ export function VendorSignupForm({
 
   const tagline = (
     <p className="text-center text-[11px] leading-tight text-muted whitespace-nowrap sm:text-xs">
-      Free vendor account · work orders &amp; payouts through PropLane.
+      Free vendor account · services &amp; payouts through PropLane.
     </p>
   );
 

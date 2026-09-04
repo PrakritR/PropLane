@@ -31,7 +31,7 @@ const TIER_CTA: Record<
 const FAQ: { q: string; a: string }[] = [
   {
     q: "Is the free tier actually free?",
-    a: "Yes. Free is $0 with no card. You get one property listing, applications and tour scheduling, and payment collection. Residents, leases, work orders, inbox, and co-managers live on Pro and up.",
+    a: "Yes. Free is $0 with no card. You get one property listing, applications and tour scheduling, and payment collection. Residents, leases, services, inbox, and co-managers live on Pro and up.",
   },
   {
     q: "Do I need a credit card to try Pro or Business?",

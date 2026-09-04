@@ -356,7 +356,7 @@ export function ManagerWorkOrdersPanel({
           ? " Payment recorded as paid."
           : " Pending payment created."
         : "";
-      showToast(`Work order scheduled.${billingPart}${vendorEmailed ? " Vendor emailed with the visit details." : ""}`);
+      showToast(`Service scheduled.${billingPart}${vendorEmailed ? " Vendor emailed with the visit details." : ""}`);
       if (workOrderIdProp) navigateToList();
       onAfterSchedule?.();
     },
@@ -501,7 +501,7 @@ export function ManagerWorkOrdersPanel({
           workDoneSummary: completeDraft.workDoneSummary,
           completedAt: now,
         }));
-        showToast("Work order marked complete.");
+        showToast("Service marked complete.");
         setCompleteRow(null);
         if (workOrderIdProp) navigateToList();
         return;
@@ -521,7 +521,7 @@ export function ManagerWorkOrdersPanel({
         }),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error ?? "Could not complete work order.");
+      if (!res.ok) throw new Error(data.error ?? "Could not complete service.");
       updateManagerWorkOrder(completeRow.id, () => data.workOrder as DemoManagerWorkOrderRow);
       void syncManagerWorkOrdersFromServer();
 
@@ -543,22 +543,22 @@ export function ManagerWorkOrdersPanel({
           notify.ok
             ? data.expenseEntryIds?.length
               ? "Completed, expenses logged, and resident notified."
-              : "Work order completed and resident notified."
+              : "Service completed and resident notified."
             : data.expenseEntryIds?.length
               ? "Completed and expenses logged, but resident message failed."
-              : "Work order completed, but resident message failed.",
+              : "Service completed, but resident message failed.",
         );
       } else {
         showToast(
           data.expenseEntryIds?.length
-            ? "Work order completed and expenses logged."
-            : "Work order marked complete.",
+            ? "Service completed and expenses logged."
+            : "Service marked complete.",
         );
       }
       setCompleteRow(null);
       if (workOrderIdProp) navigateToList();
     } catch (e) {
-      showToast(e instanceof Error ? e.message : "Could not complete work order.");
+      showToast(e instanceof Error ? e.message : "Could not complete service.");
     } finally {
       setCompleteBusy(false);
     }
@@ -667,10 +667,10 @@ export function ManagerWorkOrdersPanel({
     const row = deleteRow;
     if (!row) return;
     if (deleteManagerWorkOrderRow(row.id)) {
-      showToast("Work order removed.");
+      showToast("Service removed.");
       if (workOrderIdProp) navigateToList();
       setHcTick((n) => n + 1);
-    } else showToast("Could not delete work order.");
+    } else showToast("Could not delete service.");
     setDeleteRow(null);
   };
 
@@ -787,7 +787,79 @@ export function ManagerWorkOrdersPanel({
     }
   };
 
-  const renderRowDetail = (row: DemoManagerWorkOrderRow) => {
+  /**
+   * The service's actions, rendered either inline under an expanded list row or
+   * docked at the bottom of the detail route. One definition, so the two places
+   * cannot drift into offering different things for the same service.
+   */
+  const workOrderDetailActions = (row: DemoManagerWorkOrderRow) => (
+    <>
+      {row.bucket === "open" ? (
+        <>
+          <Button
+            type="button"
+            variant="primary"
+            className={`${PORTAL_DETAIL_BTN} rounded-full`}
+            onClick={() => saveScheduleFromOpen(row)}
+          >
+            Schedule visit
+          </Button>
+          <Button
+            type="button"
+            variant="outline"
+            className={`${PORTAL_DETAIL_BTN} border-rose-200 text-rose-800 hover:bg-[var(--status-overdue-bg)]`}
+            onClick={() => onDeleteWorkOrder(row)}
+          >
+            Delete
+          </Button>
+        </>
+      ) : row.bucket === "scheduled" ? (
+        <Button type="button" variant="outline" className={PORTAL_DETAIL_BTN} onClick={() => rescheduleVisit(row)}>
+          Save new time
+        </Button>
+      ) : null}
+      {!row.selfAssigned && row.vendorId && row.bucket !== "completed" ? (
+        <Button
+          type="button"
+          variant="outline"
+          data-attr="work-order-auto-schedule"
+          className={PORTAL_DETAIL_BTN}
+          disabled={autoSchedulingId === row.id}
+          onClick={() => autoScheduleVisit(row)}
+        >
+          {autoSchedulingId === row.id ? "Finding a slot…" : "Auto-schedule"}
+        </Button>
+      ) : null}
+      {row.bucket === "scheduled" && row.automationStatus === "vendor_marked_done" ? (
+        <Button
+          type="button"
+          variant="primary"
+          data-attr="work-order-approve-pay"
+          className={`${PORTAL_DETAIL_BTN} rounded-full`}
+          disabled={approvePayBusy}
+          onClick={() => approvePay(row)}
+        >
+          Approve &amp; pay
+        </Button>
+      ) : row.bucket === "scheduled" ? (
+        <Button type="button" variant="outline" className={PORTAL_DETAIL_BTN} onClick={() => markComplete(row)}>
+          Mark complete
+        </Button>
+      ) : null}
+      {row.bucket !== "open" ? (
+        <Button
+          type="button"
+          variant="outline"
+          className={`${PORTAL_DETAIL_BTN} border-rose-200 text-rose-800 hover:bg-[var(--status-overdue-bg)]`}
+          onClick={() => onDeleteWorkOrder(row)}
+        >
+          Delete
+        </Button>
+      ) : null}
+    </>
+  );
+
+  const renderRowDetail = (row: DemoManagerWorkOrderRow, dockActions = false) => {
     const draft = billDraftById[row.id] ?? defaultBillDraft(row);
     const linkedCharge = chargeByWoId.get(row.id);
     const visitAt = visitAtById[row.id] ?? "";
@@ -840,7 +912,7 @@ export function ManagerWorkOrdersPanel({
                                 >
                                   <Image
                                     src={trimmed}
-                                    alt={`Work order photo ${index + 1}`}
+                                    alt={`Service photo ${index + 1}`}
                                     width={240}
                                     height={180}
                                     className="h-28 w-full object-cover"
@@ -1066,88 +1138,34 @@ export function ManagerWorkOrdersPanel({
                           </div>
                         ) : null}
 
-                        <PortalTableDetailActions>
-                          {row.bucket === "open" ? (
-                            <>
-                              <Button
-                                type="button"
-                                variant="primary"
-                                className={`${PORTAL_DETAIL_BTN} rounded-full`}
-                                onClick={() => saveScheduleFromOpen(row)}
-                              >
-                                Schedule visit
-                              </Button>
-                              <Button
-                                type="button"
-                                variant="outline"
-                                className={`${PORTAL_DETAIL_BTN} border-rose-200 text-rose-800 hover:bg-[var(--status-overdue-bg)]`}
-                                onClick={() => onDeleteWorkOrder(row)}
-                              >
-                                Delete
-                              </Button>
-                            </>
-                          ) : row.bucket === "scheduled" ? (
-                            <Button type="button" variant="outline" className={PORTAL_DETAIL_BTN} onClick={() => rescheduleVisit(row)}>
-                              Save new time
-                            </Button>
-                          ) : null}
-                          {!row.selfAssigned && row.vendorId && row.bucket !== "completed" ? (
-                            <Button
-                              type="button"
-                              variant="outline"
-                              data-attr="work-order-auto-schedule"
-                              className={PORTAL_DETAIL_BTN}
-                              disabled={autoSchedulingId === row.id}
-                              onClick={() => autoScheduleVisit(row)}
-                            >
-                              {autoSchedulingId === row.id ? "Finding a slot…" : "Auto-schedule"}
-                            </Button>
-                          ) : null}
-                          {row.bucket === "scheduled" && row.automationStatus === "vendor_marked_done" ? (
-                            <Button
-                              type="button"
-                              variant="primary"
-                              data-attr="work-order-approve-pay"
-                              className={`${PORTAL_DETAIL_BTN} rounded-full`}
-                              disabled={approvePayBusy}
-                              onClick={() => approvePay(row)}
-                            >
-                              Approve &amp; pay
-                            </Button>
-                          ) : row.bucket === "scheduled" ? (
-                            <Button type="button" variant="outline" className={PORTAL_DETAIL_BTN} onClick={() => markComplete(row)}>
-                              Mark complete
-                            </Button>
-                          ) : null}
-                          {row.bucket !== "open" ? (
-                            <Button
-                              type="button"
-                              variant="outline"
-                              className={`${PORTAL_DETAIL_BTN} border-rose-200 text-rose-800 hover:bg-[var(--status-overdue-bg)]`}
-                              onClick={() => onDeleteWorkOrder(row)}
-                            >
-                              Delete
-                            </Button>
-                          ) : null}
-                        </PortalTableDetailActions>
+                        {dockActions ? null : (
+                          <PortalTableDetailActions>{workOrderDetailActions(row)}</PortalTableDetailActions>
+                        )}
       </>
     );
   };
 
   if (routeWorkOrderId) {
     if (!routeWorkOrder) {
-      return <PortalDataTableEmpty icon="work-order" message="Work order not found." />;
+      return <PortalDataTableEmpty icon="work-order" message="Service not found." />;
     }
     return (
       <PortalRecordDetailPage
-        pageTitle="Work orders"
+        pageTitle="Services"
         title={routeWorkOrder.title}
         subtitle={[routeWorkOrder.propertyName, routeWorkOrder.unit].filter(Boolean).join(" · ") || undefined}
         backHref={listBasePath ? workOrderListHref(listBasePath, bucket) : "#"}
-        backLabel="Back to work orders"
+        hideBackText
         dataAttrBack="work-order-detail-back"
+        footerOmitSpacer
+        footer={workOrderDetailActions(routeWorkOrder)}
       >
-        {renderRowDetail(routeWorkOrder)}
+        {/*
+          On the detail ROUTE the actions dock at the bottom like every other
+          detail page; the same body rendered inline under an expanded list row
+          keeps them where they are, because there is no dock there to move to.
+        */}
+        {renderRowDetail(routeWorkOrder, true)}
       </PortalRecordDetailPage>
     );
   }
@@ -1159,7 +1177,7 @@ export function ManagerWorkOrdersPanel({
           isEmpty
           add={{
             label: listAddAction.label ?? "Add",
-            ariaLabel: "Add work order",
+            ariaLabel: "Add service",
             icon: listAddAction.icon ?? Wrench,
             onClick: listAddAction.onClick,
             dataAttr: listAddAction.dataAttr,
@@ -1170,7 +1188,7 @@ export function ManagerWorkOrdersPanel({
     return (
       <PortalDataTableEmpty
         icon="work-order"
-        message={allRows.length === 0 ? "No work orders yet." : "No work orders in this bucket yet."}
+        message={allRows.length === 0 ? "No services yet." : "No services in this bucket yet."}
       />
     );
   }
@@ -1183,7 +1201,7 @@ export function ManagerWorkOrdersPanel({
           listAddAction
             ? {
                 label: listAddAction.label ?? "Add",
-                ariaLabel: "Add work order",
+                ariaLabel: "Add service",
                 icon: listAddAction.icon ?? Wrench,
                 onClick: listAddAction.onClick,
                 dataAttr: listAddAction.dataAttr,
@@ -1208,7 +1226,7 @@ export function ManagerWorkOrdersPanel({
       <Modal
         open={Boolean(completeRow)}
         onClose={() => setCompleteRow(null)}
-        title="Complete work order"
+        title="Complete service"
         description={
           completeRow ? `${completeRow.propertyName} · ${completeRow.title}` : undefined
         }
@@ -1390,7 +1408,7 @@ export function ManagerWorkOrdersPanel({
               <p className="text-xs text-muted">Vendor note: &ldquo;{approvePayRow.vendorMarkedDoneNote}&rdquo;</p>
             ) : null}
             <p className="text-xs text-muted">
-              This logs the expense, marks the work order completed, and records the vendor as paid (bookkeeping
+              This logs the expense, marks the service completed, and records the vendor as paid (bookkeeping
               only; no funds are transferred).
             </p>
           </div>
@@ -1399,13 +1417,13 @@ export function ManagerWorkOrdersPanel({
 
       <ConfirmDeleteModal
         open={deleteRow !== null}
-        title="Delete work order"
+        title="Delete service"
         description={
           deleteRow
-            ? `Delete work order ${deleteRow.id}${deleteRow.title ? ` (“${deleteRow.title}”)` : ""}?`
+            ? `Delete service ${deleteRow.id}${deleteRow.title ? ` (“${deleteRow.title}”)` : ""}?`
             : null
         }
-        confirmLabel="Delete work order"
+        confirmLabel="Delete service"
         dataAttr="work-order-delete-confirm"
         onClose={() => setDeleteRow(null)}
         onConfirm={confirmDeleteWorkOrder}

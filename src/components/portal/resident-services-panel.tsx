@@ -508,16 +508,16 @@ export function WorkOrderDetail({
             className={PORTAL_DETAIL_BTN}
             onClick={() => setCancelOpen(true)}
           >
-            Cancel work order
+            Cancel service
           </Button>
         </PortalTableDetailActions>
       ) : null}
 
       <ConfirmDeleteModal
         open={cancelOpen}
-        title="Cancel work order"
-        description={`Cancel work order “${row.title || row.id}”?`}
-        confirmLabel="Cancel work order"
+        title="Cancel service"
+        description={`Cancel service “${row.title || row.id}”?`}
+        confirmLabel="Cancel service"
         dataAttr="resident-work-order-cancel-confirm"
         onClose={() => setCancelOpen(false)}
         onConfirm={() => {
@@ -834,14 +834,14 @@ export function ResidentServicesPanel({
     }));
     setAllRows(readManagerWorkOrderRows());
     setEditingWorkOrder(null);
-    showToast("Work order updated.");
+    showToast("Service updated.");
   }
 
   function cancelWorkOrder(id: string) {
     deleteManagerWorkOrderRow(id);
     setAllRows(readManagerWorkOrderRows());
     setExpandedId(null);
-    showToast("Work order removed.");
+    showToast("Service removed.");
   }
 
   async function sendWorkOrderReminder(row: DemoManagerWorkOrderRow) {
@@ -1303,10 +1303,10 @@ export function ResidentServicesPanel({
         ) : null}
       </Modal>
 
-      {/* Edit work order modal */}
+      {/* Edit service modal */}
       <Modal
         open={editingWorkOrder !== null}
-        title="Edit work order"
+        title="Edit service"
         onClose={() => setEditingWorkOrder(null)}
         panelClassName="max-w-lg"
         footer={

@@ -37,7 +37,6 @@ import { buildManagerPropertyFilterOptions, MANAGER_PORTFOLIO_REFRESH_EVENTS } f
 import { buildManagerShareablePropertyOptions } from "@/lib/manager-property-links";
 import { ShareLeadLinkModal } from "@/components/portal/share-lead-link-modal";
 import { TourProposalsPanel } from "@/components/portal/tour-proposals-panel";
-import { ManagerPortalSettingsModal } from "@/components/portal/pro-portal-settings-modal";
 import { ManagerPortfolioBookingsCalendar } from "@/components/portal/pro-portfolio-bookings-calendar";
 import {
   leaseBookingEntriesForProperties,
@@ -107,7 +106,6 @@ export function PortalCalendar({
   const [propertyTick, setPropertyTick] = useState(0);
   const [propertiesLoading, setPropertiesLoading] = useState(false);
   const [shareTourModalOpen, setShareTourModalOpen] = useState(false);
-  const [calendarSettingsOpen, setCalendarSettingsOpen] = useState(false);
   const [coManagerPeers, setCoManagerPeers] = useState<CoManagerCalendarPeerDto[]>([]);
   const [shareAvailability, setShareAvailability] = useState(false);
   const [googleCalendarTick, setGoogleCalendarTick] = useState(0);
@@ -549,18 +547,13 @@ export function PortalCalendar({
       </Button>
     ) : null;
 
-  const calendarSettingsButton =
-    portal === "manager" && availabilityView ? (
-      <Button
-        type="button"
-        variant="outline"
-        className={PORTAL_COMMAND_ACTION_BTN}
-        data-attr="calendar-settings-open"
-        onClick={() => setCalendarSettingsOpen(true)}
-      >
-        Settings
-      </Button>
-    ) : null;
+  /*
+    No Settings here. The panel behind it is entirely TOUR rules — notice
+    required, auto-confirm, tour reminders — and the Tours section already owns
+    them. On the Calendar it read as "calendar settings" and opened something
+    else, which is worse than not offering it.
+  */
+  const calendarSettingsButton = null;
 
   const calendarCommandActions =
     portal === "manager" ? (
@@ -823,16 +816,6 @@ export function PortalCalendar({
           onChanged={() => setBookingsRefreshSignal((n) => n + 1)}
         />
       ) : null}
-      <ManagerPortalSettingsModal
-        open={calendarSettingsOpen}
-        onClose={() => setCalendarSettingsOpen(false)}
-        initialTab="tours"
-        scoped
-        // The panel behind this gear is entirely TOUR rules — notice required,
-        // auto-confirm, tour reminders — so it says so (AXI-161). Titling it
-        // "Calendar" sent a manager looking for tour rules straight past it.
-        scopedTitle="Tours"
-      />
     </>
   );
 }

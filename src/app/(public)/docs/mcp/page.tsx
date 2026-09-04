@@ -168,7 +168,7 @@ export default function McpDocsPage() {
             </DocList>
             <p>
               Today the server covers the <b className="font-medium text-foreground">manager</b>{" "}
-              account: your properties, residents, applications, leases, charges, work orders,
+              account: your properties, residents, applications, leases, charges, services,
               vendors, calendar and messages. Resident and vendor endpoints are not open yet.
             </p>
           </DocSection>

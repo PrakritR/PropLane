@@ -43,6 +43,7 @@ import { ThemeToggle } from "@/components/layout/theme-toggle";
 import { useAppUi } from "@/components/providers/app-ui-provider";
 import { isDemoModeActive } from "@/lib/demo/demo-session";
 import type { PortalKind } from "@/lib/portal-types";
+import { formatProplaneIdForDisplay } from "@/lib/manager-id";
 import {
   cacheLandlordLegalName,
   landlordLegalNameFromAccountFullName,
@@ -233,7 +234,12 @@ export function PortalProfileClient({
                 <label className="text-sm font-medium text-foreground" htmlFor="pf-id">
                   {idLabel}
                 </label>
-                <Input id="pf-id" value={idValue} readOnly className="bg-muted/40 font-mono text-sm" />
+                <Input
+                  id="pf-id"
+                  value={formatProplaneIdForDisplay(idValue)}
+                  readOnly
+                  className="bg-muted/40 font-mono text-sm"
+                />
               </div>
             </div>
           </PortalSettingsFormBody>
@@ -242,7 +248,14 @@ export function PortalProfileClient({
             <PortalSettingsField label="Full name" value={emptyToDash(fullName)} />
             <PortalSettingsField label="Email" value={initialEmail} />
             <PortalSettingsField label="Phone" value={emptyToDash(phone)} />
-            <PortalSettingsField label={idLabel} value={idValue} mono />
+            {/*
+              Through the display formatter. Accounts created before the rebrand
+              still STORE an `AXIS-` id — every lookup accepts both prefixes and
+              renaming the stored value is a migration, not a label change — but
+              a field captioned "PropLane ID" must never read AXIS to the person
+              whose id it is.
+            */}
+            <PortalSettingsField label={idLabel} value={formatProplaneIdForDisplay(idValue)} mono />
           </>
         )}
       </PortalSettingsGroup>

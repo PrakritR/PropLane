@@ -57,7 +57,7 @@ const OLD_WAY = [
 const PROPLANE_WAY = [
   "AI drafts the lease from the application; you review, both sides e-sign.",
   "Rent collects on-platform via Stripe; reminders draft, you approve send.",
-  "Work orders invite bids; approved work pays out through Connect.",
+  "Services invite bids; approved work pays out through Connect.",
   "Double-entry posts itself: trial balance, trust, owner statements.",
 ] as const;
 

@@ -232,14 +232,24 @@ describe("/api/portal-work-orders security", () => {
     expect(upserts[0]!.resident_email).toBe("res@b.com");
   });
 
-  it("lets a manager claim a legacy unassigned work order but not overwrite a foreign one", async () => {
+  /**
+   * PRP-232. This case used to assert that ANY manager could claim a legacy
+   * unassigned row, which was the vulnerability: the check was
+   * `actor.role !== "resident"`, a denylist that admitted every other manager
+   * on the platform and any account whose role failed to resolve.
+   *
+   * Claiming is now positive — only a manager holding the property the row
+   * itself names — and `WO-legacy` names no property, so nobody may write it
+   * through this route. A foreign owned row is refused as it always was.
+   */
+  it("refuses a legacy unassigned work order that names no property, and a foreign one", async () => {
     asUser("mgr-a", "a@test.com");
     const { client, upserts } = mockDb(SEED, { email: "a@test.com", role: "manager" });
     vi.mocked(createSupabaseServiceRoleClient).mockReturnValue(client as never);
 
     const claim = await POST(jsonRequest("http://t", { method: "POST", body: { row: { id: "WO-legacy", title: "L2" } } }));
-    expect((await parseJsonResponse(claim)).status).toBe(200);
-    expect(upserts.at(-1)!.manager_user_id).toBe("mgr-a");
+    expect((await parseJsonResponse(claim)).status).toBe(403);
+    expect(upserts).toHaveLength(0);
 
     const foreign = await POST(jsonRequest("http://t", { method: "POST", body: { row: { id: "WO-b", title: "hijack" } } }));
     expect((await parseJsonResponse(foreign)).status).toBe(403);

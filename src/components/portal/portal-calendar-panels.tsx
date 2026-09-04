@@ -322,6 +322,18 @@ function RecurringBlockModalFormFields({
 
 const CALENDAR_HEADER_CELL =
   "bg-accent/30 font-bold uppercase tracking-[0.12em] text-muted [html[data-theme=dark]_&]:portal-calendar-header-cell";
+/**
+ * The day/date row pins directly under the week toolbar.
+ *
+ * Both live in the SAME scroll container, and the toolbar is already
+ * `sticky; top: 0`, so a header row stuck at `top: 0` too would simply slide
+ * under it — which is what shipped: scroll to the afternoon and the dates were
+ * a half-clipped strip behind the toolbar, leaving a wall of unlabelled cells.
+ * `--portal-calendar-header-top` is the measured toolbar height, published by
+ * the shell below.
+ */
+const CALENDAR_STICKY_HEADER_CELL =
+  "sticky z-[14] top-[var(--portal-calendar-header-top,0px)]";
 const CALENDAR_TIME_CELL =
   "whitespace-nowrap text-[10px] font-semibold tabular-nums text-muted sm:text-[11px] [html[data-theme=dark]_&]:portal-calendar-time-cell";
 const CALENDAR_GRID_GAP = "gap-px bg-accent/40 [html[data-theme=dark]_&]:portal-calendar-grid";
@@ -816,6 +828,39 @@ export function PortalCalendarPanels({
 }) {
   const { showToast } = useAppUi();
   const { userId } = useManagerUserId();
+
+  /**
+   * Publish the sticky week toolbar's height so the day/date row can pin
+   * directly under it (`CALENDAR_STICKY_HEADER_CELL`). Measured rather than
+   * hard-coded: the toolbar grows a second row on narrow panels and when the
+   * time-range selects wrap, and a stale constant there puts the dates back
+   * under the toolbar — the exact bug this fixes.
+   */
+  const compactShellRef = useRef<HTMLDivElement | null>(null);
+  const compactToolbarRef = useRef<HTMLDivElement | null>(null);
+  useLayoutEffect(() => {
+    const shell = compactShellRef.current;
+    const toolbar = compactToolbarRef.current;
+    if (!shell || !toolbar) return;
+    const publish = () => {
+      // ONLY in flowScroll. There, the toolbar and the grid share the page's
+      // one scroll container, so a header row stuck at 0 would slide under the
+      // toolbar and the offset is what keeps it clear. Everywhere else the grid
+      // scrolls inside its own body while the toolbar sits OUTSIDE that
+      // scroller — nothing to clear — and offsetting anyway pushed the day row
+      // down by a toolbar's height, leaving a blank band under the week nav and
+      // the time gutter colliding with the dates.
+      shell.style.setProperty(
+        "--portal-calendar-header-top",
+        flowScroll ? `${Math.round(toolbar.offsetHeight)}px` : "0px",
+      );
+    };
+    publish();
+    if (typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(publish);
+    observer.observe(toolbar);
+    return () => observer.disconnect();
+  });
   const { teamMembers, vendors } = useWorkAssignmentDirectory({ managerUserId: userId });
   const writeStorageKeys = useMemo(() => {
     if (availabilityStorageKeys?.length) return availabilityStorageKeys;
@@ -2539,8 +2584,8 @@ export function PortalCalendarPanels({
             onChange={onModalFooterChange}
           />
         ) : null}
-        <div className={compactShellClass}>
-          <div className={compactToolbarClass}>
+        <div className={compactShellClass} ref={compactShellRef}>
+          <div className={compactToolbarClass} ref={compactToolbarRef}>
             <div className="flex w-full min-w-0 max-w-full flex-col gap-1.5 overflow-x-clip max-lg:gap-1 lg:flex-row lg:flex-wrap lg:items-center lg:justify-center lg:gap-1.5 sm:gap-2">
               <div className="flex w-full min-w-0 items-center gap-1 overflow-x-clip sm:gap-1.5 lg:hidden">
                 <Button
@@ -2837,14 +2882,21 @@ export function PortalCalendarPanels({
                         came from. Every half-hour past 10 o'clock collided.
                       */}
                       <div className={`grid w-full min-w-0 grid-cols-[64px_repeat(7,minmax(0,1fr))] text-[10px] ${CALENDAR_GRID_GAP}`}>
-                        <div className={`px-1 py-1.5 sm:px-1.5 ${CALENDAR_HEADER_CELL}`}>Time</div>
+                        <div
+                          className={`px-1 py-1.5 sm:px-1.5 ${CALENDAR_HEADER_CELL} ${CALENDAR_STICKY_HEADER_CELL}`}
+                        >
+                          Time
+                        </div>
                         {activeBlockDates.map((d) => {
                           const ds = toLocalDateStr(d);
                           const count = showEventCountsInDayHeader
                             ? scheduledMeetings.filter((meeting) => meeting.dateStr === ds).length
                             : openSlotCountForDate(ds);
                           return (
-                            <div key={ds} className={`px-0.5 py-1.5 text-center sm:px-1 ${CALENDAR_HEADER_CELL}`}>
+                            <div
+                              key={ds}
+                              className={`px-0.5 py-1.5 text-center sm:px-1 ${CALENDAR_HEADER_CELL} ${CALENDAR_STICKY_HEADER_CELL}`}
+                            >
                               <p className="text-[10px] font-semibold leading-tight text-muted">
                                 {d.toLocaleDateString(undefined, { weekday: "short" })}
                               </p>

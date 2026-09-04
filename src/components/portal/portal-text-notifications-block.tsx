@@ -107,6 +107,12 @@ export function PortalTextNotificationsBlock({
         if (pending?.phone && !data.phoneVerifiedAt) {
           setPhoneInput((current) => current || pending.phone);
           setCodeSent(true);
+        } else if (data.phone && !data.phoneVerifiedAt) {
+          // The number is already on the profile — do not make them type it a
+          // second time. Verification still stands: this prefills the field,
+          // it does not skip the code, because a number on file is not proof
+          // the person holds that handset.
+          setPhoneInput((current) => current || data.phone!);
         }
       });
     return () => {

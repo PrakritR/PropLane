@@ -406,14 +406,21 @@ export function FieldSingleSelect({
         aria-disabled={optionDisabled || undefined}
         disabled={optionDisabled}
         {...{ [FIELD_SELECT_OPTION_VALUE_ATTR]: opt.value }}
-        className={`flex w-full items-center gap-2.5 px-3 py-2 text-left text-sm ${FIELD_SELECT_MENU_OPTION_CLASS} text-foreground ${
+        className={`flex w-full items-start gap-2.5 px-3 py-2 text-left text-sm ${FIELD_SELECT_MENU_OPTION_CLASS} text-foreground ${
           optionDisabled ? "cursor-not-allowed opacity-50" : ""
         }`}
       >
-        <span className="flex h-4 w-4 shrink-0 items-center justify-center text-primary" aria-hidden>
+        <span className="mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center text-primary" aria-hidden>
           {active ? "✓" : ""}
         </span>
-        <span className="whitespace-nowrap leading-snug">{opt.label}</span>
+        {/*
+          Wraps rather than `whitespace-nowrap`. The menu is width-matched to
+          its trigger, so a label longer than the field — an email address, a
+          long property name — ran straight out past the menu's own edge
+          instead of fitting inside it. `break-words` keeps a long unbroken
+          token (an address with no spaces) inside too.
+        */}
+        <span className="min-w-0 break-words text-left leading-snug">{opt.label}</span>
       </button>
     );
   };

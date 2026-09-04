@@ -18,7 +18,7 @@ export const MANAGER_NOTIFICATION_CATEGORIES = [
   {
     id: "maintenance",
     label: "Maintenance",
-    description: "Work orders, service requests, reminders, and status changes.",
+    description: "Services, add-on requests, reminders, and status changes.",
   },
   {
     id: "payment_reminders",
@@ -111,6 +111,10 @@ export function managerNotificationCategoryForTask(task: {
   if (
     task.taskType === "work_order" ||
     Boolean(task.linkedWorkOrderId) ||
+    // Matches TITLES ALREADY STORED on rows, not display copy: a maintenance
+    // task is still prefixed "Work order ·" in existing data even though the
+    // product now calls it a service everywhere a person reads it. Renaming
+    // this literal silently stops matching every row written before the rename.
     /^(Service|Work order) ·/.test(task.title.trim())
   ) return "maintenance";
   return "messages";

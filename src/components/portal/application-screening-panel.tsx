@@ -557,9 +557,34 @@ export function ApplicationScreeningPanel({
             Run again
           </Button>
         ) : null}
+        {/*
+          Download only once a report exists. This tab footer used to publish
+          just the two run actions, so on the Background check page — whose
+          whole subject is the report — there was no way to get the PDF without
+          going back to the application.
+        */}
+        {bg?.status === "complete" ? (
+          <Button
+            type="button"
+            variant="outline"
+            className={PORTAL_HEADER_ACTION_BTN}
+            data-attr="screening-pdf-download"
+            onClick={handleDownload}
+          >
+            Download
+          </Button>
+        ) : null}
       </>
     ),
-    [canOfferRunBackgroundCheck, canRunBackgroundCheckAgain, openRunBackgroundCheck, onOpenScreeningModal, testButtonLabel],
+    [
+      bg?.status,
+      canOfferRunBackgroundCheck,
+      canRunBackgroundCheckAgain,
+      handleDownload,
+      openRunBackgroundCheck,
+      onOpenScreeningModal,
+      testButtonLabel,
+    ],
   );
 
   const compactTabFooterActionsSignature = useMemo(

@@ -3,9 +3,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ManagerPortalPageShell,
-  PORTAL_COMMAND_ACTION_BTN,
-  PORTAL_COMMAND_PRIMARY_ACTION_BTN,
-  PORTAL_COMMAND_PRIMARY_ACTION_STYLE,
 } from "@/components/portal/portal-metrics";
 import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
 import { PortalFilterSortSheet, portalFilterActiveCount } from "@/components/portal/portal-filter-sort-sheet";
@@ -15,7 +12,6 @@ import { ResidentPortalDataList } from "@/components/portal/resident-portal-data
 import { ResidentPortalListBottomBar } from "@/components/portal/resident-portal-list-bottom-bar";
 import {
   residentDocumentsDownloadAction,
-  residentDocumentsOpenAction,
   useResidentDocumentSelection,
 } from "@/components/portal/resident-documents-bulk";
 import { PORTAL_LIST_PAGE_BODY } from "@/components/portal/portal-inbox-ui";
@@ -205,14 +201,11 @@ function ApplicationDocumentsTable({ basePath }: { basePath: string }) {
   const singleSelected = selectedRows.length === 1 ? selectedRows[0]! : null;
 
   const bulkActions = useMemo(() => {
+    // Download only. Opening a document is what clicking its row does — an Open
+    // button beside Download made the row look like it did nothing.
     const actions = [];
     if (singleSelected) {
       actions.push(
-        residentDocumentsOpenAction(
-          "Open",
-          () => openApplication(singleSelected),
-          "resident-documents-application-open",
-        ),
         residentDocumentsDownloadAction(
           "Download",
           () => runApplicationPdfDownload(singleSelected, showToast),
@@ -786,14 +779,11 @@ function RentReceiptsTab({
   const singleSelected = selectedRows.length === 1 ? selectedRows[0]! : null;
 
   const bulkActions = useMemo(() => {
+    // Download only. Opening a document is what clicking its row does — an Open
+    // button beside Download made the row look like it did nothing.
     const actions = [];
     if (singleSelected) {
       actions.push(
-        residentDocumentsOpenAction(
-          "Open",
-          () => openReceipt(singleSelected),
-          "resident-documents-receipt-open",
-        ),
         // `residentDocumentsDownloadAction` builds an action object that wires
         // this callback to a Button's onClick; it never calls it while
         // rendering. The compiler assumes any function handed a ref-reading
@@ -950,18 +940,9 @@ export function ResidentDocumentsPanel({
         activeDestinationId={tabId}
         destinationAriaLabel="Documents"
         actions={
-          tabId === "other" ? (
-            <Button
-              type="button"
-              className={PORTAL_COMMAND_PRIMARY_ACTION_BTN}
-              style={PORTAL_COMMAND_PRIMARY_ACTION_STYLE}
-              data-attr="resident-documents-upload"
-              onClick={openAdd}
-            >
-              <span className="sm:hidden" aria-hidden="true">Upload</span>
-              <span className="hidden sm:inline">Upload document</span>
-            </Button>
-          ) : tabId === "receipts" ? (
+          // No toolbar Upload: the dashed UPLOAD row in the list below already
+          // does it, and the two sat one above the other saying the same thing.
+          tabId === "receipts" ? (
             <RentReceiptDateRangeFilter range={receiptRange} onRangeChange={setReceiptRange} />
           ) : null
         }

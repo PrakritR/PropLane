@@ -1,6 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import type { PaymentAutomationSettingsHandle } from "@/components/portal/payment-schedule-ui";
 import { Modal } from "@/components/ui/modal";
 import { useAppUi } from "@/components/providers/app-ui-provider";
 import { isDemoModeActive } from "@/lib/demo/demo-session";
@@ -92,6 +93,19 @@ export function ManagerPortalSettingsModal({
   const [automation, setAutomation] = useState<ApplicationAutomationPreferences>(DEFAULT_APPLICATION_AUTOMATION);
   const [panelFooter, setPanelFooter] = useState<ManagerSettingsPanelFooter | null>(null);
 
+  /**
+   * Payments settings autosaves on close, so closing the dialog has to be what
+   * commits it. Without this the tab has no Save button AND no save — the
+   * manager changes the schedule, closes, and nothing was written.
+   */
+  const paymentsFormRef = useRef<PaymentAutomationSettingsHandle | null>(null);
+  const closeAndSave = useCallback(() => {
+    // Close first: the save is silent and the dialog should not sit open while
+    // the request runs. A failure still raises its own toast.
+    onClose();
+    void paymentsFormRef.current?.saveIfDirty();
+  }, [onClose]);
+
   useEffect(() => {
     if (open) setTab(initialTab);
   }, [open, initialTab]);
@@ -145,58 +159,57 @@ export function ManagerPortalSettingsModal({
     }
   }, [open, tab, loadApplications]);
 
-  async function saveApplicationAutomationSettings() {
-    if (!propertyId) {
-      showToast("Choose a property first.");
-      return;
-    }
-    if (demo) {
-      showToast("Settings saved (demo).");
-      return;
-    }
-    setSaving(true);
-    try {
-      const res = await fetch("/api/portal/manager-application-settings", {
-        method: "PATCH",
-        credentials: "include",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          propertyId,
-          automation,
-        }),
-      });
-      const data = (await res.json().catch(() => ({}))) as {
-        error?: string;
-      };
-      if (!res.ok) {
-        showToast(data.error ?? "Could not save settings.");
-        return;
+  /**
+   * These panels autosave: a toggle IS the save, so there is no Save button.
+   *
+   * The write takes the next value as an argument rather than reading
+   * `automation` state, and is called from the change handler rather than an
+   * effect watching that state. An effect would also fire when `loadApplications`
+   * seeds the state on open and on every property change — writing settings back
+   * to the server that nobody touched, and racing the load it was triggered by.
+   */
+  const saveApplicationAutomationSettings = useCallback(
+    async (next: ApplicationAutomationPreferences) => {
+      if (!propertyId || demo) return;
+      setSaving(true);
+      try {
+        const res = await fetch("/api/portal/manager-application-settings", {
+          method: "PATCH",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ propertyId, automation: next }),
+        });
+        const data = (await res.json().catch(() => ({}))) as { error?: string };
+        // Silent on success — a toast per checkbox is noise when the toggle
+        // itself is the feedback. A failure still has to be visible, or the
+        // switch sits there looking saved when nothing was written.
+        if (!res.ok) showToast(data.error ?? "Could not save settings.");
+      } catch {
+        showToast("Could not save settings.");
+      } finally {
+        setSaving(false);
       }
-      showToast("Settings saved.");
-    } catch {
-      showToast("Could not save settings.");
-    } finally {
-      setSaving(false);
-    }
-  }
+    },
+    [demo, propertyId, showToast],
+  );
 
-  const scopedAutomationFooter = useMemo((): ManagerSettingsPanelFooter | null => {
-    if (tab !== "applications" && tab !== "lease") return null;
-    return {
-      saving,
-      disabled: loading || !propertyId || propertyOptions.length === 0,
-      onSave: () => void saveApplicationAutomationSettings(),
-      dataAttr: tab === "applications" ? "manager-application-settings-save" : "manager-lease-settings-save",
-    };
-  }, [loading, propertyId, propertyOptions.length, saving, tab]);
+  const changeAutomation = useCallback(
+    (next: ApplicationAutomationPreferences) => {
+      setAutomation(next);
+      void saveApplicationAutomationSettings(next);
+    },
+    [saveApplicationAutomationSettings],
+  );
 
+  // Applications and Lease autosave, so they publish no footer at all. The other
+  // tabs still own their own Save through `panelFooter`.
   const inlineFooter =
-    scopedAutomationFooter ?? (tab === "resident" ? null : panelFooter);
+    tab === "applications" || tab === "lease" || tab === "resident" ? null : panelFooter;
 
   return (
     <Modal
       open={open}
-      onClose={onClose}
+      onClose={closeAndSave}
       title={
         scoped
           ? `${scopedTitle ?? TABS.find((item) => item.id === tab)?.label ?? "Settings"} settings`
@@ -237,7 +250,7 @@ export function ManagerPortalSettingsModal({
           propertyOptions={propertyOptions}
           propertyId={propertyId}
           onPropertyIdChange={setPropertyId}
-          onAutomationChange={setAutomation}
+          onAutomationChange={changeAutomation}
         />
       ) : null}
 
@@ -254,7 +267,7 @@ export function ManagerPortalSettingsModal({
           propertyOptions={propertyOptions}
           propertyId={propertyId}
           onPropertyIdChange={setPropertyId}
-          onAutomationChange={setAutomation}
+          onAutomationChange={changeAutomation}
         />
       ) : null}
 
@@ -264,7 +277,9 @@ export function ManagerPortalSettingsModal({
 
       {tab === "resident" ? <ResidentSettingsPanel /> : null}
 
-      {open && tab === "payments" ? <PaymentsSettingsPanel onFooterReady={setPanelFooter} /> : null}
+      {open && tab === "payments" ? (
+        <PaymentsSettingsPanel onFooterReady={setPanelFooter} formRef={paymentsFormRef} />
+      ) : null}
 
       {open && tab === "communication" ? (
         <CommunicationSettingsPanel onFooterReady={setPanelFooter} />

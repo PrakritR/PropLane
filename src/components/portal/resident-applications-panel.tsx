@@ -1237,10 +1237,10 @@ export function ResidentApplicationsPanel({
             <div className="flex items-center justify-center px-6 py-16 text-sm text-muted">Loading applications…</div>
           </div>
         ) : listRows.length === 0 ? (
-          <>
-            <PortalDataTableEmpty icon="application" message="No applications in this tab yet." />
-            <div className={PORTAL_LIST_ADD_ROW_WRAP_CLASS}>{renderApplicationAddRow()}</div>
-          </>
+          // No empty-state card. The tab's own count already reads 0 and the
+          // APPLY row below says what to do about it — a panel repeating "none
+          // here yet" between the two is a third way of saying nothing.
+          <div className={PORTAL_LIST_ADD_ROW_WRAP_CLASS}>{renderApplicationAddRow()}</div>
         ) : (
           <div className={PORTAL_LIST_PAGE_BODY}>
             {renderRoutedList(listRows)}

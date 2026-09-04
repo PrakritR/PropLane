@@ -1,14 +1,29 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
-import { Button } from "@/components/ui/button";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { Modal, ModalFooter } from "@/components/ui/modal";
 import { ManagerPropertyLeasePanel } from "@/components/portal/pro-property-lease-panel";
+import { ManagerSettingsPropertyField } from "@/components/portal/pro-portal-settings-panels";
 import type { ManagerPropertyFilterOption } from "@/lib/manager-portfolio-access";
 import { resolveManagerListingSubmissionForPropertyId } from "@/lib/manager-property-save-target";
 import { syncPropertyLeaseTemplatesFromListing } from "@/lib/property-lease-template-sync";
 
-/** Pick properties, then manage lease templates (single or bulk). */
+/**
+ * Pick ONE property, then manage its lease templates.
+ *
+ * The property dropdown is the same one Leases settings uses, on the same page
+ * as the leases it filters — no Continue step. These two open from adjacent
+ * buttons, so asking the same question two different ways reads as two
+ * unrelated features.
+ *
+ * It was a multi-select ("apply to all") behind a Continue before. A single
+ * property is the captain's call, and it also removes the quiet hazard of one
+ * Save rewriting the lease templates of every house at once.
+ *
+ * The panel's own selection action is published up and rendered in this modal's
+ * footer: `BulkActionBar` is `position: fixed`, so left to itself it escaped to
+ * the page behind the dialog.
+ */
 export function ManagerEditLeasesModal({
   open,
   onClose,
@@ -24,176 +39,87 @@ export function ManagerEditLeasesModal({
   onSaved: () => void;
   showToast: (m: string) => void;
 }) {
-  const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
-  const [editingPropertyIds, setEditingPropertyIds] = useState<string[]>([]);
+  const [selectedId, setSelectedId] = useState("");
   const [editorRevision, setEditorRevision] = useState(0);
-
-  const allSelected = propertyOptions.length > 0 && selectedIds.size === propertyOptions.length;
+  /** The lease panel's own selection action, rendered in this modal's footer. */
+  const [bulkActions, setBulkActions] = useState<ReactNode | null>(null);
 
   useEffect(() => {
     if (!open) {
-      setSelectedIds(new Set());
-      setEditingPropertyIds([]);
+      setSelectedId("");
       setEditorRevision(0);
+      setBulkActions(null);
     }
   }, [open]);
 
-  const resolved = useMemo(() => {
-    const firstId = editingPropertyIds[0]?.trim();
-    if (!firstId || !managerUserId) return null;
-    return resolveManagerListingSubmissionForPropertyId(managerUserId, firstId);
-  }, [editorRevision, editingPropertyIds, managerUserId]);
+  // Open on the first property rather than an empty Select. The dialog's job is
+  // to show leases; opening on "choose a property to see them" makes the
+  // manager spend a click before the dialog does anything, and with one
+  // property in the portfolio it is a click with a single possible answer.
+  useEffect(() => {
+    if (open && !selectedId && propertyOptions.length > 0) {
+      setSelectedId(propertyOptions[0]!.id);
+    }
+  }, [open, propertyOptions, selectedId]);
 
-  const editorTitle = useMemo(() => {
-    if (editingPropertyIds.length === 1) {
-      const label = propertyOptions.find((o) => o.id === editingPropertyIds[0])?.label ?? "Property";
-      return `Edit lease · ${label}`;
-    }
-    if (editingPropertyIds.length > 1) {
-      return `Edit lease · ${editingPropertyIds.length} properties`;
-    }
-    return "Edit lease";
-  }, [editingPropertyIds, propertyOptions]);
+  const resolved = useMemo(() => {
+    const id = selectedId.trim();
+    if (!id || !managerUserId) return null;
+    return resolveManagerListingSubmissionForPropertyId(managerUserId, id);
+  }, [editorRevision, selectedId, managerUserId]);
+
+  const selectedLabel = selectedId
+    ? (propertyOptions.find((o) => o.id === selectedId)?.label ?? null)
+    : null;
+  const title = selectedLabel ? `Edit lease · ${selectedLabel}` : "Edit lease";
 
   const closeAll = () => {
-    setSelectedIds(new Set());
-    setEditingPropertyIds([]);
+    setSelectedId("");
+    setBulkActions(null);
     onClose();
   };
 
-  const toggleAll = (checked: boolean) => {
-    setSelectedIds(checked ? new Set(propertyOptions.map((o) => o.id)) : new Set());
-  };
-
-  const toggleOne = (id: string, checked: boolean) => {
-    setSelectedIds((prev) => {
-      const next = new Set(prev);
-      if (checked) next.add(id);
-      else next.delete(id);
-      return next;
-    });
-  };
-
-  const continueFromSelect = () => {
-    if (selectedIds.size === 0) {
-      showToast("Select at least one property.");
-      return;
-    }
-    if (!managerUserId) {
-      showToast("Sign in to edit lease settings.");
-      return;
-    }
-    const ids = [...selectedIds];
-    const firstHit = resolveManagerListingSubmissionForPropertyId(managerUserId, ids[0]!);
-    if (!firstHit) {
-      showToast("Could not load lease settings for the selected properties.");
-      return;
-    }
-    setEditingPropertyIds(ids);
-  };
-
-  const onEditorClose = () => {
-    setEditingPropertyIds([]);
-  };
-
   const syncedSub = resolved ? syncPropertyLeaseTemplatesFromListing(resolved.sub) : null;
-  const isBulkEdit = editingPropertyIds.length > 1;
-  const primaryPropertyId = editingPropertyIds[0] ?? null;
-  const primaryPropertyLabel = primaryPropertyId
-    ? propertyOptions.find((o) => o.id === primaryPropertyId)?.label
-    : null;
 
   return (
-    <>
-      <Modal
-        open={open && editingPropertyIds.length === 0}
-        title="Edit lease settings"
-        description="Choose which properties' lease templates you want to edit. When you select multiple, the same lease settings apply to all."
-        onClose={closeAll}
-        dense
-        panelClassName="max-w-md"
-        assistantContext="Edit lease settings"
-        footer={
-          <ModalFooter>
-            <Button
-              type="button"
-              variant="primary"
-              className="rounded-full"
-              data-attr="leases-edit-continue"
-              disabled={selectedIds.size === 0 || propertyOptions.length === 0}
-              onClick={continueFromSelect}
-            >
-              Continue
-            </Button>
-          </ModalFooter>
-        }
-      >
-        <div className="space-y-3">
-          <label className="flex cursor-pointer items-center gap-2 rounded-xl border border-border bg-accent/20 px-3 py-2.5">
-            <input
-              type="checkbox"
-              className="h-4 w-4 rounded border-border text-primary"
-              data-attr="leases-edit-all-properties"
-              checked={allSelected}
-              disabled={propertyOptions.length === 0}
-              onChange={(e) => toggleAll(e.target.checked)}
-            />
-            <span className="text-sm font-semibold text-foreground">All properties</span>
-          </label>
+    <Modal
+      open={open}
+      title={title}
+      description="Choose a property, then add a lease or edit one of its templates."
+      onClose={closeAll}
+      panelClassName="max-w-4xl"
+      assistantContext="Edit lease"
+      footer={bulkActions ? <ModalFooter className="w-full">{bulkActions}</ModalFooter> : undefined}
+    >
+      <div className="space-y-4">
+        <ManagerSettingsPropertyField
+          propertyOptions={propertyOptions.map((option) => ({ id: option.id, label: option.label }))}
+          propertyId={selectedId}
+          onPropertyIdChange={setSelectedId}
+        />
 
-          <div className="max-h-[min(40vh,16rem)] space-y-1 overflow-y-auto rounded-xl border border-border p-2">
-            {propertyOptions.length === 0 ? (
-              <p className="px-2 py-3 text-sm text-muted">No properties in portfolio yet.</p>
-            ) : (
-              propertyOptions.map((o) => (
-                <label
-                  key={o.id}
-                  className="flex cursor-pointer items-center gap-2 rounded-lg px-2 py-2 hover:bg-accent/30"
-                >
-                  <input
-                    type="checkbox"
-                    className="h-4 w-4 shrink-0 rounded border-border text-primary"
-                    data-attr={`leases-edit-property-${o.id}`}
-                    checked={selectedIds.has(o.id)}
-                    onChange={(e) => toggleOne(o.id, e.target.checked)}
-                  />
-                  <span className="min-w-0 text-sm text-foreground">{o.label}</span>
-                </label>
-              ))
-            )}
-          </div>
-        </div>
-      </Modal>
-
-      {resolved && managerUserId && syncedSub && editingPropertyIds.length > 0 ? (
-        <Modal
-          open
-          title={editorTitle}
-          description={
-            isBulkEdit
-              ? "These settings apply to all selected properties. Add a lease or edit an existing template."
-              : "Add a lease or edit an existing template. Choose PropLane default (long or short term) or upload a PDF."
-          }
-          onClose={onEditorClose}
-          panelClassName="max-w-4xl"
-          assistantContext="Edit lease"
-        >
+        {!selectedId ? (
+          <p className="text-sm text-muted">Choose a property to see its leases.</p>
+        ) : !resolved || !managerUserId || !syncedSub ? (
+          <p className="text-sm text-muted">Could not load leases for that property.</p>
+        ) : (
           <ManagerPropertyLeasePanel
+            key={selectedId}
             sub={syncedSub}
             saveTarget={resolved.saveTarget}
             managerUserId={managerUserId}
-            propertyIds={isBulkEdit ? editingPropertyIds : undefined}
-            propertyHint={primaryPropertyLabel ? { buildingName: primaryPropertyLabel } : undefined}
-            propertyId={primaryPropertyId}
-            propertyLabel={primaryPropertyLabel}
+            propertyHint={selectedLabel ? { buildingName: selectedLabel } : undefined}
+            propertyId={selectedId}
+            propertyLabel={selectedLabel}
+            onBulkActionsChange={setBulkActions}
             onUpdated={() => {
               setEditorRevision((revision) => revision + 1);
               onSaved();
             }}
             showToast={showToast}
           />
-        </Modal>
-      ) : null}
-    </>
+        )}
+      </div>
+    </Modal>
   );
 }

@@ -150,7 +150,9 @@ export const DEFAULT_MANAGER_AUTOMATION_SETTINGS: ManagerAutomationSettings = {
   tourReminderDeliverViaEmail: true,
   tourReminderDeliverViaSms: false,
   paymentReminderDeliverViaEmail: true,
-  paymentReminderDeliverViaSms: false,
+  // Payment reminders go out on BOTH channels by default. An email-only rent
+  // reminder is the one the resident misses; SMS is the channel they read.
+  paymentReminderDeliverViaSms: true,
   inboxDefaultDeliverViaEmail: true,
   inboxDefaultDeliverViaSms: false,
   messagesDeliverViaEmail: true,

@@ -16,8 +16,6 @@ import {
 import {
   ManagerPortalPageShell,
   PORTAL_COMMAND_ACTION_BTN,
-  PORTAL_COMMAND_PRIMARY_ACTION_BTN,
-  PORTAL_COMMAND_PRIMARY_ACTION_STYLE,
 } from "@/components/portal/portal-metrics";
 import { ManagerPortalSettingsModal } from "@/components/portal/pro-portal-settings-modal";
 import { PortalFilterSortSheet, portalFilterActiveCount } from "@/components/portal/portal-filter-sort-sheet";
@@ -534,6 +532,8 @@ export function ManagerTaskList({
         activeDestinationId={tabId}
         destinationAriaLabel="Task status"
         actions={
+          // No Add here: the list's own dashed ADD row is the add path, and a
+          // second one in the toolbar was the same action twice on one screen.
           <>
             {tasksFilterSheet}
             <Button
@@ -545,17 +545,6 @@ export function ManagerTaskList({
             >
               Settings
             </Button>
-            {tabId === "in-progress" ? (
-              <Button
-                type="button"
-                className={PORTAL_COMMAND_PRIMARY_ACTION_BTN}
-                style={PORTAL_COMMAND_PRIMARY_ACTION_STYLE}
-                data-attr="manager-task-list-header-add"
-                onClick={openAddTask}
-              >
-                Add
-              </Button>
-            ) : null}
           </>
         }
       />

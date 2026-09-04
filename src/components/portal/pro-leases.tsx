@@ -201,9 +201,21 @@ export function ManagerLeases({
     </PortalFilterSortSheet>
   );
 
+  // Edit and Settings sit together and ask the same first question — which
+  // property — through the same dropdown, so the pair reads as one idea rather
+  // than two unrelated features that happen to be adjacent.
   const leasesListActions = (
     <>
       {leasesFilterSheet}
+      <Button
+        type="button"
+        variant="outline"
+        className={PORTAL_COMMAND_ACTION_BTN}
+        data-attr="leases-edit-open"
+        onClick={() => setEditLeasesOpen(true)}
+      >
+        Edit
+      </Button>
       <Button
         type="button"
         variant="outline"

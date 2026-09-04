@@ -80,6 +80,8 @@ import {
 } from "@/lib/dev/resident-list-fixtures";
 import {
   PORTAL_LIST_ADD_ICONS,
+  PORTAL_LIST_ADD_ROW_WRAP_CLASS,
+  PortalListAddRow,
 } from "@/components/portal/portal-list-add-row";
 import { LeaseDocumentPreview } from "@/components/portal/lease-document-preview";
 import { LeasePrimaryHeaderActions } from "@/components/portal/lease-primary-header-actions";
@@ -2497,33 +2499,29 @@ export function ManagerResidents({
     return true;
   }
 
-  async function deleteListSelectedResidents() {
-    const ids = [...selectedIds];
-    if (ids.length === 0) return;
-    const label =
-      ids.length === 1
-        ? residentDirectoryRows.find((row) => row.id === ids[0])?.name ||
-          residentDirectoryRows.find((row) => row.id === ids[0])?.email ||
-          "this resident"
-        : `${ids.length} residents`;
-    if (!window.confirm(`Delete ${label}? This cannot be undone.`)) return;
-
-    let deleted = 0;
-    for (const id of ids) {
-      const resident = residentDirectoryRows.find((row) => row.id === id);
-      if (!resident) continue;
-      if (await executeResidentDelete(resident)) deleted += 1;
+  /**
+   * Delete the resident the Edit modal is open on. Separate from the list's
+   * bulk delete: this one knows exactly which record it is destroying, names it
+   * in the confirmation, and closes the modal it was invoked from.
+   */
+  async function deleteEditedResident() {
+    const targetId = editResidentTargetId;
+    if (!targetId) return;
+    const resident = residentDirectoryRows.find((row) => row.id === targetId);
+    if (!resident) {
+      showToast("Resident record not found.");
+      return;
     }
-    if (deleted === 0) return;
+    const label = resident.name || resident.email || "this resident";
+    if (!window.confirm(`Delete ${label}? This cannot be undone.`)) return;
+    if (!(await executeResidentDelete(resident))) return;
+    setEditResidentOpen(false);
+    setEditResidentTargetId(null);
     clearSelection();
-    if (activeResidentId && ids.includes(activeResidentId)) {
+    if (activeResidentId === targetId) {
       navigate(`${portalBase}/residents/${residentsTab}`);
     }
-    showToast(
-      deleted === 1
-        ? "Resident and all related portal data deleted."
-        : `${deleted} residents and related portal data deleted.`,
-    );
+    showToast("Resident and all related portal data deleted.");
   }
 
   function leaseGenerationGateTitle(row: LeasePipelineRow): string | undefined {
@@ -2599,21 +2597,90 @@ export function ManagerResidents({
     }
   }
 
+  /**
+   * The footer follows the application's state rather than showing one fixed
+   * pair. It offered Approve and Download only, so a manager could approve but
+   * never reject, and once a decision was made there was no way back from it
+   * on this screen at all.
+   *
+   *   decidable (pending, complete) → Approve · Reject
+   *   approved                      → Move to pending   (undo the decision)
+   *   rejected                      → Move to pending · Delete
+   *   incomplete                    → Send reminder
+   *
+   * Download is always there. "Move to pending" rather than "Un-approve"
+   * because pending is a real bucket the row goes back to, not an absence.
+   */
   const residentApplicationTabFooterActions = selectedApplicationRow ? (
     <>
-      {selectedApplicationRow.bucket === "pending" &&
-      !isWithdrawnApplicationRow(selectedApplicationRow) &&
-      !isInProgressApplicationRow(selectedApplicationRow) ? (
-        <Button
-          type="button"
-          variant="primary"
-          className={PORTAL_DETAIL_BTN}
-          data-attr="resident-application-approve"
-          onClick={() => setApprovePreviewRow(selectedApplicationRow)}
-        >
-          Approve
-        </Button>
-      ) : null}
+      {(() => {
+        const row = selectedApplicationRow;
+        const undecidable = isWithdrawnApplicationRow(row) || isInProgressApplicationRow(row);
+        const decidable = row.bucket === "pending" && !undecidable;
+        const moveToPending = (
+          <Button
+            type="button"
+            variant="outline"
+            className={PORTAL_DETAIL_BTN}
+            data-attr="resident-application-move-pending"
+            onClick={() => void setApplicationBucket(row.id, "pending")}
+          >
+            Move to pending
+          </Button>
+        );
+        return (
+          <>
+            {decidable ? (
+              <>
+                <Button
+                  type="button"
+                  variant="primary"
+                  className={PORTAL_DETAIL_BTN}
+                  data-attr="resident-application-approve"
+                  onClick={() => setApprovePreviewRow(row)}
+                >
+                  Approve
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  className={PORTAL_DETAIL_BTN}
+                  data-attr="resident-application-reject"
+                  onClick={() => void setApplicationBucket(row.id, "rejected")}
+                >
+                  Reject
+                </Button>
+              </>
+            ) : null}
+            {row.bucket === "approved" ? moveToPending : null}
+            {row.bucket === "rejected" ? (
+              <>
+                {moveToPending}
+                <Button
+                  type="button"
+                  variant="outline"
+                  className={`${PORTAL_DETAIL_BTN} border-rose-200 text-rose-800 hover:bg-[var(--status-overdue-bg)] portal-danger-outline`}
+                  data-attr="resident-application-delete"
+                  onClick={() => void deleteApplicationForRow(row)}
+                >
+                  Delete
+                </Button>
+              </>
+            ) : null}
+            {undecidable && shouldOfferApplicationCompletionReminder(row) ? (
+              <Button
+                type="button"
+                variant="outline"
+                className={PORTAL_DETAIL_BTN}
+                data-attr="resident-application-completion-reminder"
+                onClick={() => void openApplicationCompletionReminderPreview(row)}
+              >
+                Send reminder
+              </Button>
+            ) : null}
+          </>
+        );
+      })()}
       <Button
         type="button"
         variant="outline"
@@ -2628,27 +2695,31 @@ export function ManagerResidents({
     </>
   ) : null;
 
+  /**
+   * The screening panel already publishes the run action for this tab — "Run
+   * background check" when there is no report, "Run again" when there is — so
+   * a second button that opens the same modal was pure duplication: the footer
+   * read "Run again · Download · Request screening", three buttons for two
+   * actions.
+   *
+   * What is left is the case the panel does NOT cover: the applicant has not
+   * authorized a check yet. There is nothing to run, and the useful move is to
+   * chase the applicant, so that is what the button says.
+   */
   const residentBackgroundCheckTabFooterActions = selectedApplicationRow ? (
     <>
       {applicantScreeningFooterActions}
-      {applicationShowsBackgroundCheck(selectedApplicationRow) ? (
+      {applicationShowsBackgroundCheck(selectedApplicationRow) &&
+      !selectedApplicationRow.application?.consentCredit &&
+      shouldOfferApplicationCompletionReminder(selectedApplicationRow) ? (
         <Button
           type="button"
           variant="outline"
           className={PORTAL_DETAIL_BTN}
-          data-attr="resident-application-request-screening"
-          onClick={() => {
-            if (selectedApplicationRow.application?.consentCredit) {
-              setCheckrScreeningShowPicker(false);
-              setCheckrScreeningRowId(selectedApplicationRow.id);
-              return;
-            }
-            if (shouldOfferApplicationCompletionReminder(selectedApplicationRow)) {
-              void openApplicationCompletionReminderPreview(selectedApplicationRow);
-            }
-          }}
+          data-attr="resident-application-screening-reminder"
+          onClick={() => void openApplicationCompletionReminderPreview(selectedApplicationRow)}
         >
-          Request screening
+          Send reminder
         </Button>
       ) : null}
     </>
@@ -2727,6 +2798,8 @@ export function ManagerResidents({
       />
     ) : null;
 
+  // No Add payment here: the list's own dashed ADD row is the add path, and a
+  // second one in the dock was the same action twice on one screen.
   const residentPaymentsListFooterActions = (
     <>
       <Button
@@ -2747,34 +2820,29 @@ export function ManagerResidents({
       >
         Payment setup
       </Button>
-      <Button
-        type="button"
-        variant="primary"
-        className={PORTAL_DETAIL_BTN}
-        onClick={() => setAddResidentPaymentOpen(true)}
-        data-attr="resident-add-payment"
-      >
-        Add payment
-      </Button>
     </>
   );
 
-  const residentServicesTabFooterActions = (
-    <Button
-      type="button"
-      variant="primary"
-      className={PORTAL_DETAIL_BTN}
-      data-attr="resident-add-service"
-      disabled={!canAddResidentServiceItem}
-      title={
-        canAddResidentServiceItem
-          ? undefined
-          : "Link this resident to a property before adding services."
-      }
-      onClick={() => setAddResidentServiceOpen(true)}
-    >
-      Add service
-    </Button>
+  // Services adds through the dashed ADD row in the list itself, the same way
+  // every other list in the portal does — so this tab publishes no dock action.
+  const residentServicesTabFooterActions = null;
+
+  const residentServicesAddRow = (
+    <div className={PORTAL_LIST_ADD_ROW_WRAP_CLASS}>
+      <PortalListAddRow
+        label="Add service"
+        ariaLabel="Add service for this resident"
+        icon={PORTAL_LIST_ADD_ICONS.service}
+        disabled={!canAddResidentServiceItem}
+        hint={
+          canAddResidentServiceItem
+            ? undefined
+            : "Link this resident to a property before adding services."
+        }
+        onClick={() => setAddResidentServiceOpen(true)}
+        dataAttr="resident-add-service"
+      />
+    </div>
   );
 
   const residentDetailBottomBarActions = useMemo(() => {
@@ -3250,6 +3318,7 @@ export function ManagerResidents({
                                   </div>
                                 </div>
                               )}
+                              {residentServicesAddRow}
                               </>
                               )}
                             </ResidentDetailTabPanel>
@@ -3449,6 +3518,9 @@ export function ManagerResidents({
         }}
         bulkCount={listSelectedCount}
         bulkActions={
+          // Delete lives inside Edit resident, beside the record it would
+          // destroy — not one click from a row that may have been ticked by
+          // accident, on a bar showing nothing about who is about to go.
           <>
             <Button
               type="button"
@@ -3473,15 +3545,6 @@ export function ManagerResidents({
               }}
             >
               Edit
-            </Button>
-            <Button
-              type="button"
-              variant="outline"
-              className={`${PORTAL_BULK_BAR_BTN} border-rose-200 text-rose-800 hover:bg-[var(--status-overdue-bg)] portal-danger-outline`}
-              data-attr="residents-bulk-delete"
-              onClick={() => void deleteListSelectedResidents()}
-            >
-              Delete
             </Button>
           </>
         }
@@ -3857,8 +3920,24 @@ export function ManagerResidents({
         assistantContext="Edit resident"
         scrollableContent
         footer={
-          <ModalFooter>
-            <Button type="button" variant="primary" className="rounded-full" disabled={erSaving} onClick={saveEditedResident}>
+          <ModalFooter className="w-full">
+            <Button
+              type="button"
+              variant="outline"
+              className="rounded-full border-rose-200 text-rose-800 hover:bg-[var(--status-overdue-bg)] portal-danger-outline"
+              data-attr="edit-resident-delete"
+              disabled={erSaving || !editResidentTargetId}
+              onClick={() => void deleteEditedResident()}
+            >
+              Delete
+            </Button>
+            <Button
+              type="button"
+              variant="primary"
+              className="ml-auto rounded-full"
+              disabled={erSaving}
+              onClick={saveEditedResident}
+            >
               {erSaving ? "Saving…" : "Save resident"}
             </Button>
           </ModalFooter>

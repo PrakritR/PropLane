@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useAppUi } from "@/components/providers/app-ui-provider";
@@ -62,6 +62,7 @@ export function ManagerServiceRequestDetail({
   propertyLabel,
   onUpdated,
   onApproved,
+  onFooterActionsChange,
   onDenied,
   onCollapsed,
   allowDelete = true,
@@ -73,6 +74,12 @@ export function ManagerServiceRequestDetail({
   onDenied?: () => void;
   onCollapsed?: () => void;
   allowDelete?: boolean;
+  /**
+   * Publish the action row to a parent that renders a pinned footer, instead of
+   * laying it out inline under the detail. Without a subscriber the inline row
+   * stays, which is what the resident tab still uses.
+   */
+  onFooterActionsChange?: (actions: ReactNode | null) => void;
 }) {
   const { showToast } = useAppUi();
   const { teamMembers, vendors } = useWorkAssignmentDirectory({ managerUserId: req.managerUserId });
@@ -229,6 +236,76 @@ export function ManagerServiceRequestDetail({
     req.residentEmail ||
     "Resident";
 
+  const detailActions = (
+    <>
+        {req.status === "pending" ? (
+          <>
+            <Button
+              type="button"
+              variant="primary"
+              className={PORTAL_DETAIL_BTN}
+              data-attr="service-request-approve"
+              onClick={openApprovePreview}
+            >
+              Approve
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              className={PORTAL_DETAIL_BTN}
+              data-attr="service-request-deny"
+              onClick={openDenyPreview}
+            >
+              Deny
+            </Button>
+            {editingCharges ? (
+              <>
+                <Button type="button" variant="primary" className={PORTAL_DETAIL_BTN} onClick={saveCharges}>
+                  Save
+                </Button>
+                </>
+            ) : (
+              <Button
+                type="button"
+                variant="outline"
+                className={PORTAL_DETAIL_BTN}
+                data-attr="service-request-edit-charges"
+                onClick={() => setEditingCharges(true)}
+              >
+                Edit
+              </Button>
+            )}
+          </>
+        ) : null}
+        {allowDelete ? (
+          <Button
+            type="button"
+            variant="outline"
+            className={`${PORTAL_DETAIL_BTN} border-rose-200 text-rose-800 hover:bg-[var(--status-overdue-bg)] portal-danger-outline`}
+            onClick={() => setDeleteOpen(true)}
+          >
+            Delete
+          </Button>
+        ) : null}
+    </>
+  );
+
+  // Keyed on WHAT the row offers, not the node: the JSX is rebuilt every render,
+  // so publishing on identity would loop the parent's state forever.
+  const detailActionsSignature = [req.status, allowDelete, editingCharges].join("|");
+  const onFooterActionsChangeRef = useRef(onFooterActionsChange);
+  const detailActionsRef = useRef(detailActions);
+  useLayoutEffect(() => {
+    onFooterActionsChangeRef.current = onFooterActionsChange;
+    detailActionsRef.current = detailActions;
+  });
+  useEffect(() => {
+    const publish = onFooterActionsChangeRef.current;
+    if (!publish) return;
+    publish(detailActionsRef.current);
+    return () => publish(null);
+  }, [detailActionsSignature]);
+
   return (
     <>
       <div className="space-y-1 text-sm text-muted">
@@ -312,57 +389,7 @@ export function ManagerServiceRequestDetail({
         {req.notes ? <p className="italic">&ldquo;{req.notes}&rdquo;</p> : null}
       </div>
 
-      <PortalTableDetailActions>
-        {req.status === "pending" ? (
-          <>
-            <Button
-              type="button"
-              variant="primary"
-              className={PORTAL_DETAIL_BTN}
-              data-attr="service-request-approve"
-              onClick={openApprovePreview}
-            >
-              Approve
-            </Button>
-            <Button
-              type="button"
-              variant="outline"
-              className={PORTAL_DETAIL_BTN}
-              data-attr="service-request-deny"
-              onClick={openDenyPreview}
-            >
-              Deny
-            </Button>
-            {editingCharges ? (
-              <>
-                <Button type="button" variant="primary" className={PORTAL_DETAIL_BTN} onClick={saveCharges}>
-                  Save
-                </Button>
-                </>
-            ) : (
-              <Button
-                type="button"
-                variant="outline"
-                className={PORTAL_DETAIL_BTN}
-                data-attr="service-request-edit-charges"
-                onClick={() => setEditingCharges(true)}
-              >
-                Edit
-              </Button>
-            )}
-          </>
-        ) : null}
-        {allowDelete ? (
-          <Button
-            type="button"
-            variant="outline"
-            className={`${PORTAL_DETAIL_BTN} border-rose-200 text-rose-800 hover:bg-[var(--status-overdue-bg)] portal-danger-outline`}
-            onClick={() => setDeleteOpen(true)}
-          >
-            Delete
-          </Button>
-        ) : null}
-      </PortalTableDetailActions>
+      {onFooterActionsChange ? null : <PortalTableDetailActions>{detailActions}</PortalTableDetailActions>}
 
       <PortalNotificationPreviewModal
         open={decisionKind !== null && decisionDraft !== null}

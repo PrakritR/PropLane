@@ -15,6 +15,8 @@ import { runExistingResidentOnboarding } from "@/lib/existing-resident-onboardin
 /** `existingLease` is what the lease row already stored under this id, if any. */
 function mockDb(existingLease: { id: string; manager_user_id: string | null } | null = null) {
   const upsert = vi.fn().mockResolvedValue({ error: null });
+  /** Every `(column, value)` pair the application update was filtered on. */
+  const updateFilters: Array<[string, unknown]> = [];
   return {
     from: vi.fn(() => ({
       upsert,
@@ -23,13 +25,19 @@ function mockDb(existingLease: { id: string; manager_user_id: string | null } | 
           maybeSingle: vi.fn().mockResolvedValue({ data: existingLease, error: null }),
         })),
       })),
-      update: vi.fn(() => ({
-        eq: vi.fn(() => ({
-          eq: vi.fn().mockResolvedValue({ error: null }),
-        })),
-      })),
+      update: vi.fn(() => {
+        const builder: Record<string, unknown> = {
+          eq: vi.fn((column: string, value: unknown) => {
+            updateFilters.push([column, value]);
+            return builder;
+          }),
+          then: (resolve: (v: unknown) => unknown) => Promise.resolve({ error: null }).then(resolve),
+        };
+        return builder;
+      }),
     })),
     _upsert: upsert,
+    _updateFilters: updateFilters,
   };
 }
 
@@ -152,5 +160,35 @@ describe("runExistingResidentOnboarding", () => {
       },
     );
     expect(result.ok).toBe(false);
+  });
+
+  // PRP-230. The route hands this module a row it read back under the caller's
+  // own manager id, but the write must not be able to reach another manager's
+  // application even if that ever changes — an unscoped update here is what
+  // let one manager rewrite another's `resident_email`.
+  it("scopes the application write to the acting manager", async () => {
+    const db = mockDb();
+    const row: DemoApplicantRow = {
+      id: "PROPLANE-TEST99",
+      name: "Jane Smith",
+      email: "jane.scope@test.proplane.local",
+      property: "Ballard House",
+      stage: "Active",
+      bucket: "approved",
+      detail: "",
+      manuallyAdded: true,
+      manualResidentDetails: { monthlyUtilities: 100, securityDeposit: 500 },
+    };
+
+    const result = await runExistingResidentOnboarding(
+      db as never,
+      { userId: "mgr-1", email: "manager@test.proplane.local", managerName: "Alex Manager" },
+      row,
+      { sendWelcomeEmail: true },
+    );
+
+    expect(result.ok).toBe(true);
+    expect(db._updateFilters).toContainEqual(["id", "PROPLANE-TEST99"]);
+    expect(db._updateFilters).toContainEqual(["manager_user_id", "mgr-1"]);
   });
 });

@@ -8,31 +8,43 @@ import { retrieveManagerConnectAccountOrNull, connectAccountTransfersActive } fr
  * not configured, insufficient platform balance, etc.) is recorded as a "failed" vendor_payouts
  * row so the manager's approve-pay bookkeeping flow always succeeds regardless of payout outcome.
  *
- * Concurrency-safe: claims the payout row (status "pending") via INSERT before ever calling
- * Stripe, so the unique index on vendor_payouts.work_order_id is the sole arbiter of "who gets
- * to transfer" — two concurrent/retried calls for the same work order race the insert, and only
- * the winner proceeds to Stripe. A losing insert (or a payout that already exists in any state)
- * returns immediately with no Stripe call, never a duplicate transfer. Also passes a deterministic
- * idempotencyKey so even a Stripe-level retry of the winner's own request can't double-transfer.
+ * Concurrency-safe: claims the payout row (status "pending") before ever calling Stripe, so the
+ * unique index on vendor_payouts.work_order_id is the sole arbiter of "who gets to transfer" —
+ * two concurrent/retried calls for the same work order race the claim, and only the winner
+ * proceeds to Stripe. Also passes a deterministic idempotencyKey so even a Stripe-level retry of
+ * the winner's own request can't double-transfer.
  *
- * The amount is anchored to the work order's accepted bid when one exists (a vendor/manager
- * agreed amount, immune to a forged request body) and only falls back to the caller-supplied
- * amount for jobs assigned without formal bidding.
+ * A payout that already exists as "pending" or "paid" ends the call with no Stripe request. A
+ * "failed" one is RE-CLAIMED, because the commonest failure is a vendor who had not finished
+ * Stripe Connect onboarding at approval time and finishes it a day later. That unique index plus
+ * a claim that returned early on any existing row made a failed payout permanent: money owed with
+ * nothing in the product that would ever try again. The status predicate on the re-claim keeps it
+ * a compare-and-swap, so concurrent re-drives still produce exactly one transfer.
+ *
+ * The amount is anchored to the work order's accepted bid whenever the job was bid at all (a
+ * vendor/manager agreed amount, immune to a forged request body). It falls back to the
+ * caller-supplied amount ONLY for jobs assigned without formal bidding — a job that HAS bids but
+ * no accepted one is a missing anchor, and pays nothing rather than an unverified number.
  */
 export async function payoutVendorForWorkOrder(
   db: SupabaseClient,
   opts: { workOrderId: string; managerUserId: string; vendorUserId: string; amountCents: number },
 ): Promise<void> {
-  const { data: acceptedBid } = await db
+  const { data: bids } = await db
     .from("work_order_bids")
-    .select("amount_cents")
-    .eq("work_order_id", opts.workOrderId)
-    .eq("status", "accepted")
-    .maybeSingle();
+    .select("amount_cents, status")
+    .eq("work_order_id", opts.workOrderId);
+  const bidRows = (bids ?? []) as Array<{ amount_cents: number | null; status: string | null }>;
+  const acceptedBid = bidRows.find((bid) => bid.status === "accepted");
+  // A job with bids but none accepted has LOST its anchor — a bid re-priced by a
+  // race used to land here, and falling through to `opts.amountCents` turned that
+  // race into a payment of the one number the anchor exists to stop us trusting.
+  if (!acceptedBid && bidRows.length > 0) return;
   const amountCents = (acceptedBid?.amount_cents as number | null) ?? opts.amountCents;
   if (!amountCents || amountCents <= 0) return;
 
-  const { data: claimed, error: claimError } = await db
+  const nowIso = new Date().toISOString();
+  const { data: claimed } = await db
     .from("vendor_payouts")
     .insert({
       manager_user_id: opts.managerUserId,
@@ -42,9 +54,20 @@ export async function payoutVendorForWorkOrder(
       status: "pending",
     })
     .select("id")
-    .single();
-  if (claimError || !claimed) return;
-  const payoutId = claimed.id as string;
+    .maybeSingle();
+  // The insert lost to the unique index, so a payout row already exists. Only a
+  // failed one may be retried, and only by whoever wins the status swap.
+  const { data: reclaimed } = claimed
+    ? { data: null }
+    : await db
+        .from("vendor_payouts")
+        .update({ status: "pending", amount_cents: amountCents, failure_reason: null, updated_at: nowIso })
+        .eq("work_order_id", opts.workOrderId)
+        .eq("status", "failed")
+        .select("id")
+        .maybeSingle();
+  const payoutId = ((claimed ?? reclaimed) as { id?: string } | null)?.id;
+  if (!payoutId) return;
 
   const finish = (row: { status: "paid" | "failed"; stripeTransferId?: string; failureReason?: string }) =>
     db

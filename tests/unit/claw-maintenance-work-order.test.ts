@@ -42,6 +42,9 @@ describe("maintenanceWorkOrderResidentAck", () => {
       category: "plumbing",
     });
     expect(ack).toContain("Toilet issue");
-    expect(ack).toMatch(/work order/i);
+    // The product calls this a service everywhere a person reads it; the table,
+    // the tools and this module keep the work-order name internally.
+    expect(ack).toMatch(/service/i);
+    expect(ack).not.toMatch(/work order/i);
   });
 });

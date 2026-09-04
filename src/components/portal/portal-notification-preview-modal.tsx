@@ -397,7 +397,10 @@ export function PortalNotificationPreviewModal({
 }
 
 export type BulkPaymentReminderPreviewItem = {
+  /** The row this card is SENT against — the anchor charge for a combined card. */
   id: string;
+  /** Every row the card covers. One entry unless charges were combined. */
+  coveredRowIds?: string[];
   recipient: string;
   chargeLabel: string;
   subject: string;

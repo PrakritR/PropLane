@@ -132,7 +132,7 @@ async function resolveVendorWorkOrderAccess(
       pendingBid.consultation_visit_at &&
       pendingBid.amount_cents == null;
     if (!pricingPending) {
-      return { ok: false, status: 400, error: "Bidding is not open for this work order." };
+      return { ok: false, status: 400, error: "Bidding is not open for this service." };
     }
   }
   return { ok: true, access: { managerUserId: workOrder.manager_user_id as string, rowData } };
@@ -198,10 +198,29 @@ export async function submitWorkOrderBid(
     updated_at: new Date().toISOString(),
   };
 
-  const { error } = await db
-    .from("work_order_bids")
-    .upsert(existing ? { id: existing.id, ...record } : record, { onConflict: "work_order_id,vendor_user_id" });
-  if (error) return { ok: false, status: 500, error: error.message };
+  // The `existing.status` read above is a stale read by the time we write. A
+  // manager accepting the bid in between used to lose: an unconditional upsert
+  // overwrote the accepted amount and flipped the row back to "submitted",
+  // which then made the payout's `status = "accepted"` anchor lookup miss and
+  // fall through to a caller-supplied number. Re-check the status in the WHERE
+  // clause, the same compare-and-swap `setVendorPriceForWorkOrder` already
+  // uses, and treat zero rows affected as the conflict it is.
+  if (existing) {
+    const { data: updated, error } = await db
+      .from("work_order_bids")
+      .update(record)
+      .eq("id", existing.id)
+      .eq("status", "submitted")
+      .select("id")
+      .maybeSingle();
+    if (error) return { ok: false, status: 500, error: error.message };
+    if (!updated) {
+      return { ok: false, status: 409, error: "This bid was just accepted — it can no longer be re-priced." };
+    }
+  } else {
+    const { error } = await db.from("work_order_bids").insert(record);
+    if (error) return { ok: false, status: 500, error: error.message };
+  }
 
   track("work_order_bid_submitted", actor.userId, { work_order_id: workOrderId });
   return { ok: true };
@@ -525,10 +544,10 @@ export async function setVendorPriceForWorkOrder(
 
   const rowData = (workOrder.row_data ?? {}) as DemoManagerWorkOrderRow;
   if (rowData.bucket !== "scheduled") {
-    return { ok: false, status: 400, error: "Price can only be set on scheduled work orders." };
+    return { ok: false, status: 400, error: "Price can only be set on scheduled services." };
   }
   if (rowData.automationStatus) {
-    return { ok: false, status: 400, error: "This work order has already been marked done." };
+    return { ok: false, status: 400, error: "This service has already been marked done." };
   }
 
   const vendorUserId = String(workOrder.vendor_user_id ?? actor.userId);
@@ -608,10 +627,10 @@ export async function markWorkOrderDoneByVendor(
 
   const rowData = (workOrder.row_data ?? {}) as DemoManagerWorkOrderRow;
   if (rowData.bucket !== "scheduled") {
-    return { ok: false, status: 400, error: "This work order isn't ready to be marked done." };
+    return { ok: false, status: 400, error: "This service isn't ready to be marked done." };
   }
   if (rowData.automationStatus) {
-    return { ok: false, status: 400, error: "This work order has already been marked done." };
+    return { ok: false, status: 400, error: "This service has already been marked done." };
   }
 
   const now = new Date().toISOString();
@@ -633,8 +652,8 @@ export async function markWorkOrderDoneByVendor(
     senderUserId: actor.userId,
     senderEmail: actor.email,
     fromName: actor.fullName || "PropLane Portal",
-    subject: `${rowData.title || "Work order"} marked done — approval needed`,
-    text: `${actor.fullName || "Your vendor"} marked "${rowData.title || "the work order"}"${
+    subject: `${rowData.title || "Service"} marked done — approval needed`,
+    text: `${actor.fullName || "Your vendor"} marked "${rowData.title || "the service"}"${
       rowData.propertyName ? ` at ${rowData.propertyName}` : ""
     } as done.${note ? ` Note: ${note}` : ""} Review and approve payment in Work Orders.`,
     toUserIds: [workOrder.manager_user_id],

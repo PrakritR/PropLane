@@ -96,9 +96,12 @@ describe("ManagerTaskList", () => {
     expect(screen.getByRole("link", { name: /In progress/i })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: /Overdue/i })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: /Completed/i })).toBeInTheDocument();
+    // The dashed ADD row is the only add path — the toolbar's Add button was
+    // the same action a second time on the same screen.
     await waitFor(() => {
-      expect(screen.getByRole("button", { name: "Add" })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Add task" })).toBeInTheDocument();
     });
+    expect(screen.queryByTestId("manager-task-list-header-add")).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: /^Filter\b/i })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /^All\b/i })).not.toBeInTheDocument();
   });

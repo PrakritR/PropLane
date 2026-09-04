@@ -5,6 +5,7 @@
  * sections for messages (potential resident, current resident, past resident) …
  * remove proplane admin from manager"
  */
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { composeDirectoryCategories } from "@/lib/inbox-compose-recipients";
 import type { InboxScopedContact } from "@/data/inbox-scoped-directory";
@@ -63,7 +64,7 @@ describe("the three resident sections", () => {
 
 describe("what a recipient row says", () => {
   const modal = new URL("../../src/components/portal/pro-communication-compose-modal.tsx", import.meta.url);
-  const src = require("node:fs").readFileSync(modal, "utf8") as string;
+  const src = readFileSync(modal, "utf8");
 
   it("shows the name and the house, not an address", () => {
     expect(src).toContain('return [name, property].filter(Boolean).join(" · ");');

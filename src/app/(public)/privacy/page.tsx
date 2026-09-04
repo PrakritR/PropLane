@@ -54,7 +54,7 @@ export default function PrivacyPolicyPage() {
               <li>
                 <strong className="font-medium text-foreground">Mobile app data:</strong> push notification tokens when you
                 opt in to alerts; camera or photo library access only when you choose to attach images to documents or
-                work orders.
+                services.
               </li>
               <li>
                 <strong className="font-medium text-foreground">Usage data:</strong> standard technical logs (such as IP
@@ -136,7 +136,7 @@ export default function PrivacyPolicyPage() {
               Managers and vendors may also optionally link Gmail to auto-track payment receipts. When enabled, PropLane
               searches recent messages that match supported payment providers, such as Zelle or Venmo, and reads the
               sender, subject, and message body only to identify a payment reference and amount. We use that information
-              to match a receipt to a charge or work order and mark the corresponding payment record as paid. PropLane
+              to match a receipt to a charge or service and mark the corresponding payment record as paid. PropLane
               does not send, modify, or delete Gmail messages, and does not use Gmail data for advertising.
             </p>
             <p className="mt-2">

@@ -10,7 +10,7 @@ export function buildResidentWorkOrderUpdate(
   row: DemoManagerWorkOrderRow,
   extras?: { scheduledLabel?: string },
 ): { subject: string; text: string } {
-  const title = row.title?.trim() || "Work order";
+  const title = row.title?.trim() || "Service";
   const name = row.residentName?.trim() || "there";
 
   if (kind === "vendor_assigned") {
@@ -20,7 +20,7 @@ export function buildResidentWorkOrderUpdate(
       text: [
         `Hi ${name},`,
         "",
-        `${vendorName} has been assigned to your work order "${title}".`,
+        `${vendorName} has been assigned to your service "${title}".`,
         "They'll be in touch to schedule a visit.",
         "",
         "PropLane",
@@ -34,7 +34,7 @@ export function buildResidentWorkOrderUpdate(
     text: [
       `Hi ${name},`,
       "",
-      `Your work order "${title}" has a visit scheduled for ${scheduledLabel}.`,
+      `Your service "${title}" has a visit scheduled for ${scheduledLabel}.`,
       "",
       "PropLane",
     ].join("\n"),

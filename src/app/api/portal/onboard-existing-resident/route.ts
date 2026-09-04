@@ -16,9 +16,9 @@ export async function POST(req: Request) {
     } = await auth.auth.getUser();
     if (!user) return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
 
-    let body: { applicationId?: unknown; sendWelcomeEmail?: unknown; row?: unknown };
+    let body: { applicationId?: unknown; sendWelcomeEmail?: unknown };
     try {
-      body = (await req.json()) as { applicationId?: unknown; sendWelcomeEmail?: unknown; row?: unknown };
+      body = (await req.json()) as { applicationId?: unknown; sendWelcomeEmail?: unknown };
     } catch {
       return NextResponse.json({ error: "Invalid JSON body." }, { status: 400 });
     }
@@ -41,10 +41,14 @@ export async function POST(req: Request) {
       .eq("manager_user_id", user.id)
       .limit(1);
 
-    let row = (records?.[0]?.row_data ?? null) as DemoApplicantRow | null;
-    if (!row && body.row && typeof body.row === "object" && !Array.isArray(body.row)) {
-      row = body.row as DemoApplicantRow;
-    }
+    // The lookup above is the ONLY source of the row we go on to write. This
+    // route used to fall back to a client-supplied `row` when the scoped read
+    // missed, which let one manager name another manager's application id and
+    // have the unscoped update rewrite that record — including
+    // `resident_email`, the key every resident-facing read is scoped on. A
+    // miss means the caller does not own the record: that is a 404, never a
+    // reason to trust their payload.
+    const row = (records?.[0]?.row_data ?? null) as DemoApplicantRow | null;
     if (!row) return NextResponse.json({ error: "Resident record not found." }, { status: 404 });
 
     const result = await runExistingResidentOnboarding(

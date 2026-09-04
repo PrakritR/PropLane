@@ -980,20 +980,38 @@ below always apply; the files carry the full rationale, schemas, and gotchas.
 | Send listing modal (share to a prospect) | `docs/agents/send-listing-modal.md` | One listing → the listing page, several → a filtered browse link; the room selector shows only for exactly one property. The server re-authorizes EVERY requested id and rejects the whole send if any fails — never silently drops one. |
 | Marketing mocks & guide art | `docs/agents/marketing-mocks.md` | Every product mock depicts a screen a manager can actually open — copy labels from the real component, never invent marketing-only slang. Counts a board prints are derived from the rows it draws, never typed in beside them. |
 
-## Add-on services vs. work orders
+## There are no "work orders" in the product — only services
 
-Parking, storage, and other resident-purchasable offerings are **"Add-on
-services"** in every UI surface and in agent copy — never "work orders". They
-were already a separate data model before that rename: `ServiceRequest` rows in
-`portal_service_request_records` (`src/lib/service-requests-storage.ts`), edited
-via `manager-create-service-request-modal.tsx` / `resident-services-panel.tsx`
-("Add-on services" tab) and read by the `list_service_requests` agent tool
-(`src/lib/tools/domains/services.ts`). Real maintenance/repair work orders keep
-their name and live in the separate `portal_work_order_records` model
-(`src/lib/manager-work-orders-storage.ts`, `list_work_orders` tool). The two
-share only a "Services" nav section and a combined nav-count badge
+**Every surface a person reads says "service".** Manager, resident, vendor,
+marketing, email, SMS and agent copy: no "work order" anywhere.
+`tests/unit/services-vocabulary.test.ts` scans for it and fails the build.
+
+**The data model is unchanged, deliberately.** `portal_work_order_records`, the
+`list_work_orders` tool, the `work-order-*` modules and every comment describing
+them keep their names — renaming a tool is a model-facing contract change,
+renaming a table is a migration, and `agent_pending_actions` rows in flight
+reference the current tool names. Copy and schema are allowed to disagree here;
+what is NOT allowed is a person reading the schema's word.
+
+Two literals are DATA, not copy, and must keep saying "Work order": the
+`/^(Service|Work order) ·/` title match in `manager-notification-preferences.ts`
+and the `startsWith("Work order ·")` in `manager-scheduled-work-tasks.ts`. Both
+read titles ALREADY STORED on rows written before the rename; changing them
+silently stops matching every one of those rows.
+
+**They remain two models.** Parking, storage and other resident-purchasable
+offerings are `ServiceRequest` rows in `portal_service_request_records`
+(`src/lib/service-requests-storage.ts`), edited via
+`manager-create-service-request-modal.tsx` / `resident-services-panel.tsx` and
+read by the `list_service_requests` tool (`src/lib/tools/domains/services.ts`).
+Maintenance and repair live in `portal_work_order_records`
+(`src/lib/manager-work-orders-storage.ts`, `list_work_orders` tool) with vendor
+dispatch, bidding, invoicing and Connect payouts hanging off them. They share a
+"Services" nav section and a combined nav-count badge
 (`src/hooks/use-portal-nav-counts.ts`) — do not merge their tables, tabs, or
-counts when adding features to either.
+counts when adding features to either. Where copy must tell them apart, the
+add-on side is "add-on service" / "add-on request"; the maintenance side is
+plain "service".
 
 # Financials UI cleanup (Blue Steel consolidation)
 
