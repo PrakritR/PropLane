@@ -580,6 +580,29 @@ export const updatePropertyTool = defineWriteTool({
   },
 });
 
+/**
+ * A submission room matched by NAME, the only handle a manager (or the model)
+ * has in conversation — room ids are internal. Case- and space-insensitive so
+ * "room 2" finds "Room 2"; an exact match wins over a loose one so two rooms
+ * whose names differ only in case cannot silently swap.
+ */
+function findSubmissionRoomByName(
+  submission: ManagerListingSubmissionV1,
+  roomName: string,
+): { room: ManagerListingSubmissionV1["rooms"][number]; index: number } | null {
+  const wanted = roomName.trim();
+  if (!wanted) return null;
+  const exact = submission.rooms.findIndex((room) => room.name.trim() === wanted);
+  const index =
+    exact >= 0
+      ? exact
+      : submission.rooms.findIndex(
+          (room) => room.name.trim().toLowerCase().replace(/\s+/g, " ") === wanted.toLowerCase().replace(/\s+/g, " "),
+        );
+  if (index < 0) return null;
+  return { room: submission.rooms[index]!, index };
+}
+
 function listingSubmissionFromRecord(rec: RawPropertyRecord): ManagerListingSubmissionV1 | null {
   const raw = listingSubmissionOf(rec);
   if (!raw) return null;
@@ -605,6 +628,113 @@ function writeSubmissionToRecordPayloads(
   }
   return { row_data: nextRow ?? rec.row_data, property_data: nextProp ?? rec.property_data };
 }
+
+/**
+ * Per-room rent, which `update_property` deliberately cannot touch — it writes
+ * the LISTING-level monthly rent, and a by-room listing prices each bedroom
+ * separately inside its submission. The assistant used to answer "I can't set
+ * per-room rent from here" and send the manager to the Properties tab (AXI-148);
+ * per AGENTS.md the answer to a missing capability is a tool, not a workaround.
+ */
+export const updateRoomRentTool = defineWriteTool({
+  name: "update_room_rent",
+  description:
+    "Set the monthly rent for ONE room on a by-room listing (e.g. \"change Room 2 to $700\"). Use update_property for the listing-level rent instead. Pass a property id from list_properties and the room's name as it appears on the listing.",
+  inputSchema: z
+    .object({
+      propertyId: z.string().min(1).describe("The property id, from list_properties."),
+      roomName: z.string().min(1).describe("The room's name on the listing, e.g. \"Room 2\"."),
+      rentUsd: z.number().positive().describe("New monthly rent for that room, in US dollars."),
+    })
+    .strict(),
+  preview: async (ctx, input) => {
+    const rec = await loadOwnedPropertyRecord(ctx, input.propertyId);
+    if (!rec) {
+      throw new Error("No property with that id belongs to this landlord. Use list_properties to get valid ids.");
+    }
+    const submission = listingSubmissionFromRecord(rec);
+    if (!submission) throw new Error("That property has no listing details to edit yet.");
+    const match = findSubmissionRoomByName(submission, input.roomName);
+    if (!match) {
+      const names = submission.rooms.map((r) => r.name).filter(Boolean);
+      throw new Error(
+        names.length > 0
+          ? `That listing has no room named "${input.roomName}". Its rooms are: ${names.join(", ")}.`
+          : "That listing has no rooms, so there is no per-room rent to set. Use update_property for the listing rent.",
+      );
+    }
+    const src = asObject(rec.property_data) ?? asObject(rec.row_data);
+    const title = str(src, "title") ?? str(src, "buildingName") ?? rec.id;
+    const previous = match.room.monthlyRent > 0 ? formatRentLabel(match.room.monthlyRent) : "not set";
+    return {
+      kind: "update_room_rent",
+      title: "Update room rent",
+      summary: `Set ${match.room.name} at ${title} to ${formatRentLabel(input.rentUsd)}.`,
+      fields: [
+        { label: "Property", value: title },
+        { label: "Room", value: match.room.name },
+        { label: "Monthly rent", value: `${previous} → ${formatRentLabel(input.rentUsd)}` },
+      ],
+      confirmLabel: "Update rent",
+    };
+  },
+  handler: async (ctx, input) => {
+    // Re-resolve everything at execute time — the listing may have changed since
+    // the preview, and ownership is never trusted from stored input.
+    const rec = await loadOwnedPropertyRecord(ctx, input.propertyId);
+    if (!rec) throw new Error("No property with that id belongs to this landlord.");
+    const submission = listingSubmissionFromRecord(rec);
+    if (!submission) throw new Error("That property has no listing details to edit yet.");
+    const match = findSubmissionRoomByName(submission, input.roomName);
+    if (!match) throw new Error(`That listing no longer has a room named "${input.roomName}".`);
+
+    const nextRent = Math.max(0, Math.round(input.rentUsd));
+    const dedupeKey = `update_room_rent:${ctx.landlordId}:${rec.id}:${match.room.id}:${nextRent}`;
+    const audit = await writeAuditLog(ctx, {
+      action: "update_room_rent",
+      toolName: "update_room_rent",
+      inputSummary: { propertyId: rec.id, roomId: match.room.id, rentUsd: nextRent },
+      dedupeKey,
+    });
+    if (!audit.recorded) {
+      if (audit.duplicate) return { reply: "That room rent was already set to this amount." };
+      throw new Error("Could not record the action; nothing was updated.");
+    }
+
+    const nextSubmission = {
+      ...submission,
+      rooms: submission.rooms.map((room, index) =>
+        index === match.index ? { ...room, monthlyRent: nextRent } : room,
+      ),
+    };
+    const payloads = writeSubmissionToRecordPayloads(rec, nextSubmission);
+    // The listing's own rent LABEL is derived from the room rents, so a stale
+    // range would keep advertising the old price. Dropping it makes the UI
+    // recompute rather than show a number no room charges any more.
+    const nextRow = asObject(payloads.row_data);
+    if (nextRow && "rentRangeLabel" in nextRow) delete nextRow.rentRangeLabel;
+
+    const { error } = await ctx.db
+      .from("manager_property_records")
+      .update({
+        row_data: nextRow ?? payloads.row_data,
+        property_data: payloads.property_data,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", rec.id)
+      .eq("manager_user_id", ctx.landlordId);
+    if (error) {
+      await updateAuditResult(ctx, dedupeKey, { error: "update_failed" }, { clearDedupeKey: true });
+      throw new Error(error.message);
+    }
+
+    await updateAuditResult(ctx, dedupeKey, { propertyId: rec.id, roomId: match.room.id, rentUsd: nextRent });
+    return {
+      reply: `Updated ${match.room.name} to ${formatRentLabel(nextRent)}.`,
+      resultSummary: { propertyId: rec.id, roomId: match.room.id, rentUsd: nextRent },
+    };
+  },
+});
 
 export const copyListingPhotosTool = defineWriteTool({
   name: "copy_listing_photos",
