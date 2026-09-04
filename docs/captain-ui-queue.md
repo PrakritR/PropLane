@@ -79,11 +79,13 @@ lost; none are started.
   the shared `PAYMENT_BUCKETS` constant now instead of a re-typed array.
 * **Services settings** on the resident Services tab — needs defining: what
   would it configure that the property-level service catalog does not?
-* **Send via should stay openable even when only one channel is available** —
-  today it collapses to a disabled Email with a hint about adding a work number.
-* **Background-check report card** — the dark panel uses a different type scale
-  from the rest of the portal, and several tiles render the literal string
-  "null" where a value is missing. The "null" is a bug, not a style issue.
+* ~~**Send via should stay openable even when only one channel is available**~~
+  — DONE. Pinned by `tests/unit/send-via-dropdown-opens.test.tsx`.
+* **Background-check report card** — the literal "null" tiles are FIXED (a
+  falsy branch returned `null` into a template string, which renders the word;
+  it returns `""` now, pinned by `tests/unit/checkr-tenant-report-html.ts`).
+  Still open: the dark panel uses a different type scale from the rest of the
+  portal. Style only.
 * **Share background check** — held deliberately. The only share we have mints
   an unauthenticated public link that lives 90 days with no revoke; pointing one
   at a consumer report is a privacy decision, not a UI one.
