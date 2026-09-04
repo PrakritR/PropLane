@@ -486,7 +486,15 @@ export function PortalAuthForm({
               <OAuthSocialStack
                 nextPath={oauthNextPath}
                 disabled={busy}
-                intent={prospectHandoff ? "resident" : null}
+                /*
+                 * The role the user picked to GET here (`?role=manager` from the
+                 * public nav, `role=resident` from an apply or tour link) is the
+                 * answer to "which account do you want" — so it has to survive the
+                 * Google round trip, or the far side asks again. Only the prospect
+                 * handoff used to set an intent, so every other role-carrying entry
+                 * arrived at the chooser with nothing (AXI-126 / AXI-152).
+                 */
+                intent={prospectHandoff ? "resident" : pickerRoleFromParam(roleFromUrl)}
                 viaContinue={!prospectHandoff}
                 fixedCallbackPath={prospectHandoff ? "/auth/callback/resident-signup" : undefined}
                 onBeforeRedirect={

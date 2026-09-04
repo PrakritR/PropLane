@@ -68,7 +68,10 @@ describe("resolveOAuthPortalRedirect", () => {
     vi.clearAllMocks();
   });
 
-  it("never auto-provisions a free manager; unknown manager-intent goes to the role chooser", async () => {
+  it("never auto-provisions a free manager; manager intent goes to the chooser carrying its role", async () => {
+    // AXI-126: they clicked "Property" at signup, so the chooser is handed the
+    // role and provisions it exactly as a manual pick would — which for a manager
+    // means the PLAN chooser, not a tier. No free portal is granted here.
     const { resolveOAuthPortalRedirect } = await import("@/lib/auth/resolve-oauth-portal-access");
 
     const user = { id: "user-1", email: "new@test.com" } as User;
@@ -78,7 +81,7 @@ describe("resolveOAuthPortalRedirect", () => {
     });
 
     expect(ensureFreeManagerPortalAccess).not.toHaveBeenCalled();
-    expect(path).toBe("/auth/get-started");
+    expect(path).toBe("/auth/get-started?role=manager");
   });
 
   it("routes an unknown, no-intent account to the get-started role chooser", async () => {
@@ -176,9 +179,7 @@ describe("resolveOAuthPortalRedirect", () => {
     expect(path).toContain("next=%2Fresident%2Fapplications%2Fapply");
   });
 
-  it("AXI-152: vendor intent still stops at the chooser", async () => {
-    // Vendors arrive by invite, so the intent alone has not answered the question
-    // the way an apply link does for a resident.
+  it("AXI-126: vendor intent is carried through too", async () => {
     const { resolveOAuthPortalRedirect } = await import("@/lib/auth/resolve-oauth-portal-access");
 
     const user = { id: "user-1", email: "vendor@test.com" } as User;
@@ -186,7 +187,16 @@ describe("resolveOAuthPortalRedirect", () => {
       intent: "vendor",
     });
 
-    expect(path).toBe("/auth/get-started");
+    expect(path).toBe("/auth/get-started?role=vendor");
+  });
+
+  it("no intent still means the plain chooser — nothing is assumed", async () => {
+    const { resolveOAuthPortalRedirect } = await import("@/lib/auth/resolve-oauth-portal-access");
+
+    const user = { id: "user-1", email: "mystery2@test.com" } as User;
+    expect(await resolveOAuthPortalRedirect(mockSupabase() as never, user, "/auth/continue")).toBe(
+      "/auth/get-started",
+    );
   });
 
   it("routes failed approved resident signup to create-account with error", async () => {
