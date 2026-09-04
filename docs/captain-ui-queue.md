@@ -72,8 +72,11 @@ lost; none are started.
   charges on approval; rent/utilities once the lease is signed; custom deposits
   and fees at their own points, each with the right reminders. Substantial, and
   it changes what a resident is billed and when, so it wants its own plan.
-* **Payments tab: Pending / Overdue / Paid** on the resident detail Payments tab
-  (the portfolio Payments page already has them).
+* ~~**Payments tab: Pending / Overdue / Paid** on the resident detail Payments
+  tab~~ — DONE, and the buckets were already there; what was wrong is that this
+  one surface listed them Overdue-first while the portfolio page, both route
+  parsers and the captain's own words read Pending / Overdue / Paid. It reads
+  the shared `PAYMENT_BUCKETS` constant now instead of a re-typed array.
 * **Services settings** on the resident Services tab — needs defining: what
   would it configure that the property-level service catalog does not?
 * **Send via should stay openable even when only one channel is available** —

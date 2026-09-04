@@ -92,3 +92,26 @@ describe("scheduled reminders for one resident with several charges", () => {
     expect(twice.map((m) => m.id).sort()).toEqual(once.map((m) => m.id).sort());
   });
 });
+
+/**
+ * One bucket order, everywhere.
+ *
+ * The resident detail Payments tab listed Overdue / Pending / Paid while the
+ * portfolio page, both route parsers and the captain's own words read
+ * Pending / Overdue / Paid. Reading the shared constant rather than re-typing
+ * the array is what keeps the two from drifting again.
+ */
+describe("payment bucket order", () => {
+  it("is the shared constant on the resident detail tab", async () => {
+    const { readFileSync } = await import("node:fs");
+    const { join } = await import("node:path");
+    const src = readFileSync(join(process.cwd(), "src/components/portal/pro-residents.tsx"), "utf8");
+    expect(src).toContain("items={PAYMENT_BUCKETS.map((id) => ({");
+    expect(src).not.toContain('["overdue", "pending", "paid"]');
+  });
+
+  it("reads pending, overdue, paid", async () => {
+    const { PAYMENT_BUCKETS } = await import("@/lib/portal-detail-routes");
+    expect([...PAYMENT_BUCKETS]).toEqual(["pending", "overdue", "paid"]);
+  });
+});
