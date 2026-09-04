@@ -11,7 +11,7 @@ function statCard(label: string, value: string, sub?: string): string {
 <div class="stat">
   <p class="stat-label">${escapeHtml(label)}</p>
   <p class="stat-value">${escapeHtml(value)}</p>
-  ${sub ? `<p class="stat-sub">${escapeHtml(sub)}</p>` : null}
+  ${sub ? `<p class="stat-sub">${escapeHtml(sub)}</p>` : ""}
 </div>`;
 }
 

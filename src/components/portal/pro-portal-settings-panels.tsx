@@ -43,6 +43,10 @@ import {
   ReminderSendViaField,
   TourReminderTimingSelect,
 } from "@/components/portal/reminder-settings-shared";
+import {
+  PaymentAutomationSettingsPanel,
+  type PaymentAutomationSettingsHandle,
+} from "@/components/portal/payment-schedule-ui";
 import { TaskAutomationSettingsFields } from "@/components/portal/task-automation-settings-fields";
 import type { WorkAssignmentTeamMember } from "@/hooks/use-work-assignment-directory";
 import {
@@ -159,11 +163,6 @@ export function ApplicationsSettingsPanel({
   /** When opened from one property's Application tab, the house is already known. */
   hidePropertyField?: boolean;
 }) {
-  const confirmAutoApproveEnable = () =>
-    window.confirm(
-      "Auto-approve will approve submitted applications without manual review, creating resident accounts and approval-time charges. Withdrawn applications are still skipped.\n\nTurn on auto-approve?",
-    );
-
   return (
     <div className="space-y-4">
       {hidePropertyField ? null : (
@@ -202,11 +201,13 @@ export function ApplicationsSettingsPanel({
           checked={automation.autoApproveApplications}
           disabled={loading || saving}
           data-attr="manager-application-automation-autoApproveApplications"
-          onChange={(e) => {
-            const next = e.target.checked;
-            if (next && !confirmAutoApproveEnable()) return;
-            onAutomationChange({ ...automation, autoApproveApplications: next });
-          }}
+          // No confirm() gate. The consequence is stated under the label and
+          // again in the banner once it is on, and the setting is one click to
+          // undo — a browser dialog restating the caption is a step to click
+          // past, not a safeguard.
+          onChange={(e) =>
+            onAutomationChange({ ...automation, autoApproveApplications: e.target.checked })
+          }
         />
         <span className="min-w-0">
           <span className="block text-[13px] font-medium text-foreground">Auto-approve applications</span>
@@ -614,19 +615,31 @@ export function TourSettingsPanel({
   );
 }
 
+/**
+ * Payments settings IS the reminder schedule — there is no second thing here.
+ *
+ * This tab was four radio presets (Basics / Standard / Gentle / Due date only)
+ * writing the very same `/api/portal/automation-settings` fields the Payments
+ * page's separate Reminders dialog wrote through a chip picker. Two dialogs,
+ * one setting, each able to silently undo the other.
+ *
+ * The presets went rather than the chips: they asked the manager to choose
+ * between named bundles instead of just saying when to remind, and could only
+ * express four of the arrangements the chips express directly.
+ */
 export function PaymentsSettingsPanel({
   onSaved,
   onFooterReady,
+  formRef,
 }: {
   onSaved?: () => void;
   onFooterReady?: (footer: ManagerSettingsPanelFooter | null) => void;
+  formRef?: React.Ref<PaymentAutomationSettingsHandle>;
 }) {
   const { showToast } = useAppUi();
   const demo = isDemoModeActive();
   const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
-  const [draft, setDraft] = useState<ManagerAutomationSettings>(DEFAULT_MANAGER_AUTOMATION_SETTINGS);
-  const [presetId, setPresetId] = useState<ReminderPresetId>("standard");
+  const [settings, setSettings] = useState<ManagerAutomationSettings | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -634,17 +647,13 @@ export function PaymentsSettingsPanel({
       setLoading(true);
       try {
         if (demo) {
-          if (!cancelled) setDraft(DEFAULT_MANAGER_AUTOMATION_SETTINGS);
+          if (!cancelled) setSettings(DEFAULT_MANAGER_AUTOMATION_SETTINGS);
           return;
         }
         const res = await fetch("/api/portal/automation-settings", { credentials: "include", cache: "no-store" });
         if (!res.ok) throw new Error("Could not load payment settings.");
         const body = (await res.json()) as { settings: ManagerAutomationSettings };
-        if (!cancelled) {
-          const settings = normalizeManagerAutomationSettings(body.settings);
-          setDraft(settings);
-          setPresetId(detectReminderPreset(settings));
-        }
+        if (!cancelled) setSettings(normalizeManagerAutomationSettings(body.settings));
       } catch (e) {
         showToast(e instanceof Error ? e.message : "Could not load payment settings.");
       } finally {
@@ -656,105 +665,23 @@ export function PaymentsSettingsPanel({
     };
   }, [demo, showToast]);
 
-  const save = useCallback(async () => {
-    setSaving(true);
-    try {
-      if (demo) {
-        showToast("Payment settings saved (demo).");
-        onSaved?.();
-        return;
-      }
-      const res = await fetch("/api/portal/automation-settings", {
-        method: "PATCH",
-        credentials: "include",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          preDueReminderDays: draft.preDueReminderDays,
-          sameDayReminderEnabled: draft.sameDayReminderEnabled,
-          overdueDailyEnabled: draft.overdueDailyEnabled,
-          overdueDailyStartDays: draft.overdueDailyStartDays,
-          postDueReminderDays: draft.postDueReminderDays,
-          lateFeeNoticeEnabled: draft.lateFeeNoticeEnabled,
-          lateFeeNoticeDaysAfterDue: draft.lateFeeNoticeDaysAfterDue,
-        }),
-      });
-      if (!res.ok) throw new Error("Could not save payment settings.");
-      window.dispatchEvent(new Event(PAYMENT_AUTOMATION_SETTINGS_EVENT));
-      showToast("Payment settings saved.");
-      onSaved?.();
-    } catch (e) {
-      showToast(e instanceof Error ? e.message : "Could not save payment settings.");
-    } finally {
-      setSaving(false);
-    }
-  }, [demo, draft, onSaved, showToast]);
+  // Autosaves, so it publishes no Save button of its own.
+  useReportSettingsPanelFooter(onFooterReady, null);
 
-  const triggerSave = useCallback(() => {
-    void save();
-  }, [save]);
-
-  const footerState = useMemo(
-    (): ManagerSettingsPanelFooter | null =>
-      loading
-        ? null
-        : {
-            saving,
-            onSave: triggerSave,
-            dataAttr: "manager-payments-settings-save",
-          },
-    [loading, saving, triggerSave],
-  );
-
-  useReportSettingsPanelFooter(onFooterReady, footerState);
-
-  if (loading) return <p className="text-sm text-muted">Loading…</p>;
+  if (loading || !settings) return <p className="text-sm text-muted">Loading…</p>;
 
   return (
-    <div className="space-y-4">
-      <p className="text-xs text-muted">
-        Choose how PropLane reminds residents about unpaid charges. Per-charge edits on the Payments ledger still
-        apply on top of these defaults.
-      </p>
-      <div className="space-y-2">
-        {PAYMENT_REMINDER_PRESETS.map((preset) => (
-          <label
-            key={preset.id}
-            className={`flex cursor-pointer items-start gap-3 rounded-lg border p-3 ${
-              presetId === preset.id ? "border-primary bg-primary/5" : "border-border"
-            }`}
-          >
-            <input
-              type="radio"
-              name="payment-reminder-preset"
-              className="mt-0.5"
-              checked={presetId === preset.id}
-              onChange={() => {
-                setPresetId(preset.id);
-                setDraft((prev) => applyReminderPreset(prev, preset.id));
-              }}
-            />
-            <span className="min-w-0">
-              <span className="block text-[13px] font-medium text-foreground">
-                {preset.label}
-                {preset.recommended ? " (recommended)" : ""}
-              </span>
-              <span className="block text-xs text-muted">{preset.description}</span>
-            </span>
-          </label>
-        ))}
-      </div>
-      <label className="flex items-start gap-3 border-t border-border pt-3">
-        <input
-          type="checkbox"
-          className="mt-0.5 h-4 w-4 shrink-0 accent-primary"
-          checked={draft.lateFeeNoticeEnabled}
-          onChange={(e) => setDraft((prev) => ({ ...prev, lateFeeNoticeEnabled: e.target.checked }))}
-        />
-        <span className="min-w-0 text-[13px] text-foreground">
-          Notify residents when a late fee is assessed ({draft.lateFeeNoticeDaysAfterDue} days after due)
-        </span>
-      </label>
-    </div>
+    <PaymentAutomationSettingsPanel
+      settings={settings}
+      variant="payments"
+      layout="modal"
+      autoSaveOnClose
+      formRef={formRef}
+      onSaved={(next) => {
+        setSettings(next);
+        onSaved?.();
+      }}
+    />
   );
 }
 

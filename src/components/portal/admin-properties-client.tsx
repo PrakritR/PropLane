@@ -1,34 +1,18 @@
 "use client";
 
-import Link from "next/link";
-import { Fragment, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
-import { ListingDetailSections } from "@/components/marketing/listing-detail-sections";
-import { ListingPreviewScrollShell } from "@/components/marketing/listing-preview-scroll-shell";
 import { Button } from "@/components/ui/button";
 import { useAppUi } from "@/components/providers/app-ui-provider";
-import { getListingRichContent } from "@/data/listing-rich-content";
-import { useListingContactSmsPhone } from "@/hooks/use-listing-contact-sms-phone";
-import { withListingContactSmsPhone } from "@/lib/listing-contact-sms";
+import { PortalDataTableEmpty } from "@/components/portal/portal-data-table";
 import {
-  PORTAL_DATA_TABLE,
-  PORTAL_DATA_TABLE_SCROLL,
-  PORTAL_DATA_TABLE_WRAP,
-  PORTAL_MOBILE_CARD_CLASS,
-  PORTAL_TABLE_DETAIL_CELL,
-  PORTAL_TABLE_DETAIL_ROW,
-  PORTAL_TABLE_HEAD_ROW,
-  PORTAL_TABLE_TR_EXPANDABLE,
-  PORTAL_TABLE_TD,
-  PortalTableInlineExpand,
-  createPortalRowExpandClick,
-} from "@/components/portal/portal-data-table";
-import {
-  MANAGER_TABLE_TH,
   ManagerPortalFilterRow,
   ManagerPortalPageShell,
   ManagerPortalStatusPills,
 } from "@/components/portal/portal-metrics";
+import { PortalRecordListSurface } from "@/components/portal/portal-record-list-surface";
+import { PortalPropertyRecordRow } from "@/components/portal/portal-record-row";
+import { PORTAL_BULK_BAR_BTN } from "@/lib/portal-bulk-bar";
 import { PROPERTY_PIPELINE_EVENT, syncPropertyPipelineFromServer } from "@/lib/demo-property-pipeline";
 import {
   adminKpiCounts,
@@ -36,10 +20,8 @@ import {
   listAdminRow,
   publicListingHrefForPropertyRow,
   readAdminPropertyRows,
-  resolveAdminPropertyRowPreview,
   unlistManagerListing,
   type AdminPropertyBucketIndex,
-  type AdminPropertyRow,
 } from "@/lib/demo-admin-property-inventory";
 
 /** Admin inventory tabs — listed ↔ unlisted only (no approval queue). */
@@ -65,104 +47,22 @@ const EMPTY_COPY: Partial<Record<AdminPropertyBucketIndex, string>> = {
   3: "No unlisted properties.",
 };
 
-function AdminPropertyInlineDetails({
-  bucket,
-  row,
-  onUpdated,
-  onDismiss,
-  showToast,
-}: {
-  bucket: AdminPropertyBucketIndex;
-  row: AdminPropertyRow;
-  onUpdated: () => void;
-  onDismiss: () => void;
-  showToast: (m: string) => void;
-}) {
-  const mock = useMemo(() => resolveAdminPropertyRowPreview(row), [row]);
-  const listingId = row.listingId;
-  const contactSmsPhone = useListingContactSmsPhone({
-    listingId,
-    ownerManagerUserId: row.managerUserId,
-  });
-  const previewProperty = useMemo(
-    () => withListingContactSmsPhone(mock, contactSmsPhone),
-    [mock, contactSmsPhone],
-  );
-  const rich = useMemo(() => getListingRichContent(previewProperty), [previewProperty]);
-  const publicHref = publicListingHrefForPropertyRow(row);
-
-  const run = (label: string, ok: boolean, err = "Action could not be completed.") => {
-    if (!ok) {
-      showToast(err);
-      return;
-    }
-    showToast(label);
-    onUpdated();
-    onDismiss();
-  };
-
-  const footer = (
-    <div className="flex flex-col gap-2">
-      <p className="text-xs font-bold uppercase tracking-[0.14em] text-muted">Actions</p>
-      <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
-        {bucket === 2 && listingId ? (
-          <Button
-            type="button"
-            variant="outline"
-            className="rounded-full"
-            data-attr="admin-property-unlist"
-            onClick={() => run("Unlisted property.", unlistManagerListing(listingId))}
-          >
-            Unlist
-          </Button>
-        ) : null}
-
-        {bucket === 3 ? (
-          <Button
-            type="button"
-            className="rounded-full"
-            data-attr="admin-property-list"
-            onClick={() => {
-              const id = listAdminRow(row);
-              run(id ? "Property listed." : "Could not list property.", Boolean(id));
-            }}
-          >
-            List
-          </Button>
-        ) : null}
-      </div>
-    </div>
-  );
-
-  return (
-    <div className="space-y-4">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <p className="text-xs font-bold uppercase tracking-[0.12em] text-muted">Public listing preview</p>
-        {publicHref ? (
-          <Link
-            href={publicHref}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="text-xs font-semibold text-muted underline-offset-2 hover:underline"
-          >
-            Open public page
-          </Link>
-        ) : null}
-      </div>
-      <ListingPreviewScrollShell className="portal-desktop-scroll-panel max-h-[min(70vh,640px)] rounded-2xl border border-border">
-        <ListingDetailSections property={previewProperty} rich={rich} previewModal hidePreviewSubnav />
-      </ListingPreviewScrollShell>
-      <div className="rounded-2xl border border-border bg-card px-4 py-4 sm:px-5">{footer}</div>
-    </div>
-  );
-}
-
 export function AdminPropertiesClient() {
   const { showToast } = useAppUi();
   const searchParams = useSearchParams();
   const [activeKpi, setActiveKpi] = useState<AdminPropertyBucketIndex>(2);
   const [tick, setTick] = useState(0);
-  const [expandedRowKey, setExpandedRowKey] = useState<string | null>(null);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
+
+  const clearSelection = useCallback(() => setSelectedIds(new Set()), []);
+  const toggleSelected = useCallback((key: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  }, []);
 
   useEffect(() => {
     const fromUrl = bucketFromTabParam(searchParams.get("tab"));
@@ -195,6 +95,73 @@ export function AdminPropertiesClient() {
     [kpiValues],
   );
 
+  const selectedRows = useMemo(
+    () => rows.filter((row) => selectedIds.has(row.adminRefId + (row.listingId ?? ""))),
+    [rows, selectedIds],
+  );
+  const singleSelected = selectedRows.length === 1 ? selectedRows[0]! : null;
+
+  const runAction = (label: string, ok: boolean, err = "Action could not be completed.") => {
+    if (!ok) {
+      showToast(err);
+      return;
+    }
+    showToast(label);
+    setTick((t) => t + 1);
+    clearSelection();
+  };
+
+  /**
+   * View listing and Unlist — and List, for an unlisted row.
+   *
+   * Staff act on the public catalog, not the content: there is no edit here,
+   * because the listing belongs to the manager who wrote it. "View listing"
+   * opens the page a prospect sees, which is the honest way to check one
+   * without handing staff an editor.
+   */
+  const bulkActions = singleSelected ? (
+    <div className="flex min-w-0 flex-wrap items-center justify-start gap-2">
+      {publicListingHrefForPropertyRow(singleSelected) ? (
+        <Button
+          type="button"
+          variant="outline"
+          className={PORTAL_BULK_BAR_BTN}
+          data-attr="admin-property-view-listing"
+          onClick={() => window.open(publicListingHrefForPropertyRow(singleSelected)!, "_blank", "noopener")}
+        >
+          View listing
+        </Button>
+      ) : null}
+      {activeKpi === 2 && singleSelected.listingId ? (
+        <Button
+          type="button"
+          variant="outline"
+          className={`${PORTAL_BULK_BAR_BTN} border-rose-200 text-rose-800 hover:bg-[var(--status-overdue-bg)] portal-danger-outline`}
+          data-attr="admin-property-unlist"
+          onClick={() =>
+            runAction("Unlisted property.", unlistManagerListing(singleSelected.listingId!))
+          }
+        >
+          Unlist
+        </Button>
+      ) : null}
+      {activeKpi === 3 ? (
+        <Button
+          type="button"
+          variant="outline"
+          className={PORTAL_BULK_BAR_BTN}
+          data-attr="admin-property-list"
+          onClick={() => {
+            const id = listAdminRow(singleSelected);
+            runAction(id ? "Property listed." : "Could not list property.", Boolean(id));
+          }}
+        >
+          List
+        </Button>
+      ) : null}
+    </div>
+  ) : null;
+
   return (
     <ManagerPortalPageShell
       title="Properties"
@@ -206,115 +173,39 @@ export function AdminPropertiesClient() {
             activeId={String(activeKpi)}
             onChange={(id) => {
               setActiveKpi(Number(id) as AdminPropertyBucketIndex);
-              setExpandedRowKey(null);
+              clearSelection();
             }}
           />
         </ManagerPortalFilterRow>
       }
     >
-      <div className={`${PORTAL_DATA_TABLE_WRAP} hidden md:block`}>
-        <div className={PORTAL_DATA_TABLE_SCROLL}>
-          <table className={PORTAL_DATA_TABLE}>
-            <thead>
-              <tr className={PORTAL_TABLE_HEAD_ROW}>
-                <th className={`${MANAGER_TABLE_TH} w-[45%] text-left`}>Property</th>
-                <th className={`${MANAGER_TABLE_TH} text-left`}>Summary</th>
-              </tr>
-            </thead>
-            <tbody>
-              {rows.length === 0 ? (
-                <tr>
-                  <td colSpan={2} className={`${PORTAL_TABLE_TD} text-muted`}>
-                    {EMPTY_COPY[activeKpi] ?? "No properties."}
-                  </td>
-                </tr>
-              ) : (
-                rows.map((row) => {
-                  const rowKey = row.adminRefId + (row.listingId ?? "");
-                  const expanded = expandedRowKey === rowKey;
-                  return (
-                    <Fragment key={rowKey}>
-                      <tr
-                        className={PORTAL_TABLE_TR_EXPANDABLE}
-                        onClick={createPortalRowExpandClick(() =>
-                          setExpandedRowKey(expanded ? null : rowKey),
-                        )}
-                        aria-expanded={expanded}
-                      >
-                        <td className={PORTAL_TABLE_TD}>
-                          <PortalTableInlineExpand expanded={expanded} className="break-words font-medium text-foreground">
-                            {row.buildingName} · {row.unitLabel}
-                          </PortalTableInlineExpand>
-                          <p className="mt-0.5 break-words text-xs leading-relaxed text-muted">
-                            {row.address}
-                            {row.zip ? `, ${row.zip}` : ""}
-                          </p>
-                        </td>
-                        <td className={PORTAL_TABLE_TD}>
-                          <p className="break-words text-xs text-muted">
-                            <span className="font-medium text-foreground">{adminPropertyRentDisplayLabel(row)}</span> ·{" "}
-                            {row.beds} bd / {row.baths} ba · {row.neighborhood}
-                          </p>
-                        </td>
-                      </tr>
-                      {expanded ? (
-                        <tr className={PORTAL_TABLE_DETAIL_ROW}>
-                          <td colSpan={2} className={PORTAL_TABLE_DETAIL_CELL}>
-                            <AdminPropertyInlineDetails
-                              key={rowKey}
-                              bucket={activeKpi}
-                              row={row}
-                              onUpdated={() => setTick((t) => t + 1)}
-                              onDismiss={() => setExpandedRowKey(null)}
-                              showToast={showToast}
-                            />
-                          </td>
-                        </tr>
-                      ) : null}
-                    </Fragment>
-                  );
-                })
-              )}
-            </tbody>
-          </table>
-        </div>
-      </div>
-
-      <div className="space-y-3 md:hidden">
-        {rows.length === 0 ? (
-          <p className="text-sm text-muted">{EMPTY_COPY[activeKpi] ?? "No properties."}</p>
-        ) : (
-          rows.map((row) => {
-            const rowKey = row.adminRefId + (row.listingId ?? "");
-            const expanded = expandedRowKey === rowKey;
-            return (
-              <div key={rowKey} className={PORTAL_MOBILE_CARD_CLASS}>
-                <button
-                  type="button"
-                  className="flex w-full items-start gap-2 text-left"
-                  onClick={() => setExpandedRowKey(expanded ? null : rowKey)}
-                >
-                  <PortalTableInlineExpand expanded={expanded} className="font-medium text-foreground">
-                    {row.buildingName} · {row.unitLabel}
-                  </PortalTableInlineExpand>
-                </button>
-                <p className="mt-1 text-xs text-muted">{row.address || "—"}</p>
-                {expanded ? (
-                  <div className="mt-3 border-t border-border pt-3">
-                    <AdminPropertyInlineDetails
-                      bucket={activeKpi}
-                      row={row}
-                      onUpdated={() => setTick((t) => t + 1)}
-                      onDismiss={() => setExpandedRowKey(null)}
-                      showToast={showToast}
-                    />
-                  </div>
-                ) : null}
-              </div>
-            );
-          })
-        )}
-      </div>
+      {/*
+        The shared list surface, not a bespoke table. Admin does not create
+        listings, so there is no dashed ADD row here — the add path belongs to
+        the manager who owns the property.
+      */}
+      <PortalRecordListSurface
+        isEmpty={rows.length === 0}
+        empty={<PortalDataTableEmpty icon="data" message={EMPTY_COPY[activeKpi] ?? "No properties."} />}
+        bulkCount={selectedRows.length}
+        bulkActions={bulkActions}
+        dataAttr="admin-properties-list"
+      >
+        {rows.map((row) => {
+          const rowKey = row.adminRefId + (row.listingId ?? "");
+          return (
+            <PortalPropertyRecordRow
+              key={rowKey}
+              title={`${row.buildingName} · ${row.unitLabel}`}
+              address={`${row.address}${row.zip ? `, ${row.zip}` : ""}`}
+              summary={`${adminPropertyRentDisplayLabel(row)} · ${row.beds} bd / ${row.baths} ba · ${row.neighborhood}`}
+              checked={selectedIds.has(rowKey)}
+              onSelectedChange={() => toggleSelected(rowKey)}
+              dataAttr="admin-property-row"
+            />
+          );
+        })}
+      </PortalRecordListSurface>
     </ManagerPortalPageShell>
   );
 }

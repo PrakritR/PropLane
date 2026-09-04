@@ -1586,7 +1586,9 @@ export function ManagerPaymentsLedgerPanel({
                   </Badge>
                   {(() => {
                     const chargeIds = new Set(
-                      cluster.rows.map((row) => row.householdChargeId).filter(Boolean),
+                      cluster.rows
+                        .map((row) => row.householdChargeId)
+                        .filter((id): id is string => Boolean(id)),
                     );
                     const label = clusterScheduledBadgeLabel(chargeIds);
                     return label ? (
@@ -1628,7 +1630,11 @@ export function ManagerPaymentsLedgerPanel({
                     {cluster.rows.length === 1 ? "1 charge" : `${cluster.rows.length} charges`}
                   </Badge>
                   {(() => {
-                    const chargeIds = new Set(cluster.rows.map((row) => row.householdChargeId));
+                    const chargeIds = new Set(
+                      cluster.rows
+                        .map((row) => row.householdChargeId)
+                        .filter((id): id is string => Boolean(id)),
+                    );
                     const label = clusterScheduledBadgeLabel(chargeIds);
                     return label ? (
                       <Badge tone="pending">

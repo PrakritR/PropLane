@@ -23,8 +23,7 @@ import { safeFormatDateTime } from "@/lib/pacific-time";
 import {
   VENDOR_DOCUMENT_HINTS,
   VENDOR_DOCUMENT_LABELS,
-  VENDOR_DOCUMENT_TABS,
-  vendorDocumentSectionForTab,
+  VENDOR_DOCUMENT_SECTIONS,
   vendorDocumentStatusLabel,
   vendorDocumentStatusTone,
   type VendorDocumentKind,
@@ -84,13 +83,11 @@ export function VendorDocumentsPanel({
 
   const tabItems = useMemo(
     () => [
-      ...VENDOR_DOCUMENT_TABS.map((tab) => ({ id: tab.id, label: tab.label, href: `${basePath}/documents/${tab.id}` })),
+      { id: "mine", label: "Mine", href: `${basePath}/documents/mine` },
       { id: "shared", label: "From managers", href: `${basePath}/documents/shared` },
     ],
     [basePath],
   );
-
-  const activeSection = tabId === "shared" ? null : vendorDocumentSectionForTab(tabId) ?? vendorDocumentSectionForTab("tax");
 
   const loadDocuments = useCallback(async () => {
     if (demo) {
@@ -140,13 +137,25 @@ export function VendorDocumentsPanel({
     return map;
   }, [documents]);
 
+  /**
+   * Every document a vendor keeps, in one list.
+   *
+   * Tax & income / Insurance / Business & licensing used to be three tabs, so a
+   * vendor had to know which one a file belonged in before uploading it — and
+   * a missing certificate was invisible from the other two. The category is a
+   * line on the row now. The document KIND is untouched: it is what the upload
+   * and remove routes key on, so nothing structural moved.
+   */
   const rows = useMemo(() => {
-    if (!activeSection) return [];
-    return activeSection.kinds.map((kind) => ({
-      kind,
-      doc: documentsByKind.get(kind),
-    }));
-  }, [activeSection, documentsByKind]);
+    if (tabId === "shared") return [];
+    return VENDOR_DOCUMENT_SECTIONS.flatMap((section) =>
+      section.kinds.map((kind) => ({
+        kind,
+        section: section.label,
+        doc: documentsByKind.get(kind),
+      })),
+    );
+  }, [tabId, documentsByKind]);
 
   const previewDoc = previewKind ? documentsByKind.get(previewKind) : undefined;
 
@@ -316,7 +325,7 @@ export function VendorDocumentsPanel({
       ) : loading ? (
         <p className="text-sm text-muted">Loading documents…</p>
       ) : rows.length === 0 ? (
-        <PortalDataTableEmpty message="No document types in this tab yet." icon="document" />
+        <PortalDataTableEmpty message="No documents yet." icon="document" />
       ) : (
         <>
           {/*
@@ -326,7 +335,7 @@ export function VendorDocumentsPanel({
             in place because its actions are uploads, not a detail page.
           */}
           <div className={PORTAL_LIST_PAGE_BODY}>
-            {rows.map(({ kind, doc }) => {
+            {rows.map(({ kind, section, doc }) => {
               const expanded = expandedKind === kind;
               const statusLabel = vendorDocumentStatusLabel(doc);
               return (
@@ -353,7 +362,7 @@ export function VendorDocumentsPanel({
                         <span className="truncate">{VENDOR_DOCUMENT_LABELS[kind]}</span>
                       </PortalTableInlineExpand>
                       <p className="text-xs leading-relaxed text-muted">
-                        {doc ? doc.fileName : "No file on file"}
+                        {section} · {doc ? doc.fileName : "No file on file"}
                       </p>
                       {doc ? (
                         <p className="text-xs text-muted">Uploaded {safeFormatDateTime(doc.uploadedAt)}</p>

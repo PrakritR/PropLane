@@ -373,7 +373,7 @@ export function ManagerPropertyRoomMoveInPanel({
                       <div className="flex flex-wrap items-center gap-2">
                         <p className="text-sm font-semibold text-foreground">{label}</p>
                         {dirty ? (
-                          <Badge variant="secondary" className="text-[10px] font-semibold uppercase tracking-wide">
+                          <Badge tone="neutral" className="text-[10px] font-semibold uppercase tracking-wide">
                             Draft
                           </Badge>
                         ) : null}
@@ -443,7 +443,7 @@ export function ManagerPropertyRoomMoveInPanel({
         </div>
       </PortalPropertyDetailSection>
 
-      <BulkActionBar count={selectedRoomIds.length} hideCount>
+      <BulkActionBar count={selectedRoomIds.length} hideCount variant="payments">
         <Button
           type="button"
           variant="outline"

@@ -11,17 +11,12 @@ export const adminPortal: PortalDefinition = {
     { section: "properties", label: "Properties", tabs: [] },
     { section: "events", label: "Meetings", tabs: [] },
     { section: "bugs-feedback", label: "Feedback", tabs: [] },
-    {
-      section: "communication",
-      label: "Communication",
-      tabs: [
-        { id: "unopened", label: "Unopened" },
-        { id: "opened", label: "Opened" },
-        { id: "schedule", label: "Schedule" },
-        { id: "sent", label: "Sent" },
-        { id: "trash", label: "Trash" },
-      ],
-    },
+    // One inbox, no folder tabs. Unopened / Opened / Sent / Trash described the
+    // same rows four times over, and the panel already ignored which one was in
+    // the URL. Archived and Scheduled are toggles in the header, where they can
+    // carry a count. The legacy `/communication/inbox/<tab>` paths still
+    // resolve — a bookmark that lands nowhere is worse than a redundant one.
+    { section: "communication", label: "Communication", tabs: [] },
     { section: "axis-users", label: "Accounts", tabs: [] },
     { section: "profile", label: "Settings", tabs: [] },
   ],
@@ -32,7 +27,7 @@ export const ADMIN_PORTAL_SMOKE_PATHS = [
   { label: "Dashboard", path: "/admin/dashboard" },
   { label: "Properties", path: "/admin/properties" },
   { label: "Meetings", path: "/admin/events" },
-  { label: "Communication", path: "/admin/communication/inbox/unopened" },
+  { label: "Communication", path: "/admin/communication" },
   { label: "Accounts", path: "/admin/axis-users" },
   { label: "Feedback", path: "/admin/bugs-feedback" },
   { label: "Settings", path: "/admin/profile" },

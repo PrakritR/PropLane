@@ -14,7 +14,7 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { ManagerPortalPageShell, PORTAL_PAGE_TITLE } from "@/components/portal/portal-metrics";
+import { ManagerPortalPageShell } from "@/components/portal/portal-metrics";
 import { PortalChangePasswordPanel } from "@/components/portal/portal-change-password-panel";
 import { PortalBugFeedbackPanel } from "@/components/portal/portal-bug-feedback-panel";
 import { PortalDetailHeader } from "@/components/portal/portal-list-detail-shell";
@@ -272,7 +272,7 @@ export function PortalProfileClient({
         group: "Account",
       },
     ];
-    if (!demo) {
+    if (!demo && variant === "manager") {
       list.push({
         id: "billing",
         label: "Billing & plan",
@@ -455,100 +455,94 @@ export function PortalProfileClient({
       case "developer":
         return <ManagerApiKeysPanel />;
       case "feedback":
-        return <PortalBugFeedbackPanel reporterRole={portalKind === "pro" ? "pro" : "manager"} embedded />;
+        return (
+          <PortalBugFeedbackPanel
+            reporterRole={variant === "admin" ? "admin" : portalKind === "pro" ? "pro" : "manager"}
+            embedded
+          />
+        );
       case "account":
         return <PortalSettingsExtras currentKind={portalKind} variant="session" />;
     }
   };
 
-  if (variant === "manager") {
-    return (
-      <ManagerPortalPageShell
-        title="Settings"
-        subtitle="Manage your account settings and preferences."
-        // Billing has its own compact plan status + pricing hierarchy. Keeping
-        // the generic Settings header above it wastes the first viewport and
-        // competes with the financial decision the manager came to make.
-        navigationProvidesTitle={paneGroup.id === "billing"}
-        // The mobile/native app bar already reads "Settings" — same as every
-        // other manager section, drop the duplicate in-page title on phones.
-        hideTitleOnMobileNav
-      >
-        <div ref={layoutTopRef} className="lg:flex lg:items-start lg:gap-10">
-          <PortalSettingsNav
-            className="sticky top-0 max-lg:hidden"
-            name={emptyToDash(fullName)}
-            email={initialEmail}
-            items={groups.map((g) => ({
-              id: g.id,
-              label: g.label,
-              icon: <g.icon className="h-4 w-4" />,
-              group: g.group,
-            }))}
-            activeId={paneGroup.id}
-            onSelect={openGroup}
-          />
-          <div className="min-w-0 flex-1 lg:max-w-3xl">
-            {activeGroup === null ? (
-              <div className="space-y-5 lg:hidden">
-                <PortalSettingsProfileHeader name={emptyToDash(fullName)} email={initialEmail} />
-                {(["Account", "Workspace"] as const).map((group) => {
-                  const groupItems = groups.filter((item) => item.group === group);
-                  if (groupItems.length === 0) return null;
-                  return (
-                    <section key={group} className="space-y-2">
-                      <h2 className="px-1 text-[11px] font-bold uppercase tracking-[0.12em] text-muted">{group}</h2>
-                      <PortalSettingsGroup>
-                        {groupItems.map((g) => (
-                          <PortalSettingsLinkRow
-                            key={g.id}
-                            icon={<g.icon className="h-4 w-4" />}
-                            label={g.label}
-                            description={g.description}
-                            onClick={() => openGroup(g.id)}
-                            dataAttr={`settings-open-${g.id}`}
-                          />
-                        ))}
-                      </PortalSettingsGroup>
-                    </section>
-                  );
-                })}
-              </div>
-            ) : (
-              <div className="mb-4 lg:hidden">
-                <PortalDetailHeader
-                  title={activeGroup.label}
-                  onBack={backToRoot}
-                  backLabel="Settings"
-                  bare
-                  dataAttrBack="settings-back-to-root"
-                />
-              </div>
-            )}
-            <PortalSettingsSections className={activeGroup === null ? "max-lg:hidden" : undefined}>
-              {renderPane(paneGroup.id)}
-            </PortalSettingsSections>
-          </div>
-        </div>
-      </ManagerPortalPageShell>
-    );
-  }
+  /*
+    One Settings shape for every portal.
 
-  // Admin keeps the legacy single-scroll settings composition unchanged.
+    Admin used to keep a legacy single scroll — every section stacked, nothing
+    grouped, no way to jump — while the manager had the grouped rail. There was
+    no reason for the difference beyond the order the two were written, so admin
+    now takes the same rail with the groups it actually has: no billing, no work
+    number, no API keys.
+  */
   return (
-    <div className="relative z-0 w-full min-w-0">
-      <div className="mb-8 max-md:hidden">
-        <h1 className={PORTAL_PAGE_TITLE}>Settings</h1>
-        <p className="mt-1 text-sm text-muted">Manage your account settings and preferences.</p>
+    <ManagerPortalPageShell
+      title="Settings"
+      subtitle="Manage your account settings and preferences."
+      // Billing has its own compact plan status + pricing hierarchy. Keeping
+      // the generic Settings header above it wastes the first viewport and
+      // competes with the financial decision the manager came to make.
+      navigationProvidesTitle={paneGroup.id === "billing"}
+      // The mobile/native app bar already reads "Settings" — same as every
+      // other manager section, drop the duplicate in-page title on phones.
+      hideTitleOnMobileNav
+    >
+      <div ref={layoutTopRef} className="lg:flex lg:items-start lg:gap-10">
+        <PortalSettingsNav
+          className="sticky top-0 max-lg:hidden"
+          name={emptyToDash(fullName)}
+          email={initialEmail}
+          items={groups.map((g) => ({
+            id: g.id,
+            label: g.label,
+            icon: <g.icon className="h-4 w-4" />,
+            group: g.group,
+          }))}
+          activeId={paneGroup.id}
+          onSelect={openGroup}
+        />
+        <div className="min-w-0 flex-1 lg:max-w-3xl">
+          {activeGroup === null ? (
+            <div className="space-y-5 lg:hidden">
+              <PortalSettingsProfileHeader name={emptyToDash(fullName)} email={initialEmail} />
+              {(["Account", "Workspace"] as const).map((group) => {
+                const groupItems = groups.filter((item) => item.group === group);
+                if (groupItems.length === 0) return null;
+                return (
+                  <section key={group} className="space-y-2">
+                    <h2 className="px-1 text-[11px] font-bold uppercase tracking-[0.12em] text-muted">{group}</h2>
+                    <PortalSettingsGroup>
+                      {groupItems.map((g) => (
+                        <PortalSettingsLinkRow
+                          key={g.id}
+                          icon={<g.icon className="h-4 w-4" />}
+                          label={g.label}
+                          description={g.description}
+                          onClick={() => openGroup(g.id)}
+                          dataAttr={`settings-open-${g.id}`}
+                        />
+                      ))}
+                    </PortalSettingsGroup>
+                  </section>
+                );
+              })}
+            </div>
+          ) : (
+            <div className="mb-4 lg:hidden">
+              <PortalDetailHeader
+                title={activeGroup.label}
+                onBack={backToRoot}
+                backLabel="Settings"
+                bare
+                dataAttrBack="settings-back-to-root"
+              />
+            </div>
+          )}
+          <PortalSettingsSections className={activeGroup === null ? "max-lg:hidden" : undefined}>
+            {renderPane(paneGroup.id)}
+          </PortalSettingsSections>
+        </div>
       </div>
-      <PortalSettingsSections>
-        <PortalSettingsProfileHeader name={emptyToDash(fullName)} email={initialEmail} />
-        {personalInfoSection}
-        <AssistantCustomInstructionsSetting role={variant} />
-        <NotificationsToggle />
-        <PortalChangePasswordPanel accountEmail={dashToEmpty(initialEmail) || initialEmail} />
-        <PortalSettingsExtras currentKind={portalKind} />
-      </PortalSettingsSections>
-    </div>
+    </ManagerPortalPageShell>
   );
 }

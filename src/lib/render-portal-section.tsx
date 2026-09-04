@@ -499,8 +499,11 @@ export async function renderPortalSection(
   }
 
   if (kind === "admin" && section === "communication") {
+    // The bare section IS the inbox. It used to redirect to
+    // `/communication/inbox/unopened`, which made the nav's own href a folder
+    // path for a panel that has no folders.
     if (!tabParts?.length) {
-      redirect(`${def.basePath}/communication/inbox/unopened`);
+      return <AdminCommunication smsUiEnabled={isSmsCommUiEnabled()} />;
     }
     const channel = tabParts[0]!;
     if (channel === "sms" || channel === "email") {
@@ -1448,6 +1451,11 @@ export async function renderPortalSection(
       notFound();
     }
     const documentsTab = tabParts[0]!;
+    // The three category tabs collapsed into one "Mine" list. A vendor's
+    // bookmark, or a manager's emailed link, must still land somewhere.
+    if (documentsTab === "tax" || documentsTab === "insurance" || documentsTab === "licensing") {
+      redirect(`${def.basePath}/${section}/mine`);
+    }
     if (!meta.tabs.some((tab) => tab.id === documentsTab)) notFound();
     return <VendorDocumentsPanel tabId={documentsTab} basePath={def.basePath} />;
   }

@@ -202,19 +202,19 @@ describe("portal mobile shell conventions", () => {
     expect(shellTag?.[0]).toContain("hideTitleOnMobileNav");
   });
 
-  it("hides the admin Settings heading block below the mobile app bar breakpoint", () => {
+  it("gives admin no second Settings heading of its own", () => {
     const PROFILE_SOURCE = readFileSync(
       join(process.cwd(), "src/components/portal/portal-profile-client.tsx"),
       "utf8",
     );
 
-    const headingWrapper = PROFILE_SOURCE.match(
-      /<div className="([^"]*)">\s*<h1 className=\{PORTAL_PAGE_TITLE\}>Settings<\/h1>/,
-    );
-    expect(headingWrapper).not.toBeNull();
-    // The wrapper itself carries `mb-8`, so hiding only its children would leave
-    // dead whitespace under the app bar.
-    expect(headingWrapper?.[1].split(/\s+/)).toContain("max-md:hidden");
+    // Admin used to render its own <h1>Settings</h1> above a single long
+    // scroll, which had to be hidden by hand below the app bar breakpoint or it
+    // duplicated the bar. It now goes through the same shell the manager does,
+    // so the page title comes from one place and `hideTitleOnMobileNav` (above)
+    // is the only thing that decides whether a phone sees it.
+    expect(PROFILE_SOURCE).not.toContain("<h1");
+    expect(PROFILE_SOURCE).not.toContain("PORTAL_PAGE_TITLE");
   });
 
   it("compacts list-footer add rows on mobile and clears bottom nav inset", () => {
