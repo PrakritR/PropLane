@@ -10,11 +10,8 @@ import {
   repairWorkOrderScopesForManager,
   shouldRunScopeRepair,
 } from "@/lib/repair-service-request-scopes.server";
-import {
-  notifyManagerOfResidentFiledItem,
-  notifyManagersOfManagerAuthoredItem,
-  notifyWorkOrderEvent,
-} from "@/lib/work-order-notification.server";
+import { resolvePropertyScopedManagerRecipientIds } from "@/lib/co-manager-notification-recipients.server";
+import { workOrderEvent } from "@/lib/work-order-events.server";
 import type { WorkOrderRowWithDispatch } from "@/lib/work-order-dispatch";
 import { prepareDispatch } from "@/lib/work-order-dispatch.server";
 import {
@@ -282,78 +279,35 @@ function recordForActor(actor: Actor, row: DemoManagerWorkOrderRow, vendorUserId
   return { ...base, manager_user_id: actor.userId };
 }
 
-/** Best-effort "work order opened" notice to the linked resident. Callers must
- * only invoke this for ids verified NOT to exist before this request's upsert —
- * the manager client mirrors its full local list through POST ("replace") on
- * every change, so newness cannot be inferred from the payload shape alone.
- * Never throws. */
-async function notifyResidentOfCreatedWorkOrder(db: Db, actor: Actor, row: DemoManagerWorkOrderRow): Promise<void> {
-  // Only manager-authored creations notify: a resident filing their own request
-  // would just notify themselves, and admin bulk/preview writes stay silent.
-  if (actor.admin || actor.role === "resident") return;
-  const residentEmail = row.residentEmail?.trim().toLowerCase();
-  if (!residentEmail || !residentEmail.includes("@")) return;
-  const title = row.title?.trim() || "Work order";
-  await notifyWorkOrderEvent(db, {
-    event: "created",
-    senderUserId: actor.userId,
-    senderEmail: actor.email,
-    subject: `Work order opened: ${title}`,
-    text:
-      row.description?.trim() ||
-      `A work order "${title}"${row.propertyName ? ` at ${row.propertyName}` : ""} has been opened.`,
-    title,
-    propertyLabel: row.propertyName || undefined,
-    toEmails: [residentEmail],
-    audience: "resident",
-  }).catch(() => undefined);
-}
-
-/** Resident-filed work order → manager Axis inbox + email + SMS. Never throws. */
-async function notifyManagerOfCreatedWorkOrder(
+/** A newly persisted row emits exactly one canonical, idempotent lifecycle event. */
+async function emitCreatedWorkOrder(
   db: Db,
   actor: Actor,
   row: DemoManagerWorkOrderRow,
   managerUserId: string | null | undefined,
 ): Promise<void> {
-  if (actor.admin || actor.role !== "resident") return;
-  const mid = managerUserId?.trim() || row.managerUserId?.trim();
-  if (!mid) return;
-  const title = row.title?.trim() || "Work order";
-  await notifyManagerOfResidentFiledItem(db, {
-    kind: "work-order",
+  if (actor.admin) return;
+  const ownerId = managerUserId?.trim() || row.managerUserId?.trim() || (actor.role === "resident" ? "" : actor.userId);
+  if (!ownerId) return;
+  const managerRecipients = await resolvePropertyScopedManagerRecipientIds(db, {
+    ownerManagerUserId: ownerId,
+    propertyId: row.assignedPropertyId?.trim() || row.propertyId?.trim() || undefined,
+    channel: "services",
+  });
+  const residentEmail = row.residentEmail?.trim().toLowerCase();
+  await workOrderEvent(db, {
+    eventId: `${row.id}:created`,
+    event: "created",
+    managerUserId: ownerId,
+    workOrderId: row.id,
     senderUserId: actor.userId,
     senderEmail: actor.email,
     senderName: row.residentName?.trim() || undefined,
-    managerUserId: mid,
-    propertyId: row.assignedPropertyId?.trim() || row.propertyId?.trim() || undefined,
-    title,
-    description: row.description?.trim() || undefined,
-    propertyLabel: row.propertyName?.trim() || undefined,
-  }).catch(() => undefined);
-}
-
-/** Manager-filed work order → owner + co-managers with Services access. Never throws. */
-async function notifyManagersOfManagerCreatedWorkOrder(
-  db: Db,
-  actor: Actor,
-  row: DemoManagerWorkOrderRow,
-  managerUserId: string | null | undefined,
-): Promise<void> {
-  if (actor.admin || actor.role === "resident") return;
-  const ownerId = managerUserId?.trim() || row.managerUserId?.trim() || actor.userId;
-  if (!ownerId) return;
-  const title = row.title?.trim() || "Work order";
-  await notifyManagersOfManagerAuthoredItem(db, {
-    kind: "work-order",
-    senderUserId: actor.userId,
-    senderEmail: actor.email,
-    ownerManagerUserId: ownerId,
-    propertyId: row.assignedPropertyId?.trim() || row.propertyId?.trim() || undefined,
-    title,
-    description: row.description?.trim() || undefined,
-    propertyLabel: row.propertyName?.trim() || undefined,
-    residentName: row.residentName?.trim() || undefined,
+    facts: { reference: row.reference || "Work order", title: row.title || "Work order", propertyLabel: row.propertyName || undefined },
+    recipients: [
+      ...managerRecipients.map((userId) => ({ audience: "manager" as const, userId })),
+      ...(actor.role !== "resident" && residentEmail?.includes("@") ? [{ audience: "resident" as const, email: residentEmail }] : []),
+    ],
   }).catch(() => undefined);
 }
 
@@ -489,9 +443,7 @@ export async function POST(req: Request) {
           .upsert(persisted, { onConflict: "id" });
         if (!upsertError) {
           if (!existing) {
-            await notifyResidentOfCreatedWorkOrder(db, actor, stamped);
-            await notifyManagerOfCreatedWorkOrder(db, actor, stamped, persisted.manager_user_id);
-            await notifyManagersOfManagerCreatedWorkOrder(db, actor, stamped, persisted.manager_user_id);
+            await emitCreatedWorkOrder(db, actor, stamped, persisted.manager_user_id);
           }
           maybePrepareDispatch(existing, stamped.id);
           await maybeSyncWorkOrderGoogleCalendar(existing, persisted);
@@ -549,9 +501,7 @@ export async function POST(req: Request) {
       .upsert(persisted, { onConflict: "id" });
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
     if (!existing) {
-      await notifyResidentOfCreatedWorkOrder(db, actor, stamped);
-      await notifyManagerOfCreatedWorkOrder(db, actor, stamped, persisted.manager_user_id);
-      await notifyManagersOfManagerCreatedWorkOrder(db, actor, stamped, persisted.manager_user_id);
+      await emitCreatedWorkOrder(db, actor, stamped, persisted.manager_user_id);
     }
     maybePrepareDispatch(existing, stamped.id);
     await maybeSyncWorkOrderGoogleCalendar(existing, persisted);

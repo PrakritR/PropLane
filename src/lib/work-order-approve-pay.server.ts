@@ -12,12 +12,13 @@
  */
 import { track } from "@/lib/analytics/posthog";
 import type { DemoManagerWorkOrderRow } from "@/data/demo-portal";
-import { deliverPortalInboxMessage } from "@/lib/portal-inbox-delivery";
 import type { WorkOrderCategory } from "@/lib/reports/categories";
 import { createExpensesFromWorkOrder, markWorkOrderPaid, mergeWorkOrderCompletion } from "@/lib/work-order-expenses";
 import { payoutVendorForWorkOrder } from "@/lib/stripe-vendor-payout";
 import type { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import type { WorkOrderActionFailure } from "@/lib/work-order-bids.server";
+import { workOrderEvent } from "@/lib/work-order-events.server";
+import { resolvePropertyScopedManagerRecipientIds } from "@/lib/co-manager-notification-recipients.server";
 
 type Db = ReturnType<typeof createSupabaseServiceRoleClient>;
 
@@ -167,31 +168,41 @@ export async function approveAndPayWorkOrder(
   const title = paid.title || "Work order";
   const residentEmail = (paid.residentEmail ?? "").trim();
   if (residentEmail.includes("@")) {
-    await deliverPortalInboxMessage(db, {
+    await workOrderEvent(db, {
+      eventId: `${workOrder.id}:completed:${paid.completedAt || paid.paidAt || "completed"}`,
+      event: "completed",
+      managerUserId: ownerManagerUserId,
+      workOrderId: workOrder.id,
       senderUserId: actor.userId,
       senderEmail: actor.email,
-      fromName: "PropLane Portal",
-      subject: `${title} completed`,
-      text: `Your work order "${title}"${propertyLabel ? ` at ${propertyLabel}` : ""} has been completed.`,
-      toEmails: [residentEmail],
-      deliverToPortalInbox: true,
-      deliverViaEmail: false,
-      deliverViaSms: false,
+      facts: { reference: paid.reference || "Work order", title, propertyLabel: propertyLabel || undefined },
+      recipients: [{ audience: "resident", email: residentEmail }],
     }).catch(() => undefined);
   }
-  if (existing.vendor_user_id) {
-    await deliverPortalInboxMessage(db, {
-      senderUserId: actor.userId,
-      senderEmail: actor.email,
-      fromName: "PropLane Portal",
-      subject: `${title} approved and paid`,
-      text: `"${title}"${propertyLabel ? ` at ${propertyLabel}` : ""} has been approved and marked paid. Thanks for the work.`,
-      toUserIds: [existing.vendor_user_id],
-      deliverToPortalInbox: true,
-      deliverViaEmail: false,
-      deliverViaSms: false,
-    }).catch(() => undefined);
-  }
+
+  const managerRecipients = await resolvePropertyScopedManagerRecipientIds(db, {
+    ownerManagerUserId,
+    propertyId: paid.assignedPropertyId || paid.propertyId || undefined,
+    channel: "services",
+  });
+  await workOrderEvent(db, {
+    eventId: `${workOrder.id}:paid:${paid.paidAt || "completed"}`,
+    event: "paid",
+    managerUserId: ownerManagerUserId,
+    workOrderId: workOrder.id,
+    senderUserId: actor.userId,
+    senderEmail: actor.email,
+    facts: {
+      reference: paid.reference || "Work order",
+      title,
+      propertyLabel: propertyLabel || undefined,
+      amountCents: (acceptedVendorCostCents ?? 0) + (acceptedMaterialsCostCents ?? 0),
+    },
+    recipients: [
+      ...(existing.vendor_user_id ? [{ audience: "vendor" as const, userId: existing.vendor_user_id }] : []),
+      ...managerRecipients.map((userId) => ({ audience: "manager" as const, userId })),
+    ],
+  }).catch(() => undefined);
 
   track("work_order_completed", actor.userId, {
     work_order_id: workOrder.id,

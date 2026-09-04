@@ -6,10 +6,10 @@
  */
 import { track } from "@/lib/analytics/posthog";
 import type { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
-import { sendVendorNotification } from "@/lib/vendor-notification-delivery";
-import { buildVendorBidOfferEmail } from "@/lib/vendor-visit-email";
 import type { DemoManagerWorkOrderRow } from "@/data/demo-portal";
 import type { WorkOrderActionFailure, WorkOrderActor } from "@/lib/work-order-bids.server";
+import { workOrderEvent } from "@/lib/work-order-events.server";
+import { resolvePropertyScopedManagerRecipientIds } from "@/lib/co-manager-notification-recipients.server";
 
 type Db = ReturnType<typeof createSupabaseServiceRoleClient>;
 
@@ -110,23 +110,6 @@ export async function sendWorkOrderVendorOffers(
     }
     sent.push(vendorId);
 
-    if (vendor.email.includes("@")) {
-      const { subject, body: messageBody } = buildVendorBidOfferEmail({
-        vendorName: vendor.name,
-        workOrderTitle: rowData.title || "",
-        propertyLabel: rowData.propertyName || "",
-        unit: rowData.unit || "",
-        visitLabel: rowData.scheduled && rowData.scheduled !== "—" ? rowData.scheduled : "",
-        description: rowData.description,
-      });
-      await sendVendorNotification(db, actor, {
-        vendorEmail: vendor.email,
-        vendorDirectoryId: vendorId,
-        vendorUserId: vendor.vendorUserId,
-        subject,
-        body: messageBody,
-      }).catch(() => undefined);
-    }
   }
 
   if (sent.length > 0) {
@@ -139,6 +122,33 @@ export async function sendWorkOrderVendorOffers(
       .from("portal_work_order_records")
       .update({ row_data: nextRowData, updated_at: new Date().toISOString() })
       .eq("id", workOrderId);
+
+    const offeredVendors = sent.map((id) => vendors.get(id)).filter((vendor): vendor is VendorDirectorySummary => Boolean(vendor));
+    const managerRecipients = await resolvePropertyScopedManagerRecipientIds(db, {
+      ownerManagerUserId: String(workOrder.manager_user_id),
+      propertyId: rowData.assignedPropertyId || rowData.propertyId || undefined,
+      channel: "services",
+    });
+    await workOrderEvent(db, {
+      eventId: `${workOrderId}:vendor_offered:${sent.slice().sort().join(",")}`,
+      event: "vendor_offered",
+      managerUserId: String(workOrder.manager_user_id),
+      workOrderId,
+      senderUserId: actor.userId,
+      senderEmail: actor.email,
+      senderName: actor.fullName,
+      facts: {
+        reference: rowData.reference || "Work order",
+        title: rowData.title || "Work order",
+        propertyLabel: rowData.propertyName || undefined,
+        scheduledFor: rowData.scheduled || undefined,
+        offerCount: sent.length,
+      },
+      recipients: [
+        ...offeredVendors.map((vendor) => ({ audience: "vendor" as const, userId: vendor.vendorUserId ?? undefined, email: vendor.email || undefined })),
+        ...managerRecipients.map((userId) => ({ audience: "manager" as const, userId })),
+      ],
+    }).catch(() => undefined);
   }
 
   track("work_order_vendor_offer_sent", actor.userId, { work_order_id: workOrderId, vendor_count: sent.length });

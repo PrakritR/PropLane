@@ -38,6 +38,8 @@ Three near-identical umbrella epics overlap: [PRP-260](https://linear.app/axisho
 - [PRP-262 — Work-order event orchestration](https://linear.app/axishousing/issue/PRP-262/work-order-event-orchestration-one-state-change-everyone-correctly)
   Replace ad-hoc work-order notifications with one lifecycle event emitter that renders the correct message for each audience.
 
+  Completed locally September 4, 2026. Added the idempotent `workOrderEvent` lifecycle emitter, privacy-scoped audience renderers, durable retry/defer delivery records, notification-preference fanout, quiet-hours suppression, rapid-change digesting, and initial offer/accept/invoice/pay producers.
+
 - [PRP-279 — Action event bus](https://linear.app/axishousing/issue/PRP-279/comm-action-event-bus-work-order-payment-lease-events-fan-out-to)
   Generalize the event bus beyond work orders to payments and leases, with idempotent thread, SMS, and email consumers.
 

@@ -445,6 +445,8 @@ export async function deliverPortalInboxMessage(
      * the two global booleans apply uniformly to every recipient.
      */
     eventCategory?: NotificationCategory;
+    /** Keep durable inbox/email fanout, but defer automated SMS in quiet hours or a digest window. */
+    suppressSms?: boolean;
   },
 ): Promise<{ ok: true; recipientCount: number } | { ok: false; error: string }> {
   const senderEmail = opts.senderEmail.trim().toLowerCase();
@@ -705,7 +707,7 @@ export async function deliverPortalInboxMessage(
   // category mode gates per recipient via resolved channels (verified,
   // non-opted-out phone already enforced by resolveChannels).
   const smsRecipients = recipients.filter((r) =>
-    channelByEmail ? channelByEmail.get(r.email)?.sms === true : deliverViaSms,
+    !opts.suppressSms && (channelByEmail ? channelByEmail.get(r.email)?.sms === true : deliverViaSms),
   );
   if (smsRecipients.length > 0) {
     const smsFromNumber = String(senderProfile?.sms_from_number ?? "").trim();

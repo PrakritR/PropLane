@@ -56,6 +56,7 @@ export type PreparedVendorInvoiceSubmission = {
   workOrderId: string | null;
   /** Untrusted manager/vendor-entered job title — display as plain data only. */
   workOrderTitle: string | null;
+  workOrderReference: string | null;
   lineItems: VendorInvoiceLineItem[];
   subtotalCents: number;
   taxCents: number;
@@ -93,6 +94,7 @@ export async function prepareVendorInvoiceSubmission(
   // invoice to another manager's job.
   const workOrderId = input.workOrderId?.trim() || null;
   let workOrderTitle: string | null = null;
+  let workOrderReference: string | null = null;
   if (workOrderId) {
     const { data: workOrder, error } = await db
       .from("portal_work_order_records")
@@ -117,6 +119,8 @@ export async function prepareVendorInvoiceSubmission(
     const title =
       rowData && typeof rowData === "object" ? (rowData as { title?: unknown }).title : null;
     workOrderTitle = typeof title === "string" && title.trim() ? title.trim() : null;
+    const reference = rowData && typeof rowData === "object" ? (rowData as { reference?: unknown }).reference : null;
+    workOrderReference = typeof reference === "string" && reference.trim() ? reference.trim() : null;
   }
 
   const lineItems = normalizeLineItems(input.lineItems);
@@ -129,6 +133,7 @@ export async function prepareVendorInvoiceSubmission(
     target,
     workOrderId,
     workOrderTitle,
+    workOrderReference,
     lineItems,
     subtotalCents,
     taxCents,
