@@ -2873,10 +2873,20 @@ export function ManagerAddListingForm({
   }, [draftAutoSaveEligible, persistListingDraft]);
 
   const submitListing = async () => {
+    // EXACTLY what the steps run. Submit used to omit `stFeeToggles` and
+    // `ltFeeToggles`, so the short-term fee checks were skipped entirely and
+    // the long-term ones fell back to a derived guess. Already-visited steps
+    // stay clickable, so the bypass was accidental as much as deliberate:
+    // complete Pricing, go back, clear the nightly rate, click Submit — and a
+    // short-term listing published with no nightly rate, which is the exact
+    // state `validateListingStFeeToggles` exists to prevent. That rate is not
+    // cosmetic: `resolveStayPricing` reads it, and both the lease document and
+    // the charge ledger read that.
+    const validateOpts = { isEditMode, entireHomeRent, stFeeToggles, ltFeeToggles };
     const invalid = (() => {
-      if (!isPreviewWizard) return firstInvalidListingStep(sub, { isEditMode, entireHomeRent }, 5);
+      if (!isPreviewWizard) return firstInvalidListingStep(sub, validateOpts, 5);
       for (const i of wizardSteps) {
-        const errors = validateListingWizardStep(i, sub, { isEditMode, entireHomeRent });
+        const errors = validateListingWizardStep(i, sub, validateOpts);
         if (Object.keys(errors).length > 0) return { stepIndex: i, errors };
       }
       return null;
