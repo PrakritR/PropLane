@@ -1,27 +1,27 @@
 #!/usr/bin/env node
 /**
  * File a PropLane Linear ticket from structured flags or natural-language chat.
- *
- * Prefers LINEAR_API_KEY (GraphQL). Falls back to `cursor agent` + Linear MCP.
+ * Requires LINEAR_API_KEY in .env.local (GraphQL only — no MCP).
  *
  * Usage:
  *   npm run linear:ticket -- --title "..." --body "..." --project "02 — Manager Portal"
  *   npm run linear:ticket -- --chat "Residents tab crashes when I click payments"
- *   echo "bug: calendar UI is ugly" | npm run linear:ticket -- --chat -
  *
- * Env: LINEAR_API_KEY (optional), LINEAR_TEAM_ID (optional override)
+ * Env: LINEAR_API_KEY (required), LINEAR_TEAM_ID (optional override)
  */
 
-import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
-import { dirname, join } from "node:path";
-import { buildDescription, formatTitle, inferRoute, TEAM_NAME } from "./linear/ticket-routing.mjs";
-
-const __dirname = dirname(fileURLToPath(import.meta.url));
-const REPO_ROOT = join(__dirname, "..");
-
-const DEFAULT_TEAM_ID = "2b9b00db-7ef6-4cd7-bce5-86899ad72d15";
+import { buildDescription, formatTitle, inferRoute } from "./linear/ticket-routing.mjs";
+import { inferAssigneeId, inferPriority } from "./linear/triage-rules.mjs";
+import {
+  linearGraphql,
+  resolveIssueId,
+  resolveLabelIds,
+  resolveProjectId,
+  resolveProjectMilestoneId,
+  resolveStateId,
+  teamId,
+} from "./linear/graphql.mjs";
 
 function parseArgs(argv) {
   const out = { labels: [], priority: null, state: "Backlog", dryRun: false };
@@ -48,7 +48,7 @@ function parseArgs(argv) {
 }
 
 function printHelp() {
-  console.log(`PropLane Linear ticket filer
+  console.log(`PropLane Linear ticket filer (API key only)
 
   npm run linear:ticket -- --chat "natural language description"
   npm run linear:ticket -- --title "[Area] Summary" --project "02 — Manager Portal" --milestone Residents
@@ -60,98 +60,44 @@ Options:
   --project           Numbered project folder name
   --milestone         Sub-folder milestone inside project
   --label / --labels  Linear labels (comma-separated)
-  --priority 0-4      0=none 1=urgent 2=high 3=medium 4=low
+  --priority 0-4      0=none 1=urgent 2=high 3=medium 4=low (auto if omitted)
   --state             Backlog | Todo (default Backlog)
   --parent PRP-123    Parent epic
   --dry-run           Print payload, do not create
 
-Requires LINEAR_API_KEY or \`cursor agent mcp login linear\`.
+Requires LINEAR_API_KEY in .env.local — https://linear.app/settings/api
 See docs/linear-ticket-system.md`);
 }
 
-async function linearGraphql(apiKey, query, variables = {}) {
-  const res = await fetch("https://api.linear.app/graphql", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: apiKey,
-    },
-    body: JSON.stringify({ query, variables }),
-  });
-  const json = await res.json();
-  if (!res.ok || json.errors?.length) {
-    throw new Error(json.errors?.map((e) => e.message).join("; ") || `HTTP ${res.status}`);
-  }
-  return json.data;
-}
-
-async function resolveProjectId(apiKey, projectName) {
-  const data = await linearGraphql(
-    apiKey,
-    `query($filter: ProjectFilter) {
-      projects(filter: $filter, first: 5) { nodes { id name } }
-    }`,
-    { filter: { name: { eq: projectName } } },
-  );
-  const node = data.projects.nodes[0];
-  if (!node) throw new Error(`Project not found: ${projectName}`);
-  return node.id;
-}
-
-async function resolveLabelIds(apiKey, teamId, names) {
-  if (!names.length) return [];
-  const data = await linearGraphql(
-    apiKey,
-    `query($teamId: String!) {
-      team(id: $teamId) { labels { nodes { id name } } }
-    }`,
-    { teamId },
-  );
-  const byName = new Map(data.team.labels.nodes.map((n) => [n.name.toLowerCase(), n.id]));
-  const ids = [];
-  for (const name of names) {
-    const id = byName.get(name.toLowerCase());
-    if (id) ids.push(id);
-    else console.warn(`warn: label not found: ${name}`);
-  }
-  return ids;
-}
-
-async function resolveStateId(apiKey, teamId, stateName) {
-  const data = await linearGraphql(
-    apiKey,
-    `query($teamId: String!) {
-      team(id: $teamId) { states { nodes { id name type } } }
-    }`,
-    { teamId },
-  );
-  const state = data.team.states.nodes.find(
-    (s) => s.name.toLowerCase() === stateName.toLowerCase(),
-  );
-  if (!state) throw new Error(`State not found: ${stateName}`);
-  return state.id;
-}
-
-async function createViaApi(payload) {
-  const apiKey = process.env.LINEAR_API_KEY?.trim();
-  if (!apiKey) return null;
-
-  const teamId = process.env.LINEAR_TEAM_ID?.trim() || DEFAULT_TEAM_ID;
+async function createIssue(payload) {
   const input = {
-    teamId,
+    teamId: teamId(),
     title: payload.title,
     description: payload.description,
     priority: payload.priority ?? 0,
+    assigneeId: payload.assigneeId,
   };
 
-  if (payload.project) input.projectId = await resolveProjectId(apiKey, payload.project);
-  const labelIds = await resolveLabelIds(apiKey, teamId, payload.labels ?? []);
+  let projectId = null;
+  if (payload.project) {
+    projectId = await resolveProjectId(payload.project);
+    input.projectId = projectId;
+  }
+  if (payload.milestone && projectId) {
+    const milestoneId = await resolveProjectMilestoneId(projectId, payload.milestone);
+    if (milestoneId) input.projectMilestoneId = milestoneId;
+  }
+
+  const labelIds = await resolveLabelIds(payload.labels ?? []);
   if (labelIds.length) input.labelIds = labelIds;
-  if (payload.state) input.stateId = await resolveStateId(apiKey, teamId, payload.state);
-  if (payload.parentId) input.parentId = payload.parentId;
+  if (payload.state) input.stateId = await resolveStateId(payload.state);
+  if (payload.parentId) {
+    input.parentId = /^[a-f0-9-]{36}$/i.test(payload.parentId)
+      ? payload.parentId
+      : await resolveIssueId(payload.parentId);
+  }
 
   const data = await linearGraphql(
-    apiKey,
     `mutation($input: IssueCreateInput!) {
       issueCreate(input: $input) {
         success
@@ -163,35 +109,6 @@ async function createViaApi(payload) {
 
   if (!data.issueCreate.success) throw new Error("issueCreate failed");
   return data.issueCreate.issue;
-}
-
-function createViaCursorAgent(payload) {
-  const labelsJson = JSON.stringify(payload.labels ?? []);
-  const prompt = [
-    "Use Linear MCP save_issue to CREATE one issue (do not update).",
-    `team: ${TEAM_NAME}`,
-    `title: ${payload.title}`,
-    `description: ${payload.description}`,
-    payload.project ? `project: ${payload.project}` : "",
-    payload.milestone ? `milestone: ${payload.milestone}` : "",
-    `state: ${payload.state ?? "Backlog"}`,
-    payload.priority != null ? `priority: ${payload.priority}` : "",
-    `labels: ${labelsJson}`,
-    payload.parentId ? `parentId: ${payload.parentId}` : "",
-    "Reply with ONLY the new issue identifier (PRP-###) and URL on one line.",
-  ]
-    .filter(Boolean)
-    .join("\n");
-
-  const out = execFileSync("cursor", ["agent", "--approve-mcps", "--print", prompt], {
-    cwd: REPO_ROOT,
-    encoding: "utf8",
-    stdio: ["ignore", "pipe", "pipe"],
-    timeout: 120_000,
-  });
-  const match = out.match(/(PRP-\d+)[^\n]*?(https:\/\/linear\.app\/\S+)/i);
-  if (match) return { identifier: match[1], url: match[2], title: payload.title };
-  return { identifier: "(see agent output)", url: "", title: payload.title, raw: out.trim() };
 }
 
 function buildPayload(args) {
@@ -211,13 +128,24 @@ function buildPayload(args) {
       source: "npm run linear:ticket",
     });
 
+  const projectName = args.project || route.project;
+  const labelList = [...new Set([...(args.labels || []), ...(route.labels || [])])];
+
+  const triageShape = {
+    title,
+    description,
+    project: { name: projectName },
+    labels: { nodes: labelList.map((name) => ({ name })) },
+  };
+
   return {
     title,
     description,
-    project: args.project || route.project,
+    project: projectName,
     milestone: args.milestone || route.milestone,
-    labels: [...new Set([...(args.labels || []), ...(route.labels || [])])],
-    priority: args.priority,
+    labels: labelList,
+    priority: args.priority ?? inferPriority(triageShape),
+    assigneeId: inferAssigneeId(triageShape),
     state: args.state,
     parentId: args.parentId,
   };
@@ -243,26 +171,14 @@ async function main() {
     return;
   }
 
-  let issue;
   try {
-    issue = await createViaApi(payload);
+    const issue = await createIssue(payload);
+    console.log(`Created ${issue.identifier}: ${issue.title}`);
+    if (issue.url) console.log(issue.url);
   } catch (e) {
-    console.warn(`api: ${e.message} — falling back to cursor agent`);
+    console.error(`error: ${e.message}`);
+    process.exit(1);
   }
-
-  if (!issue) {
-    try {
-      issue = createViaCursorAgent(payload);
-    } catch (e) {
-      console.error("error: could not create ticket. Set LINEAR_API_KEY or run: cursor agent mcp login linear");
-      console.error(e.message);
-      process.exit(1);
-    }
-  }
-
-  console.log(`Created ${issue.identifier}: ${issue.title}`);
-  if (issue.url) console.log(issue.url);
-  if (issue.raw) console.log(issue.raw);
 }
 
 main();

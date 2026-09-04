@@ -64,6 +64,9 @@ Rules: `object_action` naming; **reuse existing names** (grep `src/lib/analytics
 and existing `track(` call sites first); **never send PII or secrets** as
 properties — ids and enums only.
 
+**Verify project settings:** `POSTHOG_PERSONAL_API_KEY=phx_… npm run posthog:verify`
+(checks autocapture, dead clicks, web vitals, replay, and `$identify` volume).
+
 ### Dashboards
 
 **[PropLane — Site Health & Dropoff](https://us.posthog.com/project/492655/dashboard/1952875)**

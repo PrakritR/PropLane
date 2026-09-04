@@ -46,11 +46,17 @@ export function PublicApplyClient({ signedInNonResident = false }: { signedInNon
     return parseBrowseIdsParam(searchParams.get(BROWSE_IDS_PARAM));
   }, [propertyId, searchParams]);
   const [extrasTick, setExtrasTick] = useState(0);
+  const [portfolioLoading, setPortfolioLoading] = useState(false);
 
   useEffect(() => {
-    if (!portfolioPropertyIds.length) return;
+    if (!portfolioPropertyIds.length) {
+      setPortfolioLoading(false);
+      return;
+    }
+    setPortfolioLoading(true);
     void Promise.all(portfolioPropertyIds.map((id) => loadPublicPropertyLeadFromServer(id))).then(() => {
       setExtrasTick((n) => n + 1);
+      setPortfolioLoading(false);
     });
   }, [portfolioPropertyIds]);
 
@@ -140,7 +146,7 @@ export function PublicApplyClient({ signedInNonResident = false }: { signedInNon
   const portfolioPickerBlocks =
     portfolioPropertyIds.length > 0 &&
     !propertyId &&
-    (view !== "wizard" || portfolioProperties.length === 0);
+    (view !== "wizard" || (portfolioProperties.length === 0 && !portfolioLoading));
 
   if (portfolioPickerBlocks) {
     return (

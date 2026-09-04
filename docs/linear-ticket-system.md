@@ -33,7 +33,17 @@ npm run linear:ticket -- --title "[Calendar] Revamp bookings panel" \
 npm run linear:ticket -- --chat "…" --dry-run   # preview payload only
 ```
 
-**Auth:** `cursor agent mcp login linear` once per machine, or set `LINEAR_API_KEY`.
+**Auth:** `LINEAR_API_KEY` in `.env.local` (required — GraphQL only, no MCP).
+
+**Auto-assign (2026-09-04):** Communication Hub → **Akhil**; everything else → **M
+(Prakrit)**. Priority is inferred (happy-path breaks + comms = High; frequent
+surfaces = Medium; polish = Low). Re-run batch triage:
+
+```bash
+npm run linear:triage
+```
+
+New tickets from `npm run linear:ticket` get the same assignee + priority automatically.
 
 Cursor rule: `.cursor/rules/linear-chat-tickets.mdc`.
 

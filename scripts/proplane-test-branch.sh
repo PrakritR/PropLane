@@ -14,8 +14,16 @@ set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$REPO_ROOT"
 
-KEEPER="$(git branch --show-current)"
 TEST_BRANCH_FILE="$REPO_ROOT/.git/proplane-test-branch-name"
+KEEPER_FILE="$REPO_ROOT/.git/proplane-test-branch-keeper"
+
+read_keeper() {
+  if [[ -f "$KEEPER_FILE" ]]; then
+    cat "$KEEPER_FILE"
+    return
+  fi
+  git branch --show-current
+}
 
 usage() {
   echo "usage: proplane-test-branch.sh {start <slug>|finish|abort|status}"
@@ -34,27 +42,31 @@ case "$CMD" in
       echo "run: scripts/proplane-test-branch.sh finish|abort" >&2
       exit 1
     fi
+    KEEPER="$(git branch --show-current)"
     TEST="test/${KEEPER}-${SLUG}"
     git checkout -b "$TEST"
     echo "$TEST" > "$TEST_BRANCH_FILE"
+    echo "$KEEPER" > "$KEEPER_FILE"
     echo "test branch: $TEST (from $KEEPER)"
     echo "When done: scripts/proplane-test-branch.sh finish"
     ;;
   finish)
     TEST=$(cat "$TEST_BRANCH_FILE" 2>/dev/null || true)
     [[ -n "$TEST" ]] || { echo "no active test branch"; exit 1; }
+    KEEPER=$(read_keeper)
     git checkout "$KEEPER"
     git merge --no-ff "$TEST" -m "merge($TEST): experiment into $KEEPER"
     git branch -d "$TEST"
-    rm -f "$TEST_BRANCH_FILE"
+    rm -f "$TEST_BRANCH_FILE" "$KEEPER_FILE"
     echo "merged $TEST → $KEEPER"
     ;;
   abort)
     TEST=$(cat "$TEST_BRANCH_FILE" 2>/dev/null || true)
     [[ -n "$TEST" ]] || { echo "no active test branch"; exit 1; }
+    KEEPER=$(read_keeper)
     git checkout "$KEEPER"
     git branch -D "$TEST"
-    rm -f "$TEST_BRANCH_FILE"
+    rm -f "$TEST_BRANCH_FILE" "$KEEPER_FILE"
     echo "aborted $TEST"
     ;;
   status)
@@ -62,7 +74,7 @@ case "$CMD" in
       echo "active: $(cat "$TEST_BRANCH_FILE")"
       git status -sb
     else
-      echo "no test branch (on $KEEPER)"
+      echo "no test branch (on $(git branch --show-current))"
     fi
     ;;
   *)
