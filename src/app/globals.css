@@ -1979,6 +1979,25 @@ html[data-native] .auth-plan-picker .auth-footer-link {
   animation: auth-spin 0.75s linear infinite;
 }
 
+/* PRP-184 — web auth copy on chrome substrate must stay ≥4.5:1 over the brand wash. */
+html:not([data-native]) .auth-layout .auth-page-subtitle,
+html:not([data-native]) .auth-layout .auth-footer-link,
+html:not([data-native]) .auth-layout .auth-legal-consent,
+html:not([data-native]) .auth-layout .auth-brand-subtitle,
+html:not([data-native]) .auth-layout .auth-role-tab-hint,
+html:not([data-native]) .auth-layout .auth-choice-hint {
+  color: color-mix(in srgb, var(--pl-ink) 78%, var(--pl-muted-fg));
+}
+
+[data-theme="dark"] html:not([data-native]) .auth-layout .auth-page-subtitle,
+[data-theme="dark"] html:not([data-native]) .auth-layout .auth-footer-link,
+[data-theme="dark"] html:not([data-native]) .auth-layout .auth-legal-consent,
+[data-theme="dark"] html:not([data-native]) .auth-layout .auth-brand-subtitle,
+[data-theme="dark"] html:not([data-native]) .auth-layout .auth-role-tab-hint,
+[data-theme="dark"] html:not([data-native]) .auth-layout .auth-choice-hint {
+  color: color-mix(in srgb, var(--pl-white) 92%, var(--pl-muted-fg));
+}
+
 html[data-native] .auth-page-subtitle,
 html[data-native] .auth-role-tab-hint {
   display: none;
@@ -3307,7 +3326,7 @@ html[data-native] [data-listing-sections-root] {
 }
 
 [data-theme="light"] .landing-hero-line--muted {
-  color: color-mix(in srgb, var(--pl-ink) 38%, var(--pl-muted-fg));
+  color: color-mix(in srgb, var(--pl-ink) 52%, var(--pl-muted-fg));
 }
 
 [data-theme="light"] .landing-hero-sub {

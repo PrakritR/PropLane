@@ -14,7 +14,6 @@ import {
 } from "@/components/portal/portal-metrics";
 import {
   PortalTableExpandChevron,
-  isPortalRowClickIgnored,
   usePortalPreviewSlice,
 } from "@/components/portal/portal-data-table";
 import { useIsNativeApp } from "@/hooks/use-is-native-app";
@@ -251,40 +250,33 @@ function AttentionGroup<T>({
         ["--attn-section-fg" as string]: accent.fg,
       }}
     >
-      <div
-        role="button"
-        tabIndex={0}
-        aria-expanded={open}
-        data-attr={`resident-dashboard-attention-toggle-${sectionId}`}
-        onClick={() => setOverride(!open)}
-        onKeyDown={(e) => {
-          if (isPortalRowClickIgnored(e.target)) return;
-          if (e.key === "Enter" || e.key === " ") {
-            e.preventDefault();
-            setOverride(!open);
-          }
-        }}
-        className="flex cursor-pointer items-center gap-2.5 px-3.5 py-2.5 transition-colors hover:bg-[color-mix(in_srgb,var(--attn-section-bg)_45%,transparent)] [html[data-native]_&]:gap-2 [html[data-native]_&]:px-3 [html[data-native]_&]:py-2"
-      >
-        <span className="flex shrink-0 items-center self-center">
-          <PortalTableExpandChevron expanded={open} />
-        </span>
-        <h3
-          className="min-w-0 flex-1 self-center text-sm font-semibold leading-none tracking-[-0.01em] [html[data-native]_&]:text-[13px]"
-          style={{ color: isEmpty ? "var(--muted)" : accent.fg }}
+      <div className="flex items-center gap-2.5 px-3.5 py-2.5 [html[data-native]_&]:gap-2 [html[data-native]_&]:px-3 [html[data-native]_&]:py-2">
+        <button
+          type="button"
+          aria-expanded={open}
+          data-attr={`resident-dashboard-attention-toggle-${sectionId}`}
+          onClick={() => setOverride(!open)}
+          className="flex min-w-0 flex-1 cursor-pointer items-center gap-2.5 text-left transition-colors hover:bg-[color-mix(in_srgb,var(--attn-section-bg)_45%,transparent)] [html[data-native]_&]:gap-2"
         >
-          {title}
-        </h3>
-        <span className="flex shrink-0 items-center gap-1.5 self-center">
-          <AttentionCountBadge count={count} tone={tone} isEmpty={isEmpty} />
-          {badge ? <span className="inline-flex items-center">{badge}</span> : null}
-        </span>
+          <span className="flex shrink-0 items-center self-center">
+            <PortalTableExpandChevron expanded={open} />
+          </span>
+          <h3
+            className="min-w-0 flex-1 self-center text-sm font-semibold leading-none tracking-[-0.01em] [html[data-native]_&]:text-[13px]"
+            style={{ color: isEmpty ? "var(--muted)" : accent.fg }}
+          >
+            {title}
+          </h3>
+          <span className="flex shrink-0 items-center gap-1.5 self-center">
+            <AttentionCountBadge count={count} tone={tone} isEmpty={isEmpty} />
+            {badge ? <span className="inline-flex items-center">{badge}</span> : null}
+          </span>
+        </button>
         <Link
           href={href}
-          onClick={(e) => e.stopPropagation()}
           aria-label={`Open ${title}`}
           data-attr="resident-dashboard-attention-link"
-          className="ml-auto inline-flex min-h-11 min-w-11 shrink-0 items-center justify-center self-center whitespace-nowrap px-2 text-xs font-semibold leading-none hover:underline underline-offset-2 [html[data-native]_&]:text-sm"
+          className="inline-flex min-h-11 min-w-11 shrink-0 items-center justify-center self-center whitespace-nowrap px-2 text-xs font-semibold leading-none hover:underline underline-offset-2 [html[data-native]_&]:text-sm"
           style={{ color: isEmpty ? "var(--muted)" : accent.fg }}
         >
           →
