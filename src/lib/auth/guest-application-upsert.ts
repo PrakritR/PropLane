@@ -3,13 +3,21 @@ import { attachResidentSetupToken, isResidentSetupTokenValid } from "@/lib/auth/
 import { normalizeApplicationAxisId } from "@/lib/manager-applications-storage";
 import { isDraftShapedApplicationRow } from "@/lib/rental-application/draft-shape";
 import { findDuplicateApplication } from "@/lib/rental-application/duplicate-application.server";
+import { validateSubmittedApplication } from "@/lib/rental-application/validate-submission.server";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 const EMAIL_RE = /^[^\s@]+@[^\s@.]+(?:\.[^\s@.]+)+$/;
 
 export type GuestApplicationUpsertResult =
   | { ok: true; row: DemoApplicantRow; setupToken: string }
-  | { ok: false; status: number; error: string; existingApplicationId?: string };
+  | {
+      ok: false;
+      status: number;
+      error: string;
+      existingApplicationId?: string;
+      /** Per-field messages from the shared wizard validator. */
+      fieldErrors?: Record<string, string>;
+    };
 
 /** Shown when the same person already has a submitted application for this room. */
 export const DUPLICATE_APPLICATION_ERROR =
@@ -162,6 +170,23 @@ export async function prepareGuestApplicationUpsert(
         // So the client can take them to the application they already have
         // rather than leaving them at an error.
         existingApplicationId: duplicate.id,
+      };
+    }
+  }
+
+  // A SUBMITTED application is validated against the wizard's own schema,
+  // server-side. Every "required field" used to live only in the browser, so a
+  // scripted or malformed submission landed in the manager's queue looking
+  // legitimate — and approval generates charges and a lease (PRP-202). Skipped
+  // for a draft: the applicant is still filling it in.
+  if (!isDraftShapedApplicationRow(params.row)) {
+    const validation = await validateSubmittedApplication(db, { ...params.row, propertyId });
+    if (validation && !validation.ok) {
+      return {
+        ok: false,
+        status: 422,
+        error: "This application is missing required answers.",
+        fieldErrors: validation.errors,
       };
     }
   }
