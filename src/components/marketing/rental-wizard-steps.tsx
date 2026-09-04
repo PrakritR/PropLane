@@ -660,7 +660,17 @@ export function RentalWizardStepBody(p: WizardStepsProps) {
      * from the options would blank their answer without a word, so it stays
      * selectable and validation — not a vanishing option — is what tells them.
      */
-    const availableRooms = roomSelectOptionsWithNone(form.propertyId).filter((o) => o.value !== "");
+    const availableRooms = roomSelectOptionsWithNone(form.propertyId, {
+      // Availability is judged against the dates the applicant actually asked
+      // for, not against today. `isRoomChoiceAvailable` compares the requested
+      // window with the occupancy of the residents already in the house, so a
+      // room free next month is offered for a move-in next month even though it
+      // is occupied right now — and one that is occupied THEN is not offered,
+      // however empty it looks today. Without these two the filter answered a
+      // different question than the applicant was asking.
+      leaseStart: form.leaseStart,
+      leaseEnd: form.leaseEnd,
+    }).filter((o) => o.value !== "");
     const allRooms = roomSelectOptionsWithNone(form.propertyId, { includeUnavailable: true }).filter(
       (o) => o.value !== "",
     );

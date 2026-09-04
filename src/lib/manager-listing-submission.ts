@@ -74,6 +74,15 @@ export type ManagerRoomSubmission = {
   furnishing: string;
   /** Room-level amenities (lines or comma-separated), shown as chips on the listing. */
   roomAmenitiesText: string;
+  /**
+   * Floor area in square feet, shown beside the rent so a prospect can see WHY
+   * one room costs more than another (AXI-167).
+   *
+   * `undefined` means the manager did not say — never 0, which would render as
+   * "0 sq ft" and assert a fact about the room. Normalization keeps it undefined
+   * for anything unparseable for the same reason `yearBuilt` does.
+   */
+  sizeSqft?: number;
   photoDataUrls: string[];
   videoDataUrl: string | null;
   /**
@@ -1117,6 +1126,9 @@ export function normalizeManagerListingSubmissionV1(sub: ManagerListingSubmissio
         typeof (legacyRoom as ManagerRoomSubmission & { roomAmenitiesText?: unknown }).roomAmenitiesText === "string"
           ? (legacyRoom as ManagerRoomSubmission & { roomAmenitiesText: string }).roomAmenitiesText
           : "",
+      sizeSqft: normalizeRoomSizeSqft(
+        (legacyRoom as ManagerRoomSubmission & { sizeSqft?: unknown }).sizeSqft,
+      ),
       moveInAvailableDate:
         typeof (legacyRoom as ManagerRoomSubmission & { moveInAvailableDate?: unknown }).moveInAvailableDate === "string"
           ? (legacyRoom as ManagerRoomSubmission & { moveInAvailableDate: string }).moveInAvailableDate.trim()
@@ -1709,6 +1721,27 @@ export function normalizeManagerListingSubmissionV1(sub: ManagerListingSubmissio
   delete (next as Record<string, unknown>).paymentAtSigning;
   delete (next as Record<string, unknown>).utilitiesMonthly;
   return ensureSubmissionListingFees(next as ManagerListingSubmissionV1);
+}
+
+/**
+ * Room floor area, or `undefined` when the manager has not said.
+ *
+ * Deliberately narrow, and never 0: a defaulted number would render as
+ * "0 sq ft" on a public listing, asserting a fact about the room nobody
+ * supplied. Same "unknown is not zero" rule the disclosure trigger fields use.
+ */
+export function normalizeRoomSizeSqft(raw: unknown): number | undefined {
+  const n =
+    typeof raw === "number"
+      ? raw
+      : typeof raw === "string" && raw.trim()
+        ? Number(raw.replace(/[^0-9.]/g, ""))
+        : Number.NaN;
+  if (!Number.isFinite(n) || n <= 0) return undefined;
+  // A room larger than this is a data-entry slip (a rent figure in the wrong
+  // box), not a bedroom.
+  if (n > 20000) return undefined;
+  return Math.round(n);
 }
 
 export function emptyRoom(index: number): ManagerRoomSubmission {
