@@ -1989,12 +1989,12 @@ html:not([data-native]) .auth-layout .auth-choice-hint {
   color: color-mix(in srgb, var(--pl-ink) 78%, var(--pl-muted-fg));
 }
 
-[data-theme="dark"] html:not([data-native]) .auth-layout .auth-page-subtitle,
-[data-theme="dark"] html:not([data-native]) .auth-layout .auth-footer-link,
-[data-theme="dark"] html:not([data-native]) .auth-layout .auth-legal-consent,
-[data-theme="dark"] html:not([data-native]) .auth-layout .auth-brand-subtitle,
-[data-theme="dark"] html:not([data-native]) .auth-layout .auth-role-tab-hint,
-[data-theme="dark"] html:not([data-native]) .auth-layout .auth-choice-hint {
+html[data-theme="dark"]:not([data-native]) .auth-layout .auth-page-subtitle,
+html[data-theme="dark"]:not([data-native]) .auth-layout .auth-footer-link,
+html[data-theme="dark"]:not([data-native]) .auth-layout .auth-legal-consent,
+html[data-theme="dark"]:not([data-native]) .auth-layout .auth-brand-subtitle,
+html[data-theme="dark"]:not([data-native]) .auth-layout .auth-role-tab-hint,
+html[data-theme="dark"]:not([data-native]) .auth-layout .auth-choice-hint {
   color: color-mix(in srgb, var(--pl-white) 92%, var(--pl-muted-fg));
 }
 
